@@ -12,6 +12,6 @@ Each bot has a book (`sessions.yaml`) with the current session id of every sessi
 
 ## Consequences
 
-- `bot-kit up` can rebuild every tab from the book alone.
+- `obk up` can rebuild every tab from the book alone.
 - Old session ids stay available for `bk-recall` and grooming.
 - The book must be kept fresh by a hook (ADR 0010); if the hook fails, the book goes stale, so `doctor` checks it against the newest transcript.
