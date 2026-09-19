@@ -1,0 +1,86 @@
+# Technical notes: Orca and the two harnesses
+
+Facts gathered on 2026-09-19 on the owner's Mac: Orca 1.4.205, Claude Code 2.1.278, Codex CLI 0.153.4.
+Each fact is marked **verified** (seen in local help output, local files or official docs) or **unverified** (must be proven by a live check before code relies on it).
+Tools change fast. Re-check a flag with `--help` before using it.
+
+## 1. Orca
+
+- Project: github.com/stablyai/orca, MIT, releases almost daily. No stated CLI stability promise. **verified**
+- The CLI that works: `/Applications/Orca.app/Contents/Resources/bin/orca`. `/usr/local/bin/orca` is a root-only symlink on this machine and fails for a normal user. Resolve the CLI path in one place, allow an override (env var or config). **verified**
+- `orca agent-context --json` prints the full command schema. `orca <group> <cmd> --help` per command. Nearly every command takes `--json`; parse that, never the human text. `orca status --json` lists capabilities. **verified**
+- Most commands need a running runtime (`orca open`, or `orca serve` for headless). **verified**
+
+### Data model (verified)
+
+project → repo (`kind: "git" | "folder"`) → worktree (id = `<repoId>::<absPath>`) → tabs → panes (paneKey = `<tabId>:<paneId>`) → terminal (handle `term_…`).
+
+- A plain folder is a valid workspace: `orca repo add --path <p>`; `orca project setup-existing-folder --project … --host … --path … [--kind git|folder]`.
+- Many tabs can share one folder: call `orca terminal create --worktree path:<p>` repeatedly.
+- Terminal handles are issued at runtime and go stale after a restart. Always re-list and match by tab title: `orca terminal list [--worktree <sel>] --json`.
+- State file: `~/Library/Application Support/orca/profiles/local-default/orca-data.json`. Internal; read only as a cross-check.
+
+### Terminal commands (verified from help)
+
+- `orca terminal create [--worktree <sel>] [--title <t>] [--command <text>] [--focus]` — `--command` takes any launch command, so model, effort, approval and resume flags go here.
+- `orca terminal wait --for exit|tui-idle --timeout-ms <n>` — check `wait.satisfied`.
+- `orca terminal send [--terminal <h>] [--text <t>] [--enter] [--interrupt] [--wait-submit <s>] [--retry-request <id>]` — `accepted:true` means input accepted, not that the agent read it; never resend on silence; use `--retry-request` for an idempotent retry.
+- `orca terminal read [--terminal <h>] [--cursor <n>] [--limit <n>]`, `rename`, `show`, `split`.
+- `orca terminal close --terminal <h> [--tab]` closes one. **Never use `orca terminal close --worktree <sel> --all`: it removes tabs, layouts and resume records.**
+- Worktree selectors: `id:<repo-id>::<path>`, `name:<displayName>`, `path:<path>`, `active`.
+
+### Session resume inside Orca (verified)
+
+Orca stores a resume record per pane key (`sleepingAgentSessionsByPaneKey`) and relaunches with `claude --resume <id>` / `codex resume <id>`. Closing a tab drops the record. Orca's Session History can find old transcripts but does not know which bot and session they belonged to. This is why the kit keeps its own book (ADR 0002).
+
+### Orca's own agent hooks (verified)
+
+Orca writes hooks into the user-level harness settings (`~/.claude/settings.json`, Codex hooks). They post to a local port using env vars set in each pane: `ORCA_PANE_KEY`, `ORCA_TAB_ID`, `ORCA_WORKTREE_ID`, `ORCA_AGENT_HOOK_PORT`, `ORCA_AGENT_HOOK_TOKEN`. `…/orca/agent-hooks/last-status.json` holds per pane: state, last hook event, provider session id, transcript path. Internal; a cross-check only. The kit's hooks live in the bot folder and must not touch these (ADR 0010).
+
+### Mailbox (verified from help)
+
+`orca orchestration send --subject <s> [--to <handle|run:id|…>] [--body <b>] [--type status|handoff|question|…] [--priority normal|high|urgent] [--thread-id <id>] [--payload <json>]`.
+`orca orchestration check [--wait --types … --timeout-ms <n>] [--peek] [--ack <delivery_id>]` — FIFO, replayed until acked. `ask` blocks; `reply --id <id>`. `inbox`.
+Send means durably queued; a wake-up is best effort; there is no read proof. Group addresses exist (`@all`, `@idle`, `@claude`, `@codex`); the kit does not use broadcast groups. Store: `…/orca/orchestration.db` (SQLite), readable for grooming.
+
+### Automations (verified from help)
+
+`orca automations create --name <n> --prompt <p> --provider claude|codex --trigger hourly|daily|weekdays|weekly|<cron>|<rrule> [--time] [--timezone] [--precheck <cmd>] [--missed-run-grace-minutes <n>] [--workspace <sel> --workspace-mode existing] [--reuse-session]`; also `list|show|edit|remove|run|runs`.
+`--reuse-session` sends later runs to "the previous live automation session when it is still available". It can only reuse a session the automation itself started; it cannot target a tab the kit created. **unverified:** that it keeps one long conversation; that missed runs fire after a reboot beyond the grace window.
+
+## 2. Claude Code
+
+- Launch flags (**verified** from `claude --help`): `-n/--name <name>`, `--model <m>`, `--effort low|medium|high|xhigh|max`, `--permission-mode acceptEdits|auto|bypassPermissions|manual|dontAsk|plan`, `--dangerously-skip-permissions`, `--resume <id>`, `--add-dir <dir>`. Context window: a model suffix such as `[1m]` (**unverified** as a launch form).
+- Approval levels: `auto` = `--permission-mode auto`; `ask` = `--permission-mode manual`; `dangerously-skip` = `--dangerously-skip-permissions`.
+- `AGENTS.md` is read directly from v2.1.277, but only when no `CLAUDE.md` / `CLAUDE.local.md` exists in the working directory or above it, and not on Bedrock or with telemetry disabled (docs: code.claude.com/docs/en/memory). The kit symlinks `CLAUDE.md` → `AGENTS.md` in each bot folder, which always works. **verified**
+- Skills: `<project>/.claude/skills/<name>/SKILL.md`, `~/.claude/skills`. Symlinked skill folders are followed. Skill directories are watched; add, edit, remove is picked up in a running session. The command comes from the folder name. A user skill named like a built-in (`debug`, `design`, `review`, `simplify`, `run`, `verify`, `loop`) replaces the built-in. **verified** (docs)
+- Hooks: project settings in `<project>/.claude/settings.json`. SessionStart fires on startup, resume, clear and compact; the hook input carries `session_id` and `transcript_path`. **unverified:** the exact `source` values and that the id after `/clear` is the new one — prove live (issue 04).
+- Cross-session messaging (docs: code.claude.com/docs/en/cross-session-messaging, min 2.1.224) **verified in docs, unverified live:** addressed by session name; works across folders; a busy receiver reads between tool calls; an idle receiver starts a turn. Two classes: bypassing (`bypassPermissions`) and prompting (everything else). Same class delivers without asking; a bypassing sender to a prompting receiver is held (dialog expires after 5 min). Sender gets a delivery notice (held, delivered, denied, expired, refused). Rate limits and duplicate suppression are built in. A resumed session keeps its name unless a live session holds it. Registry: `~/.claude/sessions/<pid>.json`.
+- Subagents: a subagent starts with a fresh context; a fork inherits the conversation. Test authors and reviewers must be fresh subagents. **verified** (docs)
+- Transcripts: `~/.claude/projects/<cwd-slug>/<sessionId>.jsonl`. Usage per API call in `assistant.message.usage` (`input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens`); dedupe by `requestId` + `message.id`. Model in `message.model`; effort in `effort`. `/clear` starts a new session file. Compaction marker `system.subtype="compact_boundary"` — **unverified** locally.
+
+## 3. Codex CLI
+
+- Launch flags (**verified** from `codex --help`): `--approve-for-me` (automatic review, workspace-write sandbox), `-a/--ask-for-approval on-request|never`, `-s/--sandbox read-only|workspace-write|danger-full-access`, `--dangerously-bypass-approvals-and-sandbox`, `-C/--cd <dir>`, `--add-dir <dir>`, `-c key=value` (for example `-c model_reasoning_effort="high"`, `-c model_context_window=<n>`), `codex resume <id>`.
+- Approval levels: `auto` = `--approve-for-me`; `ask` = `-a on-request`; `dangerously-skip` = `--dangerously-bypass-approvals-and-sandbox`. In `auto` the sandbox limits writes to the launch folder plus `--add-dir`; network and outside commands (`orca`, `gh`, `git fetch`) go through the auto reviewer — **unverified** that bot messaging works under it.
+- The owner's global `~/.codex/config.toml` sets `approval_policy = "never"` and `sandbox_mode = "danger-full-access"`. Pass explicit flags per session so this does not leak into bots.
+- Instructions: `AGENTS.md` from the project root down to the working directory; discovery stops at a git root, which is why sessions start at the bot home. 32 KiB cap. **verified** (docs)
+- Skills: `.agents/skills` in the cwd and parents up to the repo root; `$HOME/.agents/skills`. Symlinks are followed. "Codex detects skill changes automatically. If an update doesn't appear, restart Codex." User-only invocation needs `allow_implicit_invocation: false` in the skill's `agents/openai.yaml`. **verified** (docs)
+- Hooks: a hooks file exists (`~/.codex/hooks.json`); hooks must be trusted once (`--dangerously-bypass-hook-trust` exists for automation). **unverified:** a per-project hooks location, and whether a hook reports the new id on a new conversation. Fallback: newest rollout file whose `session_meta.cwd` equals the bot home.
+- No in-session scheduler in the CLI. **verified** (help)
+- Subagents: spawned only after a direct request or an instruction in a skill, so a skill must ask explicitly. **verified** (docs)
+- `codex queue --thread <id|name> --message <text>` (since 0.149): no official docs page, seems to reach only sessions on a shared app-server daemon, no delivery receipt, no sender identity; a queued row from 12 Sep was still undelivered a week later on this machine. Not trusted; retest. **verified as untrusted**
+- Transcripts: `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`, grouped by date, not by project. Lines are `{timestamp,type,payload}`. `session_meta` (id, cwd, context_window); `turn_context` (model, effort, approval_policy); `event_msg/token_count` (`info.last_token_usage`, `info.total_token_usage`, `info.model_context_window`); top-level `compacted` records; `event_msg/turn_aborted` with `reason="interrupted"`; `thread_settings_applied`. There is no `/clear`; a new conversation is a new rollout file. **verified** locally
+
+## 4. Skill names (verified in docs and spec)
+
+Agent Skills spec: `name` is 1–64 chars, lowercase letters, digits and hyphens, no leading, trailing or double hyphen, and must match the parent folder. Colon or slash prefixes fail to load in some hosts. Only `name` and `description` are portable frontmatter. Kit skills are `bk-<name>`; folder = `name` = symlink name (ADR 0009).
+
+## 5. Live checks still owed
+
+1. The session id reported after `/clear` is the new one, on Claude Code and on Codex.
+2. A Claude session launched with `-n` keeps its name after `--resume`, and messaging works inside an Orca tab.
+3. Two `auto` Claude sessions deliver to each other without a prompt.
+4. Codex `auto` mode lets a bot run `orca` and `gh`.
+5. An Orca automation with `--reuse-session` keeps one grooming conversation.
+6. `codex queue` retest.
