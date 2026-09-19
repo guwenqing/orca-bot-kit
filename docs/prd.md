@@ -234,9 +234,12 @@ General:
 
 ## 8. Working agreement for building this
 
+This section is how this repo is being built right now. It is a temporary arrangement and is not part of the kit: the kit's skills must not assume it (no fixed reviewer session, no fixed developer tab, no one-issue-then-clear routine).
+
 - A minimal PRD way of working, a light version until the new AssuredLoop is ready: this PRD, the ADRs we decided, then issues that reference the PRD (they do not copy it), cleaning out the old issues as we go. A developer works the issues one by one. [decided]
 - "merge to main is ok" — the owner's words on how the PRD and ADRs land. [decided]
 - Issues are vertical slices, each with a check; the first one makes the CLI runnable and testable end to end. [proposed]
 - Old issues #9–#19 are closed as superseded once this PRD is on `main`. [decided]
+- For now: one developer session works one issue at a time; an outside reviewer session reviews each PR, only comments, and approves before merge; the developer session is cleared between issues. The reviewer decides most questions and takes only real owner decisions to the owner. [decided, temporary]
 - Each build step ends with a live check in Orca on both harnesses where it applies. [proposed]
 - Live checks still owed from research: the session id follows `/clear`; a Claude session name survives resume; Codex auto mode allows `orca` and `gh`; the Orca automation keeps one grooming conversation; `codex queue` retest.
