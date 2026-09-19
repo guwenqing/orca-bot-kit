@@ -47,18 +47,18 @@ The owner already runs a similar setup on Orca elsewhere. This product is the Or
 
 Each line is a check a developer can run. Issues turn these into acceptance tests.
 
-1. After `npm link` and `bot-kit init`, an Orca project "Bot Father" exists with a daily session tab and an ops tab; the bots folder is a git repo and contains no kit code.
-2. `bot-kit` creates a bot on Claude Code and a bot on Codex; each starts at its bot home and reads its `AGENTS.md`.
+1. After `npm link` and `obk init`, an Orca project "Bot Father" exists with a daily session tab and an ops tab; the bots folder is a git repo and contains no kit code.
+2. `obk` creates a bot on Claude Code and a bot on Codex; each starts at its bot home and reads its `AGENTS.md`.
 3. A session created with a start prompt receives it once; after `/clear` it receives it again automatically.
 4. After `/clear`, the book holds the new session id and the old id is in that session's history.
-5. After closing a tab (or a reboot), `bot-kit up` brings the session back with its conversation.
+5. After closing a tab (or a reboot), `obk up` brings the session back with its conversation.
 6. A skill added or changed through the kit is usable in a running session without a restart.
 7. A skill from an online repo is cloned outside the bots repo at the pinned ref and linked into the bot, for both harnesses.
 8. A bot's `AGENTS.md` is rebuilt from kit rules + user rules + bot overrides; text outside the managed region survives; a hand edit inside it stops the build.
 9. A Claude session and a Codex session exchange a message and a reply; a busy receiver is not interrupted.
 10. A grooming run produces a short report in Bot Father's daily session that names at least: one usage figure per session, and any sign of a bot in trouble that it found.
 11. A developer bot using the TDD skill produces: a failing test first, a test written by a separate author, and a mutation result.
-12. `bot-kit doctor` reports a `CLAUDE.md` above a bot folder, a broken skill link, and a session in the book with no tab.
+12. `obk doctor` reports a `CLAUDE.md` above a bot folder, a broken skill link, and a session in the book with no tab.
 
 ## 5. What we are not doing
 
@@ -80,7 +80,7 @@ Each line is a check a developer can run. Issues turn these into acceptance test
 - Everything, skills included, comes from the package. [decided]
 - The user manages bots, skills and prompts through an LLM — normally Bot Father's management session, whose skills call the CLI. [decided]
 - The harnesses are assumed to be installed and configured. [decided]
-- The repo is `orca-bot-kit`. [decided] The npm package takes the same name and the command stays `bot-kit`. [proposed]
+- The repo is `orca-bot-kit`. [decided] The npm package is `orca-bot-kit` and the command is `obk`, run system-wide through `npm link`. [decided]
 
 ### 6.2 Host
 
@@ -128,11 +128,11 @@ Each line is a check a developer can run. Issues turn these into acceptance test
 ### 6.5 Session identity
 
 - The kit's book is the authority for session ids. Orca loses its resume record when a tab is closed. [decided] → ADR 0002
-- A hook in the bot's own settings fires on start, resume and clear, and calls `bot-kit session-seen`, which writes the new id and moves the old one to history. Codex: its own hooks file; fallback = newest transcript for that bot folder. [decided] → ADR 0010
+- A hook in the bot's own settings fires on start, resume and clear, and calls `obk session-seen`, which writes the new id and moves the old one to history. Codex: its own hooks file; fallback = newest transcript for that bot folder. [decided] → ADR 0010
 - `/clear` and compact are supported. `/clear` means the user wants a clean start; no handoff happens automatically. [decided]
 - Session ids are remembered across a restart, whether from a computer restart or one asked for by Bot Father. [decided]
 - When skills change, Bot Father's management skill knows how to reload them without a restart. [decided]
-- `bot-kit up` is idempotent: for each session in the book with no tab, create the tab with the resume id. It never closes tabs. [proposed]
+- `obk up` is idempotent: for each session in the book with no tab, create the tab with the resume id. It never closes tabs. [proposed]
 - Restart is a last resort: Bot Father warns, says why, and gets permission first. [decided]
 - Reload without restart: skill changes are picked up live and the session gets a short note; a rule change gets a "re-read your AGENTS.md" message; model and effort are switched in-session where the harness allows. [proposed]
 - A config change notifies the sessions it affects. [decided — blanket]
@@ -164,7 +164,7 @@ Each line is a check a developer can run. Issues turn these into acceptance test
 - Finops is part of the bot-management skill family and one step of daily grooming. Usage comes from the harness transcripts; prices come from a live lookup on the provider's page; it says so when a price is unknown. It advises on model, effort and context, and flags signs that a model is not smart enough. ccusage and third-party price files are optional, not dependencies. [decided]
 - Routing: a kit problem is filed as a GitHub issue directly (no draft step); a usage problem goes back to the managed session as feedback. [decided]
 - Management skills: how many and how they split is the implementer's choice. [decided] Proposal: `bk-bot-management`, `bk-bot-grooming`, `bk-bot-finops`, `bk-bot-messaging`, `bk-skill-management`. [proposed]
-- Conflict checks — a tool writing into a managed config file, and other configuration conflicts — are part of bot management: a doctor skill, or merged into another management skill. [decided] A `bot-kit doctor` command reports plain facts (a `CLAUDE.md` above a bot, broken links, a book session with no tab) and the skill judges them and proposes a fix. [proposed]
+- Conflict checks — a tool writing into a managed config file, and other configuration conflicts — are part of bot management: a doctor skill, or merged into another management skill. [decided] A `obk doctor` command reports plain facts (a `CLAUDE.md` above a bot, broken links, a book session with no tab) and the skill judges them and proposes a fix. [proposed]
 - Ordinary bots do not read other bots' histories unless the user asks. Bot Father and grooming may. [decided]
 - Practices borrowed from how people run Grok Bots: an interview that writes the bot's charter; a review of the bot list that gives each bot one verdict; a pattern counts only after it appears twice; each finding gets one kind of fix; short reports; pausing a bot also pauses its automation. [proposed]
 
