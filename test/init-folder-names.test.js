@@ -28,6 +28,7 @@ for (const [label, name] of [
   ['ends in a space', 'bots '],
   ['ends in a tab', 'bots\t'],
   ['begins with a space', ' bots'],
+  ['contains a newline', 'bots\nline'],
 ]) {
   test(`init seeds a bots folder whose name ${label}`, async (t) => {
     const box = await createSandbox(t);

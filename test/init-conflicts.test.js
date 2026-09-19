@@ -7,7 +7,7 @@ import { lstat, mkdir, readFile, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 
-import { assertCleanFailure, createSandbox, git, snapshot } from './helpers/cli.js';
+import { assertCleanFailure, assertSeededBotsFolder, createSandbox, git, snapshot } from './helpers/cli.js';
 
 /** A refusal: exit 1, a message on stderr naming what is in the way, and an untouched folder. */
 async function assertRefused(result, bots, before, names) {
@@ -15,6 +15,11 @@ async function assertRefused(result, bots, before, names) {
   assert.ok(
     result.stderr.includes(names),
     `stderr should name ${names}, got: ${result.stderr}`,
+  );
+  // A system error passed through tells the person the errno, not what to do.
+  assert.ok(
+    !/\b(?:ENOENT|ENOTDIR|EEXIST|EACCES|EISDIR|EPERM)\b/.test(result.stderr),
+    `should explain the refusal, not leak a system error: ${result.stderr}`,
   );
   assert.deepEqual(await snapshot(bots), before, 'the bots folder should be untouched');
 }
@@ -45,6 +50,39 @@ test('a .git that resolves to a parent repository is refused', async (t) => {
   await assertRefused(result, bots, before, 'nested-bots');
 });
 
+test('a .git that is not a repository is refused from inside the folder', async (t) => {
+  // `obk init --bots .` from inside the folder you mean is an ordinary thing to
+  // do, and it is where a comparison against a resolved empty path comes out true.
+  const box = await createSandbox(t);
+  const bots = box.path('bad-git');
+  await mkdir(path.join(bots, '.git'), { recursive: true });
+  const before = await snapshot(bots);
+
+  const result = await box.run(['init', '--bots', '.'], { cwd: bots });
+
+  await assertRefused(result, bots, before, 'bad-git');
+});
+
+test('init leaves files it did not create alone', async (t) => {
+  // The bots folder is the user's. Short names are the interesting case: they
+  // are what a layout path decomposes into if it is taken apart wrongly.
+  const box = await createSandbox(t);
+  const bots = box.path('bots');
+  await mkdir(bots, { recursive: true });
+  const mine = { d: 'mine: d\n', r: 'mine: r\n', s: 'mine: s\n', 'notes.md': 'mine\n' };
+  for (const [name, contents] of Object.entries(mine)) {
+    await writeFile(path.join(bots, name), contents);
+  }
+
+  const result = await box.run(['init', '--bots', 'bots']);
+
+  assert.equal(result.code, 0);
+  await assertSeededBotsFolder(bots);
+  for (const [name, contents] of Object.entries(mine)) {
+    assert.equal(await readFile(path.join(bots, name), 'utf8'), contents, `${name} was touched`);
+  }
+});
+
 test('a seeded file that is already a directory is refused', async (t) => {
   const box = await createSandbox(t);
   const bots = box.path('bad-seed');
@@ -55,6 +93,10 @@ test('a seeded file that is already a directory is refused', async (t) => {
   const result = await box.run(['init', '--bots', 'bad-seed']);
 
   await assertRefused(result, bots, before, 'defaults.yaml');
+  assert.ok(
+    /\b(?:file|folder|directory)\b/.test(result.stderr),
+    `should say what init needs there, got: ${result.stderr}`,
+  );
   // Nothing was seeded around the conflict: the check runs before any writing.
   assert.deepEqual(Object.keys(before).sort(), ['defaults.yaml', 'defaults.yaml/mine.txt']);
 });
@@ -69,6 +111,10 @@ test('a seeded directory that is already a regular file is refused', async (t) =
   const result = await box.run(['init', '--bots', 'bots']);
 
   await assertRefused(result, bots, before, 'rules');
+  assert.ok(
+    /\b(?:file|folder|directory)\b/.test(result.stderr),
+    `should say what init needs there, got: ${result.stderr}`,
+  );
 });
 
 test('a .gitkeep that is already a directory is refused', async (t) => {
@@ -80,6 +126,18 @@ test('a .gitkeep that is already a directory is refused', async (t) => {
   const result = await box.run(['init', '--bots', 'bots']);
 
   await assertRefused(result, bots, before, '.gitkeep');
+});
+
+test('the bots directory being a regular file is refused', async (t) => {
+  const box = await createSandbox(t);
+  const bots = box.path('bots');
+  await mkdir(bots, { recursive: true });
+  await writeFile(path.join(bots, 'bots'), 'not a directory\n');
+  const before = await snapshot(bots);
+
+  const result = await box.run(['init', '--bots', 'bots']);
+
+  await assertRefused(result, bots, before, 'bots');
 });
 
 test('a bot directory that is already a regular file is refused', async (t) => {
