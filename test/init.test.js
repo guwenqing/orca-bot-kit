@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 
@@ -32,6 +33,18 @@ test('init creates missing parent directories', async (t) => {
 
   assert.equal(result.code, 0);
   await assertSeededBotsFolder(box.path('a', 'b', 'c', 'bots'));
+});
+
+test('init seeds the .gitkeep files empty', async (t) => {
+  const box = await createSandbox(t);
+
+  assert.equal((await box.run(['init', '--bots', 'bots'])).code, 0);
+
+  // A .gitkeep only holds the folder open; anything in it is content the user
+  // did not ask for, in a folder meant to start empty.
+  for (const dir of ['rules', 'skills']) {
+    assert.equal(await readFile(box.path('bots', dir, '.gitkeep'), 'utf8'), '');
+  }
 });
 
 test('init makes the bots folder its own git repo with no commit and an empty index', async (t) => {

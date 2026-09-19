@@ -39,8 +39,12 @@ test('no arguments prints usage on stderr and exits 1', async (t) => {
   const box = await createSandbox(t);
 
   const result = await box.run([]);
+  const help = await box.run(['--help']);
 
   assertCleanFailure(result);
+  // The same usage --help prints, only on the other stream: an error that is
+  // not the usage leaves a person who typed `obk` with nothing to go on.
+  assert.equal(result.stderr, help.stdout);
 });
 
 test('an unknown command prints an error on stderr and exits 1', async (t) => {
@@ -49,6 +53,7 @@ test('an unknown command prints an error on stderr and exits 1', async (t) => {
   const result = await box.run(['wibble']);
 
   assertCleanFailure(result);
+  assert.ok(result.stderr.includes('wibble'), `should name the command, got: ${result.stderr}`);
 });
 
 test('an unknown command does not fall through to init', async (t) => {
