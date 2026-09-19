@@ -13,7 +13,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, readlink, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { access, chmod, constants, lstat, mkdir, mkdtemp, readFile, readdir, readlink, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -64,7 +64,20 @@ export async function createSandbox(t) {
   await mkdir(home);
 
   // The bin entry is a symlink, so the CLI must carry its own shebang and exec bit.
-  await symlink(cliEntry, path.join(bin, 'obk'));
+  const obk = path.join(bin, 'obk');
+  await symlink(cliEntry, obk);
+
+  // A bin entry that cannot be executed does not stop the PATH search: the
+  // tests would walk on and silently run whatever `obk` is installed on this
+  // machine. Refuse here, once per sandbox, rather than test the wrong CLI.
+  try {
+    await access(obk, constants.X_OK);
+  } catch (error) {
+    throw new Error(
+      `the sandbox cannot run ${cliEntry} (${error.code}), so \`obk\` on PATH would fall through ` +
+      'to another copy of the CLI; give the entry point its exec bit back (chmod +x)',
+    );
+  }
 
   const orcaLog = path.join(root, 'orca.log');
   const fakeOrca = path.join(bin, 'orca');
@@ -170,4 +183,42 @@ export async function assertSeededBotsFolder(bots) {
   assert.ok(Array.isArray(botFather.rules), 'bot.yaml rules should be a list');
   assert.ok(Array.isArray(botFather.skills), 'bot.yaml skills should be a list');
   assert.ok(Array.isArray(botFather.sessions), 'bot.yaml sessions should be a list');
+}
+
+/** Run `node <args>` in `cwd` and report the result without throwing. */
+export function node(args, options) {
+  return capture(process.execPath, args, options);
+}
+
+/**
+ * Put a fake `<name>` first on PATH in `box`, in place of the real program.
+ * Every call appends what it was given to a log; `calls()` reads them back, one
+ * `{ args, cwd }` per call. The fake writes `stdout` and `stderr` on the way
+ * out — which only reaches the caller if it was spawned so it could — and exits
+ * with `exitCode`.
+ */
+export async function fakeProgram(box, name, { exitCode = 0, stdout = '', stderr = '' } = {}) {
+  const log = path.join(box.root, `${name}.log`);
+  const file = path.join(box.root, 'bin', name);
+  await writeFile(file, [
+    '#!/usr/bin/env node',
+    "const { appendFileSync, writeSync } = require('node:fs');",
+    `appendFileSync(${JSON.stringify(log)}, JSON.stringify({ args: process.argv.slice(2), cwd: process.cwd() }) + '\\n');`,
+    `writeSync(1, ${JSON.stringify(stdout)});`,
+    `writeSync(2, ${JSON.stringify(stderr)});`,
+    `process.exit(${exitCode});`,
+    '',
+  ].join('\n'));
+  await chmod(file, 0o755);
+
+  return {
+    async calls() {
+      try {
+        return (await readFile(log, 'utf8')).split('\n').filter((line) => line !== '').map((line) => JSON.parse(line));
+      } catch (error) {
+        if (error.code === 'ENOENT') return [];
+        throw error;
+      }
+    },
+  };
 }
