@@ -80,7 +80,7 @@ Each line is a check a developer can run. Issues turn these into acceptance test
 - Everything, skills included, comes from the package. [decided]
 - The user manages bots, skills and prompts through an LLM — normally Bot Father's management session, whose skills call the CLI. [decided]
 - The harnesses are assumed to be installed and configured. [decided]
-- Package and CLI name: keep `chatgpt-bot-kit` / `bot-kit` for now. [proposed]
+- The repo is `orca-bot-kit`. [decided] The npm package takes the same name and the command stays `bot-kit`. [proposed]
 
 ### 6.2 Host
 
