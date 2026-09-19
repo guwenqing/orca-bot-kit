@@ -127,7 +127,8 @@ function checkKind(target, kind) {
 // walking up to a parent is not this folder's own.
 function checkRepo(bots) {
   const top = spawnSync('git', ['-C', bots, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' });
-  const toplevel = (top.stdout ?? '').trim();
+  // Only git's record terminator comes off: trailing whitespace may be part of the folder's name.
+  const toplevel = (top.stdout ?? '').replace(/\n$/, '');
   if (top.status !== 0 || toplevel === '' || realpathSync(toplevel) !== realpathSync(bots)) {
     throw new Error(`${bots} has a .git entry but is not a git repository of its own. Remove or repair it, then run init again.`);
   }
