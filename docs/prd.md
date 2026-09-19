@@ -173,7 +173,7 @@ Each line is a check a developer can run. Issues turn these into acceptance test
 - Sessions and bots can talk. Same harness: native messaging when it works; across harnesses: Orca. [decided] → ADR 0008
 - Research result: Claude-to-Claude native messaging is documented and addressable by session name; Codex-to-Codex (`codex queue`) is not trustworthy yet. So: Claude↔Claude native; everything else through the Orca mailbox; retest Codex during the build. [decided rule, researched outcome]
 - Default behaviour is "good enough": queued, not interrupting; no waiting for an ack; a reply only when asked for; interrupt supported but used with caution; no over-broadcasting. [decided]
-- Unattended bots accept incoming native messages without a prompt (`crossSessionInbound: accept` in the bot's settings). [proposed — security-relevant, please confirm]
+- The kit sets no message-acceptance override. With the default `auto` level on both ends, Claude Code delivers native messages without asking; that is the harness's own rule. A pair that includes a `dangerously-skip` session would be held for approval, so such pairs use the Orca mailbox. [decided: it is up to auto mode]
 
 ### 6.10 Git behaviour of the bots repo
 

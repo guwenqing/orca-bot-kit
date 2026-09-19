@@ -14,4 +14,4 @@ Claude to Claude in the same approval class uses native messaging; sessions are 
 
 - Two transports to keep working. Retest `codex queue` during the build and switch if it proves reliable.
 - Grooming reads both the Orca mailbox and the Claude transcripts to see traffic.
-- Unattended bots need incoming native messages accepted without a prompt; that setting is security-relevant and awaits the owner's confirmation.
+- The kit sets no message-acceptance override. Two `auto` sessions are in the same class, so Claude Code delivers between them without asking. Mixed pairs use the Orca mailbox.
