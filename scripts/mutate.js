@@ -28,7 +28,9 @@ function git(args) {
   const result = spawnSync('git', args, { cwd: repo, encoding: 'utf8' });
   if (result.error) throw new Error(`could not run git: ${result.error.message}`);
   if (result.status !== 0) {
-    throw new Error(`git ${args.join(' ')} failed: ${(result.stderr || '').trim()}`);
+    // git that ran at all reports a string, empty or not; one that could not
+    // run was caught above.
+    throw new Error(`git ${args.join(' ')} failed: ${result.stderr.trim()}`);
   }
   return result.stdout.split('\n').filter((line) => line !== '');
 }
