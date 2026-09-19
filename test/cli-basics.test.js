@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readdir } from 'node:fs/promises';
 import test from 'node:test';
 
 import { assertCleanFailure, createSandbox, packageVersion } from './helpers/cli.js';
@@ -48,4 +49,14 @@ test('an unknown command prints an error on stderr and exits 1', async (t) => {
   const result = await box.run(['wibble']);
 
   assertCleanFailure(result);
+});
+
+test('an unknown command does not fall through to init', async (t) => {
+  // Otherwise a missing unknown-command guard hides behind the --bots checks.
+  const box = await createSandbox(t);
+
+  const result = await box.run(['wibble', '--bots', 'bots']);
+
+  assertCleanFailure(result);
+  assert.deepEqual(await readdir(box.cwd), []);
 });
