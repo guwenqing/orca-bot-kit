@@ -21,7 +21,7 @@ not pull work from a later slice into an earlier one.
 - The test author is a separate agent from the implementer. The implementer
   cannot change a test to make it pass; a test that looks wrong goes back to the
   author.
-- The author's tests are checked by mutation testing.
+- The author's tests are checked by mutation testing: `npm run mutate`.
 - The reviewer is a separate agent and only comments. The implementer makes the
   change and verifies it again.
 - Do not say it works from a plausible diff. Run the check and read the output.

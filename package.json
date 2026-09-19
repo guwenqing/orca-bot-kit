@@ -12,12 +12,16 @@
     "README.md"
   ],
   "scripts": {
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "mutate": "node scripts/mutate.js"
   },
   "engines": {
     "node": ">=20.19.0"
   },
   "dependencies": {
     "yaml": "2.9.0"
+  },
+  "devDependencies": {
+    "@stryker-mutator/core": "10.0.0"
   }
 }
