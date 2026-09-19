@@ -1,52 +1,82 @@
 #!/usr/bin/env node
 
-import { parseArgs } from 'node:util';
-import { manageBot, prepareWorkspace, recordNative } from './workspace.js';
-import { inventory, verifyMigration } from './migration.js';
-import { installSkill, inspectSkills } from './skills.js';
+// `obk` — the Orca Bot Kit command line. Bot Father's skills call it; a person
+// can too. It writes files and reports what it did; it never commits.
 
-try {
+import { readFileSync } from 'node:fs';
+import { parseArgs } from 'node:util';
+
+import { initBots } from './init.js';
+
+const USAGE = `obk — Orca Bot Kit.
+
+Usage:
+  obk init --bots <path>    Create your bots folder: a git repo holding your
+                            bots' configuration, with Bot Father in it.
+                            Safe to run again; it only adds what is missing.
+  obk --version             Print the kit's version.
+  obk --help                Print this text.
+`;
+
+function version() {
+  const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  return pkg.version;
+}
+
+function run(argv) {
   const { values, positionals } = parseArgs({
+    args: argv,
     allowPositionals: true,
     options: {
-      workspace: { type: 'string' },
-      config: { type: 'string' },
-      bot: { type: 'string' },
-      receipt: { type: 'string' },
-      source: { type: 'string' },
-      output: { type: 'string' },
-      inventory: { type: 'string' },
-      destination: { type: 'string' },
-      'expected-revision': { type: 'string' },
+      bots: { type: 'string' },
       help: { type: 'boolean', short: 'h' },
+      version: { type: 'boolean' },
     },
   });
+
   if (values.help) {
-    process.stdout.write(`bot-kit <prepare|inspect|regenerate> --workspace ABSOLUTE_PATH [--bot ID] [--expected-revision TOKEN]
-bot-kit <create-bot|configure-bot> --workspace ABSOLUTE_PATH --config ABSOLUTE_YAML [--expected-revision TOKEN]
-bot-kit record-native --workspace ABSOLUTE_PATH --bot ID --receipt ABSOLUTE_YAML [--expected-revision TOKEN]
-bot-kit inventory --source ABSOLUTE_PATH [--output ABSOLUTE_YAML]
-bot-kit verify-migration --inventory ABSOLUTE_YAML --destination ABSOLUTE_PATH
-bot-kit install-skill --workspace ABSOLUTE_PATH --config ABSOLUTE_YAML [--expected-revision TOKEN]
-bot-kit inspect-skills --workspace ABSOLUTE_PATH [--bot ID]
-`);
-  } else {
-    const commands = ['prepare', 'inspect', 'regenerate', 'create-bot', 'configure-bot', 'record-native', 'inventory', 'verify-migration', 'install-skill', 'inspect-skills'];
-    if (positionals.length !== 1 || !commands.includes(positionals[0])) {
-      throw new Error('Choose a supported command. Use --help for usage.');
-    }
-    const command = positionals[0]; const expectedRevision = values['expected-revision'];
-    let result;
-    if (command === 'install-skill') result = installSkill(values.workspace, values.config, expectedRevision);
-    else if (command === 'inspect-skills') result = inspectSkills(values.workspace, values.bot);
-    else if (command === 'inventory') result = inventory(values.source, values.output);
-    else if (command === 'verify-migration') result = verifyMigration(values.inventory, values.destination);
-    else if (command === 'record-native') result = recordNative(values.workspace, values.bot, values.receipt, expectedRevision);
-    else if (['create-bot', 'configure-bot'].includes(command)) result = manageBot(values.workspace, values.config, { configure: command === 'configure-bot', expectedRevision });
-    else result = prepareWorkspace(values.workspace, { inspect: command === 'inspect', expectedRevision, bot: values.bot });
-    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    process.stdout.write(USAGE);
+    return 0;
   }
+  if (values.version) {
+    process.stdout.write(`${version()}\n`);
+    return 0;
+  }
+
+  const [command, ...extra] = positionals;
+  if (command === undefined) {
+    process.stderr.write(USAGE);
+    return 1;
+  }
+  if (extra.length > 0) {
+    throw new Error(`${command} takes no other arguments, and got: ${extra.join(' ')}`);
+  }
+  if (command !== 'init') {
+    throw new Error(`there is no "${command}" command. Run obk --help to see what there is.`);
+  }
+
+  if (values.bots === undefined) {
+    throw new Error('init needs --bots <path>: where to create your bots folder.');
+  }
+  if (values.bots.trim() === '') {
+    throw new Error('--bots needs a path.');
+  }
+
+  const { bots, created } = initBots(values.bots);
+  for (const entry of created) {
+    process.stdout.write(`created  ${entry}\n`);
+  }
+  process.stdout.write(
+    created.length === 0
+      ? `Your bots folder was already complete: ${bots}\n`
+      : `Your bots folder is ready: ${bots}\n`,
+  );
+  return 0;
+}
+
+try {
+  process.exitCode = run(process.argv.slice(2));
 } catch (error) {
-  process.stderr.write(`${JSON.stringify({ status: 'error', message: error.message, ...error.progress })}\n`);
+  process.stderr.write(`obk: ${error.message}\n`);
   process.exitCode = 1;
 }
