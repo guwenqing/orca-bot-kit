@@ -10,6 +10,7 @@ test('init without --bots fails and creates nothing', async (t) => {
   const result = await box.run(['init']);
 
   assertCleanFailure(result);
+  assert.ok(result.stderr.includes('--bots'), `should name --bots, got: ${result.stderr}`);
   assert.deepEqual(await readdir(box.cwd), []);
 });
 
@@ -19,6 +20,7 @@ test('init --bots with an empty value fails and creates nothing', async (t) => {
   const result = await box.run(['init', '--bots', '']);
 
   assertCleanFailure(result);
+  assert.ok(result.stderr.includes('--bots'), `should name --bots, got: ${result.stderr}`);
   assert.deepEqual(await readdir(box.cwd), []);
 });
 
@@ -28,6 +30,26 @@ test('init --bots with nothing after it fails and creates nothing', async (t) =>
   const result = await box.run(['init', '--bots']);
 
   assertCleanFailure(result);
+  assert.ok(result.stderr.includes('--bots'), `should name --bots, got: ${result.stderr}`);
+  assert.deepEqual(await readdir(box.cwd), []);
+});
+
+test('init --bots with a value that is only whitespace fails and creates nothing', async (t) => {
+  const box = await createSandbox(t);
+
+  const result = await box.run(['init', '--bots', '   ']);
+
+  assertCleanFailure(result);
+  assert.deepEqual(await readdir(box.cwd), []);
+});
+
+test('init with an extra argument fails, names it, and creates nothing', async (t) => {
+  const box = await createSandbox(t);
+
+  const result = await box.run(['init', 'stray', '--bots', 'bots']);
+
+  assertCleanFailure(result);
+  assert.ok(result.stderr.includes('stray'), `should name the argument, got: ${result.stderr}`);
   assert.deepEqual(await readdir(box.cwd), []);
 });
 
@@ -39,6 +61,7 @@ test('init --bots on an existing regular file fails and leaves the file alone', 
   const result = await box.run(['init', '--bots', 'bots']);
 
   assertCleanFailure(result);
+  assert.ok(result.stderr.includes(target), `should name the path, got: ${result.stderr}`);
   assert.equal(await readFile(target, 'utf8'), 'not a folder\n');
   assert.deepEqual(await readdir(box.cwd), ['bots']);
 });
