@@ -186,7 +186,7 @@ Each line is a check a developer can run. Issues turn these into acceptance test
 - Lightweight. Techniques a bot picks up when needed. No process, no phases. For all bots, not tied to one kind of development. [decided]
 - Organised by technique, not by role. [decided]
 - Written by deep aggregation: take the good parts of the good sources and pick the best; not a summary. [decided] A separate agent compares each finished skill with the sources for lost substance. [proposed]
-- The kit's skills must match the philosophy of the harness's built-in skills and not conflict with them, and should complement what they already do. [decided]
+- The harnesses' built-in skills are one more source. Anything taken from them must match our philosophy and not conflict with it; it is used to complement what we have written and learned from the other sources. [decided]
 - No licence problems: only sources whose licence allows reuse, with credit. [decided]
 - Plain, neutral tone; no personal colour and no "only I know" voice. [decided]
 - The user is free in how they handle PRDs, trackers and work tracking. Skills neither require nor prescribe one. [decided]
