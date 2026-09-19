@@ -1,42 +1,9 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { lstat, readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
-import { parse } from 'yaml';
 
-import { createSandbox, git, skipGit, snapshot } from './helpers/cli.js';
-
-async function readYaml(file) {
-  return parse(await readFile(file, 'utf8'));
-}
-
-/** Everything the contract says `init` must leave at <path>. */
-async function assertSeededBotsFolder(bots) {
-  assert.ok((await lstat(bots)).isDirectory(), `${bots} should be a directory`);
-  assert.ok((await lstat(path.join(bots, '.git'))).isDirectory(), '.git should be a directory');
-
-  const defaults = await readYaml(path.join(bots, 'defaults.yaml'));
-  assert.deepEqual(defaults, { rules: [], skills: [] });
-
-  const skills = await readYaml(path.join(bots, 'skills.yaml'));
-  assert.deepEqual(skills, { sources: [] });
-
-  assert.deepEqual(await readdir(path.join(bots, 'rules')), ['.gitkeep']);
-  assert.deepEqual(await readdir(path.join(bots, 'skills')), ['.gitkeep']);
-
-  const botFather = await readYaml(path.join(bots, 'bots', 'bot-father', 'bot.yaml'));
-  assert.deepEqual(
-    Object.keys(botFather).sort(),
-    ['charter', 'name', 'rules', 'sessions', 'skills'],
-  );
-  assert.equal(botFather.name, 'bot-father');
-  assert.equal(typeof botFather.charter, 'string');
-  assert.notEqual(botFather.charter.trim(), '');
-  assert.ok(Array.isArray(botFather.rules), 'bot.yaml rules should be a list');
-  assert.ok(Array.isArray(botFather.skills), 'bot.yaml skills should be a list');
-  assert.ok(Array.isArray(botFather.sessions), 'bot.yaml sessions should be a list');
-}
+import { assertSeededBotsFolder, createSandbox, git, skipGit, snapshot } from './helpers/cli.js';
 
 test('init --bots <relative path> seeds the bots folder', async (t) => {
   const box = await createSandbox(t);

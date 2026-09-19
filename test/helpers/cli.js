@@ -13,10 +13,11 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmod, mkdir, mkdtemp, readFile, readdir, readlink, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, readlink, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parse } from 'yaml';
 
 export const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
 const cliEntry = path.join(repoRoot, 'src', 'cli.js');
@@ -138,4 +139,35 @@ export async function snapshot(dir, skip = () => false) {
   }
   await walk('');
   return out;
+}
+
+async function readYaml(file) {
+  return parse(await readFile(file, 'utf8'));
+}
+
+/** Everything `init` must leave at <path>. Shared: later slices seed more here. */
+export async function assertSeededBotsFolder(bots) {
+  assert.ok((await lstat(bots)).isDirectory(), `${bots} should be a directory`);
+  assert.ok((await lstat(path.join(bots, '.git'))).isDirectory(), '.git should be a directory');
+
+  const defaults = await readYaml(path.join(bots, 'defaults.yaml'));
+  assert.deepEqual(defaults, { rules: [], skills: [] });
+
+  const skills = await readYaml(path.join(bots, 'skills.yaml'));
+  assert.deepEqual(skills, { sources: [] });
+
+  assert.deepEqual(await readdir(path.join(bots, 'rules')), ['.gitkeep']);
+  assert.deepEqual(await readdir(path.join(bots, 'skills')), ['.gitkeep']);
+
+  const botFather = await readYaml(path.join(bots, 'bots', 'bot-father', 'bot.yaml'));
+  assert.deepEqual(
+    Object.keys(botFather).sort(),
+    ['charter', 'name', 'rules', 'sessions', 'skills'],
+  );
+  assert.equal(botFather.name, 'bot-father');
+  assert.equal(typeof botFather.charter, 'string');
+  assert.notEqual(botFather.charter.trim(), '');
+  assert.ok(Array.isArray(botFather.rules), 'bot.yaml rules should be a list');
+  assert.ok(Array.isArray(botFather.skills), 'bot.yaml skills should be a list');
+  assert.ok(Array.isArray(botFather.sessions), 'bot.yaml sessions should be a list');
 }
