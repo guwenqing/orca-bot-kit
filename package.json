@@ -1,29 +1,21 @@
 {
-  "name": "chatgpt-bot-kit",
-  "version": "0.0.0",
+  "name": "orca-bot-kit",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
+  "description": "A kit for running a fleet of long-lived role bots on Orca: an obk CLI and the skills the bots use.",
   "bin": {
-    "bot-kit": "src/cli.js"
+    "obk": "src/cli.js"
   },
   "files": [
     "src/",
-    "templates/",
-    "skills/",
     "README.md"
   ],
-  "description": "Local project using OpenSpec and AssuredLoop workflow tooling.",
   "scripts": {
-    "assuredloop": "assuredloop",
-    "openspec": "openspec",
     "test": "node --test test/*.test.js"
   },
   "engines": {
     "node": ">=20.19.0"
-  },
-  "devDependencies": {
-    "@fission-ai/openspec": "file:../../guwenqing/assuredloop-base/node_modules/@fission-ai/openspec",
-    "assuredloop-base": "file:../../guwenqing/assuredloop-base"
   },
   "dependencies": {
     "yaml": "2.9.0"
