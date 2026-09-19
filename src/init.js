@@ -6,7 +6,7 @@
 // or through Bot Father, so a re-run must never write over them.
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, lstatSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 const DEFAULTS_YAML = `# Rules and skills every bot gets, on top of its own.
@@ -56,19 +56,30 @@ const SEEDS = [
   ['bots/bot-father/bot.yaml', BOT_FATHER_YAML],
 ];
 
+// The directories the layout implies, parents before children, taken from the
+// seed list so the two cannot drift apart.
+const LAYOUT_DIRS = (() => {
+  const dirs = new Set();
+  for (const [entry] of SEEDS) {
+    const parts = entry.split('/').slice(0, -1);
+    for (let depth = 1; depth <= parts.length; depth += 1) {
+      dirs.add(parts.slice(0, depth).join('/'));
+    }
+  }
+  return [...dirs];
+})();
+
 /**
  * Create or complete the bots folder at `target`.
  * Returns { bots, created } — `created` lists what was missing, in order.
+ *
+ * Everything is checked before anything is written, so a folder `init` cannot
+ * make usable is left exactly as it was found rather than half seeded.
  */
 export function initBots(target) {
   const bots = path.resolve(target);
 
-  let existing = null;
-  try {
-    existing = lstatSync(bots);
-  } catch (error) {
-    if (error.code !== 'ENOENT') throw error;
-  }
+  const existing = lstatSync(bots, { throwIfNoEntry: false });
   if (existing && !existing.isDirectory()) {
     throw new Error(`${bots} exists and is not a folder.`);
   }
@@ -76,10 +87,14 @@ export function initBots(target) {
   const created = [];
   mkdirSync(bots, { recursive: true });
 
+  for (const dir of LAYOUT_DIRS) checkKind(path.join(bots, dir), 'folder');
+  for (const [entry] of SEEDS) checkKind(path.join(bots, entry), 'file');
+
   if (!existsSync(path.join(bots, '.git'))) {
     gitInit(bots);
     created.push('.git');
   }
+  checkRepo(bots);
 
   for (const [entry, contents] of SEEDS) {
     const file = path.join(bots, entry);
@@ -91,6 +106,31 @@ export function initBots(target) {
   }
 
   return { bots, created };
+}
+
+// What is already at `target` must be the kind of thing `init` needs there, or
+// `init` refuses: it never moves the user's data aside to make room.
+// A symlink counts by what it points at.
+function checkKind(target, kind) {
+  if (!lstatSync(target, { throwIfNoEntry: false })) return;
+
+  const resolved = statSync(target, { throwIfNoEntry: false });
+  if (!resolved) {
+    throw new Error(`${target} is a symlink that points nowhere. Remove it, then run init again.`);
+  }
+  if (kind === 'folder' ? !resolved.isDirectory() : !resolved.isFile()) {
+    throw new Error(`${target} is in the way: init needs a ${kind} there. Move it aside, then run init again.`);
+  }
+}
+
+// An existing `.git` is not proof of a repository, and a repository found by
+// walking up to a parent is not this folder's own.
+function checkRepo(bots) {
+  const top = spawnSync('git', ['-C', bots, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' });
+  const toplevel = (top.stdout ?? '').trim();
+  if (top.status !== 0 || toplevel === '' || realpathSync(toplevel) !== realpathSync(bots)) {
+    throw new Error(`${bots} has a .git entry but is not a git repository of its own. Remove or repair it, then run init again.`);
+  }
 }
 
 // git's own output is captured, not inherited: the CLI decides what the user reads.
