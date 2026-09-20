@@ -3,7 +3,7 @@
 Date: 2026-09-19. Status: draft for owner review.
 
 This PRD replaces the Codex-desktop plan (Request #9, Epic #11 and its children).
-The old repository content is read only to understand intent.
+The old content has been removed from the tree, the process tooling included; git history has it if intent needs checking.
 Decisions with lasting consequences are in [`docs/adr/`](adr/).
 
 Every item is marked:
@@ -93,7 +93,7 @@ Each line is a check a developer can run. Issues turn these into acceptance test
 
 ### 6.3 Workspace
 
-- All bots live in one folder. It is a local git repo; the user may push it. [decided]
+- All bots live in one folder, and that folder is one git repo for all bots. It is local; the user may push it. [decided]
 - The kit does not copy its code or skills into it unless the user wants that; kit skills are links to the installed package. [decided] → ADR 0004
 - Layout [proposed]:
 
@@ -121,24 +121,24 @@ Each line is a check a developer can run. Issues turn these into acceptance test
 ### 6.4 Bots and sessions
 
 - Sessions of one bot share the bot home. One bot may have several sessions. [decided]
-- Every session starts at the bot home. A per-session work dir is an instruction only; the kit creates the folder and adds the note to the start prompt automatically. Git worktrees are optional, not default. [decided]
+- Every session starts at the bot home. A per-session work dir is an instruction only and is always a plain folder; the kit creates it and adds the note to the start prompt automatically. It has nothing to do with git worktrees. When a bot clones a repo into its work dir and works on it, it honours that repo's own rules; whether it clones, uses a worktree there, or does something else is for the user to say. [decided]
 - Each session sets: harness, model, effort, context window, approval level, start prompt. [decided]
 - The kit never hardcodes a model id; empty means the harness default. Init asks once for the harness. [decided]
 - Approval levels: `auto` (default; the harness's real auto mode), `ask`, `dangerously-skip` (only when the user asks for it in plain words). [decided] → ADR 0005
 - Flag mapping, checked on Claude Code 2.1.278 and Codex 0.153.4 [proposed]: `auto` = `--permission-mode auto` / `--approve-for-me`; `ask` = `--permission-mode manual` / `-a on-request`; `dangerously-skip` = `--dangerously-skip-permissions` / `--dangerously-bypass-approvals-and-sandbox`. Codex gets `--add-dir` for a work dir outside the bot home. Free `extra_args` per session.
 - Start prompt: sent once when the tab is created; not re-sent on resume; **re-sent automatically after `/clear`**. It is the only thing that tells one session's duty from another's when they start in different tabs. [decided]
-- Bot creation can resume an external existing session; the rest of a migration is best effort by the LLM. [decided]
+- Bot creation can resume an external existing session. Setup is done through an LLM, now and later through Bot Father, and that LLM does its best to help the user migrate the rest. [decided]
 
 ### 6.5 Session identity
 
 - The kit's book is the authority for session ids. Orca loses its resume record when a tab is closed. [decided] → ADR 0002
 - A hook in the bot's own settings fires on start, resume and clear, and calls `obk session-seen`, which writes the new id and moves the old one to history. Codex: its own hooks file; fallback = newest transcript for that bot folder. [decided] → ADR 0010
-- `/clear` and compact are supported. `/clear` means the user wants a clean start; no handoff happens automatically. [decided]
+- `/clear` and compact are supported. `/clear` always makes the harness generate a new session id (certain for Claude Code, likely the same for Codex). The old ids are kept, for history, auditing, finops or whatever needs them. `/clear` means the user wants a clean start; no handoff happens automatically. [decided]
 - Session ids are remembered across a restart, whether from a computer restart or one asked for by Bot Father. [decided]
 - When skills change, Bot Father's management skill knows how to reload them without a restart. [decided]
 - `obk up` is idempotent: for each session in the book with no tab, create the tab with the resume id. It never closes tabs. [proposed]
 - When something interrupts a tab the kit opened, the caller (an LLM: the setup step or Bot Father) looks at the tab through Orca and answers in the tab: trust is given by clicking yes (if the harness then writes its own config, that is fine); a harness's own update offer is accepted; the oh-my-zsh update question gets a no; anything it does not recognise is raised with the user through Bot Father or whoever asked to start the fleet. The kit's code does not change user-level settings on its own initiative. None of this is a ban: the user can ask the LLM to do it another way. [decided]
-- Restart is a last resort: Bot Father warns, says why, and gets permission first. [decided]
+- Restarts are avoided but not banned. One happens when the user asks for it explicitly. When everything needs restarting, Bot Father reminds the user to do it from the ops session. [decided]
 - Reload without restart: skill changes are picked up live and the session gets a short note; a rule change gets a "re-read your AGENTS.md" message; model and effort are switched in-session where the harness allows. [proposed]
 - A config change notifies the sessions it affects. [decided — blanket]
 
@@ -157,7 +157,7 @@ Each line is a check a developer can run. Issues turn these into acceptance test
 - `skills.yaml` lists online sources: repo, subfolder, ref (branch, tag or sha). The kit clones them into the sibling `<bots>.skill-sources/` folder, records the resolved sha, and links what a bot uses. [decided]
 - A bot references skills as `kit:`, `common:`, `src:` or `path:`; `skills sync` makes the links into both harness folders. Anything placed by hand is left alone and listed as unmanaged. Skills are per bot. [decided]
 - A one-line warning when a source has scripts or hooks; no scanning, no gate — the user takes the risk. [decided]
-- Kit skill names carry the prefix `bk-`; folder name = skill name. [decided] → ADR 0009
+- Kit skill names carry the prefix `obk-`; folder name = skill name. [decided] → ADR 0009
 - Bot Father recommends and provides the right skills for each role the user creates. [decided]
 
 ### 6.8 Bot Father
@@ -168,7 +168,7 @@ Each line is a check a developer can run. Issues turn these into acceptance test
 - Grooming reads the managed bots' new history, runs finops, and sends its result to the management session, which recommends further. [decided]
 - Finops is part of the bot-management skill family and one step of daily grooming. Usage comes from the harness transcripts; prices come from a live lookup on the provider's page; it says so when a price is unknown. It advises on model, effort and context, and flags signs that a model is not smart enough. ccusage and third-party price files are optional, not dependencies. [decided]
 - Routing: a kit problem is filed as a GitHub issue directly (no draft step); a usage problem goes back to the managed session as feedback. [decided]
-- Management skills: how many and how they split is the implementer's choice. [decided] Proposal: `bk-bot-management`, `bk-bot-grooming`, `bk-bot-finops`, `bk-bot-messaging`, `bk-skill-management`. [proposed]
+- Management skills: how many and how they split is the implementer's choice. [decided] Proposal: `obk-bot-management`, `obk-bot-grooming`, `obk-bot-finops`, `obk-bot-messaging`, `obk-skill-management`. [proposed]
 - Conflict checks — a tool writing into a managed config file, and other configuration conflicts — are part of bot management: a doctor skill, or merged into another management skill. [decided] A `obk doctor` command reports plain facts (a `CLAUDE.md` above a bot, broken links, a book session with no tab) and the skill judges them and proposes a fix. [proposed]
 - Ordinary bots do not read other bots' histories unless the user asks. Bot Father and grooming may. [decided]
 - Practices borrowed from how people run Grok Bots: an interview that writes the bot's charter; a review of the bot list that gives each bot one verdict; a pattern counts only after it appears twice; each finding gets one kind of fix; short reports; pausing a bot also pauses its automation. [proposed]
@@ -188,10 +188,10 @@ Each line is a check a developer can run. Issues turn these into acceptance test
 
 ### 7.1 Principles for the skill set
 
-- Lightweight. Techniques a bot picks up when needed. No process, no phases. For all bots, not tied to one kind of development. [decided]
+- The skills are candidates for all bots; the user picks them, helped by suggestions. They give techniques only: no process, no phases, no assumed way of working, so the user can apply whatever way of working they like. Lightweight does not mean fluffy: each skill takes a very good portion of the good material from all the sources. [decided]
 - Organised by technique, not by role. [decided]
-- Written by deep aggregation: take the good parts of the good sources and pick the best; not a summary. [decided] A separate agent compares each finished skill with the sources for lost substance. [proposed]
-- The harnesses' built-in skills are one more source. Anything taken from them must match our philosophy and not conflict with it; it is used to complement what we have written and learned from the other sources. [decided]
+- Written by deep picking and writing from the sources, following the decisions in this PRD; not a summary, and the porting must be of good quality. Each skill gets a couple of different reviews, and the final review rounds include an architecture review in addition to the normal reviewers. [decided]
+- The harnesses' built-in skills are just one more source. Whatever is taken from any source must match our philosophy and not conflict with it. [decided]
 - No licence problems: only sources whose licence allows reuse, with credit. [decided]
 - Plain, neutral tone; no personal colour and no "only I know" voice. [decided]
 - The user is free in how they handle PRDs, trackers and work tracking. Skills neither require nor prescribe one. [decided]
@@ -202,13 +202,13 @@ Each line is a check a developer can run. Issues turn these into acceptance test
 
 | Skill | What it covers | Status |
 |---|---|---|
-| `bk-tdd` | Test first, one vertical slice at a time; tests through the public interface; how to write good tests and the shapes of bad ones; separate test author; mutation testing; bug tests | [decided: exists, test first in vertical slices, separate author, mutation; the rest of the content proposed] |
-| `bk-debugging` | Reproduce; find the difference (environment, version, context); failing command before theory; random bugs and slow code | [direction agreed] |
-| `bk-arch` | A very light note of what is wanted; shape (data first, candidates); making the app runnable and testable with a big test step; dividing the work into slices | [decided: the light note, runnable and testable, dividing the work; shape content proposed] |
-| `bk-reviewing` | Separate reviewer who only comments; does it follow the repo's rules / does it do what was asked; test checks; filtering; receiving a review | [decided: one review skill, reviewer separate and never edits; content list proposed] |
-| `bk-grilling` | Grilling with docs, shipped with the kit | [decided] As one self-contained skill that also sharpens terms and records the glossary and decisions; the name. [proposed] |
-| `bk-handoff`, `bk-recall`, `bk-why`, `bk-teach` | Utilities; run on purpose, never automatically; own generic versions | [decided] |
-| `bk-personal-facilitation` | Very light to-do and daily help | [decided] |
+| `obk-tdd` | Test first, one vertical slice at a time; tests through the public interface; how to write good tests and the shapes of bad ones; separate test author; mutation testing; bug tests | [decided: exists, test first in vertical slices, separate author, mutation; the rest of the content proposed] |
+| `obk-debugging` | Reproduce; find the difference (environment, version, context); failing command before theory; random bugs and slow code | [direction agreed] |
+| `obk-arch` | A very light note of what is wanted; shape (data first, candidates); making the app runnable and testable with a big test step; dividing the work into slices | [decided: the light note, runnable and testable, dividing the work; shape content proposed] |
+| `obk-reviewing` | Separate reviewer who only comments; does it follow the repo's rules / does it do what was asked; test checks; filtering; receiving a review | [decided: one review skill, reviewer separate and never edits; content list proposed] |
+| `obk-grilling` | Grilling with docs, shipped with the kit | [decided] As one self-contained skill that also sharpens terms and records the glossary and decisions; the name. [proposed] |
+| `obk-handoff`, `obk-recall`, `obk-why`, `obk-teach` | Utilities; run on purpose, never automatically; own generic versions | [decided] |
+| `obk-personal-facilitation` | Very light to-do and daily help | [decided] |
 | the management skills | see 6.8 | [decided] |
 
 ### 7.3 Decided rules inside the skills
@@ -221,7 +221,7 @@ TDD and tests:
 - The implementer cannot change a test to make it pass. [decided] A test that looks wrong is reported to the author. [proposed]
 - The author's tests are validated by mutation testing, so silly tests are caught. [decided]
 - Mutation testing: use the language's standard tool; if it is not set up, guide the user to set it up and follow their choice; in the worst case the agent does it itself. [decided]
-- Refactoring is outside the red/green loop. It is part of a change but fits the same old contract (so the existing tests stay green — the assistant's reading). If a change is so substantial that the old tests cannot hold, the tests are redone the proper way: the separate author again, usually deleting the old tests first. A large-scale refactor is a planned activity of its own. [decided]
+- Refactoring is outside the red/green loop. A small refactor is part of the change and fits the same old contract (so the existing tests stay green — the assistant's reading). If a change is so substantial that the old tests cannot hold, the tests are redone the proper way: the separate author again, usually deleting the old tests first. A large-scale refactor is a planned activity of its own. [decided]
 
 Review:
 
@@ -231,6 +231,7 @@ Architecture:
 
 - An agent being able to check its own work is reached through TDD at the small scale and, at the large scale, through an architecture that makes the app runnable and testable. No separate verification-harness skill. [decided]
 - A very light part on stating what is wanted and dividing the work; the user decides the details and the tracking system. [decided]
+- When the whole app is designed, or a new feature is planned, the large test work that tests it end to end is planned with it. [decided]
 
 General:
 
@@ -246,5 +247,7 @@ This section is how this repo is being built right now. It is a temporary arrang
 - Issues are vertical slices, each with a check; the first one makes the CLI runnable and testable end to end. [proposed]
 - Old issues #9–#19 are closed as superseded once this PRD is on `main`. [decided]
 - For now: one developer session (Claude, Opus 5, high effort) works one issue at a time. A separate reviewer session (Codex, Astra, high effort) in its own clone reviews each PR once and only comments. The developer fixes what the review asked and then merges the PR itself; it does not wait for the owner. A second review happens only when the case is out of the ordinary. The design session stays outside as coordinator: it hands out the issues, routes the review, clears the developer session between issues, decides most questions and takes only real owner decisions to the owner. [decided, temporary]
+- CI runs a good current Node version, not the lowest one the package supports. [decided]
+- A symlink loop in a path the kit is given is detected and reported to the user as a problem, in plain words. [decided]
 - Each build step ends with a live check in Orca on both harnesses where it applies. [proposed]
 - Live checks still owed from research: the session id follows `/clear`; a Claude session name survives resume; Codex auto mode allows `orca` and `gh`; the Orca automation keeps one grooming conversation; `codex queue` retest.

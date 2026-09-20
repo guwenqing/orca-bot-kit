@@ -74,7 +74,7 @@ Send means durably queued; a wake-up is best effort; there is no read proof. Gro
 
 ## 4. Skill names (verified in docs and spec)
 
-Agent Skills spec: `name` is 1–64 chars, lowercase letters, digits and hyphens, no leading, trailing or double hyphen, and must match the parent folder. Colon or slash prefixes fail to load in some hosts. Only `name` and `description` are portable frontmatter. Kit skills are `bk-<name>`; folder = `name` = symlink name (ADR 0009).
+Agent Skills spec: `name` is 1–64 chars, lowercase letters, digits and hyphens, no leading, trailing or double hyphen, and must match the parent folder. Colon or slash prefixes fail to load in some hosts. Only `name` and `description` are portable frontmatter. Kit skills are `obk-<name>`; folder = `name` = symlink name (ADR 0009).
 
 ## 5. Live checks still owed
 
