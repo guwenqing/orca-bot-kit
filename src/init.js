@@ -6,8 +6,9 @@
 // or through Bot Father, so a re-run must never write over them.
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, lstatSync, mkdirSync, realpathSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { parseDocument } from 'yaml';
 
 const DEFAULTS_YAML = `# Rules and skills every bot gets, on top of its own.
 #
@@ -31,9 +32,10 @@ const SKILLS_YAML = `# Online skill sources. The kit clones each one beside this
 sources: []
 `;
 
-const BOT_FATHER_YAML = `# Bot Father runs the fleet. Ask it for changes rather than editing this file.
+const botFatherYaml = (harness) => `# Bot Father runs the fleet. Ask it for changes rather than editing this file.
 
 name: bot-father
+harness: ${harness}
 charter: |
   Bot Father owns the fleet. It creates, changes, pauses and retires bots and
   their sessions, and keeps each bot's rules and skills in order.
@@ -45,22 +47,29 @@ charter: |
   changing a bot's rules in a way its owner did not ask for.
 rules: []
 skills: []
-sessions: []
+sessions:
+  # The management session: the tab you talk to Bot Father in.
+  - name: ${DAILY_SESSION}
 `;
 
-const SEEDS = [
+const BOT_FATHER_YAML = 'bots/bot-father/bot.yaml';
+
+/** The management session every Bot Father has: the tab you talk to it in. */
+const DAILY_SESSION = 'daily';
+
+const seeds = (harness) => [
   ['defaults.yaml', DEFAULTS_YAML],
   ['skills.yaml', SKILLS_YAML],
   ['rules/.gitkeep', ''],
   ['skills/.gitkeep', ''],
-  ['bots/bot-father/bot.yaml', BOT_FATHER_YAML],
+  [BOT_FATHER_YAML, botFatherYaml(harness)],
 ];
 
 // The directories the layout implies, parents before children, taken from the
 // seed list so the two cannot drift apart.
 const LAYOUT_DIRS = (() => {
   const dirs = new Set();
-  for (const [entry] of SEEDS) {
+  for (const [entry] of seeds('claude')) {
     const parts = entry.split('/').slice(0, -1);
     for (let depth = 1; depth <= parts.length; depth += 1) {
       dirs.add(parts.slice(0, depth).join('/'));
@@ -76,8 +85,9 @@ const LAYOUT_DIRS = (() => {
  * Everything is checked before anything is written, so a folder `init` cannot
  * make usable is left exactly as it was found rather than half seeded.
  */
-export function initBots(target) {
+export function initBots(target, harness) {
   const bots = path.resolve(target);
+  const SEEDS = seeds(harness);
 
   // The bots path is held to the same rule as everything inside it, so a link
   // to a folder on another volume is the folder it points at.
@@ -88,6 +98,7 @@ export function initBots(target) {
 
   for (const dir of LAYOUT_DIRS) checkKind(path.join(bots, dir), 'folder');
   for (const [entry] of SEEDS) checkKind(path.join(bots, entry), 'file');
+  checkBotFather(path.join(bots, BOT_FATHER_YAML), harness);
 
   if (!existsSync(path.join(bots, '.git'))) {
     gitInit(bots);
@@ -104,7 +115,12 @@ export function initBots(target) {
     created.push(entry);
   }
 
-  return { bots, created };
+  // A bot.yaml from an earlier version of the kit is missing what this one
+  // needs. It is the user's file by now, so what is missing is filled in and
+  // nothing else is touched.
+  const completed = created.includes(BOT_FATHER_YAML) ? [] : completeBotFather(path.join(bots, BOT_FATHER_YAML), harness);
+
+  return { bots, created, completed };
 }
 
 // What is already at `target` must be the kind of thing `init` needs there, or
@@ -141,3 +157,67 @@ function gitInit(bots) {
     throw new Error(`git init failed in ${bots}: ${(result.stderr || '').trim()}`);
   }
 }
+
+// A bot.yaml that is already there has to be one `init` can finish. What it
+// cannot finish, it refuses before anything is written, rather than guess at
+// what the user meant.
+function checkBotFather(file, harness) {
+  if (!existsSync(file)) return;
+
+  const doc = parseDocument(readFileSync(file, 'utf8'));
+  const bot = doc.errors.length > 0 ? undefined : doc.toJS();
+  if (bot === null || typeof bot !== 'object' || Array.isArray(bot)) {
+    throw new Error(`${file} is not a bot: it should be a YAML mapping with a name, a harness and a list of sessions. Fix it or move it aside, then run init again.`);
+  }
+
+  // The harness is the user's, written once and never rewritten: a second init
+  // naming the other one is a mistake worth stopping, not a quiet change.
+  if (bot.harness !== undefined && bot.harness !== harness) {
+    throw new Error(`you asked for --harness ${harness}, but Bot Father is already on ${bot.harness}, and init does not change it. Run init again with --harness ${bot.harness}, or ask Bot Father to move it.`);
+  }
+  if (bot.sessions !== undefined && bot.sessions !== null && !Array.isArray(bot.sessions)) {
+    throw new Error(`${file} has a sessions entry that is not a list, so init cannot add Bot Father's daily session to it. Fix it, then run init again.`);
+  }
+}
+
+/**
+ * Fill in what an older `bot.yaml` is missing, and nothing else. Returns what
+ * was completed, for the report.
+ *
+ * The file is edited as text, at the exact places the parser points to, rather
+ * than parsed and written back out: writing it back would re-lay the user's own
+ * formatting — the padding inside a flow collection, the column a trailing
+ * comment sits in. Everything the user wrote stays byte for byte.
+ *
+ * Sessions the user already has are left alone, whatever they are called. They
+ * are theirs, and `up` brings up what it finds.
+ */
+function completeBotFather(file, harness) {
+  const source = readFileSync(file, 'utf8');
+  const doc = parseDocument(source);
+
+  let text = source;
+  const sessions = doc.get('sessions', true);
+  if (sessions === undefined) {
+    text = `${endsInNewline(text)}sessions:\n  - name: ${DAILY_SESSION}\n`;
+  } else if (!(sessions.items?.length > 0)) {
+    // An empty list, or a `sessions:` with nothing after it. The parser gives
+    // the span the value occupies — for the empty one, an empty span in just
+    // the right place. The spaces that separated it from the colon go with it,
+    // or they would be left dangling at the end of the line.
+    const [, to] = sessions.range;
+    let from = sessions.range[0];
+    while (from > 0 && (text[from - 1] === ' ' || text[from - 1] === '\t')) from -= 1;
+    text = `${text.slice(0, from)}\n  - name: ${DAILY_SESSION}${text.slice(to)}`;
+  }
+
+  if (doc.get('harness') === undefined) {
+    text = `${endsInNewline(text)}harness: ${harness}\n`;
+  }
+
+  if (text === source) return [];
+  writeFileSync(file, text);
+  return [BOT_FATHER_YAML];
+}
+
+const endsInNewline = (text) => (text === '' || text.endsWith('\n') ? text : `${text}\n`);

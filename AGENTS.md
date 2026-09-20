@@ -21,7 +21,10 @@ not pull work from a later slice into an earlier one.
 - The test author is a separate agent from the implementer. The implementer
   cannot change a test to make it pass; a test that looks wrong goes back to the
   author.
-- The author's tests are checked by mutation testing: `npm run mutate`.
+- The author's tests are checked by mutation testing: `npm run mutate`. Once per
+  piece of work, after the suite is green and before you call it done, on the
+  code that work changed. The full rule, including when to skip it and what to
+  do with a survivor, is PRD section 7.3.
 - The reviewer is a separate agent and only comments. The implementer makes the
   change and verifies it again.
 - Do not say it works from a plausible diff. Run the check and read the output.

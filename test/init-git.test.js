@@ -34,7 +34,7 @@ test('init reports a git it cannot run, instead of claiming success', async (t) 
     'this test is pointless if git is still reachable',
   );
 
-  const result = runOnPath(box, ['init', '--bots', 'bots'], withoutGit);
+  const result = runOnPath(box, ['init', '--bots', 'bots', '--harness', 'claude'], withoutGit);
 
   assertCleanFailure(result);
   assert.ok(result.stderr.includes('git'), `should name git, got: ${result.stderr}`);
@@ -47,7 +47,7 @@ test('init reports a folder git cannot make a repository in, and writes nothing'
   await chmod(bots, 0o555); // git init cannot write its .git here
   const before = await snapshot(bots);
 
-  const result = await box.run(['init', '--bots', 'bots']);
+  const result = await box.run(['init', '--bots', 'bots', '--harness', 'claude']);
 
   assertCleanFailure(result);
   assert.ok(result.stderr.includes(bots), `should name the folder, got: ${result.stderr}`);

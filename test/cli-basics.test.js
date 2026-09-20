@@ -14,14 +14,16 @@ test('--version prints the package version and nothing else', async (t) => {
   assert.equal(result.stderr, '');
 });
 
-test('--help prints usage on stdout and mentions init', async (t) => {
+test('--help prints usage on stdout and mentions every command and flag', async (t) => {
   const box = await createSandbox(t);
 
   const result = await box.run(['--help']);
 
   assert.equal(result.code, 0);
   assert.equal(result.stderr, '');
-  assert.ok(result.stdout.includes('init'), `usage should mention init, got: ${result.stdout}`);
+  for (const word of ['init', 'up', '--bots', '--harness', 'claude', 'codex']) {
+    assert.ok(result.stdout.includes(word), `usage should mention ${word}, got: ${result.stdout}`);
+  }
 });
 
 test('-h prints the same usage as --help', async (t) => {
