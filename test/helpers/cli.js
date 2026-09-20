@@ -59,6 +59,16 @@ export function git(args, cwd) {
 }
 
 /**
+ * Run `text` as a shell command line, the way the tab's own shell runs what the
+ * kit types into it. Used to prove a launch command means what it says: the
+ * harness it starts is a fake on PATH that writes down the arguments it got, so
+ * the test reads the argv a real harness would have been given.
+ */
+export function sh(text, options) {
+  return capture('/bin/sh', ['-c', text], options);
+}
+
+/**
  * Build a sandbox for one test. Cleaned up when the test ends.
  * Returns { root, cwd, home, env, path, run, orca }.
  */
@@ -193,6 +203,23 @@ export const orcaFlags = (call) => call.args.filter((arg) => arg.startsWith('--'
  */
 export const TAB_TITLES = { daily: 'Bot Father daily', ops: 'Bot Father ops' };
 
+/**
+ * The launch command a session with nothing set is started with. Every session
+ * carries an explicit approval flag (ADR 0005), so a user's global harness
+ * defaults cannot leak into a bot, and `auto` is what a session that named no
+ * level takes.
+ */
+export const BARE_LAUNCH = { claude: 'claude --permission-mode auto', codex: 'codex --approve-for-me' };
+
+/** Where a bot lives inside a bots folder. */
+export const botHomeOf = (bots, bot = 'bot-father') => path.join(bots, 'bots', bot);
+
+/** The tabs Orca holds for one bot's Orca project, in the order it made them. */
+export async function tabsOfBot(box, bots, bot) {
+  const home = botHomeOf(bots, bot);
+  return (await box.orca.terminals()).filter((terminal) => terminal.worktreePath === home);
+}
+
 /** The book: what the kit knows about one bot's Orca project and its sessions. */
 export const bookOf = (bots, bot = 'bot-father') => path.join(bots, 'bots', bot, 'sessions.yaml');
 
@@ -279,6 +306,55 @@ export function assertCleanFailure(result) {
   assert.equal(result.stdout, '');
   assert.notEqual(result.stderr.trim(), '');
   assert.ok(!/^\s+at /m.test(result.stderr), `expected a message, got a crash:\n${result.stderr}`);
+}
+
+/**
+ * Everything the user put in the file is still theirs: every key they wrote
+ * still carries the value they gave it, and every comment is still there, in
+ * order. `changed` names the keys this edit was allowed to touch, which the
+ * caller checks itself.
+ *
+ * Not byte for byte. The file is edited through the YAML library, which writes
+ * the document back in its own hand — an inline list comes back spaced, the
+ * padding in front of a comment goes — and how it lays a file out is its
+ * business. What is the user's is what they said, not how it was printed.
+ */
+export function assertKeptWhatTheyWrote(before, after, { changed = [] } = {}) {
+  const was = parse(before) ?? {};
+  const now = parse(after) ?? {};
+  assert.ok(now !== null && typeof now === 'object' && !Array.isArray(now), `the file should still be a mapping, got:\n${after}`);
+
+  for (const [key, value] of Object.entries(was)) {
+    if (changed.includes(key)) continue;
+    assert.deepEqual(
+      now[key],
+      value,
+      `the user's ${key} should still say what they wrote:\n--- before ---\n${before}\n--- after ---\n${after}`,
+    );
+  }
+
+  const theirs = commentsIn(before);
+  assert.deepEqual(
+    commentsIn(after).filter((comment) => theirs.includes(comment)),
+    theirs,
+    `every comment the user wrote should still be there, in order:\n--- before ---\n${before}\n--- after ---\n${after}`,
+  );
+}
+
+/**
+ * The comments in a YAML file, in order: what follows a `#` on each line.
+ * A `#` inside a quoted value would be read as one too, so the files here are
+ * written without one.
+ */
+const commentsIn = (text) => text
+  .split('\n')
+  .map((line) => /(?:^|\s)#(.*)$/.exec(line)?.[1].trim())
+  .filter((comment) => comment !== undefined);
+
+/** Nothing the kit writes leaves whitespace hanging at the end of a line. */
+export function assertNoTrailingSpace(text) {
+  const loose = text.split('\n').filter((line) => line !== line.trimEnd());
+  assert.deepEqual(loose, [], `no line should end in whitespace, got: ${JSON.stringify(loose)}`);
 }
 
 /** Skip a repo's `.git` when snapshotting or walking a tree. */

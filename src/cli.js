@@ -11,9 +11,11 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 
+import { addSession, createBot, SESSION_FIELDS } from './bot.js';
 import { initBots } from './init.js';
+import { APPROVALS, HARNESSES } from './launch.js';
 import { orcaTrouble } from './orca.js';
-import { bringUp } from './up.js';
+import { BOT_FATHER, bringUp } from './up.js';
 
 const USAGE = `obk — Orca Bot Kit.
 
@@ -22,16 +24,62 @@ Usage:
                             Create your bots folder: a git repo holding your
                             bots' configuration, with Bot Father in it, and
                             open Bot Father in Orca.
-  obk up --bots <path>      Open whatever Bot Father is missing in Orca.
-                            It only ever adds; it never closes a tab.
+  obk bot create --bots <path> --name <bot> --harness claude|codex
+                 [--charter <text>]
+                            Write a new bot in your bots folder. Nothing is
+                            opened in Orca until you run obk up.
+  obk session add --bots <path> --bot <bot> --name <session>
+                  [--harness claude|codex] [--model <m>] [--effort <e>]
+                  [--context <c>] [--approval ${APPROVALS.join('|')}]
+                  [--prompt <text> | --prompt-file <path>] [--work-dir <path>]
+                  [--extra-arg=<arg>]
+                            Add a session to a bot. Anything left out is the
+                            harness's own default; approval is auto. A long
+                            start prompt lives in a file in the bot home, and
+                            --prompt-file names it.
+                            A value of your own that starts with a dash is
+                            given glued to its flag, so its dashes are not read
+                            as ours: --prompt='- a bullet', and
+                            --extra-arg=--search, once per extra argument.
+  obk up --bots <path> [--bot <bot>] [--session <name>]
+                            Open whatever is missing in Orca, for every bot or
+                            for the one you name. It only ever adds; it never
+                            closes a tab.
   obk --version             Print the kit's version.
   obk --help                Print this text.
 
-Both commands are safe to run again: they add what is missing and nothing else.
-Add --json to either for the same answer as JSON.
+Every command is safe to run again: they add what is missing and nothing else.
+Add --json to any of them for the same answer as JSON.
 `;
 
-const HARNESSES = ['claude', 'codex'];
+/** The commands, and the flags each one cannot do without. */
+const COMMANDS = {
+  init: ['bots', 'harness'],
+  up: ['bots'],
+  'bot create': ['bots', 'name', 'harness'],
+  'session add': ['bots', 'bot', 'name'],
+};
+
+/** What each flag is for, in the sentence a caller reads when it is missing. */
+const NEEDED = {
+  bots: '--bots <path>: where your bots folder is',
+  name: '--name <name>: what to call it',
+  bot: '--bot <bot>: which bot',
+  session: '--session <name>: which session',
+  harness: `--harness ${HARNESSES.join('|')}: which harness it runs on`,
+};
+
+/** The flags that name something. A name that is empty names nothing. */
+const IDENTIFIERS = Object.keys(NEEDED);
+
+/**
+ * The session settings a flag can carry, as `[flag, field]`: every field a
+ * session has, spelled with dashes, except the name it is added under and the
+ * extra arguments, which come one flag at a time.
+ */
+const SETTINGS = SESSION_FIELDS
+  .filter((field) => field !== 'name' && field !== 'extra_args')
+  .map((field) => [field.replaceAll('_', '-'), field]);
 
 function version() {
   const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
@@ -45,6 +93,12 @@ function run(argv) {
     options: {
       bots: { type: 'string' },
       harness: { type: 'string' },
+      name: { type: 'string' },
+      bot: { type: 'string' },
+      session: { type: 'string' },
+      charter: { type: 'string' },
+      ...Object.fromEntries(SETTINGS.map(([flag]) => [flag, { type: 'string' }])),
+      'extra-arg': { type: 'string', multiple: true },
       json: { type: 'boolean' },
       help: { type: 'boolean', short: 'h' },
       version: { type: 'boolean' },
@@ -60,54 +114,113 @@ function run(argv) {
     return 0;
   }
 
-  const [command, ...extra] = positionals;
-  if (command === undefined) {
+  if (positionals.length === 0) {
     process.stderr.write(USAGE);
     return 1;
+  }
+
+  // `bot` and `session` are commands of two words; the rest are one.
+  const words = positionals[0] === 'bot' || positionals[0] === 'session' ? 2 : 1;
+  const command = positionals.slice(0, words).join(' ');
+  const extra = positionals.slice(words);
+
+  if (!(command in COMMANDS)) {
+    throw new Error(`there is no "${command}" command. Run obk --help to see what there is.`);
   }
   if (extra.length > 0) {
     throw new Error(`${command} takes no other arguments, and got: ${extra.join(' ')}`);
   }
-  if (command !== 'init' && command !== 'up') {
-    throw new Error(`there is no "${command}" command. Run obk --help to see what there is.`);
+  for (const flag of COMMANDS[command]) {
+    if (values[flag] === undefined) throw new Error(`${command} needs ${NEEDED[flag]}.`);
+  }
+  // A name with nothing in it is a name that was not given, whether the command
+  // needs it or not. The settings are not held to this: an empty model or
+  // effort is the harness's own, which is what leaving it out means too.
+  for (const flag of IDENTIFIERS) {
+    if (values[flag] !== undefined && values[flag].trim() === '') {
+      throw new Error(`${command} needs ${NEEDED[flag]}.`);
+    }
+  }
+  if (values.harness !== undefined && !HARNESSES.includes(values.harness)) {
+    throw new Error(`--harness is ${HARNESSES.join(' or ')}, and got: ${values.harness}`);
   }
 
-  if (values.bots === undefined) {
-    throw new Error(`${command} needs --bots <path>: where your bots folder is.`);
-  }
-  if (values.bots.trim() === '') {
-    throw new Error('--bots needs a path.');
-  }
-  const harness = command === 'init' ? harnessFor(values.harness) : undefined;
+  const bots = path.resolve(values.bots);
+  const { answer, lines } = commands[command](bots, values);
 
-  // Asked before anything is written, so an Orca that is down leaves the disk
-  // exactly as it was and the caller can simply run the command again.
-  const trouble = orcaTrouble();
-  if (trouble !== undefined) throw new Error(trouble);
-
-  const seeded = command === 'init'
-    ? initBots(values.bots, harness)
-    : { bots: path.resolve(values.bots), created: [], completed: [] };
-  const tabs = bringUp(seeded.bots);
-
-  process.stdout.write(values.json
-    ? `${JSON.stringify({ bots: seeded.bots, created: seeded.created, completed: seeded.completed, tabs }, null, 2)}\n`
-    : report(seeded, tabs));
+  process.stdout.write(values.json ? `${JSON.stringify(answer, null, 2)}\n` : `${lines.join('\n')}\n`);
   return 0;
 }
 
-function harnessFor(harness) {
-  if (harness === undefined) {
-    throw new Error(`init needs --harness ${HARNESSES.join('|')}: which harness Bot Father runs on.`);
+const commands = {
+  init(bots, values) {
+    // Asked before anything is written, so an Orca that is down leaves the disk
+    // exactly as it was and the caller can simply run the command again.
+    refuseWhenOrcaIsDown();
+    const seeded = initBots(bots, values.harness);
+    const tabs = bringUp(seeded.bots, { bot: BOT_FATHER });
+    const answer = { bots: seeded.bots, created: seeded.created, completed: seeded.completed, tabs };
+    return { answer, lines: tabLines(answer, `Bot Father is up in Orca. Your bots folder: ${seeded.bots}`) };
+  },
+
+  up(bots, values) {
+    refuseWhenOrcaIsDown();
+    const tabs = bringUp(bots, { bot: values.bot, session: values.session });
+    const answer = { bots, created: [], completed: [], tabs };
+    const up = [...new Set(tabs.map((tab) => tab.bot))].join(', ');
+    return { answer, lines: tabLines(answer, `Up in Orca: ${up}. Your bots folder: ${bots}`) };
+  },
+
+  'bot create'(bots, values) {
+    const made = createBot(bots, { name: values.name, harness: values.harness, charter: values.charter });
+    const answer = { bots, bot: made.bot, home: made.home, created: made.created };
+    return {
+      answer,
+      lines: [
+        ...made.created.map((entry) => `created    ${entry}`),
+        `${made.bot} is written. Give it a session:  obk session add --bots ${bots} --bot ${made.bot} --name <name>`,
+      ],
+    };
+  },
+
+  'session add'(bots, values) {
+    const added = addSession(bots, values.bot, settingsOf(values));
+    const answer = { bots, bot: added.bot, home: added.home, session: added.session };
+    return {
+      answer,
+      lines: [
+        `added      session ${added.session.name} to ${path.join('bots', added.bot, 'bot.yaml')}`,
+        ...Object.entries(added.session)
+          .filter(([key]) => key !== 'name')
+          .map(([key, value]) => `           ${key}  ${oneLine(value)}`),
+        `Bring it up:  obk up --bots ${bots} --bot ${added.bot}`,
+      ],
+    };
+  },
+};
+
+/** The settings a `session add` was given, as they go into bot.yaml. */
+function settingsOf(values) {
+  const settings = { name: values.name };
+  for (const [flag, key] of SETTINGS) {
+    if (values[flag] !== undefined) settings[key] = key === 'context' ? asNumberOrText(values[flag]) : values[flag];
   }
-  if (!HARNESSES.includes(harness)) {
-    throw new Error(`--harness is ${HARNESSES.join(' or ')}, and got: ${harness}`);
-  }
-  return harness;
+  if (values['extra-arg'] !== undefined) settings.extra_args = values['extra-arg'];
+  return settings;
+}
+
+/** A context window written as a plain number stays one in the file. */
+const asNumberOrText = (value) => (/^\d+$/.test(value) ? Number(value) : value);
+
+const oneLine = (value) => (Array.isArray(value) ? value.join(' ') : String(value)).replace(/\s+/g, ' ').trim();
+
+function refuseWhenOrcaIsDown() {
+  const trouble = orcaTrouble();
+  if (trouble !== undefined) throw new Error(trouble);
 }
 
 /** The same facts as `--json`, as lines, for a person reading along. */
-function report({ bots, created, completed }, tabs) {
+function tabLines({ created, completed, tabs }, summary) {
   const lines = [
     ...created.map((entry) => `created    ${entry}`),
     ...completed.map((entry) => `completed  ${entry}`),
@@ -118,8 +231,8 @@ function report({ bots, created, completed }, tabs) {
     lines.push(...harnessLines(tab));
   }
 
-  lines.push(`Bot Father is up in Orca. Your bots folder: ${bots}`);
-  return `${lines.join('\n')}\n`;
+  lines.push(summary);
+  return lines;
 }
 
 /**
@@ -139,12 +252,19 @@ function harnessLines(tab) {
       `             Look at it:  orca terminal read --terminal ${tab.terminal} --screen`,
     ];
   }
-  return tab.blockedReason === undefined
+
+  const lines = tab.blockedReason === undefined
     ? ['             the harness was typed in and came up.']
     : [
       `             the harness was typed in and came up, waiting on: ${tab.blockedReason}`,
       `             Look at it:  orca terminal read --terminal ${tab.terminal} --screen`,
     ];
+
+  if (tab.promptSent === true) lines.push('             the start prompt was typed in.');
+  if (tab.promptSent === false) {
+    lines.push('             the start prompt was not typed in: the tab was not ready for it.');
+  }
+  return lines;
 }
 
 try {

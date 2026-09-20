@@ -87,6 +87,13 @@ project → repo (`kind: "git" | "folder"`) → worktree (id = `<repoId>::<absPa
   answering is settled by reading the screen, not by this field.
   So a `timeout` means "no TUI in this tab", and an `ok:true` answer means one is running, idle or not.
   **verified** (live, both harnesses)
+  **What that costs, proven the hard way.** A start prompt sent as a second `terminal send` into a fresh
+  Claude tab that had answered `satisfied:true` landed on the folder-trust list and confirmed its
+  default `No, exit`: the harness quit back to the shell. Nothing Orca offers tells that screen from a
+  ready one — `terminal list` carries no agent identity for a tab either. So the kit types one line into
+  a tab it opens and no more: the start prompt goes on that line as the harness's own prompt argument,
+  and the harness holds it until the trust question and the update offer are answered. Both harnesses
+  then run it by themselves. **verified** (live, Claude Code 2.1.278 and Codex 0.155.1)
 - `orca terminal send [--terminal <h>] [--text <t>] [--enter] [--interrupt] [--wait-submit <s>] [--retry-request <id>]` — `accepted:true` means input accepted, not that the agent read it; never resend on silence; use `--retry-request` for an idempotent retry.
 - `orca terminal read [--terminal <h>] [--cursor <n>] [--limit <n>] [--screen]`, `rename`, `show`,
   `split`. Use `--screen` to see what the tab renders; the default read returns emitted output with the
@@ -140,7 +147,9 @@ Send means durably queued; a wake-up is best effort; there is no read proof. Gro
 
 ## 2. Claude Code
 
-- Launch flags (**verified** from `claude --help`): `-n/--name <name>`, `--model <m>`, `--effort low|medium|high|xhigh|max`, `--permission-mode acceptEdits|auto|bypassPermissions|manual|dontAsk|plan`, `--dangerously-skip-permissions`, `--resume <id>`, `--add-dir <dir>`. Context window: a model suffix such as `[1m]` (**unverified** as a launch form).
+- Launch flags (**verified** from `claude --help`): `-n/--name <name>`, `--model <m>`, `--effort low|medium|high|xhigh|max`, `--permission-mode acceptEdits|auto|bypassPermissions|manual|dontAsk|plan`, `--dangerously-skip-permissions`, `--resume <id>`, `--add-dir <dir>`. There is no context-window flag; the context window is a suffix on the model name, `--model 'sonnet[1m]'`, and the quotes are needed because `[1m]` is a glob to zsh. **verified** (live on 2.1.278: `claude -p 'reply with the single word ok' --model 'sonnet[1m]'` answered, and the same model in an Orca tab came up as `Sonnet 5 with high effort`).
+- A prompt given as a positional argument (`claude [options] -- '<prompt>'`) starts an interactive session and is run as its first message, after the folder-trust question is answered. `--` is needed: a prompt that starts with a dash is otherwise read as an option and the session never starts. **verified** (live, and against 2.1.278's parser)
+- The suffix really reaches the session: with `--model 'sonnet[1m]'`, `/status` in the tab reports `Model: sonnet[1m] (claude-sonnet-5[1m])`. **verified** (live)
 - Approval levels: `auto` = `--permission-mode auto`; `ask` = `--permission-mode manual`; `dangerously-skip` = `--dangerously-skip-permissions`.
 - `AGENTS.md` is read directly from v2.1.277, but only when no `CLAUDE.md` / `CLAUDE.local.md` exists in the working directory or above it, and not on Bedrock or with telemetry disabled (docs: code.claude.com/docs/en/memory). The kit symlinks `CLAUDE.md` → `AGENTS.md` in each bot folder, which always works. **verified**
 - Skills: `<project>/.claude/skills/<name>/SKILL.md`, `~/.claude/skills`. Symlinked skill folders are followed. Skill directories are watched; add, edit, remove is picked up in a running session. The command comes from the folder name. A user skill named like a built-in (`debug`, `design`, `review`, `simplify`, `run`, `verify`, `loop`) replaces the built-in. **verified** (docs)
@@ -151,7 +160,10 @@ Send means durably queued; a wake-up is best effort; there is no read proof. Gro
 
 ## 3. Codex CLI
 
-- Launch flags (**verified** from `codex --help`): `--approve-for-me` (automatic review, workspace-write sandbox), `-a/--ask-for-approval on-request|never`, `-s/--sandbox read-only|workspace-write|danger-full-access`, `--dangerously-bypass-approvals-and-sandbox`, `-C/--cd <dir>`, `--add-dir <dir>`, `-c key=value` (for example `-c model_reasoning_effort="high"`, `-c model_context_window=<n>`), `codex resume <id>`.
+- Launch flags (**verified** from `codex --help` on 0.155.1): `--approve-for-me` (automatic review, workspace-write sandbox), `-a/--ask-for-approval on-request|never`, `-s/--sandbox read-only|workspace-write|danger-full-access`, `--dangerously-bypass-approvals-and-sandbox`, `-C/--cd <dir>`, `--add-dir <dir>`, `-c key=value`, `codex resume <id>`.
+- `-c model_reasoning_effort=<effort>` and `-c model_context_window=<n>` are taken as written, with no quotes of their own: a value that is not TOML is used as a raw string. **verified** (live on 0.155.1: `codex exec --skip-git-repo-check --strict-config -c model_context_window=200000 -c model_reasoning_effort=low` ran, and the header printed `reasoning effort: low`; `--strict-config` would have refused a key it did not know).
+- A prompt given as a positional argument (`codex [options] -- '<prompt>'`) is run as the session's first message, after the trust question is answered. `--` is needed: `codex` exits 2 with `unexpected argument` on a prompt that starts with a dash. **verified** (live, and against 0.155.1's parser)
+- `-c model_context_window=<n>` really reaches the session: the rollout's `token_count.info.model_context_window` follows it, at 95% of the number given — 123456 came back as 117283, 200000 as 190000, and a session with no override as 258400, which is 95% of gpt-6-astra's own 272000. A value that is not a whole number is refused by Codex itself, at startup: `invalid type: string "1m", expected i64`. **verified** (live, 0.155.1)
 - Approval levels: `auto` = `--approve-for-me`; `ask` = `-a on-request`; `dangerously-skip` = `--dangerously-bypass-approvals-and-sandbox`. In `auto` the sandbox limits writes to the launch folder plus `--add-dir`; network and outside commands (`orca`, `gh`, `git fetch`) go through the auto reviewer — **unverified** that bot messaging works under it.
 - The owner's global `~/.codex/config.toml` sets `approval_policy = "never"` and `sandbox_mode = "danger-full-access"`. Pass explicit flags per session so this does not leak into bots.
 - Instructions: `AGENTS.md` from the project root down to the working directory; discovery stops at a git root, which is why sessions start at the bot home. 32 KiB cap. **verified** (docs)

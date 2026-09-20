@@ -27,6 +27,7 @@ import test from 'node:test';
 
 import {
   assertOrcaCallsAllowed,
+  BARE_LAUNCH,
   botFatherTabs,
   createSandbox,
   orcaCallsOf,
@@ -53,16 +54,17 @@ async function tabsOf(box) {
 }
 
 for (const harness of ['claude', 'codex']) {
-  test(`init --harness ${harness} types ${harness} into the daily tab, bare`, async (t) => {
+  test(`init --harness ${harness} types the ${harness} launch command into the daily tab`, async (t) => {
     const box = await createSandbox(t);
 
     const result = await box.run(['init', '--bots', 'bots', '--harness', harness]);
 
     assert.equal(result.code, 0, result.stderr);
     const { daily, ops } = await tabsOf(box);
-    // Exactly the harness: no model, no effort, no approval flag, no start prompt.
-    assert.deepEqual(typedInto(daily), [harness]);
-    assert.deepEqual(daily.typed, [{ text: harness, enter: true }], 'the line has to be sent off');
+    // The harness and the approval level it takes, and nothing else: Bot
+    // Father's seeded session names no model, no effort and no start prompt.
+    assert.deepEqual(typedInto(daily), [BARE_LAUNCH[harness]]);
+    assert.deepEqual(daily.typed, [{ text: BARE_LAUNCH[harness], enter: true }], 'the line has to be sent off');
     assert.deepEqual(typedInto(ops), [], 'the ops tab is a plain shell');
     assert.equal(daily.worktreePath, botHomeIn(box));
     assert.equal(ops.worktreePath, botHomeIn(box));
@@ -125,16 +127,21 @@ test('the harness is typed into the daily tab only, and the tab is checked after
   assert.equal(sends.length, 1, 'one tab is told what to run, and it is one line');
   assert.equal(orcaFlag(sends[0], '--terminal'), daily.handle);
   assert.notEqual(orcaFlag(sends[0], '--terminal'), ops.handle);
-  assert.equal(orcaFlag(sends[0], '--text'), 'codex');
+  assert.equal(orcaFlag(sends[0], '--text'), BARE_LAUNCH.codex);
   assert.ok(sends[0].args.includes('--enter'), `the line has to be sent off: ${sends[0].args.join(' ')}`);
   assert.deepEqual(orcaFlags(sends[0]), ['--enter', '--json', '--terminal', '--text']);
 
+  // The kit looks more than once — a harness can come up and die — so what is
+  // pinned is that every look is at the tab that was typed into, and that each
+  // one asks Orca the same question with a deadline on it.
   const waits = orcaCallsOf(calls, 'terminal wait');
-  assert.equal(waits.length, 1, 'the tab that was typed into is the tab that is checked');
-  assert.equal(orcaFlag(waits[0], '--terminal'), daily.handle);
-  assert.equal(orcaFlag(waits[0], '--for'), 'tui-idle');
-  assert.equal(orcaFlag(waits[0], '--timeout-ms'), '10000');
-  assert.deepEqual(orcaFlags(waits[0]), ['--for', '--json', '--terminal', '--timeout-ms']);
+  assert.ok(waits.length >= 1, 'the tab that was typed into has to be checked');
+  for (const wait of waits) {
+    assert.equal(orcaFlag(wait, '--terminal'), daily.handle, 'the tab that was typed into is the tab that is checked');
+    assert.equal(orcaFlag(wait, '--for'), 'tui-idle');
+    assert.ok(Number(orcaFlag(wait, '--timeout-ms')) > 0, `a look needs a deadline, got: ${wait.args.join(' ')}`);
+    assert.deepEqual(orcaFlags(wait), ['--for', '--json', '--terminal', '--timeout-ms']);
+  }
 
   // Order is the whole point. A wait before the send would be asking a plain
   // shell whether its TUI is idle, which is refused however long it waits.
@@ -158,7 +165,7 @@ test('a harness that came up on its trust question counts as started', async (t)
   const daily = JSON.parse(result.stdout).tabs.find((tab) => tab.name === 'daily');
   assert.equal(daily.harnessStarted, true, 'a TUI that is up is a harness that started');
   const { daily: tab } = await tabsOf(box);
-  assert.deepEqual(typedInto(tab), ['claude']);
+  assert.deepEqual(typedInto(tab), [BARE_LAUNCH.claude]);
 });
 
 test('a harness that never came up is reported, and the run still succeeds', async (t) => {
@@ -171,7 +178,7 @@ test('a harness that never came up is reported, and the run still succeeds', asy
 
   assert.equal(result.code, 0, `a harness that did not come up is not a failure: ${result.stderr}`);
   const { daily, ops } = await tabsOf(box);
-  assert.deepEqual(typedInto(daily), ['claude'], 'the line was still typed; it is the outcome that was checked');
+  assert.deepEqual(typedInto(daily), [BARE_LAUNCH.claude], 'the line was still typed; it is the outcome that was checked');
   assert.deepEqual(typedInto(ops), [], 'and the other tab is still a plain shell');
   // The caller has to learn which tab it must look at itself.
   assert.ok(
@@ -208,7 +215,7 @@ test('the daily tab that comes back is the one that gets the harness', async (t)
 
   const back = await tabsOf(box);
   assert.notEqual(back.daily.tabId, daily.tabId, 'a tab that comes back is a new tab');
-  assert.deepEqual(typedInto(back.daily), ['codex'], 'the new tab runs the harness bot.yaml names, bare');
+  assert.deepEqual(typedInto(back.daily), [BARE_LAUNCH.codex], 'the new tab runs the harness bot.yaml names');
   assert.deepEqual(back.ops, ops, 'the tab that was still there must be untouched');
 
   const sends = orcaCallsOf((await box.orca.calls()).slice(sofar), 'terminal send');

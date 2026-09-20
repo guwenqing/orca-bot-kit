@@ -11,6 +11,7 @@ import test from 'node:test';
 
 import {
   assertCleanFailure,
+  BARE_LAUNCH,
   createSandbox,
   git,
   skipGit,
@@ -104,7 +105,11 @@ test('up brings back a workspace and tabs that are gone, and says so', async (t)
   assert.deepEqual(terminals.map((terminal) => terminal.title).sort(), [TAB_TITLES.daily, TAB_TITLES.ops].sort());
   const daily = terminals.find((terminal) => terminal.title === TAB_TITLES.daily);
   const ops = terminals.find((terminal) => terminal.title === TAB_TITLES.ops);
-  assert.deepEqual(typedInto(daily), ['codex'], 'the daily tab runs the harness bot.yaml names');
+  assert.deepEqual(
+    typedInto(daily),
+    [BARE_LAUNCH.codex],
+    'the daily tab runs the harness bot.yaml names, at the approval level the session takes',
+  );
   assert.deepEqual(typedInto(ops), [], 'the ops tab runs nothing');
 });
 
