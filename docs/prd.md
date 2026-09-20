@@ -137,6 +137,7 @@ Each line is a check a developer can run. Issues turn these into acceptance test
 - Session ids are remembered across a restart, whether from a computer restart or one asked for by Bot Father. [decided]
 - When skills change, Bot Father's management skill knows how to reload them without a restart. [decided]
 - `obk up` is idempotent: for each session in the book with no tab, create the tab with the resume id. It never closes tabs. [proposed]
+- When something interrupts a tab the kit opened, the caller (an LLM: the setup step or Bot Father) looks at the tab through Orca and answers in the tab. The oh-my-zsh update question is always answered no. The folder-trust question is always answered in the tab, the same way on Claude Code and Codex; the kit and its skills never touch a global config for it. Any other interruption is not guessed at: the user is alerted through Bot Father or whoever asked to start the fleet. [decided]
 - Restart is a last resort: Bot Father warns, says why, and gets permission first. [decided]
 - Reload without restart: skill changes are picked up live and the session gets a short note; a rule change gets a "re-read your AGENTS.md" message; model and effort are switched in-session where the harness allows. [proposed]
 - A config change notifies the sessions it affects. [decided — blanket]
