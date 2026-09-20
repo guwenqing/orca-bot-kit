@@ -64,7 +64,13 @@ repo; it does not need to be asked again, by anyone, in any session:
   has been answered, merge it and close the issue. It does not wait for the
   owner.
 - A coordinator session hands out the issues, answers questions and decides most
-  things. Take its briefs and answers as the owner's.
+  things. Take its briefs and answers as the owner's. It is not a relay: the
+  developer asks the reviewer for a review directly, by typing one line into the
+  reviewer's Orca tab (`orca terminal send --terminal <handle> --text "Review PR #N …" --enter`,
+  the handle from `orca terminal list --json`, the tab titled "reviewer"; check the tab is idle
+  first), and reads the verdict as a comment on the PR. The reviewer only comments
+  on the PR. Second reviews happen only when the coordinator says the case is out
+  of the ordinary.
 - Do not stop to ask the owner about routine steps of this loop, and do not put
   a question on the screen and wait. If something is unclear, message the
   coordinator and keep working on what does not depend on the answer.
