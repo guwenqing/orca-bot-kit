@@ -5,17 +5,19 @@ applies: all
 ---
 
 Before you start, write what will be true when the work is done and how that is
-checked.
+checked. Work in steps that each end in a check: run it, read the output, then
+take the next step.
 
-Work in steps that each end in something you can check. Run the check, read the
-output, then take the next step.
+Check the thing itself where it shows: the file that changed, the output the
+reader will get, the real command against the real tool. A build that compiles,
+or a stand-in that answers, is not the thing working. When the work rests on
+something you have not seen work, try that one thing first, in the smallest way
+that settles it.
 
-Before you say it is done, run the check on the finished state and read it. A
-diff that looks right is not a result.
+Before you say it is done, run the check on the finished state and read it.
+Report what came out, a failure or an empty result included, what you did not
+check, and the command that would check it.
 
-Report what came out, including a failure or a run that settled nothing.
-
-Say what you did not check, and give the command that would check it.
-
-When the work will not meet the check, say so. The check does not get loosened
-to reach done; if the check itself was wrong, say why and change it openly.
+The check does not get loosened to reach done. A check of your own that is
+broken you repair, and say so; a test someone else wrote, or the acceptance you
+agreed with the user, is theirs to change.

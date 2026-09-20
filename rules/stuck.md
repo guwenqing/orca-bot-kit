@@ -14,4 +14,4 @@ access you need.
 While you wait for an answer, do the parts that do not depend on it.
 
 "This is past what I can do here" is a fine report, and so is "I am not sure
-this is right". Work nobody can trust costs more than work not done.
+this is right".
