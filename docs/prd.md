@@ -14,6 +14,8 @@ Every item is marked:
 
 Sections 3 and 4 describe the outcome; the tags in sections 5 to 8 govern what is decided.
 
+This PRD says what is wanted and where the limits are. It does not say how to build it: names of commands, files, flags and fields are the builder's to choose, and facts about Orca and the harnesses live in `tech-notes.md`.
+
 ## 1. Problem
 
 A person wants a small fleet of long-lived role bots on their own computer:
@@ -51,14 +53,14 @@ Each line is a check a developer can run. Issues turn these into acceptance test
 2. `obk` creates a bot on Claude Code and a bot on Codex; each starts at its bot home and reads its `AGENTS.md`.
 3. A session created with a start prompt receives it once; after `/clear` it receives it again automatically.
 4. After `/clear`, the book holds the new session id and the old id is in that session's history.
-5. After closing a tab (or a reboot), `obk up` brings the session back with its conversation.
+5. After a tab is closed (or a reboot), bringing the fleet up restores the session with its conversation.
 6. A skill added or changed through the kit is usable in a running session without a restart.
 7. A skill from an online repo is cloned outside the bots repo at the pinned ref and linked into the bot, for both harnesses.
 8. A bot's `AGENTS.md` is rebuilt from kit rules + user rules + bot overrides; text outside the managed region survives; a hand edit inside it stops the build.
 9. A Claude session and a Codex session exchange a message and a reply; a busy receiver is not interrupted.
 10. A grooming run produces a short report in Bot Father's daily session that names at least: one usage figure per session, and any sign of a bot in trouble that it found.
 11. A developer bot using the TDD skill produces: a failing test first, a test written by a separate author, and a mutation result.
-12. `obk doctor` reports a `CLAUDE.md` above a bot folder, a broken skill link, and a session in the book with no tab.
+12. The kit can report plainly what is wrong with a setup: conflicting or broken configuration, a broken skill link, a session the book knows that Orca does not, leftovers no book owns.
 
 ## 5. What we are not doing
 
@@ -95,28 +97,11 @@ Each line is a check a developer can run. Issues turn these into acceptance test
 
 - All bots live in one folder, and that folder is one git repo for all bots. It is local; the user may push it. [decided]
 - The kit does not copy its code or skills into it unless the user wants that; kit skills are links to the installed package. [decided] → ADR 0004
-- Layout [proposed]:
-
-```
-<parent>/
-  <bots>/                      # the user's local git repo
-    defaults.yaml              # rules every bot gets
-    skills.yaml                # online skill sources
-    rules/                     # the user's own rule units
-    skills/                    # the user's own common skills
-    bots/<bot>/
-      bot.yaml                 # charter, rules, skills, sessions
-      sessions.yaml            # live session ids and their history
-      AGENTS.md                # compiled; CLAUDE.md is a symlink to it
-      .claude/skills/  .agents/skills/
-      .claude/settings.json    # kit hook lives here, not in user settings
-      memory/                  # plain notes shared by the bot's sessions
-      work/                    # target clones; gitignored
-  <bots>.skill-sources/        # kit-managed clones of online sources
-```
-
+- Inside that repo: what every bot gets by default, the user's own rules and common skills, the list of online skill sources, and one folder per bot holding its charter and settings, its book of sessions, its `AGENTS.md`, its skills, its shared notes and its work area. Clones of online skill sources sit beside the bots repo, never inside it. File and folder names are the builder's choice. [decided in substance]
 - `work/` is gitignored. [decided — blanket]
 - Per-bot `memory/`: plain notes all sessions of the bot can read and write; "remember this" writes there; writing does not message other sessions. [decided]
+
+- Whenever the kit writes to a file the user owns, what the user wrote is preserved and the result is valid; otherwise the kit refuses and writes nothing. It uses the standard library for the format rather than editing text by hand. [decided]
 
 ### 6.4 Bots and sessions
 
@@ -125,27 +110,28 @@ Each line is a check a developer can run. Issues turn these into acceptance test
 - Each session sets: harness, model, effort, context window, approval level, start prompt. [decided]
 - The kit never hardcodes a model id; empty means the harness default. Init asks once for the harness. [decided]
 - Approval levels: `auto` (default; the harness's real auto mode), `ask`, `dangerously-skip` (only when the user asks for it in plain words). [decided] → ADR 0005
-- Flag mapping, checked on Claude Code 2.1.278 and Codex 0.153.4 [proposed]: `auto` = `--permission-mode auto` / `--approve-for-me`; `ask` = `--permission-mode manual` / `-a on-request`; `dangerously-skip` = `--dangerously-skip-permissions` / `--dangerously-bypass-approvals-and-sandbox`. Codex gets `--add-dir` for a work dir outside the bot home. Free `extra_args` per session.
+- Each approval level maps to the harness's own flags; the mapping is a fact kept in `tech-notes.md` and re-checked when a harness updates. A session can carry extra launch arguments the kit does not know about. [decided in substance]
+- A start prompt is inline text or, when it is long or complex, a file in the bot home that the session refers to. It reaches the harness unchanged, byte for byte, on the launch line as the harness's own prompt argument. [decided]
 - Start prompt: sent once when the tab is created; not re-sent on resume; **re-sent automatically after `/clear`**. It is the only thing that tells one session's duty from another's when they start in different tabs. [decided]
 - Bot creation can resume an external existing session. Setup is done through an LLM, now and later through Bot Father, and that LLM does its best to help the user migrate the rest. [decided]
 
 ### 6.5 Session identity
 
 - The kit's book is the authority for session ids. Orca loses its resume record when a tab is closed. [decided] → ADR 0002
-- A hook in the bot's own settings fires on start, resume and clear, and calls `obk session-seen`, which writes the new id and moves the old one to history. Codex: its own hooks file; fallback = newest transcript for that bot folder. [decided] → ADR 0010
+- The kit learns a session's new id whenever the session starts, resumes or is cleared, and keeps the old one in that session's history. Whatever it installs for this lives in the bot's own folder, never in user-level settings. [decided] → ADR 0010
 - `/clear` and compact are supported. `/clear` always makes the harness generate a new session id (certain for Claude Code, likely the same for Codex). The old ids are kept, for history, auditing, finops or whatever needs them. `/clear` means the user wants a clean start; no handoff happens automatically. [decided]
 - Session ids are remembered across a restart, whether from a computer restart or one asked for by Bot Father. [decided]
 - When skills change, Bot Father's management skill knows how to reload them without a restart. [decided]
-- `obk up` is idempotent: for each session in the book with no tab, create the tab with the resume id. It never closes tabs. [proposed]
+- Bringing the fleet up is safe to repeat: it restores what is missing and never closes or disturbs what is already running. [decided in substance]
 - When something interrupts a tab the kit opened, the caller (an LLM: the setup step or Bot Father) looks at the tab through Orca and answers in the tab: trust is given by clicking yes (if the harness then writes its own config, that is fine); a harness's own update offer is accepted; the oh-my-zsh update question gets a no; anything it does not recognise is raised with the user through Bot Father or whoever asked to start the fleet. The kit's code does not change user-level settings on its own initiative. None of this is a ban: the user can ask the LLM to do it another way. [decided]
 - Restarts are avoided but not banned. One happens when the user asks for it explicitly. When everything needs restarting, Bot Father reminds the user to do it from the ops session. [decided]
-- Reload without restart: skill changes are picked up live and the session gets a short note; a rule change gets a "re-read your AGENTS.md" message; model and effort are switched in-session where the harness allows. [proposed]
+- Changes reach running sessions without a restart wherever the harness allows it; the sessions a change affects are told. [decided]
 - A config change notifies the sessions it affects. [decided — blanket]
 
 ### 6.6 Rules and `AGENTS.md`
 
 - Each bot has one `AGENTS.md`, shared by all its sessions. It is per bot — the bot's identity — not a universal file. [decided]
-- It is compiled from rule units: kit common rules + the user's rules + per-bot overrides, plus the bot's charter. `defaults.yaml` sets what every bot gets. Text outside the managed region is kept; a hand edit inside it stops the build and shows the conflict. [decided] → ADR 0003
+- It is built from the bot's charter plus rule units: the kit's common rules, the user's rules, and the bot's own choices, with defaults that every bot gets. What the user wrote by hand is kept, and a conflict with the build is shown, never silently overwritten. [decided] → ADR 0003
 - `CLAUDE.md` in the bot folder is a symlink to `AGENTS.md`. [decided]
 - The kit imports the good rules from the owner's global rules file and carries them itself. It does not rely on any user-level rules file, and it does not depend on the owner's `agent-infra` repo, which goes away in the long run. The owner intends to remove his own user-level rules; to him only repo-level and bot-level rules make sense now. [decided]
 - A short set of always-on rules lives in `AGENTS.md`; the depth lives in skills. No separate principles skill. [decided]
@@ -155,7 +141,7 @@ Each line is a check a developer can run. Issues turn these into acceptance test
 
 - The kit ships common skills the user picks from. The user may keep common skills in the bots root or anywhere. [decided]
 - `skills.yaml` lists online sources: repo, subfolder, ref (branch, tag or sha). The kit clones them into the sibling `<bots>.skill-sources/` folder, records the resolved sha, and links what a bot uses. [decided]
-- A bot references skills as `kit:`, `common:`, `src:` or `path:`; `skills sync` makes the links into both harness folders. Anything placed by hand is left alone and listed as unmanaged. Skills are per bot. [decided]
+- A bot can use skills from the kit, from the user's common folder, from an online source, or from any path; they are linked into both harnesses. Anything the user placed by hand is left alone and shown as not managed by the kit. Skills are per bot. [decided]
 - A one-line warning when a source has scripts or hooks; no scanning, no gate — the user takes the risk. [decided]
 - Kit skill names carry the prefix `obk-`; folder name = skill name. [decided] → ADR 0009
 - Bot Father recommends and provides the right skills for each role the user creates. [decided]
@@ -168,8 +154,8 @@ Each line is a check a developer can run. Issues turn these into acceptance test
 - Grooming reads the managed bots' new history, runs finops, and sends its result to the management session, which recommends further. [decided]
 - Finops is part of the bot-management skill family and one step of daily grooming. Usage comes from the harness transcripts; prices come from a live lookup on the provider's page; it says so when a price is unknown. It advises on model, effort and context, and flags signs that a model is not smart enough. ccusage and third-party price files are optional, not dependencies. [decided]
 - Routing: a kit problem is filed as a GitHub issue directly (no draft step); a usage problem goes back to the managed session as feedback. [decided]
-- Management skills: how many and how they split is the implementer's choice. [decided] Proposal: `obk-bot-management`, `obk-bot-grooming`, `obk-bot-finops`, `obk-bot-messaging`, `obk-skill-management`. [proposed]
-- Conflict checks — a tool writing into a managed config file, and other configuration conflicts — are part of bot management: a doctor skill, or merged into another management skill. [decided] A `obk doctor` command reports plain facts (a `CLAUDE.md` above a bot, broken links, a book session with no tab) and the skill judges them and proposes a fix. [proposed]
+- Management skills: how many and how they split is the builder's choice. [decided]
+- Conflict checks — a tool writing into a managed config file, and other configuration conflicts — are part of bot management: a doctor skill, or merged into another management skill. [decided] The kit's code reports facts; judging them and proposing a fix is the skill's job. [decided in substance]
 - Ordinary bots do not read other bots' histories unless the user asks. Bot Father and grooming may. [decided]
 - Practices borrowed from how people run Grok Bots: an interview that writes the bot's charter; a review of the bot list that gives each bot one verdict; a pattern counts only after it appears twice; each finding gets one kind of fix; short reports; pausing a bot also pauses its automation. [proposed]
 
@@ -177,6 +163,7 @@ Each line is a check a developer can run. Issues turn these into acceptance test
 
 - Sessions and bots can talk. Same harness: native messaging when it works; across harnesses: Orca. [decided] → ADR 0008
 - Research result: Claude-to-Claude native messaging is documented and addressable by session name; Codex-to-Codex (`codex queue`) is not trustworthy yet. So: Claude↔Claude native; everything else through the Orca mailbox; retest Codex during the build. [decided rule, researched outcome]
+- A message is short text, and when the content is long or complex it is written to a file and the message carries the text plus a reference to that file. Same idea as the start prompt; it matters most on the cross-harness Orca path. [decided]
 - Default behaviour is "good enough": queued, not interrupting; no waiting for an ack; a reply only when asked for; interrupt supported but used with caution; no over-broadcasting. [decided]
 - The kit sets no message-acceptance override. With the default `auto` level on both ends, Claude Code delivers native messages without asking; that is the harness's own rule. A pair that includes a `dangerously-skip` session would be held for approval, so such pairs use the Orca mailbox. [decided: it is up to auto mode]
 
@@ -258,6 +245,7 @@ This section is how this repo is being built right now. It is a temporary arrang
 - For now: one developer session (Claude, Opus 5, high effort) works one issue at a time. A separate reviewer session (Codex, Astra, high effort) in its own clone reviews each PR once and only comments. The developer fixes what the review asked and then merges the PR itself; it does not wait for the owner. A second review happens only when the case is out of the ordinary. The design session stays outside as coordinator: it hands out the issues, routes the review, clears the developer session between issues, decides most questions and takes only real owner decisions to the owner. [decided, temporary]
 - CI runs a good current Node version, not the lowest one the package supports. [decided]
 - A symlink loop in a path the kit is given is detected and reported to the user as a problem, in plain words. [decided]
+- Issues and briefs give intent and boundary, never how. Builders take the boring way: what a standard library or the platform already does is used, not hand-rolled, and no requirement is made stricter than the intent needs. Reviewers question the approach before the edge cases. [decided]
 - Thorough is good, formality for its own sake is not. Reviews and mutation checks go deep on what can break and on whether the change does what was asked; they do not repeat the same formal checks on every PR, and a second or third look skips what did not change, on judgment. [decided, temporary]
 - Each build step ends with a live check in Orca on both harnesses where it applies. [proposed]
 - Live checks still owed from research: the session id follows `/clear`; a Claude session name survives resume; Codex auto mode allows `orca` and `gh`; the Orca automation keeps one grooming conversation; `codex queue` retest.
