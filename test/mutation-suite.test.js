@@ -78,25 +78,17 @@ const oneAtATime = (marks) => marks.every((mark, at) => mark.kind === (at % 2 ==
 /** The process a file ran in, or undefined when it never started. */
 const pidOf = (marks, file) => marks.find((mark) => mark.file === file && mark.kind === 'start')?.pid;
 
-/** Whether a process is still there. Signal 0 asks after one without sending anything. */
-function running(pid) {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    // ESRCH is gone; EPERM is there but not ours to signal, which still counts.
-    return error.code === 'EPERM';
-  }
-}
-
 /**
- * Wait for a process to go away, for as long as one has any business taking.
- * A kill that has landed shows up in milliseconds, so this answers at once in
- * the normal case; a process nobody killed is still there when the time is up.
+ * Wait until a file has started, and report the process running it. Starting a
+ * process takes as long as the machine takes, so this waits rather than assumes.
  */
-async function waitForExit(pid) {
-  for (let left = 40; left > 0 && running(pid); left -= 1) await sleep(50);
-  return !running(pid);
+async function waitForStart(fixture, file) {
+  for (let left = 200; left > 0; left -= 1) {
+    const pid = pidOf(await fixture.marks(), file);
+    if (pid !== undefined) return pid;
+    await sleep(50);
+  }
+  throw new Error(`${file} never started`);
 }
 
 /**
@@ -142,7 +134,8 @@ async function createRepo(t, spec) {
     writeCache: (value) => writeFile(cache, typeof value === 'string' ? value : JSON.stringify(value)),
     /**
      * Run the script. `mutant` makes one live, `cache: false` names no cache
-     * file at all, `timeoutMs` shortens the timeout, `cwd` runs it elsewhere.
+     * file at all, `timeoutMs` sets the variable the script must ignore,
+     * `cwd` runs it elsewhere.
      */
     run: ({ mutant = false, cache: useCache = true, timeoutMs, cwd } = {}) => node(
       [path.join(repo, 'scripts', 'mutation-suite.js')],
@@ -176,6 +169,18 @@ describe('mutation-suite', { concurrency: true }, () => {
     const config = (await import(pathToFileURL(path.join(repoRoot, 'stryker.config.mjs')).href)).default;
 
     assert.match(config.commandRunner?.command ?? '', /mutation-suite/);
+  });
+
+  test('stryker never mutates the runner it runs the suite with', async () => {
+    // A mutated runner decides its own verdict: it supplies the failing exit
+    // that means "killed", so the numbers say nothing about the tests. The
+    // targets are globs, and `scripts/**/*.js` covers this file, so the config
+    // is where that is taken back — `scripts/mutate.js` cannot filter a glob a
+    // person typed.
+    const config = (await import(pathToFileURL(path.join(repoRoot, 'stryker.config.mjs')).href)).default;
+
+    const excluded = (config.mutate ?? []).filter((pattern) => /mutation-suite/.test(pattern));
+    assert.deepEqual(excluded, ['!scripts/mutation-suite.js'], `got: ${JSON.stringify(config.mutate)}`);
   });
 
   test('only the repo\'s own test/*.test.js files are run', async (t) => {
@@ -331,49 +336,32 @@ describe('mutation-suite', { concurrency: true }, () => {
     assert.ok(ms['test/quick.test.js'] < held, `the quick file was not timed on its own: ${shown}`);
   });
 
-  test('a file that runs longer than the timeout fails the run, and is not left running', async (t) => {
-    // A mutant that hangs the code is a mutant the tests caught — but only if
-    // the run cuts the file off. Waiting the hang out reaches the same verdict
-    // at the price the timeout exists to avoid, so both halves are pinned here:
-    // the run came back long before the file could have ended by itself, and
-    // the process is gone.
+  test('a test file that hangs is never cut off: the run is still waiting', async (t) => {
+    // A cutoff here would hand StrykerJS the same failing exit a failing test
+    // gives it, and a mutant that merely made the code slow would be recorded
+    // as Killed. StrykerJS has a timeout of its own and reports it as Timeout —
+    // its own outcome, and the honest one, because a run that never finished
+    // says nothing about whether the mutant died. So this script waits.
     //
-    // Nothing here races the clock. The timeout is far longer than any ordinary
-    // file needs to start, the file is held open ten times the timeout, and the
-    // line between "cut off" and "waited out" is drawn in the wide gap between
-    // the two, where no amount of load on the machine reaches.
-    const held = 30000;
-    const cutOff = 3000;
-    const onlyIfItWaited = 12000;
-    const fixture = await createRepo(t, { 'test/stuck.test.js': { delay: held } });
+    // `OBK_MUTATION_TIMEOUT_MS` is set to a fraction of a second to prove it is
+    // not read: a script that still honoured it would be back almost at once.
+    const fixture = await createRepo(t, { 'test/hangs.test.js': { delay: 30000 } });
 
-    const startedAt = Date.now();
-    const result = await fixture.run({ timeoutMs: cutOff });
-    const took = Date.now() - startedAt;
-    // Sampled here rather than later: whether the file was still going at the
-    // moment the run came back is what tells a slow kill from no kill at all.
-    const pid = pidOf(await fixture.marks(), 'test/stuck.test.js');
-    const wasRunning = pid !== undefined && running(pid);
+    const run = fixture.run({ mutant: true, timeoutMs: 300 });
+    const stillWaiting = Symbol('still waiting');
+    // Whichever comes first: the file gets going, or the run gives up on it.
+    // Racing the two keeps a cut-off file from looking like a file that was
+    // simply slow to start.
+    const pid = await Promise.race([waitForStart(fixture, 'test/hangs.test.js'), run.then(() => undefined)]);
+    assert.ok(pid, 'the run came back before the file that hangs had even started');
 
-    assert.notEqual(result.code, 0);
-    assert.match(result.stdout + result.stderr, /test\/stuck\.test\.js/);
-    assert.ok(pid, 'the stuck file never started, so nothing here was cut off');
-    assert.ok(
-      took < onlyIfItWaited,
-      `the run took ${took}ms, so it sat out the ${held}ms file instead of cutting it off `
-      + `(the file's process was ${wasRunning ? 'still running' : 'gone'} when the run came back)`,
-    );
-    assert.ok(await waitForExit(pid), `the stuck file is still running as process ${pid}`);
-  });
+    const outcome = await Promise.race([run, sleep(2000).then(() => stillWaiting)]);
 
-  test('with no timeout named, a file of about a second is not cut off', async (t) => {
-    // The default has to leave room for a real test file; the suite itself
-    // takes the better part of a minute.
-    const fixture = await createRepo(t, { 'test/a.test.js': { delay: 900 } });
-
-    const result = await fixture.run();
-
-    assert.equal(result.code, 0);
+    assert.equal(outcome, stillWaiting, 'the run came back instead of waiting for the file that hangs');
+    // Nothing is left behind: end the file this test started, and let the run
+    // notice and finish, so the test owns no process by the time it is over.
+    process.kill(pid, 'SIGKILL');
+    await run;
   });
 
   test('with no cache file named, the run still works', async (t) => {

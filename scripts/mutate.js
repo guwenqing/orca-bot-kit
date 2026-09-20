@@ -23,6 +23,12 @@ const BASE = 'main';
 // Mutating means mutating this repo's own code: the CLI and these scripts.
 const WORTH_MUTATING = /^(src|scripts)\/.*\.js$/;
 
+// Except the one file a mutation run cannot judge: the runner the check itself
+// uses. A mutant in it is tested by a run of the mutated runner, which decides
+// its own verdict, so whatever comes out says nothing about the tests. It is
+// checked by hand instead, the way PRD 7.3 rule 8 describes.
+const THE_RUNNER = 'scripts/mutation-suite.js';
+
 // git's output, a line per entry, with its record terminator dropped. A command
 // that fails stops the run: a wrong answer here would silently mutate the wrong
 // files, or nothing at all.
@@ -55,12 +61,20 @@ function changedFiles() {
 }
 
 function run(argv) {
-  const targets = argv.length > 0 ? argv : changedFiles();
+  const named = argv.length > 0;
+  const wanted = named ? argv : changedFiles();
+  const targets = wanted.filter((file) => file !== THE_RUNNER);
+
+  if (targets.length < wanted.length) {
+    process.stdout.write(
+      `Leaving out ${THE_RUNNER}: it is the runner this check uses, so a run of it would be judging itself. Check that file by hand.\n`,
+    );
+  }
 
   if (targets.length === 0) {
-    process.stdout.write(
-      `Nothing to mutate: this branch changes no JavaScript under src/ or scripts/ against ${BASE}.\n`,
-    );
+    process.stdout.write(named
+      ? 'Nothing to mutate: nothing named is left to mutate.\n'
+      : `Nothing to mutate: this branch changes no JavaScript under src/ or scripts/ against ${BASE}.\n`);
     return 0;
   }
 

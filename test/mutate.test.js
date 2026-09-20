@@ -51,6 +51,8 @@ async function createBaseRepo() {
   await mkdir(path.join(repo, 'scripts'));
   await copyFile(scriptEntry, path.join(repo, 'scripts', 'mutate.js'));
   await write(repo, 'scripts/tool.js', 'export const tool = 1;\n');
+  // The mutation check's own runner: a file the check must never hand to stryker.
+  await write(repo, 'scripts/mutation-suite.js', 'export const suite = 1;\n');
   await write(repo, 'src/one.js', 'export const one = 1;\n');
   await write(repo, 'src/two.js', 'export const two = 2;\n');
   await write(repo, 'src/data.json', '{"n": 1}\n');
@@ -222,6 +224,55 @@ describe('mutate', { concurrency: true }, () => {
       argsOf(await fixture.stryker.calls()),
       [['run', '--mutate', 'scripts/tool.js,src/three.js,src/two.js']],
     );
+  });
+
+  test('the check\'s own runner is left out of the targets, and the run says so', async (t) => {
+    // Mutating it means the mutated runner decides its own verdict: it supplies
+    // the failing exit that counts as a kill, whatever the tests do. Those
+    // numbers cannot be told from real ones, so the file is judged by hand
+    // instead — deliberate breaks, one at a time.
+    const fixture = await createRepoOnBranch(t);
+    await fixture.edit('scripts/mutation-suite.js', 'export const suite = 2;\n');
+    await fixture.edit('src/one.js', 'export const one = 11;\n');
+    await fixture.commit('change the runner and one');
+
+    const result = await fixture.run();
+
+    assert.equal(result.code, 0);
+    assert.deepEqual(argsOf(await fixture.stryker.calls()), [['run', '--mutate', 'src/one.js']]);
+    // Nobody should be left wondering where the file went.
+    assert.match(result.stdout + result.stderr, /scripts\/mutation-suite\.js/);
+  });
+
+  test('naming the runner yourself does not get it mutated either', async (t) => {
+    const fixture = await createRepoOnBranch(t);
+
+    const result = await fixture.run(['scripts/mutation-suite.js', 'src/two.js']);
+
+    assert.deepEqual(argsOf(await fixture.stryker.calls()), [['run', '--mutate', 'src/two.js']]);
+    assert.match(result.stdout + result.stderr, /scripts\/mutation-suite\.js/);
+  });
+
+  test('the runner as the only named target leaves nothing to mutate', async (t) => {
+    const fixture = await createRepoOnBranch(t);
+
+    const result = await fixture.run(['scripts/mutation-suite.js']);
+
+    assert.equal(result.code, 0);
+    assert.match(result.stdout, /nothing/i);
+    assert.deepEqual(argsOf(await fixture.stryker.calls()), []);
+  });
+
+  test('the runner as the only file the branch changed leaves nothing to mutate', async (t) => {
+    const fixture = await createRepoOnBranch(t);
+    await fixture.edit('scripts/mutation-suite.js', 'export const suite = 2;\n');
+    await fixture.commit('change the runner alone');
+
+    const result = await fixture.run();
+
+    assert.equal(result.code, 0);
+    assert.match(result.stdout, /nothing/i);
+    assert.deepEqual(argsOf(await fixture.stryker.calls()), []);
   });
 
   test('nothing relevant changed: it says so, exits 0 and does not run stryker', async (t) => {

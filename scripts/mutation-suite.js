@@ -30,9 +30,6 @@ const mutantLive = process.env.__STRYKER_ACTIVE_MUTANT__ !== undefined;
 /** Where a run leaves what it learned for the next one. Optional, and shared. */
 const cacheFile = process.env.OBK_MUTATION_CACHE;
 
-/** A test file still going after this has hung: a mutant the tests caught. */
-const timeoutMs = Number(process.env.OBK_MUTATION_TIMEOUT_MS) || 60_000;
-
 /** The files `npm test` runs: the unit and end-to-end tests, not the system ones. */
 function testFiles() {
   return readdirSync(path.join(repo, 'test'))
@@ -84,15 +81,17 @@ function ordered(files, cache) {
  * Run one test file. Resolves with how it went and never rejects: a file that
  * could not be started at all is a failing file like any other.
  *
- * The child leads a process group of its own, so cutting off a hung test takes
- * the test runner and the CLI processes it spawned with it.
+ * A file that never finishes is not cut off here. Ending it would mean calling
+ * it a failure, and a run that did not finish does not say whether the mutant
+ * died — a test that is merely slow would inflate the score, and the report
+ * would show a kill nobody made. StrykerJS ends a run that takes too long
+ * itself, reports it as a timeout of its own, and kills the process tree.
  */
 function runFile(file) {
   return new Promise((resolve) => {
     const started = Date.now();
     const child = spawn(process.execPath, ['--test', file], {
       cwd: repo,
-      detached: true,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 
@@ -102,30 +101,9 @@ function runFile(file) {
     child.stdout.on('data', (chunk) => { output += chunk; });
     child.stderr.on('data', (chunk) => { output += chunk; });
 
-    const killGroup = () => {
-      try { process.kill(-child.pid, 'SIGKILL'); } catch { /* the group has ended */ }
-    };
-
-    let hung = false;
-    let insist;
-    const cutOff = setTimeout(() => {
-      hung = true;
-      killGroup();
-      // One signal is not always enough. `node --test` runs the file in a
-      // worker it forks, and a worker forked at the very moment the group is
-      // signalled joins the group without being signalled; it then holds the
-      // pipes open, and the run would wait out the hang it just cut off. So
-      // keep asking until the child is really gone.
-      insist = setInterval(killGroup, 200);
-    }, timeoutMs);
-
-    const done = (ok) => {
-      clearTimeout(cutOff);
-      clearInterval(insist);
-      resolve({ file, ok, ms: Date.now() - started, output, hung });
-    };
+    const done = (ok) => resolve({ file, ok, ms: Date.now() - started, output });
     child.on('error', (error) => { output += `${error.message}\n`; done(false); });
-    child.on('close', (code) => done(code === 0 && !hung));
+    child.on('close', (code) => done(code === 0));
   });
 }
 
@@ -141,8 +119,7 @@ async function runAll(files, limit) {
 
 /** What someone reading a failed run needs: which file it was, and what it said. */
 function report(result) {
-  const why = result.hung ? `ran longer than ${timeoutMs}ms` : 'failed';
-  process.stdout.write(`mutation-suite: ${result.file} ${why}\n${result.output}`);
+  process.stdout.write(`mutation-suite: ${result.file} failed\n${result.output}`);
 }
 
 const files = testFiles();

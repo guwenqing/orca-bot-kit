@@ -15,7 +15,10 @@ export default {
   commandRunner: { command: 'node scripts/mutation-suite.js' },
   coverageAnalysis: 'off',
 
-  mutate: ['src/**/*.js', 'scripts/**/*.js'],
+  // Everything but the runner this check uses: a mutant in that file is judged
+  // by the mutated file itself, so whatever comes out says nothing. It is
+  // checked by hand instead, the way PRD 7.3 rule 8 describes.
+  mutate: ['src/**/*.js', 'scripts/**/*.js', '!scripts/mutation-suite.js'],
 
   // Stryker copies the project into a sandbox with the execute bit off, and the
   // tests reach the CLI as `obk` on PATH — a symlink to src/cli.js that has to
@@ -29,9 +32,11 @@ export default {
   concurrency: availableParallelism(),
 
   // A mutant that survives is only known to have survived once every test file
-  // has run, which is minutes when the machine is busy with other mutants; this
-  // has to stay well clear of that, or a survivor would be read as a hang and
-  // counted as killed. Hangs are caught inside the run instead, per test file.
+  // has run, which is minutes when the machine is busy with other mutants, so
+  // this has to stay well clear of that. What is left is the real hangs: a
+  // mutant that stops the code from finishing ends up here, and Stryker reports
+  // it in a column of its own. A timeout is not a kill anyone made — it is a
+  // run that never answered, and it is there to be looked at.
   timeoutMS: 300_000,
 
   reporters: ['clear-text', 'progress'],
