@@ -220,6 +220,7 @@ TDD and tests:
 - The author gets the requirement and the public interfaces, not the implementer's code plan, and follows the test-writing part of the skill. [decided]
 - The implementer cannot change a test to make it pass. [decided] A test that looks wrong is reported to the author. [proposed]
 - The author's tests are validated by mutation testing, so silly tests are caught. [decided]
+- Mutation testing is one step done before the work is complete, not something to run after every change to the code. [decided]
 - Mutation testing: use the language's standard tool; if it is not set up, guide the user to set it up and follow their choice; in the worst case the agent does it itself. [decided]
 - Refactoring is outside the red/green loop. A small refactor is part of the change and fits the same old contract (so the existing tests stay green — the assistant's reading). If a change is so substantial that the old tests cannot hold, the tests are redone the proper way: the separate author again, usually deleting the old tests first. A large-scale refactor is a planned activity of its own. [decided]
 
