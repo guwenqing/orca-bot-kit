@@ -16,10 +16,18 @@ const rulesDir = path.join(repoRoot, 'rules');
 /** A unit name has the shape an Agent Skills name has, and so does its file. */
 const NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
-/** What one unit may take, and what a bot pays for the set it gets by default. */
+/** What one unit may take. */
 const MAX_BODY_LINES = 14;
 const MAX_LINE = 100;
-const MAX_ALL_CHARS = 6000;
+
+/**
+ * The ceiling on the default set: the applies: all bodies are what every session
+ * of every bot reads on every turn, and 6,500 characters is around 1,600 tokens
+ * of that reading. It is a limit on the cost, not a size the set has to reach.
+ * A rule the bots need is not trimmed to fit under it; when one no longer fits,
+ * weigh what the extra tokens buy on every turn, and raise the number.
+ */
+const MAX_ALL_CHARS = 6500;
 
 /** Everything in rules/, whatever it is: the shape test needs to see the strays too. */
 async function entries() {
@@ -114,10 +122,10 @@ test('every unit has a body, and no heading of its own', async () => {
 });
 
 test('the units stay inside the budget a bot pays on every turn', async () => {
-  // This text sits in the prompt of every session, so its size is part of the
-  // interface: a unit that needs more room is a skill, not a rule. The default
-  // set is counted in characters, because the bodies are hard-wrapped and a
-  // line count would measure the wrapping rather than the reading.
+  // A unit that needs more room than one unit may take is a skill, not a rule.
+  // The default set is counted in characters, because the bodies are
+  // hard-wrapped and a line count would measure the wrapping rather than the
+  // reading.
   let byDefault = 0;
   for (const unit of await units()) {
     const { data, body } = parts(unit);

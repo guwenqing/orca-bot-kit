@@ -9,9 +9,9 @@ Run it, read the failure, then write the code. A bug starts with a test that
 reproduces it.
 
 The test author is someone else: a subagent or another session, working from the
-requirement and the public interface, not from your plan or your code. When
-there was nobody else, write the tests first as their own step and say that the
-author was not separate.
+requirement and the public interface, not from your plan or your code. When you
+can neither start one nor reach one, say so and ask before writing the tests
+yourself.
 
 A test that stands in your way goes back to its author with what you think is
 wrong with it. It does not get weakened, skipped or deleted to reach green.
