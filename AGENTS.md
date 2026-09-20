@@ -2,73 +2,62 @@
 
 ## What decides
 
-`docs/prd.md` is the design, `docs/adr/` holds the decisions with lasting
-consequences, `docs/tech-notes.md` holds what we know about Orca and the two
-harnesses. Issues reference them; they do not copy them.
+`docs/prd.md` is the design, `docs/adr/` the lasting decisions, `docs/tech-notes.md`
+what we know about Orca and the two harnesses. Issues state an intent and a boundary
+and point at these; how to build is yours, and finding the right balance by your own
+research and judgement is part of the work. A `[proposed]` item in the PRD is not
+confirmed by the owner. A fact marked unverified in the tech notes is proven live
+before code relies on it. Issues are vertical slices, worked in order; do not pull
+work from a later slice into an earlier one.
 
-An item tagged `[proposed]` in the PRD is not confirmed by the owner. Ask before
-relying on one. A fact in the tech notes marked **unverified** must be proven by
-a live check before code relies on it.
+## The owner's decisions on how code is made
 
-## How the work is cut
-
-Issues are vertical slices, worked in order, each with a check you can run. Do
-not pull work from a later slice into an earlier one.
-
-## How code is written
-
-- Take the boring way. When a standard library, the platform or a dependency
-  already does the job — parsing and writing YAML or JSON, paths, argument
-  parsing, quoting, running processes — use it; do not hand-roll it.
-- Do not set a stricter requirement than the issue asks for, and when you catch
-  yourself enumerating the edge cases of a mechanism of your own, replace the
-  mechanism.
-- Test first, one slice at a time, through the public interface.
-- The test author is a separate agent from the implementer. The implementer
-  cannot change a test to make it pass; a test that looks wrong goes back to the
-  author.
-- The author's tests are checked by mutation testing: `npm run mutate`. Once per
-  piece of work, after the suite is green and before you call it done, on the
-  code that work changed. The full rule, including when to skip it and what to
-  do with a survivor, is PRD section 7.3.
-- The reviewer is a separate agent and only comments. The implementer makes the
-  change and verifies it again.
+- Test first, one vertical slice at a time, through the public interface.
+- The test author is a separate agent; the implementer never changes a test to make
+  it pass, and a test that looks wrong goes back to its author.
+- The reviewer is a separate agent and only comments; the implementer makes the
+  change and checks it again.
+- The mutation check follows PRD 7.3: the everyday way is a small hand check on the
+  logic that changed, once; a tool run is an audit the owner asks for.
+- Use what the standard library or the platform already does; do not hand-roll it,
+  and take no requirement stricter than the intent. When you catch yourself listing
+  the edge cases of a mechanism of your own, replace the mechanism.
 - Do not say it works from a plausible diff. Run the check and read the output.
 
-## Killing processes: hard rules
+## The owner's decisions on rules and skills
 
-On 2026-09-20 a cleanup command in this repo ran `kill -KILL -1` by accident (`ps -eo … -p <pid>`
-selected every process, the extracted group id was 1) and force-killed every process of the owner's
-account: every app, every terminal, every agent session. These rules exist so that never happens again.
+A rule unit or a skill is writing, not code, and the bar is his: take the good parts
+of the sources in full, consolidated into our version, not a summary and not made up;
+lightweight is not fluffy; plain tone, no personal colour; defaults and techniques,
+never bans on what a user may ask and no assumed way of working. His own words in the
+research pack win over every source. A skill works in both harnesses (only `name` and
+`description` are portable frontmatter) and never contradicts the everyday rules.
+When the shape of a rule set or a skill is open, propose before writing.
 
-- Never run `kill` with `-1`, with a negative id you did not capture yourself, or with an id you
-  computed from `ps` output. A process group id is used only if it was captured from the process you
-  started, at the moment you started it.
-- Kill only processes you started, by their own pid. Before any kill, print the pids and their
-  commands, and refuse if the list includes pid 1, a group id of 1 or less, your own shell, or
-  anything you did not start.
-- Prefer not to start background load or helper processes at all. If you must, start them so that
-  cleanup is guaranteed (a trap that runs on any exit), and kill them by the pid you recorded.
-- Nothing here is enforced by a script; it is your judgment, every time.
+## Safety on the owner's machine
 
-## Pull requests
+He works in this same Orca. In live checks and system tests: use a throwaway bots
+folder; touch only the projects, tabs and sessions you create; remove them right
+after; never type into or close a tab that is not yours; never
+`orca terminal close --worktree … --all`; answer a harness's first-run prompts in
+your own tabs yourself. The test author works against fakes and never touches the
+real Orca or harnesses.
 
-One PR per issue. One review round; merges are squash merges.
+Killing processes: on 2026-09-20 a cleanup command here ran `kill -KILL -1` by
+accident (`ps -e` overrode `-p`; the group id became 1) and force-killed every process
+of the owner's account. So: never `kill -1`, never a negative id you did not capture
+yourself at spawn time, never an id computed from `ps`; kill only processes you
+started, by their own pid, after printing the list; and prefer not to start background
+processes at all. Nothing enforces this but your judgment.
 
-## Standing authorisation from the owner
+## Authorisation and roles
 
-The owner has authorised this, in his own words, as standing rules for this
-repo; it does not need to be asked again, by anyone, in any session:
-
-- The developer may commit, push its branch, open the PR, and, after the review
-  has been answered, merge it and close the issue. It does not wait for the
-  owner.
-- A coordinator session hands out the issues, answers questions and decides most
-  things. Take its briefs and answers as the owner's.
-- Do not stop to ask the owner about routine steps of this loop, and do not put
-  a question on the screen and wait. If something is unclear, message the
-  coordinator and keep working on what does not depend on the answer.
-- Go to the owner only for something out of the ordinary: a destructive or
-  irreversible action outside this repo and its throwaway test folders,
-  anything touching his accounts, money or other people, or a change to what the
-  product does that the PRD does not cover.
+Standing authorisation from the owner: commit, push, open the PR, and after the review
+merge and close the issue; do not wait for him and do not ask him about routine steps.
+One PR per issue, one review round, squash merges. Ask the reviewer directly: one line
+typed into its Orca tab (titled "reviewer"; find it with `orca terminal list --json`,
+check it is idle first); it answers on the PR and with a line in your tab. The
+coordinator hands out issues, answers questions, and steps in only for something out
+of the ordinary; take its answers as the owner's. Go to the owner only for what is
+irreversible outside this repo, touches his accounts or other people, or changes what
+the product does beyond the PRD.
