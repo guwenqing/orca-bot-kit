@@ -8,7 +8,7 @@ import { lstat, mkdir, readFile, readdir, symlink, writeFile } from 'node:fs/pro
 import path from 'node:path';
 import test from 'node:test';
 
-import { assertCleanFailure, assertSeededBotsFolder, createSandbox, git, snapshot } from './helpers/cli.js';
+import { assertCleanFailure, assertSeededBotsFolder, createSandbox, git, skipOrcaFake, snapshot } from './helpers/cli.js';
 
 /** A refusal: exit 1, a message naming the path, and no system error leaked into it. */
 function assertRefused(result, names) {
@@ -27,10 +27,10 @@ test('init --bots a link to a directory seeds the directory the link points at',
   await mkdir(real, { recursive: true });
   await symlink(real, box.path('linked-bots'));
 
-  const result = await box.run(['init', '--bots', 'linked-bots']);
+  const result = await box.run(['init', '--bots', 'linked-bots', '--harness', 'claude']);
 
   assert.equal(result.code, 0);
-  await assertSeededBotsFolder(real);
+  await assertSeededBotsFolder(real, 'claude');
   assert.ok((await lstat(box.path('linked-bots'))).isSymbolicLink(), 'the link should still be a link');
   // The link was followed, not replaced or worked around.
   assert.deepEqual(await readdir(box.cwd), ['linked-bots'], 'nothing was created beside the link');
@@ -42,10 +42,10 @@ test('init --bots a relative link to a directory seeds through the link', async 
   await mkdir(real, { recursive: true });
   await symlink(path.join('..', 'elsewhere', 'real-bots'), box.path('linked-bots'));
 
-  const result = await box.run(['init', '--bots', 'linked-bots']);
+  const result = await box.run(['init', '--bots', 'linked-bots', '--harness', 'claude']);
 
   assert.equal(result.code, 0);
-  await assertSeededBotsFolder(real);
+  await assertSeededBotsFolder(real, 'claude');
   assert.deepEqual(await readdir(box.cwd), ['linked-bots'], 'nothing was created beside the link');
 });
 
@@ -56,10 +56,10 @@ test('init --bots a chain of links seeds the directory at the end of it', async 
   await symlink(real, box.path('middle'));
   await symlink(box.path('middle'), box.path('linked-bots'));
 
-  const result = await box.run(['init', '--bots', 'linked-bots']);
+  const result = await box.run(['init', '--bots', 'linked-bots', '--harness', 'claude']);
 
   assert.equal(result.code, 0);
-  await assertSeededBotsFolder(real);
+  await assertSeededBotsFolder(real, 'claude');
 });
 
 test("the repository is made in the real folder, and is that folder's own", async (t) => {
@@ -73,7 +73,7 @@ test("the repository is made in the real folder, and is that folder's own", asyn
   await mkdir(real);
   await symlink(real, box.path('linked-bots'));
 
-  assert.equal((await box.run(['init', '--bots', 'linked-bots'])).code, 0);
+  assert.equal((await box.run(['init', '--bots', 'linked-bots', '--harness', 'claude'])).code, 0);
 
   assert.ok((await lstat(path.join(real, '.git'))).isDirectory(), '.git belongs in the real folder');
   const toplevel = await git(['rev-parse', '--show-toplevel'], real);
@@ -89,10 +89,10 @@ test("a link to a directory that already holds the user's files keeps them", asy
   await writeFile(path.join(real, 'notes.md'), 'mine\n');
   await symlink(real, box.path('linked-bots'));
 
-  const result = await box.run(['init', '--bots', 'linked-bots']);
+  const result = await box.run(['init', '--bots', 'linked-bots', '--harness', 'claude']);
 
   assert.equal(result.code, 0);
-  await assertSeededBotsFolder(real);
+  await assertSeededBotsFolder(real, 'claude');
   assert.equal(await readFile(path.join(real, 'notes.md'), 'utf8'), 'mine\n');
 });
 
@@ -101,13 +101,13 @@ test('a second init through the same link changes nothing', async (t) => {
   const real = path.join(box.root, 'elsewhere', 'real-bots');
   await mkdir(real, { recursive: true });
   await symlink(real, box.path('linked-bots'));
-  assert.equal((await box.run(['init', '--bots', 'linked-bots'])).code, 0);
+  assert.equal((await box.run(['init', '--bots', 'linked-bots', '--harness', 'claude'])).code, 0);
 
   const edited = 'rules:\n  - my-rule\nskills: []\n';
   await writeFile(path.join(real, 'defaults.yaml'), edited);
   const before = await snapshot(real);
 
-  const second = await box.run(['init', '--bots', 'linked-bots']);
+  const second = await box.run(['init', '--bots', 'linked-bots', '--harness', 'claude']);
 
   assert.equal(second.code, 0);
   assert.deepEqual(await snapshot(real), before);
@@ -119,12 +119,13 @@ test('a link pointing nowhere is refused and nothing is written', async (t) => {
   // The target is inside the sandbox, so a seeding run that followed the link
   // anyway would leave its folder behind for the snapshot to find.
   await symlink(path.join(box.root, 'gone'), box.path('linked-bots'));
-  const before = await snapshot(box.root);
+  // The fake Orca's own record of being asked is not a write to the user's disk.
+  const before = await snapshot(box.root, skipOrcaFake);
 
-  const result = await box.run(['init', '--bots', 'linked-bots']);
+  const result = await box.run(['init', '--bots', 'linked-bots', '--harness', 'claude']);
 
   assertRefused(result, 'linked-bots');
-  assert.deepEqual(await snapshot(box.root), before, 'a refusal writes nothing at all');
+  assert.deepEqual(await snapshot(box.root, skipOrcaFake), before, 'a refusal writes nothing at all');
 });
 
 test('a link to a regular file is refused and the file is left alone', async (t) => {
@@ -132,11 +133,28 @@ test('a link to a regular file is refused and the file is left alone', async (t)
   const target = path.join(box.root, 'notes.md');
   await writeFile(target, 'mine\n');
   await symlink(target, box.path('linked-bots'));
-  const before = await snapshot(box.root);
+  // The fake Orca's own record of being asked is not a write to the user's disk.
+  const before = await snapshot(box.root, skipOrcaFake);
 
-  const result = await box.run(['init', '--bots', 'linked-bots']);
+  const result = await box.run(['init', '--bots', 'linked-bots', '--harness', 'claude']);
 
   assertRefused(result, 'linked-bots');
   assert.equal(await readFile(target, 'utf8'), 'mine\n');
-  assert.deepEqual(await snapshot(box.root), before, 'a refusal writes nothing at all');
+  assert.deepEqual(await snapshot(box.root, skipOrcaFake), before, 'a refusal writes nothing at all');
+});
+
+test('Orca is given the real folder, not the link', async (t) => {
+  // Orca does not resolve links: the same folder registered once by its link
+  // and once by its real path becomes two projects, each with its own tabs
+  // (tech notes, section 1). So the kit hands it one canonical path.
+  const box = await createSandbox(t);
+  const real = path.join(box.root, 'elsewhere', 'real-bots');
+  await mkdir(real, { recursive: true });
+  await symlink(real, box.path('linked-bots'));
+
+  assert.equal((await box.run(['init', '--bots', 'linked-bots', '--harness', 'claude'])).code, 0);
+
+  const home = path.join(real, 'bots', 'bot-father');
+  assert.deepEqual((await box.orca.setups()).map((setup) => setup.path), [home]);
+  assert.deepEqual((await box.orca.terminals()).map((terminal) => terminal.worktreePath), [home, home]);
 });

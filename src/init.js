@@ -6,8 +6,9 @@
 // or through Bot Father, so a re-run must never write over them.
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, lstatSync, mkdirSync, realpathSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { parse } from 'yaml';
 
 const DEFAULTS_YAML = `# Rules and skills every bot gets, on top of its own.
 #
@@ -31,9 +32,10 @@ const SKILLS_YAML = `# Online skill sources. The kit clones each one beside this
 sources: []
 `;
 
-const BOT_FATHER_YAML = `# Bot Father runs the fleet. Ask it for changes rather than editing this file.
+const botFatherYaml = (harness) => `# Bot Father runs the fleet. Ask it for changes rather than editing this file.
 
 name: bot-father
+harness: ${harness}
 charter: |
   Bot Father owns the fleet. It creates, changes, pauses and retires bots and
   their sessions, and keeps each bot's rules and skills in order.
@@ -45,22 +47,26 @@ charter: |
   changing a bot's rules in a way its owner did not ask for.
 rules: []
 skills: []
-sessions: []
+sessions:
+  # The management session: the tab you talk to Bot Father in.
+  - name: daily
 `;
 
-const SEEDS = [
+const BOT_FATHER_YAML = 'bots/bot-father/bot.yaml';
+
+const seeds = (harness) => [
   ['defaults.yaml', DEFAULTS_YAML],
   ['skills.yaml', SKILLS_YAML],
   ['rules/.gitkeep', ''],
   ['skills/.gitkeep', ''],
-  ['bots/bot-father/bot.yaml', BOT_FATHER_YAML],
+  [BOT_FATHER_YAML, botFatherYaml(harness)],
 ];
 
 // The directories the layout implies, parents before children, taken from the
 // seed list so the two cannot drift apart.
 const LAYOUT_DIRS = (() => {
   const dirs = new Set();
-  for (const [entry] of SEEDS) {
+  for (const [entry] of seeds('claude')) {
     const parts = entry.split('/').slice(0, -1);
     for (let depth = 1; depth <= parts.length; depth += 1) {
       dirs.add(parts.slice(0, depth).join('/'));
@@ -76,8 +82,9 @@ const LAYOUT_DIRS = (() => {
  * Everything is checked before anything is written, so a folder `init` cannot
  * make usable is left exactly as it was found rather than half seeded.
  */
-export function initBots(target) {
+export function initBots(target, harness) {
   const bots = path.resolve(target);
+  const SEEDS = seeds(harness);
 
   // The bots path is held to the same rule as everything inside it, so a link
   // to a folder on another volume is the folder it points at.
@@ -88,6 +95,7 @@ export function initBots(target) {
 
   for (const dir of LAYOUT_DIRS) checkKind(path.join(bots, dir), 'folder');
   for (const [entry] of SEEDS) checkKind(path.join(bots, entry), 'file');
+  checkHarness(path.join(bots, BOT_FATHER_YAML), harness);
 
   if (!existsSync(path.join(bots, '.git'))) {
     gitInit(bots);
@@ -139,5 +147,17 @@ function gitInit(bots) {
   if (result.error) throw new Error(`could not run git: ${result.error.message}`);
   if (result.status !== 0) {
     throw new Error(`git init failed in ${bots}: ${(result.stderr || '').trim()}`);
+  }
+}
+
+// Bot Father's harness is the user's, written once and never rewritten: a
+// second init that names the other one is a mistake worth stopping, not a
+// change to make quietly.
+function checkHarness(file, harness) {
+  if (!existsSync(file)) return;
+
+  const had = parse(readFileSync(file, 'utf8'))?.harness;
+  if (had !== undefined && had !== harness) {
+    throw new Error(`you asked for --harness ${harness}, but Bot Father is already on ${had}, and init does not change it. Run init again with --harness ${had}, or ask Bot Father to move it.`);
   }
 }

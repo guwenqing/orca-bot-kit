@@ -3,51 +3,70 @@
 // made, a run that makes nothing says so, and the two cannot be confused.
 
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
+import path from 'node:path';
 import test from 'node:test';
 
 import { createSandbox } from './helpers/cli.js';
 
-/** The lines naming what was created, and the closing summary, split apart. */
+/** The lines naming what was created, and the closing summary. */
 function report(stdout) {
   const lines = stdout.trimEnd().split('\n');
-  return { listed: lines.slice(0, -1), summary: lines.at(-1) };
+  return { created: lines.filter((line) => line.startsWith('created')), summary: lines.at(-1) };
 }
 
-test('a first init lists every entry it created', async (t) => {
+/** What each `created` line names, without the word. */
+const entriesOf = (created) => created.map((line) => line.replace(/^created\s+/, ''));
+
+/** Everything a first `init` seeds, sorted the way the report is compared. */
+const SEEDED = [
+  '.git',
+  'bots/bot-father/bot.yaml',
+  'defaults.yaml',
+  'rules/.gitkeep',
+  'skills.yaml',
+  'skills/.gitkeep',
+].sort();
+
+/** The book is written by the Orca half of the run; whether it is reported is that half's business. */
+const BOOK = 'bots/bot-father/sessions.yaml';
+
+test('a first init lists every entry it created, once each', async (t) => {
   const box = await createSandbox(t);
+  const bots = box.path('bots');
 
-  const { listed } = report((await box.run(['init', '--bots', 'bots'])).stdout);
+  const { created } = report((await box.run(['init', '--bots', 'bots', '--harness', 'claude'])).stdout);
 
-  const naming = (needle) => listed.filter((line) => line.includes(needle)).length;
-  assert.equal(naming('defaults.yaml'), 1);
-  assert.equal(naming('skills.yaml'), 1);
-  assert.equal(naming('bot.yaml'), 1);
-  assert.equal(naming('.gitkeep'), 2, 'both .gitkeep files');
-  // `.git` on its own: `.gitkeep` contains it, so the repository needs its own line.
-  assert.equal(listed.filter((line) => line.trimEnd().endsWith('.git')).length, 1);
-  assert.equal(listed.length, 6, `six entries and nothing else, got: ${listed.join(' / ')}`);
+  // Whatever else the run reports about Orca, the entries it names inside the
+  // bots folder are exactly the ones it seeded — no entry missing, none twice.
+  const named = entriesOf(created)
+    .filter((entry) => entry !== BOOK)
+    .filter((entry) => existsSync(path.join(bots, entry)));
+  assert.deepEqual(named.sort(), SEEDED);
 });
 
 test('a second init lists nothing and still names the folder', async (t) => {
   const box = await createSandbox(t);
-  assert.equal((await box.run(['init', '--bots', 'bots'])).code, 0);
+  assert.equal((await box.run(['init', '--bots', 'bots', '--harness', 'claude'])).code, 0);
 
-  const second = await box.run(['init', '--bots', 'bots']);
+  const second = await box.run(['init', '--bots', 'bots', '--harness', 'claude']);
 
   assert.equal(second.code, 0);
-  const { listed, summary } = report(second.stdout);
-  assert.deepEqual(listed, [], 'a run that created nothing should list nothing');
+  const { created, summary } = report(second.stdout);
+  assert.deepEqual(created, [], 'a run that created nothing should list nothing');
   assert.ok(summary.includes(box.path('bots')), `should name the folder, got: ${summary}`);
 });
 
-test('the summary tells a run that created something from one that did not', async (t) => {
+test('a run that made something cannot be read as one that did not', async (t) => {
   const box = await createSandbox(t);
 
-  const first = await box.run(['init', '--bots', 'bots']);
-  const second = await box.run(['init', '--bots', 'bots']);
+  const first = await box.run(['init', '--bots', 'bots', '--harness', 'claude']);
+  const second = await box.run(['init', '--bots', 'bots', '--harness', 'claude']);
 
-  assert.equal(first.code, 0);
-  assert.equal(second.code, 0);
+  assert.equal(first.code, 0, first.stderr);
+  assert.equal(second.code, 0, second.stderr);
+  assert.notEqual(first.stdout, second.stdout, 'the two runs did different things and must not read alike');
+  assert.notDeepEqual(report(first.stdout).created, [], 'the first run made the folder');
+  assert.deepEqual(report(second.stdout).created, [], 'the second made nothing');
   assert.ok(report(first.stdout).summary.includes(box.path('bots')));
-  assert.notEqual(report(first.stdout).summary, report(second.stdout).summary);
 });

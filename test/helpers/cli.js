@@ -3,12 +3,15 @@
 // Every sandbox is its own temp tree under os.tmpdir():
 //
 //   <root>/bin/obk       symlink to the repo's src/cli.js (what `npm link` makes)
-//   <root>/bin/orca      fake Orca; logs its arguments to <root>/orca.log
+//   <root>/bin/orca      fake Orca (helpers/fake-orca.js), what OBK_ORCA names
+//   <root>/orca-fake/    the fake Orca's world: state.json and calls.log
 //   <root>/cwd           the working directory the CLI is spawned from
 //   <root>/home          HOME, so a stray write to the home dir shows up here
 //
-// `bin` goes first on PATH, so the CLI under test is the real entry point and
-// any call to `orca` is recorded instead of reaching the real Orca.
+// `bin` goes first on PATH, so the CLI under test is the real entry point. The
+// kit resolves the Orca CLI through OBK_ORCA, which every sandbox points at its
+// own fake, and the same fake is on PATH as well: no test can reach the real
+// Orca, whichever of the two ways it looks for it.
 
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -16,11 +19,18 @@ import { createHash } from 'node:crypto';
 import { access, chmod, constants, lstat, mkdir, mkdtemp, readFile, readdir, readlink, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parse } from 'yaml';
 
 export const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
 const cliEntry = path.join(repoRoot, 'src', 'cli.js');
+const fakeOrcaEntry = fileURLToPath(new URL('./fake-orca.js', import.meta.url));
+
+/** Where the fake Orca keeps its world, inside a sandbox. */
+const FAKE_ORCA_DIR = 'orca-fake';
+
+/** What the fake Orca knows before a test says otherwise: an Orca that is up and empty. */
+const FRESH_ORCA = { reachable: true, waitIdle: true, setups: [], terminals: [], fail: {}, nextId: 1 };
 
 /** The version the CLI is expected to print. */
 export async function packageVersion() {
@@ -50,7 +60,7 @@ export function git(args, cwd) {
 
 /**
  * Build a sandbox for one test. Cleaned up when the test ends.
- * Returns { root, cwd, home, env, path, run, orcaCalls }.
+ * Returns { root, cwd, home, env, path, run, orca }.
  */
 export async function createSandbox(t) {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'obk-')));
@@ -79,37 +89,184 @@ export async function createSandbox(t) {
     );
   }
 
-  const orcaLog = path.join(root, 'orca.log');
+  // The fake Orca: a shim with the fake's world baked into it, so it answers
+  // the same whatever environment the CLI hands its child.
+  const fakeDir = path.join(root, FAKE_ORCA_DIR);
+  await mkdir(fakeDir);
+  const stateFile = path.join(fakeDir, 'state.json');
+  await writeFile(stateFile, `${JSON.stringify(FRESH_ORCA, null, 2)}\n`);
+
   const fakeOrca = path.join(bin, 'orca');
-  await writeFile(fakeOrca, `#!/bin/sh\nprintf '%s\\n' "$*" >> '${orcaLog}'\nexit 0\n`);
+  await writeFile(fakeOrca, [
+    '#!/usr/bin/env node',
+    `process.env.OBK_FAKE_ORCA_DIR = ${JSON.stringify(fakeDir)};`,
+    `import(${JSON.stringify(pathToFileURL(fakeOrcaEntry).href)}).catch((error) => {`,
+    "  process.stderr.write(`fake orca: ${error && error.stack || error}\\n`);",
+    '  process.exit(70);',
+    '});',
+    '',
+  ].join('\n'));
   await chmod(fakeOrca, 0o755);
 
   const env = {
     ...process.env,
     PATH: `${bin}${path.delimiter}${process.env.PATH}`,
     HOME: home,
+    OBK_ORCA: fakeOrca,
   };
+
+  const readState = async () => JSON.parse(await readFile(stateFile, 'utf8'));
 
   return {
     root,
     cwd,
     home,
-    /** The environment the CLI is spawned with: `bin` first on PATH, HOME inside the sandbox. */
+    /** The environment the CLI is spawned with: `bin` first on PATH, HOME and OBK_ORCA inside the sandbox. */
     env,
     /** Path inside the sandbox's working directory. */
     path: (...parts) => path.join(cwd, ...parts),
-    /** Run `obk <args>` from the sandbox working directory (or `options.cwd`). */
-    run: (args, options = {}) => capture('obk', args, { cwd: options.cwd ?? cwd, env }),
-    /** One entry per call the CLI made to the fake `orca`. */
-    async orcaCalls() {
-      try {
-        return (await readFile(orcaLog, 'utf8')).split('\n').filter((line) => line !== '');
-      } catch (error) {
-        if (error.code === 'ENOENT') return [];
-        throw error;
-      }
+    /** Run `obk <args>` from the sandbox working directory (or `options.cwd`), with `options.env`. */
+    run: (args, options = {}) => capture('obk', args, {
+      cwd: options.cwd ?? cwd,
+      env: options.env ?? env,
+    }),
+    /** The fake Orca: what it is, what it knows, and what it was asked. */
+    orca: {
+      /** The CLI path OBK_ORCA names. */
+      cli: fakeOrca,
+      /** Everything the fake Orca knows right now. */
+      state: readState,
+      /** The workspaces Orca has, newest last. */
+      async setups() {
+        return (await readState()).setups;
+      },
+      /** The tabs Orca has, newest last. Each carries what was typed into it. */
+      async terminals() {
+        return (await readState()).terminals;
+      },
+      /** Change what the fake Orca knows or how it misbehaves; see helpers/fake-orca.js. */
+      async set(changes) {
+        await writeFile(stateFile, `${JSON.stringify({ ...await readState(), ...changes }, null, 2)}\n`);
+      },
+      /** One entry per call the CLI made to Orca: { args, cwd }, in order. */
+      async calls() {
+        try {
+          return (await readFile(path.join(fakeDir, 'calls.log'), 'utf8'))
+            .split('\n')
+            .filter((line) => line !== '')
+            .map((line) => JSON.parse(line));
+        } catch (error) {
+          if (error.code === 'ENOENT') return [];
+          throw error;
+        }
+      },
     },
   };
+}
+
+/** The leading words of an Orca call: 'status', 'repo add', 'terminal create'. */
+export function orcaCommand(call) {
+  const words = [];
+  for (const arg of call.args) {
+    if (arg.startsWith('-')) break;
+    words.push(arg);
+  }
+  return words.join(' ');
+}
+
+/** Every Orca call of one command, in order. */
+export const orcaCallsOf = (calls, command) => calls.filter((call) => orcaCommand(call) === command);
+
+/** The value an Orca call gave a flag, or undefined when the flag is not there. */
+export function orcaFlag(call, name) {
+  const at = call.args.indexOf(name);
+  return at >= 0 && at + 1 < call.args.length ? call.args[at + 1] : undefined;
+}
+
+/** The flags an Orca call carries, sorted: what it asked for, without the values. */
+export const orcaFlags = (call) => call.args.filter((arg) => arg.startsWith('--')).sort();
+
+/**
+ * The titles Bot Father's two tabs carry, exactly. The kit always writes them —
+ * at creation and again on every `up` — and reads only the ops tab's, because
+ * the ops tab is the one tab that is not in the book. A session is its tab id.
+ */
+export const TAB_TITLES = { daily: 'Bot Father daily', ops: 'Bot Father ops' };
+
+/** The book: what the kit knows about one bot's Orca project and its sessions. */
+export const bookOf = (bots, bot = 'bot-father') => path.join(bots, 'bots', bot, 'sessions.yaml');
+
+/** Every string anywhere under a value, however the shape around it is arranged. */
+function stringsIn(value) {
+  if (typeof value === 'string') return [value];
+  if (Array.isArray(value)) return value.flatMap(stringsIn);
+  if (value !== null && typeof value === 'object') return Object.values(value).flatMap(stringsIn);
+  return [];
+}
+
+/**
+ * The tab ids the book holds, as sessions. The shape around them is the
+ * implementer's; that they are sessions is not, because a session is what
+ * grooming and the later slices read.
+ */
+export function sessionTabIds(book) {
+  const parsed = parse(book) ?? {};
+  return { parsed, sessions: new Set(stringsIn(parsed.sessions)) };
+}
+
+/**
+ * Bot Father's tabs, split the only way the kit can tell them apart: the ones
+ * whose ids are in the book, and the leftovers. The kit tracks nothing about
+ * the ops tab — no id, no title — so to the kit it is simply a tab outside the
+ * book, and so it is here. No title is read, because the kit reads none.
+ */
+export async function botFatherTabs(box, bots) {
+  const book = await readFile(bookOf(bots), 'utf8');
+  const { parsed, sessions } = sessionTabIds(book);
+  const terminals = await box.orca.terminals();
+  return {
+    book,
+    parsed,
+    terminals,
+    inBook: terminals.filter((terminal) => sessions.has(terminal.tabId)),
+    leftovers: terminals.filter((terminal) => !sessions.has(terminal.tabId)),
+  };
+}
+
+/** What was typed into a tab, in order: the text of each `terminal send`. */
+export const typedInto = (terminal) => (terminal.typed ?? []).map((entry) => entry.text);
+
+/** The only Orca commands this slice may use (the slice interface, amendment 5). */
+export const ALLOWED_ORCA_COMMANDS = [
+  'status',
+  'project setups',
+  'repo add',
+  'project setup-update',
+  'terminal list',
+  'terminal create',
+  'terminal rename',
+  'terminal wait',
+  'terminal send',
+];
+
+/**
+ * The rules that hold for every Orca call the kit makes: one of the six
+ * commands, `--json` on all of them because the human text is never parsed,
+ * and never a close — closing a tab drops the user's work and Orca's resume
+ * record with it.
+ */
+export function assertOrcaCallsAllowed(calls) {
+  for (const call of calls) {
+    const command = orcaCommand(call);
+    const shown = call.args.join(' ');
+    assert.ok(ALLOWED_ORCA_COMMANDS.includes(command), `orca ${shown}: this slice may not use that command`);
+    assert.ok(call.args.includes('--json'), `orca ${shown}: every Orca call must ask for --json`);
+  }
+  assert.deepEqual(
+    calls.filter((call) => call.args.includes('close')).map((call) => call.args),
+    [],
+    'orca terminal close must never be called, with any argument',
+  );
 }
 
 /**
@@ -126,6 +283,12 @@ export function assertCleanFailure(result) {
 
 /** Skip a repo's `.git` when snapshotting or walking a tree. */
 export const skipGit = (rel) => rel === '.git' || rel.startsWith('.git/');
+
+/**
+ * Skip the fake Orca's own world when snapshotting a whole sandbox. What Orca
+ * remembers is Orca's, not something the kit wrote to the user's disk.
+ */
+export const skipOrcaFake = (rel) => rel === FAKE_ORCA_DIR || rel.startsWith(`${FAKE_ORCA_DIR}/`);
 
 /**
  * Map every path under `dir` to a description of its bytes:
@@ -158,8 +321,12 @@ async function readYaml(file) {
   return parse(await readFile(file, 'utf8'));
 }
 
-/** Everything `init` must leave at <path>. Shared: later slices seed more here. */
-export async function assertSeededBotsFolder(bots) {
+/**
+ * Everything `init --harness <harness>` must leave at <path>. Shared: later
+ * slices seed more here.
+ */
+export async function assertSeededBotsFolder(bots, harness) {
+  assert.ok(harness === 'claude' || harness === 'codex', `the test must say which harness it seeded with, got: ${harness}`);
   assert.ok((await lstat(bots)).isDirectory(), `${bots} should be a directory`);
   assert.ok((await lstat(path.join(bots, '.git'))).isDirectory(), '.git should be a directory');
 
@@ -175,9 +342,10 @@ export async function assertSeededBotsFolder(bots) {
   const botFather = await readYaml(path.join(bots, 'bots', 'bot-father', 'bot.yaml'));
   assert.deepEqual(
     Object.keys(botFather).sort(),
-    ['charter', 'name', 'rules', 'sessions', 'skills'],
+    ['charter', 'harness', 'name', 'rules', 'sessions', 'skills'],
   );
   assert.equal(botFather.name, 'bot-father');
+  assert.equal(botFather.harness, harness);
   assert.equal(typeof botFather.charter, 'string');
   assert.notEqual(botFather.charter.trim(), '');
   assert.ok(Array.isArray(botFather.rules), 'bot.yaml rules should be a list');

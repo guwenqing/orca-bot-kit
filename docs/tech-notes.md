@@ -1,6 +1,7 @@
 # Technical notes: Orca and the two harnesses
 
-Facts gathered on 2026-09-19 on the owner's Mac: Orca 1.4.205, Claude Code 2.1.278, Codex CLI 0.153.4.
+Facts gathered on 2026-09-19 on the owner's Mac: Orca 1.4.205, Claude Code 2.1.278, Codex CLI 0.153.4
+(Codex has since moved to 0.155.1; the Codex facts below were taken on 0.153.4 unless they say otherwise).
 Each fact is marked **verified** (seen in local help output, local files or official docs) or **unverified** (must be proven by a live check before code relies on it).
 Tools change fast. Re-check a flag with `--help` before using it.
 
@@ -71,7 +72,21 @@ project → repo (`kind: "git" | "folder"`) → worktree (id = `<repoId>::<absPa
   `[oh-my-zsh] Would you like to update? [Y/n]`, `claude` arrived as `laude` and `exec codex` as
   `xec codex`. Gate every send on `orca terminal wait --for tui-idle`, which answers `timeout` for as
   long as such a question is on the screen. **verified** (live)
-- `orca terminal wait --for exit|tui-idle --timeout-ms <n>` — check `wait.satisfied`.
+- `orca terminal wait --for exit|tui-idle --timeout-ms <n>`. **`tui-idle` is about a TUI, not a shell.**
+  All three answers seen live:
+  - a tab running no TUI, sitting at a clean shell prompt: exit 1, `ok:false`,
+    `error.code: "timeout"` — never satisfied, however long the timeout. So this is **not** a way to
+    ask whether a shell is ready for typing; there is no such way.
+  - a TUI that Orca can see is blocked: `ok:true`, `wait.satisfied:false`, `status:"running"`, and
+    `wait.blockedReason` says what it is — `"agent-interactive-prompt"` for Codex sitting on its
+    folder-trust question.
+  - a TUI waiting for work: `ok:true`, `wait.satisfied:true`.
+  **`blockedReason` does not catch everything.** Claude Code showing its folder-trust screen answers
+  `satisfied:true` with no `blockedReason` at all, while Codex on the same kind of screen answers
+  `satisfied:false` with one. So it is a useful hint and not a test: whether something on screen wants
+  answering is settled by reading the screen, not by this field.
+  So a `timeout` means "no TUI in this tab", and an `ok:true` answer means one is running, idle or not.
+  **verified** (live, both harnesses)
 - `orca terminal send [--terminal <h>] [--text <t>] [--enter] [--interrupt] [--wait-submit <s>] [--retry-request <id>]` — `accepted:true` means input accepted, not that the agent read it; never resend on silence; use `--retry-request` for an idempotent retry.
 - `orca terminal read [--terminal <h>] [--cursor <n>] [--limit <n>] [--screen]`, `rename`, `show`,
   `split`. Use `--screen` to see what the tab renders; the default read returns emitted output with the
@@ -90,8 +105,11 @@ Nothing in the kit's code, tests or skills stands in his way.
 - The shell's own question. On this machine zsh asks `[oh-my-zsh] Would you like to update? [Y/n]`, and
   it swallows anything typed while it is up. The usual answer is `n`; the user updates his shell
   himself. It cannot be turned off per tab, since a tab cannot be given an environment of its own.
-- A folder-trust question, on either harness: click yes. The harness then writes its own config, which
-  is fine.
+- A folder-trust question. Claude Code draws a list whose selection starts on **`No, exit`**, so it
+  takes an arrow down and then return, not a bare return. Codex draws `1. Yes, continue` / `2. No, quit`
+  with the selection already on yes, and says plainly that trusting applies to the **repository root**,
+  not the bot folder — for a bot that means the whole bots repo. Click yes either way. The harness then
+  writes its own config, which is fine.
 - A harness update offer. Codex shows `✨ Update available! … 1. Update now / 2. Skip / 3. Skip until
   next version`. Accept it.
 - Anything else: type nothing and raise it with the user, naming the bot, the tab and what is on screen.

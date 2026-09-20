@@ -34,10 +34,10 @@ for (const [label, name] of [
     const box = await createSandbox(t);
     const bots = box.path(name);
 
-    const result = await box.run(['init', '--bots', name]);
+    const result = await box.run(['init', '--bots', name, '--harness', 'claude']);
 
     assert.equal(result.code, 0);
-    await assertSeededBotsFolder(bots);
+    await assertSeededBotsFolder(bots, 'claude');
     await assertRepoRootedAt(bots);
     // Nothing was created at the tidied-up name the user did not ask for.
     assert.deepEqual(await readdir(box.cwd), [name]);
@@ -46,13 +46,13 @@ for (const [label, name] of [
   test(`a second init on a bots folder whose name ${label} changes nothing`, async (t) => {
     const box = await createSandbox(t);
     const bots = box.path(name);
-    assert.equal((await box.run(['init', '--bots', name])).code, 0);
+    assert.equal((await box.run(['init', '--bots', name, '--harness', 'claude'])).code, 0);
 
     const edited = 'rules:\n  - my-rule\nskills: []\n';
     await writeFile(path.join(bots, 'defaults.yaml'), edited);
     const before = await snapshot(bots);
 
-    const second = await box.run(['init', '--bots', name]);
+    const second = await box.run(['init', '--bots', name, '--harness', 'claude']);
 
     assert.equal(second.code, 0);
     assert.deepEqual(await snapshot(bots), before);
@@ -65,10 +65,10 @@ test('an absolute path ending in a space is seeded at that exact path', async (t
   const box = await createSandbox(t);
   const bots = path.join(box.root, 'elsewhere ');
 
-  const result = await box.run(['init', '--bots', bots]);
+  const result = await box.run(['init', '--bots', bots, '--harness', 'claude']);
 
   assert.equal(result.code, 0);
-  await assertSeededBotsFolder(bots);
+  await assertSeededBotsFolder(bots, 'claude');
   await assertRepoRootedAt(bots);
   assert.ok((await readdir(box.root)).includes('elsewhere '));
   assert.ok(!(await readdir(box.root)).includes('elsewhere'));
