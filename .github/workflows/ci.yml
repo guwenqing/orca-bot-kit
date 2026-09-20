@@ -1,0 +1,30 @@
+# Every pull request and every push to main runs the whole suite that a CI
+# machine can run: `npm test`. The system tests are not here — they need the
+# real Orca on a real desktop — and are run with `npm run test:system` before a
+# slice that touches Orca or a harness is merged.
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# `npm ci` runs whatever lifecycle scripts the dependencies carry, so the job
+# gets a token that can only read this repo.
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      # Actions are pinned to a commit: a tag can be moved to point at other code.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          # The version package.json declares: the floor the kit promises to run
+          # on, so CI finds what a user on that version would find.
+          node-version: 20.19.0
+      - run: npm ci
+      - run: npm test
