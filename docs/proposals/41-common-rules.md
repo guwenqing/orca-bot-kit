@@ -1,7 +1,9 @@
 # Proposal: the kit's common rules, reworked (#41)
 
-Status: proposal. No rule file changes with it. It exists to be read and
-argued with; the rewrite follows the owner's answer.
+Status: accepted on 2026-09-20 and carried out in the same pull request. It is
+kept as the record of why the set is the size it is, which neither the PRD nor
+an ADR answers. The four open questions in section 6 were all answered the way
+this document proposed.
 
 The fifteen units on `main` are the first version. The owner's reading of them
 was that there are too many, and that they mix what this repo is struggling
@@ -334,6 +336,15 @@ source books.
   `simple` already opens with "the smallest thing that answers the ask", and
   the set is better short than complete. It also says what the owner keeps
   saying: "For trivial tasks, use judgment."
+- **Other people's always-on files, measured.** `karpathy-guidelines`'
+  `CLAUDE.md` is 65 lines and 2,357 characters; addyosmani's is 60 lines and
+  4,094; mattpocock's is 25 lines, and it is all repo structure rather than
+  working rules; obra/superpowers ships 3 lines and points at skills for
+  everything else; the two `CLAUDE.md` files gstack injects into the sessions
+  it spawns are 12 lines each, although its own repo file is 871 lines and
+  50 KB. The proposed always-on set at 3,017 characters and 52 lines sits in
+  the middle of that range, and it carries a charter and a safety rule that
+  none of those files needs.
 - **Kent Beck's rules file (MIT).** Red-green-refactor, the simplest failing
   test first, the defect covered by an API-level test and the smallest test,
   structural and behavioural changes never in the same commit, and commit only
