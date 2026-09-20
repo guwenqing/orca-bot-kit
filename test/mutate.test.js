@@ -71,6 +71,14 @@ after(() => rm(baseRepo, { recursive: true, force: true }));
 /** The arguments of each call to a fake program, when the rest of the call does not matter. */
 const argsOf = (calls) => calls.map((call) => call.args);
 
+// The mutation check's own runner, excluded on the command line rather than
+// only in the config: `--mutate` replaces the config's list, and a target can
+// be a glob, which no comparison of paths can filter out.
+const NOT_THE_RUNNER = '!scripts/mutation-suite.js';
+
+/** The call stryker gets for `targets`: the list it was given, then the exclusion. */
+const mutating = (...targets) => ['run', '--mutate', [...targets, NOT_THE_RUNNER].join(',')];
+
 /** Whether a path is there at all. */
 async function exists(file) {
   try {
@@ -135,7 +143,7 @@ describe('mutate', { concurrency: true }, () => {
     const result = await fixture.run();
 
     assert.equal(result.code, 0);
-    assert.deepEqual(argsOf(await fixture.stryker.calls()), [['run', '--mutate', 'src/one.js']]);
+    assert.deepEqual(argsOf(await fixture.stryker.calls()), [mutating('src/one.js')]);
   });
 
   test('a file changed in the working tree but not committed is mutated', async (t) => {
@@ -144,7 +152,7 @@ describe('mutate', { concurrency: true }, () => {
 
     await fixture.run();
 
-    assert.deepEqual(argsOf(await fixture.stryker.calls()), [['run', '--mutate', 'src/two.js']]);
+    assert.deepEqual(argsOf(await fixture.stryker.calls()), [mutating('src/two.js')]);
   });
 
   test('a new untracked file is mutated', async (t) => {
@@ -153,7 +161,7 @@ describe('mutate', { concurrency: true }, () => {
 
     await fixture.run();
 
-    assert.deepEqual(argsOf(await fixture.stryker.calls()), [['run', '--mutate', 'src/new.js']]);
+    assert.deepEqual(argsOf(await fixture.stryker.calls()), [mutating('src/new.js')]);
   });
 
   test('only JavaScript under the repo\'s own src/ and scripts/ is mutated', async (t) => {
@@ -170,7 +178,7 @@ describe('mutate', { concurrency: true }, () => {
 
     await fixture.run();
 
-    assert.deepEqual(argsOf(await fixture.stryker.calls()), [['run', '--mutate', 'scripts/tool.js']]);
+    assert.deepEqual(argsOf(await fixture.stryker.calls()), [mutating('scripts/tool.js')]);
   });
 
   test('a file deleted on the branch is not mutated', async (t) => {
@@ -181,7 +189,7 @@ describe('mutate', { concurrency: true }, () => {
 
     await fixture.run();
 
-    assert.deepEqual(argsOf(await fixture.stryker.calls()), [['run', '--mutate', 'src/one.js']]);
+    assert.deepEqual(argsOf(await fixture.stryker.calls()), [mutating('src/one.js')]);
   });
 
   test('a file renamed on the branch is mutated under its new name only', async (t) => {
@@ -191,7 +199,7 @@ describe('mutate', { concurrency: true }, () => {
 
     await fixture.run();
 
-    assert.deepEqual(argsOf(await fixture.stryker.calls()), [['run', '--mutate', 'src/renamed.js']]);
+    assert.deepEqual(argsOf(await fixture.stryker.calls()), [mutating('src/renamed.js')]);
   });
 
   test('a file changed on main after the branch started is not mutated', async (t) => {
@@ -205,7 +213,7 @@ describe('mutate', { concurrency: true }, () => {
 
     await fixture.run();
 
-    assert.deepEqual(argsOf(await fixture.stryker.calls()), [['run', '--mutate', 'src/one.js']]);
+    assert.deepEqual(argsOf(await fixture.stryker.calls()), [mutating('src/one.js')]);
   });
 
   test('the targets are one sorted comma-separated list with no duplicates', async (t) => {
@@ -222,7 +230,7 @@ describe('mutate', { concurrency: true }, () => {
 
     assert.deepEqual(
       argsOf(await fixture.stryker.calls()),
-      [['run', '--mutate', 'scripts/tool.js,src/three.js,src/two.js']],
+      [mutating('scripts/tool.js', 'src/three.js', 'src/two.js')],
     );
   });
 
@@ -239,7 +247,7 @@ describe('mutate', { concurrency: true }, () => {
     const result = await fixture.run();
 
     assert.equal(result.code, 0);
-    assert.deepEqual(argsOf(await fixture.stryker.calls()), [['run', '--mutate', 'src/one.js']]);
+    assert.deepEqual(argsOf(await fixture.stryker.calls()), [mutating('src/one.js')]);
     // Nobody should be left wondering where the file went.
     assert.match(result.stdout + result.stderr, /scripts\/mutation-suite\.js/);
   });
@@ -249,8 +257,19 @@ describe('mutate', { concurrency: true }, () => {
 
     const result = await fixture.run(['scripts/mutation-suite.js', 'src/two.js']);
 
-    assert.deepEqual(argsOf(await fixture.stryker.calls()), [['run', '--mutate', 'src/two.js']]);
+    assert.deepEqual(argsOf(await fixture.stryker.calls()), [mutating('src/two.js')]);
     assert.match(result.stdout + result.stderr, /scripts\/mutation-suite\.js/);
+  });
+
+  test('a glob wide enough to reach the runner still does not mutate it', async (t) => {
+    // The one way the runner can still get through: a target that names no path
+    // to compare against. Leaving it out has to be something stryker is told,
+    // not something the list is filtered by.
+    const fixture = await createRepoOnBranch(t);
+
+    await fixture.run(['scripts/**/*.js']);
+
+    assert.deepEqual(argsOf(await fixture.stryker.calls()), [mutating('scripts/**/*.js')]);
   });
 
   test('the runner as the only named target leaves nothing to mutate', async (t) => {
@@ -293,7 +312,7 @@ describe('mutate', { concurrency: true }, () => {
 
     await fixture.run(['src/two.js']);
 
-    assert.deepEqual(argsOf(await fixture.stryker.calls()), [['run', '--mutate', 'src/two.js']]);
+    assert.deepEqual(argsOf(await fixture.stryker.calls()), [mutating('src/two.js')]);
   });
 
   test('several arguments are passed through in the order given', async (t) => {
@@ -303,7 +322,7 @@ describe('mutate', { concurrency: true }, () => {
 
     assert.deepEqual(
       argsOf(await fixture.stryker.calls()),
-      [['run', '--mutate', 'src/**/*.js,scripts/tool.js']],
+      [mutating('src/**/*.js', 'scripts/tool.js')],
     );
   });
 
@@ -322,7 +341,7 @@ describe('mutate', { concurrency: true }, () => {
 
     await fixture.run([], { cwd: fixture.outside });
 
-    assert.deepEqual(argsOf(await fixture.stryker.calls()), [['run', '--mutate', 'src/one.js']]);
+    assert.deepEqual(argsOf(await fixture.stryker.calls()), [mutating('src/one.js')]);
   });
 
   test('stryker is run in the repo, whatever the working directory', async (t) => {

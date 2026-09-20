@@ -127,14 +127,27 @@ export function initBots(target, harness) {
 // `init` refuses: it never moves the user's data aside to make room.
 // A symlink counts by what it points at.
 function checkKind(target, kind) {
-  if (!lstatSync(target, { throwIfNoEntry: false })) return;
+  if (!follow(target, () => lstatSync(target, { throwIfNoEntry: false }))) return;
 
-  const resolved = statSync(target, { throwIfNoEntry: false });
+  const resolved = follow(target, () => statSync(target, { throwIfNoEntry: false }));
   if (!resolved) {
     throw new Error(`${target} is a symlink that points nowhere. Remove it, then run init again.`);
   }
   if (kind === 'folder' ? !resolved.isDirectory() : !resolved.isFile()) {
     throw new Error(`${target} is in the way: init needs a ${kind} there. Move it aside, then run init again.`);
+  }
+}
+
+// Look at `target`, and say plainly when the look cannot be made at all because
+// the links there run in a circle. Node reports that as ELOOP and the name of a
+// call the user never made; what they need is which path is the loop and that
+// nobody but them can undo it.
+function follow(target, look) {
+  try {
+    return look();
+  } catch (error) {
+    if (error.code !== 'ELOOP') throw error;
+    throw new Error(`${target} is a symlink loop: following it comes back to where it started. Fix the links, then run init again.`);
   }
 }
 
