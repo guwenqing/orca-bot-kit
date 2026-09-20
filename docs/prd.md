@@ -72,6 +72,7 @@ Each line is a check a developer can run. Issues turn these into acceptance test
 - No kit-owned expert systems (pattern lists, guard scripts). [decided]
 - No prescribed PRD format or issue tracker for users of the skills. [decided]
 - No performance skill. [decided]
+- No "main brain" dispatcher role for now; later it may be an optional recipe built from the existing skills. A third harness is not added now, but adding one must stay cheap. [decided]
 - No cloud execution. [proposed — carried from Request #9]
 
 ## 6. Product
@@ -136,6 +137,7 @@ Each line is a check a developer can run. Issues turn these into acceptance test
 - The kit imports the good rules from the owner's global rules file and carries them itself. It does not rely on any user-level rules file, and it does not depend on the owner's `agent-infra` repo, which goes away in the long run. The owner intends to remove his own user-level rules; to him only repo-level and bot-level rules make sense now. [decided]
 - A short set of always-on rules lives in `AGENTS.md`; the depth lives in skills. No separate principles skill. [decided]
 - A bot's charter says what it owns, what good looks like, and what it must ask about first. A bot acts alone only inside that written boundary. [decided in principle; charter fields proposed]
+- Two plain defaults in the kit's rules: no silent fallback (when the model a session asks for is not available, the bot says so and asks; it never quietly switches), and role limits such as "read-only, does not modify" are a normal part of a charter. [decided]
 
 ### 6.7 Skills management
 
@@ -150,8 +152,11 @@ Each line is a check a developer can run. Issues turn these into acceptance test
 
 - Init creates Bot Father with its default management session on. [decided]
 - An extra ops tab in Bot Father's project, **always out of the book**: a plain shell, any harness, for fleet-wide operations. [decided]
+- Roster cards: every bot has a short card — its name, its harness, model and effort, a two-line charter, and one hard limit (for example "read-only, does not modify"). The charter interview produces it, and Bot Father can show the whole fleet as a list of cards. [decided]
+- Team recipes: when the user creates bots, Bot Father suggests a few proven line-ups instead of a blank page, for example a developer pair on different models plus an architect (one implements; the other writes the acceptance tests and reviews; the architect arbitrates and digs into hard root causes), or a workhorse, a writer and a thinker for non-developers. Suggestions only; the user picks and changes. [decided]
 - Grooming is a separate, optional session. It is woken daily by an Orca automation. [decided]
 - Grooming reads the managed bots' new history, runs finops, and sends its result to the management session, which recommends further. [decided]
+- Grooming keeps a few lines of profile notes per bot: what it is good at, where it struggles, what it costs. Any bot that needs help can read them to pick the right collaborator. [decided]
 - Finops is part of the bot-management skill family and one step of daily grooming. Usage comes from the harness transcripts; prices come from a live lookup on the provider's page; it says so when a price is unknown. It advises on model, effort and context, and flags signs that a model is not smart enough. ccusage and third-party price files are optional, not dependencies. [decided]
 - Routing: a kit problem is filed as a GitHub issue directly (no draft step); a usage problem goes back to the managed session as feedback. [decided]
 - Management skills: how many and how they split is the builder's choice. [decided]
@@ -180,6 +185,7 @@ Each line is a check a developer can run. Issues turn these into acceptance test
 - Written by deep picking and writing from the sources, following the decisions in this PRD; not a summary, and the porting must be of good quality. Each skill gets a couple of different reviews, and the final review rounds include an architecture review in addition to the normal reviewers. [decided]
 - The harnesses' built-in skills are just one more source. Whatever is taken from any source must match our philosophy and not conflict with it. [decided]
 - No licence problems: only sources whose licence allows reuse, with credit. [decided]
+- The shelf is for all bots, not only developers. After the development techniques come three light ones for other roles: researching (sources, how each claim is supported, fact apart from inference), writing (audience, platform, tone, key facts checked), and a decision memo (conclusion, evidence, alternatives, risks, counter-examples, uncertainty). Same standard: techniques only, deeply written. [decided]
 - Plain, neutral tone; no personal colour and no "only I know" voice. [decided]
 - The user is free in how they handle PRDs, trackers and work tracking. Skills neither require nor prescribe one. [decided]
 - What the kit owns must be maintainable in principle. An existing tool the kit relies on must be standard and famous. [decided] → ADR 0006
