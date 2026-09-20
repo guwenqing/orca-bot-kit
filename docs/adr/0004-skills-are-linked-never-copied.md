@@ -8,11 +8,11 @@ The bots folder is the user's own git repo. The kit is installed with npm and wi
 
 ## Decision
 
-Kit skills are symlinked from the installed package into each bot's `.claude/skills` and `.agents/skills`. Online sources (repo, subfolder, ref) are cloned into a sibling folder `<bots>.skill-sources/`, outside the bots repo, with the resolved sha recorded. Skills placed by hand are left alone. The kit copies a skill into the bots repo only when the user asks.
+Kit skills are symlinked from the installed package into each bot's `.claude/skills` and `.agents/skills`. Online sources (repo, subfolder, ref) are cloned into a folder beside the bots repo, never inside it, with the resolved sha recorded. Skills placed by hand are left alone. The kit copies a skill into the bots repo only when the user asks.
 
 ## Consequences
 
 - Updating the kit updates every bot's kit skills at once.
 - The bots repo stays small and holds only the user's own content.
-- Links break if the package moves; `doctor` reports broken links.
+- Links break if the package moves; the kit's health check reports broken links.
 - The user takes the risk for third-party skills; the kit only prints a one-line warning when a source has scripts or hooks.

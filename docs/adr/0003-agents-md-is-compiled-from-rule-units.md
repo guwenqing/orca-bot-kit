@@ -8,7 +8,7 @@ Each bot starts as if its folder were the root of a project, with its own instru
 
 ## Decision
 
-A bot's `AGENTS.md` is built from rule units: the kit's common rules, the user's own rules, and per-bot overrides, plus the bot's charter. `defaults.yaml` sets what every bot gets. The build writes a marked region; text outside it is kept; a hand edit inside it stops the build and shows the conflict. `CLAUDE.md` in the bot folder is a symlink to `AGENTS.md`. The kit does not rely on any user-level rules file.
+A bot's `AGENTS.md` is built from rule units: the kit's common rules, the user's own rules, and per-bot overrides, plus the bot's charter. Defaults set what every bot gets. The build writes a marked region; text outside it is kept; a hand edit inside it stops the build and shows the conflict. `CLAUDE.md` in the bot folder is a symlink to `AGENTS.md`. The kit does not rely on any user-level rules file.
 
 ## Consequences
 
