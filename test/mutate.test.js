@@ -6,7 +6,7 @@
 // arguments it was given, so no test ever starts a real mutation run.
 
 import assert from 'node:assert/strict';
-import { copyFile, cp, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { copyFile, cp, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { after, describe, test } from 'node:test';
@@ -68,6 +68,16 @@ after(() => rm(baseRepo, { recursive: true, force: true }));
 
 /** The arguments of each call to a fake program, when the rest of the call does not matter. */
 const argsOf = (calls) => calls.map((call) => call.args);
+
+/** Whether a path is there at all. */
+async function exists(file) {
+  try {
+    await stat(file);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * A fresh copy of the base repo, with a fake `stryker` first on PATH.
@@ -273,6 +283,38 @@ describe('mutate', { concurrency: true }, () => {
 
     const calls = await fixture.stryker.calls();
     assert.deepEqual(calls.map((call) => call.cwd), [fixture.repo]);
+  });
+
+  test('stryker is given a cache file for the suite runs to share', async (t) => {
+    // The suite runs once per mutant, each in a process of its own; that file
+    // is the only way one run can tell the next what it learned. Stryker runs
+    // them from a sandbox copy of the repo, where a relative path would name
+    // another file, or none at all.
+    const fixture = await createRepoOnBranch(t);
+    await fixture.edit('src/one.js', 'export const one = 11;\n');
+
+    await fixture.run();
+
+    const [call] = await fixture.stryker.calls();
+    const cache = call.env.OBK_MUTATION_CACHE;
+    assert.ok(cache, 'stryker should be given OBK_MUTATION_CACHE');
+    assert.ok(path.isAbsolute(cache), `the cache path should be absolute, got: ${cache}`);
+  });
+
+  test('the cache file is not left behind when the run is over', async (t) => {
+    // It is scratch for one run, and nothing reads it afterwards.
+    const fixture = await createRepoOnBranch(t, {
+      stryker: { createsFileNamedBy: 'OBK_MUTATION_CACHE' },
+    });
+    await fixture.edit('src/one.js', 'export const one = 11;\n');
+
+    await fixture.run();
+
+    const [call] = await fixture.stryker.calls();
+    const cache = call.env.OBK_MUTATION_CACHE;
+    // Without a path there is no file to find, and the check would say nothing.
+    assert.ok(cache, 'stryker should be given OBK_MUTATION_CACHE');
+    assert.equal(await exists(cache), false, `${cache} was left behind`);
   });
 
   test('stryker\'s report reaches the developer on both streams', async (t) => {

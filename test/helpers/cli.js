@@ -361,17 +361,22 @@ export function node(args, options) {
 /**
  * Put a fake `<name>` first on PATH in `box`, in place of the real program.
  * Every call appends what it was given to a log; `calls()` reads them back, one
- * `{ args, cwd }` per call. The fake writes `stdout` and `stderr` on the way
- * out — which only reaches the caller if it was spawned so it could — and exits
- * with `exitCode`.
+ * `{ args, cwd, env }` per call. The fake writes `stdout` and `stderr` on the
+ * way out — which only reaches the caller if it was spawned so it could — and
+ * exits with `exitCode`.
+ *
+ * `createsFileNamedBy` is the name of an environment variable: the fake creates
+ * the file it names, so a test can prove the caller cleans up after itself.
  */
-export async function fakeProgram(box, name, { exitCode = 0, stdout = '', stderr = '' } = {}) {
+export async function fakeProgram(box, name, { exitCode = 0, stdout = '', stderr = '', createsFileNamedBy = null } = {}) {
   const log = path.join(box.root, `${name}.log`);
   const file = path.join(box.root, 'bin', name);
   await writeFile(file, [
     '#!/usr/bin/env node',
-    "const { appendFileSync, writeSync } = require('node:fs');",
-    `appendFileSync(${JSON.stringify(log)}, JSON.stringify({ args: process.argv.slice(2), cwd: process.cwd() }) + '\\n');`,
+    "const { appendFileSync, writeFileSync, writeSync } = require('node:fs');",
+    `appendFileSync(${JSON.stringify(log)}, JSON.stringify({ args: process.argv.slice(2), cwd: process.cwd(), env: process.env }) + '\\n');`,
+    `const creates = ${JSON.stringify(createsFileNamedBy)};`,
+    "if (creates && process.env[creates]) writeFileSync(process.env[creates], '{}\\n');",
     `writeSync(1, ${JSON.stringify(stdout)});`,
     `writeSync(2, ${JSON.stringify(stderr)});`,
     `process.exit(${exitCode});`,

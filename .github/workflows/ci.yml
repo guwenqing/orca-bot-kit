@@ -16,6 +16,9 @@ permissions:
   contents: read
 
 jobs:
+  # The version the kit is developed on: the current LTS line, pinned to the
+  # release rather than left to follow the line. This is the job that says the
+  # kit works.
   test:
     runs-on: ubuntu-latest
     steps:
@@ -23,8 +26,21 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          # The version package.json declares: the floor the kit promises to run
-          # on, so CI finds what a user on that version would find.
-          node-version: 20.19.0
+          node-version: 24.21.0
       - run: npm ci
+      - run: npm test
+
+  # The floor `engines.node` promises users, so the promise stays checked. The
+  # kit is what a user installs — the dependencies, not the development tools —
+  # and the tests need nothing else, so this job installs exactly that. It also
+  # keeps StrykerJS, which wants a newer Node than the floor, out of a job that
+  # has no use for it.
+  floor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 20.19.0
+      - run: npm ci --omit=dev
       - run: npm test

@@ -9,6 +9,8 @@
 // npm rather than running this file directly.
 
 import { spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -62,17 +64,27 @@ function run(argv) {
     return 0;
   }
 
-  const result = spawnSync('stryker', ['run', '--mutate', targets.join(',')], {
-    cwd: repo,
-    stdio: 'inherit',
-  });
-  if (result.error) {
-    throw new Error(
-      `could not run stryker (${result.error.code}): run the check as \`npm run mutate\`, which puts this repo's own binaries on PATH.`,
-    );
+  // The suite runs once per mutant, each run a process of its own, and the file
+  // here is how one tells the next what it learned about the suite. It belongs
+  // to this run alone, and the runs happen in a sandbox copy of the repo, so it
+  // lives outside both, under an absolute path.
+  const notes = mkdtempSync(path.join(os.tmpdir(), 'obk-mutate-'));
+  try {
+    const result = spawnSync('stryker', ['run', '--mutate', targets.join(',')], {
+      cwd: repo,
+      stdio: 'inherit',
+      env: { ...process.env, OBK_MUTATION_CACHE: path.join(notes, 'suite.json') },
+    });
+    if (result.error) {
+      throw new Error(
+        `could not run stryker (${result.error.code}): run the check as \`npm run mutate\`, which puts this repo's own binaries on PATH.`,
+      );
+    }
+    // A run killed by a signal reports no code of its own; it did not pass.
+    return result.status ?? 1;
+  } finally {
+    rmSync(notes, { recursive: true, force: true });
   }
-  // A run killed by a signal reports no code of its own; it did not pass.
-  return result.status ?? 1;
 }
 
 try {

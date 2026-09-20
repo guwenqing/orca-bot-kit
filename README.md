@@ -65,7 +65,9 @@ The tests come in two layers, and every test file belongs to one of them.
 `npm test` is `test/*.test.js`: unit tests and end-to-end runs of the CLI in a
 throwaway folder, with a fake `orca` on PATH. It needs nothing but Node, so
 [GitHub Actions](.github/workflows/ci.yml) runs it on every pull request and on
-every push to `main`, on the Node version `package.json` declares.
+every push to `main`: on Node 24.21.0, the current LTS line, and again on
+20.19.0, the floor `engines.node` promises users, with only the kit's own
+dependencies installed.
 
 `npm run test:system` is `test/system/*.test.js`: the real `obk` against the
 real Orca and the real harnesses on your own machine. No CI runner can do that,
@@ -85,7 +87,17 @@ yourself to check a whole area instead:
 npm run mutate -- 'src/**/*.js'
 ```
 
-The check takes minutes where the suite takes seconds, which is why it is a
-command of its own. StrykerJS is a development dependency of this repo, pinned
+Every mutant means running the tests again, so the check does not run them the
+way `npm test` does. It runs [`scripts/mutation-suite.js`](scripts/mutation-suite.js)
+instead: the same test files, one at a time, stopping at the first file that
+fails, trying the file that killed the last mutant first and then the quickest.
+On a ten-core machine `src/up.js` — 128 lines, 76 mutants — takes about twelve
+minutes that way. Running the whole suite for every mutant, as it used to, took
+forty, and counted a mutant as killed whenever a run of it ran out of time. A
+change across several files takes proportionally longer, so check one or two at
+a time.
+
+The check still takes minutes where the suite takes seconds, which is why it is
+a command of its own. StrykerJS is a development dependency of this repo, pinned
 to an exact version and needing Node 22 or newer; the kit itself neither ships
 it nor needs it.

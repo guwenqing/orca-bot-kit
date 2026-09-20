@@ -7,9 +7,12 @@ import { availableParallelism } from 'node:os';
 
 export default {
   // The suite is plain `node --test`, for which Stryker has no runner plugin.
-  // The command runner needs none: a mutant is killed when `npm test` fails.
+  // The command runner needs none: a mutant is killed when the command fails.
+  // The command is not `npm test`, which runs every test file for every mutant
+  // and takes the better part of a minute each time; scripts/mutation-suite.js
+  // runs the same files, one at a time, and stops at the first one that fails.
   testRunner: 'command',
-  commandRunner: { command: 'npm test' },
+  commandRunner: { command: 'node scripts/mutation-suite.js' },
   coverageAnalysis: 'off',
 
   mutate: ['src/**/*.js', 'scripts/**/*.js'],
@@ -20,13 +23,16 @@ export default {
   // installed on the machine instead, so every mutant looks like a survivor.
   buildCommand: 'chmod +x src/cli.js',
 
-  // A mutant that is merely slow must not be read as a mutant that hangs, and a
-  // timeout counts as killed, so an overloaded machine would quietly inflate
-  // the score. The suite runs its own files in parallel and uses about four
-  // cores, so give each worker that much room, and leave the timeout long
-  // enough that a run of a couple of seconds has to be truly stuck to hit it.
-  concurrency: Math.max(1, Math.floor(availableParallelism() / 4)),
-  timeoutMS: 15000,
+  // A mutant run is one test file at a time now, and that file spends most of
+  // its life waiting on the processes it starts rather than on a core, so a
+  // worker per core keeps the machine busy without swamping it.
+  concurrency: availableParallelism(),
+
+  // A mutant that survives is only known to have survived once every test file
+  // has run, which is minutes when the machine is busy with other mutants; this
+  // has to stay well clear of that, or a survivor would be read as a hang and
+  // counted as killed. Hangs are caught inside the run instead, per test file.
+  timeoutMS: 300_000,
 
   reporters: ['clear-text', 'progress'],
   clearTextReporter: { reportTests: false, maxTestsToLog: 0 },
