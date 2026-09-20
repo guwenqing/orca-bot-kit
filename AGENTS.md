@@ -35,6 +35,22 @@ not pull work from a later slice into an earlier one.
   change and verifies it again.
 - Do not say it works from a plausible diff. Run the check and read the output.
 
+## Killing processes: hard rules
+
+On 2026-09-20 a cleanup command in this repo ran `kill -KILL -1` by accident (`ps -eo … -p <pid>`
+selected every process, the extracted group id was 1) and force-killed every process of the owner's
+account: every app, every terminal, every agent session. These rules exist so that never happens again.
+
+- Never run `kill` with `-1`, with a negative id you did not capture yourself, or with an id you
+  computed from `ps` output. A process group id is used only if it was captured from the process you
+  started, at the moment you started it.
+- Kill only processes you started, by their own pid. Before any kill, print the pids and their
+  commands, and refuse if the list includes pid 1, a group id of 1 or less, your own shell, or
+  anything you did not start.
+- Prefer not to start background load or helper processes at all. If you must, start them so that
+  cleanup is guaranteed (a trap that runs on any exit), and kill them by the pid you recorded.
+- Nothing here is enforced by a script; it is your judgment, every time.
+
 ## Pull requests
 
 One PR per issue. One review round; merges are squash merges.
