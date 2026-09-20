@@ -111,7 +111,7 @@ Each line is a check a developer can run. Issues turn these into acceptance test
 - The kit never hardcodes a model id; empty means the harness default. Init asks once for the harness. [decided]
 - Approval levels: `auto` (default; the harness's real auto mode), `ask`, `dangerously-skip` (only when the user asks for it in plain words). [decided] → ADR 0005
 - Each approval level maps to the harness's own flags; the mapping is a fact kept in `tech-notes.md` and re-checked when a harness updates. A session can carry extra launch arguments the kit does not know about. [decided in substance]
-- A start prompt is inline text or, when it is long or complex, a file in the bot home that the session refers to. It reaches the harness unchanged, byte for byte, on the launch line as the harness's own prompt argument. [decided]
+- A start prompt goes to the harness from a file, unless it is very short and simple, in which case it can go as plain text. Either way it arrives unchanged. [decided]
 - Start prompt: sent once when the tab is created; not re-sent on resume; **re-sent automatically after `/clear`**. It is the only thing that tells one session's duty from another's when they start in different tabs. [decided]
 - Bot creation can resume an external existing session. Setup is done through an LLM, now and later through Bot Father, and that LLM does its best to help the user migrate the rest. [decided]
 
@@ -163,7 +163,7 @@ Each line is a check a developer can run. Issues turn these into acceptance test
 
 - Sessions and bots can talk. Same harness: native messaging when it works; across harnesses: Orca. [decided] → ADR 0008
 - Research result: Claude-to-Claude native messaging is documented and addressable by session name; Codex-to-Codex (`codex queue`) is not trustworthy yet. So: Claude↔Claude native; everything else through the Orca mailbox; retest Codex during the build. [decided rule, researched outcome]
-- A message is short text, and when the content is long or complex it is written to a file and the message carries the text plus a reference to that file. Same idea as the start prompt; it matters most on the cross-harness Orca path. [decided]
+- A message through Orca goes as plain text up to a size limit; above the limit it must go as a file that the message refers to. One simple rule, no judgement needed. [decided]
 - Default behaviour is "good enough": queued, not interrupting; no waiting for an ack; a reply only when asked for; interrupt supported but used with caution; no over-broadcasting. [decided]
 - The kit sets no message-acceptance override. With the default `auto` level on both ends, Claude Code delivers native messages without asking; that is the harness's own rule. A pair that includes a `dangerously-skip` session would be held for approval, so such pairs use the Orca mailbox. [decided: it is up to auto mode]
 
