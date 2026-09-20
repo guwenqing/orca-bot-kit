@@ -55,9 +55,24 @@ your edits, exactly as it is. It does not commit for you.
 ## Working on the kit
 
 ```sh
-npm test          # the whole suite, in a couple of seconds
-npm run mutate    # the mutation check, on what your branch changed
+npm test             # the whole suite, in a couple of seconds
+npm run test:system  # the system tests, on this machine
+npm run mutate       # the mutation check, on what your branch changed
 ```
+
+The tests come in two layers, and every test file belongs to one of them.
+
+`npm test` is `test/*.test.js`: unit tests and end-to-end runs of the CLI in a
+throwaway folder, with a fake `orca` on PATH. It needs nothing but Node, so
+[GitHub Actions](.github/workflows/ci.yml) runs it on every pull request and on
+every push to `main`, on the Node version `package.json` declares.
+
+`npm run test:system` is `test/system/*.test.js`: the real `obk` against the
+real Orca and the real harnesses on your own machine. No CI runner can do that,
+so these are run by hand before a change that touches Orca or a harness is
+merged. When Orca is not answering the command says so and skips, rather than
+report a kit that is not broken. A system test touches only what it creates and
+cleans up after itself; it never closes a tab it did not open.
 
 `npm run mutate` runs [StrykerJS](https://stryker-mutator.io) over the
 JavaScript this branch changed against `main` — committed, still in the working
