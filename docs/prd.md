@@ -211,7 +211,7 @@ TDD and tests:
   1. When: once per piece of work, after the tests are green and before calling it done. Not after every change or fix; again only if a late change rewrote a large part.
   2. What: only the code this work changed, never the whole project.
   3. Skip it, and say so, for docs or config only, renames and wording, throwaway prototypes, and code with no runnable tests.
-  4. Time: about ten minutes at most. If it would take longer, narrow it (changed files, fast tests only, or a sample) and say so.
+  4. Proportion: no routine long testing for something minor, and never again and again for the same PR. The effort fits the size and risk of the change; when a run would be long, narrow it (changed files, the risky logic, or a sample) and say so. There is no fixed time number.
   5. Purpose: would the tests catch a real mistake? There is no score to reach.
   6. Survivors: fix one only if it shows a gap in behaviour the requirement cares about. Ignore message wording, logging and no-visible-difference cases. List the rest in two or three lines; do not analyse every one.
   7. Who: the implementer runs it; a test that needs strengthening goes to the separate test author.
