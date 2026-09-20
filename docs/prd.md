@@ -126,6 +126,7 @@ Each line is a check a developer can run. Issues turn these into acceptance test
 - The kit never hardcodes a model id; empty means the harness default. Init asks once for the harness. [decided]
 - Approval levels: `auto` (default; the harness's real auto mode), `ask`, `dangerously-skip` (only when the user asks for it in plain words). [decided] → ADR 0005
 - Flag mapping, checked on Claude Code 2.1.278 and Codex 0.153.4 [proposed]: `auto` = `--permission-mode auto` / `--approve-for-me`; `ask` = `--permission-mode manual` / `-a on-request`; `dangerously-skip` = `--dangerously-skip-permissions` / `--dangerously-bypass-approvals-and-sandbox`. Codex gets `--add-dir` for a work dir outside the bot home. Free `extra_args` per session.
+- A start prompt is inline text or, when it is long or complex, a file in the bot home that the session refers to. It reaches the harness unchanged, byte for byte, on the launch line as the harness's own prompt argument. [decided]
 - Start prompt: sent once when the tab is created; not re-sent on resume; **re-sent automatically after `/clear`**. It is the only thing that tells one session's duty from another's when they start in different tabs. [decided]
 - Bot creation can resume an external existing session. Setup is done through an LLM, now and later through Bot Father, and that LLM does its best to help the user migrate the rest. [decided]
 
