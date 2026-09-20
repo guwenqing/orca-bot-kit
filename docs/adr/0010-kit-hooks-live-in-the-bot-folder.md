@@ -8,7 +8,7 @@ The book must learn a new session id when a session starts, resumes or is cleare
 
 ## Decision
 
-The kit's hook is written into the bot's own settings inside the bots repo (`.claude/settings.json` in the bot folder; the Codex hooks file for Codex bots). It calls `obk session-seen`, which updates the book and re-sends the start prompt after a clear. The kit never writes to user-level settings. If a Codex hook does not report the new id, the kit falls back to the newest transcript for that bot folder.
+The kit's hook lives in the bot's own folder inside the bots repo, for each harness in the place that harness reads. Through it the kit updates the book and makes sure the session has its start prompt again after a clear. The kit never writes to user-level settings. If a Codex hook does not report the new id, the kit falls back to the newest transcript for that bot folder.
 
 ## Consequences
 

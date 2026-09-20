@@ -8,10 +8,10 @@ Sessions must come back after a reboot, a killed tab or a restart asked for by B
 
 ## Decision
 
-Each bot has a book (`sessions.yaml`) with the current session id of every session and the history of old ids with the reason they ended. The kit writes it; Orca's own resume is only a bonus for tabs that are still alive. The owner's condition: the kit keeps the authority unless Orca one day handles this fully, including clear and killed-tab recovery.
+Each bot has a book with the current session id of every session and the history of old ids with the reason they ended. The kit writes it; Orca's own resume is only a bonus for tabs that are still alive. The owner's condition: the kit keeps the authority unless Orca one day handles this fully, including clear and killed-tab recovery.
 
 ## Consequences
 
-- `obk up` can rebuild every tab from the book alone.
+- The fleet can be brought back from the book alone.
 - Old session ids stay available for `obk-recall` and grooming.
-- The book must be kept fresh by a hook (ADR 0010); if the hook fails, the book goes stale, so `doctor` checks it against the newest transcript.
+- The book must be kept fresh by a hook (ADR 0010); if the hook fails, the book goes stale, so the kit's health check compares it with the harness's own records.
