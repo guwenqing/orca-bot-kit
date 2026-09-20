@@ -203,8 +203,11 @@ function completeBotFather(file, harness) {
   } else if (!(sessions.items?.length > 0)) {
     // An empty list, or a `sessions:` with nothing after it. The parser gives
     // the span the value occupies — for the empty one, an empty span in just
-    // the right place.
-    const [from, to] = sessions.range;
+    // the right place. The spaces that separated it from the colon go with it,
+    // or they would be left dangling at the end of the line.
+    const [, to] = sessions.range;
+    let from = sessions.range[0];
+    while (from > 0 && (text[from - 1] === ' ' || text[from - 1] === '\t')) from -= 1;
     text = `${text.slice(0, from)}\n  - name: ${DAILY_SESSION}${text.slice(to)}`;
   }
 

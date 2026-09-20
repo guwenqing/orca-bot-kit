@@ -58,10 +58,25 @@ const sessionNames = (parsed) => (parsed.sessions ?? []).map((session) => (
 ));
 
 /**
- * A file's lines, with runs of whitespace collapsed and blanks dropped: what
- * each line says, without caring how it was spaced out.
+ * Every line the user wrote is still there, byte for byte and in order, and
+ * the only lines beside them are the ones the kit added. The file is edited at
+ * the offsets the parser points to, so the user's bytes are never rewritten —
+ * not the padding before an inline comment, not the quoting, not the ordering.
  */
-const lines = (text) => text.split('\n').map((line) => line.replace(/\s+/g, ' ').trim()).filter((line) => line !== '');
+function assertKeptVerbatim(before, after) {
+  const was = before.split('\n');
+  assert.deepEqual(
+    after.split('\n').filter((line) => was.includes(line)),
+    was,
+    `the user's own bytes should be untouched:\n--- before ---\n${before}\n--- after ---\n${after}`,
+  );
+}
+
+/** Nothing the kit writes leaves whitespace hanging at the end of a line. */
+function assertNoTrailingSpace(text) {
+  const loose = text.split('\n').filter((line) => line !== line.trimEnd());
+  assert.deepEqual(loose, [], `no line should end in whitespace, got: ${JSON.stringify(loose)}`);
+}
 
 /** The top-level keys of a YAML mapping, in the order they are written. */
 const keyOrder = (text) => text
@@ -76,7 +91,10 @@ test('a bots folder from the previous slice gets its harness and its daily sessi
   const result = await box.run(['init', '--bots', 'bots', '--harness', 'claude']);
 
   assert.equal(result.code, 0, result.stderr);
-  const parsed = parse(await readFile(file, 'utf8'));
+  const after = await readFile(file, 'utf8');
+  assertKeptVerbatim(PREVIOUS_SLICE.replace('sessions: []\n', ''), after);
+  assertNoTrailingSpace(after);
+  const parsed = parse(after);
   assert.equal(parsed.harness, 'claude', 'the harness the caller chose is written down');
   assert.deepEqual(sessionNames(parsed), ['daily']);
 
@@ -115,9 +133,14 @@ skills: []
   assert.equal((await box.run(['init', '--bots', 'bots', '--harness', 'codex'])).code, 0);
 
   const after = await readFile(file, 'utf8');
-  for (const comment of ['# my own notes about this bot', '# a key the kit knows nothing about']) {
-    assert.ok(after.includes(comment), `the comment "${comment}" should have survived: ${after}`);
-  }
+  // Padding and all: the line is not reflowed, it is simply left where it was.
+  assert.ok(
+    after.includes('notes: keep me            # a key the kit knows nothing about'),
+    `the user's line should be untouched, spacing included: ${after}`,
+  );
+  assert.ok(after.includes('# my own notes about this bot'), `the comment should have survived: ${after}`);
+  assertKeptVerbatim(mine, after);
+  assertNoTrailingSpace(after);
   const parsed = parse(after);
   assert.equal(parsed.notes, 'keep me', 'a key the kit knows nothing about keeps its value');
   assert.equal(parsed.charter, 'Mine, and unchanged.\n');
@@ -136,8 +159,10 @@ test('a bot.yaml with no sessions key at all gets the daily session', async (t) 
 
   assert.equal((await box.run(['init', '--bots', 'bots', '--harness', 'claude'])).code, 0);
 
-  const parsed = parse(await readFile(file, 'utf8'));
-  assert.deepEqual(sessionNames(parsed), ['daily']);
+  const after = await readFile(file, 'utf8');
+  assertKeptVerbatim('name: bot-father\ncharter: mine\nrules: []\nskills: []\n', after);
+  assertNoTrailingSpace(after);
+  assert.deepEqual(sessionNames(parse(after)), ['daily']);
   assert.equal((await botFatherTabs(box, box.path('bots'))).inBook.length, 1);
 });
 
@@ -150,15 +175,10 @@ test('a bot.yaml that already has sessions is left completely alone', async (t) 
 
   assert.equal(result.code, 0, result.stderr);
   // The harness has to go in somewhere, so the file is not byte-identical.
-  // What must hold is that every line the user wrote is still there, saying
-  // what it said, in the order they wrote it. Only the spacing may be reflowed.
+  // Everything else about it is.
   const after = await readFile(file, 'utf8');
-  const before = lines(mine);
-  assert.deepEqual(
-    lines(after).filter((line) => before.includes(line)),
-    before,
-    `the user's own lines should be untouched: ${after}`,
-  );
+  assertKeptVerbatim(mine, after);
+  assertNoTrailingSpace(after);
   const parsed = parse(after);
   assert.deepEqual(sessionNames(parsed), ['mine'], 'the user\'s sessions are the user\'s');
   assert.equal(parsed.harness, 'claude');
