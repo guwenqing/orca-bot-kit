@@ -156,10 +156,25 @@ you can". Support: source book 1 §E.
 >
 > When you notice something else worth doing, say so at the end. Doing it is
 > the user's call.
+>
+> Work inside a project of its own — a repo you cloned into your work dir, a
+> folder with its own rules — follows that project's rules as well as yours.
+> Where the two disagree, say which you followed and why.
 
 Evidence: A3 — his file's "Touch only what you must", all three bullets. The
-last line is the "noticed, not touched" habit from source book 1 §E; it is
-there because the rule above it otherwise loses information.
+"noticed, not touched" line is the habit from source book 1 §E; it is there
+because the rule above it otherwise loses information.
+
+The last paragraph is the owner's, and this document first proposed dropping
+it as circular — wrongly, as the review found. A bot's own `AGENTS.md` and the
+rules of a project it clones into its work dir are two different instruction
+sets, and nothing else in the set reaches the second. His words:
+
+> "When the bot is working on the workdir, if it clones a repo and works for
+> the repo, it should honor the repo, and it is up to the user to instruct if
+> it clones the repo only or do with worktree, or do whatever."
+
+PRD 6.4 records it as decided.
 
 ### 3.4 `evidence` — Say where it comes from (all)
 
@@ -288,7 +303,6 @@ filter it, what to look for in the tests: `obk-reviewing`.
 | "Pin the version you tried, and leave a release that is hours old until it has some miles on it." | The owner's own dependency policy and this repo's rule. A6 and A14. It belongs in this repo's `AGENTS.md`, where it already is. |
 | "Stage the files you changed by name, and read `git status` before you commit." | This repo's process. Same reason. |
 | "A status is five bullets at most, overall state first, no hashes or internal ids." | A Grok-bot practice, tagged [proposed] in PRD 6.8 and never decided. `talk` already says short. |
-| "Work inside a project that has its own rules follows those rules." | The bot's `AGENTS.md` is those rules. Saying it inside them is circular. |
 | "Hand over work that stands on its own, is bulky, or needs eyes that did not do the first pass." | A judgement call about delegating, not a rule. Goes with `delegating` to the skill. |
 | The 14-line allowance per unit | Units this short do not need it. The shape check's numbers should come down with the set; that is the test author's change, not mine. |
 
