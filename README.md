@@ -16,7 +16,8 @@ two harnesses is in [`docs/tech-notes.md`](docs/tech-notes.md).
 
 ## Status
 
-Early. The CLI currently does one thing: create the bots folder.
+Early. The CLI creates your bots folder, brings Bot Father up in Orca, and
+creates bots and their sessions on either harness.
 
 ## Install
 
@@ -32,10 +33,11 @@ obk --version
 ## Create your bots folder
 
 ```sh
-obk init --bots /absolute/path/to/my-bots
+obk init --bots /absolute/path/to/my-bots --harness claude
 ```
 
-This makes the folder a git repository and seeds it:
+`--harness claude|codex` says which harness Bot Father itself runs on; there is
+no default. This makes the folder a git repository and seeds it:
 
 ```
 my-bots/
@@ -51,6 +53,33 @@ kit skills are linked from the installed package, never copied
 ([ADR 0004](docs/adr/0004-skills-are-linked-never-copied.md)). Run `init` again
 whenever you like: it adds what is missing and leaves everything else, including
 your edits, exactly as it is. It does not commit for you.
+
+## Add a bot and its sessions
+
+```sh
+obk bot create  --bots /path/to/my-bots --name api-bot --harness codex \
+                --charter 'Api Bot owns the API clone.'
+obk session add --bots /path/to/my-bots --bot api-bot --name daily \
+                --effort high --work-dir work/api \
+                --prompt 'Keep the API clone green. Ask before you touch main.'
+obk up          --bots /path/to/my-bots
+```
+
+`bot create` writes the bot's folder — `bot.yaml`, an `AGENTS.md` holding its
+charter, `CLAUDE.md` as a symlink to it, and a `.gitignore` for `work/`.
+`session add` writes one session into `bot.yaml`: its harness (the bot's unless
+it says otherwise), model, effort, context window, approval level, start prompt,
+work dir and any extra arguments for the harness. Anything you leave out is the
+harness's own default; the kit names no model of its own. The approval level is
+`auto` — the harness's real auto mode — unless you ask for `ask` or, in those
+words, `dangerously-skip`
+([ADR 0005](docs/adr/0005-three-approval-levels-auto-by-default.md)).
+
+Neither command touches Orca. `obk up` is what makes it all real there: an Orca
+project per bot, a tab per session, each started at the bot home with its own
+launch command and its start prompt. It only ever adds — it never closes a tab —
+so run it after a restart, or whenever something is missing. `--bot` and
+`--session` bring up one thing rather than the fleet.
 
 ## Working on the kit
 

@@ -59,6 +59,16 @@ export function git(args, cwd) {
 }
 
 /**
+ * Run `text` as a shell command line, the way the tab's own shell runs what the
+ * kit types into it. Used to prove a launch command means what it says: the
+ * harness it starts is a fake on PATH that writes down the arguments it got, so
+ * the test reads the argv a real harness would have been given.
+ */
+export function sh(text, options) {
+  return capture('/bin/sh', ['-c', text], options);
+}
+
+/**
  * Build a sandbox for one test. Cleaned up when the test ends.
  * Returns { root, cwd, home, env, path, run, orca }.
  */
@@ -193,6 +203,23 @@ export const orcaFlags = (call) => call.args.filter((arg) => arg.startsWith('--'
  */
 export const TAB_TITLES = { daily: 'Bot Father daily', ops: 'Bot Father ops' };
 
+/**
+ * The launch command a session with nothing set is started with. Every session
+ * carries an explicit approval flag (ADR 0005), so a user's global harness
+ * defaults cannot leak into a bot, and `auto` is what a session that named no
+ * level takes.
+ */
+export const BARE_LAUNCH = { claude: 'claude --permission-mode auto', codex: 'codex --approve-for-me' };
+
+/** Where a bot lives inside a bots folder. */
+export const botHomeOf = (bots, bot = 'bot-father') => path.join(bots, 'bots', bot);
+
+/** The tabs Orca holds for one bot's Orca project, in the order it made them. */
+export async function tabsOfBot(box, bots, bot) {
+  const home = botHomeOf(bots, bot);
+  return (await box.orca.terminals()).filter((terminal) => terminal.worktreePath === home);
+}
+
 /** The book: what the kit knows about one bot's Orca project and its sessions. */
 export const bookOf = (bots, bot = 'bot-father') => path.join(bots, 'bots', bot, 'sessions.yaml');
 
@@ -279,6 +306,28 @@ export function assertCleanFailure(result) {
   assert.equal(result.stdout, '');
   assert.notEqual(result.stderr.trim(), '');
   assert.ok(!/^\s+at /m.test(result.stderr), `expected a message, got a crash:\n${result.stderr}`);
+}
+
+/**
+ * Every line the user wrote is still there, byte for byte and in order, and
+ * the only lines beside them are the ones the kit added. A file the kit edits
+ * is edited at the offsets the parser points to, so the user's bytes are never
+ * rewritten — not the padding before an inline comment, not the quoting, not
+ * the ordering.
+ */
+export function assertKeptVerbatim(before, after) {
+  const was = before.split('\n');
+  assert.deepEqual(
+    after.split('\n').filter((line) => was.includes(line)),
+    was,
+    `the user's own bytes should be untouched:\n--- before ---\n${before}\n--- after ---\n${after}`,
+  );
+}
+
+/** Nothing the kit writes leaves whitespace hanging at the end of a line. */
+export function assertNoTrailingSpace(text) {
+  const loose = text.split('\n').filter((line) => line !== line.trimEnd());
+  assert.deepEqual(loose, [], `no line should end in whitespace, got: ${JSON.stringify(loose)}`);
 }
 
 /** Skip a repo's `.git` when snapshotting or walking a tree. */

@@ -18,6 +18,9 @@ import { parse } from 'yaml';
 
 import {
   assertCleanFailure,
+  assertKeptVerbatim,
+  assertNoTrailingSpace,
+  BARE_LAUNCH,
   bookOf,
   botFatherTabs,
   createSandbox,
@@ -57,27 +60,6 @@ const sessionNames = (parsed) => (parsed.sessions ?? []).map((session) => (
   typeof session === 'string' ? session : session?.name
 ));
 
-/**
- * Every line the user wrote is still there, byte for byte and in order, and
- * the only lines beside them are the ones the kit added. The file is edited at
- * the offsets the parser points to, so the user's bytes are never rewritten —
- * not the padding before an inline comment, not the quoting, not the ordering.
- */
-function assertKeptVerbatim(before, after) {
-  const was = before.split('\n');
-  assert.deepEqual(
-    after.split('\n').filter((line) => was.includes(line)),
-    was,
-    `the user's own bytes should be untouched:\n--- before ---\n${before}\n--- after ---\n${after}`,
-  );
-}
-
-/** Nothing the kit writes leaves whitespace hanging at the end of a line. */
-function assertNoTrailingSpace(text) {
-  const loose = text.split('\n').filter((line) => line !== line.trimEnd());
-  assert.deepEqual(loose, [], `no line should end in whitespace, got: ${JSON.stringify(loose)}`);
-}
-
 /** The top-level keys of a YAML mapping, in the order they are written. */
 const keyOrder = (text) => text
   .split('\n')
@@ -103,7 +85,7 @@ test('a bots folder from the previous slice gets its harness and its daily sessi
   assert.equal(terminals.length, 2, `a daily tab and a plain one, got ${JSON.stringify(terminals)}`);
   assert.equal(inBook.length, 1);
   assert.equal(inBook[0].title, TAB_TITLES.daily);
-  assert.deepEqual(typedInto(inBook[0]), ['claude']);
+  assert.deepEqual(typedInto(inBook[0]), [BARE_LAUNCH.claude]);
   assert.equal(leftovers.length, 1);
 });
 
@@ -187,7 +169,7 @@ test('a bot.yaml that already has sessions is left completely alone', async (t) 
   const { inBook, terminals } = await botFatherTabs(box, box.path('bots'));
   assert.equal(inBook.length, 1);
   assert.equal(terminals.length, 2);
-  assert.deepEqual(typedInto(inBook[0]), ['claude']);
+  assert.deepEqual(typedInto(inBook[0]), [BARE_LAUNCH.claude]);
   assert.ok(!inBook[0].title.includes('daily'), `the session is the user's, got: ${inBook[0].title}`);
 });
 
