@@ -56,7 +56,8 @@ async function workflows() {
 }
 
 const jobsOf = (doc) => Object.values(doc?.jobs ?? {});
-const stepsOf = (doc) => jobsOf(doc).flatMap((job) => job?.steps ?? []);
+const stepsOfJob = (job) => job?.steps ?? [];
+const stepsOf = (doc) => jobsOf(doc).flatMap(stepsOfJob);
 const runsOf = (doc) => stepsOf(doc).map((step) => step?.run).filter((run) => typeof run === 'string');
 /** Everything a workflow reuses: the actions its steps use, and any reusable workflow. */
 const usesOf = (doc) => [
@@ -73,6 +74,40 @@ async function ciWorkflow() {
 
 /** A version with any range operator dropped: `>=20.19.0` and `20.19.0` are the same version. */
 const versionOf = (value) => String(value).replace(/^[^0-9]*/, '');
+
+/** Compare two `x.y.z` versions the way a person reads them: 20.19.0 is below 24.8.0. */
+function compareVersions(left, right) {
+  const parts = (version) => version.split('.').map(Number);
+  const [a, b] = [parts(left), parts(right)];
+  for (let at = 0; at < 3; at += 1) {
+    if (a[at] !== b[at]) return a[at] - b[at];
+  }
+  return 0;
+}
+
+/** Whether a job runs the suite. */
+const runsTheSuite = (job) => stepsOfJob(job).some((step) => /\bnpm test\b/.test(String(step?.run ?? '')));
+
+/**
+ * The Node versions one job runs on: the one it hands `actions/setup-node`, or
+ * the list a matrix hands it. A job that sets Node up in neither way reports
+ * `undefined`, which is an answer the guards can fail on and name.
+ */
+function nodeVersionsOf(job) {
+  const step = stepsOfJob(job).find((entry) => String(entry?.uses ?? '').startsWith('actions/setup-node@'));
+  const asked = step?.with?.['node-version'];
+  const fromMatrix = /^\$\{\{\s*matrix\.([\w-]+)\s*\}\}$/.exec(String(asked));
+  if (fromMatrix === null) return [asked];
+  const values = job?.strategy?.matrix?.[fromMatrix[1]];
+  return Array.isArray(values) ? values : [undefined];
+}
+
+/** Every Node version CI runs the suite on, however the workflow is arranged. */
+async function ciNodeVersions() {
+  const jobs = jobsOf(await ciWorkflow()).filter(runsTheSuite);
+  assert.ok(jobs.length > 0, 'no job in the CI workflow runs the suite');
+  return jobs.flatMap(nodeVersionsOf).map((version) => String(version));
+}
 
 test('every test file in the repo is run by something', async () => {
   // The point is a test file dropped in a folder nobody runs, so what counts as
@@ -110,19 +145,34 @@ test('CI installs with npm ci and runs npm test', async () => {
   assert.ok(runs.some((run) => /\bnpm test\b/.test(run)), `no step runs \`npm test\`, got: ${runs.join(' | ')}`);
 });
 
-test('CI uses the Node version package.json declares', async () => {
-  const declared = (await readPackage()).engines.node;
-  const step = stepsOf(await ciWorkflow())
-    .find((entry) => typeof entry?.uses === 'string' && entry.uses.startsWith('actions/setup-node@'));
+test('every Node version CI runs the suite on is an exact one', async () => {
+  // `lts/*`, `24` and `>=20.19.0` all mean "whatever is current on the day the
+  // job runs", so a green run says nothing about the next one, and a red one
+  // cannot be reproduced. Only x.y.z pins what was actually tested.
+  const versions = await ciNodeVersions();
 
-  assert.ok(step, 'the workflow should set up Node with actions/setup-node');
-  const asked = step.with?.['node-version'];
-  // Either the version is named, or setup-node is pointed at the file that declares it.
-  if (asked === undefined) {
-    assert.equal(step.with?.['node-version-file'], 'package.json');
-  } else {
-    assert.equal(versionOf(asked), versionOf(declared));
+  for (const version of versions) {
+    assert.match(version, /^\d+\.\d+\.\d+$/, `CI runs the suite on \`${version}\`, which is not an exact version`);
   }
+});
+
+test('CI runs the suite on a current Node, and also on the floor package.json promises', async () => {
+  // The floor is what users are promised, so one job stays on it. But the kit
+  // is run on the Node people actually have, and a kit only ever tested on its
+  // oldest supported version breaks there first. Stated as a rule rather than a
+  // number, so bumping the pinned version later needs no change here.
+  const declared = (await readPackage()).engines.node;
+  assert.match(declared, /^>=\d/, `engines.node should stay the floor users are promised, got: ${declared}`);
+  const floor = versionOf(declared);
+
+  const versions = await ciNodeVersions();
+  const shown = versions.join(', ');
+
+  assert.ok(versions.includes(floor), `CI should keep a job on the floor ${floor}, got: ${shown}`);
+  assert.ok(
+    versions.some((version) => compareVersions(version, floor) > 0),
+    `CI should run the suite on a Node newer than the floor ${floor}, got: ${shown}`,
+  );
 });
 
 test('every action a workflow uses is pinned to a full commit SHA', async () => {
