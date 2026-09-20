@@ -220,7 +220,16 @@ TDD and tests:
 - The author gets the requirement and the public interfaces, not the implementer's code plan, and follows the test-writing part of the skill. [decided]
 - The implementer cannot change a test to make it pass. [decided] A test that looks wrong is reported to the author. [proposed]
 - The author's tests are validated by mutation testing, so silly tests are caught. [decided]
-- Mutation testing: use the language's standard tool; if it is not set up, guide the user to set it up and follow their choice; in the worst case the agent does it itself. [decided]
+- Mutation check, the rule [decided]:
+  1. When: once per piece of work, after the tests are green and before calling it done. Not after every change or fix; again only if a late change rewrote a large part.
+  2. What: only the code this work changed, never the whole project.
+  3. Skip it, and say so, for docs or config only, renames and wording, throwaway prototypes, and code with no runnable tests.
+  4. Time: about ten minutes at most. If it would take longer, narrow it (changed files, fast tests only, or a sample) and say so.
+  5. Purpose: would the tests catch a real mistake? There is no score to reach.
+  6. Survivors: fix one only if it shows a gap in behaviour the requirement cares about. Ignore message wording, logging and no-visible-difference cases. List the rest in two or three lines; do not analyse every one.
+  7. Who: the implementer runs it; a test that needs strengthening goes to the separate test author.
+  8. Tool: the language's standard tool; if it is not set up, guide the user to set it up and follow their choice; failing that, the agent does it by hand with five to eight small deliberate breaks, chosen before looking at the tests, each reverted with git.
+  9. Report: three lines: what it ran on, killed and survived, what was done about the survivors.
 - Refactoring is outside the red/green loop. A small refactor is part of the change and fits the same old contract (so the existing tests stay green — the assistant's reading). If a change is so substantial that the old tests cannot hold, the tests are redone the proper way: the separate author again, usually deleting the old tests first. A large-scale refactor is a planned activity of its own. [decided]
 
 Review:
@@ -249,5 +258,6 @@ This section is how this repo is being built right now. It is a temporary arrang
 - For now: one developer session (Claude, Opus 5, high effort) works one issue at a time. A separate reviewer session (Codex, Astra, high effort) in its own clone reviews each PR once and only comments. The developer fixes what the review asked and then merges the PR itself; it does not wait for the owner. A second review happens only when the case is out of the ordinary. The design session stays outside as coordinator: it hands out the issues, routes the review, clears the developer session between issues, decides most questions and takes only real owner decisions to the owner. [decided, temporary]
 - CI runs a good current Node version, not the lowest one the package supports. [decided]
 - A symlink loop in a path the kit is given is detected and reported to the user as a problem, in plain words. [decided]
+- Thorough is good, formality for its own sake is not. Reviews and mutation checks go deep on what can break and on whether the change does what was asked; they do not repeat the same formal checks on every PR, and a second or third look skips what did not change, on judgment. [decided, temporary]
 - Each build step ends with a live check in Orca on both harnesses where it applies. [proposed]
 - Live checks still owed from research: the session id follows `/clear`; a Claude session name survives resume; Codex auto mode allows `orca` and `gh`; the Orca automation keeps one grooming conversation; `codex queue` retest.
