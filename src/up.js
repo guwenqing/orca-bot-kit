@@ -5,7 +5,6 @@
 // run does nothing.
 
 import { mkdirSync, realpathSync, writeFileSync } from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
 import { readBook, tabIdsIn, writeBook } from './book.js';
@@ -57,7 +56,7 @@ export function bringUp(bots, { bot: onlyBot, session: onlySession } = {}) {
   });
   for (const { bot, home } of chosen) refuseWhatCannotStart(bot, home, onlySession);
 
-  return chosen.flatMap(({ bot, home }) => bringUpBot(home, bot, onlySession));
+  return chosen.flatMap(({ bot, home }) => bringUpBot(bots, home, bot, onlySession));
 }
 
 function refuseWhatCannotStart(bot, home, onlySession) {
@@ -78,7 +77,7 @@ function sessionsOf(bot, onlySession) {
   return named;
 }
 
-function bringUpBot(home, bot, onlySession) {
+function bringUpBot(bots, home, bot, onlySession) {
   const name = bot.name;
   const title = displayName(name);
   const sessions = sessionsOf(bot, onlySession);
@@ -87,7 +86,7 @@ function bringUpBot(home, bot, onlySession) {
   book.orca = orcaProject(home, title);
 
   const live = new Map(tabs(home).map((tab) => [tab.tabId, tab]));
-  const report = sessions.map((session) => bringUpSession(home, book, live, session, bot, title));
+  const report = sessions.map((session) => bringUpSession(bots, home, book, live, session, bot, title));
 
   // The ops tab, and the whole of what the kit knows about it: Bot Father's
   // project needs one tab that is not a session, for work across the fleet. Any
@@ -106,7 +105,7 @@ function bringUpBot(home, bot, onlySession) {
   return report;
 }
 
-function bringUpSession(home, book, live, session, bot, title) {
+function bringUpSession(bots, home, book, live, session, bot, title) {
   const known = live.get(book.sessions[session.name]?.tab);
   const tabTitle = `${title} ${session.name}`;
 
@@ -125,7 +124,7 @@ function bringUpSession(home, book, live, session, bot, title) {
   const prompt = startPrompt(session, { home, workDir });
   // Anything longer than a line goes to the harness out of a file, rather than
   // through the tab's shell a character at a time.
-  const promptFile = prompt === undefined || isShortPrompt(prompt) ? undefined : promptPath(bot.name, session.name);
+  const promptFile = prompt === undefined || isShortPrompt(prompt) ? undefined : promptPath(bots, bot.name, session.name);
   const command = launchCommand(session, { harness: harnessOf(session, bot.harness), home, workDir, prompt, promptFile });
 
   // A work dir is a plain folder, made for the session before it is told about
@@ -188,9 +187,17 @@ function orcaProject(home, title) {
   return { project: setup.projectId, setup: setup.id };
 }
 
-/** Where the kit leaves a prompt for the launch line to pick up. */
-const promptPath = (bot, session) =>
-  path.join(os.tmpdir(), 'obk-prompts', `${encodeURIComponent(bot)}.${encodeURIComponent(session)}.txt`);
+/**
+ * Where the kit leaves a prompt for the launch line to pick up: a folder of its
+ * own beside the bots repo, the way skill-source clones sit beside it (PRD 6.3)
+ * — kit-made, never inside the user's repo, so it stays out of their git status.
+ *
+ * Beside *this* bots folder, and not in a shared temp directory: two bots
+ * folders may each hold an api-bot with a daily session, and one file for both
+ * of them is one bot's duty handed to another's session.
+ */
+const promptPath = (bots, bot, session) =>
+  path.join(`${bots}.prompts`, `${encodeURIComponent(bot)}.${encodeURIComponent(session)}.txt`);
 
 function entry(tab, { bot, name, created, running = false, blockedReason, promptSent, promptFile }) {
   const made = { bot, name, title: tab.title, tabId: tab.tabId, terminal: tab.handle, created, harnessStarted: running };
