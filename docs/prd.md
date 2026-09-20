@@ -212,17 +212,15 @@ TDD and tests:
 - The test author is always separate from the implementer. A subagent counts; or another session, by the user's flavour. [decided] → ADR 0007
 - The author gets the requirement and the public interfaces, not the implementer's code plan, and follows the test-writing part of the skill. [decided]
 - The implementer cannot change a test to make it pass. [decided] A test that looks wrong is reported to the author. [proposed]
-- The author's tests are validated by mutation testing, so silly tests are caught. [decided]
-- Mutation check, the rule [decided]:
-  1. When: once per piece of work, after the tests are green and before calling it done. Not after every change or fix; again only if a late change rewrote a large part.
-  2. What: only the logic this work changed that matters, never the whole project.
-  3. How: one mutation pass per issue, never more. Either the agent's own small, targeted check (five to eight deliberate breaks in the changed logic, chosen before looking at the tests, each run, expected to fail, reverted), or one run of the standard tool narrowed to the logic that changed, when that run fits in about twenty minutes and runs in the background while the work goes on. A run that heads towards hours is stopped and replaced by the hand check. Whole-suite tool runs are an occasional audit the user asks for, not everyday work.
-  4. Skip it, and say so, for docs or config only, renames and wording, throwaway prototypes, and code with no runnable tests.
-  5. Proportion: no routine long testing for something minor, and never again and again for the same PR. The effort fits the size and risk of the change.
-  6. Purpose: would the tests catch a real mistake? There is no score to reach.
-  7. Survivors: fix one only if it shows a gap in behaviour the requirement cares about. Ignore message wording, logging and no-visible-difference cases. List the rest in two or three lines; do not analyse every one.
-  8. Who: the implementer runs it; a test that needs strengthening goes to the separate test author.
-  9. Report: three lines: what it ran on, killed and survived, what was done about the survivors.
+- The author's tests are checked by the mutation check below, so silly tests are caught. [decided]
+- Mutation check, the rule [decided]. It is how this repo works and what the kit's TDD skill teaches every developer bot:
+  1. Everyday work: the agent's own hand check, once per issue, at the end, only where it earns its place. Five to eight deliberate breaks in the risky logic the issue changed, chosen before looking at the tests, each run, expected to fail, reverted; reported in three lines. Skipped, and said so, for slices with no real logic (docs, config, wiring, small fixes, renames, prototypes, code with no runnable tests).
+  2. Audit: a mutation tool over the whole suite is an occasional audit, at a milestone or when the user asks, in its own tab in the background at a quiet time. Read once; the real gaps become a handful of test issues; the rest is ignored. Never per PR, never repeated for the same PR.
+  3. Exception: for a piece of work at the core of the product, one narrowed tool run on the changed logic, in the background, about twenty minutes; if it does not fit, the hand check. Then no more.
+  4. Purpose: would the tests catch a real mistake? There is no score to reach. Fix a survivor only if it shows a gap in behaviour the requirement cares about; ignore message wording, logging and no-visible-difference cases; list the rest in two or three lines.
+  5. Who: the implementer runs the check; a test that needs strengthening goes to the separate test author.
+  6. Proportion: no routine long testing for something minor, never again and again for the same PR; a run heading towards hours is stopped. The mutation check is the third safety net after the separate test author (tests first, red before the code) and the reviewer's look at the tests; it stays the cheapest of the three.
+  7. For the toolkit user: the TDD skill teaches the hand check as the everyday way and mentions the tool only as an audit; it never makes a tool a requirement, and it does not spend the user's time on a tool that does not fit their suite.
 - Refactoring is outside the red/green loop. A small refactor is part of the change and fits the same old contract (so the existing tests stay green — the assistant's reading). If a change is so substantial that the old tests cannot hold, the tests are redone the proper way: the separate author again, usually deleting the old tests first. A large-scale refactor is a planned activity of its own. [decided]
 
 Review:
