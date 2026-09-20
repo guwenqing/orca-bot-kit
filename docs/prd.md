@@ -86,7 +86,9 @@ Each line is a check a developer can run. Issues turn these into acceptance test
 
 - Orca. A bot is an Orca project; a session is a tab. Naming, ordering, phone and remote access are Orca's. [decided] → ADR 0001
 - A bot's Orca project is a folder workspace; many tabs share it. Proven live: a git-kind registration of a folder inside the bots repo gets no worktree and cannot host tabs. So a bot's project shows no git status in Orca. [decided by the coordinator on evidence]
-- Orca ids (project, tab ids) are runtime state of this machine. They live in a small gitignored per-bot state file, not in the book; the ops tab's id is there too, which keeps the ops tab out of the book. Tab titles drift when an agent runs, so tabs are matched by id. [decided by the coordinator]
+- Everything is in the book except one special tab. A session's Orca tab id and the bot's Orca project id live in the book with the session. The only exception is Bot Father's ops tab for whole-fleet maintenance, which is never written to the book; `obk up` finds it by the title the kit set and creates it if it is missing. [decided]
+- The kit always sets a tab's title. Titles only drift when Orca's dynamic tab title option is on; the tab id is the key for sessions either way. [decided]
+- A bot home is a plain folder. The kit never creates a git worktree for the bots repo or for a bot, and never registers a bot folder in Orca as a git repo. Orca calls every workspace a "worktree"; the kit's output and docs say "Orca project" or "folder workspace". [decided]
 - `obk init` takes `--harness claude|codex` with no silent default and no interactive prompt; the setup step asks the user once and passes it. [decided by the coordinator]
 
 ### 6.3 Workspace
