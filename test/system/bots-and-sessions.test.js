@@ -198,7 +198,13 @@ test('two bots on the two harnesses come up in the real Orca, and nothing else i
     const opened = terminalsAt(home);
     assert.equal(opened.length, 1, `${bot.name} has its one session tab, got ${JSON.stringify(opened)}`);
     assert.equal(before.handles.has(opened[0].handle), false, 'the tab should be a new one');
-    assert.equal(opened[0].title, `${bot.display} daily`);
+
+    // What Orca calls the tab now is not checked, here or anywhere: Orca
+    // reports whatever the program in the tab last wrote, and Claude Code
+    // writes its own title over the kit's within seconds of starting (tech
+    // notes, section 1). The kit sets the title and never reads one back —
+    // the tab id is the key (PRD 6.2) — so the title is only ever the kit's
+    // own claim, checked below in what it answered.
 
     // What it reported is what Orca really has. No ops tab: that is Bot
     // Father's alone.
