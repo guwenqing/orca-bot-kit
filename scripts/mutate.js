@@ -84,7 +84,12 @@ function run(argv) {
   // lives outside both, under an absolute path.
   const notes = mkdtempSync(path.join(os.tmpdir(), 'obk-mutate-'));
   try {
-    const result = spawnSync('stryker', ['run', '--mutate', targets.join(',')], {
+    // The exclusion travels with the targets rather than sitting only in
+    // stryker.config.mjs: a `--mutate` on the command line replaces the config's
+    // own list, and a target can be a glob, which the filter above cannot catch.
+    const mutate = [...targets, `!${THE_RUNNER}`].join(',');
+
+    const result = spawnSync('stryker', ['run', '--mutate', mutate], {
       cwd: repo,
       stdio: 'inherit',
       env: { ...process.env, OBK_MUTATION_CACHE: path.join(notes, 'suite.json') },
