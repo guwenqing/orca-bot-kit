@@ -94,26 +94,28 @@ unit is one short block of always-on working rules. The kit's own units live in
 folder. What is always on stays short, because every session reads it on every
 turn; the depth belongs in skills.
 
-Ten units suit every bot, whatever it does:
+Seven units suit every bot, whatever it does:
 
 | | |
 |---|---|
 | `the-ask` | reading the whole request, which questions are yours to answer |
-| `scope` | the smallest change, and what you leave alone |
-| `evidence` | where a claim comes from, and not inventing one |
-| `finishing` | the check written first, run last, reported as it came out |
-| `stuck` | two failed attempts, no feedback loop, saying so |
+| `simple` | the smallest thing that answers it, and reusing what is there |
+| `scope` | changing what the work needs and leaving the rest |
+| `evidence` | what you saw, what you worked out, and not inventing either |
+| `finishing` | the check you can run, run on the real thing, reported as it came |
 | `limits` | the charter, what needs a yes, no quiet substitutes |
-| `notes` | what goes in a file rather than a conversation |
-| `delegating` | briefs, and judging a helper by what it produced |
 | `talk` | answer first, short, real names |
-| `lessons` | a repeated correction becomes a check |
 
-Five more are for bots that write code: `boring-way`, `tests-first`,
-`changing-code`, `root-cause` and `review`.
+Two more are for bots that write code: `tests-first`, a failing test first and
+someone else writing it, and `review`, someone who did not write the work
+reading it.
 
-They are defaults, not fences. A bot uses the ones its owner picks, your own
-units sit beside them, and a bot does what its user asks of it.
+They are the essence, not the depth: how to debug, how to review well, how to
+write a test worth keeping and how to hand work over belong to the skills a bot
+picks. They are also defaults, not fences — a bot uses the ones its owner
+picks, your own units sit beside them, and a bot does what its user asks of it.
+Why the set is this size is in
+[`docs/proposals/41-common-rules.md`](docs/proposals/41-common-rules.md).
 
 A unit is a markdown file whose frontmatter carries `name` (the file's own
 name), `title` (the heading it gets in `AGENTS.md`) and `applies` (`all` or
