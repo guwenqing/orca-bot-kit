@@ -220,8 +220,16 @@ TDD and tests:
 - The author gets the requirement and the public interfaces, not the implementer's code plan, and follows the test-writing part of the skill. [decided]
 - The implementer cannot change a test to make it pass. [decided] A test that looks wrong is reported to the author. [proposed]
 - The author's tests are validated by mutation testing, so silly tests are caught. [decided]
-- Mutation testing is one step done before the work is complete, not something to run after every change to the code. [decided]
-- Mutation testing: use the language's standard tool; if it is not set up, guide the user to set it up and follow their choice; in the worst case the agent does it itself. [decided]
+- Mutation check, the rule [decided]:
+  1. When: once per piece of work, after the tests are green and before calling it done. Not after every change or fix; again only if a late change rewrote a large part.
+  2. What: only the code this work changed, never the whole project.
+  3. Skip it, and say so, for docs or config only, renames and wording, throwaway prototypes, and code with no runnable tests.
+  4. Time: about ten minutes at most. If it would take longer, narrow it (changed files, fast tests only, or a sample) and say so.
+  5. Purpose: would the tests catch a real mistake? There is no score to reach.
+  6. Survivors: fix one only if it shows a gap in behaviour the requirement cares about. Ignore message wording, logging and no-visible-difference cases. List the rest in two or three lines; do not analyse every one.
+  7. Who: the implementer runs it; a test that needs strengthening goes to the separate test author.
+  8. Tool: the language's standard tool; if it is not set up, guide the user to set it up and follow their choice; failing that, the agent does it by hand with five to eight small deliberate breaks, chosen before looking at the tests, each reverted with git.
+  9. Report: three lines: what it ran on, killed and survived, what was done about the survivors.
 - Refactoring is outside the red/green loop. A small refactor is part of the change and fits the same old contract (so the existing tests stay green — the assistant's reading). If a change is so substantial that the old tests cannot hold, the tests are redone the proper way: the separate author again, usually deleting the old tests first. A large-scale refactor is a planned activity of its own. [decided]
 
 Review:
