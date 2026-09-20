@@ -128,6 +128,10 @@ export function launchCommand(session, { harness, home, workDir, prompt, promptF
   }
 
   return [
+    // The shell's own pid, so the session's hook can tell the harness this line
+    // starts — the shell's child — from anything the session starts later inside
+    // the tab. `$$` is the shell's, and it is not quoted for that reason.
+    `${SHELL_ENV}=$$`,
     ...words.map(quoted),
     ...extraWords(session.extra_args),
     ...resumeWords(harness, resume),
@@ -205,6 +209,13 @@ function extraWords(extra) {
   if (Array.isArray(extra)) return extra.filter(set).map((arg) => quoted(String(arg)));
   return set(extra) ? [String(extra).trim()] : [];
 }
+
+/**
+ * Where the launch line tells the session's hook which shell typed the harness
+ * in. One tab holds one session: the harness this shell starts. Anything that
+ * session starts inside the tab is not the session and can never be it.
+ */
+export const SHELL_ENV = 'OBK_TAB_SHELL';
 
 /** A word as a shell needs it. Anything a shell would read as more than a word is quoted. */
 const quoted = (word) => (/^[A-Za-z0-9,._+:@%/=-]+$/.test(word) ? word : `'${word.replaceAll("'", `'\\''`)}'`);

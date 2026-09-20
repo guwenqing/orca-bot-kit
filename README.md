@@ -103,6 +103,19 @@ conversation it was having, rather than starting a new one. Clear a session —
 keeps the old one, and gives the session its start prompt again, because that
 prompt is what tells one session's duty from another's.
 
+One tab holds one session: the harness the kit started in it. Anything that
+session runs inside the tab — a `codex exec`, a helper, a subagent's own process
+— is not the session, and never becomes the conversation the kit brings back.
+
+And when the kit cannot say which conversation a session is, it says so instead
+of starting a new one over the top of it. The usual reason is a Codex hooks file
+trusted after the session had already begun talking: nothing was recorded for
+that first conversation, and trusting the file does not go back for it. `obk up`
+then asks the harness what it has in the bot's folder — if there is one
+conversation nobody claims, it takes that one back up; if there are several, it
+leaves the session alone, prints the ids, and waits for you to write the right
+one into `sessions.yaml`.
+
 ## Working on the kit
 
 ```sh

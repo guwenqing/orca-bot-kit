@@ -183,6 +183,23 @@ export async function createSandbox(t) {
       async set(changes) {
         await writeFile(stateFile, `${JSON.stringify({ ...await readState(), ...changes }, null, 2)}\n`);
       },
+      /**
+       * One entry per program the fake ran in the middle of a call, from
+       * `runDuring`: { command, argv, status, stdout, stderr }. A test that
+       * means to overlap two writers reads this to be sure the second one
+       * really ran, rather than passing because it never did.
+       */
+      async ranDuring() {
+        try {
+          return (await readFile(path.join(fakeDir, 'ran-during.log'), 'utf8'))
+            .split('\n')
+            .filter((line) => line !== '')
+            .map((line) => JSON.parse(line));
+        } catch (error) {
+          if (error.code === 'ENOENT') return [];
+          throw error;
+        }
+      },
       /** One entry per call the CLI made to Orca: { args, cwd }, in order. */
       async calls() {
         try {
@@ -229,12 +246,31 @@ export const orcaFlags = (call) => call.args.filter((arg) => arg.startsWith('--'
 export const TAB_TITLES = { daily: 'Bot Father daily', ops: 'Bot Father ops' };
 
 /**
+ * What every launch line puts in front of the harness word: the pid of the
+ * shell the line is running in, which the tab's own shell fills in as it reads
+ * the line.
+ *
+ * It is how the kit later tells the session's own harness from one the session
+ * started inside itself. A `codex exec` a session runs inherits `ORCA_TAB_ID`
+ * and reports its own conversation through the same hook; without this, the
+ * book took the child's id for the session's and `up` resumed the child's
+ * conversation (round 2, finding 2).
+ */
+export const TAB_SHELL = 'OBK_TAB_SHELL=$$';
+
+/** A launch line: the tab shell's pid, then the harness and its flags. */
+export const launchLine = (rest) => `${TAB_SHELL} ${rest}`;
+
+/**
  * The launch command a session with nothing set is started with. Every session
  * carries an explicit approval flag (ADR 0005), so a user's global harness
  * defaults cannot leak into a bot, and `auto` is what a session that named no
  * level takes.
  */
-export const BARE_LAUNCH = { claude: 'claude --permission-mode auto', codex: 'codex --approve-for-me' };
+export const BARE_LAUNCH = {
+  claude: launchLine('claude --permission-mode auto'),
+  codex: launchLine('codex --approve-for-me'),
+};
 
 /** Where a bot lives inside a bots folder. */
 export const botHomeOf = (bots, bot = 'bot-father') => path.join(bots, 'bots', bot);
@@ -285,20 +321,124 @@ export const sessionStart = ({
 })}\n`;
 
 /**
- * Run the kit's hook the way a harness runs it: the event on standard input and
+ * The stand-ins that build the process chain a real harness makes, so a test can
+ * run the kit's hook where the kit will believe it.
+ *
+ * The kit decides whose conversation a report is about from the process tree
+ * (round 2, finding 2): the tab id says which session, and the ancestry says
+ * whether this is that session's own harness or one the session started for
+ * itself. Measured live on both harnesses, the chain is
+ *
+ *     the hook       /bin/sh <the hook command>   parent: the harness
+ *     the harness    claude … / codex …           parent: the tab's shell
+ *
+ * and the tab's shell is the one whose pid the launch line carries. So a hook
+ * run any other way is ignored, and a test that ran it any other way would pass
+ * or fail for a reason that has nothing to do with what it meant to check.
+ *
+ * Node rather than shell, because a shell asked to run one command often
+ * replaces itself with it, and then the parent the chain needs is never there.
+ */
+const CHAIN = {
+  'tab-shell.cjs': `
+    const { spawnSync } = require('node:child_process');
+    const ran = spawnSync(process.execPath, [process.env.OBK_TEST_HARNESS], {
+      stdio: 'inherit',
+      env: { ...process.env, OBK_TAB_SHELL: String(process.pid) },
+    });
+    process.exit(ran.status ?? 0);
+  `,
+  'harness.cjs': `
+    const { spawnSync } = require('node:child_process');
+    // A session that starts a harness of its own: the same environment, one
+    // generation further from the tab's shell.
+    if (process.env.OBK_TEST_NESTED === '1') {
+      const env = { ...process.env };
+      delete env.OBK_TEST_NESTED;
+      const inner = spawnSync(process.execPath, [__filename], { stdio: 'inherit', env });
+      process.exit(inner.status ?? 0);
+    }
+    const ran = spawnSync('/bin/sh', ['-c', process.env.OBK_TEST_HOOK], {
+      input: process.env.OBK_TEST_PAYLOAD ?? '',
+      stdio: ['pipe', 'inherit', 'inherit'],
+    });
+    process.exit(ran.status ?? 0);
+  `,
+};
+
+/**
+ * The chain's files, written into the sandbox, and what it takes to drive them:
+ * the program to run and the environment it needs.
+ *
+ * Split out because the chain has to be startable from somewhere other than
+ * this helper — the fake Orca runs a hook in the middle of a call, to put a
+ * writer inside a run, and what it starts has to be the chain and not the hook
+ * command on its own, or the kit rightly ignores the report.
+ */
+export async function harnessChain(box, command, { stdin = '', nested = false } = {}) {
+  const dir = path.join(box.root, 'harness');
+  await mkdir(dir, { recursive: true });
+  for (const [name, body] of Object.entries(CHAIN)) {
+    await writeFile(path.join(dir, name), `${body.trim()}\n`);
+  }
+
+  return {
+    argv: [process.execPath, path.join(dir, 'tab-shell.cjs')],
+    env: {
+      OBK_TEST_HARNESS: path.join(dir, 'harness.cjs'),
+      OBK_TEST_HOOK: command,
+      OBK_TEST_PAYLOAD: stdin,
+      ...(nested ? { OBK_TEST_NESTED: '1' } : {}),
+    },
+  };
+}
+
+/**
+ * Run `command` — one shell line — the way a harness runs its hook, under the
+ * chain above. `tab` is the Orca tab the session lives in, `stdin` the event,
+ * and `nested: true` puts a second harness under the first, which is what a
+ * session running `codex exec` does.
+ *
+ * Answers like `box.run`: the hook's own exit code, stdout and stderr, because
+ * every process in the chain passes them straight through.
+ */
+export async function throughAHarness(box, command, { env, tab, stdin = '', nested = false } = {}) {
+  const chain = await harnessChain(box, command, { stdin, nested });
+  const [program, ...rest] = chain.argv;
+
+  return capture(program, rest, {
+    cwd: box.cwd,
+    env: {
+      ...(env ?? box.env),
+      ...(tab === undefined ? {} : { ORCA_TAB_ID: tab }),
+      ...chain.env,
+    },
+  });
+}
+
+/**
+ * Run the kit's hook the way a harness runs it: the event on standard input,
  * the Orca pane's own `ORCA_TAB_ID` in the environment (proven live: Orca's
- * variables reach a program started in a tab and its children).
+ * variables reach a program started in a tab and its children), and under the
+ * process chain the kit reads ownership from.
  *
  * `tab` left out is a hook that ran somewhere Orca did not set one. `stdin`
  * overrides the event, for the inputs a harness should never send but might.
+ * `nested` is a harness the session started for itself. `raw` runs the command
+ * on its own, with no chain at all, which is how a test reaches the case of a
+ * report whose owner cannot be established.
  */
-export const recordSession = (box, { bots, bot, tab, env, stdin, ...payload }) => box.run(
-  ['session', 'record', '--bots', bots, '--bot', bot],
-  {
-    env: { ...(env ?? box.env), ...(tab === undefined ? {} : { ORCA_TAB_ID: tab }) },
-    stdin: stdin ?? sessionStart(payload),
-  },
-);
+export function recordSession(box, { bots, bot, tab, env, stdin, raw = false, nested = false, ...payload }) {
+  const args = ['session', 'record', '--bots', bots, '--bot', bot];
+  const input = stdin ?? sessionStart(payload);
+  if (raw) {
+    return box.run(args, {
+      env: { ...(env ?? box.env), ...(tab === undefined ? {} : { ORCA_TAB_ID: tab }) },
+      stdin: input,
+    });
+  }
+  return throughAHarness(box, `obk ${args.map((word) => `'${word}'`).join(' ')}`, { env, tab, stdin: input, nested });
+}
 
 /**
  * Where each harness reads a project's hooks from, inside a bot home. Both

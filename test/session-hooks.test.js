@@ -43,10 +43,10 @@ import {
   kitHooksIn,
   recordSession,
   sessionIn,
-  sh,
   skipGit,
   snapshot,
   tabsOfBot,
+  throughAHarness,
 } from './helpers/cli.js';
 
 /** A seeded bots folder. Bot Father comes with it, and is left alone by these tests. */
@@ -159,9 +159,10 @@ for (const harness of ['claude', 'codex']) {
     await up(box, 'api-bot');
     const tab = (await tabsOfBot(box, bots, 'api-bot'))[0];
 
-    const ran = await sh(await kitHookOf(bots, 'api-bot', harness), {
-      cwd: botHomeOf(bots, 'api-bot'),
-      env: { ...box.env, ORCA_TAB_ID: tab.tabId },
+    // Under the chain a real harness makes, because that is where the kit
+     // believes a report from (round 2, finding 2).
+    const ran = await throughAHarness(box, await kitHookOf(bots, 'api-bot', harness), {
+      tab: tab.tabId,
       stdin: `{"session_id":"sess-from-the-hook","transcript_path":"/nowhere","cwd":"${botHomeOf(bots, 'api-bot')}",`
         + '"hook_event_name":"SessionStart","source":"startup"}\n',
     });
@@ -188,9 +189,9 @@ for (const harness of ['claude', 'codex']) {
 
     const nowhere = path.join(box.root, 'empty-bin');
     await mkdir(nowhere, { recursive: true });
-    const ran = await sh(await kitHookOf(bots, 'api-bot', harness), {
-      cwd: botHomeOf(bots, 'api-bot'),
-      env: { ...box.env, PATH: nowhere, ORCA_TAB_ID: tab.tabId },
+    const ran = await throughAHarness(box, await kitHookOf(bots, 'api-bot', harness), {
+      env: { ...box.env, PATH: nowhere },
+      tab: tab.tabId,
       stdin: '{"session_id":"sess-1","hook_event_name":"SessionStart","source":"clear"}\n',
     });
 
@@ -351,6 +352,127 @@ for (const harness of ['claude', 'codex']) {
       eventsIn(now).SessionEnd,
       [{ hooks: [{ type: 'command', command: 'echo mine' }] }],
       'the user\'s own entry stays, and the event stays with it',
+    );
+  });
+}
+
+/** A hook of the user's own, to sit beside the kit's and be left alone. */
+const THEIRS = { type: 'command', command: 'echo mine' };
+
+/**
+ * The kit's entry and the user's, in one group, under `event`. Planting it means
+ * taking the group the kit actually wrote and adding to it, so what is beside
+ * the kit's entry is beside the real thing rather than a guess at it.
+ */
+async function planted(bots, harness, event, { settings = {} } = {}) {
+  const file = hookFileOf(bots, 'api-bot', harness);
+  const held = JSON.parse(await readFile(file, 'utf8'));
+  const events = eventsIn(held);
+  const group = structuredClone(events.SessionStart[0]);
+  assert.ok(Array.isArray(group.hooks), `a group should hold a list of hooks, got: ${JSON.stringify(group)}`);
+  events[event] = [{ ...group, ...settings, hooks: [...group.hooks, THEIRS] }];
+  await writeFile(file, `${JSON.stringify(held, null, 2)}\n`);
+  return file;
+}
+
+/** Every hook, of anybody's, under one event of a parsed file. */
+const hooksUnder = (held, event) => (eventsIn(held)?.[event] ?? []).flatMap((group) => group.hooks ?? []);
+
+for (const harness of ['claude', 'codex']) {
+  test(`a hook of the user's beside the kit's own survives a second ${harness} up`, async (t) => {
+    // The review put a valid hook of theirs in the same group as the kit's and
+    // watched the next `up` delete the whole group. The kit owns its one entry
+    // and not the group it sits in.
+    const box = await createSandbox(t);
+    await seeded(box);
+    const bots = await withBot(box, 'api-bot', harness, [['daily']]);
+    await up(box, 'api-bot');
+    const file = await planted(bots, harness, 'SessionStart');
+
+    await up(box, 'api-bot');
+
+    const held = await hooksIn(bots, 'api-bot', harness);
+    assert.ok(
+      hooksUnder(held, 'SessionStart').some((hook) => hook.command === THEIRS.command),
+      `their hook should still be there, got:\n${await readFile(file, 'utf8')}`,
+    );
+    assert.equal(kitHooksIn(held).length, 1, 'and the kit still has its one entry');
+  });
+
+  test(`the kit's ${harness} entry is brought up to date where it sits`, async (t) => {
+    // A bots folder that moved, so the path in the entry is stale. The entry is
+    // corrected in place: not a second one beside it, and not at the cost of the
+    // group it shares or of what the user set on that group.
+    const box = await createSandbox(t);
+    await seeded(box);
+    const bots = await withBot(box, 'api-bot', harness, [['daily']]);
+    await up(box, 'api-bot');
+    const file = await planted(bots, harness, 'SessionStart', { settings: { matcher: 'mine' } });
+    const stale = JSON.parse(await readFile(file, 'utf8'));
+    const group = eventsIn(stale).SessionStart[0];
+    group.hooks = group.hooks.map((hook) => (typeof hook.command === 'string' && hook.command.includes('session record')
+      ? { ...hook, command: hook.command.replace(bots, '/somewhere/else') }
+      : hook));
+    await writeFile(file, `${JSON.stringify(stale, null, 2)}\n`);
+
+    await up(box, 'api-bot');
+
+    const held = await hooksIn(bots, 'api-bot', harness);
+    assert.equal(eventsIn(held).SessionStart.length, 1, 'one group, the one that was there');
+    assert.equal(eventsIn(held).SessionStart[0].matcher, 'mine', 'and what the user set on it');
+    assert.ok(
+      hooksUnder(held, 'SessionStart').some((hook) => hook.command === THEIRS.command),
+      'and their hook in it',
+    );
+    const kit = kitHooksIn(held);
+    assert.equal(kit.length, 1, `one entry of the kit's, got: ${JSON.stringify(kit)}`);
+    assert.ok(kit[0].includes(bots), `naming this bots folder, got: ${kit[0]}`);
+    assert.ok(!kit[0].includes('/somewhere/else'), `and not the one it used to, got: ${kit[0]}`);
+  });
+
+  test(`an old ${harness} entry of the kit's goes without taking the group's other hooks`, async (t) => {
+    // The event the kit no longer asks about. Its own entry comes out; a hook of
+    // the user's in the same group is not the kit's to take, so the group and the
+    // event both stay.
+    const box = await createSandbox(t);
+    await seeded(box);
+    const bots = await withBot(box, 'api-bot', harness, [['daily']]);
+    await up(box, 'api-bot');
+    await planted(bots, harness, 'SessionEnd');
+
+    await up(box, 'api-bot');
+
+    const held = await hooksIn(bots, 'api-bot', harness);
+    assert.deepEqual(Object.keys(kitEventsIn(held)), ['SessionStart'], 'the kit asks about the one event');
+    assert.deepEqual(
+      hooksUnder(held, 'SessionEnd'),
+      [THEIRS],
+      `their hook stays and the kit's goes, got: ${JSON.stringify(eventsIn(held).SessionEnd)}`,
+    );
+  });
+
+  test(`a ${harness} group left with no hooks at all goes, and its neighbours stay`, async (t) => {
+    // The kit's entry alone in its group, beside a group that is entirely the
+    // user's. The empty group goes; the event stays because something is left in
+    // it.
+    const box = await createSandbox(t);
+    await seeded(box);
+    const bots = await withBot(box, 'api-bot', harness, [['daily']]);
+    await up(box, 'api-bot');
+    const file = hookFileOf(bots, 'api-bot', harness);
+    const held = JSON.parse(await readFile(file, 'utf8'));
+    const events = eventsIn(held);
+    events.SessionEnd = [structuredClone(events.SessionStart[0]), { hooks: [THEIRS] }];
+    await writeFile(file, `${JSON.stringify(held, null, 2)}\n`);
+
+    await up(box, 'api-bot');
+
+    const now = await hooksIn(bots, 'api-bot', harness);
+    assert.deepEqual(Object.keys(kitEventsIn(now)), ['SessionStart']);
+    assert.deepEqual(
+      eventsIn(now).SessionEnd,
+      [{ hooks: [THEIRS] }],
+      `the group that held nothing but the kit's entry goes, got: ${JSON.stringify(eventsIn(now).SessionEnd)}`,
     );
   });
 }

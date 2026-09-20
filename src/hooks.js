@@ -55,16 +55,13 @@ export function installHook(home, harness, { bots, bot }) {
   const file = path.join(home, HOOK_FILE[harness]);
   const settings = readSettings(file);
 
-  const mine = { hooks: [{ type: 'command', command: hookCommand(bots, bot), timeout: TIMEOUT }] };
-  // Every entry of the kit's comes out first, wherever in the file it sits, and
-  // one goes back in: a second run adds nothing, a changed bots path is
-  // corrected rather than doubled, and an event the kit once asked about and no
-  // longer does is left behind in nobody's file.
-  const theirs = withoutKitHooks(settings.hooks, file);
-  const wanted = {
-    ...settings,
-    hooks: { ...theirs, [EVENT]: [...(theirs[EVENT] ?? []), mine] },
-  };
+  const mine = { type: 'command', command: hookCommand(bots, bot), timeout: TIMEOUT };
+  // The kit's own entry is put right where it already sits, and nothing else in
+  // the file is the kit's to move: a second run adds nothing, a changed bots
+  // path is corrected rather than doubled, an entry under an event the kit no
+  // longer asks about is taken out, and a hook of the user's beside the kit's
+  // stays where they put it.
+  const wanted = { ...settings, hooks: withKitHook(settings.hooks, file, mine) };
 
   // Compared as documents, not as text: how the user laid their file out is
   // theirs, and a run that changes nothing writes nothing.
@@ -76,27 +73,54 @@ export function installHook(home, harness, { bots, bot }) {
 }
 
 /**
- * The user's own hooks: what is in the file with the kit's entries taken out.
- * An event left with nothing in it goes too — an empty list says nothing — and
- * anything under `hooks` that is not a list of entries is theirs, untouched.
+ * The file's hooks with the kit's own entry where it belongs and everything else
+ * as the user left it.
+ *
+ * The kit owns one entry, not the group it sits in. A group is the user's: it
+ * carries their other hooks and its own settings, and the kit's entry is only
+ * one of the things in it. So the kit's entry is written in place where one is
+ * already there, taken out where the kit no longer asks about that event, and
+ * added on its own only when the file has none. A group the kit empties goes,
+ * and an event left with no groups goes with it; a group that still has the
+ * user's hooks stays, whatever the kit took out of it.
+ *
+ * Anything under `hooks` that is not a mapping of events, or an event that is
+ * not a list of groups, is theirs and is left alone.
  */
-function withoutKitHooks(hooks, file) {
-  if (hooks === undefined) return {};
+function withKitHook(hooks, file, mine) {
+  if (hooks === undefined) return { [EVENT]: [{ hooks: [mine] }] };
   if (hooks === null || typeof hooks !== 'object' || Array.isArray(hooks)) {
     // Whatever this is, it is theirs, and writing the kit's hook here would
     // write over it. Better to say so than to take it away.
     throw new Error(`${file} has a hooks entry that is not a mapping of events, and the kit's session hook goes in there. Fix it or move it aside, then run the command again.`);
   }
 
-  return Object.fromEntries(Object.entries(hooks).flatMap(([event, groups]) => {
+  // One entry of the kit's, and only one: a file that somehow holds two keeps
+  // the first and loses the rest.
+  let placed = false;
+  const events = Object.fromEntries(Object.entries(hooks).flatMap(([event, groups]) => {
     if (!Array.isArray(groups)) return [[event, groups]];
-    const kept = groups.filter((group) => !isKitGroup(group));
+
+    const kept = groups.flatMap((group) => {
+      if (!Array.isArray(group?.hooks)) return [group];
+
+      const entries = group.hooks.flatMap((hook) => {
+        if (!isKitHook(hook)) return [hook];
+        if (event !== EVENT || placed) return [];
+        placed = true;
+        return [mine];
+      });
+      return entries.length === 0 ? [] : [{ ...group, hooks: entries }];
+    });
     return kept.length === 0 ? [] : [[event, kept]];
   }));
+
+  if (placed) return events;
+  return { ...events, [EVENT]: [...(events[EVENT] ?? []), { hooks: [mine] }] };
 }
 
-const isKitGroup = (group) => Array.isArray(group?.hooks)
-  && group.hooks.some((hook) => typeof hook?.command === 'string' && hook.command.includes(KIT_COMMAND));
+/** The kit's own hook entry, wherever it sits and whatever sits beside it. */
+const isKitHook = (hook) => typeof hook?.command === 'string' && hook.command.includes(KIT_COMMAND);
 
 /**
  * What the file says, or nothing when there is no file yet. A file the kit

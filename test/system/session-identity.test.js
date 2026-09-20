@@ -51,10 +51,29 @@
 //     look like a broken kit if it goes unanswered. Orca reports it as
 //     `blockedReason: "agent-hooks-review-prompt"`.
 //
+//     And answering it later does not put right the conversation that was
+//     already running: Codex never reports that one, whatever happens
+//     afterwards (the reviewer proved this). That is why the kit writes down
+//     when it launched a harness and asks Codex's own records what ran in the
+//     folder since — and why the last test in this file leaves the screen
+//     unanswered on purpose for a while.
+//
 // So: run it with Orca in front of you and answer what the tabs ask. Every wait
 // below says what the tab is showing when it runs out of patience, so a run
 // that was left alone names the screen that stopped it rather than timing out
 // into silence.
+//
+// The three screens answer to raw keys, all measured live, each sent as one
+// payload with its own return and no `--enter` (see `askIn` for why):
+//
+//     Claude Code's folder trust      \x1b[B\r   down, then return
+//     Codex's directory trust         1\r        "Yes, continue"
+//     Codex's `Hooks need review`     2\r        "Trust all and continue"
+//
+// which is what to send if you drive them from a script of your own rather than
+// clicking. Nothing here sends them: which question to answer, and how, is the
+// caller's judgement and not the kit's (PRD 6.5), and a test that guessed at a
+// screen it did not recognise is exactly what that rule exists to prevent.
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -229,11 +248,28 @@ async function tuiIsUp(handle, within = 60000) {
   );
 }
 
-/** Type a line into a tab, once the tab is ready to take one. */
+/**
+ * Type a line into a tab, once the tab is ready to take one.
+ *
+ * The text carries its own return and there is no `--enter`. Measured live:
+ * `--enter` is gated as an agent prompt and comes back `agent_prompt_blocked`,
+ * asking to be reissued with `--retry-request`, which is refused the same way —
+ * that road ends at a person in the Orca window. A return inside the payload is
+ * taken every time, on a question and on a trust screen alike.
+ *
+ * It only fails sometimes, which is worse than always: a run can ask three
+ * questions and be blocked on the fourth. So if this ever grows an `--enter`
+ * again, the failures will look random.
+ */
 async function askIn(handle, text) {
   await tuiIsUp(handle);
-  const sent = orca(['terminal', 'send', '--terminal', handle, '--text', text, '--enter']);
-  assert.equal(sent.ok, true, `orca terminal send failed: ${JSON.stringify(sent.error)}`);
+  const sent = orca(['terminal', 'send', '--terminal', handle, '--text', `${text}\r`]);
+  assert.equal(
+    sent.ok,
+    true,
+    `orca terminal send failed: ${JSON.stringify(sent.error)}`
+    + ' (agent_prompt_blocked means an --enter crept back in: the return belongs inside --text)',
+  );
 }
 
 /** Ask the session something and wait for `word` to appear on its screen. */
@@ -490,4 +526,196 @@ test('a session whose tab was closed comes back with its conversation', async (t
     // The proof: the passphrase was only ever said in the conversation.
     await answers(back.terminal, 'What was the passphrase I gave you? Reply with it and nothing else.', bot.passphrase);
   }
+});
+
+test('a harness the session starts for itself does not become the session\'s conversation', async (t) => {
+  // The review's finding 2, live. A `codex exec` the session runs inherits
+  // `ORCA_TAB_ID` and fires the kit's hook with a conversation of its own. Before
+  // the fix that conversation became the session's, the session's own went into
+  // the history, and the next `up` resumed the child's.
+  //
+  // Attended: answer the trust and hooks-review screens as they come up. If the
+  // agent declines to run the command, run the same `codex exec` line in a shell
+  // of your own inside that tab's folder with `ORCA_TAB_ID` set to the tab id the
+  // failure message names — the point is a harness under the session, however it
+  // gets there.
+  const before = {
+    handles: new Set(allTerminals().map((terminal) => terminal.handle)),
+    setups: new Set(allSetups().map((setup) => setup.id)),
+  };
+
+  const bots = await realpath(await mkdtemp(path.join(os.tmpdir(), 'obk-system-child-')));
+  const homeOf = (bot) => path.join(bots, 'bots', bot);
+  const homes = ['bot-father', 'child-codex'].map(homeOf);
+
+  t.after(async () => {
+    const closed = [];
+    for (const home of homes) {
+      for (const terminal of terminalsAt(home)) {
+        if (before.handles.has(terminal.handle)) continue;
+        orca(['terminal', 'close', '--terminal', terminal.handle, '--tab']);
+        closed.push(terminal.tabId);
+      }
+    }
+    for (const setup of allSetups()) {
+      if (!homes.includes(setup.path) || before.setups.has(setup.id)) continue;
+      orca(['project', 'setup-delete', '--setup', setup.id]);
+    }
+    await removeBotsFolderAndSiblings(bots);
+
+    const left = new Set(allTerminals().map((terminal) => terminal.handle));
+    for (const handle of before.handles) {
+      assert.ok(left.has(handle), `${handle} was open before this test and is gone now`);
+    }
+    for (const home of homes) {
+      assert.deepEqual(await terminalsAfterClosing(home, closed), [], `this test left tabs behind in ${home}`);
+    }
+  });
+
+  obkJson(['init', '--bots', bots, '--harness', 'claude']);
+  obkJson([
+    'bot', 'create', '--bots', bots, '--name', 'child-codex', '--harness', 'codex',
+    '--charter', 'Child Codex exists for one system test run and owns nothing.',
+  ]);
+  obkJson([
+    'session', 'add', '--bots', bots, '--bot', 'child-codex', '--name', 'daily',
+    '--prompt=You are a system test\'s bot and you own nothing. Your codeword is BADGER-5512.'
+    + ' When anyone asks for your codeword, reply with it and nothing else. Say nothing now and wait.',
+  ]);
+
+  const home = homeOf('child-codex');
+  const entry = tabOf(obkJson(['up', '--bots', bots, '--bot', 'child-codex']), 'daily');
+  assert.equal(entry.harnessStarted, true, `no codex came up in ${entry.title}`);
+
+  const own = await until(
+    'child-codex to report its own session id',
+    HOOK_MS,
+    async () => (await sessionIn(home, 'daily')).session,
+    () => ` The kit's hook has not run.${whatIsUp(entry.terminal)}`,
+  );
+
+  // The session runs a harness of its own, bounded, and says when it is done.
+  await answers(
+    entry.terminal,
+    'Run exactly this command, then reply with the single word DONE: '
+    + 'codex exec --skip-git-repo-check \'reply with the single word ok\'',
+    'DONE',
+  );
+
+  const daily = await sessionIn(home, 'daily');
+  assert.equal(daily.session, own, `the session's own conversation is still its own: ${JSON.stringify(daily)}`);
+  assert.equal(
+    daily.history,
+    undefined,
+    `and it was not pushed into the history by its own child: ${JSON.stringify(daily)}`,
+  );
+
+  // And the session still knows what it is for, which a swapped conversation
+  // would have taken with it.
+  await answers(entry.terminal, 'What is your codeword? Reply with the codeword only.', 'BADGER-5512');
+});
+
+test('a Codex conversation that ran before the hooks file was trusted is not lost', async (t) => {
+  // The review's finding 3, live, and the one test in this file that asks you to
+  // leave a screen alone for a while.
+  //
+  // Attended, in this order:
+  //   1. Answer Codex's directory-trust question if it asks.
+  //   2. Leave `Hooks need review` UNANSWERED. The conversation runs anyway and
+  //      the kit's hook never fires, so the book learns nothing — which is what
+  //      this test checks first.
+  //   3. When the test tells you to, answer it with `t`. Trusting does not
+  //      replay the report it missed.
+  //   4. Answer anything else as usual.
+  const before = {
+    handles: new Set(allTerminals().map((terminal) => terminal.handle)),
+    setups: new Set(allSetups().map((setup) => setup.id)),
+  };
+
+  const bots = await realpath(await mkdtemp(path.join(os.tmpdir(), 'obk-system-untrusted-')));
+  const homeOf = (bot) => path.join(bots, 'bots', bot);
+  const homes = ['bot-father', 'untrusted-codex'].map(homeOf);
+
+  t.after(async () => {
+    const closed = [];
+    for (const home of homes) {
+      for (const terminal of terminalsAt(home)) {
+        if (before.handles.has(terminal.handle)) continue;
+        orca(['terminal', 'close', '--terminal', terminal.handle, '--tab']);
+        closed.push(terminal.tabId);
+      }
+    }
+    for (const setup of allSetups()) {
+      if (!homes.includes(setup.path) || before.setups.has(setup.id)) continue;
+      orca(['project', 'setup-delete', '--setup', setup.id]);
+    }
+    await removeBotsFolderAndSiblings(bots);
+
+    const left = new Set(allTerminals().map((terminal) => terminal.handle));
+    for (const handle of before.handles) {
+      assert.ok(left.has(handle), `${handle} was open before this test and is gone now`);
+    }
+    for (const home of homes) {
+      assert.deepEqual(await terminalsAfterClosing(home, closed), [], `this test left tabs behind in ${home}`);
+    }
+  });
+
+  obkJson(['init', '--bots', bots, '--harness', 'claude']);
+  obkJson([
+    'bot', 'create', '--bots', bots, '--name', 'untrusted-codex', '--harness', 'codex',
+    '--charter', 'Untrusted Codex exists for one system test run and owns nothing.',
+  ]);
+  obkJson([
+    'session', 'add', '--bots', bots, '--bot', 'untrusted-codex', '--name', 'daily',
+    '--prompt=You are a system test\'s bot and you own nothing. Your codeword is OTTER-3391.'
+    + ' When anyone asks for your codeword, reply with it and nothing else. Say nothing now and wait.',
+  ]);
+
+  const home = homeOf('untrusted-codex');
+  const entry = tabOf(obkJson(['up', '--bots', bots, '--bot', 'untrusted-codex']), 'daily');
+  assert.equal(entry.harnessStarted, true, `no codex came up in ${entry.title}`);
+
+  // The book knows when it launched a harness here, whatever the harness does next.
+  const launched = (await sessionIn(home, 'daily')).launched;
+  assert.ok(Number.isFinite(Date.parse(String(launched))), `the book should say when, got: ${launched}`);
+
+  // The conversation runs and knows its duty, because the launch line carried it.
+  await answers(entry.terminal, 'What is your codeword? Reply with the codeword only.', 'OTTER-3391');
+
+  // And the kit was told nothing about it, because the hook never ran.
+  const unreported = await sessionIn(home, 'daily');
+  assert.equal(
+    unreported.session,
+    undefined,
+    'leave `Hooks need review` unanswered for this part: the hook must not have run yet.'
+    + ` If it already has, this machine trusted the file some other way. Got: ${JSON.stringify(unreported)}`,
+  );
+
+  // Now answer the review, and begin a new conversation. Trusting does not
+  // replay what it missed, so the id that comes in is the new one — and the one
+  // before it can only be found in Codex's own records.
+  await askIn(entry.terminal, '/new');
+  await answers(entry.terminal, 'What is your codeword? Reply with the codeword only.', 'OTTER-3391');
+
+  const daily = await until(
+    'untrusted-codex to report a session id once the hooks file is trusted',
+    HOOK_MS,
+    async () => {
+      const entryNow = await sessionIn(home, 'daily');
+      return entryNow.session === undefined ? undefined : entryNow;
+    },
+    () => ' Answer the `Hooks need review` screen with `t` now, if you have not.'
+      + whatIsUp(entry.terminal),
+  );
+
+  assert.deepEqual(
+    (daily.history ?? []).map((old) => typeof old.session),
+    ['string'],
+    `the conversation that ran before the hook did is the session's history: ${JSON.stringify(daily)}`,
+  );
+  assert.notEqual(daily.history[0].session, daily.session, 'and it is not the one running now');
+  assert.ok(
+    Number.isFinite(Date.parse(String(daily.history[0].at))),
+    `with a time, got: ${JSON.stringify(daily.history[0])}`,
+  );
 });

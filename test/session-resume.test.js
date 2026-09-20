@@ -35,6 +35,7 @@ import {
   BARE_LAUNCH,
   createSandbox,
   fakeProgram,
+  launchLine,
   orcaCallsOf,
   recordSession,
   sessionIn,
@@ -96,6 +97,12 @@ function settingsOnly(argv) {
 }
 
 /**
+ * The arguments a bare launch line hands its harness: the line without the
+ * `OBK_TAB_SHELL=…` in front of it and without the harness word itself.
+ */
+const bareArgvOf = (harness) => BARE_LAUNCH[harness].split(' ').slice(2);
+
+/**
  * The launch arguments with the resume words taken out, whichever harness's
  * form they took: Codex's `resume` subcommand, Claude Code's `--resume` flag,
  * and the id itself. What is left has to be exactly the settings a fresh
@@ -132,7 +139,7 @@ test('claude resumes the session the book holds, and is not told its duty again'
   assert.equal(argv[argv.indexOf('sess-1') - 1], '--resume', 'the id belongs to the flag that asks for it');
   assert.deepEqual(
     withoutResume(argv, 'sess-1'),
-    settingsOnly(BARE_LAUNCH.claude.split(' ').slice(1)),
+    settingsOnly(bareArgvOf('claude')),
     'and every other setting is the one a fresh session is started with',
   );
   assert.equal(argv.includes('--'), false, 'and there is no prompt argument at all');
@@ -149,7 +156,7 @@ test('codex resumes the session the book holds, and is not told its duty again',
 
   assert.equal(again.typed.length, 1, `one send per tab the kit opens, got: ${JSON.stringify(again.typed)}`);
   const line = again.typed[0];
-  assert.ok(line.startsWith('codex resume '), `Codex resumes through the subcommand, got: ${line}`);
+  assert.ok(line.startsWith(launchLine('codex resume ')), `Codex resumes through the subcommand, got: ${line}`);
   assert.ok(!line.includes(PROMPT), `the session already has its duty, got: ${line}`);
 
   const argv = await argvOf(box, line, fake);
@@ -157,7 +164,7 @@ test('codex resumes the session the book holds, and is not told its duty again',
   assert.ok(argv.includes('sess-1'), `the id is handed over, got: ${JSON.stringify(argv)}`);
   assert.deepEqual(
     withoutResume(argv, 'sess-1'),
-    settingsOnly(BARE_LAUNCH.codex.split(' ').slice(1)),
+    settingsOnly(bareArgvOf('codex')),
     'and every other setting is where it was',
   );
   assert.equal(argv.includes('--'), false, 'and there is no prompt argument at all');

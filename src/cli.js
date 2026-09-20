@@ -15,7 +15,7 @@ import { addSession, createBot, SESSION_FIELDS } from './bot.js';
 import { initBots } from './init.js';
 import { APPROVALS, HARNESSES } from './launch.js';
 import { orcaTrouble } from './orca.js';
-import { recordSession, TAB_ENV } from './record.js';
+import { recordSession, SHELL_ENV, TAB_ENV } from './record.js';
 import { BOT_FATHER, bringUp } from './up.js';
 
 const USAGE = `obk — Orca Bot Kit.
@@ -174,7 +174,7 @@ const RECORD = 'session record';
  */
 function record(bots, bot) {
   try {
-    const answer = recordSession(bots, bot, JSON.parse(readFileSync(0, 'utf8')), process.env[TAB_ENV]);
+    const answer = recordSession(bots, bot, JSON.parse(readFileSync(0, 'utf8')), process.env[TAB_ENV], process.env[SHELL_ENV]);
     if (answer !== undefined) process.stdout.write(`${JSON.stringify(answer)}\n`);
   } catch {
     // Nothing: see above.
@@ -250,6 +250,18 @@ function refuseWhenOrcaIsDown() {
 }
 
 /** The same facts as `--json`, as lines, for a person reading along. */
+/** The one line that says which conversation this tab was given, and from where. */
+function howLine(tab) {
+  if (tab.resumed === true) {
+    return tab.adopted === true
+      ? '             it was told to resume the conversation the harness still had on record: the book had none.'
+      : '             it was told to resume the session the book holds, with its conversation.';
+  }
+  return tab.conversationLost === true
+    ? '             it was told to start a new session: the harness had no conversation on record for this one.'
+    : '             it was told to start a new session: the book holds none for this one yet.';
+}
+
 function tabLines({ created, completed, tabs }, summary) {
   const lines = [
     ...created.map((entry) => `created    ${entry}`),
@@ -276,11 +288,10 @@ function tabLines({ created, completed, tabs }, summary) {
 function harnessLines(tab) {
   if (!tab.created || tab.name === null) return [];
 
-  // What the line that was typed in asked for: the session the book holds for
-  // this one, or a new one because the book holds none yet.
-  const how = tab.resumed === true
-    ? ['             it was told to resume the session the book holds, with its conversation.']
-    : ['             it was told to start a new session: the book holds none for this one yet.'];
+  // What the line that was typed in asked for, and where the kit got it: the
+  // session the book holds, one the harness itself still had on record, or a new
+  // one — and if a new one, whether anything was known about an older one.
+  const how = [howLine(tab)];
 
   if (!tab.harnessStarted) {
     return [

@@ -27,9 +27,11 @@ import test from 'node:test';
 
 import {
   assertCleanFailure,
+  BARE_LAUNCH,
   botHomeOf,
   createSandbox,
   fakeProgram,
+  launchLine,
   sh,
   tabsOfBot,
   typedInto,
@@ -78,7 +80,7 @@ async function argvOf(box, text, fake) {
 function assertReadsBack(typed, file) {
   assert.match(
     typed,
-    /^codex --approve-for-me -- "\$\(cat .+\)"$/,
+    /^OBK_TAB_SHELL=\$\$ codex --approve-for-me -- "\$\(cat .+\)"$/,
     `the line should read the prompt back inside one double-quoted word, got: ${typed}`,
   );
   assert.ok(typed.includes(file), `and read it from ${file}, got: ${typed}`);
@@ -102,7 +104,7 @@ test('a short prompt of one line is typed into the launch line as it stands', as
 
   const { typed, tab } = await up(box, bots, 'short-bot');
 
-  assert.equal(typed, `codex --approve-for-me -- '${short}'`, 'the text itself, quoted, after the separator');
+  assert.equal(typed, launchLine(`codex --approve-for-me -- '${short}'`), 'the text itself, quoted, after the separator');
   assert.ok(!typed.includes('cat '), `nothing to read back, got: ${typed}`);
   assert.equal('promptFile' in tab, false, 'a prompt that went in on the line was not handed over in a file');
   assert.equal(await isThere(promptPathOf(bots, 'short-bot')), false, 'and no file was written for it');
@@ -333,7 +335,7 @@ test('a session with nothing to say is handed nothing at all', async (t) => {
 
   const { typed, tab } = await up(box, bots, 'quiet-bot');
 
-  assert.equal(typed, 'codex --approve-for-me', 'no separator, no prompt, no file');
+  assert.equal(typed, BARE_LAUNCH.codex, 'no separator, no prompt, no file');
   assert.equal('promptFile' in tab, false);
   assert.equal(await isThere(promptPathOf(bots, 'quiet-bot')), false);
 });
