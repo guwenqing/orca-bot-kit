@@ -12,7 +12,6 @@
 import { realpathSync } from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { isDeepStrictEqual } from 'node:util';
 
 import { readBook, rememberSession, sessionIdsIn, updateBook } from './book.js';
 import { botDir, readBot } from './bot.js';
@@ -57,7 +56,7 @@ const CLEARED = 'clear';
  * Nothing here knows about Orca beyond the tab id it is handed: the hook runs
  * inside the user's session, and a session is not a place to make calls from.
  */
-export function recordSession(bots, name, said, tabId, shellPid) {
+export async function recordSession(bots, name, said, tabId, shellPid) {
   // Without the tab there is no telling which session this is, and a guess
   // would be the one thing this slice must never do.
   if (typeof tabId !== 'string' || tabId === '') return undefined;
@@ -75,28 +74,35 @@ export function recordSession(bots, name, said, tabId, shellPid) {
   if (!startedTheSession(shellPid)) return undefined;
 
   const bot = readBot(home, name);
+  // Asking the harness what it has on record reads a folder of files, so it is
+  // done before the lock is taken and never while it is held. It answers about
+  // this bot's folder, which every session of the bot shares — so it can say
+  // that a conversation nobody claims exists, and never whose it is.
+  const unclaimed = unclaimedFor(readBook(home), home, bot, tabId, id);
+
   let cleared = false;
   let told;
 
-  updateBook(home, (book) => {
+  await updateBook(home, (book) => {
     const found = sessionAt(book, tabId);
     // The book is read again under the lock, so a session that went away while
     // this waited is a session this no longer has anything to say about.
     if (found === undefined) return book;
 
     const [session, was] = found;
-    // A conversation the kit never recorded is not the same thing as a session
-    // that never had one: where the harness's own record shows one, the book
-    // learns it now, and it is that one this report replaces.
-    const missed = was.session === undefined ? missedConversation(book, home, bot, session, was, id) : undefined;
-    const from = missed === undefined ? was : { ...was, session: missed };
-
     // The harness's own word for it, or — for the harness that has no word — an
     // id that is not the one this tab had, which is the same thing said twice.
-    cleared = said.source === CLEARED || (from.session !== undefined && from.session !== id);
+    cleared = said.source === CLEARED || (was.session !== undefined && was.session !== id);
+    // A first report with something unclaimed beside it is the third case: the
+    // kit cannot tell whether this conversation is the one the launch line spoke
+    // to or a later one, and a session left without its duty is the failure this
+    // slice exists to prevent, so it is told again.
+    const uncertain = was.session === undefined && unclaimed.length > 0;
     told = session;
 
-    book.sessions[session] = rememberSession(from, id, said.source);
+    book.sessions[session] = noteUnclaimed(rememberSession(was, id, said.source), unclaimed);
+    forgetClaimed(book);
+    if (uncertain) cleared = true;
     return book;
   });
 
@@ -118,37 +124,60 @@ const sessionAt = (book, tabId) =>
   Object.entries(book.sessions).find(([, entry]) => entry?.tab === tabId);
 
 /**
- * The conversation this session was having and the kit never wrote down, when
- * the harness's own record shows one: a conversation of this bot home, started
- * since the kit put a harness in this tab, that no session of the bot claims,
- * and older than the one reporting now.
+ * The conversations of this bot home that nobody claims, for the session that
+ * owns `tabId`: started since the kit put a harness in that tab, not the one
+ * reporting now, and not a conversation any session of the bot holds or has
+ * held.
  *
- * That is the Codex case the review found: a hooks file is trusted only after
- * the first conversation is already running, nothing is ever reported for it,
- * and the next conversation would otherwise look like the first this session
- * ever had — leaving the bot with no duty and its first conversation in nobody's
- * history.
+ * It says that such a conversation exists. It never says whose it is, and the
+ * kit never decides: a bot's sessions share one folder, and so does every
+ * harness they start inside themselves, so the folder cannot tell them apart and
+ * the time they started cannot either. The review proved both — a `codex exec`
+ * child's conversation taken for its parent's, and two sessions reporting in
+ * reverse order taking each other's.
  *
- * Only for a tab whose launch this book recorded. Without that, every
- * conversation the folder ever held would be a candidate, and the kit would be
- * guessing again.
+ * Nothing either harness writes down ties a conversation that has already ended
+ * to the process that had it: Claude Code's registry maps a live pid to the
+ * conversation it is having now and keeps no earlier one, and Codex records no
+ * pid at all (tech notes, sections 2 and 3). So this is as far as evidence goes,
+ * and the rest is for a person or Bot Father to settle.
  */
-function missedConversation(book, home, bot, session, was, id) {
-  if (typeof was.launched !== 'string') return undefined;
+function unclaimedFor(book, home, bot, tabId, id) {
+  const found = sessionAt(book, tabId);
+  if (found === undefined) return [];
+
+  const [session, was] = found;
+  if (typeof was.launched !== 'string') return [];
 
   const settings = bot.sessions.find((entry) => entry.name === session);
-  if (settings === undefined) return undefined;
+  if (settings === undefined) return [];
 
-  const known = conversationsIn(harnessOf(settings, bot.harness), home, was.launched);
-  const reporting = known.find((one) => one.id === id);
   const claimed = sessionIdsIn(book);
-  const before = known.filter((one) => one.id !== id
-    && !claimed.has(one.id)
-    && (reporting === undefined || one.at < reporting.at));
+  return conversationsIn(harnessOf(settings, bot.harness), home, was.launched)
+    .filter((one) => one.id !== id && !claimed.has(one.id))
+    .map((one) => one.id);
+}
 
-  // The last one before this: whatever came earlier than that was already over
-  // when it started, and this session can only have been having one at a time.
-  return before.length === 0 ? undefined : before[before.length - 1].id;
+/** The entry with what nobody claims written on it, or with that note taken off. */
+function noteUnclaimed(entry, unclaimed) {
+  if (unclaimed.length === 0) {
+    const { unclaimed: gone, ...rest } = entry;
+    return rest;
+  }
+  return { ...entry, unclaimed };
+}
+
+/**
+ * Take out of every session's note whatever some session now claims. A note is
+ * only ever about a conversation nobody owns, so an id that has found its owner
+ * has no business in one.
+ */
+function forgetClaimed(book) {
+  const claimed = sessionIdsIn(book);
+  for (const [name, entry] of Object.entries(book.sessions)) {
+    if (!Array.isArray(entry?.unclaimed)) continue;
+    book.sessions[name] = noteUnclaimed(entry, entry.unclaimed.filter((one) => !claimed.has(one)));
+  }
 }
 
 /**

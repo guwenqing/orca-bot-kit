@@ -37,7 +37,7 @@ const SECOND_LOOK_MS = 2000;
  * one bot and `session` one of its sessions, for a caller that wants one thing
  * back rather than the fleet.
  */
-export function bringUp(bots, { bot: onlyBot, session: onlySession } = {}) {
+export async function bringUp(bots, { bot: onlyBot, session: onlySession } = {}) {
   const names = botNames(bots);
   if (names.length === 0) {
     throw new Error(`there are no bots in ${bots} yet: make one with obk bot create --bots <path> --name <name> --harness claude|codex.`);
@@ -70,31 +70,10 @@ export function bringUp(bots, { bot: onlyBot, session: onlySession } = {}) {
     }
   }
 
-  const report = chosen.flatMap(({ bot, home }) => bringUpBot(bots, home, bot, onlySession));
-
-  // A session whose conversation the kit cannot name is not brought up as a new
-  // one, and the run says so rather than reporting a fleet that is all there.
-  // It comes last: everything that could come up has, and nothing was guessed.
-  const lost = report.filter((one) => one.conversationUnknown !== undefined);
-  if (lost.length > 0) throw new Error(cannotPlace(bots, lost));
-
+  const report = [];
+  for (const { bot, home } of chosen) report.push(...await bringUpBot(bots, home, bot, onlySession));
   return report;
 }
-
-/**
- * What to say about a session whose conversation the kit cannot name: which
- * session it is, why it is not up, what the harness has that might be it, and
- * the two ways out. Which conversation is which is the user's to say — the kit
- * guessing is how one session ends up with another's (round 2, finding 3).
- */
-const cannotPlace = (bots, lost) => lost.map(({ bot, name, conversationUnknown }) => [
-  `${bot} ${name}: the kit cannot say which conversation this session is, so it is not up.`,
-  `  The book holds no session id for it, and ${bot}'s harness has more than one conversation`,
-  '  for this bot\'s folder that no session claims:',
-  ...conversationUnknown.map((id) => `    ${id}`),
-  `  Write the right one into ${path.join(bots, 'bots', bot, 'sessions.yaml')} under ${name} as`,
-  '  session: <id>, or bring it back in the tab yourself. Then run obk up again.',
-].join('\n')).join('\n\n');
 
 function refuseWhatCannotStart(bot, home, onlySession) {
   for (const session of sessionsOf(bot, onlySession)) {
@@ -114,7 +93,7 @@ function sessionsOf(bot, onlySession) {
   return named;
 }
 
-function bringUpBot(bots, home, bot, onlySession) {
+async function bringUpBot(bots, home, bot, onlySession) {
   const name = bot.name;
   const title = displayName(name);
   const sessions = sessionsOf(bot, onlySession);
@@ -123,10 +102,11 @@ function bringUpBot(bots, home, bot, onlySession) {
   // happens while the book is held, because a session's own hook may be writing
   // its id into that same file at any moment.
   const orca = orcaProject(home, title);
-  updateBook(home, (book) => { book.orca = orca; });
+  await updateBook(home, (book) => { book.orca = orca; });
 
   const live = new Map(tabs(home).map((tab) => [tab.tabId, tab]));
-  const report = sessions.map((session) => bringUpSession(bots, home, live, session, bot, title));
+  const report = [];
+  for (const session of sessions) report.push(await bringUpSession(bots, home, live, session, bot, title));
 
   // The ops tab, and the whole of what the kit knows about it: Bot Father's
   // project needs one tab that is not a session, for work across the fleet. Any
@@ -144,7 +124,7 @@ function bringUpBot(bots, home, bot, onlySession) {
   return report;
 }
 
-function bringUpSession(bots, home, live, session, bot, title) {
+async function bringUpSession(bots, home, live, session, bot, title) {
   const book = readBook(home);
   const was = book.sessions[session.name];
   const known = live.get(was?.tab);
@@ -168,11 +148,9 @@ function bringUpSession(bots, home, live, session, bot, title) {
   // where it left off, with the conversation it had: the tab is gone, but the
   // harness still has the session. Its duty was given to it once and is not
   // given again (PRD 6.4) — after a clear it is, and that is the hook's work.
+  // Asked before the book is held, because it reads a folder of the harness's
+  // own files: nothing slow happens under the lock.
   const which = whichConversation(book, home, bot, session, was, harness);
-  // And a session whose conversation the kit cannot name is not brought up as a
-  // new one. It is left alone and said plainly, and the fleet still comes up.
-  if (which.unknown !== undefined) return unknown(bot.name, session.name, which.unknown);
-
   const resume = which.resume;
   const prompt = resume === undefined ? startPrompt(session, { home, workDir }) : undefined;
   // Anything longer than a line goes to the harness out of a file, rather than
@@ -202,13 +180,12 @@ function bringUpSession(bots, home, live, session, bot, title) {
   // started a harness in it, and a conversation taken over from the harness's
   // own record are new.
   const launched = new Date().toISOString();
-  updateBook(home, (current) => {
-    current.sessions[session.name] = {
-      ...current.sessions[session.name],
-      tab: made.tabId,
-      launched,
-      ...(which.adopted === true ? { session: resume } : {}),
-    };
+  await updateBook(home, (current) => {
+    const entry = { ...current.sessions[session.name], tab: made.tabId, launched };
+    // What the harness has in this folder that nobody claims goes on the record,
+    // for a person or Bot Father to settle. The kit never settles it itself.
+    if (which.unclaimed !== undefined && which.unclaimed.length > 0) entry.unclaimed = which.unclaimed;
+    current.sessions[session.name] = entry;
   });
 
   // Typing it in is the way: for a project the kit has just made, giving Orca
@@ -241,8 +218,7 @@ function bringUpSession(bots, home, live, session, bot, title) {
     promptSent,
     promptFile,
     resumed: resume !== undefined,
-    adopted: which.adopted,
-    conversationLost: which.lost,
+    unclaimed: which.unclaimed,
   });
 }
 
@@ -262,34 +238,20 @@ function whichConversation(book, home, bot, session, was, harness) {
   // No tab: nothing has ever run for this session, so there is nothing to find.
   if (typeof was?.tab !== 'string') return {};
 
+  // A harness ran in this tab before and the kit never learned which
+  // conversation it became — on Codex, a hooks file trusted too late is enough
+  // to do that. What the harness still has in this folder is worth writing down,
+  // but it is never this session's by the kit's say-so: the folder holds every
+  // session of the bot and everything they started inside themselves, and the
+  // review proved both ways that go wrong. So the session starts a new
+  // conversation with its duty, and what nobody claims is left on the record for
+  // a person or Bot Father to settle.
   const claimed = sessionIdsIn(book);
   const known = typeof was.launched === 'string'
     ? conversationsIn(harness, home, was.launched).filter((one) => !claimed.has(one.id))
     : [];
-
-  // One conversation of this bot home that no session claims: this session's,
-  // and the kit takes it over rather than leaving it behind.
-  if (known.length === 1) return { resume: known[0].id, adopted: true };
-  // None on record: the harness never got as far as a conversation here — an
-  // unanswered trust question is enough for that. A new one is started, and the
-  // report says so rather than passing it off as an ordinary first run.
-  if (known.length === 0) return { lost: true };
-  // Several, and nothing here can tell which is this session's. Guessing would
-  // hand one session another's conversation, so the kit says what it found.
-  return { unknown: known.map((one) => one.id) };
+  return { unclaimed: known.map((one) => one.id) };
 }
-
-/** A session left alone because the kit cannot say which conversation it is. */
-const unknown = (bot, name, conversations) => ({
-  bot,
-  name,
-  title: null,
-  tabId: null,
-  terminal: null,
-  created: false,
-  harnessStarted: false,
-  conversationUnknown: conversations,
-});
 
 /**
  * A bot's Orca project, made if it is not there yet.
@@ -318,7 +280,7 @@ function orcaProject(home, title) {
 const promptPath = (bots, bot, session) =>
   path.join(`${bots}.prompts`, `${encodeURIComponent(bot)}.${encodeURIComponent(session)}.txt`);
 
-function entry(tab, { bot, name, created, running = false, blockedReason, promptSent, promptFile, resumed, adopted, conversationLost }) {
+function entry(tab, { bot, name, created, running = false, blockedReason, promptSent, promptFile, resumed, unclaimed }) {
   const made = { bot, name, title: tab.title, tabId: tab.tabId, terminal: tab.handle, created, harnessStarted: running };
   // Whether this run picked the session up where it was or started a new one.
   // Only for a tab this run opened: a tab that was already there was left alone.
@@ -326,11 +288,9 @@ function entry(tab, { bot, name, created, running = false, blockedReason, prompt
   // Orca's own words for what is on screen waiting to be answered, when it
   // gave any: the caller acts on it, the kit only passes it on.
   if (blockedReason !== undefined) made.blockedReason = blockedReason;
-  // Where a resumed conversation came from the harness's own record rather than
-  // from the book, and where the harness had no conversation on record at all:
-  // both are things the caller is told rather than left to find out.
-  if (adopted === true) made.adopted = true;
-  if (conversationLost === true) made.conversationLost = true;
+  // Conversations the harness still has in this bot's folder that no session
+  // claims: the caller is told, because the kit will not pick one.
+  if (unclaimed !== undefined && unclaimed.length > 0) made.unclaimed = unclaimed;
   // Only for a session this run started that had something to be told.
   if (promptSent !== undefined) made.promptSent = promptSent;
   // And the file it was told it out of, when it was too long for the line.

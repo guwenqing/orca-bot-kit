@@ -107,14 +107,19 @@ One tab holds one session: the harness the kit started in it. Anything that
 session runs inside the tab — a `codex exec`, a helper, a subagent's own process
 — is not the session, and never becomes the conversation the kit brings back.
 
-And when the kit cannot say which conversation a session is, it says so instead
-of starting a new one over the top of it. The usual reason is a Codex hooks file
-trusted after the session had already begun talking: nothing was recorded for
-that first conversation, and trusting the file does not go back for it. `obk up`
-then asks the harness what it has in the bot's folder — if there is one
-conversation nobody claims, it takes that one back up; if there are several, it
-leaves the session alone, prints the ids, and waits for you to write the right
-one into `sessions.yaml`.
+And when the kit cannot say which conversation a session is, it does not pick
+one. The usual reason is a Codex hooks file trusted after the session had already
+begun talking: nothing was recorded for that first conversation, and trusting the
+file does not go back for it.
+
+A bot's sessions all live in one folder, and so does every harness they start
+inside themselves, so a conversation sitting in that folder says nothing about
+whose it is — and neither harness writes down anything that ties a conversation
+that has ended to the session that had it. So the kit writes what it found into
+the book as `unclaimed`, tells you the ids, and starts the session on a fresh
+conversation with its duty rather than guessing. To bring one back yourself,
+write it into `sessions.yaml` under that session as `session: <id>` and run
+`obk up` again.
 
 ## Working on the kit
 

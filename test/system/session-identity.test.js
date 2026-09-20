@@ -56,7 +56,10 @@
 //     afterwards (the reviewer proved this). That is why the kit writes down
 //     when it launched a harness and asks Codex's own records what ran in the
 //     folder since — and why the last test in this file leaves the screen
-//     unanswered on purpose for a while.
+//     unanswered on purpose for a while. What it finds is written down as a
+//     conversation nobody claims; it is never assigned to a session, because
+//     the folder holds every session of the bot and every harness they started
+//     inside themselves (round 3, finding 1).
 //
 // So: run it with Orca in front of you and answer what the tabs ask. Every wait
 // below says what the tab is showing when it runs out of patience, so a run
@@ -528,17 +531,39 @@ test('a session whose tab was closed comes back with its conversation', async (t
   }
 });
 
+/**
+ * The two bots that start a harness inside themselves, one per harness. A child
+ * harness inherits `ORCA_TAB_ID` and fires the kit's hook with a conversation of
+ * its own, in the same folder — which is how the review's finding 2 and finding 1
+ * both went wrong, and the review only ever proved it on Codex.
+ */
+const CHILDREN = [
+  {
+    name: 'child-codex',
+    harness: 'codex',
+    display: 'Child Codex',
+    codeword: 'BADGER-5512',
+    child: 'codex exec --skip-git-repo-check \'reply with the single word ok\'',
+  },
+  {
+    name: 'child-claude',
+    harness: 'claude',
+    display: 'Child Claude',
+    codeword: 'MARMOT-8820',
+    child: 'claude -p \'reply with the single word ok\' --permission-mode auto',
+  },
+];
+
 test('a harness the session starts for itself does not become the session\'s conversation', async (t) => {
-  // The review's finding 2, live. A `codex exec` the session runs inherits
-  // `ORCA_TAB_ID` and fires the kit's hook with a conversation of its own. Before
-  // the fix that conversation became the session's, the session's own went into
-  // the history, and the next `up` resumed the child's.
+  // The review's finding 2, live, on both harnesses. Before the fix the child's
+  // conversation became the session's, the session's own went into the history,
+  // and the next `up` resumed the child's.
   //
   // Attended: answer the trust and hooks-review screens as they come up. If the
-  // agent declines to run the command, run the same `codex exec` line in a shell
-  // of your own inside that tab's folder with `ORCA_TAB_ID` set to the tab id the
-  // failure message names — the point is a harness under the session, however it
-  // gets there.
+  // agent declines to run the command, run the same line in a shell of your own
+  // inside that tab's folder with `ORCA_TAB_ID` set to the tab id the failure
+  // message names — the point is a harness under the session, however it gets
+  // there.
   const before = {
     handles: new Set(allTerminals().map((terminal) => terminal.handle)),
     setups: new Set(allSetups().map((setup) => setup.id)),
@@ -546,7 +571,7 @@ test('a harness the session starts for itself does not become the session\'s con
 
   const bots = await realpath(await mkdtemp(path.join(os.tmpdir(), 'obk-system-child-')));
   const homeOf = (bot) => path.join(bots, 'bots', bot);
-  const homes = ['bot-father', 'child-codex'].map(homeOf);
+  const homes = ['bot-father', ...CHILDREN.map((bot) => bot.name)].map(homeOf);
 
   t.after(async () => {
     const closed = [];
@@ -573,46 +598,58 @@ test('a harness the session starts for itself does not become the session\'s con
   });
 
   obkJson(['init', '--bots', bots, '--harness', 'claude']);
-  obkJson([
-    'bot', 'create', '--bots', bots, '--name', 'child-codex', '--harness', 'codex',
-    '--charter', 'Child Codex exists for one system test run and owns nothing.',
-  ]);
-  obkJson([
-    'session', 'add', '--bots', bots, '--bot', 'child-codex', '--name', 'daily',
-    '--prompt=You are a system test\'s bot and you own nothing. Your codeword is BADGER-5512.'
-    + ' When anyone asks for your codeword, reply with it and nothing else. Say nothing now and wait.',
-  ]);
 
-  const home = homeOf('child-codex');
-  const entry = tabOf(obkJson(['up', '--bots', bots, '--bot', 'child-codex']), 'daily');
-  assert.equal(entry.harnessStarted, true, `no codex came up in ${entry.title}`);
+  for (const bot of CHILDREN) {
+    obkJson([
+      'bot', 'create', '--bots', bots, '--name', bot.name, '--harness', bot.harness,
+      '--charter', `${bot.display} exists for one system test run and owns nothing.`,
+    ]);
+    obkJson([
+      'session', 'add', '--bots', bots, '--bot', bot.name, '--name', 'daily',
+      `--prompt=You are a system test's bot and you own nothing. Your codeword is ${bot.codeword}.`
+      + ' When anyone asks for your codeword, reply with it and nothing else. Say nothing now and wait.',
+    ]);
+  }
 
-  const own = await until(
-    'child-codex to report its own session id',
-    HOOK_MS,
-    async () => (await sessionIn(home, 'daily')).session,
-    () => ` The kit's hook has not run.${whatIsUp(entry.terminal)}`,
-  );
+  for (const bot of CHILDREN) {
+    const home = homeOf(bot.name);
+    const entry = tabOf(obkJson(['up', '--bots', bots, '--bot', bot.name]), 'daily');
+    assert.equal(entry.harnessStarted, true, `no ${bot.harness} came up in ${entry.title}`);
 
-  // The session runs a harness of its own, bounded, and says when it is done.
-  await answers(
-    entry.terminal,
-    'Run exactly this command, then reply with the single word DONE: '
-    + 'codex exec --skip-git-repo-check \'reply with the single word ok\'',
-    'DONE',
-  );
+    const own = await until(
+      `${bot.name} to report its own session id`,
+      HOOK_MS,
+      async () => (await sessionIn(home, 'daily')).session,
+      () => ` The kit's hook has not run.${whatIsUp(entry.terminal)}`,
+    );
 
-  const daily = await sessionIn(home, 'daily');
-  assert.equal(daily.session, own, `the session's own conversation is still its own: ${JSON.stringify(daily)}`);
-  assert.equal(
-    daily.history,
-    undefined,
-    `and it was not pushed into the history by its own child: ${JSON.stringify(daily)}`,
-  );
+    // The session runs a harness of its own, bounded, and says when it is done.
+    await answers(
+      entry.terminal,
+      `Run exactly this command, then reply with the single word DONE: ${bot.child}`,
+      'DONE',
+    );
 
-  // And the session still knows what it is for, which a swapped conversation
-  // would have taken with it.
-  await answers(entry.terminal, 'What is your codeword? Reply with the codeword only.', 'BADGER-5512');
+    const daily = await sessionIn(home, 'daily');
+    assert.equal(daily.session, own, `the session's own conversation is still its own: ${JSON.stringify(daily)}`);
+    assert.equal(
+      daily.history,
+      undefined,
+      `and it was not pushed into the history by its own child: ${JSON.stringify(daily)}`,
+    );
+    // Nor is the child's conversation written down as the session's own loose
+    // end: the session reported its conversation itself, so the kit is not
+    // unsure about it (round 3, finding 1).
+    assert.equal(
+      daily.unclaimed,
+      undefined,
+      `a session that reported for itself has nothing unplaced: ${JSON.stringify(daily)}`,
+    );
+
+    // And the session still knows what it is for, which a swapped conversation
+    // would have taken with it.
+    await answers(entry.terminal, 'What is your codeword? Reply with the codeword only.', bot.codeword);
+  }
 });
 
 test('a Codex conversation that ran before the hooks file was trusted is not lost', async (t) => {
@@ -694,6 +731,10 @@ test('a Codex conversation that ran before the hooks file was trusted is not los
   // Now answer the review, and begin a new conversation. Trusting does not
   // replay what it missed, so the id that comes in is the new one — and the one
   // before it can only be found in Codex's own records.
+  //
+  // Answering the codeword is the proof that the duty came back: the conversation
+  // that carried it is gone, and the kit hands it over again because it cannot be
+  // sure this is the conversation the launch line spoke to (round 3, finding 1).
   await askIn(entry.terminal, '/new');
   await answers(entry.terminal, 'What is your codeword? Reply with the codeword only.', 'OTTER-3391');
 
@@ -708,14 +749,25 @@ test('a Codex conversation that ran before the hooks file was trusted is not los
       + whatIsUp(entry.terminal),
   );
 
-  assert.deepEqual(
-    (daily.history ?? []).map((old) => typeof old.session),
-    ['string'],
-    `the conversation that ran before the hook did is the session's history: ${JSON.stringify(daily)}`,
+  // The conversation that ran before the hook did is on the record — and it is
+  // not made this session's history. Nothing Codex writes down could say it was
+  // this session's rather than another session's or a child's (round 3, finding
+  // 1), so it goes in as a conversation of this folder that nobody claims, for a
+  // person or Bot Father to settle.
+  assert.equal(
+    daily.history,
+    undefined,
+    `no history may be invented for a conversation nobody reported: ${JSON.stringify(daily)}`,
   );
-  assert.notEqual(daily.history[0].session, daily.session, 'and it is not the one running now');
   assert.ok(
-    Number.isFinite(Date.parse(String(daily.history[0].at))),
-    `with a time, got: ${JSON.stringify(daily.history[0])}`,
+    Array.isArray(daily.unclaimed) && daily.unclaimed.length >= 1,
+    `the conversation that ran before the hooks file was trusted must be written down: ${JSON.stringify(daily)}`,
+  );
+  for (const id of daily.unclaimed) {
+    assert.equal(typeof id, 'string', `as plain ids, got: ${JSON.stringify(daily.unclaimed)}`);
+  }
+  assert.ok(
+    !daily.unclaimed.includes(daily.session),
+    `and the conversation it is running now is claimed, so it is not on that list: ${JSON.stringify(daily)}`,
   );
 });

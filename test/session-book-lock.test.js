@@ -250,14 +250,15 @@ test('a reader in the middle of a crowd never sees half a book', async (t) => {
   }
 });
 
-// Two rules of section 1 are not here, and both for the same reason: they are
-// about the lock file itself, whose name is the kit's own business. A lock a
-// killed process left behind being taken over after a few seconds, and a writer
-// that cannot get the lock waiting rather than dropping its change, cannot be
-// set up from outside without naming that file — and naming it in a test would
-// pin the mechanism rather than the behaviour. Nor can it be found out at run
-// time: the lock is held across a read and a write and no Orca call, so there is
-// no moment from which a test can look and see it.
+// Two rules are not here, and not because they do not matter: a writer that
+// cannot get the lock yet waiting rather than dropping its change, and a writer
+// held up for half a minute being unable to write over what the next one
+// committed (round 3, finding 2). Neither can be arranged from the command line
+// — `up` and the hook each hold the book for one read and one write, so there is
+// no moment from outside at which a test can be inside the lock — and neither
+// may be reached by naming the lock file, whose name is the kit's own business.
+// They are pinned at `updateBook` instead, in separate processes, in
+// `test/session-book-writers.test.js`.
 //
 // What is covered without naming it: a write that finishes leaves no lock behind,
 // because `test/work-dir.test.js` lists the whole bot home and would fail on one.

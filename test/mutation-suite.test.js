@@ -8,6 +8,7 @@
 // and whether two of them were running at the same time.
 
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -15,6 +16,30 @@ import { describe, test } from 'node:test';
 import { pathToFileURL } from 'node:url';
 
 import { createSandbox, node, repoRoot } from './helpers/cli.js';
+
+/**
+ * End one process this test started, by its own pid, the way AGENTS.md requires
+ * of any kill in this repo: what is about to be killed is printed first, and
+ * anything that is not plainly a process of this test's own is refused.
+ *
+ * Never a negative id — that is a process group, and a group id this test did
+ * not capture at spawn time is how a cleanup command took down every process on
+ * the owner's machine on 2026-09-20.
+ */
+function killOne(pid) {
+  assert.ok(Number.isInteger(pid) && pid > 1, `refusing to kill ${pid}: a pid of this test's own, never a group and never 1`);
+  assert.notEqual(pid, process.pid, 'refusing to kill this test process');
+  assert.notEqual(pid, process.ppid, 'refusing to kill the process that started this test');
+
+  const listed = spawnSync('ps', ['-o', 'pid=,command=', '-p', String(pid)], { encoding: 'utf8' }).stdout.trim();
+  process.stdout.write(`mutation-suite test: killing the process it started — ${listed || `${pid}, already gone`}\n`);
+  // A pid that is not there any more is nothing to kill, and nothing to worry
+  // about: the run it belonged to ended on its own.
+  if (listed === '') return;
+  assert.match(listed, /node/, `refusing to kill ${listed}: this test only ever starts node`);
+
+  process.kill(pid, 'SIGKILL');
+}
 
 const scriptEntry = path.join(repoRoot, 'scripts', 'mutation-suite.js');
 
@@ -360,7 +385,7 @@ describe('mutation-suite', { concurrency: true }, () => {
     assert.equal(outcome, stillWaiting, 'the run came back instead of waiting for the file that hangs');
     // Nothing is left behind: end the file this test started, and let the run
     // notice and finish, so the test owns no process by the time it is over.
-    process.kill(pid, 'SIGKILL');
+    killOne(pid);
     await run;
   });
 

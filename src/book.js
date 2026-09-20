@@ -6,9 +6,10 @@
 // theirs. Beside each session's tab it holds the harness session id that
 // session is running under, and every id it ran under before.
 
-import { existsSync, openSync, closeSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
+import lockfile from 'proper-lockfile';
 import { parse, stringify } from 'yaml';
 
 const HEADER = `# What Orca calls this bot on this machine, and where each of its sessions
@@ -23,12 +24,21 @@ const HEADER = `# What Orca calls this bot on this machine, and where each of it
 
 export const bookFile = (home) => path.join(home, 'sessions.yaml');
 
-/** Where a writer says it is writing, so no two do it at once. */
-const lockFile = (home) => `${bookFile(home)}.lock`;
-
-/** How long a writer waits for another one, and when it calls a lock abandoned. */
-const WAIT_MS = 10_000;
-const ABANDONED_MS = 30_000;
+/**
+ * How a writer waits for another one, and when a lock counts as nobody's.
+ *
+ * `stale` is not a deadline for the writer that holds the lock: proper-lockfile
+ * keeps a live owner's lock fresh while it works, so only a lock nobody is
+ * refreshing any more — a writer that died — is taken over. That is the
+ * difference the review found: the kit's own lock had a fixed thirty seconds,
+ * and a writer merely delayed past it could still write over what the next one
+ * had committed.
+ */
+const LOCK = {
+  stale: 10_000,
+  realpath: false,
+  retries: { retries: 40, factor: 1, minTimeout: 50, maxTimeout: 250 },
+};
 
 /** What the book says, or an empty book when there is none yet. */
 export function readBook(home) {
@@ -66,67 +76,60 @@ export function writeBook(home, book) {
  *
  * So every change is made here, and made on what the file says now: the lock is
  * taken, the book is read, `change` is given it, and what comes back is
- * written. `change` may return a book or change the one it was handed.
+ * written. `change` may return a book or change the one it was handed, and may
+ * be asynchronous — it is awaited under the lock.
  *
  * Nothing slow belongs inside it. Orca calls, tabs and prompts are the caller's
  * work; this holds the lock for one read and one write.
  */
-export function updateBook(home, change) {
-  const lock = takeLock(home);
+export async function updateBook(home, change) {
+  // The file has to be there for the lock to be about it; a bot whose book has
+  // not been written yet is the ordinary case on a first run.
+  if (!existsSync(bookFile(home))) writeBook(home, readBook(home));
+
+  let lost;
+  const release = await lockfile.lock(bookFile(home), {
+    ...LOCK,
+    // Told to us if the lock is ever not ours any more. Whatever happens after
+    // that, this writer does not write: the next one has read the book and its
+    // change would go under ours (the review's finding 2).
+    onCompromised: (error) => { lost = error; },
+  }).catch((error) => { throw waitedTooLong(home, error); });
+
   try {
     const book = readBook(home);
     const before = structuredClone(book);
-    const next = change(book) ?? book;
+    // Awaited, because a change that takes time must keep the lock while it
+    // does: an unawaited one would hand the lock back at once and then write
+    // over whoever took it next.
+    const next = (await change(book)) ?? book;
+    if (lost !== undefined) throw lostTheLock(home, lost);
     // A run that changes nothing writes nothing: the file keeps its bytes and
     // its time, and nothing else waiting on the lock has to read it again.
     if (!isDeepStrictEqual(before, next)) writeBook(home, next);
     return next;
   } finally {
-    closeSync(lock.fd);
-    rmSync(lock.file, { force: true });
+    // A lock that was already taken from us is not ours to release, and saying
+    // so must not hide what went wrong above.
+    if (lost === undefined) await release().catch(() => {});
   }
 }
 
 /**
- * The lock, or a refusal to write without it. Creating a file that must not
- * exist yet is one operation, so two writers cannot both think they have it.
- *
- * A writer that was killed holding the lock would otherwise stop every later
- * one for good, so a lock nobody has touched for a while is taken over. The
- * wait is generous next to what a write costs, and short next to a person.
+ * Something else has been writing the book for longer than this run is prepared
+ * to wait. Every writer holds it for one read and one write, so this is a writer
+ * that is stuck rather than busy — said in the kit's own words, with the file in
+ * them, because the library's own message names neither.
  */
-function takeLock(home) {
-  const file = lockFile(home);
-  const until = Date.now() + WAIT_MS;
-  for (;;) {
-    try {
-      return { file, fd: openSync(file, 'wx') };
-    } catch (error) {
-      if (error.code !== 'EEXIST') throw error;
-      if (abandoned(file)) {
-        rmSync(file, { force: true });
-        continue;
-      }
-      if (Date.now() >= until) {
-        throw new Error(`something else is writing ${bookFile(home)} and has not finished. Try again; if nothing is running, remove ${file}.`);
-      }
-      pause(50);
-    }
-  }
-}
+const waitedTooLong = (home, why) => new Error(
+  why.code === 'ELOCKED'
+    ? `waited for something else to finish writing ${bookFile(home)} and it did not. Nothing was written. Try again; if nothing is running, remove ${bookFile(home)}.lock.`
+    : `could not take the lock on ${bookFile(home)}: ${why.message}. Nothing was written.`,
+);
 
-/** Whether a lock has sat untouched long enough to have been left by the dead. */
-function abandoned(file) {
-  try {
-    return Date.now() - statSync(file).mtimeMs > ABANDONED_MS;
-  } catch {
-    // It went away while we looked: there is nothing to take over.
-    return false;
-  }
-}
-
-/** Wait, without a turn of the event loop: everything here is synchronous. */
-const pause = (ms) => { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); };
+const lostTheLock = (home, why) => new Error(
+  `gave up writing ${bookFile(home)}: this run held the lock on it and lost it (${why.message}), so something else has written since it was read. Nothing was written. Try again.`,
+);
 
 /**
  * Every harness session the book accounts for, the ones running now and the ones
