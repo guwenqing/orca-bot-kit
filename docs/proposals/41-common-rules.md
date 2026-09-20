@@ -318,3 +318,26 @@ Each with the answer I would take if nobody answers.
    took". Do they earn their place, or should the set be only what he wrote?**
    I would keep both. They are one line each, and they are the two failures
    this design session's own record shows most often.
+
+## 7. Cross-check against the original sources
+
+The full source repositories arrived after this was drafted, so the two that
+bear on an always-on rule set were read at the source rather than through the
+source books.
+
+- **`forrestchang/andrej-karpathy-skills`, `karpathy-guidelines` (MIT).** Its
+  four headings — think before coding, simplicity first, surgical changes,
+  goal-driven execution — are the same spine as the owner's own file, which is
+  what he meant by "the karpathy four". Nothing in it is missing from the
+  proposed set. Its sharpest line, "every changed line should trace directly to
+  the user's request", is a candidate for `scope`; it is left out because
+  `simple` already opens with "the smallest thing that answers the ask", and
+  the set is better short than complete. It also says what the owner keeps
+  saying: "For trivial tasks, use judgment."
+- **Kent Beck's rules file (MIT).** Red-green-refactor, the simplest failing
+  test first, the defect covered by an API-level test and the smallest test,
+  structural and behavioural changes never in the same commit, and commit only
+  on green. All of it is technique and all of it belongs to `obk-tdd`; the
+  only piece that is everyday for a code-writing bot is a failing test first,
+  which §3.8 carries. This is the evidence for moving `changing-code`'s commit
+  discipline out of the always-on set.
