@@ -216,7 +216,7 @@ TDD and tests:
 - Mutation check, the rule [decided]:
   1. When: once per piece of work, after the tests are green and before calling it done. Not after every change or fix; again only if a late change rewrote a large part.
   2. What: only the logic this work changed that matters, never the whole project.
-  3. How, by default: the agent does it itself, small and targeted: five to eight deliberate breaks in the changed logic, chosen before looking at the tests, each run, expected to fail, and reverted. A tool is not the default; it is an opt-in deeper check for a risky piece of work, used only when asked for, and never waited on.
+  3. How: the agent does it itself, small and targeted: five to eight deliberate breaks in the changed logic, chosen before looking at the tests, each run, expected to fail, and reverted. This is the everyday way. A mutation tool is not everyday work: it is an occasional audit of the whole test suite, run only when the user asks for one, read the same way (fix real gaps, ignore the rest), not always a good fit, and never waited on.
   4. Skip it, and say so, for docs or config only, renames and wording, throwaway prototypes, and code with no runnable tests.
   5. Proportion: no routine long testing for something minor, and never again and again for the same PR. The effort fits the size and risk of the change.
   6. Purpose: would the tests catch a real mistake? There is no score to reach.
