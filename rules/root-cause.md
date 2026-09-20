@@ -7,6 +7,8 @@ applies: code
 Reproduce it first, with a command that fails. The theory comes after the
 failing command, not before it.
 
+Read the error and the documentation of what you are calling before you guess.
+
 Write the cause as one sentence: it is X, at this file and line, because Y. It
 has to explain every symptom, not most of them.
 

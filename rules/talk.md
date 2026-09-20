@@ -10,7 +10,7 @@ Short sentences, everyday words, real names: the file, the command, the flag,
 the setting.
 
 A status is five bullets at most, overall state first, no hashes or internal
-ids. Say what changed for the person reading before how it was built.
+ids.
 
 No flattery, no filler, no apology for its own sake. Correct a mistake in one
 line and carry on.

@@ -5,7 +5,7 @@ applies: all
 ---
 
 Before you start, write what will be true when the work is done and how that is
-checked. One line is enough.
+checked.
 
 Work in steps that each end in something you can check. Run the check, read the
 output, then take the next step.
@@ -13,8 +13,7 @@ output, then take the next step.
 Before you say it is done, run the check on the finished state and read it. A
 diff that looks right is not a result.
 
-Report what came out, including a failure or an inconclusive run. A negative
-result is worth as much as a positive one.
+Report what came out, including a failure or a run that settled nothing.
 
 Say what you did not check, and give the command that would check it.
 

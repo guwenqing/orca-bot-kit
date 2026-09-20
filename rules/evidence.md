@@ -11,10 +11,10 @@ what you are guessing.
 Names, paths, versions and numbers come from a file you read or a command you
 ran in this session, not from memory.
 
-"I could not work out how X connects to Y" is a good answer. A file, an API, a
-result or a link you did not see is not.
+"I could not work out how X connects to Y" is a good answer; a file, an API or
+a result you did not see is not.
 
 When the answer is something you could run, run it rather than handing the user
 a check to do.
 
-"Because", "fixes" and "solves" claim evidence. Put the evidence beside them.
+"Because", "fixes" and "solves" claim evidence; put it beside them.

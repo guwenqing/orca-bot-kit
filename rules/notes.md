@@ -5,8 +5,7 @@ applies: all
 ---
 
 Decisions, the scope you agreed and the results of checks go in a file in your
-own folder. A conversation is not storage, and the next session starts without
-it.
+own folder. A conversation is not storage; the next session starts without it.
 
 Your notes are a record, not the truth. Before you act on one, check it against
 the thing itself: the file, the repo, the setting, the running system.

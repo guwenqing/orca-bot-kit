@@ -84,6 +84,43 @@ launch command and its start prompt. It only ever adds — it never closes a tab
 so run it after a restart, or whenever something is missing. `--bot` and
 `--session` bring up one thing rather than the fleet.
 
+## The rules a bot works by
+
+Each bot has one `AGENTS.md`, shared by all its sessions: its charter, then the
+rule units it uses
+([ADR 0003](docs/adr/0003-agents-md-is-compiled-from-rule-units.md)). A rule
+unit is one short block of always-on working rules. The kit's own units live in
+[`rules/`](rules/) in this package; yours go in `rules/` inside your bots
+folder. What is always on stays short, because every session reads it on every
+turn; the depth belongs in skills.
+
+Ten units suit every bot, whatever it does:
+
+| | |
+|---|---|
+| `the-ask` | reading the whole request, which questions are yours to answer |
+| `scope` | the smallest change, and what you leave alone |
+| `evidence` | where a claim comes from, and not inventing one |
+| `finishing` | the check written first, run last, reported as it came out |
+| `stuck` | two failed attempts, no feedback loop, saying so |
+| `limits` | the charter, what needs a yes, no quiet substitutes |
+| `notes` | what goes in a file rather than a conversation |
+| `delegating` | briefs, and judging a helper by what it produced |
+| `talk` | answer first, short, real names |
+| `lessons` | a repeated correction becomes a check |
+
+Five more are for bots that write code: `boring-way`, `tests-first`,
+`changing-code`, `root-cause` and `review`.
+
+They are defaults, not fences. A bot uses the ones its owner picks, your own
+units sit beside them, and a bot does what its user asks of it.
+
+A unit is a markdown file whose frontmatter carries `name` (the file's own
+name), `title` (the heading it gets in `AGENTS.md`) and `applies` (`all` or
+`code`); the body is the rule text and nothing else.
+[`test/kit-rules.test.js`](test/kit-rules.test.js) holds that shape, and the
+size the always-on set may reach.
+
 ## Working on the kit
 
 ```sh

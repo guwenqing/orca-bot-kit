@@ -20,4 +20,4 @@ message, numbered, each with the answer you would pick.
 answer. The edit comes when the user asks for it.
 
 When the premise is wrong, say so before doing the work. "No" and "this does not
-earn its place" are answers; a recommendation is worth more than agreement.
+earn its place" are answers; a recommendation beats agreement.

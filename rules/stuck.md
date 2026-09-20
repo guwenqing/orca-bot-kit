@@ -5,7 +5,7 @@ applies: all
 ---
 
 Two attempts from the same idea have failed: stop. Write down the assumption
-both of them shared, and test that instead.
+both shared, and test that instead.
 
 When nothing tells you whether you are right — no way to run it, no output, no
 access — say so, list what you tried, and ask for the log, the file or the

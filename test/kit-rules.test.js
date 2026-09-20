@@ -16,9 +16,10 @@ const rulesDir = path.join(repoRoot, 'rules');
 /** A unit name has the shape an Agent Skills name has, and so does its file. */
 const NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
-/** What one unit may cost, and what a bot pays for the default set, in non-empty lines. */
-const MAX_BODY_LINES = 12;
-const MAX_ALL_LINES = 70;
+/** What one unit may take, and what a bot pays for the set it gets by default. */
+const MAX_BODY_LINES = 14;
+const MAX_LINE = 100;
+const MAX_ALL_CHARS = 6000;
 
 /** Everything in rules/, whatever it is: the shape test needs to see the strays too. */
 async function entries() {
@@ -114,20 +115,38 @@ test('every unit has a body, and no heading of its own', async () => {
 
 test('the units stay inside the budget a bot pays on every turn', async () => {
   // This text sits in the prompt of every session, so its size is part of the
-  // interface: a unit that needs more room is a skill, not a rule.
+  // interface: a unit that needs more room is a skill, not a rule. The default
+  // set is counted in characters, because the bodies are hard-wrapped and a
+  // line count would measure the wrapping rather than the reading.
   let byDefault = 0;
   for (const unit of await units()) {
     const { data, body } = parts(unit);
     const lines = bodyLines(body).length;
 
     assert.ok(lines <= MAX_BODY_LINES, `${unit.file} is ${lines} non-empty lines, over the ${MAX_BODY_LINES} a unit may take`);
-    if (data.applies === 'all') byDefault += lines;
+    if (data.applies === 'all') byDefault += body.trim().length;
   }
 
   assert.ok(
-    byDefault <= MAX_ALL_LINES,
-    `the applies: all units come to ${byDefault} non-empty lines, over the ${MAX_ALL_LINES} every bot may be given by default`,
+    byDefault <= MAX_ALL_CHARS,
+    `the applies: all units come to ${byDefault} characters, over the ${MAX_ALL_CHARS} every bot may be given by default`,
   );
+});
+
+test('every line in a unit file stays inside 100 columns', async () => {
+  // The bodies are hard-wrapped like the rest of the repo's markdown, so a long
+  // line is a line that got away, not a style choice.
+  for (const unit of await units()) {
+    const long = unit.text.split('\n')
+      .map((line, at) => ({ at: at + 1, line }))
+      .filter((entry) => entry.line.length > MAX_LINE);
+
+    assert.deepEqual(
+      long.map((entry) => `${unit.file}:${entry.at} (${entry.line.length})`),
+      [],
+      `no line in a unit may run past ${MAX_LINE} characters`,
+    );
+  }
 });
 
 test('the kit ships rules for every bot and rules for the code-writing ones', async () => {
