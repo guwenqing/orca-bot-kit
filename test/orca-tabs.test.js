@@ -131,12 +131,17 @@ test('the harness is typed into the daily tab only, and the tab is checked after
   assert.ok(sends[0].args.includes('--enter'), `the line has to be sent off: ${sends[0].args.join(' ')}`);
   assert.deepEqual(orcaFlags(sends[0]), ['--enter', '--json', '--terminal', '--text']);
 
+  // The kit looks more than once — a harness can come up and die — so what is
+  // pinned is that every look is at the tab that was typed into, and that each
+  // one asks Orca the same question with a deadline on it.
   const waits = orcaCallsOf(calls, 'terminal wait');
-  assert.equal(waits.length, 1, 'the tab that was typed into is the tab that is checked');
-  assert.equal(orcaFlag(waits[0], '--terminal'), daily.handle);
-  assert.equal(orcaFlag(waits[0], '--for'), 'tui-idle');
-  assert.equal(orcaFlag(waits[0], '--timeout-ms'), '10000');
-  assert.deepEqual(orcaFlags(waits[0]), ['--for', '--json', '--terminal', '--timeout-ms']);
+  assert.ok(waits.length >= 1, 'the tab that was typed into has to be checked');
+  for (const wait of waits) {
+    assert.equal(orcaFlag(wait, '--terminal'), daily.handle, 'the tab that was typed into is the tab that is checked');
+    assert.equal(orcaFlag(wait, '--for'), 'tui-idle');
+    assert.ok(Number(orcaFlag(wait, '--timeout-ms')) > 0, `a look needs a deadline, got: ${wait.args.join(' ')}`);
+    assert.deepEqual(orcaFlags(wait), ['--for', '--json', '--terminal', '--timeout-ms']);
+  }
 
   // Order is the whole point. A wait before the send would be asking a plain
   // shell whether its TUI is idle, which is refused however long it waits.

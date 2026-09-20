@@ -113,6 +113,75 @@ test('the same session on Codex is fine: there the context stands on its own', a
   assert.equal(terminals.length, 2, `the daily tab and the ops tab, got ${JSON.stringify(terminals)}`);
 });
 
+test('a Codex context written the Claude way is refused before a tab is opened', async (t) => {
+  // `1m` is what a Claude session's context looks like, and copying a session
+  // from one bot to another is the ordinary way to make a second one. Codex
+  // takes the context as a number of tokens: given `1m` it starts, prints
+  // `invalid type: string "1m", expected i64`, and exits. That is the failure
+  // that looks most like success — a tab, a line typed into it, and nothing
+  // running in it a second later.
+  const box = await createSandbox(t);
+  const bots = await handEdited(
+    box,
+    'codex',
+    '  - name: daily\n    approval: auto\n    context: 1m\n    work_dir: work/daily\n',
+  );
+  const before = await snapshot(bots, skipGit);
+
+  const result = await box.run(['up', '--bots', 'bots']);
+
+  assertCleanFailure(result);
+  assert.ok(result.stderr.includes('daily'), `should name the session it is in, got: ${result.stderr}`);
+  assert.ok(result.stderr.includes('context'), `should name the setting, got: ${result.stderr}`);
+  assert.ok(result.stderr.includes('1m'), `and what it found there, got: ${result.stderr}`);
+  await assertNotStarted(box, bots, 'daily');
+  assert.deepEqual(await box.orca.terminals(), [], 'nothing was opened at all');
+  assert.deepEqual(await snapshot(bots, skipGit), before, 'and no work dir was made for a session that never started');
+});
+
+test('a whole-number context on Codex is fine, quoted or not', async (t) => {
+  // The other side of it. What Codex needs is a number of tokens, and a user
+  // who put quotes round one has still written a number of tokens.
+  const box = await createSandbox(t);
+  await handEdited(
+    box,
+    'codex',
+    '  - name: daily\n    approval: auto\n    context: 200000\n'
+    + '  - name: review\n    approval: auto\n    context: "128000"\n',
+  );
+
+  const result = await box.run(['up', '--bots', 'bots']);
+
+  assert.equal(result.code, 0, result.stderr);
+  assert.equal(
+    (await box.orca.terminals()).length,
+    3,
+    'the two session tabs and the ops tab',
+  );
+});
+
+test('a Claude context written the Claude way still comes up', async (t) => {
+  // And `1m` is refused for being Codex's, not for being itself: on Claude,
+  // with a model to hang it on, it is exactly right.
+  const box = await createSandbox(t);
+  await handEdited(
+    box,
+    'claude',
+    '  - name: daily\n    approval: auto\n    model: sonnet\n    context: 1m\n',
+  );
+
+  const result = await box.run(['up', '--bots', 'bots']);
+
+  assert.equal(result.code, 0, result.stderr);
+  const daily = (await box.orca.terminals()).filter((terminal) => terminal.title.endsWith(' daily'));
+  assert.equal(daily.length, 1, `the session should have come up, got ${JSON.stringify(await box.orca.terminals())}`);
+  assert.deepEqual(
+    (daily[0].typed ?? []).map((entry) => entry.text),
+    ["claude --permission-mode auto --model 'sonnet[1m]'"],
+    'the context rides on the model name, and the model name stays quoted',
+  );
+});
+
 test('a session that names the other harness is judged by that one', async (t) => {
   // The bot runs on Codex, so a context with no model would be fine — until
   // the session says it runs on Claude.

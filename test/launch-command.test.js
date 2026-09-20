@@ -8,8 +8,10 @@
 // wrong approval level or the wrong model with nothing to show for it.
 //
 // The order is fixed — harness, approval, model, effort, context, `--add-dir`,
-// extra args, prompt — so a reader of an Orca tab sees the same shape for
-// every session.
+// extra args, `--`, prompt — so a reader of an Orca tab sees the same shape
+// for every session. The `--` comes only with a prompt, and it is there
+// because a prompt may begin with a dash: without it `claude` exits 1 with
+// `unknown option` and `codex` exits 2 with `unexpected argument`.
 //
 // Flags checked live on Claude Code 2.1.278 and Codex 0.155.1: `--model
 // 'sonnet[1m]'` is a real launch form, and Codex takes `-c key=value` with no
@@ -72,7 +74,7 @@ const CLAUDE = [
   [
     'a start prompt, last of all',
     ['--prompt', 'Read your AGENTS.md.'],
-    "claude --permission-mode auto 'Read your AGENTS.md.'",
+    "claude --permission-mode auto -- 'Read your AGENTS.md.'",
   ],
   [
     'everything at once',
@@ -80,7 +82,7 @@ const CLAUDE = [
       '--approval', 'ask', '--model', 'opus', '--context', '1m', '--effort', 'xhigh',
       '--extra-arg=--verbose', '--prompt', 'Read your AGENTS.md.',
     ],
-    "claude --permission-mode manual --model 'opus[1m]' --effort xhigh --verbose 'Read your AGENTS.md.'",
+    "claude --permission-mode manual --model 'opus[1m]' --effort xhigh --verbose -- 'Read your AGENTS.md.'",
   ],
 ];
 
@@ -109,7 +111,7 @@ const CODEX = [
   [
     'a start prompt, last of all',
     ['--prompt', 'Read your AGENTS.md.'],
-    "codex --approve-for-me 'Read your AGENTS.md.'",
+    "codex --approve-for-me -- 'Read your AGENTS.md.'",
   ],
   [
     'everything at once',
@@ -118,7 +120,7 @@ const CODEX = [
       '--extra-arg=--search', '--prompt', 'Read your AGENTS.md.',
     ],
     'codex -a on-request -m gpt-5.4 -c model_reasoning_effort=high -c model_context_window=200000 '
-    + "--search 'Read your AGENTS.md.'",
+    + "--search -- 'Read your AGENTS.md.'",
   ],
 ];
 
@@ -156,11 +158,11 @@ test('Codex gets --add-dir for a work dir outside the bot home, and nothing for 
   const near = await launchOf(inside, 'codex', ['--work-dir', 'work/api']);
 
   assert.ok(
-    far.startsWith(`codex --approve-for-me --add-dir ${outside} '`),
+    far.startsWith(`codex --approve-for-me --add-dir ${outside} -- '`),
     `--add-dir should come after the settings and before the prompt, got: ${far}`,
   );
   assert.ok(
-    near.startsWith(`${BARE_LAUNCH.codex} '`),
+    near.startsWith(`${BARE_LAUNCH.codex} -- '`),
     `a work dir under the bot home is already inside the sandbox, got: ${near}`,
   );
 });
@@ -174,7 +176,7 @@ test('--add-dir is given the absolute path, even when the work dir was written r
 
   const home = botHomeOf(box.path('bots'), 'api-bot');
   assert.ok(
-    typed.startsWith(`codex --approve-for-me --add-dir ${path.resolve(home, '../shared-clones')} '`),
+    typed.startsWith(`codex --approve-for-me --add-dir ${path.resolve(home, '../shared-clones')} -- '`),
     `got: ${typed}`,
   );
 });
@@ -189,7 +191,7 @@ test('Claude never gets --add-dir, wherever its work dir is', async (t) => {
   const typed = await launchOf(box, 'claude', ['--work-dir', outside]);
 
   assert.ok(!typed.includes('--add-dir'), `Claude should get no --add-dir, got: ${typed}`);
-  assert.ok(typed.startsWith(`${BARE_LAUNCH.claude} '`), `got: ${typed}`);
+  assert.ok(typed.startsWith(`${BARE_LAUNCH.claude} -- '`), `got: ${typed}`);
 });
 
 test('an extra_args written by hand as one string is typed as it stands', async (t) => {

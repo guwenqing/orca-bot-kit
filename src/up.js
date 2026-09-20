@@ -8,7 +8,7 @@ import { mkdirSync, realpathSync } from 'node:fs';
 
 import { readBook, tabIdsIn, writeBook } from './book.js';
 import { botDir, botNames, displayName, readBot } from './bot.js';
-import { harnessOf, launchCommand, startPrompt, workDirOf } from './launch.js';
+import { harnessOf, launchCommand, sessionTrouble, startPrompt, workDirOf } from './launch.js';
 import { asFolderProject, findProject, makeProject, openTab, retitleTab, tabs, tuiInTab, typeIntoTab } from './orca.js';
 
 /** The one bot with a tab beside its sessions: the ops tab (PRD 6.2). */
@@ -16,6 +16,15 @@ export const BOT_FATHER = 'bot-father';
 
 /** How long a harness is given to draw its first screen before the kit gives up on it. */
 const STARTUP_MS = 10000;
+
+/**
+ * And how long the second look takes. A harness can draw its first screen and
+ * then die on something it was handed — a context window it cannot read, an
+ * extra argument it does not know — and the first look would have called it
+ * started. A tab whose TUI is still there answers this at once; only one that
+ * has fallen back to a shell waits it out.
+ */
+const SECOND_LOOK_MS = 2000;
 
 /**
  * Bring bots up in Orca. Returns one entry per tab it looked at: the sessions
@@ -37,23 +46,40 @@ export function bringUp(bots, { bot: onlyBot, session: onlySession } = {}) {
     throw new Error('--session needs --bot: say which bot the session belongs to.');
   }
 
-  const chosen = onlyBot === undefined ? names : [onlyBot];
-  return chosen.flatMap((name) => bringUpBot(bots, name, onlySession));
+  // Every bot that is coming up is read and judged before Orca is asked for
+  // anything at all: a fleet with one session the kit cannot start is a fleet
+  // the user fixes in one edit, not one they find half opened.
+  const chosen = (onlyBot === undefined ? names : [onlyBot]).map((name) => readBot(realpathSync(botDir(bots, name)), name));
+  for (const bot of chosen) refuseWhatCannotStart(bot, onlySession);
+
+  return chosen.flatMap((bot) => bringUpBot(bots, bot, onlySession));
 }
 
-function bringUpBot(bots, name, onlySession) {
+function refuseWhatCannotStart(bot, onlySession) {
+  for (const session of sessionsOf(bot, onlySession)) {
+    const trouble = sessionTrouble(session, harnessOf(session, bot.harness));
+    if (trouble !== undefined) throw new Error(`${bot.name}: ${trouble}`);
+  }
+}
+
+/** The sessions a run is bringing up: all of the bot's, or the one it named. */
+function sessionsOf(bot, onlySession) {
+  if (onlySession === undefined) return bot.sessions;
+
+  const named = bot.sessions.filter((session) => session.name === onlySession);
+  if (named.length === 0) {
+    throw new Error(`${bot.name} has no session called ${onlySession}. Add it with obk session add, or name one it has.`);
+  }
+  return named;
+}
+
+function bringUpBot(bots, bot, onlySession) {
+  const name = bot.name;
   // Orca is given the real path: it does not follow links, and the same folder
   // reached through one would become a second Orca project.
   const home = realpathSync(botDir(bots, name));
-  const bot = readBot(home, name);
   const title = displayName(name);
-
-  const sessions = onlySession === undefined
-    ? bot.sessions
-    : bot.sessions.filter((session) => session.name === onlySession);
-  if (sessions.length === 0 && onlySession !== undefined) {
-    throw new Error(`${name} has no session called ${onlySession}. Add it with obk session add, or name one it has.`);
-  }
+  const sessions = sessionsOf(bot, onlySession);
 
   const book = readBook(home);
   book.orca = orcaProject(home, title);
@@ -116,7 +142,13 @@ function bringUpSession(home, book, live, session, bot, title) {
   // And then asking whether a TUI came up, rather than assuming one did. The
   // text goes into the tab's own shell, which may have been busy with a
   // question of its own and swallowed the first characters of it.
-  const tui = tuiInTab(made.handle, STARTUP_MS);
+  //
+  // Twice, because coming up and staying up are different things: a harness
+  // that refuses what it was handed draws a screen, prints its complaint and
+  // leaves a shell behind, and a run that looked once would report it as
+  // started. A tab that still has a TUI answers the second look at once,
+  // whatever the agent in it is busy with.
+  const tui = tuiInTab(made.handle, STARTUP_MS).running ? tuiInTab(made.handle, SECOND_LOOK_MS) : { running: false };
 
   // The start prompt went in with that line, as the harness's own prompt
   // argument, so it is the harness that holds it until it is ready — through

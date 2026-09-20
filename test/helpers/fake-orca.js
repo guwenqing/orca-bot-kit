@@ -23,6 +23,10 @@
 //                                ok, not satisfied, agent-interactive-prompt
 //                 false          no TUI at all — a plain shell prompt — which
 //                                Orca reports by refusing with `timeout`
+//               A list is one of those per call of `terminal wait`, the last
+//               entry answering every call after it. [true, false] is a tab
+//               the harness came up in and then died in: the thing a single
+//               look cannot tell from a harness that is running.
 //   fail        { "<command>": { code, message, after } } — that command
 //               answers ok:false. With `after: n` the first n calls of it go
 //               through and the ones after that fail, which is how a test
@@ -266,15 +270,21 @@ if (command === 'terminal wait') {
   const terminal = (state.terminals ?? []).find((entry) => entry.handle === flag('--terminal'));
   if (!terminal) fail('terminal_not_found', `no terminal with handle ${flag('--terminal')}`);
 
+  // One answer per call when a test gave a list, so a tab can hold a TUI on
+  // one look and none on the next; the last entry stands for every call after.
+  const idle = Array.isArray(state.waitIdle)
+    ? state.waitIdle[Math.min(callsSoFar() - 1, state.waitIdle.length - 1)]
+    : state.waitIdle;
+
   // `tui-idle` asks about a TUI, not about a shell. Seen live: a tab with no
   // TUI in it — a clean zsh prompt — is refused with `timeout`, however long
   // the wait. So this is how the kit learns that nothing took.
-  if (state.waitIdle === false) fail('timeout', 'timeout');
+  if (idle === false) fail('timeout', 'timeout');
 
   // A TUI that is up but has something to answer — a harness sitting on its
   // folder-trust question, which is the first run of every new bot. It is up,
   // so the harness started, and `satisfied` says nothing about that.
-  const blocked = state.waitIdle === 'blocked';
+  const blocked = idle === 'blocked';
   ok({
     status: blocked ? 'running' : 'idle',
     wait: {

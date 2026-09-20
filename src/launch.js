@@ -59,6 +59,12 @@ export function sessionTrouble(session, harness) {
   if (set(session.approval) && !APPROVALS.includes(session.approval)) {
     return `${where(session)} is set to approval ${session.approval}, and the levels are ${APPROVALS.join(', ')}.`;
   }
+  // Codex is given the context window as a number of tokens. `1m` is what a
+  // Claude session would say, and copying it here does not fail at the kit but
+  // in Codex, which exits with a type error the moment it starts.
+  if (harness === 'codex' && set(session.context) && !/^\d+$/.test(String(session.context).trim())) {
+    return `${where(session)} sets a context of ${session.context} on Codex, and Codex counts that in tokens, as a whole number: 200000, for example. A context like 1m belongs on Claude Code, where it is part of the model name.`;
+  }
   // On Claude Code the context window is a suffix on the model name, so there
   // is nothing to hang it on when no model was named.
   if (harness === 'claude' && set(session.context) && !set(session.model)) {
@@ -106,7 +112,10 @@ export function launchCommand(session, { harness, home, workDir, prompt }) {
   return [
     ...words.map(quoted),
     ...extraWords(session.extra_args),
-    ...(prompt === undefined ? [] : [quoted(prompt)]),
+    // `--` first: a prompt of the user's own may start with a dash — a
+    // Markdown bullet does — and both harnesses would read it as an option of
+    // theirs and refuse to start.
+    ...(prompt === undefined ? [] : ['--', quoted(prompt)]),
   ].join(' ');
 }
 
@@ -115,17 +124,21 @@ export function launchCommand(session, { harness, home, workDir, prompt }) {
  * to say. The work dir is named here and nowhere else: it is an instruction to
  * the session, not something the harness is told (PRD 6.4).
  *
- * One line, always. It is a word on a command line by the time it is typed, and
- * a line of its own again when the same text is sent to a session that is
- * already running.
+ * Word for word as the user wrote it. It travels as one argument, quoted for
+ * the shell it is typed into, so nothing has to be flattened to keep it whole:
+ * the two spaces, the newlines and the indentation of a prompt that carries a
+ * piece of text or code are the user's, and are none of the kit's business.
  */
 export function startPrompt(session, workDir) {
   const note = workDir === undefined
     ? undefined
     : `Your work dir is ${workDir}. It is a plain folder the kit made for you, not a git worktree.`;
 
-  const said = [session.prompt, note].filter(set).map((part) => String(part).replace(/\s+/g, ' ').trim());
-  return said.length === 0 ? undefined : said.join(' ');
+  // Only the ends are taken off — a `prompt: |` in YAML carries a newline the
+  // user never typed. What is inside is theirs: the two spaces, the newlines,
+  // the indent under a list.
+  const said = [session.prompt, note].filter(set).map((part) => String(part).trim());
+  return said.length === 0 ? undefined : said.join('\n\n');
 }
 
 /** Whether `target` is the folder at `home` or something inside it. */

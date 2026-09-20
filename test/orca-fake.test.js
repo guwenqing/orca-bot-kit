@@ -140,6 +140,32 @@ test('the fake waits, and remembers what was typed into a tab', async (t) => {
   assert.equal(nowhere.ok, false, 'there is nothing to type into a tab that is gone');
 });
 
+test('the fake can hold a TUI on one look and none on the next', async (t) => {
+  // A harness that starts, prints what it cannot do and exits: the tab has a
+  // TUI in it for a moment and a shell prompt after that. One look cannot tell
+  // it from a harness that is up and working, which is the whole reason a
+  // second look exists, so the fake has to be able to say it.
+  const box = await createSandbox(t);
+  const home = box.path('bots', 'bots', 'bot-father');
+  answer(ask(box, ['repo', 'add', '--path', home, '--json']));
+  const setup = (await box.orca.setups())[0];
+  answer(ask(box, ['project', 'setup-update', '--setup', setup.id, '--kind', 'folder', '--json']));
+  const made = answer(ask(box, ['terminal', 'create', '--worktree', `path:${home}`, '--title', 'Daily', '--json']));
+  const handle = made.result.terminal.handle;
+  const look = () => ask(box, ['terminal', 'wait', '--terminal', handle, '--for', 'tui-idle', '--timeout-ms', '10000', '--json']);
+
+  await box.orca.set({ waitIdle: [true, false] });
+
+  const first = answer(look());
+  assert.equal(first.ok, true, 'the harness was up when the first look came');
+  assert.equal(first.result.wait.satisfied, true);
+
+  for (const again of [look(), look()]) {
+    assert.equal(again.status, 1, 'and gone for every look after, the list\'s last answer standing');
+    assert.equal(JSON.parse(again.stdout).error.code, 'timeout');
+  }
+});
+
 test('the fake answers human text when the caller forgets --json', async (t) => {
   const box = await createSandbox(t);
 

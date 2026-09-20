@@ -34,9 +34,10 @@ Usage:
                   [--prompt <text>] [--work-dir <path>] [--extra-arg=<arg>]
                             Add a session to a bot. Anything left out is the
                             harness's own default; approval is auto.
-                            An extra argument of the harness's own is given as
-                            --extra-arg=--search, once per argument, glued to
-                            the flag so its dashes are not read as ours.
+                            A value of your own that starts with a dash is
+                            given glued to its flag, so its dashes are not read
+                            as ours: --prompt='- a bullet', and
+                            --extra-arg=--search, once per extra argument.
   obk up --bots <path> [--bot <bot>] [--session <name>]
                             Open whatever is missing in Orca, for every bot or
                             for the one you name. It only ever adds; it never

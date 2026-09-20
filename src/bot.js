@@ -9,6 +9,7 @@
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import { parse, parseDocument, stringify } from 'yaml';
 
 import { DEFAULT_APPROVAL, HARNESSES, harnessOf, sessionTrouble } from './launch.js';
@@ -144,7 +145,11 @@ export function addSession(bots, bot, settings) {
   const trouble = sessionTrouble(session, harnessOf(session, known.harness));
   if (trouble !== undefined) throw new Error(trouble);
 
-  writeFileSync(file, withSession(readFileSync(file, 'utf8'), session));
+  const text = withSession(readFileSync(file, 'utf8'), session);
+  if (text === undefined) {
+    throw new Error(`${file} cannot have a session added to it without putting the rest of it at risk, so nothing was written. Add ${session.name} to its sessions list by hand, or write that list as a plain block list and run this again.`);
+  }
+  writeFileSync(file, text);
   return { bot, home, session };
 }
 
@@ -154,20 +159,43 @@ function botYaml(name, harness, charter) {
   return header + stringify({ name, harness, charter, rules: [], skills: [], sessions: [] }, { lineWidth: 0 });
 }
 
-/** `source` with one session added to its sessions list, and nothing else touched. */
+/**
+ * `source` with one session added to its sessions list and nothing else
+ * touched, or undefined when that cannot be had.
+ *
+ * The file is the user's, written in whatever YAML they like, and a session
+ * written in the wrong shape does not fail loudly — it makes a file that no
+ * longer parses, or one that quietly says something else. So the text is built
+ * in the shape the file already uses, and then read back and held against what
+ * it was: the same document, plus this session, and nothing besides. Anything
+ * else and the caller refuses rather than write.
+ */
 function withSession(source, session) {
-  const item = indented(stringify([ordered(session)], { lineWidth: 0 }));
-  const doc = parseDocument(source);
-  const sessions = doc.get('sessions', true);
+  const text = sessionAdded(source, parseDocument(source).get('sessions', true), ordered(session));
+  return text !== undefined && addsExactly(source, text, ordered(session)) ? text : undefined;
+}
 
-  if (sessions === undefined) return `${endsInNewline(source)}sessions:\n${item}`;
+function sessionAdded(source, sessions, entry) {
+  // No sessions list at all: the file gets one, at the end, where a key the
+  // user never wrote can go without disturbing anything they did.
+  if (sessions === undefined) {
+    return `${endsInNewline(source)}sessions:\n${indented(blockItem(entry), '  ')}`;
+  }
 
   if (sessions.items?.length > 0) {
-    // After the last session, where the next one belongs. The parser's end of
-    // the list is the end of its last item, trailing newline and all — except
-    // in a file that ends without one.
+    // A list written in flow style — `[{ name: first }]` — takes its new
+    // session as another flow item, in front of the bracket that closes it.
+    // JSON is YAML, so the item is written as JSON: one line, whatever is in
+    // the prompt.
+    if (sessions.flow === true) {
+      const at = sessions.range[1] - 1;
+      return `${source.slice(0, at)}, ${JSON.stringify(entry)}${source.slice(at)}`;
+    }
+
+    // A block list: after the last session, indented the way that list is
+    // indented, which is not always two spaces and is sometimes none at all.
     const at = sessions.range[1];
-    return `${endsInNewline(source.slice(0, at))}${item}${source.slice(at)}`;
+    return `${endsInNewline(source.slice(0, at))}${indented(blockItem(entry), indentOf(source, sessions.items[0]))}${source.slice(at)}`;
   }
 
   // An empty list, or a `sessions:` with nothing after it. The span the value
@@ -176,7 +204,39 @@ function withSession(source, session) {
   const [, to] = sessions.range;
   let from = sessions.range[0];
   while (from > 0 && (source[from - 1] === ' ' || source[from - 1] === '\t')) from -= 1;
-  return `${source.slice(0, from)}\n${item.replace(/\n$/, '')}${source.slice(to)}`;
+  return `${source.slice(0, from)}\n${indented(blockItem(entry), '  ').replace(/\n$/, '')}${source.slice(to)}`;
+}
+
+/**
+ * Whether `after` is `before` with exactly this session added: the same
+ * document, the same sessions in the same order, and this one on the end.
+ *
+ * This is the check that makes the shapes above safe. Whatever the file is
+ * written like, a text this does not recognise as the old one plus the new
+ * session is not written.
+ */
+function addsExactly(before, after, entry) {
+  let was;
+  let now;
+  try {
+    was = parse(before);
+    now = parse(after);
+  } catch {
+    return false;
+  }
+  if (was === null || typeof was !== 'object' || Array.isArray(was)) return false;
+
+  return isDeepStrictEqual(now, { ...was, sessions: [...(was.sessions ?? []), entry] });
+}
+
+/** One session as a block list item, as YAML writes it. */
+const blockItem = (entry) => stringify([entry], { lineWidth: 0 });
+
+/** How far in a list's items sit: the indent in front of the first one's dash. */
+function indentOf(source, item) {
+  const lineStart = source.lastIndexOf('\n', item.range[0] - 1) + 1;
+  const dash = source.slice(lineStart, item.range[0]).lastIndexOf('-');
+  return dash < 0 ? '  ' : source.slice(lineStart, lineStart + dash);
 }
 
 /** A session's settings, in the order they are written, without the ones left out. */
@@ -188,8 +248,8 @@ function ordered(session) {
   return entry;
 }
 
-/** A list item as it sits under `sessions:`, two spaces in. */
-const indented = (item) => item.replace(/^(?!$)/gm, '  ');
+/** A list item, moved in to where the list it is joining sits. */
+const indented = (item, indent) => item.replace(/^(?!$)/gm, indent);
 
 const endsInNewline = (text) => (text === '' || text.endsWith('\n') ? text : `${text}\n`);
 
