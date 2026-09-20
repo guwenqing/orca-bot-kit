@@ -179,23 +179,27 @@ test('a context on a Claude session with no model is refused, because there is n
   assert.deepEqual(await snapshot(bots, skipGit), before);
 });
 
-test('a Codex context written the Claude way is refused, because Codex counts tokens', async (t) => {
-  // `1m` is the Claude form, and the ordinary way to make a second session is
-  // to copy the first. Codex takes `-c model_context_window=<number>`: given
-  // `1m` it starts, says `invalid type: string "1m", expected i64` and exits.
-  const box = await createSandbox(t);
-  const bots = await withBot(box, { harness: 'codex' });
-  const before = await snapshot(bots, skipGit);
+// Codex takes `-c model_context_window=<number>`, and a whole number is a
+// whole number all the way through. `1m` is the Claude form, and copying a
+// session from a Claude bot is the ordinary way to make a second one; `x200000`
+// is the same number with a finger slip in front of it. Either way Codex
+// starts, says `invalid type: string "…", expected i64` and exits.
+for (const context of ['1m', 'x200000']) {
+  test(`a Codex context of ${context} is refused, because Codex counts tokens`, async (t) => {
+    const box = await createSandbox(t);
+    const bots = await withBot(box, { harness: 'codex' });
+    const before = await snapshot(bots, skipGit);
 
-  const result = await box.run([
-    'session', 'add', '--bots', 'bots', '--bot', 'api-bot', '--name', 'daily', '--context', '1m',
-  ]);
+    const result = await box.run([
+      'session', 'add', '--bots', 'bots', '--bot', 'api-bot', '--name', 'daily', '--context', context,
+    ]);
 
-  assertCleanFailure(result);
-  assert.ok(result.stderr.includes('1m'), `should name what it got, got: ${result.stderr}`);
-  assert.ok(result.stderr.includes('context'), `should name the setting, got: ${result.stderr}`);
-  assert.deepEqual(await snapshot(bots, skipGit), before);
-});
+    assertCleanFailure(result);
+    assert.ok(result.stderr.includes(context), `should name what it got, got: ${result.stderr}`);
+    assert.ok(result.stderr.includes('context'), `should name the setting, got: ${result.stderr}`);
+    assert.deepEqual(await snapshot(bots, skipGit), before);
+  });
+}
 
 test('it is the session\'s own harness that decides, not the bot\'s', async (t) => {
   const box = await createSandbox(t);

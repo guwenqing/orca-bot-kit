@@ -47,19 +47,26 @@ import {
 
 const PROMPT = 'Read your AGENTS.md and reply in one line with what this bot owns.';
 
+// The bot's name is this file's own. Anything longer than a line — a prompt
+// with a work-dir note under it, for one — is handed to the session in a file
+// the kit names after the bot and the session, under the system temp
+// directory. The tests below read that file back through a shell, and another
+// test file bringing up an `api-bot` `daily` at the same moment would be
+// writing over it.
+
 /** A bots folder holding one Codex bot with one session, not yet brought up. */
 async function withSession(box, settings, { harness = 'codex' } = {}) {
   assert.equal((await box.run(['init', '--bots', 'bots', '--harness', 'claude'])).code, 0);
-  assert.equal((await box.run(['bot', 'create', '--bots', 'bots', '--name', 'api-bot', '--harness', harness])).code, 0);
-  const added = await box.run(['session', 'add', '--bots', 'bots', '--bot', 'api-bot', '--name', 'daily', ...settings]);
+  assert.equal((await box.run(['bot', 'create', '--bots', 'bots', '--name', 'prompt-bot', '--harness', harness])).code, 0);
+  const added = await box.run(['session', 'add', '--bots', 'bots', '--bot', 'prompt-bot', '--name', 'daily', ...settings]);
   assert.equal(added.code, 0, added.stderr);
   return box.path('bots');
 }
 
 /** Bring the one bot up and give back its tab and what was typed into it. */
 async function up(box, bots, args = []) {
-  const result = await box.run(['up', '--bots', 'bots', '--bot', 'api-bot', ...args]);
-  const tabs = await tabsOfBot(box, bots, 'api-bot');
+  const result = await box.run(['up', '--bots', 'bots', '--bot', 'prompt-bot', ...args]);
+  const tabs = await tabsOfBot(box, bots, 'prompt-bot');
   assert.equal(tabs.length, 1, `the bot should have the one session tab, got ${JSON.stringify(tabs)}`);
   return { result, tab: tabs[0], typed: typedInto(tabs[0]) };
 }
@@ -171,6 +178,28 @@ for (const harness of ['claude', 'codex']) {
   }
 }
 
+test('a block scalar\'s own trailing newline is not part of the prompt', async (t) => {
+  // `prompt: |` in YAML ends every prompt with a newline, whether the user
+  // typed one or not. Left on, it is a line of its own by the time the harness
+  // reads it — and here it would also push a one-line prompt off the launch
+  // line and into a file, for a character nobody wrote.
+  const box = await createSandbox(t);
+  const bots = await withSession(box, []);
+  await writeFile(
+    path.join(botHomeOf(bots, 'prompt-bot'), 'bot.yaml'),
+    'name: prompt-bot\nharness: codex\ncharter: mine\nrules: []\nskills: []\n'
+    + 'sessions:\n  - name: daily\n    approval: auto\n    prompt: |\n      Read your AGENTS.md.\n',
+  );
+
+  const { typed } = await up(box, bots);
+
+  assert.deepEqual(
+    typed,
+    [`${BARE_LAUNCH.codex} -- 'Read your AGENTS.md.'`],
+    'one short line, typed in as one short line',
+  );
+});
+
 test('a prompt written over several lines keeps every one of them', async (t) => {
   // The prompt is an argument, so its newlines are the user's paragraphs and
   // nothing else: nothing submits on them and nothing reads them but the
@@ -180,8 +209,8 @@ test('a prompt written over several lines keeps every one of them', async (t) =>
   const fake = await fakeProgram(box, 'codex', {});
   const bots = await withSession(box, []);
   await writeFile(
-    path.join(botHomeOf(bots, 'api-bot'), 'bot.yaml'),
-    'name: api-bot\nharness: codex\ncharter: mine\nrules: []\nskills: []\n'
+    path.join(botHomeOf(bots, 'prompt-bot'), 'bot.yaml'),
+    'name: prompt-bot\nharness: codex\ncharter: mine\nrules: []\nskills: []\n'
     + 'sessions:\n  - name: daily\n    approval: auto\n    prompt: |\n'
     + '      You keep the API bot\'s day running.\n\n      Each morning:\n'
     + '        - read AGENTS.md\n        - ask before you touch main\n',
@@ -213,8 +242,8 @@ test('two spaces in a prompt reach the harness as two spaces', async (t) => {
   const bots = await withSession(box, []);
   const spaced = 'Read AGENTS.md.  Then wait.\tThen ask.';
   await writeFile(
-    path.join(botHomeOf(bots, 'api-bot'), 'bot.yaml'),
-    'name: api-bot\nharness: codex\ncharter: mine\nrules: []\nskills: []\n'
+    path.join(botHomeOf(bots, 'prompt-bot'), 'bot.yaml'),
+    'name: prompt-bot\nharness: codex\ncharter: mine\nrules: []\nskills: []\n'
     + `sessions:\n  - name: daily\n    approval: auto\n    prompt: ${JSON.stringify(spaced)}\n`,
   );
 
@@ -241,7 +270,7 @@ test('a session with a work dir is told where it is, in a note carrying the abso
     `the user's own prompt comes first and whole, with the note a blank line below it, got: ${JSON.stringify(said)}`,
   );
   assert.ok(
-    said.includes(path.join(botHomeOf(bots, 'api-bot'), 'work', 'api')),
+    said.includes(path.join(botHomeOf(bots, 'prompt-bot'), 'work', 'api')),
     `the note should name the work dir by its absolute path, got: ${said}`,
   );
   // PRD 6.4: it is a plain folder and has nothing to do with git worktrees. The
@@ -263,7 +292,7 @@ test('a work dir whose name has two spaces in it is named as it is', async (t) =
   const argv = await argvOf(box, typed[0], fake);
   assert.equal(argv.length, 3, `the prompt is one argument, got: ${JSON.stringify(argv)}`);
   assert.ok(
-    argv[2].includes(path.join(botHomeOf(bots, 'api-bot'), 'work', 'two  spaces')),
+    argv[2].includes(path.join(botHomeOf(bots, 'prompt-bot'), 'work', 'two  spaces')),
     `the note should name the folder that was made, got: ${JSON.stringify(argv[2])}`,
   );
 });
@@ -278,7 +307,7 @@ test('a session with a work dir and no prompt still has the note to say', async 
     typed[0].startsWith(`${BARE_LAUNCH.codex} -- '`),
     `the note is something to say, got: ${JSON.stringify(typed)}`,
   );
-  assert.ok(typed[0].includes(path.join(botHomeOf(bots, 'api-bot'), 'work', 'api')));
+  assert.ok(typed[0].includes(path.join(botHomeOf(bots, 'prompt-bot'), 'work', 'api')));
   assert.equal(onlyTab(result).promptSent, true);
 });
 
@@ -426,12 +455,12 @@ test('the plain report says the prompt went with the line, and says so only when
   const box = await createSandbox(t);
   await withSession(box, ['--prompt', PROMPT]);
 
-  const sent = await box.run(['up', '--bots', 'bots', '--bot', 'api-bot']);
+  const sent = await box.run(['up', '--bots', 'bots', '--bot', 'prompt-bot']);
 
   const other = await createSandbox(t);
   await withSession(other, ['--prompt', PROMPT]);
   await other.orca.set({ waitIdle: false });
-  const lost = await other.run(['up', '--bots', 'bots', '--bot', 'api-bot']);
+  const lost = await other.run(['up', '--bots', 'bots', '--bot', 'prompt-bot']);
 
   assert.equal(sent.code, 0, sent.stderr);
   assert.equal(lost.code, 0, lost.stderr);

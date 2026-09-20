@@ -175,6 +175,19 @@ test('Codex gets --add-dir for a work dir outside the bot home, and nothing for 
   );
 });
 
+test('a work dir that is the bot home itself brings no --add-dir', async (t) => {
+  // `--work-dir .`: the session works where it was started. Codex's sandbox
+  // already covers the folder it was launched in, so naming that folder again
+  // says nothing — and a line that reads `--add-dir <the folder I am in>` is
+  // a line a reader has to stop and think about.
+  const box = await createSandbox(t);
+
+  const typed = await launchOf(box, 'codex', ['--work-dir', '.']);
+
+  assert.ok(!typed.includes('--add-dir'), `the bot home is already inside the sandbox, got: ${typed}`);
+  assert.ok(typed.startsWith(BARE_LAUNCH.codex), `got: ${typed}`);
+});
+
 test('--add-dir is given the absolute path, even when the work dir was written relative', async (t) => {
   // A relative work dir is relative to the bot home, and `..` can climb out of
   // it. What Codex is given is a path, not the user's shorthand.

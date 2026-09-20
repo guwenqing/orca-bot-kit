@@ -231,6 +231,39 @@ test('a prompt file of the user\'s own is left where they put it', async (t) => 
   assert.deepEqual(await argvOf(box, typed, fake), ['--approve-for-me', '--', duty.trimEnd()]);
 });
 
+test('the blank lines a format leaves at the ends are taken off, and nothing else', async (t) => {
+  // A text file ends with a newline because text files do, and a `prompt: |`
+  // in YAML carries one for the same reason. Neither is something the user
+  // typed, and the harness would read either as an empty last instruction.
+  // What lies between them is theirs: the paragraphs, the indent, the two
+  // spaces, all of it.
+  const box = await createSandbox(t);
+  const fake = await fakeProgram(box, 'codex', {});
+  const duty = `\n\nYou keep the day running.\n\n  - read AGENTS.md\n\n${line(FITS)}\n\n\n`;
+  await freshPrompts(t, 'ends-bot');
+  assert.equal((await box.run(['init', '--bots', 'bots', '--harness', 'claude'])).code, 0);
+  assert.equal((await box.run(['bot', 'create', '--bots', 'bots', '--name', 'ends-bot', '--harness', 'codex'])).code, 0);
+  const bots = box.path('bots');
+  const theirs = path.join(botHomeOf(bots, 'ends-bot'), 'prompts', 'daily.md');
+  await mkdir(path.dirname(theirs), { recursive: true });
+  await writeFile(theirs, duty);
+  assert.equal((await box.run([
+    'session', 'add', '--bots', 'bots', '--bot', 'ends-bot', '--name', 'daily', '--prompt-file', 'prompts/daily.md',
+  ])).code, 0);
+
+  const { typed, tab } = await up(box, bots, 'ends-bot');
+
+  // Read from the file the kit wrote, not from argv: `"$(cat …)"` drops
+  // trailing newlines of its own accord, so argv alone would not notice one
+  // the kit had left in.
+  assert.equal(
+    await readFile(tab.promptFile, 'utf8'),
+    duty.trim(),
+    'the ends are the format\'s and go; the blank lines inside are the user\'s and stay',
+  );
+  assert.deepEqual(await argvOf(box, typed, fake), ['--approve-for-me', '--', duty.trim()]);
+});
+
 test('the prompt is in its file before the tab is opened', async (t) => {
   // The line is typed the moment the tab exists, and a line that reads a file
   // that is not there yet starts a harness with an empty prompt.
