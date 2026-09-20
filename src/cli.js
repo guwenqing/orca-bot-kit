@@ -85,11 +85,13 @@ function run(argv) {
   const trouble = orcaTrouble();
   if (trouble !== undefined) throw new Error(trouble);
 
-  const seeded = command === 'init' ? initBots(values.bots, harness) : { bots: path.resolve(values.bots), created: [] };
+  const seeded = command === 'init'
+    ? initBots(values.bots, harness)
+    : { bots: path.resolve(values.bots), created: [], completed: [] };
   const tabs = bringUp(seeded.bots);
 
   process.stdout.write(values.json
-    ? `${JSON.stringify({ bots: seeded.bots, created: seeded.created, tabs }, null, 2)}\n`
+    ? `${JSON.stringify({ bots: seeded.bots, created: seeded.created, completed: seeded.completed, tabs }, null, 2)}\n`
     : report(seeded, tabs));
   return 0;
 }
@@ -105,23 +107,44 @@ function harnessFor(harness) {
 }
 
 /** The same facts as `--json`, as lines, for a person reading along. */
-function report({ bots, created }, tabs) {
-  const lines = created.map((entry) => `created  ${entry}`);
+function report({ bots, created, completed }, tabs) {
+  const lines = [
+    ...created.map((entry) => `created    ${entry}`),
+    ...completed.map((entry) => `completed  ${entry}`),
+  ];
 
   for (const tab of tabs) {
-    lines.push(`${tab.created ? 'opened ' : 'found  '} ${tab.title}  tab ${tab.tabId}  terminal ${tab.terminal}`);
-  }
-
-  const busy = tabs.filter((tab) => tab.created && tab.name !== null && !tab.harnessTyped);
-  for (const tab of busy) {
-    lines.push(
-      `         ${tab.title} was busy, so nothing was typed into it. Look at it with:`
-      + `\n           orca terminal read --terminal ${tab.terminal} --screen`,
-    );
+    lines.push(`${tab.created ? 'opened' : 'found '}     ${tab.title}  tab ${tab.tabId}  terminal ${tab.terminal}`);
+    lines.push(...harnessLines(tab));
   }
 
   lines.push(`Bot Father is up in Orca. Your bots folder: ${bots}`);
   return `${lines.join('\n')}\n`;
+}
+
+/**
+ * What became of the harness in a tab this run opened. Nothing is typed into a
+ * tab that was already there, and nothing into the plain tab beside the
+ * sessions, so those have nothing to say.
+ *
+ * The caller decides what to do next from these lines, so they say both what
+ * was typed and what was seen afterwards, and never one in place of the other.
+ */
+function harnessLines(tab) {
+  if (!tab.created || tab.name === null) return [];
+
+  if (!tab.harnessStarted) {
+    return [
+      '             the harness was typed in, and no session came up in the tab.',
+      `             Look at it:  orca terminal read --terminal ${tab.terminal} --screen`,
+    ];
+  }
+  return tab.blockedReason === undefined
+    ? ['             the harness was typed in and came up.']
+    : [
+      `             the harness was typed in and came up, waiting on: ${tab.blockedReason}`,
+      `             Look at it:  orca terminal read --terminal ${tab.terminal} --screen`,
+    ];
 }
 
 try {

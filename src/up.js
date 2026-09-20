@@ -78,7 +78,12 @@ function bringUpSession(home, book, live, session, harness) {
   }
 
   const made = openTab(home, title);
+
+  // Written down the moment it exists, before anything that can fail. A tab
+  // whose id never reached the book is a tab nobody owns: the next run would
+  // start a second harness beside it and take this one for the spare.
   book.sessions[session] = { tab: made.tabId };
+  writeBook(home, book);
 
   // Typing it in is the way: for a project the kit has just made, giving Orca
   // the harness as the tab's own command times out and leaves a dead tab.

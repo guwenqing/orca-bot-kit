@@ -107,6 +107,32 @@ test('a tab that came back is reported as made, beside the one that was found', 
   assert.equal(tab(answer, null).tabId, tab(first, null).tabId);
 });
 
+test('a harness on its trust question is started, and carries Orca\'s own words through', async (t) => {
+  // What the live check hits on the first run of every new bot: the harness is
+  // up and asking whether it may work in this folder. The kit passes Orca's
+  // reason on for the caller to act on; it does not read it itself.
+  const box = await createSandbox(t);
+  await box.orca.set({ waitIdle: 'blocked' });
+
+  const answer = answerOf(await box.run(['init', '--bots', 'bots', '--harness', 'claude', '--json']));
+
+  const daily = tab(answer, 'daily');
+  assert.equal(daily.harnessStarted, true, 'a TUI that is up is a harness that started');
+  assert.equal(daily.blockedReason, 'agent-interactive-prompt');
+  assert.equal('blockedReason' in tab(answer, null), false, 'nothing was started in the plain tab');
+});
+
+test('an entry carries no blockedReason when Orca gave none', async (t) => {
+  const box = await createSandbox(t);
+
+  const answer = answerOf(await box.run(['init', '--bots', 'bots', '--harness', 'claude', '--json']));
+
+  for (const entry of answer.tabs) {
+    assert.equal('blockedReason' in entry, false, `nothing to pass on, so no key: ${JSON.stringify(entry)}`);
+  }
+  assert.equal(tab(answer, 'daily').harnessStarted, true);
+});
+
 test('a harness that did not come up says so, and the run still succeeds', async (t) => {
   const box = await createSandbox(t);
   await box.orca.set({ waitIdle: false });
@@ -115,6 +141,7 @@ test('a harness that did not come up says so, and the run still succeeds', async
 
   assert.equal(tab(answer, 'daily').created, true);
   assert.equal(tab(answer, 'daily').harnessStarted, false, 'no TUI came up in the tab');
+  assert.equal('blockedReason' in tab(answer, 'daily'), false, 'there was nothing on screen to report');
   // The caller needs the handle to go and look at that tab itself.
   const real = (await box.orca.terminals()).find((terminal) => terminal.title === TAB_TITLES.daily);
   assert.equal(tab(answer, 'daily').terminal, real.handle);

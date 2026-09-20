@@ -23,7 +23,10 @@
 //                                ok, not satisfied, agent-interactive-prompt
 //                 false          no TUI at all — a plain shell prompt — which
 //                                Orca reports by refusing with `timeout`
-//   fail        { "<command>": { code, message } } — that command answers ok:false
+//   fail        { "<command>": { code, message, after } } — that command
+//               answers ok:false. With `after: n` the first n calls of it go
+//               through and the ones after that fail, which is how a test
+//               breaks the second tab of a run and not the first.
 //   crash       { command, exitCode, stdout, stderr } — no JSON, a bad exit code
 //   garbage     { command, text } — output that is not JSON at all
 //
@@ -96,7 +99,26 @@ if (aimedHere(state.garbage)) {
 }
 
 const planned = (state.fail ?? {})[command];
-if (planned) fail(planned.code ?? 'orca_said_no', planned.message ?? 'orca said no', planned.data ?? {});
+if (planned && callsSoFar() > (planned.after ?? 0)) {
+  fail(planned.code ?? 'orca_said_no', planned.message ?? 'orca said no', planned.data ?? {});
+}
+
+/** How many times this command has been called, this one included. */
+function callsSoFar() {
+  return readFileSync(path.join(dir, 'calls.log'), 'utf8')
+    .split('\n')
+    .filter((line) => line !== '')
+    .map((line) => JSON.parse(line).args)
+    .filter((earlier) => {
+      const words = [];
+      for (const arg of earlier) {
+        if (arg.startsWith('-')) break;
+        words.push(arg);
+      }
+      return words.join(' ') === command;
+    })
+    .length;
+}
 
 const setupAt = (target) => (state.setups ?? []).find((setup) => setup.path === target);
 

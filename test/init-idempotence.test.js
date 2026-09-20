@@ -47,8 +47,11 @@ test("a second init keeps the user's edits", async (t) => {
   const edits = {
     'defaults.yaml': 'rules:\n  - my-rule\nskills:\n  - my-skill\n',
     'skills.yaml': 'sources:\n  - https://example.invalid/skills.git\n',
+    // A bot with sessions of its own: a list that is already there is the
+    // user's, and `init` leaves it exactly as it is.
     'bots/bot-father/bot.yaml':
-      'name: bot-father\nharness: claude\ncharter: my own charter\nrules: [my-rule]\nskills: []\nsessions: []\n',
+      'name: bot-father\nharness: claude\ncharter: my own charter\nrules: [my-rule]\nskills: []\n'
+      + 'sessions:\n  - name: daily\n',
   };
   for (const [rel, contents] of Object.entries(edits)) {
     await writeFile(path.join(bots, rel), contents);

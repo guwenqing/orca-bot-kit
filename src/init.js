@@ -8,7 +8,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { parse } from 'yaml';
+import { parseDocument } from 'yaml';
 
 const DEFAULTS_YAML = `# Rules and skills every bot gets, on top of its own.
 #
@@ -49,10 +49,13 @@ rules: []
 skills: []
 sessions:
   # The management session: the tab you talk to Bot Father in.
-  - name: daily
+  - name: ${DAILY_SESSION}
 `;
 
 const BOT_FATHER_YAML = 'bots/bot-father/bot.yaml';
+
+/** The management session every Bot Father has: the tab you talk to it in. */
+const DAILY_SESSION = 'daily';
 
 const seeds = (harness) => [
   ['defaults.yaml', DEFAULTS_YAML],
@@ -95,7 +98,7 @@ export function initBots(target, harness) {
 
   for (const dir of LAYOUT_DIRS) checkKind(path.join(bots, dir), 'folder');
   for (const [entry] of SEEDS) checkKind(path.join(bots, entry), 'file');
-  checkHarness(path.join(bots, BOT_FATHER_YAML), harness);
+  checkBotFather(path.join(bots, BOT_FATHER_YAML), harness);
 
   if (!existsSync(path.join(bots, '.git'))) {
     gitInit(bots);
@@ -112,7 +115,12 @@ export function initBots(target, harness) {
     created.push(entry);
   }
 
-  return { bots, created };
+  // A bot.yaml from an earlier version of the kit is missing what this one
+  // needs. It is the user's file by now, so what is missing is filled in and
+  // nothing else is touched.
+  const completed = created.includes(BOT_FATHER_YAML) ? [] : completeBotFather(path.join(bots, BOT_FATHER_YAML), harness);
+
+  return { bots, created, completed };
 }
 
 // What is already at `target` must be the kind of thing `init` needs there, or
@@ -150,14 +158,63 @@ function gitInit(bots) {
   }
 }
 
-// Bot Father's harness is the user's, written once and never rewritten: a
-// second init that names the other one is a mistake worth stopping, not a
-// change to make quietly.
-function checkHarness(file, harness) {
+// A bot.yaml that is already there has to be one `init` can finish. What it
+// cannot finish, it refuses before anything is written, rather than guess at
+// what the user meant.
+function checkBotFather(file, harness) {
   if (!existsSync(file)) return;
 
-  const had = parse(readFileSync(file, 'utf8'))?.harness;
-  if (had !== undefined && had !== harness) {
-    throw new Error(`you asked for --harness ${harness}, but Bot Father is already on ${had}, and init does not change it. Run init again with --harness ${had}, or ask Bot Father to move it.`);
+  const doc = parseDocument(readFileSync(file, 'utf8'));
+  const bot = doc.errors.length > 0 ? undefined : doc.toJS();
+  if (bot === null || typeof bot !== 'object' || Array.isArray(bot)) {
+    throw new Error(`${file} is not a bot: it should be a YAML mapping with a name, a harness and a list of sessions. Fix it or move it aside, then run init again.`);
+  }
+
+  // The harness is the user's, written once and never rewritten: a second init
+  // naming the other one is a mistake worth stopping, not a quiet change.
+  if (bot.harness !== undefined && bot.harness !== harness) {
+    throw new Error(`you asked for --harness ${harness}, but Bot Father is already on ${bot.harness}, and init does not change it. Run init again with --harness ${bot.harness}, or ask Bot Father to move it.`);
+  }
+  if (bot.sessions !== undefined && bot.sessions !== null && !Array.isArray(bot.sessions)) {
+    throw new Error(`${file} has a sessions entry that is not a list, so init cannot add Bot Father's daily session to it. Fix it, then run init again.`);
   }
 }
+
+/**
+ * Fill in what an older `bot.yaml` is missing, and nothing else. Returns what
+ * was completed, for the report.
+ *
+ * The file is edited as text, at the exact places the parser points to, rather
+ * than parsed and written back out: writing it back would re-lay the user's own
+ * formatting — the padding inside a flow collection, the column a trailing
+ * comment sits in. Everything the user wrote stays byte for byte.
+ *
+ * Sessions the user already has are left alone, whatever they are called. They
+ * are theirs, and `up` brings up what it finds.
+ */
+function completeBotFather(file, harness) {
+  const source = readFileSync(file, 'utf8');
+  const doc = parseDocument(source);
+
+  let text = source;
+  const sessions = doc.get('sessions', true);
+  if (sessions === undefined) {
+    text = `${endsInNewline(text)}sessions:\n  - name: ${DAILY_SESSION}\n`;
+  } else if (!(sessions.items?.length > 0)) {
+    // An empty list, or a `sessions:` with nothing after it. The parser gives
+    // the span the value occupies — for the empty one, an empty span in just
+    // the right place.
+    const [from, to] = sessions.range;
+    text = `${text.slice(0, from)}\n  - name: ${DAILY_SESSION}${text.slice(to)}`;
+  }
+
+  if (doc.get('harness') === undefined) {
+    text = `${endsInNewline(text)}harness: ${harness}\n`;
+  }
+
+  if (text === source) return [];
+  writeFileSync(file, text);
+  return [BOT_FATHER_YAML];
+}
+
+const endsInNewline = (text) => (text === '' || text.endsWith('\n') ? text : `${text}\n`);
