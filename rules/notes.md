@@ -1,0 +1,18 @@
+---
+name: notes
+title: What you write down
+applies: all
+---
+
+Decisions, the scope you agreed and the results of checks go in a file in your
+own folder. A conversation is not storage, and the next session starts without
+it.
+
+Your notes are a record, not the truth. Before you act on one, check it against
+the thing itself: the file, the repo, the setting, the running system.
+
+After a compaction, a resume or a restart, read the last thing the user asked
+and the current state of the work before carrying on.
+
+Write the handoff before you run out of room: what is done, what is next, where
+the work sits, and what is still unproven.

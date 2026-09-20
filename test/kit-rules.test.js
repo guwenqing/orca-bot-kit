@@ -1,0 +1,148 @@
+// The kit's rule units: the files under rules/ that the build pastes into every
+// bot's AGENTS.md (PRD 6.6, ADR 0003). A malformed unit would reach a bot as
+// broken instructions, and an oversized one is paid for on every turn of every
+// session, so both are cheap to check here and expensive to find later.
+
+import assert from 'node:assert/strict';
+import { readFile, readdir } from 'node:fs/promises';
+import path from 'node:path';
+import test from 'node:test';
+import { parse } from 'yaml';
+
+import { repoRoot } from './helpers/cli.js';
+
+const rulesDir = path.join(repoRoot, 'rules');
+
+/** A unit name has the shape an Agent Skills name has, and so does its file. */
+const NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+
+/** What one unit may cost, and what a bot pays for the default set, in non-empty lines. */
+const MAX_BODY_LINES = 12;
+const MAX_ALL_LINES = 70;
+
+/** Everything in rules/, whatever it is: the shape test needs to see the strays too. */
+async function entries() {
+  try {
+    return await readdir(rulesDir, { withFileTypes: true });
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+    return assert.fail('the kit ships its rule units in rules/ at the repo root, and that directory does not exist');
+  }
+}
+
+/** Every unit file: the path CI output should name, the name its file gives it, and its bytes. */
+async function units() {
+  const files = (await entries()).filter((entry) => entry.isFile() && entry.name.endsWith('.md'));
+  return Promise.all(files.map(async (entry) => ({
+    file: path.posix.join('rules', entry.name),
+    basename: entry.name.slice(0, -'.md'.length),
+    text: await readFile(path.join(rulesDir, entry.name), 'utf8'),
+  })));
+}
+
+/**
+ * One unit split into the two things the compiler reads: the parsed frontmatter
+ * and the body after it. A file that is not a delimited YAML document fails
+ * here, once, in whichever test asked for it.
+ */
+function parts(unit) {
+  const match = /^---\n([\s\S]*?)\n---(?:\n([\s\S]*))?$/.exec(unit.text);
+  assert.ok(match !== null, `${unit.file} should begin with YAML frontmatter: a line ---, the keys, then a line ---`);
+  try {
+    return { data: parse(match[1]), body: match[2] ?? '' };
+  } catch (error) {
+    return assert.fail(`${unit.file}: the frontmatter is not valid YAML: ${error.message}`);
+  }
+}
+
+/** What a body costs to carry: the lines that are not blank. */
+const bodyLines = (body) => body.split('\n').filter((line) => line.trim() !== '');
+
+test('rules/ holds one markdown file per unit and nothing else', async () => {
+  const all = await entries();
+  assert.ok(all.length > 0, 'rules/ should hold the kit rule units, and it is empty');
+
+  const strays = all.filter((entry) => !(entry.isFile() && entry.name.endsWith('.md'))).map((entry) => entry.name);
+  assert.deepEqual(strays, [], `rules/ should hold only *.md files, one per unit; found: ${strays.join(', ')}`);
+});
+
+test('every unit carries the three frontmatter keys the compiler reads', async () => {
+  const names = [];
+  for (const unit of await units()) {
+    const { data } = parts(unit);
+
+    assert.deepEqual(
+      Object.keys(data ?? {}).sort(),
+      ['applies', 'name', 'title'],
+      `${unit.file} should carry exactly name, title and applies`,
+    );
+    assert.equal(data.name, unit.basename, `${unit.file}: name should be the file's basename, got ${JSON.stringify(data.name)}`);
+    assert.match(
+      String(data.name),
+      NAME,
+      `${unit.file}: name ${JSON.stringify(data.name)} should be lowercase letters, digits and single inner hyphens`,
+    );
+    assert.equal(typeof data.title, 'string', `${unit.file}: title should be a string, got ${JSON.stringify(data.title)}`);
+    assert.ok(
+      data.title.trim() !== '' && !data.title.includes('\n'),
+      `${unit.file}: title becomes the unit's heading, so it should be a non-empty single line, got ${JSON.stringify(data.title)}`,
+    );
+    assert.ok(
+      data.applies === 'all' || data.applies === 'code',
+      `${unit.file}: applies should be all or code, got ${JSON.stringify(data.applies)}`,
+    );
+
+    names.push(data.name);
+  }
+
+  const twice = names.filter((name, at) => names.indexOf(name) !== at);
+  assert.deepEqual(twice, [], `a unit name is used more than once: ${twice.join(', ')}`);
+});
+
+test('every unit has a body, and no heading of its own', async () => {
+  // The compiler writes the heading from `title`; one in the body would land
+  // under it at whatever level the author happened to type.
+  for (const unit of await units()) {
+    const { body } = parts(unit);
+
+    assert.notEqual(body.trim(), '', `${unit.file} has nothing after the frontmatter; a unit is its body`);
+
+    const headings = body.split('\n').filter((line) => line.startsWith('#'));
+    assert.deepEqual(headings, [], `${unit.file} should carry no markdown heading, the compiler supplies it: ${headings.join(' | ')}`);
+  }
+});
+
+test('the units stay inside the budget a bot pays on every turn', async () => {
+  // This text sits in the prompt of every session, so its size is part of the
+  // interface: a unit that needs more room is a skill, not a rule.
+  let byDefault = 0;
+  for (const unit of await units()) {
+    const { data, body } = parts(unit);
+    const lines = bodyLines(body).length;
+
+    assert.ok(lines <= MAX_BODY_LINES, `${unit.file} is ${lines} non-empty lines, over the ${MAX_BODY_LINES} a unit may take`);
+    if (data.applies === 'all') byDefault += lines;
+  }
+
+  assert.ok(
+    byDefault <= MAX_ALL_LINES,
+    `the applies: all units come to ${byDefault} non-empty lines, over the ${MAX_ALL_LINES} every bot may be given by default`,
+  );
+});
+
+test('the kit ships rules for every bot and rules for the code-writing ones', async () => {
+  const applies = (await units()).map((unit) => parts(unit).data?.applies);
+
+  assert.ok(applies.includes('all'), 'no unit has applies: all, so a bot would start with none of the kit rules');
+  assert.ok(applies.includes('code'), 'no unit has applies: code, so a developer bot would get nothing of its own');
+});
+
+test('the published package ships the rules directory', async () => {
+  // Left out of `files`, the units exist in the repo and nowhere a user installs.
+  const pkg = JSON.parse(await readFile(path.join(repoRoot, 'package.json'), 'utf8'));
+
+  assert.ok(
+    pkg.files.some((entry) => entry.replace(/\/$/, '') === 'rules'),
+    `package.json files should include the rules directory, got: ${pkg.files.join(', ')}`,
+  );
+});

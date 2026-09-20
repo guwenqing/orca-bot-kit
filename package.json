@@ -9,6 +9,7 @@
   },
   "files": [
     "src/",
+    "rules/",
     "README.md"
   ],
   "scripts": {
