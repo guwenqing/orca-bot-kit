@@ -102,14 +102,26 @@ function runFile(file) {
     child.stdout.on('data', (chunk) => { output += chunk; });
     child.stderr.on('data', (chunk) => { output += chunk; });
 
+    const killGroup = () => {
+      try { process.kill(-child.pid, 'SIGKILL'); } catch { /* the group has ended */ }
+    };
+
     let hung = false;
+    let insist;
     const cutOff = setTimeout(() => {
       hung = true;
-      try { process.kill(-child.pid, 'SIGKILL'); } catch { /* it ended on its own */ }
+      killGroup();
+      // One signal is not always enough. `node --test` runs the file in a
+      // worker it forks, and a worker forked at the very moment the group is
+      // signalled joins the group without being signalled; it then holds the
+      // pipes open, and the run would wait out the hang it just cut off. So
+      // keep asking until the child is really gone.
+      insist = setInterval(killGroup, 200);
     }, timeoutMs);
 
     const done = (ok) => {
       clearTimeout(cutOff);
+      clearInterval(insist);
       resolve({ file, ok, ms: Date.now() - started, output, hung });
     };
     child.on('error', (error) => { output += `${error.message}\n`; done(false); });
