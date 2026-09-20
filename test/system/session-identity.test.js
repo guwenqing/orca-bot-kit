@@ -46,7 +46,9 @@
 //     it takes a down-arrow and then return, not a bare return.
 //   - Codex's directory-trust question, `1. Yes, continue`, already selected.
 //   - Codex's `Hooks need review` screen, which is new with the kit's own hook:
-//     `t` on the review screen trusts all. Until it is answered the hook does
+//     choose `2`, "Trust all and continue". `1` opens the review list and `esc`
+//     backs out of it, and `t` does nothing at all — nine presses, nine tabs
+//     still on the screen (round 3, live run). Until it is answered the hook does
 //     not run at all and the book stays empty, so this is the one that will
 //     look like a broken kit if it goes unanswered. Orca reports it as
 //     `blockedReason: "agent-hooks-review-prompt"`.
@@ -67,16 +69,22 @@
 // into silence.
 //
 // The three screens answer to raw keys, all measured live, each sent as one
-// payload with its own return and no `--enter` (see `askIn` for why):
+// payload with its own return and no `--enter`, because a menu takes a return as
+// the key it is waiting for:
 //
 //     Claude Code's folder trust      \x1b[B\r   down, then return
 //     Codex's directory trust         1\r        "Yes, continue"
 //     Codex's `Hooks need review`     2\r        "Trust all and continue"
 //
 // which is what to send if you drive them from a script of your own rather than
-// clicking. Nothing here sends them: which question to answer, and how, is the
+// clicking. On the hooks screen `1` opens the review list, which lists Orca's own
+// hook beside the kit's, and `esc` backs out of it; only `2` trusts and goes on.
+// Nothing here sends any of them: which question to answer, and how, is the
 // caller's judgement and not the kit's (PRD 6.5), and a test that guessed at a
 // screen it did not recognise is exactly what that rule exists to prevent.
+//
+// A question put to the agent itself is the other case, and it needs `--enter`:
+// see `askIn`.
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -116,6 +124,13 @@ const ANSWER_MS = 240000;
 
 /** And how long the kit's hook is given to have written the book after a session starts. */
 const HOOK_MS = 60000;
+
+/**
+ * How long a tab is given to be ready for a question. A first run has two
+ * screens on it and a person answering them, and a question sent through one of
+ * them is refused rather than queued, so this waits rather than races.
+ */
+const READY_MS = 180000;
 
 /** Ask Orca something and read its JSON. Never the blanket close, on any road. */
 function orca(args) {
@@ -238,41 +253,77 @@ function whatIsUp(handle) {
   ].join('');
 }
 
-/** Wait until a TUI is up in the tab, so what is typed next is not swallowed by a shell. */
-async function tuiIsUp(handle, within = 60000) {
+/**
+ * Wait until the tab will take a question: a TUI is up, so nothing is swallowed
+ * by a shell, and the tab is not waiting on a screen of its own.
+ *
+ * Idle is not the same as ready. Orca refuses an agent's prompt to a tab that is
+ * itself waiting on a prompt — `agent_prompt_blocked`, with Orca reporting
+ * `agent-interactive-prompt` — so a run that asked as soon as a TUI answered was
+ * asking through Codex's own directory-trust question, and the ask could never
+ * land however long it waited afterwards (round 3, live run). The other tests
+ * only survived that by luck: their screens happened to be answered first.
+ *
+ * The wait is long because a person is answering those screens.
+ */
+async function readyForAQuestion(handle, within = READY_MS) {
   await until(
-    `a TUI in ${handle}`,
+    `${handle} to be past the questions of its own`,
     within,
     async () => {
       const answer = orca(['terminal', 'wait', '--terminal', handle, '--for', 'tui-idle', '--timeout-ms', '5000']);
-      return answer.ok === true ? true : undefined;
+      if (answer.ok !== true) return undefined;
+      return answer.result?.wait?.blockedReason === undefined ? true : undefined;
     },
     () => whatIsUp(handle),
   );
 }
 
 /**
- * Type a line into a tab, once the tab is ready to take one.
+ * Ask a live agent something, once the tab is ready to take a line: the text,
+ * and `--enter` to submit it.
  *
- * The text carries its own return and there is no `--enter`. Measured live:
- * `--enter` is gated as an agent prompt and comes back `agent_prompt_blocked`,
- * asking to be reissued with `--retry-request`, which is refused the same way —
- * that road ends at a person in the Orca window. A return inside the payload is
- * taken every time, on a question and on a trust screen alike.
+ * `--enter` is what submits a question, and only `--enter`. A return inside the
+ * payload works on a menu screen, where a return is the key the menu is waiting
+ * for, and does not work here: Codex's composer takes a carriage return as a
+ * newline, so three questions sent that way piled up unsent in one draft and
+ * every wait below ran out on a session nobody had actually asked anything
+ * (round 3, live run — the draft was in the screen dump).
  *
- * It only fails sometimes, which is worse than always: a run can ask three
- * questions and be blocked on the fourth. So if this ever grows an `--enter`
- * again, the failures will look random.
+ * `--enter` is gated as an agent prompt and is sometimes refused, with
+ * `agent_prompt_blocked` and an `orchestrationRequestId` to reissue the same
+ * command against. That reissue was tried on a live tab and refused again, so
+ * there is nothing here to fall back to and nothing worth retrying in a loop:
+ * this fails with the screen and the id, and submitting it is then a person's
+ * decision in the Orca window (PRD 6.5). Round two saw it on one send in four,
+ * so a run that hits it is a run to start again rather than a broken kit.
  */
 async function askIn(handle, text) {
-  await tuiIsUp(handle);
-  const sent = orca(['terminal', 'send', '--terminal', handle, '--text', `${text}\r`]);
-  assert.equal(
-    sent.ok,
-    true,
-    `orca terminal send failed: ${JSON.stringify(sent.error)}`
-    + ' (agent_prompt_blocked means an --enter crept back in: the return belongs inside --text)',
+  await readyForAQuestion(handle);
+  const sent = orca(['terminal', 'send', '--terminal', handle, '--text', text, '--enter']);
+  if (sent.ok === true) return;
+
+  const gated = requestIdIn(sent.error);
+  assert.fail(
+    `orca terminal send --enter failed: ${JSON.stringify(sent.error)}.`
+    + (gated === undefined
+      ? ''
+      : ' Orca gated it as an agent prompt. Submit the line yourself in the tab, or reissue the'
+        + ` same command with --retry-request ${gated} --wait-submit 30 — which was refused when it`
+        + ' was tried live, so the tab is where this ends.')
+    + whatIsUp(handle),
   );
+}
+
+/**
+ * The request id an `agent_prompt_blocked` carries, when that is what came back.
+ * Read out of the whole error rather than a field of it: where Orca hangs the id
+ * is Orca's, and a test that guessed at the shape would say "not gated" when it
+ * guessed wrong.
+ */
+function requestIdIn(error) {
+  const found = /"orchestrationRequestId"\s*:\s*"([^"]+)"/.exec(JSON.stringify(error ?? null));
+  return found === null ? undefined : found[1];
 }
 
 /** Ask the session something and wait for `word` to appear on its screen. */
@@ -658,11 +709,14 @@ test('a Codex conversation that ran before the hooks file was trusted is not los
   //
   // Attended, in this order:
   //   1. Answer Codex's directory-trust question if it asks.
-  //   2. Leave `Hooks need review` UNANSWERED. The conversation runs anyway and
-  //      the kit's hook never fires, so the book learns nothing — which is what
-  //      this test checks first.
-  //   3. When the test tells you to, answer it with `t`. Trusting does not
-  //      replay the report it missed.
+  //   2. Leave `Hooks need review` UNANSWERED until the test says otherwise. The
+  //      conversation the launch line started runs behind it and the kit's hook
+  //      never fires, so the book learns nothing — which is what this test checks
+  //      first. Nothing is asked of the session while that screen is up: Orca
+  //      refuses a prompt to a tab that is waiting on one of its own, so there is
+  //      no road to the agent from here (round 3, live run).
+  //   3. When the test prints that it is waiting, answer the screen with `2`,
+  //      "Trust all and continue". Trusting does not replay the report it missed.
   //   4. Answer anything else as usual.
   const before = {
     handles: new Set(allTerminals().map((terminal) => terminal.handle)),
@@ -716,16 +770,38 @@ test('a Codex conversation that ran before the hooks file was trusted is not los
   const launched = (await sessionIn(home, 'daily')).launched;
   assert.ok(Number.isFinite(Date.parse(String(launched))), `the book should say when, got: ${launched}`);
 
-  // The conversation runs and knows its duty, because the launch line carried it.
-  await answers(entry.terminal, 'What is your codeword? Reply with the codeword only.', 'OTTER-3391');
+  // The screen this case is about. The conversation the launch line started runs
+  // behind it, with its duty; the kit's hook does not run at all until the file
+  // is trusted. Nothing is asked of the session here — Orca refuses a prompt to a
+  // tab that is waiting on one — so the screen itself is what the test waits for.
+  await until(
+    'the tab to be waiting on its hooks review',
+    READY_MS,
+    async () => {
+      const answer = orca(['terminal', 'wait', '--terminal', entry.terminal, '--for', 'tui-idle', '--timeout-ms', '5000']);
+      const blocked = answer.ok === true ? answer.result?.wait?.blockedReason : undefined;
+      return /hooks/i.test(String(blocked)) ? blocked : undefined;
+    },
+    () => ' Answer Codex\'s directory-trust question if it is up, and then leave the `Hooks need'
+      + ' review` screen alone. If this machine has already trusted the kit\'s hooks file, that'
+      + ' screen never comes and this case cannot run here at all.'
+      + whatIsUp(entry.terminal),
+  );
 
-  // And the kit was told nothing about it, because the hook never ran.
+  // And the kit was told nothing, because the hook never ran.
   const unreported = await sessionIn(home, 'daily');
   assert.equal(
     unreported.session,
     undefined,
-    'leave `Hooks need review` unanswered for this part: the hook must not have run yet.'
-    + ` If it already has, this machine trusted the file some other way. Got: ${JSON.stringify(unreported)}`,
+    'the hook must not have run while the review screen is still up.'
+    + ` If it has, this machine trusted the file some other way. Got: ${JSON.stringify(unreported)}`,
+  );
+
+  // The one place this file says anything to the person running it: from here on
+  // the screen has to be answered, and the run is waiting on it.
+  process.stdout.write(
+    `session-identity: answer the \`Hooks need review\` screen in ${entry.title} now, with \`2\``
+    + ' ("Trust all and continue"). The run waits for it.\n',
   );
 
   // Now answer the review, and begin a new conversation. Trusting does not
@@ -745,7 +821,7 @@ test('a Codex conversation that ran before the hooks file was trusted is not los
       const entryNow = await sessionIn(home, 'daily');
       return entryNow.session === undefined ? undefined : entryNow;
     },
-    () => ' Answer the `Hooks need review` screen with `t` now, if you have not.'
+    () => ' Answer the `Hooks need review` screen with `2` now, if you have not.'
       + whatIsUp(entry.terminal),
   );
 
@@ -761,7 +837,11 @@ test('a Codex conversation that ran before the hooks file was trusted is not los
   );
   assert.ok(
     Array.isArray(daily.unclaimed) && daily.unclaimed.length >= 1,
-    `the conversation that ran before the hooks file was trusted must be written down: ${JSON.stringify(daily)}`,
+    'the conversation that ran before the hooks file was trusted must be written down, and it is not:'
+    + ` ${JSON.stringify(daily)}.`
+    + ' If Codex left no record of it at all — it began no conversation until the review was'
+    + ' answered — then this case cannot be tested on this version of it, and that is not the kit'
+    + ' failing: say so rather than loosening the rule.',
   );
   for (const id of daily.unclaimed) {
     assert.equal(typeof id, 'string', `as plain ids, got: ${JSON.stringify(daily.unclaimed)}`);

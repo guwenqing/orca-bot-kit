@@ -15,6 +15,16 @@
 // simply cannot get the lock yet waits for it, because the change it is holding
 // is a conversation id nothing else in the kit knows.
 //
+// And then the third review stopped the owner's process instead of delaying it,
+// which no lease can survive: a stopped process refreshes nothing, is told
+// nothing, and runs nothing — so the notice that it lost the lock cannot reach it
+// before its own next line does. The write is therefore conditional on the book
+// still being the file that was read, checked immediately before the replace, and
+// a writer that was overtaken reads again and applies its change to what is there
+// now (round 4, finding 2). Which makes the guarantee simpler to state than the
+// lock ever was: no committed change is lost, whichever way two writers
+// interleave, and that is what the tests below hold it to.
+//
 // These go at `updateBook` itself, in separate processes, because that is where
 // the guarantee is and there is no way to hold the book open for half a minute
 // from the command line. Each writer below is one process, started by this test
@@ -62,8 +72,14 @@ async function aBook(box) {
  * A change that has to take time is asynchronous and is awaited under the lock;
  * a writer with nothing to wait for changes the book in one step, as the kit's
  * own callers do.
+ *
+ * `blocks` is the other kind of slow, and the one that matters: the writer stops
+ * its own thread for that long, the way a machine that swapped or a debugger that
+ * stopped a process does. Nothing of that process runs while it is stopped — no
+ * heartbeat, no notification, no handler — so a lock that is kept alive by a
+ * timer is not kept alive at all (round 4, finding 2).
  */
-async function aWriter(box, home, name, { holds = 0, arrivesAfter = 0 } = {}) {
+async function aWriter(box, home, name, { holds = 0, blocks = 0, arrivesAfter = 0 } = {}) {
   const dir = path.join(box.root, 'writers');
   await mkdir(dir, { recursive: true });
   const script = path.join(dir, `${name}.mjs`);
@@ -82,9 +98,15 @@ async function aWriter(box, home, name, { holds = 0, arrivesAfter = 0 } = {}) {
     `const LOG = ${JSON.stringify(log)};`,
     `const HOLDING = ${JSON.stringify(holding)};`,
     `const HOLDS = ${JSON.stringify(holds)};`,
+    `const BLOCKS = ${JSON.stringify(blocks)};`,
     `const ARRIVES_AFTER = ${JSON.stringify(arrivesAfter)};`,
     '',
     'const say = (what) => appendFileSync(LOG, `${JSON.stringify({ writer: NAME, what, at: Date.now() })}\\n`);',
+    '',
+    '// Stop this thread, so that nothing of this process runs at all: no timer,',
+    '// no promise, no handler. A sleep that is awaited would leave all of them',
+    '// running, which is the difference between the two cases below.',
+    'const stop = (ms) => { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); };',
     '',
     '// Coming in while somebody else is inside the lock: wait for it to say so,',
     '// then wait from that moment for as long as the test asked.',
@@ -94,17 +116,36 @@ async function aWriter(box, home, name, { holds = 0, arrivesAfter = 0 } = {}) {
     '  await sleep(Math.max(0, took + ARRIVES_AFTER - Date.now()));',
     '}',
     '',
+    '// The lock, attempt by attempt. A writer that was overtaken while it held it',
+    '// takes it again and applies its change to the book as it stands now, so the',
+    '// change runs more than once: the first attempt says `holding` and every one',
+    '// after it says `retrying`, which keeps each step a thing that happened once',
+    '// and leaves the retries in the log for whoever reads a failure.',
+    '//',
+    '// Only the first attempt waits. A process is stopped once; a fixture that',
+    '// stopped again on every attempt would pay for this window twice over.',
+    'let attempt = 0;',
+    'const took = () => {',
+    '  attempt += 1;',
+    '  if (attempt === 1) writeFileSync(HOLDING, String(Date.now()));',
+    '  say(attempt === 1 ? \'holding\' : \'retrying\');',
+    '  return attempt;',
+    '};',
+    '',
     'const change = HOLDS > 0',
     '  ? async (book) => {',
-    '    say(\'holding\');',
-    '    writeFileSync(HOLDING, String(Date.now()));',
-    '    await sleep(HOLDS);',
+    '    if (took() === 1) await sleep(HOLDS);',
     `    ${put}`,
     '  }',
-    '  : (book) => {',
-    '    say(\'holding\');',
-    `    ${put}`,
-    '  };',
+    '  : BLOCKS > 0',
+    '    ? (book) => {',
+    '      if (took() === 1) stop(BLOCKS);',
+    `      ${put}`,
+    '    }',
+    '    : (book) => {',
+    '      took();',
+    `      ${put}`,
+    '    };',
     '',
     'say(\'arrived\');',
     'try {',
@@ -132,7 +173,12 @@ async function aWriter(box, home, name, { holds = 0, arrivesAfter = 0 } = {}) {
   };
 }
 
-/** When one writer took one step, from the log the writers share. */
+/**
+ * When one writer took one step, from the log the writers share. Each step
+ * happens once per writer — a second attempt at the lock says `retrying` rather
+ * than `holding` again — so a step that turns up twice is something the fixture
+ * did not expect and is worth failing on rather than reading past.
+ */
 function when(steps, writer, what) {
   const found = steps.filter((step) => step.writer === writer && step.what === what);
   assert.equal(found.length, 1, `${writer} should have ${what} exactly once, got: ${JSON.stringify(steps)}`);
@@ -156,6 +202,65 @@ function assertNobodyLostAChange(book, writers) {
     assert.notEqual(ran.stderr.trim(), '', `${name} failed and said nothing about it`);
   }
 }
+
+test('a writer whose process is stopped inside the lock cannot lose what another one committed', async (t) => {
+  // The case the third review reproduced, at the module and through two real
+  // `session record` runs: A reads under the lock and its process stops for
+  // thirty-five seconds — a machine that swapped, a laptop that slept, a debugger
+  // — B takes the lock over at thirty-one and commits, and A wakes up holding a
+  // book from before B's change and writes it back.
+  //
+  // A lease cannot catch this, however short it is: a stopped process refreshes
+  // nothing and is told nothing, and the notice that its lock was taken cannot
+  // run before its own next line. Only the file can say: the book A is about to
+  // replace is no longer the one A read. A then takes the lock again and applies
+  // its change to what is there now, which the log below shows as a `retrying`
+  // between the first `holding` and the one `committed`.
+  //
+  // So both changes have to be in the book at the end, and neither writer may
+  // fail — a conversation id a hook could not write down is a conversation the
+  // book does not hold, and nothing else holds it. It takes about thirty-five
+  // seconds, and there is no shortening a case about a window measured in them.
+  const box = await createSandbox(t);
+  const { bots, home } = await aBook(box);
+  const before = await readFile(bookOf(bots), 'utf8');
+
+  const stopped = await aWriter(box, home, 'the-stopped-one', { blocks: 35_000 });
+  const overtaking = await aWriter(box, home, 'the-overtaking-one', { arrivesAfter: 31_000 });
+  const [paused, over] = await Promise.all([stopped.run(), overtaking.run()]);
+
+  // The interleaving the case is about, read back rather than assumed: the first
+  // writer was inside the lock and stopped for the whole window, and the second
+  // committed while it was.
+  const steps = await stopped.steps();
+  const holding = when(steps, 'the-stopped-one', 'holding');
+  const woke = when(steps, 'the-stopped-one', 'committed');
+  const overtook = when(steps, 'the-overtaking-one', 'committed');
+  assert.ok(
+    woke - holding >= 35_000,
+    `the stopped writer should have been inside the lock for the whole window, got: ${JSON.stringify(steps)}`,
+  );
+  assert.ok(
+    overtook > holding && overtook < woke,
+    'the other writer should have committed while the first was stopped. If it waited for it'
+    + ` instead, this test no longer reaches the case and wants rethinking, not relaxing: ${JSON.stringify(steps)}`,
+  );
+
+  assert.equal(over.code, 0, `the writer that got in must keep its change: ${over.stderr}`);
+  assert.equal(
+    paused.code, 0,
+    `and the one that was overtaken must apply its change to what it finds, not fail: ${paused.stderr}`,
+  );
+  const text = await readFile(bookOf(bots), 'utf8');
+  const book = parse(text);
+  assert.notEqual(book, null, `the book must still be readable YAML, got:\n${text}`);
+  assertNobodyLostAChange(book, [
+    { name: 'the-stopped-one', ran: paused },
+    { name: 'the-overtaking-one', ran: over },
+  ]);
+  assertKeptWhatTheyWrote(before, text, { changed: ['sessions'] });
+  assert.notEqual(book.sessions?.daily, undefined, `the session that was there is still there:\n${text}`);
+});
 
 test('a writer delayed well past thirty seconds cannot write over what another one committed', async (t) => {
   // The review's case, with its own timings: thirty-five seconds inside the lock

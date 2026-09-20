@@ -131,6 +131,19 @@ function dutyIn(ran) {
   return JSON.parse(ran.stdout).hookSpecificOutput.additionalContext;
 }
 
+/**
+ * The session's tab is closed and the fleet comes back up, the way a user gets a
+ * tab back. Every relaunch writes a new `launched`, which is what made the note
+ * lose what an earlier scan had found (round 4, finding 1).
+ */
+async function relaunch(box, bots, session = 'daily') {
+  const tab = (await sessionIn(bots, 'api-bot', session)).tab;
+  await box.orca.set({ terminals: (await box.orca.terminals()).filter((one) => one.tabId !== tab) });
+  const up = await box.run(['up', '--bots', 'bots', '--bot', 'api-bot']);
+  assert.equal(up.code, 0, up.stderr);
+  return up;
+}
+
 /** The one line typed into the session's tab: what the kit launched it with. */
 async function launchLineOf(box, bots) {
   const tabs = await tabsOfBot(box, bots, 'api-bot');
@@ -395,6 +408,50 @@ test('an id leaves the note the moment a session claims it', async (t) => {
 });
 
 for (const harness of ['claude', 'codex']) {
+  test(`a ${harness} conversation nobody claimed stays on the record across a relaunch`, async (t) => {
+    // The third review's case, in its words: a session whose first report was
+    // missed, its transcript left where the harness put it, its tab closed, `up`,
+    // and then the new harness's hook report. Three writes of the note, and the
+    // note has to still hold the conversation at the end of them.
+    //
+    // What went wrong: every relaunch writes a new `launched`, so a scan that
+    // only looks since then cannot see a conversation from before it, and a note
+    // rewritten from that scan alone loses the very thing it was written for. So
+    // a scan adds to the note and never takes anything out of it; only a session
+    // claiming a conversation does that.
+    const box = await createSandbox(t);
+    const { bots, home } = await started(box, harness, ['daily'], ['--prompt', DUTY]);
+    const launched = await launchedAt(bots);
+    // At the launch itself, so it is inside the first scan's window and before
+    // the next launch whatever the machine's speed — the premise is checked below.
+    const wasAt = after(launched, 0);
+    await conversation(box, harness, { id: 'original-unrecorded', cwd: home, at: wasAt });
+
+    await relaunch(box, bots);
+    assert.deepEqual(
+      await unclaimedIn(bots),
+      ['original-unrecorded'],
+      'the relaunch writes the note for the first time',
+    );
+
+    const relaunched = await launchedAt(bots);
+    assert.ok(wasAt < relaunched, `the case needs the conversation to be older than the new launch, got: ${wasAt.toISOString()} and ${relaunched.toISOString()}`);
+    await conversation(box, harness, { id: 'fresh-after-relaunch', cwd: home, at: after(relaunched, 1) });
+    const ran = await recordSession(box, {
+      bots, bot: 'api-bot', tab: (await sessionIn(bots, 'api-bot', 'daily')).tab, session: 'fresh-after-relaunch',
+    });
+
+    assert.equal(ran.code, 0, ran.stderr);
+    const daily = await sessionIn(bots, 'api-bot', 'daily');
+    assert.equal(daily.session, 'fresh-after-relaunch', `got: ${JSON.stringify(daily)}`);
+    assert.equal('history' in daily, false, `and nothing is invented as its history: ${JSON.stringify(daily)}`);
+    assert.deepEqual(
+      await unclaimedIn(bots),
+      ['original-unrecorded'],
+      `the conversation nobody has claimed is still on the record: ${JSON.stringify(daily)}`,
+    );
+  });
+
   test(`up starts the session fresh and writes down what the ${harness} still had`, async (t) => {
     // The tab is gone and the book has no id, and the harness's own records hold
     // one conversation nobody claims. Round two adopted it. It cannot: a
@@ -497,6 +554,73 @@ test('the report says how to give the session its conversation back', async (t) 
   assert.ok(up.stdout.includes(bookOf(bots, 'api-bot')), `it should name the book, got: ${up.stdout}`);
   assert.match(up.stdout, /session:/, `and the key to write the id under, got: ${up.stdout}`);
   assert.ok(up.stdout.includes('daily'), `and which session, got: ${up.stdout}`);
+});
+
+test('the note grows across relaunches and never shrinks', async (t) => {
+  // One conversation nobody claimed per tab, over three tabs. Each scan can only
+  // see its own window, so the only way the note can hold all of them is by being
+  // added to — and the third relaunch, which finds the second tab's conversation
+  // again, must not write it down twice.
+  const box = await createSandbox(t);
+  const { bots, home } = await started(box, 'codex', ['daily'], ['--prompt', DUTY]);
+  const first = await launchedAt(bots);
+  await conversation(box, 'codex', { id: 'from-the-first-tab', cwd: home, at: first });
+  // And one a minute later than the launch, so that it is inside the window of
+  // every scan after this one too: that is where a note that is added to could
+  // gather the same id twice over.
+  await conversation(box, 'codex', { id: 'found-by-every-scan', cwd: home, at: after(first, 60) });
+
+  await relaunch(box, bots);
+  assert.deepEqual(await unclaimedIn(bots), ['found-by-every-scan', 'from-the-first-tab']);
+
+  await conversation(box, 'codex', { id: 'from-the-second-tab', cwd: home, at: await launchedAt(bots) });
+  await relaunch(box, bots);
+  const three = ['found-by-every-scan', 'from-the-first-tab', 'from-the-second-tab'];
+  assert.deepEqual(
+    await unclaimedIn(bots),
+    three,
+    'what the first scan found is still there beside what the second found',
+  );
+
+  await relaunch(box, bots);
+  assert.deepEqual(
+    await unclaimedIn(bots),
+    three,
+    'and a conversation found by scan after scan is written down once: a person reads this file',
+  );
+});
+
+test('a relaunch of a session the book can name leaves the note as it is', async (t) => {
+  // The kit's own answer is complete for this session, so there is nothing to
+  // find out and it does not go looking: the note keeps what it holds, and a
+  // conversation that turned up since is not added by a run that never had to ask.
+  const box = await createSandbox(t);
+  const { bots, home } = await started(box, 'codex', ['daily'], ['--prompt', DUTY]);
+  await conversation(box, 'codex', { id: 'nobody-claims-this', cwd: home, at: await launchedAt(bots) });
+  await relaunch(box, bots);
+  assert.deepEqual(await unclaimedIn(bots), ['nobody-claims-this'], 'the note is written by the relaunch');
+
+  // Now the session's own harness says what it is running, so the book can name
+  // it — and another conversation nobody claims turns up in the folder afterwards.
+  const relaunched = await launchedAt(bots);
+  await conversation(box, 'codex', { id: 'the-session-is-running-this', cwd: home, at: after(relaunched, 1) });
+  const ran = await recordSession(box, {
+    bots, bot: 'api-bot', tab: (await sessionIn(bots, 'api-bot', 'daily')).tab, session: 'the-session-is-running-this',
+  });
+  assert.equal(ran.code, 0, ran.stderr);
+  // Far enough ahead of every launch this test makes that a run which did go
+  // looking would certainly find it, so passing here means nothing looked.
+  await conversation(box, 'codex', { id: 'and-nobody-claims-this-either', cwd: home, at: after(relaunched, 600) });
+
+  await relaunch(box, bots);
+
+  const daily = await sessionIn(bots, 'api-bot', 'daily');
+  assert.equal(daily.session, 'the-session-is-running-this', `the book's own id is what is resumed: ${JSON.stringify(daily)}`);
+  assert.deepEqual(
+    await unclaimedIn(bots),
+    ['nobody-claims-this'],
+    `the note is neither lost nor added to: ${JSON.stringify(daily)}`,
+  );
 });
 
 test('a session whose id the book already holds does not go asking the harness', async (t) => {

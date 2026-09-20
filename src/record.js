@@ -13,7 +13,7 @@ import { realpathSync } from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
-import { readBook, rememberSession, sessionIdsIn, updateBook } from './book.js';
+import { forgetClaimed, readBook, rememberSession, sessionIdsIn, updateBook, withUnclaimed } from './book.js';
 import { botDir, readBot } from './bot.js';
 import { conversationsIn } from './conversations.js';
 import { harnessOf, SHELL_ENV, startPrompt, workDirOf } from './launch.js';
@@ -100,7 +100,7 @@ export async function recordSession(bots, name, said, tabId, shellPid) {
     const uncertain = was.session === undefined && unclaimed.length > 0;
     told = session;
 
-    book.sessions[session] = noteUnclaimed(rememberSession(was, id, said.source), unclaimed);
+    book.sessions[session] = withUnclaimed(rememberSession(was, id, said.source), unclaimed);
     forgetClaimed(book);
     if (uncertain) cleared = true;
     return book;
@@ -156,28 +156,6 @@ function unclaimedFor(book, home, bot, tabId, id) {
   return conversationsIn(harnessOf(settings, bot.harness), home, was.launched)
     .filter((one) => one.id !== id && !claimed.has(one.id))
     .map((one) => one.id);
-}
-
-/** The entry with what nobody claims written on it, or with that note taken off. */
-function noteUnclaimed(entry, unclaimed) {
-  if (unclaimed.length === 0) {
-    const { unclaimed: gone, ...rest } = entry;
-    return rest;
-  }
-  return { ...entry, unclaimed };
-}
-
-/**
- * Take out of every session's note whatever some session now claims. A note is
- * only ever about a conversation nobody owns, so an id that has found its owner
- * has no business in one.
- */
-function forgetClaimed(book) {
-  const claimed = sessionIdsIn(book);
-  for (const [name, entry] of Object.entries(book.sessions)) {
-    if (!Array.isArray(entry?.unclaimed)) continue;
-    book.sessions[name] = noteUnclaimed(entry, entry.unclaimed.filter((one) => !claimed.has(one)));
-  }
 }
 
 /**

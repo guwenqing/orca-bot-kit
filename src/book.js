@@ -6,7 +6,7 @@
 // theirs. Beside each session's tab it holds the harness session id that
 // session is running under, and every id it ran under before.
 
-import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import lockfile from 'proper-lockfile';
@@ -87,33 +87,78 @@ export async function updateBook(home, change) {
   // not been written yet is the ordinary case on a first run.
   if (!existsSync(bookFile(home))) writeBook(home, readBook(home));
 
-  let lost;
-  const release = await lockfile.lock(bookFile(home), {
-    ...LOCK,
-    // Told to us if the lock is ever not ours any more. Whatever happens after
-    // that, this writer does not write: the next one has read the book and its
-    // change would go under ours (the review's finding 2).
-    onCompromised: (error) => { lost = error; },
-  }).catch((error) => { throw waitedTooLong(home, error); });
+  for (let attempt = 1; ; attempt += 1) {
+    const done = await tryUpdate(home, change);
+    if (done.wrote) return done.book;
+    // Somebody committed between this run's read and its write, so this run's
+    // answer was about a book that no longer exists. Nothing was written; the
+    // change is applied again to what is there now. That is the only honest
+    // thing to do with it, and it is why no committed change is ever lost.
+    if (attempt >= TRIES) throw keptLosingTheRace(home);
+  }
+}
+
+/** How many times a writer will re-read and re-apply before it gives up. */
+const TRIES = 20;
+
+/**
+ * One attempt: take the lock, read the book, apply the change, and write it only
+ * if the book is still the file that was read.
+ *
+ * The lock keeps writers out of each other's way, but it cannot be what makes
+ * this safe. A writer whose process is paused refreshes no lease and hears no
+ * notification, so its lock can be taken over while it is stopped and it would
+ * wake with an answer about a book somebody else has since replaced — which is
+ * how a committed change was lost twice under review. So the file itself is the
+ * authority: the identity the file system gives it when it is read must be the
+ * identity it still has when it is replaced.
+ */
+async function tryUpdate(home, change) {
+  const release = await lockfile.lock(bookFile(home), LOCK)
+    .catch((error) => { throw waitedTooLong(home, error); });
 
   try {
+    const read = identityOf(bookFile(home));
     const book = readBook(home);
     const before = structuredClone(book);
     // Awaited, because a change that takes time must keep the lock while it
     // does: an unawaited one would hand the lock back at once and then write
     // over whoever took it next.
     const next = (await change(book)) ?? book;
-    if (lost !== undefined) throw lostTheLock(home, lost);
+
     // A run that changes nothing writes nothing: the file keeps its bytes and
     // its time, and nothing else waiting on the lock has to read it again.
-    if (!isDeepStrictEqual(before, next)) writeBook(home, next);
-    return next;
+    if (isDeepStrictEqual(before, next)) return { wrote: true, book: next };
+    // The last thing before the write, so that as little as possible can happen
+    // in between: the file this answer is about must still be the file there is.
+    if (!isDeepStrictEqual(read, identityOf(bookFile(home)))) return { wrote: false };
+
+    writeBook(home, next);
+    return { wrote: true, book: next };
   } finally {
-    // A lock that was already taken from us is not ours to release, and saying
-    // so must not hide what went wrong above.
-    if (lost === undefined) await release().catch(() => {});
+    await release().catch(() => {});
   }
 }
+
+/**
+ * Which file this is, as the file system says: the same path written by two
+ * different runs is two different files, because every write is a new file moved
+ * into place. So a changed inode, size or time all say the same thing — somebody
+ * else has written since.
+ */
+function identityOf(file) {
+  try {
+    const stat = statSync(file);
+    return { ino: stat.ino, size: stat.size, mtimeMs: stat.mtimeMs };
+  } catch {
+    // No file at all is an identity too, and not the same as any file.
+    return undefined;
+  }
+}
+
+const keptLosingTheRace = (home) => new Error(
+  `gave up writing ${bookFile(home)}: something else committed a change every time this run tried, ${TRIES} times over. Nothing was written. Try again.`,
+);
 
 /**
  * Something else has been writing the book for longer than this run is prepared
@@ -127,9 +172,37 @@ const waitedTooLong = (home, why) => new Error(
     : `could not take the lock on ${bookFile(home)}: ${why.message}. Nothing was written.`,
 );
 
-const lostTheLock = (home, why) => new Error(
-  `gave up writing ${bookFile(home)}: this run held the lock on it and lost it (${why.message}), so something else has written since it was read. Nothing was written. Try again.`,
-);
+/**
+ * The note of conversations nobody claims, with what a scan has just found added
+ * to it. It only ever grows: a scan can only see conversations since the kit last
+ * started a harness in the tab, so anything found earlier would fall out of range
+ * and be forgotten — which is exactly how an unresolved conversation went missing
+ * across a relaunch (round 3 review, finding 1). Ids leave this note one way
+ * only, in `forgetClaimed`, when a session claims them.
+ */
+export function withUnclaimed(entry, found) {
+  const kept = [...new Set([...(Array.isArray(entry.unclaimed) ? entry.unclaimed : []), ...found])];
+  if (kept.length === 0) {
+    const { unclaimed: none, ...rest } = entry;
+    return rest;
+  }
+  return { ...entry, unclaimed: kept };
+}
+
+/**
+ * Take out of every session's note whatever some session now claims: a note is
+ * only ever about a conversation nobody owns, so an id that has found its owner
+ * has no business in one. This is the only way an id leaves a note.
+ */
+export function forgetClaimed(book) {
+  const claimed = sessionIdsIn(book);
+  for (const [name, entry] of Object.entries(book.sessions)) {
+    if (!Array.isArray(entry?.unclaimed)) continue;
+    const kept = entry.unclaimed.filter((one) => !claimed.has(one));
+    book.sessions[name] = withUnclaimed({ ...entry, unclaimed: [] }, kept);
+  }
+  return book;
+}
 
 /**
  * Every harness session the book accounts for, the ones running now and the ones

@@ -7,7 +7,7 @@
 import { mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
-import { readBook, sessionIdsIn, tabIdsIn, updateBook } from './book.js';
+import { forgetClaimed, readBook, sessionIdsIn, tabIdsIn, updateBook, withUnclaimed } from './book.js';
 import { botDir, botNames, displayName, readBot } from './bot.js';
 import { conversationsIn } from './conversations.js';
 import { installHook } from './hooks.js';
@@ -181,11 +181,13 @@ async function bringUpSession(bots, home, live, session, bot, title) {
   // own record are new.
   const launched = new Date().toISOString();
   await updateBook(home, (current) => {
-    const entry = { ...current.sessions[session.name], tab: made.tabId, launched };
     // What the harness has in this folder that nobody claims goes on the record,
-    // for a person or Bot Father to settle. The kit never settles it itself.
-    if (which.unclaimed !== undefined && which.unclaimed.length > 0) entry.unclaimed = which.unclaimed;
-    current.sessions[session.name] = entry;
+    // for a person or Bot Father to settle — added to whatever was already noted,
+    // because this run's scan cannot see what an earlier one found. The kit never
+    // settles it itself.
+    const entry = { ...current.sessions[session.name], tab: made.tabId, launched };
+    current.sessions[session.name] = withUnclaimed(entry, which.unclaimed ?? []);
+    forgetClaimed(current);
   });
 
   // Typing it in is the way: for a project the kit has just made, giving Orca
