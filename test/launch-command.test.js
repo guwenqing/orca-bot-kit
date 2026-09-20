@@ -16,6 +16,14 @@
 // Flags checked live on Claude Code 2.1.278 and Codex 0.155.1: `--model
 // 'sonnet[1m]'` is a real launch form, and Codex takes `-c key=value` with no
 // quotes of its own around the value.
+//
+// And checked live again, in a real tab, that they do what they say rather
+// than being taken and ignored: a session started with `--model 'sonnet[1m]'`
+// reports `Model: sonnet[1m] (claude-sonnet-5[1m])` under Claude Code's
+// `/status`, and one started with `-c model_context_window=<n>` has that
+// window in its rollout, which reports 95% of the number given. A context
+// Codex cannot read it refuses itself — `invalid type: string "1m", expected
+// i64` — which is why the kit refuses it first.
 
 import assert from 'node:assert/strict';
 import { writeFile } from 'node:fs/promises';

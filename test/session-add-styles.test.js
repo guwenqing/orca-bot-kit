@@ -1,17 +1,18 @@
 // `obk session add` edits a file the user writes in too, and YAML lets them
-// write the same list five ways. The kit edits the text rather than reprinting
-// the document, which is what keeps their comments and spacing (PRD 6.3) — but
-// text put in at the wrong indent, or block text put into a flow list, does not
-// parse as YAML at all.
+// write the same list five ways. The edit goes through the YAML library, which
+// keeps their keys, their values and their comments (PRD 6.3); what it does
+// about layout — spacing an inline list, dropping the padding in front of a
+// comment — is its own business, and no test here asks otherwise.
 //
-// That is the worst way for this command to fail: it writes the file, says it
-// worked and exits 0, and the bot is only found to be broken the next time
-// something reads it — `obk up`, or the user, or Bot Father.
+// What every one of these pins is that the file still means what it meant,
+// plus the one session. The failure this file exists for is the quiet one: the
+// command writes, says it worked and exits 0, and the bot is only found to be
+// broken the next time something reads it — `obk up`, or the user, or Bot
+// Father.
 //
-// So the new session is written in the style the file already uses, and what
-// was built is read back before it replaces anything: the document as it was,
-// plus the one new session, or the command refuses and writes nothing. A bot
-// the kit cannot add to safely is a bot the user can still edit by hand.
+// So what was built is read back before it replaces anything: the document as
+// it was, plus the one new session, or the command refuses and writes nothing.
+// A bot the kit cannot add to safely is a bot the user can still edit by hand.
 
 import assert from 'node:assert/strict';
 import { readFile, writeFile } from 'node:fs/promises';
@@ -21,7 +22,7 @@ import { parse } from 'yaml';
 
 import {
   assertCleanFailure,
-  assertKeptVerbatim,
+  assertKeptWhatTheyWrote,
   assertNoTrailingSpace,
   botHomeOf,
   createSandbox,
@@ -58,41 +59,31 @@ async function parsed(bots) {
   }
 }
 
-/**
- * The ways a user writes a sessions list. `keepsBytes` is false only where the
- * kit has to write inside a line the user wrote — a flow list is one line, and
- * an item cannot be added to it without touching it.
- */
+/** The ways a user writes a sessions list. */
 const STYLES = [
   [
     'a flow list, all on one line',
     'sessions: [{ name: first, approval: ask }, { name: second, approval: ask }]\n',
-    { keepsBytes: false },
   ],
   [
     'a block list indented four spaces',
     'sessions:\n    - name: first\n      approval: ask\n    - name: second\n      approval: ask\n',
-    {},
   ],
   [
     'an indentless block list, at the key\'s own column',
     'sessions:\n- name: first\n  approval: ask\n- name: second\n  approval: ask\n',
-    {},
   ],
   [
     'a list with a comment of the user\'s under it',
     'sessions:\n  - name: first\n    approval: ask\n  - name: second\n    approval: ask\n'
     + '# add the rest once this bot has a charter\n',
-    {},
   ],
-  // An empty list has nothing to add an item after: the `[]` is what has to
-  // make way, so those two bytes are the one thing here that may change.
-  ['an empty flow list', 'sessions: []\n', { keepsBytes: false }],
-  ['a sessions key with nothing under it', 'sessions:\n', {}],
-  ['no sessions key at all', '', {}],
+  ['an empty flow list', 'sessions: []\n'],
+  ['a sessions key with nothing under it', 'sessions:\n'],
+  ['no sessions key at all', ''],
 ];
 
-for (const [label, tail, { keepsBytes = true }] of STYLES) {
+for (const [label, tail] of STYLES) {
   test(`a session added to ${label} leaves a file that still parses`, async (t) => {
     const box = await createSandbox(t);
     const mine = HEAD + tail;
@@ -113,7 +104,7 @@ for (const [label, tail, { keepsBytes = true }] of STYLES) {
     assert.equal(doc.harness, 'codex');
     assert.equal(doc.charter, 'mine');
     assertNoTrailingSpace(text);
-    if (keepsBytes) assertKeptVerbatim(mine, text);
+    assertKeptWhatTheyWrote(mine, text, { changed: ['sessions'] });
   });
 
   test(`${label} takes a second session too, in the style the file kept`, async (t) => {

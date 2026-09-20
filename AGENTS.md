@@ -17,6 +17,12 @@ not pull work from a later slice into an earlier one.
 
 ## How code is written
 
+- Take the boring way. When a standard library, the platform or a dependency
+  already does the job — parsing and writing YAML or JSON, paths, argument
+  parsing, quoting, running processes — use it; do not hand-roll it.
+- Do not set a stricter requirement than the issue asks for, and when you catch
+  yourself enumerating the edge cases of a mechanism of your own, replace the
+  mechanism.
 - Test first, one slice at a time, through the public interface.
 - The test author is a separate agent from the implementer. The implementer
   cannot change a test to make it pass; a test that looks wrong goes back to the

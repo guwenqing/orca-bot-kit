@@ -18,7 +18,7 @@ import { parse } from 'yaml';
 
 import {
   assertCleanFailure,
-  assertKeptVerbatim,
+  assertKeptWhatTheyWrote,
   assertNoTrailingSpace,
   BARE_LAUNCH,
   bookOf,
@@ -74,7 +74,7 @@ test('a bots folder from the previous slice gets its harness and its daily sessi
 
   assert.equal(result.code, 0, result.stderr);
   const after = await readFile(file, 'utf8');
-  assertKeptVerbatim(PREVIOUS_SLICE.replace('sessions: []\n', ''), after);
+  assertKeptWhatTheyWrote(PREVIOUS_SLICE, after, { changed: ['sessions'] });
   assertNoTrailingSpace(after);
   const parsed = parse(after);
   assert.equal(parsed.harness, 'claude', 'the harness the caller chose is written down');
@@ -100,7 +100,7 @@ test('a folder completed by init needs nothing more from up', async (t) => {
   assert.deepEqual(await box.orca.terminals(), after, 'the second run has nothing left to do');
 });
 
-test('completing a bot.yaml touches nothing else in it', async (t) => {
+test('completing a bot.yaml keeps everything the user wrote', async (t) => {
   const box = await createSandbox(t);
   const mine = `# my own notes about this bot
 name: bot-father
@@ -115,13 +115,8 @@ skills: []
   assert.equal((await box.run(['init', '--bots', 'bots', '--harness', 'codex'])).code, 0);
 
   const after = await readFile(file, 'utf8');
-  // Padding and all: the line is not reflowed, it is simply left where it was.
-  assert.ok(
-    after.includes('notes: keep me            # a key the kit knows nothing about'),
-    `the user's line should be untouched, spacing included: ${after}`,
-  );
   assert.ok(after.includes('# my own notes about this bot'), `the comment should have survived: ${after}`);
-  assertKeptVerbatim(mine, after);
+  assertKeptWhatTheyWrote(mine, after, { changed: ['sessions'] });
   assertNoTrailingSpace(after);
   const parsed = parse(after);
   assert.equal(parsed.notes, 'keep me', 'a key the kit knows nothing about keeps its value');
@@ -142,7 +137,7 @@ test('a bot.yaml with no sessions key at all gets the daily session', async (t) 
   assert.equal((await box.run(['init', '--bots', 'bots', '--harness', 'claude'])).code, 0);
 
   const after = await readFile(file, 'utf8');
-  assertKeptVerbatim('name: bot-father\ncharter: mine\nrules: []\nskills: []\n', after);
+  assertKeptWhatTheyWrote('name: bot-father\ncharter: mine\nrules: []\nskills: []\n', after);
   assertNoTrailingSpace(after);
   assert.deepEqual(sessionNames(parse(after)), ['daily']);
   assert.equal((await botFatherTabs(box, box.path('bots'))).inBook.length, 1);
@@ -156,10 +151,10 @@ test('a bot.yaml that already has sessions is left completely alone', async (t) 
   const result = await box.run(['init', '--bots', 'bots', '--harness', 'claude']);
 
   assert.equal(result.code, 0, result.stderr);
-  // The harness has to go in somewhere, so the file is not byte-identical.
-  // Everything else about it is.
+  // The harness has to go in somewhere. Everything the user wrote is still
+  // there, the sessions they wrote most of all.
   const after = await readFile(file, 'utf8');
-  assertKeptVerbatim(mine, after);
+  assertKeptWhatTheyWrote(mine, after);
   assertNoTrailingSpace(after);
   const parsed = parse(after);
   assert.deepEqual(sessionNames(parsed), ['mine'], 'the user\'s sessions are the user\'s');

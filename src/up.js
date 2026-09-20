@@ -4,11 +4,13 @@
 // conversation and Orca's resume record with it. Run it twice and the second
 // run does nothing.
 
-import { mkdirSync, realpathSync } from 'node:fs';
+import { mkdirSync, realpathSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 import { readBook, tabIdsIn, writeBook } from './book.js';
 import { botDir, botNames, displayName, readBot } from './bot.js';
-import { harnessOf, launchCommand, sessionTrouble, startPrompt, workDirOf } from './launch.js';
+import { harnessOf, isShortPrompt, launchCommand, sessionTrouble, startPrompt, workDirOf } from './launch.js';
 import { asFolderProject, findProject, makeProject, openTab, retitleTab, tabs, tuiInTab, typeIntoTab } from './orca.js';
 
 /** The one bot with a tab beside its sessions: the ops tab (PRD 6.2). */
@@ -49,15 +51,18 @@ export function bringUp(bots, { bot: onlyBot, session: onlySession } = {}) {
   // Every bot that is coming up is read and judged before Orca is asked for
   // anything at all: a fleet with one session the kit cannot start is a fleet
   // the user fixes in one edit, not one they find half opened.
-  const chosen = (onlyBot === undefined ? names : [onlyBot]).map((name) => readBot(realpathSync(botDir(bots, name)), name));
-  for (const bot of chosen) refuseWhatCannotStart(bot, onlySession);
+  const chosen = (onlyBot === undefined ? names : [onlyBot]).map((name) => {
+    const home = realpathSync(botDir(bots, name));
+    return { home, bot: readBot(home, name) };
+  });
+  for (const { bot, home } of chosen) refuseWhatCannotStart(bot, home, onlySession);
 
-  return chosen.flatMap((bot) => bringUpBot(bots, bot, onlySession));
+  return chosen.flatMap(({ bot, home }) => bringUpBot(home, bot, onlySession));
 }
 
-function refuseWhatCannotStart(bot, onlySession) {
+function refuseWhatCannotStart(bot, home, onlySession) {
   for (const session of sessionsOf(bot, onlySession)) {
-    const trouble = sessionTrouble(session, harnessOf(session, bot.harness));
+    const trouble = sessionTrouble(session, harnessOf(session, bot.harness), home);
     if (trouble !== undefined) throw new Error(`${bot.name}: ${trouble}`);
   }
 }
@@ -73,11 +78,8 @@ function sessionsOf(bot, onlySession) {
   return named;
 }
 
-function bringUpBot(bots, bot, onlySession) {
+function bringUpBot(home, bot, onlySession) {
   const name = bot.name;
-  // Orca is given the real path: it does not follow links, and the same folder
-  // reached through one would become a second Orca project.
-  const home = realpathSync(botDir(bots, name));
   const title = displayName(name);
   const sessions = sessionsOf(bot, onlySession);
 
@@ -120,12 +122,23 @@ function bringUpSession(home, book, live, session, bot, title) {
   // Everything that can be refused is settled before Orca is asked for
   // anything, so a session the kit cannot start leaves no tab behind.
   const workDir = workDirOf(session, home);
-  const prompt = startPrompt(session, workDir);
-  const command = launchCommand(session, { harness: harnessOf(session, bot.harness), home, workDir, prompt });
+  const prompt = startPrompt(session, { home, workDir });
+  // Anything longer than a line goes to the harness out of a file, rather than
+  // through the tab's shell a character at a time.
+  const promptFile = prompt === undefined || isShortPrompt(prompt) ? undefined : promptPath(bot.name, session.name);
+  const command = launchCommand(session, { harness: harnessOf(session, bot.harness), home, workDir, prompt, promptFile });
 
   // A work dir is a plain folder, made for the session before it is told about
   // it (PRD 6.4). Nothing here is a git worktree.
   if (workDir !== undefined) mkdirSync(workDir, { recursive: true });
+
+  // The prompt is written where the launch line can read it from, before that
+  // line is typed. It is the kit's own file, not the user's: theirs stays where
+  // they put it, in the bot home.
+  if (promptFile !== undefined) {
+    mkdirSync(path.dirname(promptFile), { recursive: true });
+    writeFileSync(promptFile, prompt);
+  }
 
   const made = openTab(home, tabTitle);
 
@@ -157,7 +170,7 @@ function bringUpSession(home, book, live, session, bot, title) {
   // duty with it, and nobody has been told anything.
   const promptSent = prompt === undefined ? undefined : tui.running === true;
 
-  return entry(made, { bot: bot.name, name: session.name, created: true, ...tui, promptSent });
+  return entry(made, { bot: bot.name, name: session.name, created: true, ...tui, promptSent, promptFile });
 }
 
 /**
@@ -175,12 +188,18 @@ function orcaProject(home, title) {
   return { project: setup.projectId, setup: setup.id };
 }
 
-function entry(tab, { bot, name, created, running = false, blockedReason, promptSent }) {
+/** Where the kit leaves a prompt for the launch line to pick up. */
+const promptPath = (bot, session) =>
+  path.join(os.tmpdir(), 'obk-prompts', `${encodeURIComponent(bot)}.${encodeURIComponent(session)}.txt`);
+
+function entry(tab, { bot, name, created, running = false, blockedReason, promptSent, promptFile }) {
   const made = { bot, name, title: tab.title, tabId: tab.tabId, terminal: tab.handle, created, harnessStarted: running };
   // Orca's own words for what is on screen waiting to be answered, when it
   // gave any: the caller acts on it, the kit only passes it on.
   if (blockedReason !== undefined) made.blockedReason = blockedReason;
   // Only for a session this run started that had something to be told.
   if (promptSent !== undefined) made.promptSent = promptSent;
+  // And the file it was told it out of, when it was too long for the line.
+  if (promptFile !== undefined) made.promptFile = promptFile;
   return made;
 }

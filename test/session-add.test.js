@@ -8,7 +8,8 @@
 //     asked for another one in plain words (ADR 0005);
 //   - every other setting is written only when it was given, because absent
 //     means the harness's own default and the kit hardcodes no model id;
-//   - the rest of the file is the user's, byte for byte.
+//   - the rest of the file is the user's: every value they wrote and every
+//     comment survives, whatever the YAML library does about layout.
 //
 // Like `bot create`, it writes a file and nothing else: no tab, no Orca.
 
@@ -20,7 +21,7 @@ import { parse } from 'yaml';
 
 import {
   assertCleanFailure,
-  assertKeptVerbatim,
+  assertKeptWhatTheyWrote,
   assertNoTrailingSpace,
   botHomeOf,
   createSandbox,
@@ -271,7 +272,7 @@ test('sessions pile up in the order they were added', async (t) => {
   assert.deepEqual((await sessionsOf(bots)).map((session) => session.name), ['daily', 'review', 'watch']);
 });
 
-test('everything already in bot.yaml stays exactly as the user wrote it', async (t) => {
+test('everything already in bot.yaml still says what the user wrote', async (t) => {
   const box = await createSandbox(t);
   const bots = await withBot(box);
   const mine = `# my own notes about this bot
@@ -295,10 +296,10 @@ sessions:
   assert.equal(result.code, 0, result.stderr);
   const after = await readFile(botFile(bots), 'utf8');
   assert.ok(
-    after.includes('notes: keep me            # a key the kit knows nothing about'),
-    `the user's line should be untouched, spacing included: ${after}`,
+    after.includes('# a key the kit knows nothing about'),
+    `the user's comment should have survived: ${after}`,
   );
-  assertKeptVerbatim(mine, after);
+  assertKeptWhatTheyWrote(mine, after, { changed: ['sessions'] });
   assertNoTrailingSpace(after);
 
   const parsed = parse(after);

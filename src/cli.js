@@ -11,7 +11,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 
-import { addSession, createBot } from './bot.js';
+import { addSession, createBot, SESSION_FIELDS } from './bot.js';
 import { initBots } from './init.js';
 import { APPROVALS, HARNESSES } from './launch.js';
 import { orcaTrouble } from './orca.js';
@@ -31,9 +31,12 @@ Usage:
   obk session add --bots <path> --bot <bot> --name <session>
                   [--harness claude|codex] [--model <m>] [--effort <e>]
                   [--context <c>] [--approval ${APPROVALS.join('|')}]
-                  [--prompt <text>] [--work-dir <path>] [--extra-arg=<arg>]
+                  [--prompt <text> | --prompt-file <path>] [--work-dir <path>]
+                  [--extra-arg=<arg>]
                             Add a session to a bot. Anything left out is the
-                            harness's own default; approval is auto.
+                            harness's own default; approval is auto. A long
+                            start prompt lives in a file in the bot home, and
+                            --prompt-file names it.
                             A value of your own that starts with a dash is
                             given glued to its flag, so its dashes are not read
                             as ours: --prompt='- a bullet', and
@@ -69,16 +72,14 @@ const NEEDED = {
 /** The flags that name something. A name that is empty names nothing. */
 const IDENTIFIERS = Object.keys(NEEDED);
 
-/** The session settings, as flags and as they are written in bot.yaml. */
-const SETTINGS = [
-  ['harness', 'harness'],
-  ['model', 'model'],
-  ['effort', 'effort'],
-  ['context', 'context'],
-  ['approval', 'approval'],
-  ['prompt', 'prompt'],
-  ['work-dir', 'work_dir'],
-];
+/**
+ * The session settings a flag can carry, as `[flag, field]`: every field a
+ * session has, spelled with dashes, except the name it is added under and the
+ * extra arguments, which come one flag at a time.
+ */
+const SETTINGS = SESSION_FIELDS
+  .filter((field) => field !== 'name' && field !== 'extra_args')
+  .map((field) => [field.replaceAll('_', '-'), field]);
 
 function version() {
   const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
@@ -96,12 +97,7 @@ function run(argv) {
       bot: { type: 'string' },
       session: { type: 'string' },
       charter: { type: 'string' },
-      model: { type: 'string' },
-      effort: { type: 'string' },
-      context: { type: 'string' },
-      approval: { type: 'string' },
-      prompt: { type: 'string' },
-      'work-dir': { type: 'string' },
+      ...Object.fromEntries(SETTINGS.map(([flag]) => [flag, { type: 'string' }])),
       'extra-arg': { type: 'string', multiple: true },
       json: { type: 'boolean' },
       help: { type: 'boolean', short: 'h' },

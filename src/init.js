@@ -10,6 +10,8 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, statSync,
 import path from 'node:path';
 import { parseDocument } from 'yaml';
 
+import { changesExactly, YAML_OUT } from './bot.js';
+
 const DEFAULTS_YAML = `# Rules and skills every bot gets, on top of its own.
 #
 # rules:  rule units compiled into each bot's AGENTS.md. A name here is a file
@@ -197,10 +199,10 @@ function checkBotFather(file, harness) {
  * Fill in what an older `bot.yaml` is missing, and nothing else. Returns what
  * was completed, for the report.
  *
- * The file is edited as text, at the exact places the parser points to, rather
- * than parsed and written back out: writing it back would re-lay the user's own
- * formatting — the padding inside a flow collection, the column a trailing
- * comment sits in. Everything the user wrote stays byte for byte.
+ * The file is edited through the YAML library, which keeps the user's comments
+ * and their own values; what it reformats on the way is its business. What is
+ * checked here is the thing that matters: that the file says what it said
+ * before, plus the harness and the session this fills in.
  *
  * Sessions the user already has are left alone, whatever they are called. They
  * are theirs, and `up` brings up what it finds.
@@ -209,28 +211,32 @@ function completeBotFather(file, harness) {
   const source = readFileSync(file, 'utf8');
   const doc = parseDocument(source);
 
-  let text = source;
+  // What is missing is settled from the document, not from the text it is
+  // written back as: a file that needs nothing is not rewritten, however the
+  // library would have laid it out.
   const sessions = doc.get('sessions', true);
-  if (sessions === undefined) {
-    text = `${endsInNewline(text)}sessions:\n  - name: ${DAILY_SESSION}\n`;
-  } else if (!(sessions.items?.length > 0)) {
-    // An empty list, or a `sessions:` with nothing after it. The parser gives
-    // the span the value occupies — for the empty one, an empty span in just
-    // the right place. The spaces that separated it from the colon go with it,
-    // or they would be left dangling at the end of the line.
-    const [, to] = sessions.range;
-    let from = sessions.range[0];
-    while (from > 0 && (text[from - 1] === ' ' || text[from - 1] === '\t')) from -= 1;
-    text = `${text.slice(0, from)}\n  - name: ${DAILY_SESSION}${text.slice(to)}`;
+  const needsSession = sessions?.items === undefined || sessions.items.length === 0;
+  const needsHarness = doc.get('harness') === undefined;
+  if (!needsSession && !needsHarness) return [];
+
+  if (sessions?.items === undefined) {
+    doc.set('sessions', [{ name: DAILY_SESSION }]);
+  } else if (needsSession) {
+    sessions.flow = false;
+    doc.addIn(['sessions'], { name: DAILY_SESSION });
+  }
+  if (needsHarness) doc.set('harness', harness);
+
+  const text = doc.toString(YAML_OUT);
+
+  if (!changesExactly(source, text, (was) => ({
+    ...was,
+    harness: was.harness ?? harness,
+    sessions: was.sessions?.length > 0 ? was.sessions : [{ name: DAILY_SESSION }],
+  }))) {
+    throw new Error(`${file} cannot be completed without changing something else in it, so nothing was written. Give it a harness and a session by hand, then run init again.`);
   }
 
-  if (doc.get('harness') === undefined) {
-    text = `${endsInNewline(text)}harness: ${harness}\n`;
-  }
-
-  if (text === source) return [];
   writeFileSync(file, text);
   return [BOT_FATHER_YAML];
 }
-
-const endsInNewline = (text) => (text === '' || text.endsWith('\n') ? text : `${text}\n`);

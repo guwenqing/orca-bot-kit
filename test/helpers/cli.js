@@ -309,20 +309,47 @@ export function assertCleanFailure(result) {
 }
 
 /**
- * Every line the user wrote is still there, byte for byte and in order, and
- * the only lines beside them are the ones the kit added. A file the kit edits
- * is edited at the offsets the parser points to, so the user's bytes are never
- * rewritten — not the padding before an inline comment, not the quoting, not
- * the ordering.
+ * Everything the user put in the file is still theirs: every key they wrote
+ * still carries the value they gave it, and every comment is still there, in
+ * order. `changed` names the keys this edit was allowed to touch, which the
+ * caller checks itself.
+ *
+ * Not byte for byte. The file is edited through the YAML library, which writes
+ * the document back in its own hand — an inline list comes back spaced, the
+ * padding in front of a comment goes — and how it lays a file out is its
+ * business. What is the user's is what they said, not how it was printed.
  */
-export function assertKeptVerbatim(before, after) {
-  const was = before.split('\n');
+export function assertKeptWhatTheyWrote(before, after, { changed = [] } = {}) {
+  const was = parse(before) ?? {};
+  const now = parse(after) ?? {};
+  assert.ok(now !== null && typeof now === 'object' && !Array.isArray(now), `the file should still be a mapping, got:\n${after}`);
+
+  for (const [key, value] of Object.entries(was)) {
+    if (changed.includes(key)) continue;
+    assert.deepEqual(
+      now[key],
+      value,
+      `the user's ${key} should still say what they wrote:\n--- before ---\n${before}\n--- after ---\n${after}`,
+    );
+  }
+
+  const theirs = commentsIn(before);
   assert.deepEqual(
-    after.split('\n').filter((line) => was.includes(line)),
-    was,
-    `the user's own bytes should be untouched:\n--- before ---\n${before}\n--- after ---\n${after}`,
+    commentsIn(after).filter((comment) => theirs.includes(comment)),
+    theirs,
+    `every comment the user wrote should still be there, in order:\n--- before ---\n${before}\n--- after ---\n${after}`,
   );
 }
+
+/**
+ * The comments in a YAML file, in order: what follows a `#` on each line.
+ * A `#` inside a quoted value would be read as one too, so the files here are
+ * written without one.
+ */
+const commentsIn = (text) => text
+  .split('\n')
+  .map((line) => /(?:^|\s)#(.*)$/.exec(line)?.[1].trim())
+  .filter((comment) => comment !== undefined);
 
 /** Nothing the kit writes leaves whitespace hanging at the end of a line. */
 export function assertNoTrailingSpace(text) {

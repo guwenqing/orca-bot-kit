@@ -23,6 +23,7 @@ import { mkdtemp, readFile, realpath, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { setTimeout } from 'node:timers/promises';
 
 import { sessionTabIds } from '../helpers/cli.js';
 
@@ -55,6 +56,25 @@ function allTerminals() {
 
 /** The terminals in one worktree, by the path they were opened in. */
 const terminalsAt = (home) => allTerminals().filter((terminal) => terminal.worktreePath === home);
+
+/**
+ * The tabs Orca lists at `home` once it has caught up with what was closed.
+ * `terminal close` answers ok before `terminal list` stops reporting the tab —
+ * seen live, for a second or two on a busy machine, and a second close of the
+ * same handle then fails with `terminal_handle_stale`. So the listing is read
+ * again until the closed tabs are out of it, rather than read once and
+ * believed. What comes back when the wait runs out is whatever Orca still
+ * says, for the assertion to fail on.
+ */
+async function terminalsAfterClosing(home, closed, within = 5000) {
+  const until = Date.now() + within;
+  let left = terminalsAt(home);
+  while (left.some((terminal) => closed.includes(terminal.tabId)) && Date.now() < until) {
+    await setTimeout(250);
+    left = terminalsAt(home);
+  }
+  return left;
+}
 
 /** Every workspace Orca knows about right now. */
 function allSetups() {
@@ -101,9 +121,11 @@ test('Bot Father comes up in the real Orca, and nothing else is touched', async 
 
   // Registered before anything is created, so it runs however this test ends.
   t.after(async () => {
+    const closed = [];
     for (const terminal of terminalsAt(home)) {
       if (before.handles.has(terminal.handle)) continue;
       orca(['terminal', 'close', '--terminal', terminal.handle, '--tab']);
+      closed.push(terminal.tabId);
     }
     for (const setup of allSetups()) {
       if (setup.path !== home || before.setups.has(setup.id)) continue;
@@ -116,7 +138,7 @@ test('Bot Father comes up in the real Orca, and nothing else is touched', async 
     for (const handle of before.handles) {
       assert.ok(left.has(handle), `${handle} was open before this test and is gone now`);
     }
-    assert.deepEqual(terminalsAt(home), [], 'this test left tabs behind');
+    assert.deepEqual(await terminalsAfterClosing(home, closed), [], 'this test left tabs behind');
   });
 
   // 1. init: the folder is seeded and Bot Father appears in Orca. This is also
@@ -197,7 +219,7 @@ test('Bot Father comes up in the real Orca, and nothing else is touched', async 
   assert.ok(closed && kept, 'the run should have reported both tabs');
   orca(['terminal', 'close', '--terminal', closed.handle, '--tab']);
   assert.deepEqual(
-    terminalsAt(home).map((terminal) => terminal.tabId),
+    (await terminalsAfterClosing(home, [closed.tabId])).map((terminal) => terminal.tabId),
     [kept.tabId],
     'the fixture itself should have closed exactly one tab',
   );

@@ -10,6 +10,7 @@
 // The text goes into the tab's ordinary shell, so every word is quoted the way
 // a shell needs it. `claude --model sonnet[1m]` would be a glob to zsh.
 
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 /** The approval levels, and what each one is called on each harness. */
@@ -52,7 +53,19 @@ export function workDirOf(session, home) {
  * starts one: a session can also arrive by hand, and a bot.yaml the user edited
  * is worth the same plain sentence rather than a stray flag typed into a tab.
  */
-export function sessionTrouble(session, harness) {
+export function sessionTrouble(session, harness, home) {
+  if (set(session.prompt) && set(session.prompt_file)) {
+    return `${where(session)} has both a prompt and a prompt file, and a session is told its duty once. Keep the one you meant.`;
+  }
+  // The file is the prompt, so a session that cannot be read cannot be started,
+  // and saying so now beats a tab that comes up with nothing to do.
+  if (set(session.prompt_file)) {
+    try {
+      readFileSync(promptFile(session, home), 'utf8');
+    } catch (error) {
+      return `${where(session)} has its prompt in ${session.prompt_file}, and that file cannot be read (${error.code}): ${promptFile(session, home)}. Write it, or point the session at the file you meant.`;
+    }
+  }
   if (!HARNESSES.includes(harness)) {
     return `${where(session)} runs on ${harness}, and the harnesses are ${HARNESSES.join(' and ')}.`;
   }
@@ -89,8 +102,8 @@ const where = (session) => (set(session.name) ? `session ${session.name}` : 'thi
  * send would land on that list and answer it. A prompt given as an argument is
  * held by the harness until it is ready for it (tech notes, section 1).
  */
-export function launchCommand(session, { harness, home, workDir, prompt }) {
-  const trouble = sessionTrouble(session, harness);
+export function launchCommand(session, { harness, home, workDir, prompt, promptFile: fromFile }) {
+  const trouble = sessionTrouble(session, harness, home);
   if (trouble !== undefined) throw new Error(trouble);
 
   const words = [harness, ...APPROVAL[harness][set(session.approval) ? session.approval : DEFAULT_APPROVAL]];
@@ -115,7 +128,7 @@ export function launchCommand(session, { harness, home, workDir, prompt }) {
     // `--` first: a prompt of the user's own may start with a dash — a
     // Markdown bullet does — and both harnesses would read it as an option of
     // theirs and refuse to start.
-    ...(prompt === undefined ? [] : ['--', quoted(prompt)]),
+    ...promptWords(prompt, fromFile),
   ].join(' ');
 }
 
@@ -124,21 +137,46 @@ export function launchCommand(session, { harness, home, workDir, prompt }) {
  * to say. The work dir is named here and nowhere else: it is an instruction to
  * the session, not something the harness is told (PRD 6.4).
  *
- * Word for word as the user wrote it. It travels as one argument, quoted for
- * the shell it is typed into, so nothing has to be flattened to keep it whole:
- * the two spaces, the newlines and the indentation of a prompt that carries a
- * piece of text or code are the user's, and are none of the kit's business.
+ * A long prompt lives in a file in the bot home and the session points at it;
+ * a short one is written in the session itself. Either way it is word for word
+ * as the user wrote it: it travels as one argument, quoted for the shell it is
+ * typed into, so nothing has to be flattened to keep it whole — the two
+ * spaces, the newlines and the indentation of a prompt carrying a piece of
+ * text or code are the user's, and none of the kit's business.
  */
-export function startPrompt(session, workDir) {
+export function startPrompt(session, { home, workDir }) {
   const note = workDir === undefined
     ? undefined
     : `Your work dir is ${workDir}. It is a plain folder the kit made for you, not a git worktree.`;
 
-  // Only the ends are taken off — a `prompt: |` in YAML carries a newline the
-  // user never typed. What is inside is theirs: the two spaces, the newlines,
-  // the indent under a list.
-  const said = [session.prompt, note].filter(set).map((part) => String(part).trim());
+  // Only the ends are taken off — a `prompt: |` in YAML, and a file, both carry
+  // a newline the user never typed. What is inside is theirs.
+  const said = [set(session.prompt_file) ? readFileSync(promptFile(session, home), 'utf8') : session.prompt, note]
+    .filter(set)
+    .map((part) => String(part).trim());
   return said.length === 0 ? undefined : said.join('\n\n');
+}
+
+/** Where a session's prompt file is: in the bot home, where the user put it. */
+export const promptFile = (session, home) => path.resolve(home, session.prompt_file);
+
+/**
+ * A prompt short and simple enough to type into the launch line as it is: one
+ * line, and not a long one. Everything else goes to the harness out of a file,
+ * which keeps a page of text out of a tab's shell and its history.
+ */
+export const isShortPrompt = (prompt) => !prompt.includes('\n') && prompt.length <= SHORT_PROMPT;
+
+const SHORT_PROMPT = 200;
+
+/**
+ * The prompt on the launch line: the text itself when it is short, and
+ * otherwise the file the kit wrote it to, read back by the shell that types the
+ * line. `"$(cat …)"` hands the harness one argument whatever is in the file.
+ */
+function promptWords(prompt, fromFile) {
+  if (fromFile !== undefined) return ['--', `"$(cat ${quoted(fromFile)})"`];
+  return prompt === undefined ? [] : ['--', quoted(prompt)];
 }
 
 /** Whether `target` is the folder at `home` or something inside it. */

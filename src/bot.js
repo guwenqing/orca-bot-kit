@@ -26,6 +26,12 @@ const NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 /** The file that says what a bot is. A folder without one is not a bot. */
 const BOT_YAML = 'bot.yaml';
 
+/**
+ * How the kit writes YAML: a line as long as it needs to be, and flow
+ * collections left as tight as the user writes them (`[a]`, not `[ a ]`).
+ */
+export const YAML_OUT = { lineWidth: 0, flowCollectionPadding: false };
+
 /** What every new bot is given until its owner writes its own. */
 const PLACEHOLDER_CHARTER = (name) =>
   `${name} has no charter yet. Write here what it owns, what good looks like,\n`
@@ -123,9 +129,10 @@ export function createBot(bots, { name, harness, charter }) {
  * Add the session `name` to the bot `bot`, with the settings it was given.
  * Returns { bot, home, session } — the session as it was written.
  *
- * The file is edited as text at the one place the new session goes, so
- * everything the user wrote stays byte for byte, down to the column a comment
- * sits in.
+ * The file is edited through the YAML library, which keeps the user's comments
+ * and their own values, and writes the new session wherever their sessions list
+ * is. What the library reformats on the way — an indent, a quote, an inline
+ * list that becomes a block one — is not worth a mechanism of the kit's own.
  */
 export function addSession(bots, bot, settings) {
   requireBotsFolder(bots);
@@ -142,116 +149,76 @@ export function addSession(bots, bot, settings) {
   }
 
   const session = ordered({ ...settings, approval: settings.approval ?? DEFAULT_APPROVAL });
-  const trouble = sessionTrouble(session, harnessOf(session, known.harness));
+  const trouble = sessionTrouble(session, harnessOf(session, known.harness), home);
   if (trouble !== undefined) throw new Error(trouble);
 
-  const text = withSession(readFileSync(file, 'utf8'), session);
-  if (text === undefined) {
-    throw new Error(`${file} cannot have a session added to it without putting the rest of it at risk, so nothing was written. Add ${session.name} to its sessions list by hand, or write that list as a plain block list and run this again.`);
+  const source = readFileSync(file, 'utf8');
+  const doc = parseDocument(source);
+  const sessions = doc.get('sessions', true);
+  if (sessions?.items === undefined) {
+    // No list to add to: an empty `sessions:`, or no sessions key at all.
+    doc.set('sessions', [session]);
+  } else {
+    // A list written inline is written out as a block list from here on, which
+    // is the one shape a session with a prompt in it reads well in.
+    sessions.flow = false;
+    doc.addIn(['sessions'], session);
+  }
+
+  const text = doc.toString(YAML_OUT);
+  if (!changesExactly(source, text, (was) => ({ ...was, sessions: [...(was.sessions ?? []), session] }))) {
+    throw new Error(`${file} cannot have a session added to it without changing something else in it, so nothing was written. Add ${settings.name} to its sessions list by hand.`);
   }
   writeFileSync(file, text);
   return { bot, home, session };
 }
 
-/** The bot.yaml of a bot nobody has edited yet. */
-function botYaml(name, harness, charter) {
-  const header = `# ${displayName(name)}. Ask Bot Father for changes rather than editing this file.\n\n`;
-  return header + stringify({ name, harness, charter, rules: [], skills: [], sessions: [] }, { lineWidth: 0 });
-}
-
 /**
- * `source` with one session added to its sessions list and nothing else
- * touched, or undefined when that cannot be had.
+ * Whether `text` is `source` with exactly the change `expected` describes and
+ * nothing besides: the check in front of every write the kit makes to a file
+ * the user also writes in.
  *
- * The file is the user's, written in whatever YAML they like, and a session
- * written in the wrong shape does not fail loudly — it makes a file that no
- * longer parses, or one that quietly says something else. So the text is built
- * in the shape the file already uses, and then read back and held against what
- * it was: the same document, plus this session, and nothing besides. Anything
- * else and the caller refuses rather than write.
+ * `expected` is given what the file said and answers with what it should say.
+ * How the two texts are laid out is not compared — that is the library's — but
+ * every value is.
  */
-function withSession(source, session) {
-  const text = sessionAdded(source, parseDocument(source).get('sessions', true), ordered(session));
-  return text !== undefined && addsExactly(source, text, ordered(session)) ? text : undefined;
-}
-
-function sessionAdded(source, sessions, entry) {
-  // No sessions list at all: the file gets one, at the end, where a key the
-  // user never wrote can go without disturbing anything they did.
-  if (sessions === undefined) {
-    return `${endsInNewline(source)}sessions:\n${indented(blockItem(entry), '  ')}`;
-  }
-
-  if (sessions.items?.length > 0) {
-    // A list written in flow style — `[{ name: first }]` — takes its new
-    // session as another flow item, in front of the bracket that closes it.
-    // JSON is YAML, so the item is written as JSON: one line, whatever is in
-    // the prompt.
-    if (sessions.flow === true) {
-      const at = sessions.range[1] - 1;
-      return `${source.slice(0, at)}, ${JSON.stringify(entry)}${source.slice(at)}`;
-    }
-
-    // A block list: after the last session, indented the way that list is
-    // indented, which is not always two spaces and is sometimes none at all.
-    const at = sessions.range[1];
-    return `${endsInNewline(source.slice(0, at))}${indented(blockItem(entry), indentOf(source, sessions.items[0]))}${source.slice(at)}`;
-  }
-
-  // An empty list, or a `sessions:` with nothing after it. The span the value
-  // occupies is replaced, and the spaces that separated it from the colon go
-  // with it, or they would be left dangling at the end of the line.
-  const [, to] = sessions.range;
-  let from = sessions.range[0];
-  while (from > 0 && (source[from - 1] === ' ' || source[from - 1] === '\t')) from -= 1;
-  return `${source.slice(0, from)}\n${indented(blockItem(entry), '  ').replace(/\n$/, '')}${source.slice(to)}`;
-}
-
-/**
- * Whether `after` is `before` with exactly this session added: the same
- * document, the same sessions in the same order, and this one on the end.
- *
- * This is the check that makes the shapes above safe. Whatever the file is
- * written like, a text this does not recognise as the old one plus the new
- * session is not written.
- */
-function addsExactly(before, after, entry) {
+export function changesExactly(source, text, expected) {
   let was;
   let now;
   try {
-    was = parse(before);
-    now = parse(after);
+    was = parse(source);
+    now = parse(text);
   } catch {
     return false;
   }
   if (was === null || typeof was !== 'object' || Array.isArray(was)) return false;
 
-  return isDeepStrictEqual(now, { ...was, sessions: [...(was.sessions ?? []), entry] });
+  return isDeepStrictEqual(now, expected(was));
 }
 
-/** One session as a block list item, as YAML writes it. */
-const blockItem = (entry) => stringify([entry], { lineWidth: 0 });
-
-/** How far in a list's items sit: the indent in front of the first one's dash. */
-function indentOf(source, item) {
-  const lineStart = source.lastIndexOf('\n', item.range[0] - 1) + 1;
-  const dash = source.slice(lineStart, item.range[0]).lastIndexOf('-');
-  return dash < 0 ? '  ' : source.slice(lineStart, lineStart + dash);
+/** The bot.yaml of a bot nobody has edited yet. */
+function botYaml(name, harness, charter) {
+  const header = `# ${displayName(name)}. Ask Bot Father for changes rather than editing this file.\n\n`;
+  return header + stringify({ name, harness, charter, rules: [], skills: [], sessions: [] }, YAML_OUT);
 }
 
-/** A session's settings, in the order they are written, without the ones left out. */
+/**
+ * Everything a session can set, in the order it is written down. One list, so
+ * that a setting cannot reach `bot.yaml` through one place and be dropped by
+ * another.
+ */
+export const SESSION_FIELDS = [
+  'name', 'harness', 'model', 'effort', 'context', 'approval', 'prompt', 'prompt_file', 'work_dir', 'extra_args',
+];
+
+/** A session's settings, in that order, without the ones left out. */
 function ordered(session) {
   const entry = {};
-  for (const key of ['name', 'harness', 'model', 'effort', 'context', 'approval', 'prompt', 'work_dir', 'extra_args']) {
+  for (const key of SESSION_FIELDS) {
     if (session[key] !== undefined) entry[key] = session[key];
   }
   return entry;
 }
-
-/** A list item, moved in to where the list it is joining sits. */
-const indented = (item, indent) => item.replace(/^(?!$)/gm, indent);
-
-const endsInNewline = (text) => (text === '' || text.endsWith('\n') ? text : `${text}\n`);
 
 function parseYaml(file) {
   try {

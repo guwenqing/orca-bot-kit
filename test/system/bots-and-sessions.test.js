@@ -34,6 +34,7 @@ import { mkdtemp, readFile, readlink, realpath, rm, stat } from 'node:fs/promise
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { setTimeout } from 'node:timers/promises';
 import { parse } from 'yaml';
 
 /** The Orca CLI that works for a normal user (tech notes, section 1). */
@@ -65,6 +66,25 @@ function allTerminals() {
 
 /** The terminals in one workspace, by the path they were opened in. */
 const terminalsAt = (home) => allTerminals().filter((terminal) => terminal.worktreePath === home);
+
+/**
+ * The tabs Orca lists at `home` once it has caught up with what was closed.
+ * `terminal close` answers ok before `terminal list` stops reporting the tab —
+ * seen live, for a second or two on a busy machine, and a second close of the
+ * same handle then fails with `terminal_handle_stale`. So the listing is read
+ * again until the closed tabs are out of it, rather than read once and
+ * believed. What comes back when the wait runs out is whatever Orca still
+ * says, for the assertion to fail on.
+ */
+async function terminalsAfterClosing(home, closed, within = 5000) {
+  const until = Date.now() + within;
+  let left = terminalsAt(home);
+  while (left.some((terminal) => closed.includes(terminal.tabId)) && Date.now() < until) {
+    await setTimeout(250);
+    left = terminalsAt(home);
+  }
+  return left;
+}
 
 /** Every workspace Orca knows about right now. */
 function allSetups() {
@@ -130,10 +150,12 @@ test('two bots on the two harnesses come up in the real Orca, and nothing else i
 
   // Registered before anything is created, so it runs however this test ends.
   t.after(async () => {
+    const closed = [];
     for (const home of homes) {
       for (const terminal of terminalsAt(home)) {
         if (before.handles.has(terminal.handle)) continue;
         orca(['terminal', 'close', '--terminal', terminal.handle, '--tab']);
+        closed.push(terminal.tabId);
       }
     }
     for (const setup of allSetups()) {
@@ -148,7 +170,7 @@ test('two bots on the two harnesses come up in the real Orca, and nothing else i
       assert.ok(left.has(handle), `${handle} was open before this test and is gone now`);
     }
     for (const home of homes) {
-      assert.deepEqual(terminalsAt(home), [], `this test left tabs behind in ${home}`);
+      assert.deepEqual(await terminalsAfterClosing(home, closed), [], `this test left tabs behind in ${home}`);
     }
   });
 

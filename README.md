@@ -69,7 +69,10 @@ obk up          --bots /path/to/my-bots
 charter, `CLAUDE.md` as a symlink to it, and a `.gitignore` for `work/`.
 `session add` writes one session into `bot.yaml`: its harness (the bot's unless
 it says otherwise), model, effort, context window, approval level, start prompt,
-work dir and any extra arguments for the harness. Anything you leave out is the
+work dir and any extra arguments for the harness. A start prompt is either text
+(`--prompt`) or, when it is long, a file in the bot home the session points at
+(`--prompt-file prompts/reviewer.md`), and it reaches the harness exactly as
+written. Anything you leave out is the
 harness's own default; the kit names no model of its own. The approval level is
 `auto` — the harness's real auto mode — unless you ask for `ask` or, in those
 words, `dangerously-skip`
