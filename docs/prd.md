@@ -215,13 +215,13 @@ TDD and tests:
 - The author's tests are validated by mutation testing, so silly tests are caught. [decided]
 - Mutation check, the rule [decided]:
   1. When: once per piece of work, after the tests are green and before calling it done. Not after every change or fix; again only if a late change rewrote a large part.
-  2. What: only the code this work changed, never the whole project.
-  3. Skip it, and say so, for docs or config only, renames and wording, throwaway prototypes, and code with no runnable tests.
-  4. Proportion: no routine long testing for something minor, and never again and again for the same PR. The effort fits the size and risk of the change; when a run would be long, narrow it (changed files, the risky logic, or a sample) and say so. There is no fixed time number.
-  5. Purpose: would the tests catch a real mistake? There is no score to reach.
-  6. Survivors: fix one only if it shows a gap in behaviour the requirement cares about. Ignore message wording, logging and no-visible-difference cases. List the rest in two or three lines; do not analyse every one.
-  7. Who: the implementer runs it; a test that needs strengthening goes to the separate test author.
-  8. Tool: the language's standard tool; if it is not set up, guide the user to set it up and follow their choice; failing that, the agent does it by hand with five to eight small deliberate breaks, chosen before looking at the tests, each reverted with git.
+  2. What: only the logic this work changed that matters, never the whole project.
+  3. How, by default: the agent does it itself, small and targeted: five to eight deliberate breaks in the changed logic, chosen before looking at the tests, each run, expected to fail, and reverted. A tool is not the default; it is an opt-in deeper check for a risky piece of work, used only when asked for, and never waited on.
+  4. Skip it, and say so, for docs or config only, renames and wording, throwaway prototypes, and code with no runnable tests.
+  5. Proportion: no routine long testing for something minor, and never again and again for the same PR. The effort fits the size and risk of the change.
+  6. Purpose: would the tests catch a real mistake? There is no score to reach.
+  7. Survivors: fix one only if it shows a gap in behaviour the requirement cares about. Ignore message wording, logging and no-visible-difference cases. List the rest in two or three lines; do not analyse every one.
+  8. Who: the implementer runs it; a test that needs strengthening goes to the separate test author.
   9. Report: three lines: what it ran on, killed and survived, what was done about the survivors.
 - Refactoring is outside the red/green loop. A small refactor is part of the change and fits the same old contract (so the existing tests stay green — the assistant's reading). If a change is so substantial that the old tests cannot hold, the tests are redone the proper way: the separate author again, usually deleting the old tests first. A large-scale refactor is a planned activity of its own. [decided]
 
