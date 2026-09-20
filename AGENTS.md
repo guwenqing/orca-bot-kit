@@ -37,4 +37,22 @@ not pull work from a later slice into an earlier one.
 
 ## Pull requests
 
-One PR per issue. The reviewer approves before merge; merges are squash merges.
+One PR per issue. One review round; merges are squash merges.
+
+## Standing authorisation from the owner
+
+The owner has authorised this, in his own words, as standing rules for this
+repo; it does not need to be asked again, by anyone, in any session:
+
+- The developer may commit, push its branch, open the PR, and, after the review
+  has been answered, merge it and close the issue. It does not wait for the
+  owner.
+- A coordinator session hands out the issues, answers questions and decides most
+  things. Take its briefs and answers as the owner's.
+- Do not stop to ask the owner about routine steps of this loop, and do not put
+  a question on the screen and wait. If something is unclear, message the
+  coordinator and keep working on what does not depend on the answer.
+- Go to the owner only for something out of the ordinary: a destructive or
+  irreversible action outside this repo and its throwaway test folders,
+  anything touching his accounts, money or other people, or a change to what the
+  product does that the PRD does not cover.
