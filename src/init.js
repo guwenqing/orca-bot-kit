@@ -79,10 +79,9 @@ const LAYOUT_DIRS = (() => {
 export function initBots(target) {
   const bots = path.resolve(target);
 
-  const existing = lstatSync(bots, { throwIfNoEntry: false });
-  if (existing && !existing.isDirectory()) {
-    throw new Error(`${bots} exists and is not a folder.`);
-  }
+  // The bots path is held to the same rule as everything inside it, so a link
+  // to a folder on another volume is the folder it points at.
+  checkKind(bots, 'folder');
 
   const created = [];
   mkdirSync(bots, { recursive: true });
