@@ -1,4 +1,4 @@
-# ADR 0009: Skills are organised by technique and carry the `bk-` prefix
+# ADR 0009: Skills are organised by technique and carry the `obk-` prefix
 
 Date: 2026-09-19. Status: the Decision is the owner's unless a sentence is marked (proposed).
 
@@ -8,10 +8,10 @@ The skill set could be one skill per role (developer, architect, reviewer) or sm
 
 ## Decision
 
-Skills are per technique (`bk-tdd`, `bk-debugging`, `bk-arch`, `bk-reviewing`, `bk-grilling`, `bk-personal-facilitation`, utilities, management skills). A role is a charter plus a choice of skills; Bot Father recommends and provides the skills for each role the user creates. Every kit skill is named `bk-<name>`, and the folder, the `name` field and the symlink are identical. A skill does not rely on another skill being loaded; what it needs, it carries (proposed).
+Skills are per technique (`obk-tdd`, `obk-debugging`, `obk-arch`, `obk-reviewing`, `obk-grilling`, `obk-personal-facilitation`, utilities, management skills). A role is a charter plus a choice of skills; Bot Father recommends and provides the skills for each role the user creates. Every kit skill is named `obk-<name>`, and the folder, the `name` field and the symlink are identical. A skill does not rely on another skill being loaded; what it needs, it carries (proposed).
 
 ## Consequences
 
 - No clash with built-in commands in either harness, and kit skills are recognisable at a glance.
-- Some text is repeated across skills (for example the shapes of bad tests appear in both `bk-tdd` and `bk-reviewing`).
+- Some text is repeated across skills (for example the shapes of bad tests appear in both `obk-tdd` and `obk-reviewing`).
 - The role-to-skills table lives in the management skill.
