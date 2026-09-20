@@ -47,10 +47,14 @@ function orcaIsReady() {
  * The system test files, named one by one. `node --test` with nothing to run
  * goes hunting through the whole tree instead, which would drag the ordinary
  * suite into a run meant for these.
+ *
+ * Subfolders count. Grouping system tests by feature is the obvious next step,
+ * and `npm test` does not match them either, so a file one folder deeper would
+ * be run by nobody while both commands still reported success.
  */
 function testFiles() {
   if (!existsSync(systemTests)) return [];
-  return readdirSync(systemTests)
+  return readdirSync(systemTests, { recursive: true })
     .filter((name) => name.endsWith('.test.js'))
     .map((name) => path.join(systemTests, name));
 }

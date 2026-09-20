@@ -153,6 +153,44 @@ describe('test-system', { concurrency: true }, () => {
     assert.match(result.stdout, /BETA/);
   });
 
+  test('a system test in a folder under test/system/ is run, and a file that is not a test is not', async (t) => {
+    // A folder under test/system/ is the obvious place to group system tests,
+    // and a runner that only reads the top level loses them without a word:
+    // `npm test` does not match them either, so both layers report success
+    // while nobody runs the file.
+    const fixture = await createRepo(t, {
+      files: {
+        'test/system/alpha.test.js': marker('ALPHA'),
+        'test/system/nested/forgotten.test.js': marker('FORGOTTEN'),
+        'test/system/nested/support.js': "process.stdout.write('NOT-A-TEST\\n');\n",
+      },
+    });
+
+    const result = await fixture.run();
+
+    const output = result.stdout + result.stderr;
+    assert.match(output, /ALPHA/);
+    assert.match(output, /FORGOTTEN/);
+    assert.doesNotMatch(output, /NOT-A-TEST/);
+  });
+
+  test('a failing system test under test/system/ fails the command from any depth', async (t) => {
+    const fixture = await createRepo(t, {
+      files: {
+        'test/system/nested/forgotten.test.js': [
+          "import test from 'node:test';",
+          '',
+          "test('forgotten', () => { throw new Error('FORGOTTEN failed'); });",
+          '',
+        ].join('\n'),
+      },
+    });
+
+    const result = await fixture.run();
+
+    assert.equal(result.code, 1);
+  });
+
   test('a failing system test makes the command fail', async (t) => {
     const fixture = await createRepo(t, {
       files: {
