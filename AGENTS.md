@@ -68,9 +68,14 @@ repo; it does not need to be asked again, by anyone, in any session:
   developer asks the reviewer for a review directly, by typing one line into the
   reviewer's Orca tab (`orca terminal send --terminal <handle> --text "Review PR #N …" --enter`,
   the handle from `orca terminal list --json`, the tab titled "reviewer"; check the tab is idle
-  first), and reads the verdict as a comment on the PR. The reviewer only comments
-  on the PR. Second reviews happen only when the coordinator says the case is out
-  of the ordinary.
+  first), and the reviewer returns to whoever asked: it posts the review as a comment on
+  the PR and then types one line into the requester's tab (found in
+  `orca terminal list --json` by its folder: the product developer works in
+  `orca-bot-kit`, the skills developer in `orca-bot-kit-skills`): "Review of PR #N
+  posted: VERDICT …". The coordinator is not in between. It hears from a developer
+  only when it needs help, when something is out of the ordinary, or when an issue
+  is done and it needs the next one. Second reviews happen only when the
+  coordinator says the case is out of the ordinary.
 - Do not stop to ask the owner about routine steps of this loop, and do not put
   a question on the screen and wait. If something is unclear, message the
   coordinator and keep working on what does not depend on the answer.
