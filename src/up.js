@@ -9,6 +9,7 @@ import path from 'node:path';
 
 import { readBook, tabIdsIn, writeBook } from './book.js';
 import { botDir, botNames, displayName, readBot } from './bot.js';
+import { installHook } from './hooks.js';
 import { harnessOf, isShortPrompt, launchCommand, sessionTrouble, startPrompt, workDirOf } from './launch.js';
 import { asFolderProject, findProject, makeProject, openTab, retitleTab, tabs, tuiInTab, typeIntoTab } from './orca.js';
 
@@ -55,6 +56,18 @@ export function bringUp(bots, { bot: onlyBot, session: onlySession } = {}) {
     return { home, bot: readBot(home, name) };
   });
   for (const { bot, home } of chosen) refuseWhatCannotStart(bot, home, onlySession);
+
+  // And the kit's hook goes into every bot folder before Orca is asked for
+  // anything, for the same reason: a harness reads its hooks when it comes up,
+  // so one written later would miss the session it was written for (ADR 0010),
+  // and a bot folder the kit cannot write it into stops the run with nothing
+  // opened anywhere. Only the harnesses a bot actually runs on; a bot with no
+  // sessions gets none.
+  for (const { bot, home } of chosen) {
+    for (const harness of new Set(sessionsOf(bot, onlySession).map((session) => harnessOf(session, bot.harness)))) {
+      installHook(home, harness, { bots, bot: bot.name });
+    }
+  }
 
   return chosen.flatMap(({ bot, home }) => bringUpBot(bots, home, bot, onlySession));
 }
@@ -121,11 +134,17 @@ function bringUpSession(bots, home, book, live, session, bot, title) {
   // Everything that can be refused is settled before Orca is asked for
   // anything, so a session the kit cannot start leaves no tab behind.
   const workDir = workDirOf(session, home);
-  const prompt = startPrompt(session, { home, workDir });
+
+  // A session the book holds an id for is picked up where it left off, with the
+  // conversation it had: the tab is gone, but the harness still has the
+  // session. Its duty was given to it once and is not given again (PRD 6.4) —
+  // after a clear it is, and that is the hook's work, not this run's.
+  const resume = book.sessions[session.name]?.session;
+  const prompt = resume === undefined ? startPrompt(session, { home, workDir }) : undefined;
   // Anything longer than a line goes to the harness out of a file, rather than
   // through the tab's shell a character at a time.
   const promptFile = prompt === undefined || isShortPrompt(prompt) ? undefined : promptPath(bots, bot.name, session.name);
-  const command = launchCommand(session, { harness: harnessOf(session, bot.harness), home, workDir, prompt, promptFile });
+  const command = launchCommand(session, { harness: harnessOf(session, bot.harness), home, workDir, prompt, promptFile, resume });
 
   // A work dir is a plain folder, made for the session before it is told about
   // it (PRD 6.4). Nothing here is a git worktree.
@@ -143,8 +162,10 @@ function bringUpSession(bots, home, book, live, session, bot, title) {
 
   // Written down the moment it exists, before anything that can fail. A tab
   // whose id never reached the book is a tab nobody owns: the next run would
-  // start a second harness beside it and take this one for the spare.
-  book.sessions[session.name] = { tab: made.tabId };
+  // start a second harness beside it and take this one for the spare. What the
+  // book already knew about the session — the harness session it runs as, and
+  // the ones before it — stays; only the tab is new.
+  book.sessions[session.name] = { ...book.sessions[session.name], tab: made.tabId };
   writeBook(home, book);
 
   // Typing it in is the way: for a project the kit has just made, giving Orca
@@ -169,7 +190,7 @@ function bringUpSession(bots, home, book, live, session, bot, title) {
   // duty with it, and nobody has been told anything.
   const promptSent = prompt === undefined ? undefined : tui.running === true;
 
-  return entry(made, { bot: bot.name, name: session.name, created: true, ...tui, promptSent, promptFile });
+  return entry(made, { bot: bot.name, name: session.name, created: true, ...tui, promptSent, promptFile, resumed: resume !== undefined });
 }
 
 /**
@@ -199,8 +220,11 @@ function orcaProject(home, title) {
 const promptPath = (bots, bot, session) =>
   path.join(`${bots}.prompts`, `${encodeURIComponent(bot)}.${encodeURIComponent(session)}.txt`);
 
-function entry(tab, { bot, name, created, running = false, blockedReason, promptSent, promptFile }) {
+function entry(tab, { bot, name, created, running = false, blockedReason, promptSent, promptFile, resumed }) {
   const made = { bot, name, title: tab.title, tabId: tab.tabId, terminal: tab.handle, created, harnessStarted: running };
+  // Whether this run picked the session up where it was or started a new one.
+  // Only for a tab this run opened: a tab that was already there was left alone.
+  if (resumed !== undefined) made.resumed = resumed;
   // Orca's own words for what is on screen waiting to be answered, when it
   // gave any: the caller acts on it, the kit only passes it on.
   if (blockedReason !== undefined) made.blockedReason = blockedReason;

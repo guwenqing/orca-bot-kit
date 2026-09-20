@@ -84,6 +84,25 @@ launch command and its start prompt. It only ever adds — it never closes a tab
 so run it after a restart, or whenever something is missing. `--bot` and
 `--session` bring up one thing rather than the fleet.
 
+## Sessions that come back
+
+Each bot keeps a book, `sessions.yaml` in its folder: which Orca tab each session
+lives in, which harness session it is running as, and every id it ran as before,
+with why that one ended and when
+([ADR 0002](docs/adr/0002-the-book-is-the-authority-for-session-ids.md)).
+
+The book stays true to the harness through a hook `obk up` puts in the bot's own
+folder — `.claude/settings.json` or `.codex/hooks.json`, never your user-level
+settings ([ADR 0010](docs/adr/0010-kit-hooks-live-in-the-bot-folder.md)). Your own
+settings in those files are kept. Codex asks you to trust a hooks file the first
+time it sees one; answer its question in the tab.
+
+So: kill a tab, or reboot, and `obk up` brings the session back with the
+conversation it was having, rather than starting a new one. Clear a session —
+`/clear` on Claude Code, `/new` on Codex — and the kit writes down the new id,
+keeps the old one, and gives the session its start prompt again, because that
+prompt is what tells one session's duty from another's.
+
 ## Working on the kit
 
 ```sh

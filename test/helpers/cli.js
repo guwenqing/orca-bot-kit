@@ -38,10 +38,20 @@ export async function packageVersion() {
   return pkg.version;
 }
 
-/** Spawn a program and capture its exit code and streams. Never rejects on a non-zero exit. */
-function capture(command, args, options) {
+/**
+ * Spawn a program and capture its exit code and streams. Never rejects on a
+ * non-zero exit.
+ *
+ * With no `stdin` the child gets none at all, which is how a command run from
+ * a script gets it and how every command but one is used here. `stdin: <text>`
+ * gives it a pipe carrying that text and closes it, the way a harness runs a
+ * hook and hands it the event on standard input. An empty string is a pipe
+ * that closes with nothing in it, which is not the same as no pipe.
+ */
+function capture(command, args, options = {}) {
+  const { stdin, ...rest } = options;
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { ...options, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(command, args, { ...rest, stdio: [stdin === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'] });
     let stdout = '';
     let stderr = '';
     child.stdout.setEncoding('utf8');
@@ -50,6 +60,12 @@ function capture(command, args, options) {
     child.stderr.on('data', (chunk) => { stderr += chunk; });
     child.on('error', reject);
     child.on('close', (code, signal) => resolve({ code, signal, stdout, stderr }));
+    if (stdin !== undefined) {
+      // A hook that never reads its input leaves the pipe to be broken when it
+      // exits; that is the hook's business, not a failure of the run.
+      child.stdin.on('error', () => {});
+      child.stdin.end(stdin);
+    }
   });
 }
 
@@ -63,6 +79,9 @@ export function git(args, cwd) {
  * kit types into it. Used to prove a launch command means what it says: the
  * harness it starts is a fake on PATH that writes down the arguments it got, so
  * the test reads the argv a real harness would have been given.
+ *
+ * `options.stdin` gives the line an input to read, which is how a harness runs
+ * the kit's hook: the event goes in on standard input.
  */
 export function sh(text, options) {
   return capture('/bin/sh', ['-c', text], options);
@@ -135,10 +154,16 @@ export async function createSandbox(t) {
     env,
     /** Path inside the sandbox's working directory. */
     path: (...parts) => path.join(cwd, ...parts),
-    /** Run `obk <args>` from the sandbox working directory (or `options.cwd`), with `options.env`. */
+    /**
+     * Run `obk <args>` from the sandbox working directory (or `options.cwd`),
+     * with `options.env`. `options.stdin` hands the run that text on standard
+     * input; with nothing given it gets no input at all, as a command run from
+     * a script does.
+     */
     run: (args, options = {}) => capture('obk', args, {
       cwd: options.cwd ?? cwd,
       env: options.env ?? env,
+      stdin: options.stdin,
     }),
     /** The fake Orca: what it is, what it knows, and what it was asked. */
     orca: {
@@ -222,6 +247,124 @@ export async function tabsOfBot(box, bots, bot) {
 
 /** The book: what the kit knows about one bot's Orca project and its sessions. */
 export const bookOf = (bots, bot = 'bot-father') => path.join(bots, 'bots', bot, 'sessions.yaml');
+
+/** The book, parsed, or an empty mapping when the run never wrote one. */
+export async function bookIn(bots, bot = 'bot-father') {
+  try {
+    return parse(await readFile(bookOf(bots, bot), 'utf8')) ?? {};
+  } catch (error) {
+    if (error.code === 'ENOENT') return {};
+    throw error;
+  }
+}
+
+/** What the book says about one session of one bot: its tab, its harness session, its history. */
+export const sessionIn = async (bots, bot, session) => (await bookIn(bots, bot)).sessions?.[session];
+
+/**
+ * What a harness hands a SessionStart hook on standard input. Proven live on
+ * both harnesses (Claude Code 2.1.278, Codex 0.155.1): the same JSON, the same
+ * five keys, and `source` one of `startup`, `resume`, `clear`, `compact`.
+ * Each harness adds a key or two of its own; nothing the kit does reads them.
+ *
+ * `event` is there because the kit's answer echoes the event it was sent rather
+ * than naming one of its own.
+ */
+export const sessionStart = ({
+  session,
+  source = 'startup',
+  event = 'SessionStart',
+  cwd = '/nowhere',
+  transcript = '/nowhere/transcript.jsonl',
+}) => `${JSON.stringify({
+  session_id: session,
+  transcript_path: transcript,
+  cwd,
+  hook_event_name: event,
+  source,
+})}\n`;
+
+/**
+ * Run the kit's hook the way a harness runs it: the event on standard input and
+ * the Orca pane's own `ORCA_TAB_ID` in the environment (proven live: Orca's
+ * variables reach a program started in a tab and its children).
+ *
+ * `tab` left out is a hook that ran somewhere Orca did not set one. `stdin`
+ * overrides the event, for the inputs a harness should never send but might.
+ */
+export const recordSession = (box, { bots, bot, tab, env, stdin, ...payload }) => box.run(
+  ['session', 'record', '--bots', bots, '--bot', bot],
+  {
+    env: { ...(env ?? box.env), ...(tab === undefined ? {} : { ORCA_TAB_ID: tab }) },
+    stdin: stdin ?? sessionStart(payload),
+  },
+);
+
+/**
+ * Where each harness reads a project's hooks from, inside a bot home. Both
+ * were proven live on this machine: Claude Code fires a `SessionStart` hook
+ * out of `<cwd>/.claude/settings.json` and Codex out of `<cwd>/.codex/hooks.json`,
+ * with no user-level settings involved either side (ADR 0010).
+ */
+export const HOOK_FILES = {
+  claude: path.join('.claude', 'settings.json'),
+  codex: path.join('.codex', 'hooks.json'),
+};
+
+/** The file a bot's `<harness>` hooks live in. */
+export const hookFileOf = (bots, bot, harness) => path.join(botHomeOf(bots, bot), HOOK_FILES[harness]);
+
+/** The parsed hook file, or undefined when the kit wrote none. */
+export async function hooksIn(bots, bot, harness) {
+  let text;
+  try {
+    text = await readFile(hookFileOf(bots, bot, harness), 'utf8');
+  } catch (error) {
+    if (error.code === 'ENOENT') return undefined;
+    throw error;
+  }
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    throw new Error(`${hookFileOf(bots, bot, harness)} should be JSON a harness can read, got (${error.message}):\n${text}`);
+  }
+}
+
+/**
+ * The object in a parsed hook file that holds the events, wherever the harness
+ * keeps it: the one with a `SessionStart` key. Every hook file the kit writes
+ * has one, because `SessionStart` is the one event it asks about.
+ */
+export function eventsIn(hooks) {
+  if (hooks === null || typeof hooks !== 'object' || Array.isArray(hooks)) return undefined;
+  if ('SessionStart' in hooks) return hooks;
+  for (const held of Object.values(hooks)) {
+    const found = eventsIn(held);
+    if (found !== undefined) return found;
+  }
+  return undefined;
+}
+
+/**
+ * The kit's own hook commands in a parsed hook file, by the event each sits
+ * under: `{ SessionStart: ['<the command>'] }` for a file the kit has written.
+ * An event carrying none of them is not in the answer at all.
+ *
+ * How the file is arranged is the implementer's — a harness's hook format is
+ * the harness's — but two things are not. The kit's entry is a shell line that
+ * runs `obk session record`, and it belongs to one named event.
+ */
+export function kitEventsIn(hooks) {
+  const events = eventsIn(hooks) ?? {};
+  return Object.fromEntries(
+    Object.entries(events)
+      .map(([event, held]) => [event, stringsIn(held).filter((text) => /\bsession record\b/.test(text))])
+      .filter(([, commands]) => commands.length > 0),
+  );
+}
+
+/** The kit's own hook commands under `SessionStart`, which is where they belong. */
+export const kitHooksIn = (hooks) => kitEventsIn(hooks).SessionStart ?? [];
 
 /** Every string anywhere under a value, however the shape around it is arranged. */
 function stringsIn(value) {

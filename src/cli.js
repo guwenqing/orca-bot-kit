@@ -15,6 +15,7 @@ import { addSession, createBot, SESSION_FIELDS } from './bot.js';
 import { initBots } from './init.js';
 import { APPROVALS, HARNESSES } from './launch.js';
 import { orcaTrouble } from './orca.js';
+import { recordSession, TAB_ENV } from './record.js';
 import { BOT_FATHER, bringUp } from './up.js';
 
 const USAGE = `obk — Orca Bot Kit.
@@ -44,7 +45,12 @@ Usage:
   obk up --bots <path> [--bot <bot>] [--session <name>]
                             Open whatever is missing in Orca, for every bot or
                             for the one you name. It only ever adds; it never
-                            closes a tab.
+                            closes a tab. A session the book knows the harness
+                            session of comes back with its conversation.
+  obk session record --bots <path> --bot <bot>
+                            For the kit's own hook, not for typing: it reads
+                            what the harness says about a session starting on
+                            standard input and writes it into the book.
   obk --version             Print the kit's version.
   obk --help                Print this text.
 
@@ -58,6 +64,7 @@ const COMMANDS = {
   up: ['bots'],
   'bot create': ['bots', 'name', 'harness'],
   'session add': ['bots', 'bot', 'name'],
+  'session record': ['bots', 'bot'],
 };
 
 /** What each flag is for, in the sentence a caller reads when it is missing. */
@@ -146,9 +153,32 @@ function run(argv) {
   }
 
   const bots = path.resolve(values.bots);
+  if (command === RECORD) return record(bots, values.bot);
+
   const { answer, lines } = commands[command](bots, values);
 
   process.stdout.write(values.json ? `${JSON.stringify(answer, null, 2)}\n` : `${lines.join('\n')}\n`);
+  return 0;
+}
+
+/** The one command a harness runs rather than a person: the kit's hook. */
+const RECORD = 'session record';
+
+/**
+ * What the kit's hook does with what the harness told it, and what it answers.
+ *
+ * A hook runs inside the user's own session, so this one stays out of the way:
+ * it writes on standard output only what the harness is to read as JSON, and
+ * whatever goes wrong, it goes wrong quietly. A book left stale is a thing the
+ * health check finds later; a session disturbed is the user's work (ADR 0010).
+ */
+function record(bots, bot) {
+  try {
+    const answer = recordSession(bots, bot, JSON.parse(readFileSync(0, 'utf8')), process.env[TAB_ENV]);
+    if (answer !== undefined) process.stdout.write(`${JSON.stringify(answer)}\n`);
+  } catch {
+    // Nothing: see above.
+  }
   return 0;
 }
 
@@ -246,16 +276,24 @@ function tabLines({ created, completed, tabs }, summary) {
 function harnessLines(tab) {
   if (!tab.created || tab.name === null) return [];
 
+  // What the line that was typed in asked for: the session the book holds for
+  // this one, or a new one because the book holds none yet.
+  const how = tab.resumed === true
+    ? ['             it was told to resume the session the book holds, with its conversation.']
+    : ['             it was told to start a new session: the book holds none for this one yet.'];
+
   if (!tab.harnessStarted) {
     return [
+      ...how,
       '             the harness was typed in, and no session came up in the tab.',
       `             Look at it:  orca terminal read --terminal ${tab.terminal} --screen`,
     ];
   }
 
   const lines = tab.blockedReason === undefined
-    ? ['             the harness was typed in and came up.']
+    ? [...how, '             the harness was typed in and came up.']
     : [
+      ...how,
       `             the harness was typed in and came up, waiting on: ${tab.blockedReason}`,
       `             Look at it:  orca terminal read --terminal ${tab.terminal} --screen`,
     ];
