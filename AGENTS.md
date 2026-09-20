@@ -34,34 +34,6 @@ not pull work from a later slice into an earlier one.
   change and verifies it again.
 - Do not say it works from a plausible diff. Run the check and read the output.
 
-## How a slice goes
-
-1. Read the issue: it gives the intent, the boundary and how we will know it
-   works. It does not say how. Read the PRD sections and ADRs it names, the
-   tech notes for the facts, and the inputs it lists. Nothing is decided by the
-   issue's wording beyond that.
-2. Research before you build. Find how the codebase and the platform already do
-   things; prove any unverified fact you depend on with a small live experiment
-   and write what you saw into `docs/tech-notes.md`. When the shape of the work
-   is open, or the issue says so, write a short proposal first (what you will
-   build, what you take from where, what you leave out) and send it to the
-   coordinator before you write it.
-3. Ask when unclear: message the coordinator with the question and the answer
-   you would pick, and keep working on what does not depend on it.
-4. Build test first with a separate author (a fresh subagent), one slice at a
-   time; the author works against fakes only and never touches the real Orca or
-   the real harnesses.
-5. Check the real thing: a live check against the real Orca and harnesses where
-   the slice touches them, and a system test next to it so the check can be
-   repeated. Then the mutation check, once.
-6. Open the PR: what it does, how you verified it, what you left out and why,
-   and the mutation check in three lines. CI green.
-7. Ask the reviewer directly (below). Fix what it asks, reply on the PR per
-   finding, merge (squash), close the issue.
-8. Clean up: nothing of yours left in Orca, no process left running, throwaway
-   folders removed. Then message the coordinator that the issue is done, and
-   stop.
-
 ## Live checks on the owner's machine
 
 The owner works in this same Orca. In every live check and system test: use a
@@ -70,17 +42,6 @@ remove them right after each run; never type into or close a tab you did not
 create; never `orca terminal close --worktree … --all`; and answer a harness's
 first-run prompts yourself in your own tabs (trust the folder, accept an
 update). List the owner's tabs before and after and confirm they are unchanged.
-
-## Rules and skills work
-
-A rule unit or a skill is writing, not product code. Research first: the
-owner's own words and decisions (the research pack, local, stays out of the
-repo), then the PRD, then the sources; the owner's words win. Propose the shape
-and what you take from where; write only after the coordinator has seen the
-proposal. Take the good parts in full, not a summary; lightweight is not fluffy;
-plain tone, defaults not bans, techniques not process. A skill must work in both
-harnesses (only `name` and `description` are portable frontmatter) and never
-contradict the everyday rules.
 
 ## Killing processes: hard rules
 
