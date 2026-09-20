@@ -101,7 +101,7 @@ Each line is a check a developer can run. Issues turn these into acceptance test
 - `work/` is gitignored. [decided — blanket]
 - Per-bot `memory/`: plain notes all sessions of the bot can read and write; "remember this" writes there; writing does not message other sessions. [decided]
 
-- Whenever the kit writes to a file the user owns, what the user wrote is preserved and the result is valid; otherwise the kit refuses and writes nothing. It uses the standard library for the format rather than editing text by hand. [decided]
+- Writing is not banned anywhere: an AI acting on the user's instruction may write whatever the user asks, user-level settings included. What the kit's own mechanical code writes is narrower: it writes the files the kit manages in the bots repo, and it does not reach into the user's global or user-level settings by itself. When that code edits a file that also holds the user's own text, it keeps what the user wrote and leaves a valid file, using the standard library for the format. [decided]
 
 ### 6.4 Bots and sessions
 
