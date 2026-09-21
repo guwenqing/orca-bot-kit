@@ -4,7 +4,7 @@
 // conversation and Orca's resume record with it. Run it twice and the second
 // run does nothing.
 
-import { mkdirSync, realpathSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { forgetClaimed, readBook, sessionIdsIn, tabIdsIn, updateBook, withUnclaimed } from './book.js';
@@ -62,13 +62,30 @@ export async function bringUp(bots, { bot: onlyBot, session: onlySession } = {})
 
   // Every bot's AGENTS.md is built before Orca is asked for anything, because a
   // session reads that file as it starts: a build landing after the tab was
-  // opened would reach nobody until the next restart (PRD 6.6). A bot whose
-  // build is in trouble is reported and the run carries on — the file is the
-  // user's, and one they edited is no reason to leave a session down.
-  // Built at the path the user spelled, not at the one Orca is given: `home` is
-  // resolved for Orca's sake, and a folder reached through a link would
-  // otherwise be reported as a road out of the bots folder and back in.
-  const rules = chosen.map(({ bot }) => buildAgents(bots, botDir(bots, bot.name), bot));
+  // opened would reach nobody until the next restart (PRD 6.6). It is built at
+  // the path the user spelled rather than the resolved one, which is Orca's,
+  // so a folder reached through a link is not reported as a road out of the
+  // bots folder and back in.
+  //
+  // A bot the build left with no instructions file at all does not come up:
+  // its charter is the boundary it acts inside, and a session started without
+  // one has no boundary, which is worse than a session that is not running. A
+  // file the user edited themselves is another matter — that bot has its
+  // instructions, they are simply theirs, and it comes up like any other.
+  const rules = [];
+  const running = [];
+  for (const chose of chosen) {
+    const built = buildAgents(bots, botDir(bots, chose.bot.name), chose.bot);
+    if (existsSync(built.file)) {
+      running.push(chose);
+      rules.push(built);
+    } else {
+      rules.push({
+        ...built,
+        trouble: `${built.trouble} Its sessions were not started: a bot comes up with its rules or not at all.`,
+      });
+    }
+  }
 
   // And the kit's hook goes into every bot folder before Orca is asked for
   // anything, for the same reason: a harness reads its hooks when it comes up,
@@ -76,14 +93,14 @@ export async function bringUp(bots, { bot: onlyBot, session: onlySession } = {})
   // and a bot folder the kit cannot write it into stops the run with nothing
   // opened anywhere. Only the harnesses a bot actually runs on; a bot with no
   // sessions gets none.
-  for (const { bot, home } of chosen) {
+  for (const { bot, home } of running) {
     for (const harness of new Set(sessionsOf(bot, onlySession).map((session) => harnessOf(session, bot.harness)))) {
       installHook(home, harness, { bots, bot: bot.name });
     }
   }
 
   const report = [];
-  for (const { bot, home } of chosen) report.push(...await bringUpBot(bots, home, bot, onlySession));
+  for (const { bot, home } of running) report.push(...await bringUpBot(bots, home, bot, onlySession));
   return { tabs: report, rules };
 }
 

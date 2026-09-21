@@ -205,8 +205,11 @@ const commands = {
     refuseWhenOrcaIsDown();
     const { tabs, rules } = await bringUp(bots, { bot: values.bot, session: values.session });
     const answer = { bots, created: [], completed: [], rules, tabs };
-    const up = [...new Set(tabs.map((tab) => tab.bot))].join(', ');
-    return { answer, lines: tabLines(answer, `Up in Orca: ${up}. Your bots folder: ${bots}`) };
+    const up = [...new Set(tabs.map((tab) => tab.bot))];
+    const summary = up.length === 0
+      ? `Nothing was brought up in Orca. Your bots folder: ${bots}`
+      : `Up in Orca: ${up.join(', ')}. Your bots folder: ${bots}`;
+    return { answer, lines: tabLines(answer, summary) };
   },
 
   'bot create'(bots, values) {
@@ -215,13 +218,20 @@ const commands = {
     // that a new bot's file and a rebuilt one are written by the same code.
     const rules = [buildAgents(bots, made.home, readBot(made.home))];
     const answer = { bots, bot: made.bot, home: made.home, created: made.created, rules };
+    // A bot whose rules would not build is made but not finished: it has no
+    // instructions, so `up` will not start it, and saying "give it a session"
+    // would send the caller past the thing that needs settling first.
+    const trouble = rules[0].trouble !== undefined;
     return {
       answer,
       lines: [
         ...made.created.map((entry) => `created    ${entry}`),
         ...rulesLines(rules, bots),
-        `${made.bot} is written. Give it a session:  obk session add --bots ${bots} --bot ${made.bot} --name <name>`,
+        trouble
+          ? `${made.bot} is written, and its rules are not. Settle what the line above says, then:  obk rules build --bots ${bots} --bot ${made.bot}`
+          : `${made.bot} is written. Give it a session:  obk session add --bots ${bots} --bot ${made.bot} --name <name>`,
       ],
+      code: trouble ? 1 : 0,
     };
   },
 
@@ -234,7 +244,10 @@ const commands = {
         ...rulesLines(rules, bots),
         trouble.length === 0
           ? `Rules are built. Your bots folder: ${bots}`
-          : `${trouble.map((entry) => entry.bot).join(', ')}: not built. Settle what the lines above say, then build again.`,
+          // Not "not built": the file itself may be fine and the trouble be
+          // the CLAUDE.md beside it, which is a bot whose rules still do not
+          // reach both harnesses.
+          : `${trouble.map((entry) => entry.bot).join(', ')}: the rules are not in place. Settle what the lines above say, then build again.`,
       ],
       // The build is the whole of this command, so a build it could not make is
       // what the command ends in. `up` answers for its tabs and is not held to

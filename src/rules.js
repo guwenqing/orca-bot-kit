@@ -15,7 +15,7 @@
 // for one of the kit's or a bare name for one of theirs.
 
 import { createHash } from 'node:crypto';
-import { existsSync, lstatSync, readdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse } from 'yaml';
@@ -77,8 +77,7 @@ export function buildAgents(bots, home, bot) {
     return { bot: bot.name, file, state: 'conflict', trouble: error.message };
   }
 
-  const linked = linkClaudeMd(home);
-  return { bot: bot.name, file, state, units: built.units, bytes: statSync(file).size, ...linked };
+  return { bot: bot.name, file, state, units: built.units, bytes: statSync(file).size, ...claudeMd(home, file) };
 }
 
 /**
@@ -273,15 +272,43 @@ function writeBlock(file, body) {
  * `CLAUDE.md` beside `AGENTS.md`, pointing at it: the one way Claude Code is
  * certain to read a bot's rules whatever else is set (tech notes, section 2,
  * and PRD 6.6). The link is relative, so it survives the bots repo being cloned
- * elsewhere. Anything already at that name is the user's and is left as it is.
+ * elsewhere.
  *
- * Returns `{ linked }` on the run that made it, so the command that made a bot
- * can name every file it wrote, and nothing on the runs after.
+ * The link is made by asking for it, not by looking first and then asking: the
+ * file system answers "there is already something there" in one step, and a
+ * look followed by an act has a gap in the middle where another run of the kit
+ * fits.
+ *
+ * Whatever is already there is the user's and stays. What the build owes them
+ * is the fact they cannot see: Claude Code reads a `CLAUDE.md` *instead of*
+ * `AGENTS.md`, so one that is not this bot's `AGENTS.md` leaves the two
+ * harnesses starting from different rules, which is the one thing ADR 0003
+ * says must not happen.
+ *
+ * Returns `{ linked }` on the run that made the link, `{ trouble }` when what
+ * is there is not this bot's rules, and nothing at all when it is.
  */
-function linkClaudeMd(home) {
+function claudeMd(home, file) {
   const link = path.join(home, CLAUDE);
-  if (lstatSync(link, { throwIfNoEntry: false }) !== undefined) return {};
 
-  symlinkSync(AGENTS, link);
-  return { linked: link };
+  try {
+    symlinkSync(AGENTS, link);
+    return { linked: link };
+  } catch (error) {
+    if (error.code !== 'EEXIST') {
+      return { trouble: `${link} could not be linked to AGENTS.md (${error.message}), so Claude Code may not read this bot's rules.` };
+    }
+  }
+
+  if (sameFile(link, file)) return {};
+  return { trouble: `${link} is not this bot's AGENTS.md, and Claude Code reads it in place of one, so a Claude session and a Codex session here would start from different rules. Point it at AGENTS.md, or move it aside and let the build link it.` };
+}
+
+/** Whether two paths are the same file in the end. One that leads nowhere is not. */
+function sameFile(one, other) {
+  try {
+    return realpathSync(one) === realpathSync(other);
+  } catch {
+    return false;
+  }
 }
