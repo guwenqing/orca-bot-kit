@@ -6,7 +6,7 @@
 // expensive to find on someone else's machine.
 
 import assert from 'node:assert/strict';
-import { readFile, readdir, stat } from 'node:fs/promises';
+import { readFile, readdir, readlink, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 import { parse } from 'yaml';
@@ -29,6 +29,13 @@ const BUILT_IN = ['debug', 'design', 'review', 'simplify', 'run', 'verify', 'loo
 const KEYS = ['description', 'name'];
 
 const MAX_LINE = 100;
+
+/**
+ * Where the kit's own skills are loaded from while the kit is built: one
+ * directory per harness, each holding a link per skill (AGENTS.md). Both are
+ * checked in, so a clone gets what is tested here.
+ */
+const LINK_DIRS = ['.claude/skills', '.agents/skills'];
 
 /** Everything in skills/, whatever it is: the shape test needs to see the strays too. */
 async function entries() {
@@ -82,6 +89,16 @@ function parts(manifest) {
 const linksIn = (text) => [...text.matchAll(/\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g)].map((match) => match[1]);
 
 const exists = (file) => stat(file).then(() => true, () => false);
+
+/** What one harness's skills directory holds, links and strays alike. */
+async function linkEntries(dir) {
+  try {
+    return await readdir(path.join(repoRoot, dir), { withFileTypes: true });
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+    return assert.fail(`${dir} should hold a link to every kit skill, and that directory does not exist`);
+  }
+}
 
 test('skills/ holds one directory per skill and nothing else', async () => {
   const all = await entries();
@@ -181,6 +198,39 @@ test('every line in a skill file stays inside 100 columns', async () => {
       );
     }
   }
+});
+
+test('every skill is linked into both harness skill directories, and nothing else is', async () => {
+  // A skill nobody linked is in the repo, reads fine, and loads in neither
+  // harness; a link left behind by a skill that went, or one that resolves to
+  // another skill, looks right and is worse, because it loads nothing or the
+  // wrong thing. Both directions are one check: the names in each directory are
+  // the names in skills/, and each link lands on the skill it is named after.
+  // Both directories are reported together, so one run says all of what to fix.
+  const names = (await skills()).map((skill) => skill.name).sort();
+  const found = new Map();
+  for (const dir of LINK_DIRS) found.set(dir, await linkEntries(dir));
+
+  assert.deepEqual(
+    Object.fromEntries([...found].map(([dir, entries]) => [dir, entries.map((entry) => entry.name).sort()])),
+    Object.fromEntries(LINK_DIRS.map((dir) => [dir, names])),
+    'each harness skills directory should hold one link per skill directory, named after it, and nothing else',
+  );
+
+  const astray = [];
+  for (const [dir, entries] of found) {
+    for (const entry of entries) {
+      const link = path.join(repoRoot, dir, entry.name);
+      const skill = await realpath(path.join(skillsDir, entry.name));
+      if (!entry.isSymbolicLink()) {
+        astray.push(`${dir}/${entry.name} is not a link`);
+      } else if (await realpath(link).catch(() => null) !== skill) {
+        astray.push(`${dir}/${entry.name} -> ${await readlink(link)}`);
+      }
+    }
+  }
+
+  assert.deepEqual(astray, [], 'each link should be a symlink resolving to the skill of its own name under skills/');
 });
 
 test('the published package ships the skills directory', async () => {

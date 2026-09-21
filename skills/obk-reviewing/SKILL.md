@@ -375,6 +375,12 @@ made, raise it rather than quietly following one or the other.
 Security and correctness findings get more scrutiny before you dismiss them,
 not less.
 
+A finding that asks for a new test, or for an existing one to assert more, is
+not yours to satisfy. It goes to the author, with the finding attached, for the
+same reason the first tests did: a test written by the person whose code was
+just criticised tends to be a test that passes. Answering the reviewer with a
+test you wrote yourself closes the thread and loses the check.
+
 **Then fix, in this order:** what is broken or unsafe, then the small certain
 things, then the structural ones. One at a time, running the check after each,
 so you know which change did what.

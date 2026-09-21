@@ -33,15 +33,18 @@ with thanks:
   stopping after three failed hypotheses. The owner picked this piece himself.
 - **Cursor pstack**, `principle-fix-root-causes` and the `poteto-mode`
   playbooks — not adding guards to silence a crash, a workaround needing a
-  paragraph meaning the code is wrong, asking why until it explains itself,
-  checking for the pattern rather than the instance, instrumenting instead of
-  guessing when stuck, suspecting stored state first when something fails after
-  a restart, every shipped line tracing to runtime evidence with the smallest
+  paragraph meaning the code is wrong, checking for the pattern rather than the
+  instance, suspecting stored state first when something fails after a restart,
+  and from `principle-attack-the-premise`, two fixes sharing one premise
+  meaning the premise is what to test next, written down before another fix is
+  tried. From the `perf-issue` playbook: measuring before claiming a limit, the
+  families a fix takes used as hypothesis generators rather than a checklist,
+  and capturing the measurement again afterwards to compare against the
+  baseline. Every shipped line tracing to runtime evidence with the smallest
   change the evidence justifies and reverting what a refuted idea motivated,
-  verifying on the same surface with "inconclusive is not a pass" and a unit
-  test showing branch behaviour rather than absence of the bug, and the
-  families a performance fix usually takes, used as hypothesis generators only
-  where the measurement shows what they need. From its `runtime-forensics` and
+  and verifying on the same surface with "inconclusive is not a pass" and a
+  unit test showing branch behaviour rather than absence of the bug. From its
+  `runtime-forensics` and
   `trace-forensics` playbooks: an existing capture is read rather than re-run,
   turned into a queryable shape before reading and reduced elsewhere when it is
   large; narrowing to the hot call path, to the retainer chain from a leaked
@@ -61,6 +64,26 @@ with thanks:
   reading fresh state inside the loop, always setting a limit with a message,
   the case where a fixed wait is right and what has to accompany it, and the
   things someone says when they can see you are guessing.
+
+- **obra/superpowers**, `systematic-debugging`, further to the above — finding
+  the nearest thing that works in the same codebase, reading it properly rather
+  than skimming, and listing every difference however small without deciding in
+  advance which cannot matter.
+- **addyosmani/agent-skills**, `debugging-and-error-recovery` — the decision
+  tree for a bug you cannot reproduce on demand, sorted into timing,
+  environment, state left behind and genuinely random, with what to try in each
+  and documenting the conditions as a real answer for the last; and treating
+  error output as untrusted data, since a message from a dependency, a log or a
+  build can carry something shaped like an instruction and is to be read for
+  clues rather than followed.
+- **Waza**, `hunt`, further to the above — its gotchas: walking back out of a
+  library frame into your own code, suspecting persisted output written by the
+  old code when the algorithm changed and the output did not, trusting the
+  observation over the log and treating the gap as an un-instrumented path, a
+  guard that refuses having a set of causes rather than one, taking a
+  lower-layer baseline before blaming the visible thing, diagnosing an external
+  tool before switching it, and never restarting more than twice without new
+  evidence.
 
 Left behind on purpose: the iron-law capitals and "refuse to give up" framing,
 validating at every layer as a general answer (it contradicts fixing the cause,
