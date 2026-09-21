@@ -17,11 +17,11 @@
 // name it gives its own and the folder it attached it to, because a user's own
 // automation can live in the same project and must be left alone.
 
-import { existsSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 
 import { botDir, readBot, requireBotsFolder } from './bot.js';
-import { readBook } from './book.js';
+import { readBook, takeLock } from './book.js';
 import { orca } from './orca.js';
 import { BOT_FATHER } from './up.js';
 
@@ -49,7 +49,11 @@ const prompt = (bots) =>
 export function grooming(bots, { at, on } = {}) {
   requireBotsFolder(bots);
 
-  const home = botDir(bots, BOT_FATHER);
+  // The folder as the file system knows it, the way `restart` and `message`
+  // take it: Orca records an automation's workspace by its real path, so a
+  // spelling that is not the canonical one finds nothing and offers to make a
+  // second of what is already there.
+  const home = realHome(botDir(bots, BOT_FATHER));
   if (!existsSync(path.join(home, 'bot.yaml'))) {
     throw new Error(`there is no ${BOT_FATHER} in ${bots}, and the grooming runs in its Orca project. Run obk init first.`);
   }
@@ -63,6 +67,20 @@ export function grooming(bots, { at, on } = {}) {
     throw new Error(`${BOT_FATHER} has no Orca project yet, so there is nothing for the grooming to run in. Run obk up --bots ${bots} --bot ${BOT_FATHER} first.`);
   }
 
+  // Looking and making are one turn. Orca will not stop two runs creating two
+  // automations for one fleet, and two of these means being groomed twice a day
+  // for ever, so the lock the kit already uses for a bot's own file is held
+  // across the pair (src/book.js).
+  const lock = takeLock(home);
+  try {
+    return settle(bots, home, bot, { at, on });
+  } finally {
+    lock.release();
+  }
+}
+
+/** The looking and the making, with the turn already taken. */
+function settle(bots, home, bot, { at, on }) {
   let mine = ours(home);
 
   if (mine === undefined && at !== undefined) {
@@ -107,7 +125,24 @@ export function grooming(bots, { at, on } = {}) {
  */
 function ours(home) {
   const listed = orca(['automations', 'list']).automations ?? [];
-  return listed.find((one) => one?.name === NAME && one?.runContext?.path === home);
+  const found = listed.filter((one) => one?.name === NAME && one?.runContext?.path === home);
+
+  // More than one is not a thing to pick from. Whichever were chosen, the other
+  // would go on running unseen, and this command is where the user would have
+  // looked for it. So it says what it found and leaves both alone.
+  if (found.length > 1) {
+    throw new Error(`${home} has ${found.length} groomings rather than one: ${found.map((one) => one.id).join(', ')}. Remove the ones you do not want in Orca, then run this again.`);
+  }
+  return found[0];
+}
+
+/** A bot home as the file system knows it, or as it was given when it is not there. */
+function realHome(home) {
+  try {
+    return realpathSync(home);
+  } catch {
+    return home;
+  }
 }
 
 /** When an automation runs, read out of Orca's own recurrence rule. */

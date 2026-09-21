@@ -24,7 +24,7 @@
 // With no flag beyond `--bots` it only says what there is, and creates nothing.
 
 import assert from 'node:assert/strict';
-import { readFile, rm, writeFile } from 'node:fs/promises';
+import { readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 import { parse, stringify } from 'yaml';
@@ -531,4 +531,114 @@ test('G10 the plain report says plainly when there is no grooming yet', async (t
   assert.notEqual(result.stdout.trim(), '', 'it answers rather than saying nothing at all');
   assert.ok(!result.stdout.includes('undefined'), `nothing should be undefined, got:\n${result.stdout}`);
   assert.deepEqual(await automationsIn(box), [], 'and it still created nothing');
+});
+
+// ---------------------------------------------------------------- round two
+//
+// Two of the review's findings, both demonstrated against the real thing rather
+// than argued from the code.
+
+test('G11 two groom runs at once against one fleet still leave exactly one automation', async (t) => {
+  // Finding D. Checking what exists and then creating is two steps, and Orca
+  // will make a second automation for whoever asks second. The kit already owns
+  // the serialization this needs, per bot home, in src/book.js.
+  //
+  // Overlapping for real is the point, and the only way to reach it through the
+  // public interface is to make Orca slow on purpose: the fake runs a second
+  // `obk groom` to completion in the middle of the first one's call
+  // (helpers/fake-orca.js, `runDuring`).
+  //
+  // It has to land on the create and not on the listing. The fake re-reads
+  // Orca's world after the child, because Orca is one program with one memory,
+  // so a child that ran before the listing is answered is a child the listing
+  // reports — which is not this race. The window is after the first run has
+  // been told there is nothing there and before it acts on that, and firing on
+  // the create is what puts the second run inside it.
+  //
+  // Which of the two comes out of it with the automation, and whether the other
+  // waits, gives up or finds the first one's, is not asserted: the fake holds
+  // the first run still while the second goes by, which no real Orca does. What
+  // must hold either way is that the fleet ends with one.
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  const already = orcaCallsOf(await box.orca.calls(), 'automations create').length;
+  await box.orca.set({
+    runDuring: {
+      command: 'automations create',
+      argv: ['obk', 'groom', '--bots', bots, '--at', '04:00'],
+      on: already + 1,
+    },
+  });
+
+  const first = await box.run(['groom', '--bots', 'bots', '--at', '04:00']);
+
+  const ranToo = await box.orca.ranDuring();
+  assert.equal(ranToo.length, 1, `the second run should really have happened, got: ${JSON.stringify(ranToo)}`);
+  const all = await automationsIn(box);
+  assert.equal(all.length, 1, `two runs, one grooming; got: ${JSON.stringify(all.map((one) => one.id))}`);
+  assert.equal(
+    (await callsOf(box, 'automations create')).length,
+    1,
+    'and it was created once, by one of them',
+  );
+  assert.ok(
+    first.code === 0 || first.stderr.trim() !== '',
+    `a run that did not get the automation says why, got: ${JSON.stringify(first)}`,
+  );
+});
+
+test('G11 a fleet that already has two groomings is refused, and neither is touched', async (t) => {
+  // The other half of finding D: once there are two, picking the first quietly
+  // is how a user keeps the one they did not mean to keep, and goes on being
+  // groomed twice a day without being told.
+  const box = await createSandbox(t);
+  await seeded(box);
+  await groom(box, '--at', '04:00');
+  const made = await theAutomation(box);
+  const twin = { ...made, id: 'auto_twin' };
+  await box.orca.set({ automations: [made, twin] });
+  const from = await mark(box);
+
+  const result = await box.run(['groom', '--bots', 'bots']);
+
+  assertCleanFailure(result);
+  for (const id of [made.id, twin.id]) {
+    assert.ok(result.stderr.includes(id), `the refusal should name both of them, got: ${result.stderr}`);
+  }
+  assert.deepEqual(await automationsIn(box), [made, twin], 'and it changes neither');
+  assert.deepEqual(await callsOf(box, 'automations create', from), []);
+  assert.deepEqual(await callsOf(box, 'automations edit', from), []);
+});
+
+test('G12 a bots folder reached through a symlink finds the grooming that is there', async (t) => {
+  // Finding E. The folder is half of what says which automation is the kit's,
+  // so a spelling of it that is not the canonical one matches nothing: the
+  // command reports that a grooming which is plainly there does not exist.
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  const created = await groom(box, '--at', '04:00');
+  await symlink(bots, box.path('another-way-in'));
+
+  const throughLink = await groomIn(box, 'another-way-in');
+
+  assert.equal(throughLink.groom.exists, true, 'the same fleet, reached by another name');
+  assert.equal(throughLink.groom.id, created.groom.id, 'and the same grooming');
+  assert.equal(throughLink.groom.at, '04:00');
+  assert.equal(throughLink.bots, bots, 'bots comes back as the folder itself, not the way in');
+});
+
+test('G12 setting it through a symlink moves the one that is there rather than making another', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  const created = await groom(box, '--at', '04:00');
+  await symlink(bots, box.path('another-way-in'));
+  const from = await mark(box);
+
+  const moved = await groomIn(box, 'another-way-in', '--at', '06:30');
+
+  const automation = await theAutomation(box);
+  assert.equal(automation.id, created.groom.id, 'still the one it made through the other name');
+  assert.equal(automation.rrule, 'FREQ=DAILY;BYHOUR=6;BYMINUTE=30');
+  assert.equal(moved.groom.at, '06:30');
+  assert.deepEqual(await callsOf(box, 'automations create', from), [], 'nothing was made a second time');
 });

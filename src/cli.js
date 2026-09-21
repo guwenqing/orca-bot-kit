@@ -7,7 +7,7 @@
 // plainly what it made and what still wants looking at, and `--json` gives it
 // the same facts to act on.
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 
@@ -294,6 +294,25 @@ async function run(argv) {
   return code;
 }
 
+/**
+ * The bots folder as the file system knows it, for the commands that use it as
+ * an identity rather than as something the user typed. A folder reached through
+ * a symlink is the same fleet: the harnesses file their transcripts under the
+ * real path and Orca records an automation's workspace by it, so comparing the
+ * spelling finds nothing and offers to make a second of what is already there.
+ *
+ * Not done for every command. `init` is given a path that may not exist yet, and
+ * when it refuses one it names what the user gave it rather than whatever the
+ * link pointed at, which is a file they never mentioned.
+ */
+function sameFleet(bots) {
+  try {
+    return realpathSync(bots);
+  } catch {
+    return bots;
+  }
+}
+
 /** The one command a harness runs rather than a person: the kit's hook. */
 const RECORD = 'session record';
 
@@ -447,13 +466,15 @@ const commands = {
       throw new Error('groom takes --on or --off, and got both. Say which one you want.');
     }
     const on = values.on === true ? true : (values.off === true ? false : undefined);
-    const groom = grooming(bots, { at: values.at, on });
-    return { answer: { bots, groom }, lines: groomLines(groom, bots) };
+    const folder = sameFleet(bots);
+    const groom = grooming(folder, { at: values.at, on });
+    return { answer: { bots: folder, groom }, lines: groomLines(groom, folder) };
   },
 
   usage(bots, values) {
-    const usage = readUsage(bots, { bot: values.bot, session: values.session, since: values.since });
-    return { answer: { bots, usage }, lines: usageLines(usage, bots) };
+    const folder = sameFleet(bots);
+    const usage = readUsage(folder, { bot: values.bot, session: values.session, since: values.since });
+    return { answer: { bots: folder, usage }, lines: usageLines(usage, folder) };
   },
 
   roster(bots, values) {

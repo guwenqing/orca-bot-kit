@@ -95,8 +95,11 @@ export async function updateBook(home, change) {
 }
 
 /**
- * The right to change the book, held from before it is read until after it is
- * replaced — a SQLite write transaction on a file of its own beside the book.
+ * The right to change what belongs to one bot, held from before it is read until
+ * after it is written — a SQLite write transaction on a file of its own beside
+ * the book. The book is what it usually guards, and `obk groom` takes it too,
+ * for the one thing Orca will not do for us: look for an automation and make one
+ * if it is missing, without a second run doing the same between the two.
  *
  * SQLite is in Node itself and does this with the operating system's own file
  * locks. That matters for one reason: the lock belongs to the process, so it is
@@ -114,7 +117,7 @@ export async function updateBook(home, change) {
  * The lock file holds no data — it is opened, locked and closed — so it stays
  * empty and leaves no journal beside it.
  */
-function takeLock(home) {
+export function takeLock(home) {
   const file = lockFile(home);
   mkdirSync(path.dirname(file), { recursive: true });
 

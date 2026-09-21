@@ -33,7 +33,7 @@
 // `~/.codex`.
 
 import assert from 'node:assert/strict';
-import { mkdir, utimes, writeFile } from 'node:fs/promises';
+import { mkdir, symlink, utimes, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 import { stringify } from 'yaml';
@@ -186,9 +186,12 @@ async function plant(box, harness, home, { id, started, lines }) {
 
 // ------------------------------------------------------------- what it answers
 
-/** Run the command and answer what it said as JSON. */
-async function usage(box, ...rest) {
-  const result = await box.run(['usage', '--bots', 'bots', ...rest, '--json']);
+/** Run the command against the one bots folder most of these tests have. */
+const usage = (box, ...rest) => usageIn(box, 'bots', ...rest);
+
+/** Run the command against a named bots folder and answer what it said as JSON. */
+async function usageIn(box, folder, ...rest) {
+  const result = await box.run(['usage', '--bots', folder, ...rest, '--json']);
   assert.equal(result.code, 0, `usage reports and never fails: ${result.stderr}`);
   assert.equal(result.stderr, '');
   let answer;
@@ -884,4 +887,336 @@ test('U6 every bot in the folder is reported, and the plain report names them al
   for (const fact of ['api-bot', 'bot-father', 'conv-a']) {
     assert.ok(plain.stdout.includes(fact), `the plain report should name ${fact} too, got:\n${plain.stdout}`);
   }
+});
+
+// ---------------------------------------------------------------- round two
+//
+// What the review found, all of it measured against real transcripts on this
+// machine rather than argued. Three of the five findings are about what a
+// figure means, and each one had a plausible rule behind it that real data
+// breaks.
+
+/** The per-model split of one conversation's usage. */
+function byModelIn(conversation) {
+  const listed = conversation.by_model;
+  assert.ok(
+    Array.isArray(listed),
+    `a conversation should split its usage by the model that spent it, got: ${JSON.stringify(conversation)}`,
+  );
+  return listed;
+}
+
+/** The one entry about one model. */
+function modelOf(conversation, model) {
+  const found = byModelIn(conversation).filter((one) => one.model === model);
+  assert.equal(found.length, 1, `one entry should be about ${model}, got: ${JSON.stringify(conversation.by_model)}`);
+  return found[0];
+}
+
+test('U9 Claude Code: a call written down twice is kept as the later record, not the first', async (t) => {
+  // Finding A. The pair can be written twice with the usage still rising, and
+  // the finalized record is the later one. Measured: 4,736 repeated pairs
+  // across 137 transcripts carried identical usage and exactly one did not,
+  // which is why keeping the first passes a fixture that repeats itself and
+  // undercounts in life. The two lines below are that one case, as it was
+  // found.
+  const box = await createSandbox(t);
+  const { bots, home } = await fleet(box, { harness: 'claude' });
+  await plant(box, 'claude', home, {
+    id: 'conv-a',
+    started: at(9),
+    lines: [
+      claudeCall({
+        when: '2026-09-20T09:29:21.187Z', request: 'req-1', message: 'msg-1',
+        input: 2, cacheRead: 126586, cacheWrite: 2984, output: 16,
+      }),
+      claudeCall({
+        when: '2026-09-20T09:29:21.936Z', request: 'req-1', message: 'msg-1',
+        input: 2, cacheRead: 126586, cacheWrite: 2984, output: 301,
+      }),
+      claudeCall({ when: at(9, 40), request: 'req-2', message: 'msg-2', input: 5, cacheRead: 100, output: 7 }),
+    ],
+  });
+  await bookSays(bots, 'api-bot', { daily: ran('conv-a') });
+
+  const conversation = conversationOf(
+    conversationsOf(sessionOf(entryOf(await usage(box), 'api-bot'), 'daily')),
+    'conv-a',
+  );
+
+  assert.equal(conversation.calls, 2, 'three lines, two calls');
+  const tokens = tokensOf(conversation);
+  assert.equal(tokens.output, 308, '301 from the finalized record plus 7; not 23 from the first, nor 324 from both');
+  assert.equal(tokens.input, 7, 'the fields that did not move are still counted once');
+  assert.equal(tokens.cache_read, 126686);
+  assert.equal(tokens.cache_write, 2984);
+});
+
+test('U9 Claude Code: a call written down twice keeps one moment, not two', async (t) => {
+  // The pair is one call, so whichever of the two times is kept, it is the only
+  // one the conversation has. Which of them it is the requirement does not say.
+  const box = await createSandbox(t);
+  const { bots, home } = await fleet(box, { harness: 'claude' });
+  await plant(box, 'claude', home, {
+    id: 'conv-a',
+    started: at(9),
+    lines: [
+      claudeCall({ when: '2026-09-20T09:29:21.187Z', request: 'req-1', message: 'msg-1', input: 2, output: 16 }),
+      claudeCall({ when: '2026-09-20T09:29:21.936Z', request: 'req-1', message: 'msg-1', input: 2, output: 301 }),
+    ],
+  });
+  await bookSays(bots, 'api-bot', { daily: ran('conv-a') });
+
+  const conversation = conversationOf(
+    conversationsOf(sessionOf(entryOf(await usage(box), 'api-bot'), 'daily')),
+    'conv-a',
+  );
+
+  assert.equal(conversation.calls, 1);
+  assert.equal(conversation.first, conversation.last, `one call has one moment, got: ${JSON.stringify(conversation)}`);
+});
+
+test('U10 Codex: an event that repeats the one before it is not a second call', async (t) => {
+  // Finding B, first half. Two adjacent events carry an identical positive
+  // `last_token_usage` while the running total does not move: 128 such pairs in
+  // 250 rollouts here. Summing the per-call figures counts that call twice.
+  // These are the reviewer's measured numbers: one call of 7,260 uncached input,
+  // 190,336 cache reads and 811 output, which summing reports as two calls of
+  // 14,520, 380,672 and 1,622.
+  const box = await createSandbox(t);
+  const { bots, home } = await fleet(box, { harness: 'codex' });
+  const spent = { input: 197596, cached: 190336, output: 811 };
+  await plant(box, 'codex', home, {
+    id: 'conv-c',
+    started: at(9),
+    lines: [
+      codexTurn({ when: at(9) }),
+      codexCall({ when: at(9, 1), last: spent, total: spent }),
+      codexCall({ when: at(9, 2), last: spent, total: spent }),
+    ],
+  });
+  await bookSays(bots, 'api-bot', { daily: ran('conv-c') });
+
+  const conversation = conversationOf(
+    conversationsOf(sessionOf(entryOf(await usage(box), 'api-bot'), 'daily')),
+    'conv-c',
+  );
+
+  assert.equal(conversation.calls, 1, 'the running total did not move, so nothing was spent twice');
+  const tokens = tokensOf(conversation);
+  assert.equal(tokens.input, 7260, '197,596 less the 190,336 cached, counted once and not twice');
+  assert.equal(tokens.cache_read, 190336, 'and not 380,672');
+  assert.equal(tokens.output, 811, 'and not 1,622');
+});
+
+test('U10 Codex: a running total that resets starts a new window, and nothing before it is lost', async (t) => {
+  // Finding B, second half. The running total drops back mid-conversation and
+  // starts again: 26 such resets in 250 rollouts. Taking the final
+  // `total_token_usage` then reports only the last window — one real
+  // conversation spent 2,854,977 and its final cumulative said 1,489,245.
+  //
+  // Worked by hand: the four calls are the differences 1000/0/50, 2000/500/100,
+  // then the reset, whose own figures are 400/100/20, then 600/200/30. Uncached
+  // input is 1000 + 1500 + 300 + 400.
+  const box = await createSandbox(t);
+  const { bots, home } = await fleet(box, { harness: 'codex' });
+  await plant(box, 'codex', home, {
+    id: 'conv-c',
+    started: at(9),
+    lines: [
+      codexTurn({ when: at(9) }),
+      codexCall({
+        when: at(9, 1),
+        last: { input: 1000, cached: 0, output: 50 },
+        total: { input: 1000, cached: 0, output: 50 },
+      }),
+      codexCall({
+        when: at(9, 2),
+        last: { input: 2000, cached: 500, output: 100 },
+        total: { input: 3000, cached: 500, output: 150 },
+      }),
+      // The reset: the total drops below what it was.
+      codexCall({
+        when: at(9, 3),
+        last: { input: 400, cached: 100, output: 20 },
+        total: { input: 400, cached: 100, output: 20 },
+      }),
+      codexCall({
+        when: at(9, 4),
+        last: { input: 600, cached: 200, output: 30 },
+        total: { input: 1000, cached: 300, output: 50 },
+      }),
+    ],
+  });
+  await bookSays(bots, 'api-bot', { daily: ran('conv-c') });
+
+  const conversation = conversationOf(
+    conversationsOf(sessionOf(entryOf(await usage(box), 'api-bot'), 'daily')),
+    'conv-c',
+  );
+
+  assert.equal(conversation.calls, 4, 'the reset is a call of its own, not a gap');
+  const tokens = tokensOf(conversation);
+  assert.equal(tokens.input, 3200, 'both windows; the final cumulative alone would say 700');
+  assert.equal(tokens.cache_read, 800, 'and not 300');
+  assert.equal(tokens.output, 200, 'and not 50');
+});
+
+test('U10 Codex: --since counts a call by what it added, not by the whole total behind it', async (t) => {
+  // Finding B, and the case worth the most: a window that opens mid
+  // conversation. The difference only means anything against the event before,
+  // so the events outside the window still have to be walked. An implementation
+  // that starts counting at the boundary reads the third event's running total
+  // as its usage and charges the morning to one call.
+  const box = await createSandbox(t);
+  const { bots, home } = await fleet(box, { harness: 'codex' });
+  await plant(box, 'codex', home, {
+    id: 'conv-c',
+    started: at(8),
+    lines: [
+      codexTurn({ when: at(8) }),
+      codexCall({
+        when: at(8, 0),
+        last: { input: 1000, cached: 0, output: 100 },
+        total: { input: 1000, cached: 0, output: 100 },
+      }),
+      codexCall({
+        when: at(9, 0),
+        last: { input: 2000, cached: 800, output: 200 },
+        total: { input: 3000, cached: 800, output: 300 },
+      }),
+      codexCall({
+        when: at(11, 0),
+        last: { input: 500, cached: 300, output: 50 },
+        total: { input: 3500, cached: 1100, output: 350 },
+      }),
+      // And a repeat of it, inside the window, so that the two wrong roads part
+      // company here rather than agreeing by luck.
+      codexCall({
+        when: at(11, 1),
+        last: { input: 500, cached: 300, output: 50 },
+        total: { input: 3500, cached: 1100, output: 350 },
+      }),
+    ],
+  });
+  await bookSays(bots, 'api-bot', { daily: ran('conv-c') });
+
+  const conversation = conversationOf(
+    conversationsOf(sessionOf(entryOf(await usage(box, '--since', at(10)), 'api-bot'), 'daily')),
+    'conv-c',
+  );
+
+  assert.equal(conversation.calls, 1, 'one call in the window, written down twice');
+  const tokens = tokensOf(conversation);
+  assert.equal(
+    tokens.input,
+    200,
+    '500 added less the 300 of it that was cached: not 400 from summing the two records, '
+    + 'and not the 2,400 of running total sitting behind them',
+  );
+  assert.equal(tokens.cache_read, 300, 'and not 600, and not 1,100');
+  assert.equal(tokens.output, 50, 'and not 100, and not 350');
+});
+
+test('U11 Claude Code: the tokens stay attributable to the model that spent them', async (t) => {
+  // Finding C. One total beside a set of model names cannot be priced: put 100
+  // input tokens on one model and 900 on another, swap the quantities, and the
+  // report does not move, though the money does.
+  const box = await createSandbox(t);
+  const { bots, home } = await fleet(box, { harness: 'claude' });
+  await plant(box, 'claude', home, {
+    id: 'conv-a',
+    started: at(9),
+    lines: [
+      claudeCall({ when: at(9, 1), request: 'req-1', message: 'msg-1', model: 'claude-opus-5', input: 100, output: 10 }),
+      claudeCall({ when: at(9, 2), request: 'req-2', message: 'msg-2', model: 'claude-sonnet-5', input: 900, cacheRead: 40, output: 90 }),
+      claudeCall({ when: at(9, 3), request: 'req-3', message: 'msg-3', model: 'claude-opus-5', input: 5, output: 1 }),
+    ],
+  });
+  await bookSays(bots, 'api-bot', { daily: ran('conv-a') });
+
+  const conversation = conversationOf(
+    conversationsOf(sessionOf(entryOf(await usage(box), 'api-bot'), 'daily')),
+    'conv-a',
+  );
+
+  const opus = modelOf(conversation, 'claude-opus-5');
+  const sonnet = modelOf(conversation, 'claude-sonnet-5');
+  assert.equal(opus.calls, 2);
+  assert.equal(tokensOf(opus).input, 105, 'the expensive model spent 105, and swapping the two would say 900');
+  assert.equal(tokensOf(opus).output, 11);
+  assert.equal(sonnet.calls, 1);
+  assert.equal(tokensOf(sonnet).input, 900);
+  assert.equal(tokensOf(sonnet).cache_read, 40);
+  assert.equal(tokensOf(sonnet).output, 90);
+  assert.equal(tokensOf(conversation).input, 1005, 'and the conversation total is still the sum of them');
+});
+
+test('U11 Codex: the tokens stay attributable to the model that spent them', async (t) => {
+  // A Codex call belongs to the model the conversation was set to when it was
+  // made, which is the most recent turn_context before it.
+  const box = await createSandbox(t);
+  const { bots, home } = await fleet(box, { harness: 'codex' });
+  await plant(box, 'codex', home, {
+    id: 'conv-c',
+    started: at(9),
+    lines: [
+      codexTurn({ when: at(9), model: 'gpt-6-astra' }),
+      codexCall({
+        when: at(9, 1),
+        last: { input: 100, cached: 0, output: 10 },
+        total: { input: 100, cached: 0, output: 10 },
+      }),
+      codexTurn({ when: at(9, 2), model: 'gpt-6-mini' }),
+      codexCall({
+        when: at(9, 3),
+        last: { input: 900, cached: 0, output: 90 },
+        total: { input: 1000, cached: 0, output: 100 },
+      }),
+    ],
+  });
+  await bookSays(bots, 'api-bot', { daily: ran('conv-c') });
+
+  const conversation = conversationOf(
+    conversationsOf(sessionOf(entryOf(await usage(box), 'api-bot'), 'daily')),
+    'conv-c',
+  );
+
+  assert.equal(tokensOf(modelOf(conversation, 'gpt-6-astra')).input, 100);
+  assert.equal(tokensOf(modelOf(conversation, 'gpt-6-astra')).output, 10);
+  assert.equal(tokensOf(modelOf(conversation, 'gpt-6-mini')).input, 900, 'swapping the two would say 100');
+  assert.equal(tokensOf(modelOf(conversation, 'gpt-6-mini')).output, 90);
+  assert.equal(modelOf(conversation, 'gpt-6-mini').calls, 1);
+});
+
+test('U12 a bots folder reached through a symlink is the same fleet', async (t) => {
+  // Finding E. The bot home is what says which folder a harness filed its
+  // transcripts under, so a spelling of it that is not the canonical one finds
+  // nothing at all: same fleet, same conversations on disk, an empty report.
+  const box = await createSandbox(t);
+  const { bots, home } = await fleet(box, { harness: 'claude' });
+  await plant(box, 'claude', home, {
+    id: 'conv-a',
+    started: at(9),
+    lines: [claudeCall({ when: at(9, 1), request: 'req-1', message: 'msg-1', input: 640, cacheRead: 55, output: 21 })],
+  });
+  await bookSays(bots, 'api-bot', { daily: ran('conv-a') });
+  await symlink(bots, box.path('another-way-in'));
+
+  const direct = await usage(box);
+  const throughLink = await usageIn(box, 'another-way-in');
+
+  const conversationsFor = (answer) => conversationsOf(sessionOf(entryOf(answer, 'api-bot'), 'daily'));
+  assert.equal(tokensOf(conversationOf(conversationsFor(direct), 'conv-a')).input, 640, 'the canonical way in works');
+  assert.deepEqual(
+    idsOf(conversationsFor(throughLink)),
+    ['conv-a'],
+    'and the symlink is the same fleet, not an empty one',
+  );
+  assert.deepEqual(
+    tokensOf(conversationOf(conversationsFor(throughLink), 'conv-a')),
+    tokensOf(conversationOf(conversationsFor(direct), 'conv-a')),
+    'down to the figures',
+  );
+  assert.equal(throughLink.bots, bots, 'and bots comes back as the folder itself, not the way in');
 });
