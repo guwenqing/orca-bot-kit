@@ -130,22 +130,49 @@ their own edits included.
 
 ## 5. Answer what the tabs ask
 
-A tab that has just been opened may be sitting on a question before the harness
-is even running, and until it is answered nothing else happens in that tab. This
-step is yours: the kit will not type into a tab that is waiting, on purpose.
+**How the tab got into this state**, because it decides what you do about it. A
+tab the kit has just made has no harness in it yet and nothing to wait for, so
+the kit types the launch line straight into the tab's shell and only then asks
+whether a harness came up. If that shell was busy with a question of its own, it
+swallowed the line. So two different things can be on the screen, and they need
+different answers.
+
+`obk init` tells you which, for every tab it opened:
+
+- *the harness was typed in and came up* — it is running. It may still be asking
+  something of its own; that is the table below.
+- *the harness was typed in and came up, waiting on: …* — running and blocked on
+  a question. The table below.
+- *the harness was typed in, and no session came up in the tab* — **the line did
+  not take.** There is a shell there, not a harness. Answering whatever the shell
+  is asking does not start the harness, and neither command you might reach for
+  will: `obk up` sends nothing, because the tab is already in the book, and
+  `obk restart` refuses, because the book cannot name a conversation for a
+  session that never started. The recovery is below.
+
+Use the Orca CLI at the path you found in step 1, not a bare `orca`: on a machine
+where `/usr/local/bin/orca` is the root-only symlink, a bare `orca` answers
+`Unable to determine Orca.app path from symlink` and nothing below will work.
+`OBK_ORCA` tells *the kit* which Orca to use; it does not change what your shell
+finds.
+
+```sh
+ORCA=/Applications/Orca.app/Contents/Resources/bin/orca
+```
 
 Find the tabs, and look at each one. Bot Father's own folder is `bots/bot-father`
 *inside* the bots folder from step 3, so where `<their path>` appears below it is
 that folder itself, exactly as you gave it to `obk init`:
 
 ```sh
-orca terminal list --worktree path:<their path>/bots/bot-father --json
-orca terminal read --terminal <handle> --screen --json
+"$ORCA" terminal list --worktree path:<their path>/bots/bot-father --json
+"$ORCA" terminal read --terminal <handle> --screen --json
 ```
 
-What you will see, and the usual answer. Each goes as one `terminal send
---text`, with the return inside the text and **no** `--enter`, because a menu
-takes a return as the keypress it is waiting for:
+What you will see, and the usual answer. Each goes as one
+`"$ORCA" terminal send --terminal <handle> --text …`, with the return inside the
+text and **no** `--enter`, because a menu takes a return as the keypress it is
+waiting for:
 
 | On screen | Send | Which is |
 |---|---|---|
@@ -174,7 +201,23 @@ the whole bots folder rather than the one bot. That is what they are agreeing to
 screen and which tab it is in, and wait. A keypress into a menu you have not read
 is how a harness quits back to the shell.
 
-When you have answered, read the screen again and confirm the harness is up.
+**If the line did not take**, and you have a shell rather than a harness: answer
+whatever the shell was asking (the oh-my-zsh question above is the usual one),
+then close that one tab and bring the fleet up again. The new tab's shell has
+nothing pending, so the line lands:
+
+```sh
+"$ORCA" terminal close --terminal <handle> --tab --json
+obk up --bots <their path>
+```
+
+That is safe here and only here: the tab holds no conversation to lose, which is
+the same reason `obk restart` will not do it for you. `obk up` opens a new tab,
+types the line again and leaves the ops tab alone. Never close a tab you did not
+open, and never close one with a session running in it.
+
+When you have answered, read the screen again and confirm a harness is actually
+running in the tab. Do not go to step 7 on a tab that is still a shell.
 
 ## 6. Check it
 
