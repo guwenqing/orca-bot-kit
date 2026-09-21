@@ -70,16 +70,32 @@ test('init makes the bots folder its own git repo with no commit and an empty in
 });
 
 test('init puts no kit code in the bots folder', async (t) => {
+  // The kit's code and skills stay in the installed package (ADR 0004), and a
+  // link is how they would get in, so what a link points at is the check
+  // rather than whether there is one. A bot's own `CLAUDE.md` -> `AGENTS.md`
+  // (PRD 6.6) points at the file next to it and carries nothing of the kit's.
   const box = await createSandbox(t);
 
   assert.equal((await box.run(['init', '--bots', 'bots', '--harness', 'claude'])).code, 0);
 
-  const tree = await snapshot(box.path('bots'), skipGit);
+  const bots = box.path('bots');
+  const tree = await snapshot(bots, skipGit);
   for (const [rel, kind] of Object.entries(tree)) {
     assert.ok(!rel.endsWith('.js'), `no .js file expected, found ${rel}`);
     assert.notEqual(path.basename(rel), 'package.json', `no package.json expected, found ${rel}`);
     assert.notEqual(path.basename(rel), 'node_modules', `no node_modules expected, found ${rel}`);
-    assert.ok(!kind.startsWith('symlink:'), `no symlink expected, found ${rel}`);
+    if (!kind.startsWith('symlink:')) continue;
+
+    const target = kind.slice('symlink:'.length);
+    assert.ok(
+      !path.isAbsolute(target),
+      `the bots folder is a git repo the user may clone, so a link in it should be relative, found ${rel} -> ${target}`,
+    );
+    const points = path.resolve(path.dirname(path.join(bots, rel)), target);
+    assert.ok(
+      points === bots || points.startsWith(`${bots}${path.sep}`),
+      `a link in the bots folder should point inside it, found ${rel} -> ${target}`,
+    );
   }
 });
 

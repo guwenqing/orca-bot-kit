@@ -13,6 +13,7 @@ import { conversationsIn } from './conversations.js';
 import { installHook } from './hooks.js';
 import { harnessOf, isShortPrompt, launchCommand, sessionTrouble, startPrompt, workDirOf } from './launch.js';
 import { asFolderProject, findProject, makeProject, openTab, retitleTab, tabs, tuiInTab, typeIntoTab } from './orca.js';
+import { buildAgents } from './rules.js';
 
 /** The one bot with a tab beside its sessions: the ops tab (PRD 6.2). */
 export const BOT_FATHER = 'bot-father';
@@ -30,8 +31,9 @@ const STARTUP_MS = 10000;
 const SECOND_LOOK_MS = 2000;
 
 /**
- * Bring bots up in Orca. Returns one entry per tab it looked at: the sessions
- * the book knows, and, for Bot Father, whatever else is open in its project.
+ * Bring bots up in Orca. Returns `{ tabs, rules }`: one tab entry per tab it
+ * looked at — the sessions the book knows, and, for Bot Father, whatever else
+ * is open in its project — and one rules entry per bot it built.
  *
  * With no name it is every bot in the folder, in name order. `bot` brings up
  * one bot and `session` one of its sessions, for a caller that wants one thing
@@ -58,6 +60,13 @@ export async function bringUp(bots, { bot: onlyBot, session: onlySession } = {})
   });
   for (const { bot, home } of chosen) refuseWhatCannotStart(bot, home, onlySession);
 
+  // Every bot's AGENTS.md is built before Orca is asked for anything, because a
+  // session reads that file as it starts: a build landing after the tab was
+  // opened would reach nobody until the next restart (PRD 6.6). A bot whose
+  // build is in trouble is reported and the run carries on — the file is the
+  // user's, and one they edited is no reason to leave a session down.
+  const rules = chosen.map(({ bot, home }) => buildAgents(bots, home, bot));
+
   // And the kit's hook goes into every bot folder before Orca is asked for
   // anything, for the same reason: a harness reads its hooks when it comes up,
   // so one written later would miss the session it was written for (ADR 0010),
@@ -72,7 +81,7 @@ export async function bringUp(bots, { bot: onlyBot, session: onlySession } = {})
 
   const report = [];
   for (const { bot, home } of chosen) report.push(...await bringUpBot(bots, home, bot, onlySession));
-  return report;
+  return { tabs: report, rules };
 }
 
 function refuseWhatCannotStart(bot, home, onlySession) {

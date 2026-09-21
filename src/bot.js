@@ -7,7 +7,7 @@
 // The files are the user's. A command that cannot do what was asked refuses and
 // writes nothing, rather than leave a bot half made or a bot.yaml half edited.
 
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { parse, parseDocument, stringify } from 'yaml';
@@ -73,6 +73,10 @@ export function readBot(home, name = path.basename(home)) {
   return {
     name,
     harness: bot.harness,
+    // What the rules build reads. Neither is judged here: a charter is prose,
+    // and a list the build cannot follow is that build's to report (PRD 6.6).
+    charter: bot.charter,
+    rules: bot.rules,
     sessions: sessions.map((session) => {
       const entry = typeof session === 'string' ? { name: session } : session;
       if (entry === null || typeof entry !== 'object' || !entry.name) {
@@ -87,9 +91,9 @@ export function readBot(home, name = path.basename(home)) {
  * Create the bot `name` in the bots folder at `bots`.
  * Returns { bot, home, created } — `created` lists what was written, in order.
  *
- * `AGENTS.md` holds the charter and nothing else for now: building it from rule
- * units is slice 05. `CLAUDE.md` is a symlink to it, which is how Claude Code
- * is certain to read it (tech notes, section 2).
+ * The bot's own files, and no more: its `AGENTS.md` is built from this
+ * `bot.yaml` and the rule units, which is the rules build's job and is reported
+ * as one (PRD 6.6).
  */
 export function createBot(bots, { name, harness, charter }) {
   if (!NAME.test(name)) {
@@ -109,19 +113,17 @@ export function createBot(bots, { name, harness, charter }) {
   const text = charter?.trim() ? `${charter.trim()}\n` : PLACEHOLDER_CHARTER(name);
   const files = [
     [BOT_YAML, botYaml(name, harness, text)],
-    ['AGENTS.md', `# ${displayName(name)}\n\n${text}`],
     // work/ is the bot's own scratch space and is not the repo's business (PRD 6.3).
     ['.gitignore', 'work/\n'],
   ];
 
   mkdirSync(home, { recursive: true });
   for (const [entry, contents] of files) writeFileSync(path.join(home, entry), contents, { flag: 'wx' });
-  symlinkSync('AGENTS.md', path.join(home, 'CLAUDE.md'));
 
   return {
     bot: name,
     home,
-    created: [...files.map(([entry]) => entry), 'CLAUDE.md'].map((entry) => path.join('bots', name, entry)),
+    created: files.map(([entry]) => path.join('bots', name, entry)),
   };
 }
 
