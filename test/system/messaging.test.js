@@ -68,6 +68,11 @@
 // terminal incarnation before restart" and would not be sent again. It has never
 // gated the kit's own nudge.
 //
+// What the test does do to a tab is wait on it. A bot is not written to until
+// Orca says nothing of its own is waiting to be answered on it, because the kit
+// will not nudge a tab with a question on screen — the guard is right, and a
+// test that sends into that window is testing nothing but its own patience.
+//
 // **What a receipt here may be made of.** Every word these tests wait for has
 // to be one the tab it is waited for in was never told. A word that is in the
 // question is on the screen whether or not the thing under test ever happened,
@@ -124,6 +129,12 @@ const ANSWER_MS = 240000;
 
 /** And how long a round trip between two agents is given: two turns and a nudge in between. */
 const ROUND_TRIP_MS = 480000;
+
+/**
+ * How long a tab is given to get past the screens of its own. A first run has
+ * two or three of them and a person answering them.
+ */
+const READY_MS = 180000;
 
 /** Ask Orca something and read its JSON. Never the blanket close, on any road. */
 function orca(args) {
@@ -253,25 +264,56 @@ const showsUp = (handle, word, within = ANSWER_MS) => until(
 );
 
 /**
- * Wait until the tab is busy with the work it was given: a TUI that is up, not
- * idle, and not waiting on a screen of its own.
+ * Wait until a tab can be written to at all: a TUI is up, and Orca reports
+ * nothing of its own waiting to be answered on it. Nothing is typed here; this
+ * only waits.
  *
- * Orca's `tui-idle` is the only thing that knows — `satisfied: false` on a tab
- * whose TUI is running is an agent that has work in hand — and a `blockedReason`
- * would mean the tab is on a question instead, which is not busy at all. A test
- * that sent its message without waiting for this would prove nothing about a
- * busy receiver: the agent may have finished before the send, and then the
- * order on the screen says only that one thing came after another.
+ * A bot whose part is to write to another has to wait for that one, and brought
+ * up is not the same as ready. Seen live: the Claude bot sent the moment its own
+ * harness was running, the Codex bot was still on its `Hooks need review`
+ * screen, and the kit rightly typed nothing into a tab with a question on it —
+ * so the mail sat in the mailbox and the receiver never learned it was there.
+ * The nudge guard doing its job is what this wait exists to get out of the way
+ * of, and the order the bots come up in is only half of it.
  */
-async function busyIn(handle, within = ANSWER_MS) {
+async function readyForMail(handle, within = READY_MS) {
   await until(
-    `${handle} to be busy with the work it was given`,
+    `${handle} to be past the screens of its own`,
     within,
     async () => {
-      const answer = orca(['terminal', 'wait', '--terminal', handle, '--for', 'tui-idle', '--timeout-ms', '2000']);
+      const answer = orca(['terminal', 'wait', '--terminal', handle, '--for', 'tui-idle', '--timeout-ms', '5000']);
       if (answer.ok !== true) return undefined;
-      const { satisfied, blockedReason } = answer.result?.wait ?? {};
-      return satisfied === false && blockedReason === undefined ? true : undefined;
+      return answer.result?.wait?.blockedReason === undefined ? true : undefined;
+    },
+    () => whatIsUp(handle),
+  );
+}
+
+/**
+ * Wait until the receiver is part way through the work it was given, and say so
+ * if it has already finished.
+ *
+ * This is what establishes that the receiver was busy when the message arrived,
+ * and it is read off the work's own output rather than out of Orca. Orca cannot
+ * answer it: Codex runs a shell command in the background and waits on it, so
+ * the TUI reads idle for the whole forty seconds — `satisfied` was never false
+ * once in a live run where the work plainly ran (its screen: "Waited for
+ * background terminal", then the numbers, then the total). A longer loop would
+ * not change that. What does answer it is the loop's own lines: some of them
+ * printed, and the total not yet.
+ */
+async function partWayThrough(handle, marker, within = ANSWER_MS) {
+  await until(
+    `${handle} to be part way through the work it was given`,
+    within,
+    async () => {
+      const screen = screenOf(handle);
+      if (!screen.includes(marker)) return undefined;
+      assert.ok(
+        !screen.includes(TOTAL),
+        `the work finished before this could send anything, so nothing here would be about a busy receiver: ${screen.slice(0, 2000)}`,
+      );
+      return true;
     },
     () => whatIsUp(handle),
   );
@@ -315,8 +357,18 @@ const PASSPHRASE = 'MARMOSET-9930';
 /** The word only the Claude bot knows, which reaches the Codex bot only as mail. */
 const QUESTION = 'PELICAN-4417';
 
-/** The work the busy receiver is given, and the total only doing it produces. */
+/**
+ * The work the busy receiver is given: a shell loop of about a minute, the
+ * lines it prints while it runs, and the total only doing it produces.
+ *
+ * The lines are numbered with a leading zero so that one of them is not a piece
+ * of another — a screen holding `STEP-30` must not read as `STEP-3` — and the
+ * third is what the test waits for before it sends, which leaves most of the
+ * loop still to run.
+ */
 const COUNT_TO = 40;
+const WORK = `for i in $(seq 1 ${COUNT_TO}); do printf 'STEP-%02d\\n' "$i"; sleep 1; done`;
+const PART_WAY = 'STEP-03';
 const TOTAL = `TOTAL: ${(COUNT_TO * (COUNT_TO + 1)) / 2}`;
 
 /**
@@ -381,8 +433,9 @@ const busyPrompts = (bots, bot) => (bot.harness === 'codex'
   ? [
     ...aBotOf(bots),
     'As soon as you are running, run exactly this command, once:',
-    `for i in $(seq 1 ${COUNT_TO}); do echo $i; sleep 1; done`,
-    'When it has finished, print TOTAL: followed by the sum of every number it printed, on a line of its own.',
+    WORK,
+    'When it has finished, print TOTAL: followed by the sum of the numbers in the STEP lines it printed,',
+    'on a line of its own.',
     ...READS_ITS_MAIL,
     'Then wait, and say nothing else.',
   ]
@@ -467,6 +520,13 @@ async function aFleet(t, label, promptFor) {
     assert.match(String(session.mailbox), /^run_/, `${bot.name} should have a Run mailbox, got: ${JSON.stringify(session)}`);
     if (bot.harness === 'claude') assert.equal(session.address, `${bot.name}.daily`);
 
+    // And it is answerable before the next bot is started. A bot's part begins
+    // the moment its own harness is running, and the bot before it may still be
+    // on a first-run screen of its own — in which case the kit will not type a
+    // nudge into it, rightly, and mail sent to it is mail nobody learns about.
+    // The order these come up in is only half of what that needs.
+    await readyForMail(entry.terminal);
+
     tabs[bot.name] = entry;
   }
 
@@ -518,24 +578,29 @@ test('a busy receiver finishes what it was doing before it reads its mail', asyn
   // interrupting the tab.
   //
   // Three things have to hold for that to have been shown, rather than assumed.
-  // The receiver has to be busy when the message arrives, so the test waits for
-  // Orca to say the tab is working before it sends anything — and the work is a
-  // shell loop that takes the best part of a minute, because an agent counting
-  // to forty by itself was finished before Orca could be asked (live run, 1 of
-  // 3). The work has to have finished, so the receipt is the total of the
-  // numbers, a value its instruction asks for and never states; the word the
-  // first version of this case waited for was in the instruction itself, and was
-  // on the screen whether or not a single number was ever printed. And the mail
-  // has to have been read after that, which is the order the two sit in on the
-  // screen, both of them present.
+  //
+  // The receiver has to be busy when the message arrives. That is read off the
+  // work's own output — some of the loop's lines printed, the total not yet —
+  // and not out of Orca, which cannot answer it: Codex runs a shell command in
+  // the background and waits on it, so the tab reads idle for the whole forty
+  // seconds it is working (live run, 2 of 3).
+  //
+  // The work has to have finished, so the receipt is the total, a value its
+  // instruction asks for and never states; the word the first version of this
+  // case waited for was in the instruction itself, and was on the screen whether
+  // or not a single line was ever printed.
+  //
+  // And the mail has to have been read after that, which is the order the two
+  // sit in on the screen, both of them present.
   const { bots, tabs } = await aFleet(t, 'busy', busyPrompts);
   const mail = 'OTTER-2245';
   const receiver = tabs['mail-codex'].terminal;
 
-  // It is working on what its start prompt gave it. Orca's own idleness is the
-  // only signal for that, and without it this case would prove nothing about a
-  // receiver that was busy.
-  await busyIn(receiver);
+  // It is part way through what its start prompt gave it: some of the loop's
+  // lines are on the screen and the total is not. That is what says the mail
+  // below arrives at a receiver with work in hand, and there are some thirty
+  // seconds of loop still to run after it.
+  await partWayThrough(receiver, PART_WAY);
 
   // Mail arrives in the middle of it. The kit types the nudge in; nobody
   // interrupts anybody.
