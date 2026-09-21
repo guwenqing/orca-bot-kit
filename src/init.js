@@ -52,11 +52,25 @@ charter: |
   Ask first before: retiring a bot or a session, restarting anything, or
   changing a bot's rules in a way its owner did not ask for.
 rules: []
-skills: []
-sessions:
+skills:
+${MANAGEMENT_SKILLS.map((name) => `  - kit:${name}\n`).join('')}sessions:
   # The management session: the tab you talk to Bot Father in.
   - name: ${DAILY_SESSION}
 `;
+
+/**
+ * The kit's own skills for the job Bot Father has: writing a bot, and looking
+ * over the fleet that exists. They go on its list when the kit writes its
+ * `bot.yaml`, because a fleet manager with no way to manage the fleet is not
+ * something the user can ask it to fix — asking it is the thing that does not
+ * work yet.
+ *
+ * Only then. A `bot.yaml` that is already there keeps whatever list it has: an
+ * older kit that never wrote these and an owner who took one off leave exactly
+ * the same file behind, and of the two readings, putting back what somebody
+ * removed is the worse one to be wrong about.
+ */
+const MANAGEMENT_SKILLS = ['obk-bot-building', 'obk-fleet-review'];
 
 const BOT_FATHER_YAML = 'bots/bot-father/bot.yaml';
 

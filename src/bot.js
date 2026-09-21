@@ -1,4 +1,4 @@
-// A bot: a folder in the user's bots repo with a `bot.yaml` in it, and the
+// A bot: a folder in the user's bots repo with a `bot.yaml` in it, and the two
 // commands that write one — `obk bot create` and `obk session add`.
 //
 // Neither of them touches Orca. They write the user's files and stop; `obk up`
