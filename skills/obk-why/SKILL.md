@@ -132,9 +132,13 @@ a citation with them — "because", "the reason is", "was designed to", "fixes",
 "the team decided" — and each one needs its source immediately beside it or a
 hedged word instead.
 
-Check it from the other side before you finish: where a claim's evidence is the
-code itself, it is not evidence. The name of the function, the shape of the
-branch and the value of the constant are the thing being explained, not the
+Check it from the other side before you finish: the code is evidence of what
+exists and what changed, and never on its own evidence of why. Reading the
+change that set a limit to 6000 and the one that moved it to 6500 establishes
+both of those values, and you need that to cite the right change. Neither of
+them tells you what the author was trying to do. So where a claim about
+motivation rests on the code alone — the name of the function, the shape of the
+branch, the value of the constant — that is the thing being explained, not the
 explanation of it.
 
 ## What you hand back
