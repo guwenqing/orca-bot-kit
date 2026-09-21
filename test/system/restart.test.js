@@ -11,6 +11,14 @@
 // the tab is thrown away by the kit, and afterwards the session is asked for the
 // passphrase. It can only answer if the conversation really came back.
 //
+// Each of those two turns waits for a word its own question does not carry — the
+// first for the codeword out of the start prompt, the second for the passphrase,
+// which the question asks for without saying. A wait on a word the question
+// itself carries is satisfied by the echo of the line the test just typed in,
+// so it would pass with an agent that read nothing, and pass with no agent
+// there at all. That is the one way a live test like this goes quietly green
+// while proving nothing (found in an attended run, and it had).
+//
 // One harness, not two: this is about the kit's own close-and-resume, which is
 // the same code either side, and Claude Code is the cheaper one to sit with —
 // one screen to answer rather than two. The resume flags themselves are proved
@@ -19,7 +27,9 @@
 // The other half of the claim rides along for nothing, because both are already
 // open by the time the restart runs: a tab in the same Orca project that the
 // book does not name, and Bot Father's own two tabs in a project of their own.
-// Neither is the kit's to close, and both are checked after the restart.
+// Neither is the kit's to close, and both are checked after the restart — by
+// their handles and tab ids, never by their titles, which are written by
+// whatever runs in the tab and drift on their own.
 //
 // The machine it runs on is someone's working machine, with their own tabs open.
 // So this test, like the ones beside it:
@@ -400,9 +410,8 @@ test('a restart closes the session\'s tab and brings the conversation back with 
   // exactly where it is.
   const spare = orca(['terminal', 'create', '--worktree', `path:${home}`, '--title', `${BOT.display} spare`]);
   assert.equal(spare.ok, true, `could not open the spare tab: ${JSON.stringify(spare.error)}`);
-  // Read back as Orca lists it, not as it was asked for: with Orca's dynamic
-  // tab titles on, a title drifts on its own, and what this checks afterwards
-  // is that the kit changed nothing — not that Orca kept the title still.
+  // Kept as Orca lists it, which is where its handle, its tab id and its
+  // project come from: the three things about it that are the kit's business.
   const mine = terminalsAt(home).find((terminal) => terminal.tabId === spare.result.terminal.tabId);
   assert.ok(mine, `Orca should list the spare tab it just made: ${JSON.stringify(spare.result)}`);
 
@@ -411,13 +420,28 @@ test('a restart closes the session\'s tab and brings the conversation back with 
   const botFather = terminalsAt(homeOf('bot-father')).map((terminal) => terminal.tabId).sort();
   assert.equal(botFather.length, 2, `init should have left Bot Father two tabs, got: ${JSON.stringify(botFather)}`);
 
-  // Something in this conversation and nowhere else. If the session comes back
-  // with the conversation, it can still say it; if it comes back fresh, it
-  // cannot, because the start prompt never carried this word.
+  // Put something in this conversation and nowhere else. If the session comes
+  // back with the conversation it can still say the passphrase; if it comes
+  // back fresh it cannot, because the start prompt never carried that word.
+  //
+  // What is waited for here is the **codeword**, not the passphrase. The
+  // passphrase is in the line that was just typed in, so a wait on it would be
+  // satisfied by the echo of the test's own question — green whether an agent
+  // read the line or not, and green with no agent there at all. The codeword is
+  // in the start prompt and in no question, so only a session that is running,
+  // has read its duty and has read this line can produce it. Which is the same
+  // thing as saying the passphrase reached the conversation.
+  //
+  // And the wait for the session id above is what makes this safe to ask at
+  // all: on Claude Code the kit's hook runs once the folder is trusted (tech
+  // notes, section 2), so an id in the book means the trust list has already
+  // been answered and this line goes to a live session rather than into a menu.
+  // `readyForAQuestion` alone would not settle that — Orca reports that screen
+  // as idle with nothing blocking.
   await answers(
     opened.terminal,
-    `Remember this passphrase: ${BOT.passphrase}. Reply with the passphrase and nothing else.`,
-    BOT.passphrase,
+    `Remember this passphrase: ${BOT.passphrase}. Then reply with your codeword and nothing else.`,
+    BOT.codeword,
   );
 
   // The restart the user asked for (PRD 6.5). The kit closes that tab itself —
@@ -460,8 +484,17 @@ test('a restart closes the session\'s tab and brings the conversation back with 
     `the session's old tab should be gone and the spare untouched, got: ${JSON.stringify(now)}`,
   );
   const stillMine = now.find((terminal) => terminal.tabId === mine.tabId);
-  assert.equal(stillMine.handle, mine.handle, 'the spare tab is the same tab');
-  assert.equal(stillMine.title, mine.title, 'and the kit does not even rename a tab that is not its own');
+  assert.equal(stillMine.handle, mine.handle, 'the spare tab is the same tab, by the handle Orca gave it');
+  assert.equal(stillMine.worktreePath, home, 'and it is still in the bot\'s own Orca project');
+  // Its title is deliberately not compared with the one it was made with. A
+  // title is written by whatever is running in the tab — the tab's own zsh
+  // prompt rewrites it to the folder as soon as it draws — and Orca reports
+  // the last thing written, so two reads a minute apart differ for reasons
+  // that have nothing to do with the kit (tech notes, section 1: a title is
+  // set, never read; the tab id is the key). Measured live: `Restart Claude
+  // spare` was `..estart-claude` by the end of the run. That the kit renames
+  // no tab outside the book is pinned in `test/restart.test.js`, where every
+  // Orca call it makes can be read.
   assert.deepEqual(
     terminalsAt(homeOf('bot-father')).map((terminal) => terminal.tabId).sort(),
     botFather,

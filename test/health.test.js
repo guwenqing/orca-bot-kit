@@ -19,8 +19,14 @@
 // conversation id — so that a person who cannot read code can go and look.
 //
 // Everything goes through the CLI on a sandboxed bots folder, against the fake
-// Orca. Orca's own settings file lives under the home directory, and HOME is
-// inside every sandbox, so the tests plant it there.
+// Orca. Orca's own settings live under the home directory, and HOME is inside
+// every sandbox: `box.orca.settings` is what says what they hold, and every
+// sandbox starts with harmless launch arguments in them, so a test about
+// anything else hears nothing about Orca's setting.
+//
+// The same Orca-setting finding is part of `obk init`'s report too, because
+// PRD 6.5 has the kit check it during setup as well as here, and remind the
+// user "in plain words, every time". That is H23, at the end.
 
 import assert from 'node:assert/strict';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
@@ -61,27 +67,12 @@ import {
 const KINDS = ['orca', 'config', 'skill', 'session', 'leftover'];
 
 /**
- * Where Orca keeps its own settings on this machine: a file under the user's
- * home directory, which the kit reads and never writes. `settings.agentDefaultArgs`
- * maps an agent name to the extra launch arguments Orca starts it with.
+ * Say what Orca's own per-agent default launch arguments are. They live in
+ * Orca's settings file under the user's home directory, which the kit reads and
+ * never writes, and `agentDefaultArgs` maps an agent name to the extra launch
+ * arguments Orca starts it with.
  */
-const orcaSettingsOf = (box) => path.join(
-  box.home,
-  'Library',
-  'Application Support',
-  'orca',
-  'profiles',
-  'local-default',
-  'orca-data.json',
-);
-
-/** Say what Orca's own per-agent default launch arguments are. */
-async function orcaSettings(box, agentDefaultArgs) {
-  const file = orcaSettingsOf(box);
-  await mkdir(path.dirname(file), { recursive: true });
-  await writeFile(file, `${JSON.stringify({ settings: { agentDefaultArgs } }, null, 2)}\n`);
-  return file;
-}
+const orcaSettings = (box, agentDefaultArgs) => box.orca.settings.set({ agentDefaultArgs });
 
 /** What each harness's permission bypass is spelled, as Orca would record it. */
 const BYPASS = {
@@ -92,12 +83,12 @@ const BYPASS = {
 /** The harnesses the kit cares about. */
 const HARNESSES = Object.keys(BYPASS);
 
-/** Arguments carrying no bypass, so a test about something else hears nothing about Orca. */
-const HARMLESS = { claude: '', codex: '' };
-
-/** A bots folder with Bot Father up in Orca, and Orca's own setting harmless. */
+/**
+ * A bots folder with Bot Father up in Orca. Orca's own default launch arguments
+ * are the sandbox's own: recorded for both harnesses and carrying no bypass, so
+ * a test about anything else gets no finding about them.
+ */
 async function seeded(box, harness = 'claude') {
-  await orcaSettings(box, HARMLESS);
   const result = await box.run(['init', '--bots', 'bots', '--harness', harness]);
   assert.equal(result.code, 0, result.stderr);
   return box.path('bots');
@@ -345,9 +336,13 @@ test('H3 Orca settings the kit cannot read are said plainly, and claimed as neit
   // The dangerous answer is silence: a user who hears nothing reads it as "no
   // bypass". The other dangerous answer is to report one anyway. So the check
   // says what it could not read, and the sentence is not the bypass sentence.
+  //
+  // A machine in this state is one Orca has never run on, and the kit refuses
+  // every command when Orca is down, so a user should never meet it. That is
+  // exactly why the honest report matters when they do.
   const box = await createSandbox(t);
-  const result = await box.run(['init', '--bots', 'bots', '--harness', 'claude']);
-  assert.equal(result.code, 0, result.stderr);
+  await seeded(box);
+  await box.orca.settings.remove();
 
   const answer = await found(box);
 
@@ -998,4 +993,104 @@ test('H22 health changes nothing at all: not a file, not a link, not a tab', asy
     ['project setups', 'status', 'terminal list'],
     'the only things a check may ask Orca are the ones that tell it something',
   );
+});
+
+// ---------------------------------------------------------------------------
+// H23 — the same reminder in `obk init`, which is the kit's setup command.
+//
+// PRD 6.5: the kit "checks it during setup and in its health check, and when it
+// finds a bypass there it reminds the user to change it to something safer, in
+// plain words, every time". Setup is where a user is standing when they can
+// still put it right, and a permission bypass they were never told about is the
+// whole reason that sentence is in the PRD.
+// ---------------------------------------------------------------------------
+
+/**
+ * A first `obk init` twice over, plainly and as JSON, on two sandboxes in the
+ * same state. Answers the second sandbox too, because anything read out of one
+ * run and looked for in the other has to have the sandbox taken out of it.
+ *
+ * Two sandboxes rather than two runs in one: a first init and a second one
+ * report different things, and this is about the first.
+ */
+async function initBoth(box, t, agentDefaultArgs) {
+  await orcaSettings(box, agentDefaultArgs);
+  const plain = await box.run(['init', '--bots', 'bots', '--harness', 'claude']);
+
+  const other = await createSandbox(t);
+  await orcaSettings(other, agentDefaultArgs);
+  const asJson = await other.run(['init', '--bots', 'bots', '--harness', 'claude', '--json']);
+
+  return { plain, asJson, other };
+}
+
+/**
+ * A report with everything that differs between sandboxes taken out of it, so
+ * a sentence from one run can be looked for in the other's lines. The findings
+ * here name the files they are about, and every one of those paths is inside
+ * the sandbox that produced it.
+ */
+const withoutTheSandbox = (box, text) => text.split(box.root).join('<sandbox>');
+
+for (const [label, agentDefaultArgs] of [
+  ['records a bypass for claude', { claude: BYPASS.claude, codex: '' }],
+  ['records nothing for claude, which is the bypass it falls back to', { codex: '' }],
+]) {
+  test(`H23 init reminds the user when Orca ${label}, and still exits 0`, async (t) => {
+    const box = await createSandbox(t);
+
+    const { plain, asJson, other } = await initBoth(box, t, agentDefaultArgs);
+
+    // A reminder is not a failure of init: the setup worked, and what is left
+    // is a setting only the user can change.
+    assert.equal(plain.code, 0, plain.stderr);
+    assert.equal(plain.stderr, '');
+    assert.equal(asJson.code, 0, asJson.stderr);
+
+    const answer = JSON.parse(asJson.stdout);
+    assert.ok(Array.isArray(answer.found), `init should carry what it found, got: ${asJson.stdout}`);
+    const finding = oneNaming(answer.found, 'claude', 'the harness Orca would start with a bypass');
+    assert.equal(finding.kind, 'orca');
+    assert.ok(
+      wordsOf(finding).includes(BYPASS.claude),
+      `the user has to know which argument to change, got: ${JSON.stringify(finding, null, 2)}`,
+    );
+    // Setup checks Orca's setting and nothing else: a folder init has just made
+    // has nothing else to say about itself.
+    assert.deepEqual(
+      [...new Set(answer.found.map((one) => one.kind))],
+      ['orca'],
+      `init carries the Orca setting alone, got: ${JSON.stringify(answer.found, null, 2)}`,
+    );
+
+    // In the plain lines as well, because most people never ask for JSON. The
+    // sentence names the settings file it read, which is inside whichever
+    // sandbox produced it, so both sides lose their own sandbox first.
+    assert.ok(
+      flat(withoutTheSandbox(box, plain.stdout)).includes(flat(withoutTheSandbox(other, finding.says))),
+      `the plain report should carry the reminder too, got:\n${plain.stdout}`,
+    );
+    // And everything init already answered is still there.
+    assert.ok(Array.isArray(answer.tabs) && answer.tabs.length > 0, `init still answers about its tabs, got: ${asJson.stdout}`);
+    assert.ok(plain.stdout.includes('Bot Father daily'), `and still names the tab it opened, got: ${plain.stdout}`);
+    assert.ok(plain.stdout.includes(box.path('bots')), `and the bots folder it made, got: ${plain.stdout}`);
+  });
+}
+
+test('H23 init says nothing about Orca\'s setting when the recorded arguments are harmless', async (t) => {
+  const box = await createSandbox(t);
+
+  const { plain, asJson } = await initBoth(box, t, { claude: '--model opus', codex: '' });
+
+  assert.equal(plain.code, 0, plain.stderr);
+  assert.equal(asJson.code, 0, asJson.stderr);
+  assert.deepEqual(
+    (JSON.parse(asJson.stdout).found ?? []).filter((one) => one.kind === 'orca'),
+    [],
+    'nothing has taken the permission level out of the kit\'s hands',
+  );
+  for (const bypass of Object.values(BYPASS)) {
+    assert.ok(!plain.stdout.includes(bypass), `and the lines say nothing about a bypass, got:\n${plain.stdout}`);
+  }
+  assert.ok(plain.stdout.includes('Bot Father daily'), `init reports what it always did, got: ${plain.stdout}`);
 });
