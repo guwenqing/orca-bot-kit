@@ -38,6 +38,7 @@ import {
   branchIn,
   cloneOf,
   commitIn,
+  originUrlOf,
   putFile,
   putSkills,
   refsKnow,
@@ -74,15 +75,19 @@ async function seeded(box) {
  * tag `v1.0.0` and the branch `stable` left on it, and then a second commit on
  * `main`. So the three kinds of ref a user can pin are all there at once, and
  * `main` is the one that can still move.
+ *
+ * `mark` goes into what the skills say, so that a test with two repositories in
+ * it can tell which one a clone came from — and so that the two cannot commit
+ * the very same tree, message and second, and quietly share a sha.
  */
-async function origin(box, name = 'their-repo', { sub = '' } = {}) {
+async function origin(box, name = 'their-repo', { sub = '', mark = '' } = {}) {
   const dir = path.join(box.root, name);
   await repoAt(dir);
-  await putSkills(dir, { [SKILL]: ONE }, sub);
+  await putSkills(dir, { [SKILL]: `${ONE}${mark}` }, sub);
   const first = await commitIn(dir, 'the first version');
   await tagIn(dir, 'v1.0.0');
   await branchIn(dir, 'stable');
-  await putSkills(dir, { [SKILL]: TWO }, sub);
+  await putSkills(dir, { [SKILL]: `${TWO}${mark}` }, sub);
   const second = await commitIn(dir, 'the second version');
   return { dir, first, second };
 }
@@ -486,4 +491,178 @@ test('a clone the user deleted is fetched again, and the sha written down is the
   assert.equal(sourceIn(answerOf(result), SOURCE).state, 'cloned');
   assert.equal(await shaIn(cloneOf(bots, SOURCE)), made.first);
   assert.equal((await sourceEntryIn(bots, SOURCE)).sha, made.first);
+});
+
+// Three ways a version can be got wrong, all of them found in review of the
+// first implementation and all of them the same failure underneath: the kit
+// believing something about a clone that the clone does not actually say. A
+// directory is taken for a finished fetch, a sha in the file is taken for
+// something a plain fetch may replace, and the repository a clone came from is
+// taken for the one the file names now. Each one ends with a bot reading a
+// version nobody asked for, which is the one thing this slice exists to stop.
+
+test('a fetch that could not reach the version asked for leaves nothing behind, and says so again next time', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  const made = await origin(box);
+  await writeSources(bots, sourcesYaml({ name: SOURCE, repo: made.dir, ref: 'v9.9.9' }));
+
+  const result = await fetch(box, '--json');
+
+  assert.equal(result.code, 1, 'a source that could not be fetched ends the run in 1');
+  const entry = sourceIn(answerOf(result), SOURCE);
+  assert.ok(entry.trouble?.includes('v9.9.9'), `the trouble should name the ref, got: ${JSON.stringify(entry)}`);
+  // A directory under the sibling folder is what every later run reads as "this
+  // source is here, at the version it was asked for". A half-done one there is
+  // that claim made about a clone sitting at whatever the repository's default
+  // branch happens to be.
+  assert.ok(!existsSync(cloneOf(bots, SOURCE)), 'a fetch that did not finish leaves no clone behind');
+  assert.equal((await sourceEntryIn(bots, SOURCE)).sha, undefined, 'and writes no version down');
+
+  const again = await fetch(box, '--json');
+
+  assert.equal(again.code, 1, 'and the run after it ends in 1 too');
+  const said = sourceIn(answerOf(again), SOURCE);
+  assert.notEqual(said.state, 'there', `nothing is there, so nothing is reported as there: ${JSON.stringify(said)}`);
+  assert.ok(said.trouble?.includes('v9.9.9'), `the same trouble is said again, got: ${JSON.stringify(said)}`);
+  assert.equal((await sourceEntryIn(bots, SOURCE)).sha, undefined);
+});
+
+test('a clone that has gone missing comes back at the sha that was recorded, not at whatever the branch is now', async (t) => {
+  // `ref: main` and a sha in the file: the user pinned a moving branch and got
+  // a commit. Putting the clone back is not the user asking to move, so the
+  // commit they got is the one that comes back — otherwise a deleted folder, or
+  // a bots repo restored onto another machine, moves every bot to a version
+  // nobody asked for.
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  const made = await origin(box);
+  await writeSources(bots, sourcesYaml({ name: SOURCE, repo: made.dir, ref: 'main' }));
+  await fetched(box);
+  assert.equal((await sourceEntryIn(bots, SOURCE)).sha, made.second);
+  await rm(sourcesDirOf(bots), { recursive: true });
+  await putSkills(made.dir, { [SKILL]: THREE });
+  const third = await commitIn(made.dir, 'the third version');
+
+  const result = await fetch(box, '--json');
+
+  assert.equal(result.code, 0, result.stderr);
+  const entry = sourceIn(answerOf(result), SOURCE);
+  assert.equal(entry.sha, made.second, `the version in the file is the version that comes back, got: ${JSON.stringify(entry)}`);
+  assert.equal(await shaIn(cloneOf(bots, SOURCE)), made.second);
+  assert.ok((await skillTextIn(bots, SOURCE)).includes(TWO), 'so a session reads what it read before');
+  assert.equal((await sourceEntryIn(bots, SOURCE)).sha, made.second, 'and nothing in the file moved');
+  assert.equal((await sourceEntryIn(bots, SOURCE)).ref, 'main', 'while the ref is still what the user asked for');
+
+  // And the asking still works: `update` is the command that follows the branch.
+  const moved = await update(box, '--json');
+
+  assert.equal(moved.code, 0, moved.stderr);
+  assert.equal(sourceIn(answerOf(moved), SOURCE).sha, third);
+  assert.equal(await shaIn(cloneOf(bots, SOURCE)), third);
+});
+
+test('a recorded sha the repository no longer has is said out loud, not replaced with a newer one', async (t) => {
+  // The other half of the rule above. If the commit that was written down
+  // cannot be found, the honest answer is that it cannot be found — a fetch
+  // that quietly took the top of the branch instead would be the same silent
+  // move, arriving by a different road.
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  const made = await origin(box);
+  const gone = '0123456789abcdef0123456789abcdef01234567';
+  await writeSources(bots, sourcesYaml({ name: SOURCE, repo: made.dir, ref: 'main', sha: gone }));
+
+  const result = await fetch(box, '--json');
+
+  assert.equal(result.code, 1, 'a version that cannot be found ends the run in 1');
+  const entry = sourceIn(answerOf(result), SOURCE);
+  assert.ok(entry.trouble?.includes(SOURCE), `the trouble should name the source, got: ${JSON.stringify(entry)}`);
+  assert.ok(entry.trouble.includes(gone.slice(0, 7)), `and the version it could not find, got: ${entry.trouble}`);
+  assert.ok(!existsSync(cloneOf(bots, SOURCE)), 'and nothing usable is left behind');
+  assert.equal((await sourceEntryIn(bots, SOURCE)).sha, gone, 'the file still says what it said');
+
+  // The way out is the user asking for a version that does exist.
+  const moved = await update(box, '--json');
+
+  assert.equal(moved.code, 0, `${moved.stderr}${moved.stdout}`);
+  assert.equal(sourceIn(answerOf(moved), SOURCE).sha, made.second);
+  assert.equal(await shaIn(cloneOf(bots, SOURCE)), made.second);
+  assert.equal((await sourceEntryIn(bots, SOURCE)).sha, made.second);
+});
+
+test('update takes the source from the repository the file names now', async (t) => {
+  // The user points a source at a fork, or at the place a repository moved to.
+  // A clone whose origin is the old one is the old source, whatever the entry
+  // around it says, and an update that fetched it would report the new
+  // repository's name against the old repository's commit.
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  const first = await origin(box, 'their-repo');
+  const other = await origin(box, 'other-repo', { mark: ' Taken from the fork.' });
+  assert.notEqual(first.first, other.first, 'the two repositories must not share a commit, or this proves nothing');
+  await writeSources(bots, sourcesYaml({ name: SOURCE, repo: first.dir, ref: 'v1.0.0' }));
+  await fetched(box);
+  await writeSources(bots, sourcesYaml({ name: SOURCE, repo: other.dir, ref: 'v1.0.0' }));
+
+  const result = await update(box, '--json');
+
+  assert.equal(result.code, 0, `${result.stderr}${result.stdout}`);
+  assert.equal(sourceIn(answerOf(result), SOURCE).sha, other.first);
+  assert.equal(await originUrlOf(cloneOf(bots, SOURCE)), other.dir, 'the clone is taken from the repository the file names');
+  assert.equal(await shaIn(cloneOf(bots, SOURCE)), other.first);
+  assert.ok((await skillTextIn(bots, SOURCE)).includes('Taken from the fork.'), 'and the skills in it are that repository\'s');
+  assert.equal((await sourceEntryIn(bots, SOURCE)).sha, other.first, 'the sha beside the new repo is the new repo\'s');
+});
+
+test('fetch will not take a source from a different repository, and changes nothing', async (t) => {
+  // Fetch gets what is missing; it is not the command that changes what a
+  // source is. Left unsaid, the entry names one repository and the clone under
+  // it is another's, with a sha that belongs to neither line of work.
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  const first = await origin(box, 'their-repo');
+  const other = await origin(box, 'other-repo', { mark: ' Taken from the fork.' });
+  await writeSources(bots, sourcesYaml({ name: SOURCE, repo: first.dir, ref: 'v1.0.0' }));
+  await fetched(box);
+  await writeSources(bots, sourcesYaml({ name: SOURCE, repo: other.dir, ref: 'v1.0.0' }));
+  const file = await sourcesTextIn(bots);
+
+  const result = await fetch(box, '--json');
+
+  assert.equal(result.code, 1, 'a clone that is not of the repository the file names ends the run in 1');
+  const entry = sourceIn(answerOf(result), SOURCE);
+  assert.ok(entry.trouble?.includes(SOURCE), `the trouble should name the source, got: ${JSON.stringify(entry)}`);
+  assert.ok(/skills update/.test(entry.trouble), `and say what to run to take it from there, got: ${entry.trouble}`);
+  assert.equal(await originUrlOf(cloneOf(bots, SOURCE)), first.dir, 'the clone is left exactly as it was');
+  assert.equal(await shaIn(cloneOf(bots, SOURCE)), first.first);
+  assert.equal(await sourcesTextIn(bots), file, 'and nothing is written into the user\'s file');
+});
+
+test('a skills.yaml the sha cannot be written into without changing something else is left alone', async (t) => {
+  // The guard in front of every write the kit makes to a file the user also
+  // writes in. An anchor on the source and an alias to it elsewhere is one
+  // document where adding a key in one place adds it in two, so the change is
+  // not the one the kit meant to make and the file is not written at all.
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  const made = await origin(box);
+  await writeSources(bots, [
+    '# The shelf, and a copy of the entry I keep for myself.',
+    '',
+    'sources:',
+    '  - &shared',
+    `    name: ${SOURCE}`,
+    `    repo: ${made.dir}`,
+    '    ref: v1.0.0',
+    'backup: *shared',
+    '',
+  ].join('\n'));
+  const file = await sourcesTextIn(bots);
+
+  const result = await fetch(box);
+
+  assertCleanFailure(result);
+  assert.ok(result.stderr.includes('skills.yaml'), `the refusal should name the file, got: ${result.stderr}`);
+  assert.equal(await sourcesTextIn(bots), file, 'the user\'s file is left exactly as they wrote it');
 });

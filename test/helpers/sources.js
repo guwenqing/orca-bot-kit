@@ -57,6 +57,9 @@ export const branchIn = (dir, name) => gitOk(['branch', name], dir);
 /** What a repository is at: the sha of HEAD, or of whatever `rev` names. */
 export const shaIn = (dir, rev = 'HEAD') => gitOk(['rev-parse', rev], dir);
 
+/** Which repository a clone was taken from: what its `origin` remote points at. */
+export const originUrlOf = (dir) => gitOk(['remote', 'get-url', 'origin'], dir);
+
 /**
  * Whether any ref in this repository knows that commit.
  *

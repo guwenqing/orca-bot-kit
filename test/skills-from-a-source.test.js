@@ -334,3 +334,43 @@ test('up leaves a clone where it is, whatever the origin has done since', async 
     );
   }
 });
+
+test('a build after a fetch that did not finish links nothing, and the right version arrives once the ref is corrected', async (t) => {
+  // Found in review: a fetch that could not reach the ref left a clone behind
+  // at the repository's default branch, and the build after it linked that into
+  // both harnesses and exited 0 — a bot silently running a version nobody
+  // pinned, and correcting the ref did not get it back, because the wrong clone
+  // was still "there".
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  await makeBot(box, 'api-bot');
+  const made = await origin(box);
+  await writeSources(bots, sourcesYaml({ name: SOURCE, repo: made.dir, ref: 'v9.9.9' }));
+  await addSkills(botYamlOf(bots, 'api-bot'), `${SOURCE}:${SKILL}`);
+  assert.equal((await box.run(['skills', 'fetch', '--bots', 'bots'])).code, 1, 'the fetch cannot have worked');
+
+  const result = await build(box, '--bot', 'api-bot');
+
+  assert.equal(result.code, 1, 'a source that was never fetched is a list the kit cannot follow');
+  for (const harness of HARNESSES) {
+    assert.deepEqual(
+      await namesIn(bots, 'api-bot', harness),
+      [],
+      'and no version of it is linked: a version nobody asked for is worse than no skill at all',
+    );
+  }
+
+  // The user corrects the ref, which is the whole of what they have to do.
+  await writeSources(bots, sourcesYaml({ name: SOURCE, repo: made.dir, ref: 'v1.0.0' }));
+  await fetched(box);
+  const built = await build(box, '--bot', 'api-bot');
+
+  assert.equal(built.code, 0, `${built.stderr}${built.stdout}`);
+  await assertLinked(bots, 'api-bot', SKILL, path.join(cloneOf(bots, SOURCE), SKILL));
+  for (const harness of HARNESSES) {
+    assert.ok(
+      (await readThrough(bots, 'api-bot', harness, SKILL)).includes(ONE),
+      `${harness} should read the version the corrected ref names`,
+    );
+  }
+});
