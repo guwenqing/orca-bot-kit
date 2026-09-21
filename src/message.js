@@ -172,7 +172,7 @@ export function sendMessage(bots, { to: target, from: sender, tab, subject, text
  */
 export function checkMail(bots, { bot: botName, session: sessionName, tab, peek = false }) {
   const who = sessionName === undefined && botName === undefined
-    ? whoIsWriting(bots, undefined, tab)
+    ? whoIsWriting(bots, undefined, tab, '--bot <bot> [--session <name>]: whose mail to read')
     : findSession(bots, sessionName === undefined ? botName : `${botName}/${sessionName}`);
 
   if (who.mailbox === undefined) {
@@ -225,12 +225,12 @@ function whoOwns(bots, handle) {
  * command is running in. A caller that is in neither is asked to say, rather
  * than being given somebody else's name.
  */
-function whoIsWriting(bots, sender, tab) {
+function whoIsWriting(bots, sender, tab, asked = '--from <bot>/<session>: which session is writing') {
   if (sender !== undefined) return findSession(bots, sender);
 
   const found = tab === undefined ? undefined : sessionInTab(bots, tab);
   if (found === undefined) {
-    throw new Error('--from <bot>/<session>: which session is writing. The kit reads it from the tab when it runs in one, and this is not one of the fleet\'s tabs.');
+    throw new Error(`${asked}. The kit reads it from the tab when it runs in one, and this is not one of the fleet's tabs.`);
   }
   return found;
 }
@@ -256,8 +256,8 @@ function sessionInTab(bots, tab) {
  */
 function bodyOf(bots, { from, to, subject, text, textFile }) {
   const said = textFile === undefined ? text : readText(textFile);
-  if (said === undefined) {
-    throw new Error('message send needs something to say: --text <text> or --text-file <path>.');
+  if (said === undefined || said.trim() === '') {
+    throw new Error('message send needs something to say: --text <text> or --text-file <path>, with something in it.');
   }
   if (Buffer.byteLength(said, 'utf8') <= INLINE_LIMIT) return { body: said };
 
