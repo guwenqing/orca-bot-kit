@@ -6,15 +6,24 @@
 // points at, so every answer the preflight can get is played back without Orca
 // running anywhere. Each fixture test file prints a marker, which is how a test
 // here can tell which files the run picked up.
+//
+// Driving this machine takes a deliberate step, so a fixture has two ways to
+// run: `run` is the command on its own, which drives nothing, and `confirmed`
+// is the same command with the confirmation flag. A test about what the system
+// tests do uses `confirmed`; a test about who may start them uses both.
 
 import assert from 'node:assert/strict';
 import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { describe, test } from 'node:test';
 
 import { createSandbox, fakeProgram, node, repoRoot } from './helpers/cli.js';
 
 const scriptEntry = path.join(repoRoot, 'scripts', 'test-system.js');
+
+/** The one deliberate step that lets the system tests drive this machine. */
+const CONFIRM = '--yes';
 
 /** The Orca CLI to fall back on when OBK_ORCA says nothing (tech notes, section 1). */
 const BUILT_IN_ORCA = '/Applications/Orca.app/Contents/Resources/bin/orca';
@@ -76,6 +85,11 @@ async function createRepo(t, { orca: orcaOptions = READY, files = DEFAULT_FILES 
   // developer's shell does not have it, so neither does the script here.
   const { OBK_ORCA: _override, NODE_TEST_CONTEXT: _context, ...bare } = box.env;
 
+  const runScript = (args, options) => node(
+    [path.join(repo, 'scripts', 'test-system.js'), ...args],
+    { cwd: options.cwd ?? repo, env: options.env ?? { ...bare, OBK_ORCA: orcaPath } },
+  );
+
   return {
     repo,
     orca,
@@ -84,15 +98,48 @@ async function createRepo(t, { orca: orcaOptions = READY, files = DEFAULT_FILES 
     env: { ...bare, OBK_ORCA: orcaPath },
     /** The same environment with no override at all, so the built-in path is used. */
     envWithoutOverride: bare,
-    /** Run `node scripts/test-system.js` from the repo (or `options.cwd`, with `options.env`). */
-    run: (options = {}) => node(
-      [path.join(repo, 'scripts', 'test-system.js')],
-      { cwd: options.cwd ?? repo, env: options.env ?? { ...bare, OBK_ORCA: orcaPath } },
-    ),
+    /**
+     * Run it the way `npm run test:system` on its own does: no confirmation.
+     * From the repo (or `options.cwd`, with `options.env`).
+     */
+    run: (options = {}) => runScript([], options),
+    /** Run it the way the developer who means it does: with the confirmation flag. */
+    confirmed: (options = {}) => runScript([CONFIRM], options),
     /** The sandbox directory outside the repo, for running from elsewhere. */
     outside: box.cwd,
   };
 }
+
+/**
+ * What the announcement has to carry before anything is driven: the machine it
+ * is about to drive, the Orca CLI it will drive it through, and every system
+ * test file it would run, by name. The wording around them is the writer's.
+ *
+ * Read from stdout alone, because everything the runner says about itself goes
+ * there on every path; stderr belongs to the run it starts.
+ */
+function assertAnnounces(result, fixture, files = [], cli = fixture.orcaPath) {
+  const output = result.stdout;
+  // As the machine reports itself, spelling and all. Matched as it is written
+  // rather than loosely: this one answers `Mac`, and a loose match would take
+  // the word `macOS` in a sentence about the machine for the name of it.
+  const machine = os.hostname();
+
+  assert.ok(
+    output.includes(machine),
+    `it should name the machine it will drive (${machine}), got: ${output}`,
+  );
+  assert.ok(
+    output.includes(cli),
+    `it should name the Orca CLI it asked (${cli}), got: ${output}`,
+  );
+  for (const file of files) {
+    assert.ok(output.includes(file), `it should name ${file}, got: ${output}`);
+  }
+}
+
+/** Each way of invoking it, for a fact that has to hold on both. */
+const eitherWay = async (fixture) => [await fixture.run(), await fixture.confirmed()];
 
 /** Orca is not ready: it says so on stdout, exits 0, and no system test ran. */
 function assertSkipped(result) {
@@ -113,7 +160,7 @@ describe('test-system', { concurrency: true }, () => {
   test('the preflight asks the Orca CLI for its status as JSON, once', async (t) => {
     const fixture = await createRepo(t);
 
-    await fixture.run();
+    await fixture.confirmed();
 
     assert.deepEqual(argsOf(await fixture.orca.calls()), [['status', '--json']]);
   });
@@ -121,7 +168,7 @@ describe('test-system', { concurrency: true }, () => {
   test('Orca ready: the system tests run and it exits with their exit code', async (t) => {
     const fixture = await createRepo(t);
 
-    const result = await fixture.run();
+    const result = await fixture.confirmed();
 
     assert.equal(result.code, 0);
     assert.match(result.stdout, /ALPHA/);
@@ -131,7 +178,7 @@ describe('test-system', { concurrency: true }, () => {
     // A bare `node --test` would go hunting through the whole tree instead.
     const fixture = await createRepo(t);
 
-    const result = await fixture.run();
+    const result = await fixture.confirmed();
 
     const output = result.stdout + result.stderr;
     assert.match(output, /ALPHA/);
@@ -147,7 +194,7 @@ describe('test-system', { concurrency: true }, () => {
       },
     });
 
-    const result = await fixture.run();
+    const result = await fixture.confirmed();
 
     assert.match(result.stdout, /ALPHA/);
     assert.match(result.stdout, /BETA/);
@@ -166,7 +213,7 @@ describe('test-system', { concurrency: true }, () => {
       },
     });
 
-    const result = await fixture.run();
+    const result = await fixture.confirmed();
 
     const output = result.stdout + result.stderr;
     assert.match(output, /ALPHA/);
@@ -186,7 +233,7 @@ describe('test-system', { concurrency: true }, () => {
       },
     });
 
-    const result = await fixture.run();
+    const result = await fixture.confirmed();
 
     assert.equal(result.code, 1);
   });
@@ -203,7 +250,7 @@ describe('test-system', { concurrency: true }, () => {
       },
     });
 
-    const result = await fixture.run();
+    const result = await fixture.confirmed();
 
     assert.equal(result.code, 1);
   });
@@ -225,7 +272,7 @@ describe('test-system', { concurrency: true }, () => {
       },
     });
 
-    const result = await fixture.run();
+    const result = await fixture.confirmed();
 
     const output = result.stdout + result.stderr;
     assert.match(output, /ALPHA out/);
@@ -235,7 +282,7 @@ describe('test-system', { concurrency: true }, () => {
   test('it works on the repo the script lives in, whatever the working directory', async (t) => {
     const fixture = await createRepo(t);
 
-    const result = await fixture.run({ cwd: fixture.outside });
+    const result = await fixture.confirmed({ cwd: fixture.outside });
 
     assert.match(result.stdout, /ALPHA/);
   });
@@ -255,12 +302,14 @@ describe('test-system', { concurrency: true }, () => {
       },
     });
 
-    const result = await fixture.run({ cwd: fixture.outside });
+    const result = await fixture.confirmed({ cwd: fixture.outside });
 
     assert.match(result.stdout, new RegExp(`CWD:${fixture.repo}\\n`));
   });
 
   test('no system test files: it says so, exits 0 and runs no test at all', async (t) => {
+    // Nothing to drive is nothing to confirm, so the command on its own is
+    // still the right way to ask this one.
     const fixture = await createRepo(t, { files: { 'test/other.test.js': marker('OTHER') } });
 
     const result = await fixture.run();
@@ -285,7 +334,7 @@ describe('test-system', { concurrency: true }, () => {
     const fixture = await createRepo(t);
     const missing = path.join(path.dirname(fixture.orcaPath), 'not-installed');
 
-    const result = await fixture.run({ env: { ...fixture.env, OBK_ORCA: missing } });
+    const result = await fixture.confirmed({ env: { ...fixture.env, OBK_ORCA: missing } });
 
     assertSkipped(result);
     // A skip is not a failure, and the reader is told how to turn it into a run.
@@ -296,7 +345,7 @@ describe('test-system', { concurrency: true }, () => {
   test('the status command failing is a skip', async (t) => {
     const fixture = await createRepo(t, { orca: { ...READY, exitCode: 1 } });
 
-    assertSkipped(await fixture.run());
+    assertSkipped(await fixture.confirmed());
   });
 
   test('status printing something that is not JSON is a skip', async (t) => {
@@ -306,7 +355,7 @@ describe('test-system', { concurrency: true }, () => {
       orca: { stdout: 'orca: this CLI cannot run for this user\n' },
     });
 
-    assertSkipped(await fixture.run());
+    assertSkipped(await fixture.confirmed());
   });
 
   test('`ok: false` is a skip', async (t) => {
@@ -314,7 +363,7 @@ describe('test-system', { concurrency: true }, () => {
       orca: status({ ok: false, result: { runtime: { reachable: true } } }),
     });
 
-    assertSkipped(await fixture.run());
+    assertSkipped(await fixture.confirmed());
   });
 
   test('a runtime that is not reachable is a skip', async (t) => {
@@ -322,7 +371,7 @@ describe('test-system', { concurrency: true }, () => {
       orca: status({ ok: true, result: { runtime: { reachable: false } } }),
     });
 
-    assertSkipped(await fixture.run());
+    assertSkipped(await fixture.confirmed());
   });
 
   test('a status that says nothing about a reachable runtime is a skip, not a crash', async (t) => {
@@ -331,7 +380,7 @@ describe('test-system', { concurrency: true }, () => {
     for (const value of [null, { ok: true }, { ok: true, result: {} }, { ok: true, result: { runtime: {} } }]) {
       const fixture = await createRepo(t, { orca: status(value) });
 
-      assertSkipped(await fixture.run());
+      assertSkipped(await fixture.confirmed());
     }
   });
 
@@ -346,12 +395,130 @@ describe('test-system', { concurrency: true }, () => {
     for (const override of [undefined, '', BUILT_IN_ORCA]) {
       const env = { ...fixture.envWithoutOverride };
       if (override !== undefined) env.OBK_ORCA = override;
-      const result = await fixture.run({ env });
+      const result = await fixture.confirmed({ env });
       decisions.push({ code: result.code, skipped: /skip/i.test(result.stdout), ran: /ALPHA/.test(result.stdout) });
     }
 
     assert.deepEqual(decisions[1], decisions[0]);
     assert.deepEqual(decisions[2], decisions[0]);
     assert.deepEqual(argsOf(await fixture.orca.calls()), []);
+  });
+
+  // A test author once ran `npm run test:system` taking it for an ordinary
+  // check, and it started driving the machine it was typed on without a word.
+  describe('nobody drives this machine by accident', { concurrency: true }, () => {
+    test('the command on its own drives nothing, and does not read as a pass', async (t) => {
+      const fixture = await createRepo(t);
+
+      const result = await fixture.run();
+
+      assert.equal(result.signal, null, `it should decide and exit, not die: ${result.signal}`);
+      assert.notEqual(result.code, 0, 'a run that ran no system test must not exit 0');
+      assert.doesNotMatch(result.stdout + result.stderr, /ALPHA/);
+      // Asking Orca how it is drives nothing; anything past that would.
+      assert.deepEqual(argsOf(await fixture.orca.calls()), [['status', '--json']]);
+    });
+
+    test('the command on its own says what it would have driven, and how to drive it', async (t) => {
+      const fixture = await createRepo(t);
+
+      const result = await fixture.run();
+
+      assertAnnounces(result, fixture, ['test/system/alpha.test.js']);
+      assert.ok(
+        result.stdout.includes(CONFIRM),
+        `it should say how to run them for real, got: ${result.stdout}`,
+      );
+      // It has a whole stdout to say this on, and nothing was driven that
+      // could own stderr.
+      assert.equal(result.stderr, '');
+    });
+
+    test('the announcement says which Orca CLI, and that OBK_ORCA chose it', async (t) => {
+      const fixture = await createRepo(t);
+
+      for (const result of await eitherWay(fixture)) {
+        assert.ok(
+          result.stdout.includes(fixture.orcaPath),
+          `it should name the CLI in use, got: ${result.stdout}`,
+        );
+        assert.match(
+          result.stdout,
+          /OBK_ORCA/,
+          `it should say the CLI came from OBK_ORCA, got: ${result.stdout}`,
+        );
+      }
+    });
+
+    test('the announcement names every file it would run, one in a subfolder included', async (t) => {
+      // The reader is agreeing to what these files do; a file left out of the
+      // list is a thing driven that nobody agreed to.
+      const fixture = await createRepo(t, {
+        files: {
+          'test/system/alpha.test.js': marker('ALPHA'),
+          'test/system/nested/forgotten.test.js': marker('FORGOTTEN'),
+          'test/system/nested/support.js': "process.stdout.write('NOT-A-TEST\\n');\n",
+          'test/other.test.js': marker('OTHER'),
+        },
+      });
+
+      const result = await fixture.run();
+
+      assertAnnounces(result, fixture, [
+        'test/system/alpha.test.js',
+        'test/system/nested/forgotten.test.js',
+      ]);
+      const output = result.stdout + result.stderr;
+      assert.ok(!output.includes('support.js'), `it should not name a file it will not run, got: ${output}`);
+      assert.ok(!output.includes('other.test.js'), `it should not name a file it will not run, got: ${output}`);
+    });
+
+    test('the confirmed run announces first, then drives, then answers with their exit code', async (t) => {
+      const fixture = await createRepo(t);
+
+      const result = await fixture.confirmed();
+
+      assertAnnounces(result, fixture, ['test/system/alpha.test.js']);
+      assert.equal(result.code, 0);
+      assert.match(result.stdout, /ALPHA/);
+      // Said before it happens, not reported after: the order is the whole
+      // point, so the announcement has to share the stream the run comes out on.
+      const announced = result.stdout.indexOf(fixture.orcaPath);
+      assert.ok(announced >= 0, `the announcement should reach stdout, got: ${result.stdout}`);
+      assert.ok(
+        announced < result.stdout.indexOf('ALPHA'),
+        `the announcement should come before the run, got: ${result.stdout}`,
+      );
+    });
+
+    test('Orca not answering is a skip that drives nothing, and still says which Orca it asked', async (t) => {
+      // The skip itself this design leaves alone, so half of this is a guard.
+      // The other half is new: whether a skip is the right answer is the
+      // developer's to judge, and they cannot judge it without knowing which
+      // Orca went unanswered.
+      const fixture = await createRepo(t, {
+        orca: status({ ok: true, result: { runtime: { reachable: false } } }),
+      });
+
+      for (const result of await eitherWay(fixture)) {
+        assertSkipped(result);
+        assertAnnounces(result, fixture);
+        assert.match(
+          result.stdout,
+          /OBK_ORCA/,
+          `it should say the CLI came from OBK_ORCA, got: ${result.stdout}`,
+        );
+      }
+    });
+
+    test('a skip names the Orca CLI it actually asked, not the one it would have preferred', async (t) => {
+      const fixture = await createRepo(t);
+      const missing = path.join(path.dirname(fixture.orcaPath), 'not-installed');
+
+      const result = await fixture.confirmed({ env: { ...fixture.env, OBK_ORCA: missing } });
+
+      assertSkipped(result);
+      assertAnnounces(result, fixture, [], missing);
+    });
   });
 });
