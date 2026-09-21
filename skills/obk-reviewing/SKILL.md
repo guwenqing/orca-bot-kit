@@ -143,16 +143,20 @@ paragraphs about the architecture.
   is over. Do not mark simple code down for not being abstract: a few lines
   repeated beat an abstraction invented too early.
 - **The tests.** Is there a test for what changed, and would it fail if the
-  code were wrong? Where a separate author wrote them, are the files that
-  report names actually in the change in front of you — a test named in a
-  hand-over and missing from the diff is a finding, not an oversight, and it
-  reads as success until someone else clones the branch. For a bug, is there a
-  test that reproduces it? Was there a failing run before the code, or only a
-  green one after? Do the tests observe
-  behaviour or repeat the implementation? And look for green that was bought: a
-  threshold moved, a test skipped or deleted, assertions taken out of a test
-  that stayed, a check switched off by a comment, a value hard-coded to match
-  one test's input. Tightening the bar is quiet; loosening it should not be.
+  code were wrong? Where a separate author wrote them, is every case the hand-
+  over names present in the revision being handed on, with the contents the
+  author handed back? Absent from the diff is a reason to look at the
+  revision, not a finding by itself — the tests may have landed in an earlier
+  change this one builds on. What is a finding is a named test that is not
+  there at all, or is there with its assertions softened. Confirm which before
+  writing it up: a test still sitting in somebody's working tree reads as
+  success until another clone says otherwise. For a bug, is there a test that
+  reproduces it? Was there a failing run before the code, or only a green one
+  after? Do the tests observe behaviour or repeat the implementation? And look
+  for green that was bought: a threshold moved, a test skipped or deleted,
+  assertions taken out of a test that stayed, a check switched off by a
+  comment, a value hard-coded to match one test's input. Tightening the bar is
+  quiet; loosening it should not be.
 - **The repo's own rules.** Flag a breach only when you can quote the rule and
   the line that breaks it. Not a style you prefer, and not the spirit of a
   document. Skip anything the project's own tooling already enforces.
