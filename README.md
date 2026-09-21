@@ -143,6 +143,10 @@ than relying on another skill being loaded.
 | `obk-debugging` | a check that goes red first, the real cause, proof where it broke |
 | `obk-arch` | what is wanted, the shape, runnable and testable, work in slices |
 | `obk-grilling` | interviewing a plan until it holds, and writing down what was settled |
+| `obk-handoff` | stopping somewhere safe, and the note a cold reader can act on |
+| `obk-recall` | where a piece of work actually stands, before carrying on with it |
+| `obk-why` | why the code is like this, and how sure you are |
+| `obk-teach` | explaining something so it lands, at the other person's pace |
 
 A skill is where the depth lives. The always-on rules say that a change in
 behaviour starts with a failing test someone else wrote and is read by someone
