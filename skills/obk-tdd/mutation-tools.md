@@ -4,9 +4,13 @@ For the occasional audit described in the skill. No project needs one of these,
 and the hand check is the everyday method; this page exists so that a run, when
 there is a reason for one, is scoped to what changed instead of the whole repo.
 
-Flags were read from each tool's own documentation on 2026-09-19. They change:
-check the version the project has before trusting a line here, and prefer a
-command the project already ships over one from this page.
+How far to trust each line. The StrykerJS flags below — `--incremental`,
+`--force` and `-m`/`--mutate` — were checked against `stryker run --help` on
+version 10.0.0 on 2026-09-20. Everything else on this page, the line-range form
+included, was read from each tool's own documentation on 2026-09-19 and has not
+been run. Flags change: check the version the project actually has before
+trusting a line here, and prefer a command the project already ships over one
+from this page.
 
 **JavaScript, TypeScript — StrykerJS** (Apache-2.0)
 

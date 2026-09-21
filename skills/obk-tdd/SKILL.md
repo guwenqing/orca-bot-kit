@@ -5,8 +5,11 @@ description: >-
   time, through the public interface; a separate author for the tests, whose
   tests the implementer does not edit; the shapes of tests that catch nothing;
   and the hand mutation check that asks whether the tests would catch a real
-  mistake. Use when changing behaviour, fixing a bug, writing or reviewing
-  tests, or deciding whether a suite is worth trusting.
+  mistake. Use whenever you are about to change what code does — a feature, a
+  fix, a one-line change, a bug someone reported — and whenever you are
+  writing, changing or judging tests, deciding what to test, or asking whether
+  a suite would catch anything. Reach for it before writing the code, not
+  after: a small change is exactly where the order gets skipped.
 ---
 
 # Test-driven work
@@ -95,9 +98,21 @@ effect that never happens — and add the case you find missing there and then.
 It is the same question the mutation check asks at the end, asked while it is
 still cheap to answer.
 
-Stand in for what you do not own: an external service, a database sometimes
-(prefer a real test one), the clock, randomness, the filesystem sometimes. Do
-not stand in for your own modules or internal collaborators.
+Use the least substitute that does the job, because the more of the real thing
+a test runs, the more it tells you. In order: the real implementation; a
+working in-memory version of it; something that returns fixed answers; and last
+a stand-in you assert the calls of. Reach past the real thing only when it is
+slow, unpredictable, or has effects you cannot control — an external service,
+the clock, randomness, a database sometimes, the filesystem sometimes. Do not
+stand in for your own modules or internal collaborators.
+
+When a test is hard to write, that is information about the design, not about
+testing. Hard to set up usually means hard to use. Having to stand in for
+everything means the pieces are too tightly bound — pass what a function
+depends on in rather than letting it reach out and build its own. A single
+function per external operation is easier to substitute than one general one
+with a switch inside it, because each substitute then answers one question
+instead of branching.
 
 Four things about a stand-in, when you do need one. Learn what the real thing
 does before you replace it, and stand in at the slow or external level below
@@ -169,10 +184,10 @@ forbidden: commit the author's tests before the implementation, so a later
 `git diff` over the test paths shows any change; or keep those paths outside
 the implementer's write scope.
 
-When you can neither start an author nor reach one, say so and ask before you
-write the tests yourself. If the answer is to go ahead, write them as a step of
-their own, before you read the implementation area in depth, and say in your
-report that authorship was not independent.
+When you can neither start an author nor reach one, that is where the work
+stops: say so and ask what to do. The separation is the check, and an
+implementer writing its own tests is not a weaker version of it, it is the
+absence of it.
 
 ## Red is evidence, not a formality
 
@@ -201,7 +216,16 @@ Things that look like green and are not: a test that passed on its first run; a
 suite reported as passing that nobody ran; a default test command guessed
 instead of the one this repo actually uses. And your test passing is not the
 suite passing — any failure the run showed, including one you did not cause,
-goes in your report by name.
+goes in your report by name. Green means the output is clean too: warnings and
+errors that scroll past on a passing run are results, not decoration.
+
+Where the change reaches further than the test you wrote, run what is next to
+it as well — the neighbouring tests, the type check, whatever the project uses
+to say a thing still holds — and say in your report what you ran.
+
+An assertion that already existed is not yours to loosen. It weakens only when
+the behaviour it describes genuinely changed, and then the reason is stated out
+loud, not left to be inferred from the diff.
 
 ## Green, then refactor outside the loop
 
@@ -212,9 +236,10 @@ passes, return it; then write the second case that the fake cannot satisfy, and
 let that one force the real implementation. Generalise when a test makes you,
 not before.
 
-Refactoring is not a phase of the red/green loop. Go green, then change the
-structure as a separate step, under the same tests and the same contract, and
-keep the two in separate commits, green on both sides. Pulling out something
+Refactoring is not a phase of the red/green loop. A small refactor is part of
+the change and keeps the same contract, so the tests that were green stay
+green; do it as its own step after green rather than while you are trying to
+get there, and keep the tests green on both sides of it. Pulling out something
 whose behaviour already exists elsewhere is refactoring; a function whose
 behaviour appears nowhere else is new, and it starts with a failing test like
 anything else.
@@ -244,6 +269,11 @@ what is stopping the bug from being pinned down.
 Minimise the reproduction until every part of it is load-bearing, turn it into
 a failing test, watch it fail, fix the cause, watch it pass, then run the
 original unminimised scenario again.
+
+Two tests are often better than one here: one at the interface, saying what a
+caller should have got, and the smallest one that shows the fault where it
+lives. Get both to pass. The first is what stops the bug coming back in a way
+anyone would notice; the second says where it was.
 
 A regression test written after the fix has proved nothing yet. Prove it:
 revert the fix, run it and watch it fail, restore the fix, run it again.
@@ -310,6 +340,11 @@ can fail is a crash; it exists to raise a coverage number. Coverage is a
 diagnostic and not a target: a high number says the lines ran, not that
 anything would have noticed them being wrong.
 
+One behaviour per test, so that a failure names one thing. That is not a limit
+on how many assertions you write: a table of cases for one behaviour is still
+one test, and the several assertions that together pin one outcome are one
+claim. It is a limit on how many unrelated claims share a name.
+
 Repetition between tests is not a fault. A test that reads on its own, with its
 input and its expected value in front of you, is worth more than one that sends
 you through three helpers to find out what it claims. Share setup when it makes
@@ -343,6 +378,12 @@ or argument. Aim for at least one per branch or boundary the work changed.
 Avoid a change that cannot show: adding zero, multiplying by one, or a value
 identical to the original.
 
+Others worth reaching for when the code has them: an arithmetic operator
+swapped; equality turned into its opposite; a string emptied or altered; a
+collection emptied, or a filter or a sort taken out; a safe-navigation step
+removed so an absent value reaches further than it should; a call to a
+collaborator deleted.
+
 Skip it, and say that you skipped it, for work with no real logic in it: docs,
 config, wiring, renames, small fixes, prototypes, and code with no runnable
 tests.
@@ -356,6 +397,13 @@ survivor ends as exactly one of three things: killed by a new test, equivalent
 with that argument, or a judgment call you name and leave. A list of survivors
 with nothing said about them is not a report, and neither is treating each one
 as a defect.
+
+When you cannot tell whether a survivor matters — the behaviour is genuinely
+unspecified, the test would be expensive or brittle, or you are not sure it is
+equivalent — say so and ask rather than deciding quietly in either direction.
+And if a lot of the breaks turn out to be equivalent, that is a finding about
+the code, not about the tests: code with that much slack in it can usually be
+made simpler.
 
 Kill a survivor only where it shows a gap in behaviour the requirement cares
 about. Wording of messages, logging and changes with no visible difference are
@@ -382,10 +430,14 @@ its files itself has no such limit, and asking someone to stash the very work
 they wanted checked is the wrong way round. Prove the setup with one small
 scoped run before spending a long one. Capture the output once and read it from
 the copy rather than re-running to re-read it. Set no failing threshold before
-a measured baseline exists. Paste what the tool printed — a mutation result reported from memory
-has been wrong. A compile error is not a kill, and a timeout is inconclusive
-rather than evidence. Commands and their current flags are in
-[mutation-tools.md](mutation-tools.md).
+a measured baseline exists. Paste what the tool printed — a mutation result
+reported from memory has been wrong. A compile error is not a kill, and a
+timeout is inconclusive rather than evidence.
+
+When you have decided to run a tool and need the command, read
+[mutation-tools.md](mutation-tools.md) beside this file: the scoped run for
+each language, what older advice gets wrong, and how far each line there has
+been verified. There is nothing in it you need before that point.
 
 Keep it in proportion. This check is the third safety net, after the separate
 author and the reviewer's reading of the tests, and it stays the cheapest of
@@ -422,36 +474,4 @@ used the same way: a wording fix, a rename, a link correction has no logic in
 it, so state what you checked and skip the rest. Prose written for people earns
 no test and no mutant.
 
-## Where this comes from
-
-Consolidated for this kit from these, all MIT, with thanks:
-
-- **mattpocock/skills**, `engineering/tdd` — seams and where tests go, vertical
-  slices against bulk testing, the tautological and implementation-coupled
-  shapes, refactoring outside the loop, standing in only at system boundaries.
-- **obra/superpowers**, `test-driven-development` and its `writing-good-tests`
-  — naming the break a test catches, deriving the expected value by hand,
-  change detectors, behaviour rather than text, your contract rather than the
-  framework's, the four rules about a stand-in, the revert-the-fix proof, the
-  list of warning signs, and the mutation classes.
-- **Cursor pstack**, `tdd` and `principle-test-behavior-not-implementation` —
-  the five shapes that observe no behaviour and the fix for each, "prefer no
-  new test over a bad test", the honest exit when a test is impractical, and
-  the report that names the failing-before and passing-after runs.
-- **addyosmani/agent-skills**, `test-driven-development` and
-  `constraint-driven-development` — finding out how the project tests before
-  writing anything, repetition being no fault in a test, a subagent for the
-  reproduction test, and the cheap roads to green.
-- **citypaul/.dotfiles**, `tdd` and `mutation-testing` — the mutation loop and
-  the order to break things in, survivor triage into killed, equivalent or
-  named and deferred, the equivalence question, keeping the harness out of the
-  inner loop, triangulating after a fake, and refusing to manufacture a red.
-- **Kent Beck's own rules file** — one test at a time, the smallest code that
-  passes, structure and behaviour kept apart, and the two-level test for a
-  defect.
-- **nizos/tdd-guard** — the ladder to a clean red.
-
-Ideas paraphrased, with no text taken: Trail of Bits' mutation-testing skill
-(CC BY-SA 4.0) on equivalent mutants, Anthropic's Claude Code documentation on
-separate test authorship, alexop.dev on why one context cannot hold both
-halves, and the published work on mutation testing at scale.
+Sources and licences: [NOTICE.md](NOTICE.md).
