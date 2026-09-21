@@ -180,6 +180,27 @@ out whether the tests would catch a real mistake, and `obk-reviewing` is how to
 read a change so the findings are worth acting on, and how to answer a reading
 of your own.
 
+A bot gets the ones its lists name:
+
+```sh
+obk skills build --bots /path/to/my-bots [--bot api-bot]
+```
+
+`skills:` in `defaults.yaml` gives them to every bot and `skills:` in a bot's
+`bot.yaml` to that one. An entry is `kit:<name>` for one of the kit's, a bare
+name for a directory in `skills/` inside your bots folder, or anything with a
+`/` in it for a skill directory anywhere on disk. `obk up` links them before it
+opens a tab, and `bot create` gives a new bot what the lists already name.
+
+What lands in the bot is a symlink, never a copy
+([ADR 0004](docs/adr/0004-skills-are-linked-never-copied.md)) — into
+`.claude/skills` and `.agents/skills` in the bot home, which is where each
+harness reads a project's skills from. So a kit skill is read where npm
+installed it, editing a skill is what a running session reads without a
+restart, and updating the kit updates every bot at once. The kit takes away
+only the links it made: a skill of your own, or a link of yours pointing
+somewhere the kit never points, is left alone and shown as yours.
+
 A skill is a directory holding `SKILL.md` — frontmatter carrying `name` (the
 directory's own name) and `description`, then the body — plus any reference
 files it links to and a `NOTICE.md` naming the sources it was built from and

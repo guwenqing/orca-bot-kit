@@ -17,7 +17,9 @@ const DEFAULTS_YAML = `# Rules and skills every bot gets, on top of its own.
 # rules:  rule units built into every bot's AGENTS.md, on top of the kit's own
 #         defaults, which every bot carries already. A bare name is a file in
 #         rules/ beside this one; kit:<name> is one of the kit's.
-# skills: skills every bot gets, for example kit:bk-tdd or common:my-skill.
+# skills: skills every bot gets, linked into both harnesses. kit:<name> is one
+#         of the kit's; a bare name is a directory in skills/ beside this one;
+#         anything with a / in it is a path to a skill directory on disk.
 
 rules: []
 skills: []

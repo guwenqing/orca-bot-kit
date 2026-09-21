@@ -17,6 +17,7 @@ import { APPROVALS, HARNESSES } from './launch.js';
 import { orcaTrouble } from './orca.js';
 import { recordSession, SHELL_ENV, TAB_ENV } from './record.js';
 import { buildAgents, buildRules, CODEX_CAP } from './rules.js';
+import { buildSkills, linkSkills } from './skills.js';
 import { BOT_FATHER, bringUp } from './up.js';
 
 const USAGE = `obk — Orca Bot Kit.
@@ -49,6 +50,12 @@ Usage:
                             name. Your own text outside the marked block is
                             kept; a block you edited by hand is reported and
                             never written over. It does not touch Orca.
+  obk skills build --bots <path> [--bot <bot>]
+                            Link every bot's skills into both harnesses, or
+                            just the one you name, from the kit, your own
+                            skills folder, or any path. What you put in a
+                            bot's skills directory yourself is left alone and
+                            shown as yours. It does not touch Orca.
   obk up --bots <path> [--bot <bot>] [--session <name>]
                             Open whatever is missing in Orca, for every bot or
                             for the one you name. It only ever adds; it never
@@ -71,6 +78,7 @@ const COMMANDS = {
   up: ['bots'],
   'bot create': ['bots', 'name', 'harness'],
   'rules build': ['bots'],
+  'skills build': ['bots'],
   'session add': ['bots', 'bot', 'name'],
   'session record': ['bots', 'bot'],
 };
@@ -134,8 +142,8 @@ async function run(argv) {
     return 1;
   }
 
-  // `bot`, `rules` and `session` are commands of two words; the rest are one.
-  const words = ['bot', 'rules', 'session'].includes(positionals[0]) ? 2 : 1;
+  // `bot`, `rules`, `skills` and `session` are commands of two words; the rest are one.
+  const words = ['bot', 'rules', 'skills', 'session'].includes(positionals[0]) ? 2 : 1;
   const command = positionals.slice(0, words).join(' ');
   const extra = positionals.slice(words);
 
@@ -196,15 +204,15 @@ const commands = {
     // exactly as it was and the caller can simply run the command again.
     refuseWhenOrcaIsDown();
     const seeded = initBots(bots, values.harness);
-    const { tabs, rules } = await bringUp(seeded.bots, { bot: BOT_FATHER });
-    const answer = { bots: seeded.bots, created: seeded.created, completed: seeded.completed, rules, tabs };
+    const { tabs, rules, skills } = await bringUp(seeded.bots, { bot: BOT_FATHER });
+    const answer = { bots: seeded.bots, created: seeded.created, completed: seeded.completed, rules, skills, tabs };
     return { answer, lines: tabLines(answer, `Bot Father is up in Orca. Your bots folder: ${seeded.bots}`) };
   },
 
   async up(bots, values) {
     refuseWhenOrcaIsDown();
-    const { tabs, rules } = await bringUp(bots, { bot: values.bot, session: values.session });
-    const answer = { bots, created: [], completed: [], rules, tabs };
+    const { tabs, rules, skills } = await bringUp(bots, { bot: values.bot, session: values.session });
+    const answer = { bots, created: [], completed: [], rules, skills, tabs };
     const up = [...new Set(tabs.map((tab) => tab.bot))];
     const summary = up.length === 0
       ? `Nothing was brought up in Orca. Your bots folder: ${bots}`
@@ -217,7 +225,10 @@ const commands = {
     // The bot's AGENTS.md is the rules build's, here as everywhere else, so
     // that a new bot's file and a rebuilt one are written by the same code.
     const rules = [buildAgents(bots, made.home, readBot(made.home))];
-    const answer = { bots, bot: made.bot, home: made.home, created: made.created, rules };
+    // A new bot is given what the lists already name, so it is whole before
+    // anybody opens a tab on it.
+    const skills = [linkSkills(bots, made.home, readBot(made.home))];
+    const answer = { bots, bot: made.bot, home: made.home, created: made.created, rules, skills };
     // A bot whose rules would not build is made but not finished: it has no
     // instructions, so `up` will not start it, and saying "give it a session"
     // would send the caller past the thing that needs settling first.
@@ -227,11 +238,27 @@ const commands = {
       lines: [
         ...made.created.map((entry) => `created    ${entry}`),
         ...rulesLines(rules, bots),
+        ...skillsLines(skills),
         trouble
           ? `${made.bot} is written, and its rules are not. Settle what the line above says, then:  obk rules build --bots ${bots} --bot ${made.bot}`
           : `${made.bot} is written. Give it a session:  obk session add --bots ${bots} --bot ${made.bot} --name <name>`,
       ],
       code: trouble ? 1 : 0,
+    };
+  },
+
+  'skills build'(bots, values) {
+    const skills = buildSkills(bots, { bot: values.bot });
+    const trouble = skills.filter((entry) => entry.trouble !== undefined);
+    return {
+      answer: { bots, skills },
+      lines: [
+        ...skillsLines(skills),
+        trouble.length === 0
+          ? `Every bot has the skills its lists name. Your bots folder: ${bots}`
+          : `${trouble.map((entry) => entry.bot).join(', ')}: skills not linked. Settle what the lines above say, then link again.`,
+      ],
+      code: trouble.length === 0 ? 0 : 1,
     };
   },
 
@@ -343,11 +370,26 @@ function rulesLines(rules, bots) {
   });
 }
 
-function tabLines({ bots, created, completed, rules, tabs }, summary) {
+/**
+ * What each bot has in its skills directories: one line naming the bot, then
+ * one per skill — what became of it, its name, and which shelf it came from.
+ * A skill the user put there themselves is named too, and said to be theirs.
+ */
+function skillsLines(skills) {
+  return skills.flatMap((entry) => [
+    entry.bot,
+    ...(entry.trouble === undefined ? [] : [`  ${'trouble'.padEnd(9)}  ${entry.trouble}`]),
+    ...entry.skills.map((skill) => `  ${(skill.managed ? 'linked' : 'yours').padEnd(9)}  ${skill.name.padEnd(24)}  ${skill.from}`),
+    ...(entry.removed ?? []).map((name) => `  ${'removed'.padEnd(9)}  ${name.padEnd(24)}  no list names it now`),
+  ]);
+}
+
+function tabLines({ bots, created, completed, rules, skills, tabs }, summary) {
   const lines = [
     ...created.map((entry) => `created    ${entry}`),
     ...completed.map((entry) => `completed  ${entry}`),
     ...rulesLines(rules, bots),
+    ...skillsLines(skills),
   ];
 
   for (const tab of tabs) {
