@@ -14,16 +14,19 @@
 // reported, and the run carries on with its usual exit code.
 
 import assert from 'node:assert/strict';
-import { chmod, readFile, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { chmod, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 
 import {
   botHomeOf,
   createSandbox,
+  hooksIn,
   orcaCallsOf,
   skipGit,
   snapshot,
+  TAB_TITLES,
   tabsOfBot,
 } from './helpers/cli.js';
 import {
@@ -221,4 +224,105 @@ test('one bot\'s conflict does not stop up, and does not change what it ends in'
     'the bot still comes up: a file the user edited is not a reason to leave a session down',
   );
   assert.ok(hasBlock(await agentsIn(bots, 'bot-father')), 'and the rest of the fleet is built and up');
+});
+
+// A bot with no `AGENTS.md` is a bot with no charter and no rules. Since the
+// build writes that file, a list naming a unit that is not there leaves a bot
+// with nothing — and a session started on it is a bot acting with none of the
+// boundary its charter was written to give it. So the two commands that build
+// both stop short of starting one: `bot create` will not hand back a bot that
+// has no instructions, and `up` leaves it down and says so.
+//
+// Not the same as a conflict. A bot whose block the user hand-edited has its
+// instructions; they are simply theirs, and it comes up (the test above).
+
+test('bot create will not leave a bot with no instructions', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  await addRules(path.join(bots, 'defaults.yaml'), 'ghost');
+
+  const result = await box.run([
+    'bot', 'create', '--bots', 'bots', '--name', 'api-bot', '--harness', 'claude', '--charter', 'Api Bot owns the API.',
+  ]);
+
+  assert.equal(result.code, 1, 'a bot the build could not finish is not a bot that was created');
+  assert.ok(!/^\s+at /m.test(result.stderr), `expected a message, got a crash:\n${result.stderr}`);
+  const said = `${result.stdout}${result.stderr}`;
+  assert.ok(said.includes('ghost'), `it should name what could not be resolved, got: ${said}`);
+  assert.ok(/rule|AGENTS\.md/i.test(said), `and say it is the rules that are not built, got: ${said}`);
+  assert.ok(!/session add/.test(said), `it should not send the user on to the next step, got: ${said}`);
+  assert.equal(
+    existsSync(agentsOf(bots, 'api-bot')),
+    false,
+    'and there is no AGENTS.md, which is the whole reason it refused',
+  );
+});
+
+test('up does not start a bot the build left with no AGENTS.md', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  await makeBot(box, 'api-bot');
+  // What a user reaches by naming a unit they have not written yet: the file
+  // the bot had is gone and the build cannot write it again.
+  await addRules(path.join(botHomeOf(bots, 'api-bot'), 'bot.yaml'), 'ghost');
+  await rm(agentsOf(bots, 'api-bot'));
+  await rm(path.join(botHomeOf(bots, 'api-bot'), 'CLAUDE.md'));
+
+  const result = await box.run(['up', '--bots', 'bots', '--json']);
+
+  assert.equal(result.code, 0, `one bot without instructions does not change what up ends in: ${result.stderr}`);
+  const answer = answerOf(result);
+  const entry = entryOf(answer, 'api-bot');
+  assert.equal(entry.state, 'failed');
+  assert.ok(entry.trouble.includes('ghost'), `the trouble should still name what is wrong, got: ${entry.trouble}`);
+  assert.match(
+    entry.trouble,
+    /session/i,
+    `and say the sessions were not started, got: ${entry.trouble}`,
+  );
+
+  assert.deepEqual(await tabsOfBot(box, bots, 'api-bot'), [], 'a bot with no instructions is not started');
+  assert.equal(
+    await hooksIn(bots, 'api-bot', 'claude'),
+    undefined,
+    'and it gets no hook either: nothing of it is set up to run',
+  );
+  assert.deepEqual(
+    answer.tabs.filter((tab) => tab.bot === 'api-bot'),
+    [],
+    'the tabs it answers with are the tabs there are',
+  );
+
+  assert.deepEqual(
+    (await tabsOfBot(box, bots, 'bot-father')).map((tab) => tab.title).sort(),
+    [TAB_TITLES.daily, TAB_TITLES.ops].sort(),
+    'every other bot comes up as usual',
+  );
+});
+
+test('up reports a CLAUDE.md of the user\'s own, and brings the bot up anyway', async (t) => {
+  // The other half of the distinction: the bot has its instructions in
+  // AGENTS.md, so it starts. What the report is about is that Claude Code will
+  // read something else.
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  await makeBot(box, 'api-bot');
+  await rm(path.join(botHomeOf(bots, 'api-bot'), 'CLAUDE.md'));
+  await writeFile(path.join(botHomeOf(bots, 'api-bot'), 'CLAUDE.md'), 'My own instructions.\n');
+
+  const result = await box.run(['up', '--bots', 'bots', '--json']);
+
+  assert.equal(result.code, 0, `up's exit code does not change for it: ${result.stderr}`);
+  const entry = entryOf(answerOf(result), 'api-bot');
+  assert.ok(entry.trouble.includes('CLAUDE.md'), `it should say what is in the way, got: ${JSON.stringify(entry)}`);
+  assert.deepEqual(
+    (await tabsOfBot(box, bots, 'api-bot')).map((tab) => tab.title),
+    ['Api Bot daily'],
+    'the bot has its own instructions in AGENTS.md, so it comes up',
+  );
+  assert.equal(
+    await readFile(path.join(botHomeOf(bots, 'api-bot'), 'CLAUDE.md'), 'utf8'),
+    'My own instructions.\n',
+    'and what the user wrote is still theirs',
+  );
 });

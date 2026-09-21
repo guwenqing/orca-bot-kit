@@ -10,7 +10,7 @@
 // prove it was not called.
 
 import assert from 'node:assert/strict';
-import { readFile, stat, utimes, writeFile } from 'node:fs/promises';
+import { readFile, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 
@@ -541,6 +541,71 @@ test('rules build never talks to Orca, and works with Orca down', async (t) => {
   assert.equal(result.code, 0, `an Orca that is down is nothing to rules build: ${result.stderr}`);
   assert.ok(hasBlock(await agentsIn(bots, 'api-bot')), 'the file is built all the same');
   assert.equal((await box.orca.calls()).length, calls, 'rules build must not call Orca at all');
+});
+
+// A bot's two harnesses read one file through two names: Codex reads
+// `AGENTS.md` and Claude Code reads `CLAUDE.md`, which is a link to it (PRD
+// 6.6, tech notes section 2). Anything else at that name and the two harnesses
+// are reading different instructions in the same bot — the split ADR 0003
+// exists to prevent. The kit does not touch what the user put there; it says so
+// and ends in 1, and the build of `AGENTS.md` itself is reported as what it
+// was, because that file really was written.
+for (const [label, put] of [
+  ['a file of the user\'s own', (home) => writeFile(path.join(home, 'CLAUDE.md'), 'My own instructions, not the bot\'s.\n')],
+  ['a link to some other file', async (home) => {
+    await writeFile(path.join(home, 'mine.md'), 'The instructions I want Claude to read.\n');
+    await symlink('mine.md', path.join(home, 'CLAUDE.md'));
+  }],
+  ['a link to nothing at all', (home) => symlink('AGENTS.md.gone', path.join(home, 'CLAUDE.md'))],
+]) {
+  test(`CLAUDE.md as ${label} is reported, and left alone`, async (t) => {
+    const box = await createSandbox(t);
+    const bots = await seeded(box);
+    await makeBot(box, 'api-bot');
+    await makeBot(box, 'web-bot');
+    const home = botHomeOf(bots, 'api-bot');
+    await rm(path.join(home, 'CLAUDE.md'));
+    await put(home);
+    const its = path.relative(bots, path.join(home, 'CLAUDE.md'));
+    const before = await snapshot(bots, skipGit);
+    await changeARule(box, bots);
+
+    const result = await build(box, '--json');
+
+    assert.equal(result.code, 1, 'a bot whose two harnesses would read different rules ends the run in 1');
+    const answer = answerOf(result);
+    const entry = entryOf(answer, 'api-bot');
+    assert.ok(
+      entry.state === 'built' || entry.state === 'unchanged',
+      `the AGENTS.md itself was written, so that is what the state is about, got: ${JSON.stringify(entry)}`,
+    );
+    assert.equal(typeof entry.trouble, 'string', `it should say what is in the way, got: ${JSON.stringify(entry)}`);
+    assert.ok(entry.trouble.includes('CLAUDE.md'), `and name the file, got: ${entry.trouble}`);
+    assert.ok(hasBlock(await agentsIn(bots, 'api-bot')), 'the bot\'s own rules are built all the same');
+    assert.equal((await snapshot(bots, skipGit))[its], before[its], 'what the user put there is never touched');
+    assert.ok(!('trouble' in entryOf(answer, 'web-bot')), 'and the bot beside it has nothing to report');
+  });
+}
+
+test('a CLAUDE.md that is the link it should be is reported as nothing at all', async (t) => {
+  // The other side of the three above: the ordinary case must stay quiet, or
+  // the report cries wolf on every bot in the fleet.
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  await makeBot(box, 'api-bot');
+  await changeARule(box, bots);
+
+  const result = await build(box, '--json');
+
+  assert.equal(result.code, 0, result.stderr);
+  const entry = entryOf(answerOf(result), 'api-bot');
+  assert.equal(entry.state, 'built');
+  assert.ok(!('trouble' in entry), `a bot whose link is right says nothing about it, got: ${JSON.stringify(entry)}`);
+  assert.equal(
+    await readFile(path.join(botHomeOf(bots, 'api-bot'), 'CLAUDE.md'), 'utf8'),
+    await agentsIn(bots, 'api-bot'),
+    'reading CLAUDE.md is reading AGENTS.md',
+  );
 });
 
 test('rules build without --bots fails and says so', async (t) => {
