@@ -41,6 +41,30 @@ other.
 What you remember about a bot from earlier in the conversation is not
 evidence. Neither is its name.
 
+## The card for each bot
+
+A fleet is read as a list of cards, one per bot, so that two of them can be
+compared without opening anything: its name, the harness it runs on, the model
+and the effort it works at, two lines of what it owns, and the one limit it
+does not cross.
+
+Those come out of the roster, and two of them are a reading rather than a
+copy. The charter is prose of whatever length its owner wrote; the two lines
+are your account of what it owns and what good looks like for it, and the rest
+stays where it is for anyone who wants it. The limit is the thing in the
+charter that is a boundary rather than an aim, and where a charter names
+several, the card carries the one that would cost the most to cross.
+
+Model and effort belong to a session rather than to a bot, and the sessions of
+one bot need not agree. Where they differ the card says so rather than picking
+a winner. Where a session sets neither, the card says not set, which means the
+harness's own default and not that nobody knows: filling that gap with a model
+id is how a fleet acquires settings its owner never chose.
+
+A card is a reading, so it can be wrong where the charter is vague. Where you
+could not find a limit written down, say there is none rather than inferring
+one from the tone of the thing.
+
 ## One verdict per bot, and it names the next action
 
 Every bot in the roster gets exactly one, and every one of them says what
@@ -69,12 +93,22 @@ after those, add a bot or a standing routine.
 Say which ones you went past and why. "They need another bot" with no account
 of the four cheaper answers is a recommendation nobody can check.
 
-## A pattern counts the second time you see it
+## A pattern needs a second sighting; a defect does not
 
-One bad answer is an anecdote. Hold a finding until you have seen it in two
-separate places, and say where both were, so whoever reads it can go and
-look. A single sighting is worth mentioning as a single sighting, named as
-one, and not built into a recommendation.
+Two kinds of finding, and only one of them waits.
+
+Something you checked and found broken is acted on the first time you see it.
+A skill link that points at nothing, a session Orca has lost, a setting that
+contradicts the charter: you looked, it is wrong, and seeing it twice would
+add nothing to what you already know. Say what you checked and what it said,
+and route it.
+
+What waits is the claim about a habit: that a bot keeps doing this, that the
+model is not up to the work, that a charter is being read the wrong way round.
+One bad answer is an anecdote. Hold that kind until you have seen it in two
+separate places, and say where both were, so whoever reads it can go and look.
+A single sighting goes in named as a single sighting, not built into a
+recommendation about what the bot is like.
 
 Where you only have one, say what the second would look like. That is often
 more useful than the finding.
@@ -155,8 +189,9 @@ send the usage half, and say in each that the other exists.
 
 Overall state first, in one line, so it can be read and put down. Then a line
 per bot with its verdict and the one reason. Then the findings worth acting
-on, each with where you saw it twice and its single fix. Then what you need a
-decision on. A handful of points, not a document.
+on, each with its evidence and its single fix: what you checked, for something
+you found broken, and where you saw it twice, for a pattern. Then what you
+need a decision on. A handful of points, not a document.
 
 A long review does not get read, and an unread review changes nothing. Point
 at the roster rather than reprinting it, and keep the bots you are leaving

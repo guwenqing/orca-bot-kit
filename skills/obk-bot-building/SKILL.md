@@ -173,6 +173,31 @@ Do the reversible part and stop at the line. Making a bot, adding a session
 and linking skills add things and are safe to run again; closing a tab,
 retiring a bot and restarting anything are not, and they wait for the word.
 
+## When the bot is already running
+
+Changing a bot whose sessions are up is the ordinary case rather than the
+awkward one. Both harnesses read a skill through the link and notice a change
+to the skills directory while a session is running, so putting a skill on a
+bot, or taking one off, reaches a live session without restarting it.
+
+Noticing is not the same as confirmed. Check that the session can actually see
+the skill before telling anyone it is there, and check by asking that session
+rather than by looking again at the disk you just wrote: what you wrote is not
+evidence about what another process has loaded. Where it has not appeared, say
+so and say what would make it appear. A restart is the user's to ask for, and
+taking one because it is the quick way ends a conversation they were in the
+middle of.
+
+Instructions are not skills. A session is working from the rules it read when
+it started, so a change to a bot's `AGENTS.md` may not reach one that is
+already up even when a skill change would. Say which of the two you changed,
+and what that means for the sessions running now.
+
+And tell them. A bot's sessions share its rules and its skills, so a change
+made for one of them lands on all of them, and the session that asked is not
+the only one affected. Say what changed and what it means for what they are
+doing, in their own tabs, rather than leaving them to find out mid-task.
+
 ## What they get back
 
 The bot's name and what it owns, in one line each. Its limit. Its sessions
