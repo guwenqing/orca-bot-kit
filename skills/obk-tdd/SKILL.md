@@ -106,6 +106,16 @@ slow, unpredictable, or has effects you cannot control — an external service,
 the clock, randomness, a database sometimes, the filesystem sometimes. Do not
 stand in for your own modules or internal collaborators.
 
+What settles this for a system outside your code is not who owns it but
+whether you can have one to yourself. A database you start for the test, a
+repository you create in a temporary directory, a server you run and throw
+away — those are the real thing, isolated, and they are what the order above
+asks for; a stand-in there would hide exactly the incompatibility you want to
+find. What rules the real one out is sharing it: other people's work in it,
+state you cannot reset, or simply not having permission to touch it. Then an
+author works against a stand-in, and the project's rules usually name which
+systems those are.
+
 When a test is hard to write, that is information about the design, not about
 testing. Hard to set up usually means hard to use. Having to stand in for
 everything means the pieces are too tightly bound — pass what a function
@@ -211,6 +221,20 @@ Run the test and read the output before you write any code:
 If it passes, you are testing behaviour that already exists; that is a finding
 about the test, not a step you may skip past. If it errors, fix the error and
 run again until it fails cleanly.
+
+Behaviour that already exists is the case this is easiest to fudge, because
+there is no fix to revert and nothing obvious to run the test against. The red
+has to come from somewhere real: an archive of the code as it stood before this
+work — a commit, a tag, a copy — with the test run against that. Name which one
+in the hand-over, because "it would have failed before" is not a run.
+
+Sometimes there is no such baseline to be had: the code never existed in that
+shape, or what you would have to reconstruct is not worth the day. Then say so
+in the hand-over, and say it in the test as well — a line beside it marking it
+as a description of what the code does today rather than a guard proven to
+catch a change. The two look identical afterwards, and only one of them has
+been shown to fail. Somebody reading the repo a month later should be able to
+tell them apart without finding the message you sent.
 
 Reaching a clean red is one step at a time, and none of them is implementation:
 the test cannot find the symbol, so add an empty stub; the call does not match
@@ -467,6 +491,9 @@ by a comment, a value hard-coded to match one test's input.
 - Green: the command, the passing output, and any other failure the run showed.
 - Who wrote the tests, whether they were changed after they were written, and
   that every file the author handed back is in the change.
+- For a test of behaviour that already existed: which baseline its red came
+  from, or that there was none and it stands as a description rather than a
+  proven guard.
 - The mutation check in three lines: what you broke, what survived, what you
   did about it — or the line that says you skipped it and why.
 - What you did not check, and the command that would check it.
