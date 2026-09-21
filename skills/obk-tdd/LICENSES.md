@@ -14,18 +14,18 @@ The MIT permission notice below applies to the work of each of these copyright
 holders, and is reproduced with each of their notices. The path after each one
 is the licence file it was read from, in the research pack's source clones.
 
-- **`mattpocock/skills`** — Copyright (c) 2026 Matt Pocock
+- **`mattpocock/skills`**, Copyright (c) 2026 Matt Pocock
   (`mattpocock_skills/LICENSE`)
-- **`obra/superpowers`** — Copyright (c) 2025 Jesse Vincent
+- **`obra/superpowers`**, Copyright (c) 2025 Jesse Vincent
   (`obra_superpowers/LICENSE`)
-- **Cursor `plugins`, the pstack plugin** — Copyright (c) 2026 Lauren Tan
+- **Cursor `plugins`, the pstack plugin**, Copyright (c) 2026 Lauren Tan
   (`cursor_plugins/pstack/LICENSE`)
-- **`addyosmani/agent-skills`** — Copyright (c) 2025 Addy Osmani
+- **`addyosmani/agent-skills`**, Copyright (c) 2025 Addy Osmani
   (`addyosmani_agent-skills/LICENSE`)
 - **`citypaul/.dotfiles`; the `tdd` and `mutation-testing` skills carry no
-  nested notice, so the repository licence governs them** — Copyright (c) 2024 Paul Hammond
+  nested notice, so the repository licence governs them**, Copyright (c) 2024 Paul Hammond
   (`citypaul_.dotfiles/LICENSE`)
-- **`KentBeck/BPlusTree3`, for his own rules file** — Copyright (c) 2025 Kent Beck
+- **`KentBeck/BPlusTree3`, for his own rules file**, Copyright (c) 2025 Kent Beck
   (`KentBeck_BPlusTree3/LICENSE`)
 
 ```

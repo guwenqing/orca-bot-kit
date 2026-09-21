@@ -14,15 +14,15 @@ The MIT permission notice below applies to the work of each of these copyright
 holders, and is reproduced with each of their notices. The path after each one
 is the licence file it was read from, in the research pack's source clones.
 
-- **Cursor `plugins`, the pstack plugin** — Copyright (c) 2026 Lauren Tan
+- **Cursor `plugins`, the pstack plugin**, Copyright (c) 2026 Lauren Tan
   (`cursor_plugins/pstack/LICENSE`)
-- **`obra/superpowers`** — Copyright (c) 2025 Jesse Vincent
+- **`obra/superpowers`**, Copyright (c) 2025 Jesse Vincent
   (`obra_superpowers/LICENSE`)
-- **`mattpocock/skills`** — Copyright (c) 2026 Matt Pocock
+- **`mattpocock/skills`**, Copyright (c) 2026 Matt Pocock
   (`mattpocock_skills/LICENSE`)
-- **Cursor `plugins`, the thermos plugin** — Copyright (c) 2026 Cursor
+- **Cursor `plugins`, the thermos plugin**, Copyright (c) 2026 Cursor
   (`cursor_plugins/thermos/LICENSE`)
-- **`addyosmani/agent-skills`** — Copyright (c) 2025 Addy Osmani
+- **`addyosmani/agent-skills`**, Copyright (c) 2025 Addy Osmani
   (`addyosmani_agent-skills/LICENSE`)
 
 ```

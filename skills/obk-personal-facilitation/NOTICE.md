@@ -28,8 +28,8 @@ contribute a piece each; all four are credited below.
   something will run later.
 - **The research pack's `grok-bot-lessons.md`**, our own read of the owner's
   knowledge base on how people run a personal helper bot. Two things come from
-  there. "36 drafts queued, 0 sent" — finish every reversible step, stage the
-  irreversible one, and stop at the line — recorded there from a community
+  there. "36 drafts queued, 0 sent" (finish every reversible step, stage the
+  irreversible one, and stop at the line), recorded there from a community
   tutorial (BNK-2920 §09); the wording here is ours. And "do not automate an
   unclear process faster": save a routine only once a manual run has come out
   right (BNK-2921, and the official routine guidance summarised in the same
@@ -51,18 +51,18 @@ Three things are written differently from the old skill, on purpose:
 
 ## Two more sources, and what the rest of them had
 
-- **`mattpocock/skills`, `skills/in-progress/loop-me`** (MIT) — the only skill
+- **`mattpocock/skills`, `skills/in-progress/loop-me`** (MIT): the only skill
   in the research pack's sources that is about a person's own life rather than
   their code. It designs workflows rather than keeping a list, so most of it is
   a different job, but two of its ideas are here. **Push right:** defer the
   point where you involve the person as far as it will go, and do the maximal
   work before it, so they are asked once, late, with everything prepared. And
   its **brief:** what a checkpoint hands back is decision-ready and points down
-  to the thing itself, never the raw output. Its own framing of that — the user
-  reads a brief, not a draft — is why this skill points at a draft instead of
+  to the thing itself, never the raw output. Its own framing of that (the user
+  reads a brief, not a draft) is why this skill points at a draft instead of
   reproducing it. Also kept in spirit: "mandate nothing structural", which is
   PRD 7.1 in someone else's words.
-- **Cursor `plugins`, `third_party/x/skills/x-chat`** — MIT, checked at
+- **Cursor `plugins`, `third_party/x/skills/x-chat`**: MIT, checked at
   `third_party/x/LICENSE`, "Copyright (c) 2026 Cursor", which is the licence
   for the vendored third-party directory rather than the repository root. A
   connector skill
@@ -104,9 +104,9 @@ not here:
 
 ## What an acceptance run changed
 
-The skill was run against a realistic piece of personal admin — a list with
+The skill was run against a realistic piece of personal admin (a list with
 entries and notes already in it, a booking made by phone, a vague item with no
-date, a request for a reminder and an email to draft — by a bot that had not
+date, a request for a reminder and an email to draft) by a bot that had not
 seen it written. Seven things come from what that found. They are kept to a
 line each: they are our own observations rather than material from a source,
 and the skill is meant to be very light, so they earn a sentence where a source
@@ -123,8 +123,8 @@ point earns its full substance.
   to go that did not invent a timeframe. The skill asks about that case and
   only that case: on a flat list the end of it invents nothing.
 - Setting a reminder and the person actually being reminded were treated as the
-  same thing, and the third case — a scheduler exists and you may not reach it
-  — had no answer.
+  same thing, and the third case (a scheduler exists and you may not reach it)
+  had no answer.
 - A task whose whole content is irreversible produced nothing but an annotated
   line.
 - "Read back what the file says" cannot catch a line dropped by accident,

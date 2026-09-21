@@ -25,8 +25,8 @@ Write down what is being asked and what kind of answer would settle it. A
 question that cannot be settled by anything you could find is the first thing
 to say, not the last.
 
-Where the question arrives with its answer attached — "why is it slower, is it
-the database?" — treat the guess as one candidate and check it like any other.
+Where the question arrives with its answer attached ("why is it slower, is it
+the database?"), treat the guess as one candidate and check it like any other.
 Confirming what you were handed is the cheapest way to produce a wrong answer
 that now carries your name as well as theirs.
 
@@ -97,8 +97,8 @@ Stop when new sources stop changing the answer, and say that is why you
 stopped. Stopping because you are out of patience is also allowed, and is
 reported as what it is.
 
-Where a source exists but you cannot reach it — paywalled, private, offline,
-outside what you may look at — that is a gap in the coverage and belongs in the
+Where a source exists but you cannot reach it (paywalled, private, offline,
+outside what you may look at), that is a gap in the coverage and belongs in the
 write-up. Skipping something because it is probably irrelevant is not the same
 as it being provably irrelevant.
 
@@ -175,8 +175,8 @@ write the chain down: it is usually the most decision-relevant thing you know
 about that figure, and the number that dissolves when you trace it back is
 almost always the one being repeated most.
 
-Some words carry a citation with them — "because", "the reason is", "was
-designed to", "proves", "they decided" — and each one needs its source
+Some words carry a citation with them ("because", "the reason is", "was
+designed to", "proves", "they decided") and each one needs its source
 immediately beside it or a hedged word in its place. Others quietly do the
 opposite. "Obviously" and "clearly" tend to stand in front of the thing that is
 neither, "just" covers a difficulty rather than removing it, and "I think"
@@ -203,7 +203,7 @@ need a person rather than another search.
 
 Name a gap concretely: the question you could not answer, where you looked,
 what you looked for there, and what came back. Never let an absence of evidence
-harden into evidence of absence — that nobody wrote something down is not proof
+harden into evidence of absence. That nobody wrote something down is not proof
 that it did not happen.
 
 Where the answer depends on it, say who would know. A named person or office to
@@ -222,7 +222,7 @@ been smoothed over. It is worth going back and asking which.
 - **What follows from that**, marked as your reasoning rather than as findings.
 - **Where sources disagree**, with both sides and their citations.
 - **What you could not find out**, with what you searched.
-- **Where you looked** — one line per source, including the ones that held
+- **Where you looked**, one line per source, including the ones that held
   nothing and the ones you could not reach, with the reason.
 - **How sure you are overall**, in a line.
 

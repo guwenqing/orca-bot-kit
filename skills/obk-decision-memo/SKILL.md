@@ -24,7 +24,7 @@ something else gets what they asked for; say which of these you left and why.
 
 Write the decision in two or three lines before anything else: the choice, and
 what turns on it. If you cannot get it that small, you do not yet have a
-decision — you have a subject, and the memo will wander.
+decision: you have a subject, and the memo will wander.
 
 Then say who decides. A memo written for someone with no authority over the
 thing is a briefing, and it should be honest about being one.
@@ -82,7 +82,7 @@ that names the thing about it that failed. "Rejected" with no reason reads as
 "not considered", and the reader will re-propose it.
 
 Where an option fails a hard constraint, it is out, or it stays in with a named
-mitigation — not with a lower score. Do not turn judgement into arithmetic: a
+mitigation, not with a lower score. Do not turn judgement into arithmetic: a
 weighted table gives the answer you chose the weights for, and it hides the
 reasoning in a number. Compare the survivors in plain language, on the things
 that actually differ.
@@ -99,8 +99,8 @@ reputation are how you find candidates, and they are never how you choose one.
 
 Record the finding, not just the link. "See their docs" is not evidence; what
 the docs say, in the words that settle the question, is. Note when you looked,
-because the volatile things — versions, prices, support, security, who
-maintains it — are exactly the things a decision turns on, and they are stale
+because the volatile things (versions, prices, support, security, who
+maintains it) are exactly the things a decision turns on, and they are stale
 by the time anyone reads the memo.
 
 A number you worked out yourself needs more care than a sentence you worked
@@ -181,7 +181,7 @@ infer it from your tone. Confident prose about thin evidence is the failure
 this whole thing exists to prevent.
 
 Say what would change your mind. Name the specific finding, measurement or
-event that would move the recommendation to a different option — that is what
+event that would move the recommendation to a different option. That is what
 tells the reader whether to act now or wait, and it is the sentence that makes
 the memo useful a year later.
 
@@ -238,7 +238,7 @@ lives in the evidence section or in what it points at, not in the argument.
 A memo you wrote is a recommendation, however sure you are. Someone with the
 authority decides, and the memo records who that was and when. Do not write up
 your own recommendation as a decision, and do not let a discussion that nobody
-objected to become one — silence is not agreement, and the person who was going
+objected to become one. Silence is not agreement, and the person who was going
 to object may not have read it yet.
 
 Once it is decided, the memo stops being an argument and becomes a record.

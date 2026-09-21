@@ -13,19 +13,19 @@
 The MIT permission notice below applies to the work of each of these copyright
 holders, and each notice is reproduced with it:
 
-- **Cursor `plugins`, the pstack plugin** — Copyright (c) 2026 Lauren Tan
+- **Cursor `plugins`, the pstack plugin**, Copyright (c) 2026 Lauren Tan
   (`cursor_plugins/pstack/LICENSE`)
 - **`citypaul/.dotfiles`, the technical-writing skill, whose nested licence
-  governs its directory over the repository root's** — Copyright (c) 2025 Adam Bulmer
+  governs its directory over the repository root's**, Copyright (c) 2025 Adam Bulmer
   (`citypaul_.dotfiles/claude/.claude/skills/technical-writing/LICENSE`)
 - **`citypaul/.dotfiles`, for the double-check skill, under the repository
-  root** — Copyright (c) 2024 Paul Hammond
+  root**, Copyright (c) 2024 Paul Hammond
   (`citypaul_.dotfiles/LICENSE`)
-- **`addyosmani/agent-skills`** — Copyright (c) 2025 Addy Osmani
+- **`addyosmani/agent-skills`**, Copyright (c) 2025 Addy Osmani
   (`addyosmani_agent-skills/LICENSE`)
-- **`mattpocock/skills`** — Copyright (c) 2026 Matt Pocock
+- **`mattpocock/skills`**, Copyright (c) 2026 Matt Pocock
   (`mattpocock_skills/LICENSE`)
-- **`garrytan/gstack`** — Copyright (c) 2026 Garry Tan
+- **`garrytan/gstack`**, Copyright (c) 2026 Garry Tan
   (`garrytan_gstack/LICENSE`)
 
 Each licence file was read at the path given above.

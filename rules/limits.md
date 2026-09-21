@@ -14,5 +14,5 @@ Work that cannot be taken back, or that reaches other people, gets a yes first,
 unless the user has already said otherwise: deleting data, rewriting history,
 publishing, releasing, spending money, anything another person receives.
 
-When something you were told to use is missing — a model, a tool, a file — say
+When something you were told to use is missing (a model, a tool, a file), say
 so and ask. Quietly using a different one hides the change.

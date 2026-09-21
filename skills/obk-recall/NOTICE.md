@@ -7,8 +7,8 @@
 The skill `obk-recall` was consolidated for this kit from this, MIT, with
 thanks:
 
-- **Cursor pstack**, `recall`, and its `poteto-mode` `session-pickup` playbook
-  — rebuilding recent working context before acting rather than writing a
+- **Cursor pstack**, `recall`, and its `poteto-mode` `session-pickup` playbook:
+  rebuilding recent working context before acting rather than writing a
   history; classifying and routing first, with one specific prior session being
   a pickup rather than a recall and an already-supplied state capsule meaning
   no mining at all; locking the scope before searching, with "recent" as a real
@@ -17,15 +17,15 @@ thanks:
   first and reading only the matching sessions and only their relevant parts;
   skipping the current session and the obvious noise; reducing a long
   transcript elsewhere and keeping only the reduced timeline; the per-session
-  fields — the goal, the decisions, the open threads, the struggles and
-  corrections, the artefacts — each traceable to where it came from; the rule
+  fields (the goal, the decisions, the open threads, the struggles and
+  corrections, the artefacts), each traceable to where it came from; the rule
   that your own history is not the whole record and that a feature with a long
   bug tail keeps most of its story elsewhere, so the shared record is swept by
   default rather than as a judgement call; null results being findings and an
   unavailable source being said rather than skipped silently; verifying what
   the mining surfaced against live state, and reading the record itself rather
   than a trimmed summary when the answer turns on what was actually done; the
-  output contract — a capsule of at most five, one tagged line per thread with
+  output contract: a capsule of at most five, one tagged line per thread with
   an untagged thread counting as not done, at most five recurring problems
   including a fix that shipped and was reverted, and one concrete next move;
   cutting detail before cutting threads; citing findings to their source; and

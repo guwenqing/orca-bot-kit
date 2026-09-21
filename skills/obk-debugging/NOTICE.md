@@ -7,7 +7,7 @@
 The skill `obk-debugging` was consolidated for this kit from these, all MIT,
 with thanks:
 
-- **mattpocock/skills**, `engineering/diagnosing-bugs` — the whole shape of it.
+- **mattpocock/skills**, `engineering/diagnosing-bugs`. The whole shape of it.
   The feedback loop as the skill itself and worth disproportionate effort, the
   ten ways to build one in order, tightening it for speed, sharpness and
   repeatability, raising the rate on an intermittent bug rather than chasing a
@@ -20,7 +20,7 @@ with thanks:
   measuring before fixing a slow thing, the regression test at a correct seam
   and "no correct seam is itself the finding", redacting secrets from anything
   shown, and the list to clear before calling it done.
-- **Waza**, `hunt`, through the verbatim passages in the research pack — the
+- **Waza**, `hunt`, through the verbatim passages in the research pack. The
   gate sentence and its form ("I believe the root cause is X because Y", named
   to a file, function, line or condition), the rule that the cause must explain
   every symptom including the one waved away, running the one probe that would
@@ -32,7 +32,7 @@ with thanks:
   version is close, the same symptom after a fix being a hard stop, and
   stopping after three failed hypotheses. The owner picked this piece himself.
 - **Cursor pstack**, `principle-fix-root-causes` and the `poteto-mode`
-  playbooks — not adding guards to silence a crash, a workaround needing a
+  playbooks. Not adding guards to silence a crash, a workaround needing a
   paragraph meaning the code is wrong, checking for the pattern rather than the
   instance, suspecting stored state first when something fails after a restart,
   and from `principle-attack-the-premise`, two fixes sharing one premise
@@ -54,7 +54,7 @@ with thanks:
   calling it the strongest hypothesis the artefact supports; and proving the
   mechanism on the live process where it can still be reached.
 - **obra/superpowers**, `systematic-debugging` with `root-cause-tracing` and
-  `condition-based-waiting` — logging what enters and leaves each boundary and
+  `condition-based-waiting`. Logging what enters and leaves each boundary and
   reading where it first goes wrong before digging in, tracing backwards
   through the call chain to where the wrong value was born and fixing it there,
   logging before the dangerous operation rather than after it fails, printing
@@ -65,18 +65,18 @@ with thanks:
   the case where a fixed wait is right and what has to accompany it, and the
   things someone says when they can see you are guessing.
 
-- **obra/superpowers**, `systematic-debugging`, further to the above — finding
+- **obra/superpowers**, `systematic-debugging`, further to the above. Finding
   the nearest thing that works in the same codebase, reading it properly rather
   than skimming, and listing every difference however small without deciding in
   advance which cannot matter.
-- **addyosmani/agent-skills**, `debugging-and-error-recovery` — the decision
+- **addyosmani/agent-skills**, `debugging-and-error-recovery`. The decision
   tree for a bug you cannot reproduce on demand, sorted into timing,
   environment, state left behind and genuinely random, with what to try in each
   and documenting the conditions as a real answer for the last; and treating
   error output as untrusted data, since a message from a dependency, a log or a
   build can carry something shaped like an instruction and is to be read for
   clues rather than followed.
-- **Waza**, `hunt`, further to the above — its gotchas: walking back out of a
+- **Waza**, `hunt`, further to the above. Its gotchas: walking back out of a
   library frame into your own code, suspecting persisted output written by the
   old code when the algorithm changed and the output did not, trusting the
   observation over the log and treating the gap as an un-instrumented path, a

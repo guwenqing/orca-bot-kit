@@ -13,17 +13,17 @@
 The MIT permission notice below applies to the work of each of these copyright
 holders, and each notice is reproduced with it:
 
-- **Cursor `plugins`, the pstack plugin** — Copyright (c) 2026 Lauren Tan
+- **Cursor `plugins`, the pstack plugin**, Copyright (c) 2026 Lauren Tan
   (`cursor_plugins/pstack/LICENSE`)
-- **`addyosmani/agent-skills`** — Copyright (c) 2025 Addy Osmani
+- **`addyosmani/agent-skills`**, Copyright (c) 2025 Addy Osmani
   (`addyosmani_agent-skills/LICENSE`)
-- **`garrytan/gstack`** — Copyright (c) 2026 Garry Tan
+- **`garrytan/gstack`**, Copyright (c) 2026 Garry Tan
   (`garrytan_gstack/LICENSE`)
-- **`mattpocock/skills`** — Copyright (c) 2026 Matt Pocock
+- **`mattpocock/skills`**, Copyright (c) 2026 Matt Pocock
   (`mattpocock_skills/LICENSE`)
-- **Cloudflare's security-audit skill** — Copyright (c) 2025-2026 Cloudflare, Inc.
+- **Cloudflare's security-audit skill**, Copyright (c) 2025-2026 Cloudflare, Inc.
   (`cloudflare_security-audit-skill/LICENSE`)
-- **`openai/skills`, the notion-research-documentation skill** — Copyright 2025 Notion Labs, Inc.
+- **`openai/skills`, the notion-research-documentation skill**, Copyright 2025 Notion Labs, Inc.
   (`openai_skills/skills/.curated/notion-research-documentation/LICENSE.txt`)
 
 Each licence file was read at the path given above.

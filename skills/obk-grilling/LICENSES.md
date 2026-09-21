@@ -14,7 +14,7 @@ The MIT permission notice below applies to the work of each of these copyright
 holders, and is reproduced with each of their notices. The path after each one
 is the licence file it was read from, in the research pack's source clones.
 
-- **`mattpocock/skills`** — Copyright (c) 2026 Matt Pocock
+- **`mattpocock/skills`**, Copyright (c) 2026 Matt Pocock
   (`mattpocock_skills/LICENSE`)
 
 ```
