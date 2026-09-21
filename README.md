@@ -147,7 +147,10 @@ of your own.
 
 A skill is a directory holding `SKILL.md` — frontmatter carrying `name` (the
 directory's own name) and `description`, then the body — plus any reference
-files it links to. Those two keys are the only frontmatter both Claude Code and
+files it links to and a `NOTICE.md` naming the sources it was built from and
+their licences. The notice travels with the skill, which is what the licences
+ask for, and stays out of `SKILL.md`, which a bot reads into its context every
+time the skill is used. Those two keys are the only frontmatter both Claude Code and
 Codex read, so a kit skill carries nothing else, and its links stay inside its
 own directory, because a bot gets the directory alone.
 [`test/kit-skills.test.js`](test/kit-skills.test.js) holds that shape.
