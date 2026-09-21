@@ -140,6 +140,7 @@ than relying on another skill being loaded.
 |---|---|
 | `obk-tdd` | a failing test first, a separate test author, the mutation check |
 | `obk-reviewing` | giving a review that is worth acting on, and answering one |
+| `obk-debugging` | a check that goes red first, the real cause, proof where it broke |
 
 A skill is where the depth lives. The always-on rules say that a change in
 behaviour starts with a failing test someone else wrote and is read by someone
