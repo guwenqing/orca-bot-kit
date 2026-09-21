@@ -3,8 +3,8 @@ name: obk-handoff
 description: >-
   Stopping work in a state someone else can pick up: finishing or backing out
   of the step you are in, making what you have durable, and writing the note a
-  cold reader needs — what this is for, what is done, what is proven, where it
-  sits, and what to do first. Run it when you are asked to: "hand this over",
+  cold reader needs (what this is for, what is done, what is proven, where it
+  sits, and what to do first). Run it when you are asked to: "hand this over",
   "write it up for whoever picks this up", "stop there", "we are out of time".
   Running low on room does not trigger it and neither does a session being
   cleared; a fresh start is a fresh start, and neither of those is someone
@@ -45,16 +45,16 @@ commit message in one line, so the next reader knows before they run it rather
 than after.
 
 Commit your own work, though, and only that. Where something in the tree is
-not yours — another session's edit, a change you were asked to leave alone —
+not yours (another session's edit, a change you were asked to leave alone),
 do not commit it, stage it or revert it to tidy the handover up. Write down
 what is there and whose it is, with enough detail that the next person can tell
 it apart from yours, and leave it exactly as you found it. A handover that
 quietly swept someone else's unfinished work into a commit is worse than one
 that leaves a messy tree, because the mess is at least visible.
 
-Where the work is not in a repository — a document in a scratch folder, a file
+Where the work is not in a repository (a document in a scratch folder, a file
 the project deliberately keeps out of its history, anything you have no
-business committing — do not force it into one to satisfy the form. Name where
+business committing), do not force it into one to satisfy the form. Name where
 each piece actually is, by path, and what state it is in. The goal is that
 nothing exists only in your head and nothing is findable only by you; a commit
 is one way of reaching it and not the only one.
@@ -62,7 +62,7 @@ is one way of reaching it and not the only one.
 ## The note
 
 Write it where the next session will find it and where it will not be mistaken
-for part of the work — a scratch location, not the middle of the source tree.
+for part of the work: a scratch location, not the middle of the source tree.
 Say where it is in your final message.
 
 Where you have been told what the next session is for, shape the note around
@@ -97,7 +97,7 @@ issue, a commit, a diff: point at them by path or identifier. A handoff that
 duplicates them is a second copy that will disagree with the first within a
 day.
 
-Take the secrets out. Keys, tokens, passwords, anything personal — a handoff
+Take the secrets out. Keys, tokens, passwords, anything personal. A handoff
 note is read by people and processes that the original conversation was not.
 
 Where the next session will want a particular technique, name it. Say what
@@ -106,7 +106,7 @@ tests come next and need a separate author".
 
 ## What you say at the end
 
-Not the note again — where it is, and enough to decide whether to carry on
+Not the note again. Where it is, and enough to decide whether to carry on
 now:
 
 - where you stopped, and whether that is a clean boundary;

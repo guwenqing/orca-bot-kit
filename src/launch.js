@@ -29,6 +29,13 @@ const APPROVAL = {
 
 export const APPROVALS = Object.keys(APPROVAL.claude);
 
+/**
+ * How a permission bypass is spelled on a harness: the flags the
+ * `dangerously-skip` level puts on the launch line, and the same ones Orca's
+ * own default launch arguments carry when they carry a bypass (PRD 6.5).
+ */
+export const bypassFlags = (harness) => APPROVAL[harness]['dangerously-skip'];
+
 export const HARNESSES = Object.keys(APPROVAL);
 
 /** The level a session that names none runs at (ADR 0005). */

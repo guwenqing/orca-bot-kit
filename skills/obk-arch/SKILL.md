@@ -24,7 +24,7 @@ Reach for this when there is a shape to get wrong: something new, a public
 interface, a new data shape, a choice that will be expensive to undo. Not for
 work where the pattern is already set, a bug fix with a clear target, or a
 change the constraints leave only one way to make. When it is one or two files
-and the approach is obvious, say so and go and do it — a plan longer than the
+and the approach is obvious, say so and go and do it. A plan longer than the
 work it plans is a cost with no return.
 
 These are defaults for work where nothing says otherwise. A user who asks for
@@ -63,11 +63,11 @@ than writing a second.
 ### Sharpen the words while you are at it
 
 Half the arguments about a design are two people using one word for two things.
-When a term keeps doing heavy lifting — "account", "session", "active",
-"ready" — stop and say what it means here, and what it does not. Where the
+When a term keeps doing heavy lifting ("account", "session", "active",
+"ready"), stop and say what it means here, and what it does not. Where the
 answer is vague, invent a concrete scenario that forces the boundary into the
 open: this customer, with this half-finished order, on the day their card
-expires — is that active or not?
+expires. Is that active or not?
 
 Check what you are told against the code rather than accepting it. "It always
 has an owner" is a claim, and the place it stops being true is usually where
@@ -78,7 +78,7 @@ project keeps such things.
 
 Before sketching anything, build a real model of what the new code touches: the
 modules it will sit between, how data reaches them now, what already owns the
-rules you are about to write. Naming a file is not grounding — trace it.
+rules you are about to write. Naming a file is not grounding. Trace it.
 Skipping this is what produces a design that is elegant and does not fit.
 
 Where the design redefines who owns what, find out why the current shape is
@@ -94,7 +94,7 @@ each saying what it is for and what it must keep true. The test of a good one
 is that a reader can follow the data from input to output by reading the
 signatures alone.
 
-That is what you compare, argue about and throw away — cheaply, which is the
+That is what you compare, argue about and throw away, cheaply, which is the
 point of doing it before the code.
 
 ### Usage first, then the data, then the types
@@ -123,13 +123,13 @@ Four things worth deciding while the shape is still cheap to change:
   step; two copies of one fact is a bug with a delay on it.
 - **Ask what happens if it runs twice, or stops halfway.** If the answer
   depends on what the last attempt left behind, something is missing that puts
-  it back in order — and that is a design question, not an operational one.
+  it back in order, and that is a design question, not an operational one.
 
 ### Design it twice
 
 Produce at least two structurally different candidates before you choose, even
-when the first looks sufficient. Whole shapes, not variations inside one shape
-— two ways to arrange the same idea teach you nothing.
+when the first looks sufficient. Whole shapes, not variations inside one shape.
+Two ways to arrange the same idea teach you nothing.
 
 A cheap way to get real difference is to give each candidate a constraint of
 its own and see what it forces:
@@ -148,21 +148,21 @@ behind a smaller surface: that is what a caller is buying.
 Worth using these exactly, because the whole value is that two people mean the
 same thing:
 
-- **Module** — anything with an interface and an implementation. A function, a
+- **Module**. Anything with an interface and an implementation. A function, a
   class, a package, a slice through several layers. Scale does not matter.
-- **Interface** — everything a caller has to know to use it correctly. Not just
+- **Interface**. Everything a caller has to know to use it correctly. Not just
   the signature: the invariants, the order things must happen in, what errors
   come out, what configuration it needs, what it costs.
-- **Implementation** — what is inside.
-- **Seam** — the place where behaviour can be changed without editing in that
+- **Implementation**. What is inside.
+- **Seam**. The place where behaviour can be changed without editing in that
   place; where an interface lives. Where to put it is its own decision,
   separate from what goes behind it.
-- **Adapter** — something that satisfies an interface at a seam. A role, not a
+- **Adapter**. Something that satisfies an interface at a seam. A role, not a
   size: a small adapter can have a large implementation behind it.
-- **Internal and external seams** — a module can have seams inside it, private
+- **Internal and external seams**. A module can have seams inside it, private
   to how it works and used by its own tests, as well as the one at its
   interface. Having one inside is not a reason to expose it.
-- **Depth** — how much behaviour a caller gets per unit of interface they have
+- **Depth**. How much behaviour a caller gets per unit of interface they have
   to learn. Deep is a lot behind a little. Shallow is an interface nearly as
   complicated as what it hides, which buys nobody anything.
 
@@ -180,7 +180,7 @@ hidden behind it?
   probably wrong.
 - **One adapter is a hypothetical port; two is a real one.** This one is about
   pluggability, not about whether a module should exist. Before putting an
-  interchangeable boundary in — a port with adapters either side — ask what the
+  interchangeable boundary in (a port with adapters either side), ask what the
   second adapter is; production plus a test double is the usual honest pair. If
   there is only ever one, you have added a layer to swap something that never
   gets swapped. Pure computation needs no adapter at all: merge it and test it
@@ -188,7 +188,7 @@ hidden behind it?
 
   Whether a module earns its place is a different question, answered by the
   deletion test and by how much it hides. A module with one caller can be
-  entirely right — hiding an invariant, a rule or a state machine that would
+  entirely right, hiding an invariant, a rule or a state machine that would
   otherwise sit in the middle of something else. One caller is not one adapter,
   and counting callers is not this test.
 
@@ -212,8 +212,8 @@ chain, or a second flag that has to be kept in step with the first.
 ### Write down what you chose
 
 One short paragraph, where the next person will find it: the problem, how it
-is used, the shape, the trade-offs accepted — in the form *we accept X in
-exchange for Y* — at least one other shape you considered with a line on why
+is used, the shape, the trade-offs accepted (in the form *we accept X in
+exchange for Y*), at least one other shape you considered with a line on why
 it lost, and anything still open.
 
 Name anything a later reader might mistake for an oversight.
@@ -229,13 +229,13 @@ obvious thing. Otherwise the code says it.
 ### When to build a throwaway instead of arguing
 
 A prototype answers one question and is then deleted. No question, no
-prototype — "let's try something" is not a question.
+prototype: "let's try something" is not a question.
 
 Skip the polish deliberately: no tests, no error handling beyond what makes it
 run, no abstractions. Say out loud that it is throwaway, so nobody tries to
 harden it or ship it.
 
-Three things make one actually useful. It has to be trivial to start — one
+Three things make one actually useful. It has to be trivial to start: one
 command, or a file someone double-clicks; anything that needs explaining will
 not get run by the person whose opinion you wanted. It should keep nothing
 between runs, because persistence is usually the thing being questioned rather
@@ -256,21 +256,21 @@ test work is planned at the same time and with the same care.
 Answer these about the thing you are shaping, from the code where you can
 rather than by asking:
 
-- **Surface** — what does a person actually touch? A screen, a command, an
+- **Surface**. What does a person actually touch? A screen, a command, an
   endpoint, a library. If there are several, pick the main one and name the
   rest.
-- **Start** — how does it come up, and how do you know it is ready? A log line,
+- **Start**. How does it come up, and how do you know it is ready? A log line,
   a port answering, a prompt appearing. Guessing with a pause is not knowing.
-- **Drive** — how can something interact with it with nobody watching?
+- **Drive**. How can something interact with it with nobody watching?
   Whatever the project already has first; a general harness only after that.
-- **Observe** — what evidence can be captured? Output, an exit status, a file,
+- **Observe**. What evidence can be captured? Output, an exit status, a file,
   a stored row, a message sent, a picture of the screen.
-- **Isolate** — can two of these run side by side, with their own ports and
+- **Isolate**. Can two of these run side by side, with their own ports and
   data? If not, say so plainly, because refusing to drive a shared instance is
   better than corrupting the one someone is using.
 
 If the thing does not build or start as it stands, either fix that first or say
-precisely what stopped it — which command, which failure, what was missing.
+precisely what stopped it: which command, which failure, what was missing.
 A recipe written against a broken checkout and presented as working teaches the
 next reader the wrong steps, confidently. A recipe written against one and
 marked as not yet run is still worth having: it says what the proof will be
@@ -283,13 +283,13 @@ the program prints. Positions, orders and coordinates all drift, and a recipe
 pinned to them fails for reasons that have nothing to do with the code.
 
 Worth writing beside the recipe: a short list of what the thing actually does
-for someone, one entry per feature — how to reach it, how to drive it, and what
-state proves it worked. It is the part people find most useful later, because a
+for someone, one entry per feature (how to reach it, how to drive it, and what
+state proves it worked). It is the part people find most useful later, because a
 proof that exercises whichever entry point was convenient is incomplete when
 the list names others. Start with the few that matter and let it grow.
 
 Worth having beside that: one read-only check that answers "is this instance
-worth driving at all" — is it up, is it the build I think, is that port ours.
+worth driving at all" (is it up, is it the build I think, is that port ours).
 Run it first whenever something looks strange, before debugging the thing
 underneath.
 
@@ -298,12 +298,12 @@ What a proof has to do, which is where most of them fail:
 - drive the path a person would actually take, not an internal setter or a
   door that exists only for tests;
 - capture the action and the state it produced, not only the final screen;
-- check the effects as well as what is visible — what was written, sent,
+- check the effects as well as what is visible: what was written, sent,
   recorded;
 - stand in for something only where a real boundary already separates it.
 
 Where the safe path is a dry run, find out what it genuinely skips by watching
-what happens — files, network, state — rather than trusting its name.
+what happens (files, network, state) rather than trusting its name.
 
 Clean up what a run started, and never by name: stop what you started. Cleanup
 takes the instance away and leaves the evidence where it said it would be.
@@ -316,7 +316,7 @@ the measurement before you start, so the check reads as the old value against
 the new one rather than as a number with nothing to compare it to.
 
 And be strict about what counts. A check comes back verified, not verified, or
-inconclusive — and inconclusive is not a pass. Read the artefact rather than a
+inconclusive. And inconclusive is not a pass. Read the artefact rather than a
 report about it. When something passes more easily than you expected, suspect
 the way you are observing before you believe the result: that is the shape of a
 check that is not actually looking.
@@ -338,8 +338,8 @@ interface, a second set of tests against the pieces inside proves the same
 thing twice and pins the inside in place. But a new location is not the same as
 new coverage: a test at the interface that exercises the ordinary path does not
 stand in for the one that covered a retry charging twice. What retires is what
-is genuinely superseded — the same behaviour, now checked through the new
-interface — or what was tied to internals that no longer exist. Everything else
+is genuinely superseded (the same behaviour, now checked through the new
+interface) or what was tied to internals that no longer exist. Everything else
 is carried across.
 
 And it is not the implementer's call. The tests belong to whoever wrote them;
@@ -361,7 +361,7 @@ it.
   fit gets done half-remembered.
 - **Ordered by what you will learn.** The riskiest unknown first, so that
   being wrong about it is cheap.
-- **Prefactor first.** Make the change easy, then make the easy change — and
+- **Prefactor first.** Make the change easy, then make the easy change, and
   that reshaping is its own piece, before the feature.
 - **The first piece gets the thing running and testable as a whole**, even if
   it does almost nothing yet. That is where the end-to-end test work lands, and
@@ -381,8 +381,8 @@ broken in between, say which piece and for how long.
 
 ## Before you build on it
 
-Find out what the shape breaks elsewhere. Listing the callers is not the job —
-that is a search anyone can run. The job is the breakage a search does not
+Find out what the shape breaks elsewhere. Listing the callers is not the job.
+That is a search anyone can run. The job is the breakage a search does not
 show: a changed order, a new precondition, an assumption two things shared.
 
 For each fact the safety of the plan rests on, get as far down this as is cheap
@@ -401,9 +401,9 @@ settled. The fourth is usually one small script.
 Look where a search stops, because that is where the surprises are: inside the
 library you call, and at the version actually pinned rather than the one whose
 documentation you read; in when things run, not just what calls what; and in
-everything a symbol search cannot see — the shape of what an interface returns,
+everything a symbol search cannot see (the shape of what an interface returns,
 a column, a format two things agree on, something in another language reading
-the same bytes, a setting that turns a path on, code three hops downstream.
+the same bytes, a setting that turns a path on, code three hops downstream).
 
 Then be honest about each risk you keep: how likely it really is, and what it
 would actually cost. List separately what you checked and cleared, because that

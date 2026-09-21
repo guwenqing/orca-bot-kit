@@ -7,12 +7,12 @@
 The skill `obk-handoff` was consolidated for this kit from these, both MIT,
 with thanks:
 
-- **mattpocock/skills**, `productivity/handoff` — writing the note so a fresh
+- **mattpocock/skills**, `productivity/handoff`: writing the note so a fresh
   agent can continue the work, putting it somewhere other than the workspace,
   not duplicating what other artefacts already hold and pointing at them by
   path instead, redacting anything sensitive, tailoring it to what the next
   session is for, and naming the techniques the next session should reach for.
-- **Cursor pstack**, the `poteto-mode` `pause-safely` playbook — stopping at a
+- **Cursor pstack**, the `poteto-mode` `pause-safely` playbook: stopping at a
   safe boundary by finishing or backing out of the current step and never
   stopping mid-edit in a known-broken state, starting nothing new and stopping
   anything nested that is running, taking no irreversible action in order to
@@ -21,7 +21,7 @@ with thanks:
   from the working tree, the fields it carries, and the closing reply that says
   where you are, what is on disk against what is still only in the
   conversation, the commits and whether the tree is clean, and the first action
-  on resume — "this is a pause, not a final report". Also its rule that a pause
+  on resume ("this is a pause, not a final report"). Also its rule that a pause
   is explicit: on "keep going", do not pause.
 
 Two additions are not from either source, both from an acceptance run of this
@@ -43,6 +43,6 @@ One departure of substance: pstack makes the work durable as a work-in-progress
 commit unconditionally, and this scopes that to work that is in a repository
 where committing fits. PRD 7.1 assumes no way of working, and a bot writing
 under its own `work/` folder cannot commit what it wrote there at all, since
-`work/` is gitignored by PRD 6.3. The goal is kept whole — nothing exists only
-in your head, nothing is findable only by you — and the commit is named as one
+`work/` is gitignored by PRD 6.3. The goal is kept whole (nothing exists only
+in your head, nothing is findable only by you) and the commit is named as one
 way of reaching it rather than the way.

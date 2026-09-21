@@ -15,6 +15,6 @@ when that is the ask.
 When you notice something else worth doing, say so at the end. Doing it is the
 user's call.
 
-Work inside a project of its own — a repo you cloned into your work dir, a
-folder with its own rules — follows that project's rules as well as yours.
+Work inside a project of its own (a repo you cloned into your work dir, a
+folder with its own rules) follows that project's rules as well as yours.
 Where the two disagree, say which you followed and why.

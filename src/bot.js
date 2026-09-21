@@ -193,7 +193,10 @@ export function changesExactly(source, text, expected) {
   } catch {
     return false;
   }
-  if (was === null || typeof was !== 'object' || Array.isArray(was)) return false;
+  // Nothing but comments, or nothing at all, parses as nothing at all, and is
+  // still a file an entry can be the first thing in.
+  if (was === null) was = {};
+  if (typeof was !== 'object' || Array.isArray(was)) return false;
 
   return isDeepStrictEqual(now, expected(was));
 }
@@ -242,7 +245,7 @@ function asMapping(bot, file) {
  * never made holds none of the kit's files, and the way out of that is `init`
  * and not the command the user reached for.
  */
-function requireBotsFolder(bots) {
+export function requireBotsFolder(bots) {
   const dir = botsDir(bots);
   if (statSync(dir, { throwIfNoEntry: false })?.isDirectory() !== true) {
     throw new Error(`${bots} is not a bots folder: run obk init --bots <path> --harness claude|codex first.`);

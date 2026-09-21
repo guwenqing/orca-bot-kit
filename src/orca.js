@@ -8,6 +8,9 @@
 // handed to Orca on the command line.
 
 import { spawnSync } from 'node:child_process';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import path from 'node:path';
 
 // The Orca that works for a normal user: `/usr/local/bin/orca` is a root-only
 // symlink on this machine (tech notes, section 1). OBK_ORCA overrides it, for a
@@ -78,9 +81,59 @@ export function orcaTrouble() {
   return `Orca is not answering at ${orcaCli()}. ${where}`;
 }
 
+/** Every workspace Orca has a record of, folder and git alike. */
+export const projects = () => orca(['project', 'setups']).setups;
+
 /** Orca's record of the folder at `home`, or undefined when it knows none. */
 export function findProject(home) {
-  return orca(['project', 'setups']).setups.find((setup) => setup.path === home);
+  return projects().find((setup) => setup.path === home);
+}
+
+/** Where Orca keeps its own settings: one file per profile, under the user's home. */
+export const profilesDir = () => path.join(homedir(), 'Library', 'Application Support', 'orca', 'profiles');
+
+/**
+ * Orca's own default launch arguments, per profile it keeps:
+ * `{ dir, profiles: [{ file, args }] }`, where `args` maps an agent name to the
+ * arguments Orca adds to it, and is undefined for a file that cannot be read.
+ *
+ * Orca adds these to the agents it launches, relaunches and resumes itself, so
+ * they override the approval level a session was started with (PRD 6.5). The
+ * kit reads the file and never writes it.
+ *
+ * A mapping with no entry for an agent is not "no arguments": Orca falls back
+ * to its own built-in default, which is the permission bypass itself (tech
+ * notes, section 1). So the caller reads a missing entry as one.
+ */
+export function orcaDefaultArgs() {
+  const dir = profilesDir();
+
+  let profiles;
+  try {
+    profiles = readdirSync(dir);
+  } catch {
+    return { dir, profiles: [] };
+  }
+
+  return {
+    dir,
+    profiles: profiles
+      .map((name) => path.join(dir, name, 'orca-data.json'))
+      .filter((file) => existsSync(file))
+      .map((file) => ({ file, args: argsIn(file) })),
+  };
+}
+
+/** What one profile file says about the agents' default arguments. */
+function argsIn(file) {
+  try {
+    const settings = JSON.parse(readFileSync(file, 'utf8'))?.settings?.agentDefaultArgs;
+    // Anything that is not a mapping of agents is a mapping with nothing in it,
+    // which is Orca falling back to its own defaults for every agent.
+    return settings !== null && typeof settings === 'object' && !Array.isArray(settings) ? settings : {};
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -141,6 +194,17 @@ export function tuiInTab(handle, timeoutMs) {
   }
   return { running: true, blockedReason: answer.result?.wait?.blockedReason };
 }
+
+/**
+ * Close one tab, by the handle Orca issued for it.
+ *
+ * The only place in the kit that takes anything away, and it takes away one
+ * tab: `--terminal <handle> --tab`. Orca's other form, `--worktree <sel> --all`,
+ * closes every tab of a project with its layouts and resume records, which are
+ * the user's work and not the kit's to end (tech notes, section 1).
+ */
+export const closeTab = (handle) =>
+  orca(['terminal', 'close', '--terminal', handle, '--tab']).close;
 
 /**
  * Type `text` into a tab and press return.

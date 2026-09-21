@@ -15,6 +15,7 @@ import { parse } from 'yaml';
 
 import {
   assertCleanFailure,
+  assertHomeUntouched,
   botHomeOf,
   createSandbox,
   skipGit,
@@ -159,7 +160,7 @@ test('bot create writes nothing outside the new bot\'s own folder', async (t) =>
     outside,
     'the only thing that changed anywhere is the bot\'s own folder',
   );
-  assert.deepEqual(await readdir(box.home), [], 'and nothing was written to the home directory');
+  await assertHomeUntouched(box);
 });
 
 test('an Orca that is down is nothing to bot create', async (t) => {

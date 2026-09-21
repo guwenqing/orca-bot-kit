@@ -8,10 +8,26 @@
 //   <root>/cwd           the working directory the CLI is spawned from
 //   <root>/home          HOME, so a stray write to the home dir shows up here
 //
+//   <root>/home/Library/Application Support/orca/profiles/local-default/orca-data.json
+//                        Orca's own settings, where Orca keeps them on this
+//                        machine (tech notes, section 1)
+//
 // `bin` goes first on PATH, so the CLI under test is the real entry point. The
 // kit resolves the Orca CLI through OBK_ORCA, which every sandbox points at its
 // own fake, and the same fake is on PATH as well: no test can reach the real
 // Orca, whichever of the two ways it looks for it.
+//
+// That last file is there because a sandbox invents a home directory, and a
+// home directory with no Orca settings in it is a machine Orca has never run
+// on. No user is in that state while the kit is working — the kit refuses
+// every command when Orca is down — so leaving it out would be the sandbox
+// lying, and every run would carry a finding about settings that could not be
+// read. Each sandbox is therefore given the file, holding default launch
+// arguments that carry no permission bypass, and a test that is about that
+// setting says what it holds through `orca.settings`.
+//
+// The kit reads it and must never write it (PRD 6.5), which is what
+// `assertHomeUntouched` is for.
 
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -31,6 +47,19 @@ const FAKE_ORCA_DIR = 'orca-fake';
 
 /** What the fake Orca knows before a test says otherwise: an Orca that is up and empty. */
 const FRESH_ORCA = { reachable: true, waitIdle: true, setups: [], terminals: [], fail: {}, nextId: 1 };
+
+/** Where Orca keeps its own settings, inside a home directory (tech notes, section 1). */
+const ORCA_SETTINGS = path.join('Library', 'Application Support', 'orca', 'profiles', 'local-default', 'orca-data.json');
+
+/**
+ * What those settings say before a test says otherwise: a default set of launch
+ * arguments for each harness Orca starts, neither carrying a permission bypass,
+ * so an ordinary run hears nothing about them.
+ */
+const FRESH_ORCA_SETTINGS = { agentDefaultArgs: { claude: '', codex: '' } };
+
+/** Orca's settings file is JSON with everything under one `settings` key. */
+const writeSettings = (file, settings) => writeFile(file, `${JSON.stringify({ settings }, null, 2)}\n`);
 
 /** The version the CLI is expected to print. */
 export async function packageVersion() {
@@ -125,6 +154,11 @@ export async function createSandbox(t) {
   const stateFile = path.join(fakeDir, 'state.json');
   await writeFile(stateFile, `${JSON.stringify(FRESH_ORCA, null, 2)}\n`);
 
+  // Orca's own settings, as they are on a machine Orca is running on.
+  const settingsFile = path.join(home, ORCA_SETTINGS);
+  await mkdir(path.dirname(settingsFile), { recursive: true });
+  await writeSettings(settingsFile, FRESH_ORCA_SETTINGS);
+
   const fakeOrca = path.join(bin, 'orca');
   await writeFile(fakeOrca, [
     '#!/usr/bin/env node',
@@ -146,10 +180,21 @@ export async function createSandbox(t) {
 
   const readState = async () => JSON.parse(await readFile(stateFile, 'utf8'));
 
+  /** What Orca's settings say now, or nothing at all when the file has been taken away. */
+  const readSettings = async () => {
+    try {
+      return JSON.parse(await readFile(settingsFile, 'utf8')).settings ?? {};
+    } catch {
+      return {};
+    }
+  };
+
   return {
     root,
     cwd,
     home,
+    /** The home directory as the sandbox seeded it: what `assertHomeUntouched` holds it to. */
+    homeSeeded: await snapshot(home),
     /** The environment the CLI is spawned with: `bin` first on PATH, HOME and OBK_ORCA inside the sandbox. */
     env,
     /** Path inside the sandbox's working directory. */
@@ -194,6 +239,27 @@ export async function createSandbox(t) {
       /** Change what the fake Orca knows or how it misbehaves; see helpers/fake-orca.js. */
       async set(changes) {
         await writeFile(stateFile, `${JSON.stringify({ ...await readState(), ...changes }, null, 2)}\n`);
+      },
+      /**
+       * Orca's own settings file in the sandbox home — its per-agent default
+       * launch arguments and whatever else it keeps there. The kit reads it and
+       * never writes it (PRD 6.5).
+       *
+       * `set` changes what it says, the way `set` above changes what the fake
+       * knows: the keys given are merged into `settings` and the rest stay.
+       * `remove` takes the file away, which is a machine whose Orca settings
+       * the kit cannot read at all.
+       */
+      settings: {
+        /** Where it is. */
+        file: settingsFile,
+        /** What it says now. */
+        read: readSettings,
+        async set(changes) {
+          await mkdir(path.dirname(settingsFile), { recursive: true });
+          await writeSettings(settingsFile, { ...await readSettings(), ...changes });
+        },
+        remove: () => rm(settingsFile, { force: true }),
       },
       /**
        * One entry per program the fake ran in the middle of a call, from
@@ -613,6 +679,24 @@ export function assertOrcaCallsAllowed(calls) {
     calls.filter((call) => call.args.includes('close')).map((call) => call.args),
     [],
     'orca terminal close must never be called, with any argument',
+  );
+}
+
+/**
+ * The kit wrote nothing in the user's home directory: it holds exactly what the
+ * sandbox seeded there and no more, byte for byte.
+ *
+ * Orca's own settings file is in there, so "the home directory is empty" is no
+ * longer the question. This one is stricter than that was: it catches a kit
+ * that leaves a file of its own in the home directory, and it catches a kit
+ * that writes back into Orca's settings, which is the one thing PRD 6.5 says
+ * it must not do.
+ */
+export async function assertHomeUntouched(box) {
+  assert.deepEqual(
+    await snapshot(box.home),
+    box.homeSeeded,
+    'nothing of the kit\'s belongs in the user\'s home directory, and Orca\'s own settings are Orca\'s',
   );
 }
 

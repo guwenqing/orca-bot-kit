@@ -5,8 +5,8 @@ description: >-
   given and what it is not, the angles worth taking on a diff, the test to put
   a finding through before writing it, the findings that are usually wrong,
   what a report says, and how to answer one without performing agreement. Use
-  whenever you are reading someone else's change — a diff, a branch, a pull
-  request, a patch — or have been asked to look at, check over or give an
+  whenever you are reading someone else's change (a diff, a branch, a pull
+  request, a patch) or have been asked to look at, check over or give an
   opinion on work you did not write, and equally whenever findings come back
   on your own work and you have to decide what to do about each one.
 ---
@@ -47,7 +47,7 @@ review, pass the artefact and the contract, and keep your verdict to yourself.
 State the intent in one paragraph before you read the diff, taken from the
 requirement rather than from the author's summary. You are judging whether the
 change achieves that intent, not whether the intent was right. Solving the
-wrong problem is still a finding — that is the change failing the requirement,
+wrong problem is still a finding. That is the change failing the requirement,
 not you re-arguing it.
 
 Pin what you are reading: the range, and that it resolves and is not empty.
@@ -61,7 +61,7 @@ your own.
 
 Treat it as a claim about the code, not as evidence. It may be incomplete,
 optimistic, or simply wrong. Check what it says against the change itself. A
-rationale in the report — "left out deliberately", "kept simple on purpose" —
+rationale in the report ("left out deliberately", "kept simple on purpose")
 is the author grading its own work and never lowers the severity of anything
 you find.
 
@@ -72,21 +72,21 @@ say what would settle it.
 ### Two questions, kept apart
 
 Does the change do what was asked, and is it well made? A change can pass one
-and fail the other — correct in every detail and solving the wrong problem, or
+and fail the other: correct in every detail and solving the wrong problem, or
 exactly what was wanted and a mess in the codebase. Answer them separately and
 report them separately. Merged into one ranked list, the loud one hides the
 other.
 
 For the first, go through the requirement and sort what you find into three:
 
-- **Missing** — asked for and not there, or claimed and not implemented.
-- **Not asked for** — behaviour, options or generality nobody wanted.
-- **Misunderstood** — the right thing built the wrong way, or the wrong
+- **Missing.** Asked for and not there, or claimed and not implemented.
+- **Not asked for.** Behaviour, options or generality nobody wanted.
+- **Misunderstood.** The right thing built the wrong way, or the wrong
   problem solved.
 
 Quote the line of the requirement for each. Where settling one means reading
-code the change does not touch — the function it delegates to, the contract it
-relies on — read it: that is evidence about this change, not a review of
+code the change does not touch (the function it delegates to, the contract it
+relies on), read it: that is evidence about this change, not a review of
 something else. Say you could not settle it only when you actually could not.
 And the requirement is not a list of everything that matters: what a reasonable
 person would expect is part of it, and silence about an input is not permission
@@ -99,8 +99,8 @@ a defect in an untouched line of a function it touched. Not a survey of
 everything around it.
 
 What you read to get there is a different matter. Follow a question you can
-name — where does this value come from, what did the old contract promise, who
-calls this — until it is settled or you are genuinely stuck, and say in the
+name (where does this value come from, what did the old contract promise, who
+calls this) until it is settled or you are genuinely stuck, and say in the
 report what you followed and what you found. Do not report a half-answer you
 could have finished: "this breaks unless the caller handles it" is not a
 finding when the caller is there to be read. What you must not do is wander:
@@ -117,8 +117,8 @@ paragraphs about the architecture.
   twice, or if the last attempt died partway through? If the answer depends on
   what was left behind, something is missing that puts it back in order.
 - **Two at once.** Where more than one actor can touch the same file, branch or
-  shared value, is the access made safe by the structure — a lock, a sequence,
-  one owner — or by a convention that will not hold?
+  shared value, is the access made safe by the structure (a lock, a sequence,
+  one owner) or by a convention that will not hold?
 - **Checked against the real thing.** Does the code establish what it claims,
   or does it read a stand-in for it: a timestamp instead of the value, a cached
   flag instead of the state, a helper's summary instead of what the helper
@@ -146,7 +146,7 @@ paragraphs about the architecture.
   code were wrong? Where a separate author wrote them, is every case the
   hand-over names present in the revision being handed on, with the contents
   the author handed back? Absent from the diff is a reason to look at the
-  revision, not a finding by itself — the tests may have landed in an earlier
+  revision, not a finding by itself. The tests may have landed in an earlier
   change this one builds on. What is a finding is a named test that is not
   there at all, or is there with its assertions softened. Confirm which before
   writing it up: a test still sitting in somebody's working tree reads as
@@ -178,7 +178,7 @@ paragraphs about the architecture.
 What the project writes down about how code should be written is the standard,
 and it wins. On top of it, this set carries where nothing is written down. Each
 one reads as what it is, then what to do about it, and each is a label you
-apply with judgement — "possible feature envy", never a violation. A documented
+apply with judgement: "possible feature envy", never a violation. A documented
 repo standard that endorses something here suppresses it, and anything the
 project's tooling already enforces is not a finding.
 
@@ -216,10 +216,10 @@ severity does.
 
 1. Can you name the file and the line? "Somewhere in the parsing" is not
    something anyone can act on.
-2. Can you state the failure concretely — this input, in this state, gives that
+2. Can you state the failure concretely: this input, in this state, gives that
    wrong outcome? If you cannot name the trigger, you are matching a pattern,
    not reviewing.
-3. Have you read what is around it — the callers, the types, the tests? Much of
+3. Have you read what is around it: the callers, the types, the tests? Much of
    what looks wrong is already handled one frame up.
 4. Is the severity one you could defend? A missing comment is never urgent.
    Inflated severity costs you the next review as well as this one.
@@ -230,11 +230,11 @@ rules it out, it is not one.
 
 Put each candidate in one of three states and say which:
 
-- **Confirmed** — you can name the input and the wrong result, and quote the
+- **Confirmed.** You can name the input and the wrong result, and quote the
   line.
-- **Plausible** — the mechanism is real but you cannot reach the trigger from
+- **Plausible.** The mechanism is real but you cannot reach the trigger from
   here. Say what would settle it.
-- **Refuted** — drop it, and only call it that when the code proves it: the
+- **Refuted.** Drop it, and only call it that when the code proves it: the
   line says otherwise, a type or constant makes it impossible, or a guard in
   the change already handles it.
 
@@ -247,7 +247,7 @@ afterwards. What reaches the report is what survived.
 Every line is a verdict, a finding, or a check you ran. Start with the answer.
 No preamble, no narration of your process, no closing summary.
 
-A finding gives its location, what is wrong, and the evidence for it — why you
+A finding gives its location, what is wrong, and the evidence for it: why you
 believe it, not just that you do. A concrete alternative if you have one, and
 nothing if you do not. Fold repeats together: "five handlers swallow the error"
 is one finding, not five.
@@ -260,9 +260,9 @@ is one finding, not five.
   small points to look thorough. Do not praise it either; that is not what the
   reader needs.
 - Say what severity means where you are writing, and keep to it. A useful
-  line: it matters when the work cannot be trusted until it is fixed — wrong
+  line: it matters when the work cannot be trusted until it is fixed (wrong
   or fragile behaviour, a requirement missed, the same block of logic copied
-  verbatim, an error swallowed, a test that asserts nothing. "The coverage
+  verbatim, an error swallowed, a test that asserts nothing). "The coverage
   could be broader" and polish are the other kind.
 - Severity never exceeds what you showed. If you demonstrated a way to read a
   value that should not be read, that is what it is worth; it does not become
@@ -275,8 +275,8 @@ is one finding, not five.
   nothing is dropped silently. An empty list is fine and means you set nothing
   aside.
 - Say what you did not check. If you looked less thoroughly than you were asked
-  to — one pass where more was wanted, a part of the change you could not read
-  — say that plainly, so nobody takes the review for more than it is.
+  to (one pass where more was wanted, a part of the change you could not read),
+  say that plainly, so nobody takes the review for more than it is.
 - A review reads the change. Whether it runs is a separate question and a
   separate check.
 
@@ -311,7 +311,7 @@ and their verdicts do not add up. If the change really is too large to hold in
 one reading, that is itself worth saying.
 
 Reviewing is read-only. Do not change the working tree, the index, or which
-branch or commit is checked out — look with the commands that only read. If you
+branch or commit is checked out. Look with the commands that only read. If you
 need another revision to compare, take a separate copy of it somewhere else.
 
 ## Receiving a review
@@ -326,19 +326,19 @@ answer arrives.
 
 Items are related more often than they look, so assume the answer to one bears
 on the others until you have checked. Where you have checked and an item plainly
-stands alone — a crash with a reproduction, while the unclear item is a vague
-note about tidying something up — that one can go ahead. Anything the answer
+stands alone (a crash with a reproduction, while the unclear item is a vague
+note about tidying something up), that one can go ahead. Anything the answer
 could change waits for it.
 
 **Check it against the code before you act on it.** Is it right for this
 codebase? Does it break something that works? Is there a reason the code is the
-way it is? A fresh reader has less context, not more — that is the point of it,
+way it is? A fresh reader has less context, not more. That is the point of it,
 and it is also its weakness. Do not defer to a finding because it is fresh, and
 do not dismiss one because it is uncomfortable.
 
 **Sort each item.** Something you got wrong, and it stands. Something right and
 worth doing. A trade-off that is worth keeping but worth writing down. Or
-noise — and when it is noise, the useful question is whether the brief should
+noise, and when it is noise, the useful question is whether the brief should
 have said something that would have prevented it.
 
 Some findings carry a sign that the reader was working without something you
@@ -346,7 +346,7 @@ have: a change asked for in code you did not touch, a pattern flagged that the
 rest of the codebase already uses, an approach recommended that a constraint
 you know about rules out. Treat that as a reason to look, not as an answer. It
 is often an honest mistake from someone with less context, and it is just as
-often the finding that matters most — a caller you did not touch is exactly
+often the finding that matters most: a caller you did not touch is exactly
 where a changed return shape breaks, and the same unsafe pattern elsewhere says
 nothing about whether this use of it is safe.
 
@@ -387,18 +387,18 @@ so you know which change did what.
 
 **Answer plainly.** No performative agreement, no thanks, no apology: state the
 fix or state the pushback. If you pushed back and turned out to be wrong, say
-what you checked, what it showed, and carry on — the correction is one line,
+what you checked, what it showed, and carry on. The correction is one line,
 not a paragraph about how it happened.
 
 When the changes are in, the check is run again and the result reported. The
 review is answered when every point has a fix, a reason it does not hold, or a
-question back — not when the list has been read.
+question back, not when the list has been read.
 
 ## Reviewing something that is not code
 
 The same shape holds for a document, a configuration, a prompt or a plan: what
 was asked for, what the thing does, and the difference between them. The
-questions change, the discipline does not — cite the place, name the concrete
+questions change, the discipline does not: cite the place, name the concrete
 consequence, and say plainly when there is nothing to report.
 
 Sources and licences: [NOTICE.md](NOTICE.md).

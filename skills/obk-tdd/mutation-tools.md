@@ -4,15 +4,15 @@ For the occasional audit described in the skill. No project needs one of these,
 and the hand check is the everyday method; this page exists so that a run, when
 there is a reason for one, is scoped to what changed instead of the whole repo.
 
-How far to trust each line. The StrykerJS flags below — `--incremental`,
-`--force` and `-m`/`--mutate` — were checked against `stryker run --help` on
+How far to trust each line. The StrykerJS flags below (`--incremental`,
+`--force` and `-m`/`--mutate`) were checked against `stryker run --help` on
 version 10.0.0 on 2026-09-20. Everything else on this page, the line-range form
 included, was read from each tool's own documentation on 2026-09-19 and has not
 been run. Flags change: check the version the project actually has before
 trusting a line here, and prefer a command the project already ships over one
 from this page.
 
-**JavaScript, TypeScript — StrykerJS** (Apache-2.0)
+**JavaScript, TypeScript: StrykerJS** (Apache-2.0)
 
 ```sh
 npx stryker run --incremental
@@ -20,28 +20,28 @@ npx stryker run --mutate src/x.ts          # one file
 npx stryker run --mutate src/x.ts:10-40    # one range
 ```
 
-**C# — Stryker.NET** (Apache-2.0): `dotnet stryker --since:main`
+**C#: Stryker.NET** (Apache-2.0): `dotnet stryker --since:main`
 
-**Rust — cargo-mutants** (MIT)
+**Rust: cargo-mutants** (MIT)
 
 ```sh
 git diff origin/main.. > git.diff && cargo mutants --in-diff git.diff
 ```
 
-**Go — gremlins** (Apache-2.0): `gremlins unleash --diff origin/main`, with the
+**Go: gremlins** (Apache-2.0): `gremlins unleash --diff origin/main`, with the
 full history fetched.
 
-**Python — mutmut 3** (BSD-3-Clause): `mutmut run "module.function*"`;
+**Python: mutmut 3** (BSD-3-Clause): `mutmut run "module.function*"`;
 incremental by default; `mutmut browse` to work through the survivors.
 
-**Python — Cosmic Ray** (MIT): `cosmic-ray init`, then `cr-filter-git`, then
+**Python: Cosmic Ray** (MIT): `cosmic-ray init`, then `cr-filter-git`, then
 `cosmic-ray exec`, then `cr-report`.
 
-**Java — PIT** (Apache-2.0):
+**Java: PIT** (Apache-2.0):
 `mvn -DwithHistory test-compile org.pitest:pitest-maven:mutationCoverage`, with
 `targetClasses` and `targetTests` globs.
 
-**Anything else** — shell, SQL, configuration, prompts, a language with no such
+**Anything else**, shell, SQL, configuration, prompts, a language with no such
 tool: the hand check in the skill is the method, and it is the same method,
 including the rule about when to skip it. Something with no logic in it does
 not get broken on purpose just because no tool would have run anyway.
@@ -66,7 +66,7 @@ not get broken on purpose just because no tool would have run anyway.
 - A run that picks its targets from a committed diff sees only committed work,
   so on a dirty tree it reports on the wrong code: commit first, or name the
   files yourself instead. Naming them is the better answer when the point is to
-  check work that is not committed yet — do not make someone stash the code
+  check work that is not committed yet. Do not make someone stash the code
   they asked about.
 - Whatever selects the targets, a run that dies in the middle can leave a
   mutant in the working copy. Look at the tree afterwards.
