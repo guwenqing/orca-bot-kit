@@ -73,18 +73,28 @@ For the first, go through the requirement and sort what you find into three:
 - **Misunderstood** — the right thing built the wrong way, or the wrong
   problem solved.
 
-Quote the line of the requirement for each. Where a requirement cannot be
-settled from this change alone, say so rather than going looking through the
-rest of the codebase for it. And the requirement is not a list of everything
-that matters: what a reasonable person would expect is part of it, and silence
-about an input is not permission for that input to break things.
+Quote the line of the requirement for each. Where settling one means reading
+code the change does not touch — the function it delegates to, the contract it
+relies on — read it: that is evidence about this change, not a review of
+something else. Say you could not settle it only when you actually could not.
+And the requirement is not a list of everything that matters: what a reasonable
+person would expect is part of it, and silence about an input is not permission
+for that input to break things.
 
 ### Where to look
 
-The second question. What the change adds or alters, and a defect in an
-untouched line of a function it touched. Not the rest of the codebase: read
-outside the change only to settle a risk you can name, one focused look per
-risk, and say in the report what you checked and why.
+The second question. What you report is the change: what it adds or alters, and
+a defect in an untouched line of a function it touched. Not a survey of
+everything around it.
+
+What you read to get there is a different matter. Follow a question you can
+name — where does this value come from, what did the old contract promise, who
+calls this — until it is settled or you are genuinely stuck, and say in the
+report what you followed and what you found. Do not report a half-answer you
+could have finished: "this breaks unless the caller handles it" is not a
+finding when the caller is there to be read. What you must not do is wander:
+reading with no question in hand turns a review of this change into a review of
+the codebase, and that is the thing to stay out of.
 
 These are questions, not a list to complete. A one-line fix does not need
 paragraphs about the architecture.
@@ -262,9 +272,12 @@ need another revision to compare, take a separate copy of it somewhere else.
 
 Read all of it before you react. Then take the items one at a time.
 
-**Restate each in your own words.** If any item is unclear, stop and ask before
-you implement any of them, not just that one. Items are often related, and
-half-understood feedback produces the wrong change twice.
+**Restate each in your own words.** Where one is unclear, ask — and before you
+carry on, work out what depends on the answer. Items are often related, and
+acting on a half-understood one produces the wrong change twice. What does not
+depend on it goes ahead: a reproduced crash gets fixed while a vague note about
+tidying something up is still being clarified. What the answer could change —
+the scope, whether a fix is right, what counts as done — waits for it.
 
 **Check it against the code before you act on it.** Is it right for this
 codebase? Does it break something that works? Is there a reason the code is the
@@ -316,7 +329,8 @@ Consolidated for this kit from these, all MIT unless noted, with thanks:
 
 - **Cursor pstack**, `interrogate` with its rubric and `lead-judgment` — the
   intent paragraph and not re-arguing the goal, the correctness, root-cause,
-  structure and complexity questions, tracing before flagging, security only
+  structure and complexity questions, following the call chain and the types
+  out of the diff to answer them, tracing before flagging, security only
   where it can be followed, severity with evidence, an empty review being
   valid, and the whole of the filtering: nitpick gravity, the hypothetical that
   has no caller, premature abstraction, "I would have done it differently",
@@ -339,8 +353,8 @@ Consolidated for this kit from these, all MIT unless noted, with thanks:
   smells are Fowler's, from *Refactoring* chapter 3.
 - **Cursor thermos** — scope held to what the change touches, not wasting the
   author's time on a risk the change intends, what over-reporting costs you,
-  reading the change before the discussion, and never reporting a question you
-  could have answered yourself.
+  reading the change before the discussion, and never presenting a finding with
+  the research unfinished when the answer was there to be read.
 - **addyosmani/agent-skills** — passing the artefact and the contract without
   the conclusion, the one structural problem outranking ten small ones, and
   sorting findings into misread, valid, trade-off and noise.
