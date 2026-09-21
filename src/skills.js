@@ -21,6 +21,7 @@ import { parse, stringify } from 'yaml';
 
 import { botDir, botNames, readBot, YAML_OUT } from './bot.js';
 import { listIn } from './rules.js';
+import { cloneDir, isCloned, readSources, skillsIn } from './sources.js';
 
 /** The kit's own skills, inside the installed package. */
 const KIT_SKILLS = fileURLToPath(new URL('../skills', import.meta.url));
@@ -155,14 +156,21 @@ export function buildSkills(bots, { bot: onlyBot } = {}) {
  * follow leaves the bot as it was.
  */
 function skillsFor(bots, home, bot) {
+  // Read once for the bot rather than once per entry: it is the user's file and
+  // a list that names no source never opens it.
+  let sources = [];
   const named = [
     ...listIn(path.join(bots, 'defaults.yaml'), 'skills'),
     ...listIn(path.join(home, 'bot.yaml'), 'skills'),
   ];
 
+  if (named.some((ref) => ref.includes(':') && !ref.startsWith(KIT))) {
+    sources = readSources(path.join(bots, 'skills.yaml'));
+  }
+
   const skills = new Map();
   for (const ref of new Set(named)) {
-    const skill = follow(bots, ref);
+    const skill = follow(bots, ref, sources);
     // Two entries pointing at the same name is the user naming one skill twice;
     // the first is the one they get, as with a name written twice.
     if (!skills.has(skill.name)) skills.set(skill.name, skill);
@@ -170,11 +178,32 @@ function skillsFor(bots, home, bot) {
   return [...skills.values()];
 }
 
-/** Where an entry points, and what it has to be for a bot to be given it. */
-function follow(bots, ref) {
-  const from = ref.startsWith(KIT) ? 'kit' : (ref.includes('/') ? 'path' : 'common');
+/**
+ * Where an entry points, and what it has to be for a bot to be given it.
+ *
+ * Four shelves: the kit's own, one of the online sources the user listed, their
+ * common folder, and any path on disk. A colon says which of the first two,
+ * and a source has to be one `skills.yaml` names — an unknown prefix is a
+ * misspelling, not a folder called `whatever:`.
+ */
+function follow(bots, ref, sources) {
+  const named = ref.includes(':') ? ref.slice(0, ref.indexOf(':')) : undefined;
+  const from = named === undefined ? (ref.includes('/') ? 'path' : 'common')
+    : (named === KIT.slice(0, -1) ? 'kit' : 'source');
+  const after = named === undefined ? ref : ref.slice(named.length + 1);
+
   const dir = {
-    kit: () => path.join(KIT_SKILLS, ref.slice(KIT.length)),
+    kit: () => path.join(KIT_SKILLS, after),
+    source: () => {
+      const source = sources.find((one) => one.name === named);
+      if (source === undefined) {
+        throw new Error(`${ref} names the source ${named}, and skills.yaml lists no source called that.`);
+      }
+      if (!isCloned(bots, named)) {
+        throw new Error(`${ref}: ${named} has not been fetched yet, so there is nothing to link. Run obk skills fetch --bots ${bots} --source ${named}.`);
+      }
+      return path.join(skillsIn(bots, source), after);
+    },
     common: () => path.join(bots, 'skills', ref),
     // The user's own spelling: absolute, at their home, or read from the bots
     // folder, which is the folder the entry is written in.
@@ -192,7 +221,7 @@ function follow(bots, ref) {
     throw new Error(`${ref} points at ${dir}, which is not a skill: a skill directory holds a ${MANIFEST}.`);
   }
 
-  return { name, from, dir };
+  return { name, from: from === 'source' ? named : from, dir };
 }
 
 /**

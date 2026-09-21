@@ -18,7 +18,8 @@ const DEFAULTS_YAML = `# Rules and skills every bot gets, on top of its own.
 #         defaults, which every bot carries already. A bare name is a file in
 #         rules/ beside this one; kit:<name> is one of the kit's.
 # skills: skills every bot gets, linked into both harnesses. kit:<name> is one
-#         of the kit's; a bare name is a directory in skills/ beside this one;
+#         of the kit's; <source>:<name> is one from an online source you listed
+#         in skills.yaml; a bare name is a directory in skills/ beside this one;
 #         anything with a / in it is a path to a skill directory on disk.
 
 rules: []
