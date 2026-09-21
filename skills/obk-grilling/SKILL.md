@@ -78,10 +78,19 @@ an interview that helps and one that gets abandoned half way.
   answer is "more of A than you think, and none of B for now" teaches them that
   the choices are not the real ones. Where a spectrum exists, say so and put
   your recommendation on it.
-- **Treating agreement as a decision.** "That sounds right", "I mostly agree",
-  "good" — none of those is a decision, and several of them in a row are not a
-  mandate. If you need it settled, ask for it plainly and separately. Recording
-  a passing nod as a decision is how a record becomes untrustworthy.
+- **Treating agreement as a decision.** What matters is not the words they
+  used but what they were agreeing to. "That sounds right" after a specific
+  proposal, fully stated, with its cost named, settles that proposal — take it
+  and move on. The same words while you are still explaining the subject, or
+  about a recommendation whose consequence you have not spelled out, settle
+  nothing: they mean the explanation landed, not that a choice was made. And a
+  run of agreeable noises across a long stretch of teaching is not a mandate
+  for any of it.
+
+  When you are unsure which you have, the useful move is not to ask again in
+  the same words. It is to say the consequence out loud — *this means anyone on
+  the team can delete your note, permanently* — and ask for the choice plainly.
+  Recording a passing nod as a decision is how a record becomes untrustworthy.
 - **Asking again whether you may proceed.** Once something is settled, build on
   it. Re-asking reads as not having listened the first time.
 - **Going too fast.** Finishing a topic, summarising, and asking to start
@@ -146,13 +155,20 @@ others as ones to avoid. Only the terms that belong to this project: general
 programming vocabulary does not, however much it gets used. Keep it a glossary
 and nothing else — not a spec, not a scratchpad, not somewhere decisions go.
 
-**The decisions**, but only the ones worth the paper. All three have to be
-true: it is hard to reverse, so changing your mind later costs something real;
-it is surprising without the context, so a reader will wonder why on earth it
-was done this way; and it came out of a genuine trade-off with alternatives
-that could have been chosen. Miss any one and skip it — an easy decision will
-simply be re-made, an unsurprising one raises no questions, and one with no
-alternative has nothing to record beyond doing the obvious thing.
+**The decisions.** Everything settled goes down, including the small and
+obvious ones: that the report is a CSV, that the list is newest first. Those
+are what the next person needs in order to build the agreed thing, and they
+cost a line each. Put them wherever the project keeps what it is going to do.
+
+A few of them earn something more — a note of their own, saying what the
+situation was and why this was chosen. Reserve that for where all three hold:
+it is hard to reverse, so changing your mind later costs something real; it is
+surprising without the context, so a reader will wonder why on earth it was
+done this way; and it came out of a genuine trade-off with alternatives that
+could have been chosen. Miss any one and the decision still gets recorded — it
+just does not need the essay. An easy one will simply be re-made, an
+unsurprising one raises no questions, and one with no alternative has nothing
+to explain beyond doing the obvious thing.
 
 One of these is a short paragraph: what the situation was, what was decided,
 and why. That is the whole thing. The value is in recording *that* it was

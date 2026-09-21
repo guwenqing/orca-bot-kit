@@ -42,17 +42,30 @@ with thanks:
 
 `grill-with-docs` and `grill-me` are one-line skills that load the two above.
 This kit's skills do not depend on another skill being loaded (ADR 0009), so
-the two are consolidated here into one, which is also what PRD 7.2 asks for.
+the two are consolidated here into one. Issue #46 asks for a skill that works
+on its own, and PRD 7.2 proposes this shape — one self-contained skill that
+also sharpens terms and records the glossary and decisions — without deciding
+it. What the owner decided is narrower: that grilling with docs ships with the
+kit. The shape is the proposed one, adopted here.
 
 The section on where an interview goes wrong is not from either source. It is
 drawn from the record of this kit's own design session — the twelve
 behavioural corrections its owner made while being interviewed with exactly
-this mechanism, collected in the research pack's session audit. Asking before
-teaching, offering a binary where the answer is a balance, treating agreement
-as a decision, re-asking for permission to proceed, going too fast, saying too
-much, answering a question that was not asked, handing back your own summary,
-overselling, and grilling things that are not decisions are all his, observed
-rather than invented.
+this mechanism, collected in the research pack's session audit. Observed in
+that record: asking before teaching, offering a binary where the answer is a
+balance, treating agreement as a decision, going too fast, saying too much,
+answering a question that was not asked, handing back your own summary,
+overselling, and grilling things that are not decisions.
+
+One item in that section is derived rather than observed, and is marked here
+because the difference matters: *do not re-ask whether you may proceed once
+something is settled*. What the record actually shows is the interviewer
+declaring things settled after a pause or a partial answer and asking again to
+start building, while the owner had neither finished learning nor decided — the
+audit places those at 18:31:56, 18:35:21, 18:36:06 and 18:36:11. The complaint
+was being asked before he was ready, not being asked twice after agreeing. The
+rule as written here follows from `rules/limits.md`, where inside your boundary
+you act; it is a reasonable default, and it is ours rather than his.
 
 Left behind on purpose: the fixed file layout and the context-map structure for
 multi-context repositories, since PRD 7.1 leaves the user free in how they keep
