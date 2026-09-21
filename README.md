@@ -142,6 +142,7 @@ than relying on another skill being loaded.
 | `obk-reviewing` | giving a review that is worth acting on, and answering one |
 | `obk-debugging` | a check that goes red first, the real cause, proof where it broke |
 | `obk-arch` | what is wanted, the shape, runnable and testable, work in slices |
+| `obk-grilling` | interviewing a plan until it holds, and writing down what was settled |
 
 A skill is where the depth lives. The always-on rules say that a change in
 behaviour starts with a failing test someone else wrote and is read by someone
