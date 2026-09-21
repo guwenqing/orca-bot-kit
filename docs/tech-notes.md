@@ -96,13 +96,18 @@ project → repo (`kind: "git" | "folder"`) → worktree (id = `<repoId>::<absPa
   and the harness holds it until the trust question and the update offer are answered. Both harnesses
   then run it by themselves. **verified** (live, Claude Code 2.1.278 and Codex 0.155.1)
 - `orca terminal send [--terminal <h>] [--text <t>] [--enter] [--interrupt] [--wait-submit <s>] [--retry-request <id>]` — `accepted:true` means input accepted, not that the agent read it; never resend on silence; use `--retry-request` for an idempotent retry.
-  **A line into a tab with an agent in it can be gated.** Seen live on 2026-09-21, in a system test run:
+  **A line into a tab with an agent in it can be gated, and the recovery can be refused too.** Seen live on 2026-09-21, in system test runs:
   `ok:false`, `error.code: "agent_prompt_blocked"`, with `error.data.orchestrationRequestId` and the message
   "Re-issue the exact command with `--retry-request <id> --wait-submit <seconds>`; do not retry it without
   that ID." The kit does exactly that, once, with a short wait. What sets it off is not known: it did not
   happen again in a probe of the same shapes — a short line, three long ones, and three sent while the agent
-  was working — so treat it as a thing that happens rather than a thing you can bring about. **verified**
-  (live, once)
+  was working — so treat it as a thing that happens rather than a thing you can bring about. It has since
+  hit three runs out of four, always on a line typed into a freshly started agent tab by something other
+  than the kit, and never on the kit's own nudge. **And the re-issue is not a cure**: one of those runs got
+  `operation_unknown — Terminal prompt <id> may have reached its exact terminal incarnation before restart.
+  It will not be sent again`, with the line demonstrably not on the tab's screen. So a typed line into an
+  agent tab is best effort, whatever Orca's message says; anything that matters must survive it not
+  arriving. Fleet mail does: it is in the mailbox either way. **verified** (live)
 - `orca terminal read [--terminal <h>] [--cursor <n>] [--limit <n>] [--screen]`, `rename`, `show`,
   `split`. Use `--screen` to see what the tab renders; the default read returns emitted output with the
   escapes stripped, so a TUI comes back as stacked fragments. `--screen` is how an agent looks at a tab
@@ -157,6 +162,7 @@ Proved live on 2026-09-21 (Orca 1.4.205), in throwaway workspaces since removed:
 
 - **A tab's terminal handle is not an address to keep.** A send to a live handle works, from a sender in no Run, and `check --terminal <h>` reads it — but Orca warns `legacy_terminal_recipient`: "a live terminal-only mailbox. Delivery is not durable after that terminal closes." A send to a handle with no live pane is refused outright: "has no live pane or durable Run/Dispatch mailbox." Handles are issued per tab, so mail sent to the handle a session had yesterday has nobody to reach.
 - **A Run is the mailbox that lasts.** `run-create` answers a `run_<id>`; `send --to run:<id>` goes through with no warning, and `--from run:<id>` is taken, so a reply has an address to go back to. A Run cannot be removed: there is no `run-delete`, and `orchestration reset --messages` would empty the whole machine's mailbox, which the kit never runs.
+- **A Run belongs to the terminal that made it.** `run-create` binds the caller's terminal as the Run's coordinator, and Orca then writes `You have 1 orchestration message. Run orca orchestration check --run <id>` into **that** tab when mail arrives for it — not into the tab of whoever the mail is for. Since the kit makes a session's mailbox from wherever `obk up` was run, a bot's mailbox is bound to the tab that brought the fleet up, usually Bot Father's. Seen live on 2026-09-21: a line about a system test bot's mail appeared in the lead's own tab. It costs nothing — the kit's own nudge is what tells the session — but it explains stray lines, and it means Orca's notice is not a delivery mechanism the kit can lean on. **verified** (live)
 - **Reading a Run is fenced to one reader.** `check --run <id>` from a caller bound elsewhere is refused with `consumer_fenced: This coordinator terminal is bound to <other run>`. `run-use --id <run>` binds the caller, and the read then works. A caller with no Orca terminal of its own is given a handle when it creates a Run.
 - **`reply --id` is filed under the replier's Run, not the recipient's**, so the recipient's `check --run` does not return it. A reply the recipient can actually read is an ordinary `send` back to their `run:<id>`, with `--thread-id`.
 - **No wake-up reaches a harness that has not read that mailbox.** A message addressed to the tab of a running Claude session left that session's screen untouched. But once a terminal has bound itself to a Run — which `run-use` does, and which the kit does inside the session's own tab on its first `obk message check` — Orca writes a line of its own into that tab for the next message: `You have 1 orchestration message. Run orca orchestration check --run run_…`. Seen live in a kit-made Claude tab. **On this machine that advice fails**: it says bare `orca`, which is the root-only symlink at `/usr/local/bin/orca`, and the session answered `Unable to determine Orca.app path from symlink`. So the kit types its own line naming `obk message check`, and the rules tell a bot to use that one. The mailbox is pull-only in every case: something has to run `check`. What does carry, and is what PRD 6.9 means by "queued, not interrupting", is one line typed into the tab: a busy Claude Code tab takes it as a queued message and finishes what it was doing first, and Codex takes it as the next turn. **verified** (live, 2.1.278 and 0.155.1)
