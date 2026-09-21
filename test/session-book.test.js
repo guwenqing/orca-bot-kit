@@ -53,14 +53,17 @@ test('the session the harness reported sits in the book beside the tab, and the 
   assert.equal(typeof book.orca?.setup, 'string', `the Orca project is still in it, got:\n${text}`);
   // `launched` is when the kit started a harness in the tab, written with the
   // tab (round 2, finding 3): without it there is no telling which of a
-  // harness's own conversations could have been this session's.
+  // harness's own conversations could have been this session's. `mailbox` and
+  // `address` are how the session is written to (PRD 6.9): the Run made for it
+  // at `up`, and, on Claude Code, the name it was launched under.
   assert.deepEqual(
     Object.keys(book.sessions.daily).sort(),
-    ['launched', 'session', 'tab'],
+    ['address', 'launched', 'mailbox', 'session', 'tab'],
     `got: ${JSON.stringify(book.sessions.daily)}`,
   );
   assert.equal(book.sessions.daily.tab, tabs.daily.tabId);
   assert.equal(book.sessions.daily.session, 'sess-1');
+  assert.equal(book.sessions.daily.address, 'api-bot.daily');
 });
 
 test('up leaves what the hook wrote exactly as it found it', async (t) => {

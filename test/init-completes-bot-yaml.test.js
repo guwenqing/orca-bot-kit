@@ -164,7 +164,10 @@ test('a bot.yaml that already has sessions is left completely alone', async (t) 
   const { inBook, terminals } = await botFatherTabs(box, box.path('bots'));
   assert.equal(inBook.length, 1);
   assert.equal(terminals.length, 2);
-  assert.deepEqual(typedInto(inBook[0]), [bareLaunch('claude', 'bot-father', 'daily')]);
+  // The session's own name is on the line, and it is the name the user gave
+  // it: a Claude session is launched as `<bot>.<session>` and that is the
+  // address other sessions write to (ADR 0008).
+  assert.deepEqual(typedInto(inBook[0]), [bareLaunch('claude', 'bot-father', 'mine')]);
   assert.ok(!inBook[0].title.includes('daily'), `the session is the user's, got: ${inBook[0].title}`);
 });
 

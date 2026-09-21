@@ -292,13 +292,12 @@ export const CODEX_NETWORK = '-c sandbox_workspace_write.network_access=true';
  * The launch command a session with nothing set is started with. Every session
  * carries an explicit approval flag (ADR 0005), so a user's global harness
  * defaults cannot leak into a bot, and `auto` is what a session that named no
- * level takes. What makes the session reachable sits beside it: a Claude
- * session's name in front of the approval flag, because it says who the
- * session is; Codex's sandbox switch straight after it, because it widens the
- * sandbox that flag chose.
+ * level takes. What makes the session reachable comes straight after
+ * it: a Claude session's own name, and on Codex the switch that widens the
+ * sandbox that flag chose far enough to reach Orca.
  */
 export const bareLaunch = (harness, bot, session) => launchLine(harness === 'claude'
-  ? `claude -n ${addressOf(bot, session)} --permission-mode auto`
+  ? `claude --permission-mode auto -n ${addressOf(bot, session)}`
   : `codex --approve-for-me ${CODEX_NETWORK}`);
 
 /** Where a bot lives inside a bots folder. */
@@ -627,6 +626,22 @@ export function assertCleanFailure(result) {
   assert.equal(result.stdout, '');
   assert.notEqual(result.stderr.trim(), '');
   assert.ok(!/^\s+at /m.test(result.stderr), `expected a message, got a crash:\n${result.stderr}`);
+}
+
+/**
+ * A refusal a person can act on: exit 1, no crash, and a reason that names
+ * what they asked about. Which stream the reason comes out on is the command's
+ * own business — the message commands answer in the same report shape whether
+ * they could do it or not — so both are read here.
+ */
+export function assertRefused(result, ...named) {
+  assert.equal(result.code, 1, `this should have been refused, got:\n${result.stdout}${result.stderr}`);
+  const said = result.stdout + result.stderr;
+  assert.notEqual(said.trim(), '', 'a refusal with nothing said is no use to anybody');
+  assert.ok(!/^\s+at /m.test(said), `expected a message, got a crash:\n${said}`);
+  for (const word of named) {
+    assert.ok(said.includes(word), `the refusal should name ${word}, got:\n${said}`);
+  }
 }
 
 /**

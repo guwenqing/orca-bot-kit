@@ -39,7 +39,9 @@
 //   messages    [{ id, to, from, subject, body, type, priority, threadId,
 //               at, acked }] — everything `orchestration send` has queued, in
 //               the order it was sent. `acked` is what `check --ack` sets, and
-//               an unacked message is replayed on every read.
+//               an unacked message is replayed on every read. Those are this
+//               fake's own names, for a test to read; Orca's own words for the
+//               same message are in `asOrca` below.
 //   bound       { "<caller>": "<run id>" } — which Run each reader is bound to.
 //               A caller is its `ORCA_TERMINAL_HANDLE`, or `cli` for one that
 //               has no Orca terminal of its own; `run-create` and `run-use`
@@ -427,7 +429,27 @@ if (command === 'orchestration send') {
   state.messages = [...(state.messages ?? []), message];
   save();
 
-  ok({ message: { ...message, acked: undefined }, ...(warnings.length > 0 ? { warnings } : {}) });
+  ok({ message: asOrca(message), ...(warnings.length > 0 ? { warnings } : {}) });
+}
+
+/**
+ * One message as Orca hands it over, rather than as this fake keeps it. The
+ * field names are the ones the live check answered with on 2026-09-21; the
+ * fake keeps its own shorter names so a test can read what is in the mailbox
+ * without going through Orca's words for it.
+ */
+function asOrca(message) {
+  return {
+    id: message.id,
+    to_handle: message.to,
+    from_handle: message.from,
+    subject: message.subject,
+    body: message.body,
+    type: message.type,
+    priority: message.priority,
+    thread_id: message.threadId,
+    created_at: message.at,
+  };
 }
 
 if (command === 'orchestration check') {
@@ -441,23 +463,34 @@ if (command === 'orchestration check') {
     fail('consumer_fenced', `This coordinator terminal is bound to ${boundTo}`);
   }
 
+  /** This Run's mail, oldest first. `--all` asks for the acknowledged ones too. */
+  const mailIn = () => (state.messages ?? [])
+    .filter((message) => message.to === `run:${run}` && (args.includes('--all') || !message.acked));
+
+  // A delivery is the batch a read hands over, and acknowledging it
+  // acknowledges everything up to and including it: FIFO, and replayed until
+  // acked, so a reader that never acked would be given the same mail for ever.
   const acked = [];
   const wanted = flag('--ack');
   if (wanted !== undefined) {
-    const message = (state.messages ?? []).find((entry) => entry.id === wanted);
-    if (message === undefined) fail('delivery_not_found', `no delivery with id ${wanted}`);
-    message.acked = true;
-    acked.push(message.id);
+    const upTo = (state.messages ?? []).findIndex((entry) => entry.id === wanted);
+    if (upTo < 0) fail('delivery_not_found', `no delivery with id ${wanted}`);
+    for (const message of mailIn()) {
+      if ((state.messages ?? []).indexOf(message) > upTo) continue;
+      message.acked = true;
+      acked.push(message.id);
+    }
     save();
   }
 
-  // FIFO, and replayed until acked: what a read gives back is everything still
-  // waiting, oldest first. `--all` asks for the acked ones too.
-  const waiting = (state.messages ?? [])
-    .filter((message) => message.to === `run:${run}` && (args.includes('--all') || !message.acked))
-    .map(({ acked: _acked, ...rest }) => rest);
-
-  ok({ run, messages: waiting, ...(acked.length > 0 ? { acked } : {}) });
+  const waiting = mailIn();
+  ok({
+    run,
+    messages: waiting.map(asOrca),
+    // What to acknowledge when this batch has been read.
+    ...(waiting.length > 0 ? { deliveryId: waiting[waiting.length - 1].id } : {}),
+    ...(acked.length > 0 ? { acked } : {}),
+  });
 }
 
 fail('unknown_command', `orca has no "${command}" command in this fake`);

@@ -174,7 +174,7 @@ for (const [harness, settings, fresh] of [
   [
     'claude',
     ['--approval', 'ask', '--model', 'opus', '--context', '1m', '--effort', 'xhigh', '--extra-arg=--verbose'],
-    ['-n', 'api-bot.daily', '--permission-mode', 'manual', '--model', 'opus[1m]', '--effort', 'xhigh', '--verbose'],
+    ['--permission-mode', 'manual', '-n', 'api-bot.daily', '--model', 'opus[1m]', '--effort', 'xhigh', '--verbose'],
   ],
   [
     'codex',

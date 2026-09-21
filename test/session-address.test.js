@@ -36,11 +36,16 @@ import {
   bookOf,
   CODEX_NETWORK,
   createSandbox,
+  launchLine,
   orcaCallsOf,
   sessionIn,
   tabsOfBot,
   typedInto,
 } from './helpers/cli.js';
+
+/** What a user writes to turn the sandbox switch off for one session, and the words it becomes. */
+const OFF_WORDS = `-c ${CODEX_NETWORK.split(' ')[1].replace('=true', '=false')}`;
+const OFF = ['--extra-arg=-c', `--extra-arg=${CODEX_NETWORK.split(' ')[1].replace('=true', '=false')}`];
 
 /** A bots folder with one bot on `harness` and the sessions named, nothing brought up yet. */
 async function withBot(box, harness, sessions, { bot = 'api-bot' } = {}) {
@@ -92,28 +97,30 @@ test('a Codex session is launched with the sandbox switch that lets it reach Orc
 });
 
 test('a Codex session whose user turned the network off is launched without the switch', async (t) => {
-  // The switch widens the sandbox beyond localhost, and a user who does not
-  // want that says so per session. Nothing else about the line changes.
+  // The switch widens that session's sandbox beyond localhost and there is no
+  // narrower setting, so a user who does not want it says so for that session.
+  // Their own setting wins and the kit adds nothing beside it; nothing else
+  // about the line changes, and the session beside it is untouched.
   const box = await createSandbox(t);
-  const bots = await withBot(box, 'codex', [['daily', '--no-network'], ['night']]);
+  const bots = await withBot(box, 'codex', [['daily', ...OFF], ['night']]);
 
   const { lines } = await up(box, bots);
 
+  assert.equal(lines['Api Bot daily'], launchLine(`codex --approve-for-me ${OFF_WORDS}`));
   assert.ok(
-    !lines['Api Bot daily'].includes('sandbox_workspace_write'),
-    `the session that said no should carry no sandbox setting, got: ${lines['Api Bot daily']}`,
+    !lines['Api Bot daily'].includes(CODEX_NETWORK),
+    `the kit must not put its own switch back beside theirs, got: ${lines['Api Bot daily']}`,
   );
-  assert.equal(lines['Api Bot daily'], `${bareLaunch('codex').replace(` ${CODEX_NETWORK}`, '')}`);
   assert.equal(lines['Api Bot night'], bareLaunch('codex'), 'and the session beside it is untouched');
 });
 
-test('--no-network on a Claude session changes nothing: the switch is Codex\'s', async (t) => {
+test('a session that asks for the switch itself is not given it twice', async (t) => {
   const box = await createSandbox(t);
-  const bots = await withBot(box, 'claude', [['daily', '--no-network']]);
+  const bots = await withBot(box, 'codex', [['daily', '--extra-arg=-c', `--extra-arg=${CODEX_NETWORK.split(' ')[1]}`]]);
 
   const { lines } = await up(box, bots);
 
-  assert.equal(lines['Api Bot daily'], bareLaunch('claude', 'api-bot', 'daily'));
+  assert.equal(lines['Api Bot daily'], launchLine(`codex --approve-for-me ${CODEX_NETWORK}`));
 });
 
 test('up gives a Claude session a mailbox and writes both addresses in the book', async (t) => {
@@ -123,9 +130,10 @@ test('up gives a Claude session a mailbox and writes both addresses in the book'
   await up(box, bots);
 
   const daily = await sessionIn(bots, 'api-bot', 'daily');
-  const runs = await box.orca.runs();
-  assert.equal(runs.length, 1, `one Run should have been made, got: ${JSON.stringify(runs)}`);
-  assert.equal(daily.mailbox, runs[0].id, `the book should hold the Run Orca made, got: ${JSON.stringify(daily)}`);
+  assert.ok(
+    (await box.orca.runs()).some((run) => run.id === daily.mailbox),
+    `the book should hold a Run Orca really made, got: ${JSON.stringify(daily)}`,
+  );
   assert.equal(daily.address, addressOf('api-bot', 'daily'), `and the name it is launched under: ${JSON.stringify(daily)}`);
 });
 
@@ -136,8 +144,28 @@ test('up gives a Codex session a mailbox too, and it is the only address it has'
   await up(box, bots);
 
   const daily = await sessionIn(bots, 'api-bot', 'daily');
-  const runs = await box.orca.runs();
-  assert.equal(daily.mailbox, runs[0].id, `got: ${JSON.stringify(daily)}`);
+  assert.ok(
+    (await box.orca.runs()).some((run) => run.id === daily.mailbox),
+    `a Codex session's mailbox is a Run like any other, got: ${JSON.stringify(daily)}`,
+  );
+});
+
+test('a session fleet mail cannot reach is given no mailbox at all', async (t) => {
+  // A Codex session whose sandbox cannot reach Orca could never read a Run of
+  // its own, and a Run cannot be taken back: there is no `run-delete`, and the
+  // one command that empties mailboxes empties the whole machine's. So the
+  // choice is between rubbish that stays on the user's machine for ever and
+  // saying plainly that this session is out of reach.
+  const box = await createSandbox(t);
+  const bots = await withBot(box, 'codex', [['daily', ...OFF], ['night']]);
+
+  await up(box, bots);
+
+  assert.equal((await sessionIn(bots, 'api-bot', 'daily')).mailbox, undefined, 'the one that cannot read gets none');
+  assert.ok(
+    typeof (await sessionIn(bots, 'api-bot', 'night')).mailbox === 'string',
+    'and the session beside it, which can, gets one as usual',
+  );
 });
 
 test('every session of a bot gets a mailbox, and no two share one', async (t) => {
@@ -159,19 +187,22 @@ test('a mailbox is made once and kept, however many times up runs', async (t) =>
   // is rubbish that stays on the user's machine for ever.
   const box = await createSandbox(t);
   const bots = await withBot(box, 'claude', [['daily']]);
+  // Bot Father was brought up by `init` and has a mailbox of its own already.
+  const before = (await box.orca.runs()).length;
+  const made = orcaCallsOf(await box.orca.calls(), 'orchestration run-create').length;
 
   await up(box, bots);
   const first = await sessionIn(bots, 'api-bot', 'daily');
   await up(box, bots);
   await up(box, bots);
 
+  assert.equal((await box.orca.runs()).length, before + 1, 'three runs of up, one Run made');
   assert.equal(
     orcaCallsOf(await box.orca.calls(), 'orchestration run-create').length,
-    1,
-    'three runs of up, one Run made',
+    made + 1,
+    'and it was asked for once, not asked for and thrown away',
   );
   assert.equal((await sessionIn(bots, 'api-bot', 'daily')).mailbox, first.mailbox, 'and the book still names it');
-  assert.equal((await box.orca.runs()).length, 1);
 });
 
 test('a session whose book entry has no mailbox is given one at the next up', async (t) => {

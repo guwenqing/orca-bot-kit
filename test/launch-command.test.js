@@ -65,27 +65,27 @@ async function launchOf(box, harness, settings, { bot = 'api-bot' } = {}) {
 }
 
 const CLAUDE = [
-  ['nothing set at all', [], 'claude -n api-bot.daily --permission-mode auto'],
-  ['approval auto', ['--approval', 'auto'], 'claude -n api-bot.daily --permission-mode auto'],
-  ['approval ask', ['--approval', 'ask'], 'claude -n api-bot.daily --permission-mode manual'],
-  ['approval dangerously-skip', ['--approval', 'dangerously-skip'], 'claude -n api-bot.daily --dangerously-skip-permissions'],
-  ['a model', ['--model', 'sonnet'], 'claude -n api-bot.daily --permission-mode auto --model sonnet'],
-  ['an effort', ['--effort', 'high'], 'claude -n api-bot.daily --permission-mode auto --effort high'],
+  ['nothing set at all', [], 'claude --permission-mode auto -n api-bot.daily'],
+  ['approval auto', ['--approval', 'auto'], 'claude --permission-mode auto -n api-bot.daily'],
+  ['approval ask', ['--approval', 'ask'], 'claude --permission-mode manual -n api-bot.daily'],
+  ['approval dangerously-skip', ['--approval', 'dangerously-skip'], 'claude --dangerously-skip-permissions -n api-bot.daily'],
+  ['a model', ['--model', 'sonnet'], 'claude --permission-mode auto -n api-bot.daily --model sonnet'],
+  ['an effort', ['--effort', 'high'], 'claude --permission-mode auto -n api-bot.daily --effort high'],
   [
     // `[1m]` is a glob to the tab's zsh, so the model has to stay quoted.
     'a model with a context window',
     ['--model', 'sonnet', '--context', '1m'],
-    "claude -n api-bot.daily --permission-mode auto --model 'sonnet[1m]'",
+    "claude --permission-mode auto -n api-bot.daily --model 'sonnet[1m]'",
   ],
   [
     'extra args',
     ['--extra-arg=--verbose', '--extra-arg=--debug'],
-    'claude -n api-bot.daily --permission-mode auto --verbose --debug',
+    'claude --permission-mode auto -n api-bot.daily --verbose --debug',
   ],
   [
     'a start prompt, last of all',
     ['--prompt', 'Read your AGENTS.md.'],
-    "claude -n api-bot.daily --permission-mode auto -- 'Read your AGENTS.md.'",
+    "claude --permission-mode auto -n api-bot.daily -- 'Read your AGENTS.md.'",
   ],
   [
     'everything at once',
@@ -93,7 +93,7 @@ const CLAUDE = [
       '--approval', 'ask', '--model', 'opus', '--context', '1m', '--effort', 'xhigh',
       '--extra-arg=--verbose', '--prompt', 'Read your AGENTS.md.',
     ],
-    "claude -n api-bot.daily --permission-mode manual --model 'opus[1m]' --effort xhigh --verbose -- 'Read your AGENTS.md.'",
+    "claude --permission-mode manual -n api-bot.daily --model 'opus[1m]' --effort xhigh --verbose -- 'Read your AGENTS.md.'",
   ],
 ];
 
@@ -268,7 +268,7 @@ test('a model with a context window reaches the harness as one word, unglobbed',
 
   const ran = await sh(typed, { cwd: box.cwd, env: box.env });
   assert.equal(ran.code, 0, `${typed}\n${ran.stderr}`);
-  assert.deepEqual((await fake.calls())[0].args, ['-n', 'api-bot.daily', '--permission-mode', 'auto', '--model', 'sonnet[1m]']);
+  assert.deepEqual((await fake.calls())[0].args, ['--permission-mode', 'auto', '-n', 'api-bot.daily', '--model', 'sonnet[1m]']);
 });
 
 test('Codex\'s -c settings reach codex as one argument each', async (t) => {
