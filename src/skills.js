@@ -141,11 +141,9 @@ function writeRecord(home, record) {
 export function skillsTrouble(bots, home, bot) {
   const record = readRecord(home);
   const trouble = [];
-  const held = new Map();
 
   for (const [harness, inside] of Object.entries(SKILL_DIRS)) {
     const dir = path.join(home, inside);
-    held.set(harness, heldIn(dir, record[harness] ?? {}));
 
     for (const name of namesIn(dir)) {
       const at = path.join(dir, name);
@@ -169,23 +167,41 @@ export function skillsTrouble(bots, home, bot) {
     return trouble;
   }
 
-  const named = new Set(wanted.map((skill) => skill.name));
-  for (const skill of heldBy(home, wanted, held)) {
-    if (!named.has(skill.name)) continue;
+  // Every skill the lists name, against what is actually at the end of the link
+  // — not against what the kit once wrote there. The record says whether the
+  // kit may repoint a link; it says nothing about whether the link is still
+  // where the list points, and a list that has moved on leaves both harnesses
+  // reading the old skill with nothing to say so.
+  for (const skill of wanted) {
+    for (const [harness, inside] of Object.entries(SKILL_DIRS)) {
+      const at = path.join(home, inside, skill.name);
+      const target = linkAt(at);
+      if (target === skill.dir) continue;
+      // A link with nothing at the end of it is reported above, as the broken
+      // link it is, and is not worth a second finding under another name.
+      if (target !== undefined && !existsSync(at)) continue;
 
-    for (const [harness, state] of Object.entries(skill.at)) {
-      if (state === 'linked') continue;
-      const at = path.join(home, SKILL_DIRS[harness], skill.name);
-      trouble.push({
-        where: at,
-        says: state === 'missing'
-          ? `${skill.name} is in ${bot.name}'s skills list and there is nothing at ${at}, so a ${harness} session of this bot does not have it. obk skills build puts the link there.`
-          : `${skill.name} is in ${bot.name}'s skills list, and what is at ${at} is not the kit's link. What you put there is yours and the kit never writes over it, so a ${harness} session of this bot reads that instead of the skill the list names.`,
-      });
+      trouble.push({ where: at, says: how(skill, bot, harness, at, target, record[harness]?.[skill.name]) });
     }
   }
 
   return trouble;
+}
+
+/**
+ * Why one harness is not reading the skill its lists name: there is nothing
+ * there, the kit's own link is pointing at what the lists used to name, or what
+ * is there is the user's own and is never written over.
+ */
+function how(skill, bot, harness, at, target, wrote) {
+  const mine = `${skill.name} is in ${bot.name}'s skills list as ${skill.dir}`;
+  if (lstatSync(at, { throwIfNoEntry: false }) === undefined) {
+    return `${mine}, and there is nothing at ${at}, so a ${harness} session of this bot does not have it. obk skills build puts the link there.`;
+  }
+  if (target !== undefined && target === wrote) {
+    return `${mine}, and the link at ${at} points at ${target} instead, which is where an older list pointed, so a ${harness} session of this bot is reading that one. obk skills build points it where the list says now.`;
+  }
+  return `${mine}, and what is at ${at} is not the kit's link. What you put there is yours and the kit never writes over it, so a ${harness} session of this bot reads that instead of the skill the list names.`;
 }
 
 /** What a directory holds, and nothing when there is no directory. */

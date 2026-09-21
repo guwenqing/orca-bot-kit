@@ -48,6 +48,7 @@ import {
 import { addRules, agentsIn, agentsOf, END_MARKER } from './helpers/rules.js';
 import {
   addSkills,
+  assertLinked,
   botYamlOf,
   commonSkill,
   linkByHand,
@@ -478,6 +479,45 @@ for (const [label, text] of [
   });
 }
 
+// Only YAML that cannot be parsed at all. A book that parses into something
+// other than a mapping is a different case with a different answer already
+// decided: the kit reads it as a book that says nothing, and `up` then makes
+// what is missing (src/book.js). That is not a file the kit cannot read, and
+// pinning it here would be settling a question nobody asked.
+for (const [label, text] of [
+  ['a list that is never closed', 'sessions: [broken\n'],
+  ['indented with a tab', 'sessions:\n\t- daily\n'],
+]) {
+  test(`H24 a book that is YAML ${label} is reported, and the rest of the fleet with it`, async (t) => {
+    // The book is a file of the user's repo like any other — committed,
+    // readable, and theirs to edit (ADR 0002) — so it can be in exactly the
+    // state a bot.yaml can be in, and it is owed the same answer: one finding
+    // naming the file, that bot's other checks skipped, every other bot still
+    // reported. A check that falls over on one unreadable file takes the whole
+    // report with it, including the findings it had already collected, which is
+    // the worst way for this command in particular to fail.
+    const box = await createSandbox(t);
+    const bots = await seeded(box);
+    await botUp(box, 'api-bot');
+    // Something wrong with the other bot too, so the answer shows this one bot
+    // being skipped rather than the whole run stopping.
+    await rm(hookFileOf(bots, 'bot-father', 'claude'));
+    await writeFile(bookOf(bots, 'api-bot'), text);
+
+    const answer = await found(box);
+
+    const mine = of(answer, { bot: 'api-bot' });
+    assert.equal(mine.length, 1, `a book nothing can read stops that bot's other checks, got: ${JSON.stringify(mine, null, 2)}`);
+    assert.equal(mine[0].kind, 'config');
+    oneNaming(mine, bookOf(bots, 'api-bot'), 'the file to go and open');
+    oneNaming(
+      of(answer, { bot: 'bot-father' }),
+      hookFileOf(bots, 'bot-father', 'claude'),
+      'one book the kit cannot read does not stop the others being reported',
+    );
+  });
+}
+
 for (const [label, session] of [
   ['both a prompt and a prompt file', { name: 'broken', approval: 'auto', prompt: 'Do the thing.', prompt_file: 'duty.md' }],
   ['an approval level that does not exist', { name: 'broken', approval: 'yolo' }],
@@ -586,6 +626,29 @@ test('H9e a CLAUDE.md that is not this bot\'s AGENTS.md is reported', async (t) 
   const answer = await found(box);
 
   oneNaming(of(answer, { kind: 'config', bot: 'api-bot' }), claude, 'the file Claude Code reads instead');
+});
+
+test('H25 a CLAUDE.md that is not there at all is reported', async (t) => {
+  // The link is the kit's to make and to keep (PRD 6.6, ADR 0003): it is the
+  // one way Claude Code is certain to read a bot's rules, and whether it reads
+  // AGENTS.md without it turns on conditions the kit does not control (tech
+  // notes, section 2). A wrong link is reported, so a missing one cannot be
+  // passed over — the bot is in the same state either way, and this is the half
+  // a check that only inspects what is there never sees.
+  const box = await createSandbox(t);
+  const bots = await withAgents(box);
+  const claude = path.join(botHomeOf(bots, 'api-bot'), 'CLAUDE.md');
+  await rm(claude);
+
+  const answer = await found(box);
+
+  // The bot's AGENTS.md is untouched and everything else about the fleet is in
+  // order, so this is the one thing wrong with it.
+  const mine = of(answer, { bot: 'api-bot' });
+  assert.equal(mine.length, 1, `the missing link is the only thing wrong here, got: ${JSON.stringify(mine, null, 2)}`);
+  assert.equal(mine[0].kind, 'config');
+  oneNaming(mine, claude, 'the link that is not there');
+  assert.equal(answer.found.length, 1, `and nothing else in the fleet, got: ${JSON.stringify(answer.found, null, 2)}`);
 });
 
 test('H9f an AGENTS.md that is not what the charter says now is reported', async (t) => {
@@ -715,6 +778,38 @@ test('H12 a link the user made themselves that leads nowhere is reported too', a
     said.some((one) => wordsOf(one).includes(target)),
     `it should say what the link points at, got: ${JSON.stringify(said, null, 2)}`,
   );
+});
+
+test('H26 a link pointing at a different skill of the same name is reported, per harness', async (t) => {
+  // The question is whether a link is what the list names now, not whether the
+  // kit is the one who wrote it. Both directories here are real skills called
+  // my-skill, both valid, and the lists have been pointed from one to the
+  // other; until something relinks them, both harnesses go on reading the old
+  // one while every list in the repo says the new one. Ownership answers what
+  // the kit may do about it, not whether it is worth saying.
+  const box = await createSandbox(t);
+  const bots = await withSkill(box);
+  const linked = path.join(bots, 'skills', 'my-skill');
+  const wanted = await writeSkill(path.join(box.root, 'other-skills', 'my-skill'), {
+    body: 'The version the list names now.\n',
+  });
+  await setSkills(botYamlOf(bots, 'api-bot'), wanted);
+
+  // The premise, read off the disk rather than out of any report: nothing has
+  // moved the links, so both harnesses still read the skill the list has left.
+  await assertLinked(bots, 'api-bot', 'my-skill', linked);
+
+  const answer = await found(box);
+
+  const mine = of(answer, { kind: 'skill', bot: 'api-bot' });
+  const said = naming(mine, 'my-skill');
+  assert.notEqual(said.length, 0, `the skill should be named, got: ${JSON.stringify(mine, null, 2)}`);
+  const words = said.map(wordsOf).join('\n');
+  assert.ok(words.includes(linked), `it should say what the link points at, got:\n${words}`);
+  assert.ok(words.includes(wanted), `and what the list names instead, got:\n${words}`);
+  for (const harness of HARNESSES) {
+    assert.match(words, new RegExp(harness, 'i'), `both harnesses read the wrong skill, so both are named, got:\n${words}`);
+  }
 });
 
 test('H13 a skills list the kit cannot follow is reported', async (t) => {

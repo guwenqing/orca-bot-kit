@@ -379,9 +379,19 @@ export function agentsTrouble(bots, home, bot) {
   }
 
   // A link that leads nowhere is still a CLAUDE.md in Claude Code's way, so the
-  // question is whether there is an entry at all, not whether it resolves.
+  // question is whether there is an entry at all, not whether it resolves —
+  // and a bot with none is not in the state the kit keeps its bots in either.
+  // Claude Code reads AGENTS.md directly when there is no CLAUDE.md anywhere
+  // above the folder, and not on Bedrock or with telemetry off (tech notes,
+  // section 2); the link is what makes it certain, which is why the build makes
+  // one (PRD 6.6).
   const link = path.join(home, CLAUDE);
-  if (lstatSync(link, { throwIfNoEntry: false }) !== undefined && !sameFile(link, file)) {
+  if (lstatSync(link, { throwIfNoEntry: false }) === undefined) {
+    trouble.push({
+      where: link,
+      says: `there is no ${link}. The kit keeps one there as a link to this bot's instructions, because it is the one way Claude Code is certain to read them whatever else is set. obk rules build makes it.`,
+    });
+  } else if (!sameFile(link, file)) {
     trouble.push({ where: link, says: claudeMdTrouble(link) });
   }
 

@@ -211,7 +211,18 @@ const hooksOf = (bots, home, bot) => [...new Set(bot.sessions.map((session) => h
  * bot's project that the book does not name.
  */
 function inOrca(home, bot, setups) {
-  const book = readBook(home);
+  // The book is read where it is read, and a book nothing can parse is a
+  // finding like any other: it says which tab each session is in and which
+  // conversation it is running, so without it nothing else here can be asked —
+  // but the findings already made, and the bots still to come, are none of its
+  // business.
+  let book;
+  try {
+    book = readBook(home);
+  } catch (error) {
+    return [finding('config', bookFile(home), `${bookFile(home)} cannot be read (${error.message}), and it is where the kit keeps this bot's sessions: which Orca tab each one is in and which conversation it is running. Until it is readable the kit cannot say either. Fix it, or move it aside and let obk up write a new one.`, bot.name)];
+  }
+
   const real = realpathOf(home);
   const project = setups.find((setup) => setup.path === real || setup.path === home);
   // Orca refuses to list the tabs of a folder it has no project for, rather

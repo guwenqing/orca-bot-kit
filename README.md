@@ -309,12 +309,17 @@ It closes the session's tab — one tab, by its own handle — and opens a new o
 with the conversation the book holds, so the session comes back as itself. With
 no `--session` it does that for every session of the bot.
 
-Three things it will not do. It closes only a tab your book names, so Bot
-Father's ops tab and anything you opened yourself are left alone. It will not
-close a tab whose conversation the book cannot name: that close would be the end
-of that conversation, so it refuses, tells you which session and which file to
-settle it in, and touches nothing. And if Orca refuses to close a tab, it stops
-there rather than start a second harness beside the first.
+What it will not do, in order of how much it would cost you. It closes only a
+tab your book names, so Bot Father's ops tab and anything you opened yourself
+are left alone. It will not close a tab whose conversation the book cannot name:
+that close would be the end of that conversation, so it refuses, tells you which
+session and which file to settle it in, and touches nothing. It will not close
+anything at all until everything that would stop the session starting again has
+been settled — the same refusals `obk up` gives, made before the tab goes rather
+than after. If Orca refuses to close a tab it stops there, rather than start a
+second harness beside the first. And it waits for Orca's own listing to agree
+that the tab has gone before opening the new one, because Orca answers a close
+before it stops reporting the tab.
 
 ## When something is wrong
 

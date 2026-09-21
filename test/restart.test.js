@@ -27,7 +27,8 @@
 // the tests below read them against what `up` already does.
 
 import assert from 'node:assert/strict';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, rm, writeFile } from 'node:fs/promises';
+import path from 'node:path';
 import test from 'node:test';
 import { parse, stringify } from 'yaml';
 
@@ -38,6 +39,7 @@ import {
   botFatherTabs,
   botHomeOf,
   createSandbox,
+  hookFileOf,
   orcaCallsOf,
   orcaCommand,
   orcaFlag,
@@ -47,6 +49,7 @@ import {
   TAB_TITLES,
   typedInto,
 } from './helpers/cli.js';
+import { addRules, agentsOf } from './helpers/rules.js';
 
 const PROMPT = 'Read your AGENTS.md and keep the queue moving.';
 
@@ -85,6 +88,14 @@ async function editSession(bots, bot, name, changes) {
   const book = parse(await readFile(file, 'utf8'));
   book.sessions[name] = { ...book.sessions[name], ...changes };
   await writeFile(file, stringify(book));
+}
+
+/** Change one of a bot's sessions in bot.yaml, the way a user editing that file by hand does. */
+async function editBotSession(bots, bot, name, changes) {
+  const file = path.join(botHomeOf(bots, bot), 'bot.yaml');
+  const written = parse(await readFile(file, 'utf8'));
+  written.sessions = written.sessions.map((session) => (session.name === name ? { ...session, ...changes } : session));
+  await writeFile(file, stringify(written));
 }
 
 /** Everything Orca was asked since `from`, and the calls of one command among them. */
@@ -457,4 +468,179 @@ test('R12 --json and the plain lines carry the same facts, the closed tabs inclu
   assert.ok(lines.at(-1).includes(bots), `the summary line comes last, got: ${plain.stdout}`);
   assert.ok(!plain.stdout.includes('undefined'), `nothing should be undefined, got: ${plain.stdout}`);
   assert.ok(!/worktree/i.test(plain.stdout), `obk says "Orca project", never "worktree", got: ${plain.stdout}`);
+});
+
+// R13 and R14 come from the review, and both are about the same half-second:
+// the one between the tab being closed and the session being back. Nothing may
+// be closed until everything that could stop the session starting again has
+// been asked, and nothing may be believed closed until Orca's own listing says
+// so. A tab closed either way round is a conversation the kit threw away for a
+// session it could not bring back.
+
+test('R13 a session whose launch line would be refused is refused before anything is closed', async (t) => {
+  // A bot.yaml somebody edited by hand: an approval level that does not exist.
+  // The launch refuses it, and it is refused wherever it is found — so a
+  // restart that closed the tab first would have ended the conversation for a
+  // session that could never have come back. Everything that can be refused is
+  // settled before Orca is asked to take anything away.
+  const box = await createSandbox(t);
+  const bots = await madeBot(box);
+  await up(box);
+  const before = await liveTab(box, bots, 'api-bot', 'daily');
+  await reported(box, bots, 'api-bot', before.tabId, 'sess-1');
+  await editBotSession(bots, 'api-bot', 'daily', { approval: 'nonsense' });
+  const terminals = await box.orca.terminals();
+  const from = (await box.orca.calls()).length;
+
+  const result = await box.run(['restart', '--bots', 'bots', '--bot', 'api-bot']);
+
+  assertCleanFailure(result);
+  assert.ok(result.stderr.includes('nonsense'), `the message should name what is wrong, got: ${result.stderr}`);
+  assert.ok(result.stderr.includes('daily'), `and the session it is wrong in, got: ${result.stderr}`);
+
+  const calls = await since(box, from);
+  assert.deepEqual(closes(calls), [], 'nothing may be closed for a session that could not be started again');
+  assert.deepEqual(creates(calls), [], 'and nothing opened');
+  assert.deepEqual(await box.orca.terminals(), terminals, 'the session is left running where it was');
+  const entry = await sessionIn(bots, 'api-bot', 'daily');
+  assert.equal(entry.tab, before.tabId, `and the book unchanged, got: ${JSON.stringify(entry)}`);
+  assert.equal(entry.session, 'sess-1', 'conversation included');
+});
+
+test('R13 a bot whose hook file cannot be read is refused before anything is closed', async (t) => {
+  // The other half of the same rule, and the one that is not about the session
+  // at all: the kit puts its session hook into the bot's own harness settings
+  // before any tab is opened (ADR 0010), and a file it cannot read as JSON
+  // stops the run. That preparation belongs before the close for the same
+  // reason the launch checks do.
+  const box = await createSandbox(t);
+  const bots = await madeBot(box);
+  await up(box);
+  const before = await liveTab(box, bots, 'api-bot', 'daily');
+  await reported(box, bots, 'api-bot', before.tabId, 'sess-1');
+  const hooks = hookFileOf(bots, 'api-bot', 'claude');
+  await writeFile(hooks, 'this is not JSON, and it is the user\'s\n');
+  const terminals = await box.orca.terminals();
+  const from = (await box.orca.calls()).length;
+
+  const result = await box.run(['restart', '--bots', 'bots', '--bot', 'api-bot']);
+
+  assertCleanFailure(result);
+  assert.ok(result.stderr.includes(hooks), `the message should name the file, got: ${result.stderr}`);
+
+  const calls = await since(box, from);
+  assert.deepEqual(closes(calls), [], 'a run that cannot prepare the bot may not close its tabs');
+  assert.deepEqual(creates(calls), [], 'and opens nothing');
+  assert.deepEqual(await box.orca.terminals(), terminals, 'the session is left running where it was');
+  assert.equal((await sessionIn(bots, 'api-bot', 'daily')).tab, before.tabId, 'and the book unchanged');
+});
+
+test('R14 a close the listing is slow to agree with still ends with the session in a new tab', async (t) => {
+  // Orca answers `terminal close` before `terminal list` stops reporting the
+  // tab — seen live on a busy machine, and both system tests poll for it. A
+  // restart that lists straight away finds the tab it has just closed, takes it
+  // for a session that is still up, and leaves the user with no session at all.
+  //
+  // The lag here is counted in listings, not in seconds, so this does not
+  // depend on how fast anything runs: two more listings carry the tab, and any
+  // implementation that looks again at all gets past it.
+  const box = await createSandbox(t);
+  const bots = await madeBot(box);
+  await up(box);
+  const before = await liveTab(box, bots, 'api-bot', 'daily');
+  await reported(box, bots, 'api-bot', before.tabId, 'sess-1');
+  await box.orca.set({ closeLag: 2 });
+  const from = (await box.orca.calls()).length;
+
+  const result = await box.run(['restart', '--bots', 'bots', '--bot', 'api-bot']);
+
+  assert.equal(result.code, 0, result.stderr);
+  const calls = await since(box, from);
+  assert.equal(closes(calls).length, 1, 'one close, as ever');
+  assert.equal(creates(calls).length, 1, 'and the session comes back in a tab of its own');
+
+  const after = await liveTab(box, bots, 'api-bot', 'daily');
+  assert.notEqual(after.tabId, before.tabId, 'the tab Orca was still listing is not the tab that came back');
+  assert.deepEqual(typedInto(after.terminal), [resumeLine('sess-1')], 'with the conversation the book held');
+  const entry = await sessionIn(bots, 'api-bot', 'daily');
+  assert.equal(entry.tab, after.tabId, 'and the book holds the new tab');
+  assert.equal(entry.session, 'sess-1');
+});
+
+test('R14 a listing that never agrees stops the run rather than reporting the old tab as the new one', async (t) => {
+  // The same lag, never catching up. There is nothing the kit can do about
+  // that, and two things it must not do: say the session came back when it did
+  // not, and type a harness into a tab Orca has closed. So the run stops and
+  // says which tab it is waiting on.
+  const box = await createSandbox(t);
+  const bots = await madeBot(box);
+  await up(box);
+  const before = await liveTab(box, bots, 'api-bot', 'daily');
+  await reported(box, bots, 'api-bot', before.tabId, 'sess-1');
+  await box.orca.set({ closeLag: 100000 });
+  const from = (await box.orca.calls()).length;
+
+  const result = await box.run(['restart', '--bots', 'bots', '--bot', 'api-bot']);
+
+  assertCleanFailure(result);
+  assert.ok(
+    result.stderr.includes(before.tabId) || result.stderr.includes(before.handle),
+    `the message should name the tab it is waiting on, got: ${result.stderr}`,
+  );
+
+  const calls = await since(box, from);
+  assert.equal(closes(calls).length, 1, 'it asked for the close');
+  assert.deepEqual(creates(calls), [], 'and opened nothing, rather than report the old tab as the new one');
+  assert.equal(
+    (await sessionIn(bots, 'api-bot', 'daily')).session,
+    'sess-1',
+    'and the conversation is still in the book, which is the only way back to it',
+  );
+});
+
+test('R13 a bot whose rules will not build is refused before anything is closed', async (t) => {
+  // The third door into the same rule, and the one neither case above goes
+  // through: nothing here throws. `up` simply does not start the sessions of a
+  // bot with no instructions — a bot comes up with its rules or not at all —
+  // so a restart that closed first would end the conversation and then find it
+  // has nowhere to put the session back, with nothing having gone wrong
+  // anywhere it was looking.
+  //
+  // Both halves are needed to reach it: the file is gone, and the build cannot
+  // write it again because the bot's rules list names a unit that is not there.
+  // Either alone leaves the bot able to come up.
+  const box = await createSandbox(t);
+  const bots = await madeBot(box);
+  await up(box);
+  const before = await liveTab(box, bots, 'api-bot', 'daily');
+  await reported(box, bots, 'api-bot', before.tabId, 'sess-1');
+  await rm(agentsOf(bots, 'api-bot'));
+  await addRules(path.join(botHomeOf(bots, 'api-bot'), 'bot.yaml'), 'no-such-unit');
+  const terminals = await box.orca.terminals();
+  const from = (await box.orca.calls()).length;
+
+  const result = await box.run(['restart', '--bots', 'bots', '--bot', 'api-bot']);
+
+  // The calls first, because this is what the case is about: a run that cannot
+  // put the session back must not take it away.
+  const calls = await since(box, from);
+  assert.deepEqual(
+    closes(calls),
+    [],
+    'a bot that cannot come up must not have its tabs closed.'
+    + ` The run ended ${result.code} and said: ${JSON.stringify(result.stdout + result.stderr)}`,
+  );
+  assert.deepEqual(creates(calls), [], 'and nothing is opened either');
+
+  assertCleanFailure(result);
+  assert.ok(result.stderr.includes('api-bot'), `the message should name the bot, got: ${result.stderr}`);
+  assert.ok(
+    result.stderr.includes('no-such-unit'),
+    `and what is wrong with its rules, which is what the user has to put right, got: ${result.stderr}`,
+  );
+
+  assert.deepEqual(await box.orca.terminals(), terminals, 'the session is left running where it was');
+  const entry = await sessionIn(bots, 'api-bot', 'daily');
+  assert.equal(entry.tab, before.tabId, `and the book unchanged, got: ${JSON.stringify(entry)}`);
+  assert.equal(entry.session, 'sess-1', 'conversation included');
 });

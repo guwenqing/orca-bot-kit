@@ -18,13 +18,21 @@
 //      the close would be the end of that conversation.
 //   3. One tab at a time, by its own handle. Orca's `--worktree <sel> --all`
 //      ends every tab of a project and is never called from anywhere in the kit.
+//
+// And two things about timing, both of which cost a session when they are got
+// wrong. Everything that can refuse has to refuse before the first close, which
+// means making the preparations `up` makes rather than leaving them to it. And
+// Orca answers a close before its own listing agrees, so the close has to be
+// seen to have landed before `up` is handed the tabs — `up` finding a tab it
+// was about to replace takes it for a session that is still running.
 
 import { realpathSync } from 'node:fs';
+import { setTimeout as pause } from 'node:timers/promises';
 
 import { bookFile, readBook } from './book.js';
 import { botDir, readBot } from './bot.js';
 import { closeTab, findProject, tabs } from './orca.js';
-import { botsNamed, bringUp, sessionsOf } from './up.js';
+import { botsNamed, bringUp, prepareBots, sessionsOf } from './up.js';
 
 /**
  * Close the tabs of the bot's sessions, or of the one named, and bring them
@@ -37,6 +45,16 @@ export async function restartSessions(bots, { bot: name, session: onlySession } 
   botsNamed(bots, name);
   const home = realpathSync(botDir(bots, name));
   const sessions = sessionsOf(readBot(home, name), onlySession);
+
+  // And the same preparations, made now rather than left to `up`, which makes
+  // them after the tabs would already be gone. A session the kit could not
+  // start again — a launch line it would refuse, rules that will not build, a
+  // hooks file it cannot write — is a session that keeps the tab it is in.
+  const prepared = prepareBots(bots, [name], onlySession);
+  if (prepared.running.length === 0) {
+    throw new Error(`${name} would not come up again as it is, so nothing was closed. ${prepared.rules[0].trouble}`);
+  }
+
   const book = readBook(home);
 
   // Orca is asked what the project holds only when it has one: a folder Orca
@@ -76,7 +94,42 @@ export async function restartSessions(bots, { bot: name, session: onlySession } 
     closed.push({ bot: name, name: session, tabId: tab.tabId, terminal: tab.handle });
   }
 
+  await gone(home, closed, bots, name);
   return { closed, ...(await bringUp(bots, { bot: name, session: onlySession })) };
+}
+
+/** How long Orca is given to stop listing a tab it has closed, and how often it is asked. */
+const SETTLED_MS = 5000;
+const ASK_MS = 100;
+
+/**
+ * Wait until Orca's own listing has caught up with the closes.
+ *
+ * `terminal close` answers before `terminal list` stops reporting the tab —
+ * seen live on a busy machine, which is why both system tests poll for it. What
+ * that costs here is the whole command: `up` lists the tabs, finds the one just
+ * closed, takes it for a session that is still running and only retitles it, so
+ * the run ends having reported a restart and ended a session.
+ *
+ * A listing that never catches up is not something the kit can put right, so it
+ * stops and says which tab it is waiting on. The conversation is in the book,
+ * which is the way back to it.
+ */
+async function gone(home, closed, bots, bot) {
+  const until = Date.now() + SETTLED_MS;
+  const ids = closed.map((tab) => tab.tabId);
+
+  for (;;) {
+    const there = new Set(tabs(home).map((tab) => tab.tabId));
+    const left = ids.filter((id) => there.has(id));
+    if (left.length === 0) return;
+
+    if (Date.now() >= until) {
+      const one = left.length === 1;
+      throw new Error(`Orca answered the close for ${one ? 'this tab' : 'these tabs'} and is still listing ${one ? 'it' : 'them'} ${SETTLED_MS / 1000} seconds later: ${left.join(', ')}. Nothing was opened in ${one ? 'its' : 'their'} place, because a tab that is on the way out is not a tab to start a harness in. The conversations are in the book: obk up --bots ${bots} --bot ${bot} brings them back once Orca has caught up.`);
+    }
+    await pause(ASK_MS);
+  }
 }
 
 /**

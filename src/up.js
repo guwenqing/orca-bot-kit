@@ -46,6 +46,38 @@ export async function bringUp(bots, { bot: onlyBot, session: onlySession } = {})
     throw new Error('--session needs --bot: say which bot the session belongs to.');
   }
 
+  const { running, rules, skills } = prepareBots(bots, names, onlySession);
+
+  const report = [];
+  for (const { bot, home } of running) report.push(...await bringUpBot(bots, home, bot, onlySession));
+
+  // A bot whose rules would not build is reported here rather than in the
+  // preparation, because "its sessions were not started" is this command's
+  // answer and not a fact about the bot: a restart prepares the same way and
+  // has its own thing to say about it.
+  const started = new Set(running.map(({ bot }) => bot.name));
+  return {
+    tabs: report,
+    rules: rules.map((entry) => (started.has(entry.bot) ? entry : {
+      ...entry,
+      trouble: `${entry.trouble} Its sessions were not started: a bot comes up with its rules or not at all.`,
+    })),
+    skills,
+  };
+}
+
+/**
+ * Everything the bots need in place before a session starts, and which of them
+ * can be started at all: `{ running, rules, skills }`.
+ *
+ * Separate from the tabs because the order matters twice over. A session reads
+ * its rules, its skills and its hooks as it comes up, so all three have to be
+ * there before the tab is (PRD 6.6, ADR 0010) — and a restart closes a tab in
+ * between, so everything that can refuse must have refused before that. It
+ * refuses by throwing, exactly as `up` always has; a bot it leaves out of
+ * `running` is one whose sessions must not be started.
+ */
+export function prepareBots(bots, names, onlySession) {
   // Every bot that is coming up is read and judged before Orca is asked for
   // anything at all: a fleet with one session the kit cannot start is a fleet
   // the user fixes in one edit, not one they find half opened.
@@ -80,15 +112,8 @@ export async function bringUp(bots, { bot: onlyBot, session: onlySession } = {})
   const running = [];
   for (const chose of chosen) {
     const built = buildAgents(bots, botDir(bots, chose.bot.name), chose.bot);
-    if (existsSync(built.file)) {
-      running.push(chose);
-      rules.push(built);
-    } else {
-      rules.push({
-        ...built,
-        trouble: `${built.trouble} Its sessions were not started: a bot comes up with its rules or not at all.`,
-      });
-    }
+    rules.push(built);
+    if (existsSync(built.file)) running.push(chose);
   }
 
   // And the kit's hook goes into every bot folder before Orca is asked for
@@ -103,9 +128,7 @@ export async function bringUp(bots, { bot: onlyBot, session: onlySession } = {})
     }
   }
 
-  const report = [];
-  for (const { bot, home } of running) report.push(...await bringUpBot(bots, home, bot, onlySession));
-  return { tabs: report, rules, skills };
+  return { running, rules, skills };
 }
 
 /**

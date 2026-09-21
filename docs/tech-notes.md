@@ -115,6 +115,11 @@ project → repo (`kind: "git" | "folder"`) → worktree (id = `<repoId>::<absPa
 - `orca terminal close --terminal <h> [--tab]` closes one. **Never use `orca terminal close --worktree <sel> --all`: it removes tabs, layouts and resume records.**
   With `--tab` it answers `{ close: { handle, tabId, closeMode: "tab", ptyKilled } }`, and **what was running in the tab is gone with it**: a tab whose shell was sitting on a `sleep` left neither the shell nor the sleep behind, though `ptyKilled` read `false`. So a tab the kit closes leaves no process behind to be found later. **verified** (live, 2026-09-21, Orca 1.4.205)
 - `orca terminal list --worktree path:<p>` **fails with `selector_not_found`** for a path Orca has no project for; it does not answer an empty list. So anything that asks Orca what tabs a folder has looks in `project setups` first. **verified** (live)
+- **A close is answered before the listing agrees.** `terminal close` answers `ok` while `terminal list`
+  still reports the tab, for a second or two on a busy machine — seen live when the slice 04 system
+  tests were written, which is why they poll for the tab to go rather than list once. So anything that
+  closes a tab and then lists must wait for the listing to catch up: a caller that believes the answer
+  finds the tab it has just closed and takes it for one that is still live. **verified** (live)
 - Worktree selectors: `id:<repo-id>::<path>`, `name:<displayName>`, `path:<path>`, `active`.
 
 ### What a fresh kit-made tab asks, and the usual answer (verified live unless said otherwise)
