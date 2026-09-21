@@ -327,9 +327,11 @@ named in the message, so a long one arrives whole without landing a document in
 somebody's context.
 
 One thing to know about Codex bots: the kit launches them with
-`-c sandbox_workspace_write.network_access=true`. Without it the Orca CLI cannot
-reach Orca from inside Codex's sandbox, so a Codex bot can neither read its mail
-nor send any. It widens that session's sandbox to the network generally — there
+`-c sandbox_workspace_write.network_access=true`. Without it, the Orca CLI run
+from inside a Codex session answers that Orca is not there — `reachable: false`,
+and every mailbox call refused — so a Codex bot can neither read its mail nor
+send any. Why is not established; what is, is that those calls fail without the
+switch and work with it. It widens that session's sandbox to the network generally — there
 is no localhost-only setting — and that is the price of a Codex bot being in the
 fleet at all. Turn it off for a session with your own
 `--extra-arg=-c --extra-arg=sandbox_workspace_write.network_access=false`, and

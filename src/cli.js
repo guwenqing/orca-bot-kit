@@ -346,11 +346,7 @@ const commands = {
       answer,
       lines: [
         `${answer.transport.padEnd(9)}  ${where.padEnd(24)}  ${answer.address ?? '-'}`,
-        answer.trouble !== undefined
-          ? `             ${answer.trouble}`
-          : (answer.transport === 'native'
-            ? `             Write to ${answer.address} with your own harness's messaging. The kit does not carry that road.`
-            : `             Send it:  obk message send --bots ${bots} --to ${where} --subject <text> --text <text>`),
+        ...toLines(answer, bots, where),
       ],
       code: answer.trouble === undefined ? 0 : 1,
     };
@@ -435,6 +431,25 @@ const commands = {
     };
   },
 };
+
+/**
+ * What `obk message to` says under the road and the address: how to use it, or
+ * what is in the way. A Claude pair the native road cannot carry says so, since
+ * a caller told "use the mailbox" about two Claude sessions would otherwise
+ * think the kit had forgotten its own rule.
+ */
+function toLines(answer, bots, where) {
+  if (answer.trouble !== undefined) return [`             ${answer.trouble}`];
+  if (answer.transport === 'native') {
+    return [`             Write to ${answer.address} with your own harness's messaging. The kit does not carry that road.`];
+  }
+  return [
+    ...(answer.unnamed === true
+      ? [`             ${where} is a Claude session running under no name the kit gave it: it was started before the kit named sessions, and nothing renames a live harness. It gets one the next time it starts. Until then the mailbox is the road that reaches it.`]
+      : []),
+    `             Send it:  obk message send --bots ${bots} --to ${where} --subject <text> --text <text>`,
+  ];
+}
 
 /**
  * What became of the line that tells the receiver to look. The message is in

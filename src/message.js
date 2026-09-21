@@ -83,10 +83,19 @@ export function findSession(bots, target) {
  * advance rather than working around a hold (PRD 6.9).
  */
 export function roadBetween(from, to) {
-  if (from.harness === 'claude' && to.harness === 'claude' && from.approval === to.approval) {
-    return { transport: 'native', address: to.address };
-  }
-  return { transport: 'orca', address: to.mailbox === undefined ? undefined : `run:${to.mailbox}` };
+  const pair = from.harness === 'claude' && to.harness === 'claude' && from.approval === to.approval;
+  if (pair && to.address !== undefined) return { transport: 'native', address: to.address };
+
+  return {
+    transport: 'orca',
+    address: to.mailbox === undefined ? undefined : `run:${to.mailbox}`,
+    // A Claude pair that the native road cannot carry, because the receiver is
+    // running under no name the kit gave it: it was started before the kit
+    // named sessions, and nothing renames a live harness. The mailbox is the
+    // road that exists, and the caller is told why it is the one being used
+    // rather than left to wonder (review of PR #132, finding 1).
+    unnamed: pair ? true : undefined,
+  };
 }
 
 /** What `obk message to` answers: the road, the address, and who is at each end. */
@@ -128,9 +137,7 @@ export function sendMessage(bots, { to: target, from: sender, tab, subject, text
     return {
       ...answer,
       sent: false,
-      trouble: to.address === undefined
-        ? notUpYet(to)
-        : `${to.bot}/${to.session} is a Claude session in your own approval class, so it is written to with your own harness's messaging, not through Orca. Its address is ${to.address}.`,
+      trouble: `${to.bot}/${to.session} is a Claude session in your own approval class, so it is written to with your own harness's messaging, not through Orca. Its address is ${to.address}.`,
     };
   }
 
