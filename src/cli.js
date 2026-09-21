@@ -15,9 +15,9 @@ import { addSession, createBot, readBot, SESSION_FIELDS } from './bot.js';
 import { grooming } from './groom.js';
 import { checkHealth, orcaSettingFindings } from './health.js';
 import { initBots } from './init.js';
-import { APPROVALS, HARNESSES } from './launch.js';
+import { APPROVALS, HARNESSES, shellWord } from './launch.js';
 import { checkMail, lookUp, sendMessage } from './message.js';
-import { orcaTrouble } from './orca.js';
+import { orcaCli, orcaTrouble } from './orca.js';
 import { recordSession, SHELL_ENV, TAB_ENV } from './record.js';
 import { restartSessions } from './restart.js';
 import { readRoster } from './roster.js';
@@ -312,6 +312,22 @@ function sameFleet(bots) {
     return bots;
   }
 }
+
+/**
+ * The line that sends someone to look at a tab, naming the Orca the kit itself
+ * talks to rather than the word `orca`.
+ *
+ * A bare `orca` is not a command everywhere: on this machine it is a root-only
+ * symlink and answers that it cannot find the app (tech notes, section 1), and
+ * the notes already record a session following this very advice and failing. So
+ * what is printed is what the kit would run, which is the only path known to
+ * work here.
+ *
+ * Through the kit's own `shellWord`, because `OBK_ORCA` can point at a path with
+ * a space in it, and unquoted the shell reads that as two words and the line
+ * fails for a reason that looks nothing like its cause.
+ */
+const lookAt = (terminal) => `${shellWord(orcaCli())} terminal read --terminal ${terminal} --screen`;
 
 /** The one command a harness runs rather than a person: the kit's hook. */
 const RECORD = 'session record';
@@ -924,7 +940,7 @@ function harnessLines(tab, bots) {
     return [
       ...how,
       '             the harness was typed in, and no session came up in the tab.',
-      `             Look at it:  orca terminal read --terminal ${tab.terminal} --screen`,
+      `             Look at it:  ${lookAt(tab.terminal)}`,
     ];
   }
 
@@ -933,7 +949,7 @@ function harnessLines(tab, bots) {
     : [
       ...how,
       `             the harness was typed in and came up, waiting on: ${tab.blockedReason}`,
-      `             Look at it:  orca terminal read --terminal ${tab.terminal} --screen`,
+      `             Look at it:  ${lookAt(tab.terminal)}`,
     ];
 
   if (tab.promptSent === true) lines.push('             the start prompt was typed in.');
