@@ -1,7 +1,14 @@
 // The kit's rule units: the files under rules/ that the build pastes into every
 // bot's AGENTS.md (PRD 6.6, ADR 0003). A malformed unit would reach a bot as
-// broken instructions, and an oversized one is paid for on every turn of every
+// broken instructions, and an oversized set is paid for on every turn of every
 // session, so both are cheap to check here and expensive to find later.
+//
+// The shape of a unit is read here, out of the directory. What the set costs is
+// not: it is measured where a bot pays it, by building a bot's AGENTS.md through
+// the CLI and reading the size of the file its sessions are given. Counting the
+// bodies in this directory instead measures the part of the cost that happens to
+// live here and misses the charter, the headings and the user's own units the
+// kit's are built beside (issue #140).
 
 import assert from 'node:assert/strict';
 import { readFile, readdir } from 'node:fs/promises';
@@ -9,7 +16,8 @@ import path from 'node:path';
 import test from 'node:test';
 import { parse } from 'yaml';
 
-import { repoRoot } from './helpers/cli.js';
+import { createSandbox, repoRoot } from './helpers/cli.js';
+import { answerOf, assertEntryFile, defaultUnits, entryOf } from './helpers/rules.js';
 
 const rulesDir = path.join(repoRoot, 'rules');
 
@@ -18,38 +26,38 @@ const NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
 /**
  * What one unit may take. A rule is a few lines; a unit that wants more than
- * this is a technique, and a technique belongs in a skill. It is also the only
- * size check the applies: code units get, since the budget below counts only
- * what every bot carries.
+ * this is a technique, and a technique belongs in a skill. It holds for every
+ * unit, the applies: code ones included, which a new bot does not carry and the
+ * size guard below therefore never sees.
  */
 const MAX_BODY_LINES = 12;
 const MAX_LINE = 100;
 
+/** All Codex reads of an instructions file (tech notes, section 3). */
+const CODEX_CAP = 32 * 1024;
+
 /**
- * What the applies: all bodies come to today, to the character: what every
- * session of every bot reads on every turn, around 1,030 tokens of it.
+ * What the kit's own contribution to a bot's instructions may take: a quarter
+ * of the file a Codex session will read, leaving the other three quarters for
+ * the charter its owner writes and the units they add.
  *
- * This is a ratchet and not a budget, and the difference matters. It is set to
- * the exact total rather than to a round number with room in it, because room
- * in it is spent silently: the last unit to arrive fitted inside the slack and
- * nobody weighed it until the slack ran out. At the exact total, every
- * character the set gains trips this test, and moving the number is a line in a
- * diff that somebody chose to write.
+ * This is a ceiling with room in it and not a ratchet at today's total, and the
+ * room is deliberate. The number it replaced counted the bodies in rules/,
+ * which is a part of the cost rather than the thing a bot pays, so fitting
+ * inside it was no answer to whether every bot should carry a rule for ever —
+ * and it was read as one anyway, twice in two slices (issue #140). A number
+ * that measures the real file cannot be read that way: nobody concludes that a
+ * rule earns its place on every turn from a file being under 8 KiB. That
+ * question is settled where the unit is written and reviewed. What a test can
+ * catch is the kit crowding a bot's owner out of their own instructions file,
+ * and that is what this catches.
  *
- * So it says nothing about what a bot can afford. It cannot: the kit's units
- * are built into AGENTS.md beside the user's own units and the bot's charter,
- * and none of that is visible from here. A rule the bots need is not trimmed to
- * fit this number. When the set no longer fits, ask first whether what grew is
- * a rule or depth that belongs in a skill; if it is a rule, weigh what those
- * tokens buy on every turn, move this number on purpose, and say in the change
- * what they bought.
- *
- * 3500, then 3950 when mail.md arrived, then the exact total from this slice,
- * when profiles.md arrived and the slack in 3950 was what let it land
- * unweighed. Twice in two slices; issue #140 is about measuring the built
- * AGENTS.md instead, which is where a bot actually pays.
+ * Set at the exact total it would pin bytes that are nobody's rule as well: the
+ * sentence in the begin marker and the headings around the units are the
+ * implementer's to word, and a ratchet here would make rewording them a failing
+ * test in someone else's subject.
  */
-const MAX_ALL_CHARS = 4129;
+const KIT_SHARE = CODEX_CAP / 4;
 
 /** Everything in rules/, whatever it is: the shape test needs to see the strays too. */
 async function entries() {
@@ -143,25 +151,43 @@ test('every unit has a body, and no heading of its own', async () => {
   }
 });
 
-test('the units stay inside the budget a bot pays on every turn', async () => {
+test('no unit takes more room than a rule takes', async () => {
   // A unit that needs more room than one unit may take is a skill, not a rule.
-  // The default set is counted in characters, because the bodies are
-  // hard-wrapped and a line count would measure the wrapping rather than the
-  // reading.
-  let byDefault = 0;
   for (const unit of await units()) {
-    const { data, body } = parts(unit);
-    const lines = bodyLines(body).length;
+    const lines = bodyLines(parts(unit).body).length;
 
     assert.ok(lines <= MAX_BODY_LINES, `${unit.file} is ${lines} non-empty lines, over the ${MAX_BODY_LINES} a unit may take`);
-    if (data.applies === 'all') byDefault += body.trim().length;
   }
+});
+
+test('the instructions a new bot is given stay inside the kit\'s share of them', async (t) => {
+  // Through the CLI, on a bot the kit has just made, because that file is the
+  // kit's whole contribution and nothing else: every unit every bot carries,
+  // the headings the build writes around them, and a charter whose owner has
+  // not written a word of it yet.
+  const box = await createSandbox(t);
+  const init = await box.run(['init', '--bots', 'bots', '--harness', 'claude']);
+  assert.equal(init.code, 0, init.stderr);
+  const created = await box.run(['bot', 'create', '--bots', 'bots', '--name', 'api-bot', '--harness', 'claude']);
+  assert.equal(created.code, 0, created.stderr);
+
+  const result = await box.run(['rules', 'build', '--bots', 'bots', '--bot', 'api-bot', '--json']);
+  assert.equal(result.code, 0, result.stderr);
+
+  const entry = entryOf(answerOf(result), 'api-bot');
+  await assertEntryFile(entry, box, box.path('bots'), 'api-bot');
+  assert.deepEqual(
+    entry.units,
+    (await defaultUnits()).map((unit) => unit.name),
+    'the built file should carry every unit every bot gets, or the size below is of something else',
+  );
 
   assert.ok(
-    byDefault <= MAX_ALL_CHARS,
-    `the applies: all units come to ${byDefault} characters; the set came to ${MAX_ALL_CHARS} when that `
-    + 'number was last moved on purpose. If what grew is depth, it belongs in a skill; if it is a rule the '
-    + 'bots need, weigh what it buys on every turn, move the number, and say in the change what it bought.',
+    entry.bytes <= KIT_SHARE,
+    `a new bot's AGENTS.md is ${entry.bytes} bytes before its owner has written a word of it, over the `
+    + `${KIT_SHARE / 1024} KiB the kit allows itself of the ${CODEX_CAP / 1024} KiB Codex reads. If what grew `
+    + 'is depth, it belongs in a skill; if it is a rule every bot needs, weigh what it buys on every turn, '
+    + 'move the number, and say in the change what it bought.',
   );
 });
 
