@@ -27,7 +27,7 @@ const MAX_LINE = 100;
 
 /**
  * What the applies: all bodies come to today, to the character: what every
- * session of every bot reads on every turn, around 930 tokens of it.
+ * session of every bot reads on every turn, around 1,030 tokens of it.
  *
  * This is a ratchet and not a budget, and the difference matters. It is set to
  * the exact total rather than to a round number with room in it, because room
@@ -44,9 +44,10 @@ const MAX_LINE = 100;
  * tokens buy on every turn, move this number on purpose, and say in the change
  * what they bought.
  *
- * 3500 until mail.md (PRD 6.9) was added in slice 08; 3950 while that number
- * carried slack; set to the exact total from this slice, when profiles.md
- * (PRD 6.8) arrived and the slack turned out to be what let it land unweighed.
+ * 3500, then 3950 when mail.md arrived, then the exact total from this slice,
+ * when profiles.md arrived and the slack in 3950 was what let it land
+ * unweighed. Twice in two slices; issue #140 is about measuring the built
+ * AGENTS.md instead, which is where a bot actually pays.
  */
 const MAX_ALL_CHARS = 4129;
 
@@ -158,7 +159,9 @@ test('the units stay inside the budget a bot pays on every turn', async () => {
 
   assert.ok(
     byDefault <= MAX_ALL_CHARS,
-    `the applies: all units come to ${byDefault} characters, over the ${MAX_ALL_CHARS} every bot may be given by default`,
+    `the applies: all units come to ${byDefault} characters; the set came to ${MAX_ALL_CHARS} when that `
+    + 'number was last moved on purpose. If what grew is depth, it belongs in a skill; if it is a rule the '
+    + 'bots need, weigh what it buys on every turn, move the number, and say in the change what it bought.',
   );
 });
 
