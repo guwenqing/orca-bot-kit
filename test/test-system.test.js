@@ -11,14 +11,20 @@
 // run: `run` is the command on its own, which drives nothing, and `confirmed`
 // is the same command with the confirmation flag. A test about what the system
 // tests do uses `confirmed`; a test about who may start them uses both.
+//
+// A real run mints an orchestration Run per session it brings up, and Orca
+// offers no way to delete one, so the pile grows. The fake Orca therefore
+// answers `orchestration run-list` as well as `status`, out of a world file the
+// fixture's own system test files write to while they run: that is how a test
+// here makes a Run appear mid-run without anything real being brought up.
 
 import assert from 'node:assert/strict';
-import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { chmod, copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, test } from 'node:test';
 
-import { createSandbox, fakeProgram, node, repoRoot } from './helpers/cli.js';
+import { createSandbox, node, orcaCallsOf, repoRoot } from './helpers/cli.js';
 
 const scriptEntry = path.join(repoRoot, 'scripts', 'test-system.js');
 
@@ -34,12 +40,142 @@ const status = (value) => ({ stdout: `${JSON.stringify(value)}\n` });
 /** Orca up and reachable: the only answer that lets the system tests run. */
 const READY = status({ ok: true, result: { runtime: { reachable: true } } });
 
+/** The environment variable naming the fake Orca's world, for a fixture test file to write. */
+const WORLD = 'OBK_FIXTURE_RUNS';
+
+/**
+ * How many Runs the listing hands back when the caller asked for no number.
+ * Nobody has measured Orca's own default, and a cursor API always has one, so
+ * the fake picks a small page: a kit that wants every Run on a machine has to
+ * say how many it wants rather than hope the default is generous.
+ */
+const PAGE = 20;
+
+/** The largest `--limit` Orca takes; above it the CLI refuses the call outright. */
+const LIMIT_CAP = 100;
+
+/** A count that outlives any one test: the listing behaves that way every time. */
+const ALWAYS = 1e6;
+
+/**
+ * A fake Orca that answers two commands. `status` answers whatever the test
+ * asked for, as before. `orchestration run-list --json` answers out of a world
+ * file — `{ runs, runListFails, runListGarbles }` — which is read on every call,
+ * so a Run written into it while the system tests are running is a Run that
+ * appeared during the run.
+ *
+ * The listing is faithful where being faithful costs nothing: the answer is the
+ * envelope every Orca call uses, `{ id, ok, result: { runs, nextCursor },
+ * _meta }`, with Runs newest first; a `--limit` over 100 is refused the way the
+ * real CLI refuses it; and a call that named no limit gets one page and is told
+ * there is more. `runListEnvelope` spoils the envelope instead: `notOk` is an
+ * answer that failed while still exiting 0, `notOkWithRuns` one that says it
+ * failed while still carrying a list, and `noOk` one the kit has no way to read
+ * as an answer at all.
+ */
+async function fakeOrca(box, { stdout = '', stderr = '', exitCode = 0 }, world) {
+  const log = path.join(box.root, 'orca.log');
+  const file = path.join(box.root, 'bin', 'orca');
+  await writeFile(file, [
+    '#!/usr/bin/env node',
+    "const { appendFileSync, readFileSync, writeFileSync, writeSync } = require('node:fs');",
+    `const WORLD = ${JSON.stringify(world)};`,
+    'const args = process.argv.slice(2);',
+    `appendFileSync(${JSON.stringify(log)}, JSON.stringify({ args, cwd: process.cwd(), env: process.env }) + '\\n');`,
+    'const words = [];',
+    "for (const arg of args) { if (arg.startsWith('-')) break; words.push(arg); }",
+    "if (words.join(' ') === 'orchestration run-list') {",
+    "  const state = JSON.parse(readFileSync(WORLD, 'utf8'));",
+    '  const spend = (name) => { state[name] -= 1; writeFileSync(WORLD, JSON.stringify(state)); };',
+    '  if (state.runListFails > 0) {',
+    "    spend('runListFails');",
+    "    writeSync(2, 'runtime_unavailable: Could not connect to the running Orca app\\n');",
+    '    process.exit(1);',
+    '  }',
+    '  if (state.runListGarbles > 0) {',
+    "    spend('runListGarbles');",
+    "    writeSync(1, 'orca: this CLI cannot run for this user\\n');",
+    '    process.exit(0);',
+    '  }',
+    "  const at = args.indexOf('--limit');",
+    '  const asked = at >= 0 ? Number(args[at + 1]) : null;',
+    `  if (asked !== null && !(asked >= 1 && asked <= ${LIMIT_CAP})) {`,
+    `    writeSync(2, 'invalid_argument: Too big: expected number to be <=${LIMIT_CAP}\\n');`,
+    '    process.exit(1);',
+    '  }',
+    '  const newest = state.runs.slice().reverse();',
+    `  const page = newest.slice(0, asked === null ? ${PAGE} : asked);`,
+    '  const nextCursor = page.length < newest.length ? String(page.length) : null;',
+    "  const answer = { id: 'orc_fixture', ok: true, result: { runs: page, nextCursor }, _meta: {} };",
+    "  if (state.runListEnvelope.startsWith('notOk')) {",
+    '    answer.ok = false;',
+    "    answer.error = { code: 'runtime_unavailable', message: 'Could not connect to the running Orca app' };",
+    "    if (state.runListEnvelope === 'notOk') delete answer.result;",
+    '  }',
+    "  if (state.runListEnvelope === 'noOk') delete answer.ok;",
+    "  writeSync(1, JSON.stringify(answer) + '\\n');",
+    '  process.exit(0);',
+    '}',
+    `writeSync(1, ${JSON.stringify(stdout)});`,
+    `writeSync(2, ${JSON.stringify(stderr)});`,
+    `process.exit(${exitCode});`,
+    '',
+  ].join('\n'));
+  await chmod(file, 0o755);
+
+  return {
+    async calls() {
+      try {
+        return (await readFile(log, 'utf8')).split('\n').filter((line) => line !== '').map((line) => JSON.parse(line));
+      } catch (error) {
+        if (error.code === 'ENOENT') return [];
+        throw error;
+      }
+    },
+  };
+}
+
+/** A Run as `orchestration run-list` hands it over, named so a test can spot it. */
+const runNamed = (name, at) => ({
+  id: `run_${name}`,
+  objective: `obk fixture-bot/${name}`,
+  created_at: `2026-09-21T${at}:00Z`,
+});
+
+/** Runs that were on the machine before this run was ever started. */
+const ALREADY_THERE = [runNamed('oldest', '08:00'), runNamed('older', '09:00')];
+
+/** Runs a run brings into being by bringing sessions up. */
+const MINTED = [runNamed('freshone', '11:00'), runNamed('freshtwo', '11:01')];
+
 /** A system test file that passes and says so. */
 const marker = (name) => [
   "import test from 'node:test';",
   '',
   `test(${JSON.stringify(name)}, () => {`,
   `  process.stdout.write(${JSON.stringify(`${name}\n`)});`,
+  '});',
+  '',
+].join('\n');
+
+/**
+ * A system test file that mints Runs, the way a real one does by bringing
+ * sessions up: it writes them into the fake Orca's world, so the listing after
+ * the run answers with them and the listing before it did not. `thenFails`
+ * makes the test fail afterwards, which is a run that both left Runs behind and
+ * has bad news of its own.
+ */
+const mintsRuns = (name, runs, { thenFails = false } = {}) => [
+  "import { readFileSync, writeFileSync } from 'node:fs';",
+  "import test from 'node:test';",
+  '',
+  `test(${JSON.stringify(name)}, () => {`,
+  `  const file = process.env[${JSON.stringify(WORLD)}];`,
+  "  const world = JSON.parse(readFileSync(file, 'utf8'));",
+  `  world.runs.push(...${JSON.stringify(runs)});`,
+  '  writeFileSync(file, JSON.stringify(world));',
+  `  process.stdout.write(${JSON.stringify(`${name}\n`)});`,
+  ...(thenFails ? [`  throw new Error(${JSON.stringify(`${name} failed`)});`] : []),
   '});',
   '',
 ].join('\n');
@@ -68,9 +204,18 @@ const argsOf = (calls) => calls.map((call) => call.args);
  * A fresh repo holding a copy of the script, and a fake Orca for `OBK_ORCA` to
  * name. The fake is not found through PATH: the script resolves the CLI itself.
  */
-async function createRepo(t, { orca: orcaOptions = READY, files = DEFAULT_FILES } = {}) {
+async function createRepo(t, {
+  orca: orcaOptions = READY,
+  files = DEFAULT_FILES,
+  runs = [],
+  runListFails = 0,
+  runListGarbles = 0,
+  runListEnvelope = 'ok',
+} = {}) {
   const box = await createSandbox(t);
-  const orca = await fakeProgram(box, 'orca', orcaOptions);
+  const world = path.join(box.root, 'orca-runs.json');
+  await writeFile(world, JSON.stringify({ runs, runListFails, runListGarbles, runListEnvelope }));
+  const orca = await fakeOrca(box, orcaOptions, world);
   const orcaPath = path.join(box.root, 'bin', 'orca');
 
   const repo = path.join(box.root, 'repo');
@@ -85,9 +230,13 @@ async function createRepo(t, { orca: orcaOptions = READY, files = DEFAULT_FILES 
   // developer's shell does not have it, so neither does the script here.
   const { OBK_ORCA: _override, NODE_TEST_CONTEXT: _context, ...bare } = box.env;
 
+  // The world goes into the environment as well as into the fake, because the
+  // fixture's system test files are spawned by the script and read it from there.
+  const env = { ...bare, OBK_ORCA: orcaPath, [WORLD]: world };
+
   const runScript = (args, options) => node(
     [path.join(repo, 'scripts', 'test-system.js'), ...args],
-    { cwd: options.cwd ?? repo, env: options.env ?? { ...bare, OBK_ORCA: orcaPath } },
+    { cwd: options.cwd ?? repo, env: options.env ?? env },
   );
 
   return {
@@ -95,7 +244,7 @@ async function createRepo(t, { orca: orcaOptions = READY, files = DEFAULT_FILES 
     orca,
     orcaPath,
     /** The environment the script is run with: the fake Orca as the CLI. */
-    env: { ...bare, OBK_ORCA: orcaPath },
+    env,
     /** The same environment with no override at all, so the built-in path is used. */
     envWithoutOverride: bare,
     /**
@@ -141,6 +290,52 @@ function assertAnnounces(result, fixture, files = [], cli = fixture.orcaPath) {
 /** Each way of invoking it, for a fact that has to hold on both. */
 const eitherWay = async (fixture) => [await fixture.run(), await fixture.confirmed()];
 
+/**
+ * What the runner said for itself once the system tests were over: stdout past
+ * the last thing the run printed. A report about what the run left has to be
+ * read apart from the announcement, because the announcement already warns that
+ * the tests will leave Runs Orca cannot delete — every word of a report would
+ * otherwise be matched before a single test had run.
+ */
+function afterTheRun(result, lastPrinted = 'ALPHA') {
+  const at = result.stdout.lastIndexOf(lastPrinted);
+  assert.ok(at >= 0, `the run's own output should reach stdout, got: ${result.stdout}`);
+  const tail = result.stdout.slice(at + lastPrinted.length);
+
+  // The test runner's own summary comes between the two, and it is full of the
+  // words a report would use — `fail 0` alone would answer half of what is
+  // asked below. It is the runner counting, not the command speaking for
+  // itself, so a report is read from past the end of it. Its last line is the
+  // duration, whichever reporter wrote it.
+  const counted = tail.lastIndexOf('duration_ms');
+  const ends = counted < 0 ? -1 : tail.indexOf('\n', counted);
+  return ends < 0 ? tail : tail.slice(ends + 1);
+}
+
+/**
+ * It told the developer it could not find something out, rather than guessing
+ * or dying.
+ *
+ * Naming no Run is the half that carries the weight. A report that lists Runs
+ * is a report that knows which ones are new, and it will say they could not be
+ * removed while it does so — words a wording check alone would take for this
+ * one. What separates the two is whether anything is named at all.
+ */
+function assertSaidItCouldNotTell(report, runs = [...ALREADY_THERE, ...MINTED]) {
+  for (const run of runs) {
+    assert.ok(
+      !report.includes(run.id),
+      `it should name no Run when it could not find out which were left, got: ${report}`,
+    );
+  }
+  assert.match(report, /run/i, `it should still speak of Runs, got: ${report}`);
+  assert.match(
+    report,
+    /could ?n[o']t|cannot|can't|unable|did not|failed/i,
+    `it should say it could not find out what was left, got: ${report}`,
+  );
+}
+
 /** Orca is not ready: it says so on stdout, exits 0, and no system test ran. */
 function assertSkipped(result) {
   assert.equal(result.code, 0);
@@ -162,7 +357,7 @@ describe('test-system', { concurrency: true }, () => {
 
     await fixture.confirmed();
 
-    assert.deepEqual(argsOf(await fixture.orca.calls()), [['status', '--json']]);
+    assert.deepEqual(argsOf(orcaCallsOf(await fixture.orca.calls(), 'status')), [['status', '--json']]);
   });
 
   test('Orca ready: the system tests run and it exits with their exit code', async (t) => {
@@ -519,6 +714,208 @@ describe('test-system', { concurrency: true }, () => {
 
       assertSkipped(result);
       assertAnnounces(result, fixture, [], missing);
+    });
+  });
+
+  // 99 Runs named `obk …` piled up on the owner's machine in a day of running
+  // these. A Run is a session's address and outlives its tab, Orca offers no
+  // way to delete one, and the only reset would empty the whole machine's
+  // mailbox. So the pile cannot be cleared; what it can be is admitted, by the
+  // run that made it, at the moment it made it.
+  describe('what a run leaves behind', { concurrency: true }, () => {
+    test('a run that made Runs names each one, and says why it could not remove them', async (t) => {
+      const fixture = await createRepo(t, {
+        runs: ALREADY_THERE,
+        files: { 'test/system/alpha.test.js': mintsRuns('ALPHA', MINTED) },
+      });
+
+      const result = await fixture.confirmed();
+
+      assert.equal(result.code, 0);
+      const report = afterTheRun(result);
+      for (const run of MINTED) {
+        assert.ok(report.includes(run.id), `it should name ${run.id}, got: ${report}`);
+        assert.ok(
+          report.includes(run.objective),
+          `it should say what ${run.id} is for (${run.objective}), got: ${report}`,
+        );
+      }
+      // An id alone is not actionable. Why it is still there is the other half.
+      assert.match(report, /delet|remov/i, `it should say they were not deleted, got: ${report}`);
+      assert.match(
+        report,
+        /could ?n[o']t|cannot|can't|no way|unable|offers no|does not/i,
+        `it should say why they are still there, got: ${report}`,
+      );
+    });
+
+    test('a run that made no Runs says so, rather than saying nothing', async (t) => {
+      // Silence reads as "the runner forgot", and a developer who has seen the
+      // pile grow cannot tell the two apart.
+      const fixture = await createRepo(t, { runs: ALREADY_THERE });
+
+      const result = await fixture.confirmed();
+
+      assert.equal(result.code, 0);
+      const report = afterTheRun(result);
+      assert.match(report, /run/i, `it should still speak of Runs, got: ${report}`);
+      assert.match(
+        report,
+        /\b(no|none|nothing|zero)\b/i,
+        `it should say there were none, got: ${report}`,
+      );
+    });
+
+    test('Runs that were already there are not reported as left by this run', async (t) => {
+      const fixture = await createRepo(t, {
+        runs: ALREADY_THERE,
+        files: { 'test/system/alpha.test.js': mintsRuns('ALPHA', MINTED) },
+      });
+
+      const result = await fixture.confirmed();
+
+      const report = afterTheRun(result);
+      // The half that makes the other half mean something: a report that names
+      // nothing at all leaves out the old ones too, and proves nothing.
+      for (const run of MINTED) {
+        assert.ok(report.includes(run.id), `it should name ${run.id}, got: ${report}`);
+      }
+      for (const run of ALREADY_THERE) {
+        assert.ok(!report.includes(run.id), `${run.id} was there before the run, got: ${report}`);
+        assert.ok(!report.includes(run.objective), `${run.id} was there before the run, got: ${report}`);
+      }
+    });
+
+    test('it names every Run it left, not just the first page of the listing', async (t) => {
+      // The machine this came from was 99 Runs deep. A report that stops at
+      // whatever one call hands back is a report that understates the pile
+      // exactly when the pile is worth knowing about.
+      const many = Array.from({ length: PAGE + 5 }, (_, n) => runNamed(`many${String(n).padStart(2, '0')}`, '12:00'));
+      const fixture = await createRepo(t, {
+        runs: ALREADY_THERE,
+        files: { 'test/system/alpha.test.js': mintsRuns('ALPHA', many) },
+      });
+
+      const result = await fixture.confirmed();
+
+      assert.equal(result.code, 0);
+      const report = afterTheRun(result);
+      for (const run of many) {
+        assert.ok(report.includes(run.id), `it should name ${run.id}, got: ${report}`);
+      }
+    });
+
+    test('a passing run still passes and a failing run still fails, report and all', async (t) => {
+      // The report is an aside. What the command answers is the tests' verdict,
+      // and nothing about what they left may move it either way.
+      for (const thenFails of [false, true]) {
+        const fixture = await createRepo(t, {
+          runs: ALREADY_THERE,
+          files: { 'test/system/alpha.test.js': mintsRuns('ALPHA', MINTED, { thenFails }) },
+        });
+
+        const result = await fixture.confirmed();
+
+        assert.equal(result.code, thenFails ? 1 : 0);
+        assert.equal(result.signal, null, `it should exit, not die: ${result.signal}`);
+        assert.ok(
+          result.stdout.includes(MINTED[0].id),
+          `it should name what it left however the tests went, got: ${result.stdout}`,
+        );
+      }
+    });
+
+    test('the command on its own lists no Runs: nothing was driven, so nothing was left', async (t) => {
+      const fixture = await createRepo(t, { runs: ALREADY_THERE });
+
+      const result = await fixture.run();
+
+      assert.notEqual(result.code, 0);
+      assert.deepEqual(orcaCallsOf(await fixture.orca.calls(), 'orchestration run-list'), []);
+    });
+
+    test('a skip lists no Runs: nothing was driven, so nothing was left', async (t) => {
+      const fixture = await createRepo(t, {
+        orca: status({ ok: true, result: { runtime: { reachable: false } } }),
+        runs: ALREADY_THERE,
+      });
+
+      for (const result of await eitherWay(fixture)) assertSkipped(result);
+
+      assert.deepEqual(orcaCallsOf(await fixture.orca.calls(), 'orchestration run-list'), []);
+    });
+
+    test('Orca refusing the listing does not fail the run, and does not hide the tests\' verdict', async (t) => {
+      for (const thenFails of [false, true]) {
+        const fixture = await createRepo(t, {
+          runs: ALREADY_THERE,
+          runListFails: ALWAYS,
+          files: { 'test/system/alpha.test.js': mintsRuns('ALPHA', MINTED, { thenFails }) },
+        });
+
+        const result = await fixture.confirmed();
+
+        assert.equal(result.code, thenFails ? 1 : 0);
+        assert.equal(result.signal, null, `it should exit, not die: ${result.signal}`);
+        assertSaidItCouldNotTell(afterTheRun(result));
+      }
+    });
+
+    test('Orca answering the listing with something that is not JSON is the same as refusing it', async (t) => {
+      // `/usr/local/bin/orca` on the owner's Mac exits 0 and prints an error.
+      const fixture = await createRepo(t, {
+        runs: ALREADY_THERE,
+        runListGarbles: ALWAYS,
+        files: { 'test/system/alpha.test.js': mintsRuns('ALPHA', MINTED) },
+      });
+
+      const result = await fixture.confirmed();
+
+      assert.equal(result.code, 0);
+      assert.equal(result.signal, null, `it should exit, not die: ${result.signal}`);
+      assertSaidItCouldNotTell(afterTheRun(result));
+    });
+
+    test('a listing that exits 0 without saying `ok` is not an empty machine', async (t) => {
+      // The quiet one. Every Orca answer is `{ id, ok, result, _meta }`, and a
+      // refusal exits 0 just the same, carrying an error where the result would
+      // be. Reaching for `result.runs` and finding nothing there reads as a
+      // machine with no new Runs on it — the runner would report the good news
+      // it was never told, on the one path where it knows least.
+      //
+      // `ok` is the only thing that says whether an answer is one. An envelope
+      // that carries a list while saying it failed, and one that carries a list
+      // and says nothing either way, are both answers nobody has vouched for.
+      for (const runListEnvelope of ['notOk', 'notOkWithRuns', 'noOk']) {
+        const fixture = await createRepo(t, {
+          runs: ALREADY_THERE,
+          runListEnvelope,
+          files: { 'test/system/alpha.test.js': mintsRuns('ALPHA', MINTED) },
+        });
+
+        const result = await fixture.confirmed();
+
+        assert.equal(result.code, 0);
+        assert.equal(result.signal, null, `it should exit, not die: ${result.signal}`);
+        assertSaidItCouldNotTell(afterTheRun(result));
+      }
+    });
+
+    test('the listing before the run failing does not make every Run look new', async (t) => {
+      // Without a before, there is no new. Naming the Runs a developer already
+      // had under "what this run left" is worse than saying nothing: it is the
+      // opposite of the truth, at the length of the whole pile.
+      const fixture = await createRepo(t, {
+        runs: ALREADY_THERE,
+        runListFails: 1,
+        files: { 'test/system/alpha.test.js': mintsRuns('ALPHA', MINTED) },
+      });
+
+      const result = await fixture.confirmed();
+
+      assert.equal(result.code, 0);
+      const report = afterTheRun(result);
+      assertSaidItCouldNotTell(report);
     });
   });
 });

@@ -52,6 +52,99 @@ function orcaIsReady() {
 }
 
 /**
+ * One Orca call, and its `result`, or undefined when Orca did not answer with
+ * one. Every Orca answer is the same envelope — `{ id, ok, result, _meta }` —
+ * and only `ok: true` with a result in it counts. A refusal, a crash, or
+ * something that is not JSON all come back the same way here, because the
+ * caller does the same thing with all three: says it could not find out.
+ */
+function askOrca(args) {
+  const asked = spawnSync(process.env.OBK_ORCA || ORCA, [...args, '--json'], { encoding: 'utf8' });
+  if (asked.error) return undefined;
+
+  let answer;
+  try {
+    answer = JSON.parse(asked.stdout);
+  } catch {
+    return undefined;
+  }
+  return answer !== null && typeof answer === 'object' && answer.ok === true && answer.result
+    ? answer.result
+    : undefined;
+}
+
+/**
+ * How many Runs one listing asks for, which is as many as Orca will give: it
+ * refuses `--limit 101` outright rather than clamping it (tech notes, section
+ * 1). `nextCursor` would page past it, and this does not, on purpose.
+ *
+ * The newest hundred is enough to answer the only question asked here. Runs
+ * come back newest first, so anything made while the tests ran is in that
+ * hundred, and the difference between two such listings names exactly the new
+ * ones however many older Runs the machine is carrying — there are a hundred on
+ * this one already. The limit of it: a single run that made more than a hundred
+ * Runs would have only its newest hundred named. A full system-test run makes a
+ * handful, and paging for a case that cannot happen is more mechanism than the
+ * question needs.
+ */
+const RUNS_ASKED_FOR = 100;
+
+/**
+ * The Runs Orca knows about, newest first, or **undefined when it could not
+ * say**. The difference matters more than it looks: an empty list means "there
+ * are none", and undefined means "nobody knows", and reporting the second as
+ * the first is how a run would quietly claim it left nothing behind.
+ */
+function listRuns() {
+  const result = askOrca(['orchestration', 'run-list', '--limit', String(RUNS_ASKED_FOR)]);
+  return result === undefined || !Array.isArray(result.runs) ? undefined : result.runs;
+}
+
+/**
+ * What this run left in the machine's mailbox that nobody can take out again.
+ *
+ * A Run is how a session is written to, and `obk up` makes one per session
+ * (ADR 0008's amendment). Orca offers no `run-delete`, and the one reset it
+ * does offer would empty the whole machine's mailbox, which the kit never runs
+ * and neither does this. So the tests cannot leave the list as they found it,
+ * and the honest thing left is to say what they added.
+ *
+ * `before` is what `listRuns` answered before the tests ran, undefined
+ * included: a listing that failed then must not make every Run on the machine
+ * look like this run's doing.
+ */
+function reportRunsLeft(before) {
+  const after = before === undefined ? undefined : listRuns();
+
+  if (before === undefined || after === undefined) {
+    process.stdout.write(
+      '\nOrca did not say which orchestration Runs are on this machine, so the kit\n'
+      + 'cannot tell you which ones this run left behind. The tests\' own result above\n'
+      + 'stands; only this accounting is missing.\n',
+    );
+    return;
+  }
+
+  const had = new Set(before.map((run) => run.id));
+  const left = after.filter((run) => !had.has(run.id));
+
+  if (left.length === 0) {
+    process.stdout.write('\nThis run left no new orchestration Runs on this machine.\n');
+    return;
+  }
+
+  process.stdout.write([
+    '',
+    `This run left ${left.length} orchestration Run${left.length === 1 ? '' : 's'} on this machine:`,
+    ...left.map((run) => `  ${run.id}  ${run.objective ?? ''}`.trimEnd()),
+    'They could not be removed. Orca offers no way to delete a Run, and its one',
+    'reset would empty this whole machine\'s mailbox, which the kit never runs.',
+    'They belong to bots folders the tests have taken away, and can be ignored.',
+    '',
+  ].join('\n'));
+}
+
+/**
  * The system test files, named one by one. `node --test` with nothing to run
  * goes hunting through the whole tree instead, which would drag the ordinary
  * suite into a run meant for these.
@@ -154,9 +247,20 @@ function run() {
     return 2;
   }
 
+  // Asked before the tests, so that what they add can be told from what the
+  // machine already had.
+  const before = listRuns();
+
   const result = spawnSync(process.execPath, ['--test', ...files], { cwd: repo, stdio: 'inherit' });
+
+  // After the tests, whatever they did: a failing run leaves Runs behind just
+  // as a passing one does, and the developer is owed the accounting either way.
+  reportRunsLeft(before);
+
   // The test runner answers 0 or 1, and a run killed by a signal answers
   // nothing at all. Anything but a clean 0 means the system tests did not pass.
+  // What the accounting above found never changes this: it is a report, not a
+  // check.
   return result.status === 0 ? 0 : 1;
 }
 
