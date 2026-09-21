@@ -14,7 +14,7 @@
 // file, so the difference is theirs to see.
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { parseDocument } from 'yaml';
 
@@ -80,51 +80,94 @@ export function fetchSources(bots, { source: onlySource, moving = false } = {}) 
 /**
  * Put one source's clone where it belongs, and say what that took.
  *
- * A clone that is already there is looked at and not touched, unless the user
- * is asking for it to move. Nothing here reaches the network for a source that
- * is already in place, which is what makes "only when the user asks" true
- * rather than merely intended.
+ * Three things this has to get right, because each is a way of running a
+ * version nobody chose:
+ *
+ * - A directory under the sources folder means a source at the version that was
+ *   asked for, and nothing else. The clone and the checkout happen out of the
+ *   way and are moved into place once both have worked, so a checkout that
+ *   fails leaves nothing for the next run to mistake for a source.
+ * - A clone that has gone missing comes back at the commit the file records,
+ *   not at whatever its ref points to today. Restoring is not moving.
+ * - A clone is this source's only while it came from the repository the file
+ *   names. Point a source somewhere else and the old clone is not an answer.
  */
 function bring(bots, source, moving) {
   const dir = cloneDir(bots, source.name);
 
-  if (!existsSync(dir)) {
-    mkdirSync(sourcesDir(bots), { recursive: true });
-    git(['clone', '--quiet', source.repo, dir], undefined, `${source.name}: ${source.repo} could not be cloned`);
-    checkout(dir, source);
-    return { state: 'cloned', sha: headOf(dir), runs: carriesScripts(skillsIn(bots, source)) };
+  if (existsSync(dir)) {
+    const from = originOf(dir);
+    if (from !== source.repo) {
+      if (!moving) {
+        throw new Error(`${source.name}: the clone beside your bots folder came from ${from}, and skills.yaml now names ${source.repo}. Run obk skills update --source ${source.name} to take it from there instead.`);
+      }
+      rmSync(dir, { recursive: true, force: true });
+      return clone(bots, source, source.ref, false);
+    }
+
+    if (!moving) return { state: 'there', sha: headOf(dir), runs: carriesScripts(skillsIn(bots, source)) };
+
+    const was = headOf(dir);
+    git(['fetch', '--quiet', '--tags', '--force', 'origin'], dir, `${source.name}: ${source.repo} could not be fetched from`);
+    checkout(dir, source, source.ref, false);
+    const now = headOf(dir);
+    return { state: now === was ? 'there' : 'moved', sha: now, runs: carriesScripts(skillsIn(bots, source)) };
   }
 
-  if (!moving) {
-    return { state: 'there', sha: headOf(dir), runs: carriesScripts(skillsIn(bots, source)) };
-  }
-
-  const was = headOf(dir);
-  git(['fetch', '--quiet', '--tags', '--force', 'origin'], dir, `${source.name}: ${source.repo} could not be fetched from`);
-  checkout(dir, source);
-  const now = headOf(dir);
-  return { state: now === was ? 'there' : 'moved', sha: now, runs: carriesScripts(skillsIn(bots, source)) };
+  // Nothing there. A fetch puts back the version the file records; only the
+  // asking takes what the ref names now.
+  const recorded = typeof source.sha === 'string' && source.sha.trim() !== '';
+  return clone(bots, source, !moving && recorded ? source.sha.trim() : source.ref, !moving && recorded);
 }
 
 /**
- * Check a clone out at what the user pinned. A branch, a tag and a sha all go
- * the same way in, which is why the kit does not ask which kind it was given.
+ * Clone a source and check it out out of the way, and put it in place only once
+ * both have worked. `<name>.fetching` is where it happens; a run that cannot
+ * finish leaves that behind and not a source.
+ */
+function clone(bots, source, rev, recorded) {
+  mkdirSync(sourcesDir(bots), { recursive: true });
+  const dir = cloneDir(bots, source.name);
+  const fetching = `${dir}.fetching`;
+
+  try {
+    rmSync(fetching, { recursive: true, force: true });
+    git(['clone', '--quiet', source.repo, fetching], undefined, `${source.name}: ${source.repo} could not be cloned`);
+    checkout(fetching, source, rev, recorded);
+    renameSync(fetching, dir);
+  } finally {
+    rmSync(fetching, { recursive: true, force: true });
+  }
+
+  return { state: 'cloned', sha: headOf(dir), runs: carriesScripts(skillsIn(bots, source)) };
+}
+
+/** Where a clone came from, as git itself has it written down. */
+function originOf(dir) {
+  const found = spawnSync('git', ['config', '--get', 'remote.origin.url'], { cwd: dir, encoding: 'utf8' });
+  return found.status === 0 ? found.stdout.trim() : undefined;
+}
+
+/**
+ * Check a clone out at `rev`. A branch, a tag and a sha all go the same way in,
+ * which is why the kit does not ask which kind it was given.
  *
  * The origin's idea of a branch is the one that counts. A fetch moves
  * `origin/main` and leaves the local `main` where it was, so checking out the
  * bare name would quietly keep the old commit and report a move that never
- * happened — which is exactly the lie this slice exists to prevent. A tag or a
- * sha has no `origin/` form and falls through to itself.
+ * happened. A tag or a sha has no `origin/` form and falls through to itself.
  */
-function checkout(dir, source) {
-  const at = [`refs/remotes/origin/${source.ref}`, source.ref]
+function checkout(dir, source, rev, recorded) {
+  const at = [`refs/remotes/origin/${rev}`, rev]
     .map((candidate) => resolve(dir, candidate))
     .find((sha) => sha !== undefined);
 
   if (at === undefined) {
-    throw new Error(`${source.name}: ${source.repo} has nothing called ${source.ref}`);
+    throw new Error(recorded
+      ? `${source.name}: ${source.repo} no longer has the commit skills.yaml records for it (${rev.slice(0, 7)}), so the version you pinned cannot be put back. Run obk skills update --source ${source.name} to take what ${source.ref} names now, or point it at a version the repo still has.`
+      : `${source.name}: ${source.repo} has nothing called ${rev}`);
   }
-  git(['-c', 'advice.detachedHead=false', 'checkout', '--quiet', at], dir, `${source.name}: could not go to ${source.ref}`);
+  git(['-c', 'advice.detachedHead=false', 'checkout', '--quiet', at], dir, `${source.name}: could not go to ${rev}`);
 }
 
 /** The commit a name stands for in this clone, or nothing when it stands for none. */
