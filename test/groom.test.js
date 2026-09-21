@@ -40,11 +40,16 @@ import {
   orcaFlag,
 } from './helpers/cli.js';
 
-/** A bots folder with Bot Father up in Orca, which is the whole setup this needs. */
-async function seeded(box, harness = 'claude') {
-  const result = await box.run(['init', '--bots', 'bots', '--harness', harness]);
+/**
+ * A bots folder with Bot Father up in Orca, which is the whole setup this needs.
+ *
+ * `folder` is there because one machine can hold more than one bots folder, and
+ * they share the one Orca. Every other test uses the default.
+ */
+async function seeded(box, harness = 'claude', folder = 'bots') {
+  const result = await box.run(['init', '--bots', folder, '--harness', harness]);
   assert.equal(result.code, 0, result.stderr);
-  return box.path('bots');
+  return box.path(folder);
 }
 
 /** Every automation Orca has now, in the order it made them. */
@@ -57,9 +62,12 @@ async function theAutomation(box) {
   return all[0];
 }
 
-/** Run the command and answer what it said as JSON. */
-async function groom(box, ...rest) {
-  const result = await box.run(['groom', '--bots', 'bots', ...rest, '--json']);
+/** Run the command against the one bots folder most of these tests have. */
+const groom = (box, ...rest) => groomIn(box, 'bots', ...rest);
+
+/** Run the command against a named bots folder and answer what it said as JSON. */
+async function groomIn(box, folder, ...rest) {
+  const result = await box.run(['groom', '--bots', folder, ...rest, '--json']);
   assert.equal(result.code, 0, `groom should have answered: ${result.stderr}`);
   assert.equal(result.stderr, '');
   let answer;
@@ -203,6 +211,72 @@ test('G3 it finds its own beside the user\'s automations, and leaves theirs alon
   );
   assert.notEqual(first.groom.id, theirs.id, 'the kit must not adopt an automation it did not make');
   assert.equal(second.groom.id, first.groom.id);
+});
+
+// Two bots folders on one machine. Each has a Bot Father of its own, each
+// grooming is named whatever the kit names its own, and the two share one Orca:
+// the kit's own automation is the one matching its name AND the folder it
+// attached it to. Matching on the name alone leaves the second fleet adopting
+// the first fleet's automation, so the second fleet never gets a grooming and
+// the first one moves when nobody asked it to.
+//
+// Every other test here has an Orca to itself, which is exactly why none of them
+// can see this.
+
+test('G3 two bots folders on one machine get a grooming each, and each answer names its own', async (t) => {
+  const box = await createSandbox(t);
+  const one = await seeded(box, 'claude', 'fleet-one');
+  const two = await seeded(box, 'claude', 'fleet-two');
+
+  const first = await groomIn(box, 'fleet-one', '--at', '04:00');
+  const second = await groomIn(box, 'fleet-two', '--at', '21:15');
+
+  const all = await automationsIn(box);
+  assert.equal(all.length, 2, `a grooming each, not one shared between them, got: ${JSON.stringify(all)}`);
+  assert.notEqual(first.groom.id, second.groom.id);
+  const byId = (id) => all.find((one) => one.id === id);
+  assert.equal(byId(first.groom.id).runContext.path, botHomeOf(one), 'each is attached to its own Bot Father');
+  assert.equal(byId(second.groom.id).runContext.path, botHomeOf(two));
+  assert.equal(first.groom.at, '04:00');
+  assert.equal(second.groom.at, '21:15', 'and the second fleet got the time it asked for');
+});
+
+test('G3 each bots folder reads its own grooming, not the other folder\'s', async (t) => {
+  const box = await createSandbox(t);
+  const one = await seeded(box, 'claude', 'fleet-one');
+  const two = await seeded(box, 'claude', 'fleet-two');
+  await groomIn(box, 'fleet-one', '--at', '04:00', '--on');
+  await groomIn(box, 'fleet-two', '--at', '21:15');
+
+  const readOne = await groomIn(box, 'fleet-one');
+  const readTwo = await groomIn(box, 'fleet-two');
+
+  assert.equal(readOne.groom.at, '04:00');
+  assert.equal(readOne.groom.enabled, true, 'this fleet said yes to being groomed');
+  assert.equal(readTwo.groom.at, '21:15');
+  assert.equal(readTwo.groom.enabled, false, 'and this one has not, whatever the other one did');
+  assert.equal(botHomeOf(one) === botHomeOf(two), false, 'the two Bot Fathers are different folders');
+});
+
+test('G3 changing one folder\'s grooming time leaves the other folder\'s where it was', async (t) => {
+  const box = await createSandbox(t);
+  const one = await seeded(box, 'claude', 'fleet-one');
+  const two = await seeded(box, 'claude', 'fleet-two');
+  await groomIn(box, 'fleet-one', '--at', '04:00');
+  await groomIn(box, 'fleet-two', '--at', '21:15');
+
+  const moved = await groomIn(box, 'fleet-two', '--at', '22:45');
+
+  const all = await automationsIn(box);
+  assert.equal(all.length, 2, `still one each, got: ${JSON.stringify(all)}`);
+  const forFolder = (bots) => all.find((entry) => entry.runContext.path === botHomeOf(bots));
+  assert.equal(
+    forFolder(one).rrule,
+    'FREQ=DAILY;BYHOUR=4;BYMINUTE=0',
+    'the fleet nobody asked about does not move',
+  );
+  assert.equal(forFolder(two).rrule, 'FREQ=DAILY;BYHOUR=22;BYMINUTE=45');
+  assert.equal(moved.groom.at, '22:45');
 });
 
 test('G4 --on turns it on and --off turns it back off', async (t) => {
@@ -410,7 +484,16 @@ test('G10 --json answers with bots as the resolved absolute path', async (t) => 
   assert.equal(path.isAbsolute(answer.bots), true);
 });
 
-test('G10 the plain report says when it runs and whether it is on', async (t) => {
+test('G10 the plain report says when it runs, and reads differently on from off', async (t) => {
+  // Whether it is on is pinned as a fact in `groom.enabled`, above. What this
+  // asks of the report is the part only the report owes: that the time is in
+  // it, that a person can tell the two states apart, and that a grooming which
+  // is not running says so in a word.
+  //
+  // It deliberately does not forbid any word in the running case. An earlier
+  // version banned "off" there, which banned naming `--off` as well, and left a
+  // user with a grooming running and no way to learn how to stop it. A test
+  // that stops the report saying something useful is a worse test than no test.
   const box = await createSandbox(t);
   await seeded(box);
 
@@ -421,12 +504,21 @@ test('G10 the plain report says when it runs and whether it is on', async (t) =>
 
   assert.equal(whileOff.code, 0, whileOff.stderr);
   assert.equal(whileOn.code, 0, whileOn.stderr);
-  assert.ok(whileOff.stdout.includes('06:30'), `the report should say when it runs, got:\n${whileOff.stdout}`);
-  assert.match(whileOff.stdout, /\boff\b/i, `and that it is off, got:\n${whileOff.stdout}`);
-  assert.ok(!/\boff\b/i.test(whileOn.stdout), `and not say off once it is on, got:\n${whileOn.stdout}`);
-  for (const report of [whileOff.stdout, whileOn.stdout]) {
+  for (const [state, report] of [['not running', whileOff.stdout], ['running', whileOn.stdout]]) {
+    assert.ok(report.includes('06:30'), `the ${state} report should say when it runs, got:\n${report}`);
     assert.ok(!report.includes('undefined'), `nothing should be undefined, got:\n${report}`);
   }
+  // Flags stripped, so naming --off is not the same as calling it off.
+  assert.match(
+    whileOff.stdout.replaceAll(/--[a-z-]+/g, ' '),
+    /\boff\b/i,
+    `a grooming that is not running should say so in a word, got:\n${whileOff.stdout}`,
+  );
+  assert.notEqual(
+    whileOn.stdout,
+    whileOff.stdout,
+    'and a person must be able to tell the two apart without running it twice',
+  );
 });
 
 test('G10 the plain report says plainly when there is no grooming yet', async (t) => {

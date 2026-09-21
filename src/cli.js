@@ -750,11 +750,8 @@ function groomLines(groom, bots) {
 
   return [
     `${'groom'.padEnd(9)}  daily at ${groom.at}  ${groom.enabled ? 'on' : 'off'}`,
-    // What a reader skimming this must not do is take a word about how to stop
-    // it as a statement that it is stopped, so the running case says only that
-    // it is running and what that costs.
     groom.enabled
-      ? `It runs every day at ${groom.at}, and spends tokens each time. Your bots folder: ${bots}`
+      ? `It runs every day at ${groom.at} and spends tokens each time. Turn it off with:  obk groom --bots ${bots} --off`
       : `It is not running yet. Try it by hand, read what it gives you, then:  obk groom --bots ${bots} --on`,
   ];
 }
