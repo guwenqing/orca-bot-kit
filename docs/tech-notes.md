@@ -96,6 +96,13 @@ project → repo (`kind: "git" | "folder"`) → worktree (id = `<repoId>::<absPa
   and the harness holds it until the trust question and the update offer are answered. Both harnesses
   then run it by themselves. **verified** (live, Claude Code 2.1.278 and Codex 0.155.1)
 - `orca terminal send [--terminal <h>] [--text <t>] [--enter] [--interrupt] [--wait-submit <s>] [--retry-request <id>]` — `accepted:true` means input accepted, not that the agent read it; never resend on silence; use `--retry-request` for an idempotent retry.
+  **A line into a tab with an agent in it can be gated.** Seen live on 2026-09-21, in a system test run:
+  `ok:false`, `error.code: "agent_prompt_blocked"`, with `error.data.orchestrationRequestId` and the message
+  "Re-issue the exact command with `--retry-request <id> --wait-submit <seconds>`; do not retry it without
+  that ID." The kit does exactly that, once, with a short wait. What sets it off is not known: it did not
+  happen again in a probe of the same shapes — a short line, three long ones, and three sent while the agent
+  was working — so treat it as a thing that happens rather than a thing you can bring about. **verified**
+  (live, once)
 - `orca terminal read [--terminal <h>] [--cursor <n>] [--limit <n>] [--screen]`, `rename`, `show`,
   `split`. Use `--screen` to see what the tab renders; the default read returns emitted output with the
   escapes stripped, so a TUI comes back as stacked fragments. `--screen` is how an agent looks at a tab

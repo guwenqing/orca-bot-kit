@@ -142,9 +142,34 @@ export function tuiInTab(handle, timeoutMs) {
   return { running: true, blockedReason: answer.result?.wait?.blockedReason };
 }
 
-/** Type `text` into a tab and press return. */
-export const typeIntoTab = (handle, text) =>
-  orca(['terminal', 'send', '--terminal', handle, '--text', text, '--enter']).send;
+/**
+ * Type `text` into a tab and press return.
+ *
+ * Orca sometimes gates a line going into a tab that has an agent in it and
+ * answers `agent_prompt_blocked`, carrying a request id and telling the caller
+ * to re-issue the exact command with that id and a time to wait for the line to
+ * be submitted — and not to retry without it. So that is what this does, once.
+ * Seen live on 2026-09-21 in a system test run; not reproduced since, including
+ * from a plain shell, long lines and lines sent while the agent was working.
+ *
+ * The wait is short because the caller is telling a session it has mail, not
+ * handing it work: mail that has to wait for the next check is a smaller cost
+ * than a command that hangs for half a minute.
+ */
+export function typeIntoTab(handle, text) {
+  const args = ['terminal', 'send', '--terminal', handle, '--text', text, '--enter'];
+  const answer = ask(args);
+  if (answer.ok === true) return answer.result.send;
+
+  const again = answer.error?.data?.orchestrationRequestId;
+  if (answer.error?.code !== 'agent_prompt_blocked' || typeof again !== 'string') {
+    throw new Error(`Orca refused ${args.join(' ')}: ${answer.error?.message ?? 'no reason given'}`);
+  }
+  return orca([...args, '--retry-request', again, '--wait-submit', String(SUBMIT_WAIT_S)]).send;
+}
+
+/** How long a re-issued line is given to be submitted before Orca gives up on it. */
+const SUBMIT_WAIT_S = 5;
 
 /**
  * A mailbox of one session's own: an Orca Run, which is a name and an inbox and
