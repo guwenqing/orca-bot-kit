@@ -18,7 +18,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, s
 import path from 'node:path';
 import { parseDocument } from 'yaml';
 
-import { changesExactly, YAML_OUT } from './bot.js';
+import { changesExactly, requireBotsFolder, YAML_OUT } from './bot.js';
 
 /** The user's file that lists where skills come from. */
 const SKILLS_YAML = 'skills.yaml';
@@ -42,6 +42,57 @@ const TAKEN = ['kit'];
  */
 const RUNS = /\.(sh|bash|zsh|py|rb|pl|js|mjs|cjs|ts)$/i;
 const RUNS_DIR = /^(scripts?|hooks?|bin)$/i;
+
+/**
+ * Write one source into the user's own `skills.yaml`, and change nothing else
+ * in it. Returns the source as it was written.
+ *
+ * What this accepts is what `readSources` accepts, and for the same reason the
+ * bot commands check a name before writing it: an entry the next command
+ * refuses to read is worse than a refusal here, because the user finds it two
+ * commands later with nothing to say which one wrote it.
+ *
+ * It does not clone. Pinning a version and going to the network are two
+ * different decisions, and `skills fetch` is the one that goes.
+ */
+export function addSource(bots, { name, repo, ref, path: inside }) {
+  requireBotsFolder(bots);
+
+  if (!NAME.test(name)) {
+    throw new Error(`${name} cannot be a source's name: a name is lower-case letters, digits and single hyphens, such as someones-skills.`);
+  }
+  if (TAKEN.includes(name)) {
+    throw new Error(`${name} is the kit's own shelf, which a bot names kit:<name>, so a source cannot be called that. Call it something else.`);
+  }
+
+  const file = path.join(bots, SKILLS_YAML);
+  // Read through the same reader every other command uses, so a file this one
+  // would add to is a file they can all still read afterwards.
+  if (readSources(file).some((source) => source.name === name)) {
+    throw new Error(`${file} already lists a source called ${name}, and source add never writes over one.`);
+  }
+
+  const source = { name, repo, ref, ...(inside === undefined ? {} : { path: inside }) };
+  const was = existsSync(file) ? readFileSync(file, 'utf8') : '';
+  const doc = parseDocument(was);
+  const listed = doc.get('sources', true);
+  if (listed?.items === undefined) {
+    // No list to add to: an empty `sources:`, or no sources key at all.
+    doc.set('sources', [source]);
+  } else {
+    // A list written inline becomes a block list from here on, which is the one
+    // shape a source with four fields in it reads well in.
+    listed.flow = false;
+    doc.addIn(['sources'], source);
+  }
+
+  const text = doc.toString(YAML_OUT);
+  if (!changesExactly(was, text, (had) => ({ ...had, sources: [...(had.sources ?? []), source] }))) {
+    throw new Error(`${file} cannot have a source added to it without changing something else in it, so nothing was written. Add ${name} to its sources list by hand.`);
+  }
+  writeFileSync(file, text);
+  return source;
+}
 
 /**
  * Fetch what is missing, or move what the user asks to move.
