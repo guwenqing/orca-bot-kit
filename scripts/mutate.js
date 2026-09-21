@@ -26,7 +26,7 @@ const WORTH_MUTATING = /^(src|scripts)\/.*\.js$/;
 // Except the one file a mutation run cannot judge: the runner the check itself
 // uses. A mutant in it is tested by a run of the mutated runner, which decides
 // its own verdict, so whatever comes out says nothing about the tests. It is
-// checked by hand instead, the way PRD 7.3 rule 8 describes.
+// checked by hand instead.
 const THE_RUNNER = 'scripts/mutation-suite.js';
 
 // git's output, a line per entry, with its record terminator dropped. A command

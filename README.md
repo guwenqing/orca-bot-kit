@@ -16,8 +16,9 @@ two harnesses is in [`docs/tech-notes.md`](docs/tech-notes.md).
 
 ## Status
 
-Early. The CLI creates your bots folder, brings Bot Father up in Orca, and
-creates bots and their sessions on either harness.
+Early. The CLI creates your bots folder, brings Bot Father up in Orca, creates
+bots and their sessions on either harness, and builds each bot's `AGENTS.md`
+from its charter and the rules it carries.
 
 ## Install
 
@@ -68,8 +69,9 @@ obk session add --bots /path/to/my-bots --bot api-bot --name daily \
 obk up          --bots /path/to/my-bots
 ```
 
-`bot create` writes the bot's folder — `bot.yaml`, an `AGENTS.md` holding its
-charter, `CLAUDE.md` as a symlink to it, and a `.gitignore` for `work/`.
+`bot create` writes the bot's folder — `bot.yaml`, the `AGENTS.md` built from
+that file and the rule units, `CLAUDE.md` as a symlink to it, and a `.gitignore`
+for `work/`.
 `session add` writes one session into `bot.yaml`: its harness (the bot's unless
 it says otherwise), model, effort, context window, approval level, start prompt,
 work dir and any extra arguments for the harness. A start prompt is either text
@@ -96,6 +98,33 @@ unit is one short block of always-on working rules. The kit's own units live in
 [`rules/`](rules/) in this package; yours go in `rules/` inside your bots
 folder. What is always on stays short, because every session reads it on every
 turn; the depth belongs in skills.
+
+```sh
+obk rules build --bots /path/to/my-bots [--bot api-bot]
+```
+
+That writes the file, and `obk up` does the same for every bot it brings up,
+before any session starts — a session reads its rules as it comes up, so a
+rebuild landing after the tab is open would reach nobody. The build owns a
+marked block and nothing else in the file:
+
+```
+<!-- obk:rules 6f1cfe05a4d3b2e9 — built by obk from bot.yaml and the rule units; ... -->
+# Api Bot
+
+## Charter
+...
+<!-- obk:rules end -->
+```
+
+Write what you like above or below that block and it comes back exactly as you
+left it. Edit inside it and the build stops, tells you, and leaves your words
+alone — the checksum on the begin marker is how it knows its own text from
+yours. A bot carries every kit unit marked `applies: all` without asking for
+them; anything else is named in a `rules:` list, in `defaults.yaml` for every
+bot or in one bot's `bot.yaml`, as `kit:<name>` for one of the kit's or a bare
+name for one of yours. Codex reads at most 32 KiB of an instructions file and
+says nothing when it stops, so the build tells you when a bot's file goes over.
 
 Seven units suit every bot, whatever it does:
 
@@ -203,7 +232,7 @@ write it into `sessions.yaml` under that session as `session: <id>` and run
 ```sh
 npm test             # the whole suite, in a couple of seconds
 npm run test:system  # the system tests, on this machine
-npm run mutate       # the mutation check, on what your branch changed
+npm run mutate       # the mutation audit, on what your branch changed
 ```
 
 The tests come in two layers, and every test file belongs to one of them.

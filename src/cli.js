@@ -11,11 +11,12 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 
-import { addSession, createBot, SESSION_FIELDS } from './bot.js';
+import { addSession, createBot, readBot, SESSION_FIELDS } from './bot.js';
 import { initBots } from './init.js';
 import { APPROVALS, HARNESSES } from './launch.js';
 import { orcaTrouble } from './orca.js';
 import { recordSession, SHELL_ENV, TAB_ENV } from './record.js';
+import { buildAgents, buildRules, CODEX_CAP } from './rules.js';
 import { BOT_FATHER, bringUp } from './up.js';
 
 const USAGE = `obk — Orca Bot Kit.
@@ -42,6 +43,12 @@ Usage:
                             given glued to its flag, so its dashes are not read
                             as ours: --prompt='- a bullet', and
                             --extra-arg=--search, once per extra argument.
+  obk rules build --bots <path> [--bot <bot>]
+                            Build every bot's AGENTS.md from its charter and
+                            the rule units it carries, or just the one you
+                            name. Your own text outside the marked block is
+                            kept; a block you edited by hand is reported and
+                            never written over. It does not touch Orca.
   obk up --bots <path> [--bot <bot>] [--session <name>]
                             Open whatever is missing in Orca, for every bot or
                             for the one you name. It only ever adds; it never
@@ -63,6 +70,7 @@ const COMMANDS = {
   init: ['bots', 'harness'],
   up: ['bots'],
   'bot create': ['bots', 'name', 'harness'],
+  'rules build': ['bots'],
   'session add': ['bots', 'bot', 'name'],
   'session record': ['bots', 'bot'],
 };
@@ -126,8 +134,8 @@ async function run(argv) {
     return 1;
   }
 
-  // `bot` and `session` are commands of two words; the rest are one.
-  const words = positionals[0] === 'bot' || positionals[0] === 'session' ? 2 : 1;
+  // `bot`, `rules` and `session` are commands of two words; the rest are one.
+  const words = ['bot', 'rules', 'session'].includes(positionals[0]) ? 2 : 1;
   const command = positionals.slice(0, words).join(' ');
   const extra = positionals.slice(words);
 
@@ -155,10 +163,10 @@ async function run(argv) {
   const bots = path.resolve(values.bots);
   if (command === RECORD) return record(bots, values.bot);
 
-  const { answer, lines } = await commands[command](bots, values);
+  const { answer, lines, code = 0 } = await commands[command](bots, values);
 
   process.stdout.write(values.json ? `${JSON.stringify(answer, null, 2)}\n` : `${lines.join('\n')}\n`);
-  return 0;
+  return code;
 }
 
 /** The one command a harness runs rather than a person: the kit's hook. */
@@ -188,28 +196,63 @@ const commands = {
     // exactly as it was and the caller can simply run the command again.
     refuseWhenOrcaIsDown();
     const seeded = initBots(bots, values.harness);
-    const tabs = await bringUp(seeded.bots, { bot: BOT_FATHER });
-    const answer = { bots: seeded.bots, created: seeded.created, completed: seeded.completed, tabs };
+    const { tabs, rules } = await bringUp(seeded.bots, { bot: BOT_FATHER });
+    const answer = { bots: seeded.bots, created: seeded.created, completed: seeded.completed, rules, tabs };
     return { answer, lines: tabLines(answer, `Bot Father is up in Orca. Your bots folder: ${seeded.bots}`) };
   },
 
   async up(bots, values) {
     refuseWhenOrcaIsDown();
-    const tabs = await bringUp(bots, { bot: values.bot, session: values.session });
-    const answer = { bots, created: [], completed: [], tabs };
-    const up = [...new Set(tabs.map((tab) => tab.bot))].join(', ');
-    return { answer, lines: tabLines(answer, `Up in Orca: ${up}. Your bots folder: ${bots}`) };
+    const { tabs, rules } = await bringUp(bots, { bot: values.bot, session: values.session });
+    const answer = { bots, created: [], completed: [], rules, tabs };
+    const up = [...new Set(tabs.map((tab) => tab.bot))];
+    const summary = up.length === 0
+      ? `Nothing was brought up in Orca. Your bots folder: ${bots}`
+      : `Up in Orca: ${up.join(', ')}. Your bots folder: ${bots}`;
+    return { answer, lines: tabLines(answer, summary) };
   },
 
   'bot create'(bots, values) {
     const made = createBot(bots, { name: values.name, harness: values.harness, charter: values.charter });
-    const answer = { bots, bot: made.bot, home: made.home, created: made.created };
+    // The bot's AGENTS.md is the rules build's, here as everywhere else, so
+    // that a new bot's file and a rebuilt one are written by the same code.
+    const rules = [buildAgents(bots, made.home, readBot(made.home))];
+    const answer = { bots, bot: made.bot, home: made.home, created: made.created, rules };
+    // A bot whose rules would not build is made but not finished: it has no
+    // instructions, so `up` will not start it, and saying "give it a session"
+    // would send the caller past the thing that needs settling first.
+    const trouble = rules[0].trouble !== undefined;
     return {
       answer,
       lines: [
         ...made.created.map((entry) => `created    ${entry}`),
-        `${made.bot} is written. Give it a session:  obk session add --bots ${bots} --bot ${made.bot} --name <name>`,
+        ...rulesLines(rules, bots),
+        trouble
+          ? `${made.bot} is written, and its rules are not. Settle what the line above says, then:  obk rules build --bots ${bots} --bot ${made.bot}`
+          : `${made.bot} is written. Give it a session:  obk session add --bots ${bots} --bot ${made.bot} --name <name>`,
       ],
+      code: trouble ? 1 : 0,
+    };
+  },
+
+  'rules build'(bots, values) {
+    const rules = buildRules(bots, { bot: values.bot });
+    const trouble = rules.filter((entry) => entry.trouble !== undefined);
+    return {
+      answer: { bots, rules },
+      lines: [
+        ...rulesLines(rules, bots),
+        trouble.length === 0
+          ? `Rules are built. Your bots folder: ${bots}`
+          // Not "not built": the file itself may be fine and the trouble be
+          // the CLAUDE.md beside it, which is a bot whose rules still do not
+          // reach both harnesses.
+          : `${trouble.map((entry) => entry.bot).join(', ')}: the rules are not in place. Settle what the lines above say, then build again.`,
+      ],
+      // The build is the whole of this command, so a build it could not make is
+      // what the command ends in. `up` answers for its tabs and is not held to
+      // this: see bringUp.
+      code: trouble.length === 0 ? 0 : 1,
     };
   },
 
@@ -273,10 +316,38 @@ const unclaimedLines = (tab, bots) => {
   ];
 };
 
-function tabLines({ bots, created, completed, tabs }, summary) {
+/**
+ * What became of each bot's `AGENTS.md`, in the same column as the rest of the
+ * report: what the build did, the file it did it to, and what it carries. A
+ * build that would not go through says what is in the way instead, in the
+ * words of whoever has to settle it.
+ */
+function rulesLines(rules, bots) {
+  return rules.flatMap((entry) => {
+    const what = entry.units === undefined
+      ? ''
+      : `  ${entry.units.length} unit${entry.units.length === 1 ? '' : 's'}`;
+    return [
+      `${entry.state.padEnd(9)}  ${path.relative(bots, entry.file)}${what}`,
+      // Named on the run that made it: it is a file the command wrote.
+      ...(entry.linked === undefined
+        ? []
+        : [`${'linked'.padEnd(9)}  ${path.relative(bots, entry.linked)} -> AGENTS.md`]),
+      ...(entry.trouble === undefined ? [] : [`             ${entry.trouble}`]),
+      // Codex reads no more than this of an instructions file, and says nothing
+      // when it stops reading (tech notes, section 3).
+      ...(entry.bytes > CODEX_CAP
+        ? [`             it is over the ${CODEX_CAP / 1024} KiB Codex reads, so a Codex session will not see all of it.`]
+        : []),
+    ];
+  });
+}
+
+function tabLines({ bots, created, completed, rules, tabs }, summary) {
   const lines = [
     ...created.map((entry) => `created    ${entry}`),
     ...completed.map((entry) => `completed  ${entry}`),
+    ...rulesLines(rules, bots),
   ];
 
   for (const tab of tabs) {

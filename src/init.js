@@ -14,8 +14,9 @@ import { changesExactly, YAML_OUT } from './bot.js';
 
 const DEFAULTS_YAML = `# Rules and skills every bot gets, on top of its own.
 #
-# rules:  rule units compiled into each bot's AGENTS.md. A name here is a file
-#         in rules/ beside this one.
+# rules:  rule units built into every bot's AGENTS.md, on top of the kit's own
+#         defaults, which every bot carries already. A bare name is a file in
+#         rules/ beside this one; kit:<name> is one of the kit's.
 # skills: skills every bot gets, for example kit:bk-tdd or common:my-skill.
 
 rules: []
