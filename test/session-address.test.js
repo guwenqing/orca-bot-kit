@@ -26,7 +26,7 @@
 import assert from 'node:assert/strict';
 import { writeFile } from 'node:fs/promises';
 import test from 'node:test';
-import { stringify } from 'yaml';
+import { parse, stringify } from 'yaml';
 
 import {
   addressOf,
@@ -203,6 +203,57 @@ test('a mailbox is made once and kept, however many times up runs', async (t) =>
     'and it was asked for once, not asked for and thrown away',
   );
   assert.equal((await sessionIn(bots, 'api-bot', 'daily')).mailbox, first.mailbox, 'and the book still names it');
+});
+
+test('two runs at the same moment leave the session with the mailbox that was written first', async (t) => {
+  // The case running `up` twice in a row cannot reach. Both runs read a book
+  // with no mailbox in it and both ask Orca for a Run, because the Orca call is
+  // made outside the book's lock; what must not happen is the later one writing
+  // its Run over the one already in the book. A session whose mailbox is
+  // replaced is a session that no longer reads the mailbox its fleet has been
+  // writing to, and whatever was waiting in the first one is unreachable — Orca
+  // has no way to hand a Run's mail to another Run, or to delete either.
+  //
+  // The overlap is arranged rather than hoped for: the fake runs the second
+  // `up` to completion in the middle of the first one's `run-create`, so the
+  // second one has read, made its Run and written the book before the first one
+  // has its own Run in hand.
+  const box = await createSandbox(t);
+  const bots = await withBot(box, 'claude', [['daily']]);
+  await up(box, bots);
+  const book = await bookIn(bots, 'api-bot');
+  delete book.sessions.daily.mailbox;
+  await writeFile(bookOf(bots, 'api-bot'), stringify(book));
+  const runsBefore = (await box.orca.runs()).length;
+  await box.orca.set({
+    runDuring: {
+      command: 'orchestration run-create',
+      on: orcaCallsOf(await box.orca.calls(), 'orchestration run-create').length + 1,
+      // The second run, and then the book as it left it: what the first run
+      // must not undo.
+      argv: ['/bin/sh', '-c', `obk up --bots ${bots} --bot api-bot > /dev/null && cat ${bookOf(bots, 'api-bot')}`],
+    },
+  });
+
+  const first = await box.run(['up', '--bots', 'bots', '--bot', 'api-bot']);
+
+  assert.equal(first.code, 0, first.stderr);
+  const ran = await box.orca.ranDuring();
+  assert.equal(ran.length, 1, `the second run should have gone through the middle of the first, got: ${JSON.stringify(ran)}`);
+  assert.equal(ran[0].status, 0, `and it should not have failed: ${ran[0].stderr}`);
+
+  const wonIt = (parse(ran[0].stdout) ?? {}).sessions?.daily?.mailbox;
+  assert.ok(typeof wonIt === 'string', `the second run should have written a mailbox, got: ${ran[0].stdout}`);
+  assert.equal(
+    (await sessionIn(bots, 'api-bot', 'daily')).mailbox,
+    wonIt,
+    'the book keeps the mailbox that was there, and the later run leaves its own Run unused',
+  );
+  assert.equal(
+    (await box.orca.runs()).length,
+    runsBefore + 2,
+    'both runs did ask Orca for one, which is what makes this worth guarding: the ask is outside the lock',
+  );
 });
 
 test('a session whose book entry has no mailbox is given one at the next up', async (t) => {

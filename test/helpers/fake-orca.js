@@ -75,7 +75,7 @@ const stateFile = path.join(dir, 'state.json');
 const args = process.argv.slice(2);
 appendFileSync(path.join(dir, 'calls.log'), `${JSON.stringify({ args, cwd: process.cwd() })}\n`);
 
-const state = JSON.parse(readFileSync(stateFile, 'utf8'));
+let state = JSON.parse(readFileSync(stateFile, 'utf8'));
 const save = () => writeFileSync(stateFile, `${JSON.stringify(state, null, 2)}\n`);
 
 /** The leading words of the call: everything before the first flag. */
@@ -149,6 +149,12 @@ if (aimedHere(state.runDuring)) {
       stdout: ran.stdout,
       stderr: ran.stderr,
     })}\n`);
+
+    // Whatever the child did to Orca's world, it did. Orca is one program with
+    // one memory, so this call must answer from what is there now rather than
+    // write the copy it read a moment ago back over the top — a fake that lost
+    // the child's Run would make the kit look as though it had never made one.
+    state = JSON.parse(readFileSync(stateFile, 'utf8'));
   }
 }
 
