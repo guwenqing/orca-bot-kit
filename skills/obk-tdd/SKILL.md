@@ -106,12 +106,15 @@ slow, unpredictable, or has effects you cannot control — an external service,
 the clock, randomness, a database sometimes, the filesystem sometimes. Do not
 stand in for your own modules or internal collaborators.
 
-A system your work drives but does not own is one of those external things, and
-the exception is the whole of the answer: an author writing tests against it
-works against a stand-in and never the real one. The real one has other
-people's work in it, and a test that reaches it can break something that has
-nothing to do with this change. Where the project's own rules name such a
-system, they are naming which side of this line it falls on.
+What settles this for a system outside your code is not who owns it but
+whether you can have one to yourself. A database you start for the test, a
+repository you create in a temporary directory, a server you run and throw
+away — those are the real thing, isolated, and they are what the order above
+asks for; a stand-in there would hide exactly the incompatibility you want to
+find. What rules the real one out is sharing it: other people's work in it,
+state you cannot reset, or simply not having permission to touch it. Then an
+author works against a stand-in, and the project's rules usually name which
+systems those are.
 
 When a test is hard to write, that is information about the design, not about
 testing. Hard to set up usually means hard to use. Having to stand in for

@@ -269,9 +269,14 @@ rather than by asking:
   data? If not, say so plainly, because refusing to drive a shared instance is
   better than corrupting the one someone is using.
 
-If the thing does not build or start as it stands, fix that before writing any
-of this down. A recipe written against a broken checkout teaches the next
-reader the wrong steps, confidently.
+If the thing does not build or start as it stands, either fix that first or say
+precisely what stopped it — which command, which failure, what was missing.
+A recipe written against a broken checkout and presented as working teaches the
+next reader the wrong steps, confidently. A recipe written against one and
+marked as not yet run is still worth having: it says what the proof will be
+once someone can get the thing up, which is most of the value. What it must not
+do is claim to have been proven. And repairing whatever is broken is its own
+piece of work, not something to absorb quietly into this one.
 
 Prefer handles that survive: the name of a thing, a label, a route, a prompt
 the program prints. Positions, orders and coordinates all drift, and a recipe

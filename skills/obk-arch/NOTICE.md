@@ -61,8 +61,9 @@ thanks:
   checkout that does not build or start before writing the recipe against it,
   preferring stable handles over positions and coordinates, and the feature map
   — a short list of what the thing does for someone, one entry per feature,
-  which the owner called the most praised part of that skill and which is kept
-  here in that reduced form rather than as its own generated directory.
+  which that skill's own users praised most because an agent stops searching
+  the codebase for where things are. Kept here in that reduced form rather than
+  as its own generated directory.
 - **Cursor pstack**, `principle-sequence-verifiable-units`, `figure-it-out`,
   `blast-radius`, `principle-foundational-thinking`, `principle-model-the-domain`,
   `principle-exhaust-the-design-space` and the `poteto-mode` planning playbooks
