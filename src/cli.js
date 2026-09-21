@@ -188,7 +188,7 @@ async function run(argv) {
     return 1;
   }
 
-  // `bot`, `rules`, `skills` and `session` are commands of two words; the rest are one.
+  // `bot`, `rules`, `skills`, `session` and `message` are commands of two words; the rest are one.
   const words = ['bot', 'rules', 'skills', 'session', 'message'].includes(positionals[0]) ? 2 : 1;
   const command = positionals.slice(0, words).join(' ');
   const extra = positionals.slice(words);
