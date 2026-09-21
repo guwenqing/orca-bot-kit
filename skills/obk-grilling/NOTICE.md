@@ -35,10 +35,11 @@ with thanks:
   before a decision is worth recording and what each one rules out, the
   decision note being a short paragraph whose value is in recording that a
   decision was made and why, optional parts included only when they earn it,
-  and the kinds of decision usually worth writing — a boundary and what is
-  deliberately outside it, a deliberate departure from the obvious path, a
-  constraint invisible in the code, and an alternative rejected for a
-  non-obvious reason.
+  and the kinds of decision usually worth writing — the architectural shape,
+  how the parts are meant to communicate with each other, a technology choice
+  that carries lock-in, a boundary and what is deliberately outside it, a
+  deliberate departure from the obvious path, a constraint invisible in the
+  code, and an alternative rejected for a non-obvious reason.
 
 `grill-with-docs` and `grill-me` are one-line skills that load the two above.
 This kit's skills do not depend on another skill being loaded (ADR 0009), so
@@ -55,7 +56,8 @@ this mechanism, collected in the research pack's session audit. Observed in
 that record: asking before teaching, offering a binary where the answer is a
 balance, treating agreement as a decision, going too fast, saying too much,
 answering a question that was not asked, handing back your own summary,
-overselling, and grilling things that are not decisions.
+overselling, grilling things that are not decisions, handing back a summary
+that says nothing, and answering before checking you have read him right.
 
 One item in that section is derived rather than observed, and is marked here
 because the difference matters: *do not re-ask whether you may proceed once
@@ -66,6 +68,25 @@ audit places those at 18:31:56, 18:35:21, 18:36:06 and 18:36:11. The complaint
 was being asked before he was ready, not being asked twice after agreeing. The
 rule as written here follows from `rules/limits.md`, where inside your boundary
 you act; it is a reasonable default, and it is ours rather than his.
+
+Three deliberate departures from `grilling` and `domain-modeling`, so they are
+not mistaken for consolidation:
+
+- **A round is three or four questions, not the whole frontier.** `grilling`
+  says to ask the entire frontier in one round. The owner asked for three at a
+  time in his own use of it, and a round of nine reads as a form and gets
+  filled in like one. The frontier still governs *which* questions are
+  askable; it no longer governs how many go out at once.
+- **Small settled things get recorded.** `domain-modeling` says to offer an ADR
+  only when all three conditions hold and otherwise to skip it. That is the
+  right gate for a decision note, and this skill keeps it — but it applies the
+  gate to the note rather than to the record, because a reversible unsurprising
+  choice is still what the next person needs in order to build the agreed
+  thing. Everything settled goes down; a few earn the note.
+- **What was not settled is recorded too.** Neither source asks for this. It
+  comes from the audit of the owner's own design session, where what he had
+  merely agreed with in passing, and what had been assumed on his behalf, were
+  the things that later had to be untangled.
 
 Left behind on purpose: the fixed file layout and the context-map structure for
 multi-context repositories, since PRD 7.1 leaves the user free in how they keep

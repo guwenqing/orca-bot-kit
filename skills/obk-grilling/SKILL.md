@@ -66,8 +66,9 @@ or that you should be teaching rather than asking — see below.
 
 ## Where this goes wrong
 
-Every one of these is from a real session, and they are the difference between
-an interview that helps and one that gets abandoned half way.
+Most of these are from a real session, where someone was interviewed with
+exactly this mechanism and said so at the time. They are the difference
+between an interview that helps and one that gets abandoned half way.
 
 - **Asking before they can answer.** When the subject is something they have
   not worked with, questions land as an exam. Explain the thing first, well
@@ -88,9 +89,10 @@ an interview that helps and one that gets abandoned half way.
   for any of it.
 
   When you are unsure which you have, the useful move is not to ask again in
-  the same words. It is to say the consequence out loud — *this means anyone on
-  the team can delete your note, permanently* — and ask for the choice plainly.
-  Recording a passing nod as a decision is how a record becomes untrustworthy.
+  the same words. It is to say the consequence out loud — what this costs, who
+  it costs, and what cannot be undone afterwards — and then ask for the choice
+  plainly. Recording a passing nod as a decision is how a record becomes
+  untrustworthy.
 - **Asking again whether you may proceed.** Once something is settled, build on
   it. Re-asking reads as not having listened the first time.
 - **Going too fast.** Finishing a topic, summarising, and asking to start
@@ -106,6 +108,14 @@ an interview that helps and one that gets abandoned half way.
   suspicion.
 - **Overselling.** Do not claim a mechanism can do something it cannot. It will
   be tested, and everything else you said gets re-examined at the same time.
+- **Handing back a summary that says nothing.** A round that restates what they
+  told you, or a closing note of comfortable generalities, costs them a reading
+  and moves nothing. If a paragraph would survive being deleted, delete it.
+- **Answering before you have checked you read them right.** When their answer
+  could mean two things — and a short one often does — say which reading you
+  are taking before you build on it. Getting this wrong quietly is worse than
+  asking, because the whole branch that follows is then about something they
+  did not say.
 - **Grilling things that are not decisions.** Research, a fact-find, a piece of
   reading — those do not need an interview, and running one over them wastes
   the appetite for the parts that do. Say you are pausing it and carry on.
@@ -176,10 +186,13 @@ decided and *why*, not in filling in headings. Add what was rejected only where
 someone would otherwise suggest it again in six months, and the consequences
 only where they are not obvious.
 
-The ones worth writing are usually: where a boundary falls and what is
-deliberately outside it; a deliberate departure from the obvious path, so
-nobody later "fixes" it; a constraint that is real but invisible in the code;
-and an alternative rejected for a reason that is not apparent.
+The ones worth writing are usually: the overall shape of the thing, and how
+its parts are meant to talk to each other; a choice that will be expensive to
+get out of later, such as a dependency everything comes to rest on; where a
+boundary falls and what is deliberately outside it; a deliberate departure from
+the obvious path, so nobody later "fixes" it; a constraint that is real but
+invisible in the code; and an alternative rejected for a reason that is not
+apparent.
 
 **And what was not decided.** This is the part that gets skipped and the part
 that causes trouble later. Keep apart:
