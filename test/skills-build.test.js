@@ -19,7 +19,7 @@
 // would be watching the create rather than the build.
 
 import assert from 'node:assert/strict';
-import { mkdir, readFile, symlink } from 'node:fs/promises';
+import { lstat, lutimes, mkdir, readFile, symlink } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 
@@ -209,6 +209,43 @@ test('a build that has already been done changes nothing when it is run again', 
 
   assert.equal(result.code, 0, `a link that is already there is not trouble: ${result.stderr}`);
   assert.deepEqual(await snapshot(bots, skipGit), before, 'the second run should leave the folder exactly as the first did');
+});
+
+test('a link that already says the right thing is not written again', async (t) => {
+  // Not the same as the tree being unchanged, which the test above checks: an
+  // unlink and an identical relink leaves exactly that tree, and is every
+  // skill of every bot disappearing and coming back on every build and every
+  // `up`. Both harnesses watch these directories and read a change as it
+  // happens (tech notes 2 and 3), so a session in the middle of a turn sees
+  // its skills go. What tells a rewrite from a run that let the link be is the
+  // time on the link itself — `lutimes` and `lstat`, so it is the link's own
+  // time and not the skill's.
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  await makeBot(box, 'api-bot');
+  await threeSources(box, bots, 'api-bot');
+  await buildOk(box);
+
+  const when = new Date('2020-01-01T00:00:00Z');
+  const links = [];
+  for (const harness of HARNESSES) {
+    for (const name of [KIT_SKILL, 'house-style', 'deploy-notes']) {
+      const at = path.join(skillsDirOf(bots, 'api-bot', harness), name);
+      await lutimes(at, when, when);
+      links.push(at);
+    }
+  }
+
+  const result = await build(box);
+
+  assert.equal(result.code, 0, result.stderr);
+  for (const at of links) {
+    assert.equal(
+      (await lstat(at)).mtimeMs,
+      when.getTime(),
+      `${path.relative(bots, at)} already pointed at the skill it should, so the build should not have written the link again`,
+    );
+  }
 });
 
 test('a skill taken out of the lists loses its links, and the skill itself is untouched', async (t) => {
