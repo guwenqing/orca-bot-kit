@@ -243,26 +243,43 @@ async function readyForAQuestion(handle, within = READY_MS) {
   );
 }
 
+/** How long Orca is given to submit a line it gated, on the one re-issue it asks for. */
+const SUBMIT_S = 30;
+
 /**
  * Ask a live agent something, once the tab is ready to take a line: the text,
  * and `--enter` to submit it. `--enter` is what submits, and only `--enter`: a
  * return inside the payload is a newline in a composer, and three questions
  * sent that way once piled up unsent in one draft.
+ *
+ * Orca gates a line as an agent prompt when it will not take one yet: `ok:false`,
+ * `agent_prompt_blocked`, a request id in the error, and its own instruction to
+ * re-issue the exact command with that id rather than retry it plain. Seen twice
+ * in this file, both times on the first line into a Claude tab a moment after
+ * the harness came up, and never on the kit's own nudge; what sets it off is not
+ * known. So the one thing done about it is the one thing Orca sanctions, once:
+ * the same command again with the id and `--wait-submit`, which is Orca holding
+ * the line until the tab will take it. A wait of our own would only be guessing
+ * at the same thing from outside.
  */
 async function askIn(handle, text) {
   await readyForAQuestion(handle);
-  const sent = orca(['terminal', 'send', '--terminal', handle, '--text', text, '--enter']);
+  const send = ['terminal', 'send', '--terminal', handle, '--text', text, '--enter'];
+  const sent = orca(send);
   if (sent.ok === true) return;
 
   const gated = requestIdIn(sent.error);
-  assert.fail(
-    `orca terminal send --enter failed: ${JSON.stringify(sent.error)}.`
-    + (gated === undefined
-      ? ''
-      : ' Orca gated it as an agent prompt. Submit the line yourself in the tab, or reissue the'
-        + ` same command with --retry-request ${gated} --wait-submit 30.`)
-    + whatIsUp(handle),
-  );
+  if (gated !== undefined) {
+    const again = orca([...send, '--retry-request', gated, '--wait-submit', String(SUBMIT_S)]);
+    if (again.ok === true) return;
+    assert.fail(
+      `orca gated this line as an agent prompt (${JSON.stringify(sent.error)}) and refused the re-issue`
+      + ` it asked for as well (${JSON.stringify(again.error)}). Submit the line yourself in the tab:`
+      + ` this is where it ends, because whether a prompt goes in is the person's (PRD 6.5).${whatIsUp(handle)}`,
+    );
+  }
+
+  assert.fail(`orca terminal send --enter failed: ${JSON.stringify(sent.error)}.${whatIsUp(handle)}`);
 }
 
 /** The request id an `agent_prompt_blocked` carries, when that is what came back. */

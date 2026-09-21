@@ -27,7 +27,7 @@ const MAX_LINE = 100;
 
 /**
  * The ceiling on the default set: the applies: all bodies are what every session
- * of every bot reads on every turn, and 3,500 characters is around 875 tokens of
+ * of every bot reads on every turn, and 3,950 characters is around 990 tokens of
  * that reading. The kit does not have this budget to itself — the user's own
  * units are built in beside these — so it is the kit's share, not all a bot may
  * be given.
@@ -36,8 +36,13 @@ const MAX_LINE = 100;
  * need is not trimmed to fit under it. When the set no longer fits, first ask
  * whether what grew is a rule or depth that belongs in a skill; if it is a rule,
  * weigh what those tokens buy on every turn and move this number on purpose.
+ *
+ * Moved on purpose once, in slice 08: 3,500 to 3,950, for `mail.md`. A bot that
+ * does not know it can write to another session cannot do what PRD 6.9 asks of
+ * it, so the unit earns its place; the coordinator's decision was that the
+ * number rises to what that unit needs and nothing else grows.
  */
-const MAX_ALL_CHARS = 3500;
+const MAX_ALL_CHARS = 3950;
 
 /** Everything in rules/, whatever it is: the shape test needs to see the strays too. */
 async function entries() {
