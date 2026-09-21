@@ -340,8 +340,84 @@ test('a link the user made into the kit\'s shelf, or into their own, is never ta
   const entry = entryOf(answerOf(result), 'api-bot');
   for (const name of [KIT_SKILL, 'house-style']) {
     assert.equal(skillIn(entry, name).managed, false, `the kit did not put ${name} there, so it does not manage it`);
+    assert.deepEqual(
+      skillIn(entry, name).at,
+      { claude: 'yours', codex: 'yours' },
+      `a link the kit did not write is the user's on both harnesses, whatever it points at, got: ${JSON.stringify(skillIn(entry, name))}`,
+    );
   }
 });
+
+// The other half of the removal rule, and the corner the case above does not
+// reach: a link the kit did make, so the name is in its record. What the record
+// vouches for is the link it wrote, not the name — a user who puts their own
+// work under that name has taken it back, and dropping it from the list is then
+// an instruction to forget it, not to delete what is there now.
+//
+// The two shapes are separate tests on purpose. A build that tries to delete a
+// directory fails on it and gets no further, which would hide what happens to a
+// link it can remove without complaint: that one goes quietly, and quietly is
+// the dangerous way for a user's configuration to go.
+for (const [label, takeOver, check] of [
+  ['a directory of their own', async (bots) => {
+    for (const harness of HARNESSES) {
+      await writeSkill(path.join(skillsDirOf(bots, 'api-bot', harness), 'road-map'), { body: 'Mine now.' });
+    }
+  }, async (bots) => {
+    for (const harness of HARNESSES) {
+      assert.ok(
+        (await readThrough(bots, 'api-bot', harness, 'road-map')).includes('Mine now.'),
+        `${harness} should still read what the user put under that name`,
+      );
+    }
+  }],
+  ['a link of their own, pointing where they want it', async (bots, theirs) => {
+    await linkByHand(bots, 'api-bot', 'road-map', theirs);
+  }, async (bots, theirs) => {
+    await assertLinked(bots, 'api-bot', 'road-map', theirs);
+  }],
+]) {
+  test(`a name the kit linked, replaced by ${label}, is left where it is when the list drops it`, async (t) => {
+    const box = await createSandbox(t);
+    const bots = await seeded(box);
+    await makeBot(box, 'api-bot');
+    const kit = await kitSkill(KIT_SKILL);
+    const listed = await writeSkill(path.join(box.root, 'elsewhere', 'road-map'), { body: 'What the list pointed at.' });
+    const theirs = await writeSkill(path.join(box.root, 'theirs', 'road-map'), { body: 'What I point at instead.' });
+    await addSkills(botYamlOf(bots, 'api-bot'), `kit:${KIT_SKILL}`, listed);
+    await buildOk(box, '--bot', 'api-bot');
+    await assertLinked(bots, 'api-bot', 'road-map', listed);
+
+    // The user takes the name over in both harnesses, and then stops asking
+    // for it: the kit's link is gone and its record is the only thing left
+    // that ever knew about the name.
+    for (const harness of HARNESSES) await rm(path.join(skillsDirOf(bots, 'api-bot', harness), 'road-map'));
+    await takeOver(bots, theirs);
+    await setSkills(botYamlOf(bots, 'api-bot'), `kit:${KIT_SKILL}`);
+    const before = await treeIn(bots, 'api-bot');
+
+    const result = await build(box, '--bot', 'api-bot', '--json');
+
+    // What is on disk first: a run that deleted the user's work and then
+    // failed on it would otherwise be read as a run that simply failed.
+    assert.deepEqual(
+      await treeIn(bots, 'api-bot'),
+      before,
+      'the kit takes back the link it wrote, and what is under that name now is not that link',
+    );
+    assert.equal(result.code, 0, `forgetting a name is not trouble, got:\n${result.stdout}${result.stderr}`);
+    const entry = entryOf(answerOf(result), 'api-bot');
+    assert.equal(skillIn(entry, 'road-map').managed, false, 'the name is the user\'s now, and the kit does not manage it');
+    assert.deepEqual(skillIn(entry, 'road-map').at, { claude: 'yours', codex: 'yours' });
+    await check(bots, theirs);
+    await assertLinked(bots, 'api-bot', KIT_SKILL, kit);
+
+    // Forgotten, not remembered for later: a build tomorrow does not come back
+    // for a name the kit has stopped vouching for.
+    assert.equal((await build(box, '--bot', 'api-bot')).code, 0);
+    assert.deepEqual(await treeIn(bots, 'api-bot'), before, 'and a later build leaves it alone too');
+  });
+}
 
 test('a directory of the user\'s where a listed skill would go is left, and the bot is not said to have the skill', async (t) => {
   // The list asks for one skill and the bot has another. Saying it is managed
@@ -364,6 +440,14 @@ test('a directory of the user\'s where a listed skill would go is left, and the 
   assert.equal(result.code, 1, 'a bot that could not be given what its list names ends the run in 1');
   const entry = entryOf(answerOf(result), 'api-bot');
   assert.equal(skillIn(entry, 'house-style').managed, false, 'the bot did not get the skill the list asked for');
+  // The whole point of saying it per harness: this bot reads the user's skill
+  // on Claude and the listed one on Codex, and a single word for the pair
+  // would have to pick one of them and lose the other.
+  assert.deepEqual(
+    skillIn(entry, 'house-style').at,
+    { claude: 'yours', codex: 'linked' },
+    `the two harnesses read different things, and the entry should say which is which, got: ${JSON.stringify(skillIn(entry, 'house-style'))}`,
+  );
   assert.equal(typeof entry.trouble, 'string', `the collision should be said out loud, got: ${JSON.stringify(entry)}`);
   assert.ok(entry.trouble.includes('house-style'), `and it should name the skill, got: ${entry.trouble}`);
 
@@ -468,6 +552,11 @@ test('every bot is reported, in name order, with where each skill came from, and
   for (const [name, from] of [[KIT_SKILL, 'kit'], ['house-style', 'common'], ['deploy-notes', 'path']]) {
     assert.equal(skillIn(entry, name).from, from, `${name} came from ${from}`);
     assert.equal(skillIn(entry, name).managed, true, `and the kit put ${name} there`);
+    assert.deepEqual(
+      skillIn(entry, name).at,
+      { claude: 'linked', codex: 'linked' },
+      `${name} is managed because both harnesses hold the kit's link to it, and the entry should say so`,
+    );
   }
   assert.ok(!('trouble' in entry), `a bot whose skills are in place has nothing to say about trouble, got: ${JSON.stringify(entry)}`);
   assert.deepEqual(
