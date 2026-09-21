@@ -439,9 +439,10 @@ failing quietly.
 ## Working on the kit
 
 ```sh
-npm test             # the whole suite, in a couple of seconds
-npm run test:system  # the system tests, on this machine
-npm run mutate       # the mutation audit, on what your branch changed
+npm test                      # the whole suite, in a couple of seconds
+npm run test:system           # what the system tests would drive, and nothing else
+npm run test:system -- --yes  # drive them, on this machine, for real
+npm run mutate                # the mutation audit, on what your branch changed
 ```
 
 The tests come in two layers, and every test file belongs to one of them.
@@ -456,9 +457,16 @@ installed.
 `npm run test:system` is `test/system/*.test.js`: the real `obk` against the
 real Orca and the real harnesses on your own machine. No CI runner can do that,
 so these are run by hand before a change that touches Orca or a harness is
-merged. When Orca is not answering the command says so and skips, rather than
-report a kit that is not broken. A system test touches only what it creates and
-cleans up after itself; it never closes a tab it did not open.
+merged. A system test touches only what it creates and cleans up after itself;
+it never closes a tab it did not open.
+
+They run on the machine the command is typed on, so the command will not start
+them by itself. On its own it says what it is about to drive — whose machine,
+which Orca, which files, and what they will do to it — and then stops without
+driving any of it, answering non-zero so that a run which did not run them
+cannot be read as one that passed. `-- --yes` is how you say you meant it. When
+Orca is not answering, the command says which Orca it asked and skips, rather
+than report a kit that is not broken.
 
 `npm run mutate` runs [StrykerJS](https://stryker-mutator.io) over the
 JavaScript this branch changed against `main` — committed, still in the working
