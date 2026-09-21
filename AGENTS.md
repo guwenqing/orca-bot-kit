@@ -17,8 +17,9 @@ work from a later slice into an earlier one.
   it pass, and a test that looks wrong goes back to its author.
 - The reviewer is a separate agent and only comments; the implementer makes the
   change and checks it again.
-- The mutation check follows PRD 7.3: the everyday way is a small hand check on the
-  logic that changed, once; a tool run is an audit the owner asks for.
+- The mutation check follows PRD 7.3: one pass per piece of work; the everyday way is a
+  small hand check on the logic that changed; for a core product change one narrowed
+  tool run in the background is allowed; a whole-suite tool run is an audit the owner asks for.
 - Use what the standard library or the platform already does; do not hand-roll it,
   and take no requirement stricter than the intent. When you catch yourself listing
   the edge cases of a mechanism of your own, replace the mechanism.
