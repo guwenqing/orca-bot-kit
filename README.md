@@ -177,6 +177,9 @@ than relying on another skill being loaded.
 | `obk-why` | why the code is like this, and how sure you are |
 | `obk-teach` | explaining something so it lands, at the other person's pace |
 | `obk-personal-facilitation` | keeping someone's own list true, and stopping before the step that cannot be taken back |
+| `obk-researching` | finding it out from sources, and saying how well you know it |
+| `obk-writing` | writing for a reader, in one kind of piece, with the claims checked |
+| `obk-decision-memo` | the conclusion first, the alternatives, and the argument against it |
 
 A skill is where the depth lives. The always-on rules say that a change in
 behaviour starts with a failing test someone else wrote and is read by someone
