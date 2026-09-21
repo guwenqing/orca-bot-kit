@@ -292,6 +292,50 @@ conversation with its duty rather than guessing. To bring one back yourself,
 write it into `sessions.yaml` under that session as `session: <id>` and run
 `obk up` again.
 
+## Sessions and bots that talk
+
+Ask the kit how to reach a session, and it answers with the road and the
+address ([ADR 0008](docs/adr/0008-messaging-transport.md)):
+
+```sh
+obk message to    --bots /path/to/my-bots --to api-bot/daily
+obk message send  --bots /path/to/my-bots --to api-bot/daily \
+                  --subject 'the schema changed' --text 'orders.total is cents now'
+obk message check --bots /path/to/my-bots --bot api-bot --session daily
+```
+
+Two roads, and a bot never picks. Claude Code to Claude Code in the same
+approval level is the harness's own messaging: `message to` answers with the
+session's name — `<bot>.<session>`, which `obk up` puts on its launch line —
+and the sending session writes to that name itself, because no command can send
+that message for it. Everything else goes through Orca's mailbox, which the kit
+does carry.
+
+A session's mailbox is made the first time `obk up` brings it up, and written in
+the book beside its tab. It is an Orca Run rather than the session's tab,
+because a tab's address dies with the tab and a Run does not — so a message sent
+while a session is down is still there when it comes back.
+
+Nothing in a mailbox wakes anybody, so `message send` also types one line into
+the receiver's tab telling it to look. Both harnesses take a typed line as the
+next thing to do rather than cutting into what they are doing, which is the
+whole of "queued, not interrupting". A session that is not up is not typed
+into at all; its message waits.
+
+A message longer than 4 KiB is written to a file beside your bots folder and
+named in the message, so a long one arrives whole without landing a document in
+somebody's context.
+
+One thing to know about Codex bots: the kit launches them with
+`-c sandbox_workspace_write.network_access=true`. Without it the Orca CLI cannot
+reach Orca from inside Codex's sandbox, so a Codex bot can neither read its mail
+nor send any. It widens that session's sandbox to the network generally — there
+is no localhost-only setting — and that is the price of a Codex bot being in the
+fleet at all. Turn it off for a session with your own
+`--extra-arg=-c --extra-arg=sandbox_workspace_write.network_access=false`, and
+the kit will report that session as out of reach of fleet mail rather than
+failing quietly.
+
 ## Working on the kit
 
 ```sh
