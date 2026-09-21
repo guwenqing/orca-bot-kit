@@ -18,6 +18,7 @@ import { orcaTrouble } from './orca.js';
 import { recordSession, SHELL_ENV, TAB_ENV } from './record.js';
 import { buildAgents, buildRules, CODEX_CAP } from './rules.js';
 import { buildSkills, linkSkills } from './skills.js';
+import { fetchSources } from './sources.js';
 import { BOT_FATHER, bringUp } from './up.js';
 
 const USAGE = `obk — Orca Bot Kit.
@@ -56,6 +57,15 @@ Usage:
                             skills folder, or any path. What you put in a
                             bot's skills directory yourself is left alone and
                             shown as yours. It does not touch Orca.
+  obk skills fetch --bots <path> [--source <name>]
+                            Clone the online sources skills.yaml lists, beside
+                            your bots folder and never inside it, each at the
+                            version you pinned, and write down the sha it got.
+                            A source already there is left exactly as it is.
+  obk skills update --bots <path> [--source <name>]
+                            Move a source on to what its ref names now, and
+                            write down the new sha. This is the only thing that
+                            moves one.
   obk up --bots <path> [--bot <bot>] [--session <name>]
                             Open whatever is missing in Orca, for every bot or
                             for the one you name. It only ever adds; it never
@@ -79,6 +89,8 @@ const COMMANDS = {
   'bot create': ['bots', 'name', 'harness'],
   'rules build': ['bots'],
   'skills build': ['bots'],
+  'skills fetch': ['bots'],
+  'skills update': ['bots'],
   'session add': ['bots', 'bot', 'name'],
   'session record': ['bots', 'bot'],
 };
@@ -89,6 +101,7 @@ const NEEDED = {
   name: '--name <name>: what to call it',
   bot: '--bot <bot>: which bot',
   session: '--session <name>: which session',
+  source: '--source <name>: which source',
   harness: `--harness ${HARNESSES.join('|')}: which harness it runs on`,
 };
 
@@ -119,6 +132,7 @@ async function run(argv) {
       name: { type: 'string' },
       bot: { type: 'string' },
       session: { type: 'string' },
+      source: { type: 'string' },
       charter: { type: 'string' },
       ...Object.fromEntries(SETTINGS.map(([flag]) => [flag, { type: 'string' }])),
       'extra-arg': { type: 'string', multiple: true },
@@ -262,6 +276,14 @@ const commands = {
     };
   },
 
+  'skills fetch'(bots, values) {
+    return fetched(bots, fetchSources(bots, { source: values.source }), 'Nothing to fetch');
+  },
+
+  'skills update'(bots, values) {
+    return fetched(bots, fetchSources(bots, { source: values.source, moving: true }), 'Nothing to update');
+  },
+
   'rules build'(bots, values) {
     const rules = buildRules(bots, { bot: values.bot });
     const trouble = rules.filter((entry) => entry.trouble !== undefined);
@@ -342,6 +364,37 @@ const unclaimedLines = (tab, bots) => {
     `             under ${tab.name} as  session: <id>  and run obk up again.`,
   ];
 };
+
+/**
+ * What `skills fetch` and `skills update` answer: a line per source saying what
+ * became of it, at which ref, and which commit that turned out to be — the
+ * version the user asked for beside the one they got.
+ *
+ * A source carrying scripts or hooks gets one line of its own, whatever is in
+ * it. The kit does not scan it and does not stand in the way; the risk is the
+ * user's to take and theirs to know about (PRD 6.7).
+ */
+function fetched(bots, sources, nothing) {
+  const trouble = sources.filter((source) => source.trouble !== undefined);
+  const lines = sources.flatMap((source) => (source.trouble !== undefined
+    ? [`${'trouble'.padEnd(9)}  ${source.name}`, `             ${source.trouble}`]
+    : [
+      `${source.state.padEnd(9)}  ${source.name.padEnd(24)}  ${source.ref}  ${source.sha.slice(0, 7)}`,
+      ...(source.runs ? [`             ${source.name} carries scripts or hooks. The kit neither looks at them nor stops them; they are the source's, and the risk is yours.`] : []),
+    ]));
+
+  return {
+    answer: { bots, sources },
+    lines: [
+      ...lines,
+      // eslint-disable-next-line no-nested-ternary
+      sources.length === 0 ? `${nothing}: skills.yaml lists no sources. Your bots folder: ${bots}`
+        : trouble.length === 0 ? `Your sources are where they should be. Your bots folder: ${bots}`
+          : `${trouble.map((source) => source.name).join(', ')}: not fetched. Settle what the lines above say, then try again.`,
+    ],
+    code: trouble.length === 0 ? 0 : 1,
+  };
+}
 
 /**
  * What became of each bot's `AGENTS.md`, in the same column as the rest of the

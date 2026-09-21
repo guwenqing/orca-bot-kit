@@ -212,6 +212,39 @@ dropped from the list, because from the outside those three look the same. If
 you want one of those gone, delete the link; the skill it points at is not
 touched either way.
 
+## Skills from somebody else's repo
+
+`skills.yaml` in your bots folder lists where else skills come from:
+
+```yaml
+sources:
+  - name: someones-skills
+    repo: https://github.com/someone/skills
+    path: skills        # subfolder inside the repo, optional
+    ref: v1.2.0         # branch, tag or sha
+```
+
+```sh
+obk skills fetch  --bots /path/to/my-bots [--source someones-skills]
+obk skills update --bots /path/to/my-bots [--source someones-skills]
+```
+
+`fetch` clones each source into `<your-bots-folder>.skill-sources/`, a sibling
+of your repo and never inside it, at the version you pinned, and writes the sha
+it got back beside your `ref`. A source that is already there it leaves exactly
+as it is — no network, no moving — even when the `ref` is a branch that has gone
+on ahead. `update` is the asking, and it is the only thing that moves one. So
+the version your bots run changes when you say so and at no other time; `obk up`
+never fetches.
+
+A bot names one of those skills `<source>:<skill>` in its `skills:` list, beside
+the other three forms. Moving a source moves what every session reading it sees,
+with no rebuild, because the link points at the clone.
+
+The kit says one line when a source carries scripts or hooks. It does not read
+them and does not stand in your way — a third-party skill is your risk to take
+([ADR 0004](docs/adr/0004-skills-are-linked-never-copied.md)).
+
 A skill is a directory holding `SKILL.md` — frontmatter carrying `name` (the
 directory's own name) and `description`, then the body — plus any reference
 files it links to and a `NOTICE.md` naming the sources it was built from and
