@@ -14,6 +14,28 @@ The design is in [`docs/prd.md`](docs/prd.md); the decisions with lasting
 consequences are in [`docs/adr/`](docs/adr/); what we know about Orca and the
 two harnesses is in [`docs/tech-notes.md`](docs/tech-notes.md).
 
+## Start here
+
+Paste this into any AI session that can run commands — a Claude Code or Codex
+session in a terminal, or anything else with a shell:
+
+> Set up Orca Bot Kit on this machine: get
+> https://github.com/guwenqing/orca-bot-kit, then follow SETUP.md in it to the
+> end.
+
+It checks what your machine already has, tells you plainly about anything
+missing rather than installing it, asks you the only two things it cannot work
+out for itself — where your bots folder goes, and which harness Bot Father runs
+on — and leaves you talking to Bot Father, which is where everything after this
+happens.
+
+[`SETUP.md`](SETUP.md) is that page. It is written for the assistant rather than
+for you, so you do not have to read it; nothing in it is hidden from you either.
+
+The rest of this README is the reference: what each command does, and why the
+kit is built the way it is. Reach for it when you want to know how something
+works, not to get started.
+
 ## Status
 
 Early. The CLI creates your bots folder, brings Bot Father up in Orca, creates
