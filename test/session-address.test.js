@@ -256,6 +256,42 @@ test('two runs at the same moment leave the session with the mailbox that was wr
   );
 });
 
+test('and the same when neither run has opened the session\'s tab yet', async (t) => {
+  // The same requirement one branch over. The book is written in two places —
+  // beside the tab a run has just opened, and on its own for a session whose
+  // tab was already there — and a session that has never been up goes through
+  // the first of them. Both runs open a tab and both make a Run; the book ends
+  // up naming the tab of whichever run wrote last, which is a real tab, and the
+  // mailbox of whichever wrote first, which is where the fleet's mail is.
+  const box = await createSandbox(t);
+  const bots = await withBot(box, 'claude', [['daily']]);
+  const runsBefore = (await box.orca.runs()).length;
+  await box.orca.set({
+    runDuring: {
+      command: 'orchestration run-create',
+      on: orcaCallsOf(await box.orca.calls(), 'orchestration run-create').length + 1,
+      argv: ['/bin/sh', '-c', `obk up --bots ${bots} --bot api-bot > /dev/null && cat ${bookOf(bots, 'api-bot')}`],
+    },
+  });
+
+  const first = await box.run(['up', '--bots', 'bots', '--bot', 'api-bot']);
+
+  assert.equal(first.code, 0, first.stderr);
+  const ran = await box.orca.ranDuring();
+  assert.equal(ran.length, 1, `the second run should have gone through the middle of the first, got: ${JSON.stringify(ran)}`);
+  assert.equal(ran[0].status, 0, `and it should not have failed: ${ran[0].stderr}`);
+
+  const wonIt = (parse(ran[0].stdout) ?? {}).sessions?.daily?.mailbox;
+  assert.ok(typeof wonIt === 'string', `the second run should have written a mailbox, got: ${ran[0].stdout}`);
+  const daily = await sessionIn(bots, 'api-bot', 'daily');
+  assert.equal(daily.mailbox, wonIt, 'the mailbox the session already had is the one it keeps, tab or no tab');
+  assert.equal((await box.orca.runs()).length, runsBefore + 2, 'and both runs did ask Orca for one');
+  assert.ok(
+    (await tabsOfBot(box, bots, 'api-bot')).some((tab) => tab.tabId === daily.tab),
+    `and the tab the book names is one Orca really has: ${JSON.stringify(daily)}`,
+  );
+});
+
 test('a session whose book entry has no mailbox is given one at the next up', async (t) => {
   // The honest case behind "cannot be reached yet": a book written before this
   // existed, or by hand. `up` is what fills it in.
