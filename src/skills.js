@@ -30,7 +30,7 @@ const KIT_SKILLS = fileURLToPath(new URL('../skills', import.meta.url));
 const KIT = 'kit:';
 
 /** Where each harness reads a project's skills, inside the folder a session starts in. */
-const SKILL_DIRS = {
+export const SKILL_DIRS = {
   claude: path.join('.claude', 'skills'),
   codex: path.join('.agents', 'skills'),
 };
@@ -43,7 +43,7 @@ const SKILL_DIRS = {
 const NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
 /** Where the kit writes down what it linked, inside the bot folder. */
-const RECORD = '.obk-skills.yaml';
+export const RECORD = '.obk-skills.yaml';
 
 /** What that file says about itself, for whoever opens it. */
 const HEADER = '# Written by obk: the skill links it made, by harness and name. It changes or\n'

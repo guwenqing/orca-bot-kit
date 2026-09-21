@@ -11,6 +11,37 @@ import path from 'node:path';
 import { parseDocument } from 'yaml';
 
 import { changesExactly, YAML_OUT } from './bot.js';
+import { RECORD, SKILL_DIRS } from './skills.js';
+
+/**
+ * What the kit makes on this machine, and what the repo therefore does not
+ * carry (ADR 0004, PRD 6.3).
+ *
+ * A bot's skills are symlinks into wherever the kit and the user's skill
+ * sources are installed on the machine that made them, so a clone somewhere
+ * else holds links to nothing until something relinks. They are not the repo's
+ * to carry: every one of them is made again, at this machine's paths, by
+ * `obk up` and `obk skills build`.
+ *
+ * The entries are ignored rather than the directories holding them, because
+ * git cannot take a file back into a directory it has been told to ignore, and
+ * what the user keeps in there beside the kit's links is theirs.
+ *
+ * Written once, when the folder is made, and the user's from then on like
+ * everything else `init` seeds.
+ */
+const GITIGNORE = `# What obk links on this machine, rather than what this repo carries.
+#
+# A bot's skills are symlinks into wherever the kit and your skill sources are
+# installed here, so they say nothing true on another machine. obk up and obk
+# skills build make them again wherever this repo is checked out, and
+# ${RECORD} is the kit's own record of the ones it made.
+#
+# Anything of your own in a bot's skills directories is still yours: git add
+# --force takes one in, or name it below after a !.
+
+${Object.values(SKILL_DIRS).map((dir) => `bots/*/${dir.split(path.sep).join('/')}/*\n`).join('')}bots/*/${RECORD}
+`;
 
 const DEFAULTS_YAML = `# Rules and skills every bot gets, on top of its own.
 #
@@ -78,6 +109,7 @@ const BOT_FATHER_YAML = 'bots/bot-father/bot.yaml';
 const DAILY_SESSION = 'daily';
 
 const seeds = (harness) => [
+  ['.gitignore', GITIGNORE],
   ['defaults.yaml', DEFAULTS_YAML],
   ['skills.yaml', SKILLS_YAML],
   ['rules/.gitkeep', ''],

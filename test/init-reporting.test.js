@@ -18,9 +18,18 @@ function report(stdout) {
 /** What each `created` line names, without the word. */
 const entriesOf = (created) => created.map((line) => line.replace(/^created\s+/, ''));
 
-/** Everything a first `init` seeds, sorted the way the report is compared. */
+/**
+ * Everything a first `init` seeds, sorted the way the report is compared.
+ *
+ * The `.gitignore` is the one the kit keeps its own skill links out of git with
+ * (issue #136): the links inside a bot are made again on whatever machine the
+ * repo is checked out on, so the repo does not carry them. It is seeded like
+ * every other file here and is the user's from then on, which is why it is
+ * reported as created like the rest.
+ */
 const SEEDED = [
   '.git',
+  '.gitignore',
   'bots/bot-father/bot.yaml',
   'defaults.yaml',
   'rules/.gitkeep',

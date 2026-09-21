@@ -13,6 +13,9 @@ Kit skills are symlinked from the installed package into each bot's `.claude/ski
 ## Consequences
 
 - Updating the kit updates every bot's kit skills at once.
-- The bots repo stays small and holds only the user's own content.
+- The bots repo stays small and holds only the user's own content. The links themselves are part of what the kit
+  makes on a machine rather than part of the repo, so `init` seeds a `.gitignore` that keeps them and the kit's
+  record of them out of git; a clone gets its links from `obk up`, and carries none that point nowhere.
+  (Decided in issue #136 by the developer, inside that issue's boundary; the owner may overrule.)
 - Links break if the package moves; the kit's health check reports broken links.
 - The user takes the risk for third-party skills; the kit only prints a one-line warning when a source has scripts or hooks.

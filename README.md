@@ -45,6 +45,7 @@ no default. This makes the folder a git repository and seeds it:
 
 ```
 my-bots/
+  .gitignore               # what obk links here, which no clone carries
   defaults.yaml            # rules and skills every bot gets
   skills.yaml              # online skill sources
   rules/                   # your own rule units
@@ -57,6 +58,13 @@ kit skills are linked from the installed package, never copied
 ([ADR 0004](docs/adr/0004-skills-are-linked-never-copied.md)). Run `init` again
 whenever you like: it adds what is missing and leaves everything else, including
 your edits, exactly as it is. It does not commit for you.
+
+The `.gitignore` keeps one thing out: the skill links themselves. They point at
+where the kit and your skill sources are installed on this machine, so they say
+nothing true on another one, and `obk up` makes them again wherever you check
+the repo out. So a clone carries your bots and not this machine's paths, and two
+computers do not take turns rewriting each other's links. Anything of your own
+in a bot's skills directories is still yours: `git add --force` takes it in.
 
 ## Add a bot and its sessions
 
