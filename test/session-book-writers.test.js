@@ -34,6 +34,20 @@
 // and writes nothing. No committed change is lost either way, which is the whole
 // of what the book needs (round 4, finding 2, and the audit after it).
 //
+// One thing more, which the fifth review found by keeping the lock somewhere the
+// environment decides. A lock only holds anybody out if it is the same lock, and
+// the two programs that write a book do not agree about their environment: `up`
+// runs from the user's shell, the kit's hook runs inside a session with whatever
+// the harness was started with. A turn keyed on `TMPDIR` is therefore two turns —
+// two writers, each holding a lock properly, each alone, neither the other's — and
+// the review lost an id that way through two real `session record` runs with
+// nothing else different: no cleanup, no expiry, no stopped process, nothing to
+// blame but the two turns. So the turn is about the book itself, and the last two
+// tests below hold that from outside: two writers started in different
+// environments still wait for each other, and nothing of the kit's own ends up in
+// the user's repo. Where the file lives is the kit's business; that everyone who
+// can write a book takes the same one is not.
+//
 // These go at `updateBook` itself, in separate processes, because that is where
 // the guarantee is and there is no way to hold the book open for half a minute
 // from the command line. Each writer below is one process, started by this test
@@ -86,13 +100,17 @@ async function aBook(box) {
  * a writer with nothing to wait for changes the book in one step, as the kit's
  * own callers do.
  *
+ * `env` is what that process was started with, for the case where two writers of
+ * one book do not agree about their environment — `up` runs from the user's shell
+ * and the kit's hook from inside a session, with the harness's.
+ *
  * `blocks` is the other kind of slow, and the one that matters: the writer stops
  * its own thread for that long, the way a machine that swapped or a debugger that
  * stopped a process does. Nothing of that process runs while it is stopped — no
  * heartbeat, no notification, no handler — so a lock that is kept alive by a
  * timer is not kept alive at all (round 4, finding 2).
  */
-async function aWriter(box, home, name, { holds = 0, blocks = 0, arrivesAfter = 0 } = {}) {
+async function aWriter(box, home, name, { holds = 0, blocks = 0, arrivesAfter = 0, env = {} } = {}) {
   const dir = path.join(box.root, 'writers');
   await mkdir(dir, { recursive: true });
   const script = path.join(dir, `${name}.mjs`);
@@ -175,7 +193,7 @@ async function aWriter(box, home, name, { holds = 0, blocks = 0, arrivesAfter = 
   return {
     name,
     /** Run it, and answer as `box.run` does: the exit code and both streams. */
-    run: () => node([script], { cwd: box.cwd, env: box.env }),
+    run: () => node([script], { cwd: box.cwd, env: { ...box.env, ...env } }),
     /** Everything every writer wrote down, in the order it happened. */
     async steps() {
       const text = await readFile(log, 'utf8').catch((error) => {
@@ -405,6 +423,56 @@ test('a writer that cannot get the lock waits for it rather than losing its chan
   assert.notEqual(book, null, `the book must still be readable YAML, got:\n${text}`);
   assertNobodyLostAChange(book, [{ name: 'the-first-one', ran: one }, { name: 'the-second-one', ran: two }]);
   assert.notEqual(book.sessions?.['the-second-one'], undefined, `the waiting writer's change is in the book:\n${text}`);
+});
+
+test('two writers of one book take the same turn, whatever environment each was started in', async (t) => {
+  // `up` runs from the user's shell; the kit's hook runs inside a session, with
+  // whatever environment the harness was started with. The two agree about the
+  // book and about nothing else — so a turn that is keyed on anything the
+  // environment decides is not one turn but two, and each writer holds its own
+  // properly, alone, and never meets the other. The fifth review did exactly that
+  // with `TMPDIR`, through two real `session record` runs with nothing else
+  // different between them, and an id went missing: no cleanup, no expiry, no
+  // stopped process, nothing to blame but the two turns.
+  //
+  // So: one book, two environments, and the second writer has to wait for the
+  // first rather than work beside it.
+  const box = await createSandbox(t);
+  const { bots, home } = await aBook(box);
+  const ownTemp = async (which) => {
+    const dir = path.join(box.root, `temp-${which}`);
+    await mkdir(dir, { recursive: true });
+    return dir;
+  };
+
+  const first = await aWriter(box, home, 'the-first-one', {
+    holds: 1200,
+    env: { TMPDIR: await ownTemp('one') },
+  });
+  const second = await aWriter(box, home, 'the-second-one', {
+    arrivesAfter: 200,
+    env: { TMPDIR: await ownTemp('two') },
+  });
+  const [one, two] = await Promise.all([first.run(), second.run()]);
+
+  assert.equal(one.code, 0, one.stderr);
+  assert.equal(two.code, 0, `the writer that had to wait must not fail: ${two.stderr}`);
+
+  const steps = await first.steps();
+  assert.ok(
+    when(steps, 'the-second-one', 'arrived') < when(steps, 'the-first-one', 'committed'),
+    `the second writer should have wanted the book while the first held it, got: ${JSON.stringify(steps)}`,
+  );
+  assert.ok(
+    when(steps, 'the-second-one', 'holding') - when(steps, 'the-second-one', 'arrived') >= 500,
+    'the second writer went in beside the first instead of waiting for it, so the two of them were'
+    + ` never taking the same turn: ${JSON.stringify(steps)}`,
+  );
+
+  const text = await readFile(bookOf(bots), 'utf8');
+  const book = parse(text);
+  assert.notEqual(book, null, `the book must still be readable YAML, got:\n${text}`);
+  assertNobodyLostAChange(book, [{ name: 'the-first-one', ran: one }, { name: 'the-second-one', ran: two }]);
 });
 
 test('a crowd of writers on one book all keep their change', async (t) => {
