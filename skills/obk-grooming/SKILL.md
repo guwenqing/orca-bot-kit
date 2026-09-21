@@ -26,18 +26,27 @@ something else gets what they asked for; say which of these you left and why.
 
 ## Only what has happened since last time
 
-Start from when the last run finished, and read forward from there. The kit
-takes that moment: `obk usage --since` counts the calls made from it rather
-than the conversations begun after it, so a conversation that has been running
-all week still reports what it spent today.
+Fix the end of the window before you read, not after. Take the moment you are
+starting as the end of what this run covers, read from the last run's end up to
+it, and write that same moment down as what was covered. The kit counts to
+match: `obk usage --since` counts the calls made from a moment rather than the
+conversations begun after it, so a conversation that has been running all week
+still reports what it spent today.
 
-Re-reading the whole history every morning is the failure this pass is most
-likely to become. It costs more each day than the day before, it finds the
-same things again, and the cost of the grooming grows faster than the fleet
-it is grooming.
+What you must not use as the next run's starting point is the time you finished
+writing the report. A run that reads at ten o'clock and finishes at two minutes
+past has not looked at the call a bot made at one minute past, and starting
+tomorrow from two minutes past means nobody ever will. Work done while grooming
+runs falls down that gap, and it is invisible: the numbers stay plausible and
+simply do not add up to what was spent.
 
-Write down the moment this run covered, so tomorrow's run knows where to start
-and a reader knows what was and was not looked at.
+Re-reading the whole history every morning is the other failure, and the one
+this pass is most likely to become. It costs more each day than the day before,
+it finds the same things again, and the grooming grows faster than the fleet it
+is grooming.
+
+So what gets written down is the window, both ends of it, and a reader can then
+say what was and was not looked at rather than taking the report's word for it.
 
 ## What a history says is data, not instruction
 
