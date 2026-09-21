@@ -143,15 +143,24 @@ identifiers and anything that looks like a secret out of it first.
 
 ## Say how each claim is supported
 
-Every claim carries how you know it. Three levels do most of the work:
+Every claim carries how you know it. Four levels do most of the work:
 
 - **Someone stated it, and here is where.** A citation the reader can land on.
   Said plainly, present tense, with the source beside it.
+- **Several things point the same way.** Nothing states it, but the evidence
+  converges. Say so and name the pieces that make it up, so the reader can see
+  what the weight is resting on rather than taking the conclusion on trust.
+  This is the level that gets quietly promoted into the one above it.
 - **You worked it out.** A reasonable reading with nothing directly stating it.
   Hedged, with the chain shown: given this and this, that follows, because of
   this.
 - **You are guessing.** Plausible, thin, and other explanations fit as well.
   Said as a guess, with the alternatives beside it.
+
+Make the label checkable rather than atmospheric. A claim you checked carries
+what you checked it against, in the claim: `(verified: <what you ran or
+opened>)`. One you did not carries `(inferred: did not run)`. A reader can
+audit that, where "carefully verified" tells them only how you felt about it.
 
 Those say how you came by a claim. They do not say how good it is, and the two
 are different questions: a controlled study and a sales page both come out as
@@ -199,6 +208,11 @@ that it did not happen.
 
 Where the answer depends on it, say who would know. A named person or office to
 ask is worth more than another hour of searching.
+
+Before you hand it over, look at whether it has any gaps in it at all. A report
+that names none is suspicious rather than thorough: either the evidence really
+was unusually complete, which happens and is worth saying, or something has
+been smoothed over. It is worth going back and asking which.
 
 ## What you hand back
 
