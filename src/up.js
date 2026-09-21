@@ -305,7 +305,10 @@ async function ensureAddress(home, bot, session, harness) {
 
   await updateBook(home, (current) => {
     const entry = { ...current.sessions[session.name] };
-    if (mailbox !== undefined) entry.mailbox = mailbox;
+    // Under the lock, and only if the book still has none: two runs at once
+    // would each have made one, and a session with two mailboxes is a session
+    // half its mail never reaches. The loser's Run is left unused.
+    if (mailbox !== undefined && typeof entry.mailbox !== 'string') entry.mailbox = mailbox;
     if (address !== undefined) entry.address = address;
     current.sessions[session.name] = entry;
   });
