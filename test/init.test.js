@@ -4,7 +4,7 @@ import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 
-import { assertSeededBotsFolder, createSandbox, git, skipGit, skipOrcaFake, snapshot } from './helpers/cli.js';
+import { assertSeededBotsFolder, createSandbox, git, repoRoot, skipGit, skipOrcaFake, snapshot } from './helpers/cli.js';
 
 test('init --bots <relative path> seeds the bots folder', async (t) => {
   const box = await createSandbox(t);
@@ -75,15 +75,24 @@ test('init puts no kit code in the bots folder', async (t) => {
   // rather than whether there is one. A bot's own `CLAUDE.md` -> `AGENTS.md`
   // (PRD 6.6) points at the file next to it and carries nothing of the kit's.
   //
-  // This is about what `init` seeds, which is no skill at all, and not a rule
-  // over the bots folder for good. A bot that carries a kit skill is given an
-  // absolute link into the installed package, which is ADR 0004 working rather
-  // than kit code in the repo (PRD 6.7, test/skills-build.test.js).
+  // A bot that carries a kit skill is given an absolute link into the installed
+  // package, which is ADR 0004 working rather than kit code in the repo (PRD
+  // 6.7, test/skills-build.test.js, which pins that the link is absolute).
+  // `init` used to seed no skill at all, so every link it made was relative and
+  // the rule below could be flat. It now seeds Bot Father with the kit's two
+  // management skills, because a Bot Father with no management skill cannot be
+  // asked to fix itself. So a link onto the kit's own shelf is let through, and
+  // that is the only exception: it is still kept out of the bots folder's own
+  // tree, anything else absolute is still refused, and every other link is held
+  // to the old rule of being relative and pointing inside.
   const box = await createSandbox(t);
 
   assert.equal((await box.run(['init', '--bots', 'bots', '--harness', 'claude'])).code, 0);
 
   const bots = box.path('bots');
+  // Where the kit's own skills live inside the installed package: the one place
+  // outside the bots folder that a link inside it may land.
+  const shelf = path.join(repoRoot, 'skills');
   const tree = await snapshot(bots, skipGit);
   for (const [rel, kind] of Object.entries(tree)) {
     assert.ok(!rel.endsWith('.js'), `no .js file expected, found ${rel}`);
@@ -92,11 +101,13 @@ test('init puts no kit code in the bots folder', async (t) => {
     if (!kind.startsWith('symlink:')) continue;
 
     const target = kind.slice('symlink:'.length);
+    const points = path.resolve(path.dirname(path.join(bots, rel)), target);
+    if (points.startsWith(`${shelf}${path.sep}`)) continue;
+
     assert.ok(
       !path.isAbsolute(target),
-      `the bots folder is a git repo the user may clone, so a link in it should be relative, found ${rel} -> ${target}`,
+      `the bots folder is a git repo the user may clone, so a link in it should be relative unless it is onto the kit's shelf, found ${rel} -> ${target}`,
     );
-    const points = path.resolve(path.dirname(path.join(bots, rel)), target);
     assert.ok(
       points === bots || points.startsWith(`${bots}${path.sep}`),
       `a link in the bots folder should point inside it, found ${rel} -> ${target}`,
