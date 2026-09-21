@@ -143,8 +143,12 @@ paragraphs about the architecture.
   is over. Do not mark simple code down for not being abstract: a few lines
   repeated beat an abstraction invented too early.
 - **The tests.** Is there a test for what changed, and would it fail if the
-  code were wrong? For a bug, is there a test that reproduces it? Was there a
-  failing run before the code, or only a green one after? Do the tests observe
+  code were wrong? Where a separate author wrote them, are the files that
+  report names actually in the change in front of you — a test named in a
+  hand-over and missing from the diff is a finding, not an oversight, and it
+  reads as success until someone else clones the branch. For a bug, is there a
+  test that reproduces it? Was there a failing run before the code, or only a
+  green one after? Do the tests observe
   behaviour or repeat the implementation? And look for green that was bought: a
   threshold moved, a test skipped or deleted, assertions taken out of a test
   that stayed, a check switched off by a comment, a value hard-coded to match

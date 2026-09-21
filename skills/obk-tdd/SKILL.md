@@ -179,10 +179,20 @@ a real and expected outcome, not a defeat. The tests verify the requirement;
 they do not define the solution, so do not write code that works only for the
 inputs a test happens to use.
 
-Where the harness or the repo allows it, make tampering visible rather than
-forbidden: commit the author's tests before the implementation, so a later
-`git diff` over the test paths shows any change; or keep those paths outside
-the implementer's write scope.
+The author's tests are part of the change, not a stage before it. Commit them
+as soon as they are red, before the implementation: that way a later diff over
+the test paths shows any change to them, and — the part that actually bites —
+they cannot be left behind. Where the repo allows it, keeping those paths out
+of the implementer's write scope makes tampering visible rather than merely
+forbidden.
+
+An author you have dispatched and not heard back from is outstanding work. The
+piece is not done while it is still writing, and nothing goes out on the
+strength of tests that have not arrived. When the hand-back comes, read it
+against what is actually there: every file it names, present in the working
+tree, and present in the change you are about to hand on. A finished test file
+still sitting in a working tree is the ordinary way this goes wrong, and it
+looks exactly like success until someone else clones the branch.
 
 When you can neither start an author nor reach one, that is where the work
 stops: say so and ask what to do. The separation is the check, and an
@@ -455,7 +465,8 @@ by a comment, a value hard-coded to match one test's input.
 
 - Red: the command, the failing output, why that failure was expected.
 - Green: the command, the passing output, and any other failure the run showed.
-- Who wrote the tests, and whether they were changed after they were written.
+- Who wrote the tests, whether they were changed after they were written, and
+  that every file the author handed back is in the change.
 - The mutation check in three lines: what you broke, what survived, what you
   did about it — or the line that says you skipped it and why.
 - What you did not check, and the command that would check it.
