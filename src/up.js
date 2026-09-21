@@ -65,7 +65,10 @@ export async function bringUp(bots, { bot: onlyBot, session: onlySession } = {})
   // opened would reach nobody until the next restart (PRD 6.6). A bot whose
   // build is in trouble is reported and the run carries on — the file is the
   // user's, and one they edited is no reason to leave a session down.
-  const rules = chosen.map(({ bot, home }) => buildAgents(bots, home, bot));
+  // Built at the path the user spelled, not at the one Orca is given: `home` is
+  // resolved for Orca's sake, and a folder reached through a link would
+  // otherwise be reported as a road out of the bots folder and back in.
+  const rules = chosen.map(({ bot }) => buildAgents(bots, botDir(bots, bot.name), bot));
 
   // And the kit's hook goes into every bot folder before Orca is asked for
   // anything, for the same reason: a harness reads its hooks when it comes up,
