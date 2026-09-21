@@ -74,6 +74,11 @@ test('init puts no kit code in the bots folder', async (t) => {
   // link is how they would get in, so what a link points at is the check
   // rather than whether there is one. A bot's own `CLAUDE.md` -> `AGENTS.md`
   // (PRD 6.6) points at the file next to it and carries nothing of the kit's.
+  //
+  // This is about what `init` seeds, which is no skill at all, and not a rule
+  // over the bots folder for good. A bot that carries a kit skill is given an
+  // absolute link into the installed package, which is ADR 0004 working rather
+  // than kit code in the repo (PRD 6.7, test/skills-build.test.js).
   const box = await createSandbox(t);
 
   assert.equal((await box.run(['init', '--bots', 'bots', '--harness', 'claude'])).code, 0);
