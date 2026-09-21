@@ -109,9 +109,19 @@ same thing:
 - **The interface is the test surface.** Callers and tests cross at the same
   place. If you find yourself wanting to test past the interface, the shape is
   probably wrong.
-- **One adapter is a hypothetical seam; two is a real one.** Do not put a seam
-  where nothing actually varies. A seam with one thing behind it is
-  indirection with a nice name.
+- **One adapter is a hypothetical port; two is a real one.** This one is about
+  pluggability, not about whether a module should exist. Before putting an
+  interchangeable boundary in — a port with adapters either side — ask what the
+  second adapter is; production plus a test double is the usual honest pair. If
+  there is only ever one, you have added a layer to swap something that never
+  gets swapped. Pure computation needs no adapter at all: merge it and test it
+  through its interface.
+
+  Whether a module earns its place is a different question, answered by the
+  deletion test and by how much it hides. A module with one caller can be
+  entirely right — hiding an invariant, a rule or a state machine that would
+  otherwise sit in the middle of something else. One caller is not one adapter,
+  and counting callers is not this test.
 
 ### Signs the shape is wrong
 
@@ -209,8 +219,19 @@ use the stand-in and keep the seam inside. Your own service across a network:
 a port at the seam, a real adapter for production and an in-memory one for
 tests. Something you do not own at all: a port, and a stand-in for it.
 
-And once tests exist at the deeper interface, the old tests against the shallow
-pieces are waste. Replace, do not layer: delete them.
+Replace, do not layer. Once the behaviour is covered through the deeper
+interface, a second set of tests against the pieces inside proves the same
+thing twice and pins the inside in place. But a new location is not the same as
+new coverage: a test at the interface that exercises the ordinary path does not
+stand in for the one that covered a retry charging twice. What retires is what
+is genuinely superseded — the same behaviour, now checked through the new
+interface — or what was tied to internals that no longer exist. Everything else
+is carried across.
+
+And it is not the implementer's call. The tests belong to whoever wrote them;
+an ordinary restructuring keeps them green, and where a change is big enough
+that they cannot hold, the separate author writes them again from the
+requirement.
 
 ## Cut the work into pieces
 
