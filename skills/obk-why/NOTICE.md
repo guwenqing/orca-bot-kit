@@ -33,6 +33,12 @@ The skill `obk-why` was consolidated for this kit from this, MIT, with thanks:
   turning the findings into a preserve, change, avoid and risk constraint set
   when the question precedes a change.
 
+One addition is not from the source: a flattened history hides the steps, so
+where a project squashes a branch into one change, the reasoning lives on the
+branch or in the discussion rather than in the change that landed. It was added
+after an acceptance run of this skill traced a constant's history correctly but
+cited the squash merge for a value that the merge had never held.
+
 Made generic, which is what the owner asked for. The original discovers hosted
 integrations and maps them to seven fixed categories, spawns investigator and
 synthesizer subagents on named models, and keeps four reference files of

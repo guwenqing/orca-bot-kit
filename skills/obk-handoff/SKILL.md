@@ -37,6 +37,14 @@ clearly marked work-in-progress commit on the branch you are on. If it does
 not build or the tests do not pass, say so in the commit message in one line,
 so the next reader knows before they run it rather than after.
 
+Commit your own work, though, and only that. Where something in the tree is
+not yours — another session's edit, a change you were asked to leave alone —
+do not commit it, stage it or revert it to tidy the handover up. Write down
+what is there and whose it is, with enough detail that the next person can tell
+it apart from yours, and leave it exactly as you found it. A handover that
+quietly swept someone else's unfinished work into a commit is worse than one
+that leaves a messy tree, because the mess is at least visible.
+
 ## The note
 
 Write it where the next session will find it and where it will not be mistaken
@@ -57,7 +65,10 @@ What a cold reader needs, and roughly in this order:
   anything left in a scratch place.
 - **What to do first.** One concrete next action, not a list of possibilities.
 - **What will bite them.** The thing you learned the hard way, the tool that
-  behaves oddly, the assumption that turned out to be wrong.
+  behaves oddly, the assumption that turned out to be wrong. A command from the
+  project's own instructions that does not work from here, and what you used
+  instead, belongs here too: the next person will otherwise spend the same
+  half hour finding out.
 - **What was decided and by whom**, where a decision would otherwise look
   arbitrary.
 

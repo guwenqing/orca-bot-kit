@@ -56,8 +56,10 @@ text is not generosity; it is a way of not choosing.
 
 ## Keep it a conversation
 
-Offer to go deeper or move on, and follow where they go. No quizzes, and do not
-ask them to repeat it back.
+Offer to go deeper or move on, and follow where they go. Do not quiz them to
+find out what they know — read that from the conversation — and do not ask them
+to say it back to prove it landed. Someone who asks to be tested on it is
+asking for something else, and that is theirs to ask for.
 
 Do not narrate the teaching. No announcing that something is the key insight,
 the tricky part, the thing to hold onto, or where it gets interesting. No

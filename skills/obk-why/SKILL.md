@@ -37,7 +37,7 @@ and the review or discussion those changes belong to. Everything after this
 hangs off that anchor, and an investigation that never had one tends to answer
 a question nobody asked.
 
-The history is the one source that is always there. Who last touched these
+Where the project keeps its history, that is the one source you can count on. Who last touched these
 lines and in what change; the whole life of the file, including through
 renames; what the change said about itself; and whatever discussion is attached
 to it, which is usually where the reason actually is.
@@ -70,6 +70,15 @@ Watch for the newest change looking authoritative. The shape you are asking
 about is usually the accumulation of several decisions, and the most recent one
 often only moved something that an earlier one put there. Trace back until the
 reason appears or the trail ends.
+
+And watch for a history that has been flattened. Where a project collapses a
+branch into a single change when it lands, that change shows the end state and
+none of the steps: a value that was set, argued over and moved twice appears to
+have arrived at its final form in one go. The steps are still there, on the
+branch or in the discussion attached to it, and that is usually where the
+reason is — the argument that moved it is more informative than the number it
+landed on. Cite the change that actually did the thing, not the one that
+delivered it.
 
 ## How sure you are
 

@@ -24,5 +24,12 @@ with thanks:
   on resume — "this is a pause, not a final report". Also its rule that a pause
   is explicit: on "keep going", do not pause.
 
+Two additions are not from either source, both from an acceptance run of this
+skill: commit your own work and only your own, since the durable-work
+instruction otherwise reads as licence to sweep another session's uncommitted
+edits into a handover commit; and a command from the project's own
+instructions that does not work from where you are, with whatever you used
+instead, belongs in what will bite them.
+
 PRD 6.5 decides the part neither source covers: clearing a session triggers no
 handoff. This skill runs when it is asked for.
