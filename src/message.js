@@ -15,7 +15,7 @@
 // one line into the receiver's tab. Both harnesses queue a typed line while
 // they are busy, which is what PRD 6.9 means by queued and not interrupting.
 
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { readBook } from './book.js';
@@ -52,7 +52,9 @@ export function findSession(bots, target) {
     throw new Error(`there is no bot called ${botName} in ${bots}. The bots there are: ${names.join(', ')}.`);
   }
 
-  const home = botDir(bots, botName);
+  // Resolved, because Orca is asked about this folder by path and does not
+  // follow a link to it (tech notes, section 1).
+  const home = realpathSync(botDir(bots, botName));
   const bot = readBot(home, botName);
   const session = pickSession(bot, sessionName, target);
   const harness = harnessOf(session, bot.harness);
@@ -148,7 +150,6 @@ export function sendMessage(bots, { to: target, from: sender, tab, subject, text
     from: `run:${from.mailbox}`,
     subject,
     body: written.body,
-    type: thread === undefined ? 'status' : 'handoff',
     thread,
   });
 
@@ -186,21 +187,38 @@ export function checkMail(bots, { bot: botName, session: sessionName, tab, peek 
 
   useMailbox(who.mailbox);
   const found = readMailbox(who.mailbox, { peek });
-  const messages = (found.messages ?? []).map(asMessage);
+  const messages = (found.messages ?? []).map((message) => asMessage(bots, message));
   if (!peek && found.deliveryId !== undefined && messages.length > 0) ackMailbox(who.mailbox, found.deliveryId);
 
   return { bots, bot: who.bot, session: who.session, mailbox: who.mailbox, read: !peek, messages };
 }
 
 /** One message, in the kit's words rather than Orca's. */
-const asMessage = (message) => ({
+const asMessage = (bots, message) => ({
   id: message.id,
-  from: message.from_handle,
+  // The mailbox it came from, said as the session it belongs to where the
+  // fleet knows it: a reply is written to a session, not to a run id.
+  from: whoOwns(bots, message.from_handle) ?? message.from_handle,
+  fromMailbox: message.from_handle,
   subject: message.subject,
   body: message.body,
   thread: message.thread_id ?? undefined,
   at: message.created_at,
 });
+
+/** Whose mailbox `run:<id>` is, as `<bot>/<session>`, when it is one of the fleet's. */
+function whoOwns(bots, handle) {
+  if (typeof handle !== 'string' || !handle.startsWith('run:')) return undefined;
+  const mailbox = handle.slice('run:'.length);
+
+  for (const name of botNames(bots)) {
+    const book = readBook(botDir(bots, name));
+    for (const [session, entry] of Object.entries(book.sessions)) {
+      if (entry?.mailbox === mailbox) return `${name}/${session}`;
+    }
+  }
+  return undefined;
+}
 
 /**
  * The session that is writing: the one named, or the one whose Orca tab this
@@ -237,7 +255,7 @@ function sessionInTab(bots, tab) {
  * depend on a file of theirs staying where it was when they sent it.
  */
 function bodyOf(bots, { from, to, subject, text, textFile }) {
-  const said = textFile === undefined ? text : readFileSync(textFile, 'utf8');
+  const said = textFile === undefined ? text : readText(textFile);
   if (said === undefined) {
     throw new Error('message send needs something to say: --text <text> or --text-file <path>.');
   }
@@ -253,6 +271,14 @@ function bodyOf(bots, { from, to, subject, text, textFile }) {
     body: `${subject} is longer than a message carries, so it is in this file, whole and as it was written:\n${file}`,
     file,
   };
+}
+
+function readText(file) {
+  try {
+    return readFileSync(file, 'utf8');
+  } catch (error) {
+    throw new Error(`--text-file names ${file}, and that file cannot be read (${error.code}). Write it, or name the one you meant.`);
+  }
 }
 
 const stamp = () => new Date().toISOString().replaceAll(':', '-').replace('.', '-');
