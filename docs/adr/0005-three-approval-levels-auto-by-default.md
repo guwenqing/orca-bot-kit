@@ -15,3 +15,16 @@ A session's approval level is `auto`, `ask` or `dangerously-skip`. `auto` is the
 - Codex auto mode sandboxes writes to the launch folder, so a work dir outside the bot home needs `--add-dir`.
 - Native Claude messaging between an `auto` session and a `dangerously-skip` session is held for approval; such pairs use the Orca mailbox.
 - The flag names must be re-checked when a harness updates.
+
+## Amendment, 2026-09-21 (coordinator's decision for slice 08; the owner was told and may overrule)
+
+On Codex, `auto` also carries `-c sandbox_workspace_write.network_access=true`.
+Without it the Orca CLI cannot reach the running Orca app from inside Codex's
+workspace-write sandbox, so a Codex bot can neither read nor send fleet mail
+(evidence: slice 08, three runs on 2026-09-21, Codex 0.155.1, Orca 1.4.205; the
+environment reaches the sandboxed command, the connection does not). The cost
+is stated rather than hidden: that sandbox gains network access generally,
+there being no localhost-only setting. It is on for every Codex session,
+because a bot that cannot be written to is not in the fleet. A user may turn it
+off for a session, and the kit then reports that session as unreachable by
+fleet mail rather than failing silently.
