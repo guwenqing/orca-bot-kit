@@ -7,9 +7,11 @@
 // starts anyway, on its own defaults, and the session runs for days at the
 // wrong approval level or the wrong model with nothing to show for it.
 //
-// The order is fixed — harness, approval, model, effort, context, `--add-dir`,
-// extra args, `--`, prompt — so a reader of an Orca tab sees the same shape
-// for every session. The `--` comes only with a prompt, and it is there
+// The order is fixed — the tab shell's pid, harness, approval, model, effort,
+// context, `--add-dir`, extra args, `--`, prompt — so a reader of an Orca tab
+// sees the same shape for every session. The pid in front is `OBK_TAB_SHELL`,
+// which the tables below leave out and `launchLine` puts back: it says nothing
+// about the flag mapping, which is what they are for. The `--` comes only with a prompt, and it is there
 // because a prompt may begin with a dash: without it `claude` exits 1 with
 // `unknown option` and `codex` exits 2 with `unexpected argument`.
 //
@@ -36,6 +38,7 @@ import {
   botHomeOf,
   createSandbox,
   fakeProgram,
+  launchLine,
   sh,
   tabsOfBot,
   typedInto,
@@ -62,7 +65,7 @@ async function launchOf(box, harness, settings, { bot = 'api-bot' } = {}) {
 }
 
 const CLAUDE = [
-  ['nothing set at all', [], BARE_LAUNCH.claude],
+  ['nothing set at all', [], 'claude --permission-mode auto'],
   ['approval auto', ['--approval', 'auto'], 'claude --permission-mode auto'],
   ['approval ask', ['--approval', 'ask'], 'claude --permission-mode manual'],
   ['approval dangerously-skip', ['--approval', 'dangerously-skip'], 'claude --dangerously-skip-permissions'],
@@ -95,7 +98,7 @@ const CLAUDE = [
 ];
 
 const CODEX = [
-  ['nothing set at all', [], BARE_LAUNCH.codex],
+  ['nothing set at all', [], 'codex --approve-for-me'],
   ['approval auto', ['--approval', 'auto'], 'codex --approve-for-me'],
   ['approval ask', ['--approval', 'ask'], 'codex -a on-request'],
   [
@@ -137,7 +140,7 @@ for (const [harness, cases] of [['claude', CLAUDE], ['codex', CODEX]]) {
     test(`${harness}, ${label}: ${expected}`, async (t) => {
       const box = await createSandbox(t);
 
-      assert.equal(await launchOf(box, harness, settings), expected);
+      assert.equal(await launchOf(box, harness, settings), launchLine(expected));
     });
   }
 }
@@ -166,7 +169,7 @@ test('Codex gets --add-dir for a work dir outside the bot home, and nothing for 
   const near = await launchOf(inside, 'codex', ['--work-dir', 'work/api']);
 
   assert.ok(
-    far.startsWith(`codex --approve-for-me --add-dir ${outside} -- '`),
+    far.startsWith(launchLine(`codex --approve-for-me --add-dir ${outside} -- '`)),
     `--add-dir should come after the settings and before the prompt, got: ${far}`,
   );
   assert.ok(
@@ -197,7 +200,7 @@ test('--add-dir is given the absolute path, even when the work dir was written r
 
   const home = botHomeOf(box.path('bots'), 'api-bot');
   assert.ok(
-    typed.startsWith(`codex --approve-for-me --add-dir ${path.resolve(home, '../shared-clones')} -- '`),
+    typed.startsWith(launchLine(`codex --approve-for-me --add-dir ${path.resolve(home, '../shared-clones')} -- '`)),
     `got: ${typed}`,
   );
 });
@@ -230,7 +233,7 @@ test('an extra_args written by hand as one string is typed as it stands', async 
   assert.equal((await box.run(['up', '--bots', 'bots', '--bot', 'api-bot'])).code, 0);
 
   const tabs = await tabsOfBot(box, box.path('bots'), 'api-bot');
-  assert.deepEqual(typedInto(tabs[0]), ['codex --approve-for-me --search --profile mine']);
+  assert.deepEqual(typedInto(tabs[0]), [launchLine('codex --approve-for-me --search --profile mine')]);
 });
 
 for (const harness of ['claude', 'codex']) {

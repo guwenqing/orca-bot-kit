@@ -83,7 +83,13 @@ test('init puts no kit code in the bots folder', async (t) => {
   }
 });
 
-test('init writes nothing outside the bots folder', async (t) => {
+test('init writes nothing outside the bots folder but what the kit keeps beside it', async (t) => {
+  // The point of this one is where the kit is *not* allowed to write: not the home
+  // directory, not the working directory, not a folder of its own somewhere else
+  // on the machine. What it keeps for itself goes beside the bots folder, named
+  // after it — the start prompt it hands a session, and where it says a writer
+  // holds the book (PRD 6.3) — so that it is out of the user's repo and their git
+  // status while staying somewhere they can see it and delete it.
   const box = await createSandbox(t);
   // What the fake Orca remembers is Orca's own state, not a write to the user's disk.
   const skipTarget = (rel) => rel === 'cwd/bots' || rel.startsWith('cwd/bots/') || skipOrcaFake(rel);
@@ -92,7 +98,16 @@ test('init writes nothing outside the bots folder', async (t) => {
   assert.equal((await box.run(['init', '--bots', 'bots', '--harness', 'claude'])).code, 0);
   const after = await snapshot(box.root, skipTarget);
 
-  assert.deepEqual(after, before);
+  assert.deepEqual(
+    Object.keys(before).filter((rel) => !(rel in after)),
+    [],
+    'nothing outside the bots folder may be taken away',
+  );
+  assert.deepEqual(
+    Object.keys(after).filter((rel) => after[rel] !== before[rel] && !rel.startsWith('cwd/bots.')),
+    [],
+    'and nothing may be written outside it except beside it',
+  );
 });
 
 test('init asks the Orca that OBK_ORCA names, not the one on PATH', async (t) => {

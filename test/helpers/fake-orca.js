@@ -33,10 +33,22 @@
 //               breaks the second tab of a run and not the first.
 //   crash       { command, exitCode, stdout, stderr } — no JSON, a bad exit code
 //   garbage     { command, text } — output that is not JSON at all
+//   runDuring   { command, argv, env, on } — run `argv` to completion once,
+//               before answering the `on`th call of `command` (the first by
+//               default), so another writer really lands in the middle of a run
+//               rather than after it. That is the only way to reach the case the
+//               book's lock exists for: the kit is between two Orca calls,
+//               holding what it read, while a hook writes the same file.
+//               `ORCA_TAB_ID` is added to the child's environment as the tab of
+//               the terminal the call names, which is the one thing a test
+//               cannot know before the run. What to start is the harness chain
+//               of helpers/cli.js, not the hook command on its own: a report
+//               with no harness above it is not the session's and is ignored.
 //
 // In `crash` and `garbage`, `command` may be "*" for every command. A command
 // is its leading words: "status", "repo add", "terminal create", and so on.
 
+import { spawnSync } from 'node:child_process';
 import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
@@ -100,6 +112,31 @@ if (aimedHere(state.crash)) {
 if (aimedHere(state.garbage)) {
   process.stdout.write(state.garbage.text ?? 'not json at all\n');
   process.exit(0);
+}
+
+// Another writer, run to completion before this call is answered. It sees the
+// disk as the kit left it a moment ago, which is what makes the two overlap.
+if (aimedHere(state.runDuring)) {
+  const spec = state.runDuring;
+  if (callsSoFar() === (spec.on ?? 1)) {
+    const named = (state.terminals ?? []).find((entry) => entry.handle === flag('--terminal'));
+    const [program, ...rest] = spec.argv;
+    const ran = spawnSync(program, rest, {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        ...(named === undefined ? {} : { ORCA_TAB_ID: named.tabId }),
+        ...(spec.env ?? {}),
+      },
+    });
+    appendFileSync(path.join(dir, 'ran-during.log'), `${JSON.stringify({
+      command,
+      argv: spec.argv,
+      status: ran.status,
+      stdout: ran.stdout,
+      stderr: ran.stderr,
+    })}\n`);
+  }
 }
 
 const planned = (state.fail ?? {})[command];

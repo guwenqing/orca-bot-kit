@@ -11,25 +11,27 @@
 // So the tests here read what was typed into the tab, and then run that line
 // through a real shell against a fake harness and read its argv.
 //
-// The file is the kit's own, under the system temp directory. A `prompt_file`
+// The file is the kit's own, and it lives beside the bots folder — `<bots>.prompts`,
+// a sibling of the repo the way skill-source clones are (PRD 6.3), never inside
+// it and never in a temp directory two bots folders would share. A `prompt_file`
 // the user wrote is theirs: it stays in the bot home, and nothing here moves or
 // rewrites it.
 //
-// The bots in this file have names of their own. The kit's file is named after
-// the bot and the session, so two test files running at once under the same
-// names would read each other's prompt.
+// Because the folder hangs off the bots folder, every sandbox has its own, and
+// nothing a test here writes can be read by another test or by the machine.
 
 import assert from 'node:assert/strict';
-import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
-import os from 'node:os';
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 
 import {
   assertCleanFailure,
+  BARE_LAUNCH,
   botHomeOf,
   createSandbox,
   fakeProgram,
+  launchLine,
   sh,
   tabsOfBot,
   typedInto,
@@ -40,22 +42,8 @@ const FITS = 200;
 
 const line = (length) => 'x'.repeat(length);
 
-/**
- * The kit's prompt files for this bot's sessions, gone before the test runs
- * and gone again after it. They live under the system temp directory, named
- * after the bot and the session and never cleaned up, so one left by an
- * earlier run would answer for this one: a test that asks whether the kit
- * wrote a file would pass without the kit writing anything.
- */
-async function freshPrompts(t, bot, sessions = ['daily']) {
-  const clear = () => Promise.all(sessions.map((session) => rm(promptPathOf(bot, session), { force: true })));
-  await clear();
-  t.after(clear);
-}
-
 /** A bots folder with one Codex bot, and one session with the settings given. */
-async function withSession(t, box, bot, settings, { session = 'daily' } = {}) {
-  await freshPrompts(t, bot, [session]);
+async function withSession(box, bot, settings, { session = 'daily' } = {}) {
   assert.equal((await box.run(['init', '--bots', 'bots', '--harness', 'claude'])).code, 0);
   const made = await box.run(['bot', 'create', '--bots', 'bots', '--name', bot, '--harness', 'codex']);
   assert.equal(made.code, 0, made.stderr);
@@ -92,7 +80,7 @@ async function argvOf(box, text, fake) {
 function assertReadsBack(typed, file) {
   assert.match(
     typed,
-    /^codex --approve-for-me -- "\$\(cat .+\)"$/,
+    /^OBK_TAB_SHELL=\$\$ codex --approve-for-me -- "\$\(cat .+\)"$/,
     `the line should read the prompt back inside one double-quoted word, got: ${typed}`,
   );
   assert.ok(typed.includes(file), `and read it from ${file}, got: ${typed}`);
@@ -101,22 +89,25 @@ function assertReadsBack(typed, file) {
 /** Whether there is a file at `target`. */
 const isThere = (target) => stat(target).then(() => true, () => false);
 
-/** Where the kit would leave a prompt for this bot's session, if it left one. */
-const promptPathOf = (bot, session = 'daily') =>
-  path.join(os.tmpdir(), 'obk-prompts', `${bot}.${session}.txt`);
+/**
+ * Where the kit would leave a prompt for this bot's session, if it left one:
+ * beside the bots folder it belongs to, one file per bot and session.
+ */
+const promptPathOf = (bots, bot, session = 'daily') =>
+  path.join(`${bots}.prompts`, `${bot}.${session}.txt`);
 
 test('a short prompt of one line is typed into the launch line as it stands', async (t) => {
   const box = await createSandbox(t);
   const fake = await fakeProgram(box, 'codex', {});
   const short = 'Read your AGENTS.md and say in one line what this bot owns.';
-  const bots = await withSession(t, box, 'short-bot', ['--prompt', short]);
+  const bots = await withSession(box, 'short-bot', ['--prompt', short]);
 
   const { typed, tab } = await up(box, bots, 'short-bot');
 
-  assert.equal(typed, `codex --approve-for-me -- '${short}'`, 'the text itself, quoted, after the separator');
+  assert.equal(typed, launchLine(`codex --approve-for-me -- '${short}'`), 'the text itself, quoted, after the separator');
   assert.ok(!typed.includes('cat '), `nothing to read back, got: ${typed}`);
   assert.equal('promptFile' in tab, false, 'a prompt that went in on the line was not handed over in a file');
-  assert.equal(await isThere(promptPathOf('short-bot')), false, 'and no file was written for it');
+  assert.equal(await isThere(promptPathOf(bots, 'short-bot')), false, 'and no file was written for it');
   assert.deepEqual(await argvOf(box, typed, fake), ['--approve-for-me', '--', short]);
 });
 
@@ -124,11 +115,11 @@ test('a prompt too long for a line is handed over in a file the kit writes', asy
   const box = await createSandbox(t);
   const fake = await fakeProgram(box, 'codex', {});
   const long = `Read your AGENTS.md. ${line(FITS)}`;
-  const bots = await withSession(t, box, 'long-bot', [`--prompt=${long}`]);
+  const bots = await withSession(box, 'long-bot', [`--prompt=${long}`]);
 
   const { typed, tab } = await up(box, bots, 'long-bot');
 
-  assert.equal(tab.promptFile, promptPathOf('long-bot'), 'the answer names the file the session was handed');
+  assert.equal(tab.promptFile, promptPathOf(bots, 'long-bot'), 'the answer names the file the session was handed');
   assertReadsBack(typed, tab.promptFile);
   assert.equal(await readFile(tab.promptFile, 'utf8'), long, 'the file holds what the session is to be told, and only that');
   // The line is the contract: what the harness gets has to be the same either
@@ -141,11 +132,11 @@ test('a prompt of more than one line goes by file however short it is', async (t
   // them: a line is a line, and this is two.
   const box = await createSandbox(t);
   const fake = await fakeProgram(box, 'codex', {});
-  const bots = await withSession(t, box, 'two-line-bot', ['--prompt=Read.\nThen wait.']);
+  const bots = await withSession(box, 'two-line-bot', ['--prompt=Read.\nThen wait.']);
 
   const { typed, tab } = await up(box, bots, 'two-line-bot');
 
-  assert.equal(tab.promptFile, promptPathOf('two-line-bot'));
+  assert.equal(tab.promptFile, promptPathOf(bots, 'two-line-bot'));
   assertReadsBack(typed, tab.promptFile);
   assert.deepEqual(await argvOf(box, typed, fake), ['--approve-for-me', '--', 'Read.\nThen wait.']);
 });
@@ -158,7 +149,7 @@ for (const [label, length, byFile] of [
     const box = await createSandbox(t);
     const bot = `edge-${length}-bot`;
     const prompt = line(length);
-    const bots = await withSession(t, box, bot, [`--prompt=${prompt}`]);
+    const bots = await withSession(box, bot, [`--prompt=${prompt}`]);
 
     const { typed, tab } = await up(box, bots, bot);
 
@@ -175,7 +166,7 @@ test('the work-dir note goes into the file with the prompt', async (t) => {
   const box = await createSandbox(t);
   const fake = await fakeProgram(box, 'codex', {});
   const long = `Read your AGENTS.md. ${line(FITS)}`;
-  const bots = await withSession(t, box, 'note-bot', [`--prompt=${long}`, '--work-dir', 'work/api']);
+  const bots = await withSession(box, 'note-bot', [`--prompt=${long}`, '--work-dir', 'work/api']);
 
   const { typed, tab } = await up(box, bots, 'note-bot');
 
@@ -196,7 +187,7 @@ test('whatever is in the file reaches the harness as one argument, unread by the
   - a line that starts with a dash
   two  spaces, a tab\tand  $(echo no)
 ${line(FITS)}`;
-  const bots = await withSession(t, box, 'nasty-bot', [`--prompt=${nasty}`]);
+  const bots = await withSession(box, 'nasty-bot', [`--prompt=${nasty}`]);
 
   const { typed, tab } = await up(box, bots, 'nasty-bot');
 
@@ -211,7 +202,6 @@ test('a prompt file of the user\'s own is left where they put it', async (t) => 
   const box = await createSandbox(t);
   const fake = await fakeProgram(box, 'codex', {});
   const duty = `You keep the day running.\n\n  - read AGENTS.md\n${line(FITS)}\n`;
-  await freshPrompts(t, 'own-bot');
   assert.equal((await box.run(['init', '--bots', 'bots', '--harness', 'claude'])).code, 0);
   assert.equal((await box.run(['bot', 'create', '--bots', 'bots', '--name', 'own-bot', '--harness', 'codex'])).code, 0);
   const bots = box.path('bots');
@@ -227,8 +217,47 @@ test('a prompt file of the user\'s own is left where they put it', async (t) => 
 
   assert.equal(await readFile(theirs, 'utf8'), duty, 'the user\'s file is not rewritten');
   assert.notEqual(tab.promptFile, theirs, 'and it is not the file the launch line reads');
-  assert.ok(!tab.promptFile.startsWith(bots), `the kit's file belongs outside the bots folder, got: ${tab.promptFile}`);
+  // `<bots>.prompts` is a sibling of the bots folder, not a child of it: the
+  // bots folder is the user's git repo, and a file the kit writes into it is a
+  // file in their `git status` every time a session starts.
+  assert.ok(
+    !tab.promptFile.startsWith(bots + path.sep),
+    `the kit's file belongs outside the bots folder, got: ${tab.promptFile}`,
+  );
+  assert.equal(path.dirname(tab.promptFile), `${bots}.prompts`, `got: ${tab.promptFile}`);
+  assert.equal(path.dirname(path.dirname(tab.promptFile)), path.dirname(bots), 'and it sits beside the bots folder');
   assert.deepEqual(await argvOf(box, typed, fake), ['--approve-for-me', '--', duty.trimEnd()]);
+});
+
+test('two bots folders holding the same bot and session are handed two files', async (t) => {
+  // What the old shared folder under /tmp could not do. The file was named
+  // after the bot and the session and nothing else, so a second bots folder
+  // with an api-bot of its own overwrote the first one's duty with its own —
+  // and whichever session started second was told the wrong thing.
+  const box = await createSandbox(t);
+  const mine = `Keep the fleet running. ${line(FITS)}`;
+  const theirs = `Watch the queue and say nothing. ${line(FITS)}`;
+
+  const here = await withSession(box, 'twin-bot', [`--prompt=${mine}`]);
+  assert.equal((await box.run(['init', '--bots', 'other', '--harness', 'claude'])).code, 0);
+  assert.equal((await box.run([
+    'bot', 'create', '--bots', 'other', '--name', 'twin-bot', '--harness', 'codex',
+  ])).code, 0);
+  assert.equal((await box.run([
+    'session', 'add', '--bots', 'other', '--bot', 'twin-bot', '--name', 'daily', `--prompt=${theirs}`,
+  ])).code, 0);
+  const there = box.path('other');
+
+  const first = await up(box, here, 'twin-bot');
+  const second = await box.run(['up', '--bots', 'other', '--bot', 'twin-bot', '--json']);
+
+  assert.equal(second.code, 0, second.stderr);
+  const other = JSON.parse(second.stdout).tabs[0];
+  assert.equal(first.tab.promptFile, promptPathOf(here, 'twin-bot'));
+  assert.equal(other.promptFile, promptPathOf(there, 'twin-bot'));
+  assert.notEqual(first.tab.promptFile, other.promptFile, 'one bots folder\'s duty must not be written over another\'s');
+  assert.equal(await readFile(first.tab.promptFile, 'utf8'), mine);
+  assert.equal(await readFile(other.promptFile, 'utf8'), theirs);
 });
 
 test('the blank lines a format leaves at the ends are taken off, and nothing else', async (t) => {
@@ -240,7 +269,6 @@ test('the blank lines a format leaves at the ends are taken off, and nothing els
   const box = await createSandbox(t);
   const fake = await fakeProgram(box, 'codex', {});
   const duty = `\n\nYou keep the day running.\n\n  - read AGENTS.md\n\n${line(FITS)}\n\n\n`;
-  await freshPrompts(t, 'ends-bot');
   assert.equal((await box.run(['init', '--bots', 'bots', '--harness', 'claude'])).code, 0);
   assert.equal((await box.run(['bot', 'create', '--bots', 'bots', '--name', 'ends-bot', '--harness', 'codex'])).code, 0);
   const bots = box.path('bots');
@@ -269,7 +297,7 @@ test('the prompt is in its file before the tab is opened', async (t) => {
   // that is not there yet starts a harness with an empty prompt.
   const box = await createSandbox(t);
   const long = `Read your AGENTS.md. ${line(FITS)}`;
-  const bots = await withSession(t, box, 'early-bot', [`--prompt=${long}`]);
+  const bots = await withSession(box, 'early-bot', [`--prompt=${long}`]);
   await box.orca.set({ fail: { 'terminal create': { code: 'runtime_error', message: 'no tab for you' } } });
 
   const result = await box.run(['up', '--bots', 'bots', '--bot', 'early-bot']);
@@ -277,7 +305,7 @@ test('the prompt is in its file before the tab is opened', async (t) => {
   assertCleanFailure(result);
   assert.deepEqual(await tabsOfBot(box, bots, 'early-bot'), [], 'there is no tab at all');
   assert.equal(
-    await readFile(promptPathOf('early-bot'), 'utf8'),
+    await readFile(promptPathOf(bots, 'early-bot'), 'utf8'),
     long,
     'the prompt was written before Orca was asked for the tab',
   );
@@ -287,8 +315,7 @@ test('two sessions of one bot are handed two files', async (t) => {
   const box = await createSandbox(t);
   const first = `Read your AGENTS.md. ${line(FITS)}`;
   const second = `Watch the queue. ${line(FITS)}`;
-  const bots = await withSession(t, box, 'pair-bot', [`--prompt=${first}`]);
-  await freshPrompts(t, 'pair-bot', ['review']);
+  const bots = await withSession(box, 'pair-bot', [`--prompt=${first}`]);
   assert.equal((await box.run([
     'session', 'add', '--bots', 'bots', '--bot', 'pair-bot', '--name', 'review', `--prompt=${second}`,
   ])).code, 0);
@@ -304,11 +331,11 @@ test('two sessions of one bot are handed two files', async (t) => {
 
 test('a session with nothing to say is handed nothing at all', async (t) => {
   const box = await createSandbox(t);
-  const bots = await withSession(t, box, 'quiet-bot', []);
+  const bots = await withSession(box, 'quiet-bot', []);
 
   const { typed, tab } = await up(box, bots, 'quiet-bot');
 
-  assert.equal(typed, 'codex --approve-for-me', 'no separator, no prompt, no file');
+  assert.equal(typed, BARE_LAUNCH.codex, 'no separator, no prompt, no file');
   assert.equal('promptFile' in tab, false);
-  assert.equal(await isThere(promptPathOf('quiet-bot')), false);
+  assert.equal(await isThere(promptPathOf(bots, 'quiet-bot')), false);
 });

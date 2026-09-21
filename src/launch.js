@@ -102,11 +102,16 @@ const where = (session) => (set(session.name) ? `session ${session.name}` : 'thi
  * send would land on that list and answer it. A prompt given as an argument is
  * held by the harness until it is ready for it (tech notes, section 1).
  */
-export function launchCommand(session, { harness, home, workDir, prompt, promptFile: fromFile }) {
+export function launchCommand(session, { harness, home, workDir, prompt, promptFile: fromFile, resume }) {
   const trouble = sessionTrouble(session, harness, home);
   if (trouble !== undefined) throw new Error(trouble);
 
-  const words = [harness, ...APPROVAL[harness][set(session.approval) ? session.approval : DEFAULT_APPROVAL]];
+  const words = [harness];
+  // Codex resumes through a subcommand, which has to come first; Claude Code
+  // resumes through a flag, which goes with the session id at the end. Both
+  // take every other flag exactly as a fresh session does.
+  if (resume !== undefined && harness === 'codex') words.push('resume');
+  words.push(...APPROVAL[harness][set(session.approval) ? session.approval : DEFAULT_APPROVAL]);
 
   if (harness === 'claude') {
     // The context window rides on the model name: `sonnet[1m]`.
@@ -123,8 +128,13 @@ export function launchCommand(session, { harness, home, workDir, prompt, promptF
   }
 
   return [
+    // The shell's own pid, so the session's hook can tell the harness this line
+    // starts — the shell's child — from anything the session starts later inside
+    // the tab. `$$` is the shell's, and it is not quoted for that reason.
+    `${SHELL_ENV}=$$`,
     ...words.map(quoted),
     ...extraWords(session.extra_args),
+    ...resumeWords(harness, resume),
     // `--` first: a prompt of the user's own may start with a dash — a
     // Markdown bullet does — and both harnesses would read it as an option of
     // theirs and refuse to start.
@@ -179,6 +189,15 @@ function promptWords(prompt, fromFile) {
   return prompt === undefined ? [] : ['--', quoted(prompt)];
 }
 
+/**
+ * The session the harness is told to pick up again, when there is one: a flag
+ * on Claude Code, the argument of the `resume` subcommand on Codex.
+ */
+const resumeWords = (harness, resume) => {
+  if (resume === undefined) return [];
+  return harness === 'claude' ? ['--resume', quoted(resume)] : [quoted(resume)];
+};
+
 /** Whether `target` is the folder at `home` or something inside it. */
 const inside = (home, target) => target === home || target.startsWith(home + path.sep);
 
@@ -191,5 +210,15 @@ function extraWords(extra) {
   return set(extra) ? [String(extra).trim()] : [];
 }
 
+/**
+ * Where the launch line tells the session's hook which shell typed the harness
+ * in. One tab holds one session: the harness this shell starts. Anything that
+ * session starts inside the tab is not the session and can never be it.
+ */
+export const SHELL_ENV = 'OBK_TAB_SHELL';
+
 /** A word as a shell needs it. Anything a shell would read as more than a word is quoted. */
 const quoted = (word) => (/^[A-Za-z0-9,._+:@%/=-]+$/.test(word) ? word : `'${word.replaceAll("'", `'\\''`)}'`);
+
+/** The same, for anything else of the kit's that has to build a shell line. */
+export const shellWord = quoted;

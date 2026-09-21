@@ -15,6 +15,7 @@ import { addSession, createBot, SESSION_FIELDS } from './bot.js';
 import { initBots } from './init.js';
 import { APPROVALS, HARNESSES } from './launch.js';
 import { orcaTrouble } from './orca.js';
+import { recordSession, SHELL_ENV, TAB_ENV } from './record.js';
 import { BOT_FATHER, bringUp } from './up.js';
 
 const USAGE = `obk — Orca Bot Kit.
@@ -44,7 +45,12 @@ Usage:
   obk up --bots <path> [--bot <bot>] [--session <name>]
                             Open whatever is missing in Orca, for every bot or
                             for the one you name. It only ever adds; it never
-                            closes a tab.
+                            closes a tab. A session the book knows the harness
+                            session of comes back with its conversation.
+  obk session record --bots <path> --bot <bot>
+                            For the kit's own hook, not for typing: it reads
+                            what the harness says about a session starting on
+                            standard input and writes it into the book.
   obk --version             Print the kit's version.
   obk --help                Print this text.
 
@@ -58,6 +64,7 @@ const COMMANDS = {
   up: ['bots'],
   'bot create': ['bots', 'name', 'harness'],
   'session add': ['bots', 'bot', 'name'],
+  'session record': ['bots', 'bot'],
 };
 
 /** What each flag is for, in the sentence a caller reads when it is missing. */
@@ -86,7 +93,7 @@ function version() {
   return pkg.version;
 }
 
-function run(argv) {
+async function run(argv) {
   const { values, positionals } = parseArgs({
     args: argv,
     allowPositionals: true,
@@ -146,26 +153,49 @@ function run(argv) {
   }
 
   const bots = path.resolve(values.bots);
-  const { answer, lines } = commands[command](bots, values);
+  if (command === RECORD) return record(bots, values.bot);
+
+  const { answer, lines } = await commands[command](bots, values);
 
   process.stdout.write(values.json ? `${JSON.stringify(answer, null, 2)}\n` : `${lines.join('\n')}\n`);
   return 0;
 }
 
+/** The one command a harness runs rather than a person: the kit's hook. */
+const RECORD = 'session record';
+
+/**
+ * What the kit's hook does with what the harness told it, and what it answers.
+ *
+ * A hook runs inside the user's own session, so this one stays out of the way:
+ * it writes on standard output only what the harness is to read as JSON, and
+ * whatever goes wrong, it goes wrong quietly. A book left stale is a thing the
+ * health check finds later; a session disturbed is the user's work (ADR 0010).
+ */
+async function record(bots, bot) {
+  try {
+    const answer = await recordSession(bots, bot, JSON.parse(readFileSync(0, 'utf8')), process.env[TAB_ENV], process.env[SHELL_ENV]);
+    if (answer !== undefined) process.stdout.write(`${JSON.stringify(answer)}\n`);
+  } catch {
+    // Nothing: see above.
+  }
+  return 0;
+}
+
 const commands = {
-  init(bots, values) {
+  async init(bots, values) {
     // Asked before anything is written, so an Orca that is down leaves the disk
     // exactly as it was and the caller can simply run the command again.
     refuseWhenOrcaIsDown();
     const seeded = initBots(bots, values.harness);
-    const tabs = bringUp(seeded.bots, { bot: BOT_FATHER });
+    const tabs = await bringUp(seeded.bots, { bot: BOT_FATHER });
     const answer = { bots: seeded.bots, created: seeded.created, completed: seeded.completed, tabs };
     return { answer, lines: tabLines(answer, `Bot Father is up in Orca. Your bots folder: ${seeded.bots}`) };
   },
 
-  up(bots, values) {
+  async up(bots, values) {
     refuseWhenOrcaIsDown();
-    const tabs = bringUp(bots, { bot: values.bot, session: values.session });
+    const tabs = await bringUp(bots, { bot: values.bot, session: values.session });
     const answer = { bots, created: [], completed: [], tabs };
     const up = [...new Set(tabs.map((tab) => tab.bot))].join(', ');
     return { answer, lines: tabLines(answer, `Up in Orca: ${up}. Your bots folder: ${bots}`) };
@@ -220,7 +250,30 @@ function refuseWhenOrcaIsDown() {
 }
 
 /** The same facts as `--json`, as lines, for a person reading along. */
-function tabLines({ created, completed, tabs }, summary) {
+/** The one line that says which conversation this tab was given, and from where. */
+const howLine = (tab) => (tab.resumed === true
+  ? '             it was told to resume the session the book holds, with its conversation.'
+  : '             it was told to start a new session: the book holds none for this one yet.');
+
+/**
+ * What the harness still has in this bot's folder that no session claims. The
+ * kit will not pick one — a bot's sessions and everything they start share that
+ * folder — so it says what is there and how to settle it.
+ */
+const unclaimedLines = (tab, bots) => {
+  const one = tab.unclaimed.length === 1;
+  return [
+    '             the kit cannot say which conversation this session had.',
+    `             ${one ? 'This one ran' : 'These ran'} in this bot's folder and no session claims ${one ? 'it' : 'them'}:`,
+    ...tab.unclaimed.map((id) => `               ${id}`),
+    "             A bot's sessions share that folder, and so does anything they start",
+    '             inside themselves, so the kit does not guess. To give one back, write it',
+    `             into ${path.join(bots, 'bots', tab.bot, 'sessions.yaml')}`,
+    `             under ${tab.name} as  session: <id>  and run obk up again.`,
+  ];
+};
+
+function tabLines({ bots, created, completed, tabs }, summary) {
   const lines = [
     ...created.map((entry) => `created    ${entry}`),
     ...completed.map((entry) => `completed  ${entry}`),
@@ -228,7 +281,7 @@ function tabLines({ created, completed, tabs }, summary) {
 
   for (const tab of tabs) {
     lines.push(`${tab.created ? 'opened' : 'found '}     ${tab.title}  tab ${tab.tabId}  terminal ${tab.terminal}`);
-    lines.push(...harnessLines(tab));
+    lines.push(...harnessLines(tab, bots));
   }
 
   lines.push(summary);
@@ -243,19 +296,26 @@ function tabLines({ created, completed, tabs }, summary) {
  * The caller decides what to do next from these lines, so they say both what
  * was typed and what was seen afterwards, and never one in place of the other.
  */
-function harnessLines(tab) {
+function harnessLines(tab, bots) {
   if (!tab.created || tab.name === null) return [];
+
+  // What the line that was typed in asked for, and where the kit got it: the
+  // session the book holds, one the harness itself still had on record, or a new
+  // one — and if a new one, whether anything was known about an older one.
+  const how = [howLine(tab)];
 
   if (!tab.harnessStarted) {
     return [
+      ...how,
       '             the harness was typed in, and no session came up in the tab.',
       `             Look at it:  orca terminal read --terminal ${tab.terminal} --screen`,
     ];
   }
 
   const lines = tab.blockedReason === undefined
-    ? ['             the harness was typed in and came up.']
+    ? [...how, '             the harness was typed in and came up.']
     : [
+      ...how,
       `             the harness was typed in and came up, waiting on: ${tab.blockedReason}`,
       `             Look at it:  orca terminal read --terminal ${tab.terminal} --screen`,
     ];
@@ -264,11 +324,12 @@ function harnessLines(tab) {
   if (tab.promptSent === false) {
     lines.push('             the start prompt was not typed in: the tab was not ready for it.');
   }
+  if (tab.unclaimed !== undefined) lines.push(...unclaimedLines(tab, bots));
   return lines;
 }
 
 try {
-  process.exitCode = run(process.argv.slice(2));
+  process.exitCode = await run(process.argv.slice(2));
 } catch (error) {
   process.stderr.write(`obk: ${error.message}\n`);
   process.exitCode = 1;

@@ -21,8 +21,11 @@ creates bots and their sessions on either harness.
 
 ## Install
 
-Node.js >= 20.19.0, git, and Orca with at least one of Claude Code or Codex
-installed and configured.
+Node.js >= 24.21.0, git, and Orca with at least one of Claude Code or Codex
+installed and configured. That line because the kit keeps writers out of each
+other's way in a bot's book with a SQLite write transaction: `node:sqlite` is in
+Node itself from 24 on, and from 24.21.0 it loads without an experimental warning
+on stderr.
 
 ```sh
 npm install
@@ -152,6 +155,43 @@ Codex read, so a kit skill carries nothing else, and its links stay inside its
 own directory, because a bot gets the directory alone.
 [`test/kit-skills.test.js`](test/kit-skills.test.js) holds that shape.
 
+## Sessions that come back
+
+Each bot keeps a book, `sessions.yaml` in its folder: which Orca tab each session
+lives in, which harness session it is running as, and every id it ran as before,
+with why that one ended and when
+([ADR 0002](docs/adr/0002-the-book-is-the-authority-for-session-ids.md)).
+
+The book stays true to the harness through a hook `obk up` puts in the bot's own
+folder — `.claude/settings.json` or `.codex/hooks.json`, never your user-level
+settings ([ADR 0010](docs/adr/0010-kit-hooks-live-in-the-bot-folder.md)). Your own
+settings in those files are kept. Codex asks you to trust a hooks file the first
+time it sees one; answer its question in the tab.
+
+So: kill a tab, or reboot, and `obk up` brings the session back with the
+conversation it was having, rather than starting a new one. Clear a session —
+`/clear` on Claude Code, `/new` on Codex — and the kit writes down the new id,
+keeps the old one, and gives the session its start prompt again, because that
+prompt is what tells one session's duty from another's.
+
+One tab holds one session: the harness the kit started in it. Anything that
+session runs inside the tab — a `codex exec`, a helper, a subagent's own process
+— is not the session, and never becomes the conversation the kit brings back.
+
+And when the kit cannot say which conversation a session is, it does not pick
+one. The usual reason is a Codex hooks file trusted after the session had already
+begun talking: nothing was recorded for that first conversation, and trusting the
+file does not go back for it.
+
+A bot's sessions all live in one folder, and so does every harness they start
+inside themselves, so a conversation sitting in that folder says nothing about
+whose it is — and neither harness writes down anything that ties a conversation
+that has ended to the session that had it. So the kit writes what it found into
+the book as `unclaimed`, tells you the ids, and starts the session on a fresh
+conversation with its duty rather than guessing. To bring one back yourself,
+write it into `sessions.yaml` under that session as `session: <id>` and run
+`obk up` again.
+
 ## Working on the kit
 
 ```sh
@@ -165,9 +205,9 @@ The tests come in two layers, and every test file belongs to one of them.
 `npm test` is `test/*.test.js`: unit tests and end-to-end runs of the CLI in a
 throwaway folder, with a fake `orca` on PATH. It needs nothing but Node, so
 [GitHub Actions](.github/workflows/ci.yml) runs it on every pull request and on
-every push to `main`: on Node 24.21.0, the current LTS line, and again on
-20.19.0, the floor `engines.node` promises users, with only the kit's own
-dependencies installed.
+every push to `main`: on Node 25.8.0, the current line, and again on 24.21.0,
+the floor `engines.node` promises users, with only the kit's own dependencies
+installed.
 
 `npm run test:system` is `test/system/*.test.js`: the real `obk` against the
 real Orca and the real harnesses on your own machine. No CI runner can do that,

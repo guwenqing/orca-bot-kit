@@ -19,13 +19,34 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdtemp, readFile, realpath, rm } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, realpath, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { setTimeout } from 'node:timers/promises';
 
 import { sessionTabIds } from '../helpers/cli.js';
+
+/**
+ * Remove the throwaway bots folder and everything the kit made beside it.
+ *
+ * `<bots>.prompts`, where a session's start prompt goes, is a **sibling** of the
+ * bots folder and not a child of it (PRD 6.3 keeps kit-made folders out of the
+ * user's repo), so a teardown that removes `<bots>` alone leaves the sessions'
+ * duty text on the disk of whoever ran the test. Anything else the kit ever
+ * puts beside it is named the same way, so this takes the folder and every
+ * `<bots>.*` next to it, and then says so if one is still there.
+ */
+async function removeBotsFolderAndSiblings(bots) {
+  const parent = path.dirname(bots);
+  const mine = path.basename(bots);
+  const ours = async () => (await readdir(parent)).filter((name) => name === mine || name.startsWith(`${mine}.`));
+
+  for (const name of await ours()) {
+    await rm(path.join(parent, name), { recursive: true, force: true });
+  }
+  assert.deepEqual(await ours(), [], `this test left folders behind in ${parent}`);
+}
 
 /** The Orca CLI that works for a normal user (tech notes, section 1). */
 const ORCA = process.env.OBK_ORCA || '/Applications/Orca.app/Contents/Resources/bin/orca';
@@ -131,7 +152,7 @@ test('Bot Father comes up in the real Orca, and nothing else is touched', async 
       if (setup.path !== home || before.setups.has(setup.id)) continue;
       orca(['project', 'setup-delete', '--setup', setup.id]);
     }
-    await rm(bots, { recursive: true, force: true });
+    await removeBotsFolderAndSiblings(bots);
 
     // The point of all the care above: everything that was open is still open.
     const left = new Set(allTerminals().map((terminal) => terminal.handle));

@@ -24,6 +24,26 @@ async function assertRepoRootedAt(bots) {
   assert.equal(line(toplevel.stdout), bots);
 }
 
+/**
+ * The parent holds the folder the user named, and nothing at a tidied-up version
+ * of that name — which is the bug this file exists for.
+ *
+ * What the kit keeps for itself sits beside the folder as `<name>.something`: the
+ * start prompts it hands a session, and where it says a writer holds the book
+ * (PRD 6.3). Those belong there and not in the user's repo, and they carry the
+ * user's name untouched, whitespace and all, which is the part that matters here.
+ * A `bots.locks` beside a `bots ` would be the same mistake as a `bots` beside it.
+ */
+async function assertOnlyTheirFolder(cwd, name) {
+  const found = (await readdir(cwd)).sort();
+  assert.ok(found.includes(name), `the folder the user asked for should be there, got: ${JSON.stringify(found)}`);
+  assert.deepEqual(
+    found.filter((entry) => entry !== name && !entry.startsWith(`${name}.`)),
+    [],
+    `nothing may be made at a name the user did not ask for, got: ${JSON.stringify(found)}`,
+  );
+}
+
 for (const [label, name] of [
   ['ends in a space', 'bots '],
   ['ends in a tab', 'bots\t'],
@@ -39,8 +59,7 @@ for (const [label, name] of [
     assert.equal(result.code, 0);
     await assertSeededBotsFolder(bots, 'claude');
     await assertRepoRootedAt(bots);
-    // Nothing was created at the tidied-up name the user did not ask for.
-    assert.deepEqual(await readdir(box.cwd), [name]);
+    await assertOnlyTheirFolder(box.cwd, name);
   });
 
   test(`a second init on a bots folder whose name ${label} changes nothing`, async (t) => {
@@ -57,7 +76,7 @@ for (const [label, name] of [
     assert.equal(second.code, 0);
     assert.deepEqual(await snapshot(bots), before);
     assert.equal(await readFile(path.join(bots, 'defaults.yaml'), 'utf8'), edited);
-    assert.deepEqual(await readdir(box.cwd), [name]);
+    await assertOnlyTheirFolder(box.cwd, name);
   });
 }
 

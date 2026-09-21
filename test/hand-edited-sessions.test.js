@@ -25,6 +25,7 @@ import {
   bookOf,
   botHomeOf,
   createSandbox,
+  launchLine,
   orcaCallsOf,
   skipGit,
   snapshot,
@@ -177,7 +178,7 @@ test('a Claude context written the Claude way still comes up', async (t) => {
   assert.equal(daily.length, 1, `the session should have come up, got ${JSON.stringify(await box.orca.terminals())}`);
   assert.deepEqual(
     (daily[0].typed ?? []).map((entry) => entry.text),
-    ["claude --permission-mode auto --model 'sonnet[1m]'"],
+    [launchLine("claude --permission-mode auto --model 'sonnet[1m]'")],
     'the context rides on the model name, and the model name stays quoted',
   );
 });

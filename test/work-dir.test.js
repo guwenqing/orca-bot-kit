@@ -15,6 +15,7 @@ import {
   assertCleanFailure,
   botHomeOf,
   createSandbox,
+  HOOK_FILES,
   tabsOfBot,
 } from './helpers/cli.js';
 
@@ -92,7 +93,9 @@ test('a session with no work dir has none made for it', async (t) => {
 
   assert.deepEqual(
     (await readdir(botHomeOf(bots, 'api-bot'))).sort(),
-    ['.gitignore', 'AGENTS.md', 'CLAUDE.md', 'bot.yaml', 'sessions.yaml'],
+    // The bot's own harness hooks are the kit's, and belong to every bot with a
+    // session (ADR 0010). What the session did not ask for is a work dir.
+    [path.dirname(HOOK_FILES.codex), '.gitignore', 'AGENTS.md', 'CLAUDE.md', 'bot.yaml', 'sessions.yaml'].sort(),
     'nothing is made that the session did not ask for',
   );
 });
