@@ -28,15 +28,27 @@ The skill `obk-why` was consolidated for this kit from this, MIT, with thanks:
   accretion of earlier decisions; the five confidence tiers with their
   examples and their phrasing — written down, converging evidence, inferred
   with the chain made explicit, speculative with alternatives beside it, and
-  unknown stated precisely as what was searched; the output sections including
-  one line per source consulted covering the empty and skipped ones; and
-  turning the findings into a preserve, change, avoid and risk constraint set
-  when the question precedes a change.
+  unknown stated precisely as what was searched; the words that carry a
+  citation with them, each needing its source immediately beside it, and the
+  calibration check that the code is never evidence for its own intent; the
+  embedded-hypothesis trap, where a question arrives with its answer attached
+  and confirming it is the cheap and wrong move; surfacing both sides when two
+  sources disagree rather than picking the tidier story; the output sections
+  including one line per source consulted covering the empty and skipped ones;
+  and turning the findings into a preserve, change, avoid and risk constraint
+  set when the question precedes a change.
+- The same skill's `references/sources/code-archaeology.md` — its pitfalls: the
+  squash merge that flattens a branch's steps, the commit message that calls a
+  behaviour change a small refactor so the diff has to be read instead, the
+  pattern copied without its reason so the place it started is the one to
+  investigate, and the automated change that carries no motivation at all.
 
-One addition is not from the source: a flattened history hides the steps, so
-where a project squashes a branch into one change, the reasoning lives on the
-branch or in the discussion rather than in the change that landed. It was added
-after an acceptance run of this skill traced a constant's history correctly but
+One thing in the squash paragraph is ours rather than the source's. That a
+squash merge loses the branch's commits is the source's pitfall; what is added
+here is where the reason then is — the argument that moved a value is worth
+more than the value it landed on — and the instruction to cite the change that
+did the thing rather than the one that delivered it. That came out of an
+acceptance run of this skill, which traced a constant's history correctly but
 cited the squash merge for a value that the merge had never held.
 
 Made generic, which is what the owner asked for. The original discovers hosted

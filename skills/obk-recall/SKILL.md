@@ -92,6 +92,18 @@ Thursday does not know what happened on Friday. Where the answer hinges on
 what was actually done rather than what was said, read the record itself
 rather than a summary of it.
 
+That is a check on the state, not a licence to do the work again. What the
+earlier sessions worked out and decided is what you are inheriting, and it is
+the best thing you have: take it, and resist the pull to re-derive it because
+you were not there. Re-running a prior investigation to see whether you agree
+treats a trail as untrustworthy when it is not, and spends exactly the time the
+brief exists to save. Where the trail does turn out to be wrong, that is a
+finding to report, not a quiet correction.
+
+Then set what shipped beside what was planned. The difference between the two
+is most of the brief: what is already done comes off the list, and what is left
+names the point to pick up from.
+
 ## The brief
 
 Lead with where things stand. Detail below that, or cut.
