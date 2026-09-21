@@ -5,8 +5,8 @@ description: >-
   time, through the public interface; a separate author for the tests, whose
   tests the implementer does not edit; the shapes of tests that catch nothing;
   and the hand mutation check that asks whether the tests would catch a real
-  mistake. Use whenever you are about to change what code does — a feature, a
-  fix, a one-line change, a bug someone reported — and whenever you are
+  mistake. Use whenever you are about to change what code does (a feature, a
+  fix, a one-line change, a bug someone reported) and whenever you are
   writing, changing or judging tests, deciding what to test, or asking whether
   a suite would catch anything. Reach for it before writing the code, not
   after: a small change is exactly where the order gets skipped.
@@ -50,7 +50,7 @@ collection. List the input classes the requirement implies but no test
 exercises, and give each one a test or a written reason it is out of scope.
 
 Expected values come from the requirement, a worked example or a known-good
-literal — never from the code under test or its helpers. An expectation the
+literal, never from the code under test or its helpers. An expectation the
 code computes passes whatever the code does.
 
 Say which requirement a test covers, in its name or in a line beside it. A test
@@ -79,7 +79,7 @@ A separate author writing the acceptance tests up front is not that, although
 it looks like it: those are a few tests at the top seam, taken from the
 requirement rather than from a plan. You still work through them one at a time,
 watching each one fail and then pass. When a slice turns out to need a narrower
-test — a boundary the top seam does not reach — that one goes to the author
+test (a boundary the top seam does not reach), that one goes to the author
 too; the brief is smaller, not different.
 
 Test at a seam: the public boundary where you can observe behaviour without
@@ -92,9 +92,9 @@ Do not anticipate the next test. Code that no failing test asked for is
 untested code, whatever it does.
 
 Before you settle a test, run the behaviour past the kinds of mistake that get
-made — a boundary off by one, a condition the wrong way round, an equality that
+made (a boundary off by one, a condition the wrong way round, an equality that
 should be an inequality, an arithmetic identity, an empty collection, a side
-effect that never happens — and add the case you find missing there and then.
+effect that never happens) and add the case you find missing there and then.
 It is the same question the mutation check asks at the end, asked while it is
 still cheap to answer.
 
@@ -102,14 +102,14 @@ Use the least substitute that does the job, because the more of the real thing
 a test runs, the more it tells you. In order: the real implementation; a
 working in-memory version of it; something that returns fixed answers; and last
 a stand-in you assert the calls of. Reach past the real thing only when it is
-slow, unpredictable, or has effects you cannot control — an external service,
+slow, unpredictable, or has effects you cannot control: an external service,
 the clock, randomness, a database sometimes, the filesystem sometimes. Do not
 stand in for your own modules or internal collaborators.
 
 What settles this for a system outside your code is not who owns it but
 whether you can have one to yourself. A database you start for the test, a
 repository you create in a temporary directory, a server you run and throw
-away — those are the real thing, isolated, and they are what the order above
+away: those are the real thing, isolated, and they are what the order above
 asks for; a stand-in there would hide exactly the incompatibility you want to
 find. What rules the real one out is sharing it: other people's work in it,
 state you cannot reset, or simply not having permission to touch it. Then an
@@ -118,7 +118,7 @@ systems those are.
 
 When a test is hard to write, that is information about the design, not about
 testing. Hard to set up usually means hard to use. Having to stand in for
-everything means the pieces are too tightly bound — pass what a function
+everything means the pieces are too tightly bound. Pass what a function
 depends on in rather than letting it reach out and build its own. A single
 function per external operation is easier to substitute than one general one
 with a switch inside it, because each substitute then answers one question
@@ -129,7 +129,7 @@ does before you replace it, and stand in at the slow or external level below
 what the test depends on, so you do not swallow an effect the test was there to
 see. Mirror the real shape completely, not only the fields this test reads: a
 partial one passes while the real thing breaks on a field it left out. Assert
-the real behaviour, never the stand-in itself — an assertion that the stand-in
+the real behaviour, never the stand-in itself. An assertion that the stand-in
 is present passes because it is present and says nothing about your code. And
 when the setup grows past the test it serves, or you cannot say why it is
 there, drop it and test against the real components.
@@ -142,7 +142,7 @@ the thing being tested.
 An agent that writes the code and the tests shares one set of blind spots. It
 writes tests it already knows will pass, and when one goes red the cheapest
 road is to soften it. What separation buys is a context that holds the
-requirement and not the implementation — the isolated context is the point, not
+requirement and not the implementation. The isolated context is the point, not
 a role or a persona.
 
 Who counts: a fresh subagent, another session, another bot, or a person. In
@@ -151,7 +151,7 @@ inherits the conversation. Codex spawns a subagent only when asked in so many
 words, so ask in so many words.
 
 What the author gets: the requirement, the acceptance criteria, and the public
-interface — names, signatures, types, the shape of inputs and outputs. Not your
+interface (names, signatures, types, the shape of inputs and outputs). Not your
 plan, not your diff, not the implementation. What the author returns: the test
 files, the command, the failing output, and one line per test naming the
 requirement it covers.
@@ -174,7 +174,7 @@ A brief that works, adjusted to the job:
 
 Say what state the code is in, and be exact about it. The author cannot see it
 and will believe what the brief says. When you send an author at code you have
-deliberately broken — killing a surviving mutant, see below — say so in the
+deliberately broken (killing a surviving mutant, see below), say so in the
 brief: *the code has a deliberate break in it and the test is expected to
 fail*. Left out, the author reads your own break as a defect and spends a round
 reporting a bug that does not exist.
@@ -184,14 +184,14 @@ ones as much as the first ones. A scratch check you run to see what the code is
 doing is yours and is thrown away; it is not part of the suite, and it is not
 the red you report. You do not edit, weaken, skip or delete the author's tests
 to get to green. A test you believe
-is wrong goes back to its author with what you think is wrong with it — that is
+is wrong goes back to its author with what you think is wrong with it. That is
 a real and expected outcome, not a defeat. The tests verify the requirement;
 they do not define the solution, so do not write code that works only for the
 inputs a test happens to use.
 
 The author's tests are part of the change, not a stage before it. Commit them
 as soon as they are red, before the implementation: that way a later diff over
-the test paths shows any change to them, and — the part that actually bites —
+the test paths shows any change to them, and (the part that actually bites)
 they cannot be left behind. Where the repo allows it, keeping those paths out
 of the implementer's write scope makes tampering visible rather than merely
 forbidden.
@@ -215,7 +215,7 @@ Run the test and read the output before you write any code:
 
 - It fails, rather than errors.
 - The failure message is the one you expected.
-- It fails because the behaviour is missing — not a typo, a bad import, a
+- It fails because the behaviour is missing, not a typo, a bad import, a
   missing fixture.
 
 If it passes, you are testing behaviour that already exists; that is a finding
@@ -225,12 +225,12 @@ run again until it fails cleanly.
 Behaviour that already exists is the case this is easiest to fudge, because
 there is no fix to revert and nothing obvious to run the test against. The red
 has to come from somewhere real: an archive of the code as it stood before this
-work — a commit, a tag, a copy — with the test run against that. Name which one
+work (a commit, a tag, a copy) with the test run against that. Name which one
 in the hand-over, because "it would have failed before" is not a run.
 
 Sometimes there is no such baseline to be had: the code never existed in that
 shape, or what you would have to reconstruct is not worth the day. Then say so
-in the hand-over, and say it in the test as well — a line beside it marking it
+in the hand-over, and say it in the test as well: a line beside it marking it
 as a description of what the code does today rather than a guard proven to
 catch a change. The two look identical afterwards, and only one of them has
 been shown to fail. Somebody reading the repo a month later should be able to
@@ -243,19 +243,19 @@ the assertion, and only now does logic get written.
 
 Keep the receipt: the command, the failing output, and one line on why that
 failure is the expected one. After green, the command and the passing output.
-Commit order proves nothing about what ran first — without a captured failing
+Commit order proves nothing about what ran first. Without a captured failing
 run, say the chronology is unproven rather than implying it.
 
 Things that look like green and are not: a test that passed on its first run; a
 suite reported as passing that nobody ran; a default test command guessed
 instead of the one this repo actually uses. And your test passing is not the
-suite passing — any failure the run showed, including one you did not cause,
+suite passing. Any failure the run showed, including one you did not cause,
 goes in your report by name. Green means the output is clean too: warnings and
 errors that scroll past on a passing run are results, not decoration.
 
 Where the change reaches further than the test you wrote, run what is next to
-it as well — the neighbouring tests, the type check, whatever the project uses
-to say a thing still holds — and say in your report what you ran.
+it as well (the neighbouring tests, the type check, whatever the project uses
+to say a thing still holds) and say in your report what you ran.
 
 An assertion that already existed is not yours to loosen. It weakens only when
 the behaviour it describes genuinely changed, and then the reason is stated out
@@ -280,7 +280,7 @@ anything else.
 
 Do not manufacture a red. A failing test written so a step looks like it
 started with one, a break invented so a restructuring can be called a change of
-behaviour, commits reshaped afterwards to tell a tidier story — all of that
+behaviour, commits reshaped afterwards to tell a tidier story: all of that
 costs the time of doing it and buys nothing, because none of it was ever a
 check on anything. A step that did not need a red is reported as what it was.
 
@@ -366,8 +366,8 @@ Two that the five shapes do not condemn: a test that checks a relation holds
 across a table of cases, and a check the language itself makes at build time.
 
 Other tells: the test breaks when you refactor although the behaviour did not
-change; it reaches around the interface to check the result — reading the
-database directly instead of asking for the record back — which couples it to
+change; it reaches around the interface to check the result (reading the
+database directly instead of asking for the record back), which couples it to
 the inside just as surely as a stub does; the stub setup is more than half of
 it; the expected values are hidden behind loops or builders; the only way it
 can fail is a crash; it exists to raise a coverage number. Coverage is a
@@ -422,7 +422,7 @@ Skip it, and say that you skipped it, for work with no real logic in it: docs,
 config, wiring, renames, small fixes, prototypes, and code with no runnable
 tests.
 
-**A survivor** — a break no test objected to — gets the equivalence question
+**A survivor**, a break no test objected to, gets the equivalence question
 first: is there any input for which the changed code returns a different value,
 stores different state, or emits a different message? If there is none it is
 equivalent, and no test can catch it; write the one-line argument for why.
@@ -432,9 +432,9 @@ with that argument, or a judgment call you name and leave. A list of survivors
 with nothing said about them is not a report, and neither is treating each one
 as a defect.
 
-When you cannot tell whether a survivor matters — the behaviour is genuinely
+When you cannot tell whether a survivor matters (the behaviour is genuinely
 unspecified, the test would be expensive or brittle, or you are not sure it is
-equivalent — say so and ask rather than deciding quietly in either direction.
+equivalent), say so and ask rather than deciding quietly in either direction.
 And if a lot of the breaks turn out to be equivalent, that is a finding about
 the code, not about the tests: code with that much slack in it can usually be
 made simpler.
@@ -450,8 +450,8 @@ separate author, like any other test.
 
 **A mutation tool is an audit, not everyday work.** It is never a requirement,
 and it is not worth a user's time on a suite it does not fit. Where a project
-has one, run it over the whole suite occasionally — at a milestone, or when the
-user asks — in the background at a quiet time, in its own tab or session. Read
+has one, run it over the whole suite occasionally (at a milestone, or when the
+user asks) in the background at a quiet time, in its own tab or session. Read
 the result once; turn the few real gaps into test work; ignore the rest. Not
 once per change, and never twice for the same change. For a piece of work at
 the core of a product, one run narrowed to the logic that changed, in the
@@ -459,12 +459,12 @@ background, around twenty minutes; if it will not fit in that, do the hand
 check instead. Then stop. A run heading towards hours is stopped.
 
 If you do run one: when the run selects its targets from a committed diff, the
-tree has to be clean or the result is about the wrong code — a run that names
+tree has to be clean or the result is about the wrong code. A run that names
 its files itself has no such limit, and asking someone to stash the very work
 they wanted checked is the wrong way round. Prove the setup with one small
 scoped run before spending a long one. Capture the output once and read it from
 the copy rather than re-running to re-read it. Set no failing threshold before
-a measured baseline exists. Paste what the tool printed — a mutation result
+a measured baseline exists. Paste what the tool printed. A mutation result
 reported from memory has been wrong. A compile error is not a kill, and a
 timeout is inconclusive rather than evidence.
 
@@ -495,7 +495,7 @@ by a comment, a value hard-coded to match one test's input.
   from, or that there was none and it stands as a description rather than a
   proven guard.
 - The mutation check in three lines: what you broke, what survived, what you
-  did about it — or the line that says you skipped it and why.
+  did about it, or the line that says you skipped it and why.
 - What you did not check, and the command that would check it.
 
 ## Away from code
@@ -505,7 +505,7 @@ where no tool will help: state the check before you make the change, see the
 check fail first, and at the end break the artefact on purpose to find out
 whether the check notices.
 
-They apply where there is something that can be wrong — a configuration that
+They apply where there is something that can be wrong: a configuration that
 decides who gets what, a prompt whose branches behave differently, a
 transformation over data. The skip rule is the same one as for code and it is
 used the same way: a wording fix, a rename, a link correction has no logic in

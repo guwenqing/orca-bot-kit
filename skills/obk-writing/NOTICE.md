@@ -10,7 +10,7 @@ The permission notices these licences require are in
 The skill `obk-writing` was consolidated for this kit from these, with thanks.
 Each licence below was read from the file named beside it.
 
-- **Cursor `plugins`, `pstack/skills/technical-writing`** — MIT,
+- **Cursor `plugins`, `pstack/skills/technical-writing`**: MIT,
   `cursor_plugins/pstack/LICENSE`, "Copyright (c) 2026 Lauren Tan". The
   sentence-level core of this skill. Its three rules above the layers: cut
   every word that does no work, use the short everyday word, and when a rule
@@ -30,7 +30,7 @@ Each licence below was read from the file named beside it.
   read machine-written when every sentence is clipped to the same length; its
   heading rule, that a heading carries the point rather than the topic; its
   list rules; and the instruction to call each thing by one name everywhere.
-- **Cursor `plugins`, `pstack/skills/unslop`** — same licence. Two of its rules
+- **Cursor `plugins`, `pstack/skills/unslop`**: same licence. Two of its rules
   are load-bearing here. Say what it does rather than how it feels, with its
   test: ask what the sentence tells the reader to do or know, restate it as a
   fact, a number or an instruction, and cut it if you cannot; and if the
@@ -43,7 +43,7 @@ Each licence below was read from the file named beside it.
   records that a ban-list pulls the banned thing into context, so the positive
   form of each rule is kept and the word list is left where it is, as something
   to review against rather than to load.
-- **`citypaul/.dotfiles`, `claude/.claude/skills/technical-writing`** — MIT,
+- **`citypaul/.dotfiles`, `claude/.claude/skills/technical-writing`**: MIT,
   that skill's own nested `LICENSE`, "Copyright (c) 2025 Adam Bulmer", which
   governs its directory rather than the repository root's MIT licence in
   Paul Hammond's name. This is the page-level and claim-level half. Reader
@@ -62,7 +62,7 @@ Each licence below was read from the file named beside it.
   leads with the decision requested. And from `resources/formatting.md`, bold
   for the one phrase a skimmer must not miss, and a numbered list claiming that
   order matters.
-- **`mattpocock/skills`, `skills/in-progress/writing-shape`** — MIT,
+- **`mattpocock/skills`, `skills/in-progress/writing-shape`**: MIT,
   `mattpocock_skills/LICENSE`, "Copyright (c) 2026 Matt Pocock". The grounding
   idea, which nothing else in the sources has: every concept a block leans on
   was either something the reader walked in with or something an earlier block
@@ -72,7 +72,7 @@ Each licence below was read from the file named beside it.
   drowns the opening. Its format arguments are also taken: prose carries an
   argument and lists carry parallel items, a table where the same shape repeats
   three times or more, and quoting where the original wording is the point.
-- **`anthropics/skills`, `skills/internal-comms`** — Apache 2.0, that skill's
+- **`anthropics/skills`, `skills/internal-comms`**: Apache 2.0, that skill's
   own `LICENSE.txt`, "Copyright 2026 Anthropic, PBC." The only source here that
   is explicitly about audience, platform and register for non-engineering
   writing. Its opening protocol is this skill's first section: ask about the
@@ -82,14 +82,14 @@ Each licence below was read from the file named beside it.
   read is a constraint on the writing rather than a detail: something meant to
   be read in under a minute by people with some but not much context is a
   different piece from the same facts written to be landed on.
-- **`garrytan/gstack`, `document-generate/SKILL.md`** — MIT,
+- **`garrytan/gstack`, `document-generate/SKILL.md`**: MIT,
   `garrytan_gstack/LICENSE`, "Copyright (c) 2026 Garry Tan". Its voice section:
   lead with the point, be concrete, name the real thing and the real number,
   and sound like someone talking to the person rather than presenting to them.
   Its rule to gloss a piece of jargon on first use even where the user
   introduced the term.
 - **`addyosmani/agent-skills`, `skills/doubt-driven-development`** and
-  **`citypaul/.dotfiles`, `claude/.claude/skills/double-check`** — MIT,
+  **`citypaul/.dotfiles`, `claude/.claude/skills/double-check`**: MIT,
   `addyosmani_agent-skills/LICENSE` ("Copyright (c) 2025 Addy Osmani") and
   `citypaul_.dotfiles/LICENSE` ("Copyright (c) 2024 Paul Hammond"). The reader
   test at the end comes from these two rather than from any writing skill: hand

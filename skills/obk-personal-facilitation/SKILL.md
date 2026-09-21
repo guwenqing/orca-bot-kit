@@ -46,7 +46,7 @@ go, it costs them the afternoon.
 ## Change the entry, do not add another
 
 When they revise something, edit the entry that is there, and leave every other
-line alone — notes, ordering, anything not part of this change. The file is
+line alone: notes, ordering, anything not part of this change. The file is
 theirs and you are a guest in it. Then compare the result against what was
 there before: reading back your own new version catches nothing, because you
 read what you meant to write.

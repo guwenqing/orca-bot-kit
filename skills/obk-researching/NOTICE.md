@@ -10,7 +10,7 @@ The permission notices these licences require are in
 The skill `obk-researching` was consolidated for this kit from these, with
 thanks. Each licence below was read from the file named beside it.
 
-- **Cursor `plugins`, `pstack/skills/why/references/`** — MIT,
+- **Cursor `plugins`, `pstack/skills/why/references/`**: MIT,
   `cursor_plugins/pstack/LICENSE`, "Copyright (c) 2026 Lauren Tan". Three files
   carry most of this skill.
   - `epistemics.md`: the tiers a claim can sit in and the rule that every claim
@@ -47,7 +47,7 @@ thanks. Each licence below was read from the file named beside it.
   - `blast-radius/SKILL.md` gives the ladder from "you said so" through "you
     pointed at the line" to "you ran it", with the instruction to get each
     load-bearing fact as far down it as is cheap and to say where it stopped.
-- **`addyosmani/agent-skills`, `skills/source-driven-development`** — MIT,
+- **`addyosmani/agent-skills`, `skills/source-driven-development`**: MIT,
   `addyosmani_agent-skills/LICENSE`, "Copyright (c) 2025 Addy Osmani". The
   source hierarchy and what sits outside it: forum answers, blog posts,
   model-written summaries and your own training data are not primary sources,
@@ -61,7 +61,7 @@ thanks. Each licence below was read from the file named beside it.
   could not find documentation. And the rule this skill takes whole, that
   hedging is the worst of the three options: either verify and cite, or mark it
   unverified, because a disclaimer in a subordinate clause reads as confidence.
-- **`garrytan/gstack`, `ETHOS.md`** — MIT, `garrytan_gstack/LICENSE`,
+- **`garrytan/gstack`, `ETHOS.md`**: MIT, `garrytan_gstack/LICENSE`,
   "Copyright (c) 2026 Garry Tan". The three layers of what you find and how
   much weight each bears: the settled and well-trodden, where the risk is
   assuming the obvious answer is right and the cost of checking is near zero;
@@ -72,7 +72,7 @@ thanks. Each licence below was read from the file named beside it.
   look things up by general category rather than by the private thing you are
   working on, and strip names, addresses, paths and anything that looks like a
   secret from a query before it leaves the machine.
-- **`openai/skills`, `skills/.curated/notion-research-documentation`** — MIT,
+- **`openai/skills`, `skills/.curated/notion-research-documentation`**: MIT,
   that skill's own `LICENSE.txt`, "Copyright 2025 Notion Labs, Inc." The search
   strategy, which is the only material of its kind in the sources: broad to
   narrow, several related queries rather than one, what to do when there are
@@ -84,12 +84,12 @@ thanks. Each licence below was read from the file named beside it.
   citing every sentence, put the citation beside what it supports, mark a
   quotation as a quotation, keep a sources section that includes what held
   nothing, and flag a superseded source where it stands.
-- **`mattpocock/skills`, `skills/engineering/research`** — MIT,
+- **`mattpocock/skills`, `skills/engineering/research`**: MIT,
   `mattpocock_skills/LICENSE`, "Copyright (c) 2026 Matt Pocock". Twelve lines,
   one of which the research pack singled out and this skill is built around:
   follow every claim back to the source that owns it, and go to primary
   material rather than a secondary write-up of it.
-- **Cloudflare's security-audit skill** — MIT,
+- **Cloudflare's security-audit skill**: MIT,
   `cloudflare_security-audit-skill/LICENSE`, "Copyright (c) 2025-2026
   Cloudflare, Inc." Coverage honesty: never imply that one pass exhausts the
   subject, and a scoped piece of work presents itself as partial rather than
@@ -103,7 +103,11 @@ marked here because the difference matters:
   whole survey, is quoted there from **tw93/Waza**'s `rules/anti-patterns.md`
   (recorded as MIT in the same book's source table). Waza is not among the
   clones in the research pack, so this is taken from the book's verbatim quote
-  rather than from the repository, and the wording here is ours.
+  rather than from the repository. The label's checkable form is kept as the
+  source has it, because being able to audit the label is the whole of its
+  value; the prose around it is ours. The source applies `inferred` to
+  reasoning from code, so this skill keeps it for an inference and asks for
+  `not checked` where the claim is somebody else's unchecked account.
 - The pack's own reports label each claim by where it came from and whether it
   was checked, and keep a section of gaps and cautions at the end. That habit,
   rather than any source, is why this skill treats a claim's support and the

@@ -25,8 +25,8 @@ Write down what is being asked and what kind of answer would settle it. A
 question that cannot be settled by anything you could find is the first thing
 to say, not the last.
 
-Where the question arrives with its answer attached — "why is it slower, is it
-the database?" — treat the guess as one candidate and check it like any other.
+Where the question arrives with its answer attached ("why is it slower, is it
+the database?"), treat the guess as one candidate and check it like any other.
 Confirming what you were handed is the cheapest way to produce a wrong answer
 that now carries your name as well as theirs.
 
@@ -97,8 +97,8 @@ Stop when new sources stop changing the answer, and say that is why you
 stopped. Stopping because you are out of patience is also allowed, and is
 reported as what it is.
 
-Where a source exists but you cannot reach it — paywalled, private, offline,
-outside what you may look at — that is a gap in the coverage and belongs in the
+Where a source exists but you cannot reach it (paywalled, private, offline,
+outside what you may look at), that is a gap in the coverage and belongs in the
 write-up. Skipping something because it is probably irrelevant is not the same
 as it being provably irrelevant.
 
@@ -143,15 +143,30 @@ identifiers and anything that looks like a secret out of it first.
 
 ## Say how each claim is supported
 
-Every claim carries how you know it. Three levels do most of the work:
+Every claim carries how you know it. Four levels do most of the work:
 
 - **Someone stated it, and here is where.** A citation the reader can land on.
   Said plainly, present tense, with the source beside it.
+- **Several things point the same way.** Nothing states it, but the evidence
+  converges. Say so and name the pieces that make it up, so the reader can see
+  what the weight is resting on rather than taking the conclusion on trust.
+  This is the level that gets quietly promoted into the one above it.
 - **You worked it out.** A reasonable reading with nothing directly stating it.
   Hedged, with the chain shown: given this and this, that follows, because of
   this.
 - **You are guessing.** Plausible, thin, and other explanations fit as well.
   Said as a guess, with the alternatives beside it.
+
+Make the label checkable rather than atmospheric. A claim you checked carries
+what you checked it against, inside the claim: `(verified: <what you ran or
+opened>)`. A reader can audit that, where "carefully verified" tells them only
+how you felt about it.
+
+Where you did not check, say so and say which of the levels above it is, since
+not checking and inferring are two different things: `(not checked: reported by
+the site manager)`, `(inferred: from the two dates)`, `(guess)`. Repeating
+somebody's unchecked explanation is not your inference, and calling it one
+gives it your credibility on top of theirs.
 
 Those say how you came by a claim. They do not say how good it is, and the two
 are different questions: a controlled study and a sales page both come out as
@@ -166,8 +181,8 @@ write the chain down: it is usually the most decision-relevant thing you know
 about that figure, and the number that dissolves when you trace it back is
 almost always the one being repeated most.
 
-Some words carry a citation with them — "because", "the reason is", "was
-designed to", "proves", "they decided" — and each one needs its source
+Some words carry a citation with them ("because", "the reason is", "was
+designed to", "proves", "they decided") and each one needs its source
 immediately beside it or a hedged word in its place. Others quietly do the
 opposite. "Obviously" and "clearly" tend to stand in front of the thing that is
 neither, "just" covers a difficulty rather than removing it, and "I think"
@@ -194,11 +209,16 @@ need a person rather than another search.
 
 Name a gap concretely: the question you could not answer, where you looked,
 what you looked for there, and what came back. Never let an absence of evidence
-harden into evidence of absence — that nobody wrote something down is not proof
+harden into evidence of absence. That nobody wrote something down is not proof
 that it did not happen.
 
 Where the answer depends on it, say who would know. A named person or office to
 ask is worth more than another hour of searching.
+
+Before you hand it over, look at whether it has any gaps in it at all. A report
+that names none is suspicious rather than thorough: either the evidence really
+was unusually complete, which happens and is worth saying, or something has
+been smoothed over. It is worth going back and asking which.
 
 ## What you hand back
 
@@ -208,7 +228,7 @@ ask is worth more than another hour of searching.
 - **What follows from that**, marked as your reasoning rather than as findings.
 - **Where sources disagree**, with both sides and their citations.
 - **What you could not find out**, with what you searched.
-- **Where you looked** — one line per source, including the ones that held
+- **Where you looked**, one line per source, including the ones that held
   nothing and the ones you could not reach, with the reason.
 - **How sure you are overall**, in a line.
 

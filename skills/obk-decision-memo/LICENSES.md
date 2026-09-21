@@ -13,11 +13,11 @@
 The MIT permission notice below applies to the work of each of these copyright
 holders, and each notice is reproduced with it:
 
-- **`citypaul/.dotfiles`** — Copyright (c) 2024 Paul Hammond
+- **`citypaul/.dotfiles`**, Copyright (c) 2024 Paul Hammond
   (`citypaul_.dotfiles/LICENSE`)
-- **`addyosmani/agent-skills`** — Copyright (c) 2025 Addy Osmani
+- **`addyosmani/agent-skills`**, Copyright (c) 2025 Addy Osmani
   (`addyosmani_agent-skills/LICENSE`)
-- **`garrytan/gstack`** — Copyright (c) 2026 Garry Tan
+- **`garrytan/gstack`**, Copyright (c) 2026 Garry Tan
   (`garrytan_gstack/LICENSE`)
 
 Each licence file was read at the path given above.

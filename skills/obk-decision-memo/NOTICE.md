@@ -10,8 +10,8 @@ The permission notices these licences require are in
 The skill `obk-decision-memo` was consolidated for this kit from these, with
 thanks. Each licence below was read from the file named beside it.
 
-- **`citypaul/.dotfiles`, `claude/.claude/skills/evaluate-existing-solutions`**
-  — MIT, `citypaul_.dotfiles/LICENSE`, "Copyright (c) 2024 Paul Hammond", which
+- **`citypaul/.dotfiles`, `claude/.claude/skills/evaluate-existing-solutions`**:
+  MIT, `citypaul_.dotfiles/LICENSE`, "Copyright (c) 2024 Paul Hammond", which
   governs this skill's directory since it carries no nested licence of its own.
   The strongest source here, and the spine of this skill. It is shaped for
   choosing whether to adopt something, and nearly all of its machinery is
@@ -46,7 +46,7 @@ thanks. Each licence below was read from the file named beside it.
   recorded. Its completion check contributes the question of whether the
   baseline is genuine rather than a straw candidate and whether every rejected
   alternative has a reason.
-- **`addyosmani/agent-skills`, `skills/documentation-and-adrs`** — MIT,
+- **`addyosmani/agent-skills`, `skills/documentation-and-adrs`**: MIT,
   `addyosmani_agent-skills/LICENSE`, "Copyright (c) 2025 Addy Osmani". Writing
   a decision down when it would be expensive to reverse. Matching the
   convention a project already has: the place, the naming, the numbering and
@@ -56,7 +56,7 @@ thanks. Each licence below was read from the file named beside it.
   giving the reason it was rejected. And the lifecycle: do not delete or edit
   an old decision when things change, write the next one and say which one it
   replaces, because the historical context is the part worth keeping.
-- **`addyosmani/agent-skills`, `skills/idea-refine`** — same licence. The
+- **`addyosmani/agent-skills`, `skills/idea-refine`**: same licence. The
   machinery for alternatives that are actually different: the lenses for
   generating them, which this skill carries as asking what the opposite would
   look like, what the far simpler version would be, what it would look like
@@ -72,7 +72,7 @@ thanks. Each licence below was read from the file named beside it.
   partner is not a yes-machine, is carried in those words. Its "not doing, and
   why" is the reason this skill treats the dropped options as a part of the
   memo rather than an appendix to it.
-- **`addyosmani/agent-skills`, `skills/doubt-driven-development`** — same
+- **`addyosmani/agent-skills`, `skills/doubt-driven-development`**: same
   licence. Checking your own conclusion: name the decision in two or three
   lines, because if you cannot get it that small you have a subject rather than
   a decision; hand a reviewer the artifact and the contract and strip your
@@ -81,7 +81,7 @@ thanks. Each licence below was read from the file named beside it.
   what comes back as data rather than a verdict, re-reading the thing against
   each finding, since rubber-stamping a reviewer is the same failure as
   ignoring one.
-- **`citypaul/.dotfiles`, `claude/.claude/skills/double-check`** — MIT, the
+- **`citypaul/.dotfiles`, `claude/.claude/skills/double-check`**: MIT, the
   repository root licence above. How a finding is closed: push back with
   evidence and never by signalling which outcome you want, and treat an
   objection dropped only out of deference to confident pushback as still open.
@@ -90,7 +90,7 @@ thanks. Each licence below was read from the file named beside it.
   authoritative, or inferred. And its rule that severity is judged by the
   impact if it ships rather than by the effort to fix it or by the reviewer's
   own certainty.
-- **`citypaul/.dotfiles`, `claude/.claude/skills/find-gaps`** — MIT, the
+- **`citypaul/.dotfiles`, `claude/.claude/skills/find-gaps`**: MIT, the
   repository root licence above. What a plan or a memo is missing rather than
   what it gets wrong: treating silence as a red flag rather than a green light,
   the cost of doing nothing as a thing the document must state, and the vague
@@ -98,8 +98,8 @@ thanks. Each licence below was read from the file named beside it.
   anything. Its warning against inventing a gap to make the review look
   productive is why this skill says a memo may honestly conclude that none of
   the options is good.
-- **`garrytan/gstack`, `office-hours/SKILL.md` and `plan-ceo-review/SKILL.md`**
-  — MIT, `garrytan_gstack/LICENSE`, "Copyright (c) 2026 Garry Tan". The premise
+- **`garrytan/gstack`, `office-hours/SKILL.md` and `plan-ceo-review/SKILL.md`**:
+  MIT, `garrytan_gstack/LICENSE`, "Copyright (c) 2026 Garry Tan". The premise
   challenge, which this skill carries as asking whether the question is the
   right one before answering it: could a different framing make this much
   simpler, what happens if we do nothing, and is this the most direct path to

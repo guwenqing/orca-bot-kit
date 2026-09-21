@@ -29,8 +29,8 @@ Map the subject as a tree of decisions: every decision branches into the ones
 that hang off it. Most of what makes an interview feel aimless is asking a
 question whose answer depends on one nobody has answered yet.
 
-The **frontier** is every decision whose prerequisites are already settled —
-the questions you can ask now without guessing at an answer you have not heard.
+The **frontier** is every decision whose prerequisites are already settled: the
+questions you can ask now without guessing at an answer you have not heard.
 A question that depends on another still open belongs to a later round, not
 this one.
 
@@ -40,7 +40,7 @@ blocked. Recompute it and ask again.
 
 You are finished when the frontier is empty: every branch visited, nothing
 left silently assumed. Do not start building on it until they say you have
-arrived at the same understanding — that confirmation is the point of the
+arrived at the same understanding. That confirmation is the point of the
 exercise, not a formality at the end of it.
 
 ## A round
@@ -49,11 +49,11 @@ Number the questions. Give each one your recommended answer, and mean it: a
 question with no recommendation makes the other person do all the work, and a
 recommendation you do not believe wastes the round.
 
-    Q1 — <what the question is about>
+    Q1: <what the question is about>
     <the question, and the options if there are options>
     → <what you would do, and why in a line>
 
-    Q2 — <what the question is about>
+    Q2: <what the question is about>
     ...
 
 Three or four questions is a round. Not the whole frontier: a round of nine is
@@ -62,7 +62,7 @@ phone between other things.
 
 Keep each question short enough to answer in a sentence. When a question needs
 three paragraphs of setup, that is usually a sign it is really two questions,
-or that you should be teaching rather than asking — see below.
+or that you should be teaching rather than asking (see below).
 
 ## Where this goes wrong
 
@@ -81,7 +81,7 @@ between an interview that helps and one that gets abandoned half way.
   your recommendation on it.
 - **Treating agreement as a decision.** What matters is not the words they
   used but what they were agreeing to. "That sounds right" after a specific
-  proposal, fully stated, with its cost named, settles that proposal — take it
+  proposal, fully stated, with its cost named, settles that proposal. Take it
   and move on. The same words while you are still explaining the subject, or
   about a recommendation whose consequence you have not spelled out, settle
   nothing: they mean the explanation landed, not that a choice was made. And a
@@ -89,14 +89,14 @@ between an interview that helps and one that gets abandoned half way.
   for any of it.
 
   When you are unsure which you have, the useful move is not to ask again in
-  the same words. It is to say the consequence out loud — what this costs, who
-  it costs, and what cannot be undone afterwards — and then ask for the choice
+  the same words. It is to say the consequence out loud (what this costs, who
+  it costs, and what cannot be undone afterwards) and then ask for the choice
   plainly. Recording a passing nod as a decision is how a record becomes
   untrustworthy.
 - **Asking again whether you may proceed.** Once something is settled, build on
   it. Re-asking reads as not having listened the first time.
 - **Going too fast.** Finishing a topic, summarising, and asking to start
-  building — all in one message — will get you stopped. Let a topic close
+  building (all in one message) will get you stopped. Let a topic close
   before opening the next.
 - **Saying too much.** A long round is a wall. Cut it until only the questions
   and the recommendations are left.
@@ -112,12 +112,12 @@ between an interview that helps and one that gets abandoned half way.
   told you, or a closing note of comfortable generalities, costs them a reading
   and moves nothing. If a paragraph would survive being deleted, delete it.
 - **Answering before you have checked you read them right.** When their answer
-  could mean two things — and a short one often does — say which reading you
+  could mean two things, and a short one often does, say which reading you
   are taking before you build on it. Getting this wrong quietly is worse than
   asking, because the whole branch that follows is then about something they
   did not say.
 - **Grilling things that are not decisions.** Research, a fact-find, a piece of
-  reading — those do not need an interview, and running one over them wastes
+  reading: those do not need an interview, and running one over them wastes
   the appetite for the parts that do. Say you are pausing it and carry on.
 
 ## The facts are yours
@@ -126,8 +126,8 @@ A question you could answer by looking is not a question to ask. Read the code,
 run the command, check the file, look up the documentation. Ask about
 decisions, which are theirs; never about facts, which are yours.
 
-When a frontier question depends on a fact you do not have, go and get it —
-and do not stall the whole round on it. That one question waits for the answer;
+When a frontier question depends on a fact you do not have, go and get it, and
+do not stall the whole round on it. That one question waits for the answer;
 the rest of the round goes ahead now. Where you have a way to look things up in
 parallel, use it, and say what you are waiting on.
 
@@ -138,19 +138,19 @@ things, and it will not surface on its own: both of them think they are being
 understood.
 
 - **When a word conflicts with the agreed one**, say so at once. "You have been
-  using *cancelled* for the thing the glossary calls *refunded* — which do you
+  using *cancelled* for the thing the glossary calls *refunded*. Which do you
   mean here?"
 - **When a word is doing too much work**, propose a sharper one. "You are
   saying *account*: do you mean the person, the organisation they belong to, or
   the login? Those behave differently."
 - **When the relationship between two things is vague**, invent a concrete
   scenario that forces it into the open. This customer, with this half-finished
-  order, on the day their card expires — what should happen? Abstractions
+  order, on the day their card expires: what should happen? Abstractions
   agree with each other; scenarios do not.
 - **When they say how something works**, check it against the thing itself
   rather than accepting it. If the code disagrees, that is worth raising there
   and then: "the code cancels the whole order, but you just described
-  cancelling one line — which is right?" Usually one of the two is the
+  cancelling one line. Which is right?" Usually one of the two is the
   surprise you are looking for.
 
 ## What gets written down
@@ -160,22 +160,22 @@ will settle again next week.
 
 **The words.** A glossary of what things are called here and what each one
 means: one or two sentences, saying what it *is* rather than what it does. Be
-opinionated — where several words mean the same thing, pick one and list the
+opinionated: where several words mean the same thing, pick one and list the
 others as ones to avoid. Only the terms that belong to this project: general
 programming vocabulary does not, however much it gets used. Keep it a glossary
-and nothing else — not a spec, not a scratchpad, not somewhere decisions go.
+and nothing else: not a spec, not a scratchpad, not somewhere decisions go.
 
 **The decisions.** Everything settled goes down, including the small and
 obvious ones: that the report is a CSV, that the list is newest first. Those
 are what the next person needs in order to build the agreed thing, and they
 cost a line each. Put them wherever the project keeps what it is going to do.
 
-A few of them earn something more — a note of their own, saying what the
+A few of them earn something more: a note of their own, saying what the
 situation was and why this was chosen. Reserve that for where all three hold:
 it is hard to reverse, so changing your mind later costs something real; it is
 surprising without the context, so a reader will wonder why on earth it was
 done this way; and it came out of a genuine trade-off with alternatives that
-could have been chosen. Miss any one and the decision still gets recorded — it
+could have been chosen. Miss any one and the decision still gets recorded. It
 just does not need the essay. An easy one will simply be re-made, an
 unsurprising one raises no questions, and one with no alternative has nothing
 to explain beyond doing the obvious thing.
@@ -198,7 +198,7 @@ apparent.
 that causes trouble later. Keep apart:
 
 - what was decided, with the words that decided it;
-- what was agreed with in passing but never settled — the nods, the "that
+- what was agreed with in passing but never settled: the nods, the "that
   sounds right", the teaching that produced no verdict;
 - what was asked and never answered;
 - what you assumed because nobody said otherwise.
@@ -215,7 +215,7 @@ before. If the project already has a home for either, use that one.
 
 ## Away from a plan
 
-The same shape works on anything with decisions in it — a piece of writing, a
+The same shape works on anything with decisions in it: a piece of writing, a
 process, a choice between tools. The tree is the decisions, the frontier is
 what can be settled now, the questions carry recommendations, the facts are
 yours to find, and what comes out is a shared understanding plus a record of

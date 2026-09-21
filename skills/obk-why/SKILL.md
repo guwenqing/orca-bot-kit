@@ -15,7 +15,7 @@ description: >-
 
 Code does not carry its own motivation. You can read what it does; you cannot
 read why it exists. That lives in commits, reviews, issues, documents and
-conversations — all partial, some missing, some wrong. Pretending otherwise
+conversations, all partial, some missing, some wrong. Pretending otherwise
 produces a confident answer that sends someone the wrong way.
 
 So the work is two things: find what was actually recorded, and be honest
@@ -26,8 +26,8 @@ something else gets what they asked for; say which of these you left and why.
 
 ## The question, and the lines it is about
 
-Work out what is being asked about and what kind of answer would settle it —
-the reason for a design, a trade-off, an edge case that forced something, an
+Work out what is being asked about and what kind of answer would settle it: the
+reason for a design, a trade-off, an edge case that forced something, an
 outside constraint, or something that looks dead. Where the target is vague,
 say which reading you took in a line and carry on, so it can be corrected
 without a round trip.
@@ -55,16 +55,16 @@ to it, which is usually where the reason actually is.
 Different reasons live in different places, and which of these exist varies by
 project. Use the ones it has:
 
-- **The history and its discussion** — always. Best for the reason given at
+- **The history and its discussion**: always. Best for the reason given at
   the time by the person doing it, under review.
-- **Whatever tracks the work** — issues, tickets, a board. Best when the reason
+- **Whatever tracks the work**: issues, tickets, a board. Best when the reason
   came from outside engineering: a customer, a deadline, a rule.
-- **Longer documents** — a design note, a page somewhere. Best where the
+- **Longer documents**: a design note, a page somewhere. Best where the
   thinking was written out before it became code.
-- **The conversation** — wherever the team talks. Best for the deliberation
+- **The conversation**: wherever the team talks. Best for the deliberation
   that never made it into anything durable, and most valuable exactly when the
   written trail is thin.
-- **Whatever records what actually happened in use** — errors, metrics, logs.
+- **Whatever records what actually happened in use**: errors, metrics, logs.
   Best for defensive code: a guard, a retry, a limit, a special case usually
   exists because something happened.
 
@@ -84,7 +84,7 @@ branch into a single change when it lands, that change shows the end state and
 none of the steps: a value that was set, argued over and moved twice appears to
 have arrived at its final form in one go. The steps are still there, on the
 branch or in the discussion attached to it, and that is usually where the
-reason is — the argument that moved it is more informative than the number it
+reason is. The argument that moved it is more informative than the number it
 landed on. Cite the change that actually did the thing, not the one that
 delivered it.
 
@@ -92,8 +92,8 @@ Three more things mislead in a history. A change that describes itself as a
 small refactor sometimes carries a deliberate change of behaviour, so read the
 diff rather than the message. A pattern may have been copied without its
 reason, so where the same shape appears in several places, find where it
-started and investigate that one instead. And automated changes — dependency
-bumps, backports, anything raised by a bot — usually carry no motivation at
+started and investigate that one instead. And automated changes (dependency
+bumps, backports, anything raised by a bot) usually carry no motivation at
 all, so they are not where the reason is.
 
 ## How sure you are
@@ -101,12 +101,12 @@ all, so they are not where the reason is.
 Every claim sits in one of these, and it is said differently in each. Keeping
 them apart is most of the value of the whole exercise.
 
-- **Someone wrote it down.** An explicit statement answering the question — a
+- **Someone wrote it down.** An explicit statement answering the question: a
   change description saying what it fixes, a comment saying why the number is
   what it is, a document choosing between two options. Say it plainly, present
   tense, and cite where it came from.
 - **Several things point the same way.** Nothing states it, but the evidence
-  converges. Say so, and name the pieces: "the evidence points to X — the
+  converges. Say so, and name the pieces: "the evidence points to X. The
   change is labelled performance, the tests added all exercise very large
   inputs, and the surrounding work touches the same path."
 - **You worked it out.** A reasonable reading with nothing explicit behind it.
@@ -128,8 +128,8 @@ with their citations and let the reader decide.
 
 Do not launder one of these into another. An inference stated in the voice of
 a citation is the failure this whole skill exists to prevent. Some words carry
-a citation with them — "because", "the reason is", "was designed to", "fixes",
-"the team decided" — and each one needs its source immediately beside it or a
+a citation with them ("because", "the reason is", "was designed to", "fixes",
+"the team decided"), and each one needs its source immediately beside it or a
 hedged word instead.
 
 Check it from the other side before you finish: the code is evidence of what
@@ -137,8 +137,8 @@ exists and what changed, and never on its own evidence of why. Reading the
 change that set a limit to 6000 and the one that moved it to 6500 establishes
 both of those values, and you need that to cite the right change. Neither of
 them tells you what the author was trying to do. So where a claim about
-motivation rests on the code alone — the name of the function, the shape of the
-branch, the value of the constant — that is the thing being explained, not the
+motivation rests on the code alone (the name of the function, the shape of the
+branch, the value of the constant), that is the thing being explained, not the
 explanation of it.
 
 ## What you hand back
@@ -149,7 +149,7 @@ explanation of it.
 - **What follows from it**, marked as reasoning.
 - **Other explanations that fit**, where more than one does.
 - **What nobody wrote down**, with what you searched.
-- **Where you looked** — one line per source, including the ones that held
+- **Where you looked**, one line per source, including the ones that held
   nothing and the ones you could not reach, with the reason.
 - **How sure you are overall**, in a line.
 
