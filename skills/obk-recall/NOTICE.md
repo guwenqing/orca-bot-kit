@@ -40,3 +40,10 @@ named models; this version has the harness or the project say where a session's
 record lives, uses whatever sources the project actually has, and states a
 missing one as a limit on what could be checked. The privacy rule is kept and
 generalised: another project's history is not read without being asked.
+
+One departure: the original keeps itself from being invoked on its own with
+`disable-model-invocation: true`, which is not portable frontmatter (ADR 0009
+and PRD 7.2: these run on purpose, never automatically). Its description can
+therefore say "before starting or resuming work" safely; ours cannot, so the
+description and the skill both say it runs when it is asked for, and that
+having been away from the work is not itself a trigger.

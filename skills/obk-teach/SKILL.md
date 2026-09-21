@@ -4,9 +4,10 @@ description: >-
   Explaining a piece of work so someone actually understands it: choosing the
   few things they should walk away with, starting from what the thing is
   before how it works, giving the smallest complete answer and stopping,
-  building a picture up one part at a time, and letting them steer. Use for
-  "explain this to me", "help me understand X", "what is this doing", or when
-  handing someone a subsystem, a change or an idea they are about to work on.
+  building a picture up one part at a time, and letting them steer. Run it when
+  you are asked to: "explain this to me", "help me understand X", "what is this
+  actually doing", "walk me through it". Answering a question in passing is not
+  this; this is for when someone has asked to be taught something.
 ---
 
 # Explaining something so it lands

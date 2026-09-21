@@ -49,3 +49,9 @@ oriented is part of the work, and where the reasons are the point that is
 named as its own kind of digging without requiring a particular skill. Its
 named image-generation tool is likewise described by what it produces rather
 than by the tool.
+
+One departure: the original keeps itself from being invoked on its own with
+`disable-model-invocation: true`, which is not portable frontmatter (ADR 0009
+and PRD 7.2: these run on purpose, never automatically). The description
+carries that instead — the phrases that ask for it, and the note that answering
+a question in passing is not this.

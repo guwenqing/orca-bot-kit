@@ -46,3 +46,9 @@ prompts and per-source playbooks. This version names the kinds of place a
 reason lives and says to use the ones the project actually has, keeps the
 confidence tiers and the null-result discipline in the skill itself, and leaves
 how the work is divided up to whoever is doing it.
+
+One departure: the original keeps itself from being invoked on its own with
+`disable-model-invocation: true`, which is not portable frontmatter (ADR 0009
+and PRD 7.2: these run on purpose, never automatically). The description
+carries that instead — the phrases that ask for it, and the note that it is not
+something to start unasked before an ordinary change.

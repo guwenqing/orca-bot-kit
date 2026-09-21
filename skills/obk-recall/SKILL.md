@@ -5,8 +5,10 @@ description: >-
   fixing the scope first, reading back over your own history and whatever the
   project records around the same code, checking what you find against the
   live state, and handing back a short brief of where things are and what to
-  do next. Use for "catch me up", "what was I doing with X", "where did I
-  leave off", or before picking work back up after a gap.
+  do next. Run it when you are asked to: "catch me up", "what was I doing with
+  X", "where did I leave off", "get up to speed on this before we start". Not
+  something to do unbidden: being asked to carry on with a task is a request
+  for the task.
 ---
 
 # Working out where you left off
@@ -14,9 +16,10 @@ description: >-
 You are rebuilding context, not writing history. The output is short and it
 ends in a next action.
 
-This runs when someone asks for it. It is also worth reaching for yourself
-before resuming something you have been away from, rather than carrying on
-from a half-memory.
+This is run when someone asks for it. Having been away from the work is not
+itself a trigger: pick up what you were asked to pick up, and say so if you
+find you have lost the thread. Rebuilding context nobody asked for spends
+their time and their money on your comfort.
 
 These are defaults for work where nothing says otherwise. A user who asks for
 something else gets what they asked for; say which of these you left and why.
@@ -56,7 +59,9 @@ Then:
   sessions, anything that was not the work.
 - When a transcript is long, reduce it somewhere else and bring back the
   reduced timeline. Pulling the whole thing into the conversation you are
-  trying to rebuild is self-defeating.
+  trying to rebuild is self-defeating. If what you sent off never comes back,
+  treat it as a source you could not reach: say so, say what the brief rests on
+  instead, and do not hold the brief waiting on it.
 
 From each one, take: what the work was, what was decided, what was left open,
 where it got stuck or was corrected, and what it produced — branches, changes,

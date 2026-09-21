@@ -4,9 +4,10 @@ description: >-
   Stopping work in a state someone else can pick up: finishing or backing out
   of the step you are in, making what you have durable, and writing the note a
   cold reader needs — what this is for, what is done, what is proven, where it
-  sits, and what to do first. Use when you are asked to hand over, pause, stop
-  for the day, or run out of room, and when work is moving to another session,
-  another bot or another person.
+  sits, and what to do first. Run it when you are asked to: "hand this over",
+  "write it up for whoever picks this up", "stop there", "we are out of time".
+  Running low on room does not trigger it and neither does a session being
+  cleared — those are moments to ask whether a handover is wanted.
 ---
 
 # Handing work over
@@ -31,11 +32,16 @@ new once you have been asked to stop, and shut down anything you set running.
 Do not do something irreversible in order to stop. Pausing is not the moment
 to publish, release, or merge anything that was not already going out.
 
-Then make the work durable, because a note describing changes that exist only
-in your working copy hands over nothing. Commit what is uncommitted as one
-clearly marked work-in-progress commit on the branch you are on. If it does
-not build or the tests do not pass, say so in the commit message in one line,
-so the next reader knows before they run it rather than after.
+Then make sure the work is somewhere the next person can get at it, and say
+where. What that takes depends on where the work lives, because a note
+describing something that exists only in your own working copy, or only in this
+conversation, hands over nothing.
+
+Where the work is in a repository and committing is how that project works,
+commit what is uncommitted as one clearly marked work-in-progress commit on the
+branch you are on. If it does not build or the tests do not pass, say so in the
+commit message in one line, so the next reader knows before they run it rather
+than after.
 
 Commit your own work, though, and only that. Where something in the tree is
 not yours — another session's edit, a change you were asked to leave alone —
@@ -44,6 +50,13 @@ what is there and whose it is, with enough detail that the next person can tell
 it apart from yours, and leave it exactly as you found it. A handover that
 quietly swept someone else's unfinished work into a commit is worse than one
 that leaves a messy tree, because the mess is at least visible.
+
+Where the work is not in a repository — a document in a scratch folder, a file
+the project deliberately keeps out of its history, anything you have no
+business committing — do not force it into one to satisfy the form. Name where
+each piece actually is, by path, and what state it is in. The goal is that
+nothing exists only in your head and nothing is findable only by you; a commit
+is one way of reaching it and not the only one.
 
 ## The note
 

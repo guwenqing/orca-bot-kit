@@ -32,4 +32,17 @@ instructions that does not work from where you are, with whatever you used
 instead, belongs in what will bite them.
 
 PRD 6.5 decides the part neither source covers: clearing a session triggers no
-handoff. This skill runs when it is asked for.
+handoff. This skill runs when it is asked for. Both originals hold themselves
+to that too, mattpocock's with `disable-model-invocation: true` in its
+frontmatter and pstack's in the playbook's own first line, "this is explicit
+only". That frontmatter is not portable (ADR 0009), so here the description
+carries it: the phrases that ask for it, and the two things that do not
+trigger it.
+
+One departure of substance: pstack makes the work durable as a work-in-progress
+commit unconditionally, and this scopes that to work that is in a repository
+where committing fits. PRD 7.1 assumes no way of working, and a bot writing
+under its own `work/` folder cannot commit what it wrote there at all, since
+`work/` is gitignored by PRD 6.3. The goal is kept whole — nothing exists only
+in your head, nothing is findable only by you — and the commit is named as one
+way of reaching it rather than the way.

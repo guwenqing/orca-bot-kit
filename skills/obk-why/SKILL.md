@@ -5,9 +5,10 @@ description: >-
   the question in the actual lines, following the history and the discussion
   around them, looking wherever else this project records its reasons, and
   separating what someone actually wrote from what you worked out and what
-  nobody recorded. Use for "why is this like this", "why did we pick that",
-  where a constant or a threshold came from, or before changing something whose
-  shape you do not understand.
+  nobody recorded. Run it when you are asked to: "why is this like this", "why
+  did we pick that", "where did this number come from", "find out why before
+  you touch it". Not something to launch on your own before an ordinary change;
+  where the shape puzzles you and nobody asked, say so and offer it.
 ---
 
 # Why it is like this
