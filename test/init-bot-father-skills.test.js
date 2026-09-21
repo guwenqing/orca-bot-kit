@@ -1,4 +1,4 @@
-// `obk init` seeds Bot Father with the kit's two management skills, so that a
+// `obk init` seeds Bot Father with the kit's management skills, so that a
 // fresh fleet has a Bot Father that can actually manage it.
 //
 // The live failure this is about: after an init, Bot Father's `bot.yaml` said
@@ -27,6 +27,8 @@ import {
   bookOf,
   botHomeOf,
   createSandbox,
+  orcaCallsOf,
+  orcaFlag,
 } from './helpers/cli.js';
 import {
   answerOf,
@@ -36,13 +38,18 @@ import {
   entryOf,
   HARNESSES,
   kitSkill,
+  MANAGEMENT_SKILLS as MANAGEMENT,
   namesIn,
   setSkills,
   skillNamesIn,
 } from './helpers/skills.js';
 
-/** The two skills Bot Father's job needs, and the entries that name them. */
-const MANAGEMENT = ['obk-bot-building', 'obk-fleet-review'];
+/**
+ * The skills Bot Father's job needs, and the entries that name them. The list
+ * itself is in helpers/skills.js, because a second test file states it too and
+ * the two went stale against each other once already; the test at the foot of
+ * this file is what holds it to the grooming prompt that names them.
+ */
 const ENTRIES = MANAGEMENT.map((name) => `kit:${name}`);
 
 /** A bots folder `init` made. */
@@ -59,14 +66,14 @@ const skillsIn = async (bots, bot) => parse(await botText(bots, bot))?.skills;
 /** A list named without caring what order it is in, and with a duplicate still visible. */
 const inAnyOrder = (listed) => (listed ?? []).slice().sort();
 
-test('R4 init puts both management skills on Bot Father\'s own list', async (t) => {
+test('R4 init puts every management skill on Bot Father\'s own list', async (t) => {
   const box = await createSandbox(t);
   const bots = await seeded(box);
 
   const listed = await skillsIn(bots, 'bot-father');
 
   assert.deepEqual(inAnyOrder(listed), ENTRIES, `got: ${await botText(bots, 'bot-father')}`);
-  assert.equal(listed.length, 2, 'each of them once');
+  assert.equal(listed.length, MANAGEMENT.length, 'each of them once');
 });
 
 test('R4 they go on Bot Father\'s own list and not into defaults.yaml', async (t) => {
@@ -82,7 +89,7 @@ test('R4 they go on Bot Father\'s own list and not into defaults.yaml', async (t
   assert.deepEqual(defaults.skills, [], `defaults.yaml is for what every bot gets, got: ${JSON.stringify(defaults)}`);
 });
 
-test('R4 both skills are linked into Bot Father\'s home, for both harnesses', async (t) => {
+test('R4 every management skill is linked into Bot Father\'s home, for both harnesses', async (t) => {
   const box = await createSandbox(t);
   const bots = await seeded(box);
 
@@ -93,7 +100,7 @@ test('R4 both skills are linked into Bot Father\'s home, for both harnesses', as
     assert.deepEqual(
       await namesIn(bots, 'bot-father', harness),
       MANAGEMENT,
-      `${harness} should read exactly the two management skills`,
+      `${harness} should read exactly the management skills`,
     );
   }
 });
@@ -124,7 +131,7 @@ test('R4 Bot Father has them and a bot made by bot create does not', async (t) =
 
   assert.equal(made.code, 0, made.stderr);
   assert.deepEqual(await skillsIn(bots, 'api-bot'), [], 'a new bot\'s list is its own, and starts empty');
-  assert.deepEqual(inAnyOrder(await skillsIn(bots, 'bot-father')), ENTRIES, 'and Bot Father\'s carries both');
+  assert.deepEqual(inAnyOrder(await skillsIn(bots, 'bot-father')), ENTRIES, 'and Bot Father\'s carries them');
   for (const harness of HARNESSES) {
     assert.deepEqual(
       await namesIn(bots, 'api-bot', harness),
@@ -146,7 +153,7 @@ test('R4 a second init leaves the list as it is, with each skill named once', as
   assert.equal(await botText(bots, 'bot-father'), before, 'a file that needs nothing is not rewritten');
   const listed = await skillsIn(bots, 'bot-father');
   assert.deepEqual(inAnyOrder(listed), ENTRIES);
-  assert.equal(listed.length, 2, 'and neither of them twice');
+  assert.equal(listed.length, MANAGEMENT.length, 'and none of them twice');
 });
 
 test('R4 a skill the user has taken off the list is not put back', async (t) => {
@@ -155,7 +162,7 @@ test('R4 a skill the user has taken off the list is not put back', async (t) => 
   // than one that is missing a skill.
   const box = await createSandbox(t);
   const bots = await seeded(box);
-  assert.deepEqual(inAnyOrder(await skillsIn(bots, 'bot-father')), ENTRIES, 'the first init gave it both');
+  assert.deepEqual(inAnyOrder(await skillsIn(bots, 'bot-father')), ENTRIES, 'the first init gave it all of them');
   await setSkills(botYamlOf(bots, 'bot-father'), 'kit:obk-fleet-review');
 
   const second = await box.run(['init', '--bots', 'bots', '--harness', 'claude']);
@@ -174,7 +181,7 @@ test('R4 a Bot Father that predates this keeps the list it has', async (t) => {
   const bots = await seeded(box);
   // The contrast: the file this same init wrote does carry them. What follows
   // puts an older file in its place, and that one is left alone.
-  assert.deepEqual(inAnyOrder(await skillsIn(bots, 'bot-father')), ENTRIES, 'a bot.yaml init wrote carries both');
+  assert.deepEqual(inAnyOrder(await skillsIn(bots, 'bot-father')), ENTRIES, 'a bot.yaml init wrote carries them');
   const older = `# Bot Father runs the fleet.
 
 name: bot-father
@@ -204,7 +211,7 @@ test('R4 a Bot Father whose list was emptied can be given them by asking', async
   // says init gave it the two in the first place.
   const box = await createSandbox(t);
   const bots = await seeded(box);
-  assert.deepEqual(inAnyOrder(await skillsIn(bots, 'bot-father')), ENTRIES, 'init gave it both');
+  assert.deepEqual(inAnyOrder(await skillsIn(bots, 'bot-father')), ENTRIES, 'init gave it all of them');
   await setSkills(botYamlOf(bots, 'bot-father'));
 
   for (const entry of ENTRIES) {
@@ -235,4 +242,77 @@ test('R4 init says which skills Bot Father was given, plain and as JSON', async 
 
   assert.equal(asJson.code, 0, asJson.stderr);
   assert.deepEqual(skillNamesIn(entryOf(answerOf(asJson), 'bot-father')).slice().sort(), MANAGEMENT);
+});
+
+/**
+ * Every kit skill the text names, with the bots folder's own path taken out
+ * first: a sandbox lives under a temporary directory called `obk-<something>`,
+ * and that is a folder, not a skill.
+ */
+const skillsNamedIn = (text, bots, root) => [
+  ...new Set(
+    text
+      .replaceAll(root, ' ')
+      .replaceAll(bots, ' ')
+      .match(/obk-[a-z0-9]+(?:-[a-z0-9]+)*/g) ?? [],
+  ),
+].sort();
+
+test('R4 every skill the grooming prompt names is one Bot Father can load', async (t) => {
+  // The live failure this is about, found by running it rather than reading it:
+  // `obk groom` wrote an automation whose prompt said to use obk-grooming and
+  // obk-finops, and Bot Father's skills directory held neither. Every morning a
+  // session would have woken, been told to use two skills that were not there,
+  // and improvised the job instead of doing it the way the skill says.
+  //
+  // Neither half of that is wrong on its own, which is why nothing caught it.
+  // So this asks the one question that spans them, and asks it of the prompt
+  // Orca was really handed rather than of any wording in the source: whatever
+  // skills that text names, Bot Father has.
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+
+  const groomed = await box.run(['groom', '--bots', 'bots', '--at', '04:00']);
+  assert.equal(groomed.code, 0, groomed.stderr);
+
+  const created = orcaCallsOf(await box.orca.calls(), 'automations create');
+  assert.equal(created.length, 1, `the grooming should have been created once, got: ${JSON.stringify(created)}`);
+  const prompt = orcaFlag(created[0], '--prompt') ?? '';
+  const named = skillsNamedIn(prompt, bots, box.root);
+
+  // Not a rule that the prompt must name skills; a note that this test only
+  // says anything while it does. A prompt that stops naming them is a decision
+  // to take here, deliberately, rather than a guard that quietly went quiet.
+  assert.ok(
+    named.length > 0,
+    `the grooming prompt names no kit skill, so this test now proves nothing; got: ${prompt}`,
+  );
+
+  for (const harness of HARNESSES) {
+    const held = await namesIn(bots, 'bot-father', harness);
+    for (const name of named) {
+      assert.ok(
+        held.includes(name),
+        `the grooming prompt tells the session to use ${name}, and ${harness} finds only `
+        + `${held.join(', ') || 'nothing'} in Bot Father's home`,
+      );
+    }
+  }
+});
+
+test('R4 a skill the grooming prompt names is a skill the kit actually ships', async (t) => {
+  // The other way the pair can come apart: a prompt that names something which
+  // is nowhere, which no amount of seeding would fix.
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  const groomed = await box.run(['groom', '--bots', 'bots', '--at', '04:00']);
+  assert.equal(groomed.code, 0, groomed.stderr);
+
+  const created = orcaCallsOf(await box.orca.calls(), 'automations create');
+  const named = skillsNamedIn(orcaFlag(created[0], '--prompt') ?? '', bots, box.root);
+
+  assert.ok(named.length > 0, 'the prompt should still be naming the skills it wants used');
+  for (const name of named) {
+    await kitSkill(name);
+  }
 });

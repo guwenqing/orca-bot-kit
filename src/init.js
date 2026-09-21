@@ -90,8 +90,11 @@ ${MANAGEMENT_SKILLS.map((name) => `  - kit:${name}\n`).join('')}sessions:
 `;
 
 /**
- * The kit's own skills for the job Bot Father has: writing a bot, and looking
- * over the fleet that exists. They go on its list when the kit writes its
+ * The kit's own skills for the job Bot Father has: writing a bot, looking over
+ * the fleet that exists, the daily pass over it, and what the work costs. The
+ * last two are here because the grooming run is told to use them by name, and a
+ * session woken to do a job with a skill it cannot load improvises instead,
+ * which is the thing the skill was written to stop. They go on its list when the kit writes its
  * `bot.yaml`, because a fleet manager with no way to manage the fleet is not
  * something the user can ask it to fix — asking it is the thing that does not
  * work yet.
@@ -101,7 +104,7 @@ ${MANAGEMENT_SKILLS.map((name) => `  - kit:${name}\n`).join('')}sessions:
  * the same file behind, and of the two readings, putting back what somebody
  * removed is the worse one to be wrong about.
  */
-const MANAGEMENT_SKILLS = ['obk-bot-building', 'obk-fleet-review'];
+const MANAGEMENT_SKILLS = ['obk-bot-building', 'obk-finops', 'obk-fleet-review', 'obk-grooming'];
 
 const BOT_FATHER_YAML = 'bots/bot-father/bot.yaml';
 

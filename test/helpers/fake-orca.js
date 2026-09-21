@@ -13,6 +13,14 @@
 // state.json, all optional except the lists:
 //   setups      [{ id, projectId, hostId, repoId, path, displayName, kind, ... }]
 //   terminals   [{ handle, tabId, worktreePath, title, typed: [...], ... }]
+//   automations [{ id, name, enabled, rrule, provider, prompt, runContext }]
+//               The daily jobs Orca runs by itself. Orca does **not**
+//               deduplicate them by name: the same --name against the same
+//               workspace twice gives two automations, both listed and both
+//               schedulable (verified live, 2026-09-21), so the fake creates a
+//               second one just as readily. Making that idempotent is the
+//               kit's job, and a fake that quietly merged them would hide the
+//               one failure this is worth testing.
 //   repoAddKind the kind `repo add` registers a folder as (Orca says "git" for
 //               a folder inside a git repo, which is why the kit must correct it)
 //   reachable   false: the app answers but its runtime is not there
@@ -573,6 +581,83 @@ if (command === 'orchestration check') {
     ...(waiting.length > 0 ? { deliveryId: waiting[waiting.length - 1].id } : {}),
     ...(acked.length > 0 ? { acked } : {}),
   });
+}
+
+/**
+ * The recurrence Orca writes for a daily trigger at HH:MM. Taken from a real
+ * answer: 04:00 comes back as `FREQ=DAILY;BYHOUR=4;BYMINUTE=0`, the numbers
+ * unpadded.
+ */
+const rruleFor = (time) => {
+  const [hour, minute] = time.split(':');
+  return `FREQ=DAILY;BYHOUR=${Number(hour)};BYMINUTE=${Number(minute)}`;
+};
+
+const automationWith = (id) => (state.automations ?? []).find((one) => one.id === id);
+
+if (command === 'automations list') {
+  ok({ automations: state.automations ?? [] });
+}
+
+if (command === 'automations create') {
+  const name = flag('--name');
+  if (name === undefined) fail('missing_argument', 'automations create needs --name');
+
+  const target = worktreePathOf(flag('--workspace'));
+  const setup = target === undefined ? undefined : setupAt(target);
+  if (!setup) fail('selector_not_found', `no workspace matches ${flag('--workspace')}`);
+
+  const trigger = flag('--trigger');
+  if (trigger !== 'daily') fail('invalid_argument', `this fake only makes daily automations, got ${trigger}`);
+  const time = flag('--time');
+  if (time === undefined) fail('missing_argument', '--trigger daily needs --time');
+
+  const n = state.nextId ?? 1;
+  state.nextId = n + 1;
+  const automation = {
+    id: `auto_${n}`,
+    name,
+    enabled: !args.includes('--disabled'),
+    rrule: rruleFor(time),
+    provider: flag('--provider'),
+    prompt: flag('--prompt'),
+    runContext: { path: setup.path, projectId: setup.projectId, projectHostSetupId: setup.id },
+  };
+  // Nothing here looks at the name first: see the note on `automations` above.
+  state.automations = [...(state.automations ?? []), automation];
+  save();
+  ok({ automation });
+}
+
+if (command === 'automations edit') {
+  const automation = automationWith(flag('--id'));
+  if (!automation) fail('automation_not_found', `no automation with id ${flag('--id')}`);
+  if (args.includes('--enabled') && args.includes('--disabled')) {
+    fail('invalid_argument', '--enabled and --disabled are opposites');
+  }
+
+  const time = flag('--time');
+  if (time !== undefined) {
+    // Orca's own refusal, word for word: a time needs something to hang on.
+    if (flag('--trigger') === undefined && flag('--schedule') === undefined) {
+      fail('invalid_argument', '--time requires --trigger or --schedule');
+    }
+    automation.rrule = rruleFor(time);
+  }
+  if (args.includes('--enabled')) automation.enabled = true;
+  if (args.includes('--disabled')) automation.enabled = false;
+  if (flag('--name') !== undefined) automation.name = flag('--name');
+  if (flag('--prompt') !== undefined) automation.prompt = flag('--prompt');
+  save();
+  ok({ automation });
+}
+
+if (command === 'automations remove') {
+  const automation = automationWith(flag('--id'));
+  if (!automation) fail('automation_not_found', `no automation with id ${flag('--id')}`);
+  state.automations = state.automations.filter((one) => one !== automation);
+  save();
+  ok({ removed: { id: automation.id, name: automation.name } });
 }
 
 fail('unknown_command', `orca has no "${command}" command in this fake`);

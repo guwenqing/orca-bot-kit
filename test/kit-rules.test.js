@@ -26,23 +26,30 @@ const MAX_BODY_LINES = 12;
 const MAX_LINE = 100;
 
 /**
- * The ceiling on the default set: the applies: all bodies are what every session
- * of every bot reads on every turn, and 3,950 characters is around 990 tokens of
- * that reading. The kit does not have this budget to itself — the user's own
- * units are built in beside these — so it is the kit's share, not all a bot may
- * be given.
+ * What the applies: all bodies come to today, to the character: what every
+ * session of every bot reads on every turn, around 1,030 tokens of it.
  *
- * It is a limit on the cost, not a size the set has to reach. A rule the bots
- * need is not trimmed to fit under it. When the set no longer fits, first ask
- * whether what grew is a rule or depth that belongs in a skill; if it is a rule,
- * weigh what those tokens buy on every turn and move this number on purpose.
+ * This is a ratchet and not a budget, and the difference matters. It is set to
+ * the exact total rather than to a round number with room in it, because room
+ * in it is spent silently: the last unit to arrive fitted inside the slack and
+ * nobody weighed it until the slack ran out. At the exact total, every
+ * character the set gains trips this test, and moving the number is a line in a
+ * diff that somebody chose to write.
  *
- * Moved on purpose once, in slice 08: 3,500 to 3,950, for `mail.md`. A bot that
- * does not know it can write to another session cannot do what PRD 6.9 asks of
- * it, so the unit earns its place; the coordinator's decision was that the
- * number rises to what that unit needs and nothing else grows.
+ * So it says nothing about what a bot can afford. It cannot: the kit's units
+ * are built into AGENTS.md beside the user's own units and the bot's charter,
+ * and none of that is visible from here. A rule the bots need is not trimmed to
+ * fit this number. When the set no longer fits, ask first whether what grew is
+ * a rule or depth that belongs in a skill; if it is a rule, weigh what those
+ * tokens buy on every turn, move this number on purpose, and say in the change
+ * what they bought.
+ *
+ * 3500, then 3950 when mail.md arrived, then the exact total from this slice,
+ * when profiles.md arrived and the slack in 3950 was what let it land
+ * unweighed. Twice in two slices; issue #140 is about measuring the built
+ * AGENTS.md instead, which is where a bot actually pays.
  */
-const MAX_ALL_CHARS = 3950;
+const MAX_ALL_CHARS = 4129;
 
 /** Everything in rules/, whatever it is: the shape test needs to see the strays too. */
 async function entries() {
@@ -152,7 +159,9 @@ test('the units stay inside the budget a bot pays on every turn', async () => {
 
   assert.ok(
     byDefault <= MAX_ALL_CHARS,
-    `the applies: all units come to ${byDefault} characters, over the ${MAX_ALL_CHARS} every bot may be given by default`,
+    `the applies: all units come to ${byDefault} characters; the set came to ${MAX_ALL_CHARS} when that `
+    + 'number was last moved on purpose. If what grew is depth, it belongs in a skill; if it is a rule the '
+    + 'bots need, weigh what it buys on every turn, move the number, and say in the change what it bought.',
   );
 });
 

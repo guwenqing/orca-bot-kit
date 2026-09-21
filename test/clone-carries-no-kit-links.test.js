@@ -42,6 +42,7 @@ import {
   HARNESSES,
   heldBy,
   kitSkill,
+  MANAGEMENT_SKILLS as MANAGEMENT,
   namesIn,
   SKILL_DIRS,
   skillsDirOf,
@@ -55,8 +56,6 @@ const KIT_SKILL = 'obk-tdd';
 /** One of the user's own, in the common folder inside their repo. */
 const COMMON_SKILL = 'house-style';
 
-/** The skills `init` puts on Bot Father's list: the kit's two management ones. */
-const MANAGEMENT = ['obk-bot-building', 'obk-fleet-review'];
 
 /**
  * The fleet every test here starts from: Bot Father, whom `init` seeds, and one

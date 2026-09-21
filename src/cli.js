@@ -7,11 +7,12 @@
 // plainly what it made and what still wants looking at, and `--json` gives it
 // the same facts to act on.
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 
 import { addSession, createBot, readBot, SESSION_FIELDS } from './bot.js';
+import { grooming } from './groom.js';
 import { checkHealth, orcaSettingFindings } from './health.js';
 import { initBots } from './init.js';
 import { APPROVALS, HARNESSES } from './launch.js';
@@ -23,6 +24,7 @@ import { readRoster } from './roster.js';
 import { buildAgents, buildRules, CODEX_CAP } from './rules.js';
 import { addSkill, buildSkills, linkSkills } from './skills.js';
 import { addSource, fetchSources } from './sources.js';
+import { readUsage } from './usage.js';
 import { BOT_FATHER, bringUp } from './up.js';
 
 const USAGE = `obk — Orca Bot Kit.
@@ -121,6 +123,22 @@ Usage:
                             with its settings, its tab and the conversation it
                             is in. It reads your files and reports them as they
                             stand; what to make of them is yours.
+  obk groom --bots <path> [--at <HH:MM>] [--on | --off]
+                            Say whether the daily grooming exists, when it runs
+                            and whether it is on, and set it up or change it
+                            when you ask. --at makes one, in Bot Father's Orca
+                            project. It is made off, because it spends tokens
+                            every day: run it by hand once, read what it gives
+                            you, then --on.
+  obk usage --bots <path> [--bot <bot>] [--session <name>] [--since <time>]
+                            Say what your sessions have used: the conversations
+                            each one had, their calls and tokens, the models and
+                            efforts they ran at, and how often they were
+                            compacted. --since counts the calls made from that
+                            moment on, which is how a daily run asks what has
+                            happened since the last one. It counts tokens and
+                            never money: what a token costs is looked up live by
+                            whoever is asking.
   obk session record --bots <path> --bot <bot>
                             For the kit's own hook, not for typing: it reads
                             what the harness says about a session starting on
@@ -138,7 +156,9 @@ const COMMANDS = {
   up: ['bots'],
   restart: ['bots', 'bot'],
   health: ['bots'],
+  groom: ['bots'],
   roster: ['bots'],
+  usage: ['bots'],
   'bot create': ['bots', 'name', 'harness'],
   'rules build': ['bots'],
   'skills add': ['bots', 'bot', 'skill'],
@@ -160,6 +180,8 @@ const NEEDED = {
   bot: '--bot <bot>: which bot',
   session: '--session <name>: which session',
   source: '--source <name>: which source',
+  since: '--since <time>: the moment to count from',
+  at: '--at <HH:MM>: what time of day it runs',
   skill: "--skill <ref>: which skill, as a bot's list names one",
   repo: '--repo <url>: the repository to clone it from',
   ref: '--ref <ref>: the branch, tag or commit to pin it at',
@@ -198,6 +220,10 @@ async function run(argv) {
       bot: { type: 'string' },
       session: { type: 'string' },
       source: { type: 'string' },
+      since: { type: 'string' },
+      at: { type: 'string' },
+      on: { type: 'boolean' },
+      off: { type: 'boolean' },
       skill: { type: 'string' },
       repo: { type: 'string' },
       ref: { type: 'string' },
@@ -266,6 +292,25 @@ async function run(argv) {
 
   process.stdout.write(values.json ? `${JSON.stringify(answer, null, 2)}\n` : `${lines.join('\n')}\n`);
   return code;
+}
+
+/**
+ * The bots folder as the file system knows it, for the commands that use it as
+ * an identity rather than as something the user typed. A folder reached through
+ * a symlink is the same fleet: the harnesses file their transcripts under the
+ * real path and Orca records an automation's workspace by it, so comparing the
+ * spelling finds nothing and offers to make a second of what is already there.
+ *
+ * Not done for every command. `init` is given a path that may not exist yet, and
+ * when it refuses one it names what the user gave it rather than whatever the
+ * link pointed at, which is a file they never mentioned.
+ */
+function sameFleet(bots) {
+  try {
+    return realpathSync(bots);
+  } catch {
+    return bots;
+  }
 }
 
 /** The one command a harness runs rather than a person: the kit's hook. */
@@ -413,6 +458,23 @@ const commands = {
         `Fetch it:  obk skills fetch --bots ${bots} --source ${source.name}`,
       ],
     };
+  },
+
+  groom(bots, values) {
+    refuseWhenOrcaIsDown();
+    if (values.on === true && values.off === true) {
+      throw new Error('groom takes --on or --off, and got both. Say which one you want.');
+    }
+    const on = values.on === true ? true : (values.off === true ? false : undefined);
+    const folder = sameFleet(bots);
+    const groom = grooming(folder, { at: values.at, on });
+    return { answer: { bots: folder, groom }, lines: groomLines(groom, folder) };
+  },
+
+  usage(bots, values) {
+    const folder = sameFleet(bots);
+    const usage = readUsage(folder, { bot: values.bot, session: values.session, since: values.since });
+    return { answer: { bots: folder, usage }, lines: usageLines(usage, folder) };
   },
 
   roster(bots, values) {
@@ -652,6 +714,67 @@ function fetched(bots, sources, nothing) {
     ],
     code: trouble.length === 0 ? 0 : 1,
   };
+}
+
+/**
+ * What each bot's sessions have used, as lines: a block per session, a line per
+ * conversation, and the bot's unclaimed ones under it. Tokens and no money, the
+ * same as the answer, because the price is looked up by whoever is reading.
+ */
+function usageLines(usage, bots) {
+  const lines = [];
+
+  for (const entry of usage) {
+    lines.push(`${'bot'.padEnd(9)}  ${entry.bot}`);
+    for (const session of entry.sessions) {
+      lines.push(`${'session'.padEnd(9)}  ${session.name}`);
+      lines.push(...session.conversations.map(conversationLine));
+      if (session.conversations.length === 0) lines.push('             nothing on record');
+    }
+    if (entry.unclaimed.length > 0) {
+      lines.push(`${'unclaimed'.padEnd(9)}  ${entry.bot}: no session of this bot claims these`);
+      lines.push(...entry.unclaimed.map(conversationLine));
+    }
+  }
+
+  lines.push(usage.length === 0
+    ? `No bots yet. Your bots folder: ${bots}`
+    : `${usage.length} bot${usage.length === 1 ? '' : 's'}. What a token costs is yours to look up. Your bots folder: ${bots}`);
+  return lines;
+}
+
+/** One conversation: what it is, what it ran as, and what it used. */
+function conversationLine(one) {
+  const ran = [...one.models, ...one.efforts].join(' ');
+  const used = Object.entries(one.tokens)
+    .filter(([, count]) => count > 0)
+    .map(([kind, count]) => `${kind} ${count}`)
+    .join('  ');
+  return `             ${one.id}  ${one.calls} call${one.calls === 1 ? '' : 's'}`
+    + `${ran === '' ? '' : `  ${ran}`}`
+    + `${used === '' ? '' : `  ${used}`}`
+    + `${one.compactions > 0 ? `  compacted ${one.compactions}` : ''}`;
+}
+
+/**
+ * What there is to say about the daily grooming: whether it exists, when it
+ * runs, and whether it is on. A grooming that is off is not a fault, so this
+ * says what is there and what the next step would be rather than warning.
+ */
+function groomLines(groom, bots) {
+  if (!groom.exists) {
+    return [
+      `${'groom'.padEnd(9)}  there is no daily grooming yet`,
+      `Make one:  obk groom --bots ${bots} --at 04:00`,
+    ];
+  }
+
+  return [
+    `${'groom'.padEnd(9)}  daily at ${groom.at}  ${groom.enabled ? 'on' : 'off'}`,
+    groom.enabled
+      ? `It runs every day at ${groom.at} and spends tokens each time. Turn it off with:  obk groom --bots ${bots} --off`
+      : `It is not running yet. Try it by hand, read what it gives you, then:  obk groom --bots ${bots} --on`,
+  ];
 }
 
 /** The settings a session carries, in the order a session is written down. */

@@ -32,12 +32,20 @@ const codexDir = () => path.join(homedir(), '.codex', 'sessions');
  * then that it does not know, which is the honest one.
  */
 export function conversationsIn(harness, home, since) {
+  return transcriptsIn(harness, home, since).map((one) => ({ id: one.id, at: one.at }));
+}
+
+/**
+ * The same conversations, each with the file the harness keeps it in, for a
+ * caller that has to read what is inside one rather than only know it is there.
+ */
+export function transcriptsIn(harness, home, since) {
   const from = since === undefined ? 0 : Date.parse(since);
   const found = harness === 'claude' ? claudeConversations(home) : codexConversations(home, from);
   return found
     .filter((one) => Number.isNaN(from) || one.at >= from)
     .sort((left, right) => left.at - right.at)
-    .map((one) => ({ id: one.id, at: new Date(one.at).toISOString() }));
+    .map((one) => ({ id: one.id, at: new Date(one.at).toISOString(), file: one.file }));
 }
 
 function claudeConversations(home) {
@@ -49,7 +57,7 @@ function claudeConversations(home) {
       // where it says nothing: a line of its own is the harness talking, and a
       // file's times can be set by anything that touches it.
       const at = said(file) ?? startedAt(file);
-      return at === undefined ? [] : [{ id: name.slice(0, -'.jsonl'.length), at }];
+      return at === undefined ? [] : [{ id: name.slice(0, -'.jsonl'.length), at, file }];
     });
 }
 
@@ -79,7 +87,7 @@ function codexConversations(home, from) {
     .flatMap((file) => {
       const meta = sessionMeta(file);
       return meta?.cwd === home && typeof meta.id === 'string'
-        ? [{ id: meta.id, at: Date.parse(meta.timestamp ?? '') || startedAt(file) || 0 }]
+        ? [{ id: meta.id, at: Date.parse(meta.timestamp ?? '') || startedAt(file) || 0, file }]
         : [];
     });
 }

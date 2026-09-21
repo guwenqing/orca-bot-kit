@@ -660,6 +660,9 @@ export const ALLOWED_ORCA_COMMANDS = [
   'orchestration run-use',
   'orchestration send',
   'orchestration check',
+  'automations list',
+  'automations create',
+  'automations edit',
 ];
 
 /**
