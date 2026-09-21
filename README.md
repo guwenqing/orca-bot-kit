@@ -190,6 +190,8 @@ than relying on another skill being loaded.
 | `obk-decision-memo` | the conclusion first, the alternatives, and the argument against it |
 | `obk-bot-building` | what a bot owns, the charter interview, and the skills the job needs |
 | `obk-fleet-review` | one verdict per bot, the cheaper answers first, and where a problem goes |
+| `obk-grooming` | the daily pass: only what changed, one output checked, one short report |
+| `obk-finops` | what a result cost, live prices, and which limits are really enforced |
 
 A skill is where the depth lives. The always-on rules say that a change in
 behaviour starts with a failing test someone else wrote and is read by someone
