@@ -12,6 +12,7 @@ import path from 'node:path';
 import { parseArgs } from 'node:util';
 
 import { addSession, createBot, readBot, SESSION_FIELDS } from './bot.js';
+import { grooming } from './groom.js';
 import { checkHealth, orcaSettingFindings } from './health.js';
 import { initBots } from './init.js';
 import { APPROVALS, HARNESSES } from './launch.js';
@@ -122,6 +123,13 @@ Usage:
                             with its settings, its tab and the conversation it
                             is in. It reads your files and reports them as they
                             stand; what to make of them is yours.
+  obk groom --bots <path> [--at <HH:MM>] [--on | --off]
+                            Say whether the daily grooming exists, when it runs
+                            and whether it is on, and set it up or change it
+                            when you ask. --at makes one, in Bot Father's Orca
+                            project. It is made off, because it spends tokens
+                            every day: run it by hand once, read what it gives
+                            you, then --on.
   obk usage --bots <path> [--bot <bot>] [--session <name>] [--since <time>]
                             Say what your sessions have used: the conversations
                             each one had, their calls and tokens, the models and
@@ -148,6 +156,7 @@ const COMMANDS = {
   up: ['bots'],
   restart: ['bots', 'bot'],
   health: ['bots'],
+  groom: ['bots'],
   roster: ['bots'],
   usage: ['bots'],
   'bot create': ['bots', 'name', 'harness'],
@@ -172,6 +181,7 @@ const NEEDED = {
   session: '--session <name>: which session',
   source: '--source <name>: which source',
   since: '--since <time>: the moment to count from',
+  at: '--at <HH:MM>: what time of day it runs',
   skill: "--skill <ref>: which skill, as a bot's list names one",
   repo: '--repo <url>: the repository to clone it from',
   ref: '--ref <ref>: the branch, tag or commit to pin it at',
@@ -211,6 +221,9 @@ async function run(argv) {
       session: { type: 'string' },
       source: { type: 'string' },
       since: { type: 'string' },
+      at: { type: 'string' },
+      on: { type: 'boolean' },
+      off: { type: 'boolean' },
       skill: { type: 'string' },
       repo: { type: 'string' },
       ref: { type: 'string' },
@@ -426,6 +439,16 @@ const commands = {
         `Fetch it:  obk skills fetch --bots ${bots} --source ${source.name}`,
       ],
     };
+  },
+
+  groom(bots, values) {
+    refuseWhenOrcaIsDown();
+    if (values.on === true && values.off === true) {
+      throw new Error('groom takes --on or --off, and got both. Say which one you want.');
+    }
+    const on = values.on === true ? true : (values.off === true ? false : undefined);
+    const groom = grooming(bots, { at: values.at, on });
+    return { answer: { bots, groom }, lines: groomLines(groom, bots) };
   },
 
   usage(bots, values) {
@@ -710,6 +733,30 @@ function conversationLine(one) {
     + `${ran === '' ? '' : `  ${ran}`}`
     + `${used === '' ? '' : `  ${used}`}`
     + `${one.compactions > 0 ? `  compacted ${one.compactions}` : ''}`;
+}
+
+/**
+ * What there is to say about the daily grooming: whether it exists, when it
+ * runs, and whether it is on. A grooming that is off is not a fault, so this
+ * says what is there and what the next step would be rather than warning.
+ */
+function groomLines(groom, bots) {
+  if (!groom.exists) {
+    return [
+      `${'groom'.padEnd(9)}  there is no daily grooming yet`,
+      `Make one:  obk groom --bots ${bots} --at 04:00`,
+    ];
+  }
+
+  return [
+    `${'groom'.padEnd(9)}  daily at ${groom.at}  ${groom.enabled ? 'on' : 'off'}`,
+    // What a reader skimming this must not do is take a word about how to stop
+    // it as a statement that it is stopped, so the running case says only that
+    // it is running and what that costs.
+    groom.enabled
+      ? `It runs every day at ${groom.at}, and spends tokens each time. Your bots folder: ${bots}`
+      : `It is not running yet. Try it by hand, read what it gives you, then:  obk groom --bots ${bots} --on`,
+  ];
 }
 
 /** The settings a session carries, in the order a session is written down. */
