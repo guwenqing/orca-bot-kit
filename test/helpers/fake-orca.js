@@ -1,11 +1,11 @@
 // A fake Orca CLI for the ordinary suite. `OBK_ORCA` points every sandboxed
 // run at it, so `npm test` never reaches the real Orca — not even by mistake.
 //
-// It answers the eight commands this slice is allowed to use, in the envelope
-// Orca 1.4.205 really uses (docs/prd.md, the slice interface and the tech
-// notes), it remembers what it was told to create and what was typed into each
-// tab, and it can be steered into every way Orca can let the kit down. Its
-// whole world is two files in one directory, named by OBK_FAKE_ORCA_DIR:
+// It answers the commands the kit is allowed to use, in the envelope Orca
+// 1.4.205 really uses (docs/prd.md, the slice interface and the tech notes),
+// it remembers what it was told to create and what was typed into each tab,
+// and it can be steered into every way Orca can let the kit down. Its whole
+// world is two files in one directory, named by OBK_FAKE_ORCA_DIR:
 //
 //   state.json   what Orca "has", and how it should misbehave
 //   calls.log    one JSON line per call: { args, cwd }
@@ -47,6 +47,18 @@
 //
 // In `crash` and `garbage`, `command` may be "*" for every command. A command
 // is its leading words: "status", "repo add", "terminal create", and so on.
+//
+// `terminal close` is the one call that takes something away, so it is the one
+// the fake is strictest about. Real Orca takes either form:
+//
+//   terminal close --terminal <handle> [--tab]   one pane, or its whole tab
+//   terminal close --worktree <selector> --all   every tab of a project
+//
+// The first is answered: the terminal leaves the fake's world, a tab at a time,
+// because a tab here holds one terminal. The second is not answered at all —
+// the fake falls over with a message, because it closes tabs the kit does not
+// own and the kit must never call it. A handle the fake does not have is
+// refused with `terminal_not_found`, as `rename`, `wait` and `send` refuse one.
 
 import { spawnSync } from 'node:child_process';
 import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
@@ -291,6 +303,33 @@ if (command === 'terminal create') {
   save();
 
   ok({ terminal: asReported(terminal) });
+}
+
+if (command === 'terminal close') {
+  // Orca's whole-project close. It is not a refusal the kit could handle and
+  // report: it is a call the kit must never make, so the fake stops the run
+  // where it stands rather than letting one pass quietly.
+  if (args.includes('--all') || flag('--worktree') !== undefined) {
+    process.stderr.write(`fake orca: ${args.join(' ')} closes every tab of a project, the user's own among them; the kit must never call it\n`);
+    process.exit(70);
+  }
+
+  const terminal = (state.terminals ?? []).find((entry) => entry.handle === flag('--terminal'));
+  if (!terminal) fail('terminal_not_found', `no terminal with handle ${flag('--terminal')}`);
+
+  // A tab here holds one terminal, so the terminal goes either way; whether the
+  // kit asked for the whole tab is in calls.log for a test to read. The answer
+  // is the one the real call gave when it was measured (tech notes, section 1).
+  state.terminals = state.terminals.filter((entry) => entry !== terminal);
+  save();
+  ok({
+    close: {
+      handle: terminal.handle,
+      tabId: terminal.tabId,
+      closeMode: args.includes('--tab') ? 'tab' : 'pane',
+      ptyKilled: false,
+    },
+  });
 }
 
 if (command === 'terminal rename') {
