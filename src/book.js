@@ -6,10 +6,12 @@
 // theirs. Beside each session's tab it holds the harness session id that
 // session is running under, and every id it ran under before.
 
-import { existsSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { isDeepStrictEqual } from 'node:util';
-import lockfile from 'proper-lockfile';
 import { parse, stringify } from 'yaml';
 
 const HEADER = `# What Orca calls this bot on this machine, and where each of its sessions
@@ -24,21 +26,8 @@ const HEADER = `# What Orca calls this bot on this machine, and where each of it
 
 export const bookFile = (home) => path.join(home, 'sessions.yaml');
 
-/**
- * How a writer waits for another one, and when a lock counts as nobody's.
- *
- * `stale` is not a deadline for the writer that holds the lock: proper-lockfile
- * keeps a live owner's lock fresh while it works, so only a lock nobody is
- * refreshing any more — a writer that died — is taken over. That is the
- * difference the review found: the kit's own lock had a fixed thirty seconds,
- * and a writer merely delayed past it could still write over what the next one
- * had committed.
- */
-const LOCK = {
-  stale: 10_000,
-  realpath: false,
-  retries: { retries: 40, factor: 1, minTimeout: 50, maxTimeout: 250 },
-};
+/** How long a writer waits for the one before it to finish. */
+const WAIT_MS = 10_000;
 
 /** What the book says, or an empty book when there is none yet. */
 export function readBook(home) {
@@ -83,93 +72,103 @@ export function writeBook(home, book) {
  * work; this holds the lock for one read and one write.
  */
 export async function updateBook(home, change) {
-  // The file has to be there for the lock to be about it; a bot whose book has
-  // not been written yet is the ordinary case on a first run.
+  // The file has to be there to be replaced; a bot whose book has not been
+  // written yet is the ordinary case on a first run.
   if (!existsSync(bookFile(home))) writeBook(home, readBook(home));
 
-  for (let attempt = 1; ; attempt += 1) {
-    const done = await tryUpdate(home, change);
-    if (done.wrote) return done.book;
-    // Somebody committed between this run's read and its write, so this run's
-    // answer was about a book that no longer exists. Nothing was written; the
-    // change is applied again to what is there now. That is the only honest
-    // thing to do with it, and it is why no committed change is ever lost.
-    if (attempt >= TRIES) throw keptLosingTheRace(home);
-  }
-}
-
-/** How many times a writer will re-read and re-apply before it gives up. */
-const TRIES = 20;
-
-/**
- * One attempt: take the lock, read the book, apply the change, and write it only
- * if the book is still the file that was read.
- *
- * The lock keeps writers out of each other's way, but it cannot be what makes
- * this safe. A writer whose process is paused refreshes no lease and hears no
- * notification, so its lock can be taken over while it is stopped and it would
- * wake with an answer about a book somebody else has since replaced — which is
- * how a committed change was lost twice under review. So the file itself is the
- * authority: the identity the file system gives it when it is read must be the
- * identity it still has when it is replaced.
- */
-async function tryUpdate(home, change) {
-  const release = await lockfile.lock(bookFile(home), LOCK)
-    .catch((error) => { throw waitedTooLong(home, error); });
-
+  const lock = takeLock(home);
   try {
-    const read = identityOf(bookFile(home));
     const book = readBook(home);
     const before = structuredClone(book);
-    // Awaited, because a change that takes time must keep the lock while it
-    // does: an unawaited one would hand the lock back at once and then write
-    // over whoever took it next.
+    // Awaited, because a change that takes time must hold the lock while it
+    // does: an unawaited one would let the next writer in and then write over it.
     const next = (await change(book)) ?? book;
-
     // A run that changes nothing writes nothing: the file keeps its bytes and
     // its time, and nothing else waiting on the lock has to read it again.
-    if (isDeepStrictEqual(before, next)) return { wrote: true, book: next };
-    // The last thing before the write, so that as little as possible can happen
-    // in between: the file this answer is about must still be the file there is.
-    if (!isDeepStrictEqual(read, identityOf(bookFile(home)))) return { wrote: false };
-
-    writeBook(home, next);
-    return { wrote: true, book: next };
+    if (!isDeepStrictEqual(before, next)) writeBook(home, next);
+    return next;
   } finally {
-    await release().catch(() => {});
+    lock.release();
   }
 }
 
 /**
- * Which file this is, as the file system says: the same path written by two
- * different runs is two different files, because every write is a new file moved
- * into place. So a changed inode, size or time all say the same thing — somebody
- * else has written since.
+ * The right to change the book, held from before it is read until after it is
+ * replaced — a SQLite write transaction on a file of its own beside the book.
+ *
+ * SQLite is in Node itself and does this with the operating system's own file
+ * locks. That matters for one reason: the lock belongs to the process, so it is
+ * held while that process is stopped — swapped out, suspended, sitting in a
+ * debugger — and it is let go when the process ends, whether it ended well or
+ * not. Nothing has to be refreshed and nothing has to be declared abandoned.
+ *
+ * Three attempts at this have failed, each because the lock could be taken from a
+ * writer that was still going to write: a lease with a fixed timeout, then a
+ * lease kept alive by a timer (which a stopped process cannot run), then a check
+ * of the file just before replacing it (which a pause between the check and the
+ * replace defeats). A lock the kernel holds for the process has none of those
+ * seams, so there is nothing left to enumerate.
+ *
+ * The lock file holds no data — it is opened, locked and closed — so it stays
+ * empty and leaves no journal beside it.
  */
-function identityOf(file) {
+function takeLock(home) {
+  const file = lockFile(home);
+  mkdirSync(path.dirname(file), { recursive: true });
+
+  const db = new DatabaseSync(file);
   try {
-    const stat = statSync(file);
-    return { ino: stat.ino, size: stat.size, mtimeMs: stat.mtimeMs };
-  } catch {
-    // No file at all is an identity too, and not the same as any file.
-    return undefined;
+    // A writer that arrives while another is working waits for it rather than
+    // failing at once, and gives up saying so rather than waiting for ever.
+    db.exec(`PRAGMA busy_timeout = ${WAIT_MS}`);
+    db.exec('BEGIN IMMEDIATE');
+  } catch (error) {
+    db.close();
+    throw waitedTooLong(home, error);
   }
+
+  return {
+    release() {
+      try {
+        db.exec('COMMIT');
+      } finally {
+        db.close();
+      }
+    },
+  };
 }
 
-const keptLosingTheRace = (home) => new Error(
-  `gave up writing ${bookFile(home)}: something else committed a change every time this run tried, ${TRIES} times over. Nothing was written. Try again.`,
-);
+/**
+ * Where a writer takes its turn. SQLite keeps the file it locks, so this one
+ * stays, and there is nowhere in the user's own things it belongs: the bot home
+ * is their repo, committed, and `init` writes nothing outside the bots folder,
+ * and nothing of the kit's ever goes in their home directory. What is left is
+ * what this actually is — state of one machine, for as long as a write takes —
+ * so it lives where a machine keeps that, named after the book it belongs to.
+ *
+ * The name is a digest of the book's own path, so two books can never take each
+ * other's turn however alike their bots folders look, and every writer of one
+ * book agrees on it without being told.
+ *
+ * The one thing this place costs: if something wiped the folder between two
+ * writers opening it, each would lock a different file and both would think they
+ * had the turn. That needs a deletion inside the millisecond between two opens of
+ * a file that every write touches, and nothing of the user's is kept here.
+ */
+function lockFile(home) {
+  const book = path.resolve(bookFile(home));
+  const name = createHash('sha256').update(book).digest('hex').slice(0, 32);
+  return path.join(tmpdir(), 'obk-locks', `${name}.lock`);
+}
 
 /**
  * Something else has been writing the book for longer than this run is prepared
- * to wait. Every writer holds it for one read and one write, so this is a writer
- * that is stuck rather than busy — said in the kit's own words, with the file in
- * them, because the library's own message names neither.
+ * to wait. Every writer holds its turn for one read and one write, so this is a
+ * writer that is stuck or stopped rather than busy — said in the kit's own words,
+ * because the database's are about a database.
  */
 const waitedTooLong = (home, why) => new Error(
-  why.code === 'ELOCKED'
-    ? `waited for something else to finish writing ${bookFile(home)} and it did not. Nothing was written. Try again; if nothing is running, remove ${bookFile(home)}.lock.`
-    : `could not take the lock on ${bookFile(home)}: ${why.message}. Nothing was written.`,
+  `waited ${WAIT_MS / 1000} seconds for something else to finish writing ${bookFile(home)} and it did not (${why.message}). Nothing was written. Try again; if nothing is running, remove ${lockFile(home)}, which is where writers take their turn.`,
 );
 
 /**

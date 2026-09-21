@@ -18,12 +18,21 @@
 // And then the third review stopped the owner's process instead of delaying it,
 // which no lease can survive: a stopped process refreshes nothing, is told
 // nothing, and runs nothing — so the notice that it lost the lock cannot reach it
-// before its own next line does. The write is therefore conditional on the book
-// still being the file that was read, checked immediately before the replace, and
-// a writer that was overtaken reads again and applies its change to what is there
-// now (round 4, finding 2). Which makes the guarantee simpler to state than the
-// lock ever was: no committed change is lost, whichever way two writers
-// interleave, and that is what the tests below hold it to.
+// before its own next line does. Making the write conditional on the book still
+// being the file that was read was the next answer, and the fourth review broke
+// that too: a pause between the check and the replace loses the same commit, and
+// there is no gap small enough to be safe from a process that can be stopped
+// anywhere in it.
+//
+// So a writer is no longer overtaken at all. The lock belongs to the process
+// rather than to a timer: the operating system holds it while that process is
+// stopped and lets it go when the process ends, well or badly, so there is
+// nothing to refresh, nothing to call abandoned, and no seam between deciding to
+// write and writing. What is left to pin is an impossibility — while one writer is
+// inside the lock, no other writer can commit, whatever the first one is doing or
+// not doing — and, on the other side, that a writer which cannot get in says so
+// and writes nothing. No committed change is lost either way, which is the whole
+// of what the book needs (round 4, finding 2, and the audit after it).
 //
 // These go at `updateBook` itself, in separate processes, because that is where
 // the guarantee is and there is no way to hold the book open for half a minute
@@ -35,9 +44,11 @@
 // moment, so the timings in the assertions are the timings that really happened.
 
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
 import { parse } from 'yaml';
 
@@ -48,6 +59,8 @@ import {
   createSandbox,
   node,
   repoRoot,
+  skipGit,
+  snapshot,
 } from './helpers/cli.js';
 
 /** The module under test, as the writers import it. */
@@ -116,13 +129,14 @@ async function aWriter(box, home, name, { holds = 0, blocks = 0, arrivesAfter = 
     '  await sleep(Math.max(0, took + ARRIVES_AFTER - Date.now()));',
     '}',
     '',
-    '// The lock, attempt by attempt. A writer that was overtaken while it held it',
-    '// takes it again and applies its change to the book as it stands now, so the',
-    '// change runs more than once: the first attempt says `holding` and every one',
-    '// after it says `retrying`, which keeps each step a thing that happened once',
-    '// and leaves the retries in the log for whoever reads a failure.',
+    '// The lock, attempt by attempt. Nothing should take the book away from a',
+    '// writer that holds it, so the change should run once — but a change that ran',
+    '// twice would otherwise make two `holding` steps of one writer and trip the',
+    '// timings rather than show themselves. So the first attempt says `holding` and',
+    '// any after it say `retrying`, and the log tells whoever reads a failure which',
+    '// it was.',
     '//',
-    '// Only the first attempt waits. A process is stopped once; a fixture that',
+    '// Only the first attempt waits: a process is stopped once, and a fixture that',
     '// stopped again on every attempt would pay for this window twice over.',
     'let attempt = 0;',
     'const took = () => {',
@@ -203,60 +217,121 @@ function assertNobodyLostAChange(book, writers) {
   }
 }
 
-test('a writer whose process is stopped inside the lock cannot lose what another one committed', async (t) => {
-  // The case the third review reproduced, at the module and through two real
-  // `session record` runs: A reads under the lock and its process stops for
-  // thirty-five seconds — a machine that swapped, a laptop that slept, a debugger
-  // — B takes the lock over at thirty-one and commits, and A wakes up holding a
-  // book from before B's change and writes it back.
+test('a writer cannot commit while another writer is stopped inside the lock', async (t) => {
+  // The case three reviews have now driven, and the last shape of it: A reads
+  // under the lock and its process stops for thirty-five seconds — a machine that
+  // swapped, a laptop that slept, a debugger — while B comes for the lock at
+  // thirty-one, past any window a lease or a check could have given it.
   //
-  // A lease cannot catch this, however short it is: a stopped process refreshes
-  // nothing and is told nothing, and the notice that its lock was taken cannot
-  // run before its own next line. Only the file can say: the book A is about to
-  // replace is no longer the one A read. A then takes the lock again and applies
-  // its change to what is there now, which the log below shows as a `retrying`
-  // between the first `holding` and the one `committed`.
+  // Every earlier answer lost B's change here, and each for the same reason: A
+  // could be overtaken, and a stopped process cannot be told so. Nothing may
+  // overtake it now, so what this pins is that nothing does. B does not hold the
+  // lock, and does not commit, until A has finished — whatever A is doing or not
+  // doing in the meantime.
   //
-  // So both changes have to be in the book at the end, and neither writer may
-  // fail — a conversation id a hook could not write down is a conversation the
-  // book does not hold, and nothing else holds it. It takes about thirty-five
-  // seconds, and there is no shortening a case about a window measured in them.
+  // After that, either road is right: B waits its turn and commits, or B gives up
+  // and says so having written nothing. What must never happen is a commit in the
+  // middle. It takes about thirty-five seconds, and there is no shortening a case
+  // about a window measured in them.
   const box = await createSandbox(t);
   const { bots, home } = await aBook(box);
   const before = await readFile(bookOf(bots), 'utf8');
 
   const stopped = await aWriter(box, home, 'the-stopped-one', { blocks: 35_000 });
-  const overtaking = await aWriter(box, home, 'the-overtaking-one', { arrivesAfter: 31_000 });
-  const [paused, over] = await Promise.all([stopped.run(), overtaking.run()]);
+  const arriving = await aWriter(box, home, 'the-other-one', { arrivesAfter: 31_000 });
+  const [paused, other] = await Promise.all([stopped.run(), arriving.run()]);
 
-  // The interleaving the case is about, read back rather than assumed: the first
-  // writer was inside the lock and stopped for the whole window, and the second
-  // committed while it was.
+  // What really happened, read back rather than assumed: the first writer was
+  // inside the lock and stopped for the whole window, and the second came for it
+  // while it was.
   const steps = await stopped.steps();
   const holding = when(steps, 'the-stopped-one', 'holding');
   const woke = when(steps, 'the-stopped-one', 'committed');
-  const overtook = when(steps, 'the-overtaking-one', 'committed');
   assert.ok(
     woke - holding >= 35_000,
     `the stopped writer should have been inside the lock for the whole window, got: ${JSON.stringify(steps)}`,
   );
   assert.ok(
-    overtook > holding && overtook < woke,
-    'the other writer should have committed while the first was stopped. If it waited for it'
-    + ` instead, this test no longer reaches the case and wants rethinking, not relaxing: ${JSON.stringify(steps)}`,
+    when(steps, 'the-other-one', 'arrived') - holding >= 30_000,
+    `and the other one should have come for it while it was stopped, got: ${JSON.stringify(steps)}`,
   );
 
-  assert.equal(over.code, 0, `the writer that got in must keep its change: ${over.stderr}`);
-  assert.equal(
-    paused.code, 0,
-    `and the one that was overtaken must apply its change to what it finds, not fail: ${paused.stderr}`,
+  // The impossibility itself: nothing of the other writer's happened inside that
+  // window. Not a commit, and not the lock either — a writer that held the lock
+  // there would be a writer that could have written.
+  const what = { holding: 'take the lock', retrying: 'take the lock again', committed: 'commit' };
+  for (const step of steps) {
+    if (step.writer === 'the-other-one' && step.what !== 'arrived') {
+      assert.ok(
+        step.at >= woke,
+        `the other writer must not ${what[step.what] ?? step.what} while the first is stopped inside`
+        + ` the lock: ${JSON.stringify(steps)}`,
+      );
+    }
+  }
+
+  assert.equal(paused.code, 0, `nothing overtook the stopped writer, so it commits: ${paused.stderr}`);
+  const text = await readFile(bookOf(bots), 'utf8');
+  const book = parse(text);
+  assert.notEqual(book, null, `the book must still be readable YAML, got:\n${text}`);
+  // And the other writer either has its change in the book or failed out loud
+  // with nothing written; both are right, losing it quietly is not.
+  assertNobodyLostAChange(book, [
+    { name: 'the-stopped-one', ran: paused },
+    { name: 'the-other-one', ran: other },
+  ]);
+  assertKeptWhatTheyWrote(before, text, { changed: ['sessions'] });
+  assert.notEqual(book.sessions?.daily, undefined, `the session that was there is still there:\n${text}`);
+});
+
+test('a writer that waits too long for the lock says so and writes nothing', async (t) => {
+  // The other side of the same rule, and the one road out of it: a writer cannot
+  // wait for ever, so one that has waited its patience out gives up. What matters
+  // is how it gives up — a message, no write, and a non-zero exit — because a
+  // writer that quietly carried on would be exactly the writer this whole file
+  // exists to rule out.
+  //
+  // The timings are chosen against the wait a writer is given, ten seconds: the
+  // one inside the lock stops for fifteen, and the other comes for it at once, so
+  // it is still waiting when its patience runs out. If that wait ever changes,
+  // these two numbers change with it.
+  const box = await createSandbox(t);
+  const { bots, home } = await aBook(box);
+  const before = await readFile(bookOf(bots), 'utf8');
+
+  const stopped = await aWriter(box, home, 'the-stopped-one', { blocks: 15_000 });
+  const arriving = await aWriter(box, home, 'the-impatient-one', { arrivesAfter: 500 });
+  const [paused, impatient] = await Promise.all([stopped.run(), arriving.run()]);
+
+  assert.equal(paused.code, 0, `the writer that had the lock keeps its change: ${paused.stderr}`);
+  assert.notEqual(
+    impatient.code,
+    0,
+    'the writer that could not get in should have given up rather than waited out a stopped process'
+    + ` (if it now waits longer than the one inside the lock, these timings want revisiting): ${impatient.stdout}`,
   );
+  assert.notEqual(impatient.stderr.trim(), '', 'and said what happened, in the kit\'s own words');
+  assert.match(
+    impatient.stderr,
+    new RegExp(bookOf(bots).replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+    `naming the file nobody could write: ${impatient.stderr}`,
+  );
+  // And every file it names is a file that is there. A message that sends the
+  // user to a path which does not exist is worse than one that names none: they
+  // go looking, find nothing, and have no way to tell whether they have fixed
+  // anything. Where the kit keeps its lock is its own business — that this
+  // sentence is true of it is not.
+  for (const named of impatient.stderr.match(new RegExp(`${box.root.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\S*`, 'g')) ?? []) {
+    const file = named.replace(/[.,;:)]+$/, '');
+    assert.ok(existsSync(file), `the message points at ${file}, which is not there: ${impatient.stderr}`);
+  }
+
   const text = await readFile(bookOf(bots), 'utf8');
   const book = parse(text);
   assert.notEqual(book, null, `the book must still be readable YAML, got:\n${text}`);
   assertNobodyLostAChange(book, [
     { name: 'the-stopped-one', ran: paused },
-    { name: 'the-overtaking-one', ran: over },
+    { name: 'the-impatient-one', ran: impatient },
   ]);
   assertKeptWhatTheyWrote(before, text, { changed: ['sessions'] });
   assert.notEqual(book.sessions?.daily, undefined, `the session that was there is still there:\n${text}`);
@@ -355,4 +430,46 @@ test('a crowd of writers on one book all keep their change', async (t) => {
     names.map((name) => `tab-writer-${name}`),
     `every writer's change must be in the file:\n${text}`,
   );
+});
+
+test('writing the book leaves nothing behind in the user\'s repo, not even while the lock is held', async (t) => {
+  // Where the kit says a writer holds the book is the kit's own business. That it
+  // is not said inside the user's repo is not: the bots folder is committed with
+  // the rest of their work and nothing in it is ignored (PRD 6.10), so a file left
+  // there sits in their git status for ever, and one that comes and goes turns up
+  // in it at whatever moment they happen to look. The kit already has a place for
+  // its own files — beside the bots folder, where a session's start prompt goes
+  // (PRD 6.3) — and that is where this belongs too.
+  //
+  // So: the tree the user owns, before a write, while it is being written, and
+  // after. The book's own bytes change; nothing else appears, at any of the three.
+  const box = await createSandbox(t);
+  const { bots, home } = await aBook(box);
+  const before = await snapshot(bots, skipGit);
+
+  // Long enough to be looked at while it is inside the lock, short enough to cost
+  // the suite nothing.
+  const writer = await aWriter(box, home, 'the-writer', { holds: 1500 });
+  const run = writer.run();
+  for (let look = 0; look < 200; look += 1) {
+    if ((await writer.steps()).some((step) => step.what === 'holding')) break;
+    await sleep(50);
+  }
+  const during = await snapshot(bots, skipGit);
+  const ran = await run;
+  const after = await snapshot(bots, skipGit);
+
+  assert.equal(ran.code, 0, ran.stderr);
+  assert.deepEqual(
+    Object.keys(during),
+    Object.keys(before),
+    'while a writer holds the book, nothing new may exist in the user\'s repo',
+  );
+  assert.deepEqual(
+    Object.keys(after),
+    Object.keys(before),
+    'and nothing may be left there when it is done',
+  );
+  const book = path.relative(bots, bookOf(bots));
+  assert.notEqual(after[book], before[book], 'the write this is about did happen');
 });
