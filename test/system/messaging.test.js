@@ -58,22 +58,32 @@
 // update offer. Every wait below says what the tab is showing when it runs out
 // of patience, so a run that was left alone names the screen that stopped it.
 //
+// **Nothing here types at a bot.** Each one is given its whole part in its
+// start prompt, and the only lines that go into these tabs afterwards are the
+// launch line the kit types and the nudge the kit types. That is what the
+// product does — a fleet nobody is sitting over — and it is also the only way
+// these cases can be relied on to run: Orca gates a line typed into an agent's
+// tab as `agent_prompt_blocked`, and on one run of four it refused the re-issue
+// it had itself asked for, answering that the prompt "may have reached its exact
+// terminal incarnation before restart" and would not be sent again. It has never
+// gated the kit's own nudge.
+//
 // **What a receipt here may be made of.** Every word these tests wait for has
-// to be one that could not have come from anything typed into the tab it is
-// waited for in. A word that is in the question is on the screen whether or not
-// the thing under test ever happened, and an assertion that looks for it passes
-// on that echo — which is what the review of PR #132 found in the first two
-// cases below: the reply's word, the sender's name and the thread were all in
-// the prompt typed into the sender's tab, and the busy case's finishing word was
-// in the instruction, so both could pass with no reply sent and no work done.
-// Where a fact cannot be checked that way it is checked somewhere it can be:
-// the thread and the sender are pinned by the unit tests and by case 3, which
-// reads a real message back out of a real mailbox.
+// to be one the tab it is waited for in was never told. A word that is in the
+// question is on the screen whether or not the thing under test ever happened,
+// and an assertion that looks for it passes on that echo — which is what the
+// review of PR #132 found in the first two cases below: the reply's word, the
+// sender's name and the thread were all in what the sending tab had been told,
+// and the busy case's finishing word was in its own instruction, so both could
+// pass with no reply sent and no work done. Where a fact cannot be checked that
+// way it is checked somewhere it can be: the thread and the sender are pinned
+// by the unit tests and by case 3, which reads a real message back out of a real
+// mailbox.
 //
 // To see them fail, which is the other half of believing them: take the reply
-// sentence out of the Codex bot's start prompt and case 1 cannot find
-// MARMOSET; take the counting out of the instruction in case 2 and it cannot
-// find the total. Neither passes on what the tab was told.
+// sentence out of the Codex bot's start prompt and case 1 cannot find MARMOSET;
+// take the shell loop out of the busy bot's and case 2 cannot find the total.
+// Neither passes on what its tab was told.
 //
 // It is slow: two real agents, a round trip between them, and a long task in
 // the middle. Minutes, not seconds.
@@ -114,12 +124,6 @@ const ANSWER_MS = 240000;
 
 /** And how long a round trip between two agents is given: two turns and a nudge in between. */
 const ROUND_TRIP_MS = 480000;
-
-/**
- * How long a tab is given to be ready for a line of ours. A first run has two
- * or three screens on it and a person answering them.
- */
-const READY_MS = 180000;
 
 /** Ask Orca something and read its JSON. Never the blanket close, on any road. */
 function orca(args) {
@@ -240,71 +244,6 @@ function whatIsUp(handle) {
   ].join('');
 }
 
-/**
- * Wait until the tab will take a line of ours: a TUI is up, so nothing is
- * swallowed by a shell, and the tab is not waiting on a screen of its own.
- * Orca refuses an agent prompt to a tab that is itself on a prompt, so a test
- * that asked as soon as a TUI answered would be asking through the trust
- * question and could never land.
- */
-async function readyForAQuestion(handle, within = READY_MS) {
-  await until(
-    `${handle} to be past the questions of its own`,
-    within,
-    async () => {
-      const answer = orca(['terminal', 'wait', '--terminal', handle, '--for', 'tui-idle', '--timeout-ms', '5000']);
-      if (answer.ok !== true) return undefined;
-      return answer.result?.wait?.blockedReason === undefined ? true : undefined;
-    },
-    () => whatIsUp(handle),
-  );
-}
-
-/** How long Orca is given to submit a line it gated, on the one re-issue it asks for. */
-const SUBMIT_S = 30;
-
-/**
- * Ask a live agent something, once the tab is ready to take a line: the text,
- * and `--enter` to submit it. `--enter` is what submits, and only `--enter`: a
- * return inside the payload is a newline in a composer, and three questions
- * sent that way once piled up unsent in one draft.
- *
- * Orca gates a line as an agent prompt when it will not take one yet: `ok:false`,
- * `agent_prompt_blocked`, a request id in the error, and its own instruction to
- * re-issue the exact command with that id rather than retry it plain. Seen twice
- * in this file, both times on the first line into a Claude tab a moment after
- * the harness came up, and never on the kit's own nudge; what sets it off is not
- * known. So the one thing done about it is the one thing Orca sanctions, once:
- * the same command again with the id and `--wait-submit`, which is Orca holding
- * the line until the tab will take it. A wait of our own would only be guessing
- * at the same thing from outside.
- */
-async function askIn(handle, text) {
-  await readyForAQuestion(handle);
-  const send = ['terminal', 'send', '--terminal', handle, '--text', text, '--enter'];
-  const sent = orca(send);
-  if (sent.ok === true) return;
-
-  const gated = requestIdIn(sent.error);
-  if (gated !== undefined) {
-    const again = orca([...send, '--retry-request', gated, '--wait-submit', String(SUBMIT_S)]);
-    if (again.ok === true) return;
-    assert.fail(
-      `orca gated this line as an agent prompt (${JSON.stringify(sent.error)}) and refused the re-issue`
-      + ` it asked for as well (${JSON.stringify(again.error)}). Submit the line yourself in the tab:`
-      + ` this is where it ends, because whether a prompt goes in is the person's (PRD 6.5).${whatIsUp(handle)}`,
-    );
-  }
-
-  assert.fail(`orca terminal send --enter failed: ${JSON.stringify(sent.error)}.${whatIsUp(handle)}`);
-}
-
-/** The request id an `agent_prompt_blocked` carries, when that is what came back. */
-function requestIdIn(error) {
-  const found = /"orchestrationRequestId"\s*:\s*"([^"]+)"/.exec(JSON.stringify(error ?? null));
-  return found === null ? undefined : found[1];
-}
-
 /** Wait for a word to show up on a tab's screen, whoever put it there. */
 const showsUp = (handle, word, within = ANSWER_MS) => until(
   `${word} to show up in ${handle}`,
@@ -342,52 +281,115 @@ async function busyIn(handle, within = ANSWER_MS) {
  * The two bots, and the words that make the checks below mean something.
  *
  * Every receipt this file waits for is a word that could not have come from
- * anything typed into the tab it is waited for in. That is not fussiness: a
+ * anything the tab it is waited for in was ever told. That is not fussiness: a
  * word that is in the question is on the screen whether or not the thing under
- * test ever happened, and an assertion that looks for it passes on the echo.
+ * test ever happened, and an assertion that looks for it passes on that echo.
  *
- *   PELICAN  is typed into the Claude tab, as part of the send command, and
- *            never into the Codex tab. Nothing else carries it there: the
- *            nudge says who wrote and what the subject is, and this is neither.
- *            So PELICAN on the Codex screen is the message having been read.
- *   MARMOSET is in the Codex bot's own start prompt and nowhere else — not in
- *            the send command, not in the message, not in anything typed into
- *            the Claude tab. So MARMOSET on the Claude screen is the reply
- *            having been written, carried and read.
+ *   PELICAN  is in the Claude bot's own start prompt, as part of the command it
+ *            sends, and the Codex tab is never told it: the nudge says who
+ *            wrote and what the subject is, and this is neither. So PELICAN on
+ *            the Codex screen is the message having been read.
+ *   MARMOSET is in the Codex bot's own start prompt, and the Claude tab is
+ *            never told it — not by the message, which asks for a reply without
+ *            saying what it should carry. So MARMOSET on the Claude screen is
+ *            the reply having been written, carried and read.
+ *   TOTAL    is the sum of the numbers the busy receiver counts. Its
+ *            instruction asks for the sum and never says what it is, so the
+ *            number is what doing the work produces and nothing else.
  *
- * Which is why the reply instruction lives in the Codex bot's start prompt
- * rather than in the message: a message that dictated the reply word for word
- * would put that word on the sender's screen before anything was sent.
+ * Which is why each bot's part is in its own start prompt: a prompt that told
+ * one bot what the other would say would put that word on the wrong screen
+ * before anything happened.
  */
 const BOTS = [
-  { name: 'mail-claude', harness: 'claude', display: 'Mail Claude' },
+  // The Codex bot comes up first, and its order matters: the Claude bot starts
+  // writing to it the moment its own harness is running, and a session that has
+  // not been brought up has no address to write to yet.
   { name: 'mail-codex', harness: 'codex', display: 'Mail Codex' },
+  { name: 'mail-claude', harness: 'claude', display: 'Mail Claude' },
 ];
 
 /** The word only the Codex bot knows, which reaches the Claude bot only as a reply. */
 const PASSPHRASE = 'MARMOSET-9930';
 
-/** The word only the Claude bot is given, which reaches the Codex bot only as mail. */
+/** The word only the Claude bot knows, which reaches the Codex bot only as mail. */
 const QUESTION = 'PELICAN-4417';
 
 /** The work the busy receiver is given, and the total only doing it produces. */
 const COUNT_TO = 40;
 const TOTAL = `TOTAL: ${(COUNT_TO * (COUNT_TO + 1)) / 2}`;
 
-const startPromptFor = (bots, bot) => [
+/**
+ * What every bot here is told, whatever its part: who it is, where its bots
+ * folder is — without which the first command it runs cannot be written — and
+ * that it does nothing nobody asked it for.
+ */
+const aBotOf = (bots) => [
   'You are a system test\'s bot and you own nothing.',
+  `Your bots folder is ${bots}.`,
+  'Do nothing that is not written here: read no file, write nothing, and run no command but the ones below.',
+];
+
+/** Reading its own mail when the kit tells it there is some, which both bots in case 1 do. */
+const READS_ITS_MAIL = [
   'When a line arrives saying fleet mail is waiting, run exactly the command that line names to read it,',
   'and then print MAIL: followed by the text of the message.',
-  ...(bot.harness === 'codex'
-    ? [
-      `When a message asks you to reply, reply to whoever wrote it with your passphrase, which is ${PASSPHRASE}:`,
-      'ask the kit for the road with obk message to, and then send it with obk message send.',
-    ]
-    : []),
-  `Your bots folder is ${bots}.`,
-  'Do nothing else at all: run no other command, read no file, and write nothing.',
-  'Say nothing now and wait.',
-].join(' ');
+];
+
+/**
+ * The start prompts for the exchange: each bot's whole part, so that the only
+ * lines ever typed into either tab are the launch line the kit types and the
+ * nudge the kit types. Nothing in this file drives a tab by hand.
+ *
+ * That is not only tidiness. Orca gates a line typed into an agent's tab —
+ * `agent_prompt_blocked` — and on the third run of four it refused the re-issue
+ * it had asked for as well, saying the prompt "may have reached its exact
+ * terminal incarnation before restart" and would not be sent again. So a test
+ * that types at a bot cannot be relied on to run at all, whatever it does about
+ * it. It has never touched the kit's own nudge.
+ *
+ * It also makes the case a truer picture of the product: two bots that were
+ * started, and then talked to each other, with nobody typing at either of them.
+ */
+const exchangePrompts = (bots, bot) => (bot.harness === 'claude'
+  ? [
+    ...aBotOf(bots),
+    'As soon as you are running, run exactly this command, once:',
+    `obk message send --bots ${bots} --to mail-codex/daily --from mail-claude/daily`,
+    `--subject 'the system test' --text '${QUESTION}. Please reply to me.'`,
+    ...READS_ITS_MAIL,
+    'Then wait, and say nothing else.',
+  ]
+  : [
+    ...aBotOf(bots),
+    ...READS_ITS_MAIL,
+    `When a message asks you to reply, reply to whoever wrote it with your passphrase, which is ${PASSPHRASE}:`,
+    'ask the kit for the road with obk message to, and then send it with obk message send.',
+    'Say nothing now and wait.',
+  ]).join(' ');
+
+/**
+ * The start prompts for the busy receiver: the Codex bot is given a piece of
+ * work that takes it the best part of a minute, so that it is still running
+ * when the message arrives. It is a shell loop rather than a model counting to
+ * itself, because the first version of this case had the agent print forty
+ * numbers of its own and it was finished before Orca could be asked whether it
+ * was working — the tab has to be busy long enough for "busy" to be a fact
+ * anybody can check.
+ */
+const busyPrompts = (bots, bot) => (bot.harness === 'codex'
+  ? [
+    ...aBotOf(bots),
+    'As soon as you are running, run exactly this command, once:',
+    `for i in $(seq 1 ${COUNT_TO}); do echo $i; sleep 1; done`,
+    'When it has finished, print TOTAL: followed by the sum of every number it printed, on a line of its own.',
+    ...READS_ITS_MAIL,
+    'Then wait, and say nothing else.',
+  ]
+  : [...aBotOf(bots), 'Say nothing now and wait.']).join(' ');
+
+/** The start prompt for a bot with nothing to do: case 3 drives the mailbox itself. */
+const waitingPrompts = (bots) => [...aBotOf(bots), 'Say nothing now and wait.'].join(' ');
 
 /** Everything this test made, taken away again, and a check that nothing else was. */
 function cleanUpAfter(t, { before, bots, homes }) {
@@ -417,8 +419,15 @@ function cleanUpAfter(t, { before, bots, homes }) {
   });
 }
 
-/** A throwaway fleet: Bot Father, a Claude bot and a Codex bot, each with one session up. */
-async function aFleet(t, label) {
+/**
+ * A throwaway fleet: Bot Father, a Codex bot and a Claude bot, each with one
+ * session up and each carrying the part `promptFor` gives it.
+ *
+ * The bots come up one at a time, in the order `BOTS` has them, because a bot
+ * whose part begins the moment it is running can only write to a session that
+ * is already up.
+ */
+async function aFleet(t, label, promptFor) {
   const before = {
     handles: new Set(allTerminals().map((terminal) => terminal.handle)),
     setups: new Set(allSetups().map((setup) => setup.id)),
@@ -440,7 +449,7 @@ async function aFleet(t, label) {
     ]);
     obkJson([
       'session', 'add', '--bots', bots, '--bot', bot.name, '--name', 'daily',
-      `--prompt=${startPromptFor(bots, bot)}`,
+      `--prompt=${promptFor(bots, bot)}`,
     ]);
 
     const entry = tabOf(obkJson(['up', '--bots', bots, '--bot', bot.name]), 'daily');
@@ -471,37 +480,34 @@ test('a Claude bot and a Codex bot exchange a message and a reply', async (t) =>
   // way.
   //
   // Two words carry the proof, and neither can be echoed from the tab it is
-  // waited for in. The Codex bot has never been told PELICAN: the nudge carries
-  // the sender and the subject, and PELICAN is in the body. The Claude bot has
-  // never been told MARMOSET: it is in the Codex bot's own start prompt, and
-  // nothing typed into the Claude tab mentions it.
+  // waited for in. The Codex tab has never been told PELICAN: the nudge carries
+  // the sender and the subject, and PELICAN is in the body of the message. The
+  // Claude tab has never been told MARMOSET: it is in the Codex bot's own start
+  // prompt, and the message asks for a reply without saying what it must carry.
+  //
+  // Nothing here types at either bot. Each was given its part when it was
+  // started, and the only lines that go into these tabs afterwards are the
+  // kit's own nudges — which is both what the product does and the only way
+  // this case can be relied on to run at all (see `exchangePrompts`).
   //
   // What is deliberately not checked here is the thread, and who a message says
-  // it is from. Both would have to be typed into the sender's tab as part of the
-  // send command, so an assertion on them would pass on that echo. They are
-  // pinned where they can be pinned honestly: the thread by the unit tests, and
-  // the sender by the third case below, which reads a real message back out of a
-  // real mailbox and compares its `from`.
-  const { bots, tabs } = await aFleet(t, 'mail');
+  // it is from. Both are in what the sending bot was told, so an assertion on
+  // them would pass on that echo. They are pinned where they can be pinned
+  // honestly: the thread by the unit tests, and the sender by the third case
+  // below, which reads a real message back out of a real mailbox and compares
+  // its `from`.
+  const { tabs } = await aFleet(t, 'mail', exchangePrompts);
 
-  // 1. The Claude bot writes to the Codex bot, with the kit's own command.
-  await askIn(
-    tabs['mail-claude'].terminal,
-    [
-      'Run exactly this command, and nothing else:',
-      `obk message send --bots ${bots} --to mail-codex/daily --from mail-claude/daily`,
-      `--subject 'the system test' --text '${QUESTION}. Please reply to me.'`,
-    ].join(' '),
-  );
-
-  // 2. The Codex bot was nudged, read its own mail, and printed what was in it.
-  //    Nobody asked it anything: the line the kit typed is the whole wake-up,
-  //    and the word it prints was only ever in the body of the message.
+  // 1. The Claude bot wrote to the Codex bot as soon as it was running, with
+  //    the kit's own command, and the Codex bot was nudged, read its own mail
+  //    and printed what was in it. Nobody asked it anything: the line the kit
+  //    typed is the whole wake-up, and the word it prints was only ever in the
+  //    body of the message.
   await showsUp(tabs['mail-codex'].terminal, QUESTION, ROUND_TRIP_MS);
 
-  // 3. And the reply came back the other way, under its own steam: the Codex
-  //    bot looked the road up, sent it, the Claude bot was nudged in its turn,
-  //    and read it. The word is the Codex bot's own.
+  // 2. And the reply came back the other way under its own steam: the Codex bot
+  //    looked the road up, sent it, the Claude bot was nudged in its turn, and
+  //    read it. The word is the Codex bot's own.
   await showsUp(tabs['mail-claude'].terminal, PASSPHRASE, ROUND_TRIP_MS);
 });
 
@@ -513,27 +519,22 @@ test('a busy receiver finishes what it was doing before it reads its mail', asyn
   //
   // Three things have to hold for that to have been shown, rather than assumed.
   // The receiver has to be busy when the message arrives, so the test waits for
-  // Orca to say the tab is working before it sends anything. The work has to
-  // have finished, so the receipt is the total of the numbers — a value the
-  // instruction never mentions, which only doing the work produces; the word the
-  // old version of this test waited for was in the instruction itself, and was
+  // Orca to say the tab is working before it sends anything — and the work is a
+  // shell loop that takes the best part of a minute, because an agent counting
+  // to forty by itself was finished before Orca could be asked (live run, 1 of
+  // 3). The work has to have finished, so the receipt is the total of the
+  // numbers, a value its instruction asks for and never states; the word the
+  // first version of this case waited for was in the instruction itself, and was
   // on the screen whether or not a single number was ever printed. And the mail
   // has to have been read after that, which is the order the two sit in on the
   // screen, both of them present.
-  const { bots, tabs } = await aFleet(t, 'busy');
+  const { bots, tabs } = await aFleet(t, 'busy', busyPrompts);
   const mail = 'OTTER-2245';
   const receiver = tabs['mail-codex'].terminal;
 
-  // Something that takes the receiver a while, and a receipt only doing it gives.
-  await askIn(
-    receiver,
-    `Count from 1 to ${COUNT_TO}, printing one number per line, on your own, without running any command. `
-    + 'When you have printed them all, print TOTAL: followed by the sum of every number you printed, '
-    + 'on a line of its own. Do not stop for anything else until then.',
-  );
-
-  // It is working. Orca's own idleness is the only signal for that, and without
-  // it this test would prove nothing about a receiver that was busy.
+  // It is working on what its start prompt gave it. Orca's own idleness is the
+  // only signal for that, and without it this case would prove nothing about a
+  // receiver that was busy.
   await busyIn(receiver);
 
   // Mail arrives in the middle of it. The kit types the nudge in; nobody
@@ -566,7 +567,7 @@ test('a long, oddly formatted message arrives unchanged', async (t) => {
   //
   // Nothing here goes through an agent: what is being checked is the road, and
   // a model retyping 5 KB of punctuation would be checking the model.
-  const { bots, homeOf } = await aFleet(t, 'long');
+  const { bots, homeOf } = await aFleet(t, 'long', waitingPrompts);
   const odd = [
     'Line one, with "double quotes", \'single ones\' and a `backtick`.',
     'A line with a tab\there and trailing spaces   ',
