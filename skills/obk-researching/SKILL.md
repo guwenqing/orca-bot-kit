@@ -158,9 +158,15 @@ Every claim carries how you know it. Four levels do most of the work:
   Said as a guess, with the alternatives beside it.
 
 Make the label checkable rather than atmospheric. A claim you checked carries
-what you checked it against, in the claim: `(verified: <what you ran or
-opened>)`. One you did not carries `(inferred: did not run)`. A reader can
-audit that, where "carefully verified" tells them only how you felt about it.
+what you checked it against, inside the claim: `(verified: <what you ran or
+opened>)`. A reader can audit that, where "carefully verified" tells them only
+how you felt about it.
+
+Where you did not check, say so and say which of the levels above it is, since
+not checking and inferring are two different things: `(not checked: reported by
+the site manager)`, `(inferred: from the two dates)`, `(guess)`. Repeating
+somebody's unchecked explanation is not your inference, and calling it one
+gives it your credibility on top of theirs.
 
 Those say how you came by a claim. They do not say how good it is, and the two
 are different questions: a controlled study and a sales page both come out as

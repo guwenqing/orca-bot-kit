@@ -105,7 +105,9 @@ marked here because the difference matters:
   clones in the research pack, so this is taken from the book's verbatim quote
   rather than from the repository. The label's checkable form is kept as the
   source has it, because being able to audit the label is the whole of its
-  value; the prose around it is ours.
+  value; the prose around it is ours. The source applies `inferred` to
+  reasoning from code, so this skill keeps it for an inference and asks for
+  `not checked` where the claim is somebody else's unchecked account.
 - The pack's own reports label each claim by where it came from and whether it
   was checked, and keep a section of gaps and cautions at the end. That habit,
   rather than any source, is why this skill treats a claim's support and the
