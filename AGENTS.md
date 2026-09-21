@@ -55,7 +55,7 @@ processes at all. Nothing enforces this but your judgment.
 
 Standing authorisation from the owner: commit, push, open the PR, and after the review
 merge and close the issue; do not wait for him and do not ask him about routine steps.
-One PR per issue, one review round, squash merges. Ask the reviewer directly: one line
+Nothing merges while anything is outstanding: a test still being written, a question still open, a check still to run. One PR per issue, one review round, squash merges. Ask the reviewer directly: one line
 typed into its Orca tab (titled "reviewer"; find it with `orca terminal list --json`,
 check it is idle first); it answers on the PR and with a line in your tab. The
 coordinator hands out issues, answers questions, and steps in only for something out
