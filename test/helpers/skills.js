@@ -29,6 +29,21 @@ export const SKILL_DIRS = {
 /** The harnesses, so a check that must hold on both says so once. */
 export const HARNESSES = Object.keys(SKILL_DIRS);
 
+/**
+ * The skills `obk init` puts on Bot Father's own list, in name order.
+ *
+ * Stated here and not imported from `src/`: an expectation the code under test
+ * supplies passes whatever the code does. It lives in one place because it has
+ * gone stale twice — a copy in a second test file was written against the list
+ * as it stood on main and collided on the next rebase, which is the whole cost
+ * of saying the same thing twice.
+ *
+ * The last two are Bot Father's because `obk groom` writes an automation whose
+ * prompt tells the waking session to use them by name, and a prompt that names
+ * a skill the bot cannot load gets a session improvising the job.
+ */
+export const MANAGEMENT_SKILLS = ['obk-bot-building', 'obk-finops', 'obk-fleet-review', 'obk-grooming'];
+
 /** One harness's skills directory inside a bot home. */
 export const skillsDirOf = (bots, bot, harness) => path.join(botHomeOf(bots, bot), SKILL_DIRS[harness]);
 

@@ -38,21 +38,18 @@ import {
   entryOf,
   HARNESSES,
   kitSkill,
+  MANAGEMENT_SKILLS as MANAGEMENT,
   namesIn,
   setSkills,
   skillNamesIn,
 } from './helpers/skills.js';
 
 /**
- * The skills Bot Father's job needs, and the entries that name them.
- *
- * The last two are here because `obk groom` writes an automation whose prompt
- * tells the waking session to use them by name. A prompt that names a skill the
- * bot cannot load gets a session improvising the job instead of doing it the way
- * the skill says, which is the one thing the skill exists to prevent. The test
- * at the foot of this file holds the two halves together.
+ * The skills Bot Father's job needs, and the entries that name them. The list
+ * itself is in helpers/skills.js, because a second test file states it too and
+ * the two went stale against each other once already; the test at the foot of
+ * this file is what holds it to the grooming prompt that names them.
  */
-const MANAGEMENT = ['obk-bot-building', 'obk-finops', 'obk-fleet-review', 'obk-grooming'];
 const ENTRIES = MANAGEMENT.map((name) => `kit:${name}`);
 
 /** A bots folder `init` made. */
