@@ -6,6 +6,4 @@ applies: all
 
 Each bot has a few lines of profile in `profiles/` at the top of the bots
 folder: what it is good at, where it struggles, what it costs. Grooming keeps
-them; any bot may read them when choosing who to hand work to. They are notes,
-not a record of truth: where one disagrees with what you can see, believe what
-you can see.
+them; any bot may read them when choosing who to hand work to.

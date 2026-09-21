@@ -86,6 +86,11 @@ Each bot gets a few lines of its own: what it is good at, where it struggles,
 and what it costs. They are for the whole fleet, because a bot picking a
 collaborator should be able to read who is good at what rather than guess.
 
+Say at the top of the notes what they are, because whoever reads them next
+will not have been told: notes kept by grooming, not a record of truth, and
+where one disagrees with what a reader can see for themselves, what they can
+see wins.
+
 Keep them short and current rather than complete. Write what the evidence
 supports and date it. When a number moves, change the number and say what moved
 it; when it drops, that is a finding rather than an edit. A note nobody can
