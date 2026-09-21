@@ -60,7 +60,8 @@ const ALWAYS = 1e6;
 /**
  * A fake Orca that answers two commands. `status` answers whatever the test
  * asked for, as before. `orchestration run-list --json` answers out of a world
- * file — `{ runs, runListFails, runListGarbles }` — which is read on every call,
+ * file — `{ runs, runListFails, runListGarbles, runListEnvelope, appearsDuring }`
+ * — which is read on every call,
  * so a Run written into it while the system tests are running is a Run that
  * appeared during the run.
  *
@@ -72,6 +73,10 @@ const ALWAYS = 1e6;
  * answer that failed while still exiting 0, `notOkWithRuns` one that says it
  * failed while still carrying a list, and `noOk` one the kit has no way to read
  * as an answer at all.
+ *
+ * `appearsDuring` lands its Runs once the first listing has been answered, so
+ * they are on the machine for the second and no test file made them: somebody
+ * else's `obk up`, on a machine the tests do not have to themselves.
  */
 async function fakeOrca(box, { stdout = '', stderr = '', exitCode = 0 }, world) {
   const log = path.join(box.root, 'orca.log');
@@ -113,6 +118,11 @@ async function fakeOrca(box, { stdout = '', stderr = '', exitCode = 0 }, world) 
     "    if (state.runListEnvelope === 'notOk') delete answer.result;",
     '  }',
     "  if (state.runListEnvelope === 'noOk') delete answer.ok;",
+    '  if (state.appearsDuring.length > 0) {',
+    '    state.runs = state.runs.concat(state.appearsDuring);',
+    '    state.appearsDuring = [];',
+    '    writeFileSync(WORLD, JSON.stringify(state));',
+    '  }',
     "  writeSync(1, JSON.stringify(answer) + '\\n');",
     '  process.exit(0);',
     '}',
@@ -211,10 +221,13 @@ async function createRepo(t, {
   runListFails = 0,
   runListGarbles = 0,
   runListEnvelope = 'ok',
+  appearsDuring = [],
 } = {}) {
   const box = await createSandbox(t);
   const world = path.join(box.root, 'orca-runs.json');
-  await writeFile(world, JSON.stringify({ runs, runListFails, runListGarbles, runListEnvelope }));
+  await writeFile(world, JSON.stringify({
+    runs, runListFails, runListGarbles, runListEnvelope, appearsDuring,
+  }));
   const orca = await fakeOrca(box, orcaOptions, world);
   const orcaPath = path.join(box.root, 'bin', 'orca');
 
@@ -313,6 +326,15 @@ function afterTheRun(result, lastPrinted = 'ALPHA') {
 }
 
 /**
+ * The report as one line. Every check below is on prose, and the runner hard
+ * wraps its prose, so a phrase can be split by a line break that says nothing
+ * about what the sentence means: "anything else" is one phrase whether or not
+ * "else" begins a new line. Matching the wrapped text makes a check depend on
+ * where the writer's lines happened to end.
+ */
+const unwrapped = (report) => report.replace(/\s+/g, ' ');
+
+/**
  * It told the developer it could not find something out, rather than guessing
  * or dying.
  *
@@ -328,9 +350,9 @@ function assertSaidItCouldNotTell(report, runs = [...ALREADY_THERE, ...MINTED]) 
       `it should name no Run when it could not find out which were left, got: ${report}`,
     );
   }
-  assert.match(report, /run/i, `it should still speak of Runs, got: ${report}`);
+  assert.match(unwrapped(report), /run/i, `it should still speak of Runs, got: ${report}`);
   assert.match(
-    report,
+    unwrapped(report),
     /could ?n[o']t|cannot|can't|unable|did not|failed/i,
     `it should say it could not find out what was left, got: ${report}`,
   );
@@ -741,9 +763,9 @@ describe('test-system', { concurrency: true }, () => {
         );
       }
       // An id alone is not actionable. Why it is still there is the other half.
-      assert.match(report, /delet|remov/i, `it should say they were not deleted, got: ${report}`);
+      assert.match(unwrapped(report), /delet|remov/i, `it should say they were not deleted, got: ${report}`);
       assert.match(
-        report,
+        unwrapped(report),
         /could ?n[o']t|cannot|can't|no way|unable|offers no|does not/i,
         `it should say why they are still there, got: ${report}`,
       );
@@ -758,9 +780,9 @@ describe('test-system', { concurrency: true }, () => {
 
       assert.equal(result.code, 0);
       const report = afterTheRun(result);
-      assert.match(report, /run/i, `it should still speak of Runs, got: ${report}`);
+      assert.match(unwrapped(report), /run/i, `it should still speak of Runs, got: ${report}`);
       assert.match(
-        report,
+        unwrapped(report),
         /\b(no|none|nothing|zero)\b/i,
         `it should say there were none, got: ${report}`,
       );
@@ -874,6 +896,101 @@ describe('test-system', { concurrency: true }, () => {
       assert.equal(result.code, 0);
       assert.equal(result.signal, null, `it should exit, not die: ${result.signal}`);
       assertSaidItCouldNotTell(afterTheRun(result));
+    });
+
+    test('a Run that appeared is not by that fact one of the tests\'', async (t) => {
+      // The machine is shared. An ordinary `obk up` — the owner's, another
+      // developer's, Bot Father's — mints a mailbox through `run-create` at any
+      // moment, and the runner cannot tell that Run from one of its own: the
+      // tests work in throwaway folders whose names it never learns. So
+      // "appeared while the tests ran" is all the two listings establish.
+      //
+      // Saying more is not a stylistic matter. Telling the owner that the live
+      // mailbox of a session they are working in belongs to the tests and can
+      // be ignored is the one line here that can cost them something.
+      // Written out rather than built by `runNamed`, because the whole point of
+      // it is that it is nobody in this fixture: another bot, another session.
+      const live = { id: 'run_ownerlive', objective: 'obk owner-live/daily', created_at: '2026-09-21T13:00:00Z' };
+      const fixture = await createRepo(t, {
+        runs: ALREADY_THERE,
+        appearsDuring: [live],
+        // The tests themselves make nothing at all.
+        files: { 'test/system/alpha.test.js': marker('ALPHA') },
+      });
+
+      const result = await fixture.confirmed();
+
+      assert.equal(result.code, 0);
+      const report = afterTheRun(result);
+      assert.ok(report.includes(live.id), `it should still name ${live.id}, got: ${report}`);
+      assert.ok(report.includes(live.objective), `it should say what ${live.id} is, got: ${report}`);
+      assert.doesNotMatch(
+        unwrapped(report),
+        /ignore/i,
+        `it should not tell the reader to disregard a Run it cannot account for, got: ${report}`,
+      );
+      // Asserted as something the report must say, not as words it must avoid.
+      // The honest sentence here contains "the tests made" — inside "which of
+      // them the tests made is not established" — so a report that denies the
+      // attribution and one that asserts it share their words, and only the
+      // denial can be looked for.
+      assert.match(
+        unwrapped(report),
+        /not established|not known|do(es)? not know|cannot say|can't say|unknown|\bmay\b|\bmight\b|anything else|somebody else|someone else|another session/i,
+        `it should say whose the Run is was not established, got: ${report}`,
+      );
+    });
+
+    test('a window that cannot reach back past the run does not state a total', async (t) => {
+      // Both listings are the newest hundred. The subtraction is exact as long
+      // as the window reaches back past the start of the run — but the listing
+      // covers every actor on the machine, not only the tests, so a hundred
+      // Runs can appear from elsewhere and push the window off its own
+      // beginning. Here the oldest new Run falls out of it unseen, and a bare
+      // total would be a completeness two snapshots cannot establish.
+      const appeared = Array.from({ length: LIMIT_CAP + 1 }, (_, n) => runNamed(`new${String(n).padStart(3, '0')}`, '12:00'));
+      const fixture = await createRepo(t, {
+        runs: Array.from({ length: 200 }, (_, n) => runNamed(`old${String(n).padStart(3, '0')}`, '09:00')),
+        files: { 'test/system/alpha.test.js': mintsRuns('ALPHA', appeared) },
+      });
+
+      const result = await fixture.confirmed();
+
+      assert.equal(result.code, 0);
+      const report = afterTheRun(result);
+      assert.match(
+        unwrapped(report),
+        /at least|incomplete|not all|may be more|might be more|could not reach/i,
+        `it should say the count is a floor, not a total, got: ${report}`,
+      );
+      // The gap is real, and it is the oldest of the new ones: the window never
+      // reached it. What the runner did see, it still names.
+      assert.ok(report.includes(appeared.at(-1).id), `it should name what it did see, got: ${report}`);
+      assert.ok(!report.includes(appeared[0].id), `it never saw ${appeared[0].id}, got: ${report}`);
+    });
+
+    test('a full listing that still reaches back past the run is complete, and is not hedged', async (t) => {
+      // The other side of it. This machine already carries a hundred Runs, so a
+      // listing comes back full on every ordinary day; a runner that hedges
+      // whenever it is full hedges always, and a qualifier that is always there
+      // is one nobody reads. Full is not the test — overlap is.
+      const fixture = await createRepo(t, {
+        runs: Array.from({ length: 150 }, (_, n) => runNamed(`old${String(n).padStart(3, '0')}`, '09:00')),
+        files: { 'test/system/alpha.test.js': mintsRuns('ALPHA', MINTED) },
+      });
+
+      const result = await fixture.confirmed();
+
+      assert.equal(result.code, 0);
+      const report = afterTheRun(result);
+      for (const run of MINTED) {
+        assert.ok(report.includes(run.id), `it should name ${run.id}, got: ${report}`);
+      }
+      assert.doesNotMatch(
+        unwrapped(report),
+        /at least|incomplete/i,
+        `the window reached back past the run, so nothing needs hedging, got: ${report}`,
+      );
     });
 
     test('a listing that exits 0 without saying `ok` is not an empty machine', async (t) => {

@@ -101,13 +101,35 @@ function listRuns() {
 }
 
 /**
- * What this run left in the machine's mailbox that nobody can take out again.
+ * Whether the two listings between them cover the whole of what happened, or
+ * only the newest hundred of it.
+ *
+ * The window reaches back far enough when the second listing is shorter than
+ * the hundred asked for — then it is everything Orca has — or when something in
+ * it was already in the first, which means it reaches past the moment the tests
+ * began. When every Run in a full listing is new, there may be older new ones
+ * behind it that this never saw, and the count is a floor rather than a total.
+ */
+const windowReachesBack = (before, after) =>
+  after.length < RUNS_ASKED_FOR || after.some((run) => before.has(run.id));
+
+/**
+ * What appeared in the machine's mailbox while the tests ran, and that nobody
+ * can take out again.
  *
  * A Run is how a session is written to, and `obk up` makes one per session
  * (ADR 0008's amendment). Orca offers no `run-delete`, and the one reset it
  * does offer would empty the whole machine's mailbox, which the kit never runs
  * and neither does this. So the tests cannot leave the list as they found it,
- * and the honest thing left is to say what they added.
+ * and the honest thing left is to say what appeared.
+ *
+ * **What appeared is not the same as what the tests made**, and this does not
+ * pretend otherwise. The machine is shared: anything else that brought a
+ * session up while the tests ran made its Run here too, and the runner has no
+ * way to tell one from the other — the tests work in throwaway folders whose
+ * names it never learns. So it reports what it observed and leaves the
+ * attribution to the reader, rather than telling somebody that the live mailbox
+ * of a session they are using belongs to a folder that has gone.
  *
  * `before` is what `listRuns` answered before the tests ran, undefined
  * included: a listing that failed then must not make every Run on the machine
@@ -119,27 +141,38 @@ function reportRunsLeft(before) {
   if (before === undefined || after === undefined) {
     process.stdout.write(
       '\nOrca did not say which orchestration Runs are on this machine, so the kit\n'
-      + 'cannot tell you which ones this run left behind. The tests\' own result above\n'
-      + 'stands; only this accounting is missing.\n',
+      + 'cannot tell you which ones appeared while the tests ran. The tests\' own\n'
+      + 'result above stands; only this accounting is missing.\n',
     );
     return;
   }
 
   const had = new Set(before.map((run) => run.id));
-  const left = after.filter((run) => !had.has(run.id));
+  const appeared = after.filter((run) => !had.has(run.id));
+  const whole = windowReachesBack(had, after);
 
-  if (left.length === 0) {
-    process.stdout.write('\nThis run left no new orchestration Runs on this machine.\n');
+  // Nothing new needs no caveat: if none of the second listing is new then all
+  // of it was in the first, which is the boundary being reached by definition.
+  if (appeared.length === 0) {
+    process.stdout.write('\nNo new orchestration Runs appeared on this machine while the tests ran.\n');
     return;
   }
 
   process.stdout.write([
     '',
-    `This run left ${left.length} orchestration Run${left.length === 1 ? '' : 's'} on this machine:`,
-    ...left.map((run) => `  ${run.id}  ${run.objective ?? ''}`.trimEnd()),
-    'They could not be removed. Orca offers no way to delete a Run, and its one',
-    'reset would empty this whole machine\'s mailbox, which the kit never runs.',
-    'They belong to bots folders the tests have taken away, and can be ignored.',
+    whole
+      ? `${appeared.length} orchestration Run${appeared.length === 1 ? '' : 's'} appeared on this machine while the tests ran:`
+      : `At least ${appeared.length} orchestration Runs appeared on this machine while the tests ran:`,
+    ...appeared.map((run) => `  ${run.id}  ${run.objective ?? ''}`.trimEnd()),
+    ...(whole ? [] : [
+      'That is a floor and not a total: Orca answered with the whole hundred it',
+      'will give at once, and none of them was there before, so there may be more',
+      'that this listing could not reach back far enough to see.',
+    ]),
+    'None of them could be removed. Orca offers no way to delete a Run, and its',
+    'one reset would empty this whole machine\'s mailbox, which the kit never runs.',
+    'Which of them the tests made is not established here: anything else that',
+    'brought a session up on this machine while they ran is in this list too.',
     '',
   ].join('\n'));
 }
