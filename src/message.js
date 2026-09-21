@@ -159,7 +159,7 @@ export function sendMessage(bots, { to: target, from: sender, tab, subject, text
     id: message.id,
     thread: message.thread_id ?? thread,
     file: written.file,
-    nudged: nudge(to, from, subject),
+    ...nudge(to, from, subject),
   };
 }
 
@@ -293,17 +293,26 @@ const stamp = () => new Date().toISOString().replaceAll(':', '-').replace('.', '
  * session is up. A tab the book does not hold is never typed into on any road.
  */
 function nudge(to, from, subject) {
-  if (to.tab === undefined) return false;
+  if (to.tab === undefined) return { nudged: false };
 
-  const live = tabs(to.home).find((tab) => tab.tabId === to.tab);
-  if (live === undefined) return false;
-  if (!tuiInTab(live.handle, LOOK_MS).running) return false;
+  try {
+    const live = tabs(to.home).find((tab) => tab.tabId === to.tab);
+    if (live === undefined) return { nudged: false };
+    if (!tuiInTab(live.handle, LOOK_MS).running) return { nudged: false };
 
-  typeIntoTab(
-    live.handle,
-    `Fleet mail from ${from.bot}/${from.session}: ${subject}. Read it with  obk message check --bots ${to.bots} --bot ${to.bot} --session ${to.session}`,
-  );
-  return true;
+    typeIntoTab(
+      live.handle,
+      `Fleet mail from ${from.bot}/${from.session}: ${subject}. Read it with  obk message check --bots ${to.bots} --bot ${to.bot} --session ${to.session}`,
+    );
+    return { nudged: true };
+  } catch (error) {
+    // The message is already queued, and it is waiting whatever Orca says
+    // about the tab. So this is reported rather than thrown: a send that ends
+    // in an error the caller reads as "it did not go" would be a lie, and a
+    // silent `false` would read as "the session is not up", which is a
+    // different thing from "Orca would not say".
+    return { nudged: false, nudgeTrouble: error.message };
+  }
 }
 
 /** `<bot>/<session>`, or a bot on its own when it has only the one session. */

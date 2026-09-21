@@ -384,9 +384,12 @@ const commands = {
         ...(answer.file === undefined
           ? []
           : [`             it was too long to travel as itself, so it went as a file:  ${answer.file}`]),
+        // eslint-disable-next-line no-nested-ternary
         answer.nudged
           ? `             its tab was told to look; it will read it when it is done with what it is doing.`
-          : `             ${where} is not up, so nothing was typed anywhere: the message waits in its mailbox.`,
+          : (answer.nudgeTrouble === undefined
+            ? `             ${where} is not up, so nothing was typed anywhere: the message waits in its mailbox.`
+            : `             it is queued, and its tab could not be told to look: ${answer.nudgeTrouble}`),
       ],
     };
   },
