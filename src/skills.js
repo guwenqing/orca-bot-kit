@@ -217,7 +217,12 @@ function heldBy(home, wanted = []) {
     if (existsSync(dir)) for (const name of readdirSync(dir)) names.add(name);
   }
 
+  // One with no shelf named is one the kit does not keep. It says nothing about
+  // where it came from, because it cannot tell: a skill the user put there, a
+  // link of their own, and a link the kit made from a path that no list names
+  // any more all look the same from here. What it can say is that the kit will
+  // not touch it, which is what the user has to know.
   return [...names].map((name) => (known.has(name)
     ? { name, from: known.get(name).from, managed: true }
-    : { name, from: 'hand', managed: false }));
+    : { name, managed: false }));
 }

@@ -197,9 +197,15 @@ What lands in the bot is a symlink, never a copy
 `.claude/skills` and `.agents/skills` in the bot home, which is where each
 harness reads a project's skills from. So a kit skill is read where npm
 installed it, editing a skill is what a running session reads without a
-restart, and updating the kit updates every bot at once. The kit takes away
-only the links it made: a skill of your own, or a link of yours pointing
-somewhere the kit never points, is left alone and shown as yours.
+restart, and updating the kit updates every bot at once.
+
+The kit takes away only what it can prove it put there: a link into its own
+skills or into your `skills/` folder that no list names any more. Anything else
+in those directories is left alone and shown as yours — a skill you wrote there,
+a link of your own, and also a link the kit once made from a path you have since
+dropped from the list, because from the outside those three look the same. If
+you want one of those gone, delete the link; the skill it points at is not
+touched either way.
 
 A skill is a directory holding `SKILL.md` — frontmatter carrying `name` (the
 directory's own name) and `description`, then the body — plus any reference
