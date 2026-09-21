@@ -22,6 +22,19 @@ implementer breaks its own logic on purpose to see whether a test notices.
 These are defaults for work where nothing says otherwise. A user who asks for
 something else gets what they asked for; say which of these you left and why.
 
+## Find out how this project tests
+
+The loop is the same everywhere; the commands are not. Before the first test,
+learn how *this* project tests: the build file and whether it has a checked-in
+wrapper to use instead of a globally installed tool, the framework and its
+configuration, how it runs one focused test as against the whole suite, where
+tests live and how they are named, what the tests next door already do, and
+which commands the project's own checks actually run. Never assume a default
+command because it is the usual one for the language.
+
+Use the focused command through the loop and the whole-suite command before you
+finish.
+
 ## Start from the requirement, not the code
 
 Write the acceptance criteria before any test: one line each, each one
@@ -39,6 +52,19 @@ code computes passes whatever the code does.
 
 Say which requirement a test covers, in its name or in a line beside it. A test
 that names a requirement but does not assert its behaviour does not cover it.
+
+Test your own contract, not the library's. What the framework does is its
+maintainers' test to write; yours is the route you register, the query you
+emit, the payload you produce. A constructor, an accessor, a constant or a
+plain hand-off earns a test only where it validates, normalises, defaults,
+derives, enforces or causes an effect; otherwise assert the first result a
+caller can see that depends on it. When upstream behaviour genuinely surprised
+you, one narrow test that names the assumption is worth keeping.
+
+Behaviour, not text. Asserting that a script, a configuration or a document
+contains a particular line proves only that the source is the source. Run the
+thing against a controlled input and assert what comes out: the output, the
+effect, the exit status. Prose written for people earns no test at all.
 
 ## One vertical slice at a time
 
@@ -61,10 +87,29 @@ what is in question.
 Do not anticipate the next test. Code that no failing test asked for is
 untested code, whatever it does.
 
+Before you settle a test, run the behaviour past the kinds of mistake that get
+made — a boundary off by one, a condition the wrong way round, an equality that
+should be an inequality, an arithmetic identity, an empty collection, a side
+effect that never happens — and add the case you find missing there and then.
+It is the same question the mutation check asks at the end, asked while it is
+still cheap to answer.
+
 Stand in for what you do not own: an external service, a database sometimes
 (prefer a real test one), the clock, randomness, the filesystem sometimes. Do
-not stand in for your own modules or internal collaborators. A test whose setup
-is mostly stubs is testing the stubs.
+not stand in for your own modules or internal collaborators.
+
+Four things about a stand-in, when you do need one. Learn what the real thing
+does before you replace it, and stand in at the slow or external level below
+what the test depends on, so you do not swallow an effect the test was there to
+see. Mirror the real shape completely, not only the fields this test reads: a
+partial one passes while the real thing breaks on a field it left out. Assert
+the real behaviour, never the stand-in itself — an assertion that the stand-in
+is present passes because it is present and says nothing about your code. And
+when the setup grows past the test it serves, or you cannot say why it is
+there, drop it and test against the real components.
+
+Cleanup that only tests need belongs in the test helpers, not as a method on
+the thing being tested.
 
 ## The test author is someone else
 
@@ -101,6 +146,13 @@ A brief that works, adjusted to the job:
 > Return: the files you wrote, the command, its failing output, and one line
 > per test naming the requirement it covers.
 
+Say what state the code is in, and be exact about it. The author cannot see it
+and will believe what the brief says. When you send an author at code you have
+deliberately broken — killing a surviving mutant, see below — say so in the
+brief: *the code has a deliberate break in it and the test is expected to
+fail*. Left out, the author reads your own break as a defect and spends a round
+reporting a bug that does not exist.
+
 Then, as the implementer: you may add tests of your own. You do not edit,
 weaken, skip or delete the author's tests to get to green. A test you believe
 is wrong goes back to its author with what you think is wrong with it — that is
@@ -113,9 +165,10 @@ forbidden: commit the author's tests before the implementation, so a later
 `git diff` over the test paths shows any change; or keep those paths outside
 the implementer's write scope.
 
-When you can neither start an author nor reach one, say so. Then write the
-tests as a step of their own, before you read the implementation area in depth,
-and state in your report that authorship was not independent.
+When you can neither start an author nor reach one, say so and ask before you
+write the tests yourself. If the answer is to go ahead, write them as a step of
+their own, before you read the implementation area in depth, and say in your
+report that authorship was not independent.
 
 ## Red is evidence, not a formality
 
@@ -150,12 +203,23 @@ goes in your report by name.
 
 Write the smallest code that passes the failing test, and stop there.
 
+Faking it is allowed and often right. If returning the answer the test asks for
+passes, return it; then write the second case that the fake cannot satisfy, and
+let that one force the real implementation. Generalise when a test makes you,
+not before.
+
 Refactoring is not a phase of the red/green loop. Go green, then change the
 structure as a separate step, under the same tests and the same contract, and
-keep the two in separate commits, green on both sides. Pulling
-out something whose behaviour already exists elsewhere is refactoring; a
-function whose behaviour appears nowhere else is new, and it starts with a
-failing test like anything else.
+keep the two in separate commits, green on both sides. Pulling out something
+whose behaviour already exists elsewhere is refactoring; a function whose
+behaviour appears nowhere else is new, and it starts with a failing test like
+anything else.
+
+Do not manufacture a red. A failing test written so a step looks like it
+started with one, a break invented so a restructuring can be called a change of
+behaviour, commits reshaped afterwards to tell a tidier story — all of that
+costs the time of doing it and buys nothing, because none of it was ever a
+check on anything. A step that did not need a red is reported as what it was.
 
 When a change is large enough that the old tests cannot hold, that is still not
 a licence to edit them. The author writes them again from the new requirement,
@@ -179,6 +243,10 @@ original unminimised scenario again.
 
 A regression test written after the fix has proved nothing yet. Prove it:
 revert the fix, run it and watch it fail, restore the fix, run it again.
+
+When the bug is intermittent, make the test deterministic if you can, and say
+which signal you pinned down. When it is one of a class, land the test for the
+one in front of you first, then say what else has the same shape.
 
 When a failing test really is impractical, say so out loud, say why, and name
 the closest executable check you used instead. Quiet omission is the part that
@@ -216,10 +284,22 @@ one: one that mostly tests stubs, that encodes today's implementation, that
 depends on timing or global state, or that you would delete the moment the fix
 is proven.
 
+Two that the five shapes do not condemn: a test that checks a relation holds
+across a table of cases, and a check the language itself makes at build time.
+
 Other tells: the test breaks when you refactor although the behaviour did not
-change; the stub setup is more than half of it; the expected values are hidden
-behind loops or builders; the only way it can fail is a crash; it exists to
-raise a coverage number.
+change; it reaches around the interface to check the result — reading the
+database directly instead of asking for the record back — which couples it to
+the inside just as surely as a stub does; the stub setup is more than half of
+it; the expected values are hidden behind loops or builders; the only way it
+can fail is a crash; it exists to raise a coverage number. Coverage is a
+diagnostic and not a target: a high number says the lines ran, not that
+anything would have noticed them being wrong.
+
+Repetition between tests is not a fault. A test that reads on its own, with its
+input and its expected value in front of you, is worth more than one that sends
+you through three helpers to find out what it claims. Share setup when it makes
+the test clearer, not to avoid typing.
 
 What is missing is usually on the unhappy side: the denied case of a permission
 check, untested guard clauses and early returns, error branches, boundaries
@@ -321,12 +401,34 @@ whether the check notices.
 
 ## Where this comes from
 
-Written for this kit from: mattpocock/skills (MIT) — seams, vertical slices,
-tautological tests, refactoring outside the loop; obra/superpowers (MIT) — red
-verification, the test-quality questions, the revert-the-fix proof; Cursor
-pstack (MIT) — the five shapes that observe no behaviour; addyosmani/agent-docs
-(MIT) — a subagent for the reproduction test, the cheap roads to green;
-citypaul/.dotfiles (MIT) — the mutation loop, survivor triage and equivalence;
-nizos/tdd-guard (MIT) — the clean-red ladder. Ideas paraphrased, no text
-copied, from Trail of Bits' mutation-testing skill (CC BY-SA 4.0), Anthropic's
-Claude Code documentation, alexop.dev and the Google mutation-testing papers.
+Consolidated for this kit from these, all MIT, with thanks:
+
+- **mattpocock/skills**, `engineering/tdd` — seams and where tests go, vertical
+  slices against bulk testing, the tautological and implementation-coupled
+  shapes, refactoring outside the loop, standing in only at system boundaries.
+- **obra/superpowers**, `test-driven-development` and its `writing-good-tests`
+  — naming the break a test catches, deriving the expected value by hand,
+  change detectors, behaviour rather than text, your contract rather than the
+  framework's, the four rules about a stand-in, the revert-the-fix proof, the
+  list of warning signs, and the mutation classes.
+- **Cursor pstack**, `tdd` and `principle-test-behavior-not-implementation` —
+  the five shapes that observe no behaviour and the fix for each, "prefer no
+  new test over a bad test", the honest exit when a test is impractical, and
+  the report that names the failing-before and passing-after runs.
+- **addyosmani/agent-skills**, `test-driven-development` and
+  `constraint-driven-development` — finding out how the project tests before
+  writing anything, repetition being no fault in a test, a subagent for the
+  reproduction test, and the cheap roads to green.
+- **citypaul/.dotfiles**, `tdd` and `mutation-testing` — the mutation loop and
+  the order to break things in, survivor triage into killed, equivalent or
+  named and deferred, the equivalence question, keeping the harness out of the
+  inner loop, triangulating after a fake, and refusing to manufacture a red.
+- **Kent Beck's own rules file** — one test at a time, the smallest code that
+  passes, structure and behaviour kept apart, and the two-level test for a
+  defect.
+- **nizos/tdd-guard** — the ladder to a clean red.
+
+Ideas paraphrased, with no text taken: Trail of Bits' mutation-testing skill
+(CC BY-SA 4.0) on equivalent mutants, Anthropic's Claude Code documentation on
+separate test authorship, alexop.dev on why one context cannot hold both
+halves, and the published work on mutation testing at scale.
