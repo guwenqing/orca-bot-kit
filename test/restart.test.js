@@ -34,7 +34,7 @@ import { parse, stringify } from 'yaml';
 
 import {
   assertCleanFailure,
-  BARE_LAUNCH,
+  bareLaunch,
   bookOf,
   botFatherTabs,
   botHomeOf,
@@ -103,8 +103,15 @@ const since = async (box, from) => (await box.orca.calls()).slice(from);
 const closes = (calls) => orcaCallsOf(calls, 'terminal close');
 const creates = (calls) => orcaCallsOf(calls, 'terminal create');
 
-/** The line a claude session is started with when it resumes `id` and nothing else is set. */
-const resumeLine = (id) => `${BARE_LAUNCH.claude} --resume ${id}`;
+/**
+ * The line a claude session is started with when it resumes `id` and nothing
+ * else is set. A session's own name is on that line — `-n <bot>.<session>`,
+ * which is the address another Claude session writes to (ADR 0008) — and it
+ * goes on a resume as much as on a first start, so the session that comes back
+ * answers to the name it had.
+ */
+const resumeLine = (id, bot = 'api-bot', session = 'daily') =>
+  `${bareLaunch('claude', bot, session)} --resume ${id}`;
 
 test('R1 a session that is up is closed once, by its own handle, and comes back with its conversation', async (t) => {
   const box = await createSandbox(t);
@@ -164,7 +171,7 @@ test('R2 with no --session every session of the bot is restarted', async (t) => 
   for (const [name, id] of [['daily', 'sess-daily'], ['review', 'sess-review']]) {
     const after = await liveTab(box, bots, 'api-bot', name);
     assert.notEqual(after.tabId, before[name].tabId, `${name} should be in a new tab`);
-    assert.deepEqual(typedInto(after.terminal), [resumeLine(id)], `${name} should come back as itself`);
+    assert.deepEqual(typedInto(after.terminal), [resumeLine(id, 'api-bot', name)], `${name} should come back as itself`);
   }
 });
 
@@ -211,7 +218,7 @@ test('R3 only the tabs the book names are closed: Bot Father keeps its ops tab',
   const came = await liveTab(box, bots, 'bot-father', 'daily');
   assert.notEqual(came.tabId, daily.tabId);
   assert.equal(came.terminal.title, TAB_TITLES.daily);
-  assert.deepEqual(typedInto(came.terminal), [resumeLine('sess-bf')]);
+  assert.deepEqual(typedInto(came.terminal), [resumeLine('sess-bf', 'bot-father', 'daily')]);
 });
 
 test('R4 Orca\'s whole-project close is never called, by this command or any other', async (t) => {
@@ -339,7 +346,7 @@ test('R8 a session that has never had a tab is started fresh, with its duty and 
   const after = await liveTab(box, bots, 'api-bot', 'daily');
   assert.deepEqual(
     typedInto(after.terminal),
-    [`${BARE_LAUNCH.claude} -- '${PROMPT}'`],
+    [`${bareLaunch('claude', 'api-bot', 'daily')} -- '${PROMPT}'`],
     'a session with no conversation behind it starts one, and is told what it is for',
   );
 });
