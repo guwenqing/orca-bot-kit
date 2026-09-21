@@ -73,10 +73,18 @@ other piece, so the second does not repeat the first. Then look for the
 asymmetry: where one group is told something that makes the other group's job
 harder, whoever has to square that needs to know it is coming.
 
-Mixing them is the commonest way a piece gets long and satisfies nobody:
-background halfway through a set of instructions, an argument inside a
-reference, hand-holding inside something written for experts. Where a piece
-needs two of them, write two and link them.
+Know which one is the job, because the piece is organised around that. Losing
+it is how a piece gets long and satisfies nobody: an argument in the middle of
+a set of instructions, hand-holding inside something written for experts, a
+reference that keeps stopping to persuade.
+
+This is not a rule against a piece containing more than one thing. A short
+announcement can carry the reason for the change, the dates and what to do, and
+sending three linked pieces instead would serve nobody. What matters is whether
+the extra material helps the same reader do the same job. Split when the blend
+makes it unclear who the piece is for, what they are supposed to do, or whether
+they have been told everything. Otherwise keep it in one thing and keep the
+supporting material in its place.
 
 ## Lead with the point
 

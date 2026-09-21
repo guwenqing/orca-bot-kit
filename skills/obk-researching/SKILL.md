@@ -36,16 +36,21 @@ is the same mistake as an invented fact, made at a larger scale.
 
 ## Go to the source that owns the claim
 
-Follow every claim back to whoever is in a position to know it. First-party
-material — the people or the organisation the claim is about, the specification,
-the filing, the documentation, the record itself — settles a question. A
-write-up of that material does not: it is someone's reading, and it can be
-stale or wrong in ways you cannot see from the write-up.
+Follow every claim back to whoever is in a position to know it. Who that is
+depends on the claim, not on where the words were published.
 
-So: the thing itself first, then its own announcements and history, then the
-independent references that specialise in it. A forum answer, a blog post, a
-summary produced by a model, and your own memory are leads to follow, not
-sources to cite. Memory in particular is the one that feels like knowledge.
+- For **what somebody said, thinks or did**, their own words are the record,
+  wherever they wrote them. Somebody's blog post or forum answer is the primary
+  source for their own view, and citing a summary of it instead is the error.
+- For **how a thing behaves or what it contains**, the thing itself, its
+  documentation, the specification, the filing, the record.
+- For **whether a claim about results is true**, the party making it does not
+  settle it, however official the page. A vendor's own page is the primary
+  source for what the vendor says and no evidence at all that it is so.
+
+A write-up of a source is not the source: it is somebody's reading, and it can
+be stale or wrong in ways the write-up does not show. Your own memory is not a
+source either, and it is the one that feels most like knowledge.
 
 Be exact about what you go and get. The page that answers the question, not the
 front page of the site that contains it; the clause, not the document. Vague

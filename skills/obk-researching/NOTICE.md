@@ -4,6 +4,9 @@
 
 # Sources and licences
 
+The permission notices these licences require are in
+[LICENSES.md](LICENSES.md), beside this file.
+
 The skill `obk-researching` was consolidated for this kit from these, with
 thanks. Each licence below was read from the file named beside it.
 

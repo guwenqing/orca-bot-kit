@@ -121,16 +121,25 @@ Mark how you know each thing, because the reader is entitled to discount:
   own week is worth more than a figure that has been passed along twice, and
   the difference often decides the memo.
 
-Where a fact matters enough, get it down that list as far as it is cheap to,
-and say where it stopped. Where you could not check something at all, say so in
+That list runs from the strongest support to the weakest. Where a fact matters
+enough, move it towards the top as far as is cheap: go and measure the thing
+rather than reasoning about it, read the contract rather than recalling it.
+Then say where it stopped, and keep the honest label when a better check was
+not available. Where you could not check something at all, say so in
 the memo rather than in a footnote.
 
-Where you could not check any of it, the memo changes job, and says so in its
-first paragraph. It is no longer a comparison, because a comparison written
-from memory about things you cannot name is the most damaging thing you could
-hand over: it reads exactly like one built on evidence. It becomes a
-recommendation about how to find out — what to go and get, from whom, and what
-it would settle. That is an honest and useful memo. A confident table is not.
+Not being able to check something does not stop you comparing it. Where
+somebody hands you the terms of two named options, compare those terms, say
+they are as supplied and unchecked, and name which of them the answer turns on.
+A recommendation that holds if the stated terms are right is a real answer, and
+saying so is different from pretending the terms were verified.
+
+What you cannot do is compare what you do not have. Where the options are not
+even named, or the facts that would separate them are missing entirely, the
+memo changes job and says so in its first paragraph: it becomes a
+recommendation about how to find out, naming what to get, from whom, and what
+it would settle. Filling that gap from memory is the most damaging thing you
+could hand over, because it reads exactly like a comparison built on evidence.
 
 ## Argue against yourself
 
