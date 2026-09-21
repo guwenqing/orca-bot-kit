@@ -12,10 +12,12 @@ import path from 'node:path';
 import { parseArgs } from 'node:util';
 
 import { addSession, createBot, readBot, SESSION_FIELDS } from './bot.js';
+import { checkHealth, orcaSettingFindings } from './health.js';
 import { initBots } from './init.js';
 import { APPROVALS, HARNESSES } from './launch.js';
 import { orcaTrouble } from './orca.js';
 import { recordSession, SHELL_ENV, TAB_ENV } from './record.js';
+import { restartSessions } from './restart.js';
 import { buildAgents, buildRules, CODEX_CAP } from './rules.js';
 import { buildSkills, linkSkills } from './skills.js';
 import { fetchSources } from './sources.js';
@@ -71,6 +73,19 @@ Usage:
                             for the one you name. It only ever adds; it never
                             closes a tab. A session the book knows the harness
                             session of comes back with its conversation.
+  obk restart --bots <path> --bot <bot> [--session <name>]
+                            Close a bot's session tabs and open them again,
+                            each with the conversation it was having. It is the
+                            one command that closes a tab, it closes only the
+                            tabs your book names, and it will not close one
+                            whose conversation the book cannot name.
+  obk health --bots <path> [--bot <bot>]
+                            Say what is wrong with your setup: configuration
+                            that will not work, a skill that is not where its
+                            list says, a session Orca has lost, and what is
+                            lying about that no bot owns. It reports and
+                            changes nothing; what to do about each line is
+                            yours to decide.
   obk session record --bots <path> --bot <bot>
                             For the kit's own hook, not for typing: it reads
                             what the harness says about a session starting on
@@ -86,6 +101,8 @@ Add --json to any of them for the same answer as JSON.
 const COMMANDS = {
   init: ['bots', 'harness'],
   up: ['bots'],
+  restart: ['bots', 'bot'],
+  health: ['bots'],
   'bot create': ['bots', 'name', 'harness'],
   'rules build': ['bots'],
   'skills build': ['bots'],
@@ -219,7 +236,11 @@ const commands = {
     refuseWhenOrcaIsDown();
     const seeded = initBots(bots, values.harness);
     const { tabs, rules, skills } = await bringUp(seeded.bots, { bot: BOT_FATHER });
-    const answer = { bots: seeded.bots, created: seeded.created, completed: seeded.completed, rules, skills, tabs };
+    // Setup is the other place the PRD asks for Orca's own launch arguments to
+    // be looked at (6.5), and the one where the user is still standing in front
+    // of the fleet they are making. Only that one check: a folder init has just
+    // made has nothing else to say about itself.
+    const answer = { bots: seeded.bots, created: seeded.created, completed: seeded.completed, rules, skills, tabs, found: orcaSettingFindings() };
     return { answer, lines: tabLines(answer, `Bot Father is up in Orca. Your bots folder: ${seeded.bots}`) };
   },
 
@@ -232,6 +253,37 @@ const commands = {
       ? `Nothing was brought up in Orca. Your bots folder: ${bots}`
       : `Up in Orca: ${up.join(', ')}. Your bots folder: ${bots}`;
     return { answer, lines: tabLines(answer, summary) };
+  },
+
+  health(bots, values) {
+    refuseWhenOrcaIsDown();
+    const found = checkHealth(bots, { bot: values.bot });
+    return {
+      answer: { bots, found },
+      lines: [
+        ...foundLines(found),
+        found.length === 0
+          ? `Nothing to report: everything the kit keeps is where it should be. Your bots folder: ${bots}`
+          : `${found.length} thing${found.length === 1 ? '' : 's'} to look at above. What to do about each is yours to decide. Your bots folder: ${bots}`,
+      ],
+      // Something to look at is not a command that failed, and the answer is
+      // printed either way; the code is there for whoever runs it in a script.
+      code: found.length === 0 ? 0 : 1,
+    };
+  },
+
+  async restart(bots, values) {
+    refuseWhenOrcaIsDown();
+    const { closed, tabs, rules, skills } = await restartSessions(bots, { bot: values.bot, session: values.session });
+    const answer = { bots, created: [], completed: [], rules, skills, tabs, closed };
+    const what = values.session === undefined ? values.bot : `${values.bot} ${values.session}`;
+    return {
+      answer,
+      lines: [
+        ...closed.map((tab) => `closed     ${tab.bot} ${tab.name}  tab ${tab.tabId}  terminal ${tab.terminal}`),
+        ...tabLines(answer, `Restarted in Orca: ${what}. Your bots folder: ${bots}`),
+      ],
+    };
   },
 
   'bot create'(bots, values) {
@@ -437,7 +489,15 @@ function skillsLines(skills) {
   ]);
 }
 
-function tabLines({ bots, created, completed, rules, skills, tabs }, summary) {
+/**
+ * What a check found, two lines each: what kind of trouble it is and the one
+ * thing to go and look at, then the sentence about it. The same shape wherever
+ * a command reports one, so a reader who has seen one has seen them all.
+ */
+const foundLines = (found) =>
+  found.flatMap((one) => [`${one.kind.padEnd(9)}  ${one.where}`, `             ${one.says}`]);
+
+function tabLines({ bots, created, completed, rules, skills, tabs, found = [] }, summary) {
   const lines = [
     ...created.map((entry) => `created    ${entry}`),
     ...completed.map((entry) => `completed  ${entry}`),
@@ -450,7 +510,9 @@ function tabLines({ bots, created, completed, rules, skills, tabs }, summary) {
     lines.push(...harnessLines(tab, bots));
   }
 
-  lines.push(summary);
+  // Last before the summary, because what a check found is about the setup the
+  // run has just left behind rather than about any one thing it did.
+  lines.push(...foundLines(found), summary);
   return lines;
 }
 

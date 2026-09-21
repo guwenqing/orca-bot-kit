@@ -27,12 +27,13 @@
 // in every sandbox is watching for.
 
 import assert from 'node:assert/strict';
-import { readFile, readdir, writeFile, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 
 import {
   assertCleanFailure,
+  assertHomeUntouched,
   botHomeOf,
   createSandbox,
   eventsIn,
@@ -560,5 +561,5 @@ test('no command of the kit writes anything to user-level settings', async (t) =
   await recordSession(box, { bots, bot: 'api-bot', tab: tab.tabId, session: 'sess-1', source: 'clear' });
   assert.equal((await box.run(['up', '--bots', 'bots'])).code, 0);
 
-  assert.deepEqual(await readdir(box.home), [], 'nothing of the kit\'s belongs in the user\'s home directory');
+  await assertHomeUntouched(box);
 });

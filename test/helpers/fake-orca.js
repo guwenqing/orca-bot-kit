@@ -1,11 +1,11 @@
 // A fake Orca CLI for the ordinary suite. `OBK_ORCA` points every sandboxed
 // run at it, so `npm test` never reaches the real Orca — not even by mistake.
 //
-// It answers the eight commands this slice is allowed to use, in the envelope
-// Orca 1.4.205 really uses (docs/prd.md, the slice interface and the tech
-// notes), it remembers what it was told to create and what was typed into each
-// tab, and it can be steered into every way Orca can let the kit down. Its
-// whole world is two files in one directory, named by OBK_FAKE_ORCA_DIR:
+// It answers the commands the kit is allowed to use, in the envelope Orca
+// 1.4.205 really uses (docs/prd.md, the slice interface and the tech notes),
+// it remembers what it was told to create and what was typed into each tab,
+// and it can be steered into every way Orca can let the kit down. Its whole
+// world is two files in one directory, named by OBK_FAKE_ORCA_DIR:
 //
 //   state.json   what Orca "has", and how it should misbehave
 //   calls.log    one JSON line per call: { args, cwd }
@@ -31,6 +31,18 @@
 //               answers ok:false. With `after: n` the first n calls of it go
 //               through and the ones after that fail, which is how a test
 //               breaks the second tab of a run and not the first.
+//   closeLag    a whole number: how many more `terminal list` answers still
+//               carry a terminal after its own `terminal close` has answered
+//               ok. 0, the default, is a close the listing agrees with at once.
+//               Seen live and written down in both system tests: Orca answers
+//               the close before `terminal list` stops reporting the tab, for a
+//               second or two on a busy machine, so a caller that believes the
+//               answer and lists straight away finds the tab it just closed.
+//               Counted in listings that report it, not in seconds, so a test
+//               does not depend on how fast anything runs; the terminal is gone
+//               from the fake's world once the count runs out. It goes on
+//               answering `rename`, `wait` and `send` while it lags, because to
+//               anything that found it in a listing it is a tab like any other.
 //   crash       { command, exitCode, stdout, stderr } — no JSON, a bad exit code
 //   garbage     { command, text } — output that is not JSON at all
 //   runDuring   { command, argv, env, on } — run `argv` to completion once,
@@ -47,6 +59,20 @@
 //
 // In `crash` and `garbage`, `command` may be "*" for every command. A command
 // is its leading words: "status", "repo add", "terminal create", and so on.
+//
+// `terminal close` is the one call that takes something away, so it is the one
+// the fake is strictest about. Real Orca takes either form:
+//
+//   terminal close --terminal <handle> [--tab]   one pane, or its whole tab
+//   terminal close --worktree <selector> --all   every tab of a project
+//
+// The first is answered: the terminal leaves the fake's world, a tab at a time,
+// because a tab here holds one terminal — at once, or after `closeLag` more
+// listings when a test asked for a listing that lags. The second is not
+// answered at all —
+// the fake falls over with a message, because it closes tabs the kit does not
+// own and the kit must never call it. A handle the fake does not have is
+// refused with `terminal_not_found`, as `rename`, `wait` and `send` refuse one.
 
 import { spawnSync } from 'node:child_process';
 import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
@@ -242,15 +268,30 @@ if (command === 'project setup-update') {
   });
 }
 
-/** What Orca reports about a tab. What was typed into it is ours, and stays ours. */
-const asReported = ({ typed: _typed, ...rest }) => rest;
+/**
+ * What Orca reports about a tab. What was typed into it is ours, and stays
+ * ours, and so is how many more listings a closed tab still shows up in.
+ */
+const asReported = ({ typed: _typed, closingFor: _closingFor, ...rest }) => rest;
 
 if (command === 'terminal list') {
   const target = worktreePathOf(flag('--worktree'));
-  const terminals = (state.terminals ?? [])
-    .filter((terminal) => target === undefined || terminal.worktreePath === target)
-    .map(asReported);
-  ok({ terminals });
+  const shown = (state.terminals ?? [])
+    .filter((terminal) => target === undefined || terminal.worktreePath === target);
+
+  // A tab that was closed is reported for as many more listings as the test
+  // asked for, and then it is gone. Only the listings that report it count: one
+  // asked about another project says nothing about this tab either way.
+  let caughtUp = false;
+  for (const terminal of shown) {
+    if (terminal.closingFor === undefined) continue;
+    terminal.closingFor -= 1;
+    if (terminal.closingFor <= 0) caughtUp = true;
+  }
+  if (caughtUp) state.terminals = state.terminals.filter((terminal) => (terminal.closingFor ?? 1) > 0);
+  if (shown.some((terminal) => terminal.closingFor !== undefined)) save();
+
+  ok({ terminals: shown.map(asReported) });
 }
 
 if (command === 'terminal create') {
@@ -291,6 +332,41 @@ if (command === 'terminal create') {
   save();
 
   ok({ terminal: asReported(terminal) });
+}
+
+if (command === 'terminal close') {
+  // Orca's whole-project close. It is not a refusal the kit could handle and
+  // report: it is a call the kit must never make, so the fake stops the run
+  // where it stands rather than letting one pass quietly.
+  if (args.includes('--all') || flag('--worktree') !== undefined) {
+    process.stderr.write(`fake orca: ${args.join(' ')} closes every tab of a project, the user's own among them; the kit must never call it\n`);
+    process.exit(70);
+  }
+
+  const terminal = (state.terminals ?? []).find((entry) => entry.handle === flag('--terminal'));
+  if (!terminal) fail('terminal_not_found', `no terminal with handle ${flag('--terminal')}`);
+
+  // A tab here holds one terminal, so the terminal goes either way; whether the
+  // kit asked for the whole tab is in calls.log for a test to read. The answer
+  // is the one the real call gave when it was measured (tech notes, section 1).
+  //
+  // With `closeLag` the answer comes back the same and the tab stays in the
+  // listing a while longer, which is what Orca really does.
+  const lag = state.closeLag ?? 0;
+  if (lag > 0) {
+    terminal.closingFor = lag;
+  } else {
+    state.terminals = state.terminals.filter((entry) => entry !== terminal);
+  }
+  save();
+  ok({
+    close: {
+      handle: terminal.handle,
+      tabId: terminal.tabId,
+      closeMode: args.includes('--tab') ? 'tab' : 'pane',
+      ptyKilled: false,
+    },
+  });
 }
 
 if (command === 'terminal rename') {
