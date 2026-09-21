@@ -301,6 +301,11 @@ function heldBy(home, wanted, held) {
   ]);
 
   return [...names].map((name) => {
+    // `missing` is the honest answer for a name no harness holds. No command
+    // here can report one: each links as it reports, so a wanted name is either
+    // linked in the same run or something of the user's is in its way. It is
+    // the word a command that reports without linking — a health check — would
+    // need.
     const at = Object.fromEntries(Object.keys(SKILL_DIRS)
       .map((harness) => [harness, held.get(harness)?.get(name) ?? 'missing']));
     const ours = Object.values(at).every((state) => state === 'linked');
