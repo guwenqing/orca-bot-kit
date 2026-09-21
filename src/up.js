@@ -14,6 +14,7 @@ import { installHook } from './hooks.js';
 import { harnessOf, isShortPrompt, launchCommand, sessionTrouble, startPrompt, workDirOf } from './launch.js';
 import { asFolderProject, findProject, makeProject, openTab, retitleTab, tabs, tuiInTab, typeIntoTab } from './orca.js';
 import { buildAgents } from './rules.js';
+import { linkSkills } from './skills.js';
 
 /** The one bot with a tab beside its sessions: the ops tab (PRD 6.2). */
 export const BOT_FATHER = 'bot-father';
@@ -33,7 +34,7 @@ const SECOND_LOOK_MS = 2000;
 /**
  * Bring bots up in Orca. Returns `{ tabs, rules }`: one tab entry per tab it
  * looked at — the sessions the book knows, and, for Bot Father, whatever else
- * is open in its project — and one rules entry per bot it built.
+ * is open in its project — and one rules entry and one skills entry per bot.
  *
  * With no name it is every bot in the folder, in name order. `bot` brings up
  * one bot and `session` one of its sessions, for a caller that wants one thing
@@ -72,6 +73,15 @@ export async function bringUp(bots, { bot: onlyBot, session: onlySession } = {})
   // one has no boundary, which is worse than a session that is not running. A
   // file the user edited themselves is another matter — that bot has its
   // instructions, they are simply theirs, and it comes up like any other.
+  //
+  // Its skills are linked first, and for the same reason: both harnesses read a
+  // project's skills out of the folder the session starts in, so a session that
+  // came up before the links were made would be a bot missing the techniques it
+  // was given. A skills list the kit cannot follow is reported and does not hold
+  // the bot down — skills are what a bot is good at, not the boundary it works
+  // inside.
+  const skills = chosen.map(({ bot }) => linkSkills(bots, botDir(bots, bot.name), bot));
+
   const rules = [];
   const running = [];
   for (const chose of chosen) {
@@ -101,7 +111,7 @@ export async function bringUp(bots, { bot: onlyBot, session: onlySession } = {})
 
   const report = [];
   for (const { bot, home } of running) report.push(...await bringUpBot(bots, home, bot, onlySession));
-  return { tabs: report, rules };
+  return { tabs: report, rules, skills };
 }
 
 function refuseWhatCannotStart(bot, home, onlySession) {

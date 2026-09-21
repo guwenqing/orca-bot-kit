@@ -193,21 +193,24 @@ function readUnit(bots, ref) {
   };
 }
 
-/** The `rules:` list in one of the user's YAML files. A file that is not there lists nothing. */
-function listIn(file) {
+/**
+ * A named list in one of the user's YAML files — `rules:` or `skills:` — out of
+ * `defaults.yaml` or a `bot.yaml`. A file that is not there lists nothing.
+ */
+export function listIn(file, key = 'rules') {
   if (!existsSync(file)) return [];
 
   let doc;
   try {
     doc = parse(readFileSync(file, 'utf8'));
   } catch (error) {
-    throw new Error(`${file} is not readable as YAML, and the rules every bot gets are listed in it: ${error.message}`);
+    throw new Error(`${file} is not readable as YAML, and the ${key} every bot gets are listed in it: ${error.message}`);
   }
-  return asList(doc?.rules, file);
+  return asList(doc?.[key], file, key);
 }
 
-/** A list of unit names, or a plain refusal to guess at what else it might be. */
-function asList(value, file) {
+/** A list of names, or a plain refusal to guess at what else it might be. */
+function asList(value, file, key = 'rules') {
   if (value === undefined || value === null) return [];
   if (!Array.isArray(value)) {
     throw new Error(`the rules entry in ${file} is not a list of rule unit names.`);
@@ -215,7 +218,7 @@ function asList(value, file) {
 
   return value.map((ref) => {
     if (typeof ref !== 'string' || ref.trim() === '') {
-      throw new Error(`the rules list in ${file} holds ${JSON.stringify(ref)}, and a unit is named by a name: house, or kit:review.`);
+      throw new Error(`the ${key} list in ${file} holds ${JSON.stringify(ref)}, and an entry is a name: house, or kit:review.`);
     }
     return ref.trim();
   });
