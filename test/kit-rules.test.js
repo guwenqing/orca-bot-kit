@@ -16,18 +16,28 @@ const rulesDir = path.join(repoRoot, 'rules');
 /** A unit name has the shape an Agent Skills name has, and so does its file. */
 const NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
-/** What one unit may take. */
-const MAX_BODY_LINES = 14;
+/**
+ * What one unit may take. A rule is a few lines; a unit that wants more than
+ * this is a technique, and a technique belongs in a skill. It is also the only
+ * size check the applies: code units get, since the budget below counts only
+ * what every bot carries.
+ */
+const MAX_BODY_LINES = 12;
 const MAX_LINE = 100;
 
 /**
  * The ceiling on the default set: the applies: all bodies are what every session
- * of every bot reads on every turn, and 6,500 characters is around 1,600 tokens
- * of that reading. It is a limit on the cost, not a size the set has to reach.
- * A rule the bots need is not trimmed to fit under it; when one no longer fits,
- * weigh what the extra tokens buy on every turn, and raise the number.
+ * of every bot reads on every turn, and 3,500 characters is around 875 tokens of
+ * that reading. The kit does not have this budget to itself — the user's own
+ * units are built in beside these — so it is the kit's share, not all a bot may
+ * be given.
+ *
+ * It is a limit on the cost, not a size the set has to reach. A rule the bots
+ * need is not trimmed to fit under it. When the set no longer fits, first ask
+ * whether what grew is a rule or depth that belongs in a skill; if it is a rule,
+ * weigh what those tokens buy on every turn and move this number on purpose.
  */
-const MAX_ALL_CHARS = 6500;
+const MAX_ALL_CHARS = 3500;
 
 /** Everything in rules/, whatever it is: the shape test needs to see the strays too. */
 async function entries() {

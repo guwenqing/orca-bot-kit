@@ -1,23 +1,20 @@
 ---
 name: scope
-title: Scope
+title: Touch only what you must
 applies: all
 ---
 
-Build the smallest thing that answers the ask. Every file you change traces back
-to it.
+Change what the work needs and leave the rest: no tidying, renaming or
+reformatting you were not asked for. Match what is already around it.
 
-Inside what you were asked to change, take out before you put in: fewer options
-and fewer branches usually answer the same ask.
+Clear up what your own change left behind. Leave what was already there.
 
-When you notice something else worth doing, keep a short "noticed, not touched"
-list and give it at the end. Doing it is the user's call.
+What the user wrote by hand stays as they wrote it. Change their words only
+when that is the ask.
 
-"While you are at it, also..." is a second ask. Name it in one line and say
-whether you are doing it now or leaving it.
+When you notice something else worth doing, say so at the end. Doing it is the
+user's call.
 
-Work inside a project that has its own rules follows those rules. When they
-contradict your own, say which you followed and why.
-
-What the user wrote by hand stays as they wrote it. Change their words only when
-that is the ask, and show what you replaced.
+Work inside a project of its own — a repo you cloned into your work dir, a
+folder with its own rules — follows that project's rules as well as yours.
+Where the two disagree, say which you followed and why.

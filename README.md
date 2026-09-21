@@ -97,32 +97,63 @@ unit is one short block of always-on working rules. The kit's own units live in
 folder. What is always on stays short, because every session reads it on every
 turn; the depth belongs in skills.
 
-Ten units suit every bot, whatever it does:
+Seven units suit every bot, whatever it does:
 
 | | |
 |---|---|
 | `the-ask` | reading the whole request, which questions are yours to answer |
-| `scope` | the smallest change, and what you leave alone |
-| `evidence` | where a claim comes from, and not inventing one |
-| `finishing` | the check written first, run last, reported as it came out |
-| `stuck` | two failed attempts, no feedback loop, saying so |
+| `simple` | the smallest thing that answers it, and reusing what is there |
+| `scope` | changing what the work needs and leaving the rest |
+| `evidence` | what you saw, what you worked out, and not inventing either |
+| `finishing` | the check you can run, run on the real thing, reported as it came |
 | `limits` | the charter, what needs a yes, no quiet substitutes |
-| `notes` | what goes in a file rather than a conversation |
-| `delegating` | briefs, and judging a helper by what it produced |
 | `talk` | answer first, short, real names |
-| `lessons` | a repeated correction becomes a check |
 
-Five more are for bots that write code: `boring-way`, `tests-first`,
-`changing-code`, `root-cause` and `review`.
+Two more are for bots that write code: `tests-first`, a failing test first and
+someone else writing it, and `review`, someone who did not write the work
+reading it.
 
-They are defaults, not fences. A bot uses the ones its owner picks, your own
-units sit beside them, and a bot does what its user asks of it.
+They are the essence, not the depth: how to debug, how to review well, how to
+write a test worth keeping and how to hand work over belong to the skills a bot
+picks. They are also defaults, not fences — a bot uses the ones its owner
+picks, your own units sit beside them, and a bot does what its user asks of it.
+Why the set is this size is in
+[`docs/proposals/41-common-rules.md`](docs/proposals/41-common-rules.md).
 
 A unit is a markdown file whose frontmatter carries `name` (the file's own
 name), `title` (the heading it gets in `AGENTS.md`) and `applies` (`all` or
 `code`); the body is the rule text and nothing else.
 [`test/kit-rules.test.js`](test/kit-rules.test.js) holds that shape, and the
 size the always-on set may reach.
+
+## The skills a bot uses
+
+The kit ships its own skills in [`skills/`](skills/), one directory per skill,
+named `obk-<technique>`
+([ADR 0009](docs/adr/0009-skills-by-technique-with-a-prefix.md)). They are
+organised by technique rather than by role: a role is a charter plus a choice
+of skills. Each one gives techniques and defaults, never a process or
+a way of working you have to adopt, and carries what it needs itself rather
+than relying on another skill being loaded.
+
+| | |
+|---|---|
+| `obk-tdd` | a failing test first, a separate test author, the mutation check |
+| `obk-reviewing` | giving a review that is worth acting on, and answering one |
+
+A skill is where the depth lives. The always-on rules say that a change in
+behaviour starts with a failing test someone else wrote and is read by someone
+who did not write it; `obk-tdd` is how to write a test worth keeping and find
+out whether the tests would catch a real mistake, and `obk-reviewing` is how to
+read a change so the findings are worth acting on, and how to answer a reading
+of your own.
+
+A skill is a directory holding `SKILL.md` — frontmatter carrying `name` (the
+directory's own name) and `description`, then the body — plus any reference
+files it links to. Those two keys are the only frontmatter both Claude Code and
+Codex read, so a kit skill carries nothing else, and its links stay inside its
+own directory, because a bot gets the directory alone.
+[`test/kit-skills.test.js`](test/kit-skills.test.js) holds that shape.
 
 ## Sessions that come back
 
