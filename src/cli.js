@@ -384,12 +384,7 @@ const commands = {
         ...(answer.file === undefined
           ? []
           : [`             it was too long to travel as itself, so it went as a file:  ${answer.file}`]),
-        // eslint-disable-next-line no-nested-ternary
-        answer.nudged
-          ? `             its tab was told to look; it will read it when it is done with what it is doing.`
-          : (answer.nudgeTrouble === undefined
-            ? `             ${where} is not up, so nothing was typed anywhere: the message waits in its mailbox.`
-            : `             it is queued, and its tab could not be told to look: ${answer.nudgeTrouble}`),
+        ...[nudgeLine(answer, where)],
       ],
     };
   },
@@ -440,6 +435,22 @@ const commands = {
     };
   },
 };
+
+/**
+ * What became of the line that tells the receiver to look. The message is in
+ * its mailbox whatever this says, so each of these is about the tab and not
+ * about the message.
+ */
+function nudgeLine(answer, where) {
+  if (answer.nudged) return '             its tab was told to look; it will read it when it is done with what it is doing.';
+  if (answer.blocked !== undefined) {
+    return `             its tab has something waiting to be answered (${answer.blocked}), so nothing was typed into it. Settle that, and the mail is there.`;
+  }
+  if (answer.nudgeTrouble !== undefined) {
+    return `             it is queued, and its tab could not be told to look: ${answer.nudgeTrouble}`;
+  }
+  return `             ${where} is not up, so nothing was typed anywhere: the message waits in its mailbox.`;
+}
 
 /** The settings a `session add` was given, as they go into bot.yaml. */
 function settingsOf(values) {

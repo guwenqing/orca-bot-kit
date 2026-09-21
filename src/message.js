@@ -291,6 +291,18 @@ const stamp = () => new Date().toISOString().replaceAll(':', '-').replace('.', '
  * it is having. A tab with no TUI in it is not typed into at all — there is
  * nobody there to read it, and the message waits in the mailbox until the
  * session is up. A tab the book does not hold is never typed into on any road.
+ *
+ * Nor is a tab with something on screen waiting to be answered. A line typed
+ * into one of those is not a message: it is an answer to whatever question is
+ * up. That is not a worry, it is a thing that happened — in slice 03 a second
+ * line went into a tab on Claude Code's folder-trust list, confirmed its
+ * default, `No, exit`, and the harness quit (tech notes, section 1). So where
+ * Orca says a tab is blocked, nothing is typed and the mail waits.
+ *
+ * Orca's `blockedReason` catches Codex's screens and not Claude Code's, which
+ * answer as idle with nothing said, so this narrows the case rather than
+ * closing it. What closes it is nobody sending to a session before its first
+ * screens are answered, which is the caller's work either way.
  */
 function nudge(to, from, subject) {
   if (to.tab === undefined) return { nudged: false };
@@ -298,7 +310,10 @@ function nudge(to, from, subject) {
   try {
     const live = tabs(to.home).find((tab) => tab.tabId === to.tab);
     if (live === undefined) return { nudged: false };
-    if (!tuiInTab(live.handle, LOOK_MS).running) return { nudged: false };
+
+    const tui = tuiInTab(live.handle, LOOK_MS);
+    if (!tui.running) return { nudged: false };
+    if (tui.blockedReason !== undefined) return { nudged: false, blocked: tui.blockedReason };
 
     typeIntoTab(
       live.handle,

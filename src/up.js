@@ -165,17 +165,16 @@ async function bringUpBot(bots, home, bot, onlySession) {
 
 async function bringUpSession(bots, home, live, session, bot, title) {
   const harness = harnessOf(session, bot.harness);
-  // Where fleet mail for this session is left, and what a Claude session is
-  // called: both are the session's address and both belong in the book, made
-  // before the tab so that a session is reachable the moment it is up.
-  await ensureAddress(home, bot, session, harness);
-
   const book = readBook(home);
   const was = book.sessions[session.name];
   const known = live.get(was?.tab);
   const tabTitle = `${title} ${session.name}`;
 
   if (known) {
+    // A session that was already up before the kit could give it an address
+    // gets one now, without being disturbed for it.
+    await ensureAddress(home, bot, session, harness);
+
     // Whatever runs in the tab may have rewritten its title. The kit writes its
     // own back, and reports that one rather than the name Orca last saw: the id
     // is the session, and a title is only ever set. Nothing is typed into a tab
@@ -224,6 +223,11 @@ async function bringUpSession(bots, home, live, session, bot, title) {
 
   const made = openTab(home, tabTitle);
 
+  // The mailbox is made once the tab exists, and written down with it. Made any
+  // earlier, a run that failed before it opened a tab would leave a session on
+  // the books with no tab and nobody to read what arrives for it.
+  const mailbox = mailboxFor(book, bot, session, harness);
+
   // Written down the moment it exists, before anything that can fail. A tab
   // whose id never reached the book is a tab nobody owns: the next run would
   // start a second harness beside it and take this one for the spare. What the
@@ -238,6 +242,11 @@ async function bringUpSession(bots, home, live, session, bot, title) {
     // because this run's scan cannot see what an earlier one found. The kit never
     // settles it itself.
     const entry = { ...current.sessions[session.name], tab: made.tabId, launched };
+    // Under the lock, and only where the book still has none: two runs at once
+    // would each have made a mailbox, and a session with two is a session half
+    // its mail never reaches. The loser's Run is left unused.
+    if (mailbox !== undefined && typeof entry.mailbox !== 'string') entry.mailbox = mailbox;
+    if (harness === 'claude') entry.address = addressOf(bot.name, session.name);
     current.sessions[session.name] = withUnclaimed(entry, which.unclaimed ?? []);
     forgetClaimed(current);
   });
@@ -295,11 +304,7 @@ async function ensureAddress(home, bot, session, harness) {
   const held = readBook(home).sessions[session.name] ?? {};
 
   const address = harness === 'claude' ? addressOf(bot.name, session.name) : undefined;
-  const mailbox = typeof held.mailbox === 'string' || !reachesMail(session, harness)
-    ? undefined
-    // Outside the lock: this is an Orca call, and the book is held for one read
-    // and one write (book.js).
-    : makeMailbox(`${bot.name}/${session.name}`);
+  const mailbox = mailboxFor(readBook(home), bot, session, harness);
 
   if (mailbox === undefined && (address === undefined || held.address === address)) return;
 
@@ -312,6 +317,20 @@ async function ensureAddress(home, bot, session, harness) {
     if (address !== undefined) entry.address = address;
     current.sessions[session.name] = entry;
   });
+}
+
+/**
+ * A new mailbox for this session, or undefined when it should not have one: it
+ * has one already, or it is a Codex session whose user turned the sandbox
+ * switch off, which could not read a mailbox if it had one.
+ *
+ * The Orca call is made outside the book's lock, which is held for one read and
+ * one write (book.js).
+ */
+function mailboxFor(book, bot, session, harness) {
+  const held = book.sessions[session.name] ?? {};
+  if (typeof held.mailbox === 'string' || !reachesMail(session, harness)) return undefined;
+  return makeMailbox(`${bot.name}/${session.name}`);
 }
 
 /**
