@@ -12,7 +12,7 @@ import path from 'node:path';
 import { parseArgs } from 'node:util';
 
 import { addSession, createBot, readBot, SESSION_FIELDS } from './bot.js';
-import { checkHealth } from './health.js';
+import { checkHealth, orcaSettingFindings } from './health.js';
 import { initBots } from './init.js';
 import { APPROVALS, HARNESSES } from './launch.js';
 import { orcaTrouble } from './orca.js';
@@ -236,7 +236,11 @@ const commands = {
     refuseWhenOrcaIsDown();
     const seeded = initBots(bots, values.harness);
     const { tabs, rules, skills } = await bringUp(seeded.bots, { bot: BOT_FATHER });
-    const answer = { bots: seeded.bots, created: seeded.created, completed: seeded.completed, rules, skills, tabs };
+    // Setup is the other place the PRD asks for Orca's own launch arguments to
+    // be looked at (6.5), and the one where the user is still standing in front
+    // of the fleet they are making. Only that one check: a folder init has just
+    // made has nothing else to say about itself.
+    const answer = { bots: seeded.bots, created: seeded.created, completed: seeded.completed, rules, skills, tabs, found: orcaSettingFindings() };
     return { answer, lines: tabLines(answer, `Bot Father is up in Orca. Your bots folder: ${seeded.bots}`) };
   },
 
@@ -257,7 +261,7 @@ const commands = {
     return {
       answer: { bots, found },
       lines: [
-        ...found.flatMap((one) => [`${one.kind.padEnd(9)}  ${one.where}`, `             ${one.says}`]),
+        ...foundLines(found),
         found.length === 0
           ? `Nothing to report: everything the kit keeps is where it should be. Your bots folder: ${bots}`
           : `${found.length} thing${found.length === 1 ? '' : 's'} to look at above. What to do about each is yours to decide. Your bots folder: ${bots}`,
@@ -485,7 +489,15 @@ function skillsLines(skills) {
   ]);
 }
 
-function tabLines({ bots, created, completed, rules, skills, tabs }, summary) {
+/**
+ * What a check found, two lines each: what kind of trouble it is and the one
+ * thing to go and look at, then the sentence about it. The same shape wherever
+ * a command reports one, so a reader who has seen one has seen them all.
+ */
+const foundLines = (found) =>
+  found.flatMap((one) => [`${one.kind.padEnd(9)}  ${one.where}`, `             ${one.says}`]);
+
+function tabLines({ bots, created, completed, rules, skills, tabs, found = [] }, summary) {
   const lines = [
     ...created.map((entry) => `created    ${entry}`),
     ...completed.map((entry) => `completed  ${entry}`),
@@ -498,7 +510,9 @@ function tabLines({ bots, created, completed, rules, skills, tabs }, summary) {
     lines.push(...harnessLines(tab, bots));
   }
 
-  lines.push(summary);
+  // Last before the summary, because what a check found is about the setup the
+  // run has just left behind rather than about any one thing it did.
+  lines.push(...foundLines(found), summary);
   return lines;
 }
 

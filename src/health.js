@@ -41,7 +41,7 @@ export function checkHealth(bots, { bot: onlyBot } = {}) {
   const names = botsNamed(bots, onlyBot);
   const setups = projects();
 
-  const found = [...orcaArgs(), ...leftInOrca(bots, setups), ...leftBeside(bots)];
+  const found = [...orcaSettingFindings(), ...leftInOrca(bots, setups), ...leftBeside(bots)];
   for (const name of names) found.push(...aboutBot(bots, name, setups));
   return found;
 }
@@ -56,8 +56,12 @@ const finding = (kind, where, says, bot) => ({ kind, ...(bot === undefined ? {} 
  * for, so this is said every time it is true (PRD 6.5) — and a setting the kit
  * could not read is said too, because silence here would be read as a clean
  * bill of health.
+ *
+ * Exported because the PRD asks for it in two places: here, and in the setup
+ * that makes a fleet, which is where the user is still standing when they can
+ * put it right.
  */
-function orcaArgs() {
+export function orcaSettingFindings() {
   const { dir, profiles } = orcaDefaultArgs();
   if (profiles.length === 0) return [unreadableSettings(dir)];
 
