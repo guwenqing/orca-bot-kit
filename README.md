@@ -230,7 +230,7 @@ write it into `sessions.yaml` under that session as `session: <id>` and run
 ```sh
 npm test             # the whole suite, in a couple of seconds
 npm run test:system  # the system tests, on this machine
-npm run mutate       # the mutation check, on what your branch changed
+npm run mutate       # the mutation audit, on what your branch changed
 ```
 
 The tests come in two layers, and every test file belongs to one of them.

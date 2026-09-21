@@ -17,7 +17,7 @@ export default {
 
   // Everything but the runner this check uses: a mutant in that file is judged
   // by the mutated file itself, so whatever comes out says nothing. It is
-  // checked by hand instead, the way PRD 7.3 rule 8 describes.
+  // checked by hand instead.
   mutate: ['src/**/*.js', 'scripts/**/*.js', '!scripts/mutation-suite.js'],
 
   // Stryker copies the project into a sandbox with the execute bit off, and the
