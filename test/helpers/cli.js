@@ -179,6 +179,18 @@ export async function createSandbox(t) {
       async terminals() {
         return (await readState()).terminals;
       },
+      /** The Run mailboxes Orca has made, oldest first. */
+      async runs() {
+        return (await readState()).runs ?? [];
+      },
+      /**
+       * Every message queued in the mailbox, oldest first, with the `acked`
+       * flag a read takes off: whether a message was acknowledged is the whole
+       * difference between a check and a `--peek`.
+       */
+      async messages() {
+        return (await readState()).messages ?? [];
+      },
       /** Change what the fake Orca knows or how it misbehaves; see helpers/fake-orca.js. */
       async set(changes) {
         await writeFile(stateFile, `${JSON.stringify({ ...await readState(), ...changes }, null, 2)}\n`);
@@ -262,15 +274,32 @@ export const TAB_SHELL = 'OBK_TAB_SHELL=$$';
 export const launchLine = (rest) => `${TAB_SHELL} ${rest}`;
 
 /**
+ * A session's name, which is also the address a Claude session is reached at:
+ * `<bot>.<session>` (PRD 6.9, ADR 0008). Proved live that the name survives a
+ * resume, and the kit passes it on every launch anyway (tech notes, section 2).
+ */
+export const addressOf = (bot, session) => `${bot}.${session}`;
+
+/**
+ * The one Codex setting that lets a sandboxed session reach the Orca CLI at
+ * all. Proved live: at the kit's default approval level Codex answers
+ * `runtime_unavailable` for every Orca call without it, and reaches the
+ * mailbox with it (tech notes, section 3).
+ */
+export const CODEX_NETWORK = '-c sandbox_workspace_write.network_access=true';
+
+/**
  * The launch command a session with nothing set is started with. Every session
  * carries an explicit approval flag (ADR 0005), so a user's global harness
  * defaults cannot leak into a bot, and `auto` is what a session that named no
- * level takes.
+ * level takes. What makes the session reachable sits beside it: a Claude
+ * session's name in front of the approval flag, because it says who the
+ * session is; Codex's sandbox switch straight after it, because it widens the
+ * sandbox that flag chose.
  */
-export const BARE_LAUNCH = {
-  claude: launchLine('claude --permission-mode auto'),
-  codex: launchLine('codex --approve-for-me'),
-};
+export const bareLaunch = (harness, bot, session) => launchLine(harness === 'claude'
+  ? `claude -n ${addressOf(bot, session)} --permission-mode auto`
+  : `codex --approve-for-me ${CODEX_NETWORK}`);
 
 /** Where a bot lives inside a bots folder. */
 export const botHomeOf = (bots, bot = 'bot-father') => path.join(bots, 'bots', bot);
@@ -546,7 +575,12 @@ export async function botFatherTabs(box, bots) {
 /** What was typed into a tab, in order: the text of each `terminal send`. */
 export const typedInto = (terminal) => (terminal.typed ?? []).map((entry) => entry.text);
 
-/** The only Orca commands this slice may use (the slice interface, amendment 5). */
+/**
+ * The only Orca commands the kit may use (the slice interface, amendment 5,
+ * and the mailbox commands PRD 6.9 needs). `orchestration reply` is not one of
+ * them: proved live, a reply is filed under the replier's own Run and the
+ * recipient's read never returns it (tech notes, section 1).
+ */
 export const ALLOWED_ORCA_COMMANDS = [
   'status',
   'project setups',
@@ -557,11 +591,15 @@ export const ALLOWED_ORCA_COMMANDS = [
   'terminal rename',
   'terminal wait',
   'terminal send',
+  'orchestration run-create',
+  'orchestration run-use',
+  'orchestration send',
+  'orchestration check',
 ];
 
 /**
- * The rules that hold for every Orca call the kit makes: one of the six
- * commands, `--json` on all of them because the human text is never parsed,
+ * The rules that hold for every Orca call the kit makes: one of the commands
+ * above, `--json` on all of them because the human text is never parsed,
  * and never a close — closing a tab drops the user's work and Orca's resume
  * record with it.
  */

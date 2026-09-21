@@ -11,8 +11,8 @@ import { forgetClaimed, readBook, sessionIdsIn, tabIdsIn, updateBook, withUnclai
 import { botDir, botNames, displayName, readBot } from './bot.js';
 import { conversationsIn } from './conversations.js';
 import { installHook } from './hooks.js';
-import { harnessOf, isShortPrompt, launchCommand, sessionTrouble, startPrompt, workDirOf } from './launch.js';
-import { asFolderProject, findProject, makeProject, openTab, retitleTab, tabs, tuiInTab, typeIntoTab } from './orca.js';
+import { addressOf, harnessOf, isShortPrompt, launchCommand, reachesMail, sessionTrouble, startPrompt, workDirOf } from './launch.js';
+import { asFolderProject, findProject, makeMailbox, makeProject, openTab, retitleTab, tabs, tuiInTab, typeIntoTab } from './orca.js';
 import { buildAgents } from './rules.js';
 import { linkSkills } from './skills.js';
 
@@ -164,6 +164,12 @@ async function bringUpBot(bots, home, bot, onlySession) {
 }
 
 async function bringUpSession(bots, home, live, session, bot, title) {
+  const harness = harnessOf(session, bot.harness);
+  // Where fleet mail for this session is left, and what a Claude session is
+  // called: both are the session's address and both belong in the book, made
+  // before the tab so that a session is reachable the moment it is up.
+  await ensureAddress(home, bot, session, harness);
+
   const book = readBook(home);
   const was = book.sessions[session.name];
   const known = live.get(was?.tab);
@@ -181,7 +187,6 @@ async function bringUpSession(bots, home, live, session, bot, title) {
   // Everything that can be refused is settled before Orca is asked for
   // anything, so a session the kit cannot start leaves no tab behind.
   const workDir = workDirOf(session, home);
-  const harness = harnessOf(session, bot.harness);
 
   // Which conversation this session is. A session the kit can name is picked up
   // where it left off, with the conversation it had: the tab is gone, but the
@@ -195,7 +200,15 @@ async function bringUpSession(bots, home, live, session, bot, title) {
   // Anything longer than a line goes to the harness out of a file, rather than
   // through the tab's shell a character at a time.
   const promptFile = prompt === undefined || isShortPrompt(prompt) ? undefined : promptPath(bots, bot.name, session.name);
-  const command = launchCommand(session, { harness, home, workDir, prompt, promptFile, resume });
+  const command = launchCommand(session, {
+    harness,
+    home,
+    workDir,
+    prompt,
+    promptFile,
+    resume,
+    address: harness === 'claude' ? addressOf(bot.name, session.name) : undefined,
+  });
 
   // A work dir is a plain folder, made for the session before it is told about
   // it (PRD 6.4). Nothing here is a git worktree.
@@ -260,6 +273,41 @@ async function bringUpSession(bots, home, live, session, bot, title) {
     promptFile,
     resumed: resume !== undefined,
     unclaimed: which.unclaimed,
+  });
+}
+
+/**
+ * Make sure the book holds this session's address: its mailbox, and, on Claude
+ * Code, the name it answers to.
+ *
+ * The mailbox is an Orca Run, made once and kept for ever. It has to be a Run
+ * rather than the session's tab: Orca calls a terminal a live terminal-only
+ * mailbox, says plainly that delivery does not outlive the tab, and refuses a
+ * send once the pane is gone, while a Run survives a closed tab, a relaunch and
+ * a restart (tech notes, section 1). Orca offers no way to delete one, so this
+ * makes exactly one per session and never a second.
+ *
+ * A Codex session whose user turned the sandbox switch off gets none: it could
+ * not read a mailbox if it had one, and an address nobody can read is worse
+ * than none at all. `obk message` says so in those words.
+ */
+async function ensureAddress(home, bot, session, harness) {
+  const held = readBook(home).sessions[session.name] ?? {};
+
+  const address = harness === 'claude' ? addressOf(bot.name, session.name) : undefined;
+  const mailbox = typeof held.mailbox === 'string' || !reachesMail(session, harness)
+    ? undefined
+    // Outside the lock: this is an Orca call, and the book is held for one read
+    // and one write (book.js).
+    : makeMailbox(`${bot.name}/${session.name}`);
+
+  if (mailbox === undefined && (address === undefined || held.address === address)) return;
+
+  await updateBook(home, (current) => {
+    const entry = { ...current.sessions[session.name] };
+    if (mailbox !== undefined) entry.mailbox = mailbox;
+    if (address !== undefined) entry.address = address;
+    current.sessions[session.name] = entry;
   });
 }
 

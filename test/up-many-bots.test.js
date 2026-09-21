@@ -18,7 +18,7 @@ import { parse } from 'yaml';
 import {
   assertCleanFailure,
   assertOrcaCallsAllowed,
-  BARE_LAUNCH,
+  bareLaunch,
   botHomeOf,
   createSandbox,
   skipGit,
@@ -120,7 +120,7 @@ test('a bot has one tab per session, and no ops tab: that is Bot Father\'s alone
     'two sessions, two tabs, and nothing beside them',
   );
   for (const tab of mine) {
-    assert.deepEqual(typedInto(tab), [BARE_LAUNCH.codex], 'each session is started on the bot\'s harness');
+    assert.deepEqual(typedInto(tab), [bareLaunch('codex')], 'each session is started on the bot\'s harness');
   }
 
   const father = await tabsOfBot(box, bots, 'bot-father');

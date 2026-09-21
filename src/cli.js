@@ -14,6 +14,7 @@ import { parseArgs } from 'node:util';
 import { addSession, createBot, readBot, SESSION_FIELDS } from './bot.js';
 import { initBots } from './init.js';
 import { APPROVALS, HARNESSES } from './launch.js';
+import { checkMail, lookUp, sendMessage } from './message.js';
 import { orcaTrouble } from './orca.js';
 import { recordSession, SHELL_ENV, TAB_ENV } from './record.js';
 import { buildAgents, buildRules, CODEX_CAP } from './rules.js';
@@ -66,6 +67,24 @@ Usage:
                             Move a source on to what its ref names now, and
                             write down the new sha. This is the only thing that
                             moves one.
+  obk message to --bots <path> --to <bot>[/<session>] [--from <bot>/<session>]
+                            Say which road reaches that session and what its
+                            address is. Claude to Claude in one approval class
+                            is the harness's own messaging; everything else is
+                            the Orca mailbox. Nothing is sent.
+  obk message send --bots <path> --to <bot>[/<session>] [--from <bot>/<session>]
+                   --subject <text> [--text <text> | --text-file <path>]
+                   [--thread <id>]
+                            Put a message in that session's Orca mailbox and
+                            tell its tab to look. A message too long to travel
+                            as itself is written to a file beside your bots
+                            folder and named in the message. A pair the
+                            harness's own messaging reaches is not carried:
+                            the address to write to is answered instead.
+  obk message check --bots <path> [--bot <bot>] [--session <name>] [--peek]
+                            Read what is waiting for a session and mark it
+                            read. --peek leaves it unread. Run in a session's
+                            own tab, it is that session's mail.
   obk up --bots <path> [--bot <bot>] [--session <name>]
                             Open whatever is missing in Orca, for every bot or
                             for the one you name. It only ever adds; it never
@@ -92,6 +111,9 @@ const COMMANDS = {
   'skills fetch': ['bots'],
   'skills update': ['bots'],
   'session add': ['bots', 'bot', 'name'],
+  'message to': ['bots', 'to'],
+  'message send': ['bots', 'to', 'subject'],
+  'message check': ['bots'],
   'session record': ['bots', 'bot'],
 };
 
@@ -103,6 +125,9 @@ const NEEDED = {
   session: '--session <name>: which session',
   source: '--source <name>: which source',
   harness: `--harness ${HARNESSES.join('|')}: which harness it runs on`,
+  to: '--to <bot>/<session>: which session to write to',
+  from: '--from <bot>/<session>: which session is writing',
+  subject: '--subject <text>: what the message is about',
 };
 
 /** The flags that name something. A name that is empty names nothing. */
@@ -133,6 +158,13 @@ async function run(argv) {
       bot: { type: 'string' },
       session: { type: 'string' },
       source: { type: 'string' },
+      to: { type: 'string' },
+      from: { type: 'string' },
+      subject: { type: 'string' },
+      text: { type: 'string' },
+      'text-file': { type: 'string' },
+      thread: { type: 'string' },
+      peek: { type: 'boolean' },
       charter: { type: 'string' },
       ...Object.fromEntries(SETTINGS.map(([flag]) => [flag, { type: 'string' }])),
       'extra-arg': { type: 'string', multiple: true },
@@ -157,7 +189,7 @@ async function run(argv) {
   }
 
   // `bot`, `rules`, `skills` and `session` are commands of two words; the rest are one.
-  const words = ['bot', 'rules', 'skills', 'session'].includes(positionals[0]) ? 2 : 1;
+  const words = ['bot', 'rules', 'skills', 'session', 'message'].includes(positionals[0]) ? 2 : 1;
   const command = positionals.slice(0, words).join(' ');
   const extra = positionals.slice(words);
 
@@ -302,6 +334,91 @@ const commands = {
       // what the command ends in. `up` answers for its tabs and is not held to
       // this: see bringUp.
       code: trouble.length === 0 ? 0 : 1,
+    };
+  },
+
+  'message to'(bots, values) {
+    // A lookup reads the book and nothing else, so it answers with Orca down:
+    // knowing how to reach somebody is worth having when the app is not up.
+    const answer = lookUp(bots, { to: values.to, from: values.from, tab: process.env[TAB_ENV] });
+    const where = `${answer.to.bot}/${answer.to.session}`;
+    return {
+      answer,
+      lines: [
+        `${answer.transport.padEnd(9)}  ${where.padEnd(24)}  ${answer.address ?? '-'}`,
+        answer.trouble !== undefined
+          ? `             ${answer.trouble}`
+          : (answer.transport === 'native'
+            ? `             Write to ${answer.address} with your own harness's messaging. The kit does not carry that road.`
+            : `             Send it:  obk message send --bots ${bots} --to ${where} --subject <text> --text <text>`),
+      ],
+      code: answer.trouble === undefined ? 0 : 1,
+    };
+  },
+
+  'message send'(bots, values) {
+    refuseWhenOrcaIsDown();
+    const answer = sendMessage(bots, {
+      to: values.to,
+      from: values.from,
+      tab: process.env[TAB_ENV],
+      subject: values.subject,
+      text: values.text,
+      textFile: values['text-file'],
+      thread: values.thread,
+    });
+    const where = `${answer.to.bot}/${answer.to.session}`;
+
+    if (!answer.sent) {
+      return {
+        answer,
+        lines: [`${'not sent'.padEnd(9)}  ${where.padEnd(24)}  ${answer.subject}`, `             ${answer.trouble}`],
+        code: 1,
+      };
+    }
+
+    return {
+      answer,
+      lines: [
+        `${'sent'.padEnd(9)}  ${where.padEnd(24)}  ${answer.subject}`,
+        ...(answer.file === undefined
+          ? []
+          : [`             it was too long to travel as itself, so it went as a file:  ${answer.file}`]),
+        answer.nudged
+          ? `             its tab was told to look; it will read it when it is done with what it is doing.`
+          : `             ${where} is not up, so nothing was typed anywhere: the message waits in its mailbox.`,
+      ],
+    };
+  },
+
+  'message check'(bots, values) {
+    refuseWhenOrcaIsDown();
+    const answer = checkMail(bots, {
+      bot: values.bot,
+      session: values.session,
+      tab: process.env[TAB_ENV],
+      peek: values.peek === true,
+    });
+    const where = `${answer.bot}/${answer.session}`;
+
+    if (answer.trouble !== undefined) {
+      return { answer, lines: [`${'trouble'.padEnd(9)}  ${where}`, `             ${answer.trouble}`], code: 1 };
+    }
+
+    return {
+      answer,
+      lines: [
+        ...answer.messages.flatMap((message) => [
+          `${'message'.padEnd(9)}  ${message.from}  ${message.at}`,
+          `             ${message.subject}`,
+          ...String(message.body ?? '').split('\n').map((line) => `             ${line}`),
+        ]),
+        answer.messages.length === 0
+          ? `Nothing is waiting for ${where}.`
+          // Said plainly, because a peek leaves the same mail there to be found
+          // again and a read does not.
+          : `${answer.messages.length} for ${where}${answer.read ? ', now read' : ', still unread: this was a peek'}.`,
+      ],
     };
   },
 

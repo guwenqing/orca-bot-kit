@@ -145,3 +145,40 @@ export function tuiInTab(handle, timeoutMs) {
 /** Type `text` into a tab and press return. */
 export const typeIntoTab = (handle, text) =>
   orca(['terminal', 'send', '--terminal', handle, '--text', text, '--enter']).send;
+
+/**
+ * A mailbox of one session's own: an Orca Run, which is a name and an inbox and
+ * nothing else — it schedules nothing and runs nobody. The objective is what a
+ * person sees in `orca orchestration run-list`, so it says whose it is.
+ */
+export const makeMailbox = (objective) =>
+  orca(['orchestration', 'run-create', '--objective', `obk ${objective}`]).run.id;
+
+/**
+ * Take this process's turn at reading a mailbox.
+ *
+ * Orca fences a Run to one reader: a `check` from a caller bound elsewhere is
+ * refused with `consumer_fenced`, whatever the Run says. So a read binds first,
+ * every time — the kit's runs are short and the binding is the last one to have
+ * asked, not a lease anybody has to give back.
+ */
+export const useMailbox = (id) => orca(['orchestration', 'run-use', '--id', id]).run;
+
+/** Queue one message. `to` and `from` are mailboxes, written `run:<id>`. */
+export function postMessage({ to, from, subject, body, type = 'status', thread }) {
+  const args = ['orchestration', 'send', '--to', to, '--subject', subject, '--body', body, '--type', type];
+  if (from !== undefined) args.push('--from', from);
+  if (thread !== undefined) args.push('--thread-id', thread);
+  return orca(args).message;
+}
+
+/**
+ * What is waiting in a mailbox: the oldest batch that has not been
+ * acknowledged, or, peeking, whatever is unread without touching it.
+ */
+export const readMailbox = (id, { peek = false } = {}) =>
+  orca(['orchestration', 'check', '--run', id, ...(peek ? ['--peek'] : [])]);
+
+/** Say a batch has been read, so the next check brings the one after it. */
+export const ackMailbox = (id, delivery) =>
+  orca(['orchestration', 'check', '--run', id, '--ack', delivery]);

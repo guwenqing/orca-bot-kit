@@ -40,6 +40,45 @@ const set = (value) => value !== undefined && value !== null && String(value).tr
 /** Which harness a session runs on: its own, or the bot's. */
 export const harnessOf = (session, botHarness) => (set(session.harness) ? session.harness : botHarness);
 
+/**
+ * A session's name on Claude Code, which is also the address another Claude
+ * session writes to (ADR 0008). It goes on the launch line as `-n`, and it is
+ * re-applied every time the session is started: a resume keeps the name by
+ * itself (tech notes, section 2), and the kit does not depend on that.
+ */
+export const addressOf = (bot, session) => `${bot}.${session}`;
+
+/**
+ * The Codex setting without which a bot cannot reach Orca at all.
+ *
+ * Inside Codex's workspace-write sandbox the Orca CLI runs but cannot connect
+ * to the running app, so `orca orchestration` is refused and a Codex bot can
+ * neither read nor send fleet mail. With this switch on, the same session at
+ * the same approval level reaches it (tech notes, section 3, proved live).
+ * The widening is real and said plainly where the user sees the launch line:
+ * that sandbox gains network access, there being no localhost-only setting.
+ */
+const NETWORK_ACCESS = 'sandbox_workspace_write.network_access';
+
+/**
+ * Whether the user has settled that switch themselves in this session's extra
+ * arguments. Theirs wins, whichever way they set it: the kit adds nothing
+ * beside it, and a session that turned it off is reported as out of reach of
+ * fleet mail rather than quietly failing to answer.
+ */
+export const setsNetworkAccess = (session) =>
+  extraWords(session.extra_args).some((word) => word.includes(NETWORK_ACCESS));
+
+/**
+ * Whether fleet mail can reach this session at all: everything but a Codex
+ * session whose user turned the sandbox switch off.
+ */
+export const reachesMail = (session, harness) =>
+  harness !== 'codex' || !turnedOff(session);
+
+const turnedOff = (session) =>
+  extraWords(session.extra_args).some((word) => word.includes(`${NETWORK_ACCESS}=false`));
+
 /** Where a session's work dir is: under the bot home, or wherever it says. */
 export function workDirOf(session, home) {
   if (!set(session.work_dir)) return undefined;
@@ -102,7 +141,7 @@ const where = (session) => (set(session.name) ? `session ${session.name}` : 'thi
  * send would land on that list and answer it. A prompt given as an argument is
  * held by the harness until it is ready for it (tech notes, section 1).
  */
-export function launchCommand(session, { harness, home, workDir, prompt, promptFile: fromFile, resume }) {
+export function launchCommand(session, { harness, home, workDir, prompt, promptFile: fromFile, resume, address }) {
   const trouble = sessionTrouble(session, harness, home);
   if (trouble !== undefined) throw new Error(trouble);
 
@@ -114,10 +153,16 @@ export function launchCommand(session, { harness, home, workDir, prompt, promptF
   words.push(...APPROVAL[harness][set(session.approval) ? session.approval : DEFAULT_APPROVAL]);
 
   if (harness === 'claude') {
+    // The name is the address other Claude sessions write to, so it goes on
+    // every launch line, a resume included (ADR 0008).
+    if (address !== undefined) words.push('-n', address);
     // The context window rides on the model name: `sonnet[1m]`.
     if (set(session.model)) words.push('--model', set(session.context) ? `${session.model}[${session.context}]` : session.model);
     if (set(session.effort)) words.push('--effort', String(session.effort));
   } else {
+    // Without this the Orca CLI cannot reach Orca from inside the sandbox, so
+    // the session is in no fleet at all. The user's own setting of it wins.
+    if (!setsNetworkAccess(session)) words.push('-c', `${NETWORK_ACCESS}=true`);
     if (set(session.model)) words.push('-m', session.model);
     if (set(session.effort)) words.push('-c', `model_reasoning_effort=${session.effort}`);
     if (set(session.context)) words.push('-c', `model_context_window=${session.context}`);

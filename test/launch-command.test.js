@@ -34,7 +34,7 @@ import test from 'node:test';
 
 import {
   assertOrcaCallsAllowed,
-  BARE_LAUNCH,
+  bareLaunch,
   botHomeOf,
   createSandbox,
   fakeProgram,
@@ -65,27 +65,27 @@ async function launchOf(box, harness, settings, { bot = 'api-bot' } = {}) {
 }
 
 const CLAUDE = [
-  ['nothing set at all', [], 'claude --permission-mode auto'],
-  ['approval auto', ['--approval', 'auto'], 'claude --permission-mode auto'],
-  ['approval ask', ['--approval', 'ask'], 'claude --permission-mode manual'],
-  ['approval dangerously-skip', ['--approval', 'dangerously-skip'], 'claude --dangerously-skip-permissions'],
-  ['a model', ['--model', 'sonnet'], 'claude --permission-mode auto --model sonnet'],
-  ['an effort', ['--effort', 'high'], 'claude --permission-mode auto --effort high'],
+  ['nothing set at all', [], 'claude -n api-bot.daily --permission-mode auto'],
+  ['approval auto', ['--approval', 'auto'], 'claude -n api-bot.daily --permission-mode auto'],
+  ['approval ask', ['--approval', 'ask'], 'claude -n api-bot.daily --permission-mode manual'],
+  ['approval dangerously-skip', ['--approval', 'dangerously-skip'], 'claude -n api-bot.daily --dangerously-skip-permissions'],
+  ['a model', ['--model', 'sonnet'], 'claude -n api-bot.daily --permission-mode auto --model sonnet'],
+  ['an effort', ['--effort', 'high'], 'claude -n api-bot.daily --permission-mode auto --effort high'],
   [
     // `[1m]` is a glob to the tab's zsh, so the model has to stay quoted.
     'a model with a context window',
     ['--model', 'sonnet', '--context', '1m'],
-    "claude --permission-mode auto --model 'sonnet[1m]'",
+    "claude -n api-bot.daily --permission-mode auto --model 'sonnet[1m]'",
   ],
   [
     'extra args',
     ['--extra-arg=--verbose', '--extra-arg=--debug'],
-    'claude --permission-mode auto --verbose --debug',
+    'claude -n api-bot.daily --permission-mode auto --verbose --debug',
   ],
   [
     'a start prompt, last of all',
     ['--prompt', 'Read your AGENTS.md.'],
-    "claude --permission-mode auto -- 'Read your AGENTS.md.'",
+    "claude -n api-bot.daily --permission-mode auto -- 'Read your AGENTS.md.'",
   ],
   [
     'everything at once',
@@ -93,36 +93,36 @@ const CLAUDE = [
       '--approval', 'ask', '--model', 'opus', '--context', '1m', '--effort', 'xhigh',
       '--extra-arg=--verbose', '--prompt', 'Read your AGENTS.md.',
     ],
-    "claude --permission-mode manual --model 'opus[1m]' --effort xhigh --verbose -- 'Read your AGENTS.md.'",
+    "claude -n api-bot.daily --permission-mode manual --model 'opus[1m]' --effort xhigh --verbose -- 'Read your AGENTS.md.'",
   ],
 ];
 
 const CODEX = [
-  ['nothing set at all', [], 'codex --approve-for-me'],
-  ['approval auto', ['--approval', 'auto'], 'codex --approve-for-me'],
-  ['approval ask', ['--approval', 'ask'], 'codex -a on-request'],
+  ['nothing set at all', [], 'codex --approve-for-me -c sandbox_workspace_write.network_access=true'],
+  ['approval auto', ['--approval', 'auto'], 'codex --approve-for-me -c sandbox_workspace_write.network_access=true'],
+  ['approval ask', ['--approval', 'ask'], 'codex -a on-request -c sandbox_workspace_write.network_access=true'],
   [
     'approval dangerously-skip',
     ['--approval', 'dangerously-skip'],
-    'codex --dangerously-bypass-approvals-and-sandbox',
+    'codex --dangerously-bypass-approvals-and-sandbox -c sandbox_workspace_write.network_access=true',
   ],
-  ['a model', ['--model', 'gpt-5.4'], 'codex --approve-for-me -m gpt-5.4'],
-  ['an effort', ['--effort', 'high'], 'codex --approve-for-me -c model_reasoning_effort=high'],
+  ['a model', ['--model', 'gpt-5.4'], 'codex --approve-for-me -c sandbox_workspace_write.network_access=true -m gpt-5.4'],
+  ['an effort', ['--effort', 'high'], 'codex --approve-for-me -c sandbox_workspace_write.network_access=true -c model_reasoning_effort=high'],
   [
     'a context window, with no model to hang it on',
     ['--context', '200000'],
-    'codex --approve-for-me -c model_context_window=200000',
+    'codex --approve-for-me -c sandbox_workspace_write.network_access=true -c model_context_window=200000',
   ],
   [
     'a model and a context window',
     ['--model', 'gpt-5.4', '--context', '200000'],
-    'codex --approve-for-me -m gpt-5.4 -c model_context_window=200000',
+    'codex --approve-for-me -c sandbox_workspace_write.network_access=true -m gpt-5.4 -c model_context_window=200000',
   ],
-  ['extra args', ['--extra-arg=--search'], 'codex --approve-for-me --search'],
+  ['extra args', ['--extra-arg=--search'], 'codex --approve-for-me -c sandbox_workspace_write.network_access=true --search'],
   [
     'a start prompt, last of all',
     ['--prompt', 'Read your AGENTS.md.'],
-    "codex --approve-for-me -- 'Read your AGENTS.md.'",
+    "codex --approve-for-me -c sandbox_workspace_write.network_access=true -- 'Read your AGENTS.md.'",
   ],
   [
     'everything at once',
@@ -130,7 +130,7 @@ const CODEX = [
       '--approval', 'ask', '--model', 'gpt-5.4', '--effort', 'high', '--context', '200000',
       '--extra-arg=--search', '--prompt', 'Read your AGENTS.md.',
     ],
-    'codex -a on-request -m gpt-5.4 -c model_reasoning_effort=high -c model_context_window=200000 '
+    'codex -a on-request -c sandbox_workspace_write.network_access=true -m gpt-5.4 -c model_reasoning_effort=high -c model_context_window=200000 '
     + "--search -- 'Read your AGENTS.md.'",
   ],
 ];
@@ -148,13 +148,13 @@ for (const [harness, cases] of [['claude', CLAUDE], ['codex', CODEX]]) {
 test('a session runs on its own harness, whatever the bot runs on', async (t) => {
   const box = await createSandbox(t);
 
-  assert.equal(await launchOf(box, 'codex', ['--harness', 'claude']), BARE_LAUNCH.claude);
+  assert.equal(await launchOf(box, 'codex', ['--harness', 'claude']), bareLaunch('claude', 'api-bot', 'daily'));
 });
 
 test('a session with no harness of its own runs on the bot\'s', async (t) => {
   const box = await createSandbox(t);
 
-  assert.equal(await launchOf(box, 'codex', []), BARE_LAUNCH.codex);
+  assert.equal(await launchOf(box, 'codex', []), bareLaunch('codex'));
 });
 
 test('Codex gets --add-dir for a work dir outside the bot home, and nothing for one inside', async (t) => {
@@ -169,11 +169,11 @@ test('Codex gets --add-dir for a work dir outside the bot home, and nothing for 
   const near = await launchOf(inside, 'codex', ['--work-dir', 'work/api']);
 
   assert.ok(
-    far.startsWith(launchLine(`codex --approve-for-me --add-dir ${outside} -- '`)),
+    far.startsWith(launchLine(`codex --approve-for-me -c sandbox_workspace_write.network_access=true --add-dir ${outside} -- '`)),
     `--add-dir should come after the settings and before the prompt, got: ${far}`,
   );
   assert.ok(
-    near.startsWith(`${BARE_LAUNCH.codex} -- '`),
+    near.startsWith(`${bareLaunch('codex')} -- '`),
     `a work dir under the bot home is already inside the sandbox, got: ${near}`,
   );
 });
@@ -188,7 +188,7 @@ test('a work dir that is the bot home itself brings no --add-dir', async (t) => 
   const typed = await launchOf(box, 'codex', ['--work-dir', '.']);
 
   assert.ok(!typed.includes('--add-dir'), `the bot home is already inside the sandbox, got: ${typed}`);
-  assert.ok(typed.startsWith(BARE_LAUNCH.codex), `got: ${typed}`);
+  assert.ok(typed.startsWith(bareLaunch('codex')), `got: ${typed}`);
 });
 
 test('--add-dir is given the absolute path, even when the work dir was written relative', async (t) => {
@@ -200,7 +200,7 @@ test('--add-dir is given the absolute path, even when the work dir was written r
 
   const home = botHomeOf(box.path('bots'), 'api-bot');
   assert.ok(
-    typed.startsWith(launchLine(`codex --approve-for-me --add-dir ${path.resolve(home, '../shared-clones')} -- '`)),
+    typed.startsWith(launchLine(`codex --approve-for-me -c sandbox_workspace_write.network_access=true --add-dir ${path.resolve(home, '../shared-clones')} -- '`)),
     `got: ${typed}`,
   );
 });
@@ -215,7 +215,7 @@ test('Claude never gets --add-dir, wherever its work dir is', async (t) => {
   const typed = await launchOf(box, 'claude', ['--work-dir', outside]);
 
   assert.ok(!typed.includes('--add-dir'), `Claude should get no --add-dir, got: ${typed}`);
-  assert.ok(typed.startsWith(`${BARE_LAUNCH.claude} -- '`), `got: ${typed}`);
+  assert.ok(typed.startsWith(`${bareLaunch('claude', 'api-bot', 'daily')} -- '`), `got: ${typed}`);
 });
 
 test('an extra_args written by hand as one string is typed as it stands', async (t) => {
@@ -233,7 +233,7 @@ test('an extra_args written by hand as one string is typed as it stands', async 
   assert.equal((await box.run(['up', '--bots', 'bots', '--bot', 'api-bot'])).code, 0);
 
   const tabs = await tabsOfBot(box, box.path('bots'), 'api-bot');
-  assert.deepEqual(typedInto(tabs[0]), [launchLine('codex --approve-for-me --search --profile mine')]);
+  assert.deepEqual(typedInto(tabs[0]), [launchLine('codex --approve-for-me -c sandbox_workspace_write.network_access=true --search --profile mine')]);
 });
 
 for (const harness of ['claude', 'codex']) {
@@ -268,7 +268,7 @@ test('a model with a context window reaches the harness as one word, unglobbed',
 
   const ran = await sh(typed, { cwd: box.cwd, env: box.env });
   assert.equal(ran.code, 0, `${typed}\n${ran.stderr}`);
-  assert.deepEqual((await fake.calls())[0].args, ['--permission-mode', 'auto', '--model', 'sonnet[1m]']);
+  assert.deepEqual((await fake.calls())[0].args, ['-n', 'api-bot.daily', '--permission-mode', 'auto', '--model', 'sonnet[1m]']);
 });
 
 test('Codex\'s -c settings reach codex as one argument each', async (t) => {
@@ -285,6 +285,7 @@ test('Codex\'s -c settings reach codex as one argument each', async (t) => {
   assert.equal(calls.length, 1, `the line should start codex once, got: ${typed}`);
   assert.deepEqual(calls[0].args, [
     '--approve-for-me',
+    '-c', 'sandbox_workspace_write.network_access=true',
     '-c', 'model_reasoning_effort=high',
     '-c', 'model_context_window=200000',
   ]);

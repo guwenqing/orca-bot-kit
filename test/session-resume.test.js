@@ -32,7 +32,7 @@ import test from 'node:test';
 
 import {
   assertOrcaCallsAllowed,
-  BARE_LAUNCH,
+  bareLaunch,
   createSandbox,
   fakeProgram,
   launchLine,
@@ -100,7 +100,7 @@ function settingsOnly(argv) {
  * The arguments a bare launch line hands its harness: the line without the
  * `OBK_TAB_SHELL=…` in front of it and without the harness word itself.
  */
-const bareArgvOf = (harness) => BARE_LAUNCH[harness].split(' ').slice(2);
+const bareArgvOf = (harness) => bareLaunch(harness, 'api-bot', 'daily').split(' ').slice(2);
 
 /**
  * The launch arguments with the resume words taken out, whichever harness's
@@ -174,12 +174,12 @@ for (const [harness, settings, fresh] of [
   [
     'claude',
     ['--approval', 'ask', '--model', 'opus', '--context', '1m', '--effort', 'xhigh', '--extra-arg=--verbose'],
-    ['--permission-mode', 'manual', '--model', 'opus[1m]', '--effort', 'xhigh', '--verbose'],
+    ['-n', 'api-bot.daily', '--permission-mode', 'manual', '--model', 'opus[1m]', '--effort', 'xhigh', '--verbose'],
   ],
   [
     'codex',
     ['--approval', 'ask', '--model', 'gpt-5.4', '--effort', 'high', '--context', '200000', '--extra-arg=--search'],
-    ['-a', 'on-request', '-m', 'gpt-5.4', '-c', 'model_reasoning_effort=high', '-c', 'model_context_window=200000', '--search'],
+    ['-a', 'on-request', '-c', 'sandbox_workspace_write.network_access=true', '-m', 'gpt-5.4', '-c', 'model_reasoning_effort=high', '-c', 'model_context_window=200000', '--search'],
   ],
 ]) {
   test(`a resumed ${harness} session keeps every setting, in the same order`, async (t) => {
@@ -214,7 +214,7 @@ test('a resumed Codex session keeps its --add-dir for a work dir outside the bot
 
   assert.deepEqual(
     withoutResume(await argvOf(box, again.typed[0], fake), 'sess-1'),
-    ['--approve-for-me', '--add-dir', outside],
+    ['--approve-for-me', '-c', 'sandbox_workspace_write.network_access=true', '--add-dir', outside],
   );
 });
 
@@ -242,7 +242,7 @@ test('a session the book holds no id for comes up fresh, with its start prompt',
 
   const again = await up(box);
 
-  assert.deepEqual(again.typed, [`${BARE_LAUNCH.codex} -- '${PROMPT}'`]);
+  assert.deepEqual(again.typed, [`${bareLaunch('codex')} -- '${PROMPT}'`]);
   assert.ok(!again.typed[0].includes('resume'), `there is nothing to resume, got: ${again.typed[0]}`);
 });
 
