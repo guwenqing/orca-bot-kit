@@ -62,7 +62,10 @@ Three things are written differently from the old skill, on purpose:
   reads a brief, not a draft — is why this skill points at a draft instead of
   reproducing it. Also kept in spirit: "mandate nothing structural", which is
   PRD 7.1 in someone else's words.
-- **Cursor `plugins`, `third_party/x/skills/x-chat`** (MIT) — a connector skill
+- **Cursor `plugins`, `third_party/x/skills/x-chat`** — MIT, checked at
+  `third_party/x/LICENSE`, "Copyright (c) 2026 Cursor", which is the licence
+  for the vendored third-party directory rather than the repository root. A
+  connector skill
   for someone's private messages, and the one place in the sources that draws
   the line this skill needs: the owner must approve outbound text unless they
   already told you to send or reply ("reply that I'll be there", "send them
@@ -104,11 +107,16 @@ not here:
 The skill was run against a realistic piece of personal admin — a list with
 entries and notes already in it, a booking made by phone, a vague item with no
 date, a request for a reminder and an email to draft — by a bot that had not
-seen it written. Seven things in it come from what that found:
+seen it written. Seven things come from what that found. They are kept to a
+line each: they are our own observations rather than material from a source,
+and the skill is meant to be very light, so they earn a sentence where a source
+point earns its full substance.
 
 - Its only outlet for missing information was a line written into the file,
   which the person may never open. Asking belongs in the reply.
-- Marking a booking done hid the appointment that had not happened yet.
+- Marking a booking done hid the appointment date that had not arrived yet.
+  The date is kept on the item; what counts as done is still the outcome they
+  asked for, which is the old skill's rule.
 - "Do not reorder their list quietly" read as forbidding action on an urgency
   the person had just stated out loud.
 - In a list divided up by when things are due, a new undated item had nowhere
