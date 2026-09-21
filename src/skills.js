@@ -129,6 +129,75 @@ function writeRecord(home, record) {
 }
 
 /**
+ * What is wrong with a bot's skills as they stand: `[{ where, says }]`, and
+ * nothing when the bot has what its lists name. The health check's half of the
+ * linking, and it links nothing: it reads the directories, the record and the
+ * lists, and says what it finds (PRD 6.8).
+ *
+ * A link that leads nowhere is reported whoever made it. Whose it is changes
+ * what may be done about it, not the fact that a session cannot read the skill
+ * (ADR 0004).
+ */
+export function skillsTrouble(bots, home, bot) {
+  const record = readRecord(home);
+  const trouble = [];
+  const held = new Map();
+
+  for (const [harness, inside] of Object.entries(SKILL_DIRS)) {
+    const dir = path.join(home, inside);
+    held.set(harness, heldIn(dir, record[harness] ?? {}));
+
+    for (const name of namesIn(dir)) {
+      const at = path.join(dir, name);
+      const target = linkAt(at);
+      // `existsSync` follows the link, so a link with nothing at the end of it
+      // is exactly what answers false here.
+      if (target !== undefined && !existsSync(at)) {
+        trouble.push({
+          where: at,
+          says: `${at} is a link to ${target}, and there is nothing there any more, so a ${harness} session of this bot cannot read the skill it names.`,
+        });
+      }
+    }
+  }
+
+  let wanted;
+  try {
+    wanted = skillsFor(bots, home, bot);
+  } catch (error) {
+    trouble.push({ where: path.join(home, 'bot.yaml'), says: error.message });
+    return trouble;
+  }
+
+  const named = new Set(wanted.map((skill) => skill.name));
+  for (const skill of heldBy(home, wanted, held)) {
+    if (!named.has(skill.name)) continue;
+
+    for (const [harness, state] of Object.entries(skill.at)) {
+      if (state === 'linked') continue;
+      const at = path.join(home, SKILL_DIRS[harness], skill.name);
+      trouble.push({
+        where: at,
+        says: state === 'missing'
+          ? `${skill.name} is in ${bot.name}'s skills list and there is nothing at ${at}, so a ${harness} session of this bot does not have it. obk skills build puts the link there.`
+          : `${skill.name} is in ${bot.name}'s skills list, and what is at ${at} is not the kit's link. What you put there is yours and the kit never writes over it, so a ${harness} session of this bot reads that instead of the skill the list names.`,
+      });
+    }
+  }
+
+  return trouble;
+}
+
+/** What a directory holds, and nothing when there is no directory. */
+function namesIn(dir) {
+  try {
+    return readdirSync(dir);
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Give every bot in the folder its skills, or the one named, in name order.
  * This is the whole of `obk skills build`: it writes links and asks Orca nothing.
  */

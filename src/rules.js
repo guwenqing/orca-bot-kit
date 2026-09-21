@@ -15,7 +15,7 @@
 // for one of the kit's or a bare name for one of theirs.
 
 import { createHash } from 'node:crypto';
-import { existsSync, readdirSync, readFileSync, realpathSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse } from 'yaml';
@@ -228,16 +228,14 @@ function asList(value, file, key = 'rules') {
 const markers = (count, what) => `${count} ${what} marker${count === 1 ? '' : 's'}`;
 
 /**
- * Put `body` between the markers in `file`, and leave the rest of it alone.
- * Returns 'built', or 'unchanged' when the file already says this.
+ * The build's own block in `file` as it stands: where it begins, where it ends,
+ * and what is between the markers. Undefined when the file holds none of it.
  *
- * The file is worked on as lines and handed back as lines, so what the user
- * wrote outside the block comes back byte for byte, trailing spaces and all.
+ * Throws when what is there is not a block the build may write over — the wrong
+ * number of markers, or text somebody typed in between them. Read-only, so the
+ * health check asks the same question without writing anything.
  */
-function writeBlock(file, body) {
-  const text = existsSync(file) ? readFileSync(file, 'utf8') : '';
-  const lines = text.split('\n');
-
+function blockIn(file, lines) {
   const begins = [];
   const ends = [];
   lines.forEach((line, at) => {
@@ -245,15 +243,7 @@ function writeBlock(file, body) {
     else if (line.startsWith('<!-- obk:rules')) begins.push(at);
   });
 
-  const block = [beginLine(checksum(body)), ...body.split('\n'), END];
-
-  if (begins.length === 0 && ends.length === 0) {
-    // Nothing of the build's in the file: the block goes at the top and
-    // everything that was there is kept below it.
-    const rest = text === '' ? [''] : ['', ...lines];
-    writeFileSync(file, [...block, ...rest].join('\n'));
-    return 'built';
-  }
+  if (begins.length === 0 && ends.length === 0) return undefined;
 
   if (begins.length !== 1 || ends.length !== 1 || begins[0] > ends[0]) {
     throw new Error(`${file} carries ${markers(begins.length, 'obk:rules begin')} and ${markers(ends.length, 'end')}, and the build needs one of each, the begin first. Put the markers back, or take the block out and let the build write a new one.`);
@@ -265,9 +255,33 @@ function writeBlock(file, body) {
     throw new Error(`the obk:rules block in ${file} is not the one obk wrote, so nothing was written. Move what you added below the end marker, or put the block back as it was, then build again.`);
   }
 
-  if (was === body) return 'unchanged';
+  return { at: begins[0], to: ends[0], was };
+}
 
-  writeFileSync(file, [...lines.slice(0, begins[0]), ...block, ...lines.slice(ends[0] + 1)].join('\n'));
+/**
+ * Put `body` between the markers in `file`, and leave the rest of it alone.
+ * Returns 'built', or 'unchanged' when the file already says this.
+ *
+ * The file is worked on as lines and handed back as lines, so what the user
+ * wrote outside the block comes back byte for byte, trailing spaces and all.
+ */
+function writeBlock(file, body) {
+  const text = existsSync(file) ? readFileSync(file, 'utf8') : '';
+  const lines = text.split('\n');
+  const block = [beginLine(checksum(body)), ...body.split('\n'), END];
+  const found = blockIn(file, lines);
+
+  if (found === undefined) {
+    // Nothing of the build's in the file: the block goes at the top and
+    // everything that was there is kept below it.
+    const rest = text === '' ? [''] : ['', ...lines];
+    writeFileSync(file, [...block, ...rest].join('\n'));
+    return 'built';
+  }
+
+  if (found.was === body) return 'unchanged';
+
+  writeFileSync(file, [...lines.slice(0, found.at), ...block, ...lines.slice(found.to + 1)].join('\n'));
   return 'built';
 }
 
@@ -304,7 +318,74 @@ function claudeMd(home, file) {
   }
 
   if (sameFile(link, file)) return {};
-  return { trouble: `${link} is not this bot's AGENTS.md, and Claude Code reads it in place of one, so a Claude session and a Codex session here would start from different rules. Point it at AGENTS.md, or move it aside and let the build link it.` };
+  return { trouble: claudeMdTrouble(link) };
+}
+
+/** Why a `CLAUDE.md` that is not this bot's `AGENTS.md` matters, in one sentence. */
+const claudeMdTrouble = (link) =>
+  `${link} is not this bot's AGENTS.md, and Claude Code reads it in place of one, so a Claude session and a Codex session here would start from different rules. Point it at AGENTS.md, or move it aside and let the build link it.`;
+
+/**
+ * What is wrong with a bot's rules as they stand: `[{ where, says }]`, and
+ * nothing when they are in order. The health check's half of the build — it
+ * asks the same questions and writes nothing at all, so a file the build would
+ * refuse is reported rather than put right (PRD 6.8).
+ *
+ * A file with no obk block in it is not trouble. That is a bot whose owner
+ * wrote its instructions by hand, which the build leaves alone as well.
+ */
+export function agentsTrouble(bots, home, bot) {
+  const file = path.join(home, AGENTS);
+  const trouble = [];
+
+  // What the charter and the rule units say now. It is a check of its own — a
+  // list naming a unit that is not there — and it is what the file is held
+  // against below.
+  let built;
+  try {
+    built = blockFor(bots, bot);
+  } catch (error) {
+    trouble.push({ where: file, says: error.message });
+  }
+
+  if (!existsSync(file)) {
+    trouble.push({
+      where: file,
+      says: `there is no ${file}, so this bot has no instructions: obk up does not start a bot's sessions without them. obk rules build writes the file.`,
+    });
+    return trouble;
+  }
+
+  const text = readFileSync(file, 'utf8');
+  try {
+    const found = blockIn(file, text.split('\n'));
+    if (found !== undefined && built !== undefined && found.was !== built.body) {
+      trouble.push({
+        where: file,
+        says: `${file} is not what ${bot.name}'s charter and rule units say now, so its sessions are reading the older text. obk rules build writes it, and obk up does too before it starts a session.`,
+      });
+    }
+  } catch (error) {
+    trouble.push({ where: file, says: error.message });
+  }
+
+  // Codex reads no more than this of an instructions file, and says nothing
+  // when it stops reading (tech notes, section 3).
+  if (Buffer.byteLength(text) > CODEX_CAP) {
+    trouble.push({
+      where: file,
+      says: `${file} is over the ${CODEX_CAP / 1024} KiB Codex reads, so a Codex session will not see all of it.`,
+    });
+  }
+
+  // A link that leads nowhere is still a CLAUDE.md in Claude Code's way, so the
+  // question is whether there is an entry at all, not whether it resolves.
+  const link = path.join(home, CLAUDE);
+  if (lstatSync(link, { throwIfNoEntry: false }) !== undefined && !sameFile(link, file)) {
+    trouble.push({ where: link, says: claudeMdTrouble(link) });
+  }
+
+  return trouble;
 }
 
 /** Whether two paths are the same file in the end. One that leads nowhere is not. */

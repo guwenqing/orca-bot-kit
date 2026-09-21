@@ -48,7 +48,19 @@ project → repo (`kind: "git" | "folder"`) → worktree (id = `<repoId>::<absPa
 - Orca calls every workspace a "worktree", a plain folder included. Say "Orca project" or "folder
   workspace" in anything a user reads, so nobody thinks a git worktree was made. The kit never makes
   one: no `git worktree add`, no `orca worktree create`, and no bot folder left registered as git kind.
-- State file: `~/Library/Application Support/orca/profiles/local-default/orca-data.json`. Internal; read only as a cross-check.
+- State file: `~/Library/Application Support/orca/profiles/<profile>/orca-data.json`, one per profile
+  (`local-default` on this machine). Internal; read only as a cross-check.
+- **Orca's own default launch arguments**, the "yolo" setting of PRD 6.5, live in that file under
+  `settings.agentDefaultArgs`: a mapping of agent name to one string of extra arguments, e.g.
+  `{"claude": "", "codex": "", "gemini": "", ...}`. Orca adds them to the agents it launches, relaunches
+  and resumes itself, so they override what a session was started with. On this machine every entry is
+  an empty string. **verified** (live, read on 2026-09-21)
+  **A missing entry is not "no arguments".** In Orca's own code (`out/shared/tui-agent-launch-defaults.js`
+  and `tui-agent-permissions.js`, 1.4.205) `resolveTuiAgentLaunchArgs` falls back to
+  `DEFAULT_TUI_AGENT_ARGS` whenever the settings hold no string for that agent, and that default is
+  `YOLO_TUI_AGENT_ARGS` — `--dangerously-skip-permissions` for `claude`, `--dangerously-bypass-approvals-and-sandbox`
+  for `codex`, which are exactly the kit's own `dangerously-skip` flags. So a file with no entry for a
+  harness means Orca will add the bypass. **verified** (read in the installed app)
 
 ### Terminal commands (verified from help)
 
@@ -101,6 +113,8 @@ project → repo (`kind: "git" | "folder"`) → worktree (id = `<repoId>::<absPa
   escapes stripped, so a TUI comes back as stacked fragments. `--screen` is how an agent looks at a tab
   to decide whether something is waiting to be answered. **verified** (live)
 - `orca terminal close --terminal <h> [--tab]` closes one. **Never use `orca terminal close --worktree <sel> --all`: it removes tabs, layouts and resume records.**
+  With `--tab` it answers `{ close: { handle, tabId, closeMode: "tab", ptyKilled } }`, and **what was running in the tab is gone with it**: a tab whose shell was sitting on a `sleep` left neither the shell nor the sleep behind, though `ptyKilled` read `false`. So a tab the kit closes leaves no process behind to be found later. **verified** (live, 2026-09-21, Orca 1.4.205)
+- `orca terminal list --worktree path:<p>` **fails with `selector_not_found`** for a path Orca has no project for; it does not answer an empty list. So anything that asks Orca what tabs a folder has looks in `project setups` first. **verified** (live)
 - Worktree selectors: `id:<repo-id>::<path>`, `name:<displayName>`, `path:<path>`, `active`.
 
 ### What a fresh kit-made tab asks, and the usual answer (verified live unless said otherwise)

@@ -73,6 +73,35 @@ export function installHook(home, harness, { bots, bot }) {
 }
 
 /**
+ * Whether the kit's hook is in place for one harness, and what to say when it
+ * is not: `{ where, says }`, or nothing when the file already holds it.
+ *
+ * The same question `installHook` asks, without the writing. It matters more
+ * than it looks: the hook is the whole of how the book learns which
+ * conversation a session is running as (ADR 0002), and when it is not there
+ * nothing else says so — the book simply stops being true.
+ */
+export function hookTrouble(home, harness, { bots, bot }) {
+  const file = path.join(home, HOOK_FILE[harness]);
+  const stale = `Until it is there, nothing tells the book which conversation this bot's ${harness} sessions are running as, and the book goes stale.`;
+
+  let wanted;
+  let settings;
+  try {
+    settings = readSettings(file);
+    wanted = { ...settings, hooks: withKitHook(settings.hooks, file, { type: 'command', command: hookCommand(bots, bot), timeout: TIMEOUT }) };
+  } catch (error) {
+    return { where: file, says: `${error.message} ${stale}` };
+  }
+
+  if (isDeepStrictEqual(settings, wanted)) return undefined;
+  return {
+    where: file,
+    says: `${file} does not hold the kit's session hook, and ${harness} reads this bot's hooks from it. ${stale} obk up puts it back.`,
+  };
+}
+
+/**
  * The file's hooks with the kit's own entry where it belongs and everything else
  * as the user left it.
  *

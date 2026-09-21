@@ -41,13 +41,7 @@ const SECOND_LOOK_MS = 2000;
  * back rather than the fleet.
  */
 export async function bringUp(bots, { bot: onlyBot, session: onlySession } = {}) {
-  const names = botNames(bots);
-  if (names.length === 0) {
-    throw new Error(`there are no bots in ${bots} yet: make one with obk bot create --bots <path> --name <name> --harness claude|codex.`);
-  }
-  if (onlyBot !== undefined && !names.includes(onlyBot)) {
-    throw new Error(`there is no bot called ${onlyBot} in ${bots}. The bots there are: ${names.join(', ')}.`);
-  }
+  const names = botsNamed(bots, onlyBot);
   if (onlySession !== undefined && onlyBot === undefined) {
     throw new Error('--session needs --bot: say which bot the session belongs to.');
   }
@@ -55,7 +49,7 @@ export async function bringUp(bots, { bot: onlyBot, session: onlySession } = {})
   // Every bot that is coming up is read and judged before Orca is asked for
   // anything at all: a fleet with one session the kit cannot start is a fleet
   // the user fixes in one edit, not one they find half opened.
-  const chosen = (onlyBot === undefined ? names : [onlyBot]).map((name) => {
+  const chosen = names.map((name) => {
     const home = realpathSync(botDir(bots, name));
     return { home, bot: readBot(home, name) };
   });
@@ -114,6 +108,24 @@ export async function bringUp(bots, { bot: onlyBot, session: onlySession } = {})
   return { tabs: report, rules, skills };
 }
 
+/**
+ * The bots a command is about: every one in the folder, or the one it named.
+ *
+ * Here because every command that acts on Orca asks the same two questions
+ * first, and a user who mistypes a bot's name is owed the same sentence
+ * whichever of them they ran.
+ */
+export function botsNamed(bots, onlyBot) {
+  const names = botNames(bots);
+  if (names.length === 0) {
+    throw new Error(`there are no bots in ${bots} yet: make one with obk bot create --bots <path> --name <name> --harness claude|codex.`);
+  }
+  if (onlyBot !== undefined && !names.includes(onlyBot)) {
+    throw new Error(`there is no bot called ${onlyBot} in ${bots}. The bots there are: ${names.join(', ')}.`);
+  }
+  return onlyBot === undefined ? names : [onlyBot];
+}
+
 function refuseWhatCannotStart(bot, home, onlySession) {
   for (const session of sessionsOf(bot, onlySession)) {
     const trouble = sessionTrouble(session, harnessOf(session, bot.harness), home);
@@ -122,7 +134,7 @@ function refuseWhatCannotStart(bot, home, onlySession) {
 }
 
 /** The sessions a run is bringing up: all of the bot's, or the one it named. */
-function sessionsOf(bot, onlySession) {
+export function sessionsOf(bot, onlySession) {
   if (onlySession === undefined) return bot.sessions;
 
   const named = bot.sessions.filter((session) => session.name === onlySession);
@@ -318,7 +330,7 @@ function orcaProject(home, title) {
  * folders may each hold an api-bot with a daily session, and one file for both
  * of them is one bot's duty handed to another's session.
  */
-const promptPath = (bots, bot, session) =>
+export const promptPath = (bots, bot, session) =>
   path.join(`${bots}.prompts`, `${encodeURIComponent(bot)}.${encodeURIComponent(session)}.txt`);
 
 function entry(tab, { bot, name, created, running = false, blockedReason, promptSent, promptFile, resumed, unclaimed }) {

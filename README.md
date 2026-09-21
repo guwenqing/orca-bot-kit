@@ -295,6 +295,62 @@ conversation with its duty rather than guessing. To bring one back yourself,
 write it into `sessions.yaml` under that session as `session: <id>` and run
 `obk up` again.
 
+## Restarting a session
+
+A restart is rare and never automatic: `obk up` only ever adds, because closing
+a tab takes your screen away and Orca's resume record with it. When you do want
+one, ask for it.
+
+```sh
+obk restart --bots /path/to/my-bots --bot api-bot [--session daily]
+```
+
+It closes the session's tab — one tab, by its own handle — and opens a new one
+with the conversation the book holds, so the session comes back as itself. With
+no `--session` it does that for every session of the bot.
+
+Three things it will not do. It closes only a tab your book names, so Bot
+Father's ops tab and anything you opened yourself are left alone. It will not
+close a tab whose conversation the book cannot name: that close would be the end
+of that conversation, so it refuses, tells you which session and which file to
+settle it in, and touches nothing. And if Orca refuses to close a tab, it stops
+there rather than start a second harness beside the first.
+
+## When something is wrong
+
+```sh
+obk health --bots /path/to/my-bots [--bot api-bot]
+```
+
+It reads your setup and says what it found, in plain sentences with `--json`
+beside them for Bot Father to read. It writes nothing at all — not a file, not a
+link, not a tab — so everything it finds is yours to decide about.
+
+What it looks for:
+
+- **configuration that will not work**: a `bot.yaml` nothing can read, a session
+  the kit would refuse to start, a bot with no `AGENTS.md`, a block somebody
+  edited by hand, a file bigger than the 32 KiB Codex reads, a `CLAUDE.md` that
+  is not this bot's rules, and a hooks file without the kit's own hook in it,
+  which is how a book goes stale without anything saying so;
+- **a skill that is not where its list says**: a listed skill missing from one
+  of the two harnesses, a skill of your own standing where a listed one would
+  go, and a link with nothing at the end of it;
+- **a session the book knows that Orca does not**: its tab was closed, or the
+  machine was restarted, and `obk up` brings it back;
+- **leftovers no book owns**: an Orca project inside your bots folder with no
+  bot in it, a tab in a bot's project that the book does not name, a start
+  prompt written for a session that has gone, a clone of a skills source you no
+  longer list, and the conversations the kit found and would not assign;
+- **Orca's own default launch arguments**. Orca adds these to the agents it
+  launches, relaunches and resumes, so when they carry a permission bypass every
+  session runs in that mode whatever the kit asked for. The kit never sets that
+  setting and says so every time it is on — including when Orca has no entry for
+  a harness at all, because Orca's own default for a missing entry is the bypass.
+
+It exits 1 when it found something, so a script can tell. Nothing it prints is a
+verdict: which of these matter, and in what order, is for you or for Bot Father.
+
 ## Working on the kit
 
 ```sh
