@@ -12,12 +12,14 @@
 // or a path to anywhere on disk. Online sources are issue #36 and are not read
 // here.
 
-import { existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { botDir, botNames, readBot } from './bot.js';
+import { parse, stringify } from 'yaml';
+
+import { botDir, botNames, readBot, YAML_OUT } from './bot.js';
 import { listIn } from './rules.js';
 
 /** The kit's own skills, inside the installed package. */
@@ -39,6 +41,14 @@ const SKILL_DIRS = {
  */
 const NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
+/** Where the kit writes down what it linked, inside the bot folder. */
+const RECORD = '.obk-skills.yaml';
+
+/** What that file says about itself, for whoever opens it. */
+const HEADER = '# Written by obk: the skill links it made, by harness and name. It changes or\n'
+  + '# takes away only an entry that still says this, so anything you link yourself\n'
+  + '# is left alone. Delete a line and the kit forgets it made that one.\n\n';
+
 /** The file that makes a directory a skill. A directory without one is not one. */
 const MANIFEST = 'SKILL.md';
 
@@ -51,19 +61,70 @@ const MANIFEST = 'SKILL.md';
  * bot's skills is not a bot anybody asked for, and the user fixes one line.
  */
 export function linkSkills(bots, home, bot) {
+  const record = readRecord(home);
+  const held = new Map();
+
   let wanted;
   try {
     wanted = skillsFor(bots, home, bot);
   } catch (error) {
-    return { bot: bot.name, skills: heldBy(home), trouble: error.message };
+    for (const harness of Object.keys(SKILL_DIRS)) {
+      held.set(harness, heldIn(path.join(home, SKILL_DIRS[harness]), record[harness] ?? {}));
+    }
+    return { bot: bot.name, skills: heldBy(home, [], held), trouble: error.message };
   }
 
   const removed = [];
   for (const harness of Object.keys(SKILL_DIRS)) {
-    removed.push(...link(bots, path.join(home, SKILL_DIRS[harness]), wanted));
+    record[harness] ??= {};
+    const done = link(path.join(home, SKILL_DIRS[harness]), wanted, record[harness]);
+    removed.push(...done.removed);
+    held.set(harness, done.held);
   }
+  writeRecord(home, record);
 
-  return { bot: bot.name, skills: heldBy(home, wanted), removed: [...new Set(removed)].sort() };
+  const skills = heldBy(home, wanted, held);
+  const clash = skills.filter((skill) => !skill.managed && wanted.some((one) => one.name === skill.name));
+  return {
+    bot: bot.name,
+    skills,
+    removed: [...new Set(removed)].sort(),
+    // A name the lists ask for that the bot has something else under. The user's
+    // own is never written over, so what they have to know is that the list did
+    // not take effect, and under which harness.
+    ...(clash.length === 0 ? {} : {
+      trouble: `${clash.map((skill) => skill.name).join(', ')}: the lists name ${clash.length === 1 ? 'this skill' : 'these skills'}, and what is in the bot's skills directories under ${clash.length === 1 ? 'that name' : 'those names'} is not the kit's to replace. Move yours aside if you want the listed one, or take the name out of the list.`,
+    }),
+  };
+}
+
+/**
+ * What the kit last linked into this bot, by harness and name. The kit acts
+ * only where what is on disk is still what this says it wrote, so a link the
+ * user made, or one of the kit's that they have since repointed, is theirs.
+ *
+ * It is the kit's own file and lives beside the hook files it already keeps in
+ * the bot folder (ADR 0010). A record that cannot be read is treated as an
+ * empty one: the worst that follows is that the kit leaves alone something it
+ * would otherwise have tidied up, which is the safe way round.
+ */
+function readRecord(home) {
+  try {
+    const record = parse(readFileSync(path.join(home, RECORD), 'utf8'));
+    return record !== null && typeof record === 'object' && !Array.isArray(record) ? record : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeRecord(home, record) {
+  const kept = Object.fromEntries(Object.entries(record).filter(([, links]) => Object.keys(links).length > 0));
+  const file = path.join(home, RECORD);
+  if (Object.keys(kept).length === 0) {
+    rmSync(file, { force: true });
+    return;
+  }
+  writeFileSync(file, `${HEADER}${stringify(kept, YAML_OUT)}`);
 }
 
 /**
@@ -135,94 +196,120 @@ function follow(bots, ref) {
 }
 
 /**
- * Make one harness's skills directory say what `wanted` says, and give back the
- * names it took away.
+ * Make one harness's skills directory hold what `wanted` says, as far as the
+ * kit is allowed to. Returns `{ removed, held }` — the names it took away, and
+ * what is in the directory afterwards.
  *
- * What the kit takes away is what it put there: a link into the kit's own
- * skills or into the user's common folder that no list names any more. Anything
- * else in that directory is the user's — a skill of their own, a link of their
- * own — and is left exactly as it is (PRD 6.7).
+ * The kit acts only where the entry on disk is still the link it wrote, which
+ * `record` says. A destination cannot answer who made a link — the user may
+ * link the very same skill by hand — so the kit remembers what it made rather
+ * than guessing from where a link points (PRD 6.7).
  */
-function link(bots, dir, wanted) {
-  // A bot with no skills is given no skills directories: an empty one is a
+function link(dir, wanted, record) {
+  // A bot with no skills and no directory is given none: an empty one is a
   // folder in the user's repo that says nothing.
-  if (wanted.length === 0 && !existsSync(dir)) return [];
+  if (wanted.length === 0 && !existsSync(dir)) return { removed: [], held: new Map() };
   mkdirSync(dir, { recursive: true });
 
+  const keep = new Map(wanted.map((skill) => [skill.name, skill]));
   const removed = [];
-  const keep = new Set(wanted.map((skill) => skill.name));
-  for (const name of readdirSync(dir)) {
+
+  // What the lists no longer name. The kit takes back only its own, and only
+  // while it is untouched; anything else it forgets about and leaves.
+  for (const name of Object.keys(record)) {
     if (keep.has(name)) continue;
-    if (!isOurs(bots, path.join(dir, name))) continue;
-    rmSync(path.join(dir, name));
-    removed.push(name);
+    if (linkAt(path.join(dir, name)) === record[name]) {
+      rmSync(path.join(dir, name));
+      removed.push(name);
+    }
+    delete record[name];
   }
 
   for (const skill of wanted) {
     const at = path.join(dir, skill.name);
-    // A link that already says this is left alone, so a second run writes
-    // nothing. Anything else of the kit's there is repointed; anything of the
-    // user's stays, and the report says the kit does not manage it.
-    if (sameLink(at, skill.dir)) continue;
-    if (lstatSync(at, { throwIfNoEntry: false }) !== undefined) {
-      if (!isOurs(bots, at)) continue;
+    const there = linkAt(at);
+
+    // Already the link the kit wrote, pointing where the list says: nothing to
+    // do, so a second run writes nothing at all.
+    if (there === skill.dir && record[skill.name] === skill.dir) continue;
+
+    // Something is there that the kit did not write, or wrote and the user has
+    // since changed. It is theirs, and the report says the bot did not get what
+    // the list asked for.
+    if (there !== undefined || existsSync(at) || lstatSync(at, { throwIfNoEntry: false }) !== undefined) {
+      if (record[skill.name] === undefined || record[skill.name] !== there) continue;
       rmSync(at);
     }
-    // Absolute: a kit skill lives in the installed package, outside the bots
+
+    // Absolute: a kit skill lives in the installed package, outside the user's
     // repo, and the link has to reach out of the repo to find it (ADR 0004).
     symlinkSync(skill.dir, at);
+    record[skill.name] = skill.dir;
   }
 
-  return removed;
+  return { removed, held: heldIn(dir, record) };
 }
 
 /**
- * Whether the kit is the one that put this here: a symlink into one of the two
- * shelves the kit links from. A path skill the user named is theirs to clear up
- * once they stop naming it, and a directory is never the kit's.
- */
-function isOurs(bots, at) {
-  if (lstatSync(at, { throwIfNoEntry: false })?.isSymbolicLink() !== true) return false;
-
-  const points = realpathSync(at, { throwIfNoEntry: false }) ?? at;
-  return [KIT_SKILLS, path.join(bots, 'skills')].some((shelf) => within(shelf, points));
-}
-
-/** Whether `target` is that directory or something inside it. */
-function within(dir, target) {
-  const root = realpathSync(dir, { throwIfNoEntry: false }) ?? dir;
-  return target === root || target.startsWith(`${root}${path.sep}`);
-}
-
-/** Whether what is at `at` is already a link to `dir`. */
-function sameLink(at, dir) {
-  if (lstatSync(at, { throwIfNoEntry: false })?.isSymbolicLink() !== true) return false;
-
-  const points = realpathSync(at, { throwIfNoEntry: false });
-  return points !== undefined && points === (realpathSync(dir, { throwIfNoEntry: false }) ?? dir);
-}
-
-/**
- * What a bot has in its skills directories now, and where each came from. The
- * two harnesses hold the same names, so they are reported once.
+ * What a link at `at` says, or undefined when there is no link there.
  *
- * `managed` is whether this is one the kit keeps: a name the lists ask for.
- * Everything else is the user's, and is shown rather than touched.
+ * Read with `readlink`, which asks the link itself rather than what it points
+ * at: a link of the user's whose target has been deleted is a thing to report,
+ * not a thing to fall over. (`realpathSync` has no `throwIfNoEntry` — that
+ * option is `statSync`'s — so a dangling link throws there, which is how this
+ * once took a whole `obk up` down with it.)
  */
-function heldBy(home, wanted = []) {
-  const known = new Map(wanted.map((skill) => [skill.name, skill]));
-  const names = new Set(wanted.map((skill) => skill.name));
-  for (const harness of Object.keys(SKILL_DIRS)) {
-    const dir = path.join(home, SKILL_DIRS[harness]);
-    if (existsSync(dir)) for (const name of readdirSync(dir)) names.add(name);
+function linkAt(at) {
+  try {
+    return readlinkSync(at);
+  } catch {
+    return undefined;
   }
+}
 
-  // One with no shelf named is one the kit does not keep. It says nothing about
-  // where it came from, because it cannot tell: a skill the user put there, a
-  // link of their own, and a link the kit made from a path that no list names
-  // any more all look the same from here. What it can say is that the kit will
-  // not touch it, which is what the user has to know.
-  return [...names].map((name) => (known.has(name)
-    ? { name, from: known.get(name).from, managed: true }
-    : { name, managed: false }));
+/** What one harness's directory holds, and whether each entry is the kit's own. */
+function heldIn(dir, record) {
+  const held = new Map();
+  if (!existsSync(dir)) return held;
+
+  for (const name of readdirSync(dir)) {
+    // A link the kit wrote and the record still vouches for. Both halves have
+    // to be there: a directory of the user's has no link to read, and a name
+    // the record never knew has nothing to vouch for it — and `undefined` on
+    // both sides is not a match, it is two absences.
+    const target = linkAt(path.join(dir, name));
+    held.set(name, target !== undefined && target === record[name] ? 'linked' : 'yours');
+  }
+  return held;
+}
+
+/**
+ * What a bot has in its skills directories now, harness by harness.
+ *
+ * A name is the kit's only where both harnesses hold the link the kit wrote to
+ * the directory the lists name. Where they differ — the user keeps their own
+ * skill in one of them — that is said rather than averaged away, because the
+ * two harnesses are then reading different skills under one name.
+ */
+function heldBy(home, wanted, held) {
+  const known = new Map(wanted.map((skill) => [skill.name, skill]));
+  // The ones the lists name come first, in the order they name them, and
+  // whatever else the directories hold follows in name order.
+  const names = new Set([
+    ...wanted.map((skill) => skill.name),
+    ...[...held.values()].flatMap((one) => [...one.keys()]).sort(),
+  ]);
+
+  return [...names].map((name) => {
+    const at = Object.fromEntries(Object.keys(SKILL_DIRS)
+      .map((harness) => [harness, held.get(harness)?.get(name) ?? 'missing']));
+    const ours = Object.values(at).every((state) => state === 'linked');
+
+    return known.has(name) && ours
+      ? { name, from: known.get(name).from, managed: true, at }
+      // Not the kit's: the user's own, or a name the list asks for that the bot
+      // has something else under. It says nothing about where it came from,
+      // because from here it cannot tell.
+      : { name, managed: false, at };
+  });
 }
