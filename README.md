@@ -136,11 +136,14 @@ than relying on another skill being loaded.
 | | |
 |---|---|
 | `obk-tdd` | a failing test first, a separate test author, the mutation check |
+| `obk-reviewing` | giving a review that is worth acting on, and answering one |
 
 A skill is where the depth lives. The always-on rules say that a change in
-behaviour starts with a failing test someone else wrote; `obk-tdd` is how to
-write one worth keeping, what to do when it looks wrong, and how to find out
-whether the tests would catch a real mistake.
+behaviour starts with a failing test someone else wrote and is read by someone
+who did not write it; `obk-tdd` is how to write a test worth keeping and find
+out whether the tests would catch a real mistake, and `obk-reviewing` is how to
+read a change so the findings are worth acting on, and how to answer a reading
+of your own.
 
 A skill is a directory holding `SKILL.md` — frontmatter carrying `name` (the
 directory's own name) and `description`, then the body — plus any reference
