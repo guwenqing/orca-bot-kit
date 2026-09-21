@@ -17,9 +17,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { parse, stringify } from 'yaml';
+import { parse, parseDocument, stringify } from 'yaml';
 
-import { botDir, botNames, readBot, YAML_OUT } from './bot.js';
+import { botDir, botNames, changesExactly, readBot, YAML_OUT } from './bot.js';
 import { listIn } from './rules.js';
 import { cloneDir, isCloned, readSources, skillsIn } from './sources.js';
 
@@ -52,6 +52,51 @@ const HEADER = '# Written by obk: the skill links it made, by harness and name. 
 
 /** The file that makes a directory a skill. A directory without one is not one. */
 const MANIFEST = 'SKILL.md';
+
+/** The bot's own file, which is where its skills list lives. */
+const BOT_YAML = 'bot.yaml';
+
+/**
+ * Put one skill on a bot's list, in the user's own `bot.yaml`.
+ * Returns `{ bot, home, skill, state }`, where the state is `added` or `there`.
+ *
+ * It writes the list and stops. Linking is `obk skills build`, and the two are
+ * apart on purpose: a skill named from a source nobody has fetched yet cannot
+ * be linked, and a bot whose list grew by one is not a bot that should lose the
+ * links it already has to say so.
+ *
+ * An entry already on the list is left alone rather than written twice. That is
+ * the command doing what was asked, not refusing it: the list already says what
+ * the caller wanted it to say.
+ */
+export function addSkill(bots, bot, ref) {
+  const known = botNames(bots);
+  const home = botDir(bots, bot);
+  const file = path.join(home, BOT_YAML);
+  if (!known.includes(bot)) {
+    throw new Error(`there is no bot called ${bot} in ${bots}: ${file} is not there. Create it with obk bot create.`);
+  }
+
+  if (listIn(file, 'skills').includes(ref)) return { bot, home, skill: ref, state: 'there' };
+
+  const was = readFileSync(file, 'utf8');
+  const doc = parseDocument(was);
+  const listed = doc.get('skills', true);
+  if (listed?.items === undefined) {
+    // No list to add to: an empty `skills:`, or no skills key at all.
+    doc.set('skills', [ref]);
+  } else {
+    listed.flow = false;
+    doc.addIn(['skills'], ref);
+  }
+
+  const text = doc.toString(YAML_OUT);
+  if (!changesExactly(was, text, (had) => ({ ...had, skills: [...(had.skills ?? []), ref] }))) {
+    throw new Error(`${file} cannot have a skill added to it without changing something else in it, so nothing was written. Add ${ref} to its skills list by hand.`);
+  }
+  writeFileSync(file, text);
+  return { bot, home, skill: ref, state: 'added' };
+}
 
 /**
  * Give one bot the skills its lists name. Returns what there is to report:

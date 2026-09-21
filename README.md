@@ -180,6 +180,8 @@ than relying on another skill being loaded.
 | `obk-researching` | finding it out from sources, and saying how well you know it |
 | `obk-writing` | writing for a reader, in one kind of piece, with the claims checked |
 | `obk-decision-memo` | the conclusion first, the alternatives, and the argument against it |
+| `obk-bot-building` | what a bot owns, the charter interview, and the skills the job needs |
+| `obk-fleet-review` | one verdict per bot, the cheaper answers first, and where a problem goes |
 
 A skill is where the depth lives. The always-on rules say that a change in
 behaviour starts with a failing test someone else wrote and is read by someone

@@ -4,7 +4,8 @@ import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 
-import { assertSeededBotsFolder, createSandbox, git, skipGit, skipOrcaFake, snapshot } from './helpers/cli.js';
+import { assertSeededBotsFolder, createSandbox, git, repoRoot, skipGit, skipOrcaFake, snapshot } from './helpers/cli.js';
+import { SKILL_DIRS } from './helpers/skills.js';
 
 test('init --bots <relative path> seeds the bots folder', async (t) => {
   const box = await createSandbox(t);
@@ -75,15 +76,36 @@ test('init puts no kit code in the bots folder', async (t) => {
   // rather than whether there is one. A bot's own `CLAUDE.md` -> `AGENTS.md`
   // (PRD 6.6) points at the file next to it and carries nothing of the kit's.
   //
-  // This is about what `init` seeds, which is no skill at all, and not a rule
-  // over the bots folder for good. A bot that carries a kit skill is given an
-  // absolute link into the installed package, which is ADR 0004 working rather
-  // than kit code in the repo (PRD 6.7, test/skills-build.test.js).
+  // A bot that carries a kit skill is given an absolute link into the installed
+  // package, which is ADR 0004 working rather than kit code in the repo (PRD
+  // 6.7, test/skills-build.test.js, which pins that the link is absolute).
+  // `init` used to seed no skill at all, so every link it made was relative and
+  // the rule below could be flat. It now seeds Bot Father with the kit's two
+  // management skills, because a Bot Father with no management skill cannot be
+  // asked to fix itself. So one exception is made, and it is made on both the
+  // place and the target: a link is let out of the folder only where a harness
+  // reads a bot's skills, and only onto a whole skill directory of the kit's
+  // own. Either half on its own is not enough. A link anywhere else in a bot
+  // home that points at a real skill would be bot-owned content redirected into
+  // the installed package, and a link in the right place that points at
+  // something under the shelf which is not a skill reaches into the package
+  // just as far. Everything else is held to the old rule: relative, and
+  // pointing inside the folder.
   const box = await createSandbox(t);
 
   assert.equal((await box.run(['init', '--bots', 'bots', '--harness', 'claude'])).code, 0);
 
   const bots = box.path('bots');
+  // Where the kit's own skills live inside the installed package.
+  const shelf = path.join(repoRoot, 'skills');
+  // Where a harness reads a bot's skills, as `bots/<bot>/<dir>/<name>`: the
+  // only place in the folder a link may leave it from.
+  const readBy = Object.values(SKILL_DIRS).map((dir) => dir.split(path.sep));
+  const whereAHarnessReadsASkill = (rel) => {
+    const parts = rel.split('/');
+    return parts[0] === 'bots'
+      && readBy.some((dir) => parts.length === dir.length + 3 && dir.every((segment, at) => parts[at + 2] === segment));
+  };
   const tree = await snapshot(bots, skipGit);
   for (const [rel, kind] of Object.entries(tree)) {
     assert.ok(!rel.endsWith('.js'), `no .js file expected, found ${rel}`);
@@ -92,11 +114,15 @@ test('init puts no kit code in the bots folder', async (t) => {
     if (!kind.startsWith('symlink:')) continue;
 
     const target = kind.slice('symlink:'.length);
+    const points = path.resolve(path.dirname(path.join(bots, rel)), target);
+    // `dirname`, not a prefix: the target is a skill directory itself and not
+    // something inside one.
+    if (whereAHarnessReadsASkill(rel) && path.dirname(points) === shelf) continue;
+
     assert.ok(
       !path.isAbsolute(target),
-      `the bots folder is a git repo the user may clone, so a link in it should be relative, found ${rel} -> ${target}`,
+      `the bots folder is a git repo the user may clone, so a link in it should be relative unless it is a kit skill where a harness reads one, found ${rel} -> ${target}`,
     );
-    const points = path.resolve(path.dirname(path.join(bots, rel)), target);
     assert.ok(
       points === bots || points.startsWith(`${bots}${path.sep}`),
       `a link in the bots folder should point inside it, found ${rel} -> ${target}`,
