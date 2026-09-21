@@ -175,6 +175,34 @@ test('CI runs the suite on a current Node, and also on the floor package.json pr
   );
 });
 
+test('the README says the same about Node as the package and the workflow do', async () => {
+  // The floor lives in three places a person writes by hand — `engines.node`, the
+  // workflow, and the sentence a user reads before installing anything — and a
+  // reader has no way to tell which of them is stale. The other guards hold the
+  // first two together; this holds the third to them.
+  const declared = (await readPackage()).engines.node;
+  const floor = versionOf(declared);
+  const readme = await readFile(path.join(repoRoot, 'README.md'), 'utf8');
+
+  const promised = /Node(?:\.js)?\s*>=\s*(\d+\.\d+\.\d+)/.exec(readme);
+  assert.notEqual(promised, null, 'the README should say which Node the kit needs, as >= x.y.z');
+  assert.equal(promised[1], floor, `the README promises Node ${promised[1]} and package.json ${floor}`);
+
+  // And every exact version it names in the same breath as Node is one this repo
+  // still stands behind: the floor, or a version CI actually runs the suite on.
+  const running = await ciNodeVersions();
+  const allowed = new Set([floor, ...running]);
+  for (const line of readme.split('\n').filter((text) => /\bnode\b/i.test(text))) {
+    for (const named of line.match(/\d+\.\d+\.\d+/g) ?? []) {
+      assert.ok(
+        allowed.has(named),
+        `the README says Node ${named}, which is neither the floor ${floor} nor a version CI runs`
+        + ` (${running.join(', ')}): ${line.trim()}`,
+      );
+    }
+  }
+});
+
 test('every action a workflow uses is pinned to a full commit SHA', async () => {
   // A tag can be moved to point at someone else's code; a SHA cannot.
   const all = await workflows();

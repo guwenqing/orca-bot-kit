@@ -6,9 +6,7 @@
 // theirs. Beside each session's tab it holds the harness session id that
 // session is running under, and every id it ran under before.
 
-import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { isDeepStrictEqual } from 'node:util';
@@ -139,27 +137,28 @@ function takeLock(home) {
 }
 
 /**
- * Where a writer takes its turn. SQLite keeps the file it locks, so this one
- * stays, and there is nowhere in the user's own things it belongs: the bot home
- * is their repo, committed, and `init` writes nothing outside the bots folder,
- * and nothing of the kit's ever goes in their home directory. What is left is
- * what this actually is — state of one machine, for as long as a write takes —
- * so it lives where a machine keeps that, named after the book it belongs to.
+ * Where a writer takes its turn: a folder of the kit's own beside the bots repo,
+ * carrying that folder's own name, the way start-prompt files sit beside it
+ * (PRD 6.3). SQLite keeps the file it locks, so this one stays, and the places it
+ * cannot stay are: the bot home, which is the user's repo and gains nothing a
+ * session did not ask for; and their home directory, where the kit writes
+ * nothing.
  *
- * The name is a digest of the book's own path, so two books can never take each
- * other's turn however alike their bots folders look, and every writer of one
- * book agrees on it without being told.
+ * Not the machine's temporary directory either, though it looks like the natural
+ * home for state that lasts as long as a write. A temporary directory is swept.
+ * A lock swept away while a writer holds it does not cost that writer anything —
+ * it costs the next one, which creates the file again and takes a turn on a
+ * different file while the first is still writing. Two writers, two locks,
+ * neither knowing: the failure four rounds of review have been about. A sibling
+ * is nobody's to sweep, and the user can see it and delete it.
  *
- * The one thing this place costs: if something wiped the folder between two
- * writers opening it, each would lock a different file and both would think they
- * had the turn. That needs a deletion inside the millisecond between two opens of
- * a file that every write touches, and nothing of the user's is kept here.
+ * One folder per bots folder, so two bots folders each holding an api-bot cannot
+ * take each other's turn.
  */
-function lockFile(home) {
-  const book = path.resolve(bookFile(home));
-  const name = createHash('sha256').update(book).digest('hex').slice(0, 32);
-  return path.join(tmpdir(), 'obk-locks', `${name}.lock`);
-}
+const lockFile = (home) => path.join(
+  `${path.dirname(path.dirname(home))}.locks`,
+  `${encodeURIComponent(path.basename(home))}.lock`,
+);
 
 /**
  * Something else has been writing the book for longer than this run is prepared

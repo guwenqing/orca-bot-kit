@@ -46,22 +46,26 @@
 //     it takes a down-arrow and then return, not a bare return.
 //   - Codex's directory-trust question, `1. Yes, continue`, already selected.
 //   - Codex's `Hooks need review` screen, which is new with the kit's own hook:
-//     choose `2`, "Trust all and continue". `1` opens the review list and `esc`
-//     backs out of it, and `t` does nothing at all — nine presses, nine tabs
-//     still on the screen (round 3, live run). Until it is answered the hook does
-//     not run at all and the book stays empty, so this is the one that will
-//     look like a broken kit if it goes unanswered. Orca reports it as
+//     choose `2`, "Trust all and continue". `3` is "Continue without trusting
+//     (hooks won't run)", `1` opens the review list — Orca's own hook sits there
+//     beside the kit's — `esc` backs out of that list, and `t` does nothing at
+//     all: nine presses, nine tabs still on the screen. Orca reports the screen as
 //     `blockedReason: "agent-hooks-review-prompt"`.
 //
-//     And answering it later does not put right the conversation that was
-//     already running: Codex never reports that one, whatever happens
-//     afterwards (the reviewer proved this). That is why the kit writes down
-//     when it launched a harness and asks Codex's own records what ran in the
-//     folder since — and why the last test in this file leaves the screen
-//     unanswered on purpose for a while. What it finds is written down as a
-//     conversation nobody claims; it is never assigned to a session, because
-//     the folder holds every session of the bot and every harness they started
-//     inside themselves (round 3, finding 1).
+//     Nothing runs behind it. While that screen is up there is no conversation and
+//     no rollout, so a screen left alone is a session that never started rather
+//     than one running untrusted (measured live, round 4; it is in the tech notes,
+//     because it is a fact about Codex). This is the answer that will look like a
+//     broken kit if it goes unanswered: no hook, so an empty book.
+//
+//     And answering it later does not put right a conversation that ran without
+//     the hook: Codex never reports that one, whatever happens afterwards (the
+//     reviewer proved this). That is why the kit writes down when it launched a
+//     harness and asks Codex's own records what ran in the folder since. What it
+//     finds there is written down as a conversation nobody claims; it is never
+//     assigned to a session, because the folder holds every session of the bot and
+//     every harness they started inside themselves (round 3, finding 1). The last
+//     test in this file is that case, and it is the one that wants `3`.
 //
 // So: run it with Orca in front of you and answer what the tabs ask. Every wait
 // below says what the tab is showing when it runs out of patience, so a run
@@ -75,10 +79,12 @@
 //     Claude Code's folder trust      \x1b[B\r   down, then return
 //     Codex's directory trust         1\r        "Yes, continue"
 //     Codex's `Hooks need review`     2\r        "Trust all and continue"
+//                                     3\r        "Continue without trusting"
 //
 // which is what to send if you drive them from a script of your own rather than
 // clicking. On the hooks screen `1` opens the review list, which lists Orca's own
-// hook beside the kit's, and `esc` backs out of it; only `2` trusts and goes on.
+// hook beside the kit's, and `esc` backs out of it; `2` trusts and goes on, and
+// `3` goes on without trusting, which is a live session whose hook never fires.
 // Nothing here sends any of them: which question to answer, and how, is the
 // caller's judgement and not the kit's (PRD 6.5), and a test that guessed at a
 // screen it did not recognise is exactly what that rule exists to prevent.
@@ -88,7 +94,7 @@
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, readdir, readFile, realpath, rm } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, realpath, rm, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -124,6 +130,16 @@ const ANSWER_MS = 240000;
 
 /** And how long the kit's hook is given to have written the book after a session starts. */
 const HOOK_MS = 60000;
+
+/**
+ * And how long a session is given when what it has to do is run a harness of its
+ * own: two agents' turns one after the other, and the inner one's own first
+ * screen in between. Measured on this machine: fifty seconds when it goes well,
+ * and a run that had already gone past four minutes still finished afterwards. So
+ * this is not the ordinary answer's patience, and a case that used that wait
+ * failed on a slow turn rather than on anything the kit did.
+ */
+const CHILD_MS = 480000;
 
 /**
  * How long a tab is given to be ready for a question. A first run has two
@@ -214,6 +230,66 @@ function tabOf(answer, name) {
 async function sessionIn(home, name) {
   const book = parse(await readFile(path.join(home, 'sessions.yaml'), 'utf8')) ?? {};
   return book.sessions?.[name] ?? {};
+}
+
+/**
+ * The conversations Codex has on record for one folder, from `since` on.
+ *
+ * One rollout file per conversation, filed under the day it started, its first
+ * line a `session_meta` carrying the id, the folder and the time (tech notes,
+ * section 3). Read only, and read here for one reason: whether a conversation
+ * happened at all is the premise of the last case in this file, and while the
+ * hooks file is untrusted neither the book nor the screen can say.
+ *
+ * Files last written before `since` are never opened, so on a machine with years
+ * of conversations this costs a walk of the folders and a read of today's few.
+ */
+async function codexConversationsSince(home, since) {
+  const found = [];
+
+  async function walk(dir, depth) {
+    if (depth > 4) return;
+    let entries;
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch {
+      // No records there at all, which is an answer.
+      return;
+    }
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        await walk(full, depth + 1);
+      } else if (entry.name.endsWith('.jsonl') && await touchedSince(full, since)) {
+        const id = await conversationIn(full, home);
+        if (id !== undefined) found.push(id);
+      }
+    }
+  }
+
+  await walk(path.join(os.homedir(), '.codex', 'sessions'), 0);
+  return found;
+}
+
+/** Whether a file has been written since then, as the file system has it. */
+async function touchedSince(file, since) {
+  try {
+    return (await stat(file)).mtimeMs >= since;
+  } catch {
+    return false;
+  }
+}
+
+/** The conversation a rollout says it is, when it is one of this folder's. */
+async function conversationIn(file, home) {
+  let said;
+  try {
+    said = JSON.parse((await readFile(file, 'utf8')).split('\n', 1)[0]);
+  } catch {
+    return undefined;
+  }
+  const meta = said?.type === 'session_meta' ? said.payload : undefined;
+  return meta?.cwd === home && typeof meta.id === 'string' ? meta.id : undefined;
 }
 
 /**
@@ -326,12 +402,15 @@ function requestIdIn(error) {
   return found === null ? undefined : found[1];
 }
 
-/** Ask the session something and wait for `word` to appear on its screen. */
-async function answers(handle, question, word) {
+/**
+ * Ask the session something and wait for `word` to appear on its screen.
+ * `within` is for the questions that are more than one answer's work.
+ */
+async function answers(handle, question, word, within = ANSWER_MS) {
   await askIn(handle, question);
   await until(
     `${handle} to answer with ${word}`,
-    ANSWER_MS,
+    within,
     async () => (screenOf(handle).includes(word) ? true : undefined),
     () => whatIsUp(handle),
   );
@@ -675,10 +754,12 @@ test('a harness the session starts for itself does not become the session\'s con
     );
 
     // The session runs a harness of its own, bounded, and says when it is done.
+    // Two agents' work, so it is given the patience for two.
     await answers(
       entry.terminal,
       `Run exactly this command, then reply with the single word DONE: ${bot.child}`,
       'DONE',
+      CHILD_MS,
     );
 
     const daily = await sessionIn(home, 'daily');
@@ -703,21 +784,32 @@ test('a harness the session starts for itself does not become the session\'s con
   }
 });
 
-test('a Codex conversation that ran before the hooks file was trusted is not lost', async (t) => {
-  // The review's finding 3, live, and the one test in this file that asks you to
-  // leave a screen alone for a while.
+test('a Codex conversation that ran before the hooks file was trusted is written down, not lost', async (t) => {
+  // The one case in this file that needs a screen answered a particular way, and the
+  // only one that wants the kit's hook not to run.
   //
-  // Attended, in this order:
+  // Attended, and shorter than it used to be:
   //   1. Answer Codex's directory-trust question if it asks.
-  //   2. Leave `Hooks need review` UNANSWERED until the test says otherwise. The
-  //      conversation the launch line started runs behind it and the kit's hook
-  //      never fires, so the book learns nothing — which is what this test checks
-  //      first. Nothing is asked of the session while that screen is up: Orca
-  //      refuses a prompt to a tab that is waiting on one of its own, so there is
-  //      no road to the agent from here (round 3, live run).
-  //   3. When the test prints that it is waiting, answer the screen with `2`,
-  //      "Trust all and continue". Trusting does not replay the report it missed.
-  //   4. Answer anything else as usual.
+  //   2. Answer `Hooks need review` with `3`, "Continue without trusting (hooks
+  //      won't run)". That is what this case needs, and leaving the screen alone is
+  //      not: nothing runs behind it. While it is up Codex has started no
+  //      conversation and written no rollout, so a screen left alone is a session
+  //      that never began, and the premise wait below runs out saying so (measured
+  //      live, round 4). `3` gives the case exactly what it is about — a live
+  //      conversation, with its duty, that the kit's hook never reports.
+  //   3. Answer nothing else. Nothing is asked of the session at all here.
+  //
+  // It used to answer that screen half way through and then wait for the hook to
+  // report the conversation after it, and that road does not work: nothing can be
+  // asked of a tab while it is waiting on a screen (Orca refuses it), and the wait
+  // for the hook after the screen was answered ran out in every attended run.
+  //
+  // It is also the wrong road for what this proves. What the kit claims is about
+  // its record, not about the hook: a conversation it never learned of is written
+  // down as one nobody claims, and never assigned to a session. `obk up` reads
+  // Codex's own records itself, so closing the tab and running it asks nothing of
+  // anybody — and the hook reporting after a clear is already proved live, on both
+  // harnesses, by the first case in this file.
   const before = {
     handles: new Set(allTerminals().map((terminal) => terminal.handle)),
     setups: new Set(allSetups().map((setup) => setup.id)),
@@ -770,84 +862,80 @@ test('a Codex conversation that ran before the hooks file was trusted is not los
   const launched = (await sessionIn(home, 'daily')).launched;
   assert.ok(Number.isFinite(Date.parse(String(launched))), `the book should say when, got: ${launched}`);
 
-  // The screen this case is about. The conversation the launch line started runs
-  // behind it, with its duty; the kit's hook does not run at all until the file
-  // is trusted. Nothing is asked of the session here — Orca refuses a prompt to a
-  // tab that is waiting on one — so the screen itself is what the test waits for.
-  await until(
-    'the tab to be waiting on its hooks review',
-    READY_MS,
+  // The premise of the case, and the only thing that can tell us it holds: Codex's
+  // own record of a conversation in this folder. The screen cannot — it is up
+  // within a second or two of launch, before the conversation behind it has
+  // necessarily run — and nothing can be asked of the session while it is up,
+  // because Orca refuses a prompt to a tab that is waiting on one.
+  const ran = await until(
+    'Codex to have a conversation on record for this folder',
+    ANSWER_MS,
     async () => {
-      const answer = orca(['terminal', 'wait', '--terminal', entry.terminal, '--for', 'tui-idle', '--timeout-ms', '5000']);
-      const blocked = answer.ok === true ? answer.result?.wait?.blockedReason : undefined;
-      return /hooks/i.test(String(blocked)) ? blocked : undefined;
+      const found = await codexConversationsSince(home, Date.parse(String(launched)));
+      return found.length > 0 ? found : undefined;
     },
-    () => ' Answer Codex\'s directory-trust question if it is up, and then leave the `Hooks need'
-      + ' review` screen alone. If this machine has already trusted the kit\'s hooks file, that'
-      + ' screen never comes and this case cannot run here at all.'
+    () => ' Answer Codex\'s directory-trust question if it is up, and answer `Hooks need review`'
+      + ' with `3` — "Continue without trusting (hooks won\'t run)". Nothing runs behind that'
+      + ' screen: while it is up there is no conversation and no rollout, so leaving it alone'
+      + ' gives this case nothing to find. If this machine has already trusted the kit\'s hooks'
+      + ' file, the screen never comes, the hook runs, and this case cannot run here at all.'
       + whatIsUp(entry.terminal),
   );
 
-  // And the kit was told nothing, because the hook never ran.
+  // And the kit was told nothing about it, because the hook never ran.
   const unreported = await sessionIn(home, 'daily');
   assert.equal(
     unreported.session,
     undefined,
-    'the hook must not have run while the review screen is still up.'
-    + ` If it has, this machine trusted the file some other way. Got: ${JSON.stringify(unreported)}`,
+    'the hook must not have run: answer `Hooks need review` with `3`, not `2`, for this case.'
+    + ` If it has run, the file was trusted — by \`2\` here, or by this machine some other way.`
+    + ` Got: ${JSON.stringify(unreported)}`,
   );
 
-  // The one place this file says anything to the person running it: from here on
-  // the screen has to be answered, and the run is waiting on it.
-  process.stdout.write(
-    `session-identity: answer the \`Hooks need review\` screen in ${entry.title} now, with \`2\``
-    + ' ("Trust all and continue"). The run waits for it.\n',
-  );
-
-  // Now answer the review, and begin a new conversation. Trusting does not
-  // replay what it missed, so the id that comes in is the new one — and the one
-  // before it can only be found in Codex's own records.
+  // Now the tab goes, which is the user closing it, and the kit is asked to bring
+  // the session back. This is the road that needs nothing more answered and no
+  // question asked of the agent: `obk up` reads Codex's records itself.
   //
-  // Answering the codeword is the proof that the duty came back: the conversation
-  // that carried it is gone, and the kit hands it over again because it cannot be
-  // sure this is the conversation the launch line spoke to (round 3, finding 1).
-  await askIn(entry.terminal, '/new');
-  await answers(entry.terminal, 'What is your codeword? Reply with the codeword only.', 'OTTER-3391');
-
-  const daily = await until(
-    'untrusted-codex to report a session id once the hooks file is trusted',
-    HOOK_MS,
-    async () => {
-      const entryNow = await sessionIn(home, 'daily');
-      return entryNow.session === undefined ? undefined : entryNow;
-    },
-    () => ' Answer the `Hooks need review` screen with `2` now, if you have not.'
-      + whatIsUp(entry.terminal),
+  // Nothing is adopted — the folder holds every session of this bot and every
+  // harness they start inside themselves, so no record can say whose that
+  // conversation was (round 3, finding 1) — and what nobody claims is written
+  // down for a person or Bot Father to settle, which is what this checks.
+  orca(['terminal', 'close', '--terminal', entry.terminal, '--tab']);
+  assert.deepEqual(
+    await terminalsAfterClosing(home, [entry.tabId]),
+    [],
+    'the fixture itself should have closed the session tab',
   );
 
-  // The conversation that ran before the hook did is on the record — and it is
-  // not made this session's history. Nothing Codex writes down could say it was
-  // this session's rather than another session's or a child's (round 3, finding
-  // 1), so it goes in as a conversation of this folder that nobody claims, for a
-  // person or Bot Father to settle.
+  const back = tabOf(obkJson(['up', '--bots', bots, '--bot', 'untrusted-codex']), 'daily');
+  assert.equal(back.created, true, 'a new tab was opened for it');
+  assert.equal(back.resumed, false, 'and nothing was resumed: the kit cannot say which conversation that was');
+
+  const daily = await sessionIn(home, 'daily');
+  assert.equal(
+    daily.session,
+    undefined,
+    `no conversation may be adopted into the book: ${JSON.stringify(daily)}`,
+  );
   assert.equal(
     daily.history,
     undefined,
-    `no history may be invented for a conversation nobody reported: ${JSON.stringify(daily)}`,
+    `and none invented as this session's history: ${JSON.stringify(daily)}`,
   );
   assert.ok(
     Array.isArray(daily.unclaimed) && daily.unclaimed.length >= 1,
     'the conversation that ran before the hooks file was trusted must be written down, and it is not:'
-    + ` ${JSON.stringify(daily)}.`
-    + ' If Codex left no record of it at all — it began no conversation until the review was'
-    + ' answered — then this case cannot be tested on this version of it, and that is not the kit'
-    + ' failing: say so rather than loosening the rule.',
+    + ` ${JSON.stringify(daily)}. Codex's own records held ${JSON.stringify(ran)}.`,
   );
   for (const id of daily.unclaimed) {
     assert.equal(typeof id, 'string', `as plain ids, got: ${JSON.stringify(daily.unclaimed)}`);
   }
+  // At least one of them, rather than all: this test reads the rollout files by
+  // their own time on disk and the kit reads what each one says about itself, so
+  // the two can disagree at the edge of the window. One id in common is the claim
+  // being made — that the conversation nobody recorded is the one on the record.
   assert.ok(
-    !daily.unclaimed.includes(daily.session),
-    `and the conversation it is running now is claimed, so it is not on that list: ${JSON.stringify(daily)}`,
+    daily.unclaimed.some((id) => ran.includes(id)),
+    `and it must be the conversation Codex has on record: ${JSON.stringify(daily.unclaimed)} against ${JSON.stringify(ran)}`,
   );
 });
