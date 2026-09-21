@@ -38,7 +38,9 @@ incremental by default; `mutmut browse` to work through the survivors.
 `targetClasses` and `targetTests` globs.
 
 **Anything else** — shell, SQL, configuration, prompts, a language with no such
-tool: the hand check in the skill is the method, and it is the same method.
+tool: the hand check in the skill is the method, and it is the same method,
+including the rule about when to skip it. Something with no logic in it does
+not get broken on purpose just because no tool would have run anyway.
 
 ## Four things that older advice gets wrong
 
@@ -57,6 +59,10 @@ tool: the hand check in the skill is the method, and it is the same method.
 - A diff-scoped run matches the diff against the code under test, not the test
   code. A change that only weakens a test produces no mutants at all and comes
   back clean. When test files change, mutate the code those tests cover.
-- Mutating a dirty tree is not a result: uncommitted work is outside a
-  `base...HEAD` diff, and a run that dies in the middle can leave a mutant in
-  the working copy. Commit or stash first, and look at the tree afterwards.
+- A run that picks its targets from a committed diff sees only committed work,
+  so on a dirty tree it reports on the wrong code: commit first, or name the
+  files yourself instead. Naming them is the better answer when the point is to
+  check work that is not committed yet — do not make someone stash the code
+  they asked about.
+- Whatever selects the targets, a run that dies in the middle can leave a
+  mutant in the working copy. Look at the tree afterwards.

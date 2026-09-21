@@ -75,8 +75,9 @@ behaviour you imagined, and they all go green in one step that nobody watched.
 A separate author writing the acceptance tests up front is not that, although
 it looks like it: those are a few tests at the top seam, taken from the
 requirement rather than from a plan. You still work through them one at a time,
-watching each one fail and then pass, and adding narrower tests of your own as
-the code takes shape.
+watching each one fail and then pass. When a slice turns out to need a narrower
+test — a boundary the top seam does not reach — that one goes to the author
+too; the brief is smaller, not different.
 
 Test at a seam: the public boundary where you can observe behaviour without
 reaching inside. Prefer a seam that already exists, and the highest one that
@@ -153,8 +154,11 @@ brief: *the code has a deliberate break in it and the test is expected to
 fail*. Left out, the author reads your own break as a defect and spends a round
 reporting a bug that does not exist.
 
-Then, as the implementer: you may add tests of your own. You do not edit,
-weaken, skip or delete the author's tests to get to green. A test you believe
+Then, as the implementer: every test that ships is the author's, the narrow
+ones as much as the first ones. A scratch check you run to see what the code is
+doing is yours and is thrown away; it is not part of the suite, and it is not
+the red you report. You do not edit, weaken, skip or delete the author's tests
+to get to green. A test you believe
 is wrong goes back to its author with what you think is wrong with it — that is
 a real and expected outcome, not a defeat. The tests verify the requirement;
 they do not define the solution, so do not write code that works only for the
@@ -268,9 +272,10 @@ Five shapes that still pass that way, and what to do with each:
 - **No real assertion.** Nothing asserted, or only "is defined", "is truthy",
   "did not throw". Call the subject with one concrete input and assert the
   literal output or the observable effect.
-- **Only a stub or an absence.** Only "was called", "was not called", "is
-  undefined", "is empty". Assert the payload the stub received, or the state
-  after the call.
+- **An absence with nothing to contrast it against.** Only "was not called",
+  "is undefined", "is empty", and no case in the same test where something
+  *is* produced. Assert the presence on the other input beside it, so the pair
+  can tell an empty result from a subject that never ran.
 - **Self-referential.** The expected value is produced by the code under test.
   Replace it with a literal you worked out by hand.
 - **Constant pinned.** The assertion restates a constant, a config default or
@@ -278,6 +283,15 @@ Five shapes that still pass that way, and what to do with each:
   with one input instead.
 - **Fixture asserts fixture.** The assertion reads data the test itself built,
   and the subject never runs. Run the subject inside the test body.
+
+An empty or absent result is not by itself a weak assertion. "This user sees
+none of the private records" and "this call is never made" are contracts, and
+a test that pins one catches a real defect. So are the arguments a call
+carries, how many times it happens and in what order, where those are the
+contract rather than an accident of how the code is written today. What makes
+the shape weak is an absence with no positive case beside it, or a stub
+asserted instead of the behaviour. Judge by the question that governs the
+whole list: would this catch a defect someone could ship?
 
 When no honest assertion exists, delete the test. Prefer no new test to a bad
 one: one that mostly tests stubs, that encodes today's implementation, that
@@ -362,11 +376,13 @@ the core of a product, one run narrowed to the logic that changed, in the
 background, around twenty minutes; if it will not fit in that, do the hand
 check instead. Then stop. A run heading towards hours is stopped.
 
-If you do run one: a clean working tree first, because a diff-scoped run covers
-committed work only; prove the setup with one small scoped run before spending
-a long one; capture the output once and read it from the copy rather than
-re-running to re-read it; set no failing threshold before a measured baseline
-exists. Paste what the tool printed — a mutation result reported from memory
+If you do run one: when the run selects its targets from a committed diff, the
+tree has to be clean or the result is about the wrong code — a run that names
+its files itself has no such limit, and asking someone to stash the very work
+they wanted checked is the wrong way round. Prove the setup with one small
+scoped run before spending a long one. Capture the output once and read it from
+the copy rather than re-running to re-read it. Set no failing threshold before
+a measured baseline exists. Paste what the tool printed — a mutation result reported from memory
 has been wrong. A compile error is not a kill, and a timeout is inconclusive
 rather than evidence. Commands and their current flags are in
 [mutation-tools.md](mutation-tools.md).
@@ -398,6 +414,13 @@ The same three moves work on documentation, configuration, prompts and data,
 where no tool will help: state the check before you make the change, see the
 check fail first, and at the end break the artefact on purpose to find out
 whether the check notices.
+
+They apply where there is something that can be wrong — a configuration that
+decides who gets what, a prompt whose branches behave differently, a
+transformation over data. The skip rule is the same one as for code and it is
+used the same way: a wording fix, a rename, a link correction has no logic in
+it, so state what you checked and skip the rest. Prose written for people earns
+no test and no mutant.
 
 ## Where this comes from
 
