@@ -114,7 +114,9 @@ point earns its full substance.
 
 - Its only outlet for missing information was a line written into the file,
   which the person may never open. Asking belongs in the reply.
-- Marking a booking done hid the appointment that had not happened yet.
+- Marking a booking done hid the appointment date that had not arrived yet.
+  The date is kept on the item; what counts as done is still the outcome they
+  asked for, which is the old skill's rule.
 - "Do not reorder their list quietly" read as forbidding action on an urgency
   the person had just stated out loud.
 - In a list divided up by when things are due, a new undated item had nowhere

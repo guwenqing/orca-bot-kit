@@ -56,9 +56,10 @@ read what you meant to write.
 Mark something complete when they say so, or when the thing they asked for has
 happened and you have seen it. Not because you did the step you thought was the
 whole of it, and not to tidy the list: a list that says done when it is not is
-worse than no list, because it is believed. An item can also be finished as a
-task and not over as a thing — the booking is made, the appointment is still
-ahead — so carry the date on it and leave it open.
+worse than no list, because it is believed. Where finishing a task leaves a
+date behind it, keep the date on the item so the tick does not bury it. What
+they asked for is still what decides: "book the dentist" is done once it is
+booked.
 
 ## Ordering is a suggestion; the priority is theirs
 
