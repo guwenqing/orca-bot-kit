@@ -123,6 +123,32 @@ name), `title` (the heading it gets in `AGENTS.md`) and `applies` (`all` or
 [`test/kit-rules.test.js`](test/kit-rules.test.js) holds that shape, and the
 size the always-on set may reach.
 
+## The skills a bot uses
+
+The kit ships its own skills in [`skills/`](skills/), one directory per skill,
+named `obk-<technique>`
+([ADR 0009](docs/adr/0009-skills-by-technique-with-a-prefix.md)). They are
+organised by technique rather than by role: a role is a charter plus a choice
+of skills. Each one gives techniques and defaults, never a process or
+a way of working you have to adopt, and carries what it needs itself rather
+than relying on another skill being loaded.
+
+| | |
+|---|---|
+| `obk-tdd` | a failing test first, a separate test author, the mutation check |
+
+A skill is where the depth lives. The always-on rules say that a change in
+behaviour starts with a failing test someone else wrote; `obk-tdd` is how to
+write one worth keeping, what to do when it looks wrong, and how to find out
+whether the tests would catch a real mistake.
+
+A skill is a directory holding `SKILL.md` — frontmatter carrying `name` (the
+directory's own name) and `description`, then the body — plus any reference
+files it links to. Those two keys are the only frontmatter both Claude Code and
+Codex read, so a kit skill carries nothing else, and its links stay inside its
+own directory, because a bot gets the directory alone.
+[`test/kit-skills.test.js`](test/kit-skills.test.js) holds that shape.
+
 ## Working on the kit
 
 ```sh
