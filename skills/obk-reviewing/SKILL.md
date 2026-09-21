@@ -143,9 +143,9 @@ paragraphs about the architecture.
   is over. Do not mark simple code down for not being abstract: a few lines
   repeated beat an abstraction invented too early.
 - **The tests.** Is there a test for what changed, and would it fail if the
-  code were wrong? Where a separate author wrote them, is every case the hand-
-  over names present in the revision being handed on, with the contents the
-  author handed back? Absent from the diff is a reason to look at the
+  code were wrong? Where a separate author wrote them, is every case the
+  hand-over names present in the revision being handed on, with the contents
+  the author handed back? Absent from the diff is a reason to look at the
   revision, not a finding by itself — the tests may have landed in an earlier
   change this one builds on. What is a finding is a named test that is not
   there at all, or is there with its assertions softened. Confirm which before
