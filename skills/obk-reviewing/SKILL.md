@@ -5,8 +5,10 @@ description: >-
   given and what it is not, the angles worth taking on a diff, the test to put
   a finding through before writing it, the findings that are usually wrong,
   what a report says, and how to answer one without performing agreement. Use
-  when reviewing a change or a pull request, when judging someone else's
-  findings, or when answering a review of your own work.
+  whenever you are reading someone else's change — a diff, a branch, a pull
+  request, a patch — or have been asked to look at, check over or give an
+  opinion on work you did not write, and equally whenever findings come back
+  on your own work and you have to decide what to do about each one.
 ---
 
 # Reviewing
@@ -20,6 +22,15 @@ The reviewer comments and does not edit. Whoever wrote the code makes the
 change, and the check is run again afterwards. That order is the whole
 mechanism: it keeps the author responsible for the code and the reviewer
 responsible for the argument.
+
+Scale the reading to the change. A review is not skipped because the work is
+small, but a small change gets a small review: the questions that could matter
+here, not the whole list every time. Formality repeated on every change costs
+trust as surely as missing a defect does.
+
+Question the approach before the edge cases. If the change solves the problem
+in the wrong place, or solves the wrong problem, the boundary conditions inside
+it are beside the point; settle the shape first and look at the details after.
 
 These are defaults for work where nothing says otherwise. A user who asks for
 something else gets what they asked for; say which of these you left and why.
@@ -102,6 +113,16 @@ paragraphs about the architecture.
 - **Every line.** What input, state, timing or platform makes this line wrong?
   Empty input, a boundary, a value that is absent, two of these at once, the
   second time it runs.
+- **The second run, and the half-finished one.** What happens if this runs
+  twice, or if the last attempt died partway through? If the answer depends on
+  what was left behind, something is missing that puts it back in order.
+- **Two at once.** Where more than one actor can touch the same file, branch or
+  shared value, is the access made safe by the structure — a lock, a sequence,
+  one owner — or by a convention that will not hold?
+- **Checked against the real thing.** Does the code establish what it claims,
+  or does it read a stand-in for it: a timestamp instead of the value, a cached
+  flag instead of the state, a helper's summary instead of what the helper
+  produced?
 - **What the change took away.** For each line deleted or replaced, name the
   behaviour it was holding up, then find where that behaviour is held up now.
   This is the one most reviews miss.
@@ -133,7 +154,16 @@ paragraphs about the architecture.
   document. Skip anything the project's own tooling already enforces.
 - **Security**, only where you can follow it: an input, the path it takes, and
   the place it lands. "This could be an injection" without that path is not a
-  finding.
+  finding. Worth following: a new way in with no check on who may use it; a
+  secret that reaches a log, an error or a message; a check made at one moment
+  and relied on at a later one, when the answer can change in between; and
+  whether a value is checked once where it enters and trusted after, or checked
+  again and again in the middle and never at the edge.
+- **What it breaks for the people working on it.** A change to where a secret
+  is read from, the name of a setting, a port, or a step that now has to be run
+  before anything works, will stop other people's machines. So will a feature
+  reaching someone it was meant to be hidden from, which is usually a quiet
+  change to a condition rather than a loud one.
 
 ### A baseline when the repo documents nothing
 
@@ -221,6 +251,14 @@ is one finding, not five.
   would have written it differently, raise a case you cannot reach, or pad with
   small points to look thorough. Do not praise it either; that is not what the
   reader needs.
+- Say what severity means where you are writing, and keep to it. A useful
+  line: it matters when the work cannot be trusted until it is fixed — wrong
+  or fragile behaviour, a requirement missed, the same block of logic copied
+  verbatim, an error swallowed, a test that asserts nothing. "The coverage
+  could be broader" and polish are the other kind.
+- Severity never exceeds what you showed. If you demonstrated a way to read a
+  value that should not be read, that is what it is worth; it does not become
+  urgent because of what someone might do next with it.
 - One structural problem and ten small ones: the structural problem is the
   review.
 - If the list of things to act on runs past about five, you have not finished
@@ -272,12 +310,17 @@ need another revision to compare, take a separate copy of it somewhere else.
 
 Read all of it before you react. Then take the items one at a time.
 
-**Restate each in your own words.** Where one is unclear, ask — and before you
-carry on, work out what depends on the answer. Items are often related, and
-acting on a half-understood one produces the wrong change twice. What does not
-depend on it goes ahead: a reproduced crash gets fixed while a vague note about
-tidying something up is still being clarified. What the answer could change —
-the scope, whether a fix is right, what counts as done — waits for it.
+**Restate each in your own words.** Go through the whole review first and ask
+about every item you are unsure of, in one go, before you start changing
+anything. Never guess at an unclear item and never act on a half-understood
+one: that produces the wrong change, and then a second wrong change when the
+answer arrives.
+
+Items are related more often than they look, so assume the answer to one bears
+on the others until you have checked. Where you have checked and an item plainly
+stands alone — a crash with a reproduction, while the unclear item is a vague
+note about tidying something up — that one can go ahead. Anything the answer
+could change waits for it.
 
 **Check it against the code before you act on it.** Is it right for this
 codebase? Does it break something that works? Is there a reason the code is the
@@ -289,6 +332,27 @@ do not dismiss one because it is uncomfortable.
 worth doing. A trade-off that is worth keeping but worth writing down. Or
 noise — and when it is noise, the useful question is whether the brief should
 have said something that would have prevented it.
+
+Some findings carry a sign that the reader was working without something you
+have: a change asked for in code you did not touch, a pattern flagged that the
+rest of the codebase already uses, an approach recommended that a constraint
+you know about rules out. Treat that as a reason to look, not as an answer. It
+is often an honest mistake from someone with less context, and it is just as
+often the finding that matters most — a caller you did not touch is exactly
+where a changed return shape breaks, and the same unsafe pattern elsewhere says
+nothing about whether this use of it is safe.
+
+So check it out, and dismiss it only on what the code, the contract or a
+decision you can point to actually shows. "The reviewer did not know about X"
+dismisses the finding once you have said what X is and why it settles this
+case; on its own it is not a reason. Say that much, and move on without making
+a point of it.
+
+Ask rather than decide when the finding is novel, when you cannot tell, or when
+it touches security, privacy, who is allowed to do what, money, a data
+migration, or whether something can safely run twice. Passing over a noisy
+remark about style costs little; passing over one of those costs a great deal.
+When in doubt, ask.
 
 Where someone suggests building something out "properly", look first for who
 calls it. If nothing does, say so and ask whether it should exist at all.
@@ -323,47 +387,4 @@ was asked for, what the thing does, and the difference between them. The
 questions change, the discipline does not — cite the place, name the concrete
 consequence, and say plainly when there is nothing to report.
 
-## Where this comes from
-
-Consolidated for this kit from these, all MIT unless noted, with thanks:
-
-- **Cursor pstack**, `interrogate` with its rubric and `lead-judgment` — the
-  intent paragraph and not re-arguing the goal, the correctness, root-cause,
-  structure and complexity questions, following the call chain and the types
-  out of the diff to answer them, tracing before flagging, security only
-  where it can be followed, severity with evidence, an empty review being
-  valid, and the whole of the filtering: nitpick gravity, the hypothetical that
-  has no caller, premature abstraction, "I would have done it differently",
-  about five items, and showing what was set aside. Its `poteto-mode`
-  bugbot-triage reference gave fix, dismiss or ask, and "when in doubt, ask".
-- **obra/superpowers**, `requesting-code-review` and `receiving-code-review` —
-  the reviewer gets context built for it and never the author's session, the
-  author's report as unverified claims, missing against extra against
-  misunderstood, bounded reading with the risk named, "declined to judge", the
-  read-only rule, not dispatching a second reviewer, and the whole receiving
-  pattern: read, restate, verify, evaluate, respond, implement, with the stop
-  on an unclear item, the check for who calls it, the order of fixes, and
-  correcting your own pushback without a speech.
-- **mattpocock/skills**, `code-review` — the smell baseline in full, with its
-  own guards: every entry a labelled judgement call, the repo's documented
-  standard overriding it, and anything tooling enforces skipped. Also pinning
-  the range and checking it resolves before starting, the requirement read as
-  missing, unasked-for and misunderstood, quoting the rule for a standards
-  breach, and the two axes staying separate so neither hides the other. The
-  smells are Fowler's, from *Refactoring* chapter 3.
-- **Cursor thermos** — scope held to what the change touches, not wasting the
-  author's time on a risk the change intends, what over-reporting costs you,
-  reading the change before the discussion, and never presenting a finding with
-  the research unfinished when the answer was there to be read.
-- **addyosmani/agent-skills** — passing the artefact and the contract without
-  the conclusion, the one structural problem outranking ten small ones, and
-  sorting findings into misread, valid, trade-off and noise.
-- **Anthropic's built-in review**, as behaviour observed rather than text
-  taken — the angles worth separating, naming the behaviour a deleted line held
-  up, following a change out to its callers, confirmed against plausible
-  against refuted with the line quoted, not collapsing finding into judging,
-  correctness outranking cleanup, and saying when a review was less than it was
-  meant to be.
-- **ECC's reviewer prompt**, through the research pack — the four questions
-  before a finding, proof for anything urgent, zero findings being expected,
-  consolidating repeats, and the list of findings that are usually wrong.
+Sources and licences: [NOTICE.md](NOTICE.md).
