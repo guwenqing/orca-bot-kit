@@ -16,7 +16,7 @@
 
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { chmod, readFile, writeFile } from 'node:fs/promises';
+import { chmod, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 
@@ -31,14 +31,19 @@ import {
   answerOf,
   assertLinked,
   botYamlOf,
+  commonSkill,
   defaultsOf,
   entryOf,
   HARNESSES,
+  heldBy,
   kitSkill,
   linesAbout,
+  linkByHand,
   namesIn,
   skillIn,
   skillsDirOf,
+  treeIn,
+  writeSkill,
 } from './helpers/skills.js';
 
 /** One of the kit's own skills, named here so a test that meets it says which. */
@@ -229,4 +234,58 @@ test('bot create names a skills entry it could not follow, and the bot is writte
     existsSync(agentsOf(bots, 'api-bot')),
     'the bot has its charter and its rules, which is what a bot needs to exist; the skill it is missing is a line in a report',
   );
+});
+
+// `up` reads every bot's skills directories on the way to opening a tab, so
+// whatever a user has put in one of them is something `up` meets on an ordinary
+// morning. Neither of these is a reason to touch it, and neither is a reason
+// for the fleet to stay down.
+
+test('up leaves a link the user made alone, and still brings the bot up', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  await makeBot(box, 'api-bot');
+  const common = await commonSkill(bots, 'house-style');
+  // Into their own shelf, which is where the kit links from too, and named in
+  // no list: the kit has no reason of its own for it to be there.
+  await linkByHand(bots, 'api-bot', 'house-style', common);
+  const before = await treeIn(bots, 'api-bot');
+
+  const result = await box.run(['up', '--bots', 'bots', '--json']);
+
+  assert.equal(result.code, 0, result.stderr);
+  assert.deepEqual(await treeIn(bots, 'api-bot'), before, 'what the user linked is still exactly what they linked');
+  assert.equal(skillIn(entryOf(answerOf(result), 'api-bot'), 'house-style').managed, false);
+  assert.deepEqual(
+    (await tabsOfBot(box, bots, 'api-bot')).map((tab) => tab.title),
+    ['Api Bot daily'],
+    'and the bot comes up as usual',
+  );
+});
+
+test('a link of the user\'s that points at nothing does not keep the fleet down', async (t) => {
+  // Reading a link that resolves to nothing is something `up` does on the way
+  // to every tab. If it ends the run there, one deleted folder of the user's
+  // leaves every bot in the fleet with no session at all.
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  await makeBot(box, 'api-bot');
+  const gone = await writeSkill(path.join(box.root, 'elsewhere', 'was-here'));
+  await linkByHand(bots, 'api-bot', 'was-here', gone);
+  await rm(gone, { recursive: true });
+
+  const result = await box.run(['up', '--bots', 'bots', '--json']);
+
+  assert.equal(result.code, 0, `a link of the user's pointing nowhere does not change what up ends in: ${result.stderr}`);
+  assert.ok(!/^\s+at /m.test(result.stderr), `expected a report, got a crash:\n${result.stderr}`);
+  assert.equal(skillIn(entryOf(answerOf(result), 'api-bot'), 'was-here').managed, false, 'it is the user\'s, and it is reported');
+  for (const harness of HARNESSES) {
+    assert.equal((await heldBy(bots, 'api-bot', harness)).get('was-here')?.link, true, 'and it is left where it is');
+  }
+  assert.deepEqual(
+    (await tabsOfBot(box, bots, 'api-bot')).map((tab) => tab.title),
+    ['Api Bot daily'],
+    'the bot whose directory it is in comes up',
+  );
+  assert.equal((await tabsOfBot(box, bots, 'bot-father')).length, 2, 'and so does every other bot in the fleet');
 });

@@ -10,11 +10,11 @@
 // what a test is trying to check, not what it may believe.
 
 import assert from 'node:assert/strict';
-import { mkdir, readFile, readdir, readlink, realpath, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, readlink, realpath, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { parse, stringify } from 'yaml';
 
-import { botHomeOf, repoRoot } from './cli.js';
+import { botHomeOf, repoRoot, snapshot } from './cli.js';
 
 /**
  * Where each harness reads a project's skills from, inside the folder the
@@ -92,6 +92,34 @@ export async function assertNotThere(bots, bot, name) {
       `${SKILL_DIRS[harness]}/${name} should not be there any more`,
     );
   }
+}
+
+/**
+ * A link the user made themselves, in one harness's directory or in both. The
+ * kit did not put it there and did not write it down, whatever it points at.
+ */
+export async function linkByHand(bots, bot, name, dir, harnesses = HARNESSES) {
+  for (const harness of harnesses) {
+    const at = skillsDirOf(bots, bot, harness);
+    await mkdir(at, { recursive: true });
+    await symlink(dir, path.join(at, name));
+  }
+}
+
+/**
+ * What is in a bot's two skills directories, by harness: the tree to compare
+ * before and after a run. A directory that is not there holds nothing, which
+ * is not an error.
+ */
+export async function treeIn(bots, bot) {
+  const out = {};
+  for (const harness of HARNESSES) {
+    out[harness] = await snapshot(skillsDirOf(bots, bot, harness)).catch((error) => {
+      if (error.code === 'ENOENT') return {};
+      throw error;
+    });
+  }
+  return out;
 }
 
 /** A skill directory anywhere on disk: the folder, and the SKILL.md that makes it one. */

@@ -19,7 +19,7 @@
 // would be watching the create rather than the build.
 
 import assert from 'node:assert/strict';
-import { lstat, lutimes, mkdir, readFile, symlink } from 'node:fs/promises';
+import { lstat, lutimes, mkdir, readFile, rm, symlink } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 
@@ -44,6 +44,7 @@ import {
   heldBy,
   kitSkill,
   linesAbout,
+  linkByHand,
   namesIn,
   readThrough,
   setSkills,
@@ -51,6 +52,7 @@ import {
   SKILL_DIRS,
   skillNamesIn,
   skillsDirOf,
+  treeIn,
   writeSkill,
 } from './helpers/skills.js';
 
@@ -306,6 +308,127 @@ test('what the user put in a skills directory by hand is left alone, and reporte
     assert.notDeepEqual(held, [], `the test should have put ${name} in ${dir}`);
     for (const rel of held) assert.equal(after[rel], before[rel], `${rel} is the user's, and is never touched`);
   }
+});
+
+// Three cases about who owns what is in a bot's skills directories. A
+// destination cannot say who made it — a link the kit wrote and a link the
+// user wrote to the same skill are the same bytes — so the kit keeps a record
+// of what it put there and acts only where the entry still matches it. These
+// pin the two sides the record exists for: what the kit must not take away,
+// and what it must not claim to have given.
+
+test('a link the user made into the kit\'s shelf, or into their own, is never taken away', async (t) => {
+  // PRD 6.7: anything the user placed by hand is left alone. Where it points
+  // has nothing to do with it — a user who links the common `house-style` into
+  // a bot themselves has said what they want that bot to read, and a build
+  // that removed it would be a normal run destroying their configuration.
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  await makeBot(box, 'api-bot');
+  const kit = await kitSkill(KIT_SKILL);
+  const common = await commonSkill(bots, 'house-style');
+  await linkByHand(bots, 'api-bot', KIT_SKILL, kit);
+  await linkByHand(bots, 'api-bot', 'house-style', common);
+  // No list names either of them, which is exactly the case: the kit has no
+  // reason of its own for them to be there.
+  const before = await treeIn(bots, 'api-bot');
+
+  const result = await build(box, '--bot', 'api-bot', '--json');
+
+  assert.equal(result.code, 0, `a skill the user linked is not trouble: ${result.stderr}`);
+  assert.deepEqual(await treeIn(bots, 'api-bot'), before, 'what the user linked is theirs, wherever it points');
+  const entry = entryOf(answerOf(result), 'api-bot');
+  for (const name of [KIT_SKILL, 'house-style']) {
+    assert.equal(skillIn(entry, name).managed, false, `the kit did not put ${name} there, so it does not manage it`);
+  }
+});
+
+test('a directory of the user\'s where a listed skill would go is left, and the bot is not said to have the skill', async (t) => {
+  // The list asks for one skill and the bot has another. Saying it is managed
+  // would report a bot that reads the user's version on Claude and the listed
+  // one on Codex as though both were the kit's doing.
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  await makeBot(box, 'api-bot');
+  await makeBot(box, 'web-bot');
+  await commonSkill(bots, 'house-style', { body: 'The one in the common folder.' });
+  await writeSkill(
+    path.join(skillsDirOf(bots, 'api-bot', 'claude'), 'house-style'),
+    { body: 'Mine, and not the one in the common folder.' },
+  );
+  await addSkills(defaultsOf(bots), 'house-style');
+  const before = await snapshot(skillsDirOf(bots, 'api-bot', 'claude'));
+
+  const result = await build(box, '--json');
+
+  assert.equal(result.code, 1, 'a bot that could not be given what its list names ends the run in 1');
+  const entry = entryOf(answerOf(result), 'api-bot');
+  assert.equal(skillIn(entry, 'house-style').managed, false, 'the bot did not get the skill the list asked for');
+  assert.equal(typeof entry.trouble, 'string', `the collision should be said out loud, got: ${JSON.stringify(entry)}`);
+  assert.ok(entry.trouble.includes('house-style'), `and it should name the skill, got: ${entry.trouble}`);
+
+  assert.deepEqual(
+    await snapshot(skillsDirOf(bots, 'api-bot', 'claude')),
+    before,
+    'the directory the user made is never touched',
+  );
+  assert.ok(
+    (await readThrough(bots, 'api-bot', 'claude', 'house-style')).includes('Mine, and not the one'),
+    'and what that harness reads is still the user\'s own',
+  );
+  assert.ok(!('trouble' in entryOf(answerOf(result), 'web-bot')), 'the bot beside it is given the skill as usual');
+});
+
+test('a link of the user\'s that points at nothing is left alone, and the rest of the bot is done', async (t) => {
+  // A skill directory that has been deleted leaves a link behind that resolves
+  // to nothing. It is still the user's, and reading it is something the kit
+  // does on every run, so it must survive meeting one.
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  await makeBot(box, 'api-bot');
+  const kit = await kitSkill(KIT_SKILL);
+  const gone = await writeSkill(path.join(box.root, 'elsewhere', 'was-here'));
+  await linkByHand(bots, 'api-bot', 'was-here', gone);
+  await rm(gone, { recursive: true });
+  await addSkills(botYamlOf(bots, 'api-bot'), `kit:${KIT_SKILL}`);
+
+  const result = await build(box, '--bot', 'api-bot', '--json');
+
+  assert.equal(result.code, 0, `a link of the user's pointing nowhere is theirs to fix: ${result.stderr}`);
+  const entry = entryOf(answerOf(result), 'api-bot');
+  assert.equal(skillIn(entry, 'was-here').managed, false);
+  for (const harness of HARNESSES) {
+    const held = (await heldBy(bots, 'api-bot', harness)).get('was-here');
+    assert.equal(held?.link, true, `${SKILL_DIRS[harness]}/was-here should still be the link the user left`);
+    assert.equal(held.resolved, null, 'and it still points at nothing, because the kit did not mend it either');
+  }
+  await assertLinked(bots, 'api-bot', KIT_SKILL, kit);
+});
+
+test('a path entry pointed at a different directory moves both harnesses', async (t) => {
+  // The kit's own link, repointed. Left as it was, the lists say one thing and
+  // both harnesses read another, with nothing to say so.
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  await makeBot(box, 'api-bot');
+  const one = await writeSkill(path.join(box.root, 'one', 'road-map'), { body: 'Version one.' });
+  const two = await writeSkill(path.join(box.root, 'two', 'road-map'), { body: 'Version two.' });
+  await addSkills(botYamlOf(bots, 'api-bot'), one);
+  await buildOk(box, '--bot', 'api-bot');
+  await assertLinked(bots, 'api-bot', 'road-map', one);
+
+  await setSkills(botYamlOf(bots, 'api-bot'), two);
+  const result = await build(box, '--bot', 'api-bot', '--json');
+
+  assert.equal(result.code, 0, result.stderr);
+  await assertLinked(bots, 'api-bot', 'road-map', two);
+  for (const harness of HARNESSES) {
+    assert.ok(
+      (await readThrough(bots, 'api-bot', harness, 'road-map')).includes('Version two.'),
+      `${harness} should read the directory the list names now`,
+    );
+  }
+  assert.equal(skillIn(entryOf(answerOf(result), 'api-bot'), 'road-map').managed, true);
 });
 
 test('every bot is reported, in name order, with where each skill came from, and --json says the same', async (t) => {
