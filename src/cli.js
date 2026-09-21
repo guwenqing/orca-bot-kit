@@ -23,6 +23,7 @@ import { readRoster } from './roster.js';
 import { buildAgents, buildRules, CODEX_CAP } from './rules.js';
 import { addSkill, buildSkills, linkSkills } from './skills.js';
 import { addSource, fetchSources } from './sources.js';
+import { readUsage } from './usage.js';
 import { BOT_FATHER, bringUp } from './up.js';
 
 const USAGE = `obk — Orca Bot Kit.
@@ -121,6 +122,15 @@ Usage:
                             with its settings, its tab and the conversation it
                             is in. It reads your files and reports them as they
                             stand; what to make of them is yours.
+  obk usage --bots <path> [--bot <bot>] [--session <name>] [--since <time>]
+                            Say what your sessions have used: the conversations
+                            each one had, their calls and tokens, the models and
+                            efforts they ran at, and how often they were
+                            compacted. --since counts the calls made from that
+                            moment on, which is how a daily run asks what has
+                            happened since the last one. It counts tokens and
+                            never money: what a token costs is looked up live by
+                            whoever is asking.
   obk session record --bots <path> --bot <bot>
                             For the kit's own hook, not for typing: it reads
                             what the harness says about a session starting on
@@ -139,6 +149,7 @@ const COMMANDS = {
   restart: ['bots', 'bot'],
   health: ['bots'],
   roster: ['bots'],
+  usage: ['bots'],
   'bot create': ['bots', 'name', 'harness'],
   'rules build': ['bots'],
   'skills add': ['bots', 'bot', 'skill'],
@@ -160,6 +171,7 @@ const NEEDED = {
   bot: '--bot <bot>: which bot',
   session: '--session <name>: which session',
   source: '--source <name>: which source',
+  since: '--since <time>: the moment to count from',
   skill: "--skill <ref>: which skill, as a bot's list names one",
   repo: '--repo <url>: the repository to clone it from',
   ref: '--ref <ref>: the branch, tag or commit to pin it at',
@@ -198,6 +210,7 @@ async function run(argv) {
       bot: { type: 'string' },
       session: { type: 'string' },
       source: { type: 'string' },
+      since: { type: 'string' },
       skill: { type: 'string' },
       repo: { type: 'string' },
       ref: { type: 'string' },
@@ -413,6 +426,11 @@ const commands = {
         `Fetch it:  obk skills fetch --bots ${bots} --source ${source.name}`,
       ],
     };
+  },
+
+  usage(bots, values) {
+    const usage = readUsage(bots, { bot: values.bot, session: values.session, since: values.since });
+    return { answer: { bots, usage }, lines: usageLines(usage, bots) };
   },
 
   roster(bots, values) {
@@ -652,6 +670,46 @@ function fetched(bots, sources, nothing) {
     ],
     code: trouble.length === 0 ? 0 : 1,
   };
+}
+
+/**
+ * What each bot's sessions have used, as lines: a block per session, a line per
+ * conversation, and the bot's unclaimed ones under it. Tokens and no money, the
+ * same as the answer, because the price is looked up by whoever is reading.
+ */
+function usageLines(usage, bots) {
+  const lines = [];
+
+  for (const entry of usage) {
+    lines.push(`${'bot'.padEnd(9)}  ${entry.bot}`);
+    for (const session of entry.sessions) {
+      lines.push(`${'session'.padEnd(9)}  ${session.name}`);
+      lines.push(...session.conversations.map(conversationLine));
+      if (session.conversations.length === 0) lines.push('             nothing on record');
+    }
+    if (entry.unclaimed.length > 0) {
+      lines.push(`${'unclaimed'.padEnd(9)}  ${entry.bot}: no session of this bot claims these`);
+      lines.push(...entry.unclaimed.map(conversationLine));
+    }
+  }
+
+  lines.push(usage.length === 0
+    ? `No bots yet. Your bots folder: ${bots}`
+    : `${usage.length} bot${usage.length === 1 ? '' : 's'}. What a token costs is yours to look up. Your bots folder: ${bots}`);
+  return lines;
+}
+
+/** One conversation: what it is, what it ran as, and what it used. */
+function conversationLine(one) {
+  const ran = [...one.models, ...one.efforts].join(' ');
+  const used = Object.entries(one.tokens)
+    .filter(([, count]) => count > 0)
+    .map(([kind, count]) => `${kind} ${count}`)
+    .join('  ');
+  return `             ${one.id}  ${one.calls} call${one.calls === 1 ? '' : 's'}`
+    + `${ran === '' ? '' : `  ${ran}`}`
+    + `${used === '' ? '' : `  ${used}`}`
+    + `${one.compactions > 0 ? `  compacted ${one.compactions}` : ''}`;
 }
 
 /** The settings a session carries, in the order a session is written down. */
