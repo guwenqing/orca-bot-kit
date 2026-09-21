@@ -57,22 +57,36 @@ higher rate. Run the trigger a hundred times, run copies at once, add load,
 narrow the window, insert a pause where the timing is tight. A one-in-two bug
 is workable; a one-in-a-hundred is not, so raise the rate until it is.
 
-You have what you need when you can name one command, that you have already
-run at least once, which:
+What you are aiming for, and should keep pushing towards, is a check that:
 
-- goes red on *this* bug — it drives the real path and asserts the symptom
-  that was actually reported, not merely that something failed;
-- gives the same answer every time, or fails at a rate you pinned;
-- takes seconds;
-- runs without a person in the middle.
+- goes red on *this* bug — it drives the real path and shows the symptom that
+  was actually reported, not merely that something failed;
+- gives the same answer every time, or fails at a rate you have pinned;
+- is quick;
+- and needs nobody in the middle.
 
-If you notice yourself reading code to build a theory before that command
-exists, stop. Going straight to a theory is the failure this order prevents.
+Run it at least once and say what it printed before you lean on it.
 
-When you genuinely cannot build one, say so plainly, list what you tried, and
-ask for what would make it possible: access to where it happens, a captured
-artefact, or permission to instrument the place it actually runs. Do not
-proceed to theorise without a check. Whatever you show — commands, output,
+Not every bug gives you all four, and the ones that do not are not excused from
+evidence. A defect you can only see by touching a screen still has a check —
+the precise steps, in order, with what to look at — and a precise manual check
+beats a fast automated one that misses the symptom. When the thing that failed
+is gone and left an artefact behind, a crash dump or a capture is evidence you
+can work from now, and refusing to read it because nothing runs would be
+perverse. Where the reproduction is partial, keep working on it as you learn:
+much of what tells you how to reproduce a bug comes from reading the path it
+takes.
+
+What does not change is the order of belief. Reading code to work out how to
+provoke the bug is fine and often necessary. Settling on a cause because the
+code looks like it, without anything that would have told you otherwise, is
+what goes wrong, and no amount of reading fixes it. Say which of the four you
+have and which you do not, so nobody mistakes a partial check for a red one.
+
+When you have nothing at all — it cannot be provoked, nothing was captured,
+and you cannot reach where it happens — say so plainly, list what you tried,
+and ask for what would change that: access, an artefact, or permission to
+instrument the place it actually runs. Whatever you show — commands, output,
 captured traffic — take the secrets out of it first.
 
 ## Read what it says, and ask what changed
@@ -210,6 +224,42 @@ attempt only when the measurement shows what it needs:
   before they arrive, after the moment passes, when nothing else is going on.
 - **Do it later, or never.** Cost paid for results nobody asks for. Wait until
   something needs it.
+
+## Reading a capture
+
+Sometimes what you have is not a running thing but an artefact: a profile, a
+heap snapshot, a stack dump from a process that has already gone, a recorded
+trace. That is evidence, and it is read rather than re-run — the capture is a
+fixed dataset, and running it again produces a different one.
+
+Get it into a shape you can ask questions of before you start reading. A large
+trace or snapshot answers queries well and reads badly, so turn it into
+something you can sort and count — one row per sample, frame or object — and
+query that. Where the artefact is large, reduce it somewhere else and carry
+only the reduced finding back with you.
+
+Then narrow it to the one thing:
+
+- **Something is slow or spinning.** Find the frames holding the most time and
+  walk the call tree to the path they sit on, rather than reading the list of
+  leaves.
+- **Something is holding memory.** The allocation site is not the culprit. Follow
+  the chain of references from the object that will not go away back to
+  whatever root is still holding it; that reference is the bug.
+- **Something is stuck.** Find the thread that is either busy or waiting, and
+  what it is waiting on. A wait reason usually names the cause outright.
+
+Map it back to source: the file, the symbol, the line. A frame with no source
+behind it is not yet a diagnosis — resolve the symbols, or say plainly that the
+artefact does not carry them, rather than guessing from a name that looks
+familiar.
+
+Then be honest about what one capture can support. With a pair — before and
+after, working and broken — you can compare and claim a cause. With one, you
+have the strongest hypothesis the artefact allows, which is worth saying in
+those words. Where you can still reach the running thing, prove the mechanism
+on it: change the one value or inject the one probe your reading predicts will
+matter, and see whether it does.
 
 ## When it only happens sometimes
 

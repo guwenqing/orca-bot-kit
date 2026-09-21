@@ -41,7 +41,15 @@ with thanks:
   verifying on the same surface with "inconclusive is not a pass" and a unit
   test showing branch behaviour rather than absence of the bug, and the
   families a performance fix usually takes, used as hypothesis generators only
-  where the measurement shows what they need.
+  where the measurement shows what they need. From its `runtime-forensics` and
+  `trace-forensics` playbooks: an existing capture is read rather than re-run,
+  turned into a queryable shape before reading and reduced elsewhere when it is
+  large; narrowing to the hot call path, to the retainer chain from a leaked
+  object back to a root, or to a blocked thread and its wait reason; mapping
+  the finding to file, symbol and line, with a frame that has no source behind
+  it not yet being a diagnosis; confirming against a paired capture or else
+  calling it the strongest hypothesis the artefact supports; and proving the
+  mechanism on the live process where it can still be reached.
 - **obra/superpowers**, `systematic-debugging` with `root-cause-tracing` and
   `condition-based-waiting` — logging what enters and leaves each boundary and
   reading where it first goes wrong before digging in, tracing backwards
