@@ -176,6 +176,7 @@ than relying on another skill being loaded.
 | `obk-recall` | where a piece of work actually stands, before carrying on with it |
 | `obk-why` | why the code is like this, and how sure you are |
 | `obk-teach` | explaining something so it lands, at the other person's pace |
+| `obk-personal-facilitation` | keeping someone's own list true, and stopping before the step that cannot be taken back |
 
 A skill is where the depth lives. The always-on rules say that a change in
 behaviour starts with a failing test someone else wrote and is read by someone
