@@ -20,7 +20,7 @@ import {
   assertCleanFailure,
   assertKeptWhatTheyWrote,
   assertNoTrailingSpace,
-  BARE_LAUNCH,
+  bareLaunch,
   bookOf,
   botFatherTabs,
   createSandbox,
@@ -85,7 +85,7 @@ test('a bots folder from the previous slice gets its harness and its daily sessi
   assert.equal(terminals.length, 2, `a daily tab and a plain one, got ${JSON.stringify(terminals)}`);
   assert.equal(inBook.length, 1);
   assert.equal(inBook[0].title, TAB_TITLES.daily);
-  assert.deepEqual(typedInto(inBook[0]), [BARE_LAUNCH.claude]);
+  assert.deepEqual(typedInto(inBook[0]), [bareLaunch('claude', 'bot-father', 'daily')]);
   assert.equal(leftovers.length, 1);
 });
 
@@ -164,7 +164,10 @@ test('a bot.yaml that already has sessions is left completely alone', async (t) 
   const { inBook, terminals } = await botFatherTabs(box, box.path('bots'));
   assert.equal(inBook.length, 1);
   assert.equal(terminals.length, 2);
-  assert.deepEqual(typedInto(inBook[0]), [BARE_LAUNCH.claude]);
+  // The session's own name is on the line, and it is the name the user gave
+  // it: a Claude session is launched as `<bot>.<session>` and that is the
+  // address other sessions write to (ADR 0008).
+  assert.deepEqual(typedInto(inBook[0]), [bareLaunch('claude', 'bot-father', 'mine')]);
   assert.ok(!inBook[0].title.includes('daily'), `the session is the user's, got: ${inBook[0].title}`);
 });
 

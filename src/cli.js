@@ -15,6 +15,7 @@ import { addSession, createBot, readBot, SESSION_FIELDS } from './bot.js';
 import { checkHealth, orcaSettingFindings } from './health.js';
 import { initBots } from './init.js';
 import { APPROVALS, HARNESSES } from './launch.js';
+import { checkMail, lookUp, sendMessage } from './message.js';
 import { orcaTrouble } from './orca.js';
 import { recordSession, SHELL_ENV, TAB_ENV } from './record.js';
 import { restartSessions } from './restart.js';
@@ -78,6 +79,24 @@ Usage:
                             Write down where a shelf of skills online comes
                             from, and which version of it you want. It only
                             writes it down; obk skills fetch is what clones it.
+  obk message to --bots <path> --to <bot>[/<session>] [--from <bot>/<session>]
+                            Say which road reaches that session and what its
+                            address is. Claude to Claude in one approval class
+                            is the harness's own messaging; everything else is
+                            the Orca mailbox. Nothing is sent.
+  obk message send --bots <path> --to <bot>[/<session>] [--from <bot>/<session>]
+                   --subject <text> [--text <text> | --text-file <path>]
+                   [--thread <id>]
+                            Put a message in that session's Orca mailbox and
+                            tell its tab to look. A message too long to travel
+                            as itself is written to a file beside your bots
+                            folder and named in the message. A pair the
+                            harness's own messaging reaches is not carried:
+                            the address to write to is answered instead.
+  obk message check --bots <path> [--bot <bot>] [--session <name>] [--peek]
+                            Read what is waiting for a session and mark it
+                            read. --peek leaves it unread. Run in a session's
+                            own tab, it is that session's mail.
   obk up --bots <path> [--bot <bot>] [--session <name>]
                             Open whatever is missing in Orca, for every bot or
                             for the one you name. It only ever adds; it never
@@ -128,6 +147,9 @@ const COMMANDS = {
   'skills update': ['bots'],
   'source add': ['bots', 'name', 'repo', 'ref'],
   'session add': ['bots', 'bot', 'name'],
+  'message to': ['bots', 'to'],
+  'message send': ['bots', 'to', 'subject'],
+  'message check': ['bots'],
   'session record': ['bots', 'bot'],
 };
 
@@ -143,6 +165,9 @@ const NEEDED = {
   ref: '--ref <ref>: the branch, tag or commit to pin it at',
   path: '--path <subfolder>: where the skills sit inside that repository',
   harness: `--harness ${HARNESSES.join('|')}: which harness it runs on`,
+  to: '--to <bot>/<session>: which session to write to',
+  from: '--from <bot>/<session>: which session is writing',
+  subject: '--subject <text>: what the message is about',
 };
 
 /** The flags that name something. A name that is empty names nothing. */
@@ -177,6 +202,13 @@ async function run(argv) {
       repo: { type: 'string' },
       ref: { type: 'string' },
       path: { type: 'string' },
+      to: { type: 'string' },
+      from: { type: 'string' },
+      subject: { type: 'string' },
+      text: { type: 'string' },
+      'text-file': { type: 'string' },
+      thread: { type: 'string' },
+      peek: { type: 'boolean' },
       charter: { type: 'string' },
       ...Object.fromEntries(SETTINGS.map(([flag]) => [flag, { type: 'string' }])),
       'extra-arg': { type: 'string', multiple: true },
@@ -200,8 +232,9 @@ async function run(argv) {
     return 1;
   }
 
-  // `bot`, `rules`, `skills` and `session` are commands of two words; the rest are one.
-  const words = ['bot', 'rules', 'skills', 'session', 'source'].includes(positionals[0]) ? 2 : 1;
+  // `bot`, `rules`, `skills`, `session`, `source` and `message` are commands of
+  // two words; the rest are one.
+  const words = ['bot', 'rules', 'skills', 'session', 'source', 'message'].includes(positionals[0]) ? 2 : 1;
   const command = positionals.slice(0, words).join(' ');
   const extra = positionals.slice(words);
 
@@ -416,6 +449,85 @@ const commands = {
     };
   },
 
+  'message to'(bots, values) {
+    // A lookup reads the book and nothing else, so it answers with Orca down:
+    // knowing how to reach somebody is worth having when the app is not up.
+    const answer = lookUp(bots, { to: values.to, from: values.from, tab: process.env[TAB_ENV] });
+    const where = `${answer.to.bot}/${answer.to.session}`;
+    return {
+      answer,
+      lines: [
+        `${answer.transport.padEnd(9)}  ${where.padEnd(24)}  ${answer.address ?? '-'}`,
+        ...toLines(answer, bots, where),
+      ],
+      code: answer.trouble === undefined ? 0 : 1,
+    };
+  },
+
+  'message send'(bots, values) {
+    refuseWhenOrcaIsDown();
+    const answer = sendMessage(bots, {
+      to: values.to,
+      from: values.from,
+      tab: process.env[TAB_ENV],
+      subject: values.subject,
+      text: values.text,
+      textFile: values['text-file'],
+      thread: values.thread,
+    });
+    const where = `${answer.to.bot}/${answer.to.session}`;
+
+    if (!answer.sent) {
+      return {
+        answer,
+        lines: [`${'not sent'.padEnd(9)}  ${where.padEnd(24)}  ${answer.subject}`, `             ${answer.trouble}`],
+        code: 1,
+      };
+    }
+
+    return {
+      answer,
+      lines: [
+        `${'sent'.padEnd(9)}  ${where.padEnd(24)}  ${answer.subject}`,
+        ...(answer.file === undefined
+          ? []
+          : [`             it was too long to travel as itself, so it went as a file:  ${answer.file}`]),
+        ...[nudgeLine(answer, where)],
+      ],
+    };
+  },
+
+  'message check'(bots, values) {
+    refuseWhenOrcaIsDown();
+    const answer = checkMail(bots, {
+      bot: values.bot,
+      session: values.session,
+      tab: process.env[TAB_ENV],
+      peek: values.peek === true,
+    });
+    const where = `${answer.bot}/${answer.session}`;
+
+    if (answer.trouble !== undefined) {
+      return { answer, lines: [`${'trouble'.padEnd(9)}  ${where}`, `             ${answer.trouble}`], code: 1 };
+    }
+
+    return {
+      answer,
+      lines: [
+        ...answer.messages.flatMap((message) => [
+          `${'message'.padEnd(9)}  ${message.from}  ${message.at}`,
+          `             ${message.subject}`,
+          ...String(message.body ?? '').split('\n').map((line) => `             ${line}`),
+        ]),
+        answer.messages.length === 0
+          ? `Nothing is waiting for ${where}.`
+          // Said plainly, because a peek leaves the same mail there to be found
+          // again and a read does not.
+          : `${answer.messages.length} for ${where}${answer.read ? ', now read' : ', still unread: this was a peek'}.`,
+      ],
+    };
+  },
+
   'session add'(bots, values) {
     const added = addSession(bots, values.bot, settingsOf(values));
     const answer = { bots, bot: added.bot, home: added.home, session: added.session };
@@ -431,6 +543,41 @@ const commands = {
     };
   },
 };
+
+/**
+ * What `obk message to` says under the road and the address: how to use it, or
+ * what is in the way. A Claude pair the native road cannot carry says so, since
+ * a caller told "use the mailbox" about two Claude sessions would otherwise
+ * think the kit had forgotten its own rule.
+ */
+function toLines(answer, bots, where) {
+  if (answer.trouble !== undefined) return [`             ${answer.trouble}`];
+  if (answer.transport === 'native') {
+    return [`             Write to ${answer.address} with your own harness's messaging. The kit does not carry that road.`];
+  }
+  return [
+    ...(answer.unnamed === true
+      ? [`             ${where} is a Claude session running under no name the kit gave it: it was started before the kit named sessions, and nothing renames a live harness. It gets one the next time it starts. Until then the mailbox is the road that reaches it.`]
+      : []),
+    `             Send it:  obk message send --bots ${bots} --to ${where} --subject <text> --text <text>`,
+  ];
+}
+
+/**
+ * What became of the line that tells the receiver to look. The message is in
+ * its mailbox whatever this says, so each of these is about the tab and not
+ * about the message.
+ */
+function nudgeLine(answer, where) {
+  if (answer.nudged) return '             its tab was told to look; it will read it when it is done with what it is doing.';
+  if (answer.blocked !== undefined) {
+    return `             its tab has something waiting to be answered (${answer.blocked}), so nothing was typed into it. Settle that, and the mail is there.`;
+  }
+  if (answer.nudgeTrouble !== undefined) {
+    return `             it is queued, and its tab could not be told to look: ${answer.nudgeTrouble}`;
+  }
+  return `             ${where} is not up, so nothing was typed anywhere: the message waits in its mailbox.`;
+}
 
 /** The settings a `session add` was given, as they go into bot.yaml. */
 function settingsOf(values) {

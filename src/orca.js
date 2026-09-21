@@ -206,6 +206,68 @@ export function tuiInTab(handle, timeoutMs) {
 export const closeTab = (handle) =>
   orca(['terminal', 'close', '--terminal', handle, '--tab']).close;
 
-/** Type `text` into a tab and press return. */
-export const typeIntoTab = (handle, text) =>
-  orca(['terminal', 'send', '--terminal', handle, '--text', text, '--enter']).send;
+/**
+ * Type `text` into a tab and press return.
+ *
+ * Orca sometimes gates a line going into a tab that has an agent in it and
+ * answers `agent_prompt_blocked`, carrying a request id and telling the caller
+ * to re-issue the exact command with that id and a time to wait for the line to
+ * be submitted — and not to retry without it. So that is what this does, once.
+ * Seen live on 2026-09-21 in a system test run; not reproduced since, including
+ * from a plain shell, long lines and lines sent while the agent was working.
+ *
+ * The wait is short because the caller is telling a session it has mail, not
+ * handing it work: mail that has to wait for the next check is a smaller cost
+ * than a command that hangs for half a minute.
+ */
+export function typeIntoTab(handle, text) {
+  const args = ['terminal', 'send', '--terminal', handle, '--text', text, '--enter'];
+  const answer = ask(args);
+  if (answer.ok === true) return answer.result.send;
+
+  const again = answer.error?.data?.orchestrationRequestId;
+  if (answer.error?.code !== 'agent_prompt_blocked' || typeof again !== 'string') {
+    throw new Error(`Orca refused ${args.join(' ')}: ${answer.error?.message ?? 'no reason given'}`);
+  }
+  return orca([...args, '--retry-request', again, '--wait-submit', String(SUBMIT_WAIT_S)]).send;
+}
+
+/** How long a re-issued line is given to be submitted before Orca gives up on it. */
+const SUBMIT_WAIT_S = 5;
+
+/**
+ * A mailbox of one session's own: an Orca Run, which is a name and an inbox and
+ * nothing else — it schedules nothing and runs nobody. The objective is what a
+ * person sees in `orca orchestration run-list`, so it says whose it is.
+ */
+export const makeMailbox = (objective) =>
+  orca(['orchestration', 'run-create', '--objective', `obk ${objective}`]).run.id;
+
+/**
+ * Take this process's turn at reading a mailbox.
+ *
+ * Orca fences a Run to one reader: a `check` from a caller bound elsewhere is
+ * refused with `consumer_fenced`, whatever the Run says. So a read binds first,
+ * every time — the kit's runs are short and the binding is the last one to have
+ * asked, not a lease anybody has to give back.
+ */
+export const useMailbox = (id) => orca(['orchestration', 'run-use', '--id', id]).run;
+
+/** Queue one message. `to` and `from` are mailboxes, written `run:<id>`. */
+export function postMessage({ to, from, subject, body, type = 'status', thread }) {
+  const args = ['orchestration', 'send', '--to', to, '--subject', subject, '--body', body, '--type', type];
+  if (from !== undefined) args.push('--from', from);
+  if (thread !== undefined) args.push('--thread-id', thread);
+  return orca(args).message;
+}
+
+/**
+ * What is waiting in a mailbox: the oldest batch that has not been
+ * acknowledged, or, peeking, whatever is unread without touching it.
+ */
+export const readMailbox = (id, { peek = false } = {}) =>
+  orca(['orchestration', 'check', '--run', id, ...(peek ? ['--peek'] : [])]);
+
+/** Say a batch has been read, so the next check brings the one after it. */
+export const ackMailbox = (id, delivery) =>
+  orca(['orchestration', 'check', '--run', id, '--ack', delivery]);

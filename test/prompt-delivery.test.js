@@ -27,7 +27,7 @@ import test from 'node:test';
 
 import {
   assertCleanFailure,
-  BARE_LAUNCH,
+  bareLaunch,
   botHomeOf,
   createSandbox,
   fakeProgram,
@@ -80,7 +80,7 @@ async function argvOf(box, text, fake) {
 function assertReadsBack(typed, file) {
   assert.match(
     typed,
-    /^OBK_TAB_SHELL=\$\$ codex --approve-for-me -- "\$\(cat .+\)"$/,
+    /^OBK_TAB_SHELL=\$\$ codex --approve-for-me -c sandbox_workspace_write.network_access=true -- "\$\(cat .+\)"$/,
     `the line should read the prompt back inside one double-quoted word, got: ${typed}`,
   );
   assert.ok(typed.includes(file), `and read it from ${file}, got: ${typed}`);
@@ -104,11 +104,11 @@ test('a short prompt of one line is typed into the launch line as it stands', as
 
   const { typed, tab } = await up(box, bots, 'short-bot');
 
-  assert.equal(typed, launchLine(`codex --approve-for-me -- '${short}'`), 'the text itself, quoted, after the separator');
+  assert.equal(typed, launchLine(`codex --approve-for-me -c sandbox_workspace_write.network_access=true -- '${short}'`), 'the text itself, quoted, after the separator');
   assert.ok(!typed.includes('cat '), `nothing to read back, got: ${typed}`);
   assert.equal('promptFile' in tab, false, 'a prompt that went in on the line was not handed over in a file');
   assert.equal(await isThere(promptPathOf(bots, 'short-bot')), false, 'and no file was written for it');
-  assert.deepEqual(await argvOf(box, typed, fake), ['--approve-for-me', '--', short]);
+  assert.deepEqual(await argvOf(box, typed, fake), ['--approve-for-me', '-c', 'sandbox_workspace_write.network_access=true', '--', short]);
 });
 
 test('a prompt too long for a line is handed over in a file the kit writes', async (t) => {
@@ -124,7 +124,7 @@ test('a prompt too long for a line is handed over in a file the kit writes', asy
   assert.equal(await readFile(tab.promptFile, 'utf8'), long, 'the file holds what the session is to be told, and only that');
   // The line is the contract: what the harness gets has to be the same either
   // way, so the shell reading the file back must hand it the one argument.
-  assert.deepEqual(await argvOf(box, typed, fake), ['--approve-for-me', '--', long]);
+  assert.deepEqual(await argvOf(box, typed, fake), ['--approve-for-me', '-c', 'sandbox_workspace_write.network_access=true', '--', long]);
 });
 
 test('a prompt of more than one line goes by file however short it is', async (t) => {
@@ -138,7 +138,7 @@ test('a prompt of more than one line goes by file however short it is', async (t
 
   assert.equal(tab.promptFile, promptPathOf(bots, 'two-line-bot'));
   assertReadsBack(typed, tab.promptFile);
-  assert.deepEqual(await argvOf(box, typed, fake), ['--approve-for-me', '--', 'Read.\nThen wait.']);
+  assert.deepEqual(await argvOf(box, typed, fake), ['--approve-for-me', '-c', 'sandbox_workspace_write.network_access=true', '--', 'Read.\nThen wait.']);
 });
 
 for (const [label, length, byFile] of [
@@ -174,7 +174,7 @@ test('the work-dir note goes into the file with the prompt', async (t) => {
   const work = path.join(botHomeOf(bots, 'note-bot'), 'work', 'api');
   assert.ok(held.startsWith(`${long}\n\n`), `the user's prompt first, the note a blank line below it, got: ${held}`);
   assert.ok(held.includes(work), `the note should name the work dir, got: ${held}`);
-  assert.deepEqual(await argvOf(box, typed, fake), ['--approve-for-me', '--', held]);
+  assert.deepEqual(await argvOf(box, typed, fake), ['--approve-for-me', '-c', 'sandbox_workspace_write.network_access=true', '--', held]);
 });
 
 test('whatever is in the file reaches the harness as one argument, unread by the shell', async (t) => {
@@ -192,7 +192,7 @@ ${line(FITS)}`;
   const { typed, tab } = await up(box, bots, 'nasty-bot');
 
   assert.equal(await readFile(tab.promptFile, 'utf8'), nasty, 'the file holds the user\'s text, byte for byte');
-  assert.deepEqual(await argvOf(box, typed, fake), ['--approve-for-me', '--', nasty]);
+  assert.deepEqual(await argvOf(box, typed, fake), ['--approve-for-me', '-c', 'sandbox_workspace_write.network_access=true', '--', nasty]);
 });
 
 test('a prompt file of the user\'s own is left where they put it', async (t) => {
@@ -226,7 +226,7 @@ test('a prompt file of the user\'s own is left where they put it', async (t) => 
   );
   assert.equal(path.dirname(tab.promptFile), `${bots}.prompts`, `got: ${tab.promptFile}`);
   assert.equal(path.dirname(path.dirname(tab.promptFile)), path.dirname(bots), 'and it sits beside the bots folder');
-  assert.deepEqual(await argvOf(box, typed, fake), ['--approve-for-me', '--', duty.trimEnd()]);
+  assert.deepEqual(await argvOf(box, typed, fake), ['--approve-for-me', '-c', 'sandbox_workspace_write.network_access=true', '--', duty.trimEnd()]);
 });
 
 test('two bots folders holding the same bot and session are handed two files', async (t) => {
@@ -289,7 +289,7 @@ test('the blank lines a format leaves at the ends are taken off, and nothing els
     duty.trim(),
     'the ends are the format\'s and go; the blank lines inside are the user\'s and stay',
   );
-  assert.deepEqual(await argvOf(box, typed, fake), ['--approve-for-me', '--', duty.trim()]);
+  assert.deepEqual(await argvOf(box, typed, fake), ['--approve-for-me', '-c', 'sandbox_workspace_write.network_access=true', '--', duty.trim()]);
 });
 
 test('the prompt is in its file before the tab is opened', async (t) => {
@@ -335,7 +335,7 @@ test('a session with nothing to say is handed nothing at all', async (t) => {
 
   const { typed, tab } = await up(box, bots, 'quiet-bot');
 
-  assert.equal(typed, BARE_LAUNCH.codex, 'no separator, no prompt, no file');
+  assert.equal(typed, bareLaunch('codex'), 'no separator, no prompt, no file');
   assert.equal('promptFile' in tab, false);
   assert.equal(await isThere(promptPathOf(bots, 'quiet-bot')), false);
 });

@@ -45,6 +45,19 @@
 //               anything that found it in a listing it is a tab like any other.
 //   crash       { command, exitCode, stdout, stderr } — no JSON, a bad exit code
 //   garbage     { command, text } — output that is not JSON at all
+//   runs        [{ id, objective }] — the Run mailboxes `orchestration
+//               run-create` has made. A Run cannot be deleted; there is no
+//               command for it, here or in Orca.
+//   messages    [{ id, to, from, subject, body, type, priority, threadId,
+//               at, acked }] — everything `orchestration send` has queued, in
+//               the order it was sent. `acked` is what `check --ack` sets, and
+//               an unacked message is replayed on every read. Those are this
+//               fake's own names, for a test to read; Orca's own words for the
+//               same message are in `asOrca` below.
+//   bound       { "<caller>": "<run id>" } — which Run each reader is bound to.
+//               A caller is its `ORCA_TERMINAL_HANDLE`, or `cli` for one that
+//               has no Orca terminal of its own; `run-create` and `run-use`
+//               bind it, and a read of another Run is refused `consumer_fenced`.
 //   runDuring   { command, argv, env, on } — run `argv` to completion once,
 //               before answering the `on`th call of `command` (the first by
 //               default), so another writer really lands in the middle of a run
@@ -88,7 +101,7 @@ const stateFile = path.join(dir, 'state.json');
 const args = process.argv.slice(2);
 appendFileSync(path.join(dir, 'calls.log'), `${JSON.stringify({ args, cwd: process.cwd() })}\n`);
 
-const state = JSON.parse(readFileSync(stateFile, 'utf8'));
+let state = JSON.parse(readFileSync(stateFile, 'utf8'));
 const save = () => writeFileSync(stateFile, `${JSON.stringify(state, null, 2)}\n`);
 
 /** The leading words of the call: everything before the first flag. */
@@ -162,6 +175,12 @@ if (aimedHere(state.runDuring)) {
       stdout: ran.stdout,
       stderr: ran.stderr,
     })}\n`);
+
+    // Whatever the child did to Orca's world, it did. Orca is one program with
+    // one memory, so this call must answer from what is there now rather than
+    // write the copy it read a moment ago back over the top — a fake that lost
+    // the child's Run would make the kit look as though it had never made one.
+    state = JSON.parse(readFileSync(stateFile, 'utf8'));
   }
 }
 
@@ -417,6 +436,143 @@ if (command === 'terminal send') {
   save();
   // `accepted: true` means the input was accepted, not that anything read it.
   ok({ accepted: true, terminal: terminal.handle });
+}
+
+// The mailbox. Everything below was proved live on 2026-09-21 and is written
+// down in the tech notes, section 1: a Run is the only address that lasts, a
+// send to a terminal handle is a legacy mailbox that dies with the tab, reading
+// a Run is fenced to one bound reader, and a message is replayed until it is
+// acked. What the kit never does — `reply --id`, the broadcast groups,
+// `orchestration reset` — this fake does not answer at all.
+
+/** Who is reading: a session reads from its own Orca tab, a plain shell has none. */
+const caller = process.env.ORCA_TERMINAL_HANDLE ?? 'cli';
+
+/** Bind this caller to a Run, the way `run-use` and `run-create` do. */
+function bind(run) {
+  state.bound = { ...(state.bound ?? {}), [caller]: run };
+}
+
+const runNamed = (id) => (state.runs ?? []).find((run) => run.id === id);
+
+/** `run:<id>` is the durable address; a bare `term_…` is the legacy one. */
+const runIn = (address) => (typeof address === 'string' && address.startsWith('run:') ? address.slice('run:'.length) : undefined);
+
+if (command === 'orchestration run-create') {
+  const n = state.nextId ?? 1;
+  state.nextId = n + 1;
+  const run = { id: `run_${n}`, objective: flag('--objective') ?? '' };
+  state.runs = [...(state.runs ?? []), run];
+  bind(run.id);
+  save();
+  // A caller with no Orca terminal of its own is given a handle to read with.
+  ok({ run, terminal: caller === 'cli' ? `term_run_${n}` : caller });
+}
+
+if (command === 'orchestration run-use') {
+  const wanted = flag('--id');
+  if (runNamed(wanted) === undefined) fail('run_not_found', `no run with id ${wanted}`);
+  bind(wanted);
+  save();
+  ok({ run: runNamed(wanted) });
+}
+
+if (command === 'orchestration send') {
+  const to = flag('--to');
+  if (to === undefined) fail('missing_argument', 'send needs --to');
+
+  const warnings = [];
+  const run = runIn(to);
+  if (run !== undefined) {
+    if (runNamed(run) === undefined) fail('run_not_found', `no run with id ${run}`);
+  } else if ((state.terminals ?? []).some((terminal) => terminal.handle === to)) {
+    warnings.push({
+      code: 'legacy_terminal_recipient',
+      message: `${to} is a live terminal-only mailbox. Delivery is not durable after that terminal closes.`,
+    });
+  } else {
+    fail('recipient_not_found', `${to} has no live pane or durable Run/Dispatch mailbox`);
+  }
+
+  const n = state.nextId ?? 1;
+  state.nextId = n + 1;
+  const message = {
+    id: `msg_${n}`,
+    to,
+    from: flag('--from') ?? null,
+    subject: flag('--subject') ?? '',
+    body: flag('--body') ?? '',
+    type: flag('--type') ?? 'status',
+    priority: flag('--priority') ?? 'normal',
+    threadId: flag('--thread-id') ?? null,
+    at: `2026-09-21T12:00:0${n % 10}.000Z`,
+    acked: false,
+  };
+  state.messages = [...(state.messages ?? []), message];
+  save();
+
+  ok({ message: asOrca(message), ...(warnings.length > 0 ? { warnings } : {}) });
+}
+
+/**
+ * One message as Orca hands it over, rather than as this fake keeps it. The
+ * field names are the ones the live check answered with on 2026-09-21; the
+ * fake keeps its own shorter names so a test can read what is in the mailbox
+ * without going through Orca's words for it.
+ */
+function asOrca(message) {
+  return {
+    id: message.id,
+    to_handle: message.to,
+    from_handle: message.from,
+    subject: message.subject,
+    body: message.body,
+    type: message.type,
+    priority: message.priority,
+    thread_id: message.threadId,
+    created_at: message.at,
+  };
+}
+
+if (command === 'orchestration check') {
+  const asked = flag('--run');
+  const run = asked ?? (state.bound ?? {})[caller];
+  if (run === undefined) fail('no_run', 'this caller is bound to no run and none was named');
+  if (runNamed(run) === undefined) fail('run_not_found', `no run with id ${run}`);
+
+  const boundTo = (state.bound ?? {})[caller];
+  if (boundTo !== undefined && boundTo !== run) {
+    fail('consumer_fenced', `This coordinator terminal is bound to ${boundTo}`);
+  }
+
+  /** This Run's mail, oldest first. `--all` asks for the acknowledged ones too. */
+  const mailIn = () => (state.messages ?? [])
+    .filter((message) => message.to === `run:${run}` && (args.includes('--all') || !message.acked));
+
+  // A delivery is the batch a read hands over, and acknowledging it
+  // acknowledges everything up to and including it: FIFO, and replayed until
+  // acked, so a reader that never acked would be given the same mail for ever.
+  const acked = [];
+  const wanted = flag('--ack');
+  if (wanted !== undefined) {
+    const upTo = (state.messages ?? []).findIndex((entry) => entry.id === wanted);
+    if (upTo < 0) fail('delivery_not_found', `no delivery with id ${wanted}`);
+    for (const message of mailIn()) {
+      if ((state.messages ?? []).indexOf(message) > upTo) continue;
+      message.acked = true;
+      acked.push(message.id);
+    }
+    save();
+  }
+
+  const waiting = mailIn();
+  ok({
+    run,
+    messages: waiting.map(asOrca),
+    // What to acknowledge when this batch has been read.
+    ...(waiting.length > 0 ? { deliveryId: waiting[waiting.length - 1].id } : {}),
+    ...(acked.length > 0 ? { acked } : {}),
+  });
 }
 
 fail('unknown_command', `orca has no "${command}" command in this fake`);

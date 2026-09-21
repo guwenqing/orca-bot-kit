@@ -20,6 +20,10 @@ const HEADER = `# What Orca calls this bot on this machine, and where each of it
 #
 # Each session also carries the harness session it runs as, and the ones it ran
 # as before it: a clear makes a new one, and the old ones are kept.
+#
+# \`mailbox\` is where fleet mail for the session is left — an Orca Run, made once
+# and kept, because an address that is a tab dies with the tab. \`address\` is what
+# a Claude session is called, which is what another Claude session writes to.
 `;
 
 export const bookFile = (home) => path.join(home, 'sessions.yaml');

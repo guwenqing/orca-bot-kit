@@ -27,7 +27,7 @@ import test from 'node:test';
 
 import {
   assertOrcaCallsAllowed,
-  BARE_LAUNCH,
+  bareLaunch,
   botFatherTabs,
   createSandbox,
   orcaCallsOf,
@@ -63,8 +63,8 @@ for (const harness of ['claude', 'codex']) {
     const { daily, ops } = await tabsOf(box);
     // The harness and the approval level it takes, and nothing else: Bot
     // Father's seeded session names no model, no effort and no start prompt.
-    assert.deepEqual(typedInto(daily), [BARE_LAUNCH[harness]]);
-    assert.deepEqual(daily.typed, [{ text: BARE_LAUNCH[harness], enter: true }], 'the line has to be sent off');
+    assert.deepEqual(typedInto(daily), [bareLaunch(harness, 'bot-father', 'daily')]);
+    assert.deepEqual(daily.typed, [{ text: bareLaunch(harness, 'bot-father', 'daily'), enter: true }], 'the line has to be sent off');
     assert.deepEqual(typedInto(ops), [], 'the ops tab is a plain shell');
     assert.equal(daily.worktreePath, botHomeIn(box));
     assert.equal(ops.worktreePath, botHomeIn(box));
@@ -127,7 +127,7 @@ test('the harness is typed into the daily tab only, and the tab is checked after
   assert.equal(sends.length, 1, 'one tab is told what to run, and it is one line');
   assert.equal(orcaFlag(sends[0], '--terminal'), daily.handle);
   assert.notEqual(orcaFlag(sends[0], '--terminal'), ops.handle);
-  assert.equal(orcaFlag(sends[0], '--text'), BARE_LAUNCH.codex);
+  assert.equal(orcaFlag(sends[0], '--text'), bareLaunch('codex'));
   assert.ok(sends[0].args.includes('--enter'), `the line has to be sent off: ${sends[0].args.join(' ')}`);
   assert.deepEqual(orcaFlags(sends[0]), ['--enter', '--json', '--terminal', '--text']);
 
@@ -165,7 +165,7 @@ test('a harness that came up on its trust question counts as started', async (t)
   const daily = JSON.parse(result.stdout).tabs.find((tab) => tab.name === 'daily');
   assert.equal(daily.harnessStarted, true, 'a TUI that is up is a harness that started');
   const { daily: tab } = await tabsOf(box);
-  assert.deepEqual(typedInto(tab), [BARE_LAUNCH.claude]);
+  assert.deepEqual(typedInto(tab), [bareLaunch('claude', 'bot-father', 'daily')]);
 });
 
 test('a harness that never came up is reported, and the run still succeeds', async (t) => {
@@ -178,7 +178,7 @@ test('a harness that never came up is reported, and the run still succeeds', asy
 
   assert.equal(result.code, 0, `a harness that did not come up is not a failure: ${result.stderr}`);
   const { daily, ops } = await tabsOf(box);
-  assert.deepEqual(typedInto(daily), [BARE_LAUNCH.claude], 'the line was still typed; it is the outcome that was checked');
+  assert.deepEqual(typedInto(daily), [bareLaunch('claude', 'bot-father', 'daily')], 'the line was still typed; it is the outcome that was checked');
   assert.deepEqual(typedInto(ops), [], 'and the other tab is still a plain shell');
   // The caller has to learn which tab it must look at itself.
   assert.ok(
@@ -215,7 +215,7 @@ test('the daily tab that comes back is the one that gets the harness', async (t)
 
   const back = await tabsOf(box);
   assert.notEqual(back.daily.tabId, daily.tabId, 'a tab that comes back is a new tab');
-  assert.deepEqual(typedInto(back.daily), [BARE_LAUNCH.codex], 'the new tab runs the harness bot.yaml names');
+  assert.deepEqual(typedInto(back.daily), [bareLaunch('codex')], 'the new tab runs the harness bot.yaml names');
   assert.deepEqual(back.ops, ops, 'the tab that was still there must be untouched');
 
   const sends = orcaCallsOf((await box.orca.calls()).slice(sofar), 'terminal send');

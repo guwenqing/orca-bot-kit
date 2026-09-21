@@ -114,6 +114,22 @@ async function conversation(box, harness, { id, cwd, at }) {
 /** A few seconds after `when`, as a time a conversation could have started at. */
 const after = (when, seconds) => new Date(when.getTime() + seconds * 1000);
 
+/**
+ * The last of several sessions' launches.
+ *
+ * A session's note holds what began since the kit started a harness in **its**
+ * tab, so a conversation planted for two sessions to see has to come after both
+ * of them came up. `up` opens their tabs one after another and takes as long as
+ * it takes over each — it asks Orca for a workspace, a tab and a mailbox — so
+ * the gap between two launches is not something a test may assume is small. A
+ * test that planted a conversation a second after the first session's launch
+ * passed while the machine was quick and failed when it was not.
+ */
+async function lastLaunchOf(bots, ...sessions) {
+  const times = await Promise.all(sessions.map((session) => launchedAt(bots, session)));
+  return times.reduce((latest, when) => (when > latest ? when : latest));
+}
+
 /** The ids one session's `unclaimed` note holds, in no particular order. */
 async function unclaimedIn(bots, session = 'daily') {
   const entry = await sessionIn(bots, 'api-bot', session) ?? {};
@@ -249,7 +265,10 @@ for (const harness of ['claude', 'codex']) {
     const box = await createSandbox(t);
     const { bots, home } = await started(box, harness, ['daily', 'review'], ['--prompt', DUTY]);
     const book = await bookIn(bots, 'api-bot');
-    const launched = await launchedAt(bots, 'daily');
+    // Both sessions' notes are asserted below, so the four conversations are
+    // planted after the later of the two launches: each session sees what began
+    // since its own tab came up, and review's tab is the second one opened.
+    const launched = await lastLaunchOf(bots, 'daily', 'review');
     await conversation(box, harness, { id: 'ran-and-was-never-reported', cwd: home, at: after(launched, 1) });
     await conversation(box, harness, { id: 'ran-too-and-was-never-reported', cwd: home, at: after(launched, 2) });
     await conversation(box, harness, { id: 'review-is-running-this', cwd: home, at: after(launched, 60) });
