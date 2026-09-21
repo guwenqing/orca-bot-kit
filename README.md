@@ -137,6 +137,11 @@ than relying on another skill being loaded.
 |---|---|
 | `obk-tdd` | a failing test first, a separate test author, the mutation check |
 
+A skill is where the depth lives. The always-on rules say that a change in
+behaviour starts with a failing test someone else wrote; `obk-tdd` is how to
+write one worth keeping, what to do when it looks wrong, and how to find out
+whether the tests would catch a real mistake.
+
 A skill is a directory holding `SKILL.md` — frontmatter carrying `name` (the
 directory's own name) and `description`, then the body — plus any reference
 files it links to. Those two keys are the only frontmatter both Claude Code and
