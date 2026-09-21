@@ -82,10 +82,11 @@ on it, and say that you moved it. An order you worked out is a suggestion, so
 offer it and say what it rests on — the date, how long something takes, what is
 blocking something else — and leave their list as it is until they say.
 
-A new item with no date is the awkward one, because putting it under this week
-invents a deadline and putting it at the bottom buries something they raised
-just now. Put it where they put it if they said, and otherwise ask rather than
-choosing for them.
+A new item with no date goes where the list's own shape puts it. On one run of
+items that is the end of it, and there is nothing to ask. Where the list is
+divided up by when things are due, the placement is a date you were not given:
+under this week it invents a deadline, at the bottom it buries something they
+raised a minute ago. That is the case worth a question, and it is the only one.
 
 ## A line in a file is not a reminder
 

@@ -111,7 +111,9 @@ seen it written. Seven things in it come from what that found:
 - Marking a booking done hid the appointment that had not happened yet.
 - "Do not reorder their list quietly" read as forbidding action on an urgency
   the person had just stated out loud.
-- A new undated item had nowhere to go that did not invent a timeframe.
+- In a list divided up by when things are due, a new undated item had nowhere
+  to go that did not invent a timeframe. The skill asks about that case and
+  only that case: on a flat list the end of it invents nothing.
 - Setting a reminder and the person actually being reminded were treated as the
   same thing, and the third case — a scheduler exists and you may not reach it
   — had no answer.
