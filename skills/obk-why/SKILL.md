@@ -32,6 +32,13 @@ outside constraint, or something that looks dead. Where the target is vague,
 say which reading you took in a line and carry on, so it can be corrected
 without a round trip.
 
+A question often arrives with its answer attached: "why do we do it this way,
+is it for performance?" Treat the guess as one candidate and check it like any
+other. Confirming it because it was offered is the cheapest way to produce a
+wrong answer that everyone then believes, because it carries your name as well
+as theirs. Where the evidence supports it, say so and cite it; where it does
+not, say what the evidence supports instead.
+
 Then anchor it in the code before going anywhere else: the files and the line
 ranges, the names that matter, the last handful of changes that touched them,
 and the review or discussion those changes belong to. Everything after this
@@ -81,6 +88,14 @@ reason is — the argument that moved it is more informative than the number it
 landed on. Cite the change that actually did the thing, not the one that
 delivered it.
 
+Three more things mislead in a history. A change that describes itself as a
+small refactor sometimes carries a deliberate change of behaviour, so read the
+diff rather than the message. A pattern may have been copied without its
+reason, so where the same shape appears in several places, find where it
+started and investigate that one instead. And automated changes — dependency
+bumps, backports, anything raised by a bot — usually carry no motivation at
+all, so they are not where the reason is.
+
 ## How sure you are
 
 Every claim sits in one of these, and it is said differently in each. Keeping
@@ -104,8 +119,27 @@ them apart is most of the value of the whole exercise.
   searched and how. The specific version tells the next person where not to
   look again.
 
+Where two sources disagree, surface both. The issue says the work was for a
+customer's compliance requirement and the change says it was tidying up an
+area: both can be true, since one motivated the work and the other is how the
+author framed it, or one of them can simply be wrong. Picking whichever makes
+the tidier story is how the disagreement gets buried. Put them side by side
+with their citations and let the reader decide.
+
 Do not launder one of these into another. An inference stated in the voice of
-a citation is the failure this whole skill exists to prevent.
+a citation is the failure this whole skill exists to prevent. Some words carry
+a citation with them — "because", "the reason is", "was designed to", "fixes",
+"the team decided" — and each one needs its source immediately beside it or a
+hedged word instead.
+
+Check it from the other side before you finish: the code is evidence of what
+exists and what changed, and never on its own evidence of why. Reading the
+change that set a limit to 6000 and the one that moved it to 6500 establishes
+both of those values, and you need that to cite the right change. Neither of
+them tells you what the author was trying to do. So where a claim about
+motivation rests on the code alone — the name of the function, the shape of the
+branch, the value of the constant — that is the thing being explained, not the
+explanation of it.
 
 ## What you hand back
 

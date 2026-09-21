@@ -7,7 +7,8 @@ description: >-
   sits, and what to do first. Run it when you are asked to: "hand this over",
   "write it up for whoever picks this up", "stop there", "we are out of time".
   Running low on room does not trigger it and neither does a session being
-  cleared — those are moments to ask whether a handover is wanted.
+  cleared; a fresh start is a fresh start, and neither of those is someone
+  asking you to hand over.
 ---
 
 # Handing work over
@@ -16,9 +17,9 @@ Two halves: stop somewhere it is safe to stop, and leave a note someone who
 was not here can act on.
 
 This is run when someone asks for it. Clearing a session does not trigger it,
-and neither does running low on room — those are moments when it is often
-worth asking for, not moments when it happens by itself. And when the answer
-to "shall I stop?" was "keep going", keep going.
+and neither does running low on room: a fresh start is a fresh start, and
+neither of those is someone asking you to hand over. And when the answer to
+"shall I stop?" was "keep going", keep going.
 
 These are defaults for work where nothing says otherwise. A user who asks for
 something else gets what they asked for; say which of these you left and why.
@@ -63,6 +64,12 @@ is one way of reaching it and not the only one.
 Write it where the next session will find it and where it will not be mistaken
 for part of the work — a scratch location, not the middle of the source tree.
 Say where it is in your final message.
+
+Where you have been told what the next session is for, shape the note around
+that. The same work handed to someone carrying the build on and to someone
+reviewing what was built wants a different half brought to the front. Where you
+have not been told, write what you would want to know yourself, and do not
+invent a purpose to write towards.
 
 What a cold reader needs, and roughly in this order:
 

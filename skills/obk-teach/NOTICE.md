@@ -39,7 +39,8 @@ thanks:
   writing guidance — plain spoken English as to a colleague, tight rather than
   terse, the concrete mechanism rather than a metaphor or a framing, short
   sentences with one or two commas and clauses split rather than piled up, one
-  name per concept kept throughout, no mirror sentences and no tidy closers,
+  name per concept kept throughout, no em dashes, no mirror sentences and no
+  tidy closers,
   and the reply being the explanation itself rather than a report about it.
 
 Made generic, which is what the owner asked for. The original is built on top
