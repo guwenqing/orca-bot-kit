@@ -333,11 +333,20 @@ worth doing. A trade-off that is worth keeping but worth writing down. Or
 noise — and when it is noise, the useful question is whether the brief should
 have said something that would have prevented it.
 
-Some findings say more about what the reader could not see than about the code:
-a change asked for in code you did not touch, a pattern flagged that the rest
-of the codebase already uses, an approach recommended that a constraint you
-know about rules out. Those are honest mistakes from someone working with less
-context. Dismiss them, say why, and move on without making a point of it.
+Some findings carry a sign that the reader was working without something you
+have: a change asked for in code you did not touch, a pattern flagged that the
+rest of the codebase already uses, an approach recommended that a constraint
+you know about rules out. Treat that as a reason to look, not as an answer. It
+is often an honest mistake from someone with less context, and it is just as
+often the finding that matters most — a caller you did not touch is exactly
+where a changed return shape breaks, and the same unsafe pattern elsewhere says
+nothing about whether this use of it is safe.
+
+So check it out, and dismiss it only on what the code, the contract or a
+decision you can point to actually shows. "The reviewer did not know about X"
+dismisses the finding once you have said what X is and why it settles this
+case; on its own it is not a reason. Say that much, and move on without making
+a point of it.
 
 Ask rather than decide when the finding is novel, when you cannot tell, or when
 it touches security, privacy, who is allowed to do what, money, a data
