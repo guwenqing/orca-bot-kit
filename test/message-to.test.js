@@ -25,10 +25,14 @@
 // rather than queueing messages nobody will ever read.
 
 import assert from 'node:assert/strict';
+import { writeFile } from 'node:fs/promises';
 import test from 'node:test';
+import { stringify } from 'yaml';
 
 import {
   assertRefused,
+  bookIn,
+  bookOf,
   createSandbox,
   orcaCallsOf,
   sessionIn,
@@ -184,6 +188,32 @@ test('without --json it says the same two things in plain words', async (t) => {
   const address = `run:${(await sessionIn(bots, 'codex-one', 'daily')).mailbox}`;
   assert.ok(result.stdout.includes(address), `the address should be there to read, got: ${result.stdout}`);
   assert.ok(/\borca\b/i.test(result.stdout), `and which road it is, got: ${result.stdout}`);
+});
+
+test('a Claude pair whose receiver answers to no name goes by the mailbox, and is told why', async (t) => {
+  // The upgrade, end to end. A session started before the kit named sessions is
+  // a Claude session like any other, in the same approval class as the sender,
+  // and the native road cannot reach it: its harness came up with no `-n`, and
+  // nothing renames a live one. Answering `native` here would hand the sender an
+  // address no harness answers to, and the message would go nowhere with nothing
+  // said. So the road is the mailbox, and the answer says which session it is
+  // about rather than leaving the caller to wonder why it is not the usual one.
+  const box = await createSandbox(t);
+  const bots = await fleetIn(box);
+  const book = await bookIn(bots, 'auto-two');
+  delete book.sessions.daily.address;
+  await writeFile(bookOf(bots, 'auto-two'), stringify(book));
+
+  const answer = await askTo(box, ['--to', 'auto-two', '--from', 'auto-one/daily']);
+  const plain = await box.run(['message', 'to', '--bots', 'bots', '--to', 'auto-two', '--from', 'auto-one/daily']);
+
+  assert.equal(answer.transport, 'orca', `got: ${JSON.stringify(answer)}`);
+  assert.equal(answer.address, `run:${(await sessionIn(bots, 'auto-two', 'daily')).mailbox}`);
+  assert.equal(plain.code, 0, plain.stderr);
+  assert.ok(
+    plain.stdout.includes('auto-two/daily'),
+    `the report should name the session this is about, got: ${plain.stdout}`,
+  );
 });
 
 test('a bot that does not exist is refused, and named', async (t) => {

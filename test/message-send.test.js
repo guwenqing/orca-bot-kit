@@ -23,10 +23,13 @@ import assert from 'node:assert/strict';
 import { readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
+import { stringify } from 'yaml';
 
 import {
   assertOrcaCallsAllowed,
   assertRefused,
+  bookIn,
+  bookOf,
   createSandbox,
   sessionIn,
 } from './helpers/cli.js';
@@ -136,6 +139,28 @@ test('a native pair is refused, the address to write to is named, and nothing is
   assertRefused(result, 'reader.daily');
   assert.deepEqual(await box.orca.messages(), [], 'nothing may be queued for a pair the mailbox does not carry');
   assert.deepEqual(await box.orca.terminals(), before, 'and nothing may be typed into anybody\'s tab');
+});
+
+test('a Claude pair whose receiver answers to no name is carried, not refused', async (t) => {
+  // The refusal above is right only while the native road exists. A session
+  // started before the kit named sessions has no name for a Claude sender to
+  // write to, so the mailbox is the only road there is — and a `send` that
+  // refused it, naming an address no harness answers to, would leave the pair
+  // with no way to write to each other at all.
+  const box = await createSandbox(t);
+  const bots = await fleetIn(box);
+  const book = await bookIn(bots, 'reader');
+  delete book.sessions.daily.address;
+  await writeFile(bookOf(bots, 'reader'), stringify(book));
+
+  const result = await send(box, [
+    '--to', 'reader', '--from', 'writer/daily', '--subject', 'about the review', '--text', 'have you started?',
+  ]);
+
+  assert.equal(result.code, 0, result.stderr);
+  const message = await theMessage(box);
+  assert.equal(message.to, await addressOfMailbox(bots, 'reader'));
+  assert.equal(message.from, await addressOfMailbox(bots, 'writer'));
 });
 
 test('a body of 4 KiB travels as itself', async (t) => {

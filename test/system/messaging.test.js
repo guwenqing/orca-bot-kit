@@ -9,7 +9,7 @@
 //      message queued into it, the line typed into the receiver's tab — the
 //      only thing that reaches a harness, because the mailbox is pull-only —
 //      the harness reading its own mail with `obk message check`, and the
-//      reply coming back the other way with the thread on it.
+//      reply coming back the other way under its own steam.
 //   2. A busy receiver is not interrupted (PRD 6.9). The nudge is typed into a
 //      tab that is in the middle of something; both harnesses take a typed
 //      line as the next turn rather than cutting into the one they are having,
@@ -57,6 +57,23 @@
 // continue" — without it the kit's hook never runs) and possibly a harness
 // update offer. Every wait below says what the tab is showing when it runs out
 // of patience, so a run that was left alone names the screen that stopped it.
+//
+// **What a receipt here may be made of.** Every word these tests wait for has
+// to be one that could not have come from anything typed into the tab it is
+// waited for in. A word that is in the question is on the screen whether or not
+// the thing under test ever happened, and an assertion that looks for it passes
+// on that echo — which is what the review of PR #132 found in the first two
+// cases below: the reply's word, the sender's name and the thread were all in
+// the prompt typed into the sender's tab, and the busy case's finishing word was
+// in the instruction, so both could pass with no reply sent and no work done.
+// Where a fact cannot be checked that way it is checked somewhere it can be:
+// the thread and the sender are pinned by the unit tests and by case 3, which
+// reads a real message back out of a real mailbox.
+//
+// To see them fail, which is the other half of believing them: take the reply
+// sentence out of the Codex bot's start prompt and case 1 cannot find
+// MARMOSET; take the counting out of the instruction in case 2 and it cannot
+// find the total. Neither passes on what the tab was told.
 //
 // It is slow: two real agents, a round trip between them, and a long task in
 // the middle. Minutes, not seconds.
@@ -296,28 +313,77 @@ const showsUp = (handle, word, within = ANSWER_MS) => until(
   () => whatIsUp(handle),
 );
 
-/** Ask the session something and wait for `word` to appear on its screen. */
-async function answers(handle, question, word, within = ANSWER_MS) {
-  await askIn(handle, question);
-  await showsUp(handle, word, within);
+/**
+ * Wait until the tab is busy with the work it was given: a TUI that is up, not
+ * idle, and not waiting on a screen of its own.
+ *
+ * Orca's `tui-idle` is the only thing that knows — `satisfied: false` on a tab
+ * whose TUI is running is an agent that has work in hand — and a `blockedReason`
+ * would mean the tab is on a question instead, which is not busy at all. A test
+ * that sent its message without waiting for this would prove nothing about a
+ * busy receiver: the agent may have finished before the send, and then the
+ * order on the screen says only that one thing came after another.
+ */
+async function busyIn(handle, within = ANSWER_MS) {
+  await until(
+    `${handle} to be busy with the work it was given`,
+    within,
+    async () => {
+      const answer = orca(['terminal', 'wait', '--terminal', handle, '--for', 'tui-idle', '--timeout-ms', '2000']);
+      if (answer.ok !== true) return undefined;
+      const { satisfied, blockedReason } = answer.result?.wait ?? {};
+      return satisfied === false && blockedReason === undefined ? true : undefined;
+    },
+    () => whatIsUp(handle),
+  );
 }
 
 /**
- * The two bots. Each one is told in its start prompt what to do when fleet mail
- * arrives, because that is what the nudge counts on: a line saying mail is
- * waiting, and a session that knows to go and read it.
+ * The two bots, and the words that make the checks below mean something.
+ *
+ * Every receipt this file waits for is a word that could not have come from
+ * anything typed into the tab it is waited for in. That is not fussiness: a
+ * word that is in the question is on the screen whether or not the thing under
+ * test ever happened, and an assertion that looks for it passes on the echo.
+ *
+ *   PELICAN  is typed into the Claude tab, as part of the send command, and
+ *            never into the Codex tab. Nothing else carries it there: the
+ *            nudge says who wrote and what the subject is, and this is neither.
+ *            So PELICAN on the Codex screen is the message having been read.
+ *   MARMOSET is in the Codex bot's own start prompt and nowhere else — not in
+ *            the send command, not in the message, not in anything typed into
+ *            the Claude tab. So MARMOSET on the Claude screen is the reply
+ *            having been written, carried and read.
+ *
+ * Which is why the reply instruction lives in the Codex bot's start prompt
+ * rather than in the message: a message that dictated the reply word for word
+ * would put that word on the sender's screen before anything was sent.
  */
 const BOTS = [
   { name: 'mail-claude', harness: 'claude', display: 'Mail Claude' },
   { name: 'mail-codex', harness: 'codex', display: 'Mail Codex' },
 ];
 
-const startPromptFor = (bots) => [
+/** The word only the Codex bot knows, which reaches the Claude bot only as a reply. */
+const PASSPHRASE = 'MARMOSET-9930';
+
+/** The word only the Claude bot is given, which reaches the Codex bot only as mail. */
+const QUESTION = 'PELICAN-4417';
+
+/** The work the busy receiver is given, and the total only doing it produces. */
+const COUNT_TO = 40;
+const TOTAL = `TOTAL: ${(COUNT_TO * (COUNT_TO + 1)) / 2}`;
+
+const startPromptFor = (bots, bot) => [
   'You are a system test\'s bot and you own nothing.',
   'When a line arrives saying fleet mail is waiting, run exactly the command that line names to read it,',
-  'and then print, on one line each, the words WHO: followed by who it is from, THREAD: followed by the thread id,',
-  'and MAIL: followed by the text of the message.',
-  'If the message asks you to reply, reply by running the obk message send command it gives you, word for word.',
+  'and then print MAIL: followed by the text of the message.',
+  ...(bot.harness === 'codex'
+    ? [
+      `When a message asks you to reply, reply to whoever wrote it with your passphrase, which is ${PASSPHRASE}:`,
+      'ask the kit for the road with obk message to, and then send it with obk message send.',
+    ]
+    : []),
   `Your bots folder is ${bots}.`,
   'Do nothing else at all: run no other command, read no file, and write nothing.',
   'Say nothing now and wait.',
@@ -374,7 +440,7 @@ async function aFleet(t, label) {
     ]);
     obkJson([
       'session', 'add', '--bots', bots, '--bot', bot.name, '--name', 'daily',
-      `--prompt=${startPromptFor(bots)}`,
+      `--prompt=${startPromptFor(bots, bot)}`,
     ]);
 
     const entry = tabOf(obkJson(['up', '--bots', bots, '--bot', bot.name]), 'daily');
@@ -399,67 +465,76 @@ async function aFleet(t, label) {
 }
 
 test('a Claude bot and a Codex bot exchange a message and a reply', async (t) => {
-  // Every part of the road is real here: the Run mailboxes, the queued message,
-  // the line typed into a tab — the only thing that reaches a harness — the
-  // harness reading its own mail, and the reply coming back with the thread on
-  // it. The words are the proof: each bot prints what it read, and neither
-  // could print the other's word without having read it.
+  // Every part of the road is real: the Run mailboxes, the queued message, the
+  // line typed into the receiver's tab — the only thing that reaches a harness
+  // — the harness reading its own mail, and the reply coming back the other
+  // way.
+  //
+  // Two words carry the proof, and neither can be echoed from the tab it is
+  // waited for in. The Codex bot has never been told PELICAN: the nudge carries
+  // the sender and the subject, and PELICAN is in the body. The Claude bot has
+  // never been told MARMOSET: it is in the Codex bot's own start prompt, and
+  // nothing typed into the Claude tab mentions it.
+  //
+  // What is deliberately not checked here is the thread, and who a message says
+  // it is from. Both would have to be typed into the sender's tab as part of the
+  // send command, so an assertion on them would pass on that echo. They are
+  // pinned where they can be pinned honestly: the thread by the unit tests, and
+  // the sender by the third case below, which reads a real message back out of a
+  // real mailbox and compares its `from`.
   const { bots, tabs } = await aFleet(t, 'mail');
-  const thread = 'obk-system-thread-1';
-  const question = 'PELICAN-4417';
-  const answer = 'MARMOSET-9930';
 
-  const replyLine = [
-    'obk message send', `--bots ${bots}`,
-    '--to mail-claude/daily', '--from mail-codex/daily',
-    '--subject \'re: the system test\'', `--text '${answer}'`, `--thread ${thread}`,
-  ].join(' ');
-
-  // 1. The Claude bot writes to the Codex bot, in its own words but with the
-  //    kit's command, and the message tells the Codex bot how to reply.
-  await answers(
+  // 1. The Claude bot writes to the Codex bot, with the kit's own command.
+  await askIn(
     tabs['mail-claude'].terminal,
     [
-      'Run exactly this command and then print the word SENT and nothing else:',
+      'Run exactly this command, and nothing else:',
       `obk message send --bots ${bots} --to mail-codex/daily --from mail-claude/daily`,
-      `--subject 'the system test' --thread ${thread}`,
-      `--text '${question}. Reply by running this command word for word: ${replyLine}'`,
+      `--subject 'the system test' --text '${QUESTION}. Please reply to me.'`,
     ].join(' '),
-    'SENT',
-    ROUND_TRIP_MS,
   );
 
-  // 2. The Codex bot was nudged, read its own mail and printed what was in it.
-  //    Nothing asked it anything: the line the kit typed is the whole wake-up.
-  await showsUp(tabs['mail-codex'].terminal, question, ROUND_TRIP_MS);
-  const codexScreen = screenOf(tabs['mail-codex'].terminal);
-  assert.ok(codexScreen.includes('mail-claude'), `it should know who wrote to it: ${codexScreen.slice(0, 2000)}`);
-  assert.ok(codexScreen.includes(thread), `and which thread it is: ${codexScreen.slice(0, 2000)}`);
+  // 2. The Codex bot was nudged, read its own mail, and printed what was in it.
+  //    Nobody asked it anything: the line the kit typed is the whole wake-up,
+  //    and the word it prints was only ever in the body of the message.
+  await showsUp(tabs['mail-codex'].terminal, QUESTION, ROUND_TRIP_MS);
 
-  // 3. The reply came back the other way, and the Claude bot read it.
-  await showsUp(tabs['mail-claude'].terminal, answer, ROUND_TRIP_MS);
-  const claudeScreen = screenOf(tabs['mail-claude'].terminal);
-  assert.ok(claudeScreen.includes('mail-codex'), `the reply says who sent it: ${claudeScreen.slice(0, 2000)}`);
-  assert.ok(claudeScreen.includes(thread), `and carries the thread it belongs to: ${claudeScreen.slice(0, 2000)}`);
+  // 3. And the reply came back the other way, under its own steam: the Codex
+  //    bot looked the road up, sent it, the Claude bot was nudged in its turn,
+  //    and read it. The word is the Codex bot's own.
+  await showsUp(tabs['mail-claude'].terminal, PASSPHRASE, ROUND_TRIP_MS);
 });
 
 test('a busy receiver finishes what it was doing before it reads its mail', async (t) => {
   // PRD 6.9: queued, not interrupting. The nudge is a typed line, and both
   // harnesses take one as the next turn rather than cutting into the turn they
   // are having — which is the whole reason the kit types a line instead of
-  // interrupting the tab. What proves it is the order on the receiver's own
-  // screen: the work it was given finishes first, and the mail is read after.
+  // interrupting the tab.
+  //
+  // Three things have to hold for that to have been shown, rather than assumed.
+  // The receiver has to be busy when the message arrives, so the test waits for
+  // Orca to say the tab is working before it sends anything. The work has to
+  // have finished, so the receipt is the total of the numbers — a value the
+  // instruction never mentions, which only doing the work produces; the word the
+  // old version of this test waited for was in the instruction itself, and was
+  // on the screen whether or not a single number was ever printed. And the mail
+  // has to have been read after that, which is the order the two sit in on the
+  // screen, both of them present.
   const { bots, tabs } = await aFleet(t, 'busy');
-  const working = 'HERON-7781';
   const mail = 'OTTER-2245';
   const receiver = tabs['mail-codex'].terminal;
 
-  // Something that takes the receiver a while, and says when it is done.
+  // Something that takes the receiver a while, and a receipt only doing it gives.
   await askIn(
     receiver,
-    'Count from 1 to 40, printing one number per line, on your own, without running any command. '
-    + `When you have printed 40, print ${working} on a line of its own. Do not stop for anything else until then.`,
+    `Count from 1 to ${COUNT_TO}, printing one number per line, on your own, without running any command. `
+    + 'When you have printed them all, print TOTAL: followed by the sum of every number you printed, '
+    + 'on a line of its own. Do not stop for anything else until then.',
   );
+
+  // It is working. Orca's own idleness is the only signal for that, and without
+  // it this test would prove nothing about a receiver that was busy.
+  await busyIn(receiver);
 
   // Mail arrives in the middle of it. The kit types the nudge in; nobody
   // interrupts anybody.
@@ -472,9 +547,12 @@ test('a busy receiver finishes what it was doing before it reads its mail', asyn
   await showsUp(receiver, mail, ROUND_TRIP_MS);
 
   const screen = screenOf(receiver);
-  assert.ok(screen.includes(working), `the work it was doing should have finished: ${screen.slice(0, 2000)}`);
   assert.ok(
-    screen.indexOf(working) < screen.indexOf(mail),
+    screen.includes(TOTAL),
+    `the work it was given should have finished, and ${TOTAL} is what finishing it produces: ${screen.slice(0, 3000)}`,
+  );
+  assert.ok(
+    screen.indexOf(TOTAL) < screen.indexOf(mail),
     `the mail should have been read after the work, not in the middle of it: ${screen.slice(0, 3000)}`,
   );
 });

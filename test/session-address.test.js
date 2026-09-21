@@ -292,6 +292,57 @@ test('and the same when neither run has opened the session\'s tab yet', async (t
   );
 });
 
+test('a session that was already running is given a mailbox and no name', async (t) => {
+  // The upgrade: a session started by a kit that did not name sessions, its tab
+  // still live. Nothing renames a live harness — the name is what `-n` put on
+  // the line that started it — so a run that finds the tab already there may
+  // write the mailbox and must not write a name. A name in the book that no
+  // harness answers to is worse than none: it is an address the fleet would be
+  // told to write to, and nothing would ever arrive.
+  const box = await createSandbox(t);
+  const bots = await withBot(box, 'claude', [['daily']]);
+  await up(box, bots);
+  const book = await bookIn(bots, 'api-bot');
+  delete book.sessions.daily.address;
+  delete book.sessions.daily.mailbox;
+  await writeFile(bookOf(bots, 'api-bot'), stringify(book));
+
+  const again = await box.run(['up', '--bots', 'bots', '--bot', 'api-bot']);
+
+  assert.equal(again.code, 0, again.stderr);
+  const daily = await sessionIn(bots, 'api-bot', 'daily');
+  assert.ok(typeof daily.mailbox === 'string', `it can be written to: ${JSON.stringify(daily)}`);
+  assert.equal(daily.address, undefined, `and it answers to no name: ${JSON.stringify(daily)}`);
+  assert.deepEqual(
+    typedInto((await tabsOfBot(box, bots, 'api-bot'))[0]).slice(1),
+    [],
+    'and the run typed nothing into a tab that was already live',
+  );
+});
+
+test('a session whose tab this run opened is given its name, because the line carried it', async (t) => {
+  // The other side of it, and the reason the two can be told apart: this run
+  // typed the launch line, so it knows what name the harness came up under.
+  const box = await createSandbox(t);
+  const bots = await withBot(box, 'claude', [['daily']]);
+  await up(box, bots);
+  const book = await bookIn(bots, 'api-bot');
+  delete book.sessions.daily.address;
+  await writeFile(bookOf(bots, 'api-bot'), stringify(book));
+  // The user closed the tab, so the next run opens another and types the line.
+  await box.orca.set({ terminals: [] });
+
+  const again = await box.run(['up', '--bots', 'bots', '--bot', 'api-bot']);
+
+  assert.equal(again.code, 0, again.stderr);
+  const daily = await sessionIn(bots, 'api-bot', 'daily');
+  assert.equal(daily.address, addressOf('api-bot', 'daily'), `got: ${JSON.stringify(daily)}`);
+  assert.ok(
+    typedInto((await tabsOfBot(box, bots, 'api-bot'))[0])[0].includes(`-n ${addressOf('api-bot', 'daily')}`),
+    'and that is the name the line it typed carried',
+  );
+});
+
 test('a session whose book entry has no mailbox is given one at the next up', async (t) => {
   // The honest case behind "cannot be reached yet": a book written before this
   // existed, or by hand. `up` is what fills it in.
