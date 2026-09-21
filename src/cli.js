@@ -15,7 +15,7 @@ import { addSession, createBot, readBot, SESSION_FIELDS } from './bot.js';
 import { grooming } from './groom.js';
 import { checkHealth, orcaSettingFindings } from './health.js';
 import { initBots } from './init.js';
-import { APPROVALS, HARNESSES } from './launch.js';
+import { APPROVALS, HARNESSES, shellWord } from './launch.js';
 import { checkMail, lookUp, sendMessage } from './message.js';
 import { orcaCli, orcaTrouble } from './orca.js';
 import { recordSession, SHELL_ENV, TAB_ENV } from './record.js';
@@ -322,21 +322,12 @@ function sameFleet(bots) {
  * the notes already record a session following this very advice and failing. So
  * what is printed is what the kit would run, which is the only path known to
  * work here.
+ *
+ * Through the kit's own `shellWord`, because `OBK_ORCA` can point at a path with
+ * a space in it, and unquoted the shell reads that as two words and the line
+ * fails for a reason that looks nothing like its cause.
  */
 const lookAt = (terminal) => `${shellWord(orcaCli())} terminal read --terminal ${terminal} --screen`;
-
-/**
- * One word of a command line, safe to paste. A path with a space in it is the
- * ordinary way this breaks: unquoted, the shell reads it as two words and the
- * line fails for a reason that looks nothing like its cause.
- *
- * Quoted only when it needs to be, so the usual line stays something a person
- * can read.
- */
-function shellWord(word) {
-  if (/^[\w@%+=:,./-]+$/.test(word)) return word;
-  return `'${word.replaceAll("'", String.raw`'\''`)}'`;
-}
 
 /** The one command a harness runs rather than a person: the kit's hook. */
 const RECORD = 'session record';
