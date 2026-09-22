@@ -43,10 +43,9 @@ thanks:
 - **Cursor pstack**, `blast-radius` further to the above. Looking where a
   symbol search stops: the library's own source and its pinned version, when
   things run, the shape of what an interface returns, a column, a wire format,
-  another language reading the same bytes, a feature flag, code three hops
-  downstream; giving each risk a real likelihood and a real cost; and listing
-  separately what was checked and cleared, since a search that finds nothing is
-  still a result.
+  another language reading the same bytes, a feature flag; giving each risk a
+  real likelihood and a real cost; and listing separately what was checked and
+  cleared, since a search that finds nothing is still a result.
 - **Cursor pstack**, `create-verification-skill`. The whole of making a thing
   runnable and drivable, which the owner asked to live inside this skill rather
   than have one of its own: interviewing the repository rather than the user

@@ -352,6 +352,13 @@ the breakage a search does not show is (a changed order, a new precondition, an
 assumption two things shared). Most plans that look risky are safe because of
 one fact: find it, since if it holds most of the risky cases clear at once.
 
+Look where a symbol search stops, because that is where the surprises are: the
+library you call, at the version actually pinned; when things run, not only
+what calls what; and what two things agree on without naming each other (the
+shape of what an interface returns, a stored column, a wire format, something
+in another language reading the same bytes, a setting that turns a path on).
+Give each risk you keep a real likelihood and a real cost.
+
 Then say how far you proved it: you said so, you pointed at the line, you
 walked the bad case through, you ran something that would have failed if you
 were wrong, or you saw it in the running thing. Short of running it, say so
