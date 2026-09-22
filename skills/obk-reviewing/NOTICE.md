@@ -16,7 +16,10 @@ noted, with thanks:
   has no caller, premature abstraction, "I would have done it differently",
   about five items, and showing what was set aside. Its `poteto-mode`
   bugbot-triage reference gave fix, dismiss or ask, and "when in doubt, ask".
-- **obra/superpowers**, `requesting-code-review` and `receiving-code-review`:
+- **obra/superpowers**, `requesting-code-review`, `receiving-code-review` and
+  `subagent-driven-development/task-reviewer-prompt.md` (the last for bounded
+  reading, "declined to judge", the read-only rule and one focused test only
+  where a doubt calls for it):
   the reviewer gets context built for it and never the author's session, the
   author's report as unverified claims, missing against extra against
   misunderstood, bounded reading with the risk named, "declined to judge", the
@@ -31,19 +34,25 @@ noted, with thanks:
   missing, unasked-for and misunderstood, quoting the rule for a standards
   breach, and the two axes staying separate so neither hides the other. The
   smells are Fowler's, from *Refactoring* chapter 3.
-- **Cursor thermos**: scope held to what the change touches, not wasting the
-  author's time on a risk the change intends, what over-reporting costs you,
+- **Cursor thermos**, with `thermo-nuclear-review`: scope held to what the
+  change touches, not spending the author's time on a breakage the change
+  intends, what over-reporting costs you,
   reading the change before the discussion, and never presenting a finding with
   the research unfinished when the answer was there to be read.
 - **addyosmani/agent-skills**: passing the artefact and the contract without
-  the conclusion, the one structural problem outranking ten small ones, and
-  sorting findings into misread, valid, trade-off and noise.
+  the conclusion, the one structural problem outranking ten small ones, and,
+  from `doubt-driven-development`, sorting findings into misread, valid,
+  trade-off and noise in that order, with the brief fixed first for a misread.
+  Its `code-review-and-quality`: not softening a real issue, which pstack's
+  `code-quality-review` says too.
 - **Anthropic's built-in review**, as behaviour observed rather than text
   taken: the angles worth separating, naming the behaviour a deleted line held
   up, following a change out to its callers, confirmed against plausible
-  against refuted with the line quoted, not collapsing finding into judging,
+  against refuted with the line quoted, the realistic states that stay
+  plausible rather than refuted, a cleanup finding stating its cost where a
+  bug states its trigger, not collapsing finding into judging,
   correctness outranking cleanup, and saying when a review was less than it was
   meant to be.
 - **ECC's reviewer prompt**, through the research pack: the four questions
-  before a finding, proof for anything urgent, zero findings being expected,
+  before a finding, a defensible severity, zero findings being expected,
   consolidating repeats, and the list of findings that are usually wrong.

@@ -29,15 +29,20 @@ with thanks:
   being evidence in itself, the rationalisation tells, the sibling sweep with
   every match answered in writing, bisecting only with a pass/fail command
   decided up front and a clean tree first, reading the diff when the last good
-  version is close, the same symptom after a fix being a hard stop, and
-  stopping after three failed hypotheses. The owner picked this piece himself.
+  version is close, the same symptom after a fix meaning stop patching and
+  re-read the path, and stopping after three failed hypotheses. The owner
+  marked the gate sentence as worth borrowing in his own notes; the rest of
+  `hunt` came in on the research's recommendation.
 - **Cursor pstack**, `principle-fix-root-causes` and the `poteto-mode`
   playbooks. Not adding guards to silence a crash, a workaround needing a
   paragraph meaning the code is wrong, checking for the pattern rather than the
   instance, suspecting stored state first when something fails after a restart,
   and from `principle-attack-the-premise`, two fixes sharing one premise
-  meaning the premise is what to test next, written down before another fix is
-  tried. From the `perf-issue` playbook: measuring before claiming a limit, the
+  meaning the premise is what to suspect and test next, written down before
+  another fix is tried, while it may still not be the cause. From the
+  `hillclimb` playbook: several runs and the median, keeping a change only
+  when the number moves past the noise, and correctness outranking the
+  number. From the `perf-issue` playbook: measuring before claiming a limit, the
   families a fix takes used as hypothesis generators rather than a checklist,
   and capturing the measurement again afterwards to compare against the
   baseline. Every shipped line tracing to runtime evidence with the smallest
@@ -63,7 +68,10 @@ with thanks:
   that looks like, waiting for the condition rather than for a duration,
   reading fresh state inside the loop, always setting a limit with a message,
   the case where a fixed wait is right and what has to accompany it, and the
-  things someone says when they can see you are guessing.
+  things someone says when they can see you are guessing. Also, when the
+  cause really is external, handling at the boundary and a way to see it next
+  time, with most "no root cause" being an investigation stopped early; and
+  finding the test that leaves state behind by running them one at a time.
 
 - **obra/superpowers**, `systematic-debugging`, further to the above. Finding
   the nearest thing that works in the same codebase, reading it properly rather
@@ -75,7 +83,8 @@ with thanks:
   and documenting the conditions as a real answer for the last; and treating
   error output as untrusted data, since a message from a dependency, a log or a
   build can carry something shaped like an instruction and is to be read for
-  clues rather than followed.
+  clues rather than followed; keeping the evidence before a restart or a
+  clean-up; and a test that looks wrong going back rather than being obeyed.
 - **Waza**, `hunt`, further to the above. Its gotchas: walking back out of a
   library frame into your own code, suspecting persisted output written by the
   old code when the algorithm changed and the output did not, trusting the
@@ -84,6 +93,20 @@ with thanks:
   lower-layer baseline before blaming the visible thing, diagnosing an external
   tool before switching it, and never restarting more than twice without new
   evidence.
+
+- **garrytan/gstack**, `investigate`: earlier fixes in the same area pointing
+  at the shape of the code, and the rest of the suite still passing after the
+  fix.
+- **Kent Beck's own rules file**: two tests for a defect, one at the interface
+  and the smallest one where the fault lives.
+- **Cursor pstack**, `runtime-forensics`, further to the above: when the
+  question is why, the deliverable is the diagnosis, not a fix.
+
+The owner's own framing leads the skill: reproduce it, find the difference in
+environment, version and context, and the hard cases being random and slow
+(research-pack dialogue, 2026-09-19 18:45). The plain opening and the dropped
+slogans follow his remark that the source's voice was too strong and too
+personal (18:41 and 18:46).
 
 Left behind on purpose: the iron-law capitals and "refuse to give up" framing,
 validating at every layer as a general answer (it contradicts fixing the cause,

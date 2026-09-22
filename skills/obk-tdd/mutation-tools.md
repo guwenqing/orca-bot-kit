@@ -58,7 +58,7 @@ not get broken on purpose just because no tool would have run anyway.
   out first.
 - StrykerJS has no git-diff flag; feed it the changed files yourself.
 
-## Two caveats that apply to all of them
+## Three caveats that apply to all of them
 
 - A diff-scoped run matches the diff against the code under test, not the test
   code. A change that only weakens a test produces no mutants at all and comes
@@ -70,3 +70,11 @@ not get broken on purpose just because no tool would have run anyway.
   they asked about.
 - Whatever selects the targets, a run that dies in the middle can leave a
   mutant in the working copy. Look at the tree afterwards.
+
+## Running one and reading it
+
+Prove the setup with one small scoped run before spending a long one. Capture
+the output once and read it from the copy rather than re-running to re-read it.
+Set no failing threshold before a measured baseline exists. Paste what the tool
+printed: a mutation result reported from memory has been wrong. A compile error
+is not a kill, and a timeout is inconclusive rather than evidence.
