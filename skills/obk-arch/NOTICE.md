@@ -18,7 +18,10 @@ thanks:
   operation, options exposing internal stages, learning the interface not
   saving you from learning the implementation, information leakage, temporal
   decomposition, pass-through methods); the rationale in the form "we accept X
-  in exchange for Y" with at least one alternative and why it lost, naming
+  in exchange for Y" with at least one alternative and why it lost, or "the
+  only viable shape, because..." where the constraints forced it (from its
+  `rationale-template`); keeping candidates genuinely apart rather than
+  converging on a safe middle (from `runner-prompt`); naming
   anything a later reader might take for an oversight; and the scrap tells (the
   repeated workaround, unrelated edge cases each needing a branch, escape
   hatches in the types, the lock reflex where nothing was meant to be shared,
@@ -57,8 +60,9 @@ thanks:
   actually skips by observing rather than trusting its name; cleanup that
   removes what the run started and never the evidence, killing what you started
   rather than by name; and running the instructions once end to end, because
-  something never executed is a draft rather than a deliverable. Also fixing a
-  checkout that does not build or start before writing the recipe against it,
+  something never executed is a draft rather than a deliverable. Also fixing,
+  or saying precisely what stopped, a checkout that does not build or start
+  before writing the recipe against it,
   preferring stable handles over positions and coordinates, and the feature map
   (a short list of what the thing does for someone, one entry per feature),
   which that skill's own users praised most because an agent stops searching
@@ -70,31 +74,35 @@ thanks:
   Ordering work as small units each ending in a state you can check and not
   advancing until it is green, with the reason (a break caught at the unit that
   caused it is cheap, one caught after a batch is buried); done as a falsifiable
-  predicate stated before the run and never relaxed to declare victory;
+  predicate stated before the run and never relaxed to declare victory (the
+  last from the `autonomous-run` playbook);
   sequencing the riskiest unknown first; every box naming the evidence that
   checks it, ticked only when that evidence exists; skipping the plan when the
   change is one or two files with an obvious approach; settling an open
   question by prototype before writing; data structures first with types and
-  data converging; not forcing an abstraction that removes no branch, no
-  duplicated rule and no invalid state, and the tell that the modelling was
-  skipped; the cases where exploring the design space is not worth it; and the
+  data converging; a structure that carries the domain (a state machine, a
+  lookup table, a typed object) making invalid states impossible and deleting
+  branches, and the other side, not forcing an abstraction that removes no
+  branch, no duplicated rule and no invalid state, with the tell that the
+  modelling was skipped; the cases where exploring the design space is not worth it; and the
   blast-radius ladder (said so, pointed at the line, showed the bad case
   cannot happen, ran it, reproduced it) with "listing the callers is not the
-  job" and anything short of running it said rather than written up as settled.
+  job", the one fact a change is safe because of, and anything short of
+  running it said rather than written up as settled.
 - **mattpocock/skills**, `codebase-design` with `DEEPENING` and
   `DESIGN-IT-TWICE`, `domain-modeling` with its `ADR-FORMAT`, `prototype` and
   `to-tickets`. The three questions to put to an interface (fewer ways in,
-  simpler arguments, more hidden behind it); internal seams private to a
-  module's own workings as distinct from the external one at its interface;
-  the three conditions that must all hold before a decision is worth recording
+  simpler arguments, more hidden behind it) and the interface as everything a
+  caller must know; the three conditions that must all hold before a decision
+  earns a lasting record of its own
   (hard to reverse, surprising without the context, and the result of a real
   trade-off) with what each one rules out; from `domain-modeling`, sharpening
   a term that is doing too much work, forcing a boundary open with a concrete
   scenario, and checking a claim about the domain against the code; from
   `prototype`, being trivial to start, keeping nothing between runs, showing
-  the state after every action, and keeping only the decision it produced; and
-  the vocabulary used precisely (module, interface as everything a caller must
-  know, implementation, seam, adapter, depth as leverage); the deletion test,
+  the state after every action, and keeping only the decision it produced;
+  from `DESIGN-IT-TWICE`, combining the best of the candidates; the deletion
+  test,
   the interface being the test surface, and one adapter meaning a hypothetical
   seam against two meaning a real one; designing for testability by accepting
   dependencies rather than creating them, returning results rather than causing
@@ -113,3 +121,15 @@ choices, the phase todolist and its ceremony, tracker and pull-request
 machinery, the generated report formats, and the trigger that fires a design
 review on any change crossing a function boundary. This skill is reached for
 when there is a shape to get wrong, not on every change.
+
+What the owner said, and how it shaped this: he asked for a very light part on
+what is wanted and on dividing the work, leaving the details and the tracking
+to the user (research-pack dialogue, 2026-09-19 19:09). The five items of the
+note are the proposal he was given then; three further items that had been
+added since, with no source behind them, are gone. He wanted the design to
+include a clear effort on the big test step so the app is runnable and
+testable (2026-09-19 18:54, and 2026-09-20 02:21), which is why that part stays in full. He agreed
+that the source's strict vocabulary be dropped for plain words (18:50), so the
+list of defined terms is gone and the ideas stay. He did not want a
+blast-radius skill of its own (18:08), so what is kept of it is a short part.
+A small reshaping being part of the change follows PRD 7.3.
