@@ -78,10 +78,6 @@ npm link
 obk --version
 ```
 
-The repository is private for now, so the clone uses their own git credentials.
-If it cannot authenticate, say so and ask them to sign in. Do not go looking for
-credentials of your own.
-
 **This step is the one thing on this page that changes.** When the kit is
 published, all of it becomes `npm install -g orca-bot-kit` and the clone goes
 away. The rest of this page is about Orca and the harnesses and stays as it is.
