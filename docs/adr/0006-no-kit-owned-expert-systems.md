@@ -13,5 +13,5 @@ What the kit owns must be maintainable in principle: plumbing over a few stable 
 ## Consequences
 
 - No guard script. "Do not weaken a test" is protected by a rule, by mutation testing, by the reviewer's test checks, and by the separate test author.
-- Mutation testing uses the language's standard tool; if it is not set up the agent guides the user; in the worst case the agent mutates by hand.
+- The mutation check is the rule in PRD 7.3: one pass per piece of work, the everyday way a hand check on the logic that changed; the language's standard tool is an audit the owner asks for, never everyday work (amended 2026-09-22; this line first said the reverse).
 - Finops reads transcripts and looks prices up live, and says so when a price is unknown.
