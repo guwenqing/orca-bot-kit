@@ -47,7 +47,11 @@ criterion you cannot check is a criterion nobody can hold you to.
 A requirement's silence is not permission. What a reasonable reader would
 expect is part of it: the invalid input, the denied permission, the empty
 collection. List the input classes the requirement implies but no test
-exercises, and give each one a test or a written reason it is out of scope.
+exercises, and give the few most likely to bite someone using it a test each.
+
+You cannot test everything, and the point of choosing is that the effort lands
+on the paths people depend on and the logic that is easy to get wrong, not on
+every edge case there is.
 
 Expected values come from the requirement, a worked example or a known-good
 literal, never from the code under test or its helpers. An expectation the
@@ -95,6 +99,9 @@ Before you settle a test, run the behaviour past the kinds of mistake that get
 made (a boundary off by one, a condition the wrong way round, an equality that
 should be an inequality, an arithmetic identity, an empty collection, a side
 effect that never happens) and add the case you find missing there and then.
+The inputs that tell those apart: just below, at and just above a boundary; one
+condition true and the other false; and values that are not identities, since
+0, 1 and empty hide a swapped operator.
 It is the same question the mutation check asks at the end, asked while it is
 still cheap to answer.
 
@@ -161,9 +168,11 @@ A brief that works, adjusted to the job:
 > Write tests for this requirement. You are not writing the implementation and
 > you will not see it.
 > Requirement: <what the behaviour is, and the acceptance criteria>.
+> Out of scope: <what this change does not cover, if anything>.
 > Public interface: <signatures and data shapes, no bodies>.
 > Test at <seam>, in <the repo's test style and framework>; follow the
-> repo's existing tests for shape.
+> repo's existing tests for shape. Write them the way obk-tdd's parts on
+> writing tests say, if you can load it.
 > Test observable behaviour through that interface. Take expected values from
 > the requirement or a worked example, never by calling the code under test.
 > Cover the unhappy inputs the requirement implies as well as the happy one.
@@ -230,21 +239,18 @@ in the hand-over, because "it would have failed before" is not a run.
 
 Sometimes there is no such baseline to be had: the code never existed in that
 shape, or what you would have to reconstruct is not worth the day. Then say so
-in the hand-over, and say it in the test as well: a line beside it marking it
-as a description of what the code does today rather than a guard proven to
-catch a change. The two look identical afterwards, and only one of them has
-been shown to fail. Somebody reading the repo a month later should be able to
-tell them apart without finding the message you sent.
+in the hand-over, and in a line beside the test marking it as a description of
+what the code does today rather than a guard proven to catch a change. The two
+look identical afterwards, and only one of them has been shown to fail.
 
 Reaching a clean red is one step at a time, and none of them is implementation:
 the test cannot find the symbol, so add an empty stub; the call does not match
 the signature, so fix the signature and leave the body empty; now it fails on
 the assertion, and only now does logic get written.
 
-Keep the receipt: the command, the failing output, and one line on why that
-failure is the expected one. After green, the command and the passing output.
-Commit order proves nothing about what ran first. Without a captured failing
-run, say the chronology is unproven rather than implying it.
+Keep the failing output as it was printed. Commit order proves nothing about
+what ran first. Without a captured failing run, say the chronology is unproven
+rather than implying it.
 
 Things that look like green and are not: a test that passed on its first run; a
 suite reported as passing that nobody ran; a default test command guessed
@@ -339,7 +345,9 @@ Five shapes that still pass that way, and what to do with each:
 - **An absence with nothing to contrast it against.** Only "was not called",
   "is undefined", "is empty", and no case in the same test where something
   *is* produced. Assert the presence on the other input beside it, so the pair
-  can tell an empty result from a subject that never ran.
+  can tell an empty result from a subject that never ran. For a stand-in,
+  assert the payload it received or the state after the call, not only that it
+  was called.
 - **Self-referential.** The expected value is produced by the code under test.
   Replace it with a literal you worked out by hand.
 - **Constant pinned.** The assertion restates a constant, a config default or
@@ -363,7 +371,8 @@ depends on timing or global state, or that you would delete the moment the fix
 is proven.
 
 Two that the five shapes do not condemn: a test that checks a relation holds
-across a table of cases, and a check the language itself makes at build time.
+across rows of data (a key present in two tables, a parent that exists), and a
+check the language itself makes at build time.
 
 Other tells: the test breaks when you refactor although the behaviour did not
 change; it reaches around the interface to check the result (reading the
@@ -398,8 +407,10 @@ would a test fail? There is no score to reach.
 
 **Everyday: your own hand check.** Once per piece of work, at the end, only
 where it earns its place. Five to eight deliberate breaks in the risky logic
-the work changed, chosen before you look at the tests, each one run, each one
-expected to make a test fail, each one put back. Reported in three lines.
+the work changed (money, permissions, eligibility, safety, data that could be
+lost, and whatever else the requirement cares most about), chosen before you
+look at the tests, each one run, each one expected to make a test fail, each
+one put back. Reported in three lines.
 
 One break at a time, never two at once: note the original, apply the break, run
 the tests, record killed or survived, restore the code immediately, then the
@@ -408,8 +419,7 @@ next one.
 What to break, in this order: boundaries (`<` for `<=`, one off), boolean logic
 (`&&` for `||`, a dropped `not`), returned values (an empty or default return,
 a removed early return), a removed statement or side effect, a wrong constant
-or argument. Aim for at least one per branch or boundary the work changed.
-Avoid a change that cannot show: adding zero, multiplying by one, or a value
+or argument. Avoid a change that cannot show: adding zero, multiplying by one, or a value
 identical to the original.
 
 Others worth reaching for when the code has them: an arithmetic operator
@@ -434,7 +444,9 @@ as a defect.
 
 When you cannot tell whether a survivor matters (the behaviour is genuinely
 unspecified, the test would be expensive or brittle, or you are not sure it is
-equivalent), say so and ask rather than deciding quietly in either direction.
+equivalent), name it as that in the report, with the question whoever decides
+the behaviour would have to answer, rather than deciding quietly in either
+direction.
 And if a lot of the breaks turn out to be equivalent, that is a finding about
 the code, not about the tests: code with that much slack in it can usually be
 made simpler.
@@ -458,19 +470,9 @@ the core of a product, one run narrowed to the logic that changed, in the
 background, around twenty minutes; if it will not fit in that, do the hand
 check instead. Then stop. A run heading towards hours is stopped.
 
-If you do run one: when the run selects its targets from a committed diff, the
-tree has to be clean or the result is about the wrong code. A run that names
-its files itself has no such limit, and asking someone to stash the very work
-they wanted checked is the wrong way round. Prove the setup with one small
-scoped run before spending a long one. Capture the output once and read it from
-the copy rather than re-running to re-read it. Set no failing threshold before
-a measured baseline exists. Paste what the tool printed. A mutation result
-reported from memory has been wrong. A compile error is not a kill, and a
-timeout is inconclusive rather than evidence.
-
-When you have decided to run a tool and need the command, read
-[mutation-tools.md](mutation-tools.md) beside this file: the scoped run for
-each language, what older advice gets wrong, and how far each line there has
+When you have decided to run a tool, read [mutation-tools.md](mutation-tools.md)
+beside this file: the scoped run for each language, what older advice gets
+wrong, how to run one and read what it prints, and how far each line there has
 been verified. There is nothing in it you need before that point.
 
 Keep it in proportion. This check is the third safety net, after the separate
@@ -483,7 +485,8 @@ Tightening the bar should be silent; loosening it should be loud. In your own
 diff and in anyone else's, these are the cheap roads to green, and each one is
 worth a sentence when it happens: a threshold moved, a test marked skipped, a
 test file deleted, assertions removed from a test that stayed, a check disabled
-by a comment, a value hard-coded to match one test's input.
+by a comment, a value hard-coded to match one test's input and still there when
+the work is handed on.
 
 ## What you report
 
@@ -507,9 +510,7 @@ whether the check notices.
 
 They apply where there is something that can be wrong: a configuration that
 decides who gets what, a prompt whose branches behave differently, a
-transformation over data. The skip rule is the same one as for code and it is
-used the same way: a wording fix, a rename, a link correction has no logic in
-it, so state what you checked and skip the rest. Prose written for people earns
-no test and no mutant.
+transformation over data. The skip rule is the same as for code, and prose
+written for people earns no test and no mutant.
 
 Sources and licences: [NOTICE.md](NOTICE.md).

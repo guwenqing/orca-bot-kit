@@ -22,6 +22,10 @@ is the licence file it was read from, in the research pack's source clones.
   (`obra_superpowers/LICENSE`)
 - **`addyosmani/agent-skills`**, Copyright (c) 2025 Addy Osmani
   (`addyosmani_agent-skills/LICENSE`)
+- **`garrytan/gstack`**, Copyright (c) 2026 Garry Tan
+  (`garrytan_gstack/LICENSE`)
+- **`KentBeck/BPlusTree3`, for his own rules file**, Copyright (c) 2025 Kent Beck
+  (`KentBeck_BPlusTree3/LICENSE`)
 
 ```
 MIT License
@@ -30,6 +34,8 @@ Copyright (c) 2026 Matt Pocock
 Copyright (c) 2026 Lauren Tan
 Copyright (c) 2025 Jesse Vincent
 Copyright (c) 2025 Addy Osmani
+Copyright (c) 2026 Garry Tan
+Copyright (c) 2025 Kent Beck
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

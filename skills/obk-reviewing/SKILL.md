@@ -19,9 +19,7 @@ write the code, and it is worth acting on only when each finding survives being
 checked.
 
 The reviewer comments and does not edit. Whoever wrote the code makes the
-change, and the check is run again afterwards. That order is the whole
-mechanism: it keeps the author responsible for the code and the reviewer
-responsible for the argument.
+change, and the check is run again afterwards.
 
 Scale the reading to the change. A review is not skipped because the work is
 small, but a small change gets a small review: the questions that could matter
@@ -48,7 +46,9 @@ State the intent in one paragraph before you read the diff, taken from the
 requirement rather than from the author's summary. You are judging whether the
 change achieves that intent, not whether the intent was right. Solving the
 wrong problem is still a finding. That is the change failing the requirement,
-not you re-arguing it.
+not you re-arguing it. A breakage the change sets out to make (an interface
+retired on purpose, a behaviour deliberately dropped) is not a defect; do not
+spend the author's time on it.
 
 Pin what you are reading: the range, and that it resolves and is not empty.
 Work that out before you start rather than half way through.
@@ -87,10 +87,9 @@ For the first, go through the requirement and sort what you find into three:
 Quote the line of the requirement for each. Where settling one means reading
 code the change does not touch (the function it delegates to, the contract it
 relies on), read it: that is evidence about this change, not a review of
-something else. Say you could not settle it only when you actually could not.
-And the requirement is not a list of everything that matters: what a reasonable
-person would expect is part of it, and silence about an input is not permission
-for that input to break things.
+something else. And the requirement is not a list of everything that matters:
+what a reasonable person would expect is part of it, and silence about an input
+is not permission for that input to break things.
 
 ### Where to look
 
@@ -140,17 +139,15 @@ paragraphs about the architecture.
   exist?
 - **What could be less.** An abstraction with one caller, an option for a case
   nobody has, a parameter nothing passes, a compatibility path whose migration
-  is over. Do not mark simple code down for not being abstract: a few lines
-  repeated beat an abstraction invented too early.
+  is over, a helper the codebase already has written out again by hand. Do
+  not mark simple code down for not being abstract: a few lines repeated beat
+  an abstraction invented too early.
 - **The tests.** Is there a test for what changed, and would it fail if the
-  code were wrong? Where a separate author wrote them, is every case the
-  hand-over names present in the revision being handed on, with the contents
-  the author handed back? Absent from the diff is a reason to look at the
-  revision, not a finding by itself. The tests may have landed in an earlier
-  change this one builds on. What is a finding is a named test that is not
-  there at all, or is there with its assertions softened. Confirm which before
-  writing it up: a test still sitting in somebody's working tree reads as
-  success until another clone says otherwise. For a bug, is there a test that
+  code were wrong? Where a separate author wrote them, is every test the
+  hand-over names in the revision being handed on, as the author wrote it?
+  Look at the revision, not only the diff, since the tests may have landed in
+  an earlier change this one builds on. A named test that is not there, or is
+  there with its assertions softened, is a finding. For a bug, is there a test that
   reproduces it? Was there a failing run before the code, or only a green one
   after? Do the tests observe behaviour or repeat the implementation? And look
   for green that was bought: a threshold moved, a test skipped or deleted,
@@ -218,7 +215,9 @@ severity does.
    something anyone can act on.
 2. Can you state the failure concretely: this input, in this state, gives that
    wrong outcome? If you cannot name the trigger, you are matching a pattern,
-   not reviewing.
+   not reviewing. A cleanup finding (a smell, a breached rule, something that
+   could be less) has no trigger; it names its concrete cost instead: what is
+   duplicated, wasted or harder to change, or which rule it breaks.
 3. Have you read what is around it: the callers, the types, the tests? Much of
    what looks wrong is already handled one frame up.
 4. Is the severity one you could defend? A missing comment is never urgent.
@@ -233,7 +232,11 @@ Put each candidate in one of three states and say which:
 - **Confirmed.** You can name the input and the wrong result, and quote the
   line.
 - **Plausible.** The mechanism is real but you cannot reach the trigger from
-  here. Say what would settle it.
+  here. Say what would settle it. A realistic state is not a reason to refute:
+  two things running at once, an absent value on a rare path that can still be
+  reached (an error handler, a cold cache, an optional field), zero read as
+  missing, a boundary the code does not exclude, a retry after a partial
+  failure, a pattern that lost its anchor.
 - **Refuted.** Drop it, and only call it that when the code proves it: the
   line says otherwise, a type or constant makes it impossible, or a guard in
   the change already handles it.
@@ -264,21 +267,24 @@ is one finding, not five.
   or fragile behaviour, a requirement missed, the same block of logic copied
   verbatim, an error swallowed, a test that asserts nothing). "The coverage
   could be broader" and polish are the other kind.
-- Severity never exceeds what you showed. If you demonstrated a way to read a
+- Severity never exceeds what you showed, and it does not fall below it
+  either: a real defect written up as a suggestion is lost as surely as one
+  left out. If you demonstrated a way to read a
   value that should not be read, that is what it is worth; it does not become
   urgent because of what someone might do next with it.
 - One structural problem and ten small ones: the structural problem is the
-  review.
-- If the list of things to act on runs past about five, you have not finished
-  filtering.
+  review. Correctness outranks cleanup when something has to be cut.
+- If the list of things to act on runs past about five, you have probably not
+  finished filtering.
 - List what you considered and set aside, one line each with the reason, so
   nothing is dropped silently. An empty list is fine and means you set nothing
   aside.
 - Say what you did not check. If you looked less thoroughly than you were asked
   to (one pass where more was wanted, a part of the change you could not read),
   say that plainly, so nobody takes the review for more than it is.
-- A review reads the change. Whether it runs is a separate question and a
-  separate check.
+- A review reads the change. Whether the whole of it runs is a separate check;
+  where one focused test would settle a doubt and changes nothing, run it and
+  say so.
 
 ### Findings that are usually wrong
 
@@ -298,17 +304,14 @@ Before writing one of these, do the thing in brackets.
   wanted].
 - "Hard-coded value" in a test [a test is supposed to hard-code what it
   expects].
-- Security that cannot be traced from an input to a sink [trace it or drop it].
 
 The question that settles most of them: would someone who knows this codebase
 actually change the code because of this comment?
 
 ### One reviewer
 
-Do the review yourself. Splitting a diff between several reviewers, or adding
-one to check another, buys less than it costs: each one sees less of the change
-and their verdicts do not add up. If the change really is too large to hold in
-one reading, that is itself worth saying.
+Do the review yourself rather than handing parts of it on. If the change really
+is too large to hold in one reading, that is itself worth saying.
 
 Reviewing is read-only. Do not change the working tree, the index, or which
 branch or commit is checked out. Look with the commands that only read. If you
@@ -336,10 +339,13 @@ way it is? A fresh reader has less context, not more. That is the point of it,
 and it is also its weakness. Do not defer to a finding because it is fresh, and
 do not dismiss one because it is uncomfortable.
 
-**Sort each item.** Something you got wrong, and it stands. Something right and
-worth doing. A trade-off that is worth keeping but worth writing down. Or
-noise, and when it is noise, the useful question is whether the brief should
-have said something that would have prevented it.
+**Sort each item**, in this order. Misread: the reader flagged it because what
+you gave them was unclear or incomplete, so fix the brief first and look at the
+item again. Valid: it stands, and gets a change. A trade-off: real, but fixing
+it costs more than living with it, so write it down where the user will see
+it. Or noise: correct under context the reader did not have, and the useful
+question is whether the brief should have said something that would have
+prevented it.
 
 Some findings carry a sign that the reader was working without something you
 have: a change asked for in code you did not touch, a pattern flagged that the
@@ -356,11 +362,12 @@ dismisses the finding once you have said what X is and why it settles this
 case; on its own it is not a reason. Say that much, and move on without making
 a point of it.
 
-Ask rather than decide when the finding is novel, when you cannot tell, or when
-it touches security, privacy, who is allowed to do what, money, a data
-migration, or whether something can safely run twice. Passing over a noisy
-remark about style costs little; passing over one of those costs a great deal.
-When in doubt, ask.
+A plausible finding about correctness, security, privacy, lost data, who is
+allowed to do what, money, a data migration, or whether something can safely
+run twice is fixed; it needs nobody's leave. Ask rather than decide when such a
+finding is one you would dismiss and it is novel, or when you cannot tell.
+Passing over a noisy remark about style costs little; passing over one of
+those costs a great deal. When in doubt about dismissing one, ask.
 
 Where someone suggests building something out "properly", look first for who
 calls it. If nothing does, say so and ask whether it should exist at all.
@@ -368,12 +375,9 @@ calls it. If nothing does, say so and ask whether it should exist at all.
 Where you cannot check a point, say so: "I cannot settle this without X" is an
 answer, with what you would do next.
 
-**Push back with evidence.** Name what you checked and what it showed. Ask when
-a point is unclear. Where a finding conflicts with a decision the user already
-made, raise it rather than quietly following one or the other.
-
-Security and correctness findings get more scrutiny before you dismiss them,
-not less.
+**Push back with evidence.** Name what you checked and what it showed. Where a
+finding conflicts with a decision the user already made, raise it rather than
+quietly following one or the other.
 
 A finding that asks for a new test, or for an existing one to assert more, is
 not yours to satisfy. It goes to the author, with the finding attached, for the
