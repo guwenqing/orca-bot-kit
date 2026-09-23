@@ -108,8 +108,10 @@ for `work/`.
 it says otherwise), model, effort, context window, approval level, start prompt,
 work dir and any extra arguments for the harness. A start prompt is either text
 (`--prompt`) or, when it is long, a file in the bot home the session points at
-(`--prompt-file prompts/reviewer.md`), and it reaches the harness exactly as
-written. Anything you leave out is the
+(`--prompt-file prompts/reviewer.md`), and it reaches the harness as written,
+apart from two things the kit does on purpose: blank space at either end is
+trimmed, and when the session has a work dir the kit appends its one-sentence
+note about it. Anything you leave out is the
 harness's own default; the kit names no model of its own. The approval level is
 `auto` — the harness's real auto mode — unless you ask for `ask` or, in those
 words, `dangerously-skip`
