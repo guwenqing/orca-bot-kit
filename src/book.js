@@ -46,8 +46,26 @@ export function readBook(home) {
   return {
     ...book,
     orca: asRecord(book.orca),
-    sessions: asRecord(book.sessions),
+    sessions: Object.fromEntries(Object.entries(asRecord(book.sessions)).map(([name, entry]) => [name, withHistoryListed(entry)])),
+    // A retired session's entry is the same entry, and its history is read the same way.
+    ...(Array.isArray(book.retired) ? { retired: book.retired.map(withHistoryListed) } : {}),
   };
+}
+
+/**
+ * A session entry whose history a person typed as one id, `history: <id>`,
+ * rather than as the list the kit writes, read as that one earlier
+ * conversation. The book is theirs to edit by hand (README), and one id where a
+ * list goes is the edit a person makes.
+ */
+function withHistoryListed(entry) {
+  const history = entry?.history;
+  if (history === undefined || history === null || Array.isArray(history)) return entry;
+  // One entry written without the list around it.
+  if (typeof history === 'object') return { ...entry, history: [history] };
+  // One id, which YAML reads as a number when it is all digits.
+  const id = String(history).trim();
+  return { ...entry, history: id === '' ? [] : [{ session: id }] };
 }
 
 /**
