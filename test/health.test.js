@@ -690,6 +690,50 @@ for (const [label, spoil] of [
   });
 }
 
+/** The one command the kit wrote into a hooks file it has just written, and the file parsed. */
+async function kitLineIn(file) {
+  const held = JSON.parse(await readFile(file, 'utf8'));
+  const commands = held.hooks.SessionStart.flatMap((group) => group.hooks.map((hook) => hook.command));
+  assert.equal(commands.length, 1, `the kit wrote one line into ${file}, got: ${JSON.stringify(commands)}`);
+  return { held, kit: commands[0] };
+}
+
+/** A line of the user's that mentions the kit's command and is not the line the kit writes. */
+const lookAlikeOf = (kit) => `my-wrapper && ${kit}`;
+
+test('H10 a hooks file holding only a line of the user\'s that mentions obk session record is reported as missing the kit\'s hook', async (t) => {
+  // #165: a line that only mentions the kit's command is the user's, not the kit's hook.
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  await botUp(box, 'api-bot', { sessions: [['daily'], ['nightly', '--harness', 'codex']] });
+  const file = hookFileOf(bots, 'api-bot', 'codex');
+  const { kit } = await kitLineIn(file);
+  await writeFile(file, `${JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ type: 'command', command: lookAlikeOf(kit) }] }] } }, null, 2)}\n`);
+
+  const answer = await found(box);
+
+  const mine = of(answer, { kind: 'config', bot: 'api-bot' });
+  const finding = oneNaming(mine, file, 'the kit\'s hook is not in the file, whatever else mentions it');
+  assert.match(finding.says, /\b(does not hold|missing|is not there)\b/i, `it should say the kit's hook is missing, got: ${finding.says}`);
+});
+
+test('H10 a line of the user\'s that mentions obk session record, beside the kit\'s hook, is not reported', async (t) => {
+  // The other half: the kit's hook is there, and the user's look-alike ahead of
+  // it is theirs, so there is nothing to put back.
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  await botUp(box, 'api-bot', { sessions: [['daily'], ['nightly', '--harness', 'codex']] });
+  const file = hookFileOf(bots, 'api-bot', 'codex');
+  const { held, kit } = await kitLineIn(file);
+  held.hooks.SessionStart = [{ hooks: [{ type: 'command', command: lookAlikeOf(kit) }] }, ...held.hooks.SessionStart];
+  await writeFile(file, `${JSON.stringify(held, null, 2)}\n`);
+
+  const answer = await found(box);
+
+  noneNaming(of(answer, { bot: 'api-bot' }), file, 'the kit\'s hook is where it belongs, and the line beside it is the user\'s');
+  assert.deepEqual(answer.found, [], `nothing else is wrong in the fleet, got: ${JSON.stringify(answer.found, null, 2)}`);
+});
+
 // ---------------------------------------------------------------------------
 // H11, H12, H13 — skills.
 // ---------------------------------------------------------------------------
