@@ -57,8 +57,13 @@ export function readBook(home) {
  * list goes is the edit a person makes.
  */
 function withHistoryListed(entry) {
-  if (typeof entry?.history !== 'string' || entry.history.trim() === '') return entry;
-  return { ...entry, history: [{ session: entry.history.trim() }] };
+  const history = entry?.history;
+  if (history === undefined || history === null || Array.isArray(history)) return entry;
+  // One entry written without the list around it.
+  if (typeof history === 'object') return { ...entry, history: [history] };
+  // One id, which YAML reads as a number when it is all digits.
+  const id = String(history).trim();
+  return { ...entry, history: id === '' ? [] : [{ session: id }] };
 }
 
 /**
