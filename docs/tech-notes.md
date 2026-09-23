@@ -83,8 +83,10 @@ project → repo (`kind: "git" | "folder"`) → worktree (id = `<repoId>::<absPa
 - `--command` and `terminal send` both type into the tab's **interactive shell**, so a shell that is
   busy with a question of its own swallows the first characters: with the owner's zsh asking
   `[oh-my-zsh] Would you like to update? [Y/n]`, `claude` arrived as `laude` and `exec codex` as
-  `xec codex`. Gate every send on `orca terminal wait --for tui-idle`, which answers `timeout` for as
-  long as such a question is on the screen. **verified** (live)
+  `xec codex`. `tui-idle` cannot gate this: a shell never satisfies it, question or no question (next
+  entry). So the kit types the launch line into a new tab without waiting, then asks whether a harness
+  came up; a line the shell swallowed shows as no harness, and the caller answers the shell and opens
+  the tab again (SETUP.md, section 5). **verified** (live)
 - `orca terminal wait --for exit|tui-idle --timeout-ms <n>`. **`tui-idle` is about a TUI, not a shell.**
   All three answers seen live:
   - a tab running no TUI, sitting at a clean shell prompt: exit 1, `ok:false`,
@@ -265,6 +267,6 @@ Agent Skills spec: `name` is 1–64 chars, lowercase letters, digits and hyphens
 2. ~~A Claude session launched with `-n` keeps its name after `--resume`, and messaging works inside an Orca tab.~~ **done** (2026-09-21, issue 08): see section 2.
 3. ~~Two `auto` Claude sessions deliver to each other without a prompt.~~ **done** (2026-09-21, issue 08): see section 2.
 4. ~~Codex `auto` mode lets a bot run `orca`~~ **done** (2026-09-21, issue 08): only with `-c sandbox_workspace_write.network_access=true`; see section 3. `gh` under `auto` is still owed.
-5. An Orca automation with `--reuse-session` keeps one grooming conversation.
+5. ~~An Orca automation with `--reuse-session` keeps one grooming conversation.~~ **no longer needed** (slice 11): grooming does not use `--reuse-session` and is a fresh conversation each run (PRD 6.8). Whether the flag keeps one conversation is still unverified.
 6. `codex queue` retest.
 7. An Orca tab id is still the same after Orca restarts.

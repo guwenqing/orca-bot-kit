@@ -49,7 +49,8 @@ machines and fails for an ordinary user, so use the full path above. If Orca
 lives somewhere else here, find it and set `OBK_ORCA` to it.
 
 If Node is older than 24.21.0, say so and stop. The kit's book of sessions is a
-SQLite write transaction, and `node:sqlite` arrives in Node itself on that line.
+SQLite write transaction through Node's own `node:sqlite`, and 24.21.0 is the
+first release measured here that loads it without an experimental warning.
 
 If neither harness is installed, say so and stop. If only one is, that is fine,
 and it is the one Bot Father will run on.
@@ -222,7 +223,9 @@ obk health --bots <their path>
 ```
 
 It reads the setup and says what it found, and writes nothing at all. It exits 1
-when it found something, so do not read a non-zero exit as a broken setup.
+when it found something, so do not read a non-zero exit as a broken setup. The
+one exception is an error with no findings, saying Orca is not answering: that
+is a real problem, and the fix is to start Orca and run it again.
 
 Relay what it says in plain words. Nothing it prints is a verdict: which findings
 matter is for them, or for Bot Father, to judge. If something looks wrong to you,

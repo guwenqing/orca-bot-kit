@@ -46,9 +46,10 @@ from its charter and the rules it carries.
 
 Node.js >= 24.21.0, git, and Orca with at least one of Claude Code or Codex
 installed and configured. That line because the kit keeps writers out of each
-other's way in a bot's book with a SQLite write transaction: `node:sqlite` is in
-Node itself from 24 on, and from 24.21.0 it loads without an experimental warning
-on stderr.
+other's way in a bot's book with a SQLite write transaction, through Node's own
+`node:sqlite`. That module is older than the 24 line; 24.21.0 is the first
+release measured here that loads it without an experimental warning on stderr,
+which would otherwise land in the output of every command.
 
 ```sh
 npm install
@@ -81,7 +82,8 @@ kit skills are linked from the installed package, never copied
 whenever you like: it adds what is missing and leaves everything else, including
 your edits, exactly as it is. It does not commit for you.
 
-The `.gitignore` keeps one thing out: the skill links themselves. They point at
+The `.gitignore` keeps out the skill links, and the kit's own record of which
+ones it made (`.obk-skills.yaml` in each bot folder). The links point at
 where the kit and your skill sources are installed on this machine, so they say
 nothing true on another one, and `obk up` makes them again wherever you check
 the repo out. So a clone carries your bots and not this machine's paths, and two
@@ -156,7 +158,7 @@ bot or in one bot's `bot.yaml`, as `kit:<name>` for one of the kit's or a bare
 name for one of yours. Codex reads at most 32 KiB of an instructions file and
 says nothing when it stops, so the build tells you when a bot's file goes over.
 
-Seven units suit every bot, whatever it does:
+Nine units suit every bot, whatever it does:
 
 | | |
 |---|---|
@@ -167,6 +169,8 @@ Seven units suit every bot, whatever it does:
 | `finishing` | the check you can run, run on the real thing, reported as it came |
 | `limits` | the charter, what needs a yes, no quiet substitutes |
 | `talk` | answer first, short, real names |
+| `mail` | asking the kit for the road to another session; mail is queued |
+| `profiles` | the few lines the fleet keeps on each bot, for choosing who to hand work to |
 
 Two more are for bots that write code: `tests-first`, a failing test first and
 someone else writing it, and `review`, someone who did not write the work
@@ -241,13 +245,13 @@ harness reads a project's skills from. So a kit skill is read where npm
 installed it, editing a skill is what a running session reads without a
 restart, and updating the kit updates every bot at once.
 
-The kit takes away only what it can prove it put there: a link into its own
-skills or into your `skills/` folder that no list names any more. Anything else
-in those directories is left alone and shown as yours — a skill you wrote there,
-a link of your own, and also a link the kit once made from a path you have since
-dropped from the list, because from the outside those three look the same. If
-you want one of those gone, delete the link; the skill it points at is not
-touched either way.
+The kit takes away only what it can prove it put there. It writes down every
+link it makes, in `.obk-skills.yaml` in the bot folder, and when no list names
+one any more it takes that link away, whichever shelf it came from, as long as
+the link is still the one it wrote. Anything else in those directories is left
+alone and shown as yours: a skill you wrote there, a link of your own, or one of
+the kit's that you have since pointed somewhere else. If you want one of those
+gone, delete it yourself; the skill a link points at is never touched.
 
 ## Skills from somebody else's repo
 
@@ -426,7 +430,8 @@ obk message check --bots /path/to/my-bots --bot api-bot --session daily
 ```
 
 Two roads, and a bot never picks. Claude Code to Claude Code in the same
-approval level is the harness's own messaging: `message to` answers with the
+approval class (`auto` and `ask` are one class, `dangerously-skip` the other)
+is the harness's own messaging: `message to` answers with the
 session's name — `<bot>.<session>`, which `obk up` puts on its launch line —
 and the sending session writes to that name itself, because no command can send
 that message for it. Everything else goes through Orca's mailbox, which the kit
@@ -462,7 +467,7 @@ failing quietly.
 ## Working on the kit
 
 ```sh
-npm test                      # the whole suite, in a couple of seconds
+npm test                      # the whole suite, in a few minutes
 npm run test:system           # what the system tests would drive, and nothing else
 npm run test:system -- --yes  # drive them, on this machine, for real
 npm run mutate                # the mutation audit, on what your branch changed
@@ -480,8 +485,9 @@ installed.
 `npm run test:system` is `test/system/*.test.js`: the real `obk` against the
 real Orca and the real harnesses on your own machine. No CI runner can do that,
 so these are run by hand before a change that touches Orca or a harness is
-merged. A system test touches only what it creates and cleans up after itself;
-it never closes a tab it did not open.
+merged. A system test touches only what it creates and removes it afterwards,
+except the mailbox Runs Orca gives no way to delete, which the run names; it
+never closes a tab it did not open.
 
 They run on the machine the command is typed on, so the command will not start
 them by itself. On its own it says what it is about to drive — whose machine,
@@ -493,10 +499,15 @@ than report a kit that is not broken.
 
 `npm run mutate` runs [StrykerJS](https://stryker-mutator.io) over the
 JavaScript this branch changed against `main` — committed, still in the working
-tree, or not tracked yet — and reports the mutants the tests do not kill. A
-surviving mutant is a change to the code that no test objects to: kill it with a
-better test, or say in the pull request why it does not matter. Name targets
-yourself to check a whole area instead:
+tree, or not tracked yet — and reports the mutants the tests do not kill. It is
+an audit, not a step of every pull request
+([PRD 7.3](docs/prd.md#73-decided-rules-inside-the-skills)): the everyday
+check is the implementer's own hand check, and the tool runs over the whole
+suite at a milestone or when the owner asks, or once, narrowed to the changed
+logic, for a change at the core of the kit. A surviving mutant is a change to
+the code that no test objects to. It is worth a test only where it shows a gap
+in behaviour the requirement cares about, and that test is written by the
+separate test author. Name targets yourself to check a whole area instead:
 
 ```sh
 npm run mutate -- 'src/**/*.js'
@@ -506,8 +517,8 @@ Every mutant means running the tests again, so the check does not run them the
 way `npm test` does. It runs [`scripts/mutation-suite.js`](scripts/mutation-suite.js)
 instead: the same test files, one at a time, stopping at the first file that
 fails, trying the file that killed the last mutant first and then the quickest.
-On a ten-core machine `src/up.js` — 128 lines, 76 mutants — takes about twelve
-minutes that way. Running the whole suite for every mutant, as it used to, took
+On a ten-core machine, `src/up.js` as it was when this was measured (128 lines,
+76 mutants) took about twelve minutes that way. Running the whole suite for every mutant, as it used to, took
 forty, and counted a mutant as killed whenever a run of it ran out of time. A
 change across several files takes proportionally longer, so check one or two at
 a time.

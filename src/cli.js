@@ -99,9 +99,10 @@ Usage:
   obk skills build --bots <path> [--bot <bot>]
                             Link every bot's skills into both harnesses, or
                             just the one you name, from the kit, your own
-                            skills folder, or any path. What you put in a
-                            bot's skills directory yourself is left alone and
-                            shown as yours. It does not touch Orca.
+                            skills folder, or any path, and take away a link
+                            it made that no list names any more. What you put
+                            in a bot's skills directory yourself is left alone
+                            and shown as yours. It does not touch Orca.
   obk skills fetch --bots <path> [--source <name>]
                             Clone the online sources skills.yaml lists, beside
                             your bots folder and never inside it, each at the
@@ -181,7 +182,8 @@ Usage:
   obk --version             Print the kit's version.
   obk --help                Print this text.
 
-Every command is safe to run again: they add what is missing and nothing else.
+Every command is safe to run again. Most only add what is missing; the ones
+that close a tab or take something away say so above.
 Add --json to any of them for the same answer as JSON.
 `;
 

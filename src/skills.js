@@ -8,9 +8,10 @@
 // restart (tech notes, sections 2 and 3). Outwards: the kit takes away only the
 // links it put there, and never the skill one was pointing at.
 //
-// An entry names one of three shelves: the kit's own, the user's common folder,
-// or a path to anywhere on disk. Online sources are issue #36 and are not read
-// here.
+// An entry names one of four shelves: the kit's own (`kit:<name>`), an online
+// source `skills.yaml` lists (`<source>:<name>`, read from its clone beside the
+// bots folder), the user's common folder (a bare name), or a path to anywhere
+// on disk.
 
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';

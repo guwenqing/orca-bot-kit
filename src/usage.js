@@ -19,8 +19,10 @@
 // measured in the tech notes (sections 2 and 3):
 //
 //   1. Codex's `total_token_usage` is the running total for the conversation.
-//      Adding it up across the events double counts. `last_token_usage` is the
-//      per-call figure, and summing those lands on the final total exactly.
+//      Adding it up across the events double counts, and summing the per-call
+//      `last_token_usage` counts a call written down twice twice. So a call is
+//      the difference in the running total from the event before: none is a
+//      repeat, and a fall is a new window, whose own `last_token_usage` counts.
 //   2. The two harnesses do not mean the same thing by `input_tokens`. Claude
 //      Code leaves the cache reads out of it; Codex counts them inside it. So
 //      the Codex figure has its cached tokens taken back out, and `input` means

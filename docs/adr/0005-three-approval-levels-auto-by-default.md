@@ -18,7 +18,8 @@ A session's approval level is `auto`, `ask` or `dangerously-skip`. `auto` is the
 
 ## Amendment, 2026-09-21 (coordinator's decision for slice 08; the owner was told and may overrule)
 
-On Codex, `auto` also carries `-c sandbox_workspace_write.network_access=true`.
+On Codex, every session carries `-c sandbox_workspace_write.network_access=true`,
+whatever its approval level.
 Without it the Orca CLI cannot reach the running Orca app from inside Codex's
 workspace-write sandbox, so a Codex bot can neither read nor send fleet mail
 (evidence: slice 08, three runs on 2026-09-21, Codex 0.155.1, Orca 1.4.205; the
