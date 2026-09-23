@@ -181,7 +181,9 @@ function clone(bots, source, rev, recorded) {
 
   try {
     rmSync(fetching, { recursive: true, force: true });
-    git(['clone', '--quiet', source.repo, fetching], undefined, `${source.name}: ${source.repo} could not be cloned`);
+    // `--`: a repo value from skills.yaml, which may be someone else's, is a
+    // repository and never one of git's own options, whatever it begins with.
+    git(['clone', '--quiet', '--', source.repo, fetching], undefined, `${source.name}: ${source.repo} could not be cloned`);
     checkout(fetching, source, rev, recorded);
     renameSync(fetching, dir);
   } finally {

@@ -505,6 +505,13 @@ function link(dir, wanted, record) {
   // What the lists no longer name. The kit takes back only its own, and only
   // while it is untouched; anything else it forgets about and leaves.
   for (const name of Object.keys(record)) {
+    // A key is a skill's name, which is a plain name and never a path: one that
+    // is not came from a hand edit, and is forgotten rather than followed out
+    // of the skills directory.
+    if (!NAME.test(name)) {
+      delete record[name];
+      continue;
+    }
     if (keep.has(name)) continue;
     if (linkAt(path.join(dir, name)) === record[name]) {
       rmSync(path.join(dir, name));
