@@ -29,10 +29,11 @@ it, and write that same moment down as what was covered. The kit counts to
 match: `obk usage --since <last end> --until <this end>` counts the calls made
 from the first moment up to, but not including, the second, rather than the
 conversations begun in between. So a conversation that has been running all
-week still reports what it spent today, and each call is counted once, by the
-run whose window it was made in: one made while this run is reading is left for
-the next run, which starts from this run's end, and one still being written
-when this run reads is counted with what it had reached by then.
+week still reports what it spent today, and the runs add up to what was spent:
+a call made while this run is reading is left for the next run, which starts
+from this run's end, and a call still being written when this run reads is
+counted once, with the tokens it had reached by this run's end here and the rest
+in the next run.
 
 What you must not use as the next run's starting point is the time you finished
 writing the report. A run that reads at ten o'clock and finishes at two minutes

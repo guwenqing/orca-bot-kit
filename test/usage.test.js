@@ -957,13 +957,15 @@ test('U13 an --until earlier than --since is refused', async (t) => {
   );
 });
 
-test('U13 Claude Code: a call still being written at a window\'s end belongs to the window it was made in, and is counted once', async (t) => {
+test('U13 Claude Code: a call still being written at a window\'s end is counted once, and its tokens land where they were written', async (t) => {
   // Claude Code writes one call down again as it grows, the later record the
   // finished one (tech notes, section 2: 16 output tokens, then 301, under a
   // second apart). A run whose window ends between the two records sees only
-  // the first. The call was made in that window, so that run counts it, and the
-  // next run, which sees the second record inside its own window, does not
-  // count it again. The transcript grows between the two runs, as it does live.
+  // the first. The call was made in that window, so that run counts the call;
+  // the growth written after it belongs to the next run. Runs that meet at a
+  // moment then add up to the whole window, in calls and in every kind of
+  // token: nothing twice, and nothing lost. The transcript grows between the
+  // two runs, as it does live.
   const box = await createSandbox(t);
   const { bots, home } = await fleet(box, { harness: 'claude' });
   const early = claudeCall({
@@ -979,19 +981,30 @@ test('U13 Claude Code: a call still being written at a window\'s end belongs to 
   const first = conversationOf(await dailyOver(box, '--since', at(9), '--until', end), 'conv-a');
 
   await plant(box, 'claude', home, { id: 'conv-a', started: at(9), lines: [early, finished] });
-  const second = await dailyOver(box, '--since', end, '--until', at(10));
+  const second = conversationOf(await dailyOver(box, '--since', end, '--until', at(10)), 'conv-a');
   const whole = conversationOf(await dailyOver(box, '--since', at(9), '--until', at(10)), 'conv-a');
 
   assert.equal(first.calls, 1, 'the first run counts the call, made inside its window');
   assert.equal(tokensOf(first).output, 16, 'at what it had reached when that run read');
-  assert.deepEqual(
-    idsOf(second),
-    [],
-    `the second run does not count it again: the call was made before its window, got: ${JSON.stringify(second)}`,
-  );
-  assert.equal(whole.calls, 1, 'one call over the whole window, as the two runs add up to');
-  assert.equal(tokensOf(whole).output, 301, 'and with the whole transcript there, its finished figures');
-  assert.equal(tokensOf(whole).cache_read, 5000, 'the cache reads once, not once per record');
+  assert.equal(tokensOf(first).cache_read, 5000);
+
+  assert.equal(second.calls, 0, 'the second run does not count the call again: it was made before its window');
+  assert.equal(tokensOf(second).output, 285, 'but the 285 written in its window are its to report');
+  assert.equal(tokensOf(second).cache_read, 0, 'and the cache reads, already reported, are not reported again');
+  assert.equal(tokensOf(second).input, 0);
+
+  assert.equal(whole.calls, 1);
+  assert.equal(tokensOf(whole).output, 301, 'with the whole transcript there, its finished figures');
+  assert.equal(tokensOf(whole).cache_read, 5000);
+
+  assert.equal(first.calls + second.calls, whole.calls, 'the two runs add up to the whole window in calls');
+  for (const kind of ['input', 'output', 'cache_read', 'cache_write', 'reasoning']) {
+    assert.equal(
+      tokensOf(first)[kind] + tokensOf(second)[kind],
+      tokensOf(whole)[kind],
+      `and in ${kind}: first ${JSON.stringify(first)}, second ${JSON.stringify(second)}, whole ${JSON.stringify(whole)}`,
+    );
+  }
 });
 
 test('U13 the help lists --until', async (t) => {

@@ -142,7 +142,7 @@ function counted(one, window) {
   };
 
   read(lines(one.file), window, tally);
-  if (tally.calls === 0) return undefined;
+  if (tally.calls === 0 && KINDS.every((kind) => tally.tokens[kind] === 0)) return undefined;
 
   return {
     id: one.id,
@@ -168,13 +168,16 @@ function counted(one, window) {
  * gathered first and the last of each pair is what counts. Keeping the first
  * looks right for a very long time, because almost every repeat is identical.
  *
- * But the call was made when it was first written down, and that is the window
- * it belongs to. Placed by its last record, a call still being written when one
- * run reads would move into the next run's window and be charged in both (#169).
+ * But the call was made when it was first written down, and grew after. So it
+ * is counted as a call once, in the window its first record falls in, and its
+ * tokens are what it grew by in the window: its figures in its last record
+ * before the window's end, less those in its last record before the window's
+ * start. A transcript only grows, so one run's end is the next run's start and
+ * the runs add up to the whole, with a call still being written at a boundary
+ * charged once, part to each side (#169).
  */
 function fromClaude(entries, window, tally) {
   const byCall = new Map();
-  const madeAt = new Map();
 
   for (const entry of entries) {
     const when = Date.parse(entry.timestamp ?? '');
@@ -187,24 +190,39 @@ function fromClaude(entries, window, tally) {
     const usage = entry.message?.usage;
     if (usage === undefined || usage === null) continue;
     const call = `${entry.requestId}\u0000${entry.message?.id}`;
-    byCall.set(call, entry);
-    if (!madeAt.has(call)) madeAt.set(call, when);
+    if (!byCall.has(call)) byCall.set(call, []);
+    byCall.get(call).push({ entry, when });
   }
 
-  for (const [call, entry] of byCall) {
-    const when = madeAt.get(call);
-    if (!inside(when, window)) continue;
-    const usage = entry.message.usage;
+  for (const records of byCall.values()) {
+    const made = records[0].when;
+    // A record with no time of its own says nothing about being outside, as in
+    // `inside`: it counts as written before the end and not before the start.
+    const atEnd = records.findLast(({ when }) => Number.isNaN(when) || when < window.to);
+    if (atEnd === undefined) continue;
+    const atStart = records.findLast(({ when }) => !Number.isNaN(when) && when < window.from);
 
-    count(tally, {
-      input: number(usage.input_tokens),
-      output: number(usage.output_tokens),
-      cache_read: number(usage.cache_read_input_tokens),
-      cache_write: number(usage.cache_creation_input_tokens),
-      // Claude Code does not report the thinking apart from the rest.
-      reasoning: 0,
-    }, entry.message?.model, entry.effort, when);
+    const now = figures(atEnd.entry);
+    const was = atStart === undefined ? undefined : figures(atStart.entry);
+    const grew = Object.fromEntries(KINDS.map((kind) => [kind, now[kind] - (was?.[kind] ?? 0)]));
+    const isNew = inside(made, window);
+    if (!isNew && KINDS.every((kind) => grew[kind] === 0)) continue;
+
+    count(tally, grew, atEnd.entry.message?.model, atEnd.entry.effort, isNew ? made : atEnd.when, isNew ? 1 : 0);
   }
+}
+
+/** What one Claude Code record says its call used so far. */
+function figures(entry) {
+  const usage = entry.message.usage;
+  return {
+    input: number(usage.input_tokens),
+    output: number(usage.output_tokens),
+    cache_read: number(usage.cache_read_input_tokens),
+    cache_write: number(usage.cache_creation_input_tokens),
+    // Claude Code does not report the thinking apart from the rest.
+    reasoning: 0,
+  };
 }
 
 /** The fields Codex writes a usage figure in, both per call and as a running total. */
@@ -316,8 +334,8 @@ function kindsOf(raw) {
  * the total that has to be complete, and a row headed by nothing would be worse
  * than no row.
  */
-function count(tally, used, model, effort, when) {
-  tally.calls += 1;
+function count(tally, used, model, effort, when, calls = 1) {
+  tally.calls += calls;
   for (const kind of KINDS) tally.tokens[kind] += used[kind];
   add(tally.models, model);
   add(tally.efforts, effort);
@@ -328,7 +346,7 @@ function count(tally, used, model, effort, when) {
     tally.byModel.set(model, { calls: 0, tokens: Object.fromEntries(KINDS.map((kind) => [kind, 0])) });
   }
   const its = tally.byModel.get(model);
-  its.calls += 1;
+  its.calls += calls;
   for (const kind of KINDS) its.tokens[kind] += used[kind];
 }
 
