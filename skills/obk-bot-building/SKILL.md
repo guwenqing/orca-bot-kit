@@ -178,7 +178,8 @@ else. The harness writes it, loads it and keeps it tidy itself. On Claude Code
 that is three keys in the bot's `.claude/settings.json`, beside the kit's hook:
 `autoMemoryEnabled: true`; `env` setting `CLAUDE_CODE_DISABLE_AUTO_MEMORY` to
 `"0"` where the user turns memory off that way; and `autoMemoryDirectory`
-naming a folder of the bot's own outside the bots repo, because without it
+naming a folder of the bot's own outside the bots repo, by an absolute path or
+one starting with `~/`, because without it
 every bot in the repo shares one memory. The first 200 lines or 25 KB of its
 index load at every start. Codex's memories belong to the user and are shared
 by every Codex session, so a Codex bot cannot have its own; say so before

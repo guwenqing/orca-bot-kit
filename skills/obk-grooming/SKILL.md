@@ -163,13 +163,16 @@ For a bot with its own memory, the report gets a short section:
 
 A contradiction is not yours to fix. Send it to that bot's own session, as Bot
 Father's management session, whose pass this is: `obk message to --from
-bot-father/<its session> --to <bot>/<session>` gives the road, and where it
-answers with an address rather than the mailbox, write to that address with
-your own harness's messaging. One message per bot per run, queued rather than
-interrupting, naming what you found and asking it to look into it and update
-its memory if it agrees. Expect no reply, and do not open a conversation. The
-session decides and makes the edit; it has the context you read only a window
-of. Write down in the open findings what you sent and when, so the next run can
+bot-father/<its session> --to <bot>/<session>` gives the road. Where the road
+is the mailbox, `obk message send` carries it, whatever you run on. Where it is
+an address, that road is Claude Code's own messaging, and it is yours only if
+you run on Claude Code yourself; if you do not, put the finding in your report
+to the management session and ask it to pass it on, rather than trying a road
+you cannot take. One message per bot per run, queued rather than interrupting,
+naming what you found and asking it to look into it and update its memory if it
+agrees. Expect no reply, and do not open a conversation. The session decides
+and makes the edit; it has the context you read only a window of. Write down in
+the open findings what you sent, by which road, and when, so the next run can
 see whether it changed rather than send it again.
 
 Never edit a memory yourself, not even to cut it. The memory is the bot's, the
