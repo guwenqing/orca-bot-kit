@@ -218,3 +218,36 @@ for (const [label, history, meant] of HAND_EDITS) {
     assert.deepEqual(entry.unclaimed ?? [], [], 'and nothing is left over as unclaimed');
   });
 }
+
+// ------------------------------------------------------------------ a retired session
+
+// From the review of PR #200. `obk retire --session` keeps the session's record
+// in the book under a top-level `retired:` list, and a hand edit there is the
+// same edit as anywhere else: one id typed as a plain string is that one old
+// conversation, still accounted for.
+for (const [label, history] of [['typed as a plain string', SCALAR], ['written as the kit writes it', LISTED]]) {
+  test(`SH6 usage does not call a retired session's old conversation unclaimed when its history is ${label}`, async (t) => {
+    const box = await createSandbox(t);
+    const { bots } = await withHistory(box, LISTED);
+    const retired = await box.run(['retire', '--bots', 'bots', '--bot', 'api-bot', '--session', 'daily']);
+    assert.equal(retired.code, 0, retired.stderr);
+
+    const file = bookOf(bots, 'api-bot');
+    const book = parse(await readFile(file, 'utf8'));
+    assert.equal(book.retired?.[0]?.name, 'daily', `retire kept daily's record, got: ${JSON.stringify(book)}`);
+    book.retired[0].history = history;
+    await writeFile(file, stringify(book));
+    const home = botHomeOf(bots, 'api-bot');
+    for (const id of ['old-conv-1', 'conv-now', 'conv-nobodys']) await plantClaude(box, home, id);
+
+    const result = await box.run(['usage', '--bots', 'bots', '--bot', 'api-bot', '--json']);
+
+    assert.equal(result.code, 0, result.stderr);
+    const entry = answerOf(result).usage.find((one) => one.bot === 'api-bot');
+    assert.deepEqual(
+      (entry.unclaimed ?? []).map((one) => one.id),
+      ['conv-nobodys'],
+      'the retired session still accounts for old-conv-1; only the one no record names is unclaimed',
+    );
+  });
+}
