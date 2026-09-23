@@ -167,9 +167,14 @@ function counted(one, window) {
  * between two lines a second apart (tech notes, section 2). So the records are
  * gathered first and the last of each pair is what counts. Keeping the first
  * looks right for a very long time, because almost every repeat is identical.
+ *
+ * But the call was made when it was first written down, and that is the window
+ * it belongs to. Placed by its last record, a call still being written when one
+ * run reads would move into the next run's window and be charged in both (#169).
  */
 function fromClaude(entries, window, tally) {
   const byCall = new Map();
+  const madeAt = new Map();
 
   for (const entry of entries) {
     const when = Date.parse(entry.timestamp ?? '');
@@ -181,11 +186,13 @@ function fromClaude(entries, window, tally) {
 
     const usage = entry.message?.usage;
     if (usage === undefined || usage === null) continue;
-    byCall.set(`${entry.requestId}\u0000${entry.message?.id}`, entry);
+    const call = `${entry.requestId}\u0000${entry.message?.id}`;
+    byCall.set(call, entry);
+    if (!madeAt.has(call)) madeAt.set(call, when);
   }
 
-  for (const entry of byCall.values()) {
-    const when = Date.parse(entry.timestamp ?? '');
+  for (const [call, entry] of byCall) {
+    const when = madeAt.get(call);
     if (!inside(when, window)) continue;
     const usage = entry.message.usage;
 
