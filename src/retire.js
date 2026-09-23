@@ -73,10 +73,17 @@ export async function retireBot(bots, { bot }) {
     }
   }
 
-  const closed = await closeTabs(home, tabsToClose(bots, bot, home, known.sessions, { keepless: true }), bots, bot);
+  // Every session the book holds a tab for, whether or not bot.yaml still lists
+  // it: the same set the check above calls the kit's, so the project is not
+  // taken away with one of them still open. `closeTabs` waits until Orca agrees
+  // they are gone.
+  const booked = Object.keys(readBook(home).sessions).map((name) => ({ name }));
+  const closed = await closeTabs(home, tabsToClose(bots, bot, home, booked, { keepless: true }), bots, bot);
   if (project !== undefined) deleteProject(project.id);
 
-  for (const session of known.sessions) rmSync(promptPath(bots, bot, session.name), { force: true });
+  for (const name of new Set([...known.sessions, ...booked].map((session) => session.name))) {
+    rmSync(promptPath(bots, bot, name), { force: true });
+  }
   unlinkSkills(home);
   mkdirSync(retiredDir(bots), { recursive: true });
   renameSync(botDir(bots, bot), moved);

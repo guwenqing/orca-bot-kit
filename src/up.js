@@ -138,7 +138,7 @@ export function prepareBots(bots, names, onlySession) {
   // opened anywhere. Only the harnesses a bot actually runs on; a bot with no
   // sessions gets none.
   for (const { bot, home } of running) {
-    for (const harness of new Set(sessionsOf(bot, onlySession).map((session) => harnessOf(session, bot.harness)))) {
+    for (const harness of new Set(awake(sessionsOf(bot, onlySession)).map((session) => harnessOf(session, bot.harness)))) {
       installHook(home, harness, { bots, bot: bot.name });
     }
   }
@@ -165,11 +165,18 @@ export function botsNamed(bots, onlyBot) {
 }
 
 function refuseWhatCannotStart(bot, home, onlySession) {
-  for (const session of sessionsOf(bot, onlySession)) {
+  for (const session of awake(sessionsOf(bot, onlySession))) {
     const trouble = sessionTrouble(session, harnessOf(session, bot.harness), home);
     if (trouble !== undefined) throw new Error(`${bot.name}: ${trouble}`);
   }
 }
+
+/**
+ * The sessions that are not paused. A paused session is left out of a run
+ * altogether, so what it is set to asks nothing of the ones that will start;
+ * it is judged again when it is unpaused.
+ */
+const awake = (sessions) => sessions.filter((session) => session.paused !== true);
 
 /** The sessions a run is bringing up: all of the bot's, or the one it named. */
 export function sessionsOf(bot, onlySession) {
@@ -185,7 +192,7 @@ export function sessionsOf(bot, onlySession) {
 async function bringUpBot(bots, home, bot, onlySession) {
   const name = bot.name;
   const title = displayName(name);
-  const sessions = sessionsOf(bot, onlySession).filter((session) => session.paused !== true);
+  const sessions = awake(sessionsOf(bot, onlySession));
 
   // Orca is asked first and the book is written after: nothing that takes time
   // happens while the book is held, because a session's own hook may be writing
