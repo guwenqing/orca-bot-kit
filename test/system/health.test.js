@@ -112,11 +112,14 @@ const terminalsAt = (home) => allTerminals().filter((terminal) => terminal.workt
  * `terminal close` answers ok before `terminal list` stops reporting the tab,
  * so the listing is read again until the closed tabs are out of it rather than
  * read once and believed.
+ *
+ * By handle: a raw listing can show a tab under `pty:<ptyId>` rather than its
+ * id while Orca calls it orphaned, and the handle is the same either way (#187).
  */
 async function terminalsAfterClosing(home, closed, within = 5000) {
   const until = Date.now() + within;
   let left = terminalsAt(home);
-  while (left.some((terminal) => closed.includes(terminal.tabId)) && Date.now() < until) {
+  while (left.some((terminal) => closed.includes(terminal.handle)) && Date.now() < until) {
     await setTimeout(250);
     left = terminalsAt(home);
   }
@@ -242,7 +245,7 @@ test('health reports a tab Orca has lost, an Orca project no bot owns, and what 
       for (const terminal of terminalsAt(home)) {
         if (before.handles.has(terminal.handle)) continue;
         orca(['terminal', 'close', '--terminal', terminal.handle, '--tab']);
-        closed.push(terminal.tabId);
+        closed.push(terminal.handle);
       }
     }
     for (const setup of allSetups()) {
@@ -278,10 +281,10 @@ test('health reports a tab Orca has lost, an Orca project no bot owns, and what 
 
   // 1. The tab the book knows, closed the way a person closes one.
   orca(['terminal', 'close', '--terminal', daily.terminal, '--tab']);
-  const stillOpen = await terminalsAfterClosing(homeOf('bot-father'), [daily.tabId]);
+  const stillOpen = await terminalsAfterClosing(homeOf('bot-father'), [daily.terminal]);
   assert.ok(
-    !stillOpen.some((one) => one.tabId === daily.tabId),
-    `Orca should not have ${daily.tabId} any more, and has: ${JSON.stringify(stillOpen)}`,
+    !stillOpen.some((one) => one.handle === daily.terminal),
+    `Orca should not have ${daily.terminal} (tab ${daily.tabId}) any more, and has: ${JSON.stringify(stillOpen)}`,
   );
   assert.notEqual(stillOpen.length, 0, 'and Bot Father\'s ops tab is still open, so this is one tab lost and not the project');
 
