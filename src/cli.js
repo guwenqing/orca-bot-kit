@@ -18,6 +18,7 @@ import { initBots } from './init.js';
 import { APPROVALS, HARNESSES, shellWord } from './launch.js';
 import { checkMail, lookUp, sendMessage } from './message.js';
 import { orcaCli, orcaTrouble } from './orca.js';
+import { pauseSessions, unpauseSessions } from './pause.js';
 import { recordSession, SHELL_ENV, TAB_ENV } from './record.js';
 import { restartSessions } from './restart.js';
 import { readRoster } from './roster.js';
@@ -155,6 +156,8 @@ const COMMANDS = {
   init: ['bots', 'harness'],
   up: ['bots'],
   restart: ['bots', 'bot'],
+  pause: ['bots', 'bot'],
+  unpause: ['bots', 'bot'],
   health: ['bots'],
   groom: ['bots'],
   roster: ['bots'],
@@ -359,19 +362,19 @@ const commands = {
     // exactly as it was and the caller can simply run the command again.
     refuseWhenOrcaIsDown();
     const seeded = initBots(bots, values.harness);
-    const { tabs, rules, skills } = await bringUp(seeded.bots, { bot: BOT_FATHER });
+    const { tabs, rules, skills, paused } = await bringUp(seeded.bots, { bot: BOT_FATHER });
     // Setup is the other place the PRD asks for Orca's own launch arguments to
     // be looked at (6.5), and the one where the user is still standing in front
     // of the fleet they are making. Only that one check: a folder init has just
     // made has nothing else to say about itself.
-    const answer = { bots: seeded.bots, created: seeded.created, completed: seeded.completed, rules, skills, tabs, found: orcaSettingFindings() };
+    const answer = { bots: seeded.bots, created: seeded.created, completed: seeded.completed, rules, skills, tabs, paused, found: orcaSettingFindings() };
     return { answer, lines: tabLines(answer, `Bot Father is up in Orca. Your bots folder: ${seeded.bots}`) };
   },
 
   async up(bots, values) {
     refuseWhenOrcaIsDown();
-    const { tabs, rules, skills } = await bringUp(bots, { bot: values.bot, session: values.session });
-    const answer = { bots, created: [], completed: [], rules, skills, tabs };
+    const { tabs, rules, skills, paused } = await bringUp(bots, { bot: values.bot, session: values.session });
+    const answer = { bots, created: [], completed: [], rules, skills, tabs, paused };
     const up = [...new Set(tabs.map((tab) => tab.bot))];
     const summary = up.length === 0
       ? `Nothing was brought up in Orca. Your bots folder: ${bots}`
@@ -398,8 +401,8 @@ const commands = {
 
   async restart(bots, values) {
     refuseWhenOrcaIsDown();
-    const { closed, tabs, rules, skills } = await restartSessions(bots, { bot: values.bot, session: values.session });
-    const answer = { bots, created: [], completed: [], rules, skills, tabs, closed };
+    const { closed, tabs, rules, skills, paused } = await restartSessions(bots, { bot: values.bot, session: values.session });
+    const answer = { bots, created: [], completed: [], rules, skills, tabs, paused, closed };
     const what = values.session === undefined ? values.bot : `${values.bot} ${values.session}`;
     return {
       answer,
@@ -407,6 +410,32 @@ const commands = {
         ...closed.map((tab) => `closed     ${tab.bot} ${tab.name}  tab ${tab.tabId}  terminal ${tab.terminal}`),
         ...tabLines(answer, `Restarted in Orca: ${what}. Your bots folder: ${bots}`),
       ],
+    };
+  },
+
+  async pause(bots, values) {
+    refuseWhenOrcaIsDown();
+    const paused = await pauseSessions(bots, { bot: values.bot, session: values.session });
+    const what = values.session === undefined ? values.bot : `${values.bot} ${values.session}`;
+    const back = values.session === undefined ? '' : ` --session ${values.session}`;
+    return {
+      answer: { bots, ...paused },
+      lines: [
+        ...paused.closed.map((tab) => `closed     ${tab.bot} ${tab.name}  tab ${tab.tabId}  terminal ${tab.terminal}`),
+        `${paused.changed ? 'paused' : 'there'.padEnd(6)}     ${what}${paused.changed ? '' : ' was paused already'}`,
+        `obk up leaves it closed, and the book keeps its conversations. Bring it back:  obk unpause --bots ${bots} --bot ${values.bot}${back}`,
+      ],
+    };
+  },
+
+  async unpause(bots, values) {
+    refuseWhenOrcaIsDown();
+    const { bot, session, changed, ...up } = await unpauseSessions(bots, { bot: values.bot, session: values.session });
+    const what = session === undefined ? bot : `${bot} ${session}`;
+    const answer = { bots, bot, session, changed, created: [], completed: [], ...up };
+    return {
+      answer,
+      lines: tabLines(answer, `${changed ? 'Unpaused' : 'Not paused, so brought up as it is'}: ${what}. Your bots folder: ${bots}`),
     };
   },
 
@@ -866,7 +895,7 @@ function rosterLines(roster, bots) {
   const lines = [];
 
   for (const entry of roster) {
-    lines.push(`${'bot'.padEnd(9)}  ${entry.bot}${entry.harness === undefined ? '' : `  ${entry.harness}`}`);
+    lines.push(`${'bot'.padEnd(9)}  ${entry.bot}${entry.harness === undefined ? '' : `  ${entry.harness}`}${entry.paused === true ? '  paused' : ''}`);
     if (entry.charter !== undefined) {
       lines.push(...String(entry.charter).trimEnd().split('\n').map((line) => `             ${line}`.trimEnd()));
     }
@@ -897,7 +926,7 @@ function sessionLines(session) {
   const book = session.book;
 
   return [
-    `${'session'.padEnd(9)}  ${session.name}${session.harness === undefined ? '' : `  ${session.harness}`}${set.length === 0 ? '' : `  ${set.join('  ')}`}`,
+    `${'session'.padEnd(9)}  ${session.name}${session.harness === undefined ? '' : `  ${session.harness}`}${set.length === 0 ? '' : `  ${set.join('  ')}`}${session.paused === true ? '  paused' : ''}`,
     ...(book.tab === undefined
       ? []
       : [`             tab ${book.tab}${book.launched === undefined ? '' : `  launched ${book.launched}`}`]),
@@ -958,7 +987,7 @@ function skillsLines(skills) {
 const foundLines = (found) =>
   found.flatMap((one) => [`${one.kind.padEnd(9)}  ${one.where}`, `             ${one.says}`]);
 
-function tabLines({ bots, created, completed, rules, skills, tabs, found = [] }, summary) {
+function tabLines({ bots, created, completed, rules, skills, tabs, paused = [], found = [] }, summary) {
   const lines = [
     ...created.map((entry) => `created    ${entry}`),
     ...completed.map((entry) => `completed  ${entry}`),
@@ -969,6 +998,11 @@ function tabLines({ bots, created, completed, rules, skills, tabs, found = [] },
   for (const tab of tabs) {
     lines.push(`${tab.created ? 'opened' : 'found '}     ${tab.title}  tab ${tab.tabId}  terminal ${tab.terminal}`);
     lines.push(...harnessLines(tab, bots));
+  }
+  for (const one of paused) {
+    const what = one.session === undefined ? one.bot : `${one.bot} ${one.session}`;
+    const back = one.session === undefined ? '' : ` --session ${one.session}`;
+    lines.push(`${'paused'.padEnd(9)}  ${what}  left closed. Bring it back:  obk unpause --bots ${bots} --bot ${one.bot}${back}`);
   }
 
   // Last before the summary, because what a check found is about the setup the

@@ -41,15 +41,29 @@ const SECOND_LOOK_MS = 2000;
  * back rather than the fleet.
  */
 export async function bringUp(bots, { bot: onlyBot, session: onlySession } = {}) {
-  const names = botsNamed(bots, onlyBot);
+  const named = botsNamed(bots, onlyBot);
   if (onlySession !== undefined && onlyBot === undefined) {
     throw new Error('--session needs --bot: say which bot the session belongs to.');
   }
 
+  // A paused bot is left closed, rules, skills, tabs and all, and said to be:
+  // it was paused on purpose, and `obk unpause` is what brings it back.
+  const paused = [];
+  const names = named.filter((name) => {
+    if (readBot(botDir(bots, name), name).paused !== true) return true;
+    paused.push({ bot: name });
+    return false;
+  });
+
   const { running, rules, skills } = prepareBots(bots, names, onlySession);
 
   const report = [];
-  for (const { bot, home } of running) report.push(...await bringUpBot(bots, home, bot, onlySession));
+  for (const { bot, home } of running) {
+    for (const session of sessionsOf(bot, onlySession)) {
+      if (session.paused === true) paused.push({ bot: bot.name, session: session.name });
+    }
+    report.push(...await bringUpBot(bots, home, bot, onlySession));
+  }
 
   // A bot whose rules would not build is reported here rather than in the
   // preparation, because "its sessions were not started" is this command's
@@ -63,6 +77,7 @@ export async function bringUp(bots, { bot: onlyBot, session: onlySession } = {})
       trouble: `${entry.trouble} Its sessions were not started: a bot comes up with its rules or not at all.`,
     })),
     skills,
+    paused,
   };
 }
 
@@ -170,7 +185,7 @@ export function sessionsOf(bot, onlySession) {
 async function bringUpBot(bots, home, bot, onlySession) {
   const name = bot.name;
   const title = displayName(name);
-  const sessions = sessionsOf(bot, onlySession);
+  const sessions = sessionsOf(bot, onlySession).filter((session) => session.paused !== true);
 
   // Orca is asked first and the book is written after: nothing that takes time
   // happens while the book is held, because a session's own hook may be writing

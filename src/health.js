@@ -232,9 +232,13 @@ function inOrca(home, bot, setups) {
   const live = project === undefined ? [] : tabs(project.path);
   const there = new Set(live.map((tab) => tab.tabId));
 
+  // A paused bot or session was closed on purpose, and its tab being gone is
+  // what paused means rather than something lost.
+  const closed = new Set(bot.sessions.filter((session) => bot.paused === true || session.paused === true).map((session) => session.name));
+
   const found = [];
   for (const [name, entry] of Object.entries(book.sessions)) {
-    if (typeof entry?.tab === 'string' && !there.has(entry.tab)) {
+    if (typeof entry?.tab === 'string' && !there.has(entry.tab) && !closed.has(name)) {
       found.push(finding('session', entry.tab, `${bot.name}'s session ${name} is in the book with tab ${entry.tab}, and Orca has no tab of that id: the tab was closed, or the machine was restarted. The conversation is in the book, and obk up opens a tab and brings it back.`, bot.name));
     }
 

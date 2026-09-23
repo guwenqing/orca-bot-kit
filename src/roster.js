@@ -54,6 +54,7 @@ function card(bots, name) {
     home,
     harness: bot.harness,
     charter: bot.charter,
+    ...(bot.paused === true ? { paused: true } : {}),
     rules: listIn(file, 'rules'),
     skills: listIn(file, 'skills'),
     orca: book.orca,
