@@ -328,7 +328,8 @@ async function run(argv) {
     throw new Error(`--harness is ${HARNESSES.join(' or ')}, and got: ${values.harness}`);
   }
 
-  const bots = path.resolve(values.bots);
+  // One fleet, one identity, whatever spelling of its path was given (#164).
+  const bots = command === 'init' ? path.resolve(values.bots) : sameFleet(path.resolve(values.bots));
   if (command === RECORD) return record(bots, values.bot);
 
   const { answer, lines, code = 0 } = await commands[command](bots, values);
@@ -338,15 +339,17 @@ async function run(argv) {
 }
 
 /**
- * The bots folder as the file system knows it, for the commands that use it as
- * an identity rather than as something the user typed. A folder reached through
- * a symlink is the same fleet: the harnesses file their transcripts under the
- * real path and Orca records an automation's workspace by it, so comparing the
- * spelling finds nothing and offers to make a second of what is already there.
+ * The bots folder as the file system knows it. A folder reached through a
+ * symlink is the same fleet: the harnesses file their transcripts under the real
+ * path, Orca records an automation's workspace by it, and what the kit keeps
+ * beside the folder (the skill sources, the start prompts, the messages) is
+ * named after it. Asked by one spelling and then another, a fleet would
+ * otherwise have two of each, and a pin set through one is undone through the
+ * other.
  *
- * Not done for every command. `init` is given a path that may not exist yet, and
- * when it refuses one it names what the user gave it rather than whatever the
- * link pointed at, which is a file they never mentioned.
+ * Every command but `init`. It is given a path that may not exist yet, and when
+ * it refuses one it names what the user gave it rather than whatever the link
+ * pointed at, which is a file they never mentioned.
  */
 function sameFleet(bots) {
   try {
@@ -612,15 +615,13 @@ const commands = {
       throw new Error('groom takes --on or --off, and got both. Say which one you want.');
     }
     const on = values.on === true ? true : (values.off === true ? false : undefined);
-    const folder = sameFleet(bots);
-    const groom = grooming(folder, { at: values.at, on });
-    return { answer: { bots: folder, groom }, lines: groomLines(groom, folder) };
+    const groom = grooming(bots, { at: values.at, on });
+    return { answer: { bots, groom }, lines: groomLines(groom, bots) };
   },
 
   usage(bots, values) {
-    const folder = sameFleet(bots);
-    const usage = readUsage(folder, { bot: values.bot, session: values.session, since: values.since });
-    return { answer: { bots: folder, usage }, lines: usageLines(usage, folder) };
+    const usage = readUsage(bots, { bot: values.bot, session: values.session, since: values.since });
+    return { answer: { bots, usage }, lines: usageLines(usage, bots) };
   },
 
   roster(bots, values) {
