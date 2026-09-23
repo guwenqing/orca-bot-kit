@@ -50,7 +50,7 @@ async function withHistory(box, history) {
   const book = parse(await readFile(file, 'utf8'));
   book.sessions.daily.history = history;
   await writeFile(file, stringify(book));
-  if (typeof history === 'string') {
+  if (history === SCALAR) {
     assert.match(await readFile(file, 'utf8'), /history: old-conv-1\n/, 'the book holds the id as a plain string');
   }
   return { bots, tab };
@@ -183,3 +183,38 @@ test('SH4 health does not call a hand-typed old conversation unnamed, and still 
   assert.ok(!words.includes('old-conv-1'), `old-conv-1 is in the book, got:\n${words}`);
   assert.ok(words.includes('conv-nobodys'), `the contrast: a conversation the book never names is still reported, got:\n${words}`);
 });
+
+// ------------------------------------------------------------------ the same family
+
+/**
+ * The other ways a person writes a history by hand, each with the earlier
+ * conversations it means. YAML reads `12345` as a number; the id is still the
+ * text they typed.
+ */
+const HAND_EDITS = [
+  ['an empty string', '', []],
+  ['a number', 12345, ['12345']],
+  ['one entry without the list around it', { session: 'old-conv-1' }, ['old-conv-1']],
+];
+
+for (const [label, history, meant] of HAND_EDITS) {
+  test(`SH5 roster and usage read a history written as ${label}, and neither crashes`, async (t) => {
+    const box = await createSandbox(t);
+    const { bots } = await withHistory(box, history);
+    const home = botHomeOf(bots, 'api-bot');
+    for (const id of ['conv-now', ...meant]) await plantClaude(box, home, id);
+
+    const roster = await box.run(['roster', '--bots', 'bots', '--bot', 'api-bot', '--json']);
+    const usage = await box.run(['usage', '--bots', 'bots', '--bot', 'api-bot', '--json']);
+
+    assert.equal(roster.code, 0, roster.stderr);
+    const daily = answerOf(roster).roster[0].sessions.find((one) => one.name === 'daily');
+    assert.deepEqual(idsIn(daily.book.history).map(String), meant, `roster, got: ${JSON.stringify(daily.book.history)}`);
+
+    assert.equal(usage.code, 0, usage.stderr);
+    const entry = answerOf(usage).usage.find((one) => one.bot === 'api-bot');
+    const conversations = entry.sessions.find((one) => one.name === 'daily').conversations.map((one) => one.id);
+    assert.deepEqual(conversations.sort(), ['conv-now', ...meant].sort(), 'usage gives the session what its history means');
+    assert.deepEqual(entry.unclaimed ?? [], [], 'and nothing is left over as unclaimed');
+  });
+}
