@@ -102,6 +102,24 @@ test('HL1 up refuses a bot whose .claude/settings.json links outside it, and the
   assert.deepEqual(await tabsOfBot(box, bots, 'api-bot'), []);
 });
 
+test('HL1 a sibling folder whose path starts with the bot folder\'s is still outside it', async (t) => {
+  // `bots/api-bot-shared` begins with the characters of `bots/api-bot`, and is
+  // another folder all the same. A prefix of the path is not the folder.
+  const box = await createSandbox(t);
+  const bots = await withBot(box);
+  const file = hookFileOf(bots, 'api-bot', 'claude');
+  const target = path.join(`${botHomeOf(bots, 'api-bot')}-shared`, 'settings.json');
+  await linkOut(file, target);
+  const from = (await box.orca.calls()).length;
+
+  const result = await box.run(['up', '--bots', 'bots', '--bot', 'api-bot']);
+
+  assert.equal(await readFile(target, 'utf8'), USERS_OWN, 'the file in the sibling folder, byte for byte');
+  assertCleanFailure(result);
+  assertNamesTheLink(result.stderr, file, target);
+  assert.deepEqual(orcaCallsOf(await since(box, from), 'terminal create'), [], 'no tab for a bot that was refused');
+});
+
 test('HL2 up refuses a bot whose .claude directory links outside it, and the outside directory gains nothing', async (t) => {
   const box = await createSandbox(t);
   const bots = await withBot(box);
