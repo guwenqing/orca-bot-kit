@@ -911,6 +911,149 @@ test('H16 the tab outside Bot Father\'s book is the ops tab, and is never report
 });
 
 // ---------------------------------------------------------------------------
+// H27 — conversations the harness has on record and the book does not.
+//
+// The book learns a session's conversation from the kit's hook, and the hook
+// can miss one: a clear it did not record, a Codex hooks file trusted after the
+// event it would have caught (ADR 0002, ADR 0010). Then the book is stale, and
+// the only other record is the harness's own. So health reads what each
+// harness keeps for the bot's folder, the way `obk usage` does, and says which
+// conversations the book does not name.
+//
+// Transcripts are planted in the sandbox's home the way test/usage.test.js
+// plants them: Claude Code's under a folder named after the working directory,
+// Codex's by the day it started, with the folder in its first line. They are
+// planted after `up`, so that `up` has no chance to read them first.
+// ---------------------------------------------------------------------------
+
+/** A moment on the day these conversations are set, as both harnesses write one. */
+const onTheDay = (hour, minute = 0) =>
+  `2026-09-20T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00.000Z`;
+
+/** Plant a conversation where its harness keeps it, for the folder `home`. */
+async function plantConversation(box, harness, home, id, started) {
+  const file = harness === 'codex'
+    ? path.join(
+      box.home, '.codex', 'sessions', ...started.slice(0, 10).split('-'),
+      `rollout-${started.replaceAll(':', '-').replace(/\..*$/, '')}-${id}.jsonl`,
+    )
+    : path.join(box.home, '.claude', 'projects', home.replaceAll(/[^A-Za-z0-9]/g, '-'), `${id}.jsonl`);
+  const first = harness === 'codex'
+    ? { timestamp: started, type: 'session_meta', payload: { id, cwd: home, timestamp: started } }
+    : { type: 'system', sessionId: id, cwd: home, timestamp: started };
+
+  await mkdir(path.dirname(file), { recursive: true });
+  await writeFile(file, `${JSON.stringify(first)}\n`);
+}
+
+/** Change what one bot's book says about its sessions, as a person editing it by hand would. */
+async function editBook(bots, bot, change) {
+  const file = bookOf(bots, bot);
+  const book = parse(await readFile(file, 'utf8'));
+  change(book.sessions);
+  await writeFile(file, stringify(book));
+}
+
+/** The ids a conversation is known by in these tests: shaped the way both harnesses shape them. */
+const conv = (n) => `0199b2c0-${String(n).padStart(4, '0')}-4444-8888-cccccccccccc`;
+
+test('H27 a Claude conversation on record in a bot\'s folder that the book does not name is reported, with when it began', async (t) => {
+  const box = await createSandbox(t);
+  await seeded(box);
+  const home = await botUp(box, 'api-bot');
+  await plantConversation(box, 'claude', home, conv(1), onTheDay(9, 15));
+
+  const answer = await found(box);
+
+  const mine = of(answer, { kind: 'session', bot: 'api-bot' });
+  const finding = oneNaming(mine, conv(1), 'the harness has it on record in this bot\'s folder and the book does not');
+  const words = wordsOf(finding);
+  assert.ok(words.includes('2026-09-20T09:15'), `it should say when the conversation began, got: ${words}`);
+  // What to do about it, in the terms the book and the kit use.
+  assert.match(words, /session:/, `it should say how to give it to a session in the book, got: ${words}`);
+  assert.match(words, /obk up/, `and what to run after, got: ${words}`);
+  assert.doesNotMatch(words, /worktree/i, 'obk never says "worktree"');
+  noneNaming(of(answer, { bot: 'bot-father' }), conv(1), 'it ran in api-bot\'s folder, not Bot Father\'s');
+});
+
+test('H27 a conversation the book names now, before, or as unclaimed is not reported; one it does not name beside them is', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  const home = await botUp(box, 'api-bot', { sessions: [['daily'], ['nightly']] });
+  const [now, before, unclaimed, stray] = [conv(1), conv(2), conv(3), conv(4)];
+  for (const [n, id] of [now, before, unclaimed, stray].entries()) {
+    await plantConversation(box, 'claude', home, id, onTheDay(9 + n));
+  }
+  await editBook(bots, 'api-bot', (sessions) => {
+    sessions.daily.session = now;
+    sessions.daily.history = [{ session: before, ended: 'clear', at: onTheDay(10, 30) }];
+    sessions.nightly.unclaimed = [unclaimed];
+  });
+
+  const answer = await found(box);
+
+  const mine = of(answer, { kind: 'session', bot: 'api-bot' });
+  assert.equal(mine.length, 1, `one finding for the one conversation the book does not name, got: ${JSON.stringify(mine, null, 2)}`);
+  oneNaming(mine, stray, 'no session of the book names it');
+  noneNaming(mine, now, 'the book names it as daily\'s conversation now');
+  noneNaming(mine, before, 'the book names it in daily\'s history');
+  noneNaming(mine, unclaimed, 'the book names it as unclaimed, which is reported on its own already');
+});
+
+test('H27 every harness the bot\'s sessions run on is read, and what neither names makes one finding for the bot', async (t) => {
+  const box = await createSandbox(t);
+  await seeded(box);
+  const home = await botUp(box, 'api-bot', { sessions: [['daily'], ['nightly', '--harness', 'codex']] });
+  await plantConversation(box, 'claude', home, conv(1), onTheDay(9));
+  await plantConversation(box, 'codex', home, conv(2), onTheDay(11, 40));
+
+  const answer = await found(box);
+
+  const mine = of(answer, { kind: 'session', bot: 'api-bot' });
+  assert.equal(mine.length, 1, `one finding per bot, however many conversations, got: ${JSON.stringify(mine, null, 2)}`);
+  const words = wordsOf(mine[0]);
+  assert.ok(words.includes(conv(1)), `the Claude Code conversation, got: ${words}`);
+  assert.ok(words.includes(conv(2)), `the Codex conversation, got: ${words}`);
+  assert.ok(words.includes('2026-09-20T11:40'), `and when the Codex one began, got: ${words}`);
+});
+
+test('H27 a Codex conversation belongs to the bot whose folder it ran in', async (t) => {
+  const box = await createSandbox(t);
+  await seeded(box);
+  const api = await botUp(box, 'api-bot', { harness: 'codex' });
+  const web = await botUp(box, 'web-bot', { harness: 'codex' });
+  await plantConversation(box, 'codex', api, conv(1), onTheDay(9));
+  await plantConversation(box, 'codex', web, conv(2), onTheDay(10));
+
+  const answer = await found(box);
+
+  const apiSaid = of(answer, { kind: 'session', bot: 'api-bot' });
+  const webSaid = of(answer, { kind: 'session', bot: 'web-bot' });
+  oneNaming(apiSaid, conv(1), 'it ran in api-bot\'s folder');
+  noneNaming(apiSaid, conv(2), 'it ran in web-bot\'s folder');
+  oneNaming(webSaid, conv(2), 'it ran in web-bot\'s folder');
+  noneNaming(webSaid, conv(1), 'it ran in api-bot\'s folder');
+});
+
+test('H27 a bot whose every conversation on record is in the book reports nothing about them', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  const home = await botUp(box, 'api-bot', { sessions: [['daily'], ['nightly', '--harness', 'codex']] });
+  await plantConversation(box, 'claude', home, conv(1), onTheDay(9));
+  await plantConversation(box, 'claude', home, conv(2), onTheDay(10));
+  await plantConversation(box, 'codex', home, conv(3), onTheDay(11));
+  await editBook(bots, 'api-bot', (sessions) => {
+    sessions.daily.session = conv(2);
+    sessions.daily.history = [{ session: conv(1), ended: 'clear', at: onTheDay(9, 30) }];
+    sessions.nightly.session = conv(3);
+  });
+
+  const answer = await found(box);
+
+  assert.deepEqual(answer.found, [], `the book names every conversation the harnesses have, got: ${JSON.stringify(answer.found, null, 2)}`);
+});
+
+// ---------------------------------------------------------------------------
 // H17 to H22 — the command itself.
 // ---------------------------------------------------------------------------
 
@@ -1067,6 +1210,10 @@ test('H22 health changes nothing at all: not a file, not a link, not a tab', asy
   await rm(agentsOf(bots, 'bot-father'));
   await closeTab(box, await tabOf(bots, 'api-bot', 'daily'));
   await plantTab(box, botHomeOf(bots, 'api-bot'), 'tab_stray', 'Api Bot something');
+  // Conversations on record that the book does not name, one per harness: the
+  // harnesses' own files are read, and neither they nor the book are written.
+  await plantConversation(box, 'claude', botHomeOf(bots, 'api-bot'), conv(1), onTheDay(9));
+  await plantConversation(box, 'codex', botHomeOf(bots, 'api-bot'), conv(2), onTheDay(10));
 
   // The whole sandbox: the bots folder, everything beside it, and the home
   // directory, where Orca's own settings live.

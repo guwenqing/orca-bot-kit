@@ -23,6 +23,7 @@ import path from 'node:path';
 
 import { bookFile, readBook, tabIdsIn } from './book.js';
 import { botDir, botNames, botsDir, readBot } from './bot.js';
+import { transcriptsIn } from './conversations.js';
 import { hookTrouble } from './hooks.js';
 import { bypassFlags, harnessOf, HARNESSES, sessionTrouble } from './launch.js';
 import { orcaDefaultArgs, projects, tabs } from './orca.js';
@@ -243,6 +244,8 @@ function inOrca(home, bot, setups) {
     }
   }
 
+  found.push(...offTheBook(real ?? home, bot, book));
+
   // A tab outside the book is somebody else's, and in Bot Father's project it
   // is the ops tab: the one tab the kit deliberately keeps no record of, so it
   // cannot be a leftover (PRD 6.2).
@@ -254,6 +257,33 @@ function inOrca(home, bot, setups) {
   }
 
   return found;
+}
+
+/**
+ * The conversations a harness has on record in this bot's folder that the book
+ * does not name anywhere. The hook is how an id reaches the book, and when it
+ * fails it fails quietly (ADR 0010), so this is where a stale book shows: the
+ * harness's own record set beside it (ADR 0002).
+ */
+function offTheBook(home, bot, book) {
+  const named = new Set();
+  for (const entry of Object.values(book.sessions)) {
+    if (typeof entry?.session === 'string') named.add(entry.session);
+    for (const was of Array.isArray(entry?.history) ? entry.history : []) named.add(was?.session);
+    for (const id of Array.isArray(entry?.unclaimed) ? entry.unclaimed : []) named.add(id);
+  }
+
+  // Every harness any of its sessions runs on, as `obk usage` reads them.
+  const harnesses = new Set(bot.sessions.map((session) => harnessOf(session, bot.harness)));
+  if (harnesses.size === 0) harnesses.add(bot.harness);
+  const stray = [...harnesses]
+    .filter((harness) => HARNESSES.includes(harness))
+    .flatMap((harness) => transcriptsIn(harness, home))
+    .filter((one) => !named.has(one.id));
+  if (stray.length === 0) return [];
+
+  const listed = stray.map((one) => `${one.id} (begun ${one.at})`).join(', ');
+  return [finding('session', bookFile(home), `The harness has conversations on record in ${bot.name}'s folder that the book does not name: ${listed}. The kit's hook may have missed them: a clear it did not record, or a Codex hooks file trusted late. To give one to a session, write it into ${bookFile(home)} under that session as  session: <id>  and run obk up again.`, bot.name)];
 }
 
 /** What a directory holds, and nothing at all when there is no directory. */
