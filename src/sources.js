@@ -147,11 +147,9 @@ function bring(bots, source, moving) {
   const dir = cloneDir(bots, source.name);
 
   if (existsSync(dir)) {
-    const from = originOf(dir);
-    if (from !== source.repo) {
-      if (!moving) {
-        throw new Error(`${source.name}: the clone beside your bots folder came from ${from}, and skills.yaml now names ${source.repo}. Run obk skills update --source ${source.name} to take it from there instead.`);
-      }
+    const wrong = wrongClone(bots, source);
+    if (wrong !== undefined) {
+      if (!moving) throw new Error(wrong);
       rmSync(dir, { recursive: true, force: true });
       return clone(bots, source, source.ref, false);
     }
@@ -191,6 +189,17 @@ function clone(bots, source, rev, recorded) {
   }
 
   return { state: 'cloned', sha: headOf(dir), runs: carriesScripts(skillsIn(bots, source)) };
+}
+
+/**
+ * Why the clone beside the bots folder is not this source's, or undefined when
+ * it is. A clone is a source's only while it came from the repository the file
+ * names; fetch and build both ask here, so neither takes what the other refuses.
+ */
+export function wrongClone(bots, source) {
+  const from = originOf(cloneDir(bots, source.name));
+  if (from === source.repo) return undefined;
+  return `${source.name}: the clone beside your bots folder came from ${from}, and skills.yaml now names ${source.repo}. Run obk skills update --source ${source.name} to take it from there instead.`;
 }
 
 /** Where a clone came from, as git itself has it written down. */
