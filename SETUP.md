@@ -228,6 +228,11 @@ Relay what it says in plain words. Nothing it prints is a verdict: which finding
 matter is for them, or for Bot Father, to judge. If something looks wrong to you,
 say what you would do and let them decide.
 
+Then go on to step 7, whatever it found. A finding does not stop the setup: Bot
+Father is running, and it is the one to look at findings with them. One thing is
+not a finding: on Codex, the book has no conversation id for the session until
+the first message is typed into it.
+
 ## 7. Hand them over to Bot Father
 
 This is the step that finishes the job, and the easiest one to do badly by
