@@ -56,9 +56,8 @@ recommendation you do not believe wastes the round.
     Q2: <what the question is about>
     ...
 
-Three or four questions is a round. Not the whole frontier: a round of nine is
-a form, and it gets filled in like one. The person may be reading this on a
-phone between other things.
+Three questions is a round. Not the whole frontier: a round of nine is a form,
+and it gets filled in like one.
 
 Keep each question short enough to answer in a sentence. When a question needs
 three paragraphs of setup, that is usually a sign it is really two questions,
@@ -66,59 +65,56 @@ or that you should be teaching rather than asking (see below).
 
 ## Where this goes wrong
 
-Most of these are from a real session, where someone was interviewed with
-exactly this mechanism and said so at the time. They are the difference
-between an interview that helps and one that gets abandoned half way.
-
 - **Asking before they can answer.** When the subject is something they have
   not worked with, questions land as an exam. Explain the thing first, well
   enough that they can form an opinion, and invite the deep questions back. Ask
   after that. Being asked to choose between things you have just heard the
-  names of is unpleasant and produces bad answers.
-- **Offering a binary when the answer is a balance.** "A or B?" where the real
-  answer is "more of A than you think, and none of B for now" teaches them that
-  the choices are not the real ones. Where a spectrum exists, say so and put
-  your recommendation on it.
+  names of produces bad answers. When they say they do not follow, explain
+  that one thing plainly and stop; do not follow it with a question.
+- **Offering a binary when the answer is a balance.** Dig deeper than "A or
+  B?" where the real answer is somewhere between them. Where a spectrum
+  exists, say so and put your recommendation on it.
 - **Treating agreement as a decision.** What matters is not the words they
-  used but what they were agreeing to. "That sounds right" after a specific
-  proposal, fully stated, with its cost named, settles that proposal. Take it
-  and move on. The same words while you are still explaining the subject, or
-  about a recommendation whose consequence you have not spelled out, settle
-  nothing: they mean the explanation landed, not that a choice was made. And a
-  run of agreeable noises across a long stretch of teaching is not a mandate
-  for any of it.
+  used but what they were answering. "Yes" to a question you put to them as a
+  decision settles it; take it and move on. "Ok", "good" or "next" while you
+  are still explaining the subject, or to a proposal they were never asked to
+  decide, settles nothing: it means the explanation landed, not that a choice
+  was made. A run of agreeable noises across a long stretch of teaching is not
+  a mandate for any of it.
 
   When you are unsure which you have, the useful move is not to ask again in
   the same words. It is to say the consequence out loud (what this costs, who
   it costs, and what cannot be undone afterwards) and then ask for the choice
   plainly. Recording a passing nod as a decision is how a record becomes
   untrustworthy.
-- **Asking again whether you may proceed.** Once something is settled, build on
-  it. Re-asking reads as not having listened the first time.
+- **Deciding for them.** A pause, a partial answer or a change of subject is
+  not a licence to fill the gaps with choices of your own and present them as
+  settled. Put each decision to them and wait. Where they hand a decision
+  over ("whatever you think is best"), make it, and record it as yours under
+  their handover, not as theirs.
 - **Going too fast.** Finishing a topic, summarising, and asking to start
-  building (all in one message) will get you stopped. Let a topic close
-  before opening the next.
+  building, all in one message. Let a topic close before opening the next.
 - **Saying too much.** A long round is a wall. Cut it until only the questions
-  and the recommendations are left.
+  and the recommendations are left. A round that restates what they told you,
+  or a closing note of comfortable generalities, costs them a reading and
+  moves nothing.
 - **Answering a question they did not ask.** When they ask about one thing,
-  answer that thing. A broader answer reads as an evasion of the narrow one.
+  answer that thing, not the broader one around it.
 - **Handing back your own summary as evidence.** When they ask what was
-  decided, go to the record and quote it, rather than telling them what you
-  remember deciding. Your memory of the conversation is the thing under
+  decided, quote their words from the conversation rather than your memory or
+  your own notes of it, and offer to have someone independent check your
+  record against the conversation. Your account of it is the thing under
   suspicion.
 - **Overselling.** Do not claim a mechanism can do something it cannot. It will
   be tested, and everything else you said gets re-examined at the same time.
-- **Handing back a summary that says nothing.** A round that restates what they
-  told you, or a closing note of comfortable generalities, costs them a reading
-  and moves nothing. If a paragraph would survive being deleted, delete it.
 - **Answering before you have checked you read them right.** When their answer
   could mean two things, and a short one often does, say which reading you
   are taking before you build on it. Getting this wrong quietly is worse than
   asking, because the whole branch that follows is then about something they
   did not say.
 - **Grilling things that are not decisions.** Research, a fact-find, a piece of
-  reading: those do not need an interview, and running one over them wastes
-  the appetite for the parts that do. Say you are pausing it and carry on.
+  reading: those do not need an interview. Say you are pausing it and carry
+  on.
 
 ## The facts are yours
 
@@ -216,9 +212,6 @@ before. If the project already has a home for either, use that one.
 ## Away from a plan
 
 The same shape works on anything with decisions in it: a piece of writing, a
-process, a choice between tools. The tree is the decisions, the frontier is
-what can be settled now, the questions carry recommendations, the facts are
-yours to find, and what comes out is a shared understanding plus a record of
-what was settled and what was not.
+process, a choice between tools.
 
 Sources and licences: [NOTICE.md](NOTICE.md).
