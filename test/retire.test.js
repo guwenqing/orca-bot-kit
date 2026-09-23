@@ -21,7 +21,7 @@ import assert from 'node:assert/strict';
 import { mkdir, readFile, readdir, stat, utimes, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
-import { parse } from 'yaml';
+import { parse, stringify } from 'yaml';
 
 import {
   assertCleanFailure,
@@ -333,6 +333,43 @@ test('RB1 a retired bot\'s tabs are closed by handle, then its Orca project is d
     assert.ok(!call.args.includes('--all'), `orca ${call.args.join(' ')}: --all closes tabs the kit does not own`);
     if (orcaCommand(call) === 'terminal close') assert.equal(orcaFlag(call, '--worktree'), undefined);
   }
+});
+
+test('RB7 every tab the book owns is closed before the project goes, even a session bot.yaml no longer lists', async (t) => {
+  // From the review of PR 184. The user took daily out of bot.yaml by hand:
+  // its tab is still live and the book still names it. The book is what says
+  // which tabs are the kit's, so daily's goes too — deleting the project first
+  // would leave a tab no command can reach.
+  const box = await createSandbox(t);
+  const bots = await madeBot(box, [['daily'], ['review']]);
+  await up(box);
+  const daily = await liveTab(box, bots, 'api-bot', 'daily');
+  const review = await liveTab(box, bots, 'api-bot', 'review');
+  await recordSession(box, { bots, bot: 'api-bot', tab: daily.tabId, session: 'sess-daily' });
+  await recordSession(box, { bots, bot: 'api-bot', tab: review.tabId, session: 'sess-review' });
+  const file = botYamlOf(bots, 'api-bot');
+  const doc = parse(await readFile(file, 'utf8'));
+  doc.sessions = doc.sessions.filter((one) => one.name !== 'daily');
+  await writeFile(file, stringify(doc));
+  assert.equal((await sessionIn(bots, 'api-bot', 'daily'))?.tab, daily.tabId, 'the book still names daily\'s tab');
+  const from = await callCount(box);
+
+  const result = await retire(box, '--bot', 'api-bot');
+
+  assert.equal(result.code, 0, result.stderr);
+  const calls = await since(box, from);
+  const closed = closes(calls);
+  const [deleted] = deletes(calls);
+  assert.deepEqual(
+    closed.map((call) => orcaFlag(call, '--terminal')).sort(),
+    [daily.handle, review.handle].sort(),
+    'both tabs the book names, each by its own handle',
+  );
+  assert.ok(deleted, 'the project is deleted');
+  for (const call of closed) {
+    assert.ok(calls.indexOf(call) < calls.indexOf(deleted), `${orcaFlag(call, '--terminal')} is closed before the project goes`);
+  }
+  assert.deepEqual(await tabsOfBot(box, bots, 'api-bot'), [], 'no tab of the bot is left in Orca');
 });
 
 test('RB2 the bot\'s folder moves to retired/ with its book, charter and memory in it', async (t) => {

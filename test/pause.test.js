@@ -21,6 +21,8 @@
 // Bot Father is never paused: it is what the user asks to unpause anything.
 
 import assert from 'node:assert/strict';
+import { rm, writeFile } from 'node:fs/promises';
+import path from 'node:path';
 import test from 'node:test';
 
 import {
@@ -342,6 +344,47 @@ test('P9 obk up skips a paused session and opens its sibling', async (t) => {
   assert.deepEqual(open.map(typedInto), [[resumeLine('sess-review', 'review')]], 'and it is review, with its conversation');
   assert.match(result.stdout, /paused/i, `up should say daily is paused, got: ${result.stdout}`);
 });
+
+// From the review of PR 184: up treats a paused session as if it were not
+// there, so nothing about it — here a prompt file that has gone — can stop the
+// sessions that will run from coming up.
+for (const [label, args] of [
+  ['obk up --bot', ['up', '--bots', 'bots', '--bot', 'api-bot']],
+  ['obk up for the whole fleet', ['up', '--bots', 'bots']],
+]) {
+  test(`P12 ${label}: a paused session's missing prompt file does not stop its sibling coming up`, async (t) => {
+    const box = await createSandbox(t);
+    assert.equal((await box.run(['init', '--bots', 'bots', '--harness', 'claude'])).code, 0);
+    assert.equal((await box.run(['bot', 'create', '--bots', 'bots', '--name', 'api-bot', '--harness', 'claude'])).code, 0);
+    const bots = box.path('bots');
+    const duty = path.join(botHomeOf(bots, 'api-bot'), 'duty.md');
+    await writeFile(duty, 'The daily duty.\n');
+    for (const settings of [['--name', 'daily', '--prompt-file', 'duty.md'], ['--name', 'review']]) {
+      const added = await box.run(['session', 'add', '--bots', 'bots', '--bot', 'api-bot', ...settings]);
+      assert.equal(added.code, 0, added.stderr);
+    }
+    await paused(box, '--bot', 'api-bot', '--session', 'daily');
+    await rm(duty);
+
+    const result = await box.run(args);
+
+    assert.equal(result.code, 0, `the paused session is not one up starts, so its file is nothing to up: ${result.stderr}`);
+    const open = await tabsOfBot(box, bots, 'api-bot');
+    assert.deepEqual(open.map(typedInto), [[bareLaunch('claude', 'api-bot', 'review')]], 'review has its tab, and daily has none');
+    assert.equal((await sessionIn(bots, 'api-bot', 'daily'))?.tab, undefined, 'the book gives daily no tab');
+    assert.match(result.stdout, /paused/i, `up should say daily is paused, got: ${result.stdout}`);
+    assert.ok(result.stdout.includes('daily'), `and name it, got: ${result.stdout}`);
+
+    // The contrast: unpausing daily is asking for it to run, and a session
+    // whose prompt file is not there cannot.
+    const from = await callCount(box);
+    const back = await unpause(box, '--bot', 'api-bot', '--session', 'daily');
+
+    assertCleanFailure(back);
+    assert.ok(back.stderr.includes('duty.md'), `the refusal should name the missing file, got: ${back.stderr}`);
+    assert.deepEqual(creates(await since(box, from)), [], 'and no tab is opened for daily');
+  });
+}
 
 test('P10 obk restart on a paused bot is refused, says it is paused, and closes nothing', async (t) => {
   const box = await createSandbox(t);
