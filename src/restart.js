@@ -29,7 +29,7 @@
 import { realpathSync } from 'node:fs';
 import { setTimeout as pause } from 'node:timers/promises';
 
-import { asBooked, bookFile, readBook } from './book.js';
+import { bookFile, readBook } from './book.js';
 import { botDir, readBot } from './bot.js';
 import { closeTab, findProject, tabs } from './orca.js';
 import { botsNamed, bringUp, prepareBots, sessionsOf } from './up.js';
@@ -63,7 +63,7 @@ export async function restartSessions(bots, { bot: name, session: onlySession } 
   // been up has no tabs, which is the answer anyway.
   const live = findProject(home) === undefined
     ? new Map()
-    : new Map(asBooked(tabs(home), book).map((tab) => [tab.tabId, tab]));
+    : new Map(tabs(home).map((tab) => [tab.tabId, tab]));
 
   const going = [];
   const refusals = [];
@@ -123,7 +123,7 @@ async function gone(home, closed, bots, bot) {
   const ids = closed.map((tab) => tab.tabId);
 
   for (;;) {
-    const there = new Set(asBooked(tabs(home), readBook(home)).map((tab) => tab.tabId));
+    const there = new Set(tabs(home).map((tab) => tab.tabId));
     const left = ids.filter((id) => there.has(id));
     if (left.length === 0) return;
 

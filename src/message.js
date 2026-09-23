@@ -18,7 +18,7 @@
 import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
-import { asBooked, readBook } from './book.js';
+import { readBook } from './book.js';
 import { botDir, botNames, readBot } from './bot.js';
 import { harnessOf, reachesMail } from './launch.js';
 import { ackMailbox, postMessage, readMailbox, tabs, tuiInTab, typeIntoTab, useMailbox } from './orca.js';
@@ -315,7 +315,7 @@ function nudge(to, from, subject) {
   if (to.tab === undefined) return { nudged: false };
 
   try {
-    const live = asBooked(tabs(to.home), readBook(to.home)).find((tab) => tab.tabId === to.tab);
+    const live = tabs(to.home).find((tab) => tab.tabId === to.tab);
     if (live === undefined) return { nudged: false };
 
     const tui = tuiInTab(live.handle, LOOK_MS);
