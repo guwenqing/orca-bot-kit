@@ -172,6 +172,19 @@ say that you edited it by hand.
 Run `obk --help` for the flags of the version actually installed rather than
 trusting a line you remember.
 
+A bot that should learn across its sessions can use its harness's own memory,
+turned on for that bot alone, whatever the user's own setting is for everything
+else. The harness writes it, loads it and keeps it tidy itself. On Claude Code
+that is three keys in the bot's `.claude/settings.json`, beside the kit's hook:
+`autoMemoryEnabled: true`; `env` setting `CLAUDE_CODE_DISABLE_AUTO_MEMORY` to
+`"0"` where the user turns memory off that way; and `autoMemoryDirectory`
+naming a folder of the bot's own outside the bots repo, by an absolute path or
+one starting with `~/`, because without it
+every bot in the repo shares one memory. The first 200 lines or 25 KB of its
+index load at every start. Codex's memories belong to the user and are shared
+by every Codex session, so a Codex bot cannot have its own; say so before
+turning them on for one. It is a hand edit, and say that you made it.
+
 After each change, commit what it changed in the bots folder; the kit never
 commits by itself.
 
