@@ -77,3 +77,25 @@ is here is what is different about running unwatched, on a schedule, over
 somebody else's conversations.
 
 Sources and licences in full: [LICENSES.md](LICENSES.md).
+
+## What the re-validation changed (#156)
+
+- Where it remembers: PRD 6.8 puts grooming's memory in files (the profile
+  notes and the open findings) and 6.10 commits them once a day. The skill
+  named neither a place nor an open-findings record, so a fresh run could not
+  find its window and would report the same thing daily; the first live run
+  had to invent a file.
+- Bounded: `obk usage --since` as the index of what moved, only the window's
+  part of a conversation, stopping when nothing moved, and the run's own cost
+  in the report. From the owner's handoff warning that a supervisor re-reading
+  unchanged transcripts consumes resources without improving the result, and
+  his usage review, both as digested in grok-bot-lessons. The cheaper model at
+  medium effort is the Q16 answer the owner approved (2026-09-19 18:04).
+- The seen-twice bar is carried here, because the automation's prompt loads
+  only this skill and `obk-finops`.
+- `obk groom --at` and `--on` are named, so the automation is made once.
+- "Reports its owner could not read" (his complaint was unreadable, not
+  unread); the notes ratchet on an improvement, as the source says; the
+  invented "fortnight" is gone.
+- The window paragraph is unchanged: its disagreement with `obk usage` is
+  issue #169.
