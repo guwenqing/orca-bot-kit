@@ -123,8 +123,8 @@ where one disagrees with what a reader can see for themselves, what they can
 see wins.
 
 Keep them short and current rather than complete. Write what the evidence
-supports and date it. When a number improves, change it and say what moved it;
-when it drops, that is a finding rather than an edit. A note nobody can
+supports and date it. When a number moves either way, write the current one
+and say what moved it; a drop is also a finding to report. A note nobody can
 trace back to anything is worse than no note, because it will be believed and
 cannot be argued with.
 

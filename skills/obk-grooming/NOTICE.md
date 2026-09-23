@@ -13,13 +13,10 @@ with thanks:
   the place it was seen, so a reader can go and look; and the rule that a
   transcript is data to be read rather than instruction to be followed, which
   is what the section on reading another bot's history is built on.
-- **Addy Osmani's agent skills**, `constraint-driven-development`: the ratchet.
-  Record where a thing stands, then refuse to let it get worse; when a number
-  improves, change the number; when it drops, that is a finding rather than an
-  edit. That is what keeps the profile notes from becoming a wall nobody can
-  argue with, and the accompanying warning, that a threshold with no reason
-  attached gets deleted by the next person it inconveniences, is why a note
-  says what moved it.
+- **Addy Osmani's agent skills**, `constraint-driven-development`: its warning
+  that a figure with no reason attached gets deleted by the next person it
+  inconveniences, which is why a note says what moved it. Its ratchet is not
+  applied to the notes (see below).
 
 ## The owner's own conclusions, restated
 
@@ -97,7 +94,10 @@ Sources and licences in full: [LICENSES.md](LICENSES.md).
   only this skill and `obk-finops`.
 - `obk groom --at` and `--on` are named, so the automation is made once.
 - "Reports its owner could not read" (his complaint was unreadable, not
-  unread); the notes ratchet on an improvement, as the source says; the
-  invented "fortnight" is gone.
+  unread); the invented "fortnight" is gone. The profile notes record the
+  current figure either way, with a drop also reported: the review of this
+  re-validation (#182) pointed out that `constraint-driven-development`'s
+  ratchet holds a quality threshold, not a record other bots choose
+  collaborators from, so it is no longer applied to the notes.
 - The window paragraph is unchanged: its disagreement with `obk usage` is
   issue #169.

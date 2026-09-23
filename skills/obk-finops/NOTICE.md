@@ -67,7 +67,9 @@ Sources and licences in full: [LICENSES.md](LICENSES.md).
   inside output (docs/tech-notes.md).
 - The effort defaults as the owner's usage review gives them.
 - The median input per call as the measure of a thread re-reading itself, a
-  hand-over after more than one compaction, and a check-in every so many
+  hand-over after more than one compaction for a worker session while a
+  persona session is judged on its cost and lost state (grok-bot-lessons'
+  session policy), and a check-in every so many
   tokens on a loop with no budget (the usage review, via grok-bot-lessons).
 - On the signs of a model not up to the work, the charter or the job is the
   first suspect, as in `obk-fleet-review`.

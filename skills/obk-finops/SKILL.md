@@ -111,8 +111,10 @@ wrong most often, and an upgrade nobody can justify is money spent on a hunch.
 A context window is a price as well as a size. Long threads carry everything
 again on every call, so input grows with the conversation rather than with the
 work. The median input per call is the measure of it, and compaction is the
-visible symptom: something compacted more than once is paying to re-read
-itself, and is due a written hand-over and a fresh start.
+visible symptom. A worker session compacted more than once is paying to
+re-read itself, and is due a written hand-over and a fresh start. A long-lived
+persona session (Bot Father, an inbox) is meant to run long, and is judged on
+what the re-reading costs and whether it has lost what it knew.
 
 Where that is happening, the answer is usually not a bigger window. It is
 shorter sessions with what matters written into a file, or heavy work moved to
