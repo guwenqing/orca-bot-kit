@@ -14,6 +14,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 
+import { leadsOutside } from './bot.js';
 import { shellWord } from './launch.js';
 
 /** Where each harness reads a project's hooks, inside the bot home. */
@@ -53,6 +54,8 @@ export const hookCommand = (bots, bot) =>
  */
 export function installHook(home, harness, { bots, bot }) {
   const file = path.join(home, HOOK_FILE[harness]);
+  const away = outside(home, file);
+  if (away !== undefined) throw new Error(away);
   const settings = readSettings(file);
 
   const mine = { type: 'command', command: hookCommand(bots, bot), timeout: TIMEOUT };
@@ -85,6 +88,9 @@ export function hookTrouble(home, harness, { bots, bot }) {
   const file = path.join(home, HOOK_FILE[harness]);
   const stale = `Until it is there, nothing tells the book which conversation this bot's ${harness} sessions are running as, and the book goes stale.`;
 
+  const away = outside(home, file);
+  if (away !== undefined) return { where: file, says: `${away} ${stale}` };
+
   let wanted;
   let settings;
   try {
@@ -99,6 +105,18 @@ export function hookTrouble(home, harness, { bots, bot }) {
     where: file,
     says: `${file} does not hold the kit's session hook, and ${harness} reads this bot's hooks from it. ${stale} obk up puts it back.`,
   };
+}
+
+/**
+ * What to say about a hooks file that a link takes out of the bot folder, or
+ * undefined when it stays in. The kit writes its hook in the bot folder and
+ * nowhere else (ADR 0010); through a link like that it would be writing the
+ * user's own settings, so it does not, and says why.
+ */
+function outside(home, file) {
+  const real = leadsOutside(home, file);
+  if (real === undefined) return undefined;
+  return `${file} leads outside the bot folder, to ${real}, through a link, and the kit writes its session hook only inside the bot folder. Replace the link with a file of the bot's own, then run the command again.`;
 }
 
 /**

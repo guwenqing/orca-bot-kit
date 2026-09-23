@@ -20,7 +20,7 @@ import { fileURLToPath } from 'node:url';
 
 import { parse, parseDocument, stringify } from 'yaml';
 
-import { botDir, botNames, changesExactly, readBot, YAML_OUT } from './bot.js';
+import { botDir, botNames, changesExactly, leadsOutside, readBot, YAML_OUT } from './bot.js';
 import { listIn } from './rules.js';
 import { cloneDir, isCloned, readSources, skillsIn, wrongClone } from './sources.js';
 
@@ -173,8 +173,17 @@ export function linkSkills(bots, home, bot) {
   // moved. A skills problem does not hold a bot down, let alone the fleet
   // (`prepareBots` in up.js), so one bot's folder must not stop `obk up`.
   const blocked = [];
-  for (const inside of Object.values(SKILL_DIRS)) {
+  // A skills directory a link of the user's takes out of the bot folder, to a
+  // shelf of their own or their user-level `~/.claude`, is theirs: the kit reads
+  // it and writes nothing into it (PRD 6.3), by harness.
+  const away = new Map();
+  for (const [harness, inside] of Object.entries(SKILL_DIRS)) {
     const dir = path.join(home, inside);
+    const real = leadsOutside(home, dir);
+    if (real !== undefined) {
+      away.set(harness, real);
+      continue;
+    }
     try {
       mkdirSync(dir, { recursive: true });
     } catch (error) {
@@ -204,6 +213,10 @@ export function linkSkills(bots, home, bot) {
   try {
     for (const harness of Object.keys(SKILL_DIRS)) {
       record[harness] ??= {};
+      if (away.has(harness)) {
+        held.set(harness, heldIn(path.join(home, SKILL_DIRS[harness]), record[harness]));
+        continue;
+      }
       const done = link(path.join(home, SKILL_DIRS[harness]), wanted, record[harness]);
       removed.push(...done.removed);
       held.set(harness, done.held);
@@ -224,6 +237,15 @@ export function linkSkills(bots, home, bot) {
   writeRecord(home, record);
 
   const skills = heldBy(home, wanted, held);
+  // The lists name skills, and the kit will not put them where that link leads.
+  if (wanted.length > 0 && away.size > 0) {
+    return {
+      bot: bot.name,
+      skills,
+      removed: [...new Set(removed)].sort(),
+      trouble: [...away].map(([harness, real]) => `${path.join(home, SKILL_DIRS[harness])} leads outside the bot folder, to ${real}, through a link, and the kit links skills only inside the bot folder, so ${harness} does not get the skills the lists name. Replace the link with a directory of the bot's own, then build again.`).join(' '),
+    };
+  }
   const clash = skills.filter((skill) => !skill.managed && wanted.some((one) => one.name === skill.name));
   return {
     bot: bot.name,

@@ -7,7 +7,7 @@
 // The files are the user's. A command that cannot do what was asked refuses and
 // writes nothing, rather than leave a bot half made or a bot.yaml half edited.
 
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { parse, parseDocument, stringify } from 'yaml';
@@ -46,6 +46,39 @@ export function botNames(bots) {
   // Sorted: the order bots come up in, and the order they are reported in, is
   // the user's, not whatever order the file system hands back.
   return readdirSync(dir).sort().filter((name) => existsSync(path.join(dir, name, BOT_YAML)));
+}
+
+/**
+ * Where `target`, inside the bot folder at `home` by name, really leads when a
+ * link the user made takes it out of that folder; undefined when it stays in.
+ * The nearest part of the path that exists is what is resolved, so a linked
+ * directory is caught before anything is made inside it.
+ *
+ * The kit writes only in the bot folder, never in user-level settings (PRD 6.3,
+ * ADR 0010), and a link would make the one the other without a word.
+ */
+export function leadsOutside(home, target) {
+  let real;
+  try {
+    let at = target;
+    while (lstatSync(at, { throwIfNoEntry: false }) === undefined && path.dirname(at) !== at) {
+      at = path.dirname(at);
+    }
+    try {
+      real = realpathSync(at);
+    } catch {
+      // A link that leads nowhere: resolving it says nothing, and writing through
+      // it would make whatever it names. Its target is what it says.
+      real = path.resolve(path.dirname(at), readlinkSync(at));
+    }
+  } catch {
+    // Something in the way that is not a link at all — a file where a folder
+    // should be, a folder the kit may not enter. Whatever writes there next
+    // meets it and says so in its own words.
+    return undefined;
+  }
+  const root = realpathSync(home);
+  return real === root || real.startsWith(root + path.sep) ? undefined : real;
 }
 
 /**
