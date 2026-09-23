@@ -61,15 +61,16 @@ thanks. Each licence below was read from the file named beside it.
   generating them, which this skill carries as asking what the opposite would
   look like, what the far simpler version would be, what it would look like
   with the tightest constraint lifted, and what someone who works in the field
-  would find obvious; and the deliberate cap, that five to eight considered
-  variations beat twenty shallow ones. Its assumption audit in three tiers is
+  would find obvious; and its point that a few real variations beat many
+  shallow ones, carried as two or three candidates and the baseline. Its
+  assumption audit in three tiers is
   this skill's uncertainty section: what must be true or the thing fails
   entirely, and is therefore checked before committing; what would hurt but is
   survivable; and what does not matter yet. Its pre-mortem is the
   counter-example technique: stand a year ahead, say it went badly, list the
   ways, then say which are preventable, which are accepted, and which would be
-  fatal. Its instruction to be honest rather than supportive, and that a good
-  partner is not a yes-machine, is carried in those words. Its "not doing, and
+  fatal. Its instruction to be honest rather than supportive is carried in
+  those words. Its "not doing, and
   why" is the reason this skill treats the dropped options as a part of the
   memo rather than an appendix to it.
 - **`addyosmani/agent-skills`, `skills/doubt-driven-development`**: same
@@ -115,15 +116,16 @@ prescribes neither, because PRD 7.1 leaves the user free in how they keep
 documents, and it says instead to match whatever the project already does.
 
 Where this overlaps `obk-grilling` and `obk-why`, that is deliberate and
-allowed by ADR 0009: a skill carries what it needs rather than depending on
+what ADR 0009 proposes: a skill carries what it needs rather than depending on
 another being loaded. `obk-grilling` settles a decision by interviewing;
 `obk-why` recovers one that was already taken; this one writes a decision up so
 somebody else can take it.
 
-PRD 7.1 decides what this skill is for, and the owner agreed to it in those
-words on 2026-09-20 at 19:45:42: "Give the conclusion, evidence, alternatives,
-risks, counter-examples and uncertainty", following the same rules as the other
-skills, "techniques only, no process, deeply written".
+PRD 7.1 decides what this skill is for. The words are the coordinator's
+proposal of three light technique skills, "Give the conclusion, evidence,
+alternatives, risks, counter-examples and uncertainty ... techniques only, no
+process, deeply written", which the owner approved on 2026-09-20 at 19:45:42
+("I agree to what you suggest").
 
 ## What an acceptance run changed
 
@@ -154,3 +156,26 @@ way to check any of the options. Seven things in it come from what that found.
   is weaker by construction. That now gets said.
 - Nine sections read as a template rather than as questions, and the memo grew
   to fit them against the skill's own instruction to keep it readable.
+
+## What the review of the first version changed
+
+The review on #129 corrected two things: the evidence labels now run upward
+from the weakest support, with the advice to move a fact up the list as far as
+is cheap; and terms that were supplied but not checked get a comparison on
+those terms, said as unchecked, rather than none.
+
+## What the re-validation changed (#155)
+
+Where there is no convention for keeping it, the memo goes where the person
+asked or back in the reply, never to an invented documentation path (citypaul
+`evaluate-existing-solutions:131`). The nine-item list became one sentence of
+questions, since the acceptance run found it read as a template. Added, each a
+clause: whether the question is a stand-in for the real goal (gstack's premise
+challenge), time to value and what else the time would have bought, preferring
+the option easier to undo on a tie, an unchecked hard constraint not being a
+pass, a choice resting on unchecked terms staying provisional, ranking risks by
+cost rather than by ease of fixing, a trial not taking away the duties of
+owning the choice, and stopping the search when more would not change the
+answer (citypaul `evaluate-existing-solutions` and its `evaluation-dimensions`,
+and `double-check`). Cut: a paragraph on the last reader with no source, and a
+repeated line on length.

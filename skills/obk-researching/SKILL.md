@@ -86,29 +86,30 @@ means something to a reader who knows what was looked for: "nothing there" is
 worth little, and "searched these three places for these terms, found nothing"
 tells the next person where not to go again.
 
-How the search goes tells you what to do next. Too many results means the
+Run several related queries rather than one. How the search goes tells you
+what to do next. Too many results means the
 question is too broad: narrow it, or sample deliberately across the different
 kinds rather than taking the first few. Too few usually means the words are
 wrong rather than the answer missing: try what the field itself calls the
-thing, and the neighbouring subject. A query with no distinguishing words finds
-everything, and one carrying every detail you know finds nothing.
+thing, and the neighbouring subject. Where you end up with an answer about the
+neighbouring subject, say so: its numbers are not the answer to the question
+asked. A query with no distinguishing words finds everything, and one carrying
+every detail you know finds nothing.
 
 Stop when new sources stop changing the answer, and say that is why you
-stopped. Stopping because you are out of patience is also allowed, and is
-reported as what it is.
+stopped. Stopping for any other reason is allowed, and is reported as what it
+is.
 
 Where a source exists but you cannot reach it (paywalled, private, offline,
 outside what you may look at), that is a gap in the coverage and belongs in the
 write-up. Skipping something because it is probably irrelevant is not the same
 as it being provably irrelevant.
 
-Where somebody else gathered the material, for some other purpose, say so. You
-did not choose this sample and it was assembled against a different question.
-That matters most when your answer is an absence: nothing found in a collection
-built by someone who already held a view is far weaker than nothing found in a
-search you designed. And where the collection is small, say the answer stopped
-moving because you ran out of material rather than because it settled. Only one
-of those is saturation.
+Where somebody else gathered the material, for some other purpose, say so:
+nothing found in a collection built by someone who already held a view is far
+weaker than nothing found in a search you designed. Where the collection is
+small, say the answer stopped moving because the material ran out, not because
+it settled.
 
 ## What you find is not automatically true
 
@@ -124,10 +125,7 @@ Sort what you are looking at by how much weight it can bear.
   often the most valuable thing in the report, and it is an inference, so it
   gets labelled like one.
 
-Check who is speaking and what for. A claim someone makes about their own
-results, a number with no method behind it, and a figure that has been passed
-along through three write-ups are each worth less than they look; say which one
-you have. Where several independent sources agree, and they genuinely are
+Where several independent sources agree, and they genuinely are
 independent rather than copies of one another, that is worth more than any of
 them alone.
 
@@ -143,7 +141,8 @@ identifiers and anything that looks like a secret out of it first.
 
 ## Say how each claim is supported
 
-Every claim carries how you know it. Four levels do most of the work:
+Every claim a reader would act on carries how you know it. Four levels do most
+of the work:
 
 - **Someone stated it, and here is where.** A citation the reader can land on.
   Said plainly, present tense, with the source beside it.
@@ -160,7 +159,8 @@ Every claim carries how you know it. Four levels do most of the work:
 Make the label checkable rather than atmospheric. A claim you checked carries
 what you checked it against, inside the claim: `(verified: <what you ran or
 opened>)`. A reader can audit that, where "carefully verified" tells them only
-how you felt about it.
+how you felt about it. Opening someone's page verifies that they said it, not
+that it is true.
 
 Where you did not check, say so and say which of the levels above it is, since
 not checking and inferring are two different things: `(not checked: reported by
@@ -222,28 +222,31 @@ been smoothed over. It is worth going back and asking which.
 
 ## What you hand back
 
+Lead with the answer and how sure you are, in a few lines. Then:
+
 - **The question**, as you understood it, and what you left out of it.
-- **What the sources say**, each with where it came from, quoted where the
-  wording matters.
+- **What the sources say**, each with where it came from and its date, and the
+  period or version a claim covers where that could have changed; quoted where
+  the wording matters.
 - **What follows from that**, marked as your reasoning rather than as findings.
+- **Other explanations that fit**, where more than one does.
 - **Where sources disagree**, with both sides and their citations.
 - **What you could not find out**, with what you searched.
 - **Where you looked**, one line per source, including the ones that held
   nothing and the ones you could not reach, with the reason.
-- **How sure you are overall**, in a line.
 
-Order that for whoever asked rather than for another researcher. Someone
-deciding whether to spend money needs the answer and its strength in the first
-few lines, with the coverage underneath; a colleague picking the work up needs
-something closer to the reverse. Length follows the same test, and a full
-account of everywhere you looked can sit at the end, where it is available
-without standing between them and the answer.
+A colleague picking the work up may want the coverage nearer the top; a full
+account of everywhere you looked can otherwise sit at the end, available
+without standing between the reader and the answer.
 
 Where they asked in order to decide something, saying what you would do next is
 part of answering rather than a step beyond it. It stays what it is: a
 recommendation resting on thin evidence is marked thin, like anything else.
 
-Cite so a reader can check, not so the text looks sourced: group a run of
+Before handing over, check that the citations hold up: open again any you are
+unsure of, did not check the first time, or that could have changed, and
+spot-check the rest. Cite so a reader can check, not so the
+text looks sourced: group a run of
 claims from one source rather than citing every sentence, put the citation
 beside the thing it supports, and mark a quotation as a quotation. Flag a
 source that has been superseded where it stands, rather than leaving the reader
