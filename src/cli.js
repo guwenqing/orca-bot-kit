@@ -21,6 +21,7 @@ import { orcaCli, orcaTrouble } from './orca.js';
 import { pauseSessions, unpauseSessions } from './pause.js';
 import { recordSession, SHELL_ENV, TAB_ENV } from './record.js';
 import { restartSessions } from './restart.js';
+import { retireBot, retireSession } from './retire.js';
 import { readRoster } from './roster.js';
 import { buildAgents, buildRules, CODEX_CAP } from './rules.js';
 import { addSkill, buildSkills, linkSkills, removeSkill } from './skills.js';
@@ -52,6 +53,36 @@ Usage:
                             given glued to its flag, so its dashes are not read
                             as ours: --prompt='- a bullet', and
                             --extra-arg=--search, once per extra argument.
+  obk bot change --bots <path> --bot <bot> --charter <text>
+                            Give a bot a new charter and rebuild its AGENTS.md.
+                            A running session reads it when it next starts.
+  obk session change --bots <path> --bot <bot> --session <session>
+                  [--model <m>] [--effort <e>] [--context <c>]
+                  [--approval ${APPROVALS.join('|')}]
+                  [--prompt <text> | --prompt-file <path>] [--work-dir <path>]
+                  [--extra-arg=<arg>]
+                            Change a session's settings. What you leave out
+                            stays as it is; a setting given empty, --model=,
+                            goes back to the harness's own default. A running
+                            session takes the change when it next starts. A
+                            session keeps its harness: to move it, retire it
+                            and add another.
+  obk pause --bots <path> --bot <bot> [--session <name>]
+                            Stop a bot, or one of its sessions, for now: close
+                            its tabs and have obk up leave it closed. The book
+                            keeps its conversations. Like restart, it closes
+                            only the tabs your book names, and none whose
+                            conversation the book cannot name.
+  obk unpause --bots <path> --bot <bot> [--session <name>]
+                            Take the pause off and bring it up again, each
+                            session with the conversation it was having.
+  obk retire --bots <path> --bot <bot> [--session <name>]
+                            End a session: close its tab and take it off the
+                            bot, keeping its conversations in the book. Or end
+                            a bot: close its tabs, remove its Orca project and
+                            move its folder to retired/. It will not retire a
+                            bot whose Orca project holds a tab your book does
+                            not name.
   obk rules build --bots <path> [--bot <bot>]
                             Build every bot's AGENTS.md from its charter and
                             the rule units it carries, or just the one you
@@ -62,6 +93,9 @@ Usage:
                             Put one skill on a bot's list. It writes the list
                             and nothing else; obk skills build is what links
                             it. A skill already listed is left as it is.
+  obk skills remove --bots <path> --bot <bot> --skill <ref>
+                            Take one skill off a bot's list. obk skills build
+                            is what takes its link away.
   obk skills build --bots <path> [--bot <bot>]
                             Link every bot's skills into both harnesses, or
                             just the one you name, from the kit, your own
@@ -158,6 +192,7 @@ const COMMANDS = {
   restart: ['bots', 'bot'],
   pause: ['bots', 'bot'],
   unpause: ['bots', 'bot'],
+  retire: ['bots', 'bot'],
   health: ['bots'],
   groom: ['bots'],
   roster: ['bots'],
@@ -436,6 +471,32 @@ const commands = {
     return {
       answer,
       lines: tabLines(answer, `${changed ? 'Unpaused' : 'Not paused, so brought up as it is'}: ${what}. Your bots folder: ${bots}`),
+    };
+  },
+
+  async retire(bots, values) {
+    refuseWhenOrcaIsDown();
+    const closedLines = (closed) => closed.map((tab) => `closed     ${tab.bot} ${tab.name}  tab ${tab.tabId}  terminal ${tab.terminal}`);
+
+    if (values.session !== undefined) {
+      const retired = await retireSession(bots, { bot: values.bot, session: values.session });
+      return {
+        answer: { bots, ...retired },
+        lines: [
+          ...closedLines(retired.closed),
+          `retired    ${retired.bot} ${retired.session}: off ${path.join('bots', retired.bot, 'bot.yaml')}, and its conversations kept in the book under retired`,
+        ],
+      };
+    }
+
+    const retired = await retireBot(bots, { bot: values.bot });
+    return {
+      answer: { bots, ...retired },
+      lines: [
+        ...closedLines(retired.closed),
+        ...(retired.project === undefined ? [] : [`removed    Orca project ${retired.project}`]),
+        `retired    ${retired.bot}: moved to ${path.relative(bots, retired.moved)}, with its book, charter and memory`,
+      ],
     };
   },
 

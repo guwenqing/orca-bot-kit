@@ -162,10 +162,13 @@ The kit's command line does the writing, and the files belong to the user:
 `obk bot create` makes the bot, `obk session add` gives it a session, `obk
 source add` records where online skills come from and `obk skills fetch`
 clones them, `obk skills add` puts one on a bot, `obk skills build` links
-them, and `obk up` opens what is missing in Orca. Changing a charter, a
-session's settings or a bot's lists has no command of its own: edit the file,
-then `obk rules build` for the charter and `obk skills build` for the skills.
-Pausing or retiring a bot has none either; it is done by hand, with the word.
+them, and `obk up` opens what is missing in Orca. `obk bot change` gives a
+bot a new charter, `obk session change` changes a session's settings, and
+`obk skills remove` takes a skill off a list (then `obk skills build`). `obk
+pause` stops a bot or a session for now and `obk unpause` brings it back;
+`obk retire` ends one. For a special case no command covers, such as a bot's
+rules list, edit the file, run `obk rules build` or `obk skills build`, and
+say that you edited it by hand.
 Run `obk --help` for the flags of the version actually installed rather than
 trusting a line you remember.
 
@@ -174,7 +177,8 @@ commits by itself.
 
 Do the reversible part and stop at the line. Making a bot, adding a session
 and linking skills add things and are safe to run again; closing a tab,
-retiring a bot and restarting anything are not, and they wait for the word.
+pausing or retiring a bot and restarting anything are not, and they wait for
+the word.
 
 ## When the bot is already running
 

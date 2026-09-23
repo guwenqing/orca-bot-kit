@@ -24,6 +24,9 @@ const HEADER = `# What Orca calls this bot on this machine, and where each of it
 # \`mailbox\` is where fleet mail for the session is left — an Orca Run, made once
 # and kept, because an address that is a tab dies with the tab. \`address\` is what
 # a Claude session is called, which is what another Claude session writes to.
+#
+# \`retired\` holds what the book knew about each session \`obk retire\` took off
+# the bot, with when, so the conversations it had are still accounted for.
 `;
 
 export const bookFile = (home) => path.join(home, 'sessions.yaml');
@@ -211,11 +214,13 @@ export function forgetClaimed(book) {
 }
 
 /**
- * Every harness session the book accounts for, the ones running now and the ones
- * that ran before. A conversation in here belongs to a session already.
+ * Every harness session the book accounts for, the ones running now, the ones
+ * that ran before, and the ones of sessions since retired. A conversation in
+ * here belongs to a session already.
  */
 export function sessionIdsIn(book) {
-  const ids = Object.values(book.sessions).flatMap((entry) => [
+  const retired = Array.isArray(book.retired) ? book.retired : [];
+  const ids = [...Object.values(book.sessions), ...retired].flatMap((entry) => [
     entry?.session,
     ...(Array.isArray(entry?.history) ? entry.history.map((old) => old?.session) : []),
   ]);

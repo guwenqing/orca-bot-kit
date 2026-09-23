@@ -355,6 +355,29 @@ second harness beside the first. And it waits for Orca's own listing to agree
 that the tab has gone before opening the new one, because Orca answers a close
 before it stops reporting the tab.
 
+## Changing, pausing and retiring
+
+Bot Father does these for you when you ask; these are the commands it runs.
+
+```sh
+obk bot change --bots /path/to/my-bots --bot api-bot --charter "…"
+obk session change --bots /path/to/my-bots --bot api-bot --session daily --model opus
+obk skills remove --bots /path/to/my-bots --bot api-bot --skill kit:obk-tdd
+obk pause --bots /path/to/my-bots --bot api-bot [--session daily]
+obk unpause --bots /path/to/my-bots --bot api-bot [--session daily]
+obk retire --bots /path/to/my-bots --bot api-bot [--session daily]
+```
+
+A change to a charter or a setting is written at once, and a running session
+takes it when it next starts. A session keeps its harness: to move one, retire
+it and add another. A pause closes the tabs the way a restart does, with the
+same refusals, and `obk up` leaves what is paused closed until `obk unpause`
+brings it back with its conversations. Retiring a session takes it off the bot
+and keeps its conversations in the book under `retired`. Retiring a bot closes
+its tabs, removes its Orca project and moves its folder to `retired/`; it will
+not touch a bot whose Orca project holds a tab your book does not name. Bot
+Father itself is never paused or retired.
+
 ## When something is wrong
 
 ```sh

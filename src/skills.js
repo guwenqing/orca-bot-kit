@@ -238,6 +238,20 @@ export function linkSkills(bots, home, bot) {
 }
 
 /**
+ * Take back every skill link the kit made in this bot, and its record of them.
+ * What the user put there is theirs and stays. Returns the names taken back.
+ */
+export function unlinkSkills(home) {
+  const record = readRecord(home);
+  const removed = [];
+  for (const harness of Object.keys(SKILL_DIRS)) {
+    removed.push(...link(path.join(home, SKILL_DIRS[harness]), [], record[harness] ?? {}).removed);
+  }
+  writeRecord(home, {});
+  return [...new Set(removed)].sort();
+}
+
+/**
  * What the kit last linked into this bot, by harness and name. The kit acts
  * only where what is on disk is still what this says it wrote, so a link the
  * user made, or one of the kit's that they have since repointed, is theirs.
