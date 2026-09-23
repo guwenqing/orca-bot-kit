@@ -46,8 +46,19 @@ export function readBook(home) {
   return {
     ...book,
     orca: asRecord(book.orca),
-    sessions: asRecord(book.sessions),
+    sessions: Object.fromEntries(Object.entries(asRecord(book.sessions)).map(([name, entry]) => [name, withHistoryListed(entry)])),
   };
+}
+
+/**
+ * A session entry whose history a person typed as one id, `history: <id>`,
+ * rather than as the list the kit writes, read as that one earlier
+ * conversation. The book is theirs to edit by hand (README), and one id where a
+ * list goes is the edit a person makes.
+ */
+function withHistoryListed(entry) {
+  if (typeof entry?.history !== 'string' || entry.history.trim() === '') return entry;
+  return { ...entry, history: [{ session: entry.history.trim() }] };
 }
 
 /**
