@@ -97,7 +97,8 @@ Sources and licences in full: [LICENSES.md](LICENSES.md).
   the fix to the skill: a hand-edited block, Orca's bypass setting with its
   every-time reminder (PRD 6.5), leftovers.
 - A grooming report is input to the review (PRD 6.8, "recommends further").
-- Stopping and retiring have no command and are done by hand on a yes;
-  changes are committed (PRD 6.10); harness is per session on the card.
+- Stopping and retiring are done on a yes, with `obk pause` and `obk retire`
+  since issue #158; changes are committed (PRD 6.10); harness is per session
+  on the card.
 - Removed from the pstack credit: "since the last time" and "accepted,
   rejected, parked", which are not in this skill.

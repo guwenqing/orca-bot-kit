@@ -97,7 +97,9 @@ to pass on. See [LICENSES.md](LICENSES.md).
 - What the command line does and does not do, checked against `obk --help`:
   `obk skills fetch` was missing; a charter, settings or list change is an
   edit plus `obk rules build` or `obk skills build`; pausing or retiring has
-  no command. Each management action is committed (PRD 6.10).
+  no command. Each management action is committed (PRD 6.10). Issue #158 later
+  gave changing, pausing and retiring their commands, and the hand edit is
+  left for the special case, said so.
 - A change of model, effort or approval reaches a session only by `obk
   restart`, on the user's word, and a whole-fleet restart is done from the ops
   tab (PRD 6.5).

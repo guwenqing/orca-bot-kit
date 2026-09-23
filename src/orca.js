@@ -156,6 +156,13 @@ export function asFolderProject(setupId, title) {
 }
 
 /**
+ * Take a bot's Orca project away: the setup, the project and the repo record,
+ * in one call (tech notes, section 1). Only after its tabs are closed: a
+ * project taken away first leaves tabs no command line can reach.
+ */
+export const deleteProject = (setupId) => orca(['project', 'setup-delete', '--setup', setupId]);
+
+/**
  * The live tabs of the Orca project at `home`, each under its own tab id.
  *
  * The listing gives a tab whose pane the window has not loaded as orphaned,

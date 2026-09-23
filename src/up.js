@@ -41,15 +41,29 @@ const SECOND_LOOK_MS = 2000;
  * back rather than the fleet.
  */
 export async function bringUp(bots, { bot: onlyBot, session: onlySession } = {}) {
-  const names = botsNamed(bots, onlyBot);
+  const named = botsNamed(bots, onlyBot);
   if (onlySession !== undefined && onlyBot === undefined) {
     throw new Error('--session needs --bot: say which bot the session belongs to.');
   }
 
+  // A paused bot is left closed, rules, skills, tabs and all, and said to be:
+  // it was paused on purpose, and `obk unpause` is what brings it back.
+  const paused = [];
+  const names = named.filter((name) => {
+    if (readBot(botDir(bots, name), name).paused !== true) return true;
+    paused.push({ bot: name });
+    return false;
+  });
+
   const { running, rules, skills } = prepareBots(bots, names, onlySession);
 
   const report = [];
-  for (const { bot, home } of running) report.push(...await bringUpBot(bots, home, bot, onlySession));
+  for (const { bot, home } of running) {
+    for (const session of sessionsOf(bot, onlySession)) {
+      if (session.paused === true) paused.push({ bot: bot.name, session: session.name });
+    }
+    report.push(...await bringUpBot(bots, home, bot, onlySession));
+  }
 
   // A bot whose rules would not build is reported here rather than in the
   // preparation, because "its sessions were not started" is this command's
@@ -63,6 +77,7 @@ export async function bringUp(bots, { bot: onlyBot, session: onlySession } = {})
       trouble: `${entry.trouble} Its sessions were not started: a bot comes up with its rules or not at all.`,
     })),
     skills,
+    paused,
   };
 }
 
@@ -123,7 +138,7 @@ export function prepareBots(bots, names, onlySession) {
   // opened anywhere. Only the harnesses a bot actually runs on; a bot with no
   // sessions gets none.
   for (const { bot, home } of running) {
-    for (const harness of new Set(sessionsOf(bot, onlySession).map((session) => harnessOf(session, bot.harness)))) {
+    for (const harness of new Set(awake(sessionsOf(bot, onlySession)).map((session) => harnessOf(session, bot.harness)))) {
       installHook(home, harness, { bots, bot: bot.name });
     }
   }
@@ -150,11 +165,18 @@ export function botsNamed(bots, onlyBot) {
 }
 
 function refuseWhatCannotStart(bot, home, onlySession) {
-  for (const session of sessionsOf(bot, onlySession)) {
+  for (const session of awake(sessionsOf(bot, onlySession))) {
     const trouble = sessionTrouble(session, harnessOf(session, bot.harness), home);
     if (trouble !== undefined) throw new Error(`${bot.name}: ${trouble}`);
   }
 }
+
+/**
+ * The sessions that are not paused. A paused session is left out of a run
+ * altogether, so what it is set to asks nothing of the ones that will start;
+ * it is judged again when it is unpaused.
+ */
+const awake = (sessions) => sessions.filter((session) => session.paused !== true);
 
 /** The sessions a run is bringing up: all of the bot's, or the one it named. */
 export function sessionsOf(bot, onlySession) {
@@ -170,7 +192,7 @@ export function sessionsOf(bot, onlySession) {
 async function bringUpBot(bots, home, bot, onlySession) {
   const name = bot.name;
   const title = displayName(name);
-  const sessions = sessionsOf(bot, onlySession);
+  const sessions = awake(sessionsOf(bot, onlySession));
 
   // Orca is asked first and the book is written after: nothing that takes time
   // happens while the book is held, because a session's own hook may be writing

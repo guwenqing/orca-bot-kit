@@ -89,8 +89,8 @@ miss it.
 
 Nothing is retired or deleted because you concluded it. Stopping a bot and
 retiring one are the two that cannot be quietly undone: propose them, give
-the evidence, and wait for a yes. The kit has no command for either, so on a
-yes they are done by hand. Where a bot runs to a schedule, stopping the bot
+the evidence, and wait for a yes. On a yes, `obk pause` stops a bot and
+`obk retire` retires one. Where a bot runs to a schedule, stopping the bot
 means stopping that too, or it wakes up to a bot that is not there.
 
 ## Try the cheaper things before adding anything

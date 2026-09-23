@@ -99,6 +99,34 @@ export function addSkill(bots, bot, ref) {
 }
 
 /**
+ * Take one skill off a bot's list: `addSkill` the other way round, and apart
+ * from linking for the same reason. Returns `{ bot, home, skill, state }`, where
+ * the state is `removed`, or `absent` for a skill the list does not name.
+ */
+export function removeSkill(bots, bot, ref) {
+  const known = botNames(bots);
+  const home = botDir(bots, bot);
+  const file = path.join(home, BOT_YAML);
+  if (!known.includes(bot)) {
+    throw new Error(`there is no bot called ${bot} in ${bots}: ${file} is not there.`);
+  }
+
+  const index = listIn(file, 'skills').indexOf(ref);
+  if (index === -1) return { bot, home, skill: ref, state: 'absent' };
+
+  const was = readFileSync(file, 'utf8');
+  const doc = parseDocument(was);
+  doc.deleteIn(['skills', index]);
+
+  const text = doc.toString(YAML_OUT);
+  if (!changesExactly(was, text, (had) => ({ ...had, skills: had.skills.filter((one, at) => at !== index) }))) {
+    throw new Error(`${file} cannot have a skill taken off it without changing something else in it, so nothing was written. Take ${ref} off its skills list by hand.`);
+  }
+  writeFileSync(file, text);
+  return { bot, home, skill: ref, state: 'removed' };
+}
+
+/**
  * Give one bot the skills its lists name. Returns what there is to report:
  * `{ bot, skills, removed }` for a bot whose links are in place, and
  * `{ bot, skills, trouble }` for one whose list the kit could not follow.
@@ -207,6 +235,20 @@ export function linkSkills(bots, home, bot) {
       trouble: `${clash.map((skill) => skill.name).join(', ')}: the lists name ${clash.length === 1 ? 'this skill' : 'these skills'}, and what is in the bot's skills directories under ${clash.length === 1 ? 'that name' : 'those names'} is not the kit's to replace. Move yours aside if you want the listed one, or take the name out of the list.`,
     }),
   };
+}
+
+/**
+ * Take back every skill link the kit made in this bot, and its record of them.
+ * What the user put there is theirs and stays. Returns the names taken back.
+ */
+export function unlinkSkills(home) {
+  const record = readRecord(home);
+  const removed = [];
+  for (const harness of Object.keys(SKILL_DIRS)) {
+    removed.push(...link(path.join(home, SKILL_DIRS[harness]), [], record[harness] ?? {}).removed);
+  }
+  writeRecord(home, {});
+  return [...new Set(removed)].sort();
 }
 
 /**

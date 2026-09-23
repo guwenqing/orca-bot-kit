@@ -302,6 +302,21 @@ if (command === 'project setup-update') {
   });
 }
 
+// Removes the setup, its project and its repo record in one call (tech notes,
+// section 1). What happens to tabs still open in it is left as it is here: they
+// stay in the fake's world, which is what makes a delete that came before the
+// closes show up in a test. The shape of the answer was not recorded when the
+// call was measured, so this one is the fake's own.
+if (command === 'project setup-delete') {
+  const wanted = flag('--setup');
+  const setup = (state.setups ?? []).find((entry) => entry.id === wanted);
+  if (!setup) fail('setup_not_found', `no setup with id ${wanted}`);
+
+  state.setups = state.setups.filter((entry) => entry !== setup);
+  save();
+  ok({ deleted: { setupId: setup.id, projectId: setup.projectId, repoId: setup.repoId, path: setup.path } });
+}
+
 /**
  * What Orca reports about a tab. What was typed into it is ours, and stays
  * ours, and so is how many more listings a closed tab still shows up in.

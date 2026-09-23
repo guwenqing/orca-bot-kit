@@ -44,7 +44,16 @@ export async function restartSessions(bots, { bot: name, session: onlySession } 
   // given before Orca is asked for anything.
   botsNamed(bots, name);
   const home = realpathSync(botDir(bots, name));
-  const sessions = sessionsOf(readBot(home, name), onlySession);
+  const known = readBot(home, name);
+  const sessions = sessionsOf(known, onlySession);
+  // A paused bot or session has no tab to close and is not to be opened, so
+  // there is nothing here to restart.
+  if (known.paused === true) {
+    throw new Error(`${name} is paused, so there is nothing of it to restart and nothing was closed. Bring it back with obk unpause --bots ${bots} --bot ${name}.`);
+  }
+  if (onlySession !== undefined && sessions[0].paused === true) {
+    throw new Error(`${name} ${onlySession} is paused, so there is nothing of it to restart and nothing was closed. Bring it back with obk unpause --bots ${bots} --bot ${name} --session ${onlySession}.`);
+  }
 
   // And the same preparations, made now rather than left to `up`, which makes
   // them after the tabs would already be gone. A session the kit could not
@@ -55,6 +64,19 @@ export async function restartSessions(bots, { bot: name, session: onlySession } 
     throw new Error(`${name} would not come up again as it is, so nothing was closed. ${prepared.rules[0].trouble}`);
   }
 
+  const going = tabsToClose(bots, name, home, sessions.filter((session) => session.paused !== true));
+  const closed = await closeTabs(home, going, bots, name);
+  return { closed, ...(await bringUp(bots, { bot: name, session: onlySession })) };
+}
+
+/**
+ * The live tabs of these sessions, as `{ name, tab }`, once every one of them
+ * has been judged safe to close: a live tab whose conversation the book cannot
+ * name refuses the lot, before anything is touched. With `keepless`, a tab is
+ * closed whatever the book knows, for a caller that is ending the session on
+ * purpose.
+ */
+export function tabsToClose(bots, name, home, sessions, { keepless = false } = {}) {
   const book = readBook(home);
 
   // Orca is asked what the project holds only when it has one: a folder Orca
@@ -73,14 +95,21 @@ export async function restartSessions(bots, { bot: name, session: onlySession } 
     // Nothing of this session's is open: there is nothing to close, and `up`
     // brings it back the way it brings back a tab the user closed themselves.
     if (tab === undefined) continue;
-    if (typeof was.session === 'string') going.push({ name: session.name, tab });
+    if (keepless || typeof was.session === 'string') going.push({ name: session.name, tab });
     else refusals.push(cannotComeBack(bots, name, session.name, was));
   }
 
   // Every session is judged before one tab is closed: a fleet of two where one
   // cannot come back is not a fleet to close the other half of.
   if (refusals.length > 0) throw new Error(refusals.join('\n'));
+  return going;
+}
 
+/**
+ * Close the tabs `tabsToClose` gave, one at a time by their own handles, and
+ * wait until Orca's listing agrees they are gone. Returns one entry per tab.
+ */
+export async function closeTabs(home, going, bots, name) {
   const closed = [];
   for (const { name: session, tab } of going) {
     try {
@@ -95,7 +124,7 @@ export async function restartSessions(bots, { bot: name, session: onlySession } 
   }
 
   await gone(home, closed, bots, name);
-  return { closed, ...(await bringUp(bots, { bot: name, session: onlySession })) };
+  return closed;
 }
 
 /** How long Orca is given to stop listing a tab it has closed, and how often it is asked. */

@@ -32,7 +32,7 @@
 import { readFileSync, realpathSync } from 'node:fs';
 
 import { botDir, botNames, readBot } from './bot.js';
-import { readBook } from './book.js';
+import { readBook, sessionIdsIn } from './book.js';
 import { transcriptsIn } from './conversations.js';
 import { harnessOf } from './launch.js';
 
@@ -84,8 +84,7 @@ function forBot(bots, name, onlySession, from) {
     }
   }
 
-  const claimed = new Set();
-  for (const entry of Object.values(book.sessions)) for (const id of idsIn(entry)) claimed.add(id);
+  const claimed = sessionIdsIn(book);
 
   const sessions = bot.sessions
     .filter((session) => onlySession === undefined || session.name === onlySession)

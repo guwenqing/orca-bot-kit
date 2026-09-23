@@ -11,18 +11,20 @@ import { readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 
-import { addSession, createBot, readBot, SESSION_FIELDS } from './bot.js';
+import { addSession, changeBot, changeSession, createBot, readBot, SESSION_FIELDS } from './bot.js';
 import { grooming } from './groom.js';
 import { checkHealth, orcaSettingFindings } from './health.js';
 import { initBots } from './init.js';
 import { APPROVALS, HARNESSES, shellWord } from './launch.js';
 import { checkMail, lookUp, sendMessage } from './message.js';
 import { orcaCli, orcaTrouble } from './orca.js';
+import { pauseSessions, unpauseSessions } from './pause.js';
 import { recordSession, SHELL_ENV, TAB_ENV } from './record.js';
 import { restartSessions } from './restart.js';
+import { retireBot, retireSession } from './retire.js';
 import { readRoster } from './roster.js';
 import { buildAgents, buildRules, CODEX_CAP } from './rules.js';
-import { addSkill, buildSkills, linkSkills } from './skills.js';
+import { addSkill, buildSkills, linkSkills, removeSkill } from './skills.js';
 import { addSource, fetchSources } from './sources.js';
 import { readUsage } from './usage.js';
 import { BOT_FATHER, bringUp } from './up.js';
@@ -51,6 +53,36 @@ Usage:
                             given glued to its flag, so its dashes are not read
                             as ours: --prompt='- a bullet', and
                             --extra-arg=--search, once per extra argument.
+  obk bot change --bots <path> --bot <bot> --charter <text>
+                            Give a bot a new charter and rebuild its AGENTS.md.
+                            A running session reads it when it next starts.
+  obk session change --bots <path> --bot <bot> --session <session>
+                  [--model <m>] [--effort <e>] [--context <c>]
+                  [--approval ${APPROVALS.join('|')}]
+                  [--prompt <text> | --prompt-file <path>] [--work-dir <path>]
+                  [--extra-arg=<arg>]
+                            Change a session's settings. What you leave out
+                            stays as it is; a setting given empty, --model=,
+                            goes back to the harness's own default. A running
+                            session takes the change when it next starts. A
+                            session keeps its harness: to move it, retire it
+                            and add another.
+  obk pause --bots <path> --bot <bot> [--session <name>]
+                            Stop a bot, or one of its sessions, for now: close
+                            its tabs and have obk up leave it closed. The book
+                            keeps its conversations. Like restart, it closes
+                            only the tabs your book names, and none whose
+                            conversation the book cannot name.
+  obk unpause --bots <path> --bot <bot> [--session <name>]
+                            Take the pause off and bring it up again, each
+                            session with the conversation it was having.
+  obk retire --bots <path> --bot <bot> [--session <name>]
+                            End a session: close its tab and take it off the
+                            bot, keeping its conversations in the book. Or end
+                            a bot: close its tabs, remove its Orca project and
+                            move its folder to retired/. It will not retire a
+                            bot whose Orca project holds a tab your book does
+                            not name.
   obk rules build --bots <path> [--bot <bot>]
                             Build every bot's AGENTS.md from its charter and
                             the rule units it carries, or just the one you
@@ -61,6 +93,9 @@ Usage:
                             Put one skill on a bot's list. It writes the list
                             and nothing else; obk skills build is what links
                             it. A skill already listed is left as it is.
+  obk skills remove --bots <path> --bot <bot> --skill <ref>
+                            Take one skill off a bot's list. obk skills build
+                            is what takes its link away.
   obk skills build --bots <path> [--bot <bot>]
                             Link every bot's skills into both harnesses, or
                             just the one you name, from the kit, your own
@@ -155,18 +190,24 @@ const COMMANDS = {
   init: ['bots', 'harness'],
   up: ['bots'],
   restart: ['bots', 'bot'],
+  pause: ['bots', 'bot'],
+  unpause: ['bots', 'bot'],
+  retire: ['bots', 'bot'],
   health: ['bots'],
   groom: ['bots'],
   roster: ['bots'],
   usage: ['bots'],
   'bot create': ['bots', 'name', 'harness'],
+  'bot change': ['bots', 'bot'],
   'rules build': ['bots'],
   'skills add': ['bots', 'bot', 'skill'],
+  'skills remove': ['bots', 'bot', 'skill'],
   'skills build': ['bots'],
   'skills fetch': ['bots'],
   'skills update': ['bots'],
   'source add': ['bots', 'name', 'repo', 'ref'],
   'session add': ['bots', 'bot', 'name'],
+  'session change': ['bots', 'bot', 'session'],
   'message to': ['bots', 'to'],
   'message send': ['bots', 'to', 'subject'],
   'message check': ['bots'],
@@ -356,19 +397,19 @@ const commands = {
     // exactly as it was and the caller can simply run the command again.
     refuseWhenOrcaIsDown();
     const seeded = initBots(bots, values.harness);
-    const { tabs, rules, skills } = await bringUp(seeded.bots, { bot: BOT_FATHER });
+    const { tabs, rules, skills, paused } = await bringUp(seeded.bots, { bot: BOT_FATHER });
     // Setup is the other place the PRD asks for Orca's own launch arguments to
     // be looked at (6.5), and the one where the user is still standing in front
     // of the fleet they are making. Only that one check: a folder init has just
     // made has nothing else to say about itself.
-    const answer = { bots: seeded.bots, created: seeded.created, completed: seeded.completed, rules, skills, tabs, found: orcaSettingFindings() };
+    const answer = { bots: seeded.bots, created: seeded.created, completed: seeded.completed, rules, skills, tabs, paused, found: orcaSettingFindings() };
     return { answer, lines: tabLines(answer, `Bot Father is up in Orca. Your bots folder: ${seeded.bots}`) };
   },
 
   async up(bots, values) {
     refuseWhenOrcaIsDown();
-    const { tabs, rules, skills } = await bringUp(bots, { bot: values.bot, session: values.session });
-    const answer = { bots, created: [], completed: [], rules, skills, tabs };
+    const { tabs, rules, skills, paused } = await bringUp(bots, { bot: values.bot, session: values.session });
+    const answer = { bots, created: [], completed: [], rules, skills, tabs, paused };
     const up = [...new Set(tabs.map((tab) => tab.bot))];
     const summary = up.length === 0
       ? `Nothing was brought up in Orca. Your bots folder: ${bots}`
@@ -395,14 +436,66 @@ const commands = {
 
   async restart(bots, values) {
     refuseWhenOrcaIsDown();
-    const { closed, tabs, rules, skills } = await restartSessions(bots, { bot: values.bot, session: values.session });
-    const answer = { bots, created: [], completed: [], rules, skills, tabs, closed };
+    const { closed, tabs, rules, skills, paused } = await restartSessions(bots, { bot: values.bot, session: values.session });
+    const answer = { bots, created: [], completed: [], rules, skills, tabs, paused, closed };
     const what = values.session === undefined ? values.bot : `${values.bot} ${values.session}`;
     return {
       answer,
       lines: [
         ...closed.map((tab) => `closed     ${tab.bot} ${tab.name}  tab ${tab.tabId}  terminal ${tab.terminal}`),
         ...tabLines(answer, `Restarted in Orca: ${what}. Your bots folder: ${bots}`),
+      ],
+    };
+  },
+
+  async pause(bots, values) {
+    refuseWhenOrcaIsDown();
+    const paused = await pauseSessions(bots, { bot: values.bot, session: values.session });
+    const what = values.session === undefined ? values.bot : `${values.bot} ${values.session}`;
+    const back = values.session === undefined ? '' : ` --session ${values.session}`;
+    return {
+      answer: { bots, ...paused },
+      lines: [
+        ...paused.closed.map((tab) => `closed     ${tab.bot} ${tab.name}  tab ${tab.tabId}  terminal ${tab.terminal}`),
+        `${paused.changed ? 'paused' : 'there'.padEnd(6)}     ${what}${paused.changed ? '' : ' was paused already'}`,
+        `obk up leaves it closed, and the book keeps its conversations. Bring it back:  obk unpause --bots ${bots} --bot ${values.bot}${back}`,
+      ],
+    };
+  },
+
+  async unpause(bots, values) {
+    refuseWhenOrcaIsDown();
+    const { bot, session, changed, ...up } = await unpauseSessions(bots, { bot: values.bot, session: values.session });
+    const what = session === undefined ? bot : `${bot} ${session}`;
+    const answer = { bots, bot, session, changed, created: [], completed: [], ...up };
+    return {
+      answer,
+      lines: tabLines(answer, `${changed ? 'Unpaused' : 'Not paused, so brought up as it is'}: ${what}. Your bots folder: ${bots}`),
+    };
+  },
+
+  async retire(bots, values) {
+    refuseWhenOrcaIsDown();
+    const closedLines = (closed) => closed.map((tab) => `closed     ${tab.bot} ${tab.name}  tab ${tab.tabId}  terminal ${tab.terminal}`);
+
+    if (values.session !== undefined) {
+      const retired = await retireSession(bots, { bot: values.bot, session: values.session });
+      return {
+        answer: { bots, ...retired },
+        lines: [
+          ...closedLines(retired.closed),
+          `retired    ${retired.bot} ${retired.session}: off ${path.join('bots', retired.bot, 'bot.yaml')}, and its conversations kept in the book under retired`,
+        ],
+      };
+    }
+
+    const retired = await retireBot(bots, { bot: values.bot });
+    return {
+      answer: { bots, ...retired },
+      lines: [
+        ...closedLines(retired.closed),
+        ...(retired.project === undefined ? [] : [`removed    Orca project ${retired.project}`]),
+        `retired    ${retired.bot}: moved to ${path.relative(bots, retired.moved)}, with its book, charter and memory`,
       ],
     };
   },
@@ -434,6 +527,28 @@ const commands = {
     };
   },
 
+  'bot change'(bots, values) {
+    if (values.harness !== undefined) {
+      throw new Error(`bot change does not change a bot's harness: its sessions' conversations belong to the harness they ran on. To move to ${values.harness}, give it a session on ${values.harness} with obk session add, or retire the bot with obk retire and create a new one.`);
+    }
+    const changed = changeBot(bots, values.bot, { charter: values.charter });
+    // Rebuilt at once, as bot create builds it, so the charter a session reads
+    // is the one the bot now has.
+    const rules = [buildAgents(bots, changed.home, readBot(changed.home))];
+    const trouble = rules[0].trouble !== undefined;
+    return {
+      answer: { bots, bot: changed.bot, home: changed.home, charter: changed.charter, rules },
+      lines: [
+        `changed    the charter in ${path.join('bots', changed.bot, 'bot.yaml')}`,
+        ...rulesLines(rules, bots),
+        trouble
+          ? `${changed.bot}'s charter is written, and its rules are not. Settle what the line above says, then:  obk rules build --bots ${bots} --bot ${changed.bot}`
+          : `${changed.bot}'s charter is changed. A session that is running read the old one when it started; it reads this one when it next starts.`,
+      ],
+      code: trouble ? 1 : 0,
+    };
+  },
+
   'skills build'(bots, values) {
     const skills = buildSkills(bots, { bot: values.bot });
     const trouble = skills.filter((entry) => entry.trouble !== undefined);
@@ -458,6 +573,19 @@ const commands = {
           ? `added      ${added.skill} to ${path.join('bots', added.bot, 'bot.yaml')}`
           : `there      ${added.skill} is on ${added.bot}'s list already, and nothing was written`,
         `Link it:   obk skills build --bots ${bots} --bot ${added.bot}`,
+      ],
+    };
+  },
+
+  'skills remove'(bots, values) {
+    const removed = removeSkill(bots, values.bot, values.skill);
+    return {
+      answer: { bots, bot: removed.bot, home: removed.home, skill: removed.skill, state: removed.state },
+      lines: [
+        removed.state === 'removed'
+          ? `removed    ${removed.skill} from ${path.join('bots', removed.bot, 'bot.yaml')}`
+          : `absent     ${removed.skill} is not on ${removed.bot}'s list, and nothing was written`,
+        `Unlink it: obk skills build --bots ${bots} --bot ${removed.bot}`,
       ],
     };
   },
@@ -617,6 +745,25 @@ const commands = {
           .filter(([key]) => key !== 'name')
           .map(([key, value]) => `           ${key}  ${oneLine(value)}`),
         `Bring it up:  obk up --bots ${bots} --bot ${added.bot}`,
+      ],
+    };
+  },
+
+  'session change'(bots, values) {
+    if (values.harness !== undefined) {
+      throw new Error(`session change does not change a session's harness: its conversations belong to the harness they ran on. To move it, retire it with obk retire and add one on ${values.harness} with obk session add.`);
+    }
+    const { name, ...settings } = settingsOf(values);
+    const changed = changeSession(bots, values.bot, values.session, settings);
+    const restart = `obk restart --bots ${bots} --bot ${changed.bot} --session ${values.session}`;
+    return {
+      answer: { bots, bot: changed.bot, home: changed.home, session: changed.session, restart },
+      lines: [
+        `changed    session ${values.session} in ${path.join('bots', changed.bot, 'bot.yaml')}`,
+        ...Object.entries(changed.session)
+          .filter(([key]) => key !== 'name')
+          .map(([key, value]) => `           ${key}  ${oneLine(value)}`),
+        `A running session takes this when it next starts:  ${restart}`,
       ],
     };
   },
@@ -809,7 +956,7 @@ function rosterLines(roster, bots) {
   const lines = [];
 
   for (const entry of roster) {
-    lines.push(`${'bot'.padEnd(9)}  ${entry.bot}${entry.harness === undefined ? '' : `  ${entry.harness}`}`);
+    lines.push(`${'bot'.padEnd(9)}  ${entry.bot}${entry.harness === undefined ? '' : `  ${entry.harness}`}${entry.paused === true ? '  paused' : ''}`);
     if (entry.charter !== undefined) {
       lines.push(...String(entry.charter).trimEnd().split('\n').map((line) => `             ${line}`.trimEnd()));
     }
@@ -840,7 +987,7 @@ function sessionLines(session) {
   const book = session.book;
 
   return [
-    `${'session'.padEnd(9)}  ${session.name}${session.harness === undefined ? '' : `  ${session.harness}`}${set.length === 0 ? '' : `  ${set.join('  ')}`}`,
+    `${'session'.padEnd(9)}  ${session.name}${session.harness === undefined ? '' : `  ${session.harness}`}${set.length === 0 ? '' : `  ${set.join('  ')}`}${session.paused === true ? '  paused' : ''}`,
     ...(book.tab === undefined
       ? []
       : [`             tab ${book.tab}${book.launched === undefined ? '' : `  launched ${book.launched}`}`]),
@@ -901,7 +1048,7 @@ function skillsLines(skills) {
 const foundLines = (found) =>
   found.flatMap((one) => [`${one.kind.padEnd(9)}  ${one.where}`, `             ${one.says}`]);
 
-function tabLines({ bots, created, completed, rules, skills, tabs, found = [] }, summary) {
+function tabLines({ bots, created, completed, rules, skills, tabs, paused = [], found = [] }, summary) {
   const lines = [
     ...created.map((entry) => `created    ${entry}`),
     ...completed.map((entry) => `completed  ${entry}`),
@@ -912,6 +1059,11 @@ function tabLines({ bots, created, completed, rules, skills, tabs, found = [] },
   for (const tab of tabs) {
     lines.push(`${tab.created ? 'opened' : 'found '}     ${tab.title}  tab ${tab.tabId}  terminal ${tab.terminal}`);
     lines.push(...harnessLines(tab, bots));
+  }
+  for (const one of paused) {
+    const what = one.session === undefined ? one.bot : `${one.bot} ${one.session}`;
+    const back = one.session === undefined ? '' : ` --session ${one.session}`;
+    lines.push(`${'paused'.padEnd(9)}  ${what}  left closed. Bring it back:  obk unpause --bots ${bots} --bot ${one.bot}${back}`);
   }
 
   // Last before the summary, because what a check found is about the setup the
