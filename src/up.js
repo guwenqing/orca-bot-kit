@@ -7,7 +7,7 @@
 import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
-import { forgetClaimed, readBook, sessionIdsIn, tabIdsIn, updateBook, withUnclaimed } from './book.js';
+import { asBooked, forgetClaimed, readBook, sessionIdsIn, tabIdsIn, updateBook, withUnclaimed } from './book.js';
 import { botDir, botNames, displayName, readBot } from './bot.js';
 import { conversationsIn } from './conversations.js';
 import { installHook } from './hooks.js';
@@ -178,7 +178,7 @@ async function bringUpBot(bots, home, bot, onlySession) {
   const orca = orcaProject(home, title);
   await updateBook(home, (book) => { book.orca = orca; });
 
-  const live = new Map(tabs(home).map((tab) => [tab.tabId, tab]));
+  const live = new Map(asBooked(tabs(home), readBook(home)).map((tab) => [tab.tabId, tab]));
   const report = [];
   for (const session of sessions) report.push(await bringUpSession(bots, home, live, session, bot, title));
 
@@ -206,6 +206,15 @@ async function bringUpSession(bots, home, live, session, bot, title) {
   const tabTitle = `${title} ${session.name}`;
 
   if (known) {
+    // A book written before the kit kept a tab's pty learns it here, from a
+    // listing that still shows the tab under its own id, so the tab is known
+    // again once Orca lists it as orphaned.
+    if (known.orphaned !== true && typeof known.ptyId === 'string' && was.pty !== known.ptyId) {
+      await updateBook(home, (current) => {
+        current.sessions[session.name] = { ...current.sessions[session.name], pty: known.ptyId };
+      });
+    }
+
     // A mailbox it can be written to, and no name. The name is the one thing
     // the kit cannot give a session that is already running: `-n` goes on the
     // launch line, this session was launched without one, and nothing renames a
@@ -275,7 +284,7 @@ async function bringUpSession(bots, home, live, session, bot, title) {
     // for a person or Bot Father to settle — added to whatever was already noted,
     // because this run's scan cannot see what an earlier one found. The kit never
     // settles it itself.
-    const entry = { ...current.sessions[session.name], tab: made.tabId, launched };
+    const entry = { ...current.sessions[session.name], tab: made.tabId, pty: made.ptyId, launched };
     current.sessions[session.name] = withUnclaimed(entry, which.unclaimed ?? []);
     forgetClaimed(current);
   });

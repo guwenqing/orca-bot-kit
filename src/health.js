@@ -21,7 +21,7 @@
 import { existsSync, readdirSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 
-import { bookFile, readBook, tabIdsIn } from './book.js';
+import { asBooked, bookFile, readBook, tabIdsIn } from './book.js';
 import { botDir, botNames, botsDir, readBot } from './bot.js';
 import { hookTrouble } from './hooks.js';
 import { bypassFlags, harnessOf, HARNESSES, sessionTrouble } from './launch.js';
@@ -228,7 +228,7 @@ function inOrca(home, bot, setups) {
   // Orca refuses to list the tabs of a folder it has no project for, rather
   // than answering with none (tech notes, section 1), so it is asked only when
   // there is one.
-  const live = project === undefined ? [] : tabs(project.path);
+  const live = project === undefined ? [] : asBooked(tabs(project.path), book);
   const there = new Set(live.map((tab) => tab.tabId));
 
   const found = [];

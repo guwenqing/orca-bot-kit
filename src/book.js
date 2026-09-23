@@ -16,7 +16,8 @@ const HEADER = `# What Orca calls this bot on this machine, and where each of it
 # lives. \`obk up\` writes this file; it is committed with the rest of the repo.
 #
 # A session is its Orca tab id. Titles are set, never read, so renaming a tab
-# in Orca changes nothing here.
+# in Orca changes nothing here. \`pty\` is the terminal Orca runs that tab in,
+# which is how the tab is still known while Orca lists it as orphaned.
 #
 # Each session also carries the harness session it runs as, and the ones it ran
 # as before it: a clear makes a new one, and the old ones are kept.
@@ -220,6 +221,21 @@ export function sessionIdsIn(book) {
     ...(Array.isArray(entry?.history) ? entry.history.map((old) => old?.session) : []),
   ]);
   return new Set(ids.filter((id) => typeof id === 'string'));
+}
+
+/**
+ * Orca's listing of a bot's tabs, read against the book: a tab Orca lists as
+ * orphaned, under `pty:<ptyId>` rather than its own id, is given back the tab
+ * id the book holds for that pty. Orca does that to a tab whose pane the window
+ * has not loaded, and the tab is still open and still the session's (tech
+ * notes, section 1). The tab id stays the key (PRD 6.2); the pty is only how
+ * the tab is recognised while Orca lists it the other way.
+ */
+export function asBooked(live, book) {
+  const byPty = new Map(Object.values(book.sessions)
+    .filter((entry) => typeof entry?.pty === 'string' && typeof entry?.tab === 'string')
+    .map((entry) => [entry.pty, entry.tab]));
+  return live.map((tab) => (tab.orphaned === true && byPty.has(tab.ptyId) ? { ...tab, tabId: byPty.get(tab.ptyId) } : tab));
 }
 
 /** Every tab id the book holds. What is not in here is not the kit's session. */
