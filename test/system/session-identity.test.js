@@ -462,10 +462,22 @@ const BOTS = [
   },
 ];
 
+/**
+ * What each bot is told to be. It keeps the bot inert — nothing is run, read or
+ * used unless a later message asks for it — and the "unless" is the point.
+ *
+ * The first version forbade tools outright, and the last check in the first
+ * scenario then could not pass on Codex: a skill is used by reading its
+ * SKILL.md, the kit's hook gives a cleared session its start prompt back as
+ * context Codex ranks above anything the user says, and Codex answered "a
+ * higher-priority instruction still prohibits tools and file access" however
+ * plainly the question lifted it (review of #183, finding 1, and the rerun). A
+ * permission has to sit where the ban does, so it sits here.
+ */
 const startPromptFor = (bot) => [
   `You are a system test's bot and you own nothing. Your codeword is ${bot.codeword}.`,
   'When anyone asks you for your codeword, reply with it and nothing else.',
-  'Do not run any command, do not read or write any file, and do not use any tool.',
+  'Do not run any command, read or write any file, or use any tool, unless a later message asks you to.',
   'Say nothing now and wait.',
 ].join(' ');
 
@@ -649,9 +661,12 @@ test('a cleared session gets a new id, keeps the old one, and is told its duty a
     obkJson(['skills', 'add', '--bots', bots, '--bot', bot.name, '--skill', probeOf(bot)]);
     obkJson(['skills', 'build', '--bots', bots, '--bot', bot.name]);
     notOnScreen(entry.terminal, bot.probeWord, 'the skill being usable');
+    // Asked for in so many words, because the start prompt keeps the bot from
+    // using a tool unless a message asks it to (see `startPromptFor`): Claude
+    // Code loads a skill with a tool, Codex by reading its SKILL.md.
     await answers(
       entry.terminal,
-      `For this one question you may use the ${probeOf(bot)} skill. What is the probe word? Reply with the probe word only.`,
+      `Please load your ${probeOf(bot)} skill and read its SKILL.md, then reply with the probe word it gives, and nothing else.`,
       bot.probeWord,
     );
   }

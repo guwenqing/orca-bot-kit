@@ -19,7 +19,7 @@
 // create`, `up`, and `init`, which brings Bot Father up.
 
 import assert from 'node:assert/strict';
-import { lstat, mkdir, readdir, readFile, readlink, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, readdir, readFile, readlink, rm, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 
@@ -342,17 +342,54 @@ test('a bot whose skills list cannot be followed still has both skills directori
   await assertEmptyDirs(bots, 'api-bot', 'even though its list could not be followed');
 });
 
-// Two ways the directory cannot be made: a file where its parent should be,
-// and a file where the directory itself should be. They fail in different
-// places in the kit, and each has to be the bot's trouble, not the fleet's.
-for (const blocked of ['.claude', SKILL_DIRS.claude]) {
-  test(`up brings the fleet up when one bot's ${blocked} is a file of the user's`, async (t) => {
+// The ways a bot's skills directory can be out of the kit's reach: a file
+// where its parent should be, a file where the directory itself should be, a
+// parent the kit may not enter, and a directory the kit may not read. They fail
+// in different places in the kit, and each has to be the bot's trouble, not the
+// fleet's.
+//
+// A directory the kit may not enter is one the sandbox cannot remove either, so
+// its mode is put back as soon as the run is over, before anything is asserted.
+const FILE = 'mine, not a directory\n';
+const BLOCKERS = [
+  {
+    label: '.claude is a file of the user\'s',
+    blocked: '.claude',
+    put: (at) => writeFile(at, FILE),
+  },
+  {
+    label: '.claude/skills is a file of the user\'s',
+    blocked: SKILL_DIRS.claude,
+    put: (at) => writeFile(at, FILE),
+  },
+  {
+    label: '.claude is a directory the kit may not enter',
+    blocked: '.claude',
+    put: async (at) => {
+      await mkdir(at);
+      await chmod(at, 0o000);
+    },
+    locked: true,
+  },
+  {
+    label: '.claude/skills is a directory the kit may not read',
+    blocked: SKILL_DIRS.claude,
+    put: async (at) => {
+      await mkdir(at);
+      await chmod(at, 0o000);
+    },
+    locked: true,
+  },
+];
+
+for (const { label, blocked, put, locked } of BLOCKERS) {
+  test(`up brings the fleet up when one bot's ${label}`, async (t) => {
     // Skills are what a bot is good at, not the boundary it works inside, so a
-    // skills directory the kit cannot make is that bot's skills trouble, reported
-    // the way a list it cannot follow is: in the bot's entry, with the run
-    // carrying on and ending as it would have. The bot in trouble runs on Codex,
-    // whose hooks live outside .claude, so it has nothing else in the way and
-    // comes up like a bot with a bad list does.
+    // skills directory the kit cannot make or read is that bot's skills trouble,
+    // reported the way a list it cannot follow is: in the bot's entry, with the
+    // run carrying on and ending as it would have. The bot in trouble runs on
+    // Codex, whose hooks live outside .claude, so it has nothing else in the way
+    // and comes up like a bot with a bad list does.
     const box = await createSandbox(t);
     const bots = await seeded(box);
     for (const [name, harness] of [['api-bot', 'codex'], ['web-bot', 'claude']]) {
@@ -367,9 +404,17 @@ for (const blocked of ['.claude', SKILL_DIRS.claude]) {
     const theirs = path.join(botHomeOf(bots, 'api-bot'), blocked);
     await rm(theirs, { recursive: true, force: true });
     await mkdir(path.dirname(theirs), { recursive: true });
-    await writeFile(theirs, 'mine, not a directory\n');
+    await put(theirs);
+    const before = await lstat(theirs);
 
-    const result = await box.run(['up', '--bots', 'bots', '--json']);
+    let result;
+    let after;
+    try {
+      result = await box.run(['up', '--bots', 'bots', '--json']);
+    } finally {
+      after = await lstat(theirs);
+      if (locked) await chmod(theirs, 0o755);
+    }
 
     assert.ok(!/^\s+at /m.test(result.stderr), `expected a report, got a crash:\n${result.stderr}`);
     assert.equal(result.code, 0, `a bot whose skills are in trouble does not change what up ends in: ${result.stderr}`);
@@ -389,6 +434,12 @@ for (const blocked of ['.claude', SKILL_DIRS.claude]) {
       ['Api Bot daily'],
       'and the bot itself comes up, as a bot with a list the kit cannot follow does',
     );
-    assert.equal(await readFile(theirs, 'utf8'), 'mine, not a directory\n', 'the user\'s file is never written over');
+    assert.equal(after.mode, before.mode, `the mode of the user's ${blocked} is theirs, and is left as it was`);
+    assert.equal(after.ino, before.ino, `and ${blocked} is the same one they had, not a new one in its place`);
+    if (locked) {
+      assert.deepEqual(await readdir(theirs), [], `nothing is written into the user's ${blocked}`);
+    } else {
+      assert.equal(await readFile(theirs, 'utf8'), FILE, 'the user\'s file is never written over');
+    }
   });
 }
