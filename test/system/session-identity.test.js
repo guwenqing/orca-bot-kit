@@ -13,11 +13,22 @@
 //      book is all there is (ADR 0002); `obk up` opens a new tab and resumes
 //      the harness session, and the conversation is still there.
 //
-// Both are proved by asking the session, because that is the only proof: a
-// book holding the right id says nothing about whether the harness agreed. So
-// each bot is given a word in its start prompt and a word in its conversation,
+// And, on the same two sessions so that no extra harness is started, two more
+// the PRD names (PRD 4.2 and 4.6, added for issue #157):
+//
+//   3. The session read its `AGENTS.md` where it started. A file on disk is not
+//      a file read, and nothing else checks it.
+//   4. A skill given to the bot while its session is running is one the session
+//      can use, without a restart.
+//
+// All of them are proved by asking the session, because that is the only
+// proof: a book holding the right id says nothing about whether the harness
+// agreed. So each bot is given a word in its start prompt, a word in its
+// conversation, a word in its charter and a word in a skill it is given late,
 // and afterwards it is asked for them. A model answering from something it was
-// never told is not a failure mode worth worrying about.
+// never told is not a failure mode worth worrying about. A model answering from
+// something already on its screen is, so the charter and skill words are
+// checked to be absent before they are asked for.
 //
 // The machine it runs on is someone's working machine, with their own tabs
 // open. So this test, like the two beside it:
@@ -94,7 +105,7 @@
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, readdir, readFile, realpath, rm, stat } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -436,6 +447,8 @@ const BOTS = [
     clears: '/clear',
     codeword: 'ZEBRA-7734',
     passphrase: 'ORANGE-991',
+    charterWord: 'QUARTZ-5061',
+    probeWord: 'LANTERN-3378',
   },
   {
     name: 'clear-codex',
@@ -444,6 +457,8 @@ const BOTS = [
     clears: '/new',
     codeword: 'WALRUS-2210',
     passphrase: 'INDIGO-448',
+    charterWord: 'BASALT-7142',
+    probeWord: 'COMPASS-6605',
   },
 ];
 
@@ -453,6 +468,55 @@ const startPromptFor = (bot) => [
   'Do not run any command, do not read or write any file, and do not use any tool.',
   'Say nothing now and wait.',
 ].join(' ');
+
+/**
+ * The bot's charter, which is its `AGENTS.md` and nowhere else: `bot create`
+ * builds it into that file, it is not on the launch line and not in the start
+ * prompt. So a session that can say the charter word read its instructions
+ * where it started (PRD 4.2), and nothing on its screen could have told it.
+ */
+const charterFor = (bot) => [
+  `${bot.display} exists for one system test run and owns nothing.`,
+  `Its charter word is ${bot.charterWord}; when asked for the charter word, reply with it and nothing else.`,
+].join(' ');
+
+/** The skill a bot is given while its session is running, one per bot. */
+const probeOf = (bot) => `${bot.name}-probe`;
+
+/**
+ * Write that skill into the bots folder's own skills shelf. The word is in the
+ * body only: a harness shows a skill's name and description when it lists
+ * one, and a word that could be read off that list would prove nothing about
+ * the skill being usable.
+ */
+async function writeProbe(bots, bot) {
+  const dir = path.join(bots, 'skills', probeOf(bot));
+  await mkdir(dir, { recursive: true });
+  await writeFile(path.join(dir, 'SKILL.md'), [
+    '---',
+    `name: ${probeOf(bot)}`,
+    'description: >-',
+    '  Holds the probe word for a system test. Use when you are asked for the',
+    '  probe word.',
+    '---',
+    '',
+    `The probe word is ${bot.probeWord}. When you are asked for the probe word, reply`,
+    'with it and nothing else.',
+    '',
+  ].join('\n'));
+}
+
+/**
+ * A word the session is about to be asked for must not be on its screen yet,
+ * or an answer that carries it proves nothing: the wait below would be
+ * satisfied by what was already there (review of #150, the echo shape).
+ */
+function notOnScreen(handle, word, where) {
+  assert.ok(
+    !screenOf(handle).includes(word),
+    `${word} is on the screen before anyone asked for it, so an answer would prove nothing about ${where}`,
+  );
+}
 
 test('a cleared session gets a new id, keeps the old one, and is told its duty again', async (t) => {
   const before = {
@@ -495,7 +559,7 @@ test('a cleared session gets a new id, keeps the old one, and is told its duty a
   for (const bot of BOTS) {
     obkJson([
       'bot', 'create', '--bots', bots, '--name', bot.name, '--harness', bot.harness,
-      '--charter', `${bot.display} exists for one system test run and owns nothing.`,
+      '--charter', charterFor(bot),
     ]);
     obkJson([
       'session', 'add', '--bots', bots, '--bot', bot.name, '--name', 'daily',
@@ -533,6 +597,16 @@ test('a cleared session gets a new id, keeps the old one, and is told its duty a
     // It knows its duty, because the launch line carried it.
     await answers(entry.terminal, 'What is your codeword? Reply with the codeword only.', bot.codeword);
 
+    // And it read its AGENTS.md where it started (PRD 4.2). The charter word is
+    // in that file and nowhere a screen could have shown it, which is what the
+    // check above cannot say: a file on disk is not a file read.
+    notOnScreen(entry.terminal, bot.charterWord, 'reading AGENTS.md');
+    await answers(
+      entry.terminal,
+      'What is the charter word in your own instructions? Reply with the charter word only.',
+      bot.charterWord,
+    );
+
     // 1. The clear, and then the question. On Codex the hook only fires when the
     // new conversation gets its first prompt, so asking is also what makes the
     // hook run; on Claude Code the hook has already run by then. Either way,
@@ -562,6 +636,24 @@ test('a cleared session gets a new id, keeps the old one, and is told its duty a
     assert.equal(typeof daily.history[0].ended, 'string', 'with the reason the harness gave for it ending');
     assert.notEqual(daily.history[0].ended.trim(), '');
     assert.ok(Number.isFinite(Date.parse(String(daily.history[0].at))), `and when, got: ${daily.history[0].at}`);
+
+    // 3. A skill given to the bot while this conversation is running is one it
+    // can use in it, without a restart (PRD 4.6). The conversation began at the
+    // clear above, before the skill existed, so an answer from it is a live
+    // pick-up and not a skill read at start. It is last on purpose: Codex's own
+    // documentation only promises that it "detects skill changes automatically"
+    // and says to restart when one does not appear, which nobody has checked
+    // live, and if it does need a restart that is a finding about Codex that
+    // must not hide the checks above.
+    await writeProbe(bots, bot);
+    obkJson(['skills', 'add', '--bots', bots, '--bot', bot.name, '--skill', probeOf(bot)]);
+    obkJson(['skills', 'build', '--bots', bots, '--bot', bot.name]);
+    notOnScreen(entry.terminal, bot.probeWord, 'the skill being usable');
+    await answers(
+      entry.terminal,
+      `For this one question you may use the ${probeOf(bot)} skill. What is the probe word? Reply with the probe word only.`,
+      bot.probeWord,
+    );
   }
 });
 

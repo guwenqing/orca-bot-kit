@@ -110,13 +110,48 @@ export function linkSkills(bots, home, bot) {
   const record = readRecord(home);
   const held = new Map();
 
+  // What each harness's directory holds now, for a report made before anything
+  // was linked. A directory that is not one holds nothing the kit can read.
+  const heldAsItIs = () => {
+    for (const [harness, inside] of Object.entries(SKILL_DIRS)) {
+      const dir = path.join(home, inside);
+      held.set(harness, isDirectory(dir) ? heldIn(dir, record[harness] ?? {}) : new Map());
+    }
+  };
+
+  // Every bot has both directories, skills or none, and before its lists are
+  // even read. Both harnesses notice a skill added while a session runs only in
+  // a skills directory that was there when the session started, and neither
+  // starts watching one made afterwards (tech notes, section 3, proved live on
+  // both). So a bot given its first skill mid-session could not use it without
+  // a restart, which is what PRD 4.6 says a skill never needs — and that holds
+  // for a bot whose list the kit cannot follow as much as for one with none,
+  // since fixing the list is exactly when its first skill arrives. An empty
+  // directory costs the user's repo nothing: git does not track one, and what
+  // goes in it is gitignored (#136).
+  //
+  // Something of the user's in the way is reported, never thrown and never
+  // moved. A skills problem does not hold a bot down, let alone the fleet
+  // (`prepareBots` in up.js), so one bot's folder must not stop `obk up`.
+  const blocked = [];
+  for (const inside of Object.values(SKILL_DIRS)) {
+    const dir = path.join(home, inside);
+    try {
+      mkdirSync(dir, { recursive: true });
+    } catch (error) {
+      blocked.push(`${dir} cannot be made, because something of yours is in the way (${error.code ?? error.message}). Every bot needs it, so that a skill given to it later reaches a session that is already running. Move what is there aside, then build again.`);
+    }
+  }
+  if (blocked.length > 0) {
+    heldAsItIs();
+    return { bot: bot.name, skills: heldBy(home, [], held), trouble: blocked.join(' ') };
+  }
+
   let wanted;
   try {
     wanted = skillsFor(bots, home, bot);
   } catch (error) {
-    for (const harness of Object.keys(SKILL_DIRS)) {
-      held.set(harness, heldIn(path.join(home, SKILL_DIRS[harness]), record[harness] ?? {}));
-    }
+    heldAsItIs();
     return { bot: bot.name, skills: heldBy(home, [], held), trouble: error.message };
   }
 
@@ -365,10 +400,7 @@ function follow(bots, ref, sources) {
  * than guessing from where a link points (PRD 6.7).
  */
 function link(dir, wanted, record) {
-  // A bot with no skills and no directory is given none: an empty one is a
-  // folder in the user's repo that says nothing.
-  if (wanted.length === 0 && !existsSync(dir)) return { removed: [], held: new Map() };
-  mkdirSync(dir, { recursive: true });
+  // The directory is there: `linkSkills` makes both before it calls this.
 
   const keep = new Map(wanted.map((skill) => [skill.name, skill]));
   const removed = [];
@@ -408,6 +440,9 @@ function link(dir, wanted, record) {
 
   return { removed, held: heldIn(dir, record) };
 }
+
+/** Whether `at` is a directory, following a link to one, and false for anything else or nothing. */
+const isDirectory = (at) => statSync(at, { throwIfNoEntry: false })?.isDirectory() === true;
 
 /**
  * What a link at `at` says, or undefined when there is no link there.
