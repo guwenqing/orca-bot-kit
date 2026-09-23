@@ -10,7 +10,7 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, statSync,
 import path from 'node:path';
 import { parseDocument } from 'yaml';
 
-import { changesExactly, YAML_OUT } from './bot.js';
+import { BOT_GITIGNORE, changesExactly, YAML_OUT } from './bot.js';
 import { RECORD, SKILL_DIRS } from './skills.js';
 
 /**
@@ -118,6 +118,8 @@ const seeds = (harness) => [
   ['rules/.gitkeep', ''],
   ['skills/.gitkeep', ''],
   [BOT_FATHER_YAML, botFatherYaml(harness)],
+  // Bot Father's work folder stays out of the repo like every bot's.
+  ['bots/bot-father/.gitignore', BOT_GITIGNORE],
 ];
 
 // The directories the layout implies, parents before children, taken from the

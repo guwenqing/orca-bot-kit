@@ -32,6 +32,12 @@ const BOT_YAML = 'bot.yaml';
  */
 export const YAML_OUT = { lineWidth: 0, flowCollectionPadding: false };
 
+/**
+ * What every bot keeps out of the bots repo: its `work/`, the scratch space it
+ * clones into, which is not the repo's business (PRD 6.3).
+ */
+export const BOT_GITIGNORE = 'work/\n';
+
 /** What every new bot is given until its owner writes its own. */
 const PLACEHOLDER_CHARTER = (name) =>
   `${name} has no charter yet. Write here what it owns, what good looks like,\n`
@@ -168,8 +174,7 @@ export function createBot(bots, { name, harness, charter }) {
   const text = charter?.trim() ? `${charter.trim()}\n` : PLACEHOLDER_CHARTER(name);
   const files = [
     [BOT_YAML, botYaml(name, harness, text)],
-    // work/ is the bot's own scratch space and is not the repo's business (PRD 6.3).
-    ['.gitignore', 'work/\n'],
+    ['.gitignore', BOT_GITIGNORE],
   ];
 
   mkdirSync(home, { recursive: true });
