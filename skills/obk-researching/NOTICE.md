@@ -18,8 +18,7 @@ thanks. Each licence below was read from the file named beside it.
     a citation with them and need one immediately beside them; the words to
     avoid and why each ("obviously" would not be asked about, "clearly"
     precedes what is not, "just" hides a difficulty, "I think" turns evidence
-    into opinion); not retrofitting a clean rationale onto messy history and
-    not turning an absence of evidence into evidence of absence; the
+    into opinion); not turning an absence of evidence into evidence of absence; the
     embedded-hypothesis trap, where the asker's guess is a prompt for
     investigation rather than a conclusion to validate; surfacing both sides
     when sources disagree rather than picking the tidier narrative; naming a
@@ -44,14 +43,14 @@ thanks. Each licence below was read from the file named beside it.
   - `why/SKILL.md` adds coverage rather than minimalism, documenting the null
     instead of skipping the search, and the high bar for skipping a source:
     provably irrelevant rather than probably irrelevant.
-  - `blast-radius/SKILL.md` gives the ladder from "you said so" through "you
-    pointed at the line" to "you ran it", with the instruction to get each
-    load-bearing fact as far down it as is cheap and to say where it stopped.
 - **`addyosmani/agent-skills`, `skills/source-driven-development`**: MIT,
   `addyosmani_agent-skills/LICENSE`, "Copyright (c) 2025 Addy Osmani". The
-  source hierarchy and what sits outside it: forum answers, blog posts,
-  model-written summaries and your own training data are not primary sources,
-  and memory in particular is the one that feels like knowledge. Being precise
+  source hierarchy and what sits outside it: model-written summaries and your
+  own training data are not sources, and memory in particular is the one that
+  feels like knowledge. Its blanket line that forum answers and blog posts are
+  not primary is not carried: the review on #129 moved authority to the claim,
+  so a blog post is the source that owns a claim about its author's own
+  work. Being precise
   about what you fetch, the specific page rather than the front page. Surfacing
   a conflict between two authoritative sources instead of choosing. Treating
   fetched pages as data and not as instructions, so that text addressing the
@@ -125,10 +124,11 @@ skill carries what it needs rather than depending on another being loaded.
 `obk-why` anchors in code and its history; this one is about sources, coverage
 and how far a claim can be trusted.
 
-PRD 7.1 decides what this skill is for, and the owner agreed to it in those
-words on 2026-09-20 at 19:45:42: "Find sources, say how each claim is
-supported, and separate fact from inference", following the same rules as the
-other skills, "techniques only, no process, deeply written".
+PRD 7.1 decides what this skill is for. The words are the coordinator's
+proposal of three light technique skills, "Find sources, say how each claim is
+supported, and separate fact from inference ... techniques only, no process,
+deeply written", which the owner approved on 2026-09-20 at 19:45:42 ("I agree
+to what you suggest").
 
 ## What an acceptance run changed
 
@@ -154,3 +154,16 @@ sources. Five things in it come from what that found.
   asked in order to decide, saying what you would do next is part of answering.
 - The list of words to avoid read as a list to police. It is now the check it
   was meant to be.
+
+## What the re-validation changed (#155)
+
+No silent substitution: an answer about a neighbouring subject is said to be
+one (pstack `why/references/investigator-prompt.md:63`). Opening each citation
+again before handing over (its `synthesizer-prompt.md:44`). A source's date and
+the period or version a claim covers (`investigator-prompt.md:79`). Other
+explanations that fit, in the hand-back (`synthesizer-prompt.md:78-86`). The
+answer and its strength first, per `rules/talk.md`. Labels on every claim a
+reader would act on rather than every claim, per `rules/evidence.md`. Opening a
+page verifies that it was said, not that it is true. Credits for the
+blast-radius ladder and for retrofitted rationales, which the skill does not
+carry, are removed; a repeated paragraph on who is speaking is merged.

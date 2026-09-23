@@ -22,8 +22,8 @@ something else gets what they asked for; say which of these you left and why.
 
 ## Say what is being decided
 
-Write the decision in two or three lines before anything else: the choice, and
-what turns on it. If you cannot get it that small, you do not yet have a
+Before anything else, get the decision into two or three lines for yourself:
+the choice, and what turns on it. If you cannot get it that small, you do not yet have a
 decision: you have a subject, and the memo will wander.
 
 Then say who decides. A memo written for someone with no authority over the
@@ -59,9 +59,10 @@ and say what it costs. Sometimes the current state does the job and the change
 is all ownership and no value. A memo that cannot say what happens if nobody
 acts has not established that anything needs deciding.
 
-And ask whether the question is the right one before answering it. A different
-framing sometimes makes the whole comparison unnecessary, and that is the most
-valuable thing a memo can find. Put the premises the reader has to accept where
+And ask whether the question is the right one before answering it, and whether
+it is the real goal or a stand-in for it. A different framing sometimes makes
+the whole comparison unnecessary, and that is the most valuable thing a memo
+can find. Put the premises the reader has to accept where
 they can disagree with them, rather than burying them in the reasoning.
 
 ## Alternatives worth the name
@@ -82,14 +83,17 @@ that names the thing about it that failed. "Rejected" with no reason reads as
 "not considered", and the reader will re-propose it.
 
 Where an option fails a hard constraint, it is out, or it stays in with a named
-mitigation, not with a lower score. Do not turn judgement into arithmetic: a
+mitigation, not with a lower score. A hard constraint nobody checked is not a
+pass. Do not turn judgement into arithmetic: a
 weighted table gives the answer you chose the weights for, and it hides the
 reasoning in a number. Compare the survivors in plain language, on the things
 that actually differ.
 
 Compare what it costs to live with, not what it costs to start. The glue, the
 upgrades, the thing that has to be maintained around it, what happens when you
-want to leave. Compare exact versions and tiers, not reputations.
+want to leave; and how long until it pays off, and what else that time and
+money would have bought. Compare exact versions and tiers, not reputations.
+Where two survivors come out even, prefer the one easier to undo.
 
 ## Evidence, and how fresh it is
 
@@ -132,7 +136,8 @@ Not being able to check something does not stop you comparing it. Where
 somebody hands you the terms of two named options, compare those terms, say
 they are as supplied and unchecked, and name which of them the answer turns on.
 A recommendation that holds if the stated terms are right is a real answer, and
-saying so is different from pretending the terms were verified.
+saying so is different from pretending the terms were verified; it stays
+provisional until they are checked.
 
 What you cannot do is compare what you do not have. Where the options are not
 even named, or the facts that would separate them are missing entirely, the
@@ -156,7 +161,8 @@ it from a person who actually holds the view is better whenever you can.
 Then look for what would have to be true. Imagine it is a year on and this went
 badly: what happened? List the ways it fails, say which of them you could
 prevent and which you are choosing to accept, and say which would be fatal
-rather than merely painful.
+rather than merely painful. Rank them by what they would cost, not by how easy
+they are to fix.
 
 Separate what you are betting on into what must be true for this to work at
 all, what would hurt if wrong but is survivable, and what does not matter yet.
@@ -187,7 +193,9 @@ the memo useful a year later.
 
 Where a real unknown is blocking, propose the smallest thing that would settle
 it: the question, what would count as a pass and a fail, how long it gets. A
-trial that could not change the decision is not worth running.
+trial that could not change the decision is not worth running, and a trial does
+not take away the duties of owning the choice while it runs. Stop looking when
+more looking would not change the answer.
 
 Deferring is a real outcome, and so is doing nothing. Where you defer, say what
 you are waiting for and what would trigger picking it up again, so that
@@ -198,40 +206,24 @@ deferring does not quietly become forgetting.
 Lead with the conclusion. A reader who stops after the first paragraph should
 have the recommendation and the main reason for it.
 
-- **The decision**, in a line or two, and who owns it.
-- **The recommendation**, and what it commits you to.
-- **Why this one**, in plain language, on the points that actually separate it.
-- **What was considered and dropped**, each with its reason.
-- **The evidence**, with where each piece came from, when it was checked, and
-  how you know it.
-- **The risks**, and which are accepted rather than solved.
-- **The strongest argument against**.
-- **What you are unsure about**, and what would change the decision.
-- **When to look at this again**, and what should trigger it.
-
-Those are the questions a memo answers, not a set of headings it has to print.
-Where an answer is one line, it is one line; where something genuinely does not
-apply, leave it out and say why if the absence would be noticed. A memo that
-grew nine sections because the list had nine items has failed the only test
-that matters, which is that the person who has to read it does.
+After that, in whatever order serves the reader: what was considered and
+dropped, the evidence with where and when it came from, the risks and which are
+accepted, the strongest argument against, what you are unsure about and what
+would change it, and when to look at it again. Those are questions it answers,
+not headings it has to print; where an answer is one line, it is one line.
 
 Where the project already keeps decisions somewhere, match what is there: the
 place, the naming, the sections it already uses. Continue the sequence rather
 than starting a second one, and where two conventions are already in use, say
-so rather than quietly picking. Where there is no convention, a short note
-somewhere durable beats a long one nobody can find.
-
-Write for whoever will read it, and ask whether they are the last reader. A
-memo often exists to be re-told: the person you hand it to has to take it into
-a room you will not be in. Where that is so, say which part is for them and
-which part is the thing they put in front of the others.
+so rather than quietly picking. Where there is no convention, put it where the
+person asked for it or hand it back in your reply; do not invent a new place to
+keep documents.
 
 Write in the words the reader uses. Where a sentence says the choice is fast,
 clean, modern or robust, replace it with the number or the behaviour you mean,
 because those words survive review by meaning nothing.
 
-Keep it short enough to be read by the person who has to read it. The detail
-lives in the evidence section or in what it points at, not in the argument.
+The detail lives in the evidence or in what it points at, not in the argument.
 
 ## It is a proposal until someone accepts it
 

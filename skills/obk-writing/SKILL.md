@@ -28,8 +28,9 @@ read, and what tone fits. Ask when the answer would change the piece. Where
 asking is not possible, write down the reading you took, so the first correction
 is cheap.
 
-Settling those is not the same as having the facts. Where something you need
-is simply missing, a name, a time, a link, do not fill it in and do not stop:
+Settling those is not the same as having the facts. Look a missing fact up
+where you can. Where it is simply not to be had (a name, a time, a link), do
+not fill it in and do not stop:
 put a visible marker where the fact belongs, and list what you need at the end
 so one reply closes all of them at once. A piece with its holes marked is a
 useful thing to hand back. A piece with its holes filled in from imagination is
@@ -39,12 +40,6 @@ The place it will be read is a constraint, not decoration. Something skimmed on
 a phone between meetings, by people with a little context and no patience, is a
 different piece from the same facts written as a page someone lands on from a
 search. The place sets the length, the register, and how much can be assumed.
-
-Where the reader will be unhappy about what the piece says, decide deliberately
-whether to name that. Naming it works when you can also give the reason, and it
-is worse than silence when you cannot, because it tells them you knew and had
-nothing to offer. Where there is no reason you can give, say what is happening
-and what they have to do, and leave their feelings to them.
 
 Find out what they already know, and what they call things. Writing in the
 reader's vocabulary rather than the system's is most of what makes a piece feel
@@ -135,8 +130,8 @@ People use words they have not pinned down.
   can skip what does not apply to them. "To cancel, press Escape."
 - One instruction per sentence, one thought per sentence everywhere else. Split
   the sentence carrying two.
-- Vary the length on purpose. All-short reads like a machine wrote it. A longer
-  sentence that carries one idea with its condition is not a fault.
+- Keep sentences short. A longer one that carries one idea with its condition
+  is not a fault.
 - Cut any word the sentence survives without. "In order to" is "to". "It is
   important to note that" is nothing.
 - Use the short everyday word. A long word has to buy its length with
@@ -236,26 +231,24 @@ bold, nothing is.
 ## Test it on someone who was not there
 
 You cannot read your own draft as a stranger, and the gaps that matter are the
-ones you filled in from what you already knew.
+ones you filled in from what you already knew. Worth doing when people who were
+not there will read it and a misreading would cost something; a short reply to
+someone already in the conversation does not need it.
 
-So have someone read it who was not there, and give them the piece by itself.
-Not the conversation that produced it, not your summary of what it says, and
-not what you think of it: handing over your own reading is how you get your own
-reading back. Ask them what it assumes they already know, what could be taken
-two ways, where it contradicts itself, and what question it leaves them with.
+Give them the piece by itself: not the conversation that produced it, not your
+summary, and not what you think of it, since handing over your own reading gets
+your own reading back. Anyone counts who comes to it with only what a real
+reader will have. Ask them to find what is wrong with it, not what they think
+of it.
 
-Anyone counts who has not seen it and does not have the conversation behind it.
-What matters is that they come to it with what a real reader will have, which
-is the piece and nothing else.
+Read what comes back against the piece rather than deferring to it. A misreading
+usually means the piece does not say it; sometimes the reader lacked context a
+real reader will have, and then it is noise. Stop when a pass brings back only
+small things or the holes you already knew about and have marked, and after
+about three passes at most: a piece still turning up real problems then is not
+ready, and that is worth saying rather than going round again.
 
-What they get wrong is not their mistake. It is what the piece does not say.
-Stop when the only things coming back are the holes you already knew about and
-have marked, rather than after a set number of passes. Read the same way as
-different readers where you can, because a part-timer, a manager and someone
-who does this every day hit different sentences.
-
-Then hand it back. Whoever asked for it owns it, and they are the one who
-should read it through before it goes anywhere, check the facts and the links,
-and say whether it does what they wanted.
+Then hand it back. Whoever asked for it owns it and is the one to read it
+through before it goes anywhere.
 
 Sources and licences: [NOTICE.md](NOTICE.md).

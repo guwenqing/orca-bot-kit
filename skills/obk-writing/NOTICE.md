@@ -18,7 +18,7 @@ Each licence below was read from the file named beside it.
   sentence that follows every rule and sounds machine-written has failed. Its
   four layers, generalised here from documentation to writing in general:
   choosing what kind of piece this is and not mixing kinds in one piece;
-  addressing the reader directly, in the present tense, saying who does what,
+  addressing the reader directly, saying who does what,
   writing instructions as instructions with the condition in front, common case
   before exceptions; loading one instruction or one thought per sentence and
   splitting the one that carries two; and leaving no sentence open to two
@@ -40,9 +40,10 @@ Each licence below was read from the file named beside it.
   rules are here too, and its over-compression rule is why this skill says to
   shorten by cutting rather than by squeezing prose into shorthand. Its
   catalogue of banned words is deliberately not carried: the research pack
-  records that a ban-list pulls the banned thing into context, so the positive
-  form of each rule is kept and the word list is left where it is, as something
-  to review against rather than to load.
+  records that a ban-list pulls the banned thing into context, so the rules
+  named above are kept in their positive form, not every rule in the catalogue,
+  and the word list is left where it is, as something to review against rather
+  than to load.
 - **`citypaul/.dotfiles`, `claude/.claude/skills/technical-writing`**: MIT,
   that skill's own nested `LICENSE`, "Copyright (c) 2025 Adam Bulmer", which
   governs its directory rather than the repository root's MIT licence in
@@ -84,29 +85,28 @@ Each licence below was read from the file named beside it.
   different piece from the same facts written to be landed on.
 - **`garrytan/gstack`, `document-generate/SKILL.md`**: MIT,
   `garrytan_gstack/LICENSE`, "Copyright (c) 2026 Garry Tan". Its voice section:
-  lead with the point, be concrete, name the real thing and the real number,
-  and sound like someone talking to the person rather than presenting to them.
+  lead with the point, be concrete, name the real thing and the real number.
   Its rule to gloss a piece of jargon on first use even where the user
   introduced the term.
 - **`addyosmani/agent-skills`, `skills/doubt-driven-development`** and
   **`citypaul/.dotfiles`, `claude/.claude/skills/double-check`**: MIT,
   `addyosmani_agent-skills/LICENSE` ("Copyright (c) 2025 Addy Osmani") and
   `citypaul_.dotfiles/LICENSE` ("Copyright (c) 2024 Paul Hammond"). The reader
-  test at the end comes from these two rather than from any writing skill: hand
-  over the artifact without your reasoning, because handing over your
-  conclusion gets you agreement with your conclusion; start the reader cold,
-  with no transcript and no signal of what you want; and stop when a fresh pass
-  stops finding anything rather than after a set number of rounds.
+  test at the end comes from these two rather than from any writing skill: when
+  it is not worth doing; hand over the artifact without your reasoning, because
+  handing over your conclusion gets you agreement with your conclusion; start
+  the reader cold; ask them to find what is wrong; read what comes back rather
+  than deferring, since a fresh reader can be wrong for want of context; and
+  stop when a pass finds only small or known things, bounded at about three
+  passes, with a piece still failing then reported as not ready.
 
-**Left out on a licence.** `anthropics/skills`' `doc-coauthoring` is the
-closest thing in the sources to an end-to-end collaborative writing workflow,
-and its reader-testing stage is the best statement of this technique anywhere
-in the corpus. Its directory holds no licence file and its frontmatter names
-none, and `anthropics/skills` has no repository-root licence either, so
-nothing is taken from it. What this skill says about testing on a fresh reader
-is reached from the two MIT sources above instead, and is narrower for it: the
-predicted-questions mechanic and its exit condition are that skill's, and are
-not reproduced here.
+**Left out on a licence.** `anthropics/skills`' `doc-coauthoring` has the best
+statement of reader testing in the corpus, but its directory holds no licence
+file and `anthropics/skills` has none at its root, so nothing is taken from it.
+An earlier version of this skill had nevertheless followed its three reader
+questions and its closing review item for item; the re-validation (#155)
+rebuilt the reader test from the two MIT sources above instead, and dropped
+those parts.
 
 Also left out on purpose: the specific documentation framework the pstack
 skill and the citypaul skill both build on, named and cited in both. Its four
