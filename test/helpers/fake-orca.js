@@ -303,6 +303,11 @@ const asReported = ({ typed: _typed, closingFor: _closingFor, ...rest }) => rest
 
 if (command === 'terminal list') {
   const target = worktreePathOf(flag('--worktree'));
+  // Proven live: asked about a folder it has no project for, Orca refuses the
+  // listing rather than answering an empty one (tech notes, `terminal list --worktree`).
+  if (flag('--worktree') !== undefined && (target === undefined || !setupAt(target))) {
+    fail('selector_not_found', `no worktree matches ${flag('--worktree')}`);
+  }
   const shown = (state.terminals ?? [])
     .filter((terminal) => target === undefined || terminal.worktreePath === target);
 
