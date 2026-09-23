@@ -13,9 +13,9 @@ description: >-
 
 # Shaping work before you build it
 
-Four things, and the fourth is what makes the rest real: say what is wanted,
-decide the shape, make sure the thing can be started and driven so anyone can
-tell whether it works, and cut the work into pieces that each end in a check.
+Four things: say what is wanted, decide the shape, make sure the thing can be
+started and driven so anyone can tell whether it works, and cut the work into
+pieces that each end in a check. The third is what makes the rest real.
 
 None of this needs a particular document, tracker or format. Where a project
 has one, use it; where it does not, a few lines in the right place do the job.
@@ -32,8 +32,8 @@ something else gets what they asked for; say which of these you left and why.
 
 ## Say what is wanted
 
-Short enough to be read. Long enough that someone else could act on it. One
-note, saying:
+A very light note: short enough to be read, long enough that someone else could
+act on it. It says:
 
 - **The problem.** What is wrong or missing now, not the solution wearing a
   problem's clothes.
@@ -47,32 +47,19 @@ note, saying:
   something you could be wrong about, and never loosen one to declare victory.
 - **What we are not doing.** The things nobody said aloud are the things that
   get built by accident.
-- **What must not break.**
 
 No format and no home: an issue, a file, a message, a page in whatever the
 project already uses. And if a proper note already exists, use that one rather
 than writing a second.
-- **What you do not know yet**, separated into what changes the shape and what
-  can be settled later. Only the first kind is worth stopping for.
-- **What happens when it goes wrong**, what limits it has to hold, and how
-  anyone will see what it is doing once it is running. This part gets left out
-  most often, and it is usually the part that decides the shape.
 
 ## Decide the shape
 
 ### Sharpen the words while you are at it
 
-Half the arguments about a design are two people using one word for two things.
-When a term keeps doing heavy lifting ("account", "session", "active",
-"ready"), stop and say what it means here, and what it does not. Where the
-answer is vague, invent a concrete scenario that forces the boundary into the
-open: this customer, with this half-finished order, on the day their card
-expires. Is that active or not?
-
-Check what you are told against the code rather than accepting it. "It always
-has an owner" is a claim, and the place it stops being true is usually where
-the design needs to change. Write the words down as they settle, wherever the
-project keeps such things.
+When a term keeps doing heavy lifting ("account", "active", "ready"), say what
+it means here and what it does not; where that stays vague, a concrete scenario
+forces the boundary open. Check a claim about how things work against the code
+rather than accepting it.
 
 ### Ground it first
 
@@ -112,7 +99,12 @@ is wrong now, not later.
 Types and data converge. Three similar lines still beat an abstraction
 invented before there was anything to abstract.
 
-Four things worth deciding while the shape is still cheap to change:
+Five things worth deciding while the shape is still cheap to change:
+
+- **Let a structure carry the domain.** A state machine rather than scattered
+  flags, a lookup table rather than branches spread across files, a typed
+  object rather than loose parameters: the right structure makes invalid
+  states impossible to write and deletes branches.
 
 - **Put the rules in the types where you can.** A type that cannot be misused
   beats a check at runtime, which beats a comment asking people to be careful.
@@ -140,37 +132,20 @@ its own and see what it forces:
 - the one that makes the most common case trivial and lets the rest be awkward;
 - the one that puts whatever varies behind a port with adapters either side.
 
-Then compare on how much each hides. Prefer the shape that puts more behaviour
-behind a smaller surface: that is what a caller is buying.
+Keep them genuinely apart while you make them; a safe middle drafted early
+defeats the point. Then compare on how much each hides, prefer the shape that
+puts more behaviour behind a smaller surface (that is what a caller is buying),
+and take the best parts of the others into it where they combine.
 
-### The words, used precisely
+### Judging an interface
 
-Worth using these exactly, because the whole value is that two people mean the
-same thing:
+The interface is everything a caller has to know to use a piece correctly: not
+only the signature, but the order things must happen in, what errors come out,
+what it needs and what it costs. A good one gives a caller a lot of behaviour
+for a little of that. Three questions do most of the work: can it have fewer
+ways in, can the arguments be simpler, and can more be hidden behind it?
 
-- **Module**. Anything with an interface and an implementation. A function, a
-  class, a package, a slice through several layers. Scale does not matter.
-- **Interface**. Everything a caller has to know to use it correctly. Not just
-  the signature: the invariants, the order things must happen in, what errors
-  come out, what configuration it needs, what it costs.
-- **Implementation**. What is inside.
-- **Seam**. The place where behaviour can be changed without editing in that
-  place; where an interface lives. Where to put it is its own decision,
-  separate from what goes behind it.
-- **Adapter**. Something that satisfies an interface at a seam. A role, not a
-  size: a small adapter can have a large implementation behind it.
-- **Internal and external seams**. A module can have seams inside it, private
-  to how it works and used by its own tests, as well as the one at its
-  interface. Having one inside is not a reason to expose it.
-- **Depth**. How much behaviour a caller gets per unit of interface they have
-  to learn. Deep is a lot behind a little. Shallow is an interface nearly as
-  complicated as what it hides, which buys nobody anything.
-
-When you have an interface in front of you, three questions do most of the
-work: can it have fewer ways in, can the arguments be simpler, and can more be
-hidden behind it?
-
-### Three questions that settle most of it
+### Three tests that settle most of it
 
 - **The deletion test.** Imagine the module gone. If the complexity goes with
   it, it was a pass-through. If the complexity reappears in every caller, it
@@ -216,15 +191,13 @@ is used, the shape, the trade-offs accepted (in the form *we accept X in
 exchange for Y*), at least one other shape you considered with a line on why
 it lost, and anything still open.
 
-Name anything a later reader might mistake for an oversight.
+Where the constraints left only one shape, say that instead: "the only viable
+shape, because...". Name anything a later reader might mistake for an
+oversight.
 
-Worth writing down at all when all three are true: it is hard to reverse, so
-changing your mind later costs something real; it is surprising without the
-context, so a reader will wonder why on earth it was done this way; and it came
-out of a genuine trade-off, with alternatives that could have been chosen.
-Easy to reverse and you will simply reverse it. Not surprising and nobody will
-ask. No real alternative and there is nothing to record beyond doing the
-obvious thing. Otherwise the code says it.
+A lasting record of its own, kept beyond the change, earns its place when all
+three are true: it is hard to reverse, it is surprising without the context,
+and it came out of a genuine trade-off. Miss one and the paragraph is enough.
 
 ### When to build a throwaway instead of arguing
 
@@ -251,7 +224,8 @@ real thing from the beginning, test first.
 This is the part that makes an agent able to check its own work at any size
 above a single function, and it belongs in the design rather than after it.
 When a whole application is designed, or a feature is planned, the end-to-end
-test work is planned at the same time and with the same care.
+test work is planned at the same time and with the same care, and written, like
+any other test, by someone other than the implementer.
 
 Answer these about the thing you are shaping, from the code where you can
 rather than by asking:
@@ -327,30 +301,21 @@ Accept what you depend on rather than building it inside. Return results
 instead of reaching out and changing things. Keep the surface small: fewer ways
 in means less to set up.
 
-How you test across a seam follows what is behind it. Pure computation: no
-seam needed, test through the interface. Something with a good local stand-in:
-use the stand-in and keep the seam inside. Your own service across a network:
-a port at the seam, a real adapter for production and an in-memory one for
-tests. Something you do not own at all: a port, and a stand-in for it.
+How you test across a boundary follows what is behind it. Pure computation:
+no boundary needed, test through the interface. Something with a good local
+stand-in: use the stand-in and keep the boundary inside. Your own service
+across a network: a port at the boundary, a real adapter for production and an
+in-memory one for tests. Something you do not own at all: a port, and a
+stand-in for it.
 
-Replace, do not layer. Once the behaviour is covered through the deeper
-interface, a second set of tests against the pieces inside proves the same
-thing twice and pins the inside in place. But a new location is not the same as
-new coverage: a test at the interface that exercises the ordinary path does not
-stand in for the one that covered a retry charging twice. What retires is what
-is genuinely superseded (the same behaviour, now checked through the new
-interface) or what was tied to internals that no longer exist. Everything else
-is carried across.
-
-And it is not the implementer's call. The tests belong to whoever wrote them;
-an ordinary restructuring keeps them green, and where a change is big enough
-that they cannot hold, the separate author writes them again from the
-requirement.
+Once behaviour is covered through the interface above, tests against the pieces
+inside it prove the same thing twice; retiring them, like any change to
+tests, is for whoever wrote them.
 
 ## Cut the work into pieces
 
-Each piece ends in a state you can check, and the next one does not start
-until this one is green. A break found at the step that caused it is cheap; the
+Each piece ends in a state you can check, and a piece that depends on it does
+not start until it is green. A break found at the step that caused it is cheap; the
 same break found five steps later is buried under everything built on top of
 it.
 
@@ -361,8 +326,9 @@ it.
   fit gets done half-remembered.
 - **Ordered by what you will learn.** The riskiest unknown first, so that
   being wrong about it is cheap.
-- **Prefactor first.** Make the change easy, then make the easy change, and
-  that reshaping is its own piece, before the feature.
+- **Prefactor where it helps.** Make the change easy, then make the easy
+  change. A small reshaping is part of the change; a large one is a piece of
+  its own, before the feature.
 - **The first piece gets the thing running and testable as a whole**, even if
   it does almost nothing yet. That is where the end-to-end test work lands, and
   everything after it is checked through what it puts in place.
@@ -381,34 +347,23 @@ broken in between, say which piece and for how long.
 
 ## Before you build on it
 
-Find out what the shape breaks elsewhere. Listing the callers is not the job.
-That is a search anyone can run. The job is the breakage a search does not
-show: a changed order, a new precondition, an assumption two things shared.
+Find out what the shape breaks elsewhere. Listing the callers is not the job;
+the breakage a search does not show is (a changed order, a new precondition, an
+assumption two things shared). Most plans that look risky are safe because of
+one fact: find it, since if it holds most of the risky cases clear at once.
 
-For each fact the safety of the plan rests on, get as far down this as is cheap
-and say where you stopped:
+Look where a symbol search stops, because that is where the surprises are: the
+library you call, at the version actually pinned; when things run, not only
+what calls what; and what two things agree on without naming each other (the
+shape of what an interface returns, a stored column, a wire format, something
+in another language reading the same bytes, a setting that turns a path on).
+Give each risk you keep a real likelihood and a real cost.
 
-1. You said so. Worth nothing on its own.
-2. You pointed at the line that says so.
-3. You walked the bad case through and showed it cannot get there.
-4. You ran something that calls the real code and would have failed if you
-   were wrong.
-5. You saw it in the running thing.
-
-Anything you could not get to the fourth, say so rather than writing it up as
-settled. The fourth is usually one small script.
-
-Look where a search stops, because that is where the surprises are: inside the
-library you call, and at the version actually pinned rather than the one whose
-documentation you read; in when things run, not just what calls what; and in
-everything a symbol search cannot see (the shape of what an interface returns,
-a column, a format two things agree on, something in another language reading
-the same bytes, a setting that turns a path on, code three hops downstream).
-
-Then be honest about each risk you keep: how likely it really is, and what it
-would actually cost. List separately what you checked and cleared, because that
-is what tells the next reader the search happened at all. A search that finds
-nothing is a result worth writing down.
+Then say how far you proved it: you said so, you pointed at the line, you
+walked the bad case through, you ran something that would have failed if you
+were wrong, or you saw it in the running thing. Short of running it, say so
+rather than writing it up as settled, and list what you checked and cleared as
+well as what you kept.
 
 ## When the shape turns out to be wrong
 
@@ -428,12 +383,5 @@ The signal is a pattern rather than a single instance:
 A few edge cases do not condemn a design; some problems really are knotty, and
 complexity in the problem is not complexity in the design. But when the pattern
 is there, say so and redesign, rather than paying it off one branch at a time.
-
-## Away from code
-
-The same four moves carry to anything with a shape: say what is wanted and what
-done means, work out the arrangement from how it will be used rather than from
-how it will be built, make sure there is a way to tell whether it works, and
-break it into pieces that each end somewhere you can check.
 
 Sources and licences: [NOTICE.md](NOTICE.md).
