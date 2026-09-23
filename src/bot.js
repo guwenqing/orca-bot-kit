@@ -7,7 +7,7 @@
 // The files are the user's. A command that cannot do what was asked refuses and
 // writes nothing, rather than leave a bot half made or a bot.yaml half edited.
 
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { parse, parseDocument, stringify } from 'yaml';
@@ -46,6 +46,59 @@ export function botNames(bots) {
   // Sorted: the order bots come up in, and the order they are reported in, is
   // the user's, not whatever order the file system hands back.
   return readdirSync(dir).sort().filter((name) => existsSync(path.join(dir, name, BOT_YAML)));
+}
+
+/**
+ * Where `target`, inside the bot folder at `home` by name, really leads when a
+ * link the user made takes it out of that folder; undefined when it stays in.
+ *
+ * The kit writes only in the bot folder, never in user-level settings (PRD 6.3,
+ * ADR 0010), and a link would make the one the other without a word. So the
+ * answer is the file system's, not the spelling's: see `whereItLeads`.
+ */
+export function leadsOutside(home, target) {
+  let real;
+  try {
+    real = whereItLeads(target);
+  } catch {
+    // Something in the way that is not a link at all — a file where a folder
+    // should be, a folder the kit may not enter. Whatever writes there next
+    // meets it and says so in its own words.
+    return undefined;
+  }
+  // Links that never settle lead nowhere the kit can vouch for.
+  if (real === undefined) return `${target}, through links that never settle`;
+  const root = realpathSync(home);
+  return real === root || real.startsWith(root + path.sep) ? undefined : real;
+}
+
+/** How many links deep a path is followed before it is taken to lead nowhere. */
+const HOPS = 40;
+
+/**
+ * Where writing `target` would really land: the nearest part of it that exists,
+ * resolved by the file system, with the rest of the path after it. A link that
+ * leads to nothing yet is followed to what it names, and that is resolved the
+ * same way in turn, since it can pass through further links on the way.
+ * Undefined for links that never settle.
+ */
+function whereItLeads(target) {
+  let next = target;
+  for (let hop = 0; hop < HOPS; hop += 1) {
+    let at = next;
+    const rest = [];
+    while (lstatSync(at, { throwIfNoEntry: false }) === undefined && path.dirname(at) !== at) {
+      rest.unshift(path.basename(at));
+      at = path.dirname(at);
+    }
+    try {
+      return path.join(realpathSync(at), ...rest);
+    } catch (error) {
+      if (!lstatSync(at).isSymbolicLink()) throw error;
+      next = path.join(path.resolve(path.dirname(at), readlinkSync(at)), ...rest);
+    }
+  }
+  return undefined;
 }
 
 /**
