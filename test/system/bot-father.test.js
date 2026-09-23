@@ -86,15 +86,29 @@ const terminalsAt = (home) => allTerminals().filter((terminal) => terminal.workt
  * again until the closed tabs are out of it, rather than read once and
  * believed. What comes back when the wait runs out is whatever Orca still
  * says, for the assertion to fail on.
+ *
+ * By handle: a raw listing can show a tab under `pty:<ptyId>` rather than its
+ * id while Orca calls it orphaned, and the handle is the same either way (#187).
  */
 async function terminalsAfterClosing(home, closed, within = 5000) {
   const until = Date.now() + within;
   let left = terminalsAt(home);
-  while (left.some((terminal) => closed.includes(terminal.tabId)) && Date.now() < until) {
+  while (left.some((terminal) => closed.includes(terminal.handle)) && Date.now() < until) {
     await setTimeout(250);
     left = terminalsAt(home);
   }
   return left;
+}
+
+/**
+ * The id Orca gave a tab, read by its handle. `terminal show` answers the real
+ * id even while `terminal list` shows the tab as `pty:<ptyId>` (#187), so this
+ * is what a check of "the kit reported the id Orca gave" compares against.
+ */
+function realTabId(handle) {
+  const answer = orca(['terminal', 'show', '--terminal', handle]);
+  assert.equal(answer.ok, true, `orca terminal show failed: ${JSON.stringify(answer.error)}`);
+  return answer.result.terminal.tabId;
 }
 
 /** Every workspace Orca knows about right now. */
@@ -146,7 +160,7 @@ test('Bot Father comes up in the real Orca, and nothing else is touched', async 
     for (const terminal of terminalsAt(home)) {
       if (before.handles.has(terminal.handle)) continue;
       orca(['terminal', 'close', '--terminal', terminal.handle, '--tab']);
-      closed.push(terminal.tabId);
+      closed.push(terminal.handle);
     }
     for (const setup of allSetups()) {
       if (setup.path !== home || before.setups.has(setup.id)) continue;
@@ -186,7 +200,7 @@ test('Bot Father comes up in the real Orca, and nothing else is touched', async 
     const entry = tabOf(init, name);
     const real = opened.find((terminal) => terminal.handle === entry.terminal);
     assert.ok(real, `the ${name} tab's handle should be one Orca lists: ${JSON.stringify(entry)}`);
-    assert.equal(entry.tabId, real.tabId);
+    assert.equal(entry.tabId, realTabId(real.handle), 'the id Orca gave the tab');
     assert.equal(entry.bot, 'bot-father');
     assert.equal(entry.title, name === 'daily' ? 'Bot Father daily' : 'Bot Father ops');
     assert.equal(entry.created, true);
@@ -222,8 +236,8 @@ test('Bot Father comes up in the real Orca, and nothing else is touched', async 
   // 3. up again: nothing created, nothing closed, nothing typed.
   const again = obkJson(['up', '--bots', bots]);
   assert.deepEqual(
-    terminalsAt(home).map((terminal) => terminal.tabId).sort(),
-    opened.map((terminal) => terminal.tabId).sort(),
+    terminalsAt(home).map((terminal) => terminal.handle).sort(),
+    opened.map((terminal) => terminal.handle).sort(),
     'a second run should have left the tabs exactly as they were',
   );
   for (const name of ['daily', null]) {
@@ -240,8 +254,8 @@ test('Bot Father comes up in the real Orca, and nothing else is touched', async 
   assert.ok(closed && kept, 'the run should have reported both tabs');
   orca(['terminal', 'close', '--terminal', closed.handle, '--tab']);
   assert.deepEqual(
-    (await terminalsAfterClosing(home, [closed.tabId])).map((terminal) => terminal.tabId),
-    [kept.tabId],
+    (await terminalsAfterClosing(home, [closed.handle])).map((terminal) => terminal.handle),
+    [kept.handle],
     'the fixture itself should have closed exactly one tab',
   );
 
@@ -249,12 +263,15 @@ test('Bot Father comes up in the real Orca, and nothing else is touched', async 
 
   const back = terminalsAt(home);
   assert.equal(back.length, 2, `the closed tab should be back, got ${JSON.stringify(back)}`);
-  assert.ok(back.some((terminal) => terminal.tabId === kept.tabId), 'the live tab should have been left alone');
-  const fresh = back.filter((terminal) => terminal.tabId !== kept.tabId);
+  assert.ok(back.some((terminal) => terminal.handle === kept.handle), 'the live tab should have been left alone');
+  const fresh = back.filter((terminal) => terminal.handle !== kept.handle);
   assert.equal(fresh.length, 1);
-  assert.notEqual(fresh[0].tabId, closed.tabId, 'a tab that came back is a new tab with a new id');
+  assert.notEqual(fresh[0].handle, closed.handle, 'a tab that came back is a new tab');
+  const freshId = realTabId(fresh[0].handle);
+  assert.notEqual(freshId, tabOf(init, 'daily').tabId, 'a tab that came back is a new tab with a new id');
 
   const remade = (recovered.tabs ?? []).filter((entry) => entry.created === true);
   assert.equal(remade.length, 1, `one tab was made again, got: ${JSON.stringify(recovered.tabs)}`);
-  assert.equal(remade[0].tabId, fresh[0].tabId, 'and it reported the id Orca gave it');
+  assert.equal(remade[0].terminal, fresh[0].handle, 'the tab it made is the one Orca lists');
+  assert.equal(remade[0].tabId, freshId, 'and it reported the id Orca gave it');
 });

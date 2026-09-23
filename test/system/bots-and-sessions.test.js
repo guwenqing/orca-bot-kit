@@ -96,15 +96,29 @@ const terminalsAt = (home) => allTerminals().filter((terminal) => terminal.workt
  * again until the closed tabs are out of it, rather than read once and
  * believed. What comes back when the wait runs out is whatever Orca still
  * says, for the assertion to fail on.
+ *
+ * By handle: a raw listing can show a tab under `pty:<ptyId>` rather than its
+ * id while Orca calls it orphaned, and the handle is the same either way (#187).
  */
 async function terminalsAfterClosing(home, closed, within = 5000) {
   const until = Date.now() + within;
   let left = terminalsAt(home);
-  while (left.some((terminal) => closed.includes(terminal.tabId)) && Date.now() < until) {
+  while (left.some((terminal) => closed.includes(terminal.handle)) && Date.now() < until) {
     await setTimeout(250);
     left = terminalsAt(home);
   }
   return left;
+}
+
+/**
+ * The id Orca gave a tab, read by its handle. `terminal show` answers the real
+ * id even while `terminal list` shows the tab as `pty:<ptyId>` (#187), so this
+ * is what a check of "the kit reported the id Orca gave" compares against.
+ */
+function realTabId(handle) {
+  const answer = orca(['terminal', 'show', '--terminal', handle]);
+  assert.equal(answer.ok, true, `orca terminal show failed: ${JSON.stringify(answer.error)}`);
+  return answer.result.terminal.tabId;
 }
 
 /** Every workspace Orca knows about right now. */
@@ -176,7 +190,7 @@ test('two bots on the two harnesses come up in the real Orca, and nothing else i
       for (const terminal of terminalsAt(home)) {
         if (before.handles.has(terminal.handle)) continue;
         orca(['terminal', 'close', '--terminal', terminal.handle, '--tab']);
-        closed.push(terminal.tabId);
+        closed.push(terminal.handle);
       }
     }
     for (const setup of allSetups()) {
@@ -256,7 +270,7 @@ test('two bots on the two harnesses come up in the real Orca, and nothing else i
     assert.equal(entry.bot, bot.name);
     assert.equal(entry.created, true);
     assert.equal(entry.terminal, opened[0].handle);
-    assert.equal(entry.tabId, opened[0].tabId);
+    assert.equal(entry.tabId, realTabId(opened[0].handle), 'the id Orca gave the tab');
     assert.equal(entry.title, `${bot.display} daily`);
 
     // The live check this whole file exists for: the flags PRD 6.4 maps the
@@ -281,11 +295,11 @@ test('two bots on the two harnesses come up in the real Orca, and nothing else i
 
   // 4. A second run makes nothing and types nothing.
   for (const bot of BOTS) {
-    const opened = terminalsAt(homeOf(bot.name)).map((terminal) => terminal.tabId);
+    const opened = terminalsAt(homeOf(bot.name)).map((terminal) => terminal.handle);
     const again = obkJson(['up', '--bots', bots, '--bot', bot.name]);
 
     assert.deepEqual(
-      terminalsAt(homeOf(bot.name)).map((terminal) => terminal.tabId),
+      terminalsAt(homeOf(bot.name)).map((terminal) => terminal.handle),
       opened,
       'a second run should have left the tab exactly as it was',
     );
