@@ -166,8 +166,17 @@ function withKitHook(hooks, file, mine) {
   return { ...events, [EVENT]: [...(events[EVENT] ?? []), { hooks: [mine] }] };
 }
 
-/** The kit's own hook entry, wherever it sits and whatever sits beside it. */
-const isKitHook = (hook) => typeof hook?.command === 'string' && hook.command.includes(KIT_COMMAND);
+/**
+ * The kit's own hook entry, wherever it sits and whatever sits beside it: a
+ * command of exactly the shape `hookCommand` writes, for any bots folder and
+ * bot, so an entry written before the folder moved is still the kit's. A line
+ * of the user's that only mentions the command is theirs (PRD 6.5).
+ */
+const isKitHook = (hook) => typeof hook?.command === 'string' && KIT_HOOK.test(hook.command);
+
+/** One word as `shellWord` writes it: bare, or single-quoted with `'\''` inside. */
+const WORD = String.raw`(?:[A-Za-z0-9,._+:@%/=-]+|'(?:[^']|'\\'')*')`;
+const KIT_HOOK = new RegExp(String.raw`^${KIT_COMMAND} --bots ${WORD} --bot ${WORD} 2>/dev/null \|\| true$`);
 
 /**
  * What the file says, or nothing when there is no file yet. A file the kit

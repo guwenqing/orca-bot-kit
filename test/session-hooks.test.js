@@ -30,6 +30,7 @@ import assert from 'node:assert/strict';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
+import { isDeepStrictEqual } from 'node:util';
 
 import {
   assertCleanFailure,
@@ -563,3 +564,174 @@ test('no command of the kit writes anything to user-level settings', async (t) =
 
   await assertHomeUntouched(box);
 });
+
+// ---------------------------------------------------------------------------
+// Which entries are the kit's (#165). The kit changes or removes only what it
+// wrote (PRD 6.5, ADR 0010). An entry is the kit's when its command is the
+// line the kit writes, `obk session record --bots <word> --bot <word> 2>/dev/null
+// || true`, for whatever bots folder and bot it was written for. A line of the
+// user's that only mentions `obk session record` is theirs, however close it
+// comes to the kit's.
+// ---------------------------------------------------------------------------
+
+/**
+ * The user's own lines that mention the kit's command without being the line the
+ * kit writes, built from `kit`, the line the kit wrote for this bot.
+ */
+function lookAlikes(kit) {
+  const alikes = {
+    'a wrapper script that calls it': 'my-wrapper && obk session record --bots x --bot y',
+    'a log line that names it': "logger 'obk session record ran'",
+    'the kit\'s line after something of theirs': `my-wrapper && ${kit}`,
+    'the kit\'s line with something of theirs after it': `${kit}; echo done`,
+    'the kit\'s line with its errors kept in a log': kit.replace(' 2>/dev/null', ' 2>>/tmp/obk.log'),
+    'the kit\'s line without the part that keeps a failure quiet': kit.replace(/ \|\| true$/, ''),
+    'the kit\'s line with the folder in double quotes': kit.replace(/ --bots \S+ /, ' --bots "/their place/bots" '),
+  };
+  for (const [label, command] of Object.entries(alikes)) {
+    assert.notEqual(command, kit, `the look-alike "${label}" should differ from the kit's own line`);
+    assert.ok(command.includes('obk session record'), `the look-alike "${label}" should mention the kit's command`);
+  }
+  return alikes;
+}
+
+/** Every hook command under one event of a parsed file. */
+const commandsUnder = (held, event) => hooksUnder(held, event).map((hook) => hook.command);
+
+/** Every hook command in a parsed file, under every event. */
+const allCommands = (held) => Object.keys(eventsIn(held) ?? {}).flatMap((event) => commandsUnder(held, event));
+
+for (const harness of ['claude', 'codex']) {
+  test(`a hook of the user's that only mentions obk session record stays theirs, and the kit adds its own, on ${harness}`, async (t) => {
+    const box = await createSandbox(t);
+    await seeded(box);
+    const bots = await withBot(box, 'api-bot', harness, [['daily']]);
+    await up(box, 'api-bot');
+    const kit = await kitHookOf(bots, 'api-bot', harness);
+    const file = hookFileOf(bots, 'api-bot', harness);
+
+    // The user's file as they keep it: their look-alikes, and no entry of the kit's.
+    const alikes = lookAlikes(kit);
+    const theirs = Object.values(alikes).map((command) => ({ hooks: [{ type: 'command', command }] }));
+    await writeFile(file, `${JSON.stringify({ hooks: { SessionStart: theirs } }, null, 2)}\n`);
+
+    await up(box, 'api-bot');
+
+    const held = await hooksIn(bots, 'api-bot', harness);
+    const groups = eventsIn(held).SessionStart;
+    for (const [label, command] of Object.entries(alikes)) {
+      assert.ok(
+        groups.some((group) => isDeepStrictEqual(group, { hooks: [{ type: 'command', command }] })),
+        `their hook (${label}) should stay exactly as they wrote it: ${command}\ngot:\n${await readFile(file, 'utf8')}`,
+      );
+    }
+    assert.deepEqual(
+      allCommands(held).filter((command) => command === kit),
+      [kit],
+      `and the kit's own line should be there once, beside theirs, got:\n${await readFile(file, 'utf8')}`,
+    );
+    assert.equal(
+      allCommands(held).length,
+      Object.keys(alikes).length + 1,
+      `their hooks and the kit's, and nothing else, got:\n${await readFile(file, 'utf8')}`,
+    );
+  });
+
+  test(`the user's look-alikes beside the kit's own entry leave the ${harness} file as it was`, async (t) => {
+    // Their lines placed ahead of the kit's, where a kit that took the first
+    // match for its own would write over one and drop the rest, and one under
+    // an event the kit does not ask about, where it would take it out.
+    const box = await createSandbox(t);
+    await seeded(box);
+    const bots = await withBot(box, 'api-bot', harness, [['daily']]);
+    await up(box, 'api-bot');
+    const kit = await kitHookOf(bots, 'api-bot', harness);
+    const file = hookFileOf(bots, 'api-bot', harness);
+
+    const held = JSON.parse(await readFile(file, 'utf8'));
+    const events = eventsIn(held);
+    const alikes = Object.values(lookAlikes(kit));
+    events.SessionStart = [{ hooks: alikes.map((command) => ({ type: 'command', command })) }, ...events.SessionStart];
+    events.PreToolUse = [{ matcher: 'Bash', hooks: [{ type: 'command', command: "logger 'obk session record ran'" }] }];
+    await writeFile(file, `${JSON.stringify(held, null, 2)}\n`);
+    const before = await readFile(file, 'utf8');
+
+    await up(box, 'api-bot');
+
+    const after = await readFile(file, 'utf8');
+    assert.deepEqual(
+      JSON.parse(after),
+      JSON.parse(before),
+      `nothing in the file is the kit's to change:\n--- before ---\n${before}\n--- after ---\n${after}`,
+    );
+  });
+
+  test(`the kit's ${harness} entry written for another bots folder or bot is still the kit's, and is replaced`, async (t) => {
+    // The kit wrote these, for a bots folder that has since moved (a bare path,
+    // one with a space, one with a quote in it) or for a bot since renamed. Each
+    // is the kit's and is put right in place, not left beside a new one; the
+    // same line under an event the kit no longer asks about comes out.
+    const box = await createSandbox(t);
+    await seeded(box);
+    const bots = await withBot(box, 'api-bot', harness, [['daily']]);
+    await up(box, 'api-bot');
+    const kit = await kitHookOf(bots, 'api-bot', harness);
+    const file = hookFileOf(bots, 'api-bot', harness);
+    assert.ok(kit.includes(` --bots ${bots} --bot api-bot `), `this test builds on the kit's line naming ${bots} bare, got: ${kit}`);
+
+    const written = {
+      'a bots folder that moved': kit.replace(` --bots ${bots} `, ' --bots /somewhere/else '),
+      'a bots folder with a space in it': kit.replace(` --bots ${bots} `, " --bots '/old place/bots' "),
+      'a bots folder with a quote in it': kit.replace(` --bots ${bots} `, " --bots '/it'\\''s here/bots' "),
+      'a bot since renamed': kit.replace(' --bot api-bot ', ' --bot old-name '),
+      'a bot name that needed quoting': kit.replace(' --bot api-bot ', " --bot 'old name' "),
+    };
+    for (const [label, old] of Object.entries(written)) {
+      assert.notEqual(old, kit, `the old line for ${label} should differ from today's`);
+      const theirs = { type: 'command', command: 'echo mine' };
+      const planted = {
+        hooks: {
+          SessionStart: [{ matcher: 'mine', hooks: [{ type: 'command', command: old, timeout: 10 }, theirs] }],
+          SessionEnd: [{ hooks: [{ type: 'command', command: old, timeout: 10 }] }],
+        },
+      };
+      await writeFile(file, `${JSON.stringify(planted, null, 2)}\n`);
+
+      await up(box, 'api-bot');
+
+      const held = await hooksIn(bots, 'api-bot', harness);
+      const now = await readFile(file, 'utf8');
+      assert.equal(eventsIn(held).SessionStart.length, 1, `${label}: one group, the one that was there, got:\n${now}`);
+      assert.equal(eventsIn(held).SessionStart[0].matcher, 'mine', `${label}: and what the user set on it, got:\n${now}`);
+      assert.deepEqual(
+        commandsUnder(held, 'SessionStart').sort(),
+        [kit, 'echo mine'].sort(),
+        `${label}: the old line becomes today's, beside their hook, got:\n${now}`,
+      );
+      assert.equal('SessionEnd' in eventsIn(held), false, `${label}: and the old line under SessionEnd goes, got:\n${now}`);
+    }
+  });
+
+  test(`a bots folder with a space in its path keeps one ${harness} entry of the kit's across runs`, async (t) => {
+    // The kit's own line quotes that path, and is still the kit's the next time.
+    const box = await createSandbox(t);
+    assert.equal((await box.run(['init', '--bots', 'my bots', '--harness', 'claude'])).code, 0);
+    const made = await box.run(['bot', 'create', '--bots', 'my bots', '--name', 'api-bot', '--harness', harness]);
+    assert.equal(made.code, 0, made.stderr);
+    const added = await box.run(['session', 'add', '--bots', 'my bots', '--bot', 'api-bot', '--name', 'daily']);
+    assert.equal(added.code, 0, added.stderr);
+    const bots = box.path('my bots');
+    const file = hookFileOf(bots, 'api-bot', harness);
+
+    const first = await box.run(['up', '--bots', 'my bots', '--bot', 'api-bot']);
+    assert.equal(first.code, 0, first.stderr);
+    const once = await readFile(file, 'utf8');
+    const second = await box.run(['up', '--bots', 'my bots', '--bot', 'api-bot']);
+    assert.equal(second.code, 0, second.stderr);
+    const twice = await readFile(file, 'utf8');
+
+    const kit = await kitHookOf(bots, 'api-bot', harness);
+    assert.ok(kit.includes(`'${bots}'`), `the kit's line should carry the path quoted, got: ${kit}`);
+    assert.deepEqual(JSON.parse(twice), JSON.parse(once), `a second run changes nothing:\n--- first ---\n${once}\n--- second ---\n${twice}`);
+  });
+}
