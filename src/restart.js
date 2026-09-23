@@ -116,6 +116,9 @@ const ASK_MS = 100;
  * which is the way back to it.
  */
 async function gone(home, closed, bots, bot) {
+  // Nothing closed is nothing to wait for, and a bot that has never been up has
+  // no Orca project to ask: Orca refuses the listing (tech notes, section 1).
+  if (closed.length === 0) return;
   const until = Date.now() + SETTLED_MS;
   const ids = closed.map((tab) => tab.tabId);
 
