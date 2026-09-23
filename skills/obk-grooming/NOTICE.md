@@ -101,3 +101,11 @@ Sources and licences in full: [LICENSES.md](LICENSES.md).
   collaborators from, so it is no longer applied to the notes.
 - The window paragraph is unchanged: its disagreement with `obk usage` is
   issue #169.
+- The memory section is the owner's decision of 2026-09-23 (issue #211):
+  memory is the harness's, per bot; grooming reports it and sends a
+  misalignment back to the bot's session, which decides and edits; grooming
+  never edits a memory. The routing is PRD 6.8 (a usage matter goes back to the
+  session) and the manners PRD 6.9 (queued, not interrupting, no reply
+  expected). The load limit and where the memory lives are the tech notes'
+  facts, verified live on Claude Code 2.1.280; Codex's store is the user's and
+  is left alone.

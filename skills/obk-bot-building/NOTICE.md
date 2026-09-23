@@ -106,3 +106,8 @@ to pass on. See [LICENSES.md](LICENSES.md).
 - Bringing in a session: the outside id goes into the book by hand, and a
   resume across folders is to be tried before it is promised.
 - Cut: a paragraph restating the opening, and two sentences of framing.
+- Memory per bot is the owner's decision of 2026-09-23 (issue #211): a bot may
+  turn on its harness's memory for itself, since the owner's global setting is
+  off. The three Claude Code keys, and that without `autoMemoryDirectory` every
+  bot in the repo shares one memory, were measured live and are in the tech
+  notes; Codex's memories are the user's and cannot be one bot's.
