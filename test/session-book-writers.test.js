@@ -59,7 +59,7 @@
 
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -109,8 +109,30 @@ async function aBook(box) {
  * stopped a process does. Nothing of that process runs while it is stopped — no
  * heartbeat, no notification, no handler — so a lock that is kept alive by a
  * timer is not kept alive at all (round 4, finding 2).
+ *
+ * `stopsBeforeTheLockFor` stops the writer at a point `blocks` cannot reach:
+ * when it is about to put in place a book that does not hold its own change yet
+ * — a book it made from what it read before its change ran, which is the first
+ * write of #161 — it says `paused` and stops its thread until the named writer
+ * has finished, or for three seconds at most, and then the real rename goes
+ * ahead. A write that holds its change never pauses.
+ *
+ * Why the file system is wrapped: that gap is synchronous and comes before
+ * `change` is ever called, so nothing the writer hands `updateBook` runs in it,
+ * and a stop inside `change` is already past it. The rename is where any book
+ * goes into place today (`writeBook`), so the writer process wraps
+ * `fs.renameSync` and has Node carry that to the named import the book module
+ * uses (`syncBuiltinESMExports`). It is instrumentation of this child process
+ * only — it watches and delays the kit's own rename, and stands in for none of
+ * the kit's code. A kit that puts the book in place some other way simply never
+ * pauses here.
+ *
+ * `comesInOn` is the writer that comes into that gap: it starts once the named
+ * writer has paused, or has finished without ever pausing.
  */
-async function aWriter(box, home, name, { holds = 0, blocks = 0, arrivesAfter = 0, env = {} } = {}) {
+async function aWriter(box, home, name, {
+  holds = 0, blocks = 0, arrivesAfter = 0, stopsBeforeTheLockFor = null, comesInOn = null, env = {},
+} = {}) {
   const dir = path.join(box.root, 'writers');
   await mkdir(dir, { recursive: true });
   const script = path.join(dir, `${name}.mjs`);
@@ -120,9 +142,10 @@ async function aWriter(box, home, name, { holds = 0, blocks = 0, arrivesAfter = 
 
   const put = `book.sessions[${JSON.stringify(name)}] = { tab: ${JSON.stringify(`tab-${name}`)} };`;
   await writeFile(script, `${[
-    "import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';",
+    "import fs, { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';",
+    "import { syncBuiltinESMExports } from 'node:module';",
     "import { setTimeout as sleep } from 'node:timers/promises';",
-    `import { updateBook } from ${JSON.stringify(bookModule)};`,
+    `import { bookFile, updateBook } from ${JSON.stringify(bookModule)};`,
     '',
     `const NAME = ${JSON.stringify(name)};`,
     `const HOME = ${JSON.stringify(home)};`,
@@ -131,6 +154,8 @@ async function aWriter(box, home, name, { holds = 0, blocks = 0, arrivesAfter = 
     `const HOLDS = ${JSON.stringify(holds)};`,
     `const BLOCKS = ${JSON.stringify(blocks)};`,
     `const ARRIVES_AFTER = ${JSON.stringify(arrivesAfter)};`,
+    `const STOPS_FOR = ${JSON.stringify(stopsBeforeTheLockFor)};`,
+    `const COMES_IN_ON = ${JSON.stringify(comesInOn)};`,
     '',
     'const say = (what) => appendFileSync(LOG, `${JSON.stringify({ writer: NAME, what, at: Date.now() })}\\n`);',
     '',
@@ -145,6 +170,38 @@ async function aWriter(box, home, name, { holds = 0, blocks = 0, arrivesAfter = 
     '  while (!existsSync(HOLDING)) await sleep(50);',
     '  const took = Number(readFileSync(HOLDING, \'utf8\'));',
     '  await sleep(Math.max(0, took + ARRIVES_AFTER - Date.now()));',
+    '}',
+    '',
+    '// Whether a writer has said any of these steps yet, from the log they share.',
+    'const said = (writer, whats) => existsSync(LOG) && readFileSync(LOG, \'utf8\').split(\'\\n\')',
+    '  .filter((line) => line !== \'\').map((line) => JSON.parse(line))',
+    '  .some((step) => step.writer === writer && whats.includes(step.what));',
+    '',
+    '// Coming in while somebody else is stopped before the lock, or once it is',
+    '// done if it never stopped there. Bounded, so a writer that died does not',
+    '// leave this one waiting for ever.',
+    'if (COMES_IN_ON !== null) {',
+    '  const until = Date.now() + 20_000;',
+    '  while (!said(COMES_IN_ON, [\'paused\', \'committed\', \'refused\']) && Date.now() < until) await sleep(20);',
+    '}',
+    '',
+    '// Stopped before its change is in: a book about to go into place without this',
+    '// writer\'s own change is one it made from what it read earlier. Decided by',
+    '// what is in the book, not by which write this is, and not at all once the',
+    '// other writer has finished, since there is then nothing left to come into.',
+    'if (STOPS_FOR !== null) {',
+    '  const move = fs.renameSync;',
+    '  fs.renameSync = (from, to) => {',
+    `    if (to === bookFile(HOME) && !readFileSync(from, 'utf8').includes(${JSON.stringify(`tab-${name}`)})`,
+    '      && !said(STOPS_FOR, [\'committed\', \'refused\'])) {',
+    '      say(\'paused\');',
+    '      const until = Date.now() + 3000;',
+    '      while (!said(STOPS_FOR, [\'committed\', \'refused\']) && Date.now() < until) stop(20);',
+    '      say(\'resumed\');',
+    '    }',
+    '    return move(from, to);',
+    '  };',
+    '  syncBuiltinESMExports();',
     '}',
     '',
     '// The lock, attempt by attempt. Nothing should take the book away from a',
@@ -540,4 +597,53 @@ test('writing the book leaves nothing behind in the user\'s repo, not even while
   );
   const book = path.relative(bots, bookOf(bots));
   assert.notEqual(after[book], before[book], 'the write this is about did happen');
+});
+
+test('two writers of a bot with no book yet both keep their change, even with one stopped before the lock', async (t) => {
+  // The very first write, the one that makes the file (#161). A writer that
+  // finds no book has decided the book is empty; if it then puts that empty book
+  // in place after another writer has taken the lock and recorded its id, the id
+  // is gone, and nothing about the lock prevented it, because the book was never
+  // put in place under the lock.
+  //
+  // So one writer is stopped in that gap: it has read that there is no book and
+  // is about to put its empty one in place. The other comes in then, records its
+  // change and finishes. Then the first carries on. However the book comes to be
+  // made, both changes have to be in it at the end (ADR 0002).
+  const box = await createSandbox(t);
+  const { bots, home } = await aBook(box);
+  await rm(bookOf(bots));
+
+  const stopped = await aWriter(box, home, 'the-stopped-one', { stopsBeforeTheLockFor: 'the-other-one' });
+  const other = await aWriter(box, home, 'the-other-one', { comesInOn: 'the-stopped-one' });
+  const [paused, came] = await Promise.all([stopped.run(), other.run()]);
+
+  assert.equal(paused.code, 0, paused.stderr);
+  assert.equal(came.code, 0, `the writer that came in must not fail: ${came.stderr}`);
+
+  // Where the stop really happened, the other writer came in while it lasted.
+  // A kit that never puts a book in place without the writer's own change in it
+  // never pauses here: then there is no gap, the other writer starts once the
+  // first has committed, and this test is only the ordinary two writers. Read the
+  // log before reading a pass as a gap that was closed — the step `paused` is in
+  // it only when the stop happened.
+  const steps = await stopped.steps();
+  const pausedAt = steps.find((step) => step.writer === 'the-stopped-one' && step.what === 'paused')?.at;
+  if (pausedAt !== undefined) {
+    const resumedAt = steps.find((step) => step.writer === 'the-stopped-one' && step.what === 'resumed' && step.at >= pausedAt)?.at;
+    const arrived = when(steps, 'the-other-one', 'arrived');
+    assert.ok(
+      arrived >= pausedAt && arrived < resumedAt,
+      `the other writer should have come in while the first was stopped, got: ${JSON.stringify(steps)}`,
+    );
+  }
+
+  const text = await readFile(bookOf(bots), 'utf8');
+  const book = parse(text);
+  assert.notEqual(book, null, `the book must be readable YAML, got:\n${text}`);
+  assert.deepEqual(
+    [book.sessions?.['the-stopped-one']?.tab, book.sessions?.['the-other-one']?.tab],
+    ['tab-the-stopped-one', 'tab-the-other-one'],
+    `both writers' changes must be in the book, got: ${JSON.stringify(steps)}\n${text}`,
+  );
 });

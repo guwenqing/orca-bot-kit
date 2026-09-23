@@ -74,12 +74,13 @@ export function writeBook(home, book) {
  * work; this holds the lock for one read and one write.
  */
 export async function updateBook(home, change) {
-  // The file has to be there to be replaced; a bot whose book has not been
-  // written yet is the ordinary case on a first run.
-  if (!existsSync(bookFile(home))) writeBook(home, readBook(home));
-
   const lock = takeLock(home);
   try {
+    // Nothing writes the book outside this lock, the first write included. A
+    // missing book used to be written before the lock was taken: two first
+    // writers could both find no book, one take the lock and record its id, and
+    // the other then put the empty book it had read in its place (#161,
+    // reproduced with a real second process).
     const book = readBook(home);
     const before = structuredClone(book);
     // Awaited, because a change that takes time must hold the lock while it
