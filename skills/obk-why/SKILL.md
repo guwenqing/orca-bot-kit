@@ -45,7 +45,7 @@ and the review or discussion those changes belong to. Everything after this
 hangs off that anchor, and an investigation that never had one tends to answer
 a question nobody asked.
 
-Where the project keeps its history, that is the one source you can count on. Who last touched these
+Where the project keeps its history, start there. Who last touched these
 lines and in what change; the whole life of the file, including through
 renames; what the change said about itself; and whatever discussion is attached
 to it, which is usually where the reason actually is.
@@ -55,8 +55,12 @@ to it, which is usually where the reason actually is.
 Different reasons live in different places, and which of these exist varies by
 project. Use the ones it has:
 
-- **The history and its discussion**: always. Best for the reason given at
-  the time by the person doing it, under review.
+- **The history and its discussion**, where the project keeps them. Best for
+  the reason given at the time by the person doing it, under review. For a
+  number or a string, search the history for the change that added or removed
+  that exact text; it goes straight to the moment it arrived.
+- **The tests**: their names and cases often encode the edge case that forced
+  the code.
 - **Whatever tracks the work**: issues, tickets, a board. Best when the reason
   came from outside engineering: a customer, a deadline, a rule.
 - **Longer documents**: a design note, a page somewhere. Best where the
@@ -116,8 +120,10 @@ them apart is most of the value of the whole exercise.
   well. Say it is a guess and put the alternatives next to it.
 - **Nobody recorded it.** You looked and it is not there. This is a real
   result and worth saying precisely: not "we could not find out" but what you
-  searched and how. The specific version tells the next person where not to
-  look again.
+  searched and how, and who could answer it (the author, whoever owns the
+  product). The specific version tells the next person where not to look
+  again. Nobody mentioning a concern is not evidence there was none. A
+  write-up with no gaps in it at all is itself worth a second look.
 
 Where two sources disagree, surface both. The issue says the work was for a
 customer's compliance requirement and the change says it was tidying up an
@@ -130,7 +136,8 @@ Do not launder one of these into another. An inference stated in the voice of
 a citation is the failure this whole skill exists to prevent. Some words carry
 a citation with them ("because", "the reason is", "was designed to", "fixes",
 "the team decided"), and each one needs its source immediately beside it or a
-hedged word instead.
+hedged word instead. Words that claim certainty without one ("obviously",
+"clearly") go.
 
 Check it from the other side before you finish: the code is evidence of what
 exists and what changed, and never on its own evidence of why. Reading the

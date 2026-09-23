@@ -35,13 +35,16 @@ thanks:
   edge, and a single all-at-once diagram named as a reference rather than
   teaching; matching the medium to the idea, a diagram for a flow or structure
   where labels carry the meaning and a rough spatial sketch with few short
-  labels for layout, overlap or a before and after; and the whole of its
-  writing guidance (plain spoken English as to a colleague, tight rather than
+  labels for layout, overlap or a before and after; and its writing guidance
+  (plain spoken English as to a colleague, tight rather than
   terse, the concrete mechanism rather than a metaphor or a framing, short
-  sentences with one or two commas and clauses split rather than piled up, one
+  sentences with full stops preferred to commas, one or two commas and clauses
+  split rather than piled up, one
   name per concept kept throughout, no em dashes, no mirror sentences and no
-  tidy closers,
-  and the reply being the explanation itself rather than a report about it).
+  tidy closers, the parts of the skill being directions rather than labels to
+  print, and the reply being the explanation itself rather than a report about
+  it). Its worked density example is not carried; the rules it illustrates
+  are.
 
 Made generic, which is what the owner asked for. The original is built on top
 of two other skills it invokes by name, and a kit skill carries what it needs
@@ -56,3 +59,7 @@ One departure: the original keeps itself from being invoked on its own with
 and PRD 7.2: these run on purpose, never automatically). The description
 carries that instead: the phrases that ask for it, and the note that answering
 a question in passing is not this.
+
+A second departure: the original forbids quizzing outright. Here someone who
+asks to be tested on it is asking for something else, and that is theirs to
+ask for; the defaults do not stop a user asking for what they want.

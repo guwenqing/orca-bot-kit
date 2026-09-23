@@ -23,7 +23,7 @@ something else gets what they asked for; say which of these you left and why.
 A few things, not everything. Choose them from why they are asking. About to
 change it, reviewing it, chasing a bug in it, new to it: each wants a different
 few. Choose them from what they already know, too, and read both from the
-conversation rather than quizzing them for it.
+conversation.
 
 Skip what they plainly know already. Put the depth where their question is,
 not where the subject happens to be interesting.
@@ -94,12 +94,13 @@ Plain spoken English, the way you would explain it to a colleague standing
 next to you. Tight, not terse: cut the filler, keep the part that makes it
 click. State the mechanism rather than a metaphor for the mechanism.
 
-Short sentences. One or two commas at most; when the clauses pile up, split
-them. No em dashes. Give each idea one name and keep that name. Avoid the tidy
-closer, "and the rest follows", "it all falls out". Avoid the mirrored sentence
-that says the same thing twice in opposite order.
+Short sentences, full stops rather than commas. One or two commas at most; when
+the clauses pile up, split them. No em dashes. Give each idea one name and keep
+that name. Avoid the tidy closer, "and the rest follows", "it all falls out".
+Avoid the mirrored sentence that says the same thing twice in opposite order.
 
 What comes back is the explanation itself, never a report about having
-explained it.
+explained it. The parts of this skill are directions to you, not labels to
+print: do not echo them as headings.
 
 Sources and licences: [NOTICE.md](NOTICE.md).

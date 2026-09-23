@@ -16,7 +16,7 @@ The skill `obk-why` was consolidated for this kit from this, MIT, with thanks:
   in concrete code first (the paths and line ranges, the symbols, the recent
   commits, the review discussion attached to them) before looking anywhere
   else; the categories of place a reason lives and what each is uniquely good
-  at, with source control always available and best for the rationale captured
+  at, with source control best for the rationale captured
   at review time, the tracker best when the reason is external to engineering,
   long-form documents where the thinking predates the code, real-time chat for
   deliberation that never reached a document and most valuable when the written
@@ -64,3 +64,11 @@ One departure: the original keeps itself from being invoked on its own with
 and PRD 7.2: these run on purpose, never automatically). The description
 carries that instead: the phrases that ask for it, and the note that it is not
 something to start unasked before an ordinary change.
+
+Further from `references/epistemics.md`: not turning an absence of evidence
+into evidence of absence, naming who could answer what nobody recorded, a
+write-up with no gaps being suspicious, and the words that claim certainty
+without a source. From `references/sources/code-archaeology.md`: searching the
+history for the change that added or removed an exact string, and the tests as
+a place the reason is encoded. The original's "source control is always
+available" is not carried: a project may keep no history this bot can read.

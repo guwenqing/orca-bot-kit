@@ -12,6 +12,9 @@ with thanks:
   not duplicating what other artefacts already hold and pointing at them by
   path instead, redacting anything sensitive, tailoring it to what the next
   session is for, and naming the techniques the next session should reach for.
+  From its `docs/productivity/handoff.md`: the next agent takes the note as a
+  contract and will not re-check it, so read it before handing it over and
+  downgrade anything only assumed.
 - **Cursor pstack**, the `poteto-mode` `pause-safely` playbook: stopping at a
   safe boundary by finishing or backing out of the current step and never
   stopping mid-edit in a known-broken state, starting nothing new and stopping
