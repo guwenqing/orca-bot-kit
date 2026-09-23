@@ -36,7 +36,8 @@ project → repo (`kind: "git" | "folder"`) → worktree (id = `<repoId>::<absPa
   call. `orca project setups --json` lists every setup with its `path` and `kind`, which is how the kit
   finds a workspace it made earlier. **verified** (live)
 - Many tabs can share one folder: call `orca terminal create --worktree path:<p>` repeatedly.
-- Terminal handles are issued at runtime and go stale after a restart, so re-list with
+- Terminal handles are issued at runtime and are not promised to outlast a restart (three did outlast
+  the 2026-09-22 reboot, below, but that is one observation, not a contract), so re-list with
   `orca terminal list [--worktree <sel>] --json` and match on the `tabId` that `orca terminal create`
   returned. **The tab id is the key, never the title.** Always set a title (`--title` at creation, kept
   as the tab's `customTitle`), but do not identify a tab by it: the title `terminal list` reports is
@@ -44,7 +45,14 @@ project → repo (`kind: "git" | "folder"`) → worktree (id = `<repoId>::<absPa
   is `Kit Arch` lists as `✳ Chatgpt-bot-kit orca migration`, one titled `orca-bot-kit dev` lists as
   `◐ orca-bot-kit-dev`, and a zsh prompt rewrites a shell tab's title to its folder. Orca's own
   `settings.tabAutoGenerateTitle` is `false` on this machine, so that option is not what moves them.
-  **verified** (live) **unverified:** that a tab id survives an Orca restart.
+  **verified** (live)
+- **A tab keeps its tab id across an Orca restart.** On 2026-09-22 the machine was rebooted and Orca started
+  again (the running Orca started at 16:06). The three working tabs read before and after by the coordinator
+  kept their tab ids, and on that occasion their handles too (`term_8de5ea5c…`, `term_ee149c15…`,
+  `term_46f87f78…`). The tab id is what the kit keys on; a handle is still re-listed rather than kept. Orca afterwards was 1.4.207, which its own trace log first records at 16:03 that day. The
+  last version on record before it is 1.4.205 (2026-09-21); whether another ran in between is not recorded.
+  **verified by observation** of one reboot, not by a deliberate test. A deliberate restart test is still
+  owed if the owner wants one; it closes every tab on the machine, so it is his to schedule (#176).
 - Orca calls every workspace a "worktree", a plain folder included. Say "Orca project" or "folder
   workspace" in anything a user reads, so nobody thinks a git worktree was made. The kit never makes
   one: no `git worktree add`, no `orca worktree create`, and no bot folder left registered as git kind.
@@ -274,4 +282,4 @@ Agent Skills spec: `name` is 1–64 chars, lowercase letters, digits and hyphens
 4. ~~Codex `auto` mode lets a bot run `orca`~~ **done** (2026-09-21, issue 08): only with `-c sandbox_workspace_write.network_access=true`; see section 3. `gh` under `auto` is still owed.
 5. ~~An Orca automation with `--reuse-session` keeps one grooming conversation.~~ **no longer needed** (slice 11): grooming does not use `--reuse-session` and is a fresh conversation each run (PRD 6.8). Whether the flag keeps one conversation is still unverified.
 6. `codex queue` retest.
-7. An Orca tab id is still the same after Orca restarts.
+7. ~~An Orca tab id is still the same after Orca restarts.~~ **verified by observation** (2026-09-22 reboot, see section 1); a deliberate restart test is still owed if the owner wants one (#176).
