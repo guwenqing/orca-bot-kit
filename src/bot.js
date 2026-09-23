@@ -77,6 +77,8 @@ export function readBot(home, name = path.basename(home)) {
     // and a list the build cannot follow is that build's to report (PRD 6.6).
     charter: bot.charter,
     rules: bot.rules,
+    // A paused bot is one `obk up` leaves closed; its sessions keep their book.
+    ...(bot.paused === true ? { paused: true } : {}),
     sessions: sessions.map((session) => {
       const entry = typeof session === 'string' ? { name: session } : session;
       if (entry === null || typeof entry !== 'object' || !entry.name) {
@@ -173,6 +175,143 @@ export function addSession(bots, bot, settings) {
   }
   writeFileSync(file, text);
   return { bot, home, session };
+}
+
+/**
+ * Give the bot `bot` a new charter. Returns { bot, home, charter }.
+ *
+ * The charter and nothing else: its `AGENTS.md` is rebuilt from it by the rules
+ * build, which the caller runs, as `bot create` does.
+ */
+export function changeBot(bots, bot, { charter }) {
+  if (charter === undefined) throw new Error('bot change needs --charter <text>: what to change.');
+  if (charter.trim() === '') throw new Error('--charter is empty, and a bot with no charter has no boundary to act inside. Give it one.');
+
+  const text = `${charter.trim()}\n`;
+  editBot(bots, bot, `give ${bot} a new charter`, (doc) => doc.set('charter', text), (was) => ({ ...was, charter: text }));
+  return { bot, home: botDir(bots, bot), charter: text };
+}
+
+/**
+ * Change the settings of the session `name` of the bot `bot`. Returns
+ * { bot, home, session } — the session as it now reads.
+ *
+ * A setting given replaces the one there, and one given empty is taken out,
+ * which leaves it to the harness's own default. A start prompt is written one
+ * way or the other, so giving one takes the other away. The result is held to
+ * the rules `session add` holds a new session to.
+ */
+export function changeSession(bots, bot, name, settings) {
+  const changes = { ...settings };
+  if (Object.keys(changes).length === 0) {
+    throw new Error(`session change needs a setting to change: say what ${bot}'s session ${name} is to be set to.`);
+  }
+  if (changes.prompt !== undefined && changes.prompt_file === undefined) changes.prompt_file = '';
+  if (changes.prompt_file !== undefined && changes.prompt === undefined) changes.prompt = '';
+
+  const { home, known, index } = sessionAt(bots, bot, name);
+  const was = known.sessions[index];
+  // Every key the entry had stays, a pause mark or one of the user's own among
+  // them; only the settings given change.
+  const session = Object.fromEntries(Object.entries({ ...was, ...changes })
+    .filter(([, value]) => value !== '' && !(Array.isArray(value) && value.every((one) => one === ''))));
+  const trouble = sessionTrouble(session, harnessOf(session, known.harness), home);
+  if (trouble !== undefined) throw new Error(trouble);
+
+  editSession(bots, bot, index, session, `change ${bot}'s session ${name}`);
+  return { bot, home, session };
+}
+
+/**
+ * Mark the bot `bot`, or its session `name`, paused or not. Returns whether
+ * the file changed. A paused bot or session is one `obk up` leaves closed.
+ */
+export function markPaused(bots, bot, name, paused) {
+  if (name === undefined) {
+    const known = readBot(botDir(bots, bot), bot);
+    if ((known.paused === true) === paused) return false;
+    editBot(
+      bots, bot, `${paused ? 'pause' : 'unpause'} ${bot}`,
+      (doc) => (paused ? doc.set('paused', true) : doc.delete('paused')),
+      ({ paused: none, ...was }) => (paused ? { ...was, paused: true } : was),
+    );
+    return true;
+  }
+
+  const { known, index } = sessionAt(bots, bot, name);
+  const was = known.sessions[index];
+  if ((was.paused === true) === paused) return false;
+  const { paused: none, ...rest } = was;
+  editSession(bots, bot, index, paused ? { ...rest, paused: true } : rest, `${paused ? 'pause' : 'unpause'} ${bot}'s session ${name}`);
+  return true;
+}
+
+/** Take the session `name` off the bot `bot`'s list. */
+export function dropSession(bots, bot, name) {
+  const { index } = sessionAt(bots, bot, name);
+  editBot(
+    bots, bot, `take the session ${name} off ${bot}`,
+    (doc) => doc.deleteIn(['sessions', index]),
+    (was) => ({ ...was, sessions: was.sessions.filter((one, at) => at !== index) }),
+  );
+}
+
+/** Where a session sits in its bot's list, refusing a bot or a session that is not there. */
+function sessionAt(bots, bot, name) {
+  const home = existingBot(bots, bot);
+  const known = readBot(home, bot);
+  const index = known.sessions.findIndex((session) => session.name === name);
+  if (index === -1) {
+    throw new Error(`${bot} has no session called ${name}. It has: ${known.sessions.map((session) => session.name).join(', ') || 'none'}.`);
+  }
+  return { home, known, index };
+}
+
+/**
+ * Write the session at `index` as `session`, key by key where it is already a
+ * mapping, so what the user wrote beside the keys it keeps stays with them.
+ */
+function editSession(bots, bot, index, session, what) {
+  editBot(bots, bot, what, (doc) => {
+    const node = doc.getIn(['sessions', index], true);
+    if (node?.items === undefined) {
+      doc.setIn(['sessions', index], session);
+      return;
+    }
+    for (const pair of [...node.items]) {
+      const key = String(pair.key?.value ?? pair.key);
+      if (!(key in session)) doc.deleteIn(['sessions', index, key]);
+    }
+    for (const [key, value] of Object.entries(session)) {
+      if (!isDeepStrictEqual(doc.getIn(['sessions', index, key]), value)) doc.setIn(['sessions', index, key], value);
+    }
+  }, (was) => ({ ...was, sessions: was.sessions.map((one, at) => (at === index ? session : one)) }));
+}
+
+/**
+ * Make one edit to a bot's `bot.yaml` through the YAML library, and write it
+ * only if exactly the change `expected` describes is what came out.
+ */
+function editBot(bots, bot, what, edit, expected) {
+  const file = path.join(existingBot(bots, bot), BOT_YAML);
+  const source = readFileSync(file, 'utf8');
+  const doc = parseDocument(source);
+  edit(doc);
+  const text = doc.toString(YAML_OUT);
+  if (!changesExactly(source, text, expected)) {
+    throw new Error(`${file} cannot be changed to ${what} without changing something else in it, so nothing was written. Make the change by hand.`);
+  }
+  if (text !== source) writeFileSync(file, text);
+}
+
+/** A bot that is there, by its home, or the refusal a caller who named another is owed. */
+export function existingBot(bots, bot) {
+  requireBotsFolder(bots);
+  const home = botDir(bots, bot);
+  if (!existsSync(path.join(home, BOT_YAML))) {
+    throw new Error(`there is no bot called ${bot} in ${bots}: ${path.join(home, BOT_YAML)} is not there.`);
+  }
+  return home;
 }
 
 /**

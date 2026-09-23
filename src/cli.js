@@ -11,7 +11,7 @@ import { readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 
-import { addSession, createBot, readBot, SESSION_FIELDS } from './bot.js';
+import { addSession, changeBot, changeSession, createBot, readBot, SESSION_FIELDS } from './bot.js';
 import { grooming } from './groom.js';
 import { checkHealth, orcaSettingFindings } from './health.js';
 import { initBots } from './init.js';
@@ -22,7 +22,7 @@ import { recordSession, SHELL_ENV, TAB_ENV } from './record.js';
 import { restartSessions } from './restart.js';
 import { readRoster } from './roster.js';
 import { buildAgents, buildRules, CODEX_CAP } from './rules.js';
-import { addSkill, buildSkills, linkSkills } from './skills.js';
+import { addSkill, buildSkills, linkSkills, removeSkill } from './skills.js';
 import { addSource, fetchSources } from './sources.js';
 import { readUsage } from './usage.js';
 import { BOT_FATHER, bringUp } from './up.js';
@@ -160,13 +160,16 @@ const COMMANDS = {
   roster: ['bots'],
   usage: ['bots'],
   'bot create': ['bots', 'name', 'harness'],
+  'bot change': ['bots', 'bot'],
   'rules build': ['bots'],
   'skills add': ['bots', 'bot', 'skill'],
+  'skills remove': ['bots', 'bot', 'skill'],
   'skills build': ['bots'],
   'skills fetch': ['bots'],
   'skills update': ['bots'],
   'source add': ['bots', 'name', 'repo', 'ref'],
   'session add': ['bots', 'bot', 'name'],
+  'session change': ['bots', 'bot', 'session'],
   'message to': ['bots', 'to'],
   'message send': ['bots', 'to', 'subject'],
   'message check': ['bots'],
@@ -434,6 +437,28 @@ const commands = {
     };
   },
 
+  'bot change'(bots, values) {
+    if (values.harness !== undefined) {
+      throw new Error(`bot change does not change a bot's harness: its sessions' conversations belong to the harness they ran on. To move to ${values.harness}, give it a session on ${values.harness} with obk session add, or retire the bot with obk retire and create a new one.`);
+    }
+    const changed = changeBot(bots, values.bot, { charter: values.charter });
+    // Rebuilt at once, as bot create builds it, so the charter a session reads
+    // is the one the bot now has.
+    const rules = [buildAgents(bots, changed.home, readBot(changed.home))];
+    const trouble = rules[0].trouble !== undefined;
+    return {
+      answer: { bots, bot: changed.bot, home: changed.home, charter: changed.charter, rules },
+      lines: [
+        `changed    the charter in ${path.join('bots', changed.bot, 'bot.yaml')}`,
+        ...rulesLines(rules, bots),
+        trouble
+          ? `${changed.bot}'s charter is written, and its rules are not. Settle what the line above says, then:  obk rules build --bots ${bots} --bot ${changed.bot}`
+          : `${changed.bot}'s charter is changed. A session that is running read the old one when it started; it reads this one when it next starts.`,
+      ],
+      code: trouble ? 1 : 0,
+    };
+  },
+
   'skills build'(bots, values) {
     const skills = buildSkills(bots, { bot: values.bot });
     const trouble = skills.filter((entry) => entry.trouble !== undefined);
@@ -458,6 +483,19 @@ const commands = {
           ? `added      ${added.skill} to ${path.join('bots', added.bot, 'bot.yaml')}`
           : `there      ${added.skill} is on ${added.bot}'s list already, and nothing was written`,
         `Link it:   obk skills build --bots ${bots} --bot ${added.bot}`,
+      ],
+    };
+  },
+
+  'skills remove'(bots, values) {
+    const removed = removeSkill(bots, values.bot, values.skill);
+    return {
+      answer: { bots, bot: removed.bot, home: removed.home, skill: removed.skill, state: removed.state },
+      lines: [
+        removed.state === 'removed'
+          ? `removed    ${removed.skill} from ${path.join('bots', removed.bot, 'bot.yaml')}`
+          : `absent     ${removed.skill} is not on ${removed.bot}'s list, and nothing was written`,
+        `Unlink it: obk skills build --bots ${bots} --bot ${removed.bot}`,
       ],
     };
   },
@@ -617,6 +655,25 @@ const commands = {
           .filter(([key]) => key !== 'name')
           .map(([key, value]) => `           ${key}  ${oneLine(value)}`),
         `Bring it up:  obk up --bots ${bots} --bot ${added.bot}`,
+      ],
+    };
+  },
+
+  'session change'(bots, values) {
+    if (values.harness !== undefined) {
+      throw new Error(`session change does not change a session's harness: its conversations belong to the harness they ran on. To move it, retire it with obk retire and add one on ${values.harness} with obk session add.`);
+    }
+    const { name, ...settings } = settingsOf(values);
+    const changed = changeSession(bots, values.bot, values.session, settings);
+    const restart = `obk restart --bots ${bots} --bot ${changed.bot} --session ${values.session}`;
+    return {
+      answer: { bots, bot: changed.bot, home: changed.home, session: changed.session, restart },
+      lines: [
+        `changed    session ${values.session} in ${path.join('bots', changed.bot, 'bot.yaml')}`,
+        ...Object.entries(changed.session)
+          .filter(([key]) => key !== 'name')
+          .map(([key, value]) => `           ${key}  ${oneLine(value)}`),
+        `A running session takes this when it next starts:  ${restart}`,
       ],
     };
   },
