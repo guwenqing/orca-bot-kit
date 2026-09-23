@@ -166,14 +166,16 @@ Usage:
                             project. It is made off, because it spends tokens
                             every day: run it by hand once, read what it gives
                             you, then --on.
-  obk usage --bots <path> [--bot <bot>] [--session <name>] [--since <time>]
+  obk usage --bots <path> [--bot <bot>] [--session <name>] [--since <time>] [--until <time>]
                             Say what your sessions have used: the conversations
                             each one had, their calls and tokens, the models and
                             efforts they ran at, and how often they were
                             compacted. --since counts the calls made from that
-                            moment on, which is how a daily run asks what has
-                            happened since the last one. It counts tokens and
-                            never money: what a token costs is looked up live by
+                            moment on, and --until the calls made before that
+                            one: a daily run asks from the last run's end up to
+                            its own, and the next starts where it stopped, so no
+                            call is counted twice. It counts tokens and never
+                            money: what a token costs is looked up live by
                             whoever is asking.
   obk session record --bots <path> --bot <bot>
                             For the kit's own hook, not for typing: it reads
@@ -224,6 +226,7 @@ const NEEDED = {
   session: '--session <name>: which session',
   source: '--source <name>: which source',
   since: '--since <time>: the moment to count from',
+  until: '--until <time>: the moment to count up to, not including it',
   at: '--at <HH:MM>: what time of day it runs',
   skill: "--skill <ref>: which skill, as a bot's list names one",
   repo: '--repo <url>: the repository to clone it from',
@@ -264,6 +267,7 @@ async function run(argv) {
       session: { type: 'string' },
       source: { type: 'string' },
       since: { type: 'string' },
+      until: { type: 'string' },
       at: { type: 'string' },
       on: { type: 'boolean' },
       off: { type: 'boolean' },
@@ -623,7 +627,7 @@ const commands = {
   },
 
   usage(bots, values) {
-    const usage = readUsage(bots, { bot: values.bot, session: values.session, since: values.since });
+    const usage = readUsage(bots, { bot: values.bot, session: values.session, since: values.since, until: values.until });
     return { answer: { bots, usage }, lines: usageLines(usage, bots) };
   },
 

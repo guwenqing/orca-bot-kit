@@ -722,6 +722,250 @@ test('U5 without --since everything on record is counted', async (t) => {
   assert.equal(tokensOf(conversation).output, 43);
 });
 
+// --until closes the window (issue #169). A grooming run fixes the end of its
+// window before it reads and hands that moment on as the next run's start, so
+// the window is half-open: at or after --since, and before --until. Two runs
+// that meet at one moment then count every call once between them.
+
+/** The daily session's conversations, over the window the flags name. */
+const dailyOver = async (box, ...window) =>
+  conversationsOf(sessionOf(entryOf(await usage(box, ...window), 'api-bot'), 'daily'));
+
+test('U13 a call exactly at --since is counted and one exactly at --until is not', async (t) => {
+  const box = await createSandbox(t);
+  const { bots, home } = await fleet(box, { harness: 'claude' });
+  await plant(box, 'claude', home, {
+    id: 'conv-a',
+    started: at(9),
+    lines: [
+      claudeCall({ when: at(9, 59), request: 'req-1', message: 'msg-1', input: 1000, output: 1000 }),
+      claudeCall({ when: at(10, 0), request: 'req-2', message: 'msg-2', input: 20, output: 2 }),
+      claudeCall({ when: at(10, 30), request: 'req-3', message: 'msg-3', input: 300, output: 30 }),
+      claudeCall({ when: at(11, 0), request: 'req-4', message: 'msg-4', input: 4000, output: 400 }),
+      claudeCall({ when: at(11, 30), request: 'req-5', message: 'msg-5', input: 50000, output: 5000 }),
+    ],
+  });
+  await bookSays(bots, 'api-bot', { daily: ran('conv-a') });
+
+  const conversation = conversationOf(await dailyOver(box, '--since', at(10), '--until', at(11)), 'conv-a');
+
+  assert.equal(conversation.calls, 2, 'the 10:00 and the 10:30 calls, and neither the 11:00 one nor any outside');
+  assert.equal(tokensOf(conversation).input, 320);
+  assert.equal(tokensOf(conversation).output, 32);
+  assert.equal(Date.parse(conversation.first), Date.parse(at(10)), 'the first counted call is the one at --since');
+  assert.equal(Date.parse(conversation.last), Date.parse(at(10, 30)), 'the last is the one before --until');
+});
+
+test('U13 --until alone counts everything before it', async (t) => {
+  const box = await createSandbox(t);
+  const { bots, home } = await fleet(box, { harness: 'claude' });
+  await plant(box, 'claude', home, {
+    id: 'conv-a',
+    started: at(8),
+    lines: [
+      claudeCall({ when: at(8, 5), request: 'req-1', message: 'msg-1', input: 1000, output: 30 }),
+      claudeCall({ when: at(10, 0), request: 'req-2', message: 'msg-2', input: 42, output: 13 }),
+      claudeCall({ when: at(11, 0), request: 'req-3', message: 'msg-3', input: 7, output: 5 }),
+    ],
+  });
+  await bookSays(bots, 'api-bot', { daily: ran('conv-a') });
+
+  const conversation = conversationOf(await dailyOver(box, '--until', at(11)), 'conv-a');
+
+  assert.equal(conversation.calls, 2, 'everything before 11:00, however early');
+  assert.equal(tokensOf(conversation).input, 1042);
+  assert.equal(tokensOf(conversation).output, 43);
+  assert.equal(Date.parse(conversation.last), Date.parse(at(10)));
+});
+
+test('U13 Claude Code: two windows that meet at a moment add up to the one window, every call once', async (t) => {
+  const box = await createSandbox(t);
+  const { bots, home } = await fleet(box, { harness: 'claude' });
+  await plant(box, 'claude', home, {
+    id: 'conv-long',
+    started: at(9),
+    lines: [
+      claudeCall({ when: at(9, 0), request: 'req-1', message: 'msg-1', input: 100, cacheRead: 10, output: 1 }),
+      claudeCall({ when: at(10, 59), request: 'req-2', message: 'msg-2', input: 200, cacheRead: 20, output: 2 }),
+      claudeCall({ when: at(11, 0), request: 'req-3', message: 'msg-3', input: 400, cacheRead: 40, output: 4 }),
+      claudeCall({ when: at(12, 0), request: 'req-4', message: 'msg-4', input: 800, cacheRead: 80, output: 8 }),
+    ],
+  });
+  await plant(box, 'claude', home, {
+    id: 'conv-early',
+    started: at(9, 30),
+    lines: [claudeCall({ when: at(9, 30), request: 'req-5', message: 'msg-5', input: 16, output: 16 })],
+  });
+  await bookSays(bots, 'api-bot', { daily: ran('conv-long', 'conv-early') });
+
+  const before = await dailyOver(box, '--since', at(9), '--until', at(11));
+  const after = await dailyOver(box, '--since', at(11), '--until', at(13));
+  const whole = await dailyOver(box, '--since', at(9), '--until', at(13));
+
+  assert.deepEqual(idsOf(before), ['conv-early', 'conv-long']);
+  assert.deepEqual(idsOf(after), ['conv-long'], 'a conversation with no calls in the window is left out');
+  assert.deepEqual(idsOf(whole), ['conv-early', 'conv-long']);
+
+  const early = conversationOf(before, 'conv-long');
+  const late = conversationOf(after, 'conv-long');
+  const all = conversationOf(whole, 'conv-long');
+  assert.equal(early.calls, 2, 'the 09:00 and 10:59 calls');
+  assert.equal(late.calls, 2, 'the 11:00 call and the 12:00 one');
+  assert.equal(all.calls, 4);
+  assert.equal(tokensOf(early).input, 300);
+  assert.equal(tokensOf(late).input, 1200);
+  assert.equal(tokensOf(all).input, 1500);
+  assert.equal(tokensOf(early).cache_read + tokensOf(late).cache_read, tokensOf(all).cache_read);
+  assert.equal(tokensOf(early).output + tokensOf(late).output, tokensOf(all).output);
+  assert.equal(Date.parse(early.last), Date.parse(at(10, 59)));
+  assert.equal(Date.parse(late.first), Date.parse(at(11)), 'the boundary call opens the later window');
+});
+
+test('U13 Codex: two windows that meet at a moment add up to the one window, across a conversation spanning it', async (t) => {
+  // The later window opens mid conversation, so its first call is measured
+  // against a running total written before the window; the earlier window ends
+  // mid conversation, and must not take the boundary call, nor the repeat of it.
+  const box = await createSandbox(t);
+  const { bots, home } = await fleet(box, { harness: 'codex' });
+  await plant(box, 'codex', home, {
+    id: 'conv-c',
+    started: at(8, 30),
+    lines: [
+      codexTurn({ when: at(8, 30) }),
+      codexCall({
+        when: at(9, 0),
+        last: { input: 1000, cached: 0, output: 100 },
+        total: { input: 1000, cached: 0, output: 100 },
+      }),
+      codexCall({
+        when: at(10, 0),
+        last: { input: 2000, cached: 800, output: 200 },
+        total: { input: 3000, cached: 800, output: 300 },
+      }),
+      codexCall({
+        when: at(11, 0),
+        last: { input: 500, cached: 300, output: 50 },
+        total: { input: 3500, cached: 1100, output: 350 },
+      }),
+      codexCall({
+        when: at(11, 1),
+        last: { input: 500, cached: 300, output: 50 },
+        total: { input: 3500, cached: 1100, output: 350 },
+      }),
+      codexCall({
+        when: at(12, 0),
+        last: { input: 400, cached: 100, output: 40 },
+        total: { input: 3900, cached: 1200, output: 390 },
+      }),
+    ],
+  });
+  await bookSays(bots, 'api-bot', { daily: ran('conv-c') });
+
+  const early = conversationOf(await dailyOver(box, '--since', at(9), '--until', at(11)), 'conv-c');
+  const late = conversationOf(await dailyOver(box, '--since', at(11), '--until', at(13)), 'conv-c');
+  const all = conversationOf(await dailyOver(box, '--since', at(9), '--until', at(13)), 'conv-c');
+
+  assert.equal(early.calls, 2, 'the 09:00 and 10:00 calls');
+  assert.equal(tokensOf(early).input, 2200, '1,000 and then 2,000 less its 800 cached');
+  assert.equal(tokensOf(early).cache_read, 800);
+  assert.equal(tokensOf(early).output, 300);
+
+  assert.equal(late.calls, 2, 'the 11:00 call, written down twice, and the 12:00 one');
+  assert.equal(tokensOf(late).input, 500, '200 and 300: what each added, less what of it was cached');
+  assert.equal(tokensOf(late).cache_read, 400);
+  assert.equal(tokensOf(late).output, 90);
+  assert.equal(Date.parse(late.first), Date.parse(at(11)));
+
+  assert.equal(all.calls, 4);
+  assert.equal(tokensOf(all).input, 2700);
+  assert.equal(tokensOf(all).cache_read, 1200);
+  assert.equal(tokensOf(all).output, 390);
+});
+
+test('U13 Claude Code compactions follow the same window as the calls', async (t) => {
+  const box = await createSandbox(t);
+  const { bots, home } = await fleet(box, { harness: 'claude' });
+  await plant(box, 'claude', home, {
+    id: 'conv-a',
+    started: at(9),
+    lines: [
+      claudeCompaction(at(9, 30)),
+      claudeCompaction(at(10, 0)),
+      claudeCall({ when: at(10, 15), request: 'req-1', message: 'msg-1', input: 1, output: 1 }),
+      claudeCompaction(at(10, 30)),
+      claudeCompaction(at(11, 0)),
+      claudeCall({ when: at(11, 15), request: 'req-2', message: 'msg-2', input: 1, output: 1 }),
+      claudeCompaction(at(11, 30)),
+    ],
+  });
+  await bookSays(bots, 'api-bot', { daily: ran('conv-a') });
+
+  const early = conversationOf(await dailyOver(box, '--since', at(10), '--until', at(11)), 'conv-a');
+  const late = conversationOf(await dailyOver(box, '--since', at(11), '--until', at(12)), 'conv-a');
+
+  assert.equal(early.compactions, 2, 'the one at 10:00 and the one at 10:30; not the one at 11:00');
+  assert.equal(late.compactions, 2, 'the one at 11:00 and the one at 11:30');
+});
+
+test('U13 Codex compactions follow the same window as the calls', async (t) => {
+  const box = await createSandbox(t);
+  const { bots, home } = await fleet(box, { harness: 'codex' });
+  await plant(box, 'codex', home, {
+    id: 'conv-c',
+    started: at(9),
+    lines: [
+      codexTurn({ when: at(9) }),
+      codexCompaction(at(9, 30)),
+      codexCompaction(at(10, 0)),
+      codexCall({ when: at(10, 15), last: { input: 10, output: 1 }, total: { input: 10, output: 1 } }),
+      codexCompaction(at(10, 30)),
+      codexCompaction(at(11, 0)),
+      codexCall({ when: at(11, 15), last: { input: 10, output: 1 }, total: { input: 20, output: 2 } }),
+      codexCompaction(at(11, 30)),
+    ],
+  });
+  await bookSays(bots, 'api-bot', { daily: ran('conv-c') });
+
+  const early = conversationOf(await dailyOver(box, '--since', at(10), '--until', at(11)), 'conv-c');
+  const late = conversationOf(await dailyOver(box, '--since', at(11), '--until', at(12)), 'conv-c');
+
+  assert.equal(early.compactions, 2, 'the one at 10:00 and the one at 10:30; not the one at 11:00');
+  assert.equal(late.compactions, 2, 'the one at 11:00 and the one at 11:30');
+});
+
+test('U13 an --until that is not a moment is refused and names what it got', async (t) => {
+  const box = await createSandbox(t);
+  await fleet(box, { harness: 'claude' });
+
+  const result = await box.run(['usage', '--bots', 'bots', '--until', 'teatime']);
+
+  assertCleanFailure(result);
+  assert.ok(result.stderr.includes('--until'), `the refusal should name --until, got: ${result.stderr}`);
+  assert.ok(result.stderr.includes('teatime'), `and what it was given, got: ${result.stderr}`);
+});
+
+test('U13 an --until earlier than --since is refused', async (t) => {
+  const box = await createSandbox(t);
+  await fleet(box, { harness: 'claude' });
+
+  const result = await box.run(['usage', '--bots', 'bots', '--since', at(11), '--until', at(10)]);
+
+  assertCleanFailure(result);
+  assert.ok(
+    result.stderr.includes('--until') && result.stderr.includes('--since'),
+    `the refusal should name both ends, got: ${result.stderr}`,
+  );
+});
+
+test('U13 the help lists --until', async (t) => {
+  const box = await createSandbox(t);
+
+  const result = await box.run(['--help']);
+
+  assert.equal(result.code, 0);
+  assert.ok(result.stdout.includes('--until'), `usage should mention --until, got: ${result.stdout}`);
+});
+
 test('U6 --bot reports the one bot named and no other', async (t) => {
   const box = await createSandbox(t);
   const { bots } = await fleet(box, { harness: 'claude' });

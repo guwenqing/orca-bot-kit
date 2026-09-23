@@ -26,9 +26,11 @@ something else gets what they asked for; say which of these you left and why.
 Fix the end of the window before you read, not after. Take the moment you are
 starting as the end of what this run covers, read from the last run's end up to
 it, and write that same moment down as what was covered. The kit counts to
-match: `obk usage --since` counts the calls made from a moment rather than the
-conversations begun after it, so a conversation that has been running all week
-still reports what it spent today.
+match: `obk usage --since <last end> --until <this end>` counts the calls made
+from the first moment up to, but not including, the second, rather than the
+conversations begun in between. So a conversation that has been running all
+week still reports what it spent today, and a call made while this run is
+reading is left for the next run, which starts from this run's end.
 
 What you must not use as the next run's starting point is the time you finished
 writing the report. A run that reads at ten o'clock and finishes at two minutes
@@ -61,7 +63,7 @@ fixed or no longer true. Commit these once a day, at the end of the run.
 
 ## Keep the run bounded
 
-Use `obk usage --since` as the index: open only the conversations it shows
+Use `obk usage --since --until` as the index: open only the conversations it shows
 moving in the window, and read only their part in the window, never a whole
 transcript. Where nothing has moved, say so in a line and stop. Where the
 harness lets it be set, the pass runs on a cheaper model at medium effort. Say
