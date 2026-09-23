@@ -20,8 +20,9 @@ nothing here quotes it:
   another tool, anything charged outside the token bill, and the person's own
   time correcting and re-explaining, which is usually the largest part and the
   part nobody writes down;
-- that effort should follow the work: low for routine and dispatch, high for
-  orchestration, and the top of the range kept for deep read-only analysis;
+- that effort should follow the work: high for the orchestrating session,
+  medium for the workers, and the top of the range kept for deep read-only
+  analysis, as the owner's usage review puts it;
 - that a long thread pays to re-read itself, that a high median input per call
   is the measurable form of it, and that compaction is where it becomes
   visible;
@@ -58,3 +59,19 @@ automatically widening a bot's permissions is not something to invent inside a
 skill about cost.
 
 Sources and licences in full: [LICENSES.md](LICENSES.md).
+
+## What the re-validation changed (#156)
+
+- Pricing per model from `obk usage --json`'s per-model rows (the review
+  finding on #141), and reasoning tokens priced once, since on Codex they sit
+  inside output (docs/tech-notes.md).
+- The effort defaults as the owner's usage review gives them.
+- The median input per call as the measure of a thread re-reading itself, a
+  hand-over after more than one compaction for a worker session while a
+  persona session is judged on its cost and lost state (grok-bot-lessons'
+  session policy), and a check-in every so many
+  tokens on a loop with no budget (the usage review, via grok-bot-lessons).
+- On the signs of a model not up to the work, the charter or the job is the
+  first suspect, as in `obk-fleet-review`.
+- The allowance share is given only where the plan shows it; the kit does not
+  report it.

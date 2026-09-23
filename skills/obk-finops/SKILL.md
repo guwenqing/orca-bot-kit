@@ -36,11 +36,13 @@ than it sounds: the two write their transcripts down differently, and a number
 read straight out of a transcript is not comparable with the same number from
 the other one. Take the kit's.
 
-Four kinds of token and they do not cost the same. Uncached input, output,
-cache reads and cache writes are separate figures because they are separately
-priced, and a conversation that looks expensive on raw input is often a
-conversation doing its caching properly. Do not add them into one number and
-then reason about it.
+The kinds of token do not cost the same. Uncached input, output, cache reads
+and cache writes are separate figures because they are separately priced, and
+a conversation that looks expensive on raw input is often a conversation doing
+its caching properly. Do not add them into one number and then reason about
+it. Reasoning is counted too, and on Codex it is already inside output: price
+it once. Price per model from the per-model rows `obk usage --json` gives, so a
+conversation that ran two models is not priced as one.
 
 ## Look the price up now, and say what you could not price
 
@@ -54,8 +56,9 @@ gap with a plausible number is worse than no report, because nobody can tell
 afterwards which figures were real.
 
 The same goes for a subscription. Where the work runs against a plan rather
-than metered billing, tokens are not money at all, and the honest answer is
-what share of the allowance it used and what it would have cost metered.
+than metered billing, tokens are not money at all, and the honest answer is what it
+would have cost metered, and what share of the allowance it used where the
+plan shows that.
 
 ## Cost a result, not a token
 
@@ -82,8 +85,9 @@ what they said.
 
 That is the common case and the cheapest fix in the kit: drop the effort, or
 move the session to a smaller model, and watch whether anything gets worse.
-Routine dispatch and mechanical work rarely need the top of the range. Deep
-read-only analysis is where the top effort earns its price.
+A usual shape: high effort for the session that orchestrates, medium for the
+ones doing the work, and the top of the range only for deep read-only
+analysis.
 
 ## When a model is not up to the work
 
@@ -92,8 +96,10 @@ again. The same error coming back after a fix was claimed. Tests that pass in
 the report and fail on the machine. A loop that retries the same failing
 action. A person interrupting often because the bot is going the wrong way.
 
-Two of those together are worth acting on. The fix is upwards: more capable
-model, or more effort, or a narrower job so the context is not doing the work.
+Two of those together are worth acting on, and the first suspect is the
+charter or the job rather than the model. Where it is the model, the fix is
+upwards: more capable model, or more effort, or a narrower job so the context
+is not doing the work.
 Say which you are proposing and what you expect to change, so it can be
 checked afterwards rather than believed.
 
@@ -104,8 +110,11 @@ wrong most often, and an upgrade nobody can justify is money spent on a hunch.
 
 A context window is a price as well as a size. Long threads carry everything
 again on every call, so input grows with the conversation rather than with the
-work, and compaction is the visible symptom: something that keeps being
-compacted is paying to re-read itself.
+work. The median input per call is the measure of it, and compaction is the
+visible symptom. A worker session compacted more than once is paying to
+re-read itself, and is due a written hand-over and a fresh start. A long-lived
+persona session (Bot Father, an inbox) is meant to run long, and is judged on
+what the re-reading costs and whether it has lost what it knew.
 
 Where that is happening, the answer is usually not a bigger window. It is
 shorter sessions with what matters written into a file, or heavy work moved to
@@ -120,7 +129,8 @@ model can pass it without noticing. A limit the platform enforces is a limit.
 So when you propose a cap, say which kind it is. Where nothing can enforce it,
 write that down beside it rather than leaving a reader to assume the system is
 holding a line that nothing is holding. Then propose the thing that would
-hold: a smaller model, a narrower job, a scheduled check that actually stops.
+hold: a smaller model, a narrower job, a scheduled check that actually stops,
+or on a loop with no budget, a check-in every so many tokens.
 
 ## What you report
 

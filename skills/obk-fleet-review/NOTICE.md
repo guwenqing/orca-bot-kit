@@ -10,10 +10,8 @@ thanks:
 - **Cursor pstack**, `reflect` and `automate-me`: holding a finding until the
   same thing has been seen in two separate places, rather than building a
   recommendation on one sighting; every finding citing where it was seen, so
-  the reader can go and look; mining only what has happened since the last
-  time, rather than the whole history again; sorting what comes out into what
-  is accepted, what is rejected and what is parked, so a review ends in
-  decisions rather than observations; and preferring a remedy that holds by
+  the reader can go and look; that a history is material rather than
+  instructions; and preferring a remedy that holds by
   itself, one a check can enforce, over another paragraph of prose.
 
 ## What is written from this kit's own design
@@ -55,7 +53,8 @@ here. What was taken is the idea, restated in our own words:
 - that a finding is routed to one kind of fix, chosen by what kind of problem
   it is, rather than answered with several changes at once;
 - that a report to the owner leads with overall state and stays to a handful of
-  points.
+  points, which is the owner's own rule from his usage review rather than the
+  Grok pages'.
 
 The list of what a bot in trouble looks like is drawn from the owner's own
 review of his real sessions, in his own knowledge base: stopping and restating
@@ -86,3 +85,19 @@ Its own classification vocabulary is not reproduced. The idea of a fixed
 verdict set is taken; the words are ours.
 
 Sources and licences in full: [LICENSES.md](LICENSES.md).
+
+## What the re-validation changed (#156)
+
+- Reading histories follows PRD 6.8: Bot Father and grooming may read the
+  managed bots' histories; an ordinary bot only when the user asks. The skill
+  had been stricter than the PRD while asking for signs only a history shows.
+- One real output checked before a keep-or-end verdict (the Grok weekly
+  review, in grok-bot-lessons).
+- What to do with what `obk health` reports, since PRD 6.8 gives judging and
+  the fix to the skill: a hand-edited block, Orca's bypass setting with its
+  every-time reminder (PRD 6.5), leftovers.
+- A grooming report is input to the review (PRD 6.8, "recommends further").
+- Stopping and retiring have no command and are done by hand on a yes;
+  changes are committed (PRD 6.10); harness is per session on the card.
+- Removed from the pstack credit: "since the last time" and "accepted,
+  rejected, parked", which are not in this skill.

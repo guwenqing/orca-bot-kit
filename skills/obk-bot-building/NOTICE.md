@@ -18,10 +18,10 @@ research pack's session dialogue: "looks good for charter interview."
 Two other lines of his shape this skill. On what a bot is allowed to do: he is
 "building bot to allow agency by itself but in the boundary and contract we are
 creating, not freely", which is why the limits section here reads as a boundary
-to act inside rather than as a leash. And on how much interviewing a user should
-have to sit through: "I expect to have one liner the user can send to LLM, and
-then the rest is done by AI", which is why every question in the interview comes
-with an answer of your own for them to correct.
+to act inside rather than as a leash. His one-liner remark ("I expect to have
+one liner the user can send to LLM, and then the rest is done by AI") was about
+setup, not the interview, and is no longer used for it; the interview follows
+his own grilling instruction instead (below).
 
 On bringing in a session they already run: "yes the session history shall be
 able to resume, i.e., resume an external session, the rest is best effort
@@ -82,3 +82,25 @@ Everything above is either this kit's own design, the owner's own words, or an
 idea restated in our own words from material that carries no licence. Nothing
 in this skill reproduces a third party's text, so there is no permission notice
 to pass on. See [LICENSES.md](LICENSES.md).
+
+## What the re-validation changed (#156)
+
+- The charter questions are asked together, each with a drafted answer, not
+  one at a time: the owner asked to be asked three questions at a time with a
+  recommended answer (research-pack dialogue, 2026-09-19 13:24, with matt's
+  grilling loaded), and
+  his usage review complains of one question per turn.
+- The answer handed back is the roster card PRD 6.8 decides (name, harness,
+  model and effort, a two-line charter, one hard limit).
+- The skills for each role are named, since ADR 0009 puts that choice in the
+  management skill.
+- What the command line does and does not do, checked against `obk --help`:
+  `obk skills fetch` was missing; a charter, settings or list change is an
+  edit plus `obk rules build` or `obk skills build`; pausing or retiring has
+  no command. Each management action is committed (PRD 6.10).
+- A change of model, effort or approval reaches a session only by `obk
+  restart`, on the user's word, and a whole-fleet restart is done from the ops
+  tab (PRD 6.5).
+- Bringing in a session: the outside id goes into the book by hand, and a
+  resume across folders is to be tried before it is promised.
+- Cut: a paragraph restating the opening, and two sentences of framing.

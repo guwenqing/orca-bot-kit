@@ -13,13 +13,10 @@ with thanks:
   the place it was seen, so a reader can go and look; and the rule that a
   transcript is data to be read rather than instruction to be followed, which
   is what the section on reading another bot's history is built on.
-- **Addy Osmani's agent skills**, `constraint-driven-development`: the ratchet.
-  Record where a thing stands, then refuse to let it get worse; when a number
-  improves, change the number; when it drops, that is a finding rather than an
-  edit. That is what keeps the profile notes from becoming a wall nobody can
-  argue with, and the accompanying warning, that a threshold with no reason
-  attached gets deleted by the next person it inconveniences, is why a note
-  says what moved it.
+- **Addy Osmani's agent skills**, `constraint-driven-development`: its warning
+  that a figure with no reason attached gets deleted by the next person it
+  inconveniences, which is why a note says what moved it. Its ratchet is not
+  applied to the notes (see below).
 
 ## The owner's own conclusions, restated
 
@@ -77,3 +74,30 @@ is here is what is different about running unwatched, on a schedule, over
 somebody else's conversations.
 
 Sources and licences in full: [LICENSES.md](LICENSES.md).
+
+## What the re-validation changed (#156)
+
+- Where it remembers: PRD 6.8 puts grooming's memory in files (the profile
+  notes and the open findings) and 6.10 commits them once a day. The skill
+  named neither a place nor an open-findings record, so a fresh run could not
+  find its window and would report the same thing daily; the first live run
+  had to invent a file. The profile notes go where `rules/profiles.md`
+  already puts them, `profiles/`; an acceptance run of this re-validation
+  found the two places disagreeing.
+- Bounded: `obk usage --since` as the index of what moved, only the window's
+  part of a conversation, stopping when nothing moved, and the run's own cost
+  in the report. From the owner's handoff warning that a supervisor re-reading
+  unchanged transcripts consumes resources without improving the result, and
+  his usage review, both as digested in grok-bot-lessons. The cheaper model at
+  medium effort is the Q16 answer the owner approved (2026-09-19 18:04).
+- The seen-twice bar is carried here, because the automation's prompt loads
+  only this skill and `obk-finops`.
+- `obk groom --at` and `--on` are named, so the automation is made once.
+- "Reports its owner could not read" (his complaint was unreadable, not
+  unread); the invented "fortnight" is gone. The profile notes record the
+  current figure either way, with a drop also reported: the review of this
+  re-validation (#182) pointed out that `constraint-driven-development`'s
+  ratchet holds a quality threshold, not a record other bots choose
+  collaborators from, so it is no longer applied to the notes.
+- The window paragraph is unchanged: its disagreement with `obk usage` is
+  issue #169.

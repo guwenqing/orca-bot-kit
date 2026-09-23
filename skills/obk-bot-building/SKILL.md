@@ -16,11 +16,6 @@ A bot is a job somebody holds, not a prompt that came out well. The work is
 the interview; the files it leaves behind are the easy part, and the kit's
 own commands write them.
 
-What you are making is a contract. A charter its owner recognises, a line it
-does not cross alone, and sessions told apart by what each was started to do.
-Get that wrong and you get a bot that is plausible and useless: it answers,
-and nobody can say whether the answer was its job.
-
 These are defaults for work where nothing says otherwise. A user who asks for
 something else gets what they asked for; say which of these you left and why.
 
@@ -45,16 +40,15 @@ Inbox Manager, Expense Manager, API Reviewer. A name that describes a job
 brings its own boundary with it, and everyone reading the roster later knows
 what to send it and what not to.
 
-A name that describes a tool, a model or a mood does not. Neither does one
-that describes everything, and "assistant" is the commonest way to end up
-with a bot nobody can hold to anything.
+A name that describes a tool, a model, a mood or everything ("assistant")
+does not, and leaves a bot nobody can hold to anything.
 
 ## The interview writes the charter
 
 Three questions, and they are the charter: what this bot owns, what good work
 looks like for it, and what it must ask about before it acts.
 
-Ask them one at a time, and bring an answer of your own to each. Someone who
+Ask the three together, and bring an answer of your own to each. Someone who
 is handed a blank page writes a paragraph they will not recognise in a month;
 someone who is handed a draft corrects it in a sentence, and the correction is
 the part worth having. Say which parts of your draft you inferred so they know
@@ -88,8 +82,8 @@ without a yes. Never spends money.
 Give the limit teeth by saying what evidence it brings when it escalates, so
 asking is one message rather than a conversation.
 
-This is a boundary to act inside, not a leash. Within it the bot acts on its
-own, and that is the point of writing it down.
+Within that boundary the bot acts on its own; that is the point of writing it
+down.
 
 ## The role, the task, and the procedure
 
@@ -128,17 +122,17 @@ the acceptance tests and reviews, and the architect settles disagreements and
 digs into the hard causes. A workhorse, a writer and a thinker, for work that
 is not development.
 
-These are suggestions and nothing more. Say what each bot in the line-up is
-for, let them take one bot out of it or rename the lot, and build what they
-end up with rather than what you offered.
+Suggestions only: they take out or rename what they like, and you build what
+they end up with.
 
 ## Give it the skills the job needs, and no more
 
 Match the skills to the work, not to the title. Something that mostly finds
-things out wants the researching one; something that writes for people wants
-the writing one; a bot that decides wants the decision memo. A developer bot
-wants the test-first, reviewing and debugging ones, and an architect wants
-the shaping one on top.
+things out wants `obk-researching`; something that writes for people wants
+`obk-writing`; a bot that decides wants `obk-decision-memo`. A developer bot
+wants `obk-tdd`, `obk-reviewing` and `obk-debugging`, a reviewer the reviewing
+one above all, and an architect `obk-arch` on top. Someone's own errands want
+`obk-personal-facilitation`.
 
 Every extra skill is more for the bot to read and one more thing that might
 fire when it should not. Where you are not sure, leave it out and add it when
@@ -152,8 +146,10 @@ their machine on their risk.
 ## Bringing in a session they already run
 
 Someone moving in usually has a conversation going that they do not want to
-lose. Take the harness's own id for it and record it against the session, and
-it comes back with its history rather than starting empty.
+lose. Take the harness's own id for it and record it against the session in
+the book (by hand, since no command takes an outside id), and `obk up` brings
+it back with its history. Whether a harness resumes a conversation that was
+started in another folder is something to try before promising.
 
 Everything else is best effort, and say so plainly rather than promising a
 clean move: what was in that session's own settings, the rules it worked to,
@@ -164,10 +160,17 @@ and let them tell you what mattered.
 
 The kit's command line does the writing, and the files belong to the user:
 `obk bot create` makes the bot, `obk session add` gives it a session, `obk
-source add` records where online skills come from, `obk skills add` puts one
-on a bot, `obk skills build` links them, and `obk up` opens what is missing
-in Orca. Run `obk --help` for the flags of the version actually installed
-rather than trusting a line you remember.
+source add` records where online skills come from and `obk skills fetch`
+clones them, `obk skills add` puts one on a bot, `obk skills build` links
+them, and `obk up` opens what is missing in Orca. Changing a charter, a
+session's settings or a bot's lists has no command of its own: edit the file,
+then `obk rules build` for the charter and `obk skills build` for the skills.
+Pausing or retiring a bot has none either; it is done by hand, with the word.
+Run `obk --help` for the flags of the version actually installed rather than
+trusting a line you remember.
+
+After each change, commit what it changed in the bots folder; the kit never
+commits by itself.
 
 Do the reversible part and stop at the line. Making a bot, adding a session
 and linking skills add things and are safe to run again; closing a tab,
@@ -190,8 +193,11 @@ middle of.
 
 Instructions are not skills. A session is working from the rules it read when
 it started, so a change to a bot's `AGENTS.md` may not reach one that is
-already up even when a skill change would. Say which of the two you changed,
-and what that means for the sessions running now.
+already up even when a skill change would, and a session's model, effort or
+approval only changes when it is started again (`obk restart`, on the user's
+word). Say which you changed, and what that means for the sessions running
+now. Where everything needs restarting, remind them to do it from Bot Father's
+ops tab.
 
 And tell them. A bot's sessions share its rules and its skills, so a change
 made for one of them lands on all of them, and the session that asked is not
@@ -200,9 +206,10 @@ doing, in their own tabs, rather than leaving them to find out mid-task.
 
 ## What they get back
 
-The bot's name and what it owns, in one line each. Its limit. Its sessions
-and what each is for. The skills it has and where they came from. And the one
-thing you need from them, where something is still open.
+Its card: the name, the harness, model and effort of its sessions, a two-line
+charter, and its one hard limit. Its sessions and what each is for. The skills
+it has and where they came from. And the one thing you need from them, where
+something is still open.
 
 Point at the charter rather than reproducing it, and say what you inferred
 rather than what they told you, so the parts they have not really agreed to
