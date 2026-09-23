@@ -26,9 +26,15 @@
 // agreed. So each bot is given a word in its start prompt, a word in its
 // conversation, a word in its charter and a word in a skill it is given late,
 // and afterwards it is asked for them. A model answering from something it was
-// never told is not a failure mode worth worrying about. A model answering from
-// something already on its screen is, so the charter and skill words are
-// checked to be absent before they are asked for.
+// never told is not a failure mode worth worrying about. A wait satisfied by
+// something already on the screen is, and it is the one way a test like this
+// goes green while proving nothing: a word the question carries is there as
+// soon as the question is typed, and the codeword and the passphrase are there
+// before anyone asks, because a harness shows its start prompt as the first
+// thing said and a resumed one shows the conversation again. So every wait
+// below is for a word its question does not carry and the screen does not yet
+// show — `answers` refuses any other — and those two words are asked for in a
+// form nobody ever wrote down (see `lowered`).
 //
 // The machine it runs on is someone's working machine, with their own tabs
 // open. So this test, like the two beside it:
@@ -192,11 +198,14 @@ const terminalsAt = (home) => allTerminals().filter((terminal) => terminal.workt
  * seen live, for a second or two on a busy machine — so the listing is read
  * again until the closed tabs are out of it, rather than read once and
  * believed.
+ *
+ * By handle: a raw listing can show a tab under `pty:<ptyId>` rather than its
+ * id while Orca calls it orphaned, and the handle is the same either way (#187).
  */
 async function terminalsAfterClosing(home, closed, within = 5000) {
   const until = Date.now() + within;
   let left = terminalsAt(home);
-  while (left.some((terminal) => closed.includes(terminal.tabId)) && Date.now() < until) {
+  while (left.some((terminal) => closed.includes(terminal.handle)) && Date.now() < until) {
     await setTimeout(250);
     left = terminalsAt(home);
   }
@@ -249,8 +258,9 @@ async function sessionIn(home, name) {
  * One rollout file per conversation, filed under the day it started, its first
  * line a `session_meta` carrying the id, the folder and the time (tech notes,
  * section 3). Read only, and read here for one reason: whether a conversation
- * happened at all is the premise of the last case in this file, and while the
- * hooks file is untrusted neither the book nor the screen can say.
+ * happened at all is the premise of the last two cases in this file — a child
+ * the kit must not take for the session, and a conversation run while the hooks
+ * file is untrusted — and neither the book nor the screen can say.
  *
  * Files last written before `since` are never opened, so on a machine with years
  * of conversations this costs a walk of the folders and a read of today's few.
@@ -279,6 +289,30 @@ async function codexConversationsSince(home, since) {
   }
 
   await walk(path.join(os.homedir(), '.codex', 'sessions'), 0);
+  return found;
+}
+
+/**
+ * The conversations Claude Code has on record for one folder, from `since` on:
+ * one transcript per conversation, named by its id, in a folder named for the
+ * working directory with every character that is not a letter or a digit made
+ * a dash (tech notes, section 2). Read only, for the same reason as Codex's.
+ */
+async function claudeConversationsSince(home, since) {
+  const dir = path.join(os.homedir(), '.claude', 'projects', home.replaceAll(/[^A-Za-z0-9]/g, '-'));
+  let names;
+  try {
+    names = await readdir(dir);
+  } catch {
+    // No records there at all, which is an answer.
+    return [];
+  }
+  const found = [];
+  for (const name of names) {
+    if (name.endsWith('.jsonl') && await touchedSince(path.join(dir, name), since)) {
+      found.push(name.slice(0, -'.jsonl'.length));
+    }
+  }
   return found;
 }
 
@@ -416,8 +450,18 @@ function requestIdIn(error) {
 /**
  * Ask the session something and wait for `word` to appear on its screen.
  * `within` is for the questions that are more than one answer's work.
+ *
+ * Only a word that is neither in the question nor on the screen already can be
+ * waited for. The echo of the typed line would satisfy the first, and whatever
+ * was already there the second, with no agent reading anything (review of #150,
+ * the echo shape; issue #163).
  */
 async function answers(handle, question, word, within = ANSWER_MS) {
+  assert.ok(!question.includes(word), `${word} is in the question itself, so its echo would answer it: ${question}`);
+  assert.ok(
+    !screenOf(handle).includes(word),
+    `${word} is on the screen before anyone asked for it, so an answer would prove nothing: ${question}`,
+  );
   await askIn(handle, question);
   await until(
     `${handle} to answer with ${word}`,
@@ -476,7 +520,10 @@ const BOTS = [
  */
 const startPromptFor = (bot) => [
   `You are a system test's bot and you own nothing. Your codeword is ${bot.codeword}.`,
-  'When anyone asks you for your codeword, reply with it and nothing else.',
+  // In the form asked for, because the codeword is asked for in forms nobody
+  // wrote down (see `lowered`), and "reply with it" won over the question on
+  // Codex after a `/new`: it answered the codeword as written (live run, #163).
+  'When anyone asks you for your codeword, give it in exactly the form they ask for, and nothing else.',
   'Do not run any command, read or write any file, or use any tool, unless a later message asks you to.',
   'Say nothing now and wait.',
 ].join(' ');
@@ -519,16 +566,18 @@ async function writeProbe(bots, bot) {
 }
 
 /**
- * A word the session is about to be asked for must not be on its screen yet,
- * or an answer that carries it proves nothing: the wait below would be
- * satisfied by what was already there (review of #150, the echo shape).
+ * The codeword and the passphrase as the session is asked to give them back.
+ *
+ * Both are on the screen before anyone asks for them — the codeword in the
+ * start prompt the harness shows as the conversation's first line, and both in
+ * the conversation a resumed harness shows again — so a wait on either as
+ * written is answered by the screen. Asked for in lower case, the word is one
+ * nobody wrote down: only a session that holds it can produce it. The
+ * underscore is the second form, for a session asked twice, whose first answer
+ * may still be on the screen.
  */
-function notOnScreen(handle, word, where) {
-  assert.ok(
-    !screenOf(handle).includes(word),
-    `${word} is on the screen before anyone asked for it, so an answer would prove nothing about ${where}`,
-  );
-}
+const lowered = (word) => word.toLowerCase();
+const underscored = (word) => word.replace('-', '_');
 
 test('a cleared session gets a new id, keeps the old one, and is told its duty again', async (t) => {
   const before = {
@@ -547,7 +596,7 @@ test('a cleared session gets a new id, keeps the old one, and is told its duty a
       for (const terminal of terminalsAt(home)) {
         if (before.handles.has(terminal.handle)) continue;
         orca(['terminal', 'close', '--terminal', terminal.handle, '--tab']);
-        closed.push(terminal.tabId);
+        closed.push(terminal.handle);
       }
     }
     for (const setup of allSetups()) {
@@ -606,13 +655,18 @@ test('a cleared session gets a new id, keeps the old one, and is told its duty a
       'a session that has run under one id only has no history',
     );
 
-    // It knows its duty, because the launch line carried it.
-    await answers(entry.terminal, 'What is your codeword? Reply with the codeword only.', bot.codeword);
+    // It knows its duty, because the launch line carried it. The codeword as
+    // written is on the screen already, in the start prompt the harness shows;
+    // in lower case it is in no prompt and no question.
+    await answers(
+      entry.terminal,
+      'What is your codeword? Reply with the codeword in lower case and nothing else.',
+      lowered(bot.codeword),
+    );
 
     // And it read its AGENTS.md where it started (PRD 4.2). The charter word is
     // in that file and nowhere a screen could have shown it, which is what the
     // check above cannot say: a file on disk is not a file read.
-    notOnScreen(entry.terminal, bot.charterWord, 'reading AGENTS.md');
     await answers(
       entry.terminal,
       'What is the charter word in your own instructions? Reply with the charter word only.',
@@ -623,9 +677,15 @@ test('a cleared session gets a new id, keeps the old one, and is told its duty a
     // new conversation gets its first prompt, so asking is also what makes the
     // hook run; on Claude Code the hook has already run by then. Either way,
     // answering with the codeword is the proof that the duty came back: the
-    // conversation that carried it is gone.
+    // conversation that carried it is gone. Asked for with an underscore, not in
+    // lower case: a clear need not wipe the screen, and the answer above may
+    // still be on it.
     await askIn(entry.terminal, bot.clears);
-    await answers(entry.terminal, 'What is your codeword? Reply with the codeword only.', bot.codeword);
+    await answers(
+      entry.terminal,
+      'What is your codeword? Reply with the codeword with its dash made an underscore, and nothing else.',
+      underscored(bot.codeword),
+    );
 
     // 2. And the book followed it: a new id, the old one kept.
     const second = await until(
@@ -660,7 +720,6 @@ test('a cleared session gets a new id, keeps the old one, and is told its duty a
     await writeProbe(bots, bot);
     obkJson(['skills', 'add', '--bots', bots, '--bot', bot.name, '--skill', probeOf(bot)]);
     obkJson(['skills', 'build', '--bots', bots, '--bot', bot.name]);
-    notOnScreen(entry.terminal, bot.probeWord, 'the skill being usable');
     // Asked for in so many words, because the start prompt keeps the bot from
     // using a tool unless a message asks it to (see `startPromptFor`): Claude
     // Code loads a skill with a tool, Codex by reading its SKILL.md.
@@ -688,7 +747,7 @@ test('a session whose tab was closed comes back with its conversation', async (t
       for (const terminal of terminalsAt(home)) {
         if (before.handles.has(terminal.handle)) continue;
         orca(['terminal', 'close', '--terminal', terminal.handle, '--tab']);
-        closed.push(terminal.tabId);
+        closed.push(terminal.handle);
       }
     }
     for (const setup of allSetups()) {
@@ -734,17 +793,23 @@ test('a session whose tab was closed comes back with its conversation', async (t
     // Something in this conversation and nowhere else. If the session comes
     // back with the conversation, it can still say it; if it comes back fresh,
     // it cannot, because the start prompt never carried this word.
+    //
+    // What is waited for is the codeword in lower case, not the passphrase: the
+    // passphrase is in the line just typed, so its echo would answer a wait on
+    // it with no agent there at all. The lowered codeword is in no question and
+    // no prompt, so only a running session that has read this line produces it
+    // — which is the same as saying the passphrase reached the conversation.
     await answers(
       opened.terminal,
-      `Remember this passphrase: ${bot.passphrase}. Reply with the passphrase and nothing else.`,
-      bot.passphrase,
+      `Remember this passphrase: ${bot.passphrase}. Then reply with your codeword in lower case and nothing else.`,
+      lowered(bot.codeword),
     );
 
     // The user closes the tab. Orca's own resume record goes with it, which is
     // the whole reason the kit keeps a book (ADR 0002).
     orca(['terminal', 'close', '--terminal', opened.terminal, '--tab']);
     assert.deepEqual(
-      await terminalsAfterClosing(home, [opened.tabId]),
+      await terminalsAfterClosing(home, [opened.terminal]),
       [],
       'the fixture itself should have closed the session tab',
     );
@@ -763,8 +828,14 @@ test('a session whose tab was closed comes back with its conversation', async (t
     );
     assert.equal((await sessionIn(home, 'daily')).session, id, 'it is still the same harness session');
 
-    // The proof: the passphrase was only ever said in the conversation.
-    await answers(back.terminal, 'What was the passphrase I gave you? Reply with it and nothing else.', bot.passphrase);
+    // The proof: the passphrase was only ever said in the conversation. Asked
+    // for in lower case, because a resumed harness shows the conversation again
+    // and the passphrase as it was typed is on this new screen already.
+    await answers(
+      back.terminal,
+      'What was the passphrase I gave you? Reply with it in lower case and nothing else.',
+      lowered(bot.passphrase),
+    );
   }
 });
 
@@ -781,6 +852,12 @@ const CHILDREN = [
     display: 'Child Codex',
     codeword: 'BADGER-5512',
     child: 'codex exec --skip-git-repo-check \'reply with the single word ok\'',
+    // In the kit's default `auto` level Codex's sandbox refuses a child harness
+    // outright: `codex exec` exits 1 at once with "failed to initialize in-process
+    // app-server client: Operation not permitted" (measured live, #163). So on
+    // `auto` there is no child and nothing for this case to prove. A throwaway
+    // bot that owns nothing can run outside the sandbox (ADR 0005).
+    approval: 'dangerously-skip',
   },
   {
     name: 'child-claude',
@@ -816,7 +893,7 @@ test('a harness the session starts for itself does not become the session\'s con
       for (const terminal of terminalsAt(home)) {
         if (before.handles.has(terminal.handle)) continue;
         orca(['terminal', 'close', '--terminal', terminal.handle, '--tab']);
-        closed.push(terminal.tabId);
+        closed.push(terminal.handle);
       }
     }
     for (const setup of allSetups()) {
@@ -844,7 +921,9 @@ test('a harness the session starts for itself does not become the session\'s con
     obkJson([
       'session', 'add', '--bots', bots, '--bot', bot.name, '--name', 'daily',
       `--prompt=You are a system test's bot and you own nothing. Your codeword is ${bot.codeword}.`
-      + ' When anyone asks for your codeword, reply with it and nothing else. Say nothing now and wait.',
+      + ' When anyone asks for your codeword, give it in exactly the form they ask for, and nothing else.'
+      + ' Say nothing now and wait.',
+      ...(bot.approval === undefined ? [] : ['--approval', bot.approval]),
     ]);
   }
 
@@ -861,16 +940,42 @@ test('a harness the session starts for itself does not become the session\'s con
     );
 
     // The session runs a harness of its own, bounded, and says when it is done.
-    // Two agents' work, so it is given the patience for two.
+    // Two agents' work, so it is given the patience for two. What says it is
+    // done is its codeword in lower case, which is in no prompt and no question:
+    // a word the line carries would be answered by the echo of the line.
+    const since = Date.now();
     await answers(
       entry.terminal,
-      `Run exactly this command, then reply with the single word DONE: ${bot.child}`,
-      'DONE',
+      `Run exactly this command, then reply with your codeword in lower case and nothing else: ${bot.child}`,
+      lowered(bot.codeword),
       CHILD_MS,
     );
 
+    // The premise of everything below: a child really ran, in this folder. The
+    // answer above says the session finished its turn, not that it ran the
+    // command, and the book checks after this all pass on a child that never
+    // ran. The harness's own record can say — a conversation in this folder,
+    // begun since the question, that is not the session's own.
+    const children = await until(
+      `a ${bot.harness} conversation other than the session's own on record for ${home}`,
+      ANSWER_MS,
+      async () => {
+        const found = bot.harness === 'claude'
+          ? await claudeConversationsSince(home, since)
+          : await codexConversationsSince(home, since);
+        const others = found.filter((id) => id !== own);
+        return others.length > 0 ? others : undefined;
+      },
+      () => ` The session answered without its child on record. Run \`${bot.child}\` yourself in a`
+        + ` shell of your own in ${home}, with ORCA_TAB_ID set to ${entry.tabId}.${whatIsUp(entry.terminal)}`,
+    );
+
     const daily = await sessionIn(home, 'daily');
-    assert.equal(daily.session, own, `the session's own conversation is still its own: ${JSON.stringify(daily)}`);
+    assert.equal(
+      daily.session,
+      own,
+      `the session's own conversation is still its own, not its child's ${JSON.stringify(children)}: ${JSON.stringify(daily)}`,
+    );
     assert.equal(
       daily.history,
       undefined,
@@ -886,8 +991,13 @@ test('a harness the session starts for itself does not become the session\'s con
     );
 
     // And the session still knows what it is for, which a swapped conversation
-    // would have taken with it.
-    await answers(entry.terminal, 'What is your codeword? Reply with the codeword only.', bot.codeword);
+    // would have taken with it. With an underscore, because the answer above is
+    // still on the screen.
+    await answers(
+      entry.terminal,
+      'What is your codeword? Reply with the codeword with its dash made an underscore, and nothing else.',
+      underscored(bot.codeword),
+    );
   }
 });
 
@@ -932,7 +1042,7 @@ test('a Codex conversation that ran before the hooks file was trusted is written
       for (const terminal of terminalsAt(home)) {
         if (before.handles.has(terminal.handle)) continue;
         orca(['terminal', 'close', '--terminal', terminal.handle, '--tab']);
-        closed.push(terminal.tabId);
+        closed.push(terminal.handle);
       }
     }
     for (const setup of allSetups()) {
@@ -1009,7 +1119,7 @@ test('a Codex conversation that ran before the hooks file was trusted is written
   // down for a person or Bot Father to settle, which is what this checks.
   orca(['terminal', 'close', '--terminal', entry.terminal, '--tab']);
   assert.deepEqual(
-    await terminalsAfterClosing(home, [entry.tabId]),
+    await terminalsAfterClosing(home, [entry.terminal]),
     [],
     'the fixture itself should have closed the session tab',
   );

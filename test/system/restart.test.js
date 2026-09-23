@@ -11,13 +11,18 @@
 // the tab is thrown away by the kit, and afterwards the session is asked for the
 // passphrase. It can only answer if the conversation really came back.
 //
-// Each of those two turns waits for a word its own question does not carry — the
-// first for the codeword out of the start prompt, the second for the passphrase,
-// which the question asks for without saying. A wait on a word the question
+// Each of those two turns waits for a word its own question does not carry and
+// the screen does not yet show — the first for the codeword out of the start
+// prompt, the second for the passphrase, which the question asks for without
+// saying — and `answers` refuses any other. A wait on a word the question
 // itself carries is satisfied by the echo of the line the test just typed in,
 // so it would pass with an agent that read nothing, and pass with no agent
 // there at all. That is the one way a live test like this goes quietly green
-// while proving nothing (found in an attended run, and it had).
+// while proving nothing (found in an attended run, and it had). A word already
+// on the screen does the same, and both words are: the harness shows the start
+// prompt as the conversation's first line, and a resumed one shows the
+// conversation again. So each is asked for in lower case, a form nobody wrote
+// down and only a session that holds the word can produce (issue #163).
 //
 // One harness, not two: this is about the kit's own close-and-resume, which is
 // the same code either side, and Claude Code is the cheaper one to sit with —
@@ -155,11 +160,14 @@ const terminalsAt = (home) => allTerminals().filter((terminal) => terminal.workt
  * `terminal close` answers ok before `terminal list` stops reporting the tab —
  * seen live, for a second or two on a busy machine — so the listing is read
  * again until the closed tabs are out of it, rather than read once and believed.
+ *
+ * By handle: a raw listing can show a tab under `pty:<ptyId>` rather than its
+ * id while Orca calls it orphaned, and the handle is the same either way (#187).
  */
 async function terminalsAfterClosing(home, closed, within = 5000) {
   const until = Date.now() + within;
   let left = terminalsAt(home);
-  while (left.some((terminal) => closed.includes(terminal.tabId)) && Date.now() < until) {
+  while (left.some((terminal) => closed.includes(terminal.handle)) && Date.now() < until) {
     await setTimeout(250);
     left = terminalsAt(home);
   }
@@ -302,8 +310,18 @@ function requestIdIn(error) {
   return found === null ? undefined : found[1];
 }
 
-/** Ask the session something and wait for `word` to appear on its screen. */
+/**
+ * Ask the session something and wait for `word` to appear on its screen. Only
+ * a word that is neither in the question nor on the screen already can be
+ * waited for: the echo of the typed line would satisfy the first, and whatever
+ * was already there the second, with no agent reading anything.
+ */
 async function answers(handle, question, word, within = ANSWER_MS) {
+  assert.ok(!question.includes(word), `${word} is in the question itself, so its echo would answer it: ${question}`);
+  assert.ok(
+    !screenOf(handle).includes(word),
+    `${word} is on the screen before anyone asked for it, so an answer would prove nothing: ${question}`,
+  );
   await askIn(handle, question);
   await until(
     `${handle} to answer with ${word}`,
@@ -324,7 +342,7 @@ const BOT = {
 
 const START_PROMPT = [
   `You are a system test's bot and you own nothing. Your codeword is ${BOT.codeword}.`,
-  'When anyone asks you for your codeword, reply with it and nothing else.',
+  'When anyone asks you for your codeword, give it in exactly the form they ask for, and nothing else.',
   'Do not run any command, do not read or write any file, and do not use any tool.',
   'Say nothing now and wait.',
 ].join(' ');
@@ -356,7 +374,7 @@ test('a restart closes the session\'s tab and brings the conversation back with 
       for (const terminal of terminalsAt(each)) {
         if (before.handles.has(terminal.handle)) continue;
         orca(['terminal', 'close', '--terminal', terminal.handle, '--tab']);
-        closed.push(terminal.tabId);
+        closed.push(terminal.handle);
       }
     }
     for (const setup of allSetups()) {
@@ -410,14 +428,16 @@ test('a restart closes the session\'s tab and brings the conversation back with 
   // exactly where it is.
   const spare = orca(['terminal', 'create', '--worktree', `path:${home}`, '--title', `${BOT.display} spare`]);
   assert.equal(spare.ok, true, `could not open the spare tab: ${JSON.stringify(spare.error)}`);
-  // Kept as Orca lists it, which is where its handle, its tab id and its
-  // project come from: the three things about it that are the kit's business.
-  const mine = terminalsAt(home).find((terminal) => terminal.tabId === spare.result.terminal.tabId);
+  // Kept as Orca lists it, which is where its handle and its project come
+  // from. Found and compared by handle, not tab id: a listing can show a tab
+  // under `pty:<ptyId>` while Orca calls it orphaned, and the handle is the
+  // same either way (#187; tech notes, section 1).
+  const mine = terminalsAt(home).find((terminal) => terminal.handle === spare.result.terminal.handle);
   assert.ok(mine, `Orca should list the spare tab it just made: ${JSON.stringify(spare.result)}`);
 
   // And Bot Father's two tabs, in a project of their own, which this restart is
   // not about at all.
-  const botFather = terminalsAt(homeOf('bot-father')).map((terminal) => terminal.tabId).sort();
+  const botFather = terminalsAt(homeOf('bot-father')).map((terminal) => terminal.handle).sort();
   assert.equal(botFather.length, 2, `init should have left Bot Father two tabs, got: ${JSON.stringify(botFather)}`);
 
   // Put something in this conversation and nowhere else. If the session comes
@@ -428,8 +448,10 @@ test('a restart closes the session\'s tab and brings the conversation back with 
   // passphrase is in the line that was just typed in, so a wait on it would be
   // satisfied by the echo of the test's own question — green whether an agent
   // read the line or not, and green with no agent there at all. The codeword is
-  // in the start prompt and in no question, so only a session that is running,
-  // has read its duty and has read this line can produce it. Which is the same
+  // in the start prompt and in no question, and it is asked for in lower case
+  // because the start prompt as written is on the screen: the harness shows it
+  // as the conversation's first line. So only a session that is running, has
+  // read its duty and has read this line can produce it. Which is the same
   // thing as saying the passphrase reached the conversation.
   //
   // And the wait for the session id above is what makes this safe to ask at
@@ -440,8 +462,8 @@ test('a restart closes the session\'s tab and brings the conversation back with 
   // as idle with nothing blocking.
   await answers(
     opened.terminal,
-    `Remember this passphrase: ${BOT.passphrase}. Then reply with your codeword and nothing else.`,
-    BOT.codeword,
+    `Remember this passphrase: ${BOT.passphrase}. Then reply with your codeword in lower case and nothing else.`,
+    BOT.codeword.toLowerCase(),
   );
 
   // The restart the user asked for (PRD 6.5). The kit closes that tab itself —
@@ -477,26 +499,25 @@ test('a restart closes the session\'s tab and brings the conversation back with 
 
   // Orca agrees: the old tab is gone, the new one is there, and the tab the book
   // never named was not touched.
-  const now = await terminalsAfterClosing(home, [opened.tabId]);
+  const now = await terminalsAfterClosing(home, [opened.terminal]);
   assert.deepEqual(
-    now.map((terminal) => terminal.tabId).sort(),
-    [back.tabId, mine.tabId].sort(),
+    now.map((terminal) => terminal.handle).sort(),
+    [back.terminal, mine.handle].sort(),
     `the session's old tab should be gone and the spare untouched, got: ${JSON.stringify(now)}`,
   );
-  const stillMine = now.find((terminal) => terminal.tabId === mine.tabId);
-  assert.equal(stillMine.handle, mine.handle, 'the spare tab is the same tab, by the handle Orca gave it');
+  const stillMine = now.find((terminal) => terminal.handle === mine.handle);
   assert.equal(stillMine.worktreePath, home, 'and it is still in the bot\'s own Orca project');
   // Its title is deliberately not compared with the one it was made with. A
   // title is written by whatever is running in the tab — the tab's own zsh
   // prompt rewrites it to the folder as soon as it draws — and Orca reports
   // the last thing written, so two reads a minute apart differ for reasons
   // that have nothing to do with the kit (tech notes, section 1: a title is
-  // set, never read; the tab id is the key). Measured live: `Restart Claude
+  // set, never read). Measured live: `Restart Claude
   // spare` was `..estart-claude` by the end of the run. That the kit renames
   // no tab outside the book is pinned in `test/restart.test.js`, where every
   // Orca call it makes can be read.
   assert.deepEqual(
-    terminalsAt(homeOf('bot-father')).map((terminal) => terminal.tabId).sort(),
+    terminalsAt(homeOf('bot-father')).map((terminal) => terminal.handle).sort(),
     botFather,
     'and Bot Father, whose sessions this restart was not about, still has both its tabs',
   );
@@ -507,8 +528,14 @@ test('a restart closes the session\'s tab and brings the conversation back with 
   assert.equal(daily.session, id, `and the harness session it resumed, got: ${JSON.stringify(daily)}`);
 
   // The proof, and the only one there is: the passphrase was said in that
-  // conversation and nowhere else.
-  await answers(back.terminal, 'What was the passphrase I gave you? Reply with it and nothing else.', BOT.passphrase);
+  // conversation and nowhere else. Asked for in lower case, because a resumed
+  // harness shows the conversation again and the passphrase as it was typed is
+  // on this new screen already.
+  await answers(
+    back.terminal,
+    'What was the passphrase I gave you? Reply with it in lower case and nothing else.',
+    BOT.passphrase.toLowerCase(),
+  );
 
   // And it is still the conversation it was. A resumed Claude Code session keeps
   // its id (tech notes, section 2), so a new id in the book here — with the old
