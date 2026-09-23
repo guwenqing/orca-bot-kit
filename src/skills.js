@@ -110,22 +110,87 @@ export function linkSkills(bots, home, bot) {
   const record = readRecord(home);
   const held = new Map();
 
+  // What each harness's directory holds now, for a report made before anything
+  // was linked. This runs on the way out of a failure, so it must not fail in
+  // turn: a directory that is not one, or one the kit may not read, holds
+  // nothing it can report, and the bot's own trouble says why.
+  const heldAsItIs = () => {
+    for (const [harness, inside] of Object.entries(SKILL_DIRS)) {
+      const dir = path.join(home, inside);
+      let found = new Map();
+      try {
+        if (isDirectory(dir)) found = heldIn(dir, record[harness] ?? {});
+      } catch {
+        // Unreadable: reported as holding nothing, rather than thrown out of a
+        // report whose whole job is to keep one bot's trouble to that bot.
+      }
+      held.set(harness, found);
+    }
+  };
+
+  // Every bot has both directories, skills or none, and before its lists are
+  // even read. Claude Code notices a skill added while a session runs only in a
+  // skills directory that was there when the session started, and refuses one
+  // made afterwards as unknown; Codex does register a directory made later, but
+  // not dependably once it has (tech notes, section 3, with the evidence for
+  // each). So a bot given its first skill mid-session could not use it without
+  // a restart, which is what PRD 4.6 says a skill never needs — and that holds
+  // for a bot whose list the kit cannot follow as much as for one with none,
+  // since fixing the list is exactly when its first skill arrives. An empty
+  // directory costs the user's repo nothing: git does not track one, and what
+  // goes in it is gitignored (#136).
+  //
+  // Something of the user's in the way is reported, never thrown and never
+  // moved. A skills problem does not hold a bot down, let alone the fleet
+  // (`prepareBots` in up.js), so one bot's folder must not stop `obk up`.
+  const blocked = [];
+  for (const inside of Object.values(SKILL_DIRS)) {
+    const dir = path.join(home, inside);
+    try {
+      mkdirSync(dir, { recursive: true });
+    } catch (error) {
+      blocked.push(`${dir} cannot be made, because something of yours is in the way (${error.code ?? error.message}). Every bot needs it, so that a skill given to it later reaches a session that is already running. Move what is there aside, then build again.`);
+    }
+  }
+  if (blocked.length > 0) {
+    heldAsItIs();
+    return { bot: bot.name, skills: heldBy(home, [], held), trouble: blocked.join(' ') };
+  }
+
   let wanted;
   try {
     wanted = skillsFor(bots, home, bot);
   } catch (error) {
-    for (const harness of Object.keys(SKILL_DIRS)) {
-      held.set(harness, heldIn(path.join(home, SKILL_DIRS[harness]), record[harness] ?? {}));
-    }
+    heldAsItIs();
     return { bot: bot.name, skills: heldBy(home, [], held), trouble: error.message };
   }
 
+  // Linking is where the rest of the file system gets its say: a directory the
+  // kit could make but may not read or write into, a link that cannot be made.
+  // Whatever it is, it is this bot's trouble, like the cases above, and not
+  // something to throw through `prepareBots` and stop the fleet. What was
+  // linked before it went wrong is still written down, so the next run knows it
+  // for the kit's own.
   const removed = [];
-  for (const harness of Object.keys(SKILL_DIRS)) {
-    record[harness] ??= {};
-    const done = link(path.join(home, SKILL_DIRS[harness]), wanted, record[harness]);
-    removed.push(...done.removed);
-    held.set(harness, done.held);
+  try {
+    for (const harness of Object.keys(SKILL_DIRS)) {
+      record[harness] ??= {};
+      const done = link(path.join(home, SKILL_DIRS[harness]), wanted, record[harness]);
+      removed.push(...done.removed);
+      held.set(harness, done.held);
+    }
+  } catch (error) {
+    try {
+      writeRecord(home, record);
+    } catch {
+      // The record could not be kept either; the trouble below is still true.
+    }
+    heldAsItIs();
+    return {
+      bot: bot.name,
+      skills: heldBy(home, [], held),
+      trouble: `${bot.name}'s skills could not be linked: ${error.message}. Nothing of yours was changed; put right what is named there, then build again.`,
+    };
   }
   writeRecord(home, record);
 
@@ -365,10 +430,7 @@ function follow(bots, ref, sources) {
  * than guessing from where a link points (PRD 6.7).
  */
 function link(dir, wanted, record) {
-  // A bot with no skills and no directory is given none: an empty one is a
-  // folder in the user's repo that says nothing.
-  if (wanted.length === 0 && !existsSync(dir)) return { removed: [], held: new Map() };
-  mkdirSync(dir, { recursive: true });
+  // The directory is there: `linkSkills` makes both before it calls this.
 
   const keep = new Map(wanted.map((skill) => [skill.name, skill]));
   const removed = [];
@@ -407,6 +469,20 @@ function link(dir, wanted, record) {
   }
 
   return { removed, held: heldIn(dir, record) };
+}
+
+/**
+ * Whether `at` is a directory, following a link to one, and false for anything
+ * else, for nothing there, and for a path the kit is not allowed to look at.
+ * `throwIfNoEntry: false` spares only a missing path; a denied one still
+ * throws, and a question like this one must answer rather than throw.
+ */
+function isDirectory(at) {
+  try {
+    return statSync(at, { throwIfNoEntry: false })?.isDirectory() === true;
+  } catch {
+    return false;
+  }
 }
 
 /**

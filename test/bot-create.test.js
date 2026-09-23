@@ -48,8 +48,14 @@ test('bot create writes the bot a home of four files, and touches nothing else',
 
   assert.equal(result.code, 0, result.stderr);
   assert.equal(result.stderr, '');
+  // The two skills directories come empty, and are there so that a skill given
+  // later reaches a session already running (tech notes, section 3).
   assert.deepEqual(await added(bots, before), [
     'bots/api-bot',
+    'bots/api-bot/.agents',
+    'bots/api-bot/.agents/skills',
+    'bots/api-bot/.claude',
+    'bots/api-bot/.claude/skills',
     'bots/api-bot/.gitignore',
     'bots/api-bot/AGENTS.md',
     'bots/api-bot/CLAUDE.md',
