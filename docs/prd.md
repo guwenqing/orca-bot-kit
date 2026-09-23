@@ -100,7 +100,7 @@ Each line is a check a developer can run. Issues turn these into acceptance test
 - The kit does not copy its code or skills into it unless the user wants that; kit skills are links to the installed package. [decided] → ADR 0004
 - Inside that repo: what every bot gets by default, the user's own rules and common skills, the list of online skill sources, and one folder per bot holding its charter and settings, its book of sessions, its `AGENTS.md`, its skills, its shared notes and its work area. Clones of online skill sources sit beside the bots repo, never inside it. File and folder names are the builder's choice. [decided in substance]
 - `work/` is gitignored. [decided — blanket]
-- Per-bot `memory/`: plain notes all sessions of the bot can read and write; "remember this" writes there; writing does not message other sessions. [decided]
+- ~~Per-bot `memory/`: plain notes all sessions of the bot can read and write.~~ Removed by the owner on 2026-09-23 (#171): never built, and the profile notes, the grooming findings and the book cover what it was for. It comes back only if someone misses it.
 
 - Writing is not banned anywhere: an AI acting on the user's instruction may write whatever the user asks, user-level settings included. What the kit's own mechanical code writes is narrower: it writes the files the kit manages in the bots repo, and it does not reach into the user's global or user-level settings by itself. When that code edits a file that also holds the user's own text, it keeps what the user wrote and leaves a valid file, using the standard library for the format. [decided]
 
@@ -112,7 +112,7 @@ Each line is a check a developer can run. Issues turn these into acceptance test
 - The kit never hardcodes a model id; empty means the harness default. Init asks once for the harness. [decided]
 - Approval levels: `auto` (default; the harness's real auto mode), `ask`, `dangerously-skip` (only when the user asks for it in plain words). [decided] → ADR 0005
 - Each approval level maps to the harness's own flags; the mapping is a fact kept in `tech-notes.md` and re-checked when a harness updates. A session can carry extra launch arguments the kit does not know about. [decided in substance]
-- A start prompt goes to the harness from a file, unless it is very short and simple, in which case it can go as plain text. Either way it arrives unchanged. [decided]
+- A start prompt goes to the harness from a file, unless it is very short and simple, in which case it can go as plain text. Either way it arrives as written, apart from two things the kit does on purpose: leading and trailing blank space is trimmed, and when a session has a work dir the kit appends its one-sentence note about it. [decided; the two exceptions settled by the owner on 2026-09-23, #168]
 - Start prompt: sent once when the tab is created; not re-sent on resume; **re-sent automatically after `/clear`**. It is the only thing that tells one session's duty from another's when they start in different tabs. [decided]
 - Bot creation can resume an external existing session. Setup is done through an LLM, now and later through Bot Father, and that LLM does its best to help the user migrate the rest. [decided]
 
