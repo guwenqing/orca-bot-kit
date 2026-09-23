@@ -243,8 +243,9 @@ Where they asked in order to decide something, saying what you would do next is
 part of answering rather than a step beyond it. It stays what it is: a
 recommendation resting on thin evidence is marked thin, like anything else.
 
-Before handing over, open each citation again: the link resolves, and the quote
-or figure says what you claim it says. Cite so a reader can check, not so the
+Before handing over, check that the citations hold up: open again any you are
+unsure of, did not check the first time, or that could have changed, and
+spot-check the rest. Cite so a reader can check, not so the
 text looks sourced: group a run of
 claims from one source rather than citing every sentence, put the citation
 beside the thing it supports, and mark a quotation as a quotation. Flag a

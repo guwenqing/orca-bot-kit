@@ -158,8 +158,9 @@ sources. Five things in it come from what that found.
 ## What the re-validation changed (#155)
 
 No silent substitution: an answer about a neighbouring subject is said to be
-one (pstack `why/references/investigator-prompt.md:63`). Opening each citation
-again before handing over (its `synthesizer-prompt.md:44`). A source's date and
+one (pstack `why/references/investigator-prompt.md:63`). Checking citations
+before handing over, by spot-check and wherever unsure (its
+`synthesizer-prompt.md:44`). A source's date and
 the period or version a claim covers (`investigator-prompt.md:79`). Other
 explanations that fit, in the hand-back (`synthesizer-prompt.md:78-86`). The
 answer and its strength first, per `rules/talk.md`. Labels on every claim a
