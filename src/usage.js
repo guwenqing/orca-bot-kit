@@ -45,9 +45,11 @@ const KINDS = ['input', 'output', 'cache_read', 'cache_write', 'reasoning'];
  * What each bot's sessions have used. `since` counts the calls made at or after
  * that moment rather than the conversations begun after it: a conversation that
  * started this morning and is still going has spent everything it spent today,
- * and a filter on when it began would drop the lot.
+ * and a filter on when it began would drop the lot. `until` counts the calls made
+ * before its moment, not at it, so one run's `until` is the next run's `since`
+ * and a call on the boundary is counted once.
  */
-export function readUsage(bots, { bot: only, session: onlySession, since } = {}) {
+export function readUsage(bots, { bot: only, session: onlySession, since, until } = {}) {
   const names = botNames(bots);
   if (only !== undefined && !names.includes(only)) {
     throw new Error(`there is no bot called ${only} in ${bots}. The bots there are: ${names.join(', ') || 'none'}.`);
@@ -57,12 +59,19 @@ export function readUsage(bots, { bot: only, session: onlySession, since } = {})
   if (Number.isNaN(from)) {
     throw new Error(`--since is a moment, such as 2026-09-20T08:00:00Z, and got: ${since}`);
   }
+  const to = until === undefined ? Infinity : Date.parse(until);
+  if (Number.isNaN(to)) {
+    throw new Error(`--until is a moment, such as 2026-09-21T08:00:00Z, and got: ${until}`);
+  }
+  if (to < from) {
+    throw new Error(`--until is before --since, so there is no window between them: ${until} comes before ${since}.`);
+  }
 
-  return (only === undefined ? names : [only]).map((name) => forBot(bots, name, onlySession, from));
+  return (only === undefined ? names : [only]).map((name) => forBot(bots, name, onlySession, { from, to }));
 }
 
 /** One bot: what each of its sessions used, and what nobody claims. */
-function forBot(bots, name, onlySession, from) {
+function forBot(bots, name, onlySession, window) {
   // The folder as the file system knows it, not as the caller spelled it: a
   // bots folder reached through a symlink is the same fleet, and the harnesses
   // file their transcripts under the real path (as `restart` and `message` do).
@@ -94,13 +103,13 @@ function forBot(bots, name, onlySession, from) {
       name: session.name,
       conversations: idsIn(book.sessions[session.name] ?? {})
         .filter((id) => onRecord.has(id))
-        .map((id) => counted(onRecord.get(id), from))
+        .map((id) => counted(onRecord.get(id), window))
         .filter((one) => one !== undefined),
     }));
 
   const unclaimed = [...onRecord.values()]
     .filter((one) => !claimed.has(one.id))
-    .map((one) => counted(one, from))
+    .map((one) => counted(one, window))
     .filter((one) => one !== undefined);
 
   return { bot: name, home, sessions, unclaimed };
@@ -117,7 +126,7 @@ const idsIn = (entry) => [
  * left out rather than reported as a row of zeroes: it is not part of what has
  * happened since, and a page of zeroes is harder to read than a shorter page.
  */
-function counted(one, from) {
+function counted(one, window) {
   const read = one.harness === 'claude' ? fromClaude : fromCodex;
   const tally = {
     calls: 0,
@@ -132,8 +141,8 @@ function counted(one, from) {
     last: undefined,
   };
 
-  read(lines(one.file), from, tally);
-  if (tally.calls === 0) return undefined;
+  read(lines(one.file), window, tally);
+  if (tally.calls === 0 && KINDS.every((kind) => tally.tokens[kind] === 0)) return undefined;
 
   return {
     id: one.id,
@@ -158,37 +167,62 @@ function counted(one, from) {
  * between two lines a second apart (tech notes, section 2). So the records are
  * gathered first and the last of each pair is what counts. Keeping the first
  * looks right for a very long time, because almost every repeat is identical.
+ *
+ * But the call was made when it was first written down, and grew after. So it
+ * is counted as a call once, in the window its first record falls in, and its
+ * tokens are what it grew by in the window: its figures in its last record
+ * before the window's end, less those in its last record before the window's
+ * start. A transcript only grows, so one run's end is the next run's start and
+ * the runs add up to the whole, with a call still being written at a boundary
+ * charged once, part to each side (#169).
  */
-function fromClaude(entries, from, tally) {
+function fromClaude(entries, window, tally) {
   const byCall = new Map();
 
   for (const entry of entries) {
     const when = Date.parse(entry.timestamp ?? '');
     if (entry.type === 'system' && entry.subtype === 'compact_boundary') {
-      if (Number.isNaN(when) || when >= from) tally.compactions += 1;
+      if (inside(when, window)) tally.compactions += 1;
       continue;
     }
     if (entry.type !== 'assistant') continue;
 
     const usage = entry.message?.usage;
     if (usage === undefined || usage === null) continue;
-    byCall.set(`${entry.requestId}\u0000${entry.message?.id}`, entry);
+    const call = `${entry.requestId}\u0000${entry.message?.id}`;
+    if (!byCall.has(call)) byCall.set(call, []);
+    byCall.get(call).push({ entry, when });
   }
 
-  for (const entry of byCall.values()) {
-    const when = Date.parse(entry.timestamp ?? '');
-    if (!Number.isNaN(when) && when < from) continue;
-    const usage = entry.message.usage;
+  for (const records of byCall.values()) {
+    const made = records[0].when;
+    // A record with no time of its own says nothing about being outside, as in
+    // `inside`: it counts as written before the end and not before the start.
+    const atEnd = records.findLast(({ when }) => Number.isNaN(when) || when < window.to);
+    if (atEnd === undefined) continue;
+    const atStart = records.findLast(({ when }) => !Number.isNaN(when) && when < window.from);
 
-    count(tally, {
-      input: number(usage.input_tokens),
-      output: number(usage.output_tokens),
-      cache_read: number(usage.cache_read_input_tokens),
-      cache_write: number(usage.cache_creation_input_tokens),
-      // Claude Code does not report the thinking apart from the rest.
-      reasoning: 0,
-    }, entry.message?.model, entry.effort, when);
+    const now = figures(atEnd.entry);
+    const was = atStart === undefined ? undefined : figures(atStart.entry);
+    const grew = Object.fromEntries(KINDS.map((kind) => [kind, now[kind] - (was?.[kind] ?? 0)]));
+    const isNew = inside(made, window);
+    if (!isNew && KINDS.every((kind) => grew[kind] === 0)) continue;
+
+    count(tally, grew, atEnd.entry.message?.model, atEnd.entry.effort, isNew ? made : atEnd.when, isNew ? 1 : 0);
   }
+}
+
+/** What one Claude Code record says its call used so far. */
+function figures(entry) {
+  const usage = entry.message.usage;
+  return {
+    input: number(usage.input_tokens),
+    output: number(usage.output_tokens),
+    cache_read: number(usage.cache_read_input_tokens),
+    cache_write: number(usage.cache_creation_input_tokens),
+    // Claude Code does not report the thinking apart from the rest.
+    reasoning: 0,
+  };
 }
 
 /** The fields Codex writes a usage figure in, both per call and as a running total. */
@@ -219,7 +253,7 @@ const CODEX_FIELDS = [
  * The running total is followed through events outside the window as well, since
  * what a call added can only be measured against the event before it.
  */
-function fromCodex(entries, from, tally) {
+function fromCodex(entries, window, tally) {
   let model;
   let effort;
   let running;
@@ -235,7 +269,7 @@ function fromCodex(entries, from, tally) {
       continue;
     }
     if (entry.type === 'compacted') {
-      if (Number.isNaN(when) || when >= from) tally.compactions += 1;
+      if (inside(when, window)) tally.compactions += 1;
       continue;
     }
     if (entry.type !== 'event_msg' || entry.payload?.type !== 'token_count') continue;
@@ -249,7 +283,7 @@ function fromCodex(entries, from, tally) {
     }
     // A repeat is not a call, whether or not it is inside the window.
     if (used === undefined) continue;
-    if (!Number.isNaN(when) && when < from) continue;
+    if (!inside(when, window)) continue;
 
     count(tally, used, model, effort, when);
   }
@@ -300,8 +334,8 @@ function kindsOf(raw) {
  * the total that has to be complete, and a row headed by nothing would be worse
  * than no row.
  */
-function count(tally, used, model, effort, when) {
-  tally.calls += 1;
+function count(tally, used, model, effort, when, calls = 1) {
+  tally.calls += calls;
   for (const kind of KINDS) tally.tokens[kind] += used[kind];
   add(tally.models, model);
   add(tally.efforts, effort);
@@ -312,7 +346,7 @@ function count(tally, used, model, effort, when) {
     tally.byModel.set(model, { calls: 0, tokens: Object.fromEntries(KINDS.map((kind) => [kind, 0])) });
   }
   const its = tally.byModel.get(model);
-  its.calls += 1;
+  its.calls += calls;
   for (const kind of KINDS) its.tokens[kind] += used[kind];
 }
 
@@ -351,6 +385,13 @@ const number = (value) => (typeof value === 'number' && Number.isFinite(value) ?
 const add = (set, value) => {
   if (typeof value === 'string' && value !== '') set.add(value);
 };
+
+/**
+ * Whether a moment is in the window: at or after its start, before its end. A
+ * record with no time of its own is counted, as it always has been: nothing
+ * says it is outside.
+ */
+const inside = (when, { from, to }) => Number.isNaN(when) || (when >= from && when < to);
 
 /** When the first and the last counted call of this conversation were. */
 function mark(tally, when) {

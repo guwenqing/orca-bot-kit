@@ -642,3 +642,20 @@ test('G12 setting it through a symlink moves the one that is there rather than m
   assert.equal(moved.groom.at, '06:30');
   assert.deepEqual(await callsOf(box, 'automations create', from), [], 'nothing was made a second time');
 });
+
+test('G13 the grooming is told to count usage with both ends of its window', async (t) => {
+  // Issue #169: a run fixes the end of its window before it reads, and that end
+  // is the next run's start. Counted with --since alone, the calls made after
+  // the end and before the read are counted by this run and again by the next.
+  const box = await createSandbox(t);
+  await seeded(box);
+  const from = await mark(box);
+
+  await groom(box, '--at', '04:00');
+
+  const created = await callsOf(box, 'automations create', from);
+  assert.equal(created.length, 1, `one create, got: ${JSON.stringify(created)}`);
+  const told = orcaFlag(created[0], '--prompt') ?? '';
+  assert.ok(told.includes('--since'), `the prompt should name where the window starts, got: ${told}`);
+  assert.ok(told.includes('--until'), `and where it ends, got: ${told}`);
+});

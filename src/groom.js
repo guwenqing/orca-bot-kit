@@ -33,8 +33,10 @@ const AT = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
 /** What the automation's session is told to do when it wakes. */
 const prompt = (bots) =>
-  'Run the daily grooming for this fleet, with the obk-grooming skill. Read what '
-  + 'has happened since the last run, work out what it cost with obk-finops, keep '
+  'Run the daily grooming for this fleet, with the obk-grooming skill. Fix this '
+  + 'run\'s end now and read what has happened since the last run\'s end up to it, '
+  + 'counting with obk usage --since <last end> --until <this end>, and write this '
+  + 'end down for the next run. Work out what it cost with obk-finops, keep '
   + 'each bot\'s profile notes, and send one short report to Bot Father\'s '
   + `management session. The bots folder is ${bots}.`;
 
