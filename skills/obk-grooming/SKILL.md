@@ -161,14 +161,16 @@ For a bot with its own memory, the report gets a short section:
 - **A proposed cut**, when it is near or over the limit: which entries could go
   or be merged, and why.
 
-A contradiction is not yours to fix. Send it to that bot's own session, through
-the kit's messaging (`obk message to` gives the road): one message per bot per
-run, queued rather than interrupting, naming what you found and asking it to
-look into it and update its memory if it agrees. Expect no reply, and do not
-open a conversation. The session decides and makes the edit; it has the
-context you read only a window of. Write down in the open findings what you
-sent and when, so the next run can see whether it changed rather than send it
-again.
+A contradiction is not yours to fix. Send it to that bot's own session, as Bot
+Father's management session, whose pass this is: `obk message to --from
+bot-father/<its session> --to <bot>/<session>` gives the road, and where it
+answers with an address rather than the mailbox, write to that address with
+your own harness's messaging. One message per bot per run, queued rather than
+interrupting, naming what you found and asking it to look into it and update
+its memory if it agrees. Expect no reply, and do not open a conversation. The
+session decides and makes the edit; it has the context you read only a window
+of. Write down in the open findings what you sent and when, so the next run can
+see whether it changed rather than send it again.
 
 Never edit a memory yourself, not even to cut it. The memory is the bot's, the
 harness keeps it, and a pass that rewrites what a bot remembers is a pass that
