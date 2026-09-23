@@ -26,10 +26,14 @@ const entriesOf = (created) => created.map((line) => line.replace(/^created\s+/,
  * repo is checked out on, so the repo does not carry them. It is seeded like
  * every other file here and is the user's from then on, which is why it is
  * reported as created like the rest.
+ *
+ * Bot Father's own `.gitignore` keeps its `work/` out of the repo, the same
+ * file `bot create` writes for every other bot (issue #172).
  */
 const SEEDED = [
   '.git',
   '.gitignore',
+  'bots/bot-father/.gitignore',
   'bots/bot-father/bot.yaml',
   'defaults.yaml',
   'rules/.gitkeep',
