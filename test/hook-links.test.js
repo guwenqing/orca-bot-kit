@@ -179,6 +179,55 @@ test('HL4 a link that stays inside the bot folder is followed as ever: up succee
   assert.equal((await tabsOfBot(box, bots, 'api-bot')).length, 1, 'and the bot came up');
 });
 
+test('HL7 a dangling link is judged by where the file system takes it: through a linked folder to HOME is outside', async (t) => {
+  // From the review of PR #195. `.claude/settings.json` -> `../shared-settings/settings.json`
+  // reads as a path inside the bot, and there is no file at the end of it yet.
+  // But `shared-settings` is a link to the user's own `~/.claude`, so creating
+  // that file creates it there.
+  const box = await createSandbox(t);
+  const bots = await withBot(box);
+  const home = botHomeOf(bots, 'api-bot');
+  const file = hookFileOf(bots, 'api-bot', 'claude');
+  const outside = path.join(box.home, '.claude');
+  await mkdir(outside, { recursive: true });
+  await symlink(outside, path.join(home, 'shared-settings'));
+  await mkdir(path.dirname(file), { recursive: true });
+  await rm(file, { force: true });
+  await symlink(path.join('..', 'shared-settings', 'settings.json'), file);
+  const from = (await box.orca.calls()).length;
+
+  const result = await box.run(['up', '--bots', 'bots', '--bot', 'api-bot']);
+
+  assert.equal(
+    await lstat(path.join(outside, 'settings.json')).then(() => true, () => false),
+    false,
+    'no settings.json comes into being in the user\'s own ~/.claude',
+  );
+  assertCleanFailure(result);
+  assert.ok(result.stderr.includes(file), `the message should name ${file}, got: ${result.stderr}`);
+  assert.deepEqual(orcaCallsOf(await since(box, from), 'terminal create'), [], 'no tab for a bot that was refused');
+});
+
+test('HL7 a dangling link whose target really stays inside the bot folder is followed, and the file is made there', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await withBot(box);
+  const home = botHomeOf(bots, 'api-bot');
+  const file = hookFileOf(bots, 'api-bot', 'claude');
+  const shared = path.join(home, 'shared');
+  await mkdir(shared, { recursive: true });
+  await mkdir(path.dirname(file), { recursive: true });
+  await rm(file, { force: true });
+  await symlink(path.join('..', 'shared', 'settings.json'), file);
+
+  const result = await box.run(['up', '--bots', 'bots', '--bot', 'api-bot']);
+
+  assert.equal(result.code, 0, result.stderr);
+  assert.equal(await readlink(file), path.join('..', 'shared', 'settings.json'), 'the link is left as it was made');
+  const written = JSON.parse(await readFile(path.join(shared, 'settings.json'), 'utf8'));
+  assert.equal(kitHooksIn(written).length, 1, `the hook lands in the file the link names, got: ${JSON.stringify(written)}`);
+  assert.equal((await tabsOfBot(box, bots, 'api-bot')).length, 1, 'and the bot came up');
+});
+
 // ----------------------------------------------------------------- health
 
 test('HL5 health reports a hook file that links outside the bot as a config finding, and changes nothing', async (t) => {
