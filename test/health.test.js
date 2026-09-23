@@ -824,6 +824,34 @@ test('H13 a skills list the kit cannot follow is reported', async (t) => {
   oneNaming(mine, 'no-such-skill', 'the entry in the list is what the user has to put right');
 });
 
+test('H13 a source whose clone came from another repository than skills.yaml names is reported', async (t) => {
+  // The bot was linked while the source was the first repository, and its
+  // links still land on a skill; what is wrong is that the clone they land in
+  // is not the source the user registered now (#167).
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  const first = await repoAt(path.join(box.root, 'their-repo'));
+  await putSkills(first, { 'their-skill': 'Do it their way.\n' });
+  await commitIn(first, 'the skills');
+  const other = await repoAt(path.join(box.root, 'other-repo'));
+  await putSkills(other, { 'their-skill': 'Do it the fork\'s way.\n' });
+  await commitIn(other, 'the fork\'s skills');
+  await writeSources(bots, sourcesYaml({ name: 'theirs', repo: first, ref: 'main' }));
+  const fetched = await box.run(['skills', 'fetch', '--bots', 'bots']);
+  assert.equal(fetched.code, 0, fetched.stderr);
+  await botWritten(box, 'api-bot');
+  await addSkills(botYamlOf(bots, 'api-bot'), 'theirs:their-skill');
+  await opened(box, 'api-bot');
+  await writeSources(bots, sourcesYaml({ name: 'theirs', repo: other, ref: 'main' }));
+
+  const answer = await found(box);
+
+  const mine = of(answer, { kind: 'skill', bot: 'api-bot' });
+  const said = oneNaming(mine, 'skills update --source theirs', 'the user has to take the source from the repository the file names');
+  assert.ok(said.says.includes(first), `it should name the repository the clone came from, got: ${said.says}`);
+  assert.ok(said.says.includes(other), `and the one skills.yaml names now, got: ${said.says}`);
+});
+
 // ---------------------------------------------------------------------------
 // H14, H15, H16 — sessions, conversations and tabs.
 // ---------------------------------------------------------------------------

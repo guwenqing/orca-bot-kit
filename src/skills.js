@@ -21,7 +21,7 @@ import { parse, parseDocument, stringify } from 'yaml';
 
 import { botDir, botNames, changesExactly, readBot, YAML_OUT } from './bot.js';
 import { listIn } from './rules.js';
-import { cloneDir, isCloned, readSources, skillsIn } from './sources.js';
+import { cloneDir, isCloned, readSources, skillsIn, wrongClone } from './sources.js';
 
 /** The kit's own skills, inside the installed package. */
 const KIT_SKILLS = fileURLToPath(new URL('../skills', import.meta.url));
@@ -439,6 +439,8 @@ function follow(bots, ref, sources) {
       if (!isCloned(bots, named)) {
         throw new Error(`${ref}: ${named} has not been fetched yet, so there is nothing to link. Run obk skills fetch --bots ${bots} --source ${named}.`);
       }
+      const wrong = wrongClone(bots, source);
+      if (wrong !== undefined) throw new Error(`${ref}: ${wrong}`);
       return path.join(skillsIn(bots, source), after);
     },
     common: () => path.join(bots, 'skills', ref),

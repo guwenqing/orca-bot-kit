@@ -32,16 +32,20 @@ import {
   namesIn,
   readThrough,
   skillIn,
+  treeIn,
 } from './helpers/skills.js';
 import {
+  answerOf as fetchAnswerOf,
   assertNoCopyIn,
   branchIn,
   cloneOf,
   commitIn,
+  originUrlOf,
   putSkills,
   refsKnow,
   repoAt,
   shaIn,
+  sourceIn,
   sourcesDirOf,
   sourcesYaml,
   tagIn,
@@ -373,4 +377,135 @@ test('a build after a fetch that did not finish links nothing, and the right ver
       `${harness} should read the version the corrected ref names`,
     );
   }
+});
+
+// A clone is a source's only while it came from the repository skills.yaml
+// names (#167). Fetch already refuses one that did not; these hold every
+// command that links to the same refusal, in the same words, since a bot given
+// instructions out of a repository the user has pointed away from is running
+// something nobody registered.
+
+/** What a fork of the source says, so a test can tell which repository a bot reads. */
+const FORK = 'Taken from the fork.';
+
+/**
+ * Another repository shipping the same skill, with its own `v1.0.0`: what the
+ * user points the source at when they move to a fork, or to where the
+ * repository went.
+ */
+async function fork(box) {
+  const dir = path.join(box.root, 'other-repo');
+  await repoAt(dir);
+  await putSkills(dir, { [SKILL]: FORK });
+  const first = await commitIn(dir, 'the fork\'s version');
+  await tagIn(dir, 'v1.0.0');
+  return { dir, sub: '', first };
+}
+
+/**
+ * The words fetch refuses the clone with, asked of fetch itself: build's
+ * refusal is to be the same one, not a second sentence that could drift from it.
+ */
+async function fetchSays(box) {
+  const result = await box.run(['skills', 'fetch', '--bots', 'bots', '--json']);
+  assert.equal(result.code, 1, `fetch should refuse the clone, got: ${result.stdout}${result.stderr}`);
+  const said = sourceIn(fetchAnswerOf(result), SOURCE).trouble;
+  assert.equal(typeof said, 'string', `fetch should say why, got: ${result.stdout}`);
+  return said;
+}
+
+/** The trouble names where the clone came from, what the file names now, and what to run. */
+function assertWrongOrigin(said, made, other) {
+  assert.equal(typeof said, 'string', `it should say what is wrong, got: ${JSON.stringify(said)}`);
+  assert.ok(said.includes(made.dir), `the trouble should name the repository the clone came from, got: ${said}`);
+  assert.ok(said.includes(other.dir), `and the one skills.yaml names now, got: ${said}`);
+  assert.ok(said.includes(`skills update --source ${SOURCE}`), `and what to run to take it from there, got: ${said}`);
+}
+
+test('build will not link a skill out of a clone of another repository, and says what fetch says', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  await makeBot(box, 'api-bot');
+  const made = await origin(box);
+  const other = await fork(box);
+  await listSource(bots, made);
+  await fetched(box);
+  await listSource(bots, other);
+  await addSkills(botYamlOf(bots, 'api-bot'), `${SOURCE}:${SKILL}`);
+  const fetchWords = await fetchSays(box);
+
+  const result = await build(box, '--bot', 'api-bot', '--json');
+
+  assert.equal(result.code, 1, `a clone that is not of the repository the file names is a list the kit cannot follow, got: ${result.stdout}`);
+  const said = entryOf(answerOf(result), 'api-bot').trouble;
+  assertWrongOrigin(said, made, other);
+  assert.ok(said.includes(fetchWords), `build should refuse in fetch's words:\n  fetch: ${fetchWords}\n  build: ${said}`);
+  for (const harness of HARNESSES) {
+    assert.deepEqual(await namesIn(bots, 'api-bot', harness), [], 'and nothing of the old repository is linked');
+  }
+  assert.equal(await originUrlOf(cloneOf(bots, SOURCE)), made.dir, 'build takes nothing from anywhere: the clone is as it was');
+
+  // What the refusal says to run is the whole of what the user has to do.
+  const updated = await box.run(['skills', 'update', '--bots', 'bots', '--source', SOURCE]);
+  assert.equal(updated.code, 0, `${updated.stderr}${updated.stdout}`);
+  const built = await build(box, '--bot', 'api-bot');
+
+  assert.equal(built.code, 0, `${built.stderr}${built.stdout}`);
+  await assertLinked(bots, 'api-bot', SKILL, skillDirOf(bots, other));
+  for (const harness of HARNESSES) {
+    assert.ok(
+      (await readThrough(bots, 'api-bot', harness, SKILL)).includes(FORK),
+      `${harness} should read the repository skills.yaml names now`,
+    );
+  }
+});
+
+test('a bot linked before the source was pointed elsewhere is refused and left as it was', async (t) => {
+  // Like every other refusal of a list: nothing written, nothing taken away.
+  // The links still point where they did, and it is the trouble that tells the
+  // user their bot is not reading what skills.yaml says.
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  await makeBot(box, 'api-bot');
+  const made = await origin(box);
+  const other = await fork(box);
+  await listSource(bots, made);
+  await fetched(box);
+  await addSkills(botYamlOf(bots, 'api-bot'), `${SOURCE}:${SKILL}`);
+  assert.equal((await build(box, '--bot', 'api-bot')).code, 0);
+  const before = await treeIn(bots, 'api-bot');
+  await listSource(bots, other);
+
+  const result = await build(box, '--bot', 'api-bot', '--json');
+
+  assert.equal(result.code, 1, `the bot is not reading the repository the file names, got: ${result.stdout}`);
+  assertWrongOrigin(entryOf(answerOf(result), 'api-bot').trouble, made, other);
+  assert.deepEqual(await treeIn(bots, 'api-bot'), before, 'the bot\'s skills directories are exactly as they were');
+});
+
+test('up reports a clone of another repository as the bot\'s trouble, and brings the bot up all the same', async (t) => {
+  // up links through the same list as build, so it refuses the same clone; and
+  // as with a source never fetched, a skills problem does not hold a session down.
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  await makeBot(box, 'api-bot');
+  const made = await origin(box);
+  const other = await fork(box);
+  await listSource(bots, made);
+  await fetched(box);
+  await listSource(bots, other);
+  await addSkills(botYamlOf(bots, 'api-bot'), `${SOURCE}:${SKILL}`);
+
+  const result = await box.run(['up', '--bots', 'bots', '--json']);
+
+  assert.equal(result.code, 0, `a skills problem does not change what up ends in: ${result.stderr}`);
+  assertWrongOrigin(entryOf(answerOf(result), 'api-bot').trouble, made, other);
+  for (const harness of HARNESSES) {
+    assert.deepEqual(await namesIn(bots, 'api-bot', harness), [], 'and nothing of the old repository is linked');
+  }
+  assert.deepEqual(
+    (await tabsOfBot(box, bots, 'api-bot')).map((tab) => tab.title),
+    ['Api Bot daily'],
+    'the bot comes up all the same',
+  );
 });
