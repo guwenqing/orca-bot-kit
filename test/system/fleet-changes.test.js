@@ -104,11 +104,14 @@ const terminalsAt = (home) => allTerminals().filter((terminal) => terminal.workt
  * `terminal close` answers ok before `terminal list` stops reporting the tab —
  * seen live, for a second or two on a busy machine — so the listing is read
  * again until the closed tabs are out of it, rather than read once and believed.
+ *
+ * By handle: a raw listing can show a tab under `pty:<ptyId>` rather than its
+ * id while Orca calls it orphaned, and the handle is the same either way (#187).
  */
 async function terminalsAfterClosing(home, closed, within = 5000) {
   const until = Date.now() + within;
   let left = terminalsAt(home);
-  while (left.some((terminal) => closed.includes(terminal.tabId)) && Date.now() < until) {
+  while (left.some((terminal) => closed.includes(terminal.handle)) && Date.now() < until) {
     await setTimeout(250);
     left = terminalsAt(home);
   }
@@ -225,7 +228,7 @@ test('a bot is changed, paused, brought back and retired through the kit\'s comm
       for (const terminal of terminalsAt(each)) {
         if (before.handles.has(terminal.handle)) continue;
         orca(['terminal', 'close', '--terminal', terminal.handle, '--tab']);
-        closed.push(terminal.tabId);
+        closed.push(terminal.handle);
       }
     }
     for (const setup of allSetups()) {
@@ -271,15 +274,15 @@ test('a bot is changed, paused, brought back and retired through the kit\'s comm
   assert.equal(card.sessions.find((session) => session.name === 'daily').effort, 'low');
   const still = terminalsAt(home);
   assert.ok(
-    still.some((terminal) => terminal.tabId === opened.tabId),
-    `a change closes nothing: ${opened.tabId} should still be listed at ${home}, got: ${JSON.stringify(still)}`,
+    still.some((terminal) => terminal.handle === opened.terminal),
+    `a change closes nothing: ${opened.terminal} should still be listed at ${home}, got: ${JSON.stringify(still)}`,
   );
 
   // Paused: the tab is gone from Orca, the book keeps the conversation, `up`
   // leaves it closed and health does not call it lost.
   const paused = obkJson(['pause', '--bots', bots, '--bot', BOT.name]);
   assert.deepEqual(paused.closed.map((tab) => tab.tabId), [opened.tabId]);
-  assert.deepEqual(await terminalsAfterClosing(home, [opened.tabId]), [], 'the paused bot has no tab in Orca');
+  assert.deepEqual(await terminalsAfterClosing(home, [opened.terminal]), [], 'the paused bot has no tab in Orca');
   assert.equal(rosterOf(bots, BOT.name).paused, true);
   assert.equal((await sessionIn(home, 'daily')).session, id, 'the book keeps the conversation');
   const upAgain = obkJson(['up', '--bots', bots]);
@@ -301,7 +304,7 @@ test('a bot is changed, paused, brought back and retired through the kit\'s comm
   // nothing left for health to find.
   const retired = obkJson(['retire', '--bots', bots, '--bot', BOT.name]);
   assert.deepEqual(retired.closed.map((tab) => tab.tabId), [back.tabId]);
-  await terminalsAfterClosing(home, [back.tabId]);
+  await terminalsAfterClosing(home, [back.terminal]);
   assert.ok(!allSetups().some((setup) => setup.path === home), 'the bot\'s Orca project is gone');
   const archived = parse(await readFile(path.join(bots, 'retired', BOT.name, 'sessions.yaml'), 'utf8'));
   assert.ok(typeof archived.sessions?.daily?.session === 'string', 'the retired bot keeps its book');
