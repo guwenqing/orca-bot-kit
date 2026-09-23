@@ -17,8 +17,9 @@
 //               lists a tab of a project its window has not loaded: the same
 //               handle and ptyId, but `tabId` and `leafId` both `pty:<ptyId>`
 //               and `orphaned: true`. Its real tab id is still the one kept
-//               here, and it is what `terminal close` answers with. Set it back
-//               to false and it is listed as it was made. Seen live (#187, #185).
+//               here, and it is what `terminal close` and `terminal show`
+//               answer with. Set it back to false and it is listed as it was
+//               made. Seen live (#187, #185, the review of PR #190).
 //   automations [{ id, name, enabled, rrule, provider, prompt, runContext }]
 //               The daily jobs Orca runs by itself. Orca does **not**
 //               deduplicate them by name: the same --name against the same
@@ -409,6 +410,16 @@ if (command === 'terminal close') {
       ptyKilled: false,
     },
   });
+}
+
+// One terminal by its handle. Proved live on 1.4.207: for a terminal `list`
+// reports as `pty:<ptyId>`, `show` gives the real tab id, with `orphaned: true`
+// still set. Only the listing substitutes the id.
+if (command === 'terminal show') {
+  const terminal = (state.terminals ?? []).find((entry) => entry.handle === flag('--terminal'));
+  if (!terminal) fail('terminal_not_found', `no terminal with handle ${flag('--terminal')}`);
+  const { typed: _typed, closingFor: _closingFor, ...rest } = terminal;
+  ok({ terminal: { ...rest, orphaned: terminal.orphaned === true } });
 }
 
 if (command === 'terminal rename') {

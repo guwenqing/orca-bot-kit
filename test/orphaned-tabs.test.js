@@ -7,16 +7,15 @@
 // Inside Orca nothing has changed, and `terminal close --terminal <h> --tab`
 // closes it and answers with the real tab id.
 //
-// So the rule is the one PRD 6.2 already has: the tab id is the key, and titles
-// are never read. What changes is how the kit recognises its tab while Orca
-// lists it the other way: by the pty the book holds beside the tab. A tab that
-// is open is never taken for a lost one, and never gets a second harness.
+// Only the listing substitutes the id. `terminal show --terminal <handle>`
+// answers the real tab id for the same terminal, with `orphaned: true` still
+// set (proved live on 1.4.207 in the review of PR #190). So the rule is the one
+// PRD 6.2 already has, and it needs nothing new in the book: the tab id is the
+// key, titles are never read, and a tab that is open is never taken for a lost
+// one and never gets a second harness. A book written before any of this is
+// recognised as well as a new one (OT2).
 //
-// Every test here puts a terminal the kit made into that state with
-// `box.orca.orphan(handle)`, after the book has been written the ordinary way.
-// Not tested, on purpose: a book entry written before the pty was kept, whose
-// tab is orphaned at the time, cannot be recognised by anything, and nobody is
-// asked to.
+// Every test here puts a terminal into that state with `box.orca.orphan(handle)`.
 
 import assert from 'node:assert/strict';
 import { readFile, writeFile } from 'node:fs/promises';
@@ -120,27 +119,53 @@ for (const [label, args] of [
   });
 }
 
-test('OT2 a book written before the pty was kept gets it on the next up, while the tab is listed as it was made', async (t) => {
-  const box = await createSandbox(t);
-  const bots = await fleet(box);
-  const { tabId, handle } = await tabOf(box, bots);
-  // The book as the kit wrote it before this change: only the fields it had then.
+/**
+ * The reviewer's reproduction (PR #190): a book written before any of this —
+ * the tab, when it was launched, the conversation, nothing else — and the
+ * session's tab listed as orphaned before any run of this version has seen it.
+ */
+async function oldBookOrphaned(box) {
+  const { bots, tabId, handle, terminal } = await orphanedSession(box);
   const file = bookOf(bots, 'api-bot');
   const book = parse(await readFile(file, 'utf8'));
   const old = ['tab', 'launched', 'session', 'history', 'unclaimed'];
   book.sessions.daily = Object.fromEntries(Object.entries(book.sessions.daily).filter(([key]) => old.includes(key)));
   await writeFile(file, stringify(book));
+  assert.equal(book.sessions.daily.session, 'sess-1', 'the conversation is in the book, so a duplicate would resume it');
+  return { bots, tabId, handle, terminal };
+}
 
-  const first = await box.run(['up', '--bots', 'bots', '--bot', 'api-bot']);
-  assert.equal(first.code, 0, first.stderr);
-  await box.orca.orphan(handle);
+test('OT2 up recognises an orphaned tab from a book written before this change: nothing opened, nothing typed', async (t) => {
+  const box = await createSandbox(t);
+  const { bots, tabId, handle, terminal } = await oldBookOrphaned(box);
   const from = await callCount(box);
 
-  const second = await box.run(['up', '--bots', 'bots', '--bot', 'api-bot']);
+  const answer = answerOf(await box.run(['up', '--bots', 'bots', '--bot', 'api-bot', '--json']));
 
-  assert.equal(second.code, 0, second.stderr);
-  assert.deepEqual(creates(await since(box, from)), [], 'the tab is recognised although Orca now lists it as pty:');
+  const calls = await since(box, from);
+  assert.deepEqual(creates(calls), [], 'no second tab: the session\'s own tab is open');
+  assert.deepEqual(sends(calls), [], 'and nothing typed, so no second harness on sess-1');
+  const entry = tabEntry(answer, 'api-bot', 'daily');
+  assert.equal(entry.tabId, tabId, 'reported under the book\'s tab id');
+  assert.equal(entry.terminal, handle);
   assert.equal((await sessionIn(bots, 'api-bot', 'daily')).tab, tabId);
+  assert.deepEqual(typedInto((await tabOf(box, bots)).terminal), typedInto(terminal));
+});
+
+test('OT2 health says nothing about an orphaned tab from a book written before this change', async (t) => {
+  const box = await createSandbox(t);
+  const { tabId, handle } = await oldBookOrphaned(box);
+  const ownPty = (await box.orca.terminals()).find((one) => one.handle === handle).ptyId;
+
+  const result = await box.run(['health', '--bots', 'bots', '--json']);
+
+  const { found } = JSON.parse(result.stdout);
+  const words = (one) => `${one.where} ${one.says}`;
+  assert.deepEqual(
+    found.filter((one) => one.kind === 'session' || words(one).includes(ownPty) || words(one).includes(tabId) || words(one).includes(handle)),
+    [],
+    `not lost, not a leftover, got: ${JSON.stringify(found, null, 2)}`,
+  );
 });
 
 test('OT3 Bot Father: an orphaned session tab is not taken for the ops tab, and the real ops tab still is', async (t) => {
@@ -187,7 +212,7 @@ test('OT4 health does not call an orphaned session tab lost or a leftover, and s
   const clean = JSON.parse((await box.run(['health', '--bots', 'bots', '--json'])).stdout);
   assert.deepEqual(clean.found, [], 'the fleet starts clean, or this proves nothing');
   await box.orca.orphan(handle);
-  // The contrast: an orphaned terminal in the same project whose pty no book holds.
+  // The contrast: an orphaned terminal in the same project that is no session's.
   const home = botHomeOf(bots, 'api-bot');
   const [setup] = (await box.orca.setups()).filter((one) => one.path === home);
   const strangerPty = `${setup.id}::${home}@@0badcafe`;
@@ -218,7 +243,9 @@ test('OT4 health does not call an orphaned session tab lost or a leftover, and s
     `nothing about the session's own tab, got: ${JSON.stringify(found, null, 2)}`,
   );
   assert.deepEqual(found.filter((one) => one.kind === 'session'), [], 'no lost session');
-  const strays = found.filter((one) => one.kind === 'leftover' && words(one).includes(strangerPty));
+  // Named by whichever id the finding uses: the one Orca lists, or the real one.
+  const strays = found.filter((one) => one.kind === 'leftover'
+    && ['tab_stranger', strangerPty, 'term_stranger'].some((id) => words(one).includes(id)));
   assert.equal(strays.length, 1, `the stranger is still a leftover, got: ${JSON.stringify(found, null, 2)}`);
 });
 
@@ -318,6 +345,11 @@ test('OT0 the fake lists an orphaned terminal as Orca 1.4.207 does, and only tha
     assert.equal(other.orphaned, false);
     assert.ok(!other.tabId.startsWith('pty:'));
   }
+
+  const shown = JSON.parse((await sh(`'${box.orca.cli}' terminal show --terminal ${handle} --json`, { env: box.env })).stdout);
+  assert.equal(shown.result.terminal.tabId, tabId, 'show gives the real tab id while list gives pty:');
+  assert.equal(shown.result.terminal.orphaned, true, 'and still says it is orphaned');
+  assert.equal(shown.result.terminal.handle, handle);
 
   await box.orca.orphan(handle, false);
   const back = JSON.parse((await sh(`'${box.orca.cli}' terminal list --json`, { env: box.env })).stdout);

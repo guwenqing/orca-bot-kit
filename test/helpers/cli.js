@@ -664,6 +664,7 @@ export const ALLOWED_ORCA_COMMANDS = [
   'repo add',
   'project setup-update',
   'terminal list',
+  'terminal show',
   'terminal create',
   'terminal rename',
   'terminal wait',

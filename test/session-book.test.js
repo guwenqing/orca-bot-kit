@@ -55,17 +55,13 @@ test('the session the harness reported sits in the book beside the tab, and the 
   // tab (round 2, finding 3): without it there is no telling which of a
   // harness's own conversations could have been this session's. `mailbox` and
   // `address` are how the session is written to (PRD 6.9): the Run made for it
-  // at `up`, and, on Claude Code, the name it was launched under. `pty` is the
-  // pty Orca gave the tab, which is what recognises the tab while Orca lists it
-  // under a `pty:` id instead of its own (#187).
+  // at `up`, and, on Claude Code, the name it was launched under.
   assert.deepEqual(
     Object.keys(book.sessions.daily).sort(),
-    ['address', 'launched', 'mailbox', 'pty', 'session', 'tab'],
+    ['address', 'launched', 'mailbox', 'session', 'tab'],
     `got: ${JSON.stringify(book.sessions.daily)}`,
   );
   assert.equal(book.sessions.daily.tab, tabs.daily.tabId);
-  const [made] = await tabsOfBot(box, bots, 'api-bot');
-  assert.equal(book.sessions.daily.pty, made.ptyId, 'the pty Orca gave this tab, as Orca gave it');
   assert.equal(book.sessions.daily.session, 'sess-1');
   assert.equal(book.sessions.daily.address, 'api-bot.daily');
 });
