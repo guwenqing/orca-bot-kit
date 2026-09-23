@@ -269,7 +269,11 @@ test('a bot is changed, paused, brought back and retired through the kit\'s comm
   obkJson(['session', 'change', '--bots', bots, '--bot', BOT.name, '--session', 'daily', '--effort', 'low']);
   const card = rosterOf(bots, BOT.name);
   assert.equal(card.sessions.find((session) => session.name === 'daily').effort, 'low');
-  assert.ok(terminalsAt(home).some((terminal) => terminal.tabId === opened.tabId), 'a change closes nothing');
+  const still = terminalsAt(home);
+  assert.ok(
+    still.some((terminal) => terminal.tabId === opened.tabId),
+    `a change closes nothing: ${opened.tabId} should still be listed at ${home}, got: ${JSON.stringify(still)}`,
+  );
 
   // Paused: the tab is gone from Orca, the book keeps the conversation, `up`
   // leaves it closed and health does not call it lost.
