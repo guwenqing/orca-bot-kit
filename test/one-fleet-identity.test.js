@@ -4,8 +4,9 @@
 // start-prompt files — are the same things through either spelling, and a pin
 // set through one holds through the other.
 //
-// `init` is the exception and is pinned elsewhere (init-bots-link.test.js): it
-// may be given a path that is not there yet, and names what the user gave it.
+// `init` is the exception only until the folder exists: it may be given a path
+// that is not there yet, and its refusals name what the user gave it (pinned in
+// init-bots-link.test.js). Once the folder is there, it is the fleet's folder too.
 //
 // What is printed is not pinned here: which spelling a command reports back is
 // not the point. What is on disk and in the user's own skills.yaml is.
@@ -16,6 +17,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { createSandbox } from './helpers/cli.js';
+import { answerOf as skillsAnswerOf, assertLinked, entryOf } from './helpers/skills.js';
 import {
   answerOf,
   cloneOf,
@@ -117,4 +119,22 @@ test('a start-prompt file written through the folder is the one retire through t
 
   assert.equal(await isThere(prompt), false, 'retire through the link deletes the file the session was handed');
   assert.deepEqual(await siblings(box, '.prompts'), ['bots.prompts'], 'and made no prompts folder beside the link');
+});
+
+test('init through the link links a source skill fetched through the folder', async (t) => {
+  // init on a folder that is already there brings Bot Father up, and that links
+  // the skills bot.yaml names — a source skill among them. The clone it links
+  // from is the fleet's one clone, whichever name the fetch was given.
+  const box = await createSandbox(t);
+  const bots = await fleetWithTwoNames(box);
+  const made = await origin(box);
+  await ok(box, ['source', 'add', '--bots', 'linked-bots', '--name', SOURCE, '--repo', made.dir, '--ref', 'main']);
+  await ok(box, ['skills', 'fetch', '--bots', 'linked-bots']);
+  await ok(box, ['skills', 'add', '--bots', 'linked-bots', '--bot', 'bot-father', '--skill', `${SOURCE}:${SKILL}`]);
+
+  const result = await ok(box, ['init', '--bots', 'linked-bots', '--harness', 'claude', '--json']);
+
+  const entry = entryOf(skillsAnswerOf(result), 'bot-father');
+  assert.equal(entry.trouble, undefined, `Bot Father's skills should link without trouble, got: ${entry.trouble}`);
+  await assertLinked(bots, 'bot-father', SKILL, path.join(cloneOf(bots, SOURCE), SKILL));
 });

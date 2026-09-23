@@ -347,9 +347,10 @@ async function run(argv) {
  * otherwise have two of each, and a pin set through one is undone through the
  * other.
  *
- * Every command but `init`. It is given a path that may not exist yet, and when
- * it refuses one it names what the user gave it rather than whatever the link
- * pointed at, which is a file they never mentioned.
+ * Every command but `init` from the start. It is given a path that may not exist
+ * yet, and when it refuses one it names what the user gave it rather than
+ * whatever the link pointed at, which is a file they never mentioned; once the
+ * folder is there, it too works on the real path.
  */
 function sameFleet(bots) {
   try {
@@ -402,7 +403,9 @@ const commands = {
     // exactly as it was and the caller can simply run the command again.
     refuseWhenOrcaIsDown();
     const seeded = initBots(bots, values.harness);
-    const { tabs, rules, skills, paused } = await bringUp(seeded.bots, { bot: BOT_FATHER });
+    // The typed path was for making the folder and naming it in a refusal; from
+    // here on it is the fleet, and the fleet is its real path (#164).
+    const { tabs, rules, skills, paused } = await bringUp(sameFleet(seeded.bots), { bot: BOT_FATHER });
     // Setup is the other place the PRD asks for Orca's own launch arguments to
     // be looked at (6.5), and the one where the user is still standing in front
     // of the fleet they are making. Only that one check: a folder init has just
