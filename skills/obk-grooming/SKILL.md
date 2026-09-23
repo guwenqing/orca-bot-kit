@@ -48,9 +48,10 @@ say what was and was not looked at rather than taking the report's word for it.
 ## Where it remembers
 
 Each run is a fresh conversation, so everything it knows from the last one is
-in files. Keep them in one place in the bots folder (a `grooming/` folder,
-unless the project already has another) and say at the top of each what it is:
-the window, the open findings, and the profile notes. A run that cannot find
+in files in the bots folder: the window and the open findings in a `grooming/`
+folder unless the project already keeps them elsewhere, and the profile notes
+in `profiles/`, where the fleet's rules tell every bot to look. Say at the top
+of each what it is. A run that cannot find
 them says so and reads less, not everything.
 
 The open findings are what stops the same thing being reported every day:

@@ -84,7 +84,9 @@ Sources and licences in full: [LICENSES.md](LICENSES.md).
   notes and the open findings) and 6.10 commits them once a day. The skill
   named neither a place nor an open-findings record, so a fresh run could not
   find its window and would report the same thing daily; the first live run
-  had to invent a file.
+  had to invent a file. The profile notes go where `rules/profiles.md`
+  already puts them, `profiles/`; an acceptance run of this re-validation
+  found the two places disagreeing.
 - Bounded: `obk usage --since` as the index of what moved, only the window's
   part of a conversation, stopping when nothing moved, and the run's own cost
   in the report. From the owner's handoff warning that a supervisor re-reading
