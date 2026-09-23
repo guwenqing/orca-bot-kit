@@ -74,20 +74,26 @@ export function writeBook(home, book) {
  * work; this holds the lock for one read and one write.
  */
 export async function updateBook(home, change) {
-  // The file has to be there to be replaced; a bot whose book has not been
-  // written yet is the ordinary case on a first run.
-  if (!existsSync(bookFile(home))) writeBook(home, readBook(home));
-
   const lock = takeLock(home);
   try {
+    // Whether there is a book yet is asked under the lock, like everything else
+    // here. It used to be asked, and the missing book written, before the lock
+    // was taken, and that is a write like any other: two first writers could
+    // both find no book, one take the lock and record its id, and the other then
+    // put the empty book it had read in its place (#161, reproduced with a real
+    // second process). A book is one file with one lock; nothing writes it
+    // outside that lock, the first write included.
+    const missing = !existsSync(bookFile(home));
     const book = readBook(home);
     const before = structuredClone(book);
     // Awaited, because a change that takes time must hold the lock while it
     // does: an unawaited one would let the next writer in and then write over it.
     const next = (await change(book)) ?? book;
     // A run that changes nothing writes nothing: the file keeps its bytes and
-    // its time, and nothing else waiting on the lock has to read it again.
-    if (!isDeepStrictEqual(before, next)) writeBook(home, next);
+    // its time, and nothing else waiting on the lock has to read it again. The
+    // one exception is a bot with no book yet, which is given one either way, as
+    // it always has been.
+    if (missing || !isDeepStrictEqual(before, next)) writeBook(home, next);
     return next;
   } finally {
     lock.release();
