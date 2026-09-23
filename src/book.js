@@ -47,6 +47,8 @@ export function readBook(home) {
     ...book,
     orca: asRecord(book.orca),
     sessions: Object.fromEntries(Object.entries(asRecord(book.sessions)).map(([name, entry]) => [name, withHistoryListed(entry)])),
+    // A retired session's entry is the same entry, and its history is read the same way.
+    ...(Array.isArray(book.retired) ? { retired: book.retired.map(withHistoryListed) } : {}),
   };
 }
 
