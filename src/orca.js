@@ -155,8 +155,19 @@ export function asFolderProject(setupId, title) {
     .result.setup;
 }
 
-/** The live tabs of the Orca project at `home`. */
-export const tabs = (home) => orca(['terminal', 'list', '--worktree', `path:${home}`]).terminals;
+/**
+ * The live tabs of the Orca project at `home`, each under its own tab id.
+ *
+ * The listing gives a tab whose pane the window has not loaded as orphaned,
+ * under `pty:<ptyId>` rather than its id, and a running harness puts a tab the
+ * kit opened in that state within seconds. `terminal show` still answers with
+ * the real id, so an orphaned entry is given that one: the tab id is the key
+ * (PRD 6.2), and this is where Orca is asked for it (tech notes, section 1).
+ */
+export const tabs = (home) => orca(['terminal', 'list', '--worktree', `path:${home}`]).terminals
+  .map((tab) => (tab.orphaned === true
+    ? { ...tab, tabId: orca(['terminal', 'show', '--terminal', tab.handle]).terminal.tabId }
+    : tab));
 
 /**
  * Open a tab in the Orca project at `home`, titled `title`.

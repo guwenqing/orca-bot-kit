@@ -13,6 +13,13 @@
 // state.json, all optional except the lists:
 //   setups      [{ id, projectId, hostId, repoId, path, displayName, kind, ... }]
 //   terminals   [{ handle, tabId, worktreePath, title, typed: [...], ... }]
+//               A terminal with `orphaned: true` is listed the way Orca 1.4.207
+//               lists a tab of a project its window has not loaded: the same
+//               handle and ptyId, but `tabId` and `leafId` both `pty:<ptyId>`
+//               and `orphaned: true`. Its real tab id is still the one kept
+//               here, and it is what `terminal close` and `terminal show`
+//               answer with. Set it back to false and it is listed as it was
+//               made. Seen live (#187, #185, the review of PR #190).
 //   automations [{ id, name, enabled, rrule, provider, prompt, runContext }]
 //               The daily jobs Orca runs by itself. Orca does **not**
 //               deduplicate them by name: the same --name against the same
@@ -299,7 +306,9 @@ if (command === 'project setup-update') {
  * What Orca reports about a tab. What was typed into it is ours, and stays
  * ours, and so is how many more listings a closed tab still shows up in.
  */
-const asReported = ({ typed: _typed, closingFor: _closingFor, ...rest }) => rest;
+const asReported = ({ typed: _typed, closingFor: _closingFor, ...rest }) => (rest.orphaned === true
+  ? { ...rest, tabId: `pty:${rest.ptyId}`, leafId: `pty:${rest.ptyId}`, orphaned: true }
+  : { ...rest, orphaned: false });
 
 if (command === 'terminal list') {
   const target = worktreePathOf(flag('--worktree'));
@@ -347,11 +356,13 @@ if (command === 'terminal create') {
     fail('runtime_error', 'Timed out waiting for terminal handle after creation');
   }
 
+  // The shape Orca 1.4.207 answers with: the pane key is the tab and the leaf,
+  // and the pty id names the setup and the folder, then eight hex digits.
   const terminal = {
     handle: `term_${n}`,
     tabId: `tab_${n}`,
-    paneKey: `tab_${n}:pane_${n}`,
-    ptyId: `pty_${n}`,
+    paneKey: `tab_${n}:leaf_${n}`,
+    ptyId: `${setup.id}::${setup.path}@@${n.toString(16).padStart(8, '0')}`,
     leafId: `leaf_${n}`,
     worktreeId: `${setup.repoId}::${setup.path}`,
     worktreePath: setup.path,
@@ -399,6 +410,16 @@ if (command === 'terminal close') {
       ptyKilled: false,
     },
   });
+}
+
+// One terminal by its handle. Proved live on 1.4.207: for a terminal `list`
+// reports as `pty:<ptyId>`, `show` gives the real tab id, with `orphaned: true`
+// still set. Only the listing substitutes the id.
+if (command === 'terminal show') {
+  const terminal = (state.terminals ?? []).find((entry) => entry.handle === flag('--terminal'));
+  if (!terminal) fail('terminal_not_found', `no terminal with handle ${flag('--terminal')}`);
+  const { typed: _typed, closingFor: _closingFor, ...rest } = terminal;
+  ok({ terminal: { ...rest, orphaned: terminal.orphaned === true } });
 }
 
 if (command === 'terminal rename') {

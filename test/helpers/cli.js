@@ -236,6 +236,18 @@ export async function createSandbox(t) {
       async messages() {
         return (await readState()).messages ?? [];
       },
+      /**
+       * Put one terminal, by its handle, into the orphaned state Orca 1.4.207
+       * lists it in (`tabId: pty:<ptyId>`, `orphaned: true`), or with
+       * `orphaned: false` back out of it. Every other terminal is left as it is.
+       */
+      async orphan(handle, orphaned = true) {
+        const state = await readState();
+        const terminal = state.terminals.find((entry) => entry.handle === handle);
+        if (terminal === undefined) throw new Error(`the fake Orca has no terminal ${handle} to orphan`);
+        terminal.orphaned = orphaned;
+        await writeFile(stateFile, `${JSON.stringify(state, null, 2)}\n`);
+      },
       /** Change what the fake Orca knows or how it misbehaves; see helpers/fake-orca.js. */
       async set(changes) {
         await writeFile(stateFile, `${JSON.stringify({ ...await readState(), ...changes }, null, 2)}\n`);
@@ -652,6 +664,7 @@ export const ALLOWED_ORCA_COMMANDS = [
   'repo add',
   'project setup-update',
   'terminal list',
+  'terminal show',
   'terminal create',
   'terminal rename',
   'terminal wait',
