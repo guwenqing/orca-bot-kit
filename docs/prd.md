@@ -214,7 +214,7 @@ TDD and tests:
 - Test first, one vertical slice at a time. Red/green is for new behaviour. [decided]
 - The test author is always separate from the implementer. A subagent counts; or another session, by the user's flavour. [decided] → ADR 0007
 - The author gets the requirement and the public interfaces, not the implementer's code plan, and follows the test-writing part of the skill. [decided]
-- The implementer cannot change a test to make it pass. [decided] A test that looks wrong is reported to the author. [proposed]
+- The implementer cannot change a test to make it pass. [decided] A test that looks wrong is reported to the author. [decided: AGENTS.md, the owner's decisions on how code is made, #108]
 - The author's tests are checked by the mutation check below, so silly tests are caught. [decided]
 - Mutation check, the rule [decided]. It is how this repo works and what the kit's TDD skill teaches every developer bot:
   1. Everyday work: the agent's own hand check, once per issue, at the end, only where it earns its place. Five to eight deliberate breaks in the risky logic the issue changed, chosen before looking at the tests, each run, expected to fail, reverted; reported in three lines. Skipped, and said so, for slices with no real logic (docs, config, wiring, small fixes, renames, prototypes, code with no runnable tests).
@@ -257,4 +257,4 @@ This section is how this repo is being built right now. It is a temporary arrang
 - Test volume stays as it is for now: the owner wants to see whether tests at five to ten times the product code help quality, with the mutation rule above. [decided]
 - Thorough is good, formality for its own sake is not. Reviews and mutation checks go deep on what can break and on whether the change does what was asked; they do not repeat the same formal checks on every PR, and a second or third look skips what did not change, on judgment. [decided, temporary]
 - Each build step ends with a live check in Orca on both harnesses where it applies. [proposed]
-- Live checks still owed from research: the session id follows `/clear`; a Claude session name survives resume; Codex auto mode allows `orca` and `gh` (answered in slice 08: `orca` only with the sandbox switch in ADR 0005's amendment); the Orca automation keeps one grooming conversation (answered in slice 11: it does not, see 6.8); `codex queue` retest.
+- Live checks from research, and where they stand (tech notes, section 5): the session id follows `/clear` (done in slice 04); a Claude session name survives resume (done in slice 08); Codex auto mode allows `orca` and `gh` (`orca` done in slice 08, only with the sandbox switch in ADR 0005's amendment; `gh` still owed); the Orca automation keeps one grooming conversation (no longer needed: since slice 11 grooming is a fresh conversation each run, see 6.8); `codex queue` retest (still owed).

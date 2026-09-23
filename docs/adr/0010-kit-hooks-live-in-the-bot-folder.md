@@ -15,3 +15,14 @@ The kit's hook lives in the bot's own folder inside the bots repo, for each harn
 - Bot-level settings are versioned with the bot and do not collide with other tools.
 - Codex requires hooks to be trusted once; init handles it or tells the user the one step.
 - The hook must be fast and must never block the session if `obk` is missing.
+
+## Amendment, 2026-09-23 (records what slice 04 built after its review, #88; the owner may overrule)
+
+The newest-transcript fallback in the Decision is not used. A bot's folder
+holds the conversations of every one of its sessions and of anything they start
+inside themselves, so the newest one there says nothing about whose it is, and
+slice 04's review showed a guess going wrong both ways. When the book cannot
+name a session's conversation, the kit writes the ones it found and nobody
+claims into the book as `unclaimed`, starts the session on a fresh conversation
+with its duty, and leaves the choice to a person or Bot Father (README,
+"Sessions that come back").

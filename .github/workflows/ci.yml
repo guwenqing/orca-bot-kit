@@ -32,14 +32,14 @@ jobs:
 
   # The floor `engines.node` promises users, so the promise stays checked. The
   # kit is what a user installs — the dependencies, not the development tools —
-  # and the tests need nothing else, so this job installs exactly that. It also
-  # keeps StrykerJS, which wants a newer Node than the floor, out of a job that
-  # has no use for it.
+  # and the tests need nothing else, so this job installs exactly that, and
+  # leaves out StrykerJS, which it has no use for.
   #
-  # The floor is 24.21.0 because the book's lock is a SQLite write transaction and
-  # `node:sqlite` is in Node itself from that line on — and because it is the
-  # first release measured here that loads it without an experimental warning on
-  # stderr: 24.0.0 prints one, which would land in the output of every command.
+  # The floor is 24.21.0 because the book's lock is a SQLite write transaction
+  # through Node's own `node:sqlite`, which is older than this line, and 24.21.0
+  # is the first release measured here that loads it without an experimental
+  # warning on stderr: 24.0.0 prints one, which would land in the output of every
+  # command.
   # Nothing weaker takes the turn to write the book from a writer that is merely
   # stopped: a lease cannot, and neither can a check before the write.
   floor:
@@ -49,10 +49,8 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24.21.0
-      # npm still reads the whole lock file to prune it, and warns that
-      # StrykerJS and its Babel wants a newer Node than this — about packages
-      # this job does not install. That is forty lines of noise about nothing,
-      # and a real incompatibility here shows up as a failing test, not as a
-      # warning, so this job says only what went wrong.
+      # Errors only: a real incompatibility here shows up as a failing test,
+      # not as a notice from npm. Every package in the lock file accepts this
+      # Node (its engines ranges checked against 24.21.0 on 2026-09-23).
       - run: npm ci --omit=dev --loglevel=error
       - run: npm test
