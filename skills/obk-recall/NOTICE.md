@@ -11,7 +11,10 @@ thanks:
   rebuilding recent working context before acting rather than writing a
   history; classifying and routing first, with one specific prior session being
   a pickup rather than a recall and an already-supplied state capsule meaning
-  no mining at all; locking the scope before searching, with "recent" as a real
+  no mining at all, with the pickup itself carried here in short (last
+  messages first, then the decisions, what landed against what was planned,
+  the resume point, nothing finished redone, what was inherited said), since
+  the kit has no separate pickup skill; locking the scope before searching, with "recent" as a real
   range stated back and never quietly narrowed; ordering candidates by when
   they were last modified rather than by identifier; searching for the topic
   first and reading only the matching sessions and only their relevant parts;
@@ -32,7 +35,8 @@ thanks:
   sanitising private context before it goes anywhere else. From
   `session-pickup`: the prior trail is authoritative input, so resist the bias
   to re-derive it, and a "verify from scratch" pass means treating it as
-  untrustworthy when it is not.
+  untrustworthy when it is not; and a passing prior self-report is not the
+  proof.
 
 Made generic, which is what the owner asked for. The original names a fixed
 transcript path, a particular set of hosted sources and a parallel fan-out on

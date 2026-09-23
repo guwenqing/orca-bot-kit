@@ -5,7 +5,8 @@ description: >-
   of the step you are in, making what you have durable, and writing the note a
   cold reader needs (what this is for, what is done, what is proven, where it
   sits, and what to do first). Run it when you are asked to: "hand this over",
-  "write it up for whoever picks this up", "stop there", "we are out of time".
+  "write it up for whoever picks this up", "pause here and write it up", "we
+  are out of time".
   Running low on room does not trigger it and neither does a session being
   cleared; a fresh start is a fresh start, and neither of those is someone
   asking you to hand over.
@@ -16,10 +17,8 @@ description: >-
 Two halves: stop somewhere it is safe to stop, and leave a note someone who
 was not here can act on.
 
-This is run when someone asks for it. Clearing a session does not trigger it,
-and neither does running low on room: a fresh start is a fresh start, and
-neither of those is someone asking you to hand over. And when the answer to
-"shall I stop?" was "keep going", keep going.
+This is run when someone asks for it, and when the answer to "shall I stop?"
+was "keep going", keep going.
 
 These are defaults for work where nothing says otherwise. A user who asks for
 something else gets what they asked for; say which of these you left and why.
@@ -80,7 +79,9 @@ What a cold reader needs, and roughly in this order:
 - **What is actually proven**, separately from what is merely written. Which
   checks were run, what they said, and what has not been checked at all. This
   is the part that gets lost, and its absence is what makes a successor redo
-  work that was already finished.
+  work that was already finished. The next reader will take the note as
+  settled and will not re-check it, so read it over before handing it on and
+  mark anything you only assumed.
 - **Where it physically is.** The branch, the commits, the files that matter,
   anything left in a scratch place.
 - **What to do first.** One concrete next action, not a list of possibilities.
@@ -89,8 +90,6 @@ What a cold reader needs, and roughly in this order:
   project's own instructions that does not work from here, and what you used
   instead, belongs here too: the next person will otherwise spend the same
   half hour finding out.
-- **What was decided and by whom**, where a decision would otherwise look
-  arbitrary.
 
 Do not copy in what already exists somewhere else. A plan, a design note, an
 issue, a commit, a diff: point at them by path or identifier. A handoff that
@@ -111,7 +110,7 @@ now:
 
 - where you stopped, and whether that is a clean boundary;
 - what is on disk against what was only in the conversation, by path;
-- the commits you made and whether the tree builds;
+- the commits you made and whether the tree is clean;
 - the first thing to do next.
 
 This is a pause, not a final report. It does not claim the work is finished

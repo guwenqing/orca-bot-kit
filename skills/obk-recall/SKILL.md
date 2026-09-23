@@ -1,14 +1,13 @@
 ---
 name: obk-recall
 description: >-
-  Rebuilding where a piece of work actually stands before carrying on with it:
-  fixing the scope first, reading back over your own history and whatever the
-  project records around the same code, checking what you find against the
-  live state, and handing back a short brief of where things are and what to
-  do next. Run it when you are asked to: "catch me up", "what was I doing with
-  X", "where did I leave off", "get up to speed on this before we start". Not
-  something to do unbidden: being asked to carry on with a task is a request
-  for the task.
+  Rebuilding where a piece of work actually stands: fixing the scope first,
+  reading back over your own history and whatever the project records around
+  the same code, checking what you find against the live state, and handing
+  back a short brief of where things are and what to do next. Run it when you
+  are asked to: "catch me up", "what was I doing with X", "where did I leave
+  off", "get up to speed on this before we start". Not something to do
+  unbidden: being asked to carry on with a task is a request for the task.
 ---
 
 # Working out where you left off
@@ -26,8 +25,11 @@ something else gets what they asked for; say which of these you left and why.
 
 ## First, decide whether this is the right thing
 
-- **One specific earlier session to continue** is not this. Go and read that
-  one, and pick up where it stopped.
+- **One specific earlier session to continue** needs less than the rest of
+  this. Read its last messages first, then scan back for the decisions. Rebuild
+  what actually landed, set it beside what was planned, and name the point to
+  resume from. Do not redo what it finished. Say what you inherited and where
+  you are picking up.
 - **A summary for someone else to read** is not this either. This is for
   acting on.
 - **If they have already told you the state** (the branch, the files, what
@@ -75,8 +77,8 @@ what the project records around it: what shipped, what was reverted and why,
 what people keep reporting, what is still failing. A thing with a long tail of
 trouble keeps most of its story outside your conversations.
 
-Use whatever the project actually has. Its history and its review discussion
-are always there. A tracker, documents, a chat log, somewhere errors land: some
+Use whatever the project actually has: its history and its review discussion
+where it keeps them, and a tracker, documents, a chat log, somewhere errors land: some
 projects have them and some do not. Where one is missing, that is a fact
 about what you could check, not a step to pretend you did.
 
@@ -90,7 +92,8 @@ Whatever the reading turned up (a branch, a change, an issue), go and look at
 its current state rather than trusting the account. A conversation from
 Thursday does not know what happened on Friday. Where the answer hinges on
 what was actually done rather than what was said, read the record itself
-rather than a summary of it.
+rather than a summary of it. A passing report from the earlier session is not
+the proof; the thing it reported on is.
 
 That is a check on the state, not a licence to do the work again. What the
 earlier sessions worked out and decided is what you are inheriting, and it is
