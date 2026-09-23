@@ -145,6 +145,14 @@ async function fakeOrca(box, { stdout = '', stderr = '', exitCode = 0 }, world) 
   };
 }
 
+/**
+ * What a report says when its count of Runs is a floor rather than a total.
+ * One list, used both ways: the report that must hedge says one of these, and
+ * the report that must not says none of them, so a runner cannot pass the
+ * second with a hedge the first would have counted.
+ */
+const HEDGE = /at least|incomplete|not all|may be more|might be more|could not reach/i;
+
 /** A Run as `orchestration run-list` hands it over, named so a test can spot it. */
 const runNamed = (name, at) => ({
   id: `run_${name}`,
@@ -298,6 +306,20 @@ function assertAnnounces(result, fixture, files = [], cli = fixture.orcaPath) {
   for (const file of files) {
     assert.ok(output.includes(file), `it should name ${file}, got: ${output}`);
   }
+}
+
+/**
+ * The Orca the run asked is said to come from OBK_ORCA, not from the default.
+ * The default's own wording names OBK_ORCA too ("OBK_ORCA names another"), so
+ * the word alone tells nothing: what tells them apart is the line naming the
+ * Orca asked, which says OBK_ORCA chose it and does not call it the default.
+ */
+function assertFromObkOrca(result, cli) {
+  const told = result.stdout.split('\n').filter((line) => line.includes(cli));
+  assert.ok(
+    told.some((line) => /OBK_ORCA/.test(line) && !/default/i.test(line)),
+    `the line naming ${cli} should say OBK_ORCA chose it, not the default, got: ${result.stdout}`,
+  );
 }
 
 /** Each way of invoking it, for a fact that has to hold on both. */
@@ -659,11 +681,7 @@ describe('test-system', { concurrency: true }, () => {
           result.stdout.includes(fixture.orcaPath),
           `it should name the CLI in use, got: ${result.stdout}`,
         );
-        assert.match(
-          result.stdout,
-          /OBK_ORCA/,
-          `it should say the CLI came from OBK_ORCA, got: ${result.stdout}`,
-        );
+        assertFromObkOrca(result, fixture.orcaPath);
       }
     });
 
@@ -720,11 +738,7 @@ describe('test-system', { concurrency: true }, () => {
       for (const result of await eitherWay(fixture)) {
         assertSkipped(result);
         assertAnnounces(result, fixture);
-        assert.match(
-          result.stdout,
-          /OBK_ORCA/,
-          `it should say the CLI came from OBK_ORCA, got: ${result.stdout}`,
-        );
+        assertFromObkOrca(result, fixture.orcaPath);
       }
     });
 
@@ -960,7 +974,7 @@ describe('test-system', { concurrency: true }, () => {
       const report = afterTheRun(result);
       assert.match(
         unwrapped(report),
-        /at least|incomplete|not all|may be more|might be more|could not reach/i,
+        HEDGE,
         `it should say the count is a floor, not a total, got: ${report}`,
       );
       // The gap is real, and it is the oldest of the new ones: the window never
@@ -988,7 +1002,7 @@ describe('test-system', { concurrency: true }, () => {
       }
       assert.doesNotMatch(
         unwrapped(report),
-        /at least|incomplete/i,
+        HEDGE,
         `the window reached back past the run, so nothing needs hedging, got: ${report}`,
       );
     });
