@@ -395,9 +395,12 @@ for (const [label, make] of [
     const leftovers = of(answer, { kind: 'leftover' });
     const finding = oneNaming(leftovers, ghost, 'Orca still holds a project where there is no bot');
     assert.equal(finding.bot, undefined, 'a project with no bot belongs to no bot');
+    // The order, not the word: a sentence that has the project go first
+    // mentions tabs too. Tabs, then "first" or "before", then the project; or
+    // the project "after" the tabs.
     assert.match(
       finding.says,
-      /tabs?/i,
+      /\btabs?\b[^.]*\b(first|before)\b[^.]*\bproject|\bproject\b[^.]*\bafter\b[^.]*\btabs?\b/i,
       `removing the project first leaves tabs nothing can close, so the sentence has to say the tabs go first, got: ${finding.says}`,
     );
     noneNaming(answer.found, mine, 'a project of the user\'s own, outside the bots folder');
