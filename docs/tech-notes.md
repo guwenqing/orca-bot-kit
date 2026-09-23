@@ -36,7 +36,8 @@ project → repo (`kind: "git" | "folder"`) → worktree (id = `<repoId>::<absPa
   call. `orca project setups --json` lists every setup with its `path` and `kind`, which is how the kit
   finds a workspace it made earlier. **verified** (live)
 - Many tabs can share one folder: call `orca terminal create --worktree path:<p>` repeatedly.
-- Terminal handles are issued at runtime and go stale after a restart, so re-list with
+- Terminal handles are issued at runtime and are not promised to outlast a restart (three did outlast
+  the 2026-09-22 reboot, below, but that is one observation, not a contract), so re-list with
   `orca terminal list [--worktree <sel>] --json` and match on the `tabId` that `orca terminal create`
   returned. **The tab id is the key, never the title.** Always set a title (`--title` at creation, kept
   as the tab's `customTitle`), but do not identify a tab by it: the title `terminal list` reports is
@@ -45,10 +46,10 @@ project → repo (`kind: "git" | "folder"`) → worktree (id = `<repoId>::<absPa
   `◐ orca-bot-kit-dev`, and a zsh prompt rewrites a shell tab's title to its folder. Orca's own
   `settings.tabAutoGenerateTitle` is `false` on this machine, so that option is not what moves them.
   **verified** (live)
-- **A tab keeps its tab id and its terminal handle across an Orca restart.** On 2026-09-22 the machine was
-  rebooted and Orca started again (the running Orca started at 16:06). The three working tabs read before and
-  after by the coordinator kept their exact handles and tab ids (`term_8de5ea5c…`, `term_ee149c15…`,
-  `term_46f87f78…`). Orca afterwards was 1.4.207, which its own trace log first records at 16:03 that day. The
+- **A tab keeps its tab id across an Orca restart.** On 2026-09-22 the machine was rebooted and Orca started
+  again (the running Orca started at 16:06). The three working tabs read before and after by the coordinator
+  kept their tab ids, and on that occasion their handles too (`term_8de5ea5c…`, `term_ee149c15…`,
+  `term_46f87f78…`). The tab id is what the kit keys on; a handle is still re-listed rather than kept. Orca afterwards was 1.4.207, which its own trace log first records at 16:03 that day. The
   last version on record before it is 1.4.205 (2026-09-21); whether another ran in between is not recorded.
   **verified by observation** of one reboot, not by a deliberate test. A deliberate restart test is still
   owed if the owner wants one; it closes every tab on the machine, so it is his to schedule (#176).
