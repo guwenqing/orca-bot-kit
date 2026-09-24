@@ -36,6 +36,18 @@ The rest of this README is the reference: what each command does, and why the
 kit is built the way it is. Reach for it when you want to know how something
 works, not to get started.
 
+## Reporting a problem
+
+When the kit itself goes wrong (an `obk` command fails in a way its own message
+does not explain, or does something other than what it says), open an issue at
+https://github.com/guwenqing/orca-bot-kit/issues with the form there. It asks for
+the command and its whole output, what you expected, `obk health --json`, and the
+versions of `obk`, Node, Orca and the harness. Take out anything private first:
+issues are public.
+
+Bot Father is told the same thing. Tell it what went wrong and it gathers these
+details and, when you say so, files the issue or gives you the text to paste.
+
 ## Status
 
 Early. The CLI creates your bots folder, brings Bot Father up in Orca, creates
