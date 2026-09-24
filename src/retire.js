@@ -34,7 +34,7 @@ export const retiredDir = (bots) => path.join(bots, 'retired');
  * Retire the session `session` of the bot `bot`. Returns `{ bot, session, closed }`.
  */
 export async function retireSession(bots, { bot, session }) {
-  const home = fleetMember(bots, bot, 'retire');
+  const home = fleetMember(bots, bot, 'retire', session);
   const sessions = sessionsOf(readBot(home, bot), session);
 
   const closed = await closeTabs(home, tabsToClose(bots, bot, home, sessions, { keepless: true }), bots, bot);

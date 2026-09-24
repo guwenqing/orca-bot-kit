@@ -126,7 +126,7 @@ const MANAGEMENT_SKILLS = ['obk-bot-building', 'obk-finops', 'obk-fleet-review',
 const BOT_FATHER_YAML = 'bots/bot-father/bot.yaml';
 
 /** The management session every Bot Father has: the tab you talk to it in. */
-const DAILY_SESSION = 'daily';
+export const DAILY_SESSION = 'daily';
 
 const seeds = (harness) => [
   ['.gitignore', GITIGNORE],
