@@ -183,7 +183,7 @@ waiting for:
 | On screen | Send | Which is |
 |---|---|---|
 | Claude Code's folder trust list | `\x1b[B\r` | down, then return: its selection starts on **No, exit** |
-| Codex's directory trust, `1. Yes, continue` | `1\r` | yes |
+| Codex's directory trust, `1. Trust and continue` (older: `1. Yes, continue`) | `1\r` | yes |
 | Codex's `Hooks need review` | `2\r` | trust all and continue |
 | Codex's update offer, `1. Update now` | `1\r` | accept it |
 | `[oh-my-zsh] Would you like to update?` | `n` | they update their own shell |
