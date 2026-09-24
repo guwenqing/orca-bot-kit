@@ -148,7 +148,8 @@ their machine on their risk.
 Someone moving in usually has a conversation going that they do not want to
 lose. Take the harness's own id for it and record it against the session in
 the book (by hand, since no command takes an outside id), and `obk up` brings
-it back with its history. Whether a harness resumes a conversation that was
+it back with its history; then read its tab and answer what is on screen
+(see "When a tab it opened is waiting"). Whether a harness resumes a conversation that was
 started in another folder is something to try before promising.
 
 Everything else is best effort, and say so plainly rather than promising a
@@ -166,7 +167,9 @@ them, and `obk up` opens what is missing in Orca. `obk bot change` gives a
 bot a new charter, `obk session change` changes a session's settings, and
 `obk skills remove` takes a skill off a list (then `obk skills build`). `obk
 pause` stops a bot or a session for now and `obk unpause` brings it back;
-`obk retire` ends one. For a special case no command covers, such as a bot's
+`obk retire` ends one. After `obk up`, `obk restart` or `obk unpause`, read
+every tab it opened and answer what is on screen yourself (next section).
+For a special case no command covers, such as a bot's
 rules list, edit the file, run `obk rules build` or `obk skills build`, and
 say that you edited it by hand.
 Run `obk --help` for the flags of the version actually installed rather than
@@ -193,6 +196,48 @@ and linking skills add things and are safe to run again; closing a tab,
 pausing or retiring a bot and restarting anything are not, and they wait for
 the word.
 
+## When a tab it opened is waiting
+
+A new tab often stops on a first-run screen before the session starts:
+the harness asking whether to trust the folder, Codex asking to review
+hooks, a harness offering its own update, the shell offering to update
+itself. Answering these is your job, not the user's. Answer them in the tab
+yourself, without asking, and tell the user afterwards what you answered.
+The kit types the launch line and nothing more, so no one else will.
+
+Look at every tab `obk up`, `obk restart` or `obk unpause` opened, not only
+the ones it says are waiting. Claude Code's trust list does not show as
+waiting, so the kit reports that tab as up. Read the screen with the command
+the kit printed for the tab (`<orca> terminal read --terminal <handle>
+--screen`). Send each answer as one `<orca> terminal send --terminal
+<handle> --text …`, with the return inside the text and no `--enter`:
+
+| On screen | Send | Which is |
+|---|---|---|
+| Claude Code's folder trust list | `\x1b[B\r` | down, return: it starts on **No, exit** |
+| Codex's directory trust, `1. Yes, continue` | `1\r` | yes |
+| Codex's `Hooks need review` | `2\r` | trust all and continue |
+| Codex's update offer, `1. Update now` | `1\r` | accept it |
+| `[oh-my-zsh] Would you like to update?` | `n` | no: the shell is the user's to update |
+| Claude Code's `Teach auto mode about…` | `2\r` | **Not now**: it writes the user's settings |
+
+Read the numbers off the screen in front of you rather than trusting the
+table: a harness that has added an option has moved them. Codex's hooks
+question matters most. The kit's hook is how the book learns which
+conversation the session is running, and until it is answered the
+conversation has not started. Codex's trust applies to the repository root,
+which is the whole bots folder.
+
+Where the kit says no session came up, the shell swallowed the launch line,
+usually while it was asking its own question. Answer the shell, then close
+that one tab (`<orca> terminal close --terminal <handle> --tab`) and run
+`obk up` again. This is the one tab you may close without asking: the kit
+opened it a moment ago, and it holds no conversation.
+
+A screen you do not recognise gets no keypress. Take what it says, and which
+bot and tab it is in, to the user. When you have answered, read the screen
+again and check a session is running before you call the bot ready.
+
 ## When the bot is already running
 
 Changing a bot whose sessions are up is the ordinary case rather than the
@@ -212,9 +257,9 @@ Instructions are not skills. A session is working from the rules it read when
 it started, so a change to a bot's `AGENTS.md` may not reach one that is
 already up even when a skill change would, and a session's model, effort or
 approval only changes when it is started again (`obk restart`, on the user's
-word). Say which you changed, and what that means for the sessions running
-now. Where everything needs restarting, remind them to do it from Bot Father's
-ops tab.
+word, and then read its tabs as above). Say which you changed, and what that
+means for the sessions running now. Where everything needs restarting, remind
+them to do it from Bot Father's ops tab.
 
 And tell them. A bot's sessions share its rules and its skills, so a change
 made for one of them lands on all of them, and the session that asked is not

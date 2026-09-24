@@ -9,6 +9,7 @@
 
 import { readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 
 import { addSession, changeBot, changeSession, createBot, readBot, SESSION_FIELDS } from './bot.js';
@@ -379,6 +380,21 @@ function sameFleet(bots) {
  * fails for a reason that looks nothing like its cause.
  */
 const lookAt = (terminal) => `${shellWord(orcaCli())} terminal read --terminal ${terminal} --screen`;
+
+/** The SETUP.md shipped with the running kit, whose section 5 has the answers. */
+const SETUP = fileURLToPath(new URL('../SETUP.md', import.meta.url));
+
+/**
+ * Who answers a tab left on a screen: the caller, not the user (PRD 6.5). The
+ * kit names where the answers are rather than carrying them, because which
+ * keys answer which screen is judgment that changes with every harness
+ * release, and that belongs in the skill (ADR 0006).
+ */
+const ANSWER_IT = [
+  `             Answer what is on screen yourself, without asking the user: section 5 of ${SETUP}`,
+  '             and the obk-bot-building skill have the keys for the usual screens.',
+  '             Anything you do not recognise gets no keypress: take it to the user.',
+];
 
 /** The one command a harness runs rather than a person: the kit's hook. */
 const RECORD = 'session record';
@@ -1103,6 +1119,7 @@ function harnessLines(tab, bots) {
       ...how,
       '             the harness was typed in, and no session came up in the tab.',
       `             Look at it:  ${lookAt(tab.terminal)}`,
+      ...ANSWER_IT,
     ];
   }
 
@@ -1112,6 +1129,7 @@ function harnessLines(tab, bots) {
       ...how,
       `             the harness was typed in and came up, waiting on: ${tab.blockedReason}`,
       `             Look at it:  ${lookAt(tab.terminal)}`,
+      ...ANSWER_IT,
     ];
 
   if (tab.promptSent === true) lines.push('             the start prompt was typed in.');
