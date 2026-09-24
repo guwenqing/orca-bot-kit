@@ -7,6 +7,8 @@
 //   <root>/orca-fake/    the fake Orca's world: state.json and calls.log
 //   <root>/cwd           the working directory the CLI is spawned from
 //   <root>/home          HOME, so a stray write to the home dir shows up here
+//   <root>/Orca.app      only after `orcaApp`: a fake of the installed app, with
+//                        Orca's runtime client in it, and bin/orca linked into it
 //
 //   <root>/home/Library/Application Support/orca/profiles/local-default/orca-data.json
 //                        Orca's own settings, where Orca keeps them on this
@@ -309,6 +311,130 @@ export async function createSandbox(t) {
         }
       },
     },
+  };
+}
+
+/** How long a fake runtime client told to hang keeps its process alive: far past any wait the kit should make. */
+export const CLIENT_HANG_MS = 30_000;
+
+/**
+ * Lay out a fake Orca app in `box`, the way the installed one is laid out, and
+ * make it the Orca the kit runs:
+ *
+ *   <root>/Orca.app/Contents/Resources/bin/orca     the fake Orca CLI, moved in here
+ *   <root>/Orca.app/Contents/MacOS/Orca             the app's binary (`executable`)
+ *   <root>/Orca.app/Contents/Resources/app.asar.unpacked/out/cli/runtime-client.js
+ *                                                   Orca's own runtime client (`client`)
+ *
+ * `<root>/bin/orca`, which OBK_ORCA names, becomes a symlink to the CLI in the
+ * app, the way an install links it onto PATH: the kit finds `Contents` by
+ * following it to its real path and going three levels up.
+ *
+ * The binary acts as plain Node only with ELECTRON_RUN_AS_NODE=1, as the real
+ * one does; without it the real one would open Orca's window, so the fake stops
+ * there and says so.
+ *
+ * `client` is how the runtime client behaves:
+ *   'answers'            as Orca's runtime does: `project.update` on a project
+ *                        Orca has resolves `{ id, ok: true, result, _meta }`, on
+ *                        one it has not rejects with `Project not found`
+ *   'missing'            there is no client file at all
+ *   'no-export'          the file loads but exports no `RuntimeClient`
+ *   'method-not-found'   `call` rejects with an error whose code is `method_not_found`
+ *   'project-not-found'  `call` rejects with `Project not found`, whatever it was given
+ *   'never-settles'      `call` never settles, and nothing else holds the process
+ *   'hangs'              `call` never settles, and the process stays up for
+ *                        CLIENT_HANG_MS before it ends by itself
+ *
+ * The client writes one line per load and per call to a log in the fake's
+ * world, which `loads()` and `calls()` read back. A load carries the variables
+ * of its environment the kit is meant to set or leave out.
+ */
+export async function orcaApp(box, { client = 'answers', executable = true } = {}) {
+  const contents = path.join(box.root, 'Orca.app', 'Contents');
+  const cli = path.join(contents, 'Resources', 'bin', 'orca');
+  const binary = path.join(contents, 'MacOS', 'Orca');
+  const clientFile = path.join(contents, 'Resources', 'app.asar.unpacked', 'out', 'cli', 'runtime-client.js');
+  const fakeDir = path.join(box.root, FAKE_ORCA_DIR);
+  const log = path.join(fakeDir, 'runtime-client.log');
+
+  await mkdir(path.dirname(cli), { recursive: true });
+  await writeFile(cli, await readFile(box.orca.cli, 'utf8'));
+  await chmod(cli, 0o755);
+  await rm(box.orca.cli);
+  await symlink(cli, box.orca.cli);
+
+  if (executable) {
+    await mkdir(path.dirname(binary), { recursive: true });
+    await writeFile(binary, [
+      '#!/bin/sh',
+      'if [ "$ELECTRON_RUN_AS_NODE" != 1 ]; then',
+      '  echo "fake Orca: started without ELECTRON_RUN_AS_NODE=1, which would open Orca\'s window" >&2',
+      '  exit 70',
+      'fi',
+      `exec '${process.execPath.replaceAll("'", "'\\''")}' "$@"`,
+      '',
+    ].join('\n'));
+    await chmod(binary, 0o755);
+  }
+
+  if (client !== 'missing') {
+    await mkdir(path.dirname(clientFile), { recursive: true });
+    await writeFile(clientFile, [
+      "'use strict';",
+      "const { appendFileSync, readFileSync } = require('node:fs');",
+      `const LOG = ${JSON.stringify(log)};`,
+      `const STATE = ${JSON.stringify(path.join(fakeDir, 'state.json'))};`,
+      `const MODE = ${JSON.stringify(client)};`,
+      "const note = (entry) => appendFileSync(LOG, JSON.stringify(entry) + '\\n');",
+      'const { ELECTRON_RUN_AS_NODE, NODE_OPTIONS, NODE_REPL_EXTERNAL_MODULE } = process.env;',
+      "note({ event: 'load', env: { ELECTRON_RUN_AS_NODE, NODE_OPTIONS, NODE_REPL_EXTERNAL_MODULE } });",
+      'const refusal = (message, code) => Object.assign(new Error(message), code === undefined ? {} : { code });',
+      'let answered = 0;',
+      'class RuntimeClient {',
+      '  constructor(profile, timeoutMs) {',
+      '    this.profile = profile;',
+      '    this.timeoutMs = timeoutMs;',
+      '  }',
+      '  call(method, params) {',
+      "    note({ event: 'call', method, params });",
+      "    if (MODE === 'method-not-found') return Promise.reject(refusal(`Unknown method: ${method}`, 'method_not_found'));",
+      "    if (MODE === 'project-not-found') return Promise.reject(refusal('Project not found'));",
+      "    if (MODE === 'never-settles') return new Promise(() => {});",
+      `    if (MODE === 'hangs') { setTimeout(() => {}, ${CLIENT_HANG_MS}); return new Promise(() => {}); }`,
+      "    if (method !== 'project.update') return Promise.reject(refusal(`Unknown method: ${method}`, 'method_not_found'));",
+      "    const setups = JSON.parse(readFileSync(STATE, 'utf8')).setups || [];",
+      '    const setup = setups.find((one) => params != null && one.projectId === params.projectId);',
+      "    if (setup === undefined) return Promise.reject(refusal('Project not found'));",
+      '    answered += 1;',
+      '    // The envelope is the one the real call answers with; what is inside `result` is this fake\'s own.',
+      '    return Promise.resolve({ id: `rpc_${answered}`, ok: true, result: { project: { id: setup.projectId } }, _meta: { durationMs: 1 } });',
+      '  }',
+      '}',
+      "module.exports = MODE === 'no-export' ? {} : { RuntimeClient };",
+      '',
+    ].join('\n'));
+  }
+
+  const entries = async (event) => {
+    try {
+      return (await readFile(log, 'utf8'))
+        .split('\n')
+        .filter((line) => line !== '')
+        .map((line) => JSON.parse(line))
+        .filter((entry) => entry.event === event);
+    } catch (error) {
+      if (error.code === 'ENOENT') return [];
+      throw error;
+    }
+  };
+
+  return {
+    contents,
+    /** Every call made through the client, in order: { method, params }. */
+    calls: async () => (await entries('call')).map(({ method, params }) => ({ method, params })),
+    /** Every time the client file was loaded, with the environment it was loaded in. */
+    loads: () => entries('load'),
   };
 }
 
