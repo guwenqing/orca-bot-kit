@@ -54,7 +54,7 @@ reason actually is.
 ## Then look where else this project keeps its reasons
 
 Different reasons live in different places, and which of these exist varies by
-project. Use the ones it has:
+project. Use the ones it has, as far as the question needs:
 
 - **The history and its discussion**, where the project keeps them. Best for
   the reason given at the time by the person doing it, under review. For a
@@ -75,11 +75,13 @@ project. Use the ones it has:
 
 How many of them to open depends on what is still unanswered: once a change
 and its discussion settle the reason, the rest adds nothing unless something
-contradicts it. Look in them in parallel where you can, one pass per source with
-its own question. Where a source does not exist or you cannot reach it, that is a
-finding: write down that you could not look there. Skipping something because
-it is probably irrelevant is not the same as it being provably irrelevant, and
-the first one belongs in the write-up as a gap.
+contradicts it, and they need neither a look nor a line in the write-up. While
+the answer is open, look in the sources that could still change it, in parallel
+where you can, one pass per source with its own question. Where one of those does
+not exist or you cannot reach it, that is a finding: write down that you could
+not look there. Skipping one of those because it is probably irrelevant is not
+the same as it being provably irrelevant, and the first belongs in the write-up
+as a gap.
 
 Watch for the newest change looking authoritative. The shape you are asking
 about is usually the accumulation of several decisions, and the most recent one

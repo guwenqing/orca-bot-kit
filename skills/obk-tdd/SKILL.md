@@ -521,21 +521,21 @@ the work is handed on.
 
 ## Away from code
 
-The same three moves work on configuration, prompts and data, where no tool
-will help: state the check before you make the change, see the check fail first,
-and at the end break the artefact on purpose to find out whether the check
-notices.
+The same three moves work on configuration and data, where no tool will help:
+state the check before you make the change, see the check fail first, and at
+the end break the artefact on purpose to find out whether the check notices.
 
-They apply where there is something that can be wrong: a configuration that
-decides who gets what, a prompt whose branches behave differently, a
-transformation over data. The skip rule is the same as for code.
+They apply where there is something that can be wrong and a check that can be
+seen to fail: a configuration that decides who gets what, a transformation over
+data. The skip rule is the same as for code.
 
 Prose written for people is checked by review, not by a test: a test that matches
-its text buys nothing. Text written for a model is checked the same way, with one
-addition: where the requirement is how the model behaves, a representative use
-earns its place. A prompt that must hold an action until it is approved is
-exercised once with the approval and once without. Neither needs a manufactured
-red, and no wording edit needs a test of its own.
+its text buys nothing. Text written for a model, a prompt included, is checked the
+same way, with one addition: where the requirement is how the model behaves, a
+representative use earns its place, and it is the whole check, without the three
+moves above. A prompt that must hold an action until it is approved is exercised
+once with the approval and once without. Neither needs a manufactured red, and no
+wording edit needs a test of its own.
 
 A decision that cannot be driven locally, such as a CI workflow or a setting in
 someone else's service, is checked in two parts: its parsed structure and
