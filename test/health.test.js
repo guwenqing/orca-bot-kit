@@ -1424,9 +1424,12 @@ test('H22 health changes nothing at all: not a file, not a link, not a tab', asy
   assert.deepEqual(await snapshot(box.root, skipOrcaFake), before, 'every file and every link should be exactly as it was found');
   assert.deepEqual(await box.orca.setups(), setups, 'no Orca project made, changed or taken away');
   assert.deepEqual(await box.orca.terminals(), terminals, 'no tab opened, retitled or typed into');
+  // `terminal show` and `diagnostics memory` read who holds each live session
+  // tab's terminal: a session is running only with its own harness in front
+  // (#271, the second look at #296).
   assert.deepEqual(
     [...new Set((await box.orca.calls()).slice(asked).map(orcaCommand))].sort(),
-    ['project setups', 'status', 'terminal list'],
+    ['diagnostics memory', 'project setups', 'status', 'terminal list', 'terminal show'],
     'the only things a check may ask Orca are the ones that tell it something',
   );
 });
