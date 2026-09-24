@@ -1,0 +1,50 @@
+name: Something in the kit went wrong
+description: An obk command failed, or did something other than what it said. A person or a bot can fill this in.
+title: "obk <command>: <what went wrong, in one line>"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This issue is public. Before you paste anything, take out what is private: names in paths, tokens, what a charter or a conversation says. One problem per issue.
+  - type: textarea
+    id: ran
+    attributes:
+      label: What was run
+      description: The exact obk command, and what was happening around it (first setup, after a restart, a bot on Codex...).
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Its whole output
+      description: Everything it printed, with --json added if the command takes it. Not a summary.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+    validations:
+      required: true
+  - type: textarea
+    id: health
+    attributes:
+      label: obk health
+      description: What `obk health --bots <your bots folder> --json` prints.
+      render: json
+  - type: textarea
+    id: versions
+    attributes:
+      label: Versions
+      description: What each of these prints, and the operating system.
+      value: |
+        obk --version:
+        node --version:
+        Orca (its About box, or orca --version):
+        claude --version:
+        codex --version:
+        operating system:
+    validations:
+      required: true

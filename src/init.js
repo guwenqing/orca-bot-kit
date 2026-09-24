@@ -69,6 +69,12 @@ const SKILLS_YAML = `# Online skill sources. The kit clones each one beside this
 sources: []
 `;
 
+/**
+ * Where a problem with the kit itself is reported: the one address, as the
+ * package gives it, so Bot Father is told the same place npm and the README are.
+ */
+const ISSUES = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).bugs.url;
+
 const botFatherYaml = (harness) => `# Bot Father runs the fleet. Ask it for changes rather than editing this file.
 
 name: bot-father
@@ -82,6 +88,17 @@ charter: |
 
   Ask first before: retiring a bot or a session, restarting anything, or
   changing a bot's rules in a way its owner did not ask for.
+
+  When the kit itself goes wrong (an obk command fails in a way its own message
+  does not explain, or does something other than what it says), tell your owner
+  plainly, and with their go-ahead report it as an issue at ${ISSUES}. The
+  report is public, so ask before filing and take out anything private first:
+  names in paths, tokens, what a charter says. Put in the command that was run
+  and its whole output, what you expected instead, and what these print:
+  obk --version, obk health --bots <folder> --json, node --version, the Orca
+  version, and claude --version or codex --version; and the operating system.
+  One problem per issue. If you cannot file it yourself, give your owner the
+  text to paste.
 rules: []
 skills:
 ${MANAGEMENT_SKILLS.map((name) => `  - kit:${name}\n`).join('')}sessions:
