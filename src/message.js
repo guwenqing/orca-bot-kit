@@ -21,7 +21,7 @@ import path from 'node:path';
 import { readBook } from './book.js';
 import { botDir, botNames, readBot } from './bot.js';
 import { harnessOf, ownCli, reachesMail, shellWord } from './launch.js';
-import { ackMailbox, postMessage, readMailbox, tabs, tuiInTab, typeIntoTab, useMailbox } from './orca.js';
+import { ackMailbox, harnessInTab, postMessage, readMailbox, tabs, typeIntoTab, useMailbox } from './orca.js';
 
 /**
  * How much of a message travels as itself. Above this it is written to a file
@@ -300,9 +300,10 @@ const stamp = () => new Date().toISOString().replaceAll(':', '-').replace('.', '
  *
  * Nothing in the mailbox reaches a running harness by itself, and a typed line
  * is taken as the next turn by a busy session rather than cutting into the one
- * it is having. A tab with no TUI in it is not typed into at all — there is
+ * it is having. A tab with no harness in it is not typed into at all — there is
  * nobody there to read it, and the message waits in the mailbox until the
- * session is up. A tab the book does not hold is never typed into on any road.
+ * session is up. Nor is one the kit cannot tell about. A tab the book does not
+ * hold is never typed into on any road.
  *
  * Nor is a tab with something on screen waiting to be answered. A line typed
  * into one of those is not a message: it is an answer to whatever question is
@@ -323,9 +324,17 @@ function nudge(to, from, subject) {
     const live = tabs(to.home).find((tab) => tab.tabId === to.tab);
     if (live === undefined) return { nudged: false };
 
-    const tui = tuiInTab(live.handle, LOOK_MS);
-    if (!tui.running) return { nudged: false };
-    if (tui.blockedReason !== undefined) return { nudged: false, blocked: tui.blockedReason };
+    const seen = harnessInTab(live.handle, LOOK_MS);
+    if (seen.blockedReason !== undefined) return { nudged: false, blocked: seen.blockedReason };
+    // Not knowing is not a reason to type: a line that lands in a shell is run
+    // there, with the sender's subject in it.
+    if (seen.front === undefined) {
+      return { nudged: false, nudgeTrouble: `the kit could not tell whether a harness is running in it (${seen.unreadable}), so nothing was typed` };
+    }
+    // A busy harness is typed into: it takes the line as its next turn. A
+    // stale `agentIdentity` over a shell is not a harness, and neither is a
+    // program Orca does not know as an agent.
+    if (seen.front !== 'program' || seen.agent === undefined) return { nudged: false };
 
     typeIntoTab(
       live.handle,

@@ -42,12 +42,37 @@
 //                 true (default) a TUI that is up and idle: ok, satisfied
 //                 'blocked'      a TUI that is up with something to answer:
 //                                ok, not satisfied, agent-interactive-prompt
+//                 'busy'         a harness that is up and working: Orca
+//                                refuses with `timeout`, as for a shell
 //                 false          no TUI at all — a plain shell prompt — which
 //                                Orca reports by refusing with `timeout`
+//                 'quit'         a harness that quit back to its shell: ok,
+//                                satisfied, as though a TUI were idle there
 //               A list is one of those per call of `terminal wait`, the last
-//               entry answering every call after it. [true, false] is a tab
+//               entry answering every call after it, counted from the call
+//               after the list was set (`waitIdleFrom` is how many came
+//               before, which helpers/cli.js writes). [true, false] is a tab
 //               the harness came up in and then died in: the thing a single
 //               look cannot tell from a harness that is running.
+//               Measured live on Orca 1.4.209 with Claude Code 2.1.281 and
+//               Codex 0.156.1 (#232): a busy harness and a plain shell both
+//               time out, and a shell Codex quit to answers ok. So neither a
+//               timeout nor an ok says whether a harness is there; what a tab
+//               holds is read from its process group, by the fake `ps` in
+//               helpers/fake-ps.js, and `waitIdle` also decides who is in
+//               front there unless a test says otherwise.
+//   foreground  who is in front of every launched tab, for the fake `ps`:
+//               'harness', 'shell', or one of the ways it cannot be read
+//               (helpers/fake-ps.js lists them). Left out, it follows waitIdle.
+//   agentIdentity  what `terminal show` and `terminal list` give as every
+//               tab's `agentIdentity`, when the key is there (null included).
+//               Left out, a tab carries its own: null when it is made, and the
+//               harness its launch line names once that line is typed into it.
+//               Live it is both late and stale (#232): up to ~5 s after the
+//               launch line it may not be there yet, and a tab back at a zsh
+//               prompt still said `codex` more than 70 s after Codex quit. The
+//               fake keeps a tab's own value after its harness quits, as Orca
+//               does.
 //   fail        { "<command>": { code, message, after } } — that command
 //               answers ok:false. With `after: n` the first n calls of it go
 //               through and the ones after that fail, which is how a test
@@ -125,6 +150,8 @@
 import { spawnSync } from 'node:child_process';
 import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+
+import { foregroundOf, launchedIn, panePid } from './fake-ps.js';
 
 const dir = process.env.OBK_FAKE_ORCA_DIR;
 if (dir === undefined) {
@@ -343,8 +370,11 @@ if (command === 'project setup-delete') {
  * closed tab still shows up in.
  */
 const asReported = ({ typed: _typed, notices: _notices, closingFor: _closingFor, ...rest }) => (rest.orphaned === true
-  ? { ...rest, tabId: `pty:${rest.ptyId}`, leafId: `pty:${rest.ptyId}`, orphaned: true }
-  : { ...rest, orphaned: false });
+  ? { ...rest, ...identity(), tabId: `pty:${rest.ptyId}`, leafId: `pty:${rest.ptyId}`, orphaned: true }
+  : { ...rest, ...identity(), orphaned: false });
+
+/** The `agentIdentity` a test gave every tab, or nothing when each tab says its own. */
+const identity = () => ('agentIdentity' in state ? { agentIdentity: state.agentIdentity } : {});
 
 if (command === 'terminal list') {
   const target = worktreePathOf(flag('--worktree'));
@@ -455,7 +485,7 @@ if (command === 'terminal show') {
   const terminal = (state.terminals ?? []).find((entry) => entry.handle === flag('--terminal'));
   if (!terminal) fail('terminal_not_found', `no terminal with handle ${flag('--terminal')}`);
   const { typed: _typed, notices: _notices, closingFor: _closingFor, ...rest } = terminal;
-  ok({ terminal: { ...rest, orphaned: terminal.orphaned === true } });
+  ok({ terminal: { ...rest, ...identity(), orphaned: terminal.orphaned === true } });
 }
 
 if (command === 'terminal rename') {
@@ -475,17 +505,21 @@ if (command === 'terminal wait') {
   // One answer per call when a test gave a list, so a tab can hold a TUI on
   // one look and none on the next; the last entry stands for every call after.
   const idle = Array.isArray(state.waitIdle)
-    ? state.waitIdle[Math.min(callsSoFar() - 1, state.waitIdle.length - 1)]
+    ? state.waitIdle[Math.min(Math.max(callsSoFar() - 1 - (state.waitIdleFrom ?? 0), 0), state.waitIdle.length - 1)]
     : state.waitIdle;
 
   // `tui-idle` asks about a TUI, not about a shell. Seen live: a tab with no
   // TUI in it — a clean zsh prompt — is refused with `timeout`, however long
-  // the wait. So this is how the kit learns that nothing took.
-  if (idle === false) fail('timeout', 'timeout');
+  // the wait. And so is a harness that is busy (Orca 1.4.209, #232): a
+  // timeout says nothing was idle, not that nothing was there.
+  if (idle === false || idle === 'busy') fail('timeout', 'timeout');
 
   // A TUI that is up but has something to answer — a harness sitting on its
   // folder-trust question, which is the first run of every new bot. It is up,
   // so the harness started, and `satisfied` says nothing about that.
+  //
+  // 'quit' answers as an idle TUI does, and there is none: seen live after
+  // Codex quit to the shell, the plain shell was ok and satisfied (#232).
   const blocked = idle === 'blocked';
   ok({
     status: blocked ? 'running' : 'idle',
@@ -503,9 +537,58 @@ if (command === 'terminal send') {
   if (!terminal) fail('terminal_not_found', `no terminal with handle ${flag('--terminal')}`);
 
   terminal.typed = [...(terminal.typed ?? []), { text: flag('--text') ?? '', enter: args.includes('--enter') }];
+  // Orca learns which agent is in a tab once it runs there. The fake gives it
+  // at once; a test that wants it late says so with `agentIdentity`.
+  if (terminal.typed.length === 1 && launchedIn(terminal) !== undefined && terminal.agentIdentity == null) {
+    terminal.agentIdentity = launchedIn(terminal);
+  }
   save();
   // `accepted: true` means the input was accepted, not that anything read it.
   ok({ accepted: true, terminal: terminal.handle });
+}
+
+// What each pane costs, and the pid of the process each pane runs: the one
+// place Orca gives a tab's pid (#232). The shape is the one Orca 1.4.209
+// answered with, key for key: a worktree per project, and in each a session
+// per pane whose `sessionId` is the tab's `ptyId`. The pid is the pane's own
+// process — on macOS `/usr/bin/login`, with the shell under it — and the fake
+// `ps` answers for it. What the app, host and totals carry was not written
+// down, so their values here are the fake's own.
+if (command === 'diagnostics memory') {
+  const MEMORY = 12386304;
+  const worktrees = [];
+  for (const terminal of state.terminals ?? []) {
+    let worktree = worktrees.find((one) => one.worktreePath === terminal.worktreePath);
+    if (worktree === undefined) {
+      const setup = setupAt(terminal.worktreePath);
+      worktree = {
+        worktreePath: terminal.worktreePath,
+        worktreeId: terminal.worktreeId,
+        worktreeName: path.basename(terminal.worktreePath ?? ''),
+        repoId: setup?.repoId ?? null,
+        repoName: setup?.displayName ?? null,
+        cpu: 0,
+        memory: 0,
+        sessions: [],
+        history: [],
+      };
+      worktrees.push(worktree);
+    }
+    if (foregroundOf(state, terminal, dir) === 'no-pid') continue;
+    worktree.memory += MEMORY;
+    worktree.sessions.push({ sessionId: terminal.ptyId, paneKey: terminal.paneKey, pid: panePid(state, terminal), cpu: 0, memory: MEMORY });
+  }
+  const shown = worktrees.map(({ worktreePath: _path, ...rest }) => rest);
+  const totalMemory = shown.reduce((sum, one) => sum + one.memory, 0);
+  ok({
+    app: { cpu: 0, memory: 0 },
+    worktrees: shown,
+    host: { cpu: 0, memory: 0 },
+    processMemoryMetric: 'rss',
+    totalCpu: 0,
+    totalMemory,
+    collectedAt: 1790251200000,
+  });
 }
 
 // The mailbox. Everything below was proved live on 2026-09-21 and is written

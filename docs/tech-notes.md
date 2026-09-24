@@ -91,8 +91,8 @@ project → repo (`kind: "git" | "folder"`) → worktree (id = `<repoId>::<absPa
 - `--command` and `terminal send` both type into the tab's **interactive shell**, so a shell that is
   busy with a question of its own swallows the first characters: with the owner's zsh asking
   `[oh-my-zsh] Would you like to update? [Y/n]`, `claude` arrived as `laude` and `exec codex` as
-  `xec codex`. `tui-idle` cannot gate this: a shell never satisfies it, question or no question (next
-  entry). So the kit types the launch line into a new tab without waiting, then asks whether a harness
+  `xec codex`. `tui-idle` cannot gate this: its answer for a shell says nothing about whether the
+  shell is ready (next entry). So the kit types the launch line into a new tab without waiting, then asks whether a harness
   came up; a line the shell swallowed shows as no harness, and the caller answers the shell and opens
   the tab again (SETUP.md, section 5). **verified** (live)
 - **A variable set on the launch line reaches the session's own shell tool, on both harnesses; a
@@ -109,6 +109,10 @@ project → repo (`kind: "git" | "folder"`) → worktree (id = `<repoId>::<absPa
   - a tab running no TUI, sitting at a clean shell prompt: exit 1, `ok:false`,
     `error.code: "timeout"` — never satisfied, however long the timeout. So this is **not** a way to
     ask whether a shell is ready for typing; there is no such way.
+    **Except after Codex:** a shell that Codex has quit back to answers `ok:true`, `satisfied:true`,
+    and went on answering so for more than 45 s and after an `echo` was run in it. A shell that Claude
+    Code quit back to answers `timeout`. **verified** (live, 2026-09-24, Orca 1.4.209, Codex 0.156.1,
+    Claude Code 2.1.281, #232)
   - a TUI that Orca can see is blocked: `ok:true`, `wait.satisfied:false`, `status:"running"`, and
     `wait.blockedReason` says what it is — `"agent-interactive-prompt"` for Codex sitting on its
     folder-trust question.
@@ -118,8 +122,10 @@ project → repo (`kind: "git" | "folder"`) → worktree (id = `<repoId>::<absPa
     2-second wait that way, and `ok:true`, `satisfied:true` two seconds later once the turn was done.
     So `timeout` means "nothing went idle in time", not "no harness". `obk up` takes its second look
     for 2 seconds, so a session already working on its start prompt then is reported as not started
-    (#232). **verified** (live, 2026-09-24, Orca 1.4.209, Claude Code 2.1.281; one sample, Codex not
-    tried)
+    (#232). **verified** (live, 2026-09-24, Orca 1.4.209, Claude Code 2.1.281; seen again for #232 on
+    a Claude tab writing out a long answer). Codex busy on a `sleep 25` it ran answered `ok:true`,
+    `satisfied:true` throughout, and so did a Claude Code and a Codex bot each busy on a `sleep 45`
+    their start prompt gave them, so a busy harness can read as idle too (same day, Codex 0.156.1).
   **`blockedReason` does not catch everything.** Claude Code showing its folder-trust screen answers
   `satisfied:true` with no `blockedReason` at all, while Codex on the same kind of screen answers
   `satisfied:false` with one. So it is a useful hint and not a test: whether something on screen wants
@@ -127,15 +133,45 @@ project → repo (`kind: "git" | "folder"`) → worktree (id = `<repoId>::<absPa
   Seen once since (2026-09-24, Orca 1.4.209, Codex 0.156.1, the #221 live check): `obk up` reported a
   Codex tab that was sitting on its trust question as up, with no `blockedReason`, so Codex's screen is
   not caught every time either.
-  So a `timeout` means "no TUI in this tab", and an `ok:true` answer means one is running, idle or not.
-  **verified** (live, both harnesses)
+  So **neither answer says whether a harness is in the tab**: `timeout` comes from a busy harness as
+  well as from a shell, and `ok:true` from a shell Codex left as well as from a harness. This entry
+  used to say that a `timeout` meant "no TUI". That was wrong, and it is how a busy session was told
+  it was not up (#232). The kit asks the process table instead (the entry on the foreground process
+  group, below). **verified** (live, 2026-09-24, Orca 1.4.209, both harnesses)
   **What that costs, proven the hard way.** A start prompt sent as a second `terminal send` into a fresh
   Claude tab that had answered `satisfied:true` landed on the folder-trust list and confirmed its
   default `No, exit`: the harness quit back to the shell. Nothing Orca offers tells that screen from a
-  ready one — `terminal list` carries no agent identity for a tab either. So the kit types one line into
+  ready one — `terminal list` carried no agent identity for a tab then, and the `agentIdentity` it
+  carries on 1.4.209 names the harness on either screen. So the kit types one line into
   a tab it opens and no more: the start prompt goes on that line as the harness's own prompt argument,
   and the harness holds it until the trust question and the update offer are answered. Both harnesses
   then run it by themselves. **verified** (live, Claude Code 2.1.278 and Codex 0.155.1)
+- **`agentIdentity`** (`"claude"`/`"codex"`) is on a harness tab in `terminal list --json` and
+  `terminal show --json` on 1.4.209, and is absent on a plain shell tab. Orca builds it from ranked
+  evidence (`out/shared/pane-agent-evidence-sources.js` in the app bundle): a live hook, the
+  foreground process, a launch Orca saw, a finished hook, a sleeping session, a sibling pane, the
+  title. It is **late** and it can be **stale**:
+  - late: it came 0.5–1 s after the launch line, and for a first-run Codex it was still missing at
+    1 s, when the tab already answered `blockedReason: "agent-trust-workspace"`, and there at 6 s.
+  - cleared: within 2 s of Claude Code's `/exit`, about 1 s after Claude Code's Ctrl-C twice, and
+    within about 3 s of Codex's `/quit` after a turn.
+  - stale: Codex started and quit with `/quit` before any turn left a tab at a zsh prompt whose
+    `terminal list` still said `codex` more than 70 s later, while `terminal show` for the same tab said
+    `claude`, left over from an earlier run in it. `orca worktree ps` still listed a `claude` agent
+    `done` for that pane.
+  So it names the harness that is or was in a tab, not one that is running now. **verified** (live,
+  2026-09-24, Orca 1.4.209, Claude Code 2.1.281, Codex 0.156.1, #232)
+- **The foreground process group of a tab's terminal says whether a program is running in it.**
+  `orca diagnostics memory --json` lists every pane under `result.worktrees[].sessions[]` as
+  `{ sessionId, paneKey, pid, cpu, memory }`; `sessionId` is the tab's `ptyId`, and `pid` is the
+  pane's own process, `/usr/bin/login` on macOS, with the login shell (`-/bin/zsh`) as its child. The
+  call took 0.15 s. `ps -o pid=,ppid=,tpgid=,comm= -p <pid>` gives the terminal's foreground group:
+  the shell's own pid at a prompt, the harness's (`claude`, `codex`) while it runs, and the shell's
+  again within 3 s of every quit above, the stale-identity one included. So the kit takes a harness to
+  be in a tab when the foreground is not its shell (a busy one included), and for the mail nudge also
+  asks for an `agentIdentity`. When the pid or the group cannot be read it says it cannot tell and
+  types nothing (ADR 0001, amendment). `diagnostics memory` is a diagnostics command and may change.
+  **verified** (live, 2026-09-24, Orca 1.4.209, macOS 26.6.2, Claude Code 2.1.281, Codex 0.156.1, #232)
 - `orca terminal send [--terminal <h>] [--text <t>] [--enter] [--interrupt] [--wait-submit <s>] [--retry-request <id>]` — `accepted:true` means input accepted, not that the agent read it; never resend on silence; use `--retry-request` for an idempotent retry.
   **A carriage return or a line feed inside `--text` does not submit early.** Sent with `--enter` into a running agent, a line with `\r` or `\n` in the middle arrives as **one** message with a line break where the character was, and is answered once: Claude Code's transcript shows one user turn holding both lines, and Codex's screen shows one prompt of two lines and one answer. So the mail nudge, which carries the sender's subject as typed, cannot be split into two prompts by a subject that has one in it. **verified** (live, 2026-09-23, Orca 1.4.207, Claude Code 2.1.280 with `--model haiku`, Codex 0.155.1; #176)
   **While Codex sits on its own update offer, Orca refuses a line with `--enter` as `agent_prompt_blocked`.** Seen three times in a row on 2026-09-23 (Codex 0.155.1 offering 0.156.0); answered `2` (Skip), the next line went through. **verified** (live)
