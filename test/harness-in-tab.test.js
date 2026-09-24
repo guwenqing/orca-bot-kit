@@ -151,22 +151,36 @@ test('a Codex tab whose Codex quit is not up, though Orca still calls it codex',
   assert.match(result.stdout, NOT_UP, `got: ${result.stdout}`);
 });
 
-test('a program Orca does not know as an agent is not typed into, and is not up', async (t) => {
-  // A program in front with no `agentIdentity`: an editor, a pager, a build.
-  // A line typed there goes into that program, not to a session.
-  const box = await createSandbox(t);
-  const bots = await fleetIn(box);
-  const reader = (await readerTab(box, bots)).tabId;
-  await box.orca.set({
-    waitIdle: true,
-    terminals: (await box.orca.terminals()).map((terminal) => (terminal.tabId === reader ? { ...terminal, agentIdentity: null } : terminal)),
+// A program in front and no `agentIdentity`: the kit cannot tell whether it is
+// a harness. It may be an editor, a pager, a build, and a line typed there goes
+// into that program; or it may be a harness Orca has not named yet, since the
+// identity comes 0.5–6 s after a launch and a Codex session just resumed may
+// carry none until its first prompt. So nothing is typed, and nobody is called
+// "not up": only a tab with no harness in it is that (architect, PR #260).
+for (const [label, waitIdle] of [
+  ['a program Orca calls idle', true],
+  ['a busy program, as a harness just started is before Orca names it', 'busy'],
+]) {
+  test(`${label}, with no agentIdentity, is not typed into, and the kit cannot tell whether it is up`, async (t) => {
+    const box = await createSandbox(t);
+    const bots = await fleetIn(box);
+    const reader = (await readerTab(box, bots)).tabId;
+    await box.orca.set({
+      waitIdle,
+      terminals: (await box.orca.terminals()).map((terminal) => (terminal.tabId === reader ? { ...terminal, agentIdentity: null } : terminal)),
+    });
+
+    const result = await send(box);
+
+    await assertWaitsUntyped(box, result);
+    assert.doesNotMatch(result.stdout + result.stderr, NOT_UP, `the kit does not know that, got: ${result.stdout}`);
+    assert.match(
+      result.stdout,
+      COULD_NOT_TELL,
+      `the run should say the mail is queued and the kit could not tell whether a harness is running, got: ${result.stdout}`,
+    );
   });
-
-  const result = await send(box);
-
-  await assertWaitsUntyped(box, result);
-  assert.match(result.stdout, NOT_UP, `got: ${result.stdout}`);
-});
+}
 
 // Every road on which who is in front cannot be read. Orca says the tab is idle
 // and names its agent on each of them, so a kit that fell back on Orca's word

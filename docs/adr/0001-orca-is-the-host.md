@@ -30,6 +30,7 @@ Orca's own answers do not tell a harness from a shell
   70 s, and it can come up to 5 s after a launch.
 - The foreground process group was right every time: the shell at a prompt,
   the harness while it runs, and the shell again within 3 s of every quit.
-The kit runs only on the machine Orca runs on (PRD 5), so reading the local
-process table is enough. When the pid or the group cannot be read, the kit says
-it cannot tell, and it types nothing.
+The kit runs only on the machine Orca runs on (PRD 5's "No cloud execution",
+itself still marked proposed), so reading the local process table is enough.
+When the pid or the group cannot be read, the kit says it cannot tell, and it
+types nothing.

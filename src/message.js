@@ -326,15 +326,18 @@ function nudge(to, from, subject) {
 
     const seen = harnessInTab(live.handle, LOOK_MS);
     if (seen.blockedReason !== undefined) return { nudged: false, blocked: seen.blockedReason };
+    // The shell in front is a tab with no harness, whatever a stale
+    // `agentIdentity` says.
+    if (seen.front === 'shell') return { nudged: false };
     // Not knowing is not a reason to type: a line that lands in a shell is run
-    // there, with the sender's subject in it.
-    if (seen.front === undefined) {
-      return { nudged: false, nudgeTrouble: `the kit could not tell whether a harness is running in it (${seen.unreadable}), so nothing was typed` };
+    // there, with the sender's subject in it. A program Orca names no agent
+    // for is not known either: a harness a few seconds into its launch, or
+    // something else entirely (tech notes, section 1).
+    if (seen.front === undefined || seen.agent === undefined) {
+      const why = seen.front === undefined ? seen.unreadable : 'a program holds its terminal, and Orca names no agent in it';
+      return { nudged: false, nudgeTrouble: `the kit could not tell whether a harness is running in it (${why}), so nothing was typed` };
     }
-    // A busy harness is typed into: it takes the line as its next turn. A
-    // stale `agentIdentity` over a shell is not a harness, and neither is a
-    // program Orca does not know as an agent.
-    if (seen.front !== 'program' || seen.agent === undefined) return { nudged: false };
+    // A busy harness is typed into: it takes the line as its next turn.
 
     typeIntoTab(
       live.handle,
