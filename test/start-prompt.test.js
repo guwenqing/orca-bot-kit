@@ -110,7 +110,8 @@ test('the tab is still asked afterwards whether a TUI came up', async (t) => {
   // tab still at a shell prompt is refused with `timeout` however long you wait.
   // How many times the kit looks is its own business — it looks more than once,
   // because a harness can come up and die — but nothing may come before the
-  // send, and nothing but looking may come after it.
+  // send, and nothing but looking may come after it. Asking Orca what it knows
+  // of the tab is looking too (#232).
   const box = await createSandbox(t);
   const bots = await withSession(box, ['--prompt', PROMPT]);
 
@@ -120,9 +121,10 @@ test('the tab is still asked afterwards whether a TUI came up', async (t) => {
     .filter((call) => orcaFlag(call, '--terminal') === tab.handle)
     .map(orcaCommand);
   assert.equal(mine[0], 'terminal send', `the line goes in first, got: ${JSON.stringify(mine)}`);
+  assert.ok(mine.slice(1).includes('terminal wait'), `and then the kit waits on the tab, got: ${JSON.stringify(mine)}`);
   assert.deepEqual(
-    [...new Set(mine.slice(1))],
-    ['terminal wait'],
+    mine.slice(1).filter((command) => command !== 'terminal wait' && command !== 'terminal show'),
+    [],
     `and after it the kit only looks, got: ${JSON.stringify(mine)}`,
   );
 });

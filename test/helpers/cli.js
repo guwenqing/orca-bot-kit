@@ -4,6 +4,7 @@
 //
 //   <root>/bin/obk       symlink to the repo's src/cli.js (what `npm link` makes)
 //   <root>/bin/orca      fake Orca (helpers/fake-orca.js), what OBK_ORCA names
+//   <root>/bin/fake-ps   fake ps (helpers/fake-ps.js), what OBK_PS names
 //   <root>/orca-fake/    the fake Orca's world: state.json and calls.log
 //   <root>/cwd           the working directory the CLI is spawned from
 //   <root>/home          HOME, so a stray write to the home dir shows up here
@@ -44,6 +45,7 @@ export const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
 /** This checkout's own CLI, by its full path: what the tests run, whatever `obk` is on PATH. */
 export const cliEntry = path.join(repoRoot, 'src', 'cli.js');
 const fakeOrcaEntry = fileURLToPath(new URL('./fake-orca.js', import.meta.url));
+const fakePsEntry = fileURLToPath(new URL('./fake-ps.js', import.meta.url));
 
 /** Where the fake Orca keeps its world, inside a sandbox. */
 const FAKE_ORCA_DIR = 'orca-fake';
@@ -174,6 +176,21 @@ export async function createSandbox(t) {
   ].join('\n'));
   await chmod(fakeOrca, 0o755);
 
+  // The fake ps, reading the same world: who is in front of each tab is part
+  // of what Orca's tabs hold (#232). Not called `ps`, so nothing that looks for
+  // `ps` on PATH finds it; only the kit's OBK_PS names it.
+  const fakePs = path.join(bin, 'fake-ps');
+  await writeFile(fakePs, [
+    '#!/usr/bin/env node',
+    `process.env.OBK_FAKE_ORCA_DIR = ${JSON.stringify(fakeDir)};`,
+    `import(${JSON.stringify(pathToFileURL(fakePsEntry).href)}).then((ps) => ps.runPs()).catch((error) => {`,
+    "  process.stderr.write(`fake ps: ${error && error.stack || error}\\n`);",
+    '  process.exit(70);',
+    '});',
+    '',
+  ].join('\n'));
+  await chmod(fakePs, 0o755);
+
   // The suite is often run from an Orca tab of its own, and Orca puts that
   // tab's variables in everything started there. None of them names a terminal
   // in the fake's world, and a kit that read them would behave one way on a
@@ -189,9 +206,24 @@ export async function createSandbox(t) {
     PATH: `${bin}${path.delimiter}${process.env.PATH}`,
     HOME: home,
     OBK_ORCA: fakeOrca,
+    OBK_PS: fakePs,
   };
 
   const readState = async () => JSON.parse(await readFile(stateFile, 'utf8'));
+
+  /** How many times the fake Orca has answered `terminal wait` so far. */
+  const waitsSoFar = async () => {
+    try {
+      return (await readFile(path.join(fakeDir, 'calls.log'), 'utf8'))
+        .split('\n')
+        .filter((line) => line !== '')
+        .filter((line) => orcaCommand(JSON.parse(line)) === 'terminal wait')
+        .length;
+    } catch (error) {
+      if (error.code === 'ENOENT') return 0;
+      throw error;
+    }
+  };
 
   /** What Orca's settings say now, or nothing at all when the file has been taken away. */
   const readSettings = async () => {
@@ -229,6 +261,21 @@ export async function createSandbox(t) {
       env: options.env ?? env,
       stdin: options.stdin,
     }),
+    /** The fake ps: what it is, and every argv the kit handed it, `{ args }` in order. */
+    ps: {
+      cli: fakePs,
+      async calls() {
+        try {
+          return (await readFile(path.join(fakeDir, 'ps.log'), 'utf8'))
+            .split('\n')
+            .filter((line) => line !== '')
+            .map((line) => JSON.parse(line));
+        } catch (error) {
+          if (error.code === 'ENOENT') return [];
+          throw error;
+        }
+      },
+    },
     /** The fake Orca: what it is, what it knows, and what it was asked. */
     orca: {
       /** The CLI path OBK_ORCA names. */
@@ -267,9 +314,14 @@ export async function createSandbox(t) {
         terminal.orphaned = orphaned;
         await writeFile(stateFile, `${JSON.stringify(state, null, 2)}\n`);
       },
-      /** Change what the fake Orca knows or how it misbehaves; see helpers/fake-orca.js. */
+      /**
+       * Change what the fake Orca knows or how it misbehaves; see
+       * helpers/fake-orca.js. A `waitIdle` given here starts from the next
+       * `terminal wait`, however many were answered before it.
+       */
       async set(changes) {
-        await writeFile(stateFile, `${JSON.stringify({ ...await readState(), ...changes }, null, 2)}\n`);
+        const from = 'waitIdle' in changes ? { waitIdleFrom: await waitsSoFar() } : {};
+        await writeFile(stateFile, `${JSON.stringify({ ...await readState(), ...changes, ...from }, null, 2)}\n`);
       },
       /**
        * Orca's own settings file in the sandbox home — its per-agent default
@@ -739,6 +791,8 @@ export const ALLOWED_ORCA_COMMANDS = [
   'terminal rename',
   'terminal wait',
   'terminal send',
+  // Read-only: each pane's pid, the one place Orca gives it (#232).
+  'diagnostics memory',
   'orchestration run-create',
   'orchestration run-use',
   // Read-only: Orca's record of one Run, its coordinator among it (1.4.209).
