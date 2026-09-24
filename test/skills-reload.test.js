@@ -13,15 +13,13 @@
 //
 // Where the kit may type is the gate the mail nudge already uses: the tab the
 // book holds for that session, listed by Orca, with a harness up in it and
-// nothing on screen waiting to be answered. Everything else is a session that
-// is not told — not up, blocked, or unknown when Orca cannot be asked — and
-// the links are made all the same.
+// nothing on screen waiting to be answered. A busy harness counts as up
+// (#232). Everything else is a session that is not told — not up, blocked, or
+// unknown when Orca cannot be asked or the gate cannot tell — and the links
+// are made all the same.
 //
 // Only `skills build` tells anyone, and only for a bot whose links that run
 // changed. `skills add` and `skills remove` write a list and nothing more.
-//
-// A busy tab (a harness mid-turn) is left for #232, which rewrites the gate;
-// today the fake cannot tell one from a bare shell.
 
 import assert from 'node:assert/strict';
 import path from 'node:path';
@@ -385,6 +383,55 @@ test('a tab with something on screen to answer is not typed into, and is reporte
     { session: 'daily', harness: 'claude', state: 'blocked', blocked: 'agent-interactive-prompt' },
     { session: 'reviewer', harness: 'codex', state: 'blocked', blocked: 'agent-interactive-prompt' },
   ]);
+  assert.deepEqual(Object.values(await sentSinceLaunch(box)).flat(), []);
+});
+
+test('a busy session is told as a running one is: Claude gets /reload-skills, Codex takes it next turn', async (t) => {
+  // Orca's wait times out on a harness at work just as on a shell, but the
+  // harness is in front of its tab (#232). Proven live: a busy Claude tab
+  // queues the command and runs it when its turn ends.
+  const box = await createSandbox(t);
+  const bots = await fleetIn(box);
+  await box.orca.set({ waitIdle: 'busy' });
+  await addSkills(botYamlOf(bots, BOT), `kit:${KIT_SKILL}`);
+
+  const result = await build(box, '--json');
+
+  assert.equal(result.code, 0, result.stderr);
+  assert.deepEqual(sessionsOf(result, BOT), [
+    { session: 'daily', harness: 'claude', state: 'reloaded' },
+    { session: 'reviewer', harness: 'codex', state: 'next-turn', read: [codexSkillMd(bots, BOT, KIT_SKILL)] },
+  ]);
+  const sent = await sentSinceLaunch(box);
+  const own = await tabOf(bots, BOT, 'daily');
+  for (const [tab, lines] of Object.entries(sent)) {
+    assert.deepEqual(lines, tab === own ? [{ text: RELOAD, enter: true }] : [], `what was typed into ${tab}`);
+  }
+});
+
+test('a tab with a program in front that is not the harness Orca names is not typed into, and is reported unknown', async (t) => {
+  // Seen live (PR #260): the harness quit and the user ran `less`; Orca still
+  // named the harness and called the tab idle. A line typed there goes into
+  // `less`. The gate cannot tell whether a harness is running, so nothing is
+  // typed and nobody is called not up.
+  const box = await createSandbox(t);
+  const bots = await fleetIn(box);
+  await box.orca.set({ waitIdle: true, foreground: 'program' });
+  await addSkills(botYamlOf(bots, BOT), `kit:${KIT_SKILL}`);
+
+  const result = await build(box, '--json');
+
+  assert.equal(result.code, 0, `the links were made; only the telling did not happen: ${result.stderr}`);
+  await assertLinked(bots, BOT, KIT_SKILL, await kitSkill(KIT_SKILL));
+  const sessions = sessionsOf(result, BOT);
+  assert.deepEqual(
+    sessions.map((entry) => [entry.session, entry.harness, entry.state]),
+    [['daily', 'claude', 'unknown'], ['reviewer', 'codex', 'unknown']],
+  );
+  for (const entry of sessions) {
+    assert.equal(typeof entry.trouble, 'string', `why ${entry.session} was not told, got: ${JSON.stringify(entry)}`);
+    assert.notEqual(entry.trouble.trim(), '');
+  }
   assert.deepEqual(Object.values(await sentSinceLaunch(box)).flat(), []);
 });
 

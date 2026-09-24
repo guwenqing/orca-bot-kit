@@ -226,6 +226,47 @@ export function harnessInTab(handle, timeoutMs) {
   };
 }
 
+/**
+ * Whether the kit may type a line into `tabId`, the tab the book holds for a
+ * session in the Orca project at `home`, and the handle to type into when it
+ * may: `{ handle }`. Otherwise nothing is typed, and the answer says why:
+ * `{}` for a tab with no harness in it (none in the book, none Orca lists, or
+ * the shell in front), `{ blocked }` for one with something on screen waiting
+ * to be answered, and `{ unsure }`, a sentence, for one the kit cannot tell
+ * about. Orca refusing throws, for the caller to report.
+ *
+ * The one gate for every line the kit types into a running session: the mail
+ * nudge and the skills reload. A busy harness passes it, since both harnesses
+ * take a typed line as their next turn.
+ */
+export function tabToTypeInto(home, tabId, timeoutMs) {
+  if (tabId === undefined) return {};
+  const live = tabs(home).find((tab) => tab.tabId === tabId);
+  if (live === undefined) return {};
+
+  const seen = harnessInTab(live.handle, timeoutMs);
+  // A line typed into a screen waiting for an answer is that answer: once, it
+  // confirmed Claude Code's folder-trust default, `No, exit` (tech notes,
+  // section 1).
+  if (seen.blockedReason !== undefined) return { blocked: seen.blockedReason };
+  // The shell in front is a tab with no harness, whatever a stale
+  // `agentIdentity` says.
+  if (seen.front === 'shell') return {};
+  // Not knowing is not a reason to type: a line that lands in a shell is run
+  // there. The program in front has to be the agent Orca names. With no name
+  // it may be a harness a few seconds into its launch; under another name it
+  // may be a pager started after the harness quit, under an identity Orca has
+  // not let go of (tech notes, section 1). A harness run through a wrapper such
+  // as `node` lands here too, until #261.
+  if (seen.front === undefined || seen.agent === undefined || seen.command !== seen.agent) {
+    const why = seen.front === undefined
+      ? seen.unreadable
+      : `${seen.command} holds its terminal, and Orca names ${seen.agent ?? 'no agent'} in it`;
+    return { unsure: `the kit could not tell whether a harness is running in it (${why}), so nothing was typed` };
+  }
+  return { handle: live.handle };
+}
+
 /** The `ps` this run reads. OBK_PS overrides it, as OBK_ORCA does Orca. */
 const psCli = () => process.env.OBK_PS || '/bin/ps';
 
