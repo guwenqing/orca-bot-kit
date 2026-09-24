@@ -40,6 +40,7 @@ import {
   bookOf,
   botHomeOf,
   createSandbox,
+  recordSession,
   sessionIn,
   skipOrcaFake,
   snapshot,
@@ -898,6 +899,90 @@ test('S7 a book entry without a rules stamp is unknown and no finding, beside a 
   assert.equal(older.length, 1, `one finding, for nightly alone, got: ${JSON.stringify(older, null, 2)}`);
   assert.ok(older[0].says.includes('--session nightly'), `the finding is nightly's, got: ${older[0].says}`);
   assert.deepEqual(naming(of(answer, { bot: 'api-bot' }), '--session daily'), [], 'unknown is not a finding');
+});
+
+// ---------------------------------------------------------------------------
+// S10 — a /clear on Claude Code reads AGENTS.md again; a new Codex conversation
+// is not known to.
+//
+// Seen on this machine's records: a Claude conversation begun by /clear loaded
+// AGENTS.md text added after the process started. So when the kit's hook hears
+// of a Claude session with `source: "clear"`, it stamps the rules as they are
+// then. Whether Codex re-reads AGENTS.md on its `/new` is not verified, so a
+// new Codex conversation (a new id, with `source: "startup"`) stamps nothing.
+// The hook is run the way a harness runs it, from the session's own tab.
+// ---------------------------------------------------------------------------
+
+/** Give a bot a new charter in bot.yaml and build its rules, which rewrites its AGENTS.md. */
+async function newCharter(box, bots, charter) {
+  const was = await agentsIn(bots, 'api-bot');
+  await editBotYaml(bots, 'api-bot', (doc) => { doc.charter = charter; });
+  await obk(box, 'rules', 'build', '--bots', 'bots', '--bot', 'api-bot');
+  assert.notEqual(await agentsIn(bots, 'api-bot'), was, 'the premise: the new charter rewrote AGENTS.md');
+}
+
+/** Report a session starting a conversation, through the kit's hook, from the session's own tab. */
+async function hookHears(box, bots, session, id, source) {
+  const entry = await sessionIn(bots, 'api-bot', session);
+  await recordSession(box, { bots, bot: 'api-bot', tab: entry.tab, session: id, source });
+  assert.equal((await sessionIn(bots, 'api-bot', session)).session, id, `the premise: the book took ${id} as ${session}'s conversation`);
+}
+
+test('S10 a Claude session cleared after the rules changed is current and no finding; one not cleared stays older, and its finding offers /clear and the restart', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  await botUp(box, 'api-bot', { sessions: [['daily'], ['review']] });
+  await hookHears(box, bots, 'daily', conv(1), 'startup');
+  await hookHears(box, bots, 'review', conv(2), 'startup');
+  await newCharter(box, bots, 'Api Bot owns the billing API now, and asks before every release.');
+
+  await hookHears(box, bots, 'daily', conv(3), 'clear');
+  const answer = await found(box);
+
+  assert.deepEqual(entryOf(answer, 'api-bot', 'daily').rules, { state: 'current' }, 'the clear read the AGENTS.md there is now');
+  assert.deepEqual(entryOf(answer, 'api-bot', 'review').rules, { state: 'older' }, 'review was not cleared');
+  const older = olderFindings(answer, bots, 'api-bot');
+  assert.deepEqual(older.filter((one) => one.says.includes('--session daily')), [], 'nothing about daily\'s rules');
+  assert.equal(older.length, 1, `one finding, for review, got: ${JSON.stringify(older, null, 2)}`);
+  const says = older[0].says;
+  assert.ok(hasWord(says, 'review'), `it names the session, got: ${says}`);
+  assert.ok(says.includes('/clear'), `a Claude session is brought up to date by /clear, so the finding offers it, got: ${says}`);
+  assert.match(says, /\brestart\b/, `and the restart, got: ${says}`);
+  assert.ok(says.includes('--bot api-bot') && says.includes('--session review'), `the restart names the bot and the session, got: ${says}`);
+
+  // The stamp is of AGENTS.md as it was at the clear, not a mark that the
+  // session is up to date for good: the next change leaves it older again.
+  await newCharter(box, bots, 'Api Bot owns the billing API and the invoices, and asks before every release.');
+  const later = await found(box);
+
+  assert.deepEqual(entryOf(later, 'api-bot', 'daily').rules, { state: 'older' }, 'AGENTS.md changed again after the clear');
+  assert.equal(
+    olderFindings(later, bots, 'api-bot').filter((one) => one.says.includes('--session daily')).length,
+    1,
+    `and daily's finding is back, got: ${JSON.stringify(later.found, null, 2)}`,
+  );
+});
+
+test('S10 a new Codex conversation after the rules changed stays older, and its finding offers the restart and not /new or /clear', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  await botUp(box, 'api-bot', { sessions: [['nightly', '--harness', 'codex']] });
+  await hookHears(box, bots, 'nightly', conv(1), 'startup');
+  await newCharter(box, bots, 'Api Bot owns the billing API now, and asks before every release.');
+
+  // Codex's /new: a new conversation id, which the hook hears as a startup.
+  await hookHears(box, bots, 'nightly', conv(2), 'startup');
+  const answer = await found(box);
+
+  assert.deepEqual(entryOf(answer, 'api-bot', 'nightly').rules, { state: 'older' }, 'nothing says Codex read AGENTS.md again');
+  const older = olderFindings(answer, bots, 'api-bot');
+  assert.equal(older.length, 1, `one finding, for nightly, got: ${JSON.stringify(older, null, 2)}`);
+  const says = older[0].says;
+  assert.ok(hasWord(says, 'nightly'), `it names the session, got: ${says}`);
+  assert.match(says, /\brestart\b/, `it offers the restart, got: ${says}`);
+  assert.ok(says.includes('--bot api-bot') && says.includes('--session nightly'), `the restart names the bot and the session, got: ${says}`);
+  assert.ok(!says.includes('/new'), `a new Codex conversation is not known to read the rules, so it is not offered, got: ${says}`);
+  assert.ok(!says.includes('/clear'), `nor is /clear, got: ${says}`);
 });
 
 // ---------------------------------------------------------------------------
