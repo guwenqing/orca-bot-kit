@@ -15,7 +15,7 @@ import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 
 import { leadsOutside } from './bot.js';
-import { shellWord } from './launch.js';
+import { ownCli, shellWord } from './launch.js';
 
 /** Where each harness reads a project's hooks, inside the bot home. */
 const HOOK_FILE = { claude: '.claude/settings.json', codex: '.codex/hooks.json' };
@@ -31,17 +31,16 @@ const EVENT = 'SessionStart';
 /** How long the harness gives the hook before it goes on without it. */
 const TIMEOUT = 10;
 
-/** The kit's own hook among whatever else the user keeps in the file. */
-const KIT_COMMAND = 'obk session record';
-
 /**
- * What the hook runs. `|| true` and a quiet stderr because a hook must never
- * disturb the session it fires in (ADR 0010): a kit that is not installed, or a
- * book that cannot be written, leaves the session alone and the health check
- * finds the stale book later.
+ * What the hook runs: the CLI that wrote it, by its own path, so the session
+ * reports to the kit that set it up and not to whatever `obk` PATH finds in the
+ * harness's shell (#220). `|| true` and a quiet stderr because a hook must never
+ * disturb the session it fires in (ADR 0010): a kit that is not there, or a book
+ * that cannot be written, leaves the session alone and the health check finds
+ * the stale book later.
  */
-export const hookCommand = (bots, bot) =>
-  `${KIT_COMMAND} --bots ${shellWord(bots)} --bot ${shellWord(bot)} 2>/dev/null || true`;
+export const hookCommand = (bots, bot, cli = ownCli()) =>
+  `${shellWord(cli)} session record --bots ${shellWord(bots)} --bot ${shellWord(bot)} 2>/dev/null || true`;
 
 /**
  * Make sure the bot at `home` has the kit's SessionStart hook for `harness`.
@@ -95,7 +94,22 @@ export function hookTrouble(home, harness, { bots, bot }) {
   let settings;
   try {
     settings = readSettings(file);
-    wanted = { ...settings, hooks: withKitHook(settings.hooks, file, { type: 'command', command: hookCommand(bots, bot), timeout: TIMEOUT }) };
+    // The hook in the file is judged by what it runs, not by whether this is
+    // the install that wrote it. A bot made before the kit named itself by path
+    // runs the bare `obk`, and one another install wrote runs that install: both
+    // still reach a kit, and the next `obk up` writes this one's. So the line is
+    // checked against the program already in it, and only one that names a CLI
+    // that is not there any more is wrong — `|| true` would keep that quiet, and
+    // the book would stop being true with nothing to say why.
+    const running = kitProgramIn(settings);
+    if (running !== undefined && running !== BARE && !existsSync(running)) {
+      return {
+        where: file,
+        says: `${file} holds the kit's session hook, but it runs ${running}, which is not there any more. ${stale} obk up puts back one that runs the kit you have.`,
+      };
+    }
+    const program = running ?? ownCli();
+    wanted = { ...settings, hooks: withKitHook(settings.hooks, file, { type: 'command', command: hookCommand(bots, bot, program), timeout: TIMEOUT }) };
   } catch (error) {
     return { where: file, says: `${error.message} ${stale}` };
   }
@@ -168,15 +182,41 @@ function withKitHook(hooks, file, mine) {
 
 /**
  * The kit's own hook entry, wherever it sits and whatever sits beside it: a
- * command of exactly the shape `hookCommand` writes, for any bots folder and
- * bot, so an entry written before the folder moved is still the kit's. A line
- * of the user's that only mentions the command is theirs (PRD 6.5).
+ * command of exactly the shape `hookCommand` writes, for any bots folder, bot
+ * and program — the bare `obk` a bot made before #220 still has, this install,
+ * or another — so an entry written before the folder moved or the kit changed is
+ * still the kit's, and is rewritten in place rather than joined by a second. A
+ * line of the user's that only mentions the command is theirs (PRD 6.5).
  */
 const isKitHook = (hook) => typeof hook?.command === 'string' && KIT_HOOK.test(hook.command);
 
 /** One word as `shellWord` writes it: bare, or single-quoted with `'\''` inside. */
 const WORD = String.raw`(?:[A-Za-z0-9,._+:@%/=-]+|'(?:[^']|'\\'')*')`;
-const KIT_HOOK = new RegExp(String.raw`^${KIT_COMMAND} --bots ${WORD} --bot ${WORD} 2>/dev/null \|\| true$`);
+const KIT_HOOK = new RegExp(String.raw`^(${WORD}) session record --bots ${WORD} --bot ${WORD} 2>/dev/null \|\| true$`);
+
+/** The program a bot made before the kit named itself by path runs. */
+const BARE = 'obk';
+
+/**
+ * What the kit's hook in these settings runs, as a path or the bare name, or
+ * undefined when there is none. Read back out of its shell quoting, so it can be
+ * looked for on disk.
+ */
+function kitProgramIn(settings) {
+  for (const groups of Object.values(settings.hooks ?? {})) {
+    if (!Array.isArray(groups)) continue;
+    for (const group of groups) {
+      for (const hook of Array.isArray(group?.hooks) ? group.hooks : []) {
+        const found = typeof hook?.command === 'string' ? KIT_HOOK.exec(hook.command) : null;
+        if (found !== null) return unquoted(found[1]);
+      }
+    }
+  }
+  return undefined;
+}
+
+/** A word as `shellWord` wrote it, read back to what it stands for. */
+const unquoted = (word) => (word.startsWith("'") ? word.slice(1, -1).replaceAll(`'\\''`, "'") : word);
 
 /**
  * What the file says, or nothing when there is no file yet. A file the kit

@@ -20,7 +20,7 @@ import path from 'node:path';
 
 import { readBook } from './book.js';
 import { botDir, botNames, readBot } from './bot.js';
-import { harnessOf, reachesMail } from './launch.js';
+import { harnessOf, ownCli, reachesMail, shellWord } from './launch.js';
 import { ackMailbox, postMessage, readMailbox, tabs, tuiInTab, typeIntoTab, useMailbox } from './orca.js';
 
 /**
@@ -147,7 +147,7 @@ export function sendMessage(bots, { to: target, from: sender, tab, subject, text
     return {
       ...answer,
       sent: false,
-      trouble: `${from.bot}/${from.session} has no mailbox of its own yet, so a reply would have nowhere to go. Bring it up first:  obk up --bots ${bots} --bot ${from.bot}`,
+      trouble: `${from.bot}/${from.session} has no mailbox of its own yet, so a reply would have nowhere to go. Bring it up first:  ${shellWord(ownCli())} up --bots ${shellWord(bots)} --bot ${shellWord(from.bot)}`,
     };
   }
 
@@ -324,7 +324,7 @@ function nudge(to, from, subject) {
 
     typeIntoTab(
       live.handle,
-      `Fleet mail from ${from.bot}/${from.session}: ${subject}. Read it with  obk message check --bots ${to.bots} --bot ${to.bot} --session ${to.session}`,
+      `Fleet mail from ${from.bot}/${from.session}: ${subject}. Read it with  ${shellWord(ownCli())} message check --bots ${shellWord(to.bots)} --bot ${shellWord(to.bot)} --session ${shellWord(to.session)}`,
     );
     return { nudged: true };
   } catch (error) {
@@ -377,4 +377,4 @@ function whyNotReachable(bot, session, harness, held) {
 }
 
 const notUpYet = (who) =>
-  `${who.bot}/${who.session} has no mailbox yet: it has never been brought up. Start it and it gets one:  obk up --bots ${who.bots} --bot ${who.bot} --session ${who.session}`;
+  `${who.bot}/${who.session} has no mailbox yet: it has never been brought up. Start it and it gets one:  ${shellWord(ownCli())} up --bots ${shellWord(who.bots)} --bot ${shellWord(who.bot)} --session ${shellWord(who.session)}`;

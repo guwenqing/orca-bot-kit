@@ -277,7 +277,7 @@ test('RS7 a session added later under the same name starts a new conversation', 
   const daily = await liveTab(box, bots, 'api-bot', 'daily');
   assert.deepEqual(
     typedInto(daily.terminal),
-    [bareLaunch('claude', 'api-bot', 'daily')],
+    [bareLaunch(box, 'claude', 'api-bot', 'daily')],
     'a fresh start, with no resume of the retired session\'s conversation',
   );
   assert.equal((await sessionIn(bots, 'api-bot', 'daily')).session, undefined);

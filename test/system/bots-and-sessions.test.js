@@ -37,6 +37,8 @@ import test from 'node:test';
 import { setTimeout } from 'node:timers/promises';
 import { parse } from 'yaml';
 
+import { cliEntry, HOOK_FILES, kitHooksIn, spellingsOf } from '../helpers/cli.js';
+
 /**
  * Remove the throwaway bots folder and everything the kit made beside it.
  *
@@ -128,10 +130,13 @@ function allSetups() {
   return answer.result.setups;
 }
 
-/** Run the real `obk`, the one `npm link` put on PATH. */
+/**
+ * Run this checkout's `obk`, by its full path. The `obk` on PATH is the
+ * published release this machine uses, not the code under test (#217).
+ */
 function obk(args) {
-  const done = spawnSync('obk', args, { encoding: 'utf8', cwd: os.tmpdir() });
-  assert.equal(done.error, undefined, `could not run \`obk\`: ${done.error?.message}: run \`npm link\` in this repo first`);
+  const done = spawnSync(process.execPath, [cliEntry, ...args], { encoding: 'utf8', cwd: os.tmpdir() });
+  assert.equal(done.error, undefined, `could not run \`obk\`: ${done.error?.message}`);
   // The owner reads this output. Orca's word for a workspace must not be in it.
   assert.ok(!/worktree/i.test(done.stdout + done.stderr), `obk said "worktree": ${done.stdout}${done.stderr}`);
   return done;
@@ -153,6 +158,19 @@ function tabOf(answer, name) {
   const found = (answer.tabs ?? []).filter((entry) => entry.name === name);
   assert.equal(found.length, 1, `one entry should be the ${name} tab, got: ${JSON.stringify(answer.tabs)}`);
   return found[0];
+}
+
+/**
+ * What Orca's tab has put out since it was opened, the escapes stripped, as one
+ * run of text with no whitespace in it: a long line the tab wrapped, or the
+ * shell redrew as it was typed, is still found in one piece. The default read
+ * is the tab's output rather than its screen (tech notes, section 1), which is
+ * where the line the kit typed is echoed before any harness draws over it.
+ */
+function outputOf(handle) {
+  const answer = orca(['terminal', 'read', '--terminal', handle]);
+  assert.equal(answer.ok, true, `orca terminal read failed: ${JSON.stringify(answer.error)}`);
+  return JSON.stringify(answer.result).replace(/\\[nrt]|\s/g, '');
 }
 
 /** The two bots this test makes, and what each one should come up as. */
@@ -291,6 +309,22 @@ test('two bots on the two harnesses come up in the real Orca, and nothing else i
     // question on this first run — which is why there is no second send to get
     // wrong. A line the harness took is a prompt the harness has.
     assert.equal(entry.promptSent, true, 'the prompt went in with the line that started the harness');
+
+    // The kit calls itself back by the CLI that is running, and that is this
+    // checkout's, never the machine's own `obk` (#220). Its hook names it...
+    const hookFile = path.join(home, HOOK_FILES[bot.harness]);
+    const hooks = kitHooksIn(JSON.parse(await readFile(hookFile, 'utf8')));
+    assert.equal(hooks.length, 1, `${hookFile} should hold one hook of the kit's, got: ${JSON.stringify(hooks)}`);
+    assert.ok(
+      spellingsOf(cliEntry).some((cli) => hooks[0].startsWith(`${cli} session record `)),
+      `the hook should run ${cliEntry}, got: ${hooks[0]}`,
+    );
+    // ...and the line it typed into the tab hands it to the harness.
+    const typed = outputOf(entry.terminal);
+    assert.ok(
+      spellingsOf(cliEntry).some((cli) => typed.includes(`OBK_CLI=${cli}`.replace(/\s/g, ''))),
+      `the launch line in ${entry.title} should carry OBK_CLI=${cliEntry}; the tab put out: ${typed.slice(0, 2000)}`,
+    );
   }
 
   // 4. A second run makes nothing and types nothing.

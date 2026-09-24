@@ -22,6 +22,7 @@ import path from 'node:path';
 
 import { botDir, readBot, requireBotsFolder } from './bot.js';
 import { readBook, takeLock } from './book.js';
+import { ownCli, shellWord } from './launch.js';
 import { orca } from './orca.js';
 import { BOT_FATHER } from './up.js';
 
@@ -35,7 +36,7 @@ const AT = /^([01]\d|2[0-3]):([0-5]\d)$/;
 const prompt = (bots) =>
   'Run the daily grooming for this fleet, with the obk-grooming skill. Fix this '
   + 'run\'s end now and read what has happened since the last run\'s end up to it, '
-  + 'counting with obk usage --since <last end> --until <this end>, and write this '
+  + `counting with ${shellWord(ownCli())} usage --since <last end> --until <this end>, and write this `
   + 'end down for the next run. Work out what it cost with obk-finops, keep '
   + 'each bot\'s profile notes, and send one short report to Bot Father\'s '
   + `management session. The bots folder is ${bots}.`;

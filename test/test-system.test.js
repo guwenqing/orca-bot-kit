@@ -19,7 +19,7 @@
 // here makes a Run appear mid-run without anything real being brought up.
 
 import assert from 'node:assert/strict';
-import { chmod, copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { chmod, copyFile, mkdir, readFile, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, test } from 'node:test';
@@ -516,6 +516,40 @@ describe('test-system', { concurrency: true }, () => {
     const output = result.stdout + result.stderr;
     assert.match(output, /ALPHA out/);
     assert.match(output, /ALPHA err/);
+  });
+
+  // Which `obk` the system tests run is the tests' own business: each starts
+  // its checkout's `src/cli.js` by its full path (#220). The runner has no say
+  // in what `obk` on PATH is — the machine's own release, for the owner's own
+  // fleet — so it neither checks it, nor needs one, nor changes it.
+
+  test('the system tests run whatever `obk` is on PATH, and the runner never runs it', async (t) => {
+    const fixture = await createRepo(t);
+    const dir = path.join(path.dirname(fixture.outside), 'decoy');
+    const log = path.join(path.dirname(fixture.outside), 'decoy.log');
+    await mkdir(dir);
+    await writeFile(path.join(dir, 'obk'), `#!/bin/sh\nprintf '%s\\n' "$*" >> '${log}'\nexit 1\n`);
+    await chmod(path.join(dir, 'obk'), 0o755);
+
+    const result = await fixture.confirmed({ env: { ...fixture.env, PATH: `${dir}${path.delimiter}${fixture.env.PATH}` } });
+
+    assert.equal(result.code, 0, `${result.stdout}${result.stderr}`);
+    assert.match(result.stdout, /ALPHA/);
+    await assert.rejects(readFile(log, 'utf8'), { code: 'ENOENT' }, 'the obk on PATH should never have been run');
+  });
+
+  test('the system tests run with no `obk` on PATH at all', async (t) => {
+    const fixture = await createRepo(t);
+    // Node, for the fake Orca's own `#!/usr/bin/env node`, and the system's
+    // own tools; no folder that could hold an `obk`.
+    const nodeOnly = path.join(path.dirname(fixture.outside), 'node-only');
+    await mkdir(nodeOnly);
+    await symlink(process.execPath, path.join(nodeOnly, 'node'));
+
+    const result = await fixture.confirmed({ env: { ...fixture.env, PATH: [nodeOnly, '/usr/bin', '/bin'].join(path.delimiter) } });
+
+    assert.equal(result.code, 0, `${result.stdout}${result.stderr}`);
+    assert.match(result.stdout, /ALPHA/);
   });
 
   test('it works on the repo the script lives in, whatever the working directory', async (t) => {

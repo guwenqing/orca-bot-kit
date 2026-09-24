@@ -44,6 +44,15 @@ after; never type into or close a tab that is not yours; never
 your own tabs yourself. The test author works against fakes and never touches the
 real Orca or harnesses.
 
+This machine's `obk` is the published `@assuredloop/orca-bot-kit`, as any user has
+it, and nothing a developer or a test does changes it: no `npm link`, no global
+install, no switch. On 2026-09-24 a system test linked it to a checkout and the
+owner's real fleet ran that checkout for ten minutes (#220). Work in your own clone
+and run its `src/cli.js` by its full path, as the system tests do; the kit calls
+itself back with the path of the CLI that started it, so a fleet a checkout brings
+up calls back into that checkout. A system test touches nothing outside its own
+throwaway space, the machine's `obk` included.
+
 Killing processes: on 2026-09-20 a cleanup command here ran `kill -KILL -1` by
 accident (`ps -e` overrode `-p`; the group id became 1) and force-killed every process
 of the owner's account. So: never `kill -1`, never a negative id you did not capture

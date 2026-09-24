@@ -12,6 +12,7 @@
 
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 /** The approval levels, and what each one is called on each harness. */
 const APPROVAL = {
@@ -184,6 +185,7 @@ export function launchCommand(session, { harness, home, workDir, prompt, promptF
     // starts — the shell's child — from anything the session starts later inside
     // the tab. `$$` is the shell's, and it is not quoted for that reason.
     `${SHELL_ENV}=$$`,
+    `${CLI_ENV}=${quoted(ownCli())}`,
     ...words.map(quoted),
     ...extraWords(session.extra_args),
     ...resumeWords(harness, resume),
@@ -274,3 +276,24 @@ const quoted = (word) => (/^[A-Za-z0-9,._+:@%/=-]+$/.test(word) ? word : `'${wor
 
 /** The same, for anything else of the kit's that has to build a shell line. */
 export const shellWord = quoted;
+
+/**
+ * The CLI that is running, by the path it was started by: the kit calls itself
+ * back with this, never with the bare name `obk`, because the bare name is
+ * whatever PATH says, and PATH is not the kit's to decide (#220). A user's
+ * install is started through npm's bin link, and the link is kept rather than
+ * resolved, so the path survives an upgrade of the package; a system test that
+ * runs a checkout's `src/cli.js` gets that checkout. What an environment
+ * variable claims is not asked: the kit says who it is from how it was started.
+ */
+export const ownCli = () => (process.argv[1] === undefined
+  // Nothing started as a script, as with `node -e`: the kit's own entry file.
+  ? fileURLToPath(new URL('./cli.js', import.meta.url))
+  : path.resolve(process.argv[1]));
+
+/**
+ * Where the launch line hands the session the CLI that started it, so a bot's
+ * own commands can call the same one. A plain variable, because a harness's
+ * shell keeps those where it rearranges PATH (#220).
+ */
+export const CLI_ENV = 'OBK_CLI';

@@ -15,7 +15,7 @@ import { addSession, changeBot, changeSession, createBot, readBot, SESSION_FIELD
 import { grooming } from './groom.js';
 import { checkHealth, orcaSettingFindings } from './health.js';
 import { initBots } from './init.js';
-import { APPROVALS, HARNESSES, shellWord } from './launch.js';
+import { APPROVALS, HARNESSES, ownCli, shellWord } from './launch.js';
 import { checkMail, lookUp, sendMessage } from './message.js';
 import { orcaCli, orcaTrouble } from './orca.js';
 import { pauseSessions, unpauseSessions } from './pause.js';
@@ -794,7 +794,7 @@ function toLines(answer, bots, where) {
     ...(answer.unnamed === true
       ? [`             ${where} is a Claude session running under no name the kit gave it: it was started before the kit named sessions, and nothing renames a live harness. It gets one the next time it starts. Until then the mailbox is the road that reaches it.`]
       : []),
-    `             Send it:  obk message send --bots ${bots} --to ${where} --subject <text> --text <text>`,
+    `             Send it:  ${shellWord(ownCli())} message send --bots ${shellWord(bots)} --to ${shellWord(where)} --subject <text> --text <text>`,
   ];
 }
 
