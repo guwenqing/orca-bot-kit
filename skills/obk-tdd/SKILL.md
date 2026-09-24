@@ -35,8 +35,12 @@ tests live and how they are named, what the tests next door already do, and
 which commands the project's own checks actually run. Never assume a default
 command because it is the usual one for the language.
 
-Use the focused command through the loop and the whole-suite command before you
-finish.
+Use the focused command through the loop. Before you finish, run what the
+project requires, plus the checks that cover the change and its credible effects
+elsewhere. The whole suite earns its cost on a broad or shared change and at a
+release gate; when you leave it out, name the coverage you ran instead and why it
+is enough. A gate the project requires is never waived, and a run still going is
+not a run that passed.
 
 ## Start from the requirement, not the code
 
@@ -306,8 +310,9 @@ A seam below that gives a green test and no protection. If no correct seam
 exists, that is itself the finding: report it, because the shape of the code is
 what is stopping the bug from being pinned down.
 
-Minimise the reproduction until every part of it is load-bearing, turn it into
-a failing test, watch it fail, fix the cause, watch it pass, then run the
+Minimise the reproduction until reducing it further would not improve the
+diagnosis or the regression check, and keep the evidence you stopped on. Turn it
+into a failing test, watch it fail, fix the cause, watch it pass, then run the
 original unminimised scenario again.
 
 Two tests are often better than one here: one at the interface, saying what a
@@ -316,15 +321,20 @@ lives. Get both to pass. The first is what stops the bug coming back in a way
 anyone would notice; the second says where it was.
 
 A regression test written after the fix has proved nothing yet. Prove it:
-revert the fix, run it and watch it fail, restore the fix, run it again.
+revert the fix, run it and watch it fail, restore the fix, run it again. A test
+that already failed on a named pre-fix baseline and passes with the fix, unchanged
+in between, has its proof: keep that receipt instead of reverting again. Where
+the test changed since, or its sensitivity is unproven, prove it again on the bad
+baseline in a disposable copy.
 
 When the bug is intermittent, make the test deterministic if you can, and say
 which signal you pinned down. When it is one of a class, land the test for the
 one in front of you first, then say what else has the same shape.
 
 When a failing test really is impractical, say so out loud, say why, and name
-the closest executable check you used instead. Quiet omission is the part that
-does damage: a reviewer treats a missing red receipt as a finding.
+the closest executable check you used instead. Naming a check you will run later
+is not having run one. Quiet omission is the part that does damage: a reviewer
+treats a missing red receipt as a finding.
 
 ## Tests that catch nothing
 
@@ -406,11 +416,13 @@ The question is the whole point: if a real mistake were made in this code,
 would a test fail? There is no score to reach.
 
 **Everyday: your own hand check.** Once per piece of work, at the end, only
-where it earns its place. Five to eight deliberate breaks in the risky logic
-the work changed (money, permissions, eligibility, safety, data that could be
-lost, and whatever else the requirement cares most about), chosen before you
-look at the tests, each one run, each one expected to make a test fail, each
-one put back. Reported in three lines.
+where it earns its place. A small representative set of distinct, plausible
+mistakes in the risky logic the work changed (money, permissions, eligibility,
+safety, data that could be lost, and whatever else the requirement cares most
+about), chosen before you look at the tests, each one run, each one expected to
+make a test fail, each one put back. Stop when another break would add no
+evidence, and say why the set you ran was enough: two meaningful breaks beat five
+padded ones. Reported in three lines.
 
 One break at a time, never two at once: note the original, apply the break, run
 the tests, record killed or survived, restore the code immediately, then the
@@ -429,8 +441,14 @@ removed so an absent value reaches further than it should; a call to a
 collaborator deleted.
 
 Skip it, and say that you skipped it, for work with no real logic in it: docs,
-config, wiring, renames, small fixes, prototypes, and code with no runnable
-tests.
+wiring, renames, prototypes. Size and file type do not decide whether logic is
+risky: a one-character permission fix is risky logic, and so is a configuration
+that decides who gets what.
+
+Code with no runnable tests is a different case: there is logic, and nothing to
+run it against. Report the missing automated coverage, the reason, the stand-in
+check you used and what is still uncertain. It is a finding when behaviour the
+requirement cares about lacks adequate verification.
 
 **A survivor**, a break no test objected to, gets the equivalence question
 first: is there any input for which the changed code returns a different value,
@@ -503,14 +521,27 @@ the work is handed on.
 
 ## Away from code
 
-The same three moves work on documentation, configuration, prompts and data,
-where no tool will help: state the check before you make the change, see the
-check fail first, and at the end break the artefact on purpose to find out
-whether the check notices.
+The same three moves work on configuration and data, where no tool will help:
+state the check before you make the change, see the check fail first, and at
+the end break the artefact on purpose to find out whether the check notices.
 
-They apply where there is something that can be wrong: a configuration that
-decides who gets what, a prompt whose branches behave differently, a
-transformation over data. The skip rule is the same as for code, and prose
-written for people earns no test and no mutant.
+They apply where there is something that can be wrong and a check that can be
+seen to fail: a configuration that decides who gets what, a transformation over
+data. The skip rule is the same as for code.
+
+Prose written for people is checked by review, not by a test: a test that matches
+its text buys nothing. Text written for a model, a prompt included, is checked the
+same way, with one addition: where the requirement is how the model behaves, a
+representative use earns its place, and it is the whole check, without the three
+moves above. A prompt that must hold an action until it is approved is exercised
+once with the approval and once without. Neither needs a manufactured red, and no
+wording edit needs a test of its own.
+
+A decision that cannot be driven locally, such as a CI workflow or a setting in
+someone else's service, is checked in two parts: its parsed structure and
+whatever of it can be executed, then the real run when that is authorised.
+Publishing, spending money or changing someone else's settings is never a
+mandatory step of a check. A real run put off for later names who triggers it and
+says what stays unverified until then.
 
 Sources and licences: [NOTICE.md](NOTICE.md).

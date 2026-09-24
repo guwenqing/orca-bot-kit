@@ -67,11 +67,15 @@ precise citation is worth more than a paragraph of plausible summary.
 
 - **Quote rather than paraphrase** where the wording carries the weight, and
   record where it came from closely enough that a reader can land on it.
-- **Go wide, then narrow.** Cast a broad net first so you find out what is
-  adjacent, and only then go deep on what matters.
-- **Read the whole thing.** The title and the summary are what someone wanted
-  it to say. The qualification that changes the answer is usually further down,
-  in a footnote, a reply or a revision.
+- **Go as wide as the question is open.** While claims are unresolved or
+  contrary evidence is plausible, cast a broad net so you find out what is
+  adjacent, then go deep on what matters. A narrow question that one
+  authoritative record settles needs no broad net.
+- **Read far enough to trust the part you use.** The title and the summary are
+  what someone wanted it to say. The qualification that changes the answer is
+  usually further down, in a footnote, a reply or a revision; read on until you
+  know none bears on your claim. Settling one flag does not take the whole
+  manual.
 - **Resist the story.** When three things line up and a fourth does not, the
   fourth is the interesting one. It does not get filed away for tidiness.
 - **Consider the other way round.** Before calling something strong evidence,
@@ -86,8 +90,8 @@ means something to a reader who knows what was looked for: "nothing there" is
 worth little, and "searched these three places for these terms, found nothing"
 tells the next person where not to go again.
 
-Run several related queries rather than one. How the search goes tells you
-what to do next. Too many results means the
+While the answer is still open, run several related queries rather than one.
+How the search goes tells you what to do next. Too many results means the
 question is too broad: narrow it, or sample deliberately across the different
 kinds rather than taking the first few. Too few usually means the words are
 wrong rather than the answer missing: try what the field itself calls the
@@ -222,7 +226,11 @@ been smoothed over. It is worth going back and asking which.
 
 ## What you hand back
 
-Lead with the answer and how sure you are, in a few lines. Then:
+Lead with the answer and how sure you are, in a few lines. What follows are the
+questions the hand-back has to answer, not headings to print: a one-line answer
+is one line, and it still carries its citation and any uncertainty or search
+limit that would change how it is used. Leave out what has nothing in it; an
+empty section says nothing. Then:
 
 - **The question**, as you understood it, and what you left out of it.
 - **What the sources say**, each with where it came from and its date, and the
@@ -231,7 +239,9 @@ Lead with the answer and how sure you are, in a few lines. Then:
 - **What follows from that**, marked as your reasoning rather than as findings.
 - **Other explanations that fit**, where more than one does.
 - **Where sources disagree**, with both sides and their citations.
-- **What you could not find out**, with what you searched.
+- **What you could not find out**, with what you searched: the boundary of the
+  search, what settled the answer, and the places that could matter which you
+  left unchecked.
 - **Where you looked**, one line per source, including the ones that held
   nothing and the ones you could not reach, with the reason.
 
