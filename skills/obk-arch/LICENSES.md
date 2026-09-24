@@ -8,6 +8,13 @@
 `obk-arch` consolidates material from the sources named in
 [NOTICE.md](NOTICE.md). Their licences are reproduced below in full.
 
+The part on decision records copies words only from Michael Nygard's
+"Documenting Architecture Decisions" (CC0 1.0) and MADR 4.0.0 (taken under
+CC0-1.0, one of its two licences). CC0 waives all rights and asks for no
+notice, so there is nothing to reproduce for them: see
+https://creativecommons.org/publicdomain/zero/1.0/. The other decision-record
+sources in NOTICE.md gave ideas only, and none of their text is used.
+
 ## MIT
 
 The MIT permission notice below applies to the work of each of these copyright
