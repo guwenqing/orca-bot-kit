@@ -3,10 +3,13 @@
 //
 // Linked, never copied, in both directions. Inwards: what lands in the bot home
 // is a symlink to the skill's own directory, so a kit skill is read where the
-// package installed it and an edit to a skill is what a running session reads —
-// both harnesses follow a symlinked skill folder and pick a change up without a
-// restart (tech notes, sections 2 and 3). Outwards: the kit takes away only the
-// links it put there, and never the skill one was pointing at.
+// package installed it, and both harnesses follow the link. A running session
+// reads an edited skill the next time it loads it. A skill linked in or taken
+// away reaches it without a restart. Claude Code takes it through its own
+// `/reload-skills`, which `obk skills build` types into the session's tab.
+// Codex has no such command and takes it at the start of its next turn (tech
+// notes, sections 2 and 3). Outwards: the kit takes away only the links it put
+// there, and never the skill one was pointing at.
 //
 // An entry names one of four shelves: the kit's own (`kit:<name>`), an online
 // source `skills.yaml` lists (`<source>:<name>`, read from its clone beside the

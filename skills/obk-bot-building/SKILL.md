@@ -273,17 +273,29 @@ again and check a session is running before you call the bot ready.
 ## When the bot is already running
 
 Changing a bot whose sessions are up is the ordinary case rather than the
-awkward one. Both harnesses read a skill through the link and notice a change
-to the skills directory while a session is running, so putting a skill on a
-bot, or taking one off, reaches a live session without restarting it.
+awkward one. Putting a skill on a bot or taking one off reaches its running
+sessions without a restart, and `obk skills build` says, session by session,
+how:
 
-Noticing is not the same as confirmed. Check that the session can actually see
-the skill before telling anyone it is there, and check by asking that session
-rather than by looking again at the disk you just wrote: what you wrote is not
-evidence about what another process has loaded. Where it has not appeared, say
-so and say what would make it appear. A restart is the user's to ask for, and
-taking one because it is the quick way ends a conversation they were in the
-middle of.
+- Claude Code: the kit types `/reload-skills` into the session's tab. That is
+  Claude Code's own reload. A busy session queues it and runs it as a command
+  when its turn ends, so it never reaches the model as text.
+- Codex: nothing is typed, because Codex has no reload command. It takes the
+  change at the start of its next turn, not in the middle of the one it is on.
+
+The kit reports a session it could not tell, and why: not up, or on a screen
+waiting for an answer. A session that is not up reads its skills when it
+starts.
+
+Told is not the same as confirmed. Before telling anyone a skill is there,
+check that the session can use it: ask it to load the skill. Do not look
+again at the disk you just wrote, since that says nothing about what another
+process has loaded. Do not ask a Codex session whether the skill is in its
+list: it has answered "none" while its list held the skill. Where a skill has
+not appeared after the next turn, say so. A restart would make it appear, and
+meanwhile the session can read the skill's `SKILL.md` by the path the kit
+printed. A restart is the user's to ask for. Taking one because it is quick
+ends a conversation they were in the middle of.
 
 Instructions are not skills. A session is working from the rules it read when
 it started, so a change to a bot's `AGENTS.md` may not reach one that is

@@ -10,9 +10,9 @@
 // the skill it was pointing at — a removal that followed a link would delete
 // the user's common skill, or one of the kit's own.
 //
-// Everything here goes through the CLI on a sandboxed bots folder. The command
-// writes links and never talks to Orca, so the fake Orca is only ever asked to
-// prove it was not called.
+// Everything here goes through the CLI on a sandboxed bots folder. Linking
+// needs nothing from Orca; what the build tells a changed bot's running
+// sessions afterwards is test/skills-reload.test.js (#231).
 //
 // One house rule for the setup: every bot is created before its lists are
 // written, because `bot create` links too — a test that added a skill first
@@ -626,20 +626,21 @@ test('--bot does the one bot, and leaves the others where they were', async (t) 
   await assertNotThere(bots, 'web-bot', KIT_SKILL);
 });
 
-test('skills build never talks to Orca, and works with Orca down', async (t) => {
+test('skills build links with Orca down', async (t) => {
+  // It used to be pinned here that the build never calls Orca. Since #231 it
+  // asks Orca about the sessions of a bot whose links changed, so that it can
+  // tell them; the links themselves still need nothing from Orca.
   const box = await createSandbox(t);
   const bots = await seeded(box);
   await makeBot(box, 'api-bot');
   const kit = await kitSkill(KIT_SKILL);
   await addSkills(defaultsOf(bots), `kit:${KIT_SKILL}`);
   await box.orca.set({ reachable: false, setups: [], terminals: [] });
-  const calls = (await box.orca.calls()).length;
 
   const result = await build(box);
 
   assert.equal(result.code, 0, `an Orca that is down is nothing to skills build: ${result.stderr}`);
   await assertLinked(bots, 'api-bot', KIT_SKILL, kit);
-  assert.equal((await box.orca.calls()).length, calls, 'skills build must not call Orca at all');
 });
 
 test('skills build without --bots fails and says so', async (t) => {
