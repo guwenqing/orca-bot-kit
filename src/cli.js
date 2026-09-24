@@ -1167,8 +1167,17 @@ function harnessLines(tab, bots) {
     ];
   }
 
+  // Orca naming no reason does not mean nothing is on screen: on 1.4.209 it
+  // names none for Codex's trust and hooks screens, nor for Claude Code's trust
+  // list (tech notes, section 1, #288). So the kit says what it cannot see.
   const lines = tab.blockedReason === undefined
-    ? [...how, '             the harness was typed in and came up.']
+    ? [
+      ...how,
+      '             the harness was typed in and is running. The kit cannot see whether a screen',
+      '             in it is waiting for an answer.',
+      `             Look at it:  ${lookAt(tab.terminal)}`,
+      ...ANSWER_IT,
+    ]
     : [
       ...how,
       `             the harness was typed in and came up, waiting on: ${tab.blockedReason}`,

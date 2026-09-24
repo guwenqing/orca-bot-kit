@@ -145,8 +145,9 @@ different answers.
 
 `obk init` tells you which, for every tab it opened:
 
-- *the harness was typed in and came up* — it is running. It may still be asking
-  something of its own; that is the table below.
+- *the harness was typed in and is running. The kit cannot see whether a screen
+  in it is waiting for an answer* — look at it: Orca does not flag every first-run
+  screen, so it may still be asking something of its own. That is the table below.
 - *the harness was typed in and came up, waiting on: …* — running and blocked on
   a question. The table below.
 - *the harness was typed in, and no session came up in the tab* — **the line did
