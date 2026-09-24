@@ -6,7 +6,7 @@
 //
 //   1. A session the book knows that Orca does not. Orca is asked what tabs it
 //      has; a tab the person closed is simply not in the answer, and the book
-//      still names it (ADR 0002). Here the tab is really closed, through Orca.
+//      still names it (ADR 0012). Here the tab is really closed, through Orca.
 //   2. An Orca project no book owns. Orca keeps its own record of every folder
 //      it has been given, and a bot folder that goes away does not take that
 //      record with it. Here the folder really goes away.

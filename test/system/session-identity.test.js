@@ -10,7 +10,7 @@
 //      is the only thing that says whose session it is once the conversation
 //      is gone (PRD 6.4).
 //   2. A tab the user closed. Orca drops its resume record with the tab, so the
-//      book is all there is (ADR 0002); `obk up` opens a new tab and resumes
+//      book is all there is (ADR 0012); `obk up` opens a new tab and resumes
 //      the harness session, and the conversation is still there.
 //
 // And, on the same two sessions so that no extra harness is started, two more
@@ -855,7 +855,7 @@ test('a session whose tab was closed comes back with its conversation', async (t
     );
 
     // The user closes the tab. Orca's own resume record goes with it, which is
-    // the whole reason the kit keeps a book (ADR 0002).
+    // the whole reason the kit keeps a book (ADR 0012).
     orca(['terminal', 'close', '--terminal', opened.terminal, '--tab']);
     assert.deepEqual(
       await terminalsAfterClosing(home, [opened.terminal]),
@@ -905,7 +905,7 @@ const CHILDREN = [
     // outright: `codex exec` exits 1 at once with "failed to initialize in-process
     // app-server client: Operation not permitted" (measured live, #163). So on
     // `auto` there is no child and nothing for this case to prove. A throwaway
-    // bot that owns nothing can run outside the sandbox (ADR 0005).
+    // bot that owns nothing can run outside the sandbox (ADR 0015).
     approval: 'dangerously-skip',
   },
   {

@@ -2,7 +2,7 @@
 //
 // Both harnesses run the kit's hook (src/hooks.js) and hand it the session id
 // they are running under. That is how the book stays the authority for session
-// ids (ADR 0002) without the kit guessing from transcripts.
+// ids (ADR 0012) without the kit guessing from transcripts.
 //
 // Which session it is comes from the tab: Orca puts the tab id in the
 // environment of everything running in it, and the book says which session owns

@@ -8,7 +8,7 @@
 //
 // The review drove a real hook during a real `up` and watched `up`'s later write
 // erase the id the hook had just saved. A lost id is a lost conversation: the
-// book is the authority (ADR 0002), and what it does not hold, nothing holds.
+// book is the authority (ADR 0012), and what it does not hold, nothing holds.
 //
 // So every change is a read-modify-write while nobody else can write, and the
 // file is replaced in one go rather than filled in. What that has to mean from

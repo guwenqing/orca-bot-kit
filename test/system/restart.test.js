@@ -4,7 +4,7 @@
 //
 // This is the live check the restart slice exists for, and it is the one thing
 // a fake Orca can never prove. `obk restart` closes a real tab — the harness in
-// it is killed, and Orca's own resume record goes with the tab (ADR 0002) — and
+// it is killed, and Orca's own resume record goes with the tab (ADR 0012) — and
 // then opens a new one and hands the harness the session id the book held. Only
 // the harness itself can say whether that brought the conversation back. So the
 // session is given a passphrase that exists nowhere but in that conversation,

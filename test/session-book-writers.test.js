@@ -621,7 +621,7 @@ test('two writers of a bot with no book yet both keep their change, even with on
   // So one writer is stopped in that gap: it has read that there is no book and
   // is about to put its empty one in place. The other comes in then, records its
   // change and finishes. Then the first carries on. However the book comes to be
-  // made, both changes have to be in it at the end (ADR 0002).
+  // made, both changes have to be in it at the end (ADR 0012).
   const box = await createSandbox(t);
   const { bots, home } = await aBook(box);
   await rm(bookOf(bots));

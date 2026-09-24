@@ -1,5 +1,5 @@
 // `obk message send`: the one road the kit can carry, which is the Orca
-// mailbox (PRD 6.9, ADR 0008).
+// mailbox (PRD 6.9, ADR 0018).
 //
 // It carries what it can and answers the rest with an address. A native pair —
 // two Claude sessions in one approval class — can only be written to by a

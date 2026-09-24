@@ -5,7 +5,7 @@
 // reads files and only files. It does not ask Orca, it changes nothing, and it
 // judges nothing: whether a bot is the right bot, what its charter comes to in
 // two lines, and which of its limits is the hard one are the reader's to say
-// (ADR 0006). What is wrong with the setup is a different question, and
+// (ADR 0016). What is wrong with the setup is a different question, and
 // `obk health` is the command that answers it.
 //
 // So a list here is the list as the user wrote it, unchecked. A skill named in

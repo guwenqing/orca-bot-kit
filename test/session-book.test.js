@@ -1,5 +1,5 @@
 // What the book holds once a session has reported a harness session of its own
-// (ADR 0002). `sessions.yaml` in the bot home, as before — the bot's Orca
+// (ADR 0012). `sessions.yaml` in the bot home, as before — the bot's Orca
 // project and each session's tab id — with the session the harness is running
 // as beside the tab, and every id it ran as before that.
 //
@@ -103,7 +103,7 @@ test('a session whose tab came back keeps the id and the history it had', async 
 });
 
 test('a run that died after the tab existed leaves a session the book knows, with no id yet', async (t) => {
-  // The failure ADR 0002 is written against: a live tab nothing remembers. The
+  // The failure ADR 0012 is written against: a live tab nothing remembers. The
   // tab id is written the moment Orca gives it, and the id keys stay away until
   // a harness has actually reported one.
   const box = await createSandbox(t);

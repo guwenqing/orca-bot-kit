@@ -118,7 +118,7 @@ const windowReachesBack = (before, after) =>
  * can take out again.
  *
  * A Run is how a session is written to, and `obk up` makes one per session
- * (ADR 0008's amendment). Orca offers no `run-delete`, and the one reset it
+ * (ADR 0018). Orca offers no `run-delete`, and the one reset it
  * does offer would empty the whole machine's mailbox, which the kit never runs
  * and neither does this. So the tests cannot leave the list as they found it,
  * and the honest thing left is to say what appeared.

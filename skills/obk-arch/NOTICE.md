@@ -4,8 +4,10 @@
 
 # Sources and licences
 
-The skill `obk-arch` was consolidated for this kit from these, all MIT, with
-thanks:
+The skill `obk-arch` was consolidated for this kit from these, with thanks.
+The Cursor pstack and mattpocock/skills material is MIT; for the decision
+record sources, see the note on licences under "Keep a record of a decision"
+below.
 
 - **Cursor pstack**, `architect` with its `runner-prompt`, `design-red-flags`
   and `rationale-template` references. Writing the caller's usage and two or
@@ -114,12 +116,30 @@ thanks:
   the exception for a change that has to happen everywhere; and a prototype
   being throwaway code that answers a question, with the polish skipped on
   purpose.
+- **mattpocock/skills**, `triage` with its `AGENT-BRIEF`, and `to-tickets`
+  further to the above. Handing work over behavioural rather than procedural,
+  what the system should do and not how, the builder exploring fresh and
+  making their own decisions; durable rather than precise, naming types,
+  contracts and behaviours and never file paths or line numbers, because the
+  code moves while the work waits; acceptance criteria that can each be
+  checked on their own; saying what is out of scope so the builder does not
+  gold-plate; the one exception of a prototype's snippet that encodes a
+  decision more precisely than prose (from `to-tickets`); and, before handing
+  a report on, verifying the claim (reproducing it from the reporter's steps
+  and saying whether it was confirmed, failed or lacked detail, a confirmed one
+  making a much stronger brief), searching for it by the concept rather than
+  the reporter's wording to see whether it already exists, checking whether
+  it was turned down before, asking the reporter specific questions rather
+  than for more information, and noting when a piece needs a person's
+  judgement rather than being delegated.
 
 Left behind on purpose: the multi-model arena and its runners, fixed model
 choices, the phase todolist and its ceremony, tracker and pull-request
 machinery, the generated report formats, and the trigger that fires a design
-review on any change crossing a function boundary. This skill is reached for
-when there is a shape to get wrong, not on every change.
+review on any change crossing a function boundary; from `triage`, the labels,
+the state machine, the brief template, the out-of-scope folder, the grilling
+step and the AI disclaimer. This skill is reached for when there is a shape
+to get wrong, not on every change.
 
 What the owner said, and how it shaped this: he asked for a very light part on
 what is wanted and on dividing the work, leaving the details and the tracking
@@ -131,4 +151,92 @@ testable (2026-09-19 18:54, and 2026-09-20 02:21), which is why that part stays 
 that the source's strict vocabulary be dropped for plain words (18:50), so the
 list of defined terms is gone and the ideas stay. He did not want a
 blast-radius skill of its own (18:08), so what is kept of it is a short part.
-A small reshaping being part of the change follows PRD 7.3.
+A small reshaping being part of the change follows PRD 7.3. He asked that work
+be handed over by intention, without micro-management or baby steps, with
+only brief research: enough to validate an issue, above all one reported from
+outside, and to triage it (issue #263, 2026-09-24). That is the part on
+handing a piece over, and why its research stops there.
+
+## Keep a record of a decision
+
+Words were copied only from the two sources whose licences waive all rights:
+
+- **Michael Nygard, "Documenting Architecture Decisions"** (Cognitect blog,
+  2011-11-15; CC0 1.0, as stated on the page). The reader who can only
+  blindly accept or blindly change a decision whose reasons are lost; one
+  decision per record, the kinds of decision that earn one (structure,
+  non-functional characteristics, dependencies, interfaces, construction
+  techniques); context as the forces at play, technological, political, social
+  and project local, in tension and described value-neutrally; the decision in
+  full sentences and the active voice, "We will…"; all consequences, not just
+  the positive ones; bullets only for layout, never an excuse for fragments;
+  one or two pages, since nobody reads large documents; records numbered in
+  sequence with numbers never reused; and a superseded record kept, because it
+  is still worth knowing that it was the decision.
+- **MADR 4.0.0** (adr.github.io/madr; MIT or CC0-1.0 at the reader's choice,
+  taken here under CC0). The people who decided and the people consulted as
+  fields of the record, "rejected" among the statuses, consequences written as
+  good and bad, and a way to confirm the decision is kept (MADR's
+  Confirmation, here "Checked by").
+
+Taken as ideas only, in this skill's own words, because their licences do not
+allow the text to be reused (all rights reserved unless noted):
+
+- **Olaf Zimmermann**, ozimmer.ch: "How to create Architectural Decision
+  Records (ADRs) — and how not to", "How to review…", "A Definition of Done for
+  Architectural Decision Making" and "Ten Common Mistakes in Architectural
+  Decision Records". The ways a record goes wrong (only upsides, a straw-man
+  alternative, hidden costs, a sales tone, one option and one time frame, a
+  record carrying a whole architecture or a design, criteria reverse-engineered
+  from the preferred option, a decision section that repeats the title,
+  consequences only for the code); a record for each stage of a staged
+  decision; the confidence level; and the definition of done (evidence, at
+  least two options compared on criteria, challenged and agreed, written and
+  shared, a plan to check and revisit it).
+- **Martin Fowler**, bliki "Architecture Decision Record". Writing the record
+  as a way to bring disagreement into the open; most important first; the
+  confidence and what should trigger a re-evaluation; an accepted record never
+  reopened, only superseded.
+- **AWS Prescriptive Guidance**, "Using architectural decision records…". A
+  rejected record kept with its reason so the topic is not argued again; an
+  accepted record not changed, a change being a new record noted in the
+  record's change history.
+- **Microsoft Azure Well-Architected Framework**, "Maintain an architecture
+  decision record" (Microsoft Learn terms of use). Not editing accepted records
+  but superseding them and linking the two; a record not being a design guide,
+  standing on its own with detail linked; consequences never hidden.
+- **Joel Parker Henderson**, `architecture-decision-record` (CC BY-NC-SA 4.0,
+  which does not fit this use). Dating a fact that will change.
+- **adr-tools** (Nat Pryce; the tool is GPL-3.0, the content it adds to a
+  project CC BY 4.0). Superseding changes only the old record's status, to a
+  link to the new one.
+- **The GDS Way**, "Documenting architecture decisions", and **GOV.UK**,
+  "Architectural Decision Record Framework" (both Open Government Licence
+  v3.0), and **Google Cloud Architecture Center**, "Architecture decision
+  records overview" (CC BY 4.0). Their licences would allow reuse with
+  attribution, but no text of theirs is used. The ideas taken: a title that
+  names the decision rather than the problem, a superseded status with a link
+  to the new record, records kept findable (GDS Way); and a change carrying the
+  previous decision and why it changed (Google).
+
+What the owner said, and how it shaped this part (issue #264, 2026-09-24): a
+record that partly replaces an older one replaces it with a new one, and he
+wanted one good format; then, on the proposed format, "I need full history of
+change history and the context. For the decision made I also need alternative
+listed and why they are not." So a change to any part of an accepted record is
+a new record that replaces the old one whole and restates what still holds,
+the old record changing only its status; the context is given in full; every
+alternative is listed with why it was not chosen; and each record carries the
+dated history of every record it replaces. No source asks for what still holds
+to be restated; that is his rule. Most sources back superseding over amending
+in place; Joel Parker Henderson and Google prefer adjusting the record with
+the history kept, and the GDS Way allows clarifications in place until the
+decision is acted on, which is where the note on drafts and on spelling fixes
+comes from. The format is the default, and a project's own format wins, since
+PRD 7.1 leaves the user free in how they keep documents. Left behind: review
+boards, decision levels and approval steps (the GOV.UK framework, AWS's review
+meetings), which are process; ADR tooling; and the Y-statement and other
+templates.
+
+The three conditions for a lasting record, from mattpocock/skills above, moved
+here from "Write down what you chose" so they are kept in one place.

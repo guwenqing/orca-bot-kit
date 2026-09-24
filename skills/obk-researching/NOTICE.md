@@ -119,7 +119,7 @@ anything out from whatever sources exist, keeps the confidence labels and the
 null-result discipline in the skill itself, and leaves how the work is divided
 up to whoever is doing it.
 
-Where this overlaps `obk-why`, that is deliberate and allowed by ADR 0009: a
+Where this overlaps `obk-why`, that is deliberate and allowed by ADR 0019: a
 skill carries what it needs rather than depending on another being loaded.
 `obk-why` anchors in code and its history; this one is about sources, coverage
 and how far a claim can be trusted.

@@ -266,8 +266,8 @@ function inOrca(home, bot, setups) {
 /**
  * The conversations a harness has on record in this bot's folder that the book
  * does not name anywhere. The hook is how an id reaches the book, and when it
- * fails it fails quietly (ADR 0010), so this is where a stale book shows: the
- * harness's own record set beside it (ADR 0002).
+ * fails it fails quietly (ADR 0020), so this is where a stale book shows: the
+ * harness's own record set beside it (ADR 0012).
  */
 function offTheBook(home, bot, book) {
   const named = new Set();

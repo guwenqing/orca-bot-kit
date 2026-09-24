@@ -1,5 +1,5 @@
 // A bot given a skill from an online source: `<source>:<skill>` in a `skills:`
-// list, beside the three kinds #35 already has (PRD 6.7, ADR 0004).
+// list, beside the three kinds #35 already has (PRD 6.7, ADR 0014).
 //
 // The entry points into the clone beside the bots folder —
 // `<bots>.skill-sources/<source>/<path>/<skill>` — and what the bot gets is a
@@ -179,7 +179,7 @@ test('the bots repo holds no copy of the source, before or after a bot is given 
 });
 
 test('a source moved by update is what the sessions read, with no build in between', async (t) => {
-  // Linked, never copied (ADR 0004): the link points at the clone, so moving
+  // Linked, never copied (ADR 0014): the link points at the clone, so moving
   // the clone is the whole of moving the bot to a newer version.
   const box = await createSandbox(t);
   const bots = await seeded(box);

@@ -12,7 +12,7 @@ import { botDir, botNames, displayName, readBot } from './bot.js';
 import { conversationsIn } from './conversations.js';
 import { installHook } from './hooks.js';
 import { addressOf, harnessOf, isShortPrompt, launchCommand, reachesMail, sessionTrouble, startPrompt, workDirOf } from './launch.js';
-import { asFolderProject, findProject, harnessInTab, makeMailbox, makeProject, openTab, retitleTab, tabs, typeIntoTab, useMailbox } from './orca.js';
+import { asFolderProject, findProject, harnessInTab, makeMailbox, makeProject, openTab, retitleTab, tabs, tellWindow, typeIntoTab, useMailbox } from './orca.js';
 import { buildAgents } from './rules.js';
 import { linkSkills } from './skills.js';
 
@@ -35,6 +35,7 @@ const SECOND_LOOK_MS = 2000;
  * Bring bots up in Orca. Returns `{ tabs, rules }`: one tab entry per tab it
  * looked at — the sessions the book knows, and, for Bot Father, whatever else
  * is open in its project — and one rules entry and one skills entry per bot.
+ * `projects` has one entry per Orca project this run made or renamed.
  *
  * With no name it is every bot in the folder, in name order. `bot` brings up
  * one bot and `session` one of its sessions, for a caller that wants one thing
@@ -58,11 +59,14 @@ export async function bringUp(bots, { bot: onlyBot, session: onlySession } = {})
   const { running, rules, skills } = prepareBots(bots, names, onlySession);
 
   const report = [];
+  const projects = [];
   for (const { bot, home } of running) {
     for (const session of sessionsOf(bot, onlySession)) {
       if (session.paused === true) paused.push({ bot: bot.name, session: session.name });
     }
-    report.push(...await bringUpBot(bots, home, bot, onlySession));
+    const up = await bringUpBot(bots, home, bot, onlySession);
+    report.push(...up.tabs);
+    if (up.project !== undefined) projects.push(up.project);
   }
 
   // A bot whose rules would not build is reported here rather than in the
@@ -78,6 +82,7 @@ export async function bringUp(bots, { bot: onlyBot, session: onlySession } = {})
     })),
     skills,
     paused,
+    projects,
   };
 }
 
@@ -87,7 +92,7 @@ export async function bringUp(bots, { bot: onlyBot, session: onlySession } = {})
  *
  * Separate from the tabs because the order matters twice over. A session reads
  * its rules, its skills and its hooks as it comes up, so all three have to be
- * there before the tab is (PRD 6.6, ADR 0010) — and a restart closes a tab in
+ * there before the tab is (PRD 6.6, ADR 0020) — and a restart closes a tab in
  * between, so everything that can refuse must have refused before that. It
  * refuses by throwing, exactly as `up` always has; a bot it leaves out of
  * `running` is one whose sessions must not be started.
@@ -133,7 +138,7 @@ export function prepareBots(bots, names, onlySession) {
 
   // And the kit's hook goes into every bot folder before Orca is asked for
   // anything, for the same reason: a harness reads its hooks when it comes up,
-  // so one written later would miss the session it was written for (ADR 0010),
+  // so one written later would miss the session it was written for (ADR 0020),
   // and a bot folder the kit cannot write it into stops the run with nothing
   // opened anywhere. Only the harnesses a bot actually runs on; a bot with no
   // sessions gets none.
@@ -197,8 +202,11 @@ async function bringUpBot(bots, home, bot, onlySession) {
   // Orca is asked first and the book is written after: nothing that takes time
   // happens while the book is held, because a session's own hook may be writing
   // its id into that same file at any moment.
-  const orca = orcaProject(home, title);
+  const { change, ...orca } = orcaProject(home, title);
   await updateBook(home, (book) => { book.orca = orca; });
+  // Orca's window does not see a project made or renamed on the command line
+  // until it is told (#224).
+  if (change !== undefined) tellWindow(orca.project);
 
   const live = new Map(tabs(home).map((tab) => [tab.tabId, tab]));
   const report = [];
@@ -217,7 +225,7 @@ async function bringUpBot(bots, home, bot, onlySession) {
       : spare.map((tab) => entry(tab, { bot: name, name: null, created: false }))));
   }
 
-  return report;
+  return { tabs: report, project: change === undefined ? undefined : { bot: name, project: orca.project, change } };
 }
 
 async function bringUpSession(bots, home, live, session, bot, title) {
@@ -428,7 +436,7 @@ function mailboxFor(book, bot, session, harness, handle) {
  * the one the book holds, one the harness itself still has on record, or none.
  *
  * One tab holds one session, and the book is the authority for which
- * conversation that is (ADR 0002). But the book can be incomplete — on Codex a
+ * conversation that is (ADR 0012). But the book can be incomplete — on Codex a
  * hooks file must be trusted before any hook runs, and trusting it does not
  * replay the event it missed — and "the book does not say" must never be read as
  * "there was no conversation". So where the book is silent about a tab the kit
@@ -455,7 +463,8 @@ function whichConversation(book, home, bot, session, was, harness) {
 }
 
 /**
- * A bot's Orca project, made if it is not there yet.
+ * A bot's Orca project, made if it is not there yet, with `change` saying
+ * whether this run `made` it, `renamed` it or left it as it was (undefined).
  *
  * It has to be a folder workspace. Registering a folder that sits inside the
  * bots repo gets it recorded as a git one, which Orca gives no workspace at
@@ -463,11 +472,11 @@ function whichConversation(book, home, bot, session, was, harness) {
  */
 function orcaProject(home, title) {
   const found = findProject(home);
-  const setup = found === undefined
-    ? makeProject(home, title)
-    : (found.kind === 'folder' ? found : asFolderProject(found.id, title));
-  return { project: setup.projectId, setup: setup.id };
+  if (found === undefined) return ids(makeProject(home, title), 'made');
+  return found.kind === 'folder' ? ids(found) : ids(asFolderProject(found.id, title), 'renamed');
 }
+
+const ids = (setup, change) => ({ project: setup.projectId, setup: setup.id, change });
 
 /**
  * Where the kit leaves a prompt for the launch line to pick up: a folder of its

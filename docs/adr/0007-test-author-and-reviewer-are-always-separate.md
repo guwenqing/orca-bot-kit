@@ -1,6 +1,6 @@
 # ADR 0007: The test author and the reviewer are always separate from the implementer
 
-Date: 2026-09-19. Status: the Decision is the owner's unless a sentence is marked (proposed).
+Date: 2026-09-19. Status: superseded by [ADR 0017](0017-test-author-and-reviewer-are-always-separate.md). Until then, the Decision was the owner's unless a sentence is marked (proposed).
 
 ## Context
 

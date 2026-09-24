@@ -3,7 +3,7 @@
 //
 // This is PRD 6.9's rule that the bot never picks the transport, made into a
 // command: a bot asks, and is told. Two things decide it and nothing else
-// (ADR 0008):
+// (ADR 0018):
 //
 //   native   both ends are Claude sessions in the same approval class. Claude
 //            Code has two classes, bypassing (`--dangerously-skip-permissions`)

@@ -18,7 +18,7 @@ import { checkHealth, orcaSettingFindings } from './health.js';
 import { initBots } from './init.js';
 import { APPROVALS, HARNESSES, ownCli, shellWord, workDirOf } from './launch.js';
 import { checkMail, lookUp, sendMessage } from './message.js';
-import { orcaCli, orcaTrouble } from './orca.js';
+import { orcaCli, orcaTrouble, RELOAD_LINE } from './orca.js';
 import { pauseSessions, unpauseSessions } from './pause.js';
 import { recordSession, SHELL_ENV, TAB_ENV } from './record.js';
 import { restartSessions } from './restart.js';
@@ -391,7 +391,7 @@ const SETUP = fileURLToPath(new URL('../SETUP.md', import.meta.url));
  * Who answers a tab left on a screen: the caller, not the user (PRD 6.5). The
  * kit names where the answers are rather than carrying them, because which
  * keys answer which screen is judgment that changes with every harness
- * release, and that belongs in the skill (ADR 0006).
+ * release, and that belongs in the skill (ADR 0016).
  */
 const ANSWER_IT = [
   `             Answer what is on screen yourself, without asking the user: section 5 of ${SETUP}`,
@@ -408,7 +408,7 @@ const RECORD = 'session record';
  * A hook runs inside the user's own session, so this one stays out of the way:
  * it writes on standard output only what the harness is to read as JSON, and
  * whatever goes wrong, it goes wrong quietly. A book left stale is a thing the
- * health check finds later; a session disturbed is the user's work (ADR 0010).
+ * health check finds later; a session disturbed is the user's work (ADR 0020).
  */
 async function record(bots, bot) {
   try {
@@ -428,19 +428,19 @@ const commands = {
     const seeded = initBots(bots, values.harness);
     // The typed path was for making the folder and naming it in a refusal; from
     // here on it is the fleet, and the fleet is its real path (#164).
-    const { tabs, rules, skills, paused } = await bringUp(sameFleet(seeded.bots), { bot: BOT_FATHER });
+    const { tabs, rules, skills, paused, projects } = await bringUp(sameFleet(seeded.bots), { bot: BOT_FATHER });
     // Setup is the other place the PRD asks for Orca's own launch arguments to
     // be looked at (6.5), and the one where the user is still standing in front
     // of the fleet they are making. Only that one check: a folder init has just
     // made has nothing else to say about itself.
-    const answer = { bots: seeded.bots, created: seeded.created, completed: seeded.completed, rules, skills, tabs, paused, found: orcaSettingFindings() };
+    const answer = { bots: seeded.bots, created: seeded.created, completed: seeded.completed, rules, skills, tabs, paused, projects, found: orcaSettingFindings() };
     return { answer, lines: tabLines(answer, `Bot Father is up in Orca. Your bots folder: ${seeded.bots}`) };
   },
 
   async up(bots, values) {
     refuseWhenOrcaIsDown();
-    const { tabs, rules, skills, paused } = await bringUp(bots, { bot: values.bot, session: values.session });
-    const answer = { bots, created: [], completed: [], rules, skills, tabs, paused };
+    const { tabs, rules, skills, paused, projects } = await bringUp(bots, { bot: values.bot, session: values.session });
+    const answer = { bots, created: [], completed: [], rules, skills, tabs, paused, projects };
     const up = [...new Set(tabs.map((tab) => tab.bot))];
     const summary = up.length === 0
       ? `Nothing was brought up in Orca. Your bots folder: ${bots}`
@@ -467,8 +467,8 @@ const commands = {
 
   async restart(bots, values) {
     refuseWhenOrcaIsDown();
-    const { closed, tabs, rules, skills, paused } = await restartSessions(bots, { bot: values.bot, session: values.session });
-    const answer = { bots, created: [], completed: [], rules, skills, tabs, paused, closed };
+    const { closed, tabs, rules, skills, paused, projects } = await restartSessions(bots, { bot: values.bot, session: values.session });
+    const answer = { bots, created: [], completed: [], rules, skills, tabs, paused, projects, closed };
     const what = values.session === undefined ? values.bot : `${values.bot} ${values.session}`;
     return {
       answer,
@@ -525,7 +525,9 @@ const commands = {
       answer: { bots, ...retired },
       lines: [
         ...closedLines(retired.closed),
-        ...(retired.project === undefined ? [] : [`removed    Orca project ${retired.project}`]),
+        // After every removal, whatever the window was told: Orca's window can
+        // keep a removed project's row even after it re-reads (stablyai/orca#20102).
+        ...(retired.project === undefined ? [] : [`removed    Orca project ${retired.project}`, RELOAD_LINE]),
         `retired    ${retired.bot}: moved to ${path.relative(bots, retired.moved)}, with its book, charter and memory`,
       ],
     };
@@ -1113,7 +1115,7 @@ function toldLine(bot, { session, harness, state, read, blocked, trouble }) {
 const foundLines = (found) =>
   found.flatMap((one) => [`${one.kind.padEnd(9)}  ${one.where}`, `             ${one.says}`]);
 
-function tabLines({ bots, created, completed, rules, skills, tabs, paused = [], found = [] }, summary) {
+function tabLines({ bots, created, completed, rules, skills, tabs, paused = [], projects = [], found = [] }, summary) {
   const lines = [
     ...created.map((entry) => `created    ${entry}`),
     ...completed.map((entry) => `completed  ${entry}`),
@@ -1133,7 +1135,10 @@ function tabLines({ bots, created, completed, rules, skills, tabs, paused = [], 
 
   // Last before the summary, because what a check found is about the setup the
   // run has just left behind rather than about any one thing it did.
-  lines.push(...foundLines(found), summary);
+  lines.push(...foundLines(found));
+  // Hedged, because nothing here can see whether the window was told (#224).
+  if (projects.length > 0) lines.push(RELOAD_LINE);
+  lines.push(summary);
   return lines;
 }
 
