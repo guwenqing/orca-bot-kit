@@ -21,7 +21,7 @@ import path from 'node:path';
 
 import { readBook, tabIdsIn, updateBook } from './book.js';
 import { botDir, dropSession, readBot } from './bot.js';
-import { deleteProject, findProject, tabs, tellWindow } from './orca.js';
+import { deleteProject, findProject, projects, tabs, tellWindow } from './orca.js';
 import { fleetMember } from './pause.js';
 import { closeTabs, tabsToClose } from './restart.js';
 import { unlinkSkills } from './skills.js';
@@ -55,6 +55,8 @@ export async function retireSession(bots, { bot, session }) {
 /**
  * Retire the bot `bot`. Returns `{ bot, closed, project, moved }`: the tabs it
  * closed, the Orca project it took away (if it had one) and where the bot is now.
+ * When Orca does not confirm the project gone, it returns `{ bot, closed,
+ * project, trouble }` instead, and the bot is left where it was.
  */
 export async function retireBot(bots, { bot }) {
   const home = fleetMember(bots, bot, 'retire');
@@ -81,7 +83,21 @@ export async function retireBot(bots, { bot }) {
   const closed = await closeTabs(home, tabsToClose(bots, bot, home, booked, { keepless: true }), bots, bot);
   if (project !== undefined) {
     deleteProject(project.id);
-    tellWindowOfRemoval(bots);
+    // Orca's answer to the delete is not the same as the project being gone
+    // (#282): its list afterwards is. Until that list is read and no longer
+    // has the project, the bot stays where it is, so that retiring it again
+    // takes the project away and then finishes. The list is read once, for
+    // this and for the window both.
+    let setups;
+    try {
+      setups = projects();
+    } catch (error) {
+      return { bot, closed, project: project.id, trouble: `Orca answered the delete of Orca project ${project.id}, and its project list could not be read afterwards, so the removal is not confirmed: ${error.message}. ${bot} was not moved. Once Orca is answering, retire ${bot} again with obk retire: it removes the project if it is still there, then finishes.` };
+    }
+    if (setups.some((setup) => setup.id === project.id || setup.path === home)) {
+      return { bot, closed, project: project.id, trouble: `Orca answered the delete of Orca project ${project.id}, and still lists it. ${bot} was not moved. Retire ${bot} again with obk retire; if Orca still lists the project after that, remove it in Orca yourself, then retire ${bot} again.` };
+    }
+    tellWindowOfRemoval(bots, setups);
   }
 
   for (const name of new Set([...known.sessions, ...booked].map((session) => session.name))) {
@@ -97,13 +113,13 @@ export async function retireBot(bots, { bot }) {
 /**
  * Tell Orca's window a project went (#224). The call names a project that is
  * still there, and Bot Father's is the one that always is; when Orca has none
- * for it, there is nothing to call on. Finding it is part of the workaround,
- * so it fails as quietly as the call: the project is gone either way.
+ * for it in `setups`, Orca's list after the delete, there is nothing to call
+ * on. Finding it is part of the workaround, so it fails as quietly as the call.
  */
-function tellWindowOfRemoval(bots) {
+function tellWindowOfRemoval(bots, setups) {
   try {
     const home = botDir(bots, BOT_FATHER);
-    const father = existsSync(home) ? findProject(realpathSync(home)) : undefined;
+    const father = existsSync(home) ? setups.find((setup) => setup.path === realpathSync(home)) : undefined;
     if (father !== undefined) tellWindow(father.projectId);
   } catch {
     // Nothing: see above.
