@@ -38,7 +38,7 @@ PRD 6.5 decides the part neither source covers: clearing a session triggers no
 handoff. This skill runs when it is asked for. Both originals hold themselves
 to that too, mattpocock's with `disable-model-invocation: true` in its
 frontmatter and pstack's in the playbook's own first line, "this is explicit
-only". That frontmatter is not portable (ADR 0009), so here the description
+only". That frontmatter is not portable (ADR 0019), so here the description
 carries it: the phrases that ask for it, and the two things that do not
 trigger it.
 

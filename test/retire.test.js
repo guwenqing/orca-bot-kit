@@ -5,7 +5,7 @@
 // kit's own start-prompt file for it is deleted. What the book knew about it —
 // the conversations it had — is kept in `sessions.yaml` under `retired:`, off
 // the live list, because those ids are the only way back to that history
-// (ADR 0002). Off the live list means off it everywhere: roster, health and
+// (ADR 0012). Off the live list means off it everywhere: roster, health and
 // usage no longer see a session there, and a new session given the same name
 // later is a new conversation, not the old one resumed.
 //

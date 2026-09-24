@@ -1,5 +1,5 @@
 // What the kit links into a bot home is the kit's to make on each machine, and
-// not the bots repo's to carry (PRD 6.3, PRD 6.7, ADR 0004).
+// not the bots repo's to carry (PRD 6.3, PRD 6.7, ADR 0014).
 //
 // The bots folder is the user's own git repo, and they may clone it or check it
 // out fresh. The skill links the kit makes inside a bot — `.claude/skills/<name>`

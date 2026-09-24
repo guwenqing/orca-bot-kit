@@ -1,6 +1,6 @@
 // `obk skills fetch --bots <path> [--source <name>]` and `obk skills update`:
 // the online sources in `<bots>/skills.yaml`, cloned into the sibling
-// `<bots>.skill-sources/` at the version the user pinned (PRD 6.7, ADR 0004).
+// `<bots>.skill-sources/` at the version the user pinned (PRD 6.7, ADR 0014).
 //
 // The whole of "moving to a newer version happens only when the user asks" is
 // the difference between the two commands, so that is what is pinned hardest:

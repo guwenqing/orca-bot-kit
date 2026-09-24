@@ -14,7 +14,7 @@
 //
 // Closing a tab here ends the conversation in it on purpose, so unlike a
 // restart or a pause it does not wait for the book to know which one it was.
-// The mailbox Runs stay: Orca has no way to remove one (ADR 0008).
+// The mailbox Runs stay: Orca has no way to remove one (ADR 0018).
 
 import { existsSync, mkdirSync, renameSync, rmSync } from 'node:fs';
 import path from 'node:path';

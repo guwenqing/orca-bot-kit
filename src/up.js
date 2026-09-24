@@ -87,7 +87,7 @@ export async function bringUp(bots, { bot: onlyBot, session: onlySession } = {})
  *
  * Separate from the tabs because the order matters twice over. A session reads
  * its rules, its skills and its hooks as it comes up, so all three have to be
- * there before the tab is (PRD 6.6, ADR 0010) — and a restart closes a tab in
+ * there before the tab is (PRD 6.6, ADR 0020) — and a restart closes a tab in
  * between, so everything that can refuse must have refused before that. It
  * refuses by throwing, exactly as `up` always has; a bot it leaves out of
  * `running` is one whose sessions must not be started.
@@ -133,7 +133,7 @@ export function prepareBots(bots, names, onlySession) {
 
   // And the kit's hook goes into every bot folder before Orca is asked for
   // anything, for the same reason: a harness reads its hooks when it comes up,
-  // so one written later would miss the session it was written for (ADR 0010),
+  // so one written later would miss the session it was written for (ADR 0020),
   // and a bot folder the kit cannot write it into stops the run with nothing
   // opened anywhere. Only the harnesses a bot actually runs on; a bot with no
   // sessions gets none.
@@ -428,7 +428,7 @@ function mailboxFor(book, bot, session, harness, handle) {
  * the one the book holds, one the harness itself still has on record, or none.
  *
  * One tab holds one session, and the book is the authority for which
- * conversation that is (ADR 0002). But the book can be incomplete — on Codex a
+ * conversation that is (ADR 0012). But the book can be incomplete — on Codex a
  * hooks file must be trusted before any hook runs, and trusting it does not
  * replay the event it missed — and "the book does not say" must never be read as
  * "there was no conversation". So where the book is silent about a tab the kit

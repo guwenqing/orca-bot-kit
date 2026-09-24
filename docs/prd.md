@@ -87,7 +87,7 @@ Each line is a check a developer can run. Issues turn these into acceptance test
 
 ### 6.2 Host
 
-- Orca. A bot is an Orca project; a session is a tab. Naming, ordering, phone and remote access are Orca's. [decided] → ADR 0001
+- Orca. A bot is an Orca project; a session is a tab. Naming, ordering, phone and remote access are Orca's. [decided] → ADR 0011
 - A bot's Orca project is a folder workspace; many tabs share it. Proven live: a git-kind registration of a folder inside the bots repo gets no worktree and cannot host tabs. So a bot's project shows no git status in Orca. [decided by the coordinator on evidence]
 - Everything is in the book except one special tab. A session's Orca tab id and the bot's Orca project id live in the book with the session. The only exception is Bot Father's ops tab for whole-fleet maintenance. The kit does not track it at all: no id, no title matching, no session id, no history, not seen by grooming. The kit only makes sure it exists: if Bot Father's Orca project has no tab besides the ones in the book, `obk up` creates one (and sets its title). Nothing more. [decided]
 - The kit always tries to set a tab's title to the name in the book, and never reads or relies on what a tab is currently called; the tab id is the key. [decided] (Observed: titles can change even with Orca's dynamic title option off, because the program in the tab writes its own title.)
@@ -97,7 +97,7 @@ Each line is a check a developer can run. Issues turn these into acceptance test
 ### 6.3 Workspace
 
 - All bots live in one folder, and that folder is one git repo for all bots. It is local; the user may push it. [decided]
-- The kit does not copy its code or skills into it unless the user wants that; kit skills are links to the installed package. [decided] → ADR 0004
+- The kit does not copy its code or skills into it unless the user wants that; kit skills are links to the installed package. [decided] → ADR 0014
 - Inside that repo: what every bot gets by default, the user's own rules and common skills, the list of online skill sources, and one folder per bot holding its charter and settings, its book of sessions, its `AGENTS.md`, its skills, its shared notes and its work area. Clones of online skill sources sit beside the bots repo, never inside it. File and folder names are the builder's choice. [decided in substance]
 - `work/` is gitignored. [decided — blanket]
 - ~~Per-bot `memory/`: plain notes all sessions of the bot can read and write.~~ Removed by the owner on 2026-09-23 (#171): never built, and the profile notes, the grooming findings and the book cover what it was for. It comes back only if someone misses it.
@@ -112,7 +112,7 @@ Each line is a check a developer can run. Issues turn these into acceptance test
   Changed by the owner on 2026-09-24 (#241): it honours both that repo's rules and its own. Where they conflict it does not pick one: it raises the conflict with the user or whoever gave the work, names both texts, and holds the conflicting part until it is settled. Fleet review looks for such conflicts; nothing settles them automatically, and neither side's rules are changed without their owner. [decided]
 - Each session sets: harness, model, effort, context window, approval level, start prompt. [decided]
 - The kit never hardcodes a model id; empty means the harness default. Init asks once for the harness. [decided]
-- Approval levels: `auto` (default; the harness's real auto mode), `ask`, `dangerously-skip` (only when the user asks for it in plain words). [decided] → ADR 0005
+- Approval levels: `auto` (default; the harness's real auto mode), `ask`, `dangerously-skip` (only when the user asks for it in plain words). [decided] → ADR 0015
 - Each approval level maps to the harness's own flags; the mapping is a fact kept in `tech-notes.md` and re-checked when a harness updates. A session can carry extra launch arguments the kit does not know about. [decided in substance]
 - A start prompt goes to the harness from a file, unless it is very short and simple, in which case it can go as plain text. Either way it arrives as written, apart from two things the kit does on purpose: leading and trailing blank space is trimmed, and when a session has a work dir the kit appends its one-sentence note about it. [decided; the two exceptions settled by the owner on 2026-09-23, #168]
 - Start prompt: sent once when the tab is created; not re-sent on resume; **re-sent automatically after `/clear`**. It is the only thing that tells one session's duty from another's when they start in different tabs. [decided]
@@ -120,8 +120,8 @@ Each line is a check a developer can run. Issues turn these into acceptance test
 
 ### 6.5 Session identity
 
-- The kit's book is the authority for session ids. Orca loses its resume record when a tab is closed. [decided] → ADR 0002
-- The kit learns a session's new id whenever the session starts, resumes or is cleared, and keeps the old one in that session's history. Whatever it installs for this lives in the bot's own folder, never in user-level settings. [decided] → ADR 0010
+- The kit's book is the authority for session ids. Orca loses its resume record when a tab is closed. [decided] → ADR 0012
+- The kit learns a session's new id whenever the session starts, resumes or is cleared, and keeps the old one in that session's history. Whatever it installs for this lives in the bot's own folder, never in user-level settings. [decided] → ADR 0020
 - `/clear` and compact are supported. `/clear` always makes the harness generate a new session id (certain for Claude Code, likely the same for Codex). The old ids are kept, for history, auditing, finops or whatever needs them. `/clear` means the user wants a clean start; no handoff happens automatically. [decided]
 - Session ids are remembered across a restart, whether from a computer restart or one asked for by Bot Father. [decided]
 - When skills change, Bot Father's management skill knows how to reload them without a restart. [decided]
@@ -135,7 +135,7 @@ Each line is a check a developer can run. Issues turn these into acceptance test
 ### 6.6 Rules and `AGENTS.md`
 
 - Each bot has one `AGENTS.md`, shared by all its sessions. It is per bot — the bot's identity — not a universal file. [decided]
-- It is built from the bot's charter plus rule units: the kit's common rules, the user's rules, and the bot's own choices, with defaults that every bot gets. What the user wrote by hand is kept, and a conflict with the build is shown, never silently overwritten. [decided] → ADR 0003
+- It is built from the bot's charter plus rule units: the kit's common rules, the user's rules, and the bot's own choices, with defaults that every bot gets. What the user wrote by hand is kept, and a conflict with the build is shown, never silently overwritten. [decided] → ADR 0013
 - `CLAUDE.md` in the bot folder is a symlink to `AGENTS.md`. [decided]
 - The kit imports the good rules from the owner's global rules file and carries them itself. It does not rely on any user-level rules file, and it does not depend on the owner's `agent-infra` repo, which goes away in the long run. The owner intends to remove his own user-level rules; to him only repo-level and bot-level rules make sense now. [decided]
 - A short set of always-on rules lives in `AGENTS.md`; the depth lives in skills. No separate principles skill. [decided]
@@ -148,7 +148,7 @@ Each line is a check a developer can run. Issues turn these into acceptance test
 - `skills.yaml` lists online sources: repo, subfolder, ref (branch, tag or sha). The kit clones them into the sibling `<bots>.skill-sources/` folder, records the resolved sha, and links what a bot uses. [decided]
 - A bot can use skills from the kit, from the user's common folder, from an online source, or from any path; they are linked into both harnesses. Anything the user placed by hand is left alone and shown as not managed by the kit. Skills are per bot. [decided]
 - A one-line warning when a source has scripts or hooks; no scanning, no gate — the user takes the risk. [decided]
-- Kit skill names carry the prefix `obk-`; folder name = skill name. [decided] → ADR 0009
+- Kit skill names carry the prefix `obk-`; folder name = skill name. [decided] → ADR 0019
 - Bot Father recommends and provides the right skills for each role the user creates. [decided]
 
 ### 6.8 Bot Father
@@ -172,7 +172,7 @@ Each line is a check a developer can run. Issues turn these into acceptance test
 
 ### 6.9 Messaging
 
-- Sessions and bots can talk. Same harness: native messaging when it works; across harnesses: Orca. [decided] → ADR 0008
+- Sessions and bots can talk. Same harness: native messaging when it works; across harnesses: Orca. [decided] → ADR 0018
 - Research result: Claude-to-Claude native messaging is documented and addressable by session name; Codex-to-Codex (`codex queue`) is not trustworthy yet. So: Claude↔Claude native; everything else through the Orca mailbox; retest Codex during the build. [decided rule, researched outcome]
 - A message through Orca goes as plain text up to a size limit; above the limit it must go as a file that the message refers to. One simple rule, no judgement needed. [decided]
 - Default behaviour is "good enough": queued, not interrupting; no waiting for an ack; a reply only when asked for; interrupt supported but used with caution; no over-broadcasting. [decided]
@@ -195,7 +195,7 @@ Each line is a check a developer can run. Issues turn these into acceptance test
 - The shelf is for all bots, not only developers. After the development techniques come three light ones for other roles: researching (sources, how each claim is supported, fact apart from inference), writing (audience, platform, tone, key facts checked), and a decision memo (conclusion, evidence, alternatives, risks, counter-examples, uncertainty). Same standard: techniques only, deeply written. [decided]
 - Plain, neutral tone; no personal colour and no "only I know" voice. [decided]
 - The user is free in how they handle PRDs, trackers and work tracking. Skills neither require nor prescribe one. [decided]
-- What the kit owns must be maintainable in principle. An existing tool the kit relies on must be standard and famous. [decided] → ADR 0006
+- What the kit owns must be maintainable in principle. An existing tool the kit relies on must be standard and famous. [decided] → ADR 0016
 - Sources: mattpocock/skills (mostly aligned; tracker, PRD and workflow parts left out), Cursor pstack (cherry-pick; mode, personas, multi-model machinery, PR automation and the principle set left out), superpowers (cherry-pick concrete checks only), Kent Beck (take what is good), Karpathy-style rules, citypaul's mutation skill, Cloudflare's security-audit skill (ideas for review; recommended as an upstream source, not bundled), Claude Code's built-in review skills (ideas for review). [decided: mattpocock mostly aligned, pstack cherry-pick, Kent Beck take what is good. proposed: the superpowers, Karpathy-style, citypaul and Cloudflare uses, and every pick list]
 
 ### 7.2 Skills
@@ -216,7 +216,7 @@ Each line is a check a developer can run. Issues turn these into acceptance test
 TDD and tests:
 
 - Test first, one vertical slice at a time. Red/green is for new behaviour. [decided]
-- The test author is always separate from the implementer. A subagent counts; or another session, by the user's flavour. [decided] → ADR 0007
+- The test author is always separate from the implementer. A subagent counts; or another session, by the user's flavour. [decided] → ADR 0017
 - The author gets the requirement and the public interfaces, not the implementer's code plan, and follows the test-writing part of the skill. [decided]
 - The implementer cannot change a test to make it pass. [decided] A test that looks wrong is reported to the author. [decided: AGENTS.md, the owner's decisions on how code is made, #108]
 - The author's tests are checked by the mutation check below, so silly tests are caught. [decided]
@@ -232,7 +232,7 @@ TDD and tests:
 
 Review:
 
-- The reviewer is always separate (a subagent counts) and never modifies code; it only comments. The implementer makes the change, and the change is verified again. [decided] → ADR 0007
+- The reviewer is always separate (a subagent counts) and never modifies code; it only comments. The implementer makes the change, and the change is verified again. [decided] → ADR 0017
 
 Architecture:
 

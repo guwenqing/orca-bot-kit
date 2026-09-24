@@ -90,7 +90,7 @@ export async function putFile(dir, rel, text = 'echo "ran"\n') {
   return at;
 }
 
-/** Where the kit clones sources: the sibling of the bots folder, never inside it (ADR 0004). */
+/** Where the kit clones sources: the sibling of the bots folder, never inside it (ADR 0014). */
 export const sourcesDirOf = (bots) => `${bots}.skill-sources`;
 
 /** Where one source's clone goes. */
@@ -179,7 +179,7 @@ export function assertReported(stdout, name, { state, ref, sha }) {
 
 /**
  * Nothing under the bots folder holds the source's content: the repo holds no
- * copy (ADR 0004, and the acceptance for this slice).
+ * copy (ADR 0014, and the acceptance for this slice).
  *
  * Only real files are read. A symlink into the clone is exactly what a bot is
  * given, so following one would read the source through the link the kit is

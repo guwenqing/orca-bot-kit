@@ -1,4 +1,4 @@
-// Every call the kit makes to Orca goes through here (ADR 0001). Orca's CLI
+// Every call the kit makes to Orca goes through here (ADR 0011). Orca's CLI
 // changes often, so the kit reads `--json` and never the human text, and keeps
 // the parsing in one place.
 //
@@ -235,7 +235,7 @@ const psCli = () => process.env.OBK_PS || '/bin/ps';
  * group in front, or `{ unreadable: <why> }`.
  *
  * Orca gives the pane's pid in `diagnostics memory` and nowhere else, and `ps`
- * gives that pid's terminal's foreground process group (ADR 0001, amendment).
+ * gives that pid's terminal's foreground process group (ADR 0011).
  * On macOS the pane is `login` with the shell as its child, so the shell is in
  * front when the group is the pane's own or that of a child of a `login` pane.
  * `diagnostics memory` is a diagnostics command and may change, so everything

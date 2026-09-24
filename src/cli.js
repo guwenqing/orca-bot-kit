@@ -388,7 +388,7 @@ const SETUP = fileURLToPath(new URL('../SETUP.md', import.meta.url));
  * Who answers a tab left on a screen: the caller, not the user (PRD 6.5). The
  * kit names where the answers are rather than carrying them, because which
  * keys answer which screen is judgment that changes with every harness
- * release, and that belongs in the skill (ADR 0006).
+ * release, and that belongs in the skill (ADR 0016).
  */
 const ANSWER_IT = [
   `             Answer what is on screen yourself, without asking the user: section 5 of ${SETUP}`,
@@ -405,7 +405,7 @@ const RECORD = 'session record';
  * A hook runs inside the user's own session, so this one stays out of the way:
  * it writes on standard output only what the harness is to read as JSON, and
  * whatever goes wrong, it goes wrong quietly. A book left stale is a thing the
- * health check finds later; a session disturbed is the user's work (ADR 0010).
+ * health check finds later; a session disturbed is the user's work (ADR 0020).
  */
 async function record(bots, bot) {
   try {

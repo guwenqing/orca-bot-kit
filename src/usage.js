@@ -5,10 +5,10 @@
 // and efforts, between which two moments, and how many times it was compacted.
 // What any of that costs is a skill's to work out: a price comes from a live
 // lookup and a price that cannot be found has to be said to be unknown, which is
-// judgement and not arithmetic (ADR 0006).
+// judgement and not arithmetic (ADR 0016).
 //
 // Which conversation belongs to which session is the book's to say and is never
-// guessed, as everywhere else in the kit (ADR 0002). A session's conversations
+// guessed, as everywhere else in the kit (ADR 0012). A session's conversations
 // are the one the book names for it now and the ones in its history. One in the
 // bot's folder that no session claims is reported under the bot instead, with
 // its figures, so that what it spent is visible rather than quietly dropped.

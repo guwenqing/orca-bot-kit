@@ -1,5 +1,5 @@
 // What it takes for a session to be reachable at all, and what `obk up`
-// writes down about it (PRD 6.9, ADR 0008, and the brief's piece 1).
+// writes down about it (PRD 6.9, ADR 0018, and the brief's piece 1).
 //
 // Three things, and each one was forced by a live check on 2026-09-21:
 //

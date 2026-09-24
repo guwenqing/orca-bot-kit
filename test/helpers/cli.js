@@ -469,7 +469,7 @@ export const launchLine = (box, rest) => `${TAB_SHELL} ${cliOnLine(box.cli)} ${r
 
 /**
  * A session's name, which is also the address a Claude session is reached at:
- * `<bot>.<session>` (PRD 6.9, ADR 0008). Proved live that the name survives a
+ * `<bot>.<session>` (PRD 6.9, ADR 0018). Proved live that the name survives a
  * resume, and the kit passes it on every launch anyway (tech notes, section 2).
  */
 export const addressOf = (bot, session) => `${bot}.${session}`;
@@ -484,7 +484,7 @@ export const CODEX_NETWORK = '-c sandbox_workspace_write.network_access=true';
 
 /**
  * The launch command a session with nothing set is started with. Every session
- * carries an explicit approval flag (ADR 0005), so a user's global harness
+ * carries an explicit approval flag (ADR 0015), so a user's global harness
  * defaults cannot leak into a bot, and `auto` is what a session that named no
  * level takes. What makes the session reachable comes straight after
  * it: a Claude session's own name, and on Codex the switch that widens the
@@ -666,7 +666,7 @@ export function recordSession(box, { bots, bot, tab, env, stdin, raw = false, ne
  * Where each harness reads a project's hooks from, inside a bot home. Both
  * were proven live on this machine: Claude Code fires a `SessionStart` hook
  * out of `<cwd>/.claude/settings.json` and Codex out of `<cwd>/.codex/hooks.json`,
- * with no user-level settings involved either side (ADR 0010).
+ * with no user-level settings involved either side (ADR 0020).
  */
 export const HOOK_FILES = {
   claude: path.join('.claude', 'settings.json'),

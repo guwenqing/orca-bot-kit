@@ -4,7 +4,7 @@
 // which kind, at which models and efforts, between which two moments, and how
 // many times the conversation was compacted. What any of that costs is a
 // skill's to say, and a price it cannot find is a price it says it cannot find
-// (ADR 0006); nothing here prices anything.
+// (ADR 0016); nothing here prices anything.
 //
 // It reads the harnesses' own transcripts and the kit's book. It writes
 // nothing, changes nothing, never calls Orca, and ends in 0.

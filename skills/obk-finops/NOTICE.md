@@ -37,7 +37,7 @@ nothing here quotes it:
 ## This kit's own design
 
 PRD 6.8 decides that prices come from a live lookup and that a price which
-cannot be found is said to be unknown, and ADR 0006 is why none of the
+cannot be found is said to be unknown, and ADR 0016 is why none of the
 arithmetic here is done by the kit's own code: what a token costs is judgement
 about a changing world, not plumbing.
 

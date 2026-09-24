@@ -495,7 +495,7 @@ for (const [label, text] of [
 ]) {
   test(`H24 a book that is YAML ${label} is reported, and the rest of the fleet with it`, async (t) => {
     // The book is a file of the user's repo like any other — committed,
-    // readable, and theirs to edit (ADR 0002) — so it can be in exactly the
+    // readable, and theirs to edit (ADR 0012) — so it can be in exactly the
     // state a bot.yaml can be in, and it is owed the same answer: one finding
     // naming the file, that bot's other checks skipped, every other bot still
     // reported. A check that falls over on one unreadable file takes the whole
@@ -634,7 +634,7 @@ test('H9e a CLAUDE.md that is not this bot\'s AGENTS.md is reported', async (t) 
 });
 
 test('H25 a CLAUDE.md that is not there at all is reported', async (t) => {
-  // The link is the kit's to make and to keep (PRD 6.6, ADR 0003): it is the
+  // The link is the kit's to make and to keep (PRD 6.6, ADR 0013): it is the
   // one way Claude Code is certain to read a bot's rules, and whether it reads
   // AGENTS.md without it turns on conditions the kit does not control (tech
   // notes, section 2). A wrong link is reported, so a missing one cannot be
@@ -1109,7 +1109,7 @@ test('H16 the tab outside Bot Father\'s book is the ops tab, and is never report
 //
 // The book learns a session's conversation from the kit's hook, and the hook
 // can miss one: a clear it did not record, a Codex hooks file trusted after the
-// event it would have caught (ADR 0002, ADR 0010). Then the book is stale, and
+// event it would have caught (ADR 0012, ADR 0020). Then the book is stale, and
 // the only other record is the harness's own. So health reads what each
 // harness keeps for the bot's folder, the way `obk usage` does, and says which
 // conversations the book does not name.
