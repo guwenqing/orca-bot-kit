@@ -351,7 +351,7 @@ function count(tally, used, model, effort, when, calls = 1) {
 }
 
 /** The lines of a transcript that are readable JSON; the rest say nothing. */
-function lines(file) {
+export function lines(file) {
   let text;
   try {
     text = readFileSync(file, 'utf8');

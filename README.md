@@ -447,6 +447,13 @@ What it looks for:
   bot in it, a tab in a bot's project that the book does not name, a start
   prompt written for a session that has gone, a clone of a skills source you no
   longer list, and the conversations the kit found and would not assign;
+- **a session running on something other than its bot asks for**: a model,
+  effort, context or approval level that the harness's own record of the
+  conversation says differs from `bot.yaml`, and a session that started before
+  its bot's `AGENTS.md` last changed, with what brings it up to date. Beside the
+  findings, each running session gets a line saying, for each setting, whether
+  it matches, differs, was not asked for, or cannot be told from the record;
+  cannot be told is never taken for a match;
 - **Orca's own default launch arguments**. Orca adds these to the agents it
   launches, relaunches and resumes, so when they carry a permission bypass every
   session runs in that mode whatever the kit asked for. The kit never sets that

@@ -312,6 +312,21 @@ export function tabToTypeInto(home, tabId, timeoutMs) {
   return { handle: live.handle, agent: seen.agent };
 }
 
+/**
+ * Who holds the terminal of the tab `handle`, as `frontOf` answers, without
+ * waiting on the tab: for a caller that asks about every tab and has nothing
+ * to type. Orca refusing is an answer that cannot be read, not an error.
+ */
+export function frontOfTab(handle) {
+  let shown;
+  try {
+    shown = orca(['terminal', 'show', '--terminal', handle]).terminal;
+  } catch (error) {
+    return { unreadable: `Orca would not show the tab: ${error.message}` };
+  }
+  return frontOf(shown?.ptyId);
+}
+
 /** The `ps` this run reads. OBK_PS overrides it, as OBK_ORCA does Orca. */
 const psCli = () => process.env.OBK_PS || '/bin/ps';
 

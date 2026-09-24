@@ -25,6 +25,9 @@ const HEADER = `# What Orca calls this bot on this machine, and where each of it
 # and kept, because an address that is a tab dies with the tab. \`address\` is what
 # a Claude session is called, which is what another Claude session writes to.
 #
+# \`rules\` is a stamp of the bot's AGENTS.md as the session last read it, so a
+# change to it after the session started can be told apart.
+#
 # \`retired\` holds what the book knew about each session \`obk retire\` took off
 # the bot, with when, so the conversations it had are still accounted for.
 `;

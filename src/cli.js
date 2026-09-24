@@ -451,11 +451,12 @@ const commands = {
 
   health(bots, values) {
     refuseWhenOrcaIsDown();
-    const found = checkHealth(bots, { bot: values.bot });
+    const { found, sessions } = checkHealth(bots, { bot: values.bot });
     return {
-      answer: { bots, found },
+      answer: { bots, found, sessions },
       lines: [
         ...foundLines(found),
+        ...sessions.map(settingsLine),
         found.length === 0
           ? `Nothing to report: everything the kit keeps is where it should be. Your bots folder: ${bots}`
           : `${found.length} thing${found.length === 1 ? '' : 's'} to look at above. What to do about each is yours to decide. Your bots folder: ${bots}`,
@@ -1127,6 +1128,25 @@ function toldLine(bot, { session, harness, state, read, blocked, trouble }) {
  */
 const foundLines = (found) =>
   found.flatMap((one) => [`${one.kind.padEnd(9)}  ${one.where}`, `             ${one.says}`]);
+
+/**
+ * What one running session runs on, in a line: each setting's state, with what
+ * was asked for and what the harness recorded, and its rules.
+ */
+function settingsLine({ bot, session, running, settings, rules }) {
+  const each = Object.entries(settings).map(([name, one]) => {
+    const values = [
+      ...(one.configured === undefined ? [] : [`asked ${one.configured}`]),
+      ...(one.observed === undefined ? [] : [`runs ${one.observed}`]),
+    ];
+    return `${name} ${one.state}${values.length === 0 ? '' : ` (${values.join(', ')})`}`;
+  });
+  // A session whose harness the kit cannot see in its tab is not called running.
+  const [word, who] = running === 'yes'
+    ? ['running', `${bot} ${session}`]
+    : ['unsure', `${bot} ${session}  cannot tell whether its harness is running:`];
+  return `${word.padEnd(9)}  ${who}  ${each.join('  ')}  rules ${rules.state}`;
+}
 
 function tabLines({ bots, created, completed, rules, skills, tabs, paused = [], projects = [], found = [] }, summary) {
   const lines = [

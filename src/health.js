@@ -25,9 +25,10 @@ import { bookFile, readBook, tabIdsIn } from './book.js';
 import { botDir, botNames, botsDir, readBot } from './bot.js';
 import { transcriptsIn } from './conversations.js';
 import { hookTrouble } from './hooks.js';
-import { bypassFlags, harnessOf, HARNESSES, sessionTrouble } from './launch.js';
-import { orcaDefaultArgs, projects, tabs } from './orca.js';
-import { agentsTrouble } from './rules.js';
+import { bypassFlags, harnessOf, HARNESSES, ownCli, sessionTrouble, shellWord } from './launch.js';
+import { frontOfTab, orcaDefaultArgs, projects, tabs } from './orca.js';
+import { agentsTrouble, rulesStamp } from './rules.js';
+import { settingsInUse } from './settings.js';
 import { skillsTrouble } from './skills.js';
 import { readSources, sourcesDir } from './sources.js';
 import { BOT_FATHER, botsNamed, promptPath } from './up.js';
@@ -37,14 +38,18 @@ import { BOT_FATHER, botsNamed, promptPath } from './up.js';
  * settings do to every session, what is lying about that no book owns, and then
  * each bot in name order. `bot` narrows the per-bot checks to one; what the
  * whole fleet lives under is reported whichever bot was named.
+ *
+ * Beside the list, `sessions`: each running session the book knows, with what
+ * it runs on against what its bot asks for now, good news included.
  */
 export function checkHealth(bots, { bot: onlyBot } = {}) {
   const names = botsNamed(bots, onlyBot);
   const setups = projects();
 
   const found = [...orcaSettingFindings(), ...leftInOrca(bots, setups), ...leftBeside(bots)];
-  for (const name of names) found.push(...aboutBot(bots, name, setups));
-  return found;
+  const sessions = [];
+  for (const name of names) found.push(...aboutBot(bots, name, setups, sessions));
+  return { found, sessions };
 }
 
 /** One finding, as the report and the `--json` answer carry it. */
@@ -165,8 +170,8 @@ function leftBeside(bots) {
   return found;
 }
 
-/** Everything wrong with one bot. */
-function aboutBot(bots, name, setups) {
+/** Everything wrong with one bot. Its running sessions are added to `sessions`. */
+function aboutBot(bots, name, setups, sessions) {
   const home = botDir(bots, name);
 
   let bot;
@@ -185,7 +190,7 @@ function aboutBot(bots, name, setups) {
     ...agentsTrouble(bots, home, bot).map(said('config')),
     ...hooksOf(bots, home, bot).map(said('config')),
     ...skillsTrouble(bots, home, bot).map(said('skill')),
-    ...inOrca(home, bot, setups),
+    ...inOrca(bots, home, bot, setups, sessions),
   ];
 }
 
@@ -207,11 +212,82 @@ const hooksOf = (bots, home, bot) => [...new Set(bot.sessions.map((session) => h
   .filter((trouble) => trouble !== undefined);
 
 /**
+ * Each session of this bot running in a tab Orca has, with what it runs on set
+ * beside what the bot asks for now, added to `sessions`; and a finding for each
+ * one that runs on something else (#271, #272).
+ *
+ * Two questions, each answered from where the answer is written. The settings
+ * from the harness's own record of the conversation the session is in now,
+ * which is what the harness really used. The rules from the stamp the kit noted
+ * in the book when the session last read them, against `AGENTS.md` now: nothing
+ * the harness writes says which instructions it read.
+ *
+ * Only a mismatch and older rules are findings. What cannot be read is said as
+ * unknown in `sessions`, and never taken for agreement.
+ */
+function runningOn(bots, home, bot, book, handles, sessions) {
+  const real = realpathOf(home) ?? home;
+  const records = new Map();
+  const recordOf = (harness, id) => {
+    if (!HARNESSES.includes(harness) || id === null) return undefined;
+    if (!records.has(harness)) records.set(harness, new Map(transcriptsIn(harness, real).map((one) => [one.id, one.file])));
+    return records.get(harness).get(id);
+  };
+
+  const stamp = rulesStamp(home);
+  const found = [];
+  for (const session of bot.sessions) {
+    const entry = book.sessions[session.name];
+    // Running is a tab Orca still has, with the session's harness in front of
+    // it. A session whose tab is gone is not running whatever its record says,
+    // and the missing tab is said already.
+    if (bot.paused === true || session.paused === true || entry === null || typeof entry !== 'object') continue;
+    const handle = handles.get(entry.tab);
+    if (handle === undefined) continue;
+
+    // A harness can quit to the tab's shell and leave the tab open (#232), so
+    // the tab alone is not the answer: who holds its terminal is, asked the way
+    // the kit asks before it types into a tab. The shell in front is a session
+    // that is not running. Anything else that is not its own harness, or a front
+    // that cannot be read, leaves it unsaid, and nothing unsaid is a finding.
+    const front = frontOfTab(handle);
+    if (front.front === 'shell') continue;
+    const harness = harnessOf(session, bot.harness);
+    const running = front.front === 'program' && front.command === harness ? 'yes' : 'unknown';
+    const conversation = typeof entry.session === 'string' ? entry.session : null;
+    const file = recordOf(harness, conversation);
+    const settings = settingsInUse(harness, session, file, typeof entry.launched === 'string' ? entry.launched : undefined);
+    const rules = { state: typeof entry.rules !== 'string' ? 'unknown' : entry.rules === stamp ? 'current' : 'older' };
+    sessions.push({ bot: bot.name, session: session.name, harness, running, conversation, settings, rules });
+    if (running !== 'yes') continue;
+
+    const restart = `${shellWord(ownCli())} restart --bots ${shellWord(bots)} --bot ${bot.name} --session ${session.name}`;
+    const off = Object.entries(settings).filter(([, one]) => one.state === 'mismatch');
+    if (off.length > 0) {
+      const parts = off.map(([name, one]) => `${name}: bot.yaml asks for ${one.configured}, and it runs on ${one.observed}`).join('; ');
+      found.push(finding('session', file, `${bot.name}'s session ${session.name} does not run on what ${path.join(home, 'bot.yaml')} asks for. ${parts}. That is what the harness's own record of its conversation ${conversation} says. A session takes these when it starts, so if bot.yaml changed after it started, ${restart} starts it on them; if not, something else set them, such as a default of the harness's own or a change made inside the session.`, bot.name));
+    }
+
+    if (rules.state === 'older') {
+      const agents = path.join(home, 'AGENTS.md');
+      // A clear on Claude Code reads the instructions again, as a start does
+      // (tech notes, section 2); whether a new conversation on Codex does is
+      // not established, so a start is all that is offered there.
+      const how = harness === 'claude'
+        ? `A Claude Code session reads it again at a /clear in its tab, or when it starts: ${restart}`
+        : `A Codex session reads it when it starts: ${restart}`;
+      found.push(finding('session', agents, `${bot.name}'s session ${session.name} is running on older rules: ${agents} has changed since the kit noted which version this session read. ${how}`, bot.name));
+    }
+  }
+  return found;
+}
+
+/**
  * What Orca has of this bot against what the book says it should have: a
  * session whose tab is gone, a conversation nobody claims, and a tab in the
  * bot's project that the book does not name.
  */
-function inOrca(home, bot, setups) {
+function inOrca(bots, home, bot, setups, sessions) {
   // The book is read where it is read, and a book nothing can parse is a
   // finding like any other: it says which tab each session is in and which
   // conversation it is running, so without it nothing else here can be asked —
@@ -260,6 +336,7 @@ function inOrca(home, bot, setups) {
     }
   }
 
+  found.push(...runningOn(bots, home, bot, book, new Map(live.map((tab) => [tab.tabId, tab.handle])), sessions));
   return found;
 }
 

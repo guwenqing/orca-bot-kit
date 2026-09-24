@@ -32,6 +32,9 @@
 //
 //   - A tab nothing was launched in — no harness named by the first line typed
 //     into it, like Bot Father's ops tab — has its shell in front, always.
+//   - `foreground` on one terminal in state.json, when a test set it, for
+//     that tab alone: one of the words below. It comes before the one for
+//     every tab, so one session's harness can quit beside a sibling's.
 //   - `foreground` in state.json, when a test set it, for every launched tab:
 //       'harness'       login, shell, harness; the harness in front
 //       'shell'         login, shell; the shell in front (the harness quit)
@@ -99,6 +102,7 @@ function waitsSoFar(dir) {
 /** What is in front of a tab, as one of the words in the list above. */
 export function foregroundOf(state, terminal, dir) {
   if (launchedIn(terminal) === undefined) return 'shell';
+  if (terminal.foreground !== undefined) return terminal.foreground;
   if (state.foreground !== undefined) return state.foreground;
   const waits = waitsSoFar(dir) - (state.waitIdleFrom ?? 0);
   const idle = Array.isArray(state.waitIdle)
