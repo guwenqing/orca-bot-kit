@@ -1,0 +1,66 @@
+# Publishes @assuredloop/orca-bot-kit to npm when a GitHub Release is published,
+# and at no other time: a release is made by hand, so a person decides every
+# version that goes out.
+#
+# No npm token is stored anywhere. npm trusts this repository and this file by
+# name (npm's trusted publishing): the publish job asks GitHub for a short-lived
+# identity token, npm checks it, and the package goes out with a provenance
+# statement saying which commit built it. That needs npm 11.5.1 or newer, which
+# the Node pinned below carries.
+
+name: Publish
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  # The same suite CI runs, on the same Node, against the commit the release
+  # points at. Nothing is published from a commit that does not pass it.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 25.8.0
+      - run: npm ci
+      - run: npm test
+
+  # The only job that can prove who it is to npm, so it installs nothing: `npm
+  # ci` runs whatever lifecycle scripts the dependencies carry, and none of them
+  # gets near the identity token. Publishing packs the files package.json lists
+  # and needs no dependencies to do it.
+  publish:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 25.8.0
+          registry-url: https://registry.npmjs.org
+      # The release names the version; package.json is what npm publishes. They
+      # have to agree, or the release says one version and npm gets another.
+      - name: The release tag is v<package.json version>
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          want="v$(node -p "require('./package.json').version")"
+          if [ "$TAG" != "$want" ]; then
+            echo "The release is tagged $TAG and package.json says $want. Make them agree, then publish the release again."
+            exit 1
+          fi
+      # A pre-release goes out under `next`, so `npm install` keeps getting the
+      # last full release.
+      - name: npm publish
+        env:
+          PRERELEASE: ${{ github.event.release.prerelease }}
+        run: |
+          if [ "$PRERELEASE" = "true" ]; then npm publish --tag next; else npm publish; fi

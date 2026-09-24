@@ -79,11 +79,11 @@ Each line is a check a developer can run. Issues turn these into acceptance test
 
 ### 6.1 Shape
 
-- An npm package with a CLI and skills. Installed with `npm install`; `npm link` for now. [decided]
+- An npm package with a CLI and skills, installed with `npm install -g @assuredloop/orca-bot-kit`; `npm link` from a clone to work on the kit itself. [decided]
 - Everything, skills included, comes from the package. [decided]
 - The user manages bots, skills and prompts through an LLM — normally Bot Father's management session, whose skills call the CLI. [decided]
 - The harnesses are assumed to be installed and configured. [decided]
-- The repo is `orca-bot-kit`. [decided] The npm package is `orca-bot-kit` and the command is `obk`, run system-wide through `npm link`. [decided]
+- The repo is `orca-bot-kit`. [decided] The npm package is `@assuredloop/orca-bot-kit` and the command is `obk`. It is published from CI when a GitHub Release is published by hand, through npm's trusted publishing, with no stored token. [decided by the owner, 2026-09-24]
 
 ### 6.2 Host
 

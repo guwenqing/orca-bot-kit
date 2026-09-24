@@ -65,10 +65,19 @@ const usesOf = (doc) => [
   ...stepsOf(doc).map((step) => step?.uses),
 ].filter((uses) => uses !== undefined);
 
-/** The workflow that runs the suite: the one CI stands or falls by. */
+/**
+ * The workflow that runs the suite on pull requests: the one CI stands or falls
+ * by. Other workflows may run the suite too (publishing does, before it
+ * publishes), and the order a directory lists its files in is not a rule.
+ */
 async function ciWorkflow() {
-  const found = (await workflows()).filter((workflow) => runsOf(workflow.doc).some((run) => /\bnpm test\b/.test(run)));
-  assert.ok(found.length > 0, `no workflow under .github/workflows runs \`npm test\``);
+  const found = (await workflows()).filter((workflow) => workflow.doc?.on?.pull_request !== undefined
+    && runsOf(workflow.doc).some((run) => /\bnpm test\b/.test(run)));
+  assert.equal(
+    found.length,
+    1,
+    `exactly one workflow should run \`npm test\` on pull requests, got: ${found.map((workflow) => workflow.name).join(', ') || 'none'}`,
+  );
   return found[0].doc;
 }
 
@@ -148,11 +157,18 @@ test('CI installs with npm ci and runs npm test', async () => {
 test('every Node version CI runs the suite on is an exact one', async () => {
   // `lts/*`, `24` and `>=20.19.0` all mean "whatever is current on the day the
   // job runs", so a green run says nothing about the next one, and a red one
-  // cannot be reproduced. Only x.y.z pins what was actually tested.
-  const versions = await ciNodeVersions();
+  // cannot be reproduced. Only x.y.z pins what was actually tested. That holds
+  // for every workflow that runs the suite, not only the one on pull requests.
+  const all = await workflows();
+  const jobs = all.flatMap((workflow) => Object.entries(workflow.doc?.jobs ?? {})
+    .filter(([, job]) => runsTheSuite(job))
+    .map(([id, job]) => ({ where: `${workflow.name}: ${id}`, job })));
+  assert.ok(jobs.length > 0, 'no job in any workflow runs the suite');
 
-  for (const version of versions) {
-    assert.match(version, /^\d+\.\d+\.\d+$/, `CI runs the suite on \`${version}\`, which is not an exact version`);
+  for (const { where, job } of jobs) {
+    for (const version of nodeVersionsOf(job).map(String)) {
+      assert.match(version, /^\d+\.\d+\.\d+$/, `${where} runs the suite on \`${version}\`, which is not an exact version`);
+    }
   }
 });
 
@@ -213,4 +229,134 @@ test('every action a workflow uses is pinned to a full commit SHA', async () => 
   for (const entry of uses) {
     assert.match(entry, /@[0-9a-f]{40}$/, `${entry} is not pinned to a full commit SHA`);
   }
+});
+
+// Publishing (#213): a GitHub Release publishes the package to npm through
+// trusted publishing, so no token is stored anywhere and only the one job that
+// publishes can ask for the short-lived one.
+
+const publishPath = path.join(workflowsDir, 'publish.yml');
+
+/** The publishing workflow, parsed. */
+async function publishWorkflow() {
+  let text;
+  try {
+    text = await readFile(publishPath, 'utf8');
+  } catch (error) {
+    if (error.code === 'ENOENT') assert.fail('there should be a publishing workflow at .github/workflows/publish.yml');
+    throw error;
+  }
+  return parse(text);
+}
+
+/** Whether a set of permissions, workflow or job, grants an OIDC token. */
+const grantsIdToken = (permissions) => permissions === 'write-all' || permissions?.['id-token'] === 'write';
+
+const runOf = (step) => String(step?.run ?? '');
+const npmPublishes = (step) => /\bnpm publish\b/.test(runOf(step));
+const installs = (step) => /\bnpm (?:ci|install|i|add)\b/.test(runOf(step));
+
+/** The one job that may ask for an OIDC token, with its id. */
+async function publishJob() {
+  const doc = await publishWorkflow();
+  const granted = Object.entries(doc?.jobs ?? {}).filter(([, job]) => grantsIdToken(job?.permissions));
+  assert.equal(
+    granted.length,
+    1,
+    `exactly one job should have \`id-token: write\`, got: ${granted.map(([id]) => id).join(', ') || 'none'}`,
+  );
+  const [id, job] = granted[0];
+  return { doc, id, job };
+}
+
+/** The repository the README's "Start here" line sends people to, as owner/name. */
+async function readmeRepo() {
+  const readme = await readFile(path.join(repoRoot, 'README.md'), 'utf8');
+  const section = /^## Start here\n([\s\S]*?)(?=^## )/m.exec(readme);
+  assert.notEqual(section, null, 'the README should have a "Start here" section');
+  const repos = [...new Set([...section[1].matchAll(/https:\/\/github\.com\/([\w.-]+\/[\w.-]+?)[.,]?(?=[\s)]|$)/g)]
+    .map((match) => match[1]))];
+  assert.equal(repos.length, 1, `the "Start here" section should name this repo once, got: ${repos.join(', ')}`);
+  return repos[0];
+}
+
+test('package.json is the public package @assuredloop/orca-bot-kit, and still installs obk', async () => {
+  const pkg = await readPackage();
+
+  assert.equal(pkg.name, '@assuredloop/orca-bot-kit');
+  // `private: true` makes npm refuse to publish at all.
+  assert.notEqual(pkg.private, true, 'package.json should not be private, or npm refuses to publish it');
+  // A scoped package is published restricted unless it says otherwise.
+  assert.equal(pkg.publishConfig?.access, 'public', 'a scoped package needs publishConfig.access "public"');
+  assert.equal(typeof pkg.bin?.obk, 'string', 'the package should still install the obk command');
+});
+
+test('package.json names the same GitHub repo the README sends people to', async () => {
+  // Trusted publishing refuses a package whose repository.url is not the repo
+  // the workflow runs in, and it compares them exactly.
+  const repo = await readmeRepo();
+  const url = (await readPackage()).repository?.url;
+
+  assert.equal(typeof url, 'string', 'package.json should have repository.url');
+  const named = /github\.com[/:]([\w.-]+\/[\w.-]+?)(?:\.git)?$/.exec(url);
+  assert.notEqual(named, null, `repository.url should point at a GitHub repo, got: ${url}`);
+  assert.equal(named[1], repo, `repository.url names ${named[1]} and the README ${repo}`);
+});
+
+test('the publishing workflow runs when a release is published, and on nothing else', async () => {
+  // A push or a pull request that could publish would put whatever is on a
+  // branch on npm; a release is the one deliberate act that should.
+  const on = (await publishWorkflow())?.on;
+
+  assert.equal(typeof on, 'object', `publish.yml should list its triggers with their types, got: ${JSON.stringify(on)}`);
+  assert.deepEqual(Object.keys(on ?? {}), ['release'], 'publish.yml should be triggered by `release` only');
+  assert.deepEqual(on.release?.types, ['published'], 'publish.yml should run on a release being published, and no other release event');
+});
+
+test('only the publishing job can ask for an OIDC token', async () => {
+  // A token granted at the top of the workflow reaches every job in it,
+  // including the one that runs other people's install scripts.
+  const { doc } = await publishJob();
+
+  assert.ok(!grantsIdToken(doc.permissions), `the workflow-level permissions should grant no id-token, got: ${JSON.stringify(doc.permissions)}`);
+});
+
+test('the job that holds the token installs nothing and runs npm publish', async () => {
+  // Install scripts are other people's code; they must not run where the token is.
+  const { id, job } = await publishJob();
+  const steps = stepsOfJob(job);
+
+  assert.deepEqual(steps.filter(installs).map(runOf), [], `${id} holds the token and should install no dependencies`);
+  assert.ok(steps.some(npmPublishes), `${id} holds the token and should be the job that runs \`npm publish\``);
+});
+
+test('nothing is published before the suite has passed on a clean install', async () => {
+  const { doc, id, job } = await publishJob();
+  const needs = [job.needs ?? []].flat();
+  const runsCiAndTest = (other) => {
+    const runs = stepsOfJob(other).map(runOf);
+    return runs.some((run) => /\bnpm ci\b/.test(run)) && runs.some((run) => /\bnpm test\b/.test(run));
+  };
+
+  assert.ok(
+    needs.some((name) => runsCiAndTest(doc.jobs?.[name])),
+    `${id} should need a job that runs \`npm ci\` and \`npm test\`, got needs: ${JSON.stringify(job.needs)}`,
+  );
+});
+
+test('the release tag is checked against the package version before publishing', async () => {
+  // A release tagged v0.2.0 over a package.json still at 0.1.0 would publish
+  // 0.1.0 again, or fail after the release is already out. How the check is
+  // written is the workflow's business; what is pinned is that a step before
+  // `npm publish` looks at both.
+  const { id, job } = await publishJob();
+  const steps = stepsOfJob(job);
+  const at = steps.findIndex(npmPublishes);
+  assert.ok(at >= 0, `${id} should run \`npm publish\``);
+
+  const checks = steps.slice(0, at)
+    .filter((step) => typeof step?.run === 'string')
+    .map((step) => JSON.stringify({ run: step.run, env: step.env }))
+    .filter((text) => /release\.tag_name|GITHUB_REF/.test(text) && /(?<!node-)\bversion\b|package\.json/.test(text));
+  assert.ok(checks.length > 0, `no step in ${id} before \`npm publish\` compares the release tag with the package version`);
 });
