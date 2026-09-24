@@ -174,7 +174,7 @@ project → repo (`kind: "git" | "folder"`) → worktree (id = `<repoId>::<absPa
   `satisfied:true` for 20 s. So the kit takes a harness to be in a tab when the foreground is not its
   shell (a busy one included), and the mail nudge types only when the process in front is the one
   Orca names. When the pid or the group cannot be read it says it cannot tell and
-  types nothing (ADR 0011). `diagnostics memory` is a diagnostics command and may change.
+  types nothing (ADR 0021). `diagnostics memory` is a diagnostics command and may change.
   **verified** (live, 2026-09-24, Orca 1.4.209, macOS 26.6.2, Claude Code 2.1.281, Codex 0.156.1, #232)
 - `orca terminal send [--terminal <h>] [--text <t>] [--enter] [--interrupt] [--wait-submit <s>] [--retry-request <id>]` — `accepted:true` means input accepted, not that the agent read it; never resend on silence; use `--retry-request` for an idempotent retry.
   **A carriage return or a line feed inside `--text` does not submit early.** Sent with `--enter` into a running agent, a line with `\r` or `\n` in the middle arrives as **one** message with a line break where the character was, and is answered once: Claude Code's transcript shows one user turn holding both lines, and Codex's screen shows one prompt of two lines and one answer. So the mail nudge, which carries the sender's subject as typed, cannot be split into two prompts by a subject that has one in it. **verified** (live, 2026-09-23, Orca 1.4.207, Claude Code 2.1.280 with `--model haiku`, Codex 0.155.1; #176)

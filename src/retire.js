@@ -16,16 +16,16 @@
 // restart or a pause it does not wait for the book to know which one it was.
 // The mailbox Runs stay: Orca has no way to remove one (ADR 0018).
 
-import { existsSync, mkdirSync, renameSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, realpathSync, renameSync, rmSync } from 'node:fs';
 import path from 'node:path';
 
 import { readBook, tabIdsIn, updateBook } from './book.js';
 import { botDir, dropSession, readBot } from './bot.js';
-import { deleteProject, findProject, tabs } from './orca.js';
+import { deleteProject, findProject, tabs, tellWindow } from './orca.js';
 import { fleetMember } from './pause.js';
 import { closeTabs, tabsToClose } from './restart.js';
 import { unlinkSkills } from './skills.js';
-import { promptPath, sessionsOf } from './up.js';
+import { BOT_FATHER, promptPath, sessionsOf } from './up.js';
 
 /** Where retired bots go: beside `bots/`, where nothing the kit runs looks. */
 export const retiredDir = (bots) => path.join(bots, 'retired');
@@ -79,7 +79,10 @@ export async function retireBot(bots, { bot }) {
   // they are gone.
   const booked = Object.keys(readBook(home).sessions).map((name) => ({ name }));
   const closed = await closeTabs(home, tabsToClose(bots, bot, home, booked, { keepless: true }), bots, bot);
-  if (project !== undefined) deleteProject(project.id);
+  if (project !== undefined) {
+    deleteProject(project.id);
+    tellWindowOfRemoval(bots);
+  }
 
   for (const name of new Set([...known.sessions, ...booked].map((session) => session.name))) {
     rmSync(promptPath(bots, bot, name), { force: true });
@@ -89,4 +92,20 @@ export async function retireBot(bots, { bot }) {
   renameSync(botDir(bots, bot), moved);
 
   return { bot, closed, ...(project === undefined ? {} : { project: project.id }), moved };
+}
+
+/**
+ * Tell Orca's window a project went (#224). The call names a project that is
+ * still there, and Bot Father's is the one that always is; when Orca has none
+ * for it, there is nothing to call on. Finding it is part of the workaround,
+ * so it fails as quietly as the call: the project is gone either way.
+ */
+function tellWindowOfRemoval(bots) {
+  try {
+    const home = botDir(bots, BOT_FATHER);
+    const father = existsSync(home) ? findProject(realpathSync(home)) : undefined;
+    if (father !== undefined) tellWindow(father.projectId);
+  } catch {
+    // Nothing: see above.
+  }
 }

@@ -32,7 +32,7 @@ Run lasts, and cannot be deleted. Orca's own `reply` files the reply under the
 replier's Run (Orca 1.4.205 to 1.4.209, 2026-09-21 to 2026-09-24; tech notes).
 Both harnesses take a line typed while they are busy as queued. Whether a tab
 holds a harness at all is read from its foreground process
-([ADR 0011](0011-orca-is-the-host.md)).
+([ADR 0021](0021-orca-is-the-host.md)).
 
 ## Decision
 
@@ -62,7 +62,7 @@ mailbox. (The coordinator, for slice 08, 2026-09-21; the owner was told and
 may overrule.) "Not up" means the tab's shell is in front. Where the kit
 cannot tell whether the program in front is the session's harness, it types
 nothing either and says the mail waits (the architect, #232; the owner may
-overrule; how a tab is read is in [ADR 0011](0011-orca-is-the-host.md)).
+overrule; how a tab is read is in [ADR 0021](0021-orca-is-the-host.md)).
 
 A session's address on the Orca road is a Run (`run:<id>`), made once when the
 session is first brought up and kept in the book. A terminal handle is not an
