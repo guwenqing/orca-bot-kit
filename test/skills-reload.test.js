@@ -22,11 +22,14 @@
 // changed. `skills add` and `skills remove` write a list and nothing more.
 
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
+import { chmod, mkdir, rm, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 
 import {
   assertOrcaCallsAllowed,
+  bookOf,
   botHomeOf,
   createSandbox,
   orcaCallsOf,
@@ -40,9 +43,11 @@ import {
   botYamlOf,
   commonSkill,
   entryOf,
+  heldBy,
   kitSkill,
   setSkills,
   SKILL_DIRS,
+  skillsDirOf,
   writeSkill,
 } from './helpers/skills.js';
 
@@ -523,4 +528,130 @@ test('telling the sessions restarts nothing: no tab is opened or closed, and not
     [],
     'a busy Claude tab queues the command; interrupting would cut its turn short',
   );
+});
+
+test('a tab that now runs the other harness is not typed into, and is reported unknown, both ways round', async (t) => {
+  // The book's tab for the Claude session now has Codex in front of it, and
+  // Orca names codex there; the Codex session's tab has Claude. `/reload-skills`
+  // typed into Codex is text to a model, and a Codex session that is not
+  // running Codex takes nothing at its next turn.
+  const box = await createSandbox(t);
+  const bots = await fleetIn(box);
+  const swapped = {
+    [await tabOf(bots, BOT, 'daily')]: 'codex',
+    [await tabOf(bots, BOT, 'reviewer')]: 'claude',
+  };
+  await box.orca.set({
+    foreground: 'other-harness',
+    terminals: (await box.orca.terminals()).map((terminal) => (terminal.tabId in swapped
+      ? { ...terminal, agentIdentity: swapped[terminal.tabId] }
+      : terminal)),
+  });
+  await addSkills(botYamlOf(bots, BOT), `kit:${KIT_SKILL}`);
+
+  const result = await build(box, '--json');
+
+  assert.equal(result.code, 0, `the links were made; only the telling did not happen: ${result.stderr}`);
+  await assertLinked(bots, BOT, KIT_SKILL, await kitSkill(KIT_SKILL));
+  const sessions = sessionsOf(result, BOT);
+  assert.deepEqual(
+    sessions.map((entry) => [entry.session, entry.harness, entry.state]),
+    [['daily', 'claude', 'unknown'], ['reviewer', 'codex', 'unknown']],
+  );
+  for (const entry of sessions) {
+    assert.equal(typeof entry.trouble, 'string', `why ${entry.session} was not told, got: ${JSON.stringify(entry)}`);
+    assert.notEqual(entry.trouble.trim(), '');
+  }
+  assert.deepEqual(Object.values(await sentSinceLaunch(box)).flat(), [], 'no /reload-skills into a tab running Codex');
+});
+
+test('when one harness\'s link fails, the sessions are still told about the one that was made', async (t) => {
+  // Codex's skills directory cannot be written into, so its link fails and
+  // Claude's is made. Claude Code reads the change, so its session is told;
+  // the bot's trouble and the run's exit code stay what linking gave.
+  const box = await createSandbox(t);
+  const bots = await fleetIn(box);
+  await addSkills(botYamlOf(bots, BOT), `kit:${KIT_SKILL}`);
+  const locked = skillsDirOf(bots, BOT, 'codex');
+  await mkdir(locked, { recursive: true });
+  await chmod(locked, 0o555);
+
+  let result;
+  try {
+    result = await build(box, '--json');
+  } finally {
+    await chmod(locked, 0o755);
+  }
+
+  assert.equal(result.code, 1, `a bot that could not be given its skills ends the run in 1, got:\n${result.stdout}${result.stderr}`);
+  const entry = entryOf(answerOf(result), BOT);
+  assert.equal(typeof entry.trouble, 'string', `the failed link is the bot's trouble, got: ${JSON.stringify(entry)}`);
+  assert.ok((await heldBy(bots, BOT, 'claude')).get(KIT_SKILL)?.link, 'the test meant Claude\'s link to be made');
+  assert.ok(Array.isArray(entry.linked) && entry.linked.includes(KIT_SKILL), `what was linked is listed, got: ${JSON.stringify(entry)}`);
+  const daily = sessionsOf(result, BOT).find((one) => one.session === 'daily');
+  assert.equal(daily?.state, 'reloaded', `Claude's link was made, so its session is told, got: ${JSON.stringify(daily)}`);
+  assert.deepEqual(await sentToSession(box, bots, BOT, 'daily'), [{ text: RELOAD, enter: true }]);
+});
+
+for (const [label, arrange] of [
+  ['one harness\'s link failed', async (box, bots) => {
+    const locked = skillsDirOf(bots, BOT, 'codex');
+    await mkdir(locked, { recursive: true });
+    await chmod(locked, 0o555);
+    return () => chmod(locked, 0o755);
+  }],
+  ['the bot\'s .agents/skills is the user\'s own link to a folder outside the bot', async (box, bots) => {
+    const outside = path.join(box.root, 'elsewhere', 'agents-skills');
+    await mkdir(outside, { recursive: true });
+    await rm(skillsDirOf(bots, BOT, 'codex'), { recursive: true, force: true });
+    await symlink(outside, skillsDirOf(bots, BOT, 'codex'));
+    return async () => {};
+  }],
+]) {
+  test(`a Codex session is never given a SKILL.md to read that is not there: ${label}`, async (t) => {
+    // The kit linked the skill for Claude only. A path handed to a session
+    // that leads nowhere sends it looking for a skill it cannot read.
+    const box = await createSandbox(t);
+    const bots = await fleetIn(box);
+    await addSkills(botYamlOf(bots, BOT), `kit:${KIT_SKILL}`);
+    const undo = await arrange(box, bots);
+
+    let result;
+    try {
+      result = await build(box, '--json');
+    } finally {
+      await undo();
+    }
+
+    const reviewer = sessionsOf(result, BOT).find((one) => one.session === 'reviewer');
+    assert.ok(reviewer !== undefined, `the Codex session is reported, got: ${result.stdout}`);
+    const missing = (reviewer.read ?? []).filter((file) => !existsSync(file));
+    assert.deepEqual(missing, [], `every SKILL.md in read should be on disk, got: ${JSON.stringify(reviewer)}`);
+    assert.ok((await heldBy(bots, BOT, 'claude')).get(KIT_SKILL)?.link, 'the kit linked the skill for Claude');
+    assert.ok(!existsSync(codexSkillMd(bots, BOT, KIT_SKILL)), 'the test meant Codex\'s link not to be there');
+  });
+}
+
+test('an unreadable book: the links are made, nothing is typed, and every session is unknown with the book named', async (t) => {
+  // bot.yaml names the sessions; the book only says which tab each lives in.
+  // Without it the kit cannot find a tab to type into, and not telling is no
+  // reason to fail a build whose links were made.
+  const box = await createSandbox(t);
+  const bots = await fleetIn(box);
+  await writeFile(bookOf(bots, BOT), 'sessions: [this is: not: yaml\n');
+  await addSkills(botYamlOf(bots, BOT), `kit:${KIT_SKILL}`);
+
+  const result = await build(box, '--json');
+
+  assert.equal(result.code, 0, `linking needs no book, so it goes through: ${result.stdout}${result.stderr}`);
+  await assertLinked(bots, BOT, KIT_SKILL, await kitSkill(KIT_SKILL));
+  const sessions = sessionsOf(result, BOT);
+  assert.deepEqual(
+    sessions.map((entry) => [entry.session, entry.harness, entry.state]),
+    [['daily', 'claude', 'unknown'], ['reviewer', 'codex', 'unknown']],
+  );
+  for (const entry of sessions) {
+    assert.match(entry.trouble ?? '', /sessions\.yaml/, `the trouble should name the book, got: ${JSON.stringify(entry)}`);
+  }
+  assert.deepEqual(Object.values(await sentSinceLaunch(box)).flat(), []);
 });

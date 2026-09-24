@@ -229,7 +229,8 @@ export function harnessInTab(handle, timeoutMs) {
 /**
  * Whether the kit may type a line into `tabId`, the tab the book holds for a
  * session in the Orca project at `home`, and the handle to type into when it
- * may: `{ handle }`. Otherwise nothing is typed, and the answer says why:
+ * may: `{ handle, agent }`, with the agent Orca names there. Otherwise nothing
+ * is typed, and the answer says why:
  * `{}` for a tab with no harness in it (none in the book, none Orca lists, or
  * the shell in front), `{ blocked }` for one with something on screen waiting
  * to be answered, and `{ unsure }`, a sentence, for one the kit cannot tell
@@ -264,7 +265,7 @@ export function tabToTypeInto(home, tabId, timeoutMs) {
       : `${seen.command} holds its terminal, and Orca names ${seen.agent ?? 'no agent'} in it`;
     return { unsure: `the kit could not tell whether a harness is running in it (${why}), so nothing was typed` };
   }
-  return { handle: live.handle };
+  return { handle: live.handle, agent: seen.agent };
 }
 
 /** The `ps` this run reads. OBK_PS overrides it, as OBK_ORCA does Orca. */

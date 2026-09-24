@@ -23,7 +23,7 @@ import { fileURLToPath } from 'node:url';
 
 import { parse, parseDocument, stringify } from 'yaml';
 
-import { readBook } from './book.js';
+import { bookFile, readBook } from './book.js';
 import { botDir, botNames, changesExactly, leadsOutside, readBot, YAML_OUT } from './bot.js';
 import { harnessOf, ownCli, shellWord } from './launch.js';
 import { orcaCli, orcaTrouble, tabToTypeInto, typeIntoTab } from './orca.js';
@@ -224,9 +224,8 @@ export function linkSkills(bots, home, bot) {
         held.set(harness, heldIn(path.join(home, SKILL_DIRS[harness]), record[harness]));
         continue;
       }
-      const done = link(path.join(home, SKILL_DIRS[harness]), wanted, record[harness]);
-      linked.push(...done.linked);
-      removed.push(...done.removed);
+      // Filled as it goes, so what was changed before a failure is still known.
+      const done = link(path.join(home, SKILL_DIRS[harness]), wanted, record[harness], linked, removed);
       held.set(harness, done.held);
     }
   } catch (error) {
@@ -239,6 +238,9 @@ export function linkSkills(bots, home, bot) {
     return {
       bot: bot.name,
       skills: heldBy(home, [], held),
+      // What did change before it went wrong, so the sessions it reaches are told.
+      linked: [...new Set(linked)].sort(),
+      removed: [...new Set(removed)].sort(),
       trouble: `${bot.name}'s skills could not be linked: ${error.message}. Nothing of yours was changed; put right what is named there, then build again.`,
     };
   }
@@ -444,7 +446,14 @@ const LOOK_MS = 2000;
  * sections 2 and 3). Nothing is ever restarted.
  */
 function tellSessions(home, bot, linked) {
-  const book = readBook(home).sessions;
+  let book;
+  try {
+    book = readBook(home).sessions;
+  } catch (error) {
+    // The links are made; which tab is whose is what cannot be known.
+    const trouble = `${bookFile(home)} cannot be read (${error.message}), so the kit could not tell which tab is this session's, and nothing was typed`;
+    return bot.sessions.map((session) => ({ session: session.name, harness: harnessOf(session, bot.harness), state: 'unknown', trouble }));
+  }
   // Resolved, because Orca is asked about this folder by path and does not
   // follow a link to it (tech notes, section 1).
   let real;
@@ -469,9 +478,16 @@ function tellSessions(home, bot, linked) {
       if (found.blocked !== undefined) return { ...told, state: 'blocked', blocked: found.blocked };
       if (found.unsure !== undefined) return { ...told, state: 'unknown', trouble: found.unsure };
       if (found.handle === undefined) return { ...told, state: 'not-up' };
+      // The book's tab, now running the other harness: its reload is not this one's.
+      if (found.agent !== harness) {
+        return { ...told, state: 'unknown', trouble: `Orca names ${found.agent} in its tab, not ${harness}, so nothing was typed` };
+      }
 
       if (harness === 'codex') {
-        return { ...told, state: 'next-turn', read: linked.map((name) => path.join(home, SKILL_DIRS.codex, name, MANIFEST)) };
+        // Only what Codex can actually read: a link can fail for one harness
+        // alone, and a skills directory that is the user's gets none.
+        const read = linked.map((name) => path.join(home, SKILL_DIRS.codex, name, MANIFEST)).filter((file) => existsSync(file));
+        return { ...told, state: 'next-turn', read };
       }
       typeIntoTab(found.handle, '/reload-skills');
       return { ...told, state: 'reloaded' };
@@ -564,7 +580,8 @@ function follow(bots, ref, sources) {
 /**
  * Make one harness's skills directory hold what `wanted` says, as far as the
  * kit is allowed to. Returns `{ linked, removed, held }` — the names it linked
- * in or repointed, the names it took away, and
+ * in or repointed, the names it took away (added to the lists given, as it
+ * goes, so a caller whose run throws still has them), and
  * what is in the directory afterwards.
  *
  * The kit acts only where the entry on disk is still the link it wrote, which
@@ -572,13 +589,10 @@ function follow(bots, ref, sources) {
  * link the very same skill by hand — so the kit remembers what it made rather
  * than guessing from where a link points (PRD 6.7).
  */
-function link(dir, wanted, record) {
+function link(dir, wanted, record, linked = [], removed = []) {
   // The directory is there: `linkSkills` makes both before it calls this.
 
   const keep = new Map(wanted.map((skill) => [skill.name, skill]));
-  const linked = [];
-  const removed = [];
-
   // What the lists no longer name. The kit takes back only its own, and only
   // while it is untouched; anything else it forgets about and leaves.
   for (const name of Object.keys(record)) {
