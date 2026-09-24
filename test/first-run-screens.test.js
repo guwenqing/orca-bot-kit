@@ -16,6 +16,14 @@
 // The kit itself presses no key: the caller does. What it types into a waiting
 // tab is exactly what it types into any other.
 //
+// A tab where Orca names no reason gets the same pointers (#288). Measured live
+// on Orca 1.4.209, Codex on its "Trust this folder?" and "Hooks need review"
+// screens answers `tui-idle` ok and satisfied with no `blockedReason`, and so
+// does Claude Code's folder-trust screen (tech notes, section 1). So a harness
+// running with no reason given is not reported as come up and ready: the lines
+// say the kit cannot see whether a screen in it is waiting, where to look, and
+// to answer it.
+//
 // The wording is the implementer's. What is pinned is what a reader must get:
 // the line is part of that tab's lines, it names the SETUP.md path (and the
 // file is there), section 5 and the skill, and it says answer it / unknown to
@@ -51,7 +59,11 @@ const SETUP_REAL = realpathSync(SETUP);
 /** The skill the caller is sent to, by its name. */
 const SKILL = 'obk-bot-building';
 
-/** The two ways a tab the kit opened can leave something to answer, and the one that does not. */
+/**
+ * The two ways a tab the kit opened is known to leave something to answer, and
+ * the one where Orca calls the harness idle and names no reason, which a screen
+ * waiting for an answer can look exactly like (#288).
+ */
 const BLOCKED = { waitIdle: 'blocked' };
 const NO_HARNESS = { waitIdle: false };
 const UP_AND_IDLE = { waitIdle: true };
@@ -114,13 +126,57 @@ function assertDoesNotTellToAnswer(block, what) {
   assert.ok(!block.includes(SKILL), `${what}: the tab's lines should not name ${SKILL}, got:\n${block}`);
 }
 
+/** A tab's words on one line, so a sentence the report wraps still reads as one. */
+const sentenceOf = (block, box) => wordsOf(block, box).replace(/\s+/g, ' ');
+
+/**
+ * "The kit cannot see whether a screen is waiting", loosely: a not-knowing
+ * verb, then within the same sentence what it cannot know about.
+ */
+const CANNOT_SEE = /(?:cannot|can't|can not|unable to|no way to|does not|doesn't|did not|didn't|could not|couldn't)\s+(?:\S+\s+){0,3}?(?:see|tell|know|detect)\b[^.]{0,120}?\b(?:wait|answer|screen|prompt|question)/i;
+
+/**
+ * Hold one tab's lines to what #288 asks of a harness running with no reason
+ * from Orca: it says the harness is running, not bare "came up" as though it
+ * were ready; it says the kit cannot see whether a screen is waiting; and it
+ * says where to look, and to answer it.
+ */
+function assertCannotSeeAScreen(block, box, handle, what) {
+  const words = sentenceOf(block, box);
+  assert.match(
+    words,
+    /\b(?:running|is up|came up|started)\b/i,
+    `${what}: the tab's lines should say the harness is running, got:\n${block}`,
+  );
+  assert.doesNotMatch(
+    words,
+    /\b(?:no|not|never)\s+(?:\w+\s+){0,2}(?:running|came up|started)\b/i,
+    `${what}: and not read as a tab where no harness came up, got:\n${block}`,
+  );
+  assert.doesNotMatch(
+    words,
+    /\bcame up\s*\./i,
+    `${what}: the tab's lines should not claim the harness came up, full stop, as though it were ready, got:\n${block}`,
+  );
+  assert.match(
+    words,
+    CANNOT_SEE,
+    `${what}: the tab's lines should say the kit cannot see whether a screen in it is waiting for an answer, got:\n${block}`,
+  );
+  assert.ok(
+    block.includes(`Look at it:  ${box.orca.cli} terminal read --terminal ${handle} --screen`),
+    `${what}: the tab's lines should say where to look, got:\n${block}`,
+  );
+  assertTellsToAnswer(block, box, what);
+}
+
 // ------------------------------------------------------------------ setups
 
-/** Bot Father, and an api-bot with one claude session called daily. */
-async function madeBot(box) {
+/** Bot Father, and an api-bot on `harness` with one session called daily. */
+async function madeBot(box, harness = 'claude') {
   const init = await box.run(['init', '--bots', 'bots', '--harness', 'claude']);
   assert.equal(init.code, 0, init.stderr);
-  const created = await box.run(['bot', 'create', '--bots', 'bots', '--name', 'api-bot', '--harness', 'claude']);
+  const created = await box.run(['bot', 'create', '--bots', 'bots', '--name', 'api-bot', '--harness', harness]);
   assert.equal(created.code, 0, created.stderr);
   const added = await box.run(['session', 'add', '--bots', 'bots', '--bot', 'api-bot', '--name', 'daily']);
   assert.equal(added.code, 0, added.stderr);
@@ -128,8 +184,8 @@ async function madeBot(box) {
 }
 
 /** api-bot up in Orca, with the book holding its conversation `sess-1`. */
-async function running(box) {
-  const bots = await madeBot(box);
+async function running(box, harness) {
+  const bots = await madeBot(box, harness);
   const up = await box.run(['up', '--bots', 'bots', '--bot', 'api-bot']);
   assert.equal(up.code, 0, up.stderr);
   const entry = await sessionIn(bots, 'api-bot', 'daily');
@@ -143,29 +199,29 @@ async function running(box) {
  * has it afterwards. `typed(box)` is what every one of them types into that
  * tab with nothing on screen to answer: the launch line, carrying the CLI that
  * ran it in `box` (#220), and a resume for the two that bring a conversation
- * back.
+ * back. `harness` is api-bot's, claude when left out.
  */
 const COMMANDS = {
   'obk up': {
     typed: (box) => [bareLaunch(box, 'claude', 'api-bot', 'daily')],
-    async run(box, state) {
-      const bots = await madeBot(box);
+    async run(box, state, harness) {
+      const bots = await madeBot(box, harness);
       await box.orca.set(state);
       return { bots, result: await box.run(['up', '--bots', 'bots', '--bot', 'api-bot']) };
     },
   },
   'obk restart': {
     typed: (box) => [`${bareLaunch(box, 'claude', 'api-bot', 'daily')} --resume sess-1`],
-    async run(box, state) {
-      const bots = await running(box);
+    async run(box, state, harness) {
+      const bots = await running(box, harness);
       await box.orca.set(state);
       return { bots, result: await box.run(['restart', '--bots', 'bots', '--bot', 'api-bot']) };
     },
   },
   'obk unpause': {
     typed: (box) => [`${bareLaunch(box, 'claude', 'api-bot', 'daily')} --resume sess-1`],
-    async run(box, state) {
-      const bots = await running(box);
+    async run(box, state, harness) {
+      const bots = await running(box, harness);
       const paused = await box.run(['pause', '--bots', 'bots', '--bot', 'api-bot']);
       assert.equal(paused.code, 0, `the pause this test stands on did not happen: ${paused.stderr}`);
       await box.orca.set(state);
@@ -175,9 +231,9 @@ const COMMANDS = {
 };
 
 /** Run one command with Orca in `state` and hand back its output and the daily tab it opened. */
-async function opened(t, name, state) {
+async function opened(t, name, state, harness = 'claude') {
   const box = await createSandbox(t);
-  const { bots, result } = await COMMANDS[name].run(box, state);
+  const { bots, result } = await COMMANDS[name].run(box, state, harness);
   assert.equal(result.code, 0, `${name}: ${result.stderr}`);
   const entry = await sessionIn(bots, 'api-bot', 'daily');
   const terminal = (await tabsOfBot(box, bots, 'api-bot')).find((one) => one.tabId === entry?.tab);
@@ -207,21 +263,19 @@ for (const name of Object.keys(COMMANDS)) {
     assertTellsToAnswer(block, box, `${name}, no harness came up`);
   });
 
-  // Covers: the line is not printed for a tab whose harness came up and is not
-  // waiting, anywhere in the output. The same command with the harness waiting,
-  // beside it, is what shows the line is the kit's and not missing for some
-  // other reason.
-  test(`${name}: a tab whose harness came up and is not waiting gets no such line`, async (t) => {
-    const idle = await opened(t, name, UP_AND_IDLE);
-    const blocked = await opened(t, name, BLOCKED);
+  // Covers #288, on both harnesses: a tab the run opened whose harness is
+  // running and for which Orca gave no blockedReason is not reported as come up
+  // and ready. Its lines say the kit cannot see whether a screen in it is
+  // waiting, where to look, and to answer it (SETUP.md section 5,
+  // obk-bot-building, unknown to the user). Before #288 this tab got none of
+  // that, which is what hid Codex's trust and hooks screens.
+  for (const harness of ['claude', 'codex']) {
+    test(`${name}: a ${harness} tab running with no reason from Orca says the kit cannot see whether a screen waits, where to look, and to answer it`, async (t) => {
+      const { box, block, terminal } = await opened(t, name, UP_AND_IDLE, harness);
 
-    assertTellsToAnswer(blocked.block, blocked.box, `${name}, harness waiting`);
-    assertDoesNotTellToAnswer(idle.block, `${name}, harness up and idle`);
-    assert.ok(
-      !namesSetup(idle.result.stdout),
-      `${name}: with nothing to answer, nothing in the output should send the caller to SETUP.md, got:\n${idle.result.stdout}`,
-    );
-  });
+      assertCannotSeeAScreen(block, box, terminal.handle, `${name}, ${harness} running, no blockedReason`);
+    });
+  }
 
   // Covers: the kit types nothing more into a waiting tab than into any other:
   // no keypress of its own for the screen. Both tabs get exactly the launch
@@ -260,6 +314,13 @@ test('obk up: a waiting tab keeps what it said before: what it waits on, and whe
     `and still say where to look, got:\n${block}`,
   );
   assertTellsToAnswer(block, box, 'obk up, harness waiting');
+  // #288 leaves this tab as it was: Orca named what it waits on, so the kit
+  // does not say it cannot see.
+  assert.doesNotMatch(
+    sentenceOf(block, box),
+    CANNOT_SEE,
+    `Orca said what the tab waits on, so the lines should not say the kit cannot see it, got:\n${block}`,
+  );
 });
 
 // Covers: the line is not printed for a tab that was already there (found,
@@ -316,4 +377,51 @@ test('obk init: Bot Father\'s waiting daily tab tells the caller to answer it; t
   assert.ok(daily && ops, `init should have opened both of Bot Father's tabs, got: ${JSON.stringify(tabs)}`);
   assertTellsToAnswer(linesOfTab(result.stdout, daily.handle), box, 'Bot Father daily, harness waiting');
   assertDoesNotTellToAnswer(linesOfTab(result.stdout, ops.handle), 'Bot Father ops, no harness typed in');
+});
+
+// Covers #288's boundary: with Orca naming no reason, only the tab the run
+// opened and typed a harness into says the kit cannot see whether a screen
+// waits. Bot Father's tabs, found in the same run, get none of it.
+test('obk up: with no reason from Orca, the tab it opened says it cannot see a screen; the tabs it found say nothing of it', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await madeBot(box);
+  const botFather = await tabsOfBot(box, bots, 'bot-father');
+  const daily = botFather.find((one) => one.title === TAB_TITLES.daily);
+  const ops = botFather.find((one) => one.title === TAB_TITLES.ops);
+  assert.ok(daily && ops, 'Bot Father\'s tabs should be up from init, or this proves nothing');
+  await box.orca.set(UP_AND_IDLE);
+
+  const result = await box.run(['up', '--bots', 'bots']);
+
+  assert.equal(result.code, 0, result.stderr);
+  const entry = await sessionIn(bots, 'api-bot', 'daily');
+  const opened = (await tabsOfBot(box, bots, 'api-bot')).find((one) => one.tabId === entry?.tab);
+  assert.ok(opened, `up should have opened api-bot's daily tab, the book says: ${JSON.stringify(entry)}`);
+  assertCannotSeeAScreen(linesOfTab(result.stdout, opened.handle), box, opened.handle, 'the tab up opened, no blockedReason');
+  for (const [tab, what] of [[daily, 'Bot Father daily, found'], [ops, 'Bot Father ops, found']]) {
+    const block = linesOfTab(result.stdout, tab.handle);
+    assertDoesNotTellToAnswer(block, what);
+    assert.doesNotMatch(sentenceOf(block, box), CANNOT_SEE, `${what}: nothing about a screen it cannot see, got:\n${block}`);
+    assert.ok(!block.includes('Look at it:'), `${what}: and nowhere to look, got:\n${block}`);
+  }
+});
+
+// Covers #288 for `obk init`: its Bot Father daily tab, harness running with no
+// reason from Orca, says the kit cannot see whether a screen waits; the plain
+// ops tab, with no harness typed into it, says nothing of it.
+test('obk init: with no reason from Orca, Bot Father\'s daily tab says it cannot see a screen; the ops tab says nothing of it', async (t) => {
+  const box = await createSandbox(t);
+  await box.orca.set(UP_AND_IDLE);
+
+  const result = await box.run(['init', '--bots', 'bots', '--harness', 'claude']);
+
+  assert.equal(result.code, 0, result.stderr);
+  const tabs = await tabsOfBot(box, box.path('bots'), 'bot-father');
+  const daily = tabs.find((one) => one.title === TAB_TITLES.daily);
+  const ops = tabs.find((one) => one.title === TAB_TITLES.ops);
+  assert.ok(daily && ops, `init should have opened both of Bot Father's tabs, got: ${JSON.stringify(tabs)}`);
+  assertCannotSeeAScreen(linesOfTab(result.stdout, daily.handle), box, daily.handle, 'Bot Father daily, no blockedReason');
+  const block = linesOfTab(result.stdout, ops.handle);
+  assertDoesNotTellToAnswer(block, 'Bot Father ops, no harness typed in');
+  assert.doesNotMatch(sentenceOf(block, box), CANNOT_SEE, `Bot Father ops: nothing about a screen it cannot see, got:\n${block}`);
 });
