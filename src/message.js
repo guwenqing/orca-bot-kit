@@ -173,7 +173,9 @@ export function sendMessage(bots, { to: target, from: sender, tab, subject, text
 /**
  * What is waiting for a session, and the reading of it.
  *
- * Orca fences a Run to one reader, so this binds before it reads. A read that
+ * Orca fences a Run to one reader, its coordinator. A session whose tab is live
+ * is bound to that tab and read as it; one whose tab is down is read as its
+ * Run's coordinator, and nothing is bound (issue #249). A read that
  * is not a peek acknowledges the batch it read: that is what makes the next
  * check bring the next one rather than the same again.
  */
