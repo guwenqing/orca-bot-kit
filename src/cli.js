@@ -1126,6 +1126,9 @@ function toldLine(bot, { session, harness, state, read, blocked, trouble }) {
  * thing to go and look at, then the sentence about it. The same shape wherever
  * a command reports one, so a reader who has seen one has seen them all.
  */
+const foundLines = (found) =>
+  found.flatMap((one) => [`${one.kind.padEnd(9)}  ${one.where}`, `             ${one.says}`]);
+
 /**
  * What one running session runs on, in a line: each setting's state, with what
  * was asked for and what the harness recorded, and its rules.
@@ -1140,9 +1143,6 @@ function settingsLine({ bot, session, settings, rules }) {
   });
   return `${'running'.padEnd(9)}  ${bot} ${session}  ${each.join('  ')}  rules ${rules.state}`;
 }
-
-const foundLines = (found) =>
-  found.flatMap((one) => [`${one.kind.padEnd(9)}  ${one.where}`, `             ${one.says}`]);
 
 function tabLines({ bots, created, completed, rules, skills, tabs, paused = [], projects = [], found = [] }, summary) {
   const lines = [
