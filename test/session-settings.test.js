@@ -915,20 +915,34 @@ test('S11 Codex: only turns and counts since the kit last started the session co
   assert.ok(hasWord(mine[0].says, 'changed'), `the finding is changed's, got: ${mine[0].says}`);
 });
 
-test('S11 a book entry with no launched counts the whole record, on both harnesses', async (t) => {
-  const box = await createSandbox(t);
-  const bots = await seeded(box);
-  await botUp(box, 'api-bot', { sessions: [['daily', '--effort', 'xhigh'], ['nightly', '--harness', 'codex', '--effort', 'xhigh']] });
-  await resumed(box, bots, 'daily', 'claude', conv(1), beforeTheRestart, null);
-  await resumed(box, bots, 'nightly', 'codex', conv(2), [codexTurn(onTheDay(11, 0), { effort: 'high' })], null);
-  assert.equal((await sessionIn(bots, 'api-bot', 'daily')).launched, undefined, 'the premise: the entry has no launched');
+for (const [label, launched] of [['no launched', null], ['a launched that is not a date', 'yesterday']]) {
+  test(`S11 a book entry with ${label} counts nothing in the record, on both harnesses`, async (t) => {
+    // No start time, no evidence: with nothing to say where the process now
+    // running began, no line of the record can be said to be about it.
+    const box = await createSandbox(t);
+    const bots = await seeded(box);
+    await botUp(box, 'api-bot', { sessions: [['daily', '--effort', 'xhigh'], ['nightly', '--harness', 'codex', '--effort', 'xhigh']] });
+    await resumed(box, bots, 'daily', 'claude', conv(1), beforeTheRestart, launched);
+    await resumed(box, bots, 'nightly', 'codex', conv(2), [codexTurn(onTheDay(11, 0), { effort: 'high' }), codexTokens(onTheDay(11, 1), 258400)], launched);
+    assert.equal(
+      (await sessionIn(bots, 'api-bot', 'daily')).launched,
+      launched ?? undefined,
+      'the premise: the entry says what this case is about',
+    );
 
-  const answer = await found(box);
+    const answer = await found(box);
 
-  assertSetting(entryOf(answer, 'api-bot', 'daily'), 'effort', { state: 'mismatch', configured: 'xhigh', observed: 'high' }, 'the whole transcript counts');
-  assertSetting(entryOf(answer, 'api-bot', 'daily'), 'approval', { state: 'match', configured: 'auto', observed: 'auto' }, 'the whole transcript counts');
-  assertSetting(entryOf(answer, 'api-bot', 'nightly'), 'effort', { state: 'mismatch', configured: 'xhigh', observed: 'high' }, 'the whole rollout counts');
-});
+    for (const session of ['daily', 'nightly']) {
+      const entry = entryOf(answer, 'api-bot', session);
+      assertSetting(entry, 'model', { state: 'not-asked-for' }, 'not asked for, and no line of the record counts');
+      assertSetting(entry, 'effort', { state: 'unknown', configured: 'xhigh' }, 'the high on record cannot be placed after the start');
+      assertSetting(entry, 'context', { state: 'not-asked-for' }, 'not asked for, and no line of the record counts');
+      assertSetting(entry, 'approval', { state: 'unknown', configured: 'auto' }, 'the mode on record cannot be placed after the start');
+      assert.deepEqual(entry.rules, { state: 'current' }, 'the rules go by the stamp, not by launched');
+    }
+    assert.deepEqual(of(answer, { kind: 'session', bot: 'api-bot' }), [], `no mismatch without evidence, got: ${JSON.stringify(answer.found, null, 2)}`);
+  });
+}
 
 // ---------------------------------------------------------------------------
 // S7 — the rules a session was started on.
@@ -1199,6 +1213,40 @@ test('S8 a paused session, a paused bot and a session the book has no entry for 
   assert.equal(mine.filter((one) => one.says.includes('nightly')).length, 1, `the running session's mismatch is a finding, got: ${JSON.stringify(mine, null, 2)}`);
   assert.deepEqual(mine.filter((one) => hasWord(one.says, 'daily')), [], 'the paused one is not');
   assert.deepEqual(of(answer, { kind: 'session', bot: 'web-bot' }), [], 'nor is the paused bot\'s');
+});
+
+test('S8 a session whose tab Orca no longer has gets no entry and no settings or rules finding, only the missing tab', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  await botUp(box, 'api-bot', { sessions: [['daily', '--model', 'opus'], ['review', '--model', 'opus']] });
+  // Both ran sonnet where opus was asked for, and both started before the
+  // charter changed: all that differs between them is whether the tab is there.
+  await talking(box, bots, 'api-bot', 'daily', 'claude', conv(1), claudeRan({ model: 'claude-sonnet-5', effort: 'high' }));
+  await talking(box, bots, 'api-bot', 'review', 'claude', conv(2), claudeRan({ model: 'claude-sonnet-5', effort: 'high' }));
+  await CHARTER_CHANGES[0][1](box, bots);
+  const gone = (await sessionIn(bots, 'api-bot', 'review')).tab;
+  const terminals = await box.orca.terminals();
+  assert.ok(terminals.some((one) => one.tabId === gone), `the premise: Orca had review's tab ${gone}`);
+  await box.orca.set({ terminals: terminals.filter((one) => one.tabId !== gone) });
+
+  const answer = await found(box);
+
+  const daily = entryOf(answer, 'api-bot', 'daily');
+  assert.equal(daily.settings.model.state, 'mismatch', 'the running session is judged');
+  assert.deepEqual(daily.rules, { state: 'older' }, 'and its rules too');
+  const mine = of(answer, { kind: 'session', bot: 'api-bot' });
+  assert.equal(
+    mine.filter((one) => hasWord(one.says, 'daily')).length,
+    2,
+    `daily has its mismatch and its older rules, got: ${JSON.stringify(mine, null, 2)}`,
+  );
+
+  assert.equal(hasEntry(answer, 'api-bot', 'review'), false, 'a session whose tab is gone is not running, and gets no entry');
+  const aboutReview = mine.filter((one) => hasWord(wordsOf(one), 'review'));
+  assert.equal(aboutReview.length, 1, `review gets the one finding about its missing tab, got: ${JSON.stringify(aboutReview, null, 2)}`);
+  assert.ok(wordsOf(aboutReview[0]).includes(gone), `and that finding names the tab, got: ${JSON.stringify(aboutReview[0])}`);
+  assert.notEqual(aboutReview[0].where, agentsOf(bots, 'api-bot'), 'it is not the older-rules finding');
+  assert.ok(!aboutReview[0].says.includes('claude-sonnet-5'), `nor the mismatch, got: ${aboutReview[0].says}`);
 });
 
 test('S8 the entries come in bot name order, then in the order of each bot\'s sessions in bot.yaml', async (t) => {
