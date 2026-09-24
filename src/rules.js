@@ -1,5 +1,5 @@
 // A bot's `AGENTS.md`, built from its charter and the rule units it carries
-// (PRD 6.6, ADR 0003).
+// (PRD 6.6, ADR 0013).
 //
 // This is the one place the kit's own text lands inside the user's repo, so the
 // promise around it is narrow: the build owns one marked block and nothing else
@@ -299,7 +299,7 @@ function writeBlock(file, body) {
  * Whatever is already there is the user's and stays. What the build owes them
  * is the fact they cannot see: Claude Code reads a `CLAUDE.md` *instead of*
  * `AGENTS.md`, so one that is not this bot's `AGENTS.md` leaves the two
- * harnesses starting from different rules, which is the one thing ADR 0003
+ * harnesses starting from different rules, which is the one thing ADR 0013
  * says must not happen.
  *
  * Returns `{ linked }` on the run that made the link, `{ trouble }` when what

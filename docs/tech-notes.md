@@ -91,19 +91,41 @@ project → repo (`kind: "git" | "folder"`) → worktree (id = `<repoId>::<absPa
 - `--command` and `terminal send` both type into the tab's **interactive shell**, so a shell that is
   busy with a question of its own swallows the first characters: with the owner's zsh asking
   `[oh-my-zsh] Would you like to update? [Y/n]`, `claude` arrived as `laude` and `exec codex` as
-  `xec codex`. `tui-idle` cannot gate this: a shell never satisfies it, question or no question (next
-  entry). So the kit types the launch line into a new tab without waiting, then asks whether a harness
+  `xec codex`. `tui-idle` cannot gate this: its answer for a shell says nothing about whether the
+  shell is ready (next entry). So the kit types the launch line into a new tab without waiting, then asks whether a harness
   came up; a line the shell swallowed shows as no harness, and the caller answers the shell and opens
   the tab again (SETUP.md, section 5). **verified** (live)
+- **A variable set on the launch line reaches the session's own shell tool, on both harnesses; a
+  `PATH` entry does not.** The kit's launch line starts `OBK_CLI=<the running CLI> …`, and a Claude
+  Code bot and a Codex bot each running `printenv OBK_CLI` wrote that path back exactly, a space in
+  it included, and their mail sent with `"$OBK_CLI" message send` reached that CLI (#220). A `PATH`
+  prefix on the same line is not enough: Codex's shell tool puts `/opt/homebrew/bin` back in front of
+  it, so a Codex bot runs the machine's `obk` whatever the line said (measured by the architect for
+  #220). A hook the harness runs inherits `PATH` from the harness's launch, on both harnesses. So the
+  kit names itself by path in its hook and nudge, and by `OBK_CLI` in the rules a bot reads.
+  **verified** (live, 2026-09-24, Claude Code 2.1.281, Codex 0.156.1)
 - `orca terminal wait --for exit|tui-idle --timeout-ms <n>`. **`tui-idle` is about a TUI, not a shell.**
-  All three answers seen live:
+  All four answers seen live:
   - a tab running no TUI, sitting at a clean shell prompt: exit 1, `ok:false`,
     `error.code: "timeout"` — never satisfied, however long the timeout. So this is **not** a way to
     ask whether a shell is ready for typing; there is no such way.
+    **Except after Codex:** a shell that Codex has quit back to answers `ok:true`, `satisfied:true`,
+    and went on answering so for more than 45 s and after an `echo` was run in it. A shell that Claude
+    Code quit back to answers `timeout`. **verified** (live, 2026-09-24, Orca 1.4.209, Codex 0.156.1,
+    Claude Code 2.1.281, #232)
   - a TUI that Orca can see is blocked: `ok:true`, `wait.satisfied:false`, `status:"running"`, and
     `wait.blockedReason` says what it is — `"agent-interactive-prompt"` for Codex sitting on its
     folder-trust question.
   - a TUI waiting for work: `ok:true`, `wait.satisfied:true`.
+  - **a TUI busy working: exit 1, `ok:false`, `error.code: "timeout"`**, the same answer as a tab with
+    no TUI at all, until it goes idle. A Claude Code bot mid-turn (`✽ Architecting…`) answered a
+    2-second wait that way, and `ok:true`, `satisfied:true` two seconds later once the turn was done.
+    So `timeout` means "nothing went idle in time", not "no harness". `obk up` takes its second look
+    for 2 seconds, so a session already working on its start prompt then is reported as not started
+    (#232). **verified** (live, 2026-09-24, Orca 1.4.209, Claude Code 2.1.281; seen again for #232 on
+    a Claude tab writing out a long answer). Codex busy on a `sleep 25` it ran answered `ok:true`,
+    `satisfied:true` throughout, and so did a Claude Code and a Codex bot each busy on a `sleep 45`
+    their start prompt gave them, so a busy harness can read as idle too (same day, Codex 0.156.1).
   **`blockedReason` does not catch everything.** Claude Code showing its folder-trust screen answers
   `satisfied:true` with no `blockedReason` at all, while Codex on the same kind of screen answers
   `satisfied:false` with one. So it is a useful hint and not a test: whether something on screen wants
@@ -111,15 +133,49 @@ project → repo (`kind: "git" | "folder"`) → worktree (id = `<repoId>::<absPa
   Seen once since (2026-09-24, Orca 1.4.209, Codex 0.156.1, the #221 live check): `obk up` reported a
   Codex tab that was sitting on its trust question as up, with no `blockedReason`, so Codex's screen is
   not caught every time either.
-  So a `timeout` means "no TUI in this tab", and an `ok:true` answer means one is running, idle or not.
-  **verified** (live, both harnesses)
+  So **neither answer says whether a harness is in the tab**: `timeout` comes from a busy harness as
+  well as from a shell, and `ok:true` from a shell Codex left as well as from a harness. This entry
+  used to say that a `timeout` meant "no TUI". That was wrong, and it is how a busy session was told
+  it was not up (#232). The kit asks the process table instead (the entry on the foreground process
+  group, below). **verified** (live, 2026-09-24, Orca 1.4.209, both harnesses)
   **What that costs, proven the hard way.** A start prompt sent as a second `terminal send` into a fresh
   Claude tab that had answered `satisfied:true` landed on the folder-trust list and confirmed its
   default `No, exit`: the harness quit back to the shell. Nothing Orca offers tells that screen from a
-  ready one — `terminal list` carries no agent identity for a tab either. So the kit types one line into
+  ready one — `terminal list` carried no agent identity for a tab then, and the `agentIdentity` it
+  carries on 1.4.209 names the harness on either screen. So the kit types one line into
   a tab it opens and no more: the start prompt goes on that line as the harness's own prompt argument,
   and the harness holds it until the trust question and the update offer are answered. Both harnesses
   then run it by themselves. **verified** (live, Claude Code 2.1.278 and Codex 0.155.1)
+- **`agentIdentity`** (`"claude"`/`"codex"`) is on a harness tab in `terminal list --json` and
+  `terminal show --json` on 1.4.209, and is absent on a plain shell tab. Orca builds it from ranked
+  evidence (`out/shared/pane-agent-evidence-sources.js` in the app bundle): a live hook, the
+  foreground process, a launch Orca saw, a finished hook, a sleeping session, a sibling pane, the
+  title. It is **late** and it can be **stale**:
+  - late: it came 0.5–1 s after the launch line, and for a first-run Codex it was still missing at
+    1 s, when the tab already answered `blockedReason: "agent-trust-workspace"`, and there at 6 s.
+  - cleared: within 2 s of Claude Code's `/exit`, about 1 s after Claude Code's Ctrl-C twice, and
+    within about 3 s of Codex's `/quit` after a turn.
+  - stale: Codex started and quit with `/quit` before any turn left a tab at a zsh prompt whose
+    `terminal list` still said `codex` more than 70 s later, while `terminal show` for the same tab said
+    `claude`, left over from an earlier run in it. `orca worktree ps` still listed a `claude` agent
+    `done` for that pane.
+  So it names the harness that is or was in a tab, not one that is running now. **verified** (live,
+  2026-09-24, Orca 1.4.209, Claude Code 2.1.281, Codex 0.156.1, #232)
+- **The foreground process group of a tab's terminal says whether a program is running in it.**
+  `orca diagnostics memory --json` lists every pane under `result.worktrees[].sessions[]` as
+  `{ sessionId, paneKey, pid, cpu, memory }`; `sessionId` is the tab's `ptyId`, and `pid` is the
+  pane's own process, `/usr/bin/login` on macOS, with the login shell (`-/bin/zsh`) as its child. The
+  call took 0.15 s. `ps -o pid=,ppid=,tpgid=,comm= -p <pid>` gives the terminal's foreground group:
+  the shell's own pid at a prompt, the harness's (`claude`, `codex`) while it runs, and the shell's
+  again within 3 s of every quit above, the stale-identity one included. The harness leads its own
+  group, and its `comm` is exactly `claude` or `codex` (native installs, started by the kit's launch
+  line, which has no `exec`). A stale identity can sit over another program: Codex quit before any
+  turn, then `less` run in the same tab, gave `agentIdentity: "codex"`, `less` in front and `tui-idle`
+  `satisfied:true` for 20 s. So the kit takes a harness to be in a tab when the foreground is not its
+  shell (a busy one included), and the mail nudge types only when the process in front is the one
+  Orca names. When the pid or the group cannot be read it says it cannot tell and
+  types nothing (ADR 0011). `diagnostics memory` is a diagnostics command and may change.
+  **verified** (live, 2026-09-24, Orca 1.4.209, macOS 26.6.2, Claude Code 2.1.281, Codex 0.156.1, #232)
 - `orca terminal send [--terminal <h>] [--text <t>] [--enter] [--interrupt] [--wait-submit <s>] [--retry-request <id>]` — `accepted:true` means input accepted, not that the agent read it; never resend on silence; use `--retry-request` for an idempotent retry.
   **A carriage return or a line feed inside `--text` does not submit early.** Sent with `--enter` into a running agent, a line with `\r` or `\n` in the middle arrives as **one** message with a line break where the character was, and is answered once: Claude Code's transcript shows one user turn holding both lines, and Codex's screen shows one prompt of two lines and one answer. So the mail nudge, which carries the sender's subject as typed, cannot be split into two prompts by a subject that has one in it. **verified** (live, 2026-09-23, Orca 1.4.207, Claude Code 2.1.280 with `--model haiku`, Codex 0.155.1; #176)
   **While Codex sits on its own update offer, Orca refuses a line with `--enter` as `agent_prompt_blocked`.** Seen three times in a row on 2026-09-23 (Codex 0.155.1 offering 0.156.0); answered `2` (Skip), the next line went through. **verified** (live)
@@ -182,11 +238,11 @@ config puts it in "YOLO mode"), only the update offer.
 
 ### Session resume inside Orca (verified)
 
-Orca stores a resume record per pane key (`sleepingAgentSessionsByPaneKey`) and relaunches with `claude --resume <id>` / `codex resume <id>`. Closing a tab drops the record. Orca's Session History can find old transcripts but does not know which bot and session they belonged to. This is why the kit keeps its own book (ADR 0002).
+Orca stores a resume record per pane key (`sleepingAgentSessionsByPaneKey`) and relaunches with `claude --resume <id>` / `codex resume <id>`. Closing a tab drops the record. Orca's Session History can find old transcripts but does not know which bot and session they belonged to. This is why the kit keeps its own book (ADR 0012).
 
 ### Orca's own agent hooks (verified)
 
-Orca writes hooks into the user-level harness settings (`~/.claude/settings.json`, Codex hooks). They post to a local port using env vars set in each pane: `ORCA_PANE_KEY`, `ORCA_TAB_ID`, `ORCA_WORKTREE_ID`, `ORCA_TERMINAL_HANDLE`, `ORCA_AGENT_HOOK_PORT`, `ORCA_AGENT_HOOK_TOKEN`. Those variables are inherited all the way down — a harness started in a tab has them, and so does a hook the harness runs — so `ORCA_TAB_ID` is how anything running in a tab knows which tab it is in. **verified** (live). Orca's own per-pane record (`providerSessionId` in `…/orca/agent-hooks/last-status.json`) was empty for kit-made tabs, so it is not a cross-check to lean on. `…/orca/agent-hooks/last-status.json` holds per pane: state, last hook event, provider session id, transcript path. Internal; a cross-check only. The kit's hooks live in the bot folder and must not touch these (ADR 0010).
+Orca writes hooks into the user-level harness settings (`~/.claude/settings.json`, Codex hooks). They post to a local port using env vars set in each pane: `ORCA_PANE_KEY`, `ORCA_TAB_ID`, `ORCA_WORKTREE_ID`, `ORCA_TERMINAL_HANDLE`, `ORCA_AGENT_HOOK_PORT`, `ORCA_AGENT_HOOK_TOKEN`. Those variables are inherited all the way down — a harness started in a tab has them, and so does a hook the harness runs — so `ORCA_TAB_ID` is how anything running in a tab knows which tab it is in. **verified** (live). Orca's own per-pane record (`providerSessionId` in `…/orca/agent-hooks/last-status.json`) was empty for kit-made tabs, so it is not a cross-check to lean on. `…/orca/agent-hooks/last-status.json` holds per pane: state, last hook event, provider session id, transcript path. Internal; a cross-check only. The kit's hooks live in the bot folder and must not touch these (ADR 0020).
 
 ### Mailbox
 
@@ -257,7 +313,7 @@ Proved live on 2026-09-21 (Orca 1.4.205), in throwaway workspaces since removed:
 - `-c model_context_window=<n>` really reaches the session: the rollout's `token_count.info.model_context_window` follows it, at 95% of the number given — 123456 came back as 117283, 200000 as 190000, and a session with no override as 258400, which is 95% of gpt-6-astra's own 272000. A value that is not a whole number is refused by Codex itself, at startup: `invalid type: string "1m", expected i64`. **verified** (live, 0.155.1)
 - Approval levels: `auto` = `--approve-for-me`; `ask` = `-a on-request`; `dangerously-skip` = `--dangerously-bypass-approvals-and-sandbox`. In `auto` the sandbox limits writes to the launch folder plus `--add-dir`; network and outside commands (`orca`, `gh`, `git fetch`) go through the auto reviewer.
 - **The Orca CLI does not reach Orca from inside a Codex session at the kit's default approval level, and one Codex setting changes that.** Run through the kit on 2026-09-21 (Codex 0.155.1, Orca 1.4.205), the bot writing down what it got. Plain `--approve-for-me`: `orca status --json` runs and exits 0 but answers `"app": {"running": false, "pid": null}` and `"runtime": {"state": "stale_bootstrap", "reachable": false, "connectionState": "disconnected"}`, and `orca orchestration check --terminal $ORCA_TERMINAL_HANDLE --peek --json` is refused with `runtime_unavailable: Could not connect to the running Orca app` (exit 1). The same bot at the same approval level with `-c sandbox_workspace_write.network_access=true` answers `"app": {"running": true, "pid": 15485}`, `"runtime": {"state": "ready", "reachable": true}`, and the mailbox check answers `ok: true` (exit 0). So the calls the kit makes are refused without that switch and succeed with it, and the kit sets it for Codex sessions. **verified** (live)
-  **It is the sandbox that decides, not the approval level.** Run on 2026-09-23 (Codex 0.155.1, Orca 1.4.207) with `codex exec` in throwaway folders, each asked to run `orca status --json`: the `workspace-write` sandbox with the switch reached Orca (`reachable: true`), the same sandbox without it did not (`false`), and `--dangerously-bypass-approvals-and-sandbox` with the switch reached it too, so the switch is accepted and harmless where there is no sandbox. The approval policy only decides who says yes to a command. So the switch goes on every Codex session, as ADR 0005's amendment says (#176). At `ask` the kit passes only `-a on-request`, so the sandbox is whatever the user's own Codex config says: `danger-full-access` on this machine, `workspace-write` by Codex's own default. **verified** (live)
+  **It is the sandbox that decides, not the approval level.** Run on 2026-09-23 (Codex 0.155.1, Orca 1.4.207) with `codex exec` in throwaway folders, each asked to run `orca status --json`: the `workspace-write` sandbox with the switch reached Orca (`reachable: true`), the same sandbox without it did not (`false`), and `--dangerously-bypass-approvals-and-sandbox` with the switch reached it too, so the switch is accepted and harmless where there is no sandbox. The approval policy only decides who says yes to a command. So the switch goes on every Codex session, as ADR 0015 says (#176). At `ask` the kit passes only `-a on-request`, so the sandbox is whatever the user's own Codex config says: `danger-full-access` on this machine, `workspace-write` by Codex's own default. **verified** (live)
   **Codex's folder trust in a subfolder of a git repo is given to the repo root**: its question says "Trusting will apply to the repository root". A bot folder is always inside the bots repo, so one trust answer covers every bot folder on that machine. **verified** (live, 2026-09-23, Codex 0.155.1)
 - **A Codex session at the kit's default level cannot start a Codex of its own.** Inside `--approve-for-me` (with the network switch above), `codex exec --skip-git-repo-check '…'` exits 1 at once: `WARNING: proceeding, even though we could not create PATH aliases: Operation not permitted (os error 1)` then `Error: failed to initialize in-process app-server client: Operation not permitted (os error 1)`. No rollout is written. At `--dangerously-bypass-approvals-and-sandbox` the child runs and is on record. So a Codex child that takes over the book's conversation needs a session outside the sandbox. The system test for it runs its Codex bot at that level (#163). **verified** (live, 2026-09-23, Codex 0.155.1)
   **What those runs do not establish**, said here because the first version of this note claimed more than they show (review of PR #132). They do not establish *why*: the `task_name_for_pid` line the CLI prints is in the **successful** run too, so it is not the cause of the failure, whatever it is. And they do not exercise Codex's own approval or escalation path: the command exits 0 carrying JSON that says the runtime is not there, so there is nothing for Codex to escalate, and what a Codex session would do with a command it did consider blocked is untested. The finding is about the answer the kit's own calls get, not about the whole of what auto mode can be made to do.
@@ -282,6 +338,7 @@ Proved live on 2026-09-21 (Orca 1.4.205), in throwaway workspaces since removed:
 - **Neither harness links a new conversation to the one the same process had before.** A `/clear` or a `/new` leaves nothing behind saying "this replaced that". With the point above, that means **a conversation that has ended cannot be tied to the session that had it** by anything either harness writes down — which is why the kit never assigns an unrecorded conversation to a session and says what it found instead. **verified** (live, and by reading both harnesses' own files)
 - **Codex's own record of every conversation**: `~/.codex/sessions/<yyyy>/<mm>/<dd>/rollout-<stamp>-<id>.jsonl`, whose first line is `{"type":"session_meta","payload":{ id, cwd, timestamp, … }}`. `cwd` is the folder the conversation ran in, which for a kit session is always the bot home. A conversation spawned as a subagent says so under `payload.source`. **verified** (live, read on this machine)
 - **Codex has no `/clear`; `/new` is its clear**, and Codex reports it as an ordinary start: no hook fires at `/new` itself, and when the first prompt of the new conversation arrives, SessionStart fires with `source: "startup"` and the **new** id. So the source word cannot tell a `/new` from a program start on Codex — the id can. `codex resume <id>` keeps the **same** id and fires SessionStart for it. **verified** (live)
+- **Codex 0.156.1's `/new` asks a question before the new conversation starts**: `Where should the new conversation run?` with `1. Current checkout` (keep the current working directory) and `2. New worktree` (an isolated managed checkout). Text typed while it is up goes into the menu: its return picks option 1 and the rest is lost. Whatever clears a Codex session answers it with `1` and waits for it to go before asking anything (#245). For a bot, option 1 is the bot home; the kit never makes a git worktree (PRD 6.2), so `2` is never the answer. The answer is in the tables in SETUP.md step 5 and `obk-bot-building`. **verified** (live, screen recording of the tab, 2026-09-24, Codex 0.156.1)
 - No in-session scheduler in the CLI. **verified** (help)
 - Subagents: spawned only after a direct request or an instruction in a skill, so a skill must ask explicitly. **verified** (docs)
 - `codex queue --thread <id|name> --message <text>` (since 0.149): no official docs page, seems to reach only sessions on a shared app-server daemon, no delivery receipt, no sender identity; a queued row from 12 Sep was still undelivered a week later on this machine. Not trusted; retest. **verified as untrusted**
@@ -294,7 +351,7 @@ Proved live on 2026-09-21 (Orca 1.4.205), in throwaway workspaces since removed:
 
 ## 4. Skill names (verified in docs and spec)
 
-Agent Skills spec: `name` is 1–64 chars, lowercase letters, digits and hyphens, no leading, trailing or double hyphen, and must match the parent folder. Colon or slash prefixes fail to load in some hosts. Only `name` and `description` are portable frontmatter. Kit skills are `obk-<name>`; folder = `name` = symlink name (ADR 0009).
+Agent Skills spec: `name` is 1–64 chars, lowercase letters, digits and hyphens, no leading, trailing or double hyphen, and must match the parent folder. Colon or slash prefixes fail to load in some hosts. Only `name` and `description` are portable frontmatter. Kit skills are `obk-<name>`; folder = `name` = symlink name (ADR 0019).
 
 ## 5. Live checks still owed
 

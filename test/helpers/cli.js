@@ -4,6 +4,7 @@
 //
 //   <root>/bin/obk       symlink to the repo's src/cli.js (what `npm link` makes)
 //   <root>/bin/orca      fake Orca (helpers/fake-orca.js), what OBK_ORCA names
+//   <root>/bin/fake-ps   fake ps (helpers/fake-ps.js), what OBK_PS names
 //   <root>/orca-fake/    the fake Orca's world: state.json and calls.log
 //   <root>/cwd           the working directory the CLI is spawned from
 //   <root>/home          HOME, so a stray write to the home dir shows up here
@@ -14,7 +15,9 @@
 //                        Orca's own settings, where Orca keeps them on this
 //                        machine (tech notes, section 1)
 //
-// `bin` goes first on PATH, so the CLI under test is the real entry point. The
+// `bin` goes first on PATH, so the CLI under test is the real entry point, and
+// `<root>/bin/obk` is the path the kit is started by: the one it names itself
+// by wherever it calls itself back (#220), link and all. The
 // kit resolves the Orca CLI through OBK_ORCA, which every sandbox points at its
 // own fake, and the same fake is on PATH as well: no test can reach the real
 // Orca, whichever of the two ways it looks for it.
@@ -41,8 +44,10 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parse } from 'yaml';
 
 export const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
-const cliEntry = path.join(repoRoot, 'src', 'cli.js');
+/** This checkout's own CLI, by its full path: what the tests run, whatever `obk` is on PATH. */
+export const cliEntry = path.join(repoRoot, 'src', 'cli.js');
 const fakeOrcaEntry = fileURLToPath(new URL('./fake-orca.js', import.meta.url));
+const fakePsEntry = fileURLToPath(new URL('./fake-ps.js', import.meta.url));
 
 /** Where the fake Orca keeps its world, inside a sandbox. */
 const FAKE_ORCA_DIR = 'orca-fake';
@@ -173,20 +178,54 @@ export async function createSandbox(t) {
   ].join('\n'));
   await chmod(fakeOrca, 0o755);
 
+  // The fake ps, reading the same world: who is in front of each tab is part
+  // of what Orca's tabs hold (#232). Not called `ps`, so nothing that looks for
+  // `ps` on PATH finds it; only the kit's OBK_PS names it.
+  const fakePs = path.join(bin, 'fake-ps');
+  await writeFile(fakePs, [
+    '#!/usr/bin/env node',
+    `process.env.OBK_FAKE_ORCA_DIR = ${JSON.stringify(fakeDir)};`,
+    `import(${JSON.stringify(pathToFileURL(fakePsEntry).href)}).then((ps) => ps.runPs()).catch((error) => {`,
+    "  process.stderr.write(`fake ps: ${error && error.stack || error}\\n`);",
+    '  process.exit(70);',
+    '});',
+    '',
+  ].join('\n'));
+  await chmod(fakePs, 0o755);
+
   // The suite is often run from an Orca tab of its own, and Orca puts that
   // tab's variables in everything started there. None of them names a terminal
   // in the fake's world, and a kit that read them would behave one way on a
   // laptop and another in CI. So the kit starts as a plain shell outside Orca
   // does, with none, and a test that means it to run in a tab says which.
-  const outsideOrca = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith('ORCA_')));
+  //
+  // A tab the kit launched also has OBK_CLI from its launch line (#220). A
+  // sandbox starts without that too; a test that is about it sets it.
+  const outsideOrca = Object.fromEntries(Object.entries(process.env)
+    .filter(([name]) => !name.startsWith('ORCA_') && name !== 'OBK_CLI'));
   const env = {
     ...outsideOrca,
     PATH: `${bin}${path.delimiter}${process.env.PATH}`,
     HOME: home,
     OBK_ORCA: fakeOrca,
+    OBK_PS: fakePs,
   };
 
   const readState = async () => JSON.parse(await readFile(stateFile, 'utf8'));
+
+  /** How many times the fake Orca has answered `terminal wait` so far. */
+  const waitsSoFar = async () => {
+    try {
+      return (await readFile(path.join(fakeDir, 'calls.log'), 'utf8'))
+        .split('\n')
+        .filter((line) => line !== '')
+        .filter((line) => orcaCommand(JSON.parse(line)) === 'terminal wait')
+        .length;
+    } catch (error) {
+      if (error.code === 'ENOENT') return 0;
+      throw error;
+    }
+  };
 
   /** What Orca's settings say now, or nothing at all when the file has been taken away. */
   const readSettings = async () => {
@@ -205,6 +244,12 @@ export async function createSandbox(t) {
     homeSeeded: await snapshot(home),
     /** The environment the CLI is spawned with: `bin` first on PATH, HOME and OBK_ORCA inside the sandbox. */
     env,
+    /**
+     * The path `run` starts the kit by: the link in `bin`, not the file it
+     * leads to. It is what the kit names itself by wherever it calls itself
+     * back — its hook, its launch line, the commands it gives a bot (#220).
+     */
+    cli: obk,
     /** Path inside the sandbox's working directory. */
     path: (...parts) => path.join(cwd, ...parts),
     /**
@@ -218,6 +263,21 @@ export async function createSandbox(t) {
       env: options.env ?? env,
       stdin: options.stdin,
     }),
+    /** The fake ps: what it is, and every argv the kit handed it, `{ args }` in order. */
+    ps: {
+      cli: fakePs,
+      async calls() {
+        try {
+          return (await readFile(path.join(fakeDir, 'ps.log'), 'utf8'))
+            .split('\n')
+            .filter((line) => line !== '')
+            .map((line) => JSON.parse(line));
+        } catch (error) {
+          if (error.code === 'ENOENT') return [];
+          throw error;
+        }
+      },
+    },
     /** The fake Orca: what it is, what it knows, and what it was asked. */
     orca: {
       /** The CLI path OBK_ORCA names. */
@@ -256,9 +316,14 @@ export async function createSandbox(t) {
         terminal.orphaned = orphaned;
         await writeFile(stateFile, `${JSON.stringify(state, null, 2)}\n`);
       },
-      /** Change what the fake Orca knows or how it misbehaves; see helpers/fake-orca.js. */
+      /**
+       * Change what the fake Orca knows or how it misbehaves; see
+       * helpers/fake-orca.js. A `waitIdle` given here starts from the next
+       * `terminal wait`, however many were answered before it.
+       */
       async set(changes) {
-        await writeFile(stateFile, `${JSON.stringify({ ...await readState(), ...changes }, null, 2)}\n`);
+        const from = 'waitIdle' in changes ? { waitIdleFrom: await waitsSoFar() } : {};
+        await writeFile(stateFile, `${JSON.stringify({ ...await readState(), ...changes, ...from }, null, 2)}\n`);
       },
       /**
        * Orca's own settings file in the sandbox home — its per-agent default
@@ -480,12 +545,57 @@ export const TAB_TITLES = { daily: 'Bot Father daily', ops: 'Bot Father ops' };
  */
 export const TAB_SHELL = 'OBK_TAB_SHELL=$$';
 
-/** A launch line: the tab shell's pid, then the harness and its flags. */
-export const launchLine = (rest) => `${TAB_SHELL} ${rest}`;
+/**
+ * One word of a shell line as the kit writes it: bare when it holds nothing a
+ * shell would read as more than letters, and otherwise in single quotes, with
+ * each quote inside written `'\''`. The same form the kit has always given a
+ * bots folder in its hook.
+ */
+export const shellWord = (text) => (/^[A-Za-z0-9,._+:@%/=-]+$/.test(text)
+  ? text
+  : `'${text.replaceAll("'", "'\\''")}'`);
+
+/**
+ * Every way a shell line can spell `text` as one word that the kit may write:
+ * its own `shellWord` form, and in single quotes whether it needs them or not.
+ * Which one the kit picks is its own business; both reach a shell as the same
+ * word, and the tests that run the lines prove it.
+ */
+export const spellingsOf = (text) => [...new Set([shellWord(text), `'${text.replaceAll("'", "'\\''")}'`])];
+
+/** A path of nothing but the characters `shellWord` leaves bare, in single quotes it does not need. */
+const NEEDLESSLY_QUOTED = String.raw`'([A-Za-z0-9,._+:@%/=-]+)'`;
+
+/**
+ * A line the kit typed or wrote, with the CLI it names spelled the `shellWord`
+ * way: `OBK_CLI='/a/b/obk'` read as `OBK_CLI=/a/b/obk`, and a hook's leading
+ * `'/a/b/obk' session record` as `/a/b/obk session record`. The two spellings
+ * are the same word to a shell, so a test that pins the rest of a line
+ * exactly does not pin which of them the kit chose (#220).
+ */
+export const plainCli = (line) => line
+  .replace(new RegExp(String.raw`^(OBK_TAB_SHELL=\$\$ OBK_CLI=)${NEEDLESSLY_QUOTED}(?= )`), '$1$2')
+  .replace(new RegExp(String.raw`^${NEEDLESSLY_QUOTED}(?= session record )`), '$1');
+
+/**
+ * What a launch line carries after the pid: the CLI that typed it, for every
+ * `obk` the session runs to reach the same one (#220). A variable set on the
+ * line survives into both harnesses' shells where a PATH does not: Codex's
+ * shell reads the user's startup files again and puts the machine's own `obk`
+ * ahead of anything the line put first (measured, #220).
+ */
+export const cliOnLine = (cli) => `OBK_CLI=${shellWord(cli)}`;
+
+/**
+ * A launch line: the tab shell's pid, the CLI that typed it, then the harness
+ * and its flags. `box` is the sandbox whose `obk` ran the `up`; a line typed
+ * by the kit started some other way takes `{ cli }` instead.
+ */
+export const launchLine = (box, rest) => `${TAB_SHELL} ${cliOnLine(box.cli)} ${rest}`;
 
 /**
  * A session's name, which is also the address a Claude session is reached at:
- * `<bot>.<session>` (PRD 6.9, ADR 0008). Proved live that the name survives a
+ * `<bot>.<session>` (PRD 6.9, ADR 0018). Proved live that the name survives a
  * resume, and the kit passes it on every launch anyway (tech notes, section 2).
  */
 export const addressOf = (bot, session) => `${bot}.${session}`;
@@ -500,13 +610,13 @@ export const CODEX_NETWORK = '-c sandbox_workspace_write.network_access=true';
 
 /**
  * The launch command a session with nothing set is started with. Every session
- * carries an explicit approval flag (ADR 0005), so a user's global harness
+ * carries an explicit approval flag (ADR 0015), so a user's global harness
  * defaults cannot leak into a bot, and `auto` is what a session that named no
  * level takes. What makes the session reachable comes straight after
  * it: a Claude session's own name, and on Codex the switch that widens the
  * sandbox that flag chose far enough to reach Orca.
  */
-export const bareLaunch = (harness, bot, session) => launchLine(harness === 'claude'
+export const bareLaunch = (box, harness, bot, session) => launchLine(box, harness === 'claude'
   ? `claude --permission-mode auto -n ${addressOf(bot, session)}`
   : `codex --approve-for-me ${CODEX_NETWORK}`);
 
@@ -675,14 +785,14 @@ export function recordSession(box, { bots, bot, tab, env, stdin, raw = false, ne
       stdin: input,
     });
   }
-  return throughAHarness(box, `obk ${args.map((word) => `'${word}'`).join(' ')}`, { env, tab, stdin: input, nested });
+  return throughAHarness(box, [box.cli, ...args].map(shellWord).join(' '), { env, tab, stdin: input, nested });
 }
 
 /**
  * Where each harness reads a project's hooks from, inside a bot home. Both
  * were proven live on this machine: Claude Code fires a `SessionStart` hook
  * out of `<cwd>/.claude/settings.json` and Codex out of `<cwd>/.codex/hooks.json`,
- * with no user-level settings involved either side (ADR 0010).
+ * with no user-level settings involved either side (ADR 0020).
  */
 export const HOOK_FILES = {
   claude: path.join('.claude', 'settings.json'),
@@ -730,7 +840,7 @@ export function eventsIn(hooks) {
  *
  * How the file is arranged is the implementer's — a harness's hook format is
  * the harness's — but two things are not. The kit's entry is a shell line that
- * runs `obk session record`, and it belongs to one named event.
+ * runs `<cli> session record`, and it belongs to one named event.
  */
 export function kitEventsIn(hooks) {
   const events = eventsIn(hooks) ?? {};
@@ -781,8 +891,14 @@ export async function botFatherTabs(box, bots) {
   };
 }
 
-/** What was typed into a tab, in order: the text of each `terminal send`. */
-export const typedInto = (terminal) => (terminal.typed ?? []).map((entry) => entry.text);
+/**
+ * What was typed into a tab, in order: the text of each `terminal send`, with
+ * the kit's own CLI spelled one way (`plainCli`).
+ */
+export const typedInto = (terminal) => (terminal.typed ?? []).map((entry) => plainCli(entry.text));
+
+/** Each `terminal send` into a tab, `{ text, enter }`, the text as `typedInto` gives it. */
+export const sentInto = (terminal) => (terminal.typed ?? []).map((entry) => ({ ...entry, text: plainCli(entry.text) }));
 
 /**
  * The only Orca commands the kit may use (the slice interface, amendment 5,
@@ -801,6 +917,8 @@ export const ALLOWED_ORCA_COMMANDS = [
   'terminal rename',
   'terminal wait',
   'terminal send',
+  // Read-only: each pane's pid, the one place Orca gives it (#232).
+  'diagnostics memory',
   'orchestration run-create',
   'orchestration run-use',
   // Read-only: Orca's record of one Run, its coordinator among it (1.4.209).

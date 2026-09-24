@@ -1,4 +1,4 @@
-// Skills from an online repo, at the version the user pinned (PRD 6.7, ADR 0004).
+// Skills from an online repo, at the version the user pinned (PRD 6.7, ADR 0014).
 //
 // A source is a git repository the user names in `<bots>/skills.yaml`. The kit
 // clones it into `<bots>.skill-sources/<name>`, a sibling of the bots folder and
@@ -19,6 +19,7 @@ import path from 'node:path';
 import { parseDocument } from 'yaml';
 
 import { changesExactly, requireBotsFolder, YAML_OUT } from './bot.js';
+import { ownCli, shellWord } from './launch.js';
 
 /** The user's file that lists where skills come from. */
 const SKILLS_YAML = 'skills.yaml';
@@ -201,7 +202,7 @@ function clone(bots, source, rev, recorded) {
 export function wrongClone(bots, source) {
   const from = originOf(cloneDir(bots, source.name));
   if (from === source.repo) return undefined;
-  return `${source.name}: the clone beside your bots folder came from ${from}, and skills.yaml now names ${source.repo}. Run obk skills update --source ${source.name} to take it from there instead.`;
+  return `${source.name}: the clone beside your bots folder came from ${from}, and skills.yaml now names ${source.repo}. Run ${shellWord(ownCli())} skills update --source ${source.name} to take it from there instead.`;
 }
 
 /** Where a clone came from, as git itself has it written down. */
@@ -226,7 +227,7 @@ function checkout(dir, source, rev, recorded) {
 
   if (at === undefined) {
     throw new Error(recorded
-      ? `${source.name}: ${source.repo} no longer has the commit skills.yaml records for it (${rev.slice(0, 7)}), so the version you pinned cannot be put back. Run obk skills update --source ${source.name} to take what ${source.ref} names now, or point it at a version the repo still has.`
+      ? `${source.name}: ${source.repo} no longer has the commit skills.yaml records for it (${rev.slice(0, 7)}), so the version you pinned cannot be put back. Run ${shellWord(ownCli())} skills update --source ${source.name} to take what ${source.ref} names now, or point it at a version the repo still has.`
       : `${source.name}: ${source.repo} has nothing called ${rev}`);
   }
   git(['-c', 'advice.detachedHead=false', 'checkout', '--quiet', at], dir, `${source.name}: could not go to ${rev}`);

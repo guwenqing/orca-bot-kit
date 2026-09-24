@@ -5,7 +5,7 @@
 // kit's own start-prompt file for it is deleted. What the book knew about it —
 // the conversations it had — is kept in `sessions.yaml` under `retired:`, off
 // the live list, because those ids are the only way back to that history
-// (ADR 0002). Off the live list means off it everywhere: roster, health and
+// (ADR 0012). Off the live list means off it everywhere: roster, health and
 // usage no longer see a session there, and a new session given the same name
 // later is a new conversation, not the old one resumed.
 //
@@ -15,7 +15,8 @@
 // command can reach. A tab in the bot's project that the book does not name is
 // the user's, and the whole retirement is refused rather than close it.
 //
-// Bot Father is never retired.
+// Bot Father is never retired, and nor is its management session, daily. Any
+// other session of Bot Father's retires like any bot's (#230).
 
 import assert from 'node:assert/strict';
 import { mkdir, readFile, readdir, stat, utimes, writeFile } from 'node:fs/promises';
@@ -27,6 +28,7 @@ import {
   assertCleanFailure,
   bareLaunch,
   bookOf,
+  botFatherTabs,
   botHomeOf,
   createSandbox,
   orcaCallsOf,
@@ -277,7 +279,7 @@ test('RS7 a session added later under the same name starts a new conversation', 
   const daily = await liveTab(box, bots, 'api-bot', 'daily');
   assert.deepEqual(
     typedInto(daily.terminal),
-    [bareLaunch('claude', 'api-bot', 'daily')],
+    [bareLaunch(box, 'claude', 'api-bot', 'daily')],
     'a fresh start, with no resume of the retired session\'s conversation',
   );
   assert.equal((await sessionIn(bots, 'api-bot', 'daily')).session, undefined);
@@ -471,7 +473,7 @@ test('RB6 a bot already in retired/ is refused, and nothing is done', async (t) 
 
 // ------------------------------------------------------------ both kinds
 
-test('RT1 Bot Father is never retired, whole or a session of it, and nothing is done', async (t) => {
+test('RT1 Bot Father is never retired, whole or its management session daily, and nothing is done', async (t) => {
   const box = await createSandbox(t);
   const bots = await madeBot(box);
   const terminals = await box.orca.terminals();
@@ -523,4 +525,70 @@ test('RT3 retire answers --json with JSON and nothing else', async (t) => {
     assert.fail(`--json should print JSON and nothing else, got: ${result.stdout} (${error.message})`);
   }
   assert.ok(result.stdout.includes('api-bot'), `got: ${result.stdout}`);
+});
+
+test('RT4 a Bot Father session that is not daily retires like any bot\'s, and daily and the ops tab are left alone', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await madeBot(box);
+  const added = await box.run(['session', 'add', '--bots', 'bots', '--bot', 'bot-father', '--name', 'grooming']);
+  assert.equal(added.code, 0, added.stderr);
+  await up(box, 'bot-father');
+  const daily = await liveTab(box, bots, 'bot-father', 'daily');
+  const grooming = await liveTab(box, bots, 'bot-father', 'grooming');
+  await recordSession(box, { bots, bot: 'bot-father', tab: daily.tabId, session: 'sess-bf' });
+  await recordSession(box, { bots, bot: 'bot-father', tab: grooming.tabId, session: 'sess-grooming' });
+  const [ops] = (await botFatherTabs(box, bots)).leftovers;
+  assert.ok(ops, 'Bot Father should have its ops tab, or this proves nothing');
+  const yamlBefore = parse(await readFile(botYamlOf(bots, 'bot-father'), 'utf8'));
+  const setups = await box.orca.setups();
+  const from = await callCount(box);
+
+  const result = await retire(box, '--bot', 'bot-father', '--session', 'grooming');
+
+  assert.equal(result.code, 0, result.stderr);
+  const calls = await since(box, from);
+  assert.deepEqual(closes(calls).map((call) => orcaFlag(call, '--terminal')), [grooming.handle], 'grooming\'s tab, by its own handle, and no other');
+  assert.deepEqual(deletes(calls), [], 'Bot Father\'s Orca project stays');
+  assert.deepEqual(await box.orca.setups(), setups);
+  const terminals = await box.orca.terminals();
+  assert.deepEqual(terminals.find((one) => one.tabId === daily.tabId), daily.terminal, 'daily\'s tab is as it was');
+  assert.deepEqual(terminals.find((one) => one.tabId === ops.tabId), ops, 'and so is the ops tab');
+  assert.equal(terminals.some((one) => one.tabId === grooming.tabId), false, 'grooming\'s tab is gone');
+
+  const yamlAfter = parse(await readFile(botYamlOf(bots, 'bot-father'), 'utf8'));
+  assert.deepEqual(yamlAfter.sessions, yamlBefore.sessions.filter((one) => one.name !== 'grooming'), 'grooming comes off bot.yaml, and daily stays on it');
+  const book = parse(await readFile(bookOf(bots, 'bot-father'), 'utf8'));
+  assert.equal(book.sessions?.grooming, undefined, `grooming is off the live list, got: ${JSON.stringify(book.sessions)}`);
+  assert.equal(book.sessions?.daily?.session, 'sess-bf', 'and daily is still on it');
+  const entries = (book.retired ?? []).filter((one) => one?.name === 'grooming');
+  assert.equal(entries.length, 1, `one retired entry for grooming, got: ${JSON.stringify(book.retired)}`);
+  assert.ok(stringsIn(entries[0]).includes('sess-grooming'), `its conversation is kept, got: ${JSON.stringify(entries[0])}`);
+  assert.ok(await exists(botHomeOf(bots, 'bot-father')), 'and Bot Father itself is where it was');
+});
+
+test('RT5 Bot Father is never retired whole, even when its project has no tab outside the book', async (t) => {
+  // RT1's whole-bot refusal can come from the ops tab alone, which a
+  // retirement refuses to close as a tab the book does not name (RB5). With
+  // the ops tab closed, the refusal has to be Bot Father's own.
+  const box = await createSandbox(t);
+  const bots = await madeBot(box);
+  const { inBook, leftovers } = await botFatherTabs(box, bots);
+  assert.equal(inBook.length, 1, 'daily\'s tab is up, and stays up');
+  await box.orca.set({ terminals: (await box.orca.terminals()).filter((one) => !leftovers.some((ops) => ops.tabId === one.tabId)) });
+  assert.deepEqual((await botFatherTabs(box, bots)).leftovers, [], 'no tab outside Bot Father\'s book, or this proves nothing');
+  const terminals = await box.orca.terminals();
+  const setups = await box.orca.setups();
+  const before = await snapshot(bots, skipGit);
+  const from = await callCount(box);
+
+  const result = await retire(box, '--bot', 'bot-father');
+
+  assertCleanFailure(result);
+  assert.ok(result.stderr.includes('bot-father'), `got: ${result.stderr}`);
+  const calls = await since(box, from);
+  assert.deepEqual(closes(calls), []);
+  assert.deepEqual(deletes(calls), []);
+  assert.deepEqual(await box.orca.terminals(), terminals);
+  assert.deepEqual(await box.orca.setups(), setups);
+  assert.deepEqual(await snapshot(bots, skipGit), before);
 });

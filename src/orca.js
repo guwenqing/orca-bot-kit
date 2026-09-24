@@ -1,4 +1,4 @@
-// Every call the kit makes to Orca goes through here (ADR 0001). Orca's CLI
+// Every call the kit makes to Orca goes through here (ADR 0011). Orca's CLI
 // changes often, so the kit reads `--json` and never the human text, and keeps
 // the parsing in one place.
 //
@@ -192,25 +192,83 @@ export const retitleTab = (handle, title) =>
   orca(['terminal', 'rename', '--terminal', handle, '--title', title]).rename;
 
 /**
- * Whether a TUI is running in the tab, and what it is waiting on if Orca says.
+ * What can be learned about the harness in a tab: what Orca says, and who is
+ * in front of the tab's terminal.
  *
- * `tui-idle` asks about a TUI, not about a shell: a tab sitting at a shell
- * prompt is refused with `timeout` however long you wait, a TUI that is up
- * answers `ok:true`, and `satisfied` only tells idle from busy. So this is the
- * way to learn whether a harness actually started — and `blockedReason` is
- * Orca saying something on screen wants answering, which is for the caller to
- * deal with, not the kit.
+ * Orca's answers alone do not tell a harness from a shell (tech notes, section
+ * 1, #232). `tui-idle` refuses a busy harness with `timeout` just as it refuses
+ * a shell, and a shell Codex quit to answers `ok`. `agentIdentity` comes late
+ * and can outlast the harness by minutes. So the answer the caller acts on is
+ * `front`: `program` when something other than the tab's shell holds its
+ * terminal, with `command` its name, `shell` when the shell does, and
+ * undefined when that cannot be read, with `unreadable` saying why. `answered` (an `ok` from `tui-idle`) and
+ * `agent` are Orca's own hints, for a caller that has nothing better.
+ * `blockedReason` is Orca saying something on screen wants answering, which is
+ * for the caller to deal with, not the kit.
  */
-export function tuiInTab(handle, timeoutMs) {
+export function harnessInTab(handle, timeoutMs) {
   const args = ['terminal', 'wait', '--terminal', handle, '--for', 'tui-idle', '--timeout-ms', String(timeoutMs)];
   const answer = ask(args);
 
-  if (answer.ok !== true) {
-    // Out of time means no TUI came up. That is an answer, not a breakdown.
-    if (answer.error?.code === 'timeout') return { running: false };
+  // Out of time means nothing went idle, busy or absent alike. That is an
+  // answer, not a breakdown.
+  if (answer.ok !== true && answer.error?.code !== 'timeout') {
     throw new Error(`Orca refused ${args.join(' ')}: ${answer.error?.message ?? 'no reason given'}`);
   }
-  return { running: true, blockedReason: answer.result?.wait?.blockedReason };
+
+  const shown = orca(['terminal', 'show', '--terminal', handle]).terminal;
+  const agent = typeof shown?.agentIdentity === 'string' && shown.agentIdentity !== '' ? shown.agentIdentity : undefined;
+  return {
+    answered: answer.ok === true,
+    blockedReason: answer.result?.wait?.blockedReason,
+    agent,
+    ...frontOf(shown?.ptyId),
+  };
+}
+
+/** The `ps` this run reads. OBK_PS overrides it, as OBK_ORCA does Orca. */
+const psCli = () => process.env.OBK_PS || '/bin/ps';
+
+/**
+ * Who holds the terminal of the pane `ptyId`: `{ front: 'shell' }`,
+ * `{ front: 'program', command }` with the name of the process leading the
+ * group in front, or `{ unreadable: <why> }`.
+ *
+ * Orca gives the pane's pid in `diagnostics memory` and nowhere else, and `ps`
+ * gives that pid's terminal's foreground process group (ADR 0011).
+ * On macOS the pane is `login` with the shell as its child, so the shell is in
+ * front when the group is the pane's own or that of a child of a `login` pane.
+ * `diagnostics memory` is a diagnostics command and may change, so everything
+ * here ends in "cannot tell" rather than in an error or a guess.
+ */
+function frontOf(ptyId) {
+  let pane;
+  try {
+    pane = orca(['diagnostics', 'memory']).worktrees
+      .flatMap((worktree) => worktree.sessions ?? [])
+      .find((session) => session.sessionId === ptyId)?.pid;
+  } catch (error) {
+    return { unreadable: `Orca would not give the pane's pid: ${error.message}` };
+  }
+  if (!Number.isInteger(pane) || pane <= 0) return { unreadable: 'Orca gave no pid for its pane' };
+
+  const own = psLine(pane);
+  if (own === undefined) return { unreadable: `ps could not read its pane, pid ${pane}` };
+  if (own.tpgid === pane) return { front: 'shell' };
+
+  const front = psLine(own.tpgid);
+  if (front === undefined) return { unreadable: `ps could not read the process in front, pid ${own.tpgid}` };
+  const shell = front.ppid === pane && path.basename(own.comm) === 'login';
+  return shell ? { front: 'shell' } : { front: 'program', command: path.basename(front.comm) };
+}
+
+/** One process as `ps` gives it, read only: `{ ppid, tpgid, comm }`, or undefined. */
+function psLine(pid) {
+  const asked = spawnSync(psCli(), ['-o', 'pid=,ppid=,tpgid=,comm=', '-p', String(pid)], { encoding: 'utf8' });
+  if (asked.error || asked.status !== 0) return undefined;
+  const line = /^\s*(\d+)\s+(\d+)\s+(-?\d+)\s+(.+?)\s*$/.exec(asked.stdout);
+  if (line === null) return undefined;
+  return { ppid: Number(line[2]), tpgid: Number(line[3]), comm: line[4] };
 }
 
 /**

@@ -33,7 +33,7 @@ plainly" comes from.
 ## This kit's own design
 
 The PRD and the ADRs carry the rest: the line-up suggestions and the
-role-to-skills guidance (PRD 6.8, ADR 0009, which puts that table in the
+role-to-skills guidance (PRD 6.8, ADR 0019, which puts that table in the
 management skill), a session's settings and the rule that the kit never
 hardcodes a model id, the approval levels and that the widest one is used only
 when the user asks for it in plain words, the two plain defaults that no
@@ -92,7 +92,7 @@ to pass on. See [LICENSES.md](LICENSES.md).
   his usage review complains of one question per turn.
 - The answer handed back is the roster card PRD 6.8 decides (name, harness,
   model and effort, a two-line charter, one hard limit).
-- The skills for each role are named, since ADR 0009 puts that choice in the
+- The skills for each role are named, since ADR 0019 puts that choice in the
   management skill.
 - What the command line does and does not do, checked against `obk --help`:
   `obk skills fetch` was missing; a charter, settings or list change is an

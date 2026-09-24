@@ -38,10 +38,12 @@ import {
   assertCleanFailure,
   bookOf,
   botHomeOf,
+  cliEntry,
   createSandbox,
   hookFileOf,
   orcaCommand,
   sessionIn,
+  shellWord,
   skipOrcaFake,
   snapshot,
 } from './helpers/cli.js';
@@ -493,7 +495,7 @@ for (const [label, text] of [
 ]) {
   test(`H24 a book that is YAML ${label} is reported, and the rest of the fleet with it`, async (t) => {
     // The book is a file of the user's repo like any other — committed,
-    // readable, and theirs to edit (ADR 0002) — so it can be in exactly the
+    // readable, and theirs to edit (ADR 0012) — so it can be in exactly the
     // state a bot.yaml can be in, and it is owed the same answer: one finding
     // naming the file, that bot's other checks skipped, every other bot still
     // reported. A check that falls over on one unreadable file takes the whole
@@ -632,7 +634,7 @@ test('H9e a CLAUDE.md that is not this bot\'s AGENTS.md is reported', async (t) 
 });
 
 test('H25 a CLAUDE.md that is not there at all is reported', async (t) => {
-  // The link is the kit's to make and to keep (PRD 6.6, ADR 0003): it is the
+  // The link is the kit's to make and to keep (PRD 6.6, ADR 0013): it is the
   // one way Claude Code is certain to read a bot's rules, and whether it reads
   // AGENTS.md without it turns on conditions the kit does not control (tech
   // notes, section 2). A wrong link is reported, so a missing one cannot be
@@ -736,6 +738,123 @@ test('H10 a line of the user\'s that mentions obk session record, beside the kit
   noneNaming(of(answer, { bot: 'api-bot' }), file, 'the kit\'s hook is where it belongs, and the line beside it is the user\'s');
   assert.deepEqual(answer.found, [], `nothing else is wrong in the fleet, got: ${JSON.stringify(answer.found, null, 2)}`);
 });
+
+test('H10 a hook of the kit\'s in the bare obk form an earlier kit wrote is in order', async (t) => {
+  // Every bot folder on a machine today holds this form. It still records
+  // sessions, through the `obk` the machine has installed, and the next `up`
+  // writes it in the new form (#220). A health check that reported it would
+  // nag every existing user about something that works.
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  await botUp(box, 'api-bot', { sessions: [['daily'], ['nightly', '--harness', 'codex']] });
+  const file = hookFileOf(bots, 'api-bot', 'codex');
+  const bare = `obk session record --bots ${shellWord(bots)} --bot api-bot 2>/dev/null || true`;
+  await writeFile(file, `${JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ type: 'command', command: bare, timeout: 10 }] }] } }, null, 2)}\n`);
+
+  const answer = await found(box);
+
+  noneNaming(of(answer, { bot: 'api-bot' }), file, 'the kit\'s hook is there, in the form an earlier kit wrote');
+  assert.deepEqual(answer.found, [], `nothing else is wrong in the fleet, got: ${JSON.stringify(answer.found, null, 2)}`);
+});
+
+test('H10 a hook that runs the kit by its own path is the kit\'s hook, and in order', async (t) => {
+  // #220: the kit's hook names the CLI that wrote it, quoted as a shell needs,
+  // where it used to say the bare `obk`. Written here by hand in that form, so
+  // the check is held to the form and not to whatever the last `up` wrote.
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  await botUp(box, 'api-bot', { sessions: [['daily'], ['nightly', '--harness', 'codex']] });
+  const file = hookFileOf(bots, 'api-bot', 'codex');
+  const kit = `${shellWord(box.cli)} session record --bots ${shellWord(bots)} --bot api-bot 2>/dev/null || true`;
+  await writeFile(file, `${JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ type: 'command', command: kit, timeout: 10 }] }] } }, null, 2)}\n`);
+
+  const answer = await found(box);
+
+  noneNaming(of(answer, { bot: 'api-bot' }), file, 'the kit\'s hook is where it belongs');
+  assert.deepEqual(answer.found, [], `nothing else is wrong in the fleet, got: ${JSON.stringify(answer.found, null, 2)}`);
+});
+
+/**
+ * A line of the user's that ends the way the kit's does, under a program that
+ * is not the kit. It is theirs (PRD 6.5, #165): the review of PR #247 found
+ * health reporting it as the kit's hook running a missing program `echo`.
+ */
+const theirEcho = (bots) => `echo session record --bots ${shellWord(bots)} --bot api-bot 2>/dev/null || true`;
+
+test('H10 a hooks file holding only a user\'s line that ends like the kit\'s is reported as not holding the kit\'s hook', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  await botUp(box, 'api-bot', { sessions: [['daily'], ['nightly', '--harness', 'codex']] });
+  const file = hookFileOf(bots, 'api-bot', 'codex');
+  await writeFile(file, `${JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ type: 'command', command: theirEcho(bots) }] }] } }, null, 2)}\n`);
+
+  const answer = await found(box);
+
+  const mine = of(answer, { kind: 'config', bot: 'api-bot' });
+  const finding = oneNaming(mine, file, 'the kit\'s hook is not in the file, whatever the user\'s line looks like');
+  assert.match(finding.says, /does not hold the kit's session hook/, `it should say the kit's hook is not there, got: ${finding.says}`);
+  assert.ok(!/\becho\b/.test(finding.says), `the user's echo is not the kit's hook, and not a program it runs, got: ${finding.says}`);
+});
+
+test('H10 a user\'s line that ends like the kit\'s, beside the kit\'s own hook, is not reported', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  await botUp(box, 'api-bot', { sessions: [['daily'], ['nightly', '--harness', 'codex']] });
+  const file = hookFileOf(bots, 'api-bot', 'codex');
+  const { held } = await kitLineIn(file);
+  held.hooks.SessionStart = [{ hooks: [{ type: 'command', command: theirEcho(bots) }] }, ...held.hooks.SessionStart];
+  await writeFile(file, `${JSON.stringify(held, null, 2)}\n`);
+
+  const answer = await found(box);
+
+  noneNaming(of(answer, { bot: 'api-bot' }), file, 'the kit\'s hook is where it belongs, and the line beside it is the user\'s');
+  assert.deepEqual(answer.found, [], `nothing else is wrong in the fleet, got: ${JSON.stringify(answer.found, null, 2)}`);
+});
+
+/** A hooks file holding one line of the kit's, in the form `obk up` writes it, naming `cli`. */
+async function kitHookNaming(file, cli, bots) {
+  const kit = `${shellWord(cli)} session record --bots ${shellWord(bots)} --bot api-bot 2>/dev/null || true`;
+  await writeFile(file, `${JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ type: 'command', command: kit, timeout: 10 }] }] } }, null, 2)}\n`);
+}
+
+test('H10 a hook of the kit\'s naming another CLI that is there is in order', async (t) => {
+  // Brought up by another copy of the kit — the checkout a system test ran,
+  // or an install at another path — and still a CLI that answers. It records
+  // sessions, so there is nothing to report.
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  await botUp(box, 'api-bot', { sessions: [['daily'], ['nightly', '--harness', 'codex']] });
+  const file = hookFileOf(bots, 'api-bot', 'codex');
+  await kitHookNaming(file, cliEntry, bots);
+
+  const answer = await found(box);
+
+  noneNaming(of(answer, { bot: 'api-bot' }), file, 'the kit\'s hook runs a CLI that is there');
+  assert.deepEqual(answer.found, [], `nothing else is wrong in the fleet, got: ${JSON.stringify(answer.found, null, 2)}`);
+});
+
+for (const [label, folder] of [['', 'uninstalled'], [' with a space in it', 'un installed'], [', a checkout\'s src/cli.js', 'gone checkout']]) {
+  test(`H10 a hook of the kit's naming a CLI that is not there${label} is reported, by that path, with obk up to put it right`, async (t) => {
+    // The failure this change makes possible (#220): the hook names the CLI by
+    // its path, the install at that path went, and `|| true` keeps the hook
+    // quiet while the book goes stale. Nothing else would ever say so. The
+    // missing path is what makes this finding and not "the file holds no hook
+    // of the kit's", which also ends in obk up.
+    const box = await createSandbox(t);
+    const bots = await seeded(box);
+    await botUp(box, 'api-bot', { sessions: [['daily'], ['nightly', '--harness', 'codex']] });
+    const file = hookFileOf(bots, 'api-bot', 'codex');
+    const gone = folder === 'gone checkout' ? path.join(box.root, folder, 'src', 'cli.js') : path.join(box.root, folder, 'bin', 'obk');
+    await kitHookNaming(file, gone, bots);
+
+    const answer = await found(box);
+
+    const mine = of(answer, { kind: 'config', bot: 'api-bot' });
+    const finding = oneNaming(mine, gone, 'the CLI the hook runs is not there');
+    assert.ok(wordsOf(finding).includes(file), `it should name the hooks file, got: ${JSON.stringify(finding)}`);
+    assert.match(finding.says, /obk up/, `it should say obk up puts the right one back, got: ${finding.says}`);
+  });
+}
 
 // ---------------------------------------------------------------------------
 // H11, H12, H13 — skills.
@@ -990,7 +1109,7 @@ test('H16 the tab outside Bot Father\'s book is the ops tab, and is never report
 //
 // The book learns a session's conversation from the kit's hook, and the hook
 // can miss one: a clear it did not record, a Codex hooks file trusted after the
-// event it would have caught (ADR 0002, ADR 0010). Then the book is stale, and
+// event it would have caught (ADR 0012, ADR 0020). Then the book is stale, and
 // the only other record is the harness's own. So health reads what each
 // harness keeps for the bot's folder, the way `obk usage` does, and says which
 // conversations the book does not name.

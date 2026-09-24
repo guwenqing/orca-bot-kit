@@ -113,17 +113,43 @@ nobody can compare with last week's.
 Approval is the ordinary automatic level unless the user asks for something
 else in plain words. Do not raise it to make a session smoother.
 
+A session that works on files of its own gets a work dir inside the bot's
+folder, under `work/`: `--work-dir work/<session>`. Every clone it needs goes
+in there too, not beside the bots folder or anywhere else outside the bot
+home. Where the user names another place in plain words, that place is the
+work dir, and its clones go there. `work/` is kept out of the bots repo, and a
+path written relative to the bot home still points at the right folder when
+the bots folder moves. `obk session add` and `obk session change` say so when a
+work dir leads out of the bot home; take that back to the user rather than
+past them.
+
 ## Offer a line-up rather than a blank page
 
 Someone making their first bots does not know what a good set looks like, so
-propose one and say what each part is for. A pair of developers on different
-models with an architect over them, where one implements, the other writes
-the acceptance tests and reviews, and the architect settles disagreements and
+propose one and say what each part is for. A pair of developers, perhaps on
+different models, with an architect over them: each developer works an issue
+of its own, and the architect hands out the issues, settles disagreements and
 digs into the hard causes. A workhorse, a writer and a thinker, for work that
 is not development.
 
 Suggestions only: they take out or rename what they like, and you build what
 they end up with.
+
+## A bot that writes code
+
+Its tests come from a different author than its code, and its work is read
+by a different reviewer. Write it that way in the charter and the start
+prompts: "a different author", "a different reviewer". Which kind each one
+is, a fresh subagent, a new session, another bot or a person, is the user's
+to say. Ask them, and write what they chose; where they leave it open, leave
+it open. Do not choose for them: the kind you write becomes the rule. A
+line-up that hands one developer's tests to the other has two sessions on
+every issue and loses the pair's parallel work.
+
+The kit's `tests-first` and `review` rule units say this. They apply to code,
+so a bot carries them only when its `rules:` list in `bot.yaml` names them,
+as `kit:tests-first` and `kit:review`; add them to a code-writing bot's list
+by hand and run `obk rules build`.
 
 ## Give it the skills the job needs, and no more
 
@@ -220,6 +246,7 @@ otherwise `/Applications/Orca.app/Contents/Resources/bin/orca`. A bare
 | Claude Code's folder trust list | `\x1b[B\r` | down, return: it starts on **No, exit** |
 | Codex's `Trust this folder?`, `1. Trust and continue` | `1\r` | yes (older: `1. Yes, continue`) |
 | Codex's `Hooks need review` | `2\r` | trust all and continue |
+| Codex's `/new`: `Where should the new conversation run?` | `1\r` | current checkout (bot home) |
 | Codex's update offer, `1. Update now` | `1\r` | accept it |
 | `[oh-my-zsh] Would you like to update?` | `n` | no: the shell is the user's to update |
 | Claude Code's `Teach auto mode about…` | `2\r` | **Not now**: it writes the user's settings |
@@ -229,7 +256,9 @@ table: a harness that has added an option has moved them. Codex's hooks
 question matters most. The kit's hook is how the book learns which
 conversation the session is running, and until it is answered the
 conversation has not started. Codex's trust applies to the repository root,
-which is the whole bots folder.
+which is the whole bots folder. Codex's `/new` asks where the new
+conversation runs; the answer is always the current checkout, the bot home,
+and never `2. New worktree`: the kit never makes a git worktree.
 
 Where the kit says no session came up, the shell swallowed the launch line,
 usually while it was asking its own question. Answer the shell, then close

@@ -1,7 +1,7 @@
 // What a session is started with: the one line typed into its tab, which brings
 // the harness up and carries the session's start prompt with it.
 //
-// The flag mapping is PRD 6.4 and ADR 0005, re-checked against the installed
+// The flag mapping is PRD 6.4 and ADR 0015, re-checked against the installed
 // CLIs (Claude Code 2.1.278, Codex 0.155.1). Every session is given its
 // approval level explicitly, so a user's own global harness defaults cannot
 // leak into a bot. The kit names no model: a session that sets none gets the
@@ -12,6 +12,7 @@
 
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 /** The approval levels, and what each one is called on each harness. */
 const APPROVAL = {
@@ -38,7 +39,7 @@ export const bypassFlags = (harness) => APPROVAL[harness]['dangerously-skip'];
 
 export const HARNESSES = Object.keys(APPROVAL);
 
-/** The level a session that names none runs at (ADR 0005). */
+/** The level a session that names none runs at (ADR 0015). */
 export const DEFAULT_APPROVAL = 'auto';
 
 /** A setting the user left out. An empty string is one too: it means the harness's own. */
@@ -49,7 +50,7 @@ export const harnessOf = (session, botHarness) => (set(session.harness) ? sessio
 
 /**
  * A session's name on Claude Code, which is also the address another Claude
- * session writes to (ADR 0008). It goes on the launch line as `-n`, and it is
+ * session writes to (ADR 0018). It goes on the launch line as `-n`, and it is
  * re-applied every time the session is started: a resume keeps the name by
  * itself (tech notes, section 2), and the kit does not depend on that.
  */
@@ -161,7 +162,7 @@ export function launchCommand(session, { harness, home, workDir, prompt, promptF
 
   if (harness === 'claude') {
     // The name is the address other Claude sessions write to, so it goes on
-    // every launch line, a resume included (ADR 0008).
+    // every launch line, a resume included (ADR 0018).
     if (address !== undefined) words.push('-n', address);
     // The context window rides on the model name: `sonnet[1m]`.
     if (set(session.model)) words.push('--model', set(session.context) ? `${session.model}[${session.context}]` : session.model);
@@ -174,7 +175,7 @@ export function launchCommand(session, { harness, home, workDir, prompt, promptF
     if (set(session.effort)) words.push('-c', `model_reasoning_effort=${session.effort}`);
     if (set(session.context)) words.push('-c', `model_context_window=${session.context}`);
     // In Codex's auto mode the sandbox lets it write in the folder it was
-    // started in, and nowhere else (ADR 0005), so a work dir outside the bot
+    // started in, and nowhere else (ADR 0015), so a work dir outside the bot
     // home has to be named.
     if (workDir !== undefined && !inside(home, workDir)) words.push('--add-dir', workDir);
   }
@@ -184,6 +185,7 @@ export function launchCommand(session, { harness, home, workDir, prompt, promptF
     // starts — the shell's child — from anything the session starts later inside
     // the tab. `$$` is the shell's, and it is not quoted for that reason.
     `${SHELL_ENV}=$$`,
+    `${CLI_ENV}=${quoted(ownCli())}`,
     ...words.map(quoted),
     ...extraWords(session.extra_args),
     ...resumeWords(harness, resume),
@@ -274,3 +276,24 @@ const quoted = (word) => (/^[A-Za-z0-9,._+:@%/=-]+$/.test(word) ? word : `'${wor
 
 /** The same, for anything else of the kit's that has to build a shell line. */
 export const shellWord = quoted;
+
+/**
+ * The CLI that is running, by the path it was started by: the kit calls itself
+ * back with this, never with the bare name `obk`, because the bare name is
+ * whatever PATH says, and PATH is not the kit's to decide (#220). A user's
+ * install is started through npm's bin link, and the link is kept rather than
+ * resolved, so the path survives an upgrade of the package; a system test that
+ * runs a checkout's `src/cli.js` gets that checkout. What an environment
+ * variable claims is not asked: the kit says who it is from how it was started.
+ */
+export const ownCli = () => (process.argv[1] === undefined
+  // Nothing started as a script, as with `node -e`: the kit's own entry file.
+  ? fileURLToPath(new URL('./cli.js', import.meta.url))
+  : path.resolve(process.argv[1]));
+
+/**
+ * Where the launch line hands the session the CLI that started it, so a bot's
+ * own commands can call the same one. A plain variable, because a harness's
+ * shell keeps those where it rearranges PATH (#220).
+ */
+export const CLI_ENV = 'OBK_CLI';

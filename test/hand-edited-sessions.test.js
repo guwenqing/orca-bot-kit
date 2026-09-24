@@ -8,7 +8,7 @@
 // An approval level of `yolo` would become a flag the harness does not take —
 // it prints its usage, exits, and the tab falls back to a shell. Worse, a
 // mapping that quietly dropped it would start a session at the harness's own
-// permission level, which is the one failure ADR 0005 exists to stop.
+// permission level, which is the one failure ADR 0015 exists to stop.
 //
 // So the refusal comes before the tab is made. A tab opened and then abandoned
 // is worse than no tab: the book names it, the next run takes it for a live
@@ -178,7 +178,7 @@ test('a Claude context written the Claude way still comes up', async (t) => {
   assert.equal(daily.length, 1, `the session should have come up, got ${JSON.stringify(await box.orca.terminals())}`);
   assert.deepEqual(
     (daily[0].typed ?? []).map((entry) => entry.text),
-    [launchLine("claude --permission-mode auto -n bot-father.daily --model 'sonnet[1m]'")],
+    [launchLine(box, "claude --permission-mode auto -n bot-father.daily --model 'sonnet[1m]'")],
     'the context rides on the model name, and the model name stays quoted',
   );
 });

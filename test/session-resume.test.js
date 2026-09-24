@@ -1,7 +1,7 @@
 // Bringing a session back (PRD 4.5, 6.5): the tab was closed, or the machine
 // was rebooted, and the conversation is still there in the harness. Orca cannot
 // help — it drops its resume record with the tab — so the book is what knows
-// the id (ADR 0002), and `up` hands it back to the harness.
+// the id (ADR 0012), and `up` hands it back to the harness.
 //
 // So a session whose tab is gone comes back two different ways, and which one
 // depends only on whether the book holds a harness session for it:
@@ -98,9 +98,9 @@ function settingsOnly(argv) {
 
 /**
  * The arguments a bare launch line hands its harness: the line without the
- * `OBK_TAB_SHELL=…` in front of it and without the harness word itself.
+ * `OBK_TAB_SHELL=…` and `OBK_CLI=…` in front of it and without the harness word itself.
  */
-const bareArgvOf = (harness) => bareLaunch(harness, 'api-bot', 'daily').split(' ').slice(2);
+const bareArgvOf = (box, harness) => bareLaunch(box, harness, 'api-bot', 'daily').split(' ').slice(3);
 
 /**
  * The launch arguments with the resume words taken out, whichever harness's
@@ -139,7 +139,7 @@ test('claude resumes the session the book holds, and is not told its duty again'
   assert.equal(argv[argv.indexOf('sess-1') - 1], '--resume', 'the id belongs to the flag that asks for it');
   assert.deepEqual(
     withoutResume(argv, 'sess-1'),
-    settingsOnly(bareArgvOf('claude')),
+    settingsOnly(bareArgvOf(box, 'claude')),
     'and every other setting is the one a fresh session is started with',
   );
   assert.equal(argv.includes('--'), false, 'and there is no prompt argument at all');
@@ -156,7 +156,7 @@ test('codex resumes the session the book holds, and is not told its duty again',
 
   assert.equal(again.typed.length, 1, `one send per tab the kit opens, got: ${JSON.stringify(again.typed)}`);
   const line = again.typed[0];
-  assert.ok(line.startsWith(launchLine('codex resume ')), `Codex resumes through the subcommand, got: ${line}`);
+  assert.ok(line.startsWith(launchLine(box, 'codex resume ')), `Codex resumes through the subcommand, got: ${line}`);
   assert.ok(!line.includes(PROMPT), `the session already has its duty, got: ${line}`);
 
   const argv = await argvOf(box, line, fake);
@@ -164,7 +164,7 @@ test('codex resumes the session the book holds, and is not told its duty again',
   assert.ok(argv.includes('sess-1'), `the id is handed over, got: ${JSON.stringify(argv)}`);
   assert.deepEqual(
     withoutResume(argv, 'sess-1'),
-    settingsOnly(bareArgvOf('codex')),
+    settingsOnly(bareArgvOf(box, 'codex')),
     'and every other setting is where it was',
   );
   assert.equal(argv.includes('--'), false, 'and there is no prompt argument at all');
@@ -242,7 +242,7 @@ test('a session the book holds no id for comes up fresh, with its start prompt',
 
   const again = await up(box);
 
-  assert.deepEqual(again.typed, [`${bareLaunch('codex')} -- '${PROMPT}'`]);
+  assert.deepEqual(again.typed, [`${bareLaunch(box, 'codex')} -- '${PROMPT}'`]);
   assert.ok(!again.typed[0].includes('resume'), `there is nothing to resume, got: ${again.typed[0]}`);
 });
 

@@ -37,6 +37,8 @@ import test from 'node:test';
 import { setTimeout } from 'node:timers/promises';
 import { parse } from 'yaml';
 
+import { cliEntry, HOOK_FILES, kitHooksIn, spellingsOf } from '../helpers/cli.js';
+
 /**
  * Remove the throwaway bots folder and everything the kit made beside it.
  *
@@ -128,10 +130,13 @@ function allSetups() {
   return answer.result.setups;
 }
 
-/** Run the real `obk`, the one `npm link` put on PATH. */
+/**
+ * Run this checkout's `obk`, by its full path. The `obk` on PATH is the
+ * published release this machine uses, not the code under test (#217).
+ */
 function obk(args) {
-  const done = spawnSync('obk', args, { encoding: 'utf8', cwd: os.tmpdir() });
-  assert.equal(done.error, undefined, `could not run \`obk\`: ${done.error?.message}: run \`npm link\` in this repo first`);
+  const done = spawnSync(process.execPath, [cliEntry, ...args], { encoding: 'utf8', cwd: os.tmpdir() });
+  assert.equal(done.error, undefined, `could not run \`obk\`: ${done.error?.message}`);
   // The owner reads this output. Orca's word for a workspace must not be in it.
   assert.ok(!/worktree/i.test(done.stdout + done.stderr), `obk said "worktree": ${done.stdout}${done.stderr}`);
   return done;
@@ -155,21 +160,45 @@ function tabOf(answer, name) {
   return found[0];
 }
 
+/**
+ * Where a bot writes down the OBK_CLI its own shell has: inside its work dir,
+ * which goes with the bots folder when the test is over.
+ */
+const cliNoteOf = (home) => path.join(home, 'work', 'notes', 'obk-cli.txt');
+
+/**
+ * What a bot is told when it starts: to write down the OBK_CLI its shell tool
+ * sees, and nothing else. A variable set on the launch line reaches the
+ * harness's own shell on both harnesses (measured, #220), and nothing else puts
+ * OBK_CLI there, so what the bot writes is what the kit's launch line carried.
+ * Read back from a file rather than off the tab, because the harness draws its
+ * own screen over the line the kit typed, and the tab's stream is the line as
+ * the shell repainted it keystroke by keystroke.
+ */
+const promptOf = (display, note) =>
+  `You are the system test's ${display}. Run exactly this one shell command, once: `
+  + `printenv OBK_CLI > "${note}" — then say nothing and wait.`;
+
 /** The two bots this test makes, and what each one should come up as. */
 const BOTS = [
-  {
-    name: 'claude-bot',
-    harness: 'claude',
-    display: 'Claude Bot',
-    prompt: 'You are the system test\'s Claude bot. Say nothing and wait.',
-  },
-  {
-    name: 'codex-bot',
-    harness: 'codex',
-    display: 'Codex Bot',
-    prompt: 'You are the system test\'s Codex bot. Say nothing and wait.',
-  },
+  { name: 'claude-bot', harness: 'claude', display: 'Claude Bot' },
+  { name: 'codex-bot', harness: 'codex', display: 'Codex Bot' },
 ];
+
+/** The contents of `file` once it has some, or undefined when `within` runs out first. */
+async function whenWritten(file, within = 180_000) {
+  const until = Date.now() + within;
+  for (;;) {
+    try {
+      const text = await readFile(file, 'utf8');
+      if (text.trim() !== '') return text;
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+    }
+    if (Date.now() >= until) return undefined;
+    await setTimeout(1000);
+  }
+}
 
 test('two bots on the two harnesses come up in the real Orca, and nothing else is touched', async (t) => {
   const before = {
@@ -220,7 +249,7 @@ test('two bots on the two harnesses come up in the real Orca, and nothing else i
     ]);
     obkJson([
       'session', 'add', '--bots', bots, '--bot', bot.name, '--name', 'daily',
-      '--prompt', bot.prompt, '--work-dir', 'work/notes',
+      '--prompt', promptOf(bot.display, cliNoteOf(homeOf(bot.name))), '--work-dir', 'work/notes',
     ]);
   }
 
@@ -233,7 +262,7 @@ test('two bots on the two harnesses come up in the real Orca, and nothing else i
     assert.deepEqual(config.sessions, [
       { name: 'daily', approval: 'auto', prompt: config.sessions[0].prompt, work_dir: 'work/notes' },
     ]);
-    assert.equal(config.sessions[0].prompt.trim(), bot.prompt);
+    assert.equal(config.sessions[0].prompt.trim(), promptOf(bot.display, cliNoteOf(home)));
 
     const agents = await readFile(path.join(home, 'AGENTS.md'), 'utf8');
     assert.ok(agents.includes(bot.display), `AGENTS.md should hold the charter: ${agents}`);
@@ -291,6 +320,31 @@ test('two bots on the two harnesses come up in the real Orca, and nothing else i
     // question on this first run — which is why there is no second send to get
     // wrong. A line the harness took is a prompt the harness has.
     assert.equal(entry.promptSent, true, 'the prompt went in with the line that started the harness');
+
+    // The kit calls itself back by the CLI that is running, and that is this
+    // checkout's, never the machine's own `obk` (#220). Its hook names it...
+    const hookFile = path.join(home, HOOK_FILES[bot.harness]);
+    const hooks = kitHooksIn(JSON.parse(await readFile(hookFile, 'utf8')));
+    assert.equal(hooks.length, 1, `${hookFile} should hold one hook of the kit's, got: ${JSON.stringify(hooks)}`);
+    assert.ok(
+      spellingsOf(cliEntry).some((cli) => hooks[0].startsWith(`${cli} session record `)),
+      `the hook should run ${cliEntry}, got: ${hooks[0]}`,
+    );
+  }
+
+  // ...and the line it typed into each tab handed it to the harness: the bot
+  // wrote down the OBK_CLI its own shell has, as its start prompt told it to.
+  for (const bot of BOTS) {
+    const note = cliNoteOf(homeOf(bot.name));
+    const written = await whenWritten(note);
+    const [terminal] = terminalsAt(homeOf(bot.name));
+    assert.notEqual(
+      written,
+      undefined,
+      `${bot.display} never wrote ${note}. Its start prompt told it to; look at it with `
+      + `\`orca terminal read --terminal ${terminal?.handle} --screen\``,
+    );
+    assert.equal(written.trim(), cliEntry, `${bot.display}'s shell should have OBK_CLI=${cliEntry}, and has: ${written}`);
   }
 
   // 4. A second run makes nothing and types nothing.

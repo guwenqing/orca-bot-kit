@@ -1,5 +1,5 @@
 // The skills a bot has: links in the bot's own folder, into both harnesses
-// (PRD 6.7, ADR 0004, ADR 0009).
+// (PRD 6.7, ADR 0014, ADR 0019).
 //
 // Linked, never copied, in both directions. Inwards: what lands in the bot home
 // is a symlink to the skill's own directory, so a kit skill is read where the
@@ -21,6 +21,7 @@ import { fileURLToPath } from 'node:url';
 import { parse, parseDocument, stringify } from 'yaml';
 
 import { botDir, botNames, changesExactly, leadsOutside, readBot, YAML_OUT } from './bot.js';
+import { ownCli, shellWord } from './launch.js';
 import { listIn } from './rules.js';
 import { cloneDir, isCloned, readSources, skillsIn, wrongClone } from './sources.js';
 
@@ -39,7 +40,7 @@ export const SKILL_DIRS = {
 /**
  * What a skill may be called: the Agent Skills name, which is also the name of
  * the directory it lives in and of the link the kit makes (tech notes, section
- * 4, and ADR 0009).
+ * 4, and ADR 0019).
  */
 const NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
@@ -280,7 +281,7 @@ export function unlinkSkills(home) {
  * user made, or one of the kit's that they have since repointed, is theirs.
  *
  * It is the kit's own file and lives beside the hook files it already keeps in
- * the bot folder (ADR 0010). A record that cannot be read is treated as an
+ * the bot folder (ADR 0020). A record that cannot be read is treated as an
  * empty one: the worst that follows is that the kit leaves alone something it
  * would otherwise have tidied up, which is the safe way round.
  */
@@ -311,7 +312,7 @@ function writeRecord(home, record) {
  *
  * A link that leads nowhere is reported whoever made it. Whose it is changes
  * what may be done about it, not the fact that a session cannot read the skill
- * (ADR 0004).
+ * (ADR 0014).
  */
 export function skillsTrouble(bots, home, bot) {
   const record = readRecord(home);
@@ -460,7 +461,7 @@ function follow(bots, ref, sources) {
         throw new Error(`${ref} names the source ${named}, and skills.yaml lists no source called that.`);
       }
       if (!isCloned(bots, named)) {
-        throw new Error(`${ref}: ${named} has not been fetched yet, so there is nothing to link. Run obk skills fetch --bots ${bots} --source ${named}.`);
+        throw new Error(`${ref}: ${named} has not been fetched yet, so there is nothing to link. Run ${shellWord(ownCli())} skills fetch --bots ${shellWord(bots)} --source ${named}.`);
       }
       const wrong = wrongClone(bots, source);
       if (wrong !== undefined) throw new Error(`${ref}: ${wrong}`);
@@ -537,7 +538,7 @@ function link(dir, wanted, record) {
     }
 
     // Absolute: a kit skill lives in the installed package, outside the user's
-    // repo, and the link has to reach out of the repo to find it (ADR 0004).
+    // repo, and the link has to reach out of the repo to find it (ADR 0014).
     symlinkSync(skill.dir, at);
     record[skill.name] = skill.dir;
   }

@@ -16,5 +16,7 @@ When you notice something else worth doing, say so at the end. Doing it is the
 user's call.
 
 Work inside a project of its own (a repo you cloned into your work dir, a
-folder with its own rules) follows that project's rules as well as yours.
-Where the two disagree, say which you followed and why.
+folder with its own rules) follows that project's rules as well as yours, so
+read its AGENTS.md or CLAUDE.md before you start. Where the two disagree, do not
+pick one: tell whoever gave you the work, quote both, and hold that part until
+it is settled.

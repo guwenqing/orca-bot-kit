@@ -78,7 +78,7 @@ export const namesIn = async (bots, bot, harness) => [...(await heldBy(bots, bot
 
 /**
  * The skill both harnesses read at `name` is a link to `dir`. A link, not a
- * copy (ADR 0004): what the harness loads is the skill directory itself, so an
+ * copy (ADR 0014): what the harness loads is the skill directory itself, so an
  * edit to it is what the running session reads.
  */
 export async function assertLinked(bots, bot, name, dir) {

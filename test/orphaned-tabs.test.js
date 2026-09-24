@@ -90,7 +90,7 @@ function tabEntry(answer, bot, name) {
   return found[0];
 }
 
-const resumeLine = (id) => `${bareLaunch('claude', 'api-bot', 'daily')} --resume ${id}`;
+const resumeLine = (box, id) => `${bareLaunch(box, 'claude', 'api-bot', 'daily')} --resume ${id}`;
 
 // -------------------------------------------------------------------- up
 
@@ -274,7 +274,7 @@ test('OT5 restart closes an orphaned session tab by its handle and brings the se
   assert.ok(calls.indexOf(closed[0]) < calls.indexOf(made[0]), 'the old tab goes first');
   const after = await tabOf(box, bots);
   assert.notEqual(after.tabId, tabId);
-  assert.deepEqual(typedInto(after.terminal), [resumeLine('sess-1')]);
+  assert.deepEqual(typedInto(after.terminal), [resumeLine(box, 'sess-1')]);
   assert.equal((await box.orca.terminals()).some((one) => one.handle === handle), false, 'the old tab is gone');
 });
 

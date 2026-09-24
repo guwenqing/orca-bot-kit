@@ -10,7 +10,7 @@
 //      is the only thing that says whose session it is once the conversation
 //      is gone (PRD 6.4).
 //   2. A tab the user closed. Orca drops its resume record with the tab, so the
-//      book is all there is (ADR 0002); `obk up` opens a new tab and resumes
+//      book is all there is (ADR 0012); `obk up` opens a new tab and resumes
 //      the harness session, and the conversation is still there.
 //
 // And, on the same two sessions so that no extra harness is started, two more
@@ -118,6 +118,8 @@ import test from 'node:test';
 import { setTimeout } from 'node:timers/promises';
 import { parse } from 'yaml';
 
+import { cliEntry } from '../helpers/cli.js';
+
 /**
  * Remove the throwaway bots folder and everything the kit made beside it.
  *
@@ -219,10 +221,13 @@ function allSetups() {
   return answer.result.setups;
 }
 
-/** Run the real `obk`, the one `npm link` put on PATH. */
+/**
+ * Run this checkout's `obk`, by its full path. The `obk` on PATH is the
+ * published release this machine uses, not the code under test (#217).
+ */
 function obk(args) {
-  const done = spawnSync('obk', args, { encoding: 'utf8', cwd: os.tmpdir() });
-  assert.equal(done.error, undefined, `could not run \`obk\`: ${done.error?.message}: run \`npm link\` in this repo first`);
+  const done = spawnSync(process.execPath, [cliEntry, ...args], { encoding: 'utf8', cwd: os.tmpdir() });
+  assert.equal(done.error, undefined, `could not run \`obk\`: ${done.error?.message}`);
   // The owner reads this output. Orca's word for a workspace must not be in it.
   assert.ok(!/worktree/i.test(done.stdout + done.stderr), `obk said "worktree": ${done.stdout}${done.stderr}`);
   return done;
@@ -472,6 +477,50 @@ async function answers(handle, question, word, within = ANSWER_MS) {
 }
 
 /**
+ * What Codex 0.156.1 asks as soon as `/new` is typed, before the new
+ * conversation starts, and its first answer — the current checkout, which is
+ * the bot home the kit launched it in:
+ *
+ *       Where should the new conversation run?
+ *     › 1. Current checkout  Keep using the current working directory
+ *       2. New worktree      Create an isolated managed checkout
+ *
+ * Seen live on a screen recording of the tab. Orca does not report the menu as
+ * anything waiting to be answered — no `blockedReason`, and the tab reads as
+ * idle — so `readyForAQuestion` walks straight past it: a question typed then
+ * went into the menu, its return picked option 1, and the new conversation sat
+ * waiting with nothing asked.
+ */
+const WHERE_TO_RUN = 'Where should the new conversation run?';
+
+/**
+ * Clear the session the way its harness does, and come back only once the new
+ * conversation will take a question. On Codex that means answering the menu
+ * `/new` puts up first, and waiting for it to go: a return inside the payload
+ * is the key a menu waits for (see `askIn`).
+ */
+async function clearIn(handle, bot) {
+  await askIn(handle, bot.clears);
+  if (bot.harness !== 'codex') return;
+
+  const asking = () => screenOf(handle).includes(WHERE_TO_RUN);
+  await until(
+    `${handle} to ask where the new conversation should run`,
+    READY_MS,
+    async () => (asking() ? true : undefined),
+    () => whatIsUp(handle),
+  );
+  const picked = orca(['terminal', 'send', '--terminal', handle, '--text', '1\r']);
+  assert.equal(picked.ok, true, `answering the menu failed: ${JSON.stringify(picked.error)}.${whatIsUp(handle)}`);
+  await until(
+    `${handle} to start the new conversation`,
+    READY_MS,
+    async () => (asking() ? undefined : true),
+    () => whatIsUp(handle),
+  );
+}
+
+/**
  * The two bots, one per harness, each with a word only its start prompt
  * carries and a word only its conversation does.
  *
@@ -680,7 +729,7 @@ test('a cleared session gets a new id, keeps the old one, and is told its duty a
     // conversation that carried it is gone. Asked for with an underscore, not in
     // lower case: a clear need not wipe the screen, and the answer above may
     // still be on it.
-    await askIn(entry.terminal, bot.clears);
+    await clearIn(entry.terminal, bot);
     await answers(
       entry.terminal,
       'What is your codeword? Reply with the codeword with its dash made an underscore, and nothing else.',
@@ -806,7 +855,7 @@ test('a session whose tab was closed comes back with its conversation', async (t
     );
 
     // The user closes the tab. Orca's own resume record goes with it, which is
-    // the whole reason the kit keeps a book (ADR 0002).
+    // the whole reason the kit keeps a book (ADR 0012).
     orca(['terminal', 'close', '--terminal', opened.terminal, '--tab']);
     assert.deepEqual(
       await terminalsAfterClosing(home, [opened.terminal]),
@@ -856,7 +905,7 @@ const CHILDREN = [
     // outright: `codex exec` exits 1 at once with "failed to initialize in-process
     // app-server client: Operation not permitted" (measured live, #163). So on
     // `auto` there is no child and nothing for this case to prove. A throwaway
-    // bot that owns nothing can run outside the sandbox (ADR 0005).
+    // bot that owns nothing can run outside the sandbox (ADR 0015).
     approval: 'dangerously-skip',
   },
   {

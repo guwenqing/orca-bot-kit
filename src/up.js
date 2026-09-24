@@ -12,7 +12,7 @@ import { botDir, botNames, displayName, readBot } from './bot.js';
 import { conversationsIn } from './conversations.js';
 import { installHook } from './hooks.js';
 import { addressOf, harnessOf, isShortPrompt, launchCommand, reachesMail, sessionTrouble, startPrompt, workDirOf } from './launch.js';
-import { asFolderProject, findProject, makeMailbox, makeProject, openTab, retitleTab, tabs, tuiInTab, typeIntoTab, useMailbox } from './orca.js';
+import { asFolderProject, findProject, harnessInTab, makeMailbox, makeProject, openTab, retitleTab, tabs, typeIntoTab, useMailbox } from './orca.js';
 import { buildAgents } from './rules.js';
 import { linkSkills } from './skills.js';
 
@@ -26,8 +26,8 @@ const STARTUP_MS = 10000;
  * And how long the second look takes. A harness can draw its first screen and
  * then die on something it was handed — a context window it cannot read, an
  * extra argument it does not know — and the first look would have called it
- * started. A tab whose TUI is still there answers this at once; only one that
- * has fallen back to a shell waits it out.
+ * started. An idle harness answers this at once; a busy one and a shell both
+ * wait it out, and it is the tab's foreground that tells them apart (#232).
  */
 const SECOND_LOOK_MS = 2000;
 
@@ -87,7 +87,7 @@ export async function bringUp(bots, { bot: onlyBot, session: onlySession } = {})
  *
  * Separate from the tabs because the order matters twice over. A session reads
  * its rules, its skills and its hooks as it comes up, so all three have to be
- * there before the tab is (PRD 6.6, ADR 0010) — and a restart closes a tab in
+ * there before the tab is (PRD 6.6, ADR 0020) — and a restart closes a tab in
  * between, so everything that can refuse must have refused before that. It
  * refuses by throwing, exactly as `up` always has; a bot it leaves out of
  * `running` is one whose sessions must not be started.
@@ -133,7 +133,7 @@ export function prepareBots(bots, names, onlySession) {
 
   // And the kit's hook goes into every bot folder before Orca is asked for
   // anything, for the same reason: a harness reads its hooks when it comes up,
-  // so one written later would miss the session it was written for (ADR 0010),
+  // so one written later would miss the session it was written for (ADR 0020),
   // and a bot folder the kit cannot write it into stops the run with nothing
   // opened anywhere. Only the harnesses a bot actually runs on; a bot with no
   // sessions gets none.
@@ -321,9 +321,9 @@ async function bringUpSession(bots, home, live, session, bot, title) {
   // Twice, because coming up and staying up are different things: a harness
   // that refuses what it was handed draws a screen, prints its complaint and
   // leaves a shell behind, and a run that looked once would report it as
-  // started. A tab that still has a TUI answers the second look at once,
-  // whatever the agent in it is busy with.
-  const tui = tuiInTab(made.handle, STARTUP_MS).running ? tuiInTab(made.handle, SECOND_LOOK_MS) : { running: false };
+  // started.
+  const first = lookFor(made.handle, STARTUP_MS);
+  const tui = first.running ? lookFor(made.handle, SECOND_LOOK_MS) : first;
 
   // The start prompt went in with that line, as the harness's own prompt
   // argument, so it is the harness that holds it until it is ready — through
@@ -342,6 +342,23 @@ async function bringUpSession(bots, home, live, session, bot, title) {
     resumed: resume !== undefined,
     unclaimed: which.unclaimed,
   });
+}
+
+/**
+ * One look at a tab the kit just typed a launch line into: whether a harness
+ * is running there, and what it is waiting on if Orca says.
+ *
+ * The harness is up when something other than the shell holds the tab's
+ * terminal, busy or not, or when Orca sees a question on its screen. Orca's
+ * `agentIdentity` is not asked for: it can come seconds after the launch
+ * (tech notes, section 1). When the tab's foreground cannot be read, Orca's own
+ * answers stand in, for this report only: nothing more is typed here.
+ */
+function lookFor(handle, timeoutMs) {
+  const seen = harnessInTab(handle, timeoutMs);
+  const running = seen.blockedReason !== undefined
+    || (seen.front === undefined ? seen.answered || seen.agent !== undefined : seen.front === 'program');
+  return { running, blockedReason: seen.blockedReason };
 }
 
 /**
@@ -411,7 +428,7 @@ function mailboxFor(book, bot, session, harness, handle) {
  * the one the book holds, one the harness itself still has on record, or none.
  *
  * One tab holds one session, and the book is the authority for which
- * conversation that is (ADR 0002). But the book can be incomplete — on Codex a
+ * conversation that is (ADR 0012). But the book can be incomplete — on Codex a
  * hooks file must be trusted before any hook runs, and trusting it does not
  * replay the event it missed — and "the book does not say" must never be read as
  * "there was no conversation". So where the book is silent about a tab the kit

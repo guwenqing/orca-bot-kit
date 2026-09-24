@@ -71,8 +71,10 @@ obk --version
 The command is `obk`. If `obk --version` does not answer after that, npm has no
 working release yet (an early placeholder has no `obk` in it): run
 `npm uninstall -g @assuredloop/orca-bot-kit`, then install from a clone of this
-repository with `npm install` and `npm link`. The same clone route is how you
-work on the kit itself: `obk` then runs your checkout.
+repository with `npm install` and `npm link`. To work on the kit itself, run
+your clone's `src/cli.js` by its full path instead of linking it: the `obk` on
+PATH stays the published one, and the kit calls itself back by the path of the
+CLI that started it, so what your clone brings up calls back into your clone.
 
 Releases go out from CI: publishing a GitHub Release tagged `v<version>` runs
 `.github/workflows/publish.yml`, which runs the suite and publishes that version
@@ -99,7 +101,7 @@ my-bots/
 
 The folder is yours. It holds your configuration and none of the kit's code —
 kit skills are linked from the installed package, never copied
-([ADR 0004](docs/adr/0004-skills-are-linked-never-copied.md)). Run `init` again
+([ADR 0014](docs/adr/0014-skills-are-linked-never-copied.md)). Run `init` again
 whenever you like: it adds what is missing and leaves everything else, including
 your edits, exactly as it is. It does not commit for you.
 
@@ -136,7 +138,7 @@ note about it. Anything you leave out is the
 harness's own default; the kit names no model of its own. The approval level is
 `auto` — the harness's real auto mode — unless you ask for `ask` or, in those
 words, `dangerously-skip`
-([ADR 0005](docs/adr/0005-three-approval-levels-auto-by-default.md)).
+([ADR 0015](docs/adr/0015-three-approval-levels-auto-by-default.md)).
 
 Neither command touches Orca. `obk up` is what makes it all real there: an Orca
 project per bot, a tab per session, each started at the bot home with its own
@@ -148,7 +150,7 @@ so run it after a restart, or whenever something is missing. `--bot` and
 
 Each bot has one `AGENTS.md`, shared by all its sessions: its charter, then the
 rule units it uses
-([ADR 0003](docs/adr/0003-agents-md-is-compiled-from-rule-units.md)). A rule
+([ADR 0013](docs/adr/0013-agents-md-is-compiled-from-rule-units.md)). A rule
 unit is one short block of always-on working rules. The kit's own units live in
 [`rules/`](rules/) in this package; yours go in `rules/` inside your bots
 folder. What is always on stays short, because every session reads it on every
@@ -216,7 +218,7 @@ size the always-on set may reach.
 
 The kit ships its own skills in [`skills/`](skills/), one directory per skill,
 named `obk-<technique>`
-([ADR 0009](docs/adr/0009-skills-by-technique-with-a-prefix.md)). They are
+([ADR 0019](docs/adr/0019-skills-by-technique-with-a-prefix.md)). They are
 organised by technique rather than by role: a role is a charter plus a choice
 of skills. Each one gives techniques and defaults, never a process or
 a way of working you have to adopt, and carries what it needs itself rather
@@ -262,7 +264,7 @@ name for a directory in `skills/` inside your bots folder, or anything with a
 opens a tab, and `bot create` gives a new bot what the lists already name.
 
 What lands in the bot is a symlink, never a copy
-([ADR 0004](docs/adr/0004-skills-are-linked-never-copied.md)) — into
+([ADR 0014](docs/adr/0014-skills-are-linked-never-copied.md)) — into
 `.claude/skills` and `.agents/skills` in the bot home, which is where each
 harness reads a project's skills from. So a kit skill is read where npm
 installed it, editing a skill is what a running session reads without a
@@ -307,7 +309,7 @@ with no rebuild, because the link points at the clone.
 
 The kit says one line when a source carries scripts or hooks. It does not read
 them and does not stand in your way — a third-party skill is your risk to take
-([ADR 0004](docs/adr/0004-skills-are-linked-never-copied.md)).
+([ADR 0014](docs/adr/0014-skills-are-linked-never-copied.md)).
 
 A skill is a directory holding `SKILL.md` — frontmatter carrying `name` (the
 directory's own name) and `description`, then the body — plus any reference
@@ -324,11 +326,11 @@ own directory, because a bot gets the directory alone.
 Each bot keeps a book, `sessions.yaml` in its folder: which Orca tab each session
 lives in, which harness session it is running as, and every id it ran as before,
 with why that one ended and when
-([ADR 0002](docs/adr/0002-the-book-is-the-authority-for-session-ids.md)).
+([ADR 0012](docs/adr/0012-the-book-is-the-authority-for-session-ids.md)).
 
 The book stays true to the harness through a hook `obk up` puts in the bot's own
 folder — `.claude/settings.json` or `.codex/hooks.json`, never your user-level
-settings ([ADR 0010](docs/adr/0010-kit-hooks-live-in-the-bot-folder.md)). Your own
+settings ([ADR 0020](docs/adr/0020-kit-hooks-live-in-the-bot-folder.md)). Your own
 settings in those files are kept. Codex asks you to trust a hooks file the first
 time it sees one; answer its question in the tab.
 
@@ -403,7 +405,8 @@ brings it back with its conversations. Retiring a session takes it off the bot
 and keeps its conversations in the book under `retired`. Retiring a bot closes
 its tabs, removes its Orca project and moves its folder to `retired/`; it will
 not touch a bot whose Orca project holds a tab your book does not name. Bot
-Father itself is never paused or retired.
+Father itself, and its management session `daily`, are never paused or
+retired; its other sessions are like any bot's.
 
 ## When something is wrong
 
@@ -443,7 +446,7 @@ verdict: which of these matter, and in what order, is for you or for Bot Father.
 ## Sessions and bots that talk
 
 Ask the kit how to reach a session, and it answers with the road and the
-address ([ADR 0008](docs/adr/0008-messaging-transport.md)):
+address ([ADR 0018](docs/adr/0018-messaging-transport.md)):
 
 ```sh
 obk message to    --bots /path/to/my-bots --to api-bot/daily

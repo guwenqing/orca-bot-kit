@@ -1,4 +1,4 @@
-// `obk message`: one session writing to another (PRD 6.9, ADR 0008).
+// `obk message`: one session writing to another (PRD 6.9, ADR 0018).
 //
 // Two roads, and the bot never picks. Claude to Claude in the same approval
 // class is the harness's own messaging, which no command line can send for it —
@@ -20,8 +20,8 @@ import path from 'node:path';
 
 import { readBook } from './book.js';
 import { botDir, botNames, readBot } from './bot.js';
-import { harnessOf, reachesMail } from './launch.js';
-import { ackMailbox, postMessage, readMailbox, tabs, tuiInTab, typeIntoTab, useMailbox } from './orca.js';
+import { harnessOf, ownCli, reachesMail, shellWord } from './launch.js';
+import { ackMailbox, harnessInTab, postMessage, readMailbox, tabs, typeIntoTab, useMailbox } from './orca.js';
 
 /**
  * How much of a message travels as itself. Above this it is written to a file
@@ -147,7 +147,7 @@ export function sendMessage(bots, { to: target, from: sender, tab, subject, text
     return {
       ...answer,
       sent: false,
-      trouble: `${from.bot}/${from.session} has no mailbox of its own yet, so a reply would have nowhere to go. Bring it up first:  obk up --bots ${bots} --bot ${from.bot}`,
+      trouble: `${from.bot}/${from.session} has no mailbox of its own yet, so a reply would have nowhere to go. Bring it up first:  ${shellWord(ownCli())} up --bots ${shellWord(bots)} --bot ${shellWord(from.bot)}`,
     };
   }
 
@@ -300,9 +300,10 @@ const stamp = () => new Date().toISOString().replaceAll(':', '-').replace('.', '
  *
  * Nothing in the mailbox reaches a running harness by itself, and a typed line
  * is taken as the next turn by a busy session rather than cutting into the one
- * it is having. A tab with no TUI in it is not typed into at all — there is
+ * it is having. A tab with no harness in it is not typed into at all — there is
  * nobody there to read it, and the message waits in the mailbox until the
- * session is up. A tab the book does not hold is never typed into on any road.
+ * session is up. Nor is one the kit cannot tell about. A tab the book does not
+ * hold is never typed into on any road.
  *
  * Nor is a tab with something on screen waiting to be answered. A line typed
  * into one of those is not a message: it is an answer to whatever question is
@@ -323,13 +324,29 @@ function nudge(to, from, subject) {
     const live = tabs(to.home).find((tab) => tab.tabId === to.tab);
     if (live === undefined) return { nudged: false };
 
-    const tui = tuiInTab(live.handle, LOOK_MS);
-    if (!tui.running) return { nudged: false };
-    if (tui.blockedReason !== undefined) return { nudged: false, blocked: tui.blockedReason };
+    const seen = harnessInTab(live.handle, LOOK_MS);
+    if (seen.blockedReason !== undefined) return { nudged: false, blocked: seen.blockedReason };
+    // The shell in front is a tab with no harness, whatever a stale
+    // `agentIdentity` says.
+    if (seen.front === 'shell') return { nudged: false };
+    // Not knowing is not a reason to type: a line that lands in a shell is run
+    // there, with the sender's subject in it. The program in front has to be
+    // the agent Orca names. With no name it may be a harness a few seconds
+    // into its launch; under another name it may be a pager started after the
+    // harness quit, under an identity Orca has not let go of (tech notes,
+    // section 1). A harness run through a wrapper such as `node` lands here
+    // too, until #261.
+    if (seen.front === undefined || seen.agent === undefined || seen.command !== seen.agent) {
+      const why = seen.front === undefined
+        ? seen.unreadable
+        : `${seen.command} holds its terminal, and Orca names ${seen.agent ?? 'no agent'} in it`;
+      return { nudged: false, nudgeTrouble: `the kit could not tell whether a harness is running in it (${why}), so nothing was typed` };
+    }
+    // A busy harness is typed into: it takes the line as its next turn.
 
     typeIntoTab(
       live.handle,
-      `Fleet mail from ${from.bot}/${from.session}: ${subject}. Read it with  obk message check --bots ${to.bots} --bot ${to.bot} --session ${to.session}`,
+      `Fleet mail from ${from.bot}/${from.session}: ${subject}. Read it with  ${shellWord(ownCli())} message check --bots ${shellWord(to.bots)} --bot ${shellWord(to.bot)} --session ${shellWord(to.session)}`,
     );
     return { nudged: true };
   } catch (error) {
@@ -382,4 +399,4 @@ function whyNotReachable(bot, session, harness, held) {
 }
 
 const notUpYet = (who) =>
-  `${who.bot}/${who.session} has no mailbox yet: it has never been brought up. Start it and it gets one:  obk up --bots ${who.bots} --bot ${who.bot} --session ${who.session}`;
+  `${who.bot}/${who.session} has no mailbox yet: it has never been brought up. Start it and it gets one:  ${shellWord(ownCli())} up --bots ${shellWord(who.bots)} --bot ${shellWord(who.bot)} --session ${shellWord(who.session)}`;

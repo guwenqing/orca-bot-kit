@@ -12,11 +12,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 
-import { addSession, changeBot, changeSession, createBot, readBot, SESSION_FIELDS } from './bot.js';
+import { addSession, changeBot, changeSession, createBot, leadsOutside, readBot, SESSION_FIELDS } from './bot.js';
 import { grooming } from './groom.js';
 import { checkHealth, orcaSettingFindings } from './health.js';
 import { initBots } from './init.js';
-import { APPROVALS, HARNESSES, shellWord } from './launch.js';
+import { APPROVALS, HARNESSES, ownCli, shellWord, workDirOf } from './launch.js';
 import { checkMail, lookUp, sendMessage } from './message.js';
 import { orcaCli, orcaTrouble } from './orca.js';
 import { pauseSessions, unpauseSessions } from './pause.js';
@@ -388,7 +388,7 @@ const SETUP = fileURLToPath(new URL('../SETUP.md', import.meta.url));
  * Who answers a tab left on a screen: the caller, not the user (PRD 6.5). The
  * kit names where the answers are rather than carrying them, because which
  * keys answer which screen is judgment that changes with every harness
- * release, and that belongs in the skill (ADR 0006).
+ * release, and that belongs in the skill (ADR 0016).
  */
 const ANSWER_IT = [
   `             Answer what is on screen yourself, without asking the user: section 5 of ${SETUP}`,
@@ -405,7 +405,7 @@ const RECORD = 'session record';
  * A hook runs inside the user's own session, so this one stays out of the way:
  * it writes on standard output only what the harness is to read as JSON, and
  * whatever goes wrong, it goes wrong quietly. A book left stale is a thing the
- * health check finds later; a session disturbed is the user's work (ADR 0010).
+ * health check finds later; a session disturbed is the user's work (ADR 0020).
  */
 async function record(bots, bot) {
   try {
@@ -486,7 +486,7 @@ const commands = {
       lines: [
         ...paused.closed.map((tab) => `closed     ${tab.bot} ${tab.name}  tab ${tab.tabId}  terminal ${tab.terminal}`),
         `${paused.changed ? 'paused' : 'there'.padEnd(6)}     ${what}${paused.changed ? '' : ' was paused already'}`,
-        `obk up leaves it closed, and the book keeps its conversations. Bring it back:  obk unpause --bots ${bots} --bot ${values.bot}${back}`,
+        `obk up leaves it closed, and the book keeps its conversations. Bring it back:  ${shellWord(ownCli())} unpause --bots ${shellWord(bots)} --bot ${values.bot}${back}`,
       ],
     };
   },
@@ -548,8 +548,8 @@ const commands = {
         ...rulesLines(rules, bots),
         ...skillsLines(skills),
         trouble
-          ? `${made.bot} is written, and its rules are not. Settle what the line above says, then:  obk rules build --bots ${bots} --bot ${made.bot}`
-          : `${made.bot} is written. Give it a session:  obk session add --bots ${bots} --bot ${made.bot} --name <name>`,
+          ? `${made.bot} is written, and its rules are not. Settle what the line above says, then:  ${shellWord(ownCli())} rules build --bots ${shellWord(bots)} --bot ${made.bot}`
+          : `${made.bot} is written. Give it a session:  ${shellWord(ownCli())} session add --bots ${shellWord(bots)} --bot ${made.bot} --name <name>`,
       ],
       code: trouble ? 1 : 0,
     };
@@ -570,7 +570,7 @@ const commands = {
         `changed    the charter in ${path.join('bots', changed.bot, 'bot.yaml')}`,
         ...rulesLines(rules, bots),
         trouble
-          ? `${changed.bot}'s charter is written, and its rules are not. Settle what the line above says, then:  obk rules build --bots ${bots} --bot ${changed.bot}`
+          ? `${changed.bot}'s charter is written, and its rules are not. Settle what the line above says, then:  ${shellWord(ownCli())} rules build --bots ${shellWord(bots)} --bot ${changed.bot}`
           : `${changed.bot}'s charter is changed. A session that is running read the old one when it started; it reads this one when it next starts.`,
       ],
       code: trouble ? 1 : 0,
@@ -600,7 +600,7 @@ const commands = {
         added.state === 'added'
           ? `added      ${added.skill} to ${path.join('bots', added.bot, 'bot.yaml')}`
           : `there      ${added.skill} is on ${added.bot}'s list already, and nothing was written`,
-        `Link it:   obk skills build --bots ${bots} --bot ${added.bot}`,
+        `Link it:   ${shellWord(ownCli())} skills build --bots ${shellWord(bots)} --bot ${added.bot}`,
       ],
     };
   },
@@ -613,7 +613,7 @@ const commands = {
         removed.state === 'removed'
           ? `removed    ${removed.skill} from ${path.join('bots', removed.bot, 'bot.yaml')}`
           : `absent     ${removed.skill} is not on ${removed.bot}'s list, and nothing was written`,
-        `Unlink it: obk skills build --bots ${bots} --bot ${removed.bot}`,
+        `Unlink it: ${shellWord(ownCli())} skills build --bots ${shellWord(bots)} --bot ${removed.bot}`,
       ],
     };
   },
@@ -627,7 +627,7 @@ const commands = {
         ...Object.entries(source)
           .filter(([key]) => key !== 'name')
           .map(([key, value]) => `           ${key.padEnd(5)}  ${value}`),
-        `Fetch it:  obk skills fetch --bots ${bots} --source ${source.name}`,
+        `Fetch it:  ${shellWord(ownCli())} skills fetch --bots ${shellWord(bots)} --source ${source.name}`,
       ],
     };
   },
@@ -762,7 +762,8 @@ const commands = {
 
   'session add'(bots, values) {
     const added = addSession(bots, values.bot, settingsOf(values));
-    const answer = { bots, bot: added.bot, home: added.home, session: added.session };
+    const found = workDirFound(values, added.bot, added.home, added.session.name);
+    const answer = { bots, bot: added.bot, home: added.home, session: added.session, found };
     return {
       answer,
       lines: [
@@ -770,7 +771,8 @@ const commands = {
         ...Object.entries(added.session)
           .filter(([key]) => key !== 'name')
           .map(([key, value]) => `           ${key}  ${oneLine(value)}`),
-        `Bring it up:  obk up --bots ${bots} --bot ${added.bot}`,
+        ...foundLines(found),
+        `Bring it up:  ${shellWord(ownCli())} up --bots ${shellWord(bots)} --bot ${added.bot}`,
       ],
     };
   },
@@ -781,14 +783,16 @@ const commands = {
     }
     const { name, ...settings } = settingsOf(values);
     const changed = changeSession(bots, values.bot, values.session, settings);
-    const restart = `obk restart --bots ${bots} --bot ${changed.bot} --session ${values.session}`;
+    const restart = `${shellWord(ownCli())} restart --bots ${shellWord(bots)} --bot ${changed.bot} --session ${values.session}`;
+    const found = workDirFound(values, changed.bot, changed.home, values.session);
     return {
-      answer: { bots, bot: changed.bot, home: changed.home, session: changed.session, restart },
+      answer: { bots, bot: changed.bot, home: changed.home, session: changed.session, restart, found },
       lines: [
         `changed    session ${values.session} in ${path.join('bots', changed.bot, 'bot.yaml')}`,
         ...Object.entries(changed.session)
           .filter(([key]) => key !== 'name')
           .map(([key, value]) => `           ${key}  ${oneLine(value)}`),
+        ...foundLines(found),
         `A running session takes this when it next starts:  ${restart}`,
       ],
     };
@@ -810,7 +814,7 @@ function toLines(answer, bots, where) {
     ...(answer.unnamed === true
       ? [`             ${where} is a Claude session running under no name the kit gave it: it was started before the kit named sessions, and nothing renames a live harness. It gets one the next time it starts. Until then the mailbox is the road that reaches it.`]
       : []),
-    `             Send it:  obk message send --bots ${bots} --to ${where} --subject <text> --text <text>`,
+    `             Send it:  ${shellWord(ownCli())} message send --bots ${shellWord(bots)} --to ${shellWord(where)} --subject <text> --text <text>`,
   ];
 }
 
@@ -828,6 +832,23 @@ function nudgeLine(answer, where) {
     return `             it is queued, and its tab could not be told to look: ${answer.nudgeTrouble}`;
   }
   return `             ${where} is not up, so nothing was typed anywhere: the message waits in its mailbox.`;
+}
+
+/**
+ * What there is to say about the work dir this command was given: one finding
+ * when it leads out of the bot home, through `..` or a link or as a path
+ * elsewhere, and nothing otherwise (#222). A bot's work and its clones belong
+ * under its own `work/`. It is said, not refused: the user may ask for a folder
+ * anywhere (PRD 6.3), and it is written as they gave it.
+ */
+function workDirFound(values, bot, home, session) {
+  const workDir = workDirOf({ work_dir: values['work-dir'] }, home);
+  if (workDir === undefined || leadsOutside(home, workDir) === undefined) return [];
+  return [{
+    kind: 'work-dir',
+    where: workDir,
+    says: `${workDir} is outside ${bot}'s folder, ${home}. A session's work and every clone it needs go under the bot's work/, as work/${session}, unless you asked for this place in plain words. It is written as given, and nothing was moved.`,
+  }];
 }
 
 /** The settings a `session add` was given, as they go into bot.yaml. */
@@ -954,15 +975,15 @@ function groomLines(groom, bots) {
   if (!groom.exists) {
     return [
       `${'groom'.padEnd(9)}  there is no daily grooming yet`,
-      `Make one:  obk groom --bots ${bots} --at 04:00`,
+      `Make one:  ${shellWord(ownCli())} groom --bots ${shellWord(bots)} --at 04:00`,
     ];
   }
 
   return [
     `${'groom'.padEnd(9)}  daily at ${groom.at}  ${groom.enabled ? 'on' : 'off'}`,
     groom.enabled
-      ? `It runs every day at ${groom.at} and spends tokens each time. Turn it off with:  obk groom --bots ${bots} --off`
-      : `It is not running yet. Try it by hand, read what it gives you, then:  obk groom --bots ${bots} --on`,
+      ? `It runs every day at ${groom.at} and spends tokens each time. Turn it off with:  ${shellWord(ownCli())} groom --bots ${shellWord(bots)} --off`
+      : `It is not running yet. Try it by hand, read what it gives you, then:  ${shellWord(ownCli())} groom --bots ${shellWord(bots)} --on`,
   ];
 }
 
@@ -996,7 +1017,7 @@ function rosterLines(roster, bots) {
   }
 
   lines.push(roster.length === 0
-    ? `No bots yet. Make one:  obk bot create --bots ${bots} --name <name> --harness claude|codex`
+    ? `No bots yet. Make one:  ${shellWord(ownCli())} bot create --bots ${shellWord(bots)} --name <name> --harness claude|codex`
     : `${roster.length} bot${roster.length === 1 ? '' : 's'}. Your bots folder: ${bots}`);
   return lines;
 }
@@ -1089,7 +1110,7 @@ function tabLines({ bots, created, completed, rules, skills, tabs, paused = [], 
   for (const one of paused) {
     const what = one.session === undefined ? one.bot : `${one.bot} ${one.session}`;
     const back = one.session === undefined ? '' : ` --session ${one.session}`;
-    lines.push(`${'paused'.padEnd(9)}  ${what}  left closed. Bring it back:  obk unpause --bots ${bots} --bot ${one.bot}${back}`);
+    lines.push(`${'paused'.padEnd(9)}  ${what}  left closed. Bring it back:  ${shellWord(ownCli())} unpause --bots ${shellWord(bots)} --bot ${one.bot}${back}`);
   }
 
   // Last before the summary, because what a check found is about the setup the

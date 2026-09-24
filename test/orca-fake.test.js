@@ -166,6 +166,90 @@ test('the fake can hold a TUI on one look and none on the next', async (t) => {
   }
 });
 
+/** A folder project with one tab in it, and the handle and pty id Orca gave the tab. */
+function oneTab(box) {
+  const home = box.path('bots', 'bots', 'bot-father');
+  const added = answer(ask(box, ['repo', 'add', '--path', home, '--json']));
+  answer(ask(box, ['project', 'setup-update', '--setup', added.result.repo.id, '--kind', 'folder', '--json']));
+  const made = answer(ask(box, ['terminal', 'create', '--worktree', `path:${home}`, '--title', 'Daily', '--json']));
+  return { handle: made.result.terminal.handle, ptyId: made.result.terminal.ptyId };
+}
+
+/** Run the fake ps the way the kit may: one pid, four columns. */
+function ps(box, pid) {
+  return spawnSync(box.ps.cli, ['-o', 'pid=,ppid=,tpgid=,comm=', '-p', String(pid)], { env: box.env, encoding: 'utf8' });
+}
+
+/** One ps line as numbers and a name: the name last, and it may hold spaces. */
+function psLine(done) {
+  assert.equal(done.status, 0, `ps should have found it: ${done.stderr}`);
+  const [pid, ppid, tpgid, ...comm] = done.stdout.trim().split(/\s+/);
+  return { pid: Number(pid), ppid: Number(ppid), tpgid: Number(tpgid), comm: comm.join(' ') };
+}
+
+test('the fake tab holds a login, a shell and a harness, in the shape seen live', async (t) => {
+  // Measured on Orca 1.4.209 with Claude Code 2.1.281 (#232): the pane's pid is
+  // /usr/bin/login, the shell is its child, the harness the shell's child, and
+  // every one of them names whoever is in front. A fake that got this wrong
+  // would pass a kit that reads the wrong process.
+  const box = await createSandbox(t);
+  const { handle, ptyId } = oneTab(box);
+  answer(ask(box, ['terminal', 'send', '--terminal', handle, '--text', 'OBK_TAB_SHELL=$$ claude -n a.b', '--enter', '--json']));
+
+  const memory = answer(ask(box, ['diagnostics', 'memory', '--json']));
+  assert.deepEqual(
+    Object.keys(memory.result).sort(),
+    ['app', 'collectedAt', 'host', 'processMemoryMetric', 'totalCpu', 'totalMemory', 'worktrees'],
+  );
+  const panes = memory.result.worktrees.flatMap((worktree) => worktree.sessions);
+  const pane = panes.find((one) => one.sessionId === ptyId);
+  assert.ok(pane, `the tab's pty id should name a pane, got: ${JSON.stringify(panes)}`);
+
+  const login = psLine(ps(box, pane.pid));
+  assert.equal(login.comm, '/usr/bin/login');
+  const harness = psLine(ps(box, login.tpgid));
+  assert.equal(harness.comm, 'claude', 'the harness is in front');
+  const shell = psLine(ps(box, harness.ppid));
+  assert.equal(shell.comm, '-/bin/zsh');
+  assert.equal(shell.ppid, pane.pid, 'and the shell is the pane\'s child');
+
+  // The harness quits: the shell is in front, and Orca still names the agent.
+  await box.orca.set({ waitIdle: 'quit' });
+  const back = psLine(ps(box, pane.pid));
+  assert.equal(psLine(ps(box, back.tpgid)).comm, '-/bin/zsh');
+  assert.equal(answer(ask(box, ['terminal', 'show', '--terminal', handle, '--json'])).result.terminal.agentIdentity, 'claude');
+});
+
+test('the fake ps reads one pid and does nothing else', async (t) => {
+  const box = await createSandbox(t);
+
+  const missing = ps(box, 99999);
+  assert.equal(missing.status, 1, 'a pid that is not there');
+  assert.notEqual(missing.stderr, '');
+
+  for (const argv of [['-Ao', 'pid=,ppid=,comm='], ['-o', 'pid=,ppid=,tpgid=,comm=', '-p', '-1'], ['-e']]) {
+    const refused = spawnSync(box.ps.cli, argv, { env: box.env, encoding: 'utf8' });
+    assert.equal(refused.status, 70, `${argv.join(' ')} is not a read of one pid`);
+  }
+  assert.equal((await box.ps.calls()).length, 4, 'and every call is on the record, the refused ones too');
+});
+
+test('the fake times out on a busy harness, and answers ok for a shell a harness quit to', async (t) => {
+  const box = await createSandbox(t);
+  const { handle } = oneTab(box);
+  const look = () => ask(box, ['terminal', 'wait', '--terminal', handle, '--for', 'tui-idle', '--timeout-ms', '10000', '--json']);
+
+  await box.orca.set({ waitIdle: 'busy' });
+  const busy = look();
+  assert.equal(busy.status, 1);
+  assert.equal(JSON.parse(busy.stdout).error.code, 'timeout');
+
+  await box.orca.set({ waitIdle: 'quit' });
+  const quit = answer(look());
+  assert.equal(quit.ok, true);
+  assert.equal(quit.result.wait.satisfied, true);
+});
+
 test('the fake answers human text when the caller forgets --json', async (t) => {
   const box = await createSandbox(t);
 

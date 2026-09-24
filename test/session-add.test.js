@@ -5,7 +5,7 @@
 // Three rules run through all of it:
 //
 //   - the approval level is always written, and it is `auto` unless the user
-//     asked for another one in plain words (ADR 0005);
+//     asked for another one in plain words (ADR 0015);
 //   - every other setting is written only when it was given, because absent
 //     means the harness's own default and the kit hardcodes no model id;
 //   - the rest of the file is the user's: every value they wrote and every
@@ -127,7 +127,7 @@ for (const approval of ['auto', 'ask', 'dangerously-skip']) {
 }
 
 test('dangerously-skip is never reached by any other road', async (t) => {
-  // ADR 0005: the dangerous level is written only when the user asked for it in
+  // ADR 0015: the dangerous level is written only when the user asked for it in
   // those words. Nothing a user can leave out may land on it.
   const box = await createSandbox(t);
   const bots = await withBot(box);
