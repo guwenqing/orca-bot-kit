@@ -206,6 +206,10 @@ function counted(one, window) {
  *
  * A record with no time, or with a figure missing, is left out whole and said to
  * be; the call it belongs to is counted from its other records, if it has any.
+ * But when the record last written before the window's start is one of those,
+ * what the call had grown to by then is not known, and what it grew by inside
+ * the window cannot be told apart from what it grew by before. So the call is
+ * not counted in that window, and is said to be.
  */
 function fromClaude(entries, window, tally) {
   const byCall = new Map();
@@ -225,20 +229,22 @@ function fromClaude(entries, window, tally) {
       tally.gaps.records_without_time += 1;
       continue;
     }
-    if (!complete(usage, CLAUDE_FIELDS)) {
-      if (inside(when, window)) tally.gaps.records_without_numbers += 1;
-      continue;
-    }
+    const broken = !complete(usage, CLAUDE_FIELDS);
+    if (broken && inside(when, window)) tally.gaps.records_without_numbers += 1;
     const call = `${entry.requestId}\u0000${entry.message?.id}`;
     if (!byCall.has(call)) byCall.set(call, []);
-    byCall.get(call).push({ entry, when });
+    byCall.get(call).push({ entry, when, broken });
   }
 
   for (const records of byCall.values()) {
     const made = records[0].when;
-    const atEnd = records.findLast(({ when }) => when < window.to);
+    const atEnd = records.findLast(({ when, broken }) => !broken && when < window.to);
     if (atEnd === undefined) continue;
     const atStart = records.findLast(({ when }) => when < window.from);
+    if (atStart?.broken) {
+      if (inside(atEnd.when, window)) tally.gaps.records_without_numbers += 1;
+      continue;
+    }
 
     const now = figures(atEnd.entry);
     const was = atStart === undefined ? undefined : figures(atStart.entry);
@@ -292,9 +298,14 @@ const CODEX_FIELDS = [
  * right on any conversation short enough to read by hand.
  *
  * The running total is followed through events outside the window as well, since
- * what a call added can only be measured against the event before it. An event
- * with a figure missing is not followed: it is left out and said to be, and the
- * next call is measured against the last event that could be read in full.
+ * what a call added can only be measured against the event before it.
+ *
+ * An event whose running total has a figure missing is left out and said to be,
+ * and after it the running total is not known: measured against the event before
+ * it, the next call would take in what the broken one used, at the next call's
+ * time and perhaps in another window. So the next call is its own per-call
+ * figure. A call whose figure is needed and has something missing is not
+ * counted either, and is said to be; nothing missing is taken as zero.
  */
 function fromCodex(entries, window, tally) {
   let model;
@@ -322,16 +333,19 @@ function fromCodex(entries, window, tally) {
     const info = entry.payload?.info;
     if (info === undefined || info === null) continue;
 
-    if (!complete(info.total_token_usage ?? info.last_token_usage, CODEX_READ)) {
-      if (Number.isNaN(when)) tally.gaps.records_without_time += 1;
-      else if (inside(when, window)) tally.gaps.records_without_numbers += 1;
-      continue;
+    const total = info.total_token_usage ?? undefined;
+    let used;
+    if (total === undefined) {
+      // Nothing to measure against: the per-call figure is all there is.
+      used = perCall(info);
+    } else if (!complete(total, CODEX_READ)) {
+      used = null;
+      running = null;
+    } else {
+      used = spent(running, total, info);
+      running = total;
     }
 
-    const used = spent(running, info);
-    if (info.total_token_usage !== undefined && info.total_token_usage !== null) {
-      running = info.total_token_usage;
-    }
     // A repeat is not a call, whether or not it is inside the window.
     if (used === undefined) continue;
     if (Number.isNaN(when)) {
@@ -339,6 +353,10 @@ function fromCodex(entries, window, tally) {
       continue;
     }
     if (!inside(when, window)) continue;
+    if (used === null) {
+      tally.gaps.records_without_numbers += 1;
+      continue;
+    }
 
     count(tally, used, model, effort, when);
   }
@@ -348,26 +366,28 @@ function fromCodex(entries, window, tally) {
 const CODEX_READ = CODEX_FIELDS.filter((field) => field !== 'cache_write_input_tokens').concat('total_tokens');
 
 /**
- * What one Codex event says its call used, measured against the event before it.
- * `undefined` where the event is the one before written down again.
+ * What one Codex event says its call used, measured against the running total
+ * before it: `undefined` where the event is the one before written down again,
+ * and `null` where what it used cannot be known. `running` is `null` where the
+ * event before had a figure missing, so the running total is not known.
  */
-function spent(running, info) {
-  const total = info.total_token_usage;
-  if (total === undefined || total === null) {
-    // Nothing to measure against: the per-call figure is all there is.
-    return info.last_token_usage === undefined ? undefined : kindsOf(info.last_token_usage);
-  }
+function spent(running, total, info) {
   if (running === undefined) return kindsOf(total);
+  if (running === null) return perCall(info);
 
-  const moved = number(total.total_tokens) - number(running.total_tokens);
+  const moved = total.total_tokens - running.total_tokens;
   if (moved === 0) return undefined;
   // A fall is a new window, and the running total is counting again from there.
-  if (moved < 0) return kindsOf(info.last_token_usage ?? total);
+  if (moved < 0) return perCall(info);
 
   return kindsOf(Object.fromEntries(
     CODEX_FIELDS.map((field) => [field, number(total[field]) - number(running[field])]),
   ));
 }
+
+/** A Codex event's own per-call figure, or `null` when something in it is missing. */
+const perCall = (info) =>
+  complete(info.last_token_usage, CODEX_READ) ? kindsOf(info.last_token_usage) : null;
 
 /**
  * One Codex figure in the kinds this command reports. The cached tokens sit
