@@ -21,7 +21,7 @@ import path from 'node:path';
 import { readBook } from './book.js';
 import { botDir, botNames, readBot } from './bot.js';
 import { harnessOf, ownCli, reachesMail, shellWord } from './launch.js';
-import { ackMailbox, harnessInTab, postMessage, readMailbox, tabs, typeIntoTab, useMailbox } from './orca.js';
+import { ackMailbox, postMessage, readMailbox, tabs, tabToTypeInto, typeIntoTab, useMailbox } from './orca.js';
 
 /**
  * How much of a message travels as itself. Above this it is written to a file
@@ -321,31 +321,14 @@ function nudge(to, from, subject) {
   if (to.tab === undefined) return { nudged: false };
 
   try {
-    const live = tabs(to.home).find((tab) => tab.tabId === to.tab);
-    if (live === undefined) return { nudged: false };
-
-    const seen = harnessInTab(live.handle, LOOK_MS);
-    if (seen.blockedReason !== undefined) return { nudged: false, blocked: seen.blockedReason };
-    // The shell in front is a tab with no harness, whatever a stale
-    // `agentIdentity` says.
-    if (seen.front === 'shell') return { nudged: false };
-    // Not knowing is not a reason to type: a line that lands in a shell is run
-    // there, with the sender's subject in it. The program in front has to be
-    // the agent Orca names. With no name it may be a harness a few seconds
-    // into its launch; under another name it may be a pager started after the
-    // harness quit, under an identity Orca has not let go of (tech notes,
-    // section 1). A harness run through a wrapper such as `node` lands here
-    // too, until #261.
-    if (seen.front === undefined || seen.agent === undefined || seen.command !== seen.agent) {
-      const why = seen.front === undefined
-        ? seen.unreadable
-        : `${seen.command} holds its terminal, and Orca names ${seen.agent ?? 'no agent'} in it`;
-      return { nudged: false, nudgeTrouble: `the kit could not tell whether a harness is running in it (${why}), so nothing was typed` };
-    }
-    // A busy harness is typed into: it takes the line as its next turn.
+    const found = tabToTypeInto(to.home, to.tab, LOOK_MS);
+    if (found.blocked !== undefined) return { nudged: false, blocked: found.blocked };
+    // A line that lands in a shell is run there, with the sender's subject in it.
+    if (found.unsure !== undefined) return { nudged: false, nudgeTrouble: found.unsure };
+    if (found.handle === undefined) return { nudged: false };
 
     typeIntoTab(
-      live.handle,
+      found.handle,
       `Fleet mail from ${from.bot}/${from.session}: ${subject}. Read it with  ${shellWord(ownCli())} message check --bots ${shellWord(to.bots)} --bot ${shellWord(to.bot)} --session ${shellWord(to.session)}`,
     );
     return { nudged: true };

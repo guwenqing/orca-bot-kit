@@ -263,12 +263,22 @@ name for a directory in `skills/` inside your bots folder, or anything with a
 `/` in it for a skill directory anywhere on disk. `obk up` links them before it
 opens a tab, and `bot create` gives a new bot what the lists already name.
 
+A bot whose sessions are running gets a changed list without a restart.
+When `skills build` links or takes away a skill, it tells each running
+session of that bot. A Claude Code session gets `/reload-skills` typed into
+its tab: Claude Code's own reload, which a busy session runs when its turn
+ends. Codex has no reload command and takes the change at the start of its
+next turn, so nothing is typed there. The kit prints the new skills'
+`SKILL.md` paths, and says that a restart would make a skill appear if it is
+still missing after that turn. A session the kit could not tell is named,
+with the reason.
+
 What lands in the bot is a symlink, never a copy
 ([ADR 0014](docs/adr/0014-skills-are-linked-never-copied.md)) — into
 `.claude/skills` and `.agents/skills` in the bot home, which is where each
 harness reads a project's skills from. So a kit skill is read where npm
-installed it, editing a skill is what a running session reads without a
-restart, and updating the kit updates every bot at once.
+installed it, a running session reads an edited skill the next time it loads
+it, and updating the kit updates every bot at once.
 
 The kit takes away only what it can prove it put there. It writes down every
 link it makes, in `.obk-skills.yaml` in the bot folder, and when no list names

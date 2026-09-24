@@ -103,7 +103,10 @@ Usage:
                             skills folder, or any path, and take away a link
                             it made that no list names any more. What you put
                             in a bot's skills directory yourself is left alone
-                            and shown as yours. It does not touch Orca.
+                            and shown as yours. A bot whose links changed has
+                            its running sessions told: Claude Code gets
+                            /reload-skills typed in, and Codex takes the
+                            change at its next turn.
   obk skills fetch --bots <path> [--source <name>]
                             Clone the online sources skills.yaml lists, beside
                             your bots folder and never inside it, each at the
@@ -1086,7 +1089,22 @@ function skillsLines(skills) {
     ...(entry.trouble === undefined ? [] : [`  ${'trouble'.padEnd(9)}  ${entry.trouble}`]),
     ...entry.skills.map((skill) => `  ${(skill.managed ? 'linked' : 'yours').padEnd(9)}  ${skill.name.padEnd(24)}  ${skill.from ?? 'no list names it; the kit leaves it alone'}`),
     ...(entry.removed ?? []).map((name) => `  ${'removed'.padEnd(9)}  ${name.padEnd(24)}  no list names it now`),
+    ...(entry.sessions ?? []).map((one) => toldLine(entry.bot, one)),
   ]);
+}
+
+/** What `skills build` did about one running session of a bot whose skills changed. */
+function toldLine(bot, { session, harness, state, read, blocked, trouble }) {
+  const who = `${bot}/${session}`;
+  const after = harness === 'claude' ? 'Once that is settled, type /reload-skills in its tab.' : 'Its next turn takes the change by itself.';
+  const [word, says] = {
+    reloaded: ['reloaded', '/reload-skills was typed into its tab; a busy session runs it when its turn ends'],
+    'next-turn': ['next turn', `Codex takes the change at the start of its next turn. If a skill is not there then, a restart makes it appear${read?.length > 0 ? `; meanwhile it can read ${read.join(', ')}` : ''}`],
+    'not-up': ['not told', 'not up; it reads its skills when it starts'],
+    blocked: ['not told', `its tab is waiting for an answer (${blocked}), so nothing was typed. ${after}`],
+    unknown: ['not told', `${trouble}. ${after}`],
+  }[state];
+  return `  ${word.padEnd(9)}  ${who.padEnd(24)}  ${says}`;
 }
 
 /**

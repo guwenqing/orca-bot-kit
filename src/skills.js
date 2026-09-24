@@ -3,25 +3,30 @@
 //
 // Linked, never copied, in both directions. Inwards: what lands in the bot home
 // is a symlink to the skill's own directory, so a kit skill is read where the
-// package installed it and an edit to a skill is what a running session reads —
-// both harnesses follow a symlinked skill folder and pick a change up without a
-// restart (tech notes, sections 2 and 3). Outwards: the kit takes away only the
-// links it put there, and never the skill one was pointing at.
+// package installed it, and both harnesses follow the link. A running session
+// reads an edited skill the next time it loads it. A skill linked in or taken
+// away reaches it without a restart. Claude Code takes it through its own
+// `/reload-skills`, which `obk skills build` types into the session's tab.
+// Codex has no such command and takes it at the start of its next turn (tech
+// notes, sections 2 and 3). Outwards: the kit takes away only the links it put
+// there, and never the skill one was pointing at.
 //
 // An entry names one of four shelves: the kit's own (`kit:<name>`), an online
 // source `skills.yaml` lists (`<source>:<name>`, read from its clone beside the
 // bots folder), the user's common folder (a bare name), or a path to anywhere
 // on disk.
 
-import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { parse, parseDocument, stringify } from 'yaml';
 
+import { bookFile, readBook } from './book.js';
 import { botDir, botNames, changesExactly, leadsOutside, readBot, YAML_OUT } from './bot.js';
-import { ownCli, shellWord } from './launch.js';
+import { harnessOf, ownCli, shellWord } from './launch.js';
+import { orcaCli, orcaTrouble, tabToTypeInto, typeIntoTab } from './orca.js';
 import { listIn } from './rules.js';
 import { cloneDir, isCloned, readSources, skillsIn, wrongClone } from './sources.js';
 
@@ -130,7 +135,7 @@ export function removeSkill(bots, bot, ref) {
 
 /**
  * Give one bot the skills its lists name. Returns what there is to report:
- * `{ bot, skills, removed }` for a bot whose links are in place, and
+ * `{ bot, skills, linked, removed }` for a bot whose links are in place, and
  * `{ bot, skills, trouble }` for one whose list the kit could not follow.
  *
  * A list with one entry the kit cannot follow links nothing at all: half a
@@ -210,6 +215,7 @@ export function linkSkills(bots, home, bot) {
   // something to throw through `prepareBots` and stop the fleet. What was
   // linked before it went wrong is still written down, so the next run knows it
   // for the kit's own.
+  const linked = [];
   const removed = [];
   try {
     for (const harness of Object.keys(SKILL_DIRS)) {
@@ -218,8 +224,8 @@ export function linkSkills(bots, home, bot) {
         held.set(harness, heldIn(path.join(home, SKILL_DIRS[harness]), record[harness]));
         continue;
       }
-      const done = link(path.join(home, SKILL_DIRS[harness]), wanted, record[harness]);
-      removed.push(...done.removed);
+      // Filled as it goes, so what was changed before a failure is still known.
+      const done = link(path.join(home, SKILL_DIRS[harness]), wanted, record[harness], linked, removed);
       held.set(harness, done.held);
     }
   } catch (error) {
@@ -232,6 +238,9 @@ export function linkSkills(bots, home, bot) {
     return {
       bot: bot.name,
       skills: heldBy(home, [], held),
+      // What did change before it went wrong, so the sessions it reaches are told.
+      linked: [...new Set(linked)].sort(),
+      removed: [...new Set(removed)].sort(),
       trouble: `${bot.name}'s skills could not be linked: ${error.message}. Nothing of yours was changed; put right what is named there, then build again.`,
     };
   }
@@ -243,6 +252,7 @@ export function linkSkills(bots, home, bot) {
     return {
       bot: bot.name,
       skills,
+      linked: [...new Set(linked)].sort(),
       removed: [...new Set(removed)].sort(),
       trouble: [...away].map(([harness, real]) => `${path.join(home, SKILL_DIRS[harness])} leads outside the bot folder, to ${real}, through a link, and the kit links skills only inside the bot folder, so ${harness} does not get the skills the lists name. Replace the link with a directory of the bot's own, then build again.`).join(' '),
     };
@@ -251,6 +261,7 @@ export function linkSkills(bots, home, bot) {
   return {
     bot: bot.name,
     skills,
+    linked: [...new Set(linked)].sort(),
     removed: [...new Set(removed)].sort(),
     // A name the lists ask for that the bot has something else under. The user's
     // own is never written over, so what they have to know is that the list did
@@ -391,7 +402,8 @@ function namesIn(dir) {
 
 /**
  * Give every bot in the folder its skills, or the one named, in name order.
- * This is the whole of `obk skills build`: it writes links and asks Orca nothing.
+ * This is the whole of `obk skills build`: it writes links, and a bot whose
+ * links changed has its running sessions told (`tellSessions`).
  */
 export function buildSkills(bots, { bot: onlyBot } = {}) {
   const names = botNames(bots);
@@ -401,10 +413,88 @@ export function buildSkills(bots, { bot: onlyBot } = {}) {
 
   return (onlyBot === undefined ? names : [onlyBot]).map((name) => {
     const home = botDir(bots, name);
+    let bot;
+    let entry;
     try {
-      return linkSkills(bots, home, readBot(home, name));
+      bot = readBot(home, name);
+      entry = linkSkills(bots, home, bot);
     } catch (error) {
       return { bot: name, skills: [], trouble: error.message };
+    }
+    const changed = (entry.linked?.length ?? 0) + (entry.removed?.length ?? 0) > 0;
+    return changed ? { ...entry, sessions: tellSessions(home, bot, entry.linked) } : entry;
+  });
+}
+
+/** How long Orca is given to say what is in a session's tab. */
+const LOOK_MS = 2000;
+
+/**
+ * Tell each session of a bot whose skill links just changed, through its
+ * harness's own means (PRD 6.5: changes reach running sessions without a
+ * restart, and the sessions a change affects are told). Returns one entry per
+ * session, in the bot's order: `{ session, harness, state }`, where the state
+ * is `reloaded`, `next-turn` (with `read`), `not-up`, `blocked` (with
+ * `blocked`) or `unknown` (with `trouble`).
+ *
+ * Claude Code gets `/reload-skills` typed into its tab, through the same gate
+ * as the mail nudge. A busy session queues it and runs it as a command when
+ * its turn ends, so it never reaches the model as text. Codex has no reload
+ * command and takes the change at the start of its next turn by itself, so
+ * nothing is typed, and the caller is given the SKILL.md of each skill linked
+ * in, for the session to read if the skill has not appeared (tech notes,
+ * sections 2 and 3). Nothing is ever restarted.
+ */
+function tellSessions(home, bot, linked) {
+  let book;
+  try {
+    book = readBook(home).sessions;
+  } catch (error) {
+    // The links are made; which tab is whose is what cannot be known.
+    const trouble = `${bookFile(home)} cannot be read (${error.message}), so the kit could not tell which tab is this session's, and nothing was typed`;
+    return bot.sessions.map((session) => ({ session: session.name, harness: harnessOf(session, bot.harness), state: 'unknown', trouble }));
+  }
+  // Resolved, because Orca is asked about this folder by path and does not
+  // follow a link to it (tech notes, section 1).
+  let real;
+  try {
+    real = realpathSync(home);
+  } catch {
+    real = home;
+  }
+  // An Orca whose runtime is not there still answers some commands from what
+  // it last knew, so it is asked whether it is up before it is asked anything
+  // about a tab.
+  const down = bot.sessions.some((session) => typeof book[session.name]?.tab === 'string') ? orcaTrouble() : undefined;
+
+  return bot.sessions.map((session) => {
+    const harness = harnessOf(session, bot.harness);
+    const told = { session: session.name, harness };
+    const tab = typeof book[session.name]?.tab === 'string' ? book[session.name].tab : undefined;
+    if (tab === undefined) return { ...told, state: 'not-up' };
+    if (down !== undefined) return { ...told, state: 'unknown', trouble: `Orca is not answering at ${orcaCli()}, so the kit could not look at its tab, and nothing was typed` };
+    try {
+      const found = tabToTypeInto(real, tab, LOOK_MS);
+      if (found.blocked !== undefined) return { ...told, state: 'blocked', blocked: found.blocked };
+      if (found.unsure !== undefined) return { ...told, state: 'unknown', trouble: found.unsure };
+      if (found.handle === undefined) return { ...told, state: 'not-up' };
+      // The book's tab, now running the other harness: its reload is not this one's.
+      if (found.agent !== harness) {
+        return { ...told, state: 'unknown', trouble: `Orca names ${found.agent} in its tab, not ${harness}, so nothing was typed` };
+      }
+
+      if (harness === 'codex') {
+        // Only what Codex can actually read: a link can fail for one harness
+        // alone, and a skills directory that is the user's gets none.
+        const read = linked.map((name) => path.join(home, SKILL_DIRS.codex, name, MANIFEST)).filter((file) => existsSync(file));
+        return { ...told, state: 'next-turn', read };
+      }
+      typeIntoTab(found.handle, '/reload-skills');
+      return { ...told, state: 'reloaded' };
+    } catch (error) {
+      // The links are made whatever Orca says, so this is reported, not
+      // thrown: the build did what it was asked, and the session was not told.
+      return { ...told, state: 'unknown', trouble: error.message };
     }
   });
 }
@@ -489,7 +579,9 @@ function follow(bots, ref, sources) {
 
 /**
  * Make one harness's skills directory hold what `wanted` says, as far as the
- * kit is allowed to. Returns `{ removed, held }` — the names it took away, and
+ * kit is allowed to. Returns `{ linked, removed, held }` — the names it linked
+ * in or repointed, the names it took away (added to the lists given, as it
+ * goes, so a caller whose run throws still has them), and
  * what is in the directory afterwards.
  *
  * The kit acts only where the entry on disk is still the link it wrote, which
@@ -497,12 +589,10 @@ function follow(bots, ref, sources) {
  * link the very same skill by hand — so the kit remembers what it made rather
  * than guessing from where a link points (PRD 6.7).
  */
-function link(dir, wanted, record) {
+function link(dir, wanted, record, linked = [], removed = []) {
   // The directory is there: `linkSkills` makes both before it calls this.
 
   const keep = new Map(wanted.map((skill) => [skill.name, skill]));
-  const removed = [];
-
   // What the lists no longer name. The kit takes back only its own, and only
   // while it is untouched; anything else it forgets about and leaves.
   for (const name of Object.keys(record)) {
@@ -541,9 +631,10 @@ function link(dir, wanted, record) {
     // repo, and the link has to reach out of the repo to find it (ADR 0014).
     symlinkSync(skill.dir, at);
     record[skill.name] = skill.dir;
+    linked.push(skill.name);
   }
 
-  return { removed, held: heldIn(dir, record) };
+  return { linked, removed, held: heldIn(dir, record) };
 }
 
 /**
