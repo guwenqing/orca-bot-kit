@@ -405,7 +405,8 @@ brings it back with its conversations. Retiring a session takes it off the bot
 and keeps its conversations in the book under `retired`. Retiring a bot closes
 its tabs, removes its Orca project and moves its folder to `retired/`; it will
 not touch a bot whose Orca project holds a tab your book does not name. Bot
-Father itself is never paused or retired.
+Father itself, and its management session `daily`, are never paused or
+retired; its other sessions are like any bot's.
 
 ## When something is wrong
 

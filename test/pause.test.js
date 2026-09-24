@@ -18,7 +18,9 @@
 //   - the book keeps the conversation, and `unpause` brings the session back
 //     with it, the way `up` does.
 //
-// Bot Father is never paused: it is what the user asks to unpause anything.
+// Bot Father is never paused, and nor is its management session, daily: it is
+// what the user asks to unpause anything. Any other session of Bot Father's
+// pauses like any bot's (#230).
 
 import assert from 'node:assert/strict';
 import { rm, writeFile } from 'node:fs/promises';
@@ -38,6 +40,7 @@ import {
   sessionIn,
   skipGit,
   snapshot,
+  TAB_TITLES,
   tabsOfBot,
   typedInto,
 } from './helpers/cli.js';
@@ -506,4 +509,144 @@ test('U3 unpause refuses when Orca is not answering, and the bot stays paused', 
   assert.match(result.stderr, /not answering/i, `got: ${result.stderr}`);
   assert.deepEqual(await snapshot(bots, skipGit), before, 'nothing written');
   assert.equal((await rosterEntry(box, 'api-bot')).paused, true);
+});
+
+// ------------------------------------------------ Bot Father's other sessions
+//
+// Only Bot Father's management session, daily, is protected (#230). A session
+// the user added beside it pauses and unpauses like any bot's, and daily's tab
+// and the ops tab are never touched by it.
+
+/**
+ * Bot Father as init made it, with a second session, grooming, added and
+ * brought up beside daily, each running a conversation the book knows; and
+ * the ops tab, the one tab of Bot Father's outside the book.
+ */
+async function fatherWithGrooming(box) {
+  const bots = await madeBot(box);
+  const added = await box.run(['session', 'add', '--bots', 'bots', '--bot', 'bot-father', '--name', 'grooming']);
+  assert.equal(added.code, 0, added.stderr);
+  await up(box, 'bot-father');
+  const daily = await liveTab(box, bots, 'bot-father', 'daily');
+  const grooming = await liveTab(box, bots, 'bot-father', 'grooming');
+  await reported(box, bots, 'bot-father', daily.tabId, 'sess-bf');
+  await reported(box, bots, 'bot-father', grooming.tabId, 'sess-grooming');
+  const { leftovers } = await botFatherTabs(box, bots);
+  assert.equal(leftovers.length, 1, `the ops tab should be the one tab outside the book, got: ${JSON.stringify(leftovers)}`);
+  return { bots, daily, grooming, ops: leftovers[0] };
+}
+
+const tabIdsOf = async (box, bots, bot) => (await tabsOfBot(box, bots, bot)).map((one) => one.tabId).sort();
+const terminalOf = async (box, tabId) => (await box.orca.terminals()).find((one) => one.tabId === tabId);
+
+test('P13 pausing a Bot Father session that is not daily closes only its tab, by its handle, and marks only it paused', async (t) => {
+  const box = await createSandbox(t);
+  const { bots, daily, grooming, ops } = await fatherWithGrooming(box);
+  const from = await callCount(box);
+
+  const result = await pause(box, '--bot', 'bot-father', '--session', 'grooming');
+
+  assert.equal(result.code, 0, result.stderr);
+  const calls = await since(box, from);
+  assert.deepEqual(closes(calls).map((call) => orcaFlag(call, '--terminal')), [grooming.handle], 'grooming\'s tab, by its own handle, and no other');
+  assert.deepEqual(creates(calls), [], 'a pause opens nothing');
+  assert.deepEqual(await tabIdsOf(box, bots, 'bot-father'), [daily.tabId, ops.tabId].sort(), 'daily and the ops tab are left open');
+  assert.deepEqual(await terminalOf(box, ops.tabId), ops, 'the ops tab exactly as it was');
+  assert.deepEqual(await terminalOf(box, daily.tabId), daily.terminal, 'and daily\'s tab too');
+  const entry = await rosterEntry(box, 'bot-father');
+  assert.equal(rosterSession(entry, 'grooming').paused, true);
+  assert.notEqual(rosterSession(entry, 'daily').paused, true, 'daily is not paused');
+  assert.notEqual(entry.paused, true, 'and neither is Bot Father as a whole');
+  assert.equal((await sessionIn(bots, 'bot-father', 'grooming'))?.session, 'sess-grooming', 'the book keeps its conversation');
+});
+
+for (const [label, args] of [
+  ['obk up for the whole fleet', ['up', '--bots', 'bots']],
+  ['obk up --bot bot-father', ['up', '--bots', 'bots', '--bot', 'bot-father']],
+]) {
+  test(`P14 ${label} leaves a paused Bot Father session closed`, async (t) => {
+    const box = await createSandbox(t);
+    const { bots, daily, ops } = await fatherWithGrooming(box);
+    await paused(box, '--bot', 'bot-father', '--session', 'grooming');
+    const from = await callCount(box);
+
+    const result = await box.run(args);
+
+    assert.equal(result.code, 0, result.stderr);
+    assert.deepEqual(
+      creates(await since(box, from)).filter((call) => orcaFlag(call, '--worktree') === `path:${botHomeOf(bots, 'bot-father')}`),
+      [],
+      'daily and the ops tab are up, and grooming is paused: nothing to open in Bot Father\'s project',
+    );
+    assert.deepEqual(await tabIdsOf(box, bots, 'bot-father'), [daily.tabId, ops.tabId].sort());
+    assert.equal(rosterSession(await rosterEntry(box, 'bot-father'), 'grooming').paused, true, 'and it is still paused');
+  });
+}
+
+test('P15 obk up --bot bot-father still makes a missing ops tab while a session of it is paused', async (t) => {
+  const box = await createSandbox(t);
+  const { bots, daily, ops } = await fatherWithGrooming(box);
+  await paused(box, '--bot', 'bot-father', '--session', 'grooming');
+  // The user closed the ops tab.
+  await box.orca.set({ terminals: (await box.orca.terminals()).filter((one) => one.tabId !== ops.tabId) });
+  const from = await callCount(box);
+
+  const result = await box.run(['up', '--bots', 'bots', '--bot', 'bot-father']);
+
+  assert.equal(result.code, 0, result.stderr);
+  assert.equal(creates(await since(box, from)).length, 1, 'one tab: the ops tab, and none for grooming');
+  const after = await botFatherTabs(box, bots);
+  assert.deepEqual(after.inBook.map((one) => one.tabId), [daily.tabId], 'daily is the one session tab open');
+  assert.equal(after.leftovers.length, 1, `one tab outside the book, got: ${JSON.stringify(after.leftovers)}`);
+  assert.notEqual(after.leftovers[0].tabId, ops.tabId, 'a new tab');
+  assert.equal(after.leftovers[0].title, TAB_TITLES.ops);
+  assert.deepEqual(after.leftovers[0].typed, [], 'a plain shell: nothing is typed into it');
+});
+
+test('U4 unpausing a Bot Father session that is not daily brings it back with the conversation the book held', async (t) => {
+  const box = await createSandbox(t);
+  const { bots, daily, grooming, ops } = await fatherWithGrooming(box);
+  await paused(box, '--bot', 'bot-father', '--session', 'grooming');
+  const from = await callCount(box);
+
+  const result = await unpause(box, '--bot', 'bot-father', '--session', 'grooming');
+
+  assert.equal(result.code, 0, result.stderr);
+  const calls = await since(box, from);
+  assert.equal(creates(calls).length, 1, 'one tab, for grooming');
+  assert.deepEqual(closes(calls), [], 'and nothing closed');
+  const back = await liveTab(box, bots, 'bot-father', 'grooming');
+  assert.notEqual(back.tabId, grooming.tabId, 'a new tab');
+  assert.deepEqual(typedInto(back.terminal), [resumeLine(box, 'sess-grooming', 'grooming', 'bot-father')], 'resuming the conversation it had');
+  assert.deepEqual(await terminalOf(box, daily.tabId), daily.terminal, 'daily\'s tab is as it was');
+  assert.deepEqual(await terminalOf(box, ops.tabId), ops, 'and so is the ops tab');
+  assert.notEqual(rosterSession(await rosterEntry(box, 'bot-father'), 'grooming').paused, true, 'and the mark is gone');
+});
+
+test('P16 with another session beside it, Bot Father as a whole and its daily are still never paused or unpaused, and nothing is done', async (t) => {
+  // Guards the other side of #230: letting grooming through must not let
+  // Bot Father itself, or its management session, through with it.
+  const box = await createSandbox(t);
+  const { bots } = await fatherWithGrooming(box);
+  const terminals = await box.orca.terminals();
+  const before = await snapshot(bots, skipGit);
+  const from = await callCount(box);
+
+  for (const [run, ...args] of [
+    [pause, '--bot', 'bot-father'],
+    [pause, '--bot', 'bot-father', '--session', 'daily'],
+    [unpause, '--bot', 'bot-father'],
+    [unpause, '--bot', 'bot-father', '--session', 'daily'],
+  ]) {
+    const result = await run(box, ...args);
+    const said = `${run === pause ? 'pause' : 'unpause'} ${args.join(' ')}`;
+    assert.equal(result.code, 1, `${said} should be refused, got: ${result.stdout}${result.stderr}`);
+    assertCleanFailure(result);
+    assert.ok(result.stderr.includes('bot-father'), `${said}: the refusal should name Bot Father, got: ${result.stderr}`);
+  }
+  const calls = await since(box, from);
+  assert.deepEqual(closes(calls), [], 'not one tab closed');
+  assert.deepEqual(creates(calls), [], 'or opened');
+  assert.deepEqual(await box.orca.terminals(), terminals);
+  assert.deepEqual(await snapshot(bots, skipGit), before, 'and nothing written');
 });

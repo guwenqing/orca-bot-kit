@@ -13,6 +13,7 @@
 import { realpathSync } from 'node:fs';
 
 import { botDir, markPaused, readBot } from './bot.js';
+import { DAILY_SESSION } from './init.js';
 import { closeTabs, tabsToClose } from './restart.js';
 import { BOT_FATHER, botsNamed, bringUp, sessionsOf } from './up.js';
 
@@ -22,7 +23,7 @@ import { BOT_FATHER, botsNamed, bringUp, sessionsOf } from './up.js';
  * per tab it closed.
  */
 export async function pauseSessions(bots, { bot, session }) {
-  const home = fleetMember(bots, bot, 'pause');
+  const home = fleetMember(bots, bot, 'pause', session);
   const sessions = sessionsOf(readBot(home, bot), session);
 
   // Judged before anything is written or closed, so a refusal leaves both as
@@ -38,7 +39,7 @@ export async function pauseSessions(bots, { bot, session }) {
  * Returns `{ bot, session, changed, ...what up answered }`.
  */
 export async function unpauseSessions(bots, { bot, session }) {
-  const home = fleetMember(bots, bot, 'unpause');
+  const home = fleetMember(bots, bot, 'unpause', session);
   sessionsOf(readBot(home, bot), session);
 
   const changed = markPaused(bots, bot, session, false);
@@ -47,11 +48,15 @@ export async function unpauseSessions(bots, { bot, session }) {
 
 /**
  * The bot's home, once it is certain the bot is there and is not Bot Father,
- * which runs the fleet and is the one the user asks to bring anything back.
+ * or its management session: that is where the user asks to bring anything
+ * back. Bot Father's other sessions are like any bot's (#230).
  */
-export function fleetMember(bots, bot, verb) {
-  if (bot === BOT_FATHER) {
+export function fleetMember(bots, bot, verb, session) {
+  if (bot === BOT_FATHER && session === undefined) {
     throw new Error(`${BOT_FATHER} runs the fleet, and the kit does not ${verb} it: it is where you ask for everything else.`);
+  }
+  if (bot === BOT_FATHER && session === DAILY_SESSION) {
+    throw new Error(`${DAILY_SESSION} is ${BOT_FATHER}'s management session, and the kit does not ${verb} it: it is where you ask for everything else.`);
   }
   botsNamed(bots, bot);
   return realpathSync(botDir(bots, bot));
