@@ -96,6 +96,16 @@ async function aBook(box) {
  * after the holder said it had it. Every step it takes goes into a log with the
  * time, so a test can say what overlapped what rather than assume it.
  *
+ * That time is not the wall clock's (#255). The operating system slews the wall
+ * clock while the machine runs — macOS pulls it back a few milliseconds every
+ * so often — but a stop and a wait count the monotonic clock, so thirty-five
+ * seconds really stopped could read as thirty-four and a bit on `Date.now()`.
+ * The log uses `process.hrtime`, the clock Node's own timers count, so a window
+ * reads as long as it really was. Node promises only that it counts from some
+ * point in the past; what makes two writers' stamps comparable is that the
+ * point is the machine's rather than the process's — the time since boot, on
+ * macOS and on Linux alike.
+ *
  * A change that has to take time is asynchronous and is awaited under the lock;
  * a writer with nothing to wait for changes the book in one step, as the kit's
  * own callers do.
@@ -157,7 +167,9 @@ async function aWriter(box, home, name, {
     `const STOPS_FOR = ${JSON.stringify(stopsBeforeTheLockFor)};`,
     `const COMES_IN_ON = ${JSON.stringify(comesInOn)};`,
     '',
-    'const say = (what) => appendFileSync(LOG, `${JSON.stringify({ writer: NAME, what, at: Date.now() })}\\n`);',
+    '// Monotonic milliseconds, shared by every process on the machine: see above.',
+    'const now = () => Number(process.hrtime.bigint()) / 1e6;',
+    'const say = (what) => appendFileSync(LOG, `${JSON.stringify({ writer: NAME, what, at: now() })}\\n`);',
     '',
     '// Stop this thread, so that nothing of this process runs at all: no timer,',
     '// no promise, no handler. A sleep that is awaited would leave all of them',
@@ -169,7 +181,7 @@ async function aWriter(box, home, name, {
     'if (ARRIVES_AFTER > 0) {',
     '  while (!existsSync(HOLDING)) await sleep(50);',
     '  const took = Number(readFileSync(HOLDING, \'utf8\'));',
-    '  await sleep(Math.max(0, took + ARRIVES_AFTER - Date.now()));',
+    '  await sleep(Math.max(0, took + ARRIVES_AFTER - now()));',
     '}',
     '',
     '// Whether a writer has said any of these steps yet, from the log they share.',
@@ -216,7 +228,7 @@ async function aWriter(box, home, name, {
     'let attempt = 0;',
     'const took = () => {',
     '  attempt += 1;',
-    '  if (attempt === 1) writeFileSync(HOLDING, String(Date.now()));',
+    '  if (attempt === 1) writeFileSync(HOLDING, String(now()));',
     '  say(attempt === 1 ? \'holding\' : \'retrying\');',
     '  return attempt;',
     '};',
