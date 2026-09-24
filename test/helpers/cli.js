@@ -171,8 +171,14 @@ export async function createSandbox(t) {
   ].join('\n'));
   await chmod(fakeOrca, 0o755);
 
+  // The suite is often run from an Orca tab of its own, and Orca puts that
+  // tab's variables in everything started there. None of them names a terminal
+  // in the fake's world, and a kit that read them would behave one way on a
+  // laptop and another in CI. So the kit starts as a plain shell outside Orca
+  // does, with none, and a test that means it to run in a tab says which.
+  const outsideOrca = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith('ORCA_')));
   const env = {
-    ...process.env,
+    ...outsideOrca,
     PATH: `${bin}${path.delimiter}${process.env.PATH}`,
     HOME: home,
     OBK_ORCA: fakeOrca,
@@ -671,6 +677,8 @@ export const ALLOWED_ORCA_COMMANDS = [
   'terminal send',
   'orchestration run-create',
   'orchestration run-use',
+  // Read-only: Orca's record of one Run, its coordinator among it (1.4.209).
+  'orchestration run-show',
   'orchestration send',
   'orchestration check',
   'automations list',

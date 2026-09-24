@@ -12,7 +12,13 @@
 //
 // state.json, all optional except the lists:
 //   setups      [{ id, projectId, hostId, repoId, path, displayName, kind, ... }]
-//   terminals   [{ handle, tabId, worktreePath, title, typed: [...], ... }]
+//   terminals   [{ handle, tabId, worktreePath, title, typed: [...],
+//               notices: [...], ... }]
+//               `typed` is what the kit sent into the tab with `terminal send`.
+//               `notices` is what Orca itself wrote there: "You have N
+//               orchestration message. Run `orca orchestration check --run
+//               <id>`", one per message sent to a Run this terminal
+//               coordinates. Neither is part of what Orca reports about a tab.
 //               A terminal with `orphaned: true` is listed the way Orca 1.4.207
 //               lists a tab of a project its window has not loaded: the same
 //               handle and ptyId, but `tabId` and `leafId` both `pty:<ptyId>`
@@ -60,19 +66,33 @@
 //               anything that found it in a listing it is a tab like any other.
 //   crash       { command, exitCode, stdout, stderr } — no JSON, a bad exit code
 //   garbage     { command, text } — output that is not JSON at all
-//   runs        [{ id, objective }] — the Run mailboxes `orchestration
-//               run-create` has made. A Run cannot be deleted; there is no
-//               command for it, here or in Orca.
+//   runs        [{ id, objective, coordinator_handle, consumer_generation,
+//               legacy, created_at, updated_at }] — the Run mailboxes
+//               `orchestration run-create` has made, in the words `run-show`
+//               answers with (Orca 1.4.209). A Run cannot be deleted; there is
+//               no command for it, here or in Orca. `coordinator_handle` is
+//               the terminal the Run is bound to, and the only one Orca writes
+//               its notice into; null is a Run nobody coordinates, which live
+//               was seen as an empty coordinator. `run-create` and `run-use`
+//               bind the caller's own terminal (`ORCA_TERMINAL_HANDLE`), or the
+//               one `--from` names instead, leaving the caller's own binding as
+//               it was. One terminal holds one Run: binding it to a Run takes it
+//               off the Run it held before, which is left with no coordinator.
+//               A `--from` with no live pane is refused `stable_pane_required`,
+//               and a caller with no terminal that names none is refused
+//               `no_active_sender_terminal` (both seen live on 1.4.209; the
+//               second is explained where it is answered). A read of one Run by
+//               a terminal that coordinates another is refused
+//               `consumer_fenced`; the reader is the terminal `check
+//               --terminal` names, or the caller's own when it names none.
+//               `consumer_generation` stays 0 here: what Orca counts in it was
+//               not measured, and nothing the kit does reads it.
 //   messages    [{ id, to, from, subject, body, type, priority, threadId,
 //               at, acked }] — everything `orchestration send` has queued, in
 //               the order it was sent. `acked` is what `check --ack` sets, and
 //               an unacked message is replayed on every read. Those are this
 //               fake's own names, for a test to read; Orca's own words for the
 //               same message are in `asOrca` below.
-//   bound       { "<caller>": "<run id>" } — which Run each reader is bound to.
-//               A caller is its `ORCA_TERMINAL_HANDLE`, or `cli` for one that
-//               has no Orca terminal of its own; `run-create` and `run-use`
-//               bind it, and a read of another Run is refused `consumer_fenced`.
 //   runDuring   { command, argv, env, on } — run `argv` to completion once,
 //               before answering the `on`th call of `command` (the first by
 //               default), so another writer really lands in the middle of a run
@@ -319,9 +339,10 @@ if (command === 'project setup-delete') {
 
 /**
  * What Orca reports about a tab. What was typed into it is ours, and stays
- * ours, and so is how many more listings a closed tab still shows up in.
+ * ours, and so are the notices Orca wrote into it and how many more listings a
+ * closed tab still shows up in.
  */
-const asReported = ({ typed: _typed, closingFor: _closingFor, ...rest }) => (rest.orphaned === true
+const asReported = ({ typed: _typed, notices: _notices, closingFor: _closingFor, ...rest }) => (rest.orphaned === true
   ? { ...rest, tabId: `pty:${rest.ptyId}`, leafId: `pty:${rest.ptyId}`, orphaned: true }
   : { ...rest, orphaned: false });
 
@@ -433,7 +454,7 @@ if (command === 'terminal close') {
 if (command === 'terminal show') {
   const terminal = (state.terminals ?? []).find((entry) => entry.handle === flag('--terminal'));
   if (!terminal) fail('terminal_not_found', `no terminal with handle ${flag('--terminal')}`);
-  const { typed: _typed, closingFor: _closingFor, ...rest } = terminal;
+  const { typed: _typed, notices: _notices, closingFor: _closingFor, ...rest } = terminal;
   ok({ terminal: { ...rest, orphaned: terminal.orphaned === true } });
 }
 
@@ -494,36 +515,98 @@ if (command === 'terminal send') {
 // acked. What the kit never does — `reply --id`, the broadcast groups,
 // `orchestration reset` — this fake does not answer at all.
 
-/** Who is reading: a session reads from its own Orca tab, a plain shell has none. */
-const caller = process.env.ORCA_TERMINAL_HANDLE ?? 'cli';
-
-/** Bind this caller to a Run, the way `run-use` and `run-create` do. */
-function bind(run) {
-  state.bound = { ...(state.bound ?? {}), [caller]: run };
-}
+/**
+ * The terminal the calling process runs in: its `ORCA_TERMINAL_HANDLE`, which
+ * Orca sets in every pane. A plain shell outside Orca has none.
+ */
+const caller = process.env.ORCA_TERMINAL_HANDLE;
 
 const runNamed = (id) => (state.runs ?? []).find((run) => run.id === id);
+
+/** The Run a terminal is the coordinator of, if any: one terminal holds one Run. */
+const runHeldBy = (handle) => (state.runs ?? []).find((run) => run.coordinator_handle === handle);
+
+/**
+ * The terminal a `run-create` or `run-use` binds: `--from` when it is given,
+ * the caller's own otherwise. Both refusals are Orca's own, seen live on
+ * 1.4.209. A handle with no live pane cannot coordinate anything. And a caller
+ * with no terminal of its own that names none is refused rather than handed
+ * one: Orca 1.4.205 once gave such a caller a handle, but 1.4.209 refuses it
+ * whenever it cannot pick a terminal unambiguously, which on a machine with a
+ * fleet's worth of tabs is always. So the fake refuses it every time. A fake
+ * that went on binding a made-up terminal would pass a kit that leaves `--from`
+ * off from a plain shell, and the real Orca would refuse that kit.
+ */
+function coordinatorFor() {
+  const wanted = flag('--from') ?? caller;
+  if (wanted === undefined) {
+    fail(
+      'no_active_sender_terminal',
+      'Could not determine the sender terminal for this orchestration command. Pass --from with your own '
+        + 'terminal\'s handle — another pane\'s handle would act on its mailbox — or run the command inside a '
+        + 'live Orca terminal with ORCA_TERMINAL_HANDLE set.',
+    );
+  }
+  if (!(state.terminals ?? []).some((terminal) => terminal.handle === wanted)) {
+    fail(
+      'stable_pane_required',
+      'The coordinator terminal has no stable pane identity. Run this command inside a live Orca terminal.',
+    );
+  }
+  return wanted;
+}
+
+/**
+ * Make `handle` the coordinator of `run`. One terminal holds one Run, so the
+ * Run it held before is left with no coordinator at all (seen live: `run-use
+ * --id RB --from A` left RA's `coordinator_handle` empty and RB bound to A).
+ */
+function bind(run, handle) {
+  for (const held of state.runs ?? []) {
+    if (held.coordinator_handle === handle && held !== run) held.coordinator_handle = null;
+  }
+  run.coordinator_handle = handle;
+  run.updated_at = STAMP;
+}
+
+/** A fixed time for every Run: nothing the kit does reads it. */
+const STAMP = '2026-09-24T12:00:00.000Z';
 
 /** `run:<id>` is the durable address; a bare `term_…` is the legacy one. */
 const runIn = (address) => (typeof address === 'string' && address.startsWith('run:') ? address.slice('run:'.length) : undefined);
 
 if (command === 'orchestration run-create') {
+  const coordinator = coordinatorFor();
   const n = state.nextId ?? 1;
   state.nextId = n + 1;
-  const run = { id: `run_${n}`, objective: flag('--objective') ?? '' };
+  // Orca's own record of a Run, field for field as `run-show` answers it.
+  const run = {
+    id: `run_${n}`,
+    objective: flag('--objective') ?? '',
+    coordinator_handle: null,
+    consumer_generation: 0,
+    legacy: false,
+    created_at: STAMP,
+    updated_at: STAMP,
+  };
   state.runs = [...(state.runs ?? []), run];
-  bind(run.id);
+  bind(run, coordinator);
   save();
-  // A caller with no Orca terminal of its own is given a handle to read with.
-  ok({ run, terminal: caller === 'cli' ? `term_run_${n}` : caller });
+  ok({ run, terminal: coordinator });
 }
 
 if (command === 'orchestration run-use') {
-  const wanted = flag('--id');
-  if (runNamed(wanted) === undefined) fail('run_not_found', `no run with id ${wanted}`);
-  bind(wanted);
+  const wanted = runNamed(flag('--id'));
+  if (wanted === undefined) fail('run_not_found', `no run with id ${flag('--id')}`);
+  bind(wanted, coordinatorFor());
   save();
-  ok({ run: runNamed(wanted) });
+  ok({ run: wanted });
+}
+
+if (command === 'orchestration run-show') {
+  const wanted = runNamed(flag('--id'));
+  if (wanted === undefined) fail('run_not_found', `no run with id ${flag('--id')}`);
+  ok({ run: wanted });
 }
 
 if (command === 'orchestration send') {
@@ -558,6 +641,19 @@ if (command === 'orchestration send') {
     acked: false,
   };
   state.messages = [...(state.messages ?? []), message];
+
+  // Orca's own notice goes into the coordinator terminal of the Run the mail
+  // was sent to, and nowhere else; a Run with no coordinator gives none at all.
+  // Live it also wants an idle agent in that tab, which the fake does not ask.
+  const held = run === undefined ? undefined : runNamed(run).coordinator_handle;
+  const coordinator = (state.terminals ?? []).find((terminal) => held != null && terminal.handle === held);
+  if (coordinator !== undefined) {
+    const waiting = state.messages.filter((entry) => entry.to === to && !entry.acked).length;
+    coordinator.notices = [
+      ...(coordinator.notices ?? []),
+      `You have ${waiting} orchestration message. Run \`orca orchestration check --run ${run}\``,
+    ];
+  }
   save();
 
   ok({ message: asOrca(message), ...(warnings.length > 0 ? { warnings } : {}) });
@@ -584,14 +680,21 @@ function asOrca(message) {
 }
 
 if (command === 'orchestration check') {
-  const asked = flag('--run');
-  const run = asked ?? (state.bound ?? {})[caller];
+  // The reader is the terminal `--terminal` names, or else the caller's own.
+  // Seen live on 1.4.209: `--terminal S` reads and acks as S from another tab
+  // or from a shell with no Orca terminal, and the fence is judged against S's
+  // binding, not the caller's. A reader bound to another Run is fenced out.
+  // What Orca says to a reader with no terminal at all, or to a `--terminal`
+  // with no live pane, was never measured, so the fake lets it read whatever
+  // Run it names.
+  const reader = flag('--terminal') ?? caller;
+  const boundTo = reader === undefined ? undefined : runHeldBy(reader)?.id;
+  const run = flag('--run') ?? boundTo;
   if (run === undefined) fail('no_run', 'this caller is bound to no run and none was named');
   if (runNamed(run) === undefined) fail('run_not_found', `no run with id ${run}`);
 
-  const boundTo = (state.bound ?? {})[caller];
   if (boundTo !== undefined && boundTo !== run) {
-    fail('consumer_fenced', `This coordinator terminal is bound to ${boundTo}`);
+    fail('consumer_fenced', `This coordinator terminal is bound to ${boundTo}, not ${run}.`);
   }
 
   /** This Run's mail, oldest first. `--all` asks for the acknowledged ones too. */

@@ -205,3 +205,129 @@ test('the fake records every call, in order, with what it was asked', async (t) 
     { args: ['project', 'setups', '--json'], cwd: box.cwd },
   ]);
 });
+
+// The mailbox's binding rules, as Orca 1.4.209 was seen to keep them (issue
+// #228). A fake that bound Runs loosely would pass a kit that sends a fleet's
+// notices into the wrong tab, which is the bug these rules exist to catch.
+
+/** Two live tabs of the fake's own, A and B, and a way to call Orca from inside either or from neither. */
+async function twoTabs(box) {
+  const tab = (name) => ({ handle: `term_${name}`, tabId: `tab_${name}`, worktreePath: box.cwd, title: name, typed: [] });
+  await box.orca.set({ terminals: [tab('a'), tab('b')] });
+  const from = (handle) => (args) => {
+    const env = handle === undefined ? box.env : { ...box.env, ORCA_TERMINAL_HANDLE: handle };
+    const done = spawnSync(box.orca.cli, [...args, '--json'], { cwd: box.cwd, env, encoding: 'utf8' });
+    return JSON.parse(done.stdout);
+  };
+  return { inA: from('term_a'), inB: from('term_b'), outside: from(undefined) };
+}
+
+/** Orca's record of one Run, as `run-show` answers it. */
+const shown = (call, id) => call(['orchestration', 'run-show', '--id', id]).result.run;
+
+test('the fake binds a Run to the caller\'s own terminal, or to the one --from names', async (t) => {
+  const box = await createSandbox(t);
+  const { inA } = await twoTabs(box);
+
+  const mine = inA(['orchestration', 'run-create', '--objective', 'mine']).result.run.id;
+  const theirs = inA(['orchestration', 'run-create', '--objective', 'theirs', '--from', 'term_b']).result.run.id;
+
+  assert.equal(shown(inA, mine).coordinator_handle, 'term_a', 'no --from: the caller\'s own terminal');
+  assert.equal(shown(inA, theirs).coordinator_handle, 'term_b', '--from: that terminal, and A keeps what it had');
+});
+
+test('one terminal holds one Run: binding it to a second leaves the first with no coordinator', async (t) => {
+  const box = await createSandbox(t);
+  const { inA } = await twoTabs(box);
+  const first = inA(['orchestration', 'run-create', '--objective', 'first']).result.run.id;
+  const second = inA(['orchestration', 'run-create', '--objective', 'second', '--from', 'term_b']).result.run.id;
+
+  inA(['orchestration', 'run-use', '--id', second]);
+
+  assert.equal(shown(inA, second).coordinator_handle, 'term_a');
+  assert.equal(shown(inA, first).coordinator_handle, null, 'A let go of the first Run, and nobody took it');
+});
+
+test('the fake refuses to bind a Run to no terminal, or to a handle with no live pane', async (t) => {
+  const box = await createSandbox(t);
+  const { inA, outside } = await twoTabs(box);
+  const run = inA(['orchestration', 'run-create', '--objective', 'held']).result.run.id;
+
+  assert.equal(outside(['orchestration', 'run-create', '--objective', 'x']).error?.code, 'no_active_sender_terminal');
+  assert.equal(outside(['orchestration', 'run-use', '--id', run]).error?.code, 'no_active_sender_terminal');
+  assert.equal(inA(['orchestration', 'run-use', '--id', run, '--from', 'term_gone']).error?.code, 'stable_pane_required');
+  assert.equal(
+    outside(['orchestration', 'run-create', '--objective', 'y', '--from', 'term_b']).ok,
+    true,
+    'from outside Orca, naming a live terminal is how it is done',
+  );
+  assert.equal(shown(inA, run).coordinator_handle, 'term_a', 'and nothing refused moved anything');
+});
+
+test('the fake tells a Run\'s coordinator about its mail, and nobody else', async (t) => {
+  const box = await createSandbox(t);
+  const { inA, outside } = await twoTabs(box);
+  const toA = inA(['orchestration', 'run-create', '--objective', 'a']).result.run.id;
+  const loose = inA(['orchestration', 'run-create', '--objective', 'loose', '--from', 'term_b']).result.run.id;
+  inA(['orchestration', 'run-use', '--id', toA, '--from', 'term_b']);
+
+  outside(['orchestration', 'send', '--to', `run:${toA}`, '--subject', 'hello']);
+  outside(['orchestration', 'send', '--to', `run:${loose}`, '--subject', 'nobody hears this']);
+
+  const notices = Object.fromEntries((await box.orca.terminals()).map((terminal) => [terminal.handle, terminal.notices ?? []]));
+  assert.deepEqual(notices, {
+    term_a: [],
+    term_b: [`You have 1 orchestration message. Run \`orca orchestration check --run ${toA}\``],
+  });
+});
+
+test('a terminal bound to one Run is fenced out of reading another', async (t) => {
+  const box = await createSandbox(t);
+  const { inA, inB } = await twoTabs(box);
+  const toA = inA(['orchestration', 'run-create', '--objective', 'a']).result.run.id;
+  inB(['orchestration', 'run-create', '--objective', 'b']);
+
+  assert.equal(inB(['orchestration', 'check', '--run', toA]).error?.code, 'consumer_fenced');
+  assert.equal(inA(['orchestration', 'check', '--run', toA]).ok, true);
+});
+
+test('check --terminal reads and acks as that terminal, from another tab or from outside Orca', async (t) => {
+  // Seen live on 1.4.209: the fence is judged against the terminal named, not
+  // against the caller, so a tab that holds a Run of its own can read another
+  // Run through the terminal that holds it, and neither binding moves.
+  const box = await createSandbox(t);
+  const { inA, inB, outside } = await twoTabs(box);
+  const toA = inA(['orchestration', 'run-create', '--objective', 'a']).result.run.id;
+  const toB = inB(['orchestration', 'run-create', '--objective', 'b']).result.run.id;
+  outside(['orchestration', 'send', '--to', `run:${toB}`, '--subject', 'for b']);
+
+  assert.equal(inA(['orchestration', 'check', '--run', toB]).error?.code, 'consumer_fenced', 'as itself, A is fenced out');
+  assert.equal(
+    inB(['orchestration', 'check', '--run', toB, '--terminal', 'term_a']).error?.code,
+    'consumer_fenced',
+    'and naming A is fenced out even from B: the terminal named is the reader',
+  );
+  const peeked = inA(['orchestration', 'check', '--run', toB, '--terminal', 'term_b', '--peek']).result;
+  assert.deepEqual(peeked.messages.map((message) => message.subject), ['for b'], 'as B, A reads B\'s mail');
+  const read = outside(['orchestration', 'check', '--run', toB, '--terminal', 'term_b']).result;
+  inA(['orchestration', 'check', '--run', toB, '--terminal', 'term_b', '--ack', read.deliveryId]);
+
+  assert.deepEqual((await box.orca.messages()).map((message) => message.acked), [true], 'and acks it as B');
+  assert.equal(shown(inA, toA).coordinator_handle, 'term_a', 'A still holds its own Run');
+  assert.equal(shown(inA, toB).coordinator_handle, 'term_b', 'and B still holds its own');
+});
+
+test('the sandbox does not hand the kit the Orca tab the suite itself runs in', async (t) => {
+  // Run from inside Orca, the suite has a real ORCA_TERMINAL_HANDLE and the
+  // rest. None of them is a terminal in the fake's world.
+  const was = process.env.ORCA_TERMINAL_HANDLE;
+  process.env.ORCA_TERMINAL_HANDLE = 'term_the_suites_own';
+  t.after(() => {
+    if (was === undefined) delete process.env.ORCA_TERMINAL_HANDLE;
+    else process.env.ORCA_TERMINAL_HANDLE = was;
+  });
+
+  const box = await createSandbox(t);
+
+  assert.deepEqual(Object.keys(box.env).filter((name) => name.startsWith('ORCA_')), []);
+});
