@@ -41,10 +41,9 @@ works, not to get started.
 When the kit itself goes wrong (an `obk` command fails in a way its own message
 does not explain, or does something other than what it says), open an issue on
 this repository's Issues page (the address `package.json` gives as `bugs`) with
-the form there. It asks for
-the command and its whole output, what you expected, `obk health --json`, and the
-versions of `obk`, Node, Orca and the harness. Take out anything private first:
-issues are public.
+the form there. It asks for the command and its whole output, what you expected,
+`obk health --json`, and the versions of `obk`, Node, Orca and the harness. Take
+out anything private first: issues are public.
 
 Bot Father is told the same thing. Tell it what went wrong and it gathers these
 details and, when you say so, files the issue or gives you the text to paste.
