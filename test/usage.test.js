@@ -2180,6 +2180,186 @@ test('U14 Codex: a broken event\'s usage is counted nowhere, so it cannot move i
   assert.equal(tokensOf(all).output, 130, 'B\'s 20 counted nowhere');
 });
 
+/** A Codex event whose running total lacks its output: its own figure may be whole, its total is not. */
+const codexBrokenTotal = ({ when, last, total }) => codexCallAnd({ when, last, total }, { output_tokens: undefined });
+
+test('U14 Codex: an event that may be the broken one written again is counted once, and only where it can be placed', async (t) => {
+  // The reviewer's probe. B's running total is broken; C is B written down
+  // again: the same own figure, 200 in and 20 out, and a total 200/20 above
+  // A's. There was no call after B. The one call was made at 09:30 or at
+  // 11:00, so a window that holds one of those moments and not the other
+  // cannot say whether it had the call. Counting C by its own figure from
+  // 10:00 charges that window with a call it may not have had.
+  const box = await createSandbox(t);
+  const { bots, home } = await fleet(box, { harness: 'codex' });
+  await plant(box, 'codex', home, {
+    id: 'conv-c',
+    started: at(9),
+    lines: [
+      codexTurn({ when: at(9) }),
+      codexCall({ when: at(9, 0), last: { input: 1000, output: 100 }, total: { input: 1000, output: 100 } }),
+      codexBrokenTotal({ when: at(9, 30), last: { input: 200, output: 20 }, total: { input: 1200, output: 120 } }),
+      codexCall({ when: at(11, 0), last: { input: 200, output: 20 }, total: { input: 1200, output: 120 } }),
+    ],
+  });
+  await bookSays(bots, 'api-bot', { daily: ran('conv-c') });
+
+  const late = sessionOf(entryOf(await usage(box, '--since', at(10)), 'api-bot'), 'daily');
+  const whole = sessionOf(entryOf(await usage(box), 'api-bot'), 'daily');
+  const early = sessionOf(entryOf(await usage(box, '--until', at(10)), 'api-bot'), 'daily');
+  const both = sessionOf(entryOf(await usage(box, '--since', at(9, 15)), 'api-bot'), 'daily');
+
+  assert.deepEqual(conversationsOf(late), [], 'from 10:00 the call cannot be placed, so nothing is counted');
+  assert.deepEqual(leftOutOf(late), leftOut({ records_without_numbers: 1 }), 'and C is named as not counted');
+
+  const all = conversationOf(conversationsOf(whole), 'conv-c');
+  assert.equal(all.calls, 2, 'A, and B and C once between them');
+  assert.equal(tokensOf(all).input, 1200);
+  assert.equal(tokensOf(all).output, 120);
+  assert.deepEqual(leftOutOf(whole), leftOut({ records_without_numbers: 1 }), 'B');
+
+  const first = conversationOf(conversationsOf(early), 'conv-c');
+  assert.equal(first.calls, 1, 'A; C is after 10:00 and adds nothing here');
+  assert.equal(tokensOf(first).input, 1000);
+  assert.equal(tokensOf(first).output, 100);
+  assert.deepEqual(leftOutOf(early), leftOut({ records_without_numbers: 1 }), 'B, and C not a second time');
+
+  const placed = conversationOf(conversationsOf(both), 'conv-c');
+  assert.equal(placed.calls, 1, 'from 09:15 both moments are inside, so the call is placed and counted once');
+  assert.equal(tokensOf(placed).input, 200, 'by C\'s own figure');
+  assert.equal(tokensOf(placed).output, 20);
+  assert.deepEqual(leftOutOf(both), leftOut({ records_without_numbers: 1 }), 'B');
+});
+
+test('U14 Codex: an event whose own figure equals the broken one\'s before it may be that one written again, whatever its total rose by', async (t) => {
+  // Test (a) alone. C's total rose 500/50 above A's, which is not C's own
+  // 200/20, so only the equal own figures say C may repeat B.
+  const box = await createSandbox(t);
+  const { bots, home } = await fleet(box, { harness: 'codex' });
+  await plant(box, 'codex', home, {
+    id: 'conv-c',
+    started: at(9),
+    lines: [
+      codexTurn({ when: at(9) }),
+      codexCall({ when: at(9, 0), last: { input: 1000, output: 100 }, total: { input: 1000, output: 100 } }),
+      codexBrokenTotal({ when: at(9, 30), last: { input: 200, output: 20 }, total: { input: 1500, output: 150 } }),
+      codexCall({ when: at(11, 0), last: { input: 200, output: 20 }, total: { input: 1500, output: 150 } }),
+    ],
+  });
+  await bookSays(bots, 'api-bot', { daily: ran('conv-c') });
+
+  const late = sessionOf(entryOf(await usage(box, '--since', at(10)), 'api-bot'), 'daily');
+  const whole = sessionOf(entryOf(await usage(box), 'api-bot'), 'daily');
+
+  assert.deepEqual(conversationsOf(late), [], 'from 10:00 it cannot be placed');
+  assert.deepEqual(leftOutOf(late), leftOut({ records_without_numbers: 1 }));
+  const all = conversationOf(conversationsOf(whole), 'conv-c');
+  assert.equal(all.calls, 2);
+  assert.equal(tokensOf(all).input, 1200, 'counted by C\'s own 200, not by its rise of 500');
+  assert.equal(tokensOf(all).output, 120);
+  assert.deepEqual(leftOutOf(whole), leftOut({ records_without_numbers: 1 }));
+});
+
+test('U14 Codex: an event whose total rose by exactly its own figure since the last whole total may be the broken one written again', async (t) => {
+  // Test (b) alone. B's own figure is incomplete, so it cannot equal C's; but
+  // C's total less A's is 200/20, C's own figure, so nothing but one call
+  // happened since A, and it may have been made at B's moment.
+  const box = await createSandbox(t);
+  const { bots, home } = await fleet(box, { harness: 'codex' });
+  const broken = codexBrokenTotal({ when: at(9, 30), last: { input: 50, output: 5 }, total: { input: 1200, output: 120 } });
+  Object.assign(broken.payload.info.last_token_usage, { reasoning_output_tokens: undefined });
+  await plant(box, 'codex', home, {
+    id: 'conv-c',
+    started: at(9),
+    lines: [
+      codexTurn({ when: at(9) }),
+      codexCall({ when: at(9, 0), last: { input: 1000, output: 100 }, total: { input: 1000, output: 100 } }),
+      broken,
+      codexCall({ when: at(11, 0), last: { input: 200, output: 20 }, total: { input: 1200, output: 120 } }),
+    ],
+  });
+  await bookSays(bots, 'api-bot', { daily: ran('conv-c') });
+
+  const late = sessionOf(entryOf(await usage(box, '--since', at(10)), 'api-bot'), 'daily');
+  const whole = sessionOf(entryOf(await usage(box), 'api-bot'), 'daily');
+
+  assert.deepEqual(conversationsOf(late), [], 'from 10:00 it cannot be placed');
+  assert.deepEqual(leftOutOf(late), leftOut({ records_without_numbers: 1 }));
+  const all = conversationOf(conversationsOf(whole), 'conv-c');
+  assert.equal(all.calls, 2);
+  assert.equal(tokensOf(all).input, 1200);
+  assert.equal(tokensOf(all).output, 120);
+  assert.deepEqual(leftOutOf(whole), leftOut({ records_without_numbers: 1 }));
+});
+
+test('U14 Codex: an event that may repeat an undated broken one can never be placed', async (t) => {
+  // B has no time, so the call's moment is unknown in every window. B is
+  // reported as without time; C, when it is inside, as without numbers.
+  const box = await createSandbox(t);
+  const { bots, home } = await fleet(box, { harness: 'codex' });
+  await plant(box, 'codex', home, {
+    id: 'conv-c',
+    started: at(9),
+    lines: [
+      codexTurn({ when: at(9) }),
+      codexCall({ when: at(9, 0), last: { input: 1000, output: 100 }, total: { input: 1000, output: 100 } }),
+      codexBrokenTotal({ when: undefined, last: { input: 200, output: 20 }, total: { input: 1200, output: 120 } }),
+      codexCall({ when: at(11, 0), last: { input: 200, output: 20 }, total: { input: 1200, output: 120 } }),
+    ],
+  });
+  await bookSays(bots, 'api-bot', { daily: ran('conv-c') });
+
+  const whole = sessionOf(entryOf(await usage(box), 'api-bot'), 'daily');
+  const early = sessionOf(entryOf(await usage(box, '--until', at(10)), 'api-bot'), 'daily');
+
+  const all = conversationOf(conversationsOf(whole), 'conv-c');
+  assert.equal(all.calls, 1, 'A alone, even with no window');
+  assert.equal(tokensOf(all).input, 1000);
+  assert.equal(tokensOf(all).output, 100);
+  assert.deepEqual(leftOutOf(whole), leftOut({ records_without_numbers: 1, records_without_time: 1 }), 'C, and B');
+  assert.deepEqual(leftOutOf(early), leftOut({ records_without_time: 1 }), 'before 10:00 only B, C being outside');
+});
+
+test('U14 Codex: an event that may repeat a broken one is placed only when every broken event since the last whole total is on its side of the window', async (t) => {
+  // B1 at 09:20 and B2 at 09:40 both have broken totals; C at 11:00 repeats
+  // B2's own figure. From 09:30, B2 and C are inside and B1 is not, so which
+  // broken event the call belongs with is not known: C cannot be placed.
+  // From 09:10 all three are inside and the call counts once.
+  const box = await createSandbox(t);
+  const { bots, home } = await fleet(box, { harness: 'codex' });
+  await plant(box, 'codex', home, {
+    id: 'conv-c',
+    started: at(9),
+    lines: [
+      codexTurn({ when: at(9) }),
+      codexCall({ when: at(9, 0), last: { input: 1000, output: 100 }, total: { input: 1000, output: 100 } }),
+      codexBrokenTotal({ when: at(9, 20), last: { input: 300, output: 30 }, total: { input: 1300, output: 130 } }),
+      codexBrokenTotal({ when: at(9, 40), last: { input: 200, output: 20 }, total: { input: 1500, output: 150 } }),
+      codexCall({ when: at(11, 0), last: { input: 200, output: 20 }, total: { input: 1600, output: 160 } }),
+    ],
+  });
+  await bookSays(bots, 'api-bot', { daily: ran('conv-c') });
+
+  const split = sessionOf(entryOf(await usage(box, '--since', at(9, 30)), 'api-bot'), 'daily');
+  const inside = sessionOf(entryOf(await usage(box, '--since', at(9, 10)), 'api-bot'), 'daily');
+  const whole = sessionOf(entryOf(await usage(box), 'api-bot'), 'daily');
+
+  assert.deepEqual(conversationsOf(split), [], 'from 09:30 C cannot be placed');
+  assert.deepEqual(leftOutOf(split), leftOut({ records_without_numbers: 2 }), 'B2, and C');
+
+  const placed = conversationOf(conversationsOf(inside), 'conv-c');
+  assert.equal(placed.calls, 1);
+  assert.equal(tokensOf(placed).input, 200, 'by C\'s own figure');
+  assert.equal(tokensOf(placed).output, 20);
+  assert.deepEqual(leftOutOf(inside), leftOut({ records_without_numbers: 2 }), 'B1 and B2');
+
+  const all = conversationOf(conversationsOf(whole), 'conv-c');
+  assert.equal(all.calls, 2, 'A, and C once');
+  assert.equal(tokensOf(all).input, 1200);
+  assert.equal(tokensOf(all).output, 120);
+  assert.deepEqual(leftOutOf(whole), leftOut({ records_without_numbers: 2 }), 'B1 and B2');
+});
+
 test('U14 Claude Code: a call whose copy last written before the window is broken is not counted in that window, and is reported there', async (t) => {
   // One call written down three times, the middle copy broken. What it grew
   // inside a window that opens after the broken copy cannot be measured, so

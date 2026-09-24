@@ -303,14 +303,21 @@ const CODEX_FIELDS = [
  * An event whose running total has a figure missing is left out and said to be,
  * and after it the running total is not known: measured against the event before
  * it, the next call would take in what the broken one used, at the next call's
- * time and perhaps in another window. So the next call is its own per-call
- * figure. A call whose figure is needed and has something missing is not
- * counted either, and is said to be; nothing missing is taken as zero.
+ * time and perhaps in another window. So the next event is its own per-call
+ * figure, but it may also be the broken one written down again, which is not a
+ * new call. It may be when its figure is the broken one's, or when the running
+ * total has risen by its figure and no more. Then the call was made at one of
+ * their times, and is counted only when those are all on the same side of the
+ * window; where they are not, it cannot be placed, and is said to be. A call
+ * whose figure is needed and has something missing is not counted either, and
+ * is said to be; nothing missing is taken as zero.
  */
 function fromCodex(entries, window, tally) {
   let model;
   let effort;
   let running;
+  // The events since `running` whose own running total had something missing.
+  let broken = [];
 
   for (const entry of entries) {
     const when = Date.parse(entry.timestamp ?? '');
@@ -340,10 +347,11 @@ function fromCodex(entries, window, tally) {
       used = perCall(info);
     } else if (!complete(total, CODEX_READ)) {
       used = null;
-      running = null;
+      broken.push({ when, last: info.last_token_usage });
     } else {
-      used = spent(running, total, info);
+      used = broken.length === 0 ? spent(running, total, info) : afterBroken(running, total, info, broken, when, window);
       running = total;
+      broken = [];
     }
 
     // A repeat is not a call, whether or not it is inside the window.
@@ -368,12 +376,10 @@ const CODEX_READ = CODEX_FIELDS.filter((field) => field !== 'cache_write_input_t
 /**
  * What one Codex event says its call used, measured against the running total
  * before it: `undefined` where the event is the one before written down again,
- * and `null` where what it used cannot be known. `running` is `null` where the
- * event before had a figure missing, so the running total is not known.
+ * and `null` where what it used cannot be known.
  */
 function spent(running, total, info) {
   if (running === undefined) return kindsOf(total);
-  if (running === null) return perCall(info);
 
   const moved = total.total_tokens - running.total_tokens;
   if (moved === 0) return undefined;
@@ -384,6 +390,28 @@ function spent(running, total, info) {
     CODEX_FIELDS.map((field) => [field, number(total[field]) - number(running[field])]),
   ));
 }
+
+/**
+ * What the first complete event after broken ones used: its own figure, where it
+ * is a new call or the broken one written again on the same side of the window;
+ * `null` where its figure is missing something or the call cannot be placed.
+ */
+function afterBroken(running, total, info, broken, when, window) {
+  const own = perCall(info);
+  if (own === null) return null;
+
+  const last = info.last_token_usage;
+  const before = broken.at(-1).last;
+  const rose = Object.fromEntries(CODEX_READ.map((field) => [field, total[field] - (running?.[field] ?? 0)]));
+  const again = (complete(before, CODEX_READ) && same(before, last)) || same(rose, last);
+  if (!again) return own;
+
+  // One with no time is in no window, so it is never on the side of one that counts.
+  const placed = broken.every((one) => inside(one.when, window) === inside(when, window));
+  return placed ? own : null;
+}
+
+const same = (one, other) => CODEX_READ.every((field) => one[field] === other[field]);
 
 /** A Codex event's own per-call figure, or `null` when something in it is missing. */
 const perCall = (info) =>
