@@ -182,13 +182,14 @@ function withKitHook(hooks, file, mine) {
 
 /**
  * The kit's own hook entry, wherever it sits and whatever sits beside it: a
- * command of exactly the shape `hookCommand` writes, for any bots folder, bot
- * and program — the bare `obk` a bot made before #220 still has, this install,
- * or another — so an entry written before the folder moved or the kit changed is
- * still the kit's, and is rewritten in place rather than joined by a second. A
- * line of the user's that only mentions the command is theirs (PRD 6.5).
+ * command of exactly the shape `hookCommand` writes, for any bots folder and
+ * bot, run by a kit — the bare `obk` a bot made before #220 still has, this
+ * install, or another — so an entry written before the folder moved or the kit
+ * changed is still the kit's, and is rewritten in place rather than joined by a
+ * second. A line of the user's that only mentions the command, or runs it with
+ * a program of their own, is theirs (PRD 6.5).
  */
-const isKitHook = (hook) => typeof hook?.command === 'string' && KIT_HOOK.test(hook.command);
+const isKitHook = (hook) => kitProgramOf(hook?.command) !== undefined;
 
 /** One word as `shellWord` writes it: bare, or single-quoted with `'\''` inside. */
 const WORD = String.raw`(?:[A-Za-z0-9,._+:@%/=-]+|'(?:[^']|'\\'')*')`;
@@ -196,6 +197,20 @@ const KIT_HOOK = new RegExp(String.raw`^(${WORD}) session record --bots ${WORD} 
 
 /** The program a bot made before the kit named itself by path runs. */
 const BARE = 'obk';
+
+/**
+ * Whether a program is a kit: the bare name, an install's `obk` wherever it
+ * lives, or a checkout's `src/cli.js` — the only two ways `ownCli` is reached.
+ */
+const isKitCli = (program) => path.basename(program) === BARE || program.endsWith('/src/cli.js');
+
+/** The program a hook command of the kit's runs, unquoted, or undefined for any other command. */
+function kitProgramOf(command) {
+  const found = typeof command === 'string' ? KIT_HOOK.exec(command) : null;
+  if (found === null) return undefined;
+  const program = unquoted(found[1]);
+  return isKitCli(program) ? program : undefined;
+}
 
 /**
  * What the kit's hook in these settings runs, as a path or the bare name, or
@@ -207,8 +222,8 @@ function kitProgramIn(settings) {
     if (!Array.isArray(groups)) continue;
     for (const group of groups) {
       for (const hook of Array.isArray(group?.hooks) ? group.hooks : []) {
-        const found = typeof hook?.command === 'string' ? KIT_HOOK.exec(hook.command) : null;
-        if (found !== null) return unquoted(found[1]);
+        const program = kitProgramOf(hook?.command);
+        if (program !== undefined) return program;
       }
     }
   }

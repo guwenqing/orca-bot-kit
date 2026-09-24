@@ -31,6 +31,7 @@ import { setTimeout as pause } from 'node:timers/promises';
 
 import { bookFile, readBook } from './book.js';
 import { botDir, readBot } from './bot.js';
+import { ownCli, shellWord } from './launch.js';
 import { closeTab, findProject, tabs } from './orca.js';
 import { botsNamed, bringUp, prepareBots, sessionsOf } from './up.js';
 
@@ -49,10 +50,10 @@ export async function restartSessions(bots, { bot: name, session: onlySession } 
   // A paused bot or session has no tab to close and is not to be opened, so
   // there is nothing here to restart.
   if (known.paused === true) {
-    throw new Error(`${name} is paused, so there is nothing of it to restart and nothing was closed. Bring it back with obk unpause --bots ${bots} --bot ${name}.`);
+    throw new Error(`${name} is paused, so there is nothing of it to restart and nothing was closed. Bring it back with ${shellWord(ownCli())} unpause --bots ${bots} --bot ${name}.`);
   }
   if (onlySession !== undefined && sessions[0].paused === true) {
-    throw new Error(`${name} ${onlySession} is paused, so there is nothing of it to restart and nothing was closed. Bring it back with obk unpause --bots ${bots} --bot ${name} --session ${onlySession}.`);
+    throw new Error(`${name} ${onlySession} is paused, so there is nothing of it to restart and nothing was closed. Bring it back with ${shellWord(ownCli())} unpause --bots ${bots} --bot ${name} --session ${onlySession}.`);
   }
 
   // And the same preparations, made now rather than left to `up`, which makes
@@ -158,7 +159,7 @@ async function gone(home, closed, bots, bot) {
 
     if (Date.now() >= until) {
       const one = left.length === 1;
-      throw new Error(`Orca answered the close for ${one ? 'this tab' : 'these tabs'} and is still listing ${one ? 'it' : 'them'} ${SETTLED_MS / 1000} seconds later: ${left.join(', ')}. Nothing was opened in ${one ? 'its' : 'their'} place, because a tab that is on the way out is not a tab to start a harness in. The conversations are in the book: obk up --bots ${bots} --bot ${bot} brings them back once Orca has caught up.`);
+      throw new Error(`Orca answered the close for ${one ? 'this tab' : 'these tabs'} and is still listing ${one ? 'it' : 'them'} ${SETTLED_MS / 1000} seconds later: ${left.join(', ')}. Nothing was opened in ${one ? 'its' : 'their'} place, because a tab that is on the way out is not a tab to start a harness in. The conversations are in the book: ${shellWord(ownCli())} up --bots ${bots} --bot ${bot} brings them back once Orca has caught up.`);
     }
     await pause(ASK_MS);
   }
@@ -188,5 +189,5 @@ function alsoClosed(why, closed, bots, bot) {
   if (closed.length === 0) return why;
 
   const one = closed.length === 1;
-  return `${why} ${closed.map((tab) => tab.name).join(', ')} ${one ? 'was' : 'were'} closed before it and nothing was opened in ${one ? 'its' : 'their'} place: obk up --bots ${bots} --bot ${bot} brings ${one ? 'it' : 'them'} back with ${one ? 'its' : 'their'} conversation.`;
+  return `${why} ${closed.map((tab) => tab.name).join(', ')} ${one ? 'was' : 'were'} closed before it and nothing was opened in ${one ? 'its' : 'their'} place: ${shellWord(ownCli())} up --bots ${bots} --bot ${bot} brings ${one ? 'it' : 'them'} back with ${one ? 'its' : 'their'} conversation.`;
 }

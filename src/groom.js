@@ -39,7 +39,8 @@ const prompt = (bots) =>
   + `counting with ${shellWord(ownCli())} usage --since <last end> --until <this end>, and write this `
   + 'end down for the next run. Work out what it cost with obk-finops, keep '
   + 'each bot\'s profile notes, and send one short report to Bot Father\'s '
-  + `management session. The bots folder is ${bots}.`;
+  + `management session. The kit here is ${shellWord(ownCli())}: run it wherever a skill says obk. `
+  + `The bots folder is ${bots}.`;
 
 /**
  * Say what the grooming is, and make it so when asked.
@@ -67,7 +68,7 @@ export function grooming(bots, { at, on } = {}) {
   const bot = readBot(home, BOT_FATHER);
   const book = readBook(home);
   if (book.orca.project === undefined) {
-    throw new Error(`${BOT_FATHER} has no Orca project yet, so there is nothing for the grooming to run in. Run obk up --bots ${bots} --bot ${BOT_FATHER} first.`);
+    throw new Error(`${BOT_FATHER} has no Orca project yet, so there is nothing for the grooming to run in. Run ${shellWord(ownCli())} up --bots ${bots} --bot ${BOT_FATHER} first.`);
   }
 
   // Looking and making are one turn. Orca will not stop two runs creating two
