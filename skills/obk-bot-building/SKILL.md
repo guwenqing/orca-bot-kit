@@ -210,8 +210,9 @@ the ones it says are waiting. The kit cannot always tell: a tab stopped on a
 trust screen is often reported as up, Claude Code's every time and Codex's
 sometimes. Read each screen with `<orca> terminal read --terminal <handle>
 --screen`, where `<handle>` is the terminal the kit named for the tab and
-`<orca>` is the Orca CLI by its full path, as the kit prints it (a bare
-`orca` can fail). Send each answer as one `<orca> terminal send --terminal
+`<orca>` is the Orca CLI the kit uses: `$OBK_ORCA` when that is set, and
+otherwise `/Applications/Orca.app/Contents/Resources/bin/orca`. A bare
+`orca` can fail. Send each answer as one `<orca> terminal send --terminal
 <handle> --text …`, with the return inside the text and no `--enter`:
 
 | On screen | Send | Which is |
