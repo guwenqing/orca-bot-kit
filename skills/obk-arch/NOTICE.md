@@ -114,12 +114,30 @@ thanks:
   the exception for a change that has to happen everywhere; and a prototype
   being throwaway code that answers a question, with the polish skipped on
   purpose.
+- **mattpocock/skills**, `triage` with its `AGENT-BRIEF`, and `to-tickets`
+  further to the above. Handing work over behavioural rather than procedural,
+  what the system should do and not how, the builder exploring fresh and
+  making their own decisions; durable rather than precise, naming types,
+  contracts and behaviours and never file paths or line numbers, because the
+  code moves while the work waits; acceptance criteria that can each be
+  checked on their own; saying what is out of scope so the builder does not
+  gold-plate; the one exception of a prototype's snippet that encodes a
+  decision more precisely than prose (from `to-tickets`); and, before handing
+  a report on, verifying the claim (reproducing it from the reporter's steps
+  and saying whether it was confirmed, failed or lacked detail, a confirmed one
+  making a much stronger brief), searching for it by the concept rather than
+  the reporter's wording to see whether it already exists, checking whether
+  it was turned down before, asking the reporter specific questions rather
+  than for more information, and noting when a piece needs a person's
+  judgement rather than being delegated.
 
 Left behind on purpose: the multi-model arena and its runners, fixed model
 choices, the phase todolist and its ceremony, tracker and pull-request
 machinery, the generated report formats, and the trigger that fires a design
-review on any change crossing a function boundary. This skill is reached for
-when there is a shape to get wrong, not on every change.
+review on any change crossing a function boundary; from `triage`, the labels,
+the state machine, the brief template, the out-of-scope folder, the grilling
+step and the AI disclaimer. This skill is reached for when there is a shape
+to get wrong, not on every change.
 
 What the owner said, and how it shaped this: he asked for a very light part on
 what is wanted and on dividing the work, leaving the details and the tracking
@@ -131,4 +149,8 @@ testable (2026-09-19 18:54, and 2026-09-20 02:21), which is why that part stays 
 that the source's strict vocabulary be dropped for plain words (18:50), so the
 list of defined terms is gone and the ideas stay. He did not want a
 blast-radius skill of its own (18:08), so what is kept of it is a short part.
-A small reshaping being part of the change follows PRD 7.3.
+A small reshaping being part of the change follows PRD 7.3. He asked that work
+be handed over by intention, without micro-management or baby steps, with
+only brief research: enough to validate an issue, above all one reported from
+outside, and to triage it (issue #263, 2026-09-24). That is the part on
+handing a piece over, and why its research stops there.
