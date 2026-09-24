@@ -1249,6 +1249,105 @@ test('S8 a session whose tab Orca no longer has gets no entry and no settings or
   assert.ok(!aboutReview[0].says.includes('claude-sonnet-5'), `nor the mismatch, got: ${aboutReview[0].says}`);
 });
 
+// A tab can stay open after its harness has quit to the tab's shell (seen
+// live, test/harness-in-tab.test.js). Health asks who is in front of a live
+// tab the way the kit does before it types into one: Orca's pane pid, then
+// `ps`. The fakes answer for it, and a terminal's own `foreground` sets it for
+// that tab alone.
+
+/** Put `front` in front of one session's tab alone, in the fake Orca's world. */
+async function frontOf(box, bots, session, front) {
+  const { tab } = await sessionIn(bots, 'api-bot', session);
+  const terminals = await box.orca.terminals();
+  assert.ok(terminals.some((one) => one.tabId === tab), `the premise: Orca has ${session}'s tab ${tab}`);
+  await box.orca.set({ terminals: terminals.map((one) => (one.tabId === tab ? { ...one, foreground: front } : one)) });
+}
+
+/** A bot whose sessions each ran sonnet where opus was asked for, and started before its charter changed. */
+async function behindOnBoth(box, sessions) {
+  const bots = await seeded(box);
+  await botUp(box, 'api-bot', { sessions: sessions.map((name) => [name, '--model', 'opus']) });
+  for (const [n, name] of sessions.entries()) {
+    await talking(box, bots, 'api-bot', name, 'claude', conv(1 + n), claudeRan({ model: 'claude-sonnet-5', effort: 'high' }));
+  }
+  await CHARTER_CHANGES[0][1](box, bots);
+  return bots;
+}
+
+for (const shell of ['shell', 'bare-shell']) {
+  test(`S8 a session whose tab has its ${shell} in front is not running: no entry and no settings or rules finding, beside a sibling whose harness is`, async (t) => {
+    const box = await createSandbox(t);
+    const bots = await behindOnBoth(box, ['daily', 'review']);
+    await frontOf(box, bots, 'review', shell);
+
+    const answer = await found(box);
+
+    const daily = entryOf(answer, 'api-bot', 'daily');
+    assert.equal(daily.running, 'yes', 'the harness is in front of daily\'s tab');
+    assert.equal(daily.settings.model.state, 'mismatch', 'the running session is judged');
+    assert.deepEqual(daily.rules, { state: 'older' }, 'and its rules too');
+    const mine = of(answer, { kind: 'session', bot: 'api-bot' });
+    assert.equal(
+      mine.filter((one) => hasWord(one.says, 'daily')).length,
+      2,
+      `daily keeps its mismatch and its older rules, got: ${JSON.stringify(mine, null, 2)}`,
+    );
+
+    assert.equal(hasEntry(answer, 'api-bot', 'review'), false, 'the harness in review\'s tab quit, so it is not running');
+    const aboutReview = mine.filter((one) => hasWord(wordsOf(one), 'review'));
+    assert.deepEqual(
+      aboutReview.filter((one) => one.where === agentsOf(bots, 'api-bot') || one.says.includes('claude-sonnet-5')),
+      [],
+      `no mismatch and no older rules for review, got: ${JSON.stringify(aboutReview, null, 2)}`,
+    );
+  });
+}
+
+test('S8 every entry of a session whose harness is in front says running: yes, on both harnesses', async (t) => {
+  const box = await createSandbox(t);
+  await seeded(box);
+  await botUp(box, 'api-bot', { sessions: [['daily'], ['nightly', '--harness', 'codex']] });
+
+  const answer = await found(box);
+
+  assert.ok(answer.sessions.length >= 3, `Bot Father's daily and api-bot's two, got: ${JSON.stringify(answer.sessions, null, 2)}`);
+  for (const entry of answer.sessions) {
+    assert.equal(entry.running, 'yes', `${entry.bot} ${entry.session} has its harness in front, got: ${JSON.stringify(entry)}`);
+  }
+});
+
+for (const front of ['no-pid', 'ps-fails', 'garbage']) {
+  test(`S8 a tab whose front cannot be read (${front}) keeps its entry as running: unknown, with its settings and rules, and no finding for them`, async (t) => {
+    const box = await createSandbox(t);
+    const bots = await behindOnBoth(box, ['daily']);
+    await frontOf(box, bots, 'daily', front);
+
+    const answer = await found(box);
+    const plain = await health(box);
+
+    const daily = entryOf(answer, 'api-bot', 'daily');
+    assert.equal(daily.running, 'unknown', 'nothing says whether the harness is there');
+    assertSetting(daily, 'model', { state: 'mismatch', configured: 'opus', observed: 'claude-sonnet-5' }, 'the record is still read and shown');
+    assert.deepEqual(daily.rules, { state: 'older' }, 'the stamp is still compared and shown');
+    assert.deepEqual(
+      of(answer, { kind: 'session', bot: 'api-bot' }),
+      [],
+      `nothing shows those settings or rules are in use, so neither is a finding, got: ${JSON.stringify(answer.found, null, 2)}`,
+    );
+
+    // The plain lines say it cannot tell, and never call daily running.
+    const text = plain.stdout;
+    assert.match(
+      text,
+      /\b(cannot|can't|could not|couldn't|unable to)\b[^\n]*\b(tell|say|see|know|read)\b/i,
+      `the plain lines should say the kit cannot tell whether the harness is running, got:\n${text}`,
+    );
+    for (const line of text.split('\n').filter((one) => hasWord(one, 'daily') && /\brunning\b/i.test(one))) {
+      assert.match(line, /\b(whether|cannot|can't|could not|couldn't|unknown|unable)\b/i, `a line about daily must not call it running, got: ${line}`);
+    }
+  });
+}
+
 test('S8 the entries come in bot name order, then in the order of each bot\'s sessions in bot.yaml', async (t) => {
   const box = await createSandbox(t);
   const bots = await seeded(box);
