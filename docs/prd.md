@@ -109,6 +109,7 @@ Each line is a check a developer can run. Issues turn these into acceptance test
 
 - Sessions of one bot share the bot home. One bot may have several sessions. [decided]
 - Every session starts at the bot home. A per-session work dir is an instruction only and is always a plain folder; the kit creates it and adds the note to the start prompt automatically. It has nothing to do with git worktrees. When a bot clones a repo into its work dir and works on it, it honours that repo's own rules; whether it clones, uses a worktree there, or does something else is for the user to say. [decided]
+  Changed by the owner on 2026-09-24 (#241): it honours both that repo's rules and its own. Where they conflict it does not pick one: it raises the conflict with the user or whoever gave the work, names both texts, and holds the conflicting part until it is settled. Fleet review looks for such conflicts; nothing settles them automatically, and neither side's rules are changed without their owner. [decided]
 - Each session sets: harness, model, effort, context window, approval level, start prompt. [decided]
 - The kit never hardcodes a model id; empty means the harness default. Init asks once for the harness. [decided]
 - Approval levels: `auto` (default; the harness's real auto mode), `ask`, `dangerously-skip` (only when the user asks for it in plain words). [decided] → ADR 0005
