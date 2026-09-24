@@ -26,7 +26,7 @@ import { botDir, botNames, botsDir, readBot } from './bot.js';
 import { transcriptsIn } from './conversations.js';
 import { hookTrouble } from './hooks.js';
 import { bypassFlags, harnessOf, HARNESSES, ownCli, sessionTrouble, shellWord } from './launch.js';
-import { orcaDefaultArgs, projects, tabs } from './orca.js';
+import { frontOfTab, orcaDefaultArgs, projects, tabs } from './orca.js';
 import { agentsTrouble, rulesStamp } from './rules.js';
 import { settingsInUse } from './settings.js';
 import { skillsTrouble } from './skills.js';
@@ -225,7 +225,7 @@ const hooksOf = (bots, home, bot) => [...new Set(bot.sessions.map((session) => h
  * Only a mismatch and older rules are findings. What cannot be read is said as
  * unknown in `sessions`, and never taken for agreement.
  */
-function runningOn(bots, home, bot, book, there, sessions) {
+function runningOn(bots, home, bot, book, handles, sessions) {
   const real = realpathOf(home) ?? home;
   const records = new Map();
   const recordOf = (harness, id) => {
@@ -238,16 +238,28 @@ function runningOn(bots, home, bot, book, there, sessions) {
   const found = [];
   for (const session of bot.sessions) {
     const entry = book.sessions[session.name];
-    // Running is a tab Orca still has. A session whose tab is gone is not
-    // running whatever its record says, and the missing tab is said already.
-    if (bot.paused === true || session.paused === true || entry === null || typeof entry !== 'object' || !there.has(entry.tab)) continue;
+    // Running is a tab Orca still has, with the session's harness in front of
+    // it. A session whose tab is gone is not running whatever its record says,
+    // and the missing tab is said already.
+    if (bot.paused === true || session.paused === true || entry === null || typeof entry !== 'object') continue;
+    const handle = handles.get(entry.tab);
+    if (handle === undefined) continue;
 
+    // A harness can quit to the tab's shell and leave the tab open (#232), so
+    // the tab alone is not the answer: who holds its terminal is, asked the way
+    // the kit asks before it types into a tab. The shell in front is a session
+    // that is not running. Anything else that is not its own harness, or a front
+    // that cannot be read, leaves it unsaid, and nothing unsaid is a finding.
+    const front = frontOfTab(handle);
+    if (front.front === 'shell') continue;
     const harness = harnessOf(session, bot.harness);
+    const running = front.front === 'program' && front.command === harness ? 'yes' : 'unknown';
     const conversation = typeof entry.session === 'string' ? entry.session : null;
     const file = recordOf(harness, conversation);
     const settings = settingsInUse(harness, session, file, typeof entry.launched === 'string' ? entry.launched : undefined);
     const rules = { state: typeof entry.rules !== 'string' ? 'unknown' : entry.rules === stamp ? 'current' : 'older' };
-    sessions.push({ bot: bot.name, session: session.name, harness, conversation, settings, rules });
+    sessions.push({ bot: bot.name, session: session.name, harness, running, conversation, settings, rules });
+    if (running !== 'yes') continue;
 
     const restart = `${shellWord(ownCli())} restart --bots ${shellWord(bots)} --bot ${bot.name} --session ${session.name}`;
     const off = Object.entries(settings).filter(([, one]) => one.state === 'mismatch');
@@ -324,7 +336,7 @@ function inOrca(bots, home, bot, setups, sessions) {
     }
   }
 
-  found.push(...runningOn(bots, home, bot, book, there, sessions));
+  found.push(...runningOn(bots, home, bot, book, new Map(live.map((tab) => [tab.tabId, tab.handle])), sessions));
   return found;
 }
 

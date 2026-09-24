@@ -1133,7 +1133,7 @@ const foundLines = (found) =>
  * What one running session runs on, in a line: each setting's state, with what
  * was asked for and what the harness recorded, and its rules.
  */
-function settingsLine({ bot, session, settings, rules }) {
+function settingsLine({ bot, session, running, settings, rules }) {
   const each = Object.entries(settings).map(([name, one]) => {
     const values = [
       ...(one.configured === undefined ? [] : [`asked ${one.configured}`]),
@@ -1141,7 +1141,11 @@ function settingsLine({ bot, session, settings, rules }) {
     ];
     return `${name} ${one.state}${values.length === 0 ? '' : ` (${values.join(', ')})`}`;
   });
-  return `${'running'.padEnd(9)}  ${bot} ${session}  ${each.join('  ')}  rules ${rules.state}`;
+  // A session whose harness the kit cannot see in its tab is not called running.
+  const [word, who] = running === 'yes'
+    ? ['running', `${bot} ${session}`]
+    : ['unsure', `${bot} ${session}  cannot tell whether its harness is running:`];
+  return `${word.padEnd(9)}  ${who}  ${each.join('  ')}  rules ${rules.state}`;
 }
 
 function tabLines({ bots, created, completed, rules, skills, tabs, paused = [], projects = [], found = [] }, summary) {
