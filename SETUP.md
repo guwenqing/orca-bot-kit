@@ -185,6 +185,7 @@ waiting for:
 | Claude Code's folder trust list | `\x1b[B\r` | down, then return: its selection starts on **No, exit** |
 | Codex's directory trust, `1. Trust and continue` (older: `1. Yes, continue`) | `1\r` | yes |
 | Codex's `Hooks need review` | `2\r` | trust all and continue |
+| Codex's `/new`: `Where should the new conversation run?` | `1\r` | current checkout (bot home) |
 | Codex's update offer, `1. Update now` | `1\r` | accept it |
 | `[oh-my-zsh] Would you like to update?` | `n` | they update their own shell |
 | Claude Code's `Teach auto mode about your environment?` | `2\r` | **Not now**: it would write settings of theirs |
@@ -193,7 +194,7 @@ The numbers there are what these menus showed when this was written. Read them
 off the screen in front of you rather than trusting the table: a harness that has
 added an option since has moved them all down one.
 
-Two things to know rather than guess at.
+Three things to know rather than guess at.
 
 Codex's hooks question is not cosmetic. The kit's hook is how the book learns
 which conversation a session is running as, and while that screen is up the
@@ -202,6 +203,10 @@ empty book and nothing says why.
 
 Codex's trust question applies to the **repository root**, which for a bot means
 the whole bots folder rather than the one bot. That is what they are agreeing to.
+
+Codex's `/new` question (0.156.1 on) is always answered with the current
+checkout, which is the bot home. The kit never makes a git worktree, so
+`2. New worktree` is never the answer.
 
 **Anything you do not recognise: type nothing.** Tell them what is on the
 screen and which tab it is in, and wait. A keypress into a menu you have not read
