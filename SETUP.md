@@ -68,10 +68,20 @@ If that answers, the kit is installed. Say where it is coming from — `which ob
 project, may be running through that same installation, and replacing it would
 take their `obk` away without telling them.
 
-If it does not answer, install it. Today the kit is not published, so the route
-is a clone and a global install from it:
+If it does not answer, install it from npm:
 
 ```sh
+npm install -g @assuredloop/orca-bot-kit
+obk --version
+```
+
+If `obk --version` still does not answer, npm has no working release yet: it
+refused the name, or it installed an early placeholder that has no `obk` in it.
+Take the placeholder off again if there is one, and install from a clone
+instead:
+
+```sh
+npm uninstall -g @assuredloop/orca-bot-kit
 git clone https://github.com/guwenqing/orca-bot-kit
 cd orca-bot-kit
 npm install
@@ -79,11 +89,10 @@ npm link
 obk --version
 ```
 
-**This step is the one thing on this page that changes.** When the kit is
-published, all of it becomes `npm install -g orca-bot-kit` and the clone goes
-away. The rest of this page is about Orca and the harnesses and stays as it is.
+**This step is the one thing on this page that changes.** The rest of this page
+is about Orca and the harnesses and stays as it is.
 
-If `npm link` fails because it cannot write where npm keeps global packages,
+If either install fails because it cannot write where npm keeps global packages,
 give them the command to run themselves and wait. Do not reach for `sudo` on
 their behalf.
 

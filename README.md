@@ -52,10 +52,19 @@ release measured here that loads it without an experimental warning on stderr,
 which would otherwise land in the output of every command.
 
 ```sh
-npm install
-npm link
+npm install -g @assuredloop/orca-bot-kit
 obk --version
 ```
+
+The command is `obk`. If `obk --version` does not answer after that, npm has no
+working release yet (an early placeholder has no `obk` in it): run
+`npm uninstall -g @assuredloop/orca-bot-kit`, then install from a clone of this
+repository with `npm install` and `npm link`. The same clone route is how you
+work on the kit itself: `obk` then runs your checkout.
+
+Releases go out from CI: publishing a GitHub Release tagged `v<version>` runs
+`.github/workflows/publish.yml`, which runs the suite and publishes that version
+to npm with a provenance statement. Nothing else publishes.
 
 ## Create your bots folder
 
