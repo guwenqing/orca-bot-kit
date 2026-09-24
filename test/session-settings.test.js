@@ -1316,8 +1316,17 @@ test('S8 every entry of a session whose harness is in front says running: yes, o
   }
 });
 
-for (const front of ['no-pid', 'ps-fails', 'garbage']) {
-  test(`S8 a tab whose front cannot be read (${front}) keeps its entry as running: unknown, with its settings and rules, and no finding for them`, async (t) => {
+// Only the session's own harness in front is running. Another program there,
+// `less` after the harness quit or the other harness, is the kit's typing gate
+// not trusting it (src/orca.js), and counts as a front that cannot be read.
+for (const [label, front] of [
+  ['cannot be read (no-pid)', 'no-pid'],
+  ['cannot be read (ps-fails)', 'ps-fails'],
+  ['cannot be read (garbage)', 'garbage'],
+  ['holds a program that is not the harness (program: less)', 'program'],
+  ['holds the other harness (other-harness: codex in a Claude tab)', 'other-harness'],
+]) {
+  test(`S8 a tab whose front ${label} keeps its entry as running: unknown, with its settings and rules, and no finding for them`, async (t) => {
     const box = await createSandbox(t);
     const bots = await behindOnBoth(box, ['daily']);
     await frontOf(box, bots, 'daily', front);
@@ -1347,6 +1356,27 @@ for (const front of ['no-pid', 'ps-fails', 'garbage']) {
     }
   });
 }
+
+test('S8 a Codex tab with claude in front keeps its entry as running: unknown, and no finding for it', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  await botUp(box, 'api-bot', { sessions: [['nightly', '--harness', 'codex', '--effort', 'xhigh']] });
+  await talking(box, bots, 'api-bot', 'nightly', 'codex', conv(1), [codexTurn(onTheDay(9), { effort: 'high' })]);
+  await CHARTER_CHANGES[0][1](box, bots);
+  await frontOf(box, bots, 'nightly', 'other-harness');
+
+  const answer = await found(box);
+
+  const nightly = entryOf(answer, 'api-bot', 'nightly');
+  assert.equal(nightly.running, 'unknown', 'claude is not the harness a Codex session runs');
+  assertSetting(nightly, 'effort', { state: 'mismatch', configured: 'xhigh', observed: 'high' }, 'the record is still read and shown');
+  assert.deepEqual(nightly.rules, { state: 'older' }, 'the stamp is still compared and shown');
+  assert.deepEqual(
+    of(answer, { kind: 'session', bot: 'api-bot' }),
+    [],
+    `nothing shows those settings or rules are in use, so neither is a finding, got: ${JSON.stringify(answer.found, null, 2)}`,
+  );
+});
 
 test('S8 the entries come in bot name order, then in the order of each bot\'s sessions in bot.yaml', async (t) => {
   const box = await createSandbox(t);
