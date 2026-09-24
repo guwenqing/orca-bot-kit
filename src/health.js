@@ -252,7 +252,7 @@ function runningOn(bots, home, bot, sessions) {
     const harness = harnessOf(session, bot.harness);
     const conversation = typeof entry.session === 'string' ? entry.session : null;
     const file = recordOf(harness, conversation);
-    const settings = settingsInUse(harness, session, file);
+    const settings = settingsInUse(harness, session, file, typeof entry.launched === 'string' ? entry.launched : undefined);
     const rules = { state: typeof entry.rules !== 'string' ? 'unknown' : entry.rules === stamp ? 'current' : 'older' };
     sessions.push({ bot: bot.name, session: session.name, harness, conversation, settings, rules });
 

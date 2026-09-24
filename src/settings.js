@@ -18,11 +18,26 @@ export const SETTINGS = ['model', 'effort', 'context', 'approval'];
 /**
  * Each setting of `session` as `{ state, configured?, observed? }`, judged
  * against `file`, the harness's record of the conversation the session is in
- * now. No file is no record, and every setting asked for is then unknown.
+ * now, from `since`, when the kit last started it. No file is no record, and
+ * every setting asked for is then unknown.
  */
-export function settingsInUse(harness, session, file) {
-  const used = file === undefined ? {} : (harness === 'claude' ? fromClaude : fromCodex)(lines(file));
+export function settingsInUse(harness, session, file, since) {
+  const used = file === undefined ? {} : (harness === 'claude' ? fromClaude : fromCodex)(sinceStart(lines(file), since));
   return Object.fromEntries(SETTINGS.map((name) => [name, judged(harness, name, asked(session, name), used[name])]));
+}
+
+/**
+ * What the record says since the kit last started the session. A start resumes
+ * the conversation it had, so the file still holds what the process before it
+ * wrote, and that says what that process ran with, not this one. Everything
+ * from the first line written at or after the start counts, a line with no time
+ * of its own included; with no start to go by, the whole record does.
+ */
+function sinceStart(entries, since) {
+  const from = Date.parse(since ?? '');
+  if (Number.isNaN(from)) return entries;
+  const first = entries.findIndex((entry) => Date.parse(entry.timestamp ?? '') >= from);
+  return first === -1 ? [] : entries.slice(first);
 }
 
 /** What the session asks for, as bot.yaml has it, or undefined when it asks for nothing. */
