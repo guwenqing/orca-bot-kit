@@ -246,6 +246,7 @@ otherwise `/Applications/Orca.app/Contents/Resources/bin/orca`. A bare
 | Claude Code's folder trust list | `\x1b[B\r` | down, return: it starts on **No, exit** |
 | Codex's `Trust this folder?`, `1. Trust and continue` | `1\r` | yes (older: `1. Yes, continue`) |
 | Codex's `Hooks need review` | `2\r` | trust all and continue |
+| Codex's `/new`: `Where should the new conversation run?` | `1\r` | current checkout (bot home) |
 | Codex's update offer, `1. Update now` | `1\r` | accept it |
 | `[oh-my-zsh] Would you like to update?` | `n` | no: the shell is the user's to update |
 | Claude Code's `Teach auto mode about…` | `2\r` | **Not now**: it writes the user's settings |
@@ -255,7 +256,9 @@ table: a harness that has added an option has moved them. Codex's hooks
 question matters most. The kit's hook is how the book learns which
 conversation the session is running, and until it is answered the
 conversation has not started. Codex's trust applies to the repository root,
-which is the whole bots folder.
+which is the whole bots folder. Codex's `/new` asks where the new
+conversation runs; the answer is always the current checkout, the bot home,
+and never `2. New worktree`: the kit never makes a git worktree.
 
 Where the kit says no session came up, the shell swallowed the launch line,
 usually while it was asking its own question. Answer the shell, then close
