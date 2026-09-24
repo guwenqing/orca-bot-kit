@@ -412,16 +412,22 @@ export const makeMailbox = (objective, handle) =>
   orca(['orchestration', 'run-create', '--objective', `obk ${objective}`, '--from', handle]).run.id;
 
 /**
- * Take a turn at reading a mailbox, as the terminal `handle`.
- *
- * Orca fences a Run to one reader: a `check` from a terminal bound elsewhere is
- * refused with `consumer_fenced`, whatever the Run says. So a read binds first,
- * every time — the kit's runs are short and the binding is the last one to have
- * asked, not a lease anybody has to give back. Without a handle it binds this
- * process's own terminal.
+ * Bind a mailbox to the terminal `handle`, which makes it the Run's coordinator
+ * and its one reader: Orca refuses a `check` from any other terminal with
+ * `consumer_fenced`. A read itself binds nothing, so this is for a session's own
+ * live tab, never for whoever is reading (tech notes, section 1). Without a
+ * handle it binds this process's own terminal.
  */
 export const useMailbox = (id, handle) =>
   orca(['orchestration', 'run-use', '--id', id, ...(handle === undefined ? [] : ['--from', handle])]).run;
+
+/**
+ * The terminal a mailbox is bound to, or undefined when it has none. A closed
+ * tab keeps its binding, and a read as its handle still works: a read binds
+ * nothing, only `run-use` does (tech notes, section 1).
+ */
+export const coordinatorOf = (id) =>
+  orca(['orchestration', 'run-show', '--id', id]).run.coordinator_handle ?? undefined;
 
 /** Queue one message. `to` and `from` are mailboxes, written `run:<id>`. */
 export function postMessage({ to, from, subject, body, type = 'status', thread }) {
