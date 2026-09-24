@@ -200,8 +200,8 @@ export const retitleTab = (handle, title) =>
  * a shell, and a shell Codex quit to answers `ok`. `agentIdentity` comes late
  * and can outlast the harness by minutes. So the answer the caller acts on is
  * `front`: `program` when something other than the tab's shell holds its
- * terminal, `shell` when the shell does, and undefined when that cannot be
- * read, with `unreadable` saying why. `answered` (an `ok` from `tui-idle`) and
+ * terminal, with `command` its name, `shell` when the shell does, and
+ * undefined when that cannot be read, with `unreadable` saying why. `answered` (an `ok` from `tui-idle`) and
  * `agent` are Orca's own hints, for a caller that has nothing better.
  * `blockedReason` is Orca saying something on screen wants answering, which is
  * for the caller to deal with, not the kit.
@@ -230,8 +230,9 @@ export function harnessInTab(handle, timeoutMs) {
 const psCli = () => process.env.OBK_PS || '/bin/ps';
 
 /**
- * Who holds the terminal of the pane `ptyId`: `{ front: 'shell' | 'program' }`,
- * or `{ unreadable: <why> }`.
+ * Who holds the terminal of the pane `ptyId`: `{ front: 'shell' }`,
+ * `{ front: 'program', command }` with the name of the process leading the
+ * group in front, or `{ unreadable: <why> }`.
  *
  * Orca gives the pane's pid in `diagnostics memory` and nowhere else, and `ps`
  * gives that pid's terminal's foreground process group (ADR 0001, amendment).
@@ -258,7 +259,7 @@ function frontOf(ptyId) {
   const front = psLine(own.tpgid);
   if (front === undefined) return { unreadable: `ps could not read the process in front, pid ${own.tpgid}` };
   const shell = front.ppid === pane && path.basename(own.comm) === 'login';
-  return { front: shell ? 'shell' : 'program' };
+  return shell ? { front: 'shell' } : { front: 'program', command: path.basename(front.comm) };
 }
 
 /** One process as `ps` gives it, read only: `{ ppid, tpgid, comm }`, or undefined. */

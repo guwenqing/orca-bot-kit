@@ -151,6 +151,35 @@ test('a Codex tab whose Codex quit is not up, though Orca still calls it codex',
   assert.match(result.stdout, NOT_UP, `got: ${result.stdout}`);
 });
 
+// A program in front that is not the agent Orca names. Seen live on Orca
+// 1.4.209 with Codex 0.156.1 (PR #260): Codex quit with /quit, then `less
+// /etc/hosts` in the same tab; for 20 s `agentIdentity` still said `codex`,
+// `less` led the foreground group and `tui-idle` was ok and satisfied. A nudge
+// typed there goes into `less`. The harness the kit launched is its own group
+// leader and its comm is the agent's name, so only a front process whose comm
+// is the agent Orca names is told; anything else, the kit cannot tell.
+for (const [label, foreground] of [
+  ['`less` in front of a tab where Orca still names the Codex that quit', 'program'],
+  ['`claude` in front of a tab Orca names codex', 'other-harness'],
+]) {
+  test(`${label}: nothing is typed, and the kit cannot tell whether it is up`, async (t) => {
+    const box = await createSandbox(t);
+    const bots = await fleetIn(box);
+    await box.orca.set({ waitIdle: true, foreground });
+    assert.equal((await readerTab(box, bots)).agentIdentity, 'codex', 'Orca should still name codex in the reader\'s tab');
+
+    const result = await send(box);
+
+    await assertWaitsUntyped(box, result);
+    assert.doesNotMatch(result.stdout + result.stderr, NOT_UP, `the kit does not know that, got: ${result.stdout}`);
+    assert.match(
+      result.stdout,
+      COULD_NOT_TELL,
+      `the run should say the mail is queued and the kit could not tell whether a harness is running, got: ${result.stdout}`,
+    );
+  });
+}
+
 // A program in front and no `agentIdentity`: the kit cannot tell whether it is
 // a harness. It may be an editor, a pager, a build, and a line typed there goes
 // into that program; or it may be a harness Orca has not named yet, since the

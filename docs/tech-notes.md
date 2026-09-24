@@ -167,9 +167,13 @@ project → repo (`kind: "git" | "folder"`) → worktree (id = `<repoId>::<absPa
   pane's own process, `/usr/bin/login` on macOS, with the login shell (`-/bin/zsh`) as its child. The
   call took 0.15 s. `ps -o pid=,ppid=,tpgid=,comm= -p <pid>` gives the terminal's foreground group:
   the shell's own pid at a prompt, the harness's (`claude`, `codex`) while it runs, and the shell's
-  again within 3 s of every quit above, the stale-identity one included. So the kit takes a harness to
-  be in a tab when the foreground is not its shell (a busy one included), and for the mail nudge also
-  asks for an `agentIdentity`. When the pid or the group cannot be read it says it cannot tell and
+  again within 3 s of every quit above, the stale-identity one included. The harness leads its own
+  group, and its `comm` is exactly `claude` or `codex` (native installs, started by the kit's launch
+  line, which has no `exec`). A stale identity can sit over another program: Codex quit before any
+  turn, then `less` run in the same tab, gave `agentIdentity: "codex"`, `less` in front and `tui-idle`
+  `satisfied:true` for 20 s. So the kit takes a harness to be in a tab when the foreground is not its
+  shell (a busy one included), and the mail nudge types only when the process in front is the one
+  Orca names. When the pid or the group cannot be read it says it cannot tell and
   types nothing (ADR 0001, amendment). `diagnostics memory` is a diagnostics command and may change.
   **verified** (live, 2026-09-24, Orca 1.4.209, macOS 26.6.2, Claude Code 2.1.281, Codex 0.156.1, #232)
 - `orca terminal send [--terminal <h>] [--text <t>] [--enter] [--interrupt] [--wait-submit <s>] [--retry-request <id>]` — `accepted:true` means input accepted, not that the agent read it; never resend on silence; use `--retry-request` for an idempotent retry.

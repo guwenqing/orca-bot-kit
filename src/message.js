@@ -330,11 +330,16 @@ function nudge(to, from, subject) {
     // `agentIdentity` says.
     if (seen.front === 'shell') return { nudged: false };
     // Not knowing is not a reason to type: a line that lands in a shell is run
-    // there, with the sender's subject in it. A program Orca names no agent
-    // for is not known either: a harness a few seconds into its launch, or
-    // something else entirely (tech notes, section 1).
-    if (seen.front === undefined || seen.agent === undefined) {
-      const why = seen.front === undefined ? seen.unreadable : 'a program holds its terminal, and Orca names no agent in it';
+    // there, with the sender's subject in it. The program in front has to be
+    // the agent Orca names. With no name it may be a harness a few seconds
+    // into its launch; under another name it may be a pager started after the
+    // harness quit, under an identity Orca has not let go of (tech notes,
+    // section 1). A harness run through a wrapper such as `node` lands here
+    // too, until #261.
+    if (seen.front === undefined || seen.agent === undefined || seen.command !== seen.agent) {
+      const why = seen.front === undefined
+        ? seen.unreadable
+        : `${seen.command} holds its terminal, and Orca names ${seen.agent ?? 'no agent'} in it`;
       return { nudged: false, nudgeTrouble: `the kit could not tell whether a harness is running in it (${why}), so nothing was typed` };
     }
     // A busy harness is typed into: it takes the line as its next turn.

@@ -26,7 +26,7 @@
 // that is not there prints to stderr and exits 1.
 //
 // The pids are the fake's own: 40000 plus ten times the terminal's number, the
-// shell one above that and the harness two above.
+// shell one above that, and the program run from the shell two above.
 //
 // What is in front of a tab is decided in this order:
 //
@@ -40,6 +40,14 @@
 //       'bare-harness'  the pane is the shell itself and the harness, its
 //                       child, is in front. A program, not the shell: only a
 //                       `login` pane makes its child the shell
+//       'program'       login, shell, and `less` in front, the shell's child:
+//                       the harness quit and the user ran something else.
+//                       Seen live on Orca 1.4.209 with Codex 0.156.1 (PR
+//                       #260): after /quit and `less /etc/hosts`, the tab's
+//                       `agentIdentity` said `codex` for 20 s and `tui-idle`
+//                       was ok and satisfied
+//       'other-harness' login, shell, and in front the harness the tab was
+//                       not launched with: `claude` in a Codex tab
 //       'no-pid'        Orca's diagnostics list no pane for the tab
 //       'ps-fails'      the pane's pid cannot be read: stderr, exit 1
 //       'garbage'       the pane's pid reads back as text that is no ps line
@@ -108,6 +116,7 @@ function processesOf(state, terminal, dir) {
   const shell = pane + 1;
   const harness = pane + 2;
   const program = launchedIn(terminal) ?? 'claude';
+  const other = program === 'claude' ? 'codex' : 'claude';
   const orca = 1063;
   const row = (pid, ppid, tpgid, comm) => ({ pid, ppid, tpgid, comm });
 
@@ -122,6 +131,18 @@ function processesOf(state, terminal, dir) {
       return [row(pane, orca, 0, '/usr/bin/login'), row(shell, pane, 0, '-/bin/zsh')];
     case 'gone':
       return [row(pane, orca, harness, '/usr/bin/login'), row(shell, pane, harness, '-/bin/zsh')];
+    case 'program':
+      return [
+        row(pane, orca, harness, '/usr/bin/login'),
+        row(shell, pane, harness, '-/bin/zsh'),
+        row(harness, shell, harness, 'less'),
+      ];
+    case 'other-harness':
+      return [
+        row(pane, orca, harness, '/usr/bin/login'),
+        row(shell, pane, harness, '-/bin/zsh'),
+        row(harness, shell, harness, other),
+      ];
     case 'ps-fails':
       return [];
     default:
