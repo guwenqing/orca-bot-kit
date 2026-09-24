@@ -103,6 +103,7 @@ Each line is a check a developer can run. Issues turn these into acceptance test
 - ~~Per-bot `memory/`: plain notes all sessions of the bot can read and write.~~ Removed by the owner on 2026-09-23 (#171): never built, and the profile notes, the grooming findings and the book cover what it was for. It comes back only if someone misses it.
 
 - Writing is not banned anywhere: an AI acting on the user's instruction may write whatever the user asks, user-level settings included. What the kit's own mechanical code writes is narrower: it writes the files the kit manages in the bots repo, and it does not reach into the user's global or user-level settings by itself. When that code edits a file that also holds the user's own text, it keeps what the user wrote and leaves a valid file, using the standard library for the format. [decided]
+- A symlink loop in a path the kit is given is detected and reported to the user as a problem, in plain words. [decided] (Moved here from section 8 on 2026-09-24.)
 
 ### 6.4 Bots and sessions
 
@@ -244,18 +245,4 @@ General:
 
 ## 8. Working agreement for building this
 
-This section is how this repo is being built right now. It is a temporary arrangement and is not part of the kit: the kit's skills must not assume it (no fixed reviewer session, no fixed developer tab, no one-issue-then-clear routine).
-
-- A minimal PRD way of working, a light version until the new AssuredLoop is ready: this PRD, the ADRs we decided, then issues that reference the PRD (they do not copy it), cleaning out the old issues as we go. A developer works the issues one by one. [decided]
-- "merge to main is ok" — the owner's words on how the PRD and ADRs land. [decided]
-- Issues are vertical slices, each with a check; the first one makes the CLI runnable and testable end to end. [proposed]
-- Old issues #9–#19 are closed as superseded once this PRD is on `main`. [decided]
-- CI runs a good current Node version, not the lowest one the package supports. [decided]
-- A symlink loop in a path the kit is given is detected and reported to the user as a problem, in plain words. [decided]
-- Issues and briefs give intent and boundary, never how. Builders take the boring way: what a standard library or the platform already does is used, not hand-rolled, and no requirement is made stricter than the intent needs. Reviewers question the approach before the edge cases. [decided]
-- For now: two developer sessions (Claude, Opus 5, high effort) work in parallel in separate clones, one on the product code and one on the rules and skills, each on one issue at a time; a separate reviewer session (Codex, Astra, high effort) in its own clone reviews each PR once and only comments; the developer fixes what the review asked and merges the PR itself, without waiting for the owner; a second review happens only when the coordinator says the case is out of the ordinary. The coordinator hands out issues, answers questions, decides most questions, takes only real owner decisions to the owner, and clears a developer session between issues only when the next issue is unrelated to the last (otherwise the session keeps its context and compacts when it needs room). The coordinator session is not a relay: developers ask the reviewer directly (a line typed into its tab), and the reviewer returns to whoever asked (the PR comment plus one line into the requester's tab). The coordinator hears from a developer only when it needs help, when something is out of the ordinary, or when it is done and needs the next issue. The coordinator hands out issues, answers questions, and steps in as the architect only when a case is out of the ordinary; there is no routine architecture review. [decided]
-- Reviews are not skipped. A lighter review is fine when the work is very light. [decided]
-- Test volume stays as it is for now: the owner wants to see whether tests at five to ten times the product code help quality, with the mutation rule above. [decided]
-- Thorough is good, formality for its own sake is not. Reviews and mutation checks go deep on what can break and on whether the change does what was asked; they do not repeat the same formal checks on every PR, and a second or third look skips what did not change, on judgment. [decided, temporary]
-- Each build step ends with a live check in Orca on both harnesses where it applies. [proposed]
-- Live checks from research, and where they stand (tech notes, section 5): the session id follows `/clear` (done in slice 04); a Claude session name survives resume (done in slice 08); Codex auto mode allows `orca` and `gh` (`orca` done in slice 08, only with the sandbox switch in ADR 0005's amendment; `gh` still owed); the Orca automation keeps one grooming conversation (no longer needed: since slice 11 grooming is a fresh conversation each run, see 6.8); `codex queue` retest (still owed).
+How this repo is built is not part of the kit, and the kit's skills must not assume it. The repo's own conventions are in `AGENTS.md`. The way the owner's bots build it (who hands out issues, who writes tests and reviews, when a session is cleared) belongs to those bots: it is in the kit-dev bot's charter and prompts. [decided by the owner, 2026-09-24] The earlier text of this section, with its record of the live checks, is in git history; the live checks still owed are in `tech-notes.md` section 5.

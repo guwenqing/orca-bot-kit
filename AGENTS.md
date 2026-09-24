@@ -10,20 +10,20 @@ confirmed by the owner. A fact marked unverified in the tech notes is proven liv
 before code relies on it. Issues are vertical slices, worked in order; do not pull
 work from a later slice into an earlier one.
 
-## The owner's decisions on how code is made
+## How code is made here
 
-- Test first, one vertical slice at a time, through the public interface.
-- The test author is a separate agent; the implementer never changes a test to make
-  it pass, and a test that looks wrong goes back to its author.
-- The reviewer is a separate agent and only comments; the implementer makes the
-  change and checks it again.
-- The mutation check follows PRD 7.3: one pass per piece of work; the everyday way is a
-  small hand check on the logic that changed; for a core product change one narrowed
-  tool run in the background is allowed; a whole-suite tool run is an audit the owner asks for.
-- Use what the standard library or the platform already does; do not hand-roll it,
-  and take no requirement stricter than the intent. When you catch yourself listing
-  the edge cases of a mechanism of your own, replace the mechanism.
-- Do not say it works from a plausible diff. Run the check and read the output.
+The owner's bots build the kit with its own skills and rule units: `obk-tdd`,
+`obk-reviewing`, `obk-debugging`, `obk-arch`, and the units in `rules/`. The skills
+load from `.claude/skills` and `.agents/skills`, links to `skills/`; a new skill gets
+both links.
+
+The owner's decisions for this repo, which bind anyone working here:
+
+- Take no requirement stricter than the intent.
+- One PR per issue, squash-merged.
+- CI runs a good current Node version, not the lowest one the package supports.
+- Test volume stays as it is for now: the owner wants to see whether tests at five to
+  ten times the product code help quality.
 
 ## The owner's decisions on rules and skills
 
@@ -51,14 +51,9 @@ yourself at spawn time, never an id computed from `ps`; kill only processes you
 started, by their own pid, after printing the list; and prefer not to start background
 processes at all. Nothing enforces this but your judgment.
 
-## Authorisation and roles
+## Who builds this
 
-Standing authorisation from the owner: commit, push, open the PR, and after the review
-merge and close the issue; do not wait for him and do not ask him about routine steps.
-Nothing merges while anything is outstanding: a test still being written or still running, a question still open, a check still to run. One PR per issue, one review round, squash merges. The kit's own skills are used to build the kit: obk-tdd for the change and its tests, obk-reviewing for giving and receiving the review, obk-debugging for a bug. They load from `.claude/skills` and `.agents/skills`, links to `skills/`; a new skill gets both links. Ask the reviewer directly: one line
-typed into its Orca tab (titled "reviewer"; find it with `orca terminal list --json`,
-check it is idle first); it answers on the PR and with a line in your tab. The
-coordinator hands out issues, answers questions, and steps in only for something out
-of the ordinary; take its answers as the owner's. Go to the owner only for what is
-irreversible outside this repo, touches his accounts or other people, or changes what
-the product does beyond the PRD.
+How the owner's bots build this repo (who hands out issues, who writes the tests, who
+reviews, when a session is cleared, what they may do without asking) belongs to those
+bots, in the kit-dev bot's charter and start prompts, not to this repo. Anyone else
+working here follows the rules above and their own way of working.
