@@ -1,4 +1,4 @@
-// Every call the kit makes to Orca goes through here (ADR 0011). Orca's CLI
+// Every call the kit makes to Orca goes through here (ADR 0021). Orca's CLI
 // changes often, so the kit reads `--json` and never the human text, and keeps
 // the parsing in one place.
 //
@@ -8,9 +8,10 @@
 // handed to Orca on the command line.
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 // The Orca that works for a normal user: `/usr/local/bin/orca` is a root-only
 // symlink on this machine (tech notes, section 1). OBK_ORCA overrides it, for a
@@ -162,6 +163,49 @@ export function asFolderProject(setupId, title) {
  */
 export const deleteProject = (setupId) => orca(['project', 'setup-delete', '--setup', setupId]);
 
+/** Said after a run that made, renamed or removed a project, whatever `tellWindow` answered. */
+export const RELOAD_LINE = "If Orca's sidebar does not show it, reload the window with Cmd+Shift+R.";
+
+/** How long Orca's client waits for its runtime, and how long the kit waits for the client. */
+const CLIENT_WAIT_MS = 2000;
+const CLIENT_KILL_MS = 3000;
+
+/**
+ * Tell Orca's window that the project `projectId` changed, so it reads its
+ * projects again: true when Orca's runtime took the call, false otherwise.
+ *
+ * Orca's window re-reads only when its runtime says the projects changed, and
+ * `setup-update` and `setup-delete` do not say so. `project.update` with no
+ * changes does, and Orca's CLI does not offer it, so this goes through Orca's
+ * own runtime client out of the installed app, run by Orca's binary the way
+ * its `bin/orca` runs its CLI (ADR 0021). None of that is Orca's published
+ * interface, so anything that goes wrong is a quiet false: it never throws and
+ * is never tried twice, and the caller prints `RELOAD_LINE` either way.
+ */
+export function tellWindow(projectId) {
+  try {
+    // The CLI sits at <Orca.app>/Contents/Resources/bin/orca, often reached
+    // through a link.
+    const contents = path.resolve(realpathSync(orcaCli()), '..', '..', '..');
+    const client = path.join(contents, 'Resources', 'app.asar.unpacked', 'out', 'cli', 'runtime-client.js');
+    const env = { ...process.env, ELECTRON_RUN_AS_NODE: '1' };
+    // As Orca's `bin/orca` does: the kit's own Node options are not Orca's.
+    delete env.NODE_OPTIONS;
+    delete env.NODE_REPL_EXTERNAL_MODULE;
+
+    const asked = spawnSync(
+      path.join(contents, 'MacOS', 'Orca'),
+      [WINDOW_SCRIPT, client, projectId, String(CLIENT_WAIT_MS)],
+      { env, stdio: 'ignore', timeout: CLIENT_KILL_MS },
+    );
+    return asked.error === undefined && asked.status === 0;
+  } catch {
+    return false;
+  }
+}
+
+const WINDOW_SCRIPT = fileURLToPath(new URL('./orca-window.cjs', import.meta.url));
+
 /**
  * The live tabs of the Orca project at `home`, each under its own tab id.
  *
@@ -235,7 +279,7 @@ const psCli = () => process.env.OBK_PS || '/bin/ps';
  * group in front, or `{ unreadable: <why> }`.
  *
  * Orca gives the pane's pid in `diagnostics memory` and nowhere else, and `ps`
- * gives that pid's terminal's foreground process group (ADR 0011).
+ * gives that pid's terminal's foreground process group (ADR 0021).
  * On macOS the pane is `login` with the shell as its child, so the shell is in
  * front when the group is the pane's own or that of a child of a `login` pane.
  * `diagnostics memory` is a diagnostics command and may change, so everything

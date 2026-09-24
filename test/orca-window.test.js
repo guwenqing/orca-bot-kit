@@ -313,7 +313,7 @@ test('W4 retire of a bot calls project.update once on Bot Father\'s project, and
 
   assert.equal((await box.orca.setups()).some((setup) => setup.id === apiBot.id), false, 'the project was removed');
   assert.deepEqual((await app.calls()).slice(from), [touch(botFather.projectId)], 'one call, on Bot Father\'s project');
-  assert.deepEqual(Object.keys(answer).sort(), ['bot', 'closed', 'moved', 'project'], 'no new key in retire\'s answer');
+  assert.deepEqual(Object.keys(answer).sort(), ['bot', 'bots', 'closed', 'moved', 'project'], 'no new key in retire\'s answer');
   assert.equal(answer.project, apiBot.id, 'it still names the project it removed, as it did before');
 });
 
