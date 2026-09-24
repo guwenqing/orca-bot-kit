@@ -39,8 +39,9 @@ works, not to get started.
 ## Reporting a problem
 
 When the kit itself goes wrong (an `obk` command fails in a way its own message
-does not explain, or does something other than what it says), open an issue at
-https://github.com/guwenqing/orca-bot-kit/issues with the form there. It asks for
+does not explain, or does something other than what it says), open an issue on
+this repository's Issues page (the address `package.json` gives as `bugs`) with
+the form there. It asks for
 the command and its whole output, what you expected, `obk health --json`, and the
 versions of `obk`, Node, Orca and the harness. Take out anything private first:
 issues are public.
