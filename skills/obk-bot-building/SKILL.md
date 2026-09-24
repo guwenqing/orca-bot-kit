@@ -206,16 +206,18 @@ yourself, without asking, and tell the user afterwards what you answered.
 The kit types the launch line and nothing more, so no one else will.
 
 Look at every tab `obk up`, `obk restart` or `obk unpause` opened, not only
-the ones it says are waiting. Claude Code's trust list does not show as
-waiting, so the kit reports that tab as up. Read the screen with the command
-the kit printed for the tab (`<orca> terminal read --terminal <handle>
---screen`). Send each answer as one `<orca> terminal send --terminal
+the ones it says are waiting. The kit cannot always tell: a tab stopped on a
+trust screen is often reported as up, Claude Code's every time and Codex's
+sometimes. Read each screen with `<orca> terminal read --terminal <handle>
+--screen`, where `<handle>` is the terminal the kit named for the tab and
+`<orca>` is the Orca CLI by its full path, as the kit prints it (a bare
+`orca` can fail). Send each answer as one `<orca> terminal send --terminal
 <handle> --text …`, with the return inside the text and no `--enter`:
 
 | On screen | Send | Which is |
 |---|---|---|
 | Claude Code's folder trust list | `\x1b[B\r` | down, return: it starts on **No, exit** |
-| Codex's directory trust, `1. Yes, continue` | `1\r` | yes |
+| Codex's `Trust this folder?`, `1. Trust and continue` | `1\r` | yes (older: `1. Yes, continue`) |
 | Codex's `Hooks need review` | `2\r` | trust all and continue |
 | Codex's update offer, `1. Update now` | `1\r` | accept it |
 | `[oh-my-zsh] Would you like to update?` | `n` | no: the shell is the user's to update |
