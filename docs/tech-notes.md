@@ -108,6 +108,9 @@ project → repo (`kind: "git" | "folder"`) → worktree (id = `<repoId>::<absPa
   `satisfied:true` with no `blockedReason` at all, while Codex on the same kind of screen answers
   `satisfied:false` with one. So it is a useful hint and not a test: whether something on screen wants
   answering is settled by reading the screen, not by this field.
+  Seen once since (2026-09-24, Orca 1.4.209, Codex 0.156.1, the #221 live check): `obk up` reported a
+  Codex tab that was sitting on its trust question as up, with no `blockedReason`, so Codex's screen is
+  not caught every time either.
   So a `timeout` means "no TUI in this tab", and an `ok:true` answer means one is running, idle or not.
   **verified** (live, both harnesses)
   **What that costs, proven the hard way.** A start prompt sent as a second `terminal send` into a fresh
@@ -159,7 +162,7 @@ Nothing in the kit's code, tests or skills stands in his way.
   himself. It cannot be turned off per tab, since a tab cannot be given an environment of its own.
 - A folder-trust question. Claude Code draws a list whose selection starts on **`No, exit`**, so it
   takes an arrow down and then return, not a bare return. Codex draws `1. Yes, continue` / `2. No, quit`
-  with the selection already on yes, and says plainly that trusting applies to the **repository root**,
+  (`Trust this folder?` with `1. Trust and continue` / `2. Quit` on 0.156.1, seen 2026-09-24) with the selection already on yes, and says plainly that trusting applies to the **repository root**,
   not the bot folder — for a bot that means the whole bots repo. Click yes either way. The harness then
   writes its own config, which is fine.
 - A harness update offer. Codex shows `✨ Update available! … 1. Update now / 2. Skip / 3. Skip until
