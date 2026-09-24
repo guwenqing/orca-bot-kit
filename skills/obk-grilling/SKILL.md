@@ -56,8 +56,10 @@ recommendation you do not believe wastes the round.
     Q2: <what the question is about>
     ...
 
-Three questions is a round. Not the whole frontier: a round of nine is a form,
-and it gets filled in like one.
+Up to about three useful, answerable questions is a round, and none added to make
+up the number. Do not put a large frontier at once: a round of nine is a form,
+and it gets filled in like one. When only one or two decisions are left, ask them
+and finish.
 
 Keep each question short enough to answer in a sentence. When a question needs
 three paragraphs of setup, that is usually a sign it is really two questions,

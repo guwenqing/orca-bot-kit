@@ -110,8 +110,11 @@ does not wait.
 A bot reporting on its own work has the same blind spot as the work. Its
 summary was written by the thing being reviewed.
 
-So each run, take one output a bot actually produced and look at it: the file,
-the message, the change, the answer. Three questions are enough. Did the work
+So each run that has work in its window, take one output a bot actually
+produced and look at it: the file, the message, the change, the answer. A run
+whose window held no work says so in a line and checks nothing: reopening
+yesterday's output adds nothing, and inventing activity to have one to check is
+worse. Three questions are enough. Did the work
 happen at all. Is the result right. Would anyone notice if this stopped.
 
 One checked output beats a page of self-reports, and it is what turns a

@@ -46,9 +46,10 @@ hangs off that anchor, and an investigation that never had one tends to answer
 a question nobody asked.
 
 Where the project keeps its history, start there. Who last touched these
-lines and in what change; the whole life of the file, including through
-renames; what the change said about itself; and whatever discussion is attached
-to it, which is usually where the reason actually is.
+lines and in what change; as much of the file's life, through renames, as it
+takes to reach the change that answers the question; what the change said about
+itself; and whatever discussion is attached to it, which is usually where the
+reason actually is.
 
 ## Then look where else this project keeps its reasons
 
@@ -72,8 +73,10 @@ project. Use the ones it has:
   Best for defensive code: a guard, a retry, a limit, a special case usually
   exists because something happened.
 
-Look in them in parallel where you can, one pass per source with its own
-question. Where a source does not exist or you cannot reach it, that is a
+How many of them to open depends on what is still unanswered: once a change
+and its discussion settle the reason, the rest adds nothing unless something
+contradicts it. Look in them in parallel where you can, one pass per source with
+its own question. Where a source does not exist or you cannot reach it, that is a
 finding: write down that you could not look there. Skipping something because
 it is probably irrelevant is not the same as it being provably irrelevant, and
 the first one belongs in the write-up as a gap.
@@ -150,12 +153,18 @@ explanation of it.
 
 ## What you hand back
 
+These are the questions the hand-back answers, not headings to print: a one-line
+answer is one line, and it still carries its citation and any uncertainty or
+search limit that would change how it is used.
+
 - **The question**, as you understood it.
 - **The code**, so the reader knows what is being explained.
 - **What was actually recorded**, cited.
 - **What follows from it**, marked as reasoning.
 - **Other explanations that fit**, where more than one does.
-- **What nobody wrote down**, with what you searched.
+- **What nobody wrote down**, with what you searched: where the search
+  stopped, what settled it, and the places that could matter which you left
+  unchecked.
 - **Where you looked**, one line per source, including the ones that held
   nothing and the ones you could not reach, with the reason.
 - **How sure you are overall**, in a line.

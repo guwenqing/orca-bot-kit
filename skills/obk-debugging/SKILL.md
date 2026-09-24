@@ -21,7 +21,10 @@ part of its own below.
 A reproduction you can run is what every other step here leans on, so get one
 before settling on a cause. Scale the rest to the bug: when the error names the
 line and the fix is plain, the check, the fix and the proof are minutes of
-work, and most of what follows is for when it is not.
+work, and most of what follows is for when it is not. A step you leave out that
+would otherwise apply gets said: which one, why, and what evidence makes it
+unnecessary or stands in for it. Group the ones that go together; do not recite
+every part you did not need.
 
 These are defaults for work where nothing says otherwise. A user who asks for
 something else gets what they asked for; say which of these you left and why.
@@ -111,17 +114,22 @@ reported and not a different one nearby. The wrong bug gets the wrong fix.
 Capture the exact symptom: the message, the wrong value, the timing.
 
 Then make it smaller. Remove one input, one caller, one setting, one step at a
-time, running the check after each. Stop when every remaining piece is
-load-bearing: take any one away and it goes green.
+time, running the check after each. Stop when making it smaller would not
+improve the diagnosis or the regression test: usually that is when every
+remaining piece is load-bearing, and sooner when the reproduction already
+isolates the cause. Keep the evidence you stopped on.
 
 This is not tidiness. A small reproduction leaves fewer things to suspect, and
 it is what the regression test will be written from.
 
 ## Candidates, then the cause in one sentence
 
-Write three to five candidates and rank them before testing any. One candidate
-on its own anchors you to whatever occurred to you first, and everything after
-that is a search for confirmation.
+While the cause is uncertain, write down the plausible competing candidates and
+rank them before testing any. One candidate on its own anchors you to whatever
+occurred to you first, and everything after that is a search for confirmation.
+Once a discriminating check has established the cause, stop: the cause, not
+only the line and the value, since a null that fails on one line may come from a
+load that failed earlier. Do not invent alternatives after the fact.
 
 Each one has to be falsifiable. Say what it predicts: *if X is the cause,
 changing Y makes it go away, and changing Z makes it worse.* A candidate that
@@ -206,9 +214,11 @@ you are theorising without evidence.
 - **Before blaming the visible thing, measure the layer underneath.** The raw
   command, the plain request, the same thing without your wrapper. A
   hypothesis the lower layer disproves is retired, not circled.
-- **When the tool itself fails, diagnose it before swapping it.** Reaching for
-  a different tool moves the problem somewhere you understand less well, and
-  the original reason is still there.
+- **When the tool itself fails, decide whether that failure matters.**
+  Diagnose it when its failure is the thing under investigation, or could make
+  the evidence wrong: swapping it then moves the problem somewhere you
+  understand less well. Otherwise name the failure, reach the same evidence by
+  an equivalent route, and keep the original output.
 
 ### What an error says, and what it tells you to do
 
@@ -389,8 +399,9 @@ them shared before trying a third, and test that. Suspect it; it may still turn
 out not to be the cause.
 
 The same symptom after a fix means the idea was never finished: stop patching
-and read the path again from the start before touching the code. Three ideas
-have failed: stop and report.
+and read the path again from the start before touching the code. Three fix
+attempts made without a sound cause have failed: stop and report. A hypothesis a
+useful probe ruled out does not count toward three; ruling it out is progress.
 
 When each fix moves the problem somewhere else, or turns up more shared state,
 or would need a large restructuring to do properly, the shape of the thing is
@@ -404,16 +415,20 @@ and what ruled it out, and what you need (access, an artefact, a decision).
 
 - The original reproduction no longer reproduces, and you ran it again to see.
 - The regression test passes, or the absence of a seam is written down.
-- The rest of the suite and the build still pass.
+- The checks the project requires still pass, with those that cover the change
+  and its credible effects elsewhere; the whole suite when the change is broad or
+  shared. When you leave the whole suite out, name what you ran instead.
 - Every temporary log is gone. Search for the marker you used.
 - Throwaway harnesses are deleted, or clearly marked as what they are.
-- The idea that turned out to be right is written down where the next person
-  to touch this will find it.
+- The cause is written down where the next person to touch this will find it:
+  the commit message, the regression test, the issue or the change description
+  will do. Do not write it out a second time only to satisfy this step.
 
 ## Away from code
 
 A configuration, a document, a data pipeline or a prompt gives way to the same
 moves: something that shows the fault reliably, what changed, a cause that
-covers every symptom, and the fix proved on the thing that failed.
+covers every symptom, and the fix proved on the thing that failed. The cause is
+kept in whatever record that work already has.
 
 Sources and licences: [NOTICE.md](NOTICE.md).

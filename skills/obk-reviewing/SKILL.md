@@ -387,7 +387,10 @@ test you wrote yourself closes the thread and loses the check.
 
 **Then fix, in this order:** what is broken or unsafe, then the small certain
 things, then the structural ones. One at a time, running the check after each,
-so you know which change did what.
+so you know which change did what. Fixes that touch only wording can go
+together, and so can changes whose shared check still shows which one failed; a
+behaviour change still gets the check that covers it. Say how you grouped them
+and which checks you ran.
 
 **Answer plainly.** No performative agreement, no thanks, no apology: state the
 fix or state the pushback. If you pushed back and turned out to be wrong, say

@@ -9,6 +9,9 @@ Turn the work into a check you can run. Run it. Read the output.
 Check the thing itself, not a stand-in for it: the file that changed, the
 output the reader will get, the real command against the real tool.
 
+What does not run is checked against the ask: it answers the question, can be
+followed, and its claims hold. Say what stood in, and what it could not show.
+
 Do not say it is done from a plausible diff. Say what the check actually gave,
 failures and empty results included, and what you did not check.
 
