@@ -190,8 +190,7 @@ function aboutBot(bots, name, setups, sessions) {
     ...agentsTrouble(bots, home, bot).map(said('config')),
     ...hooksOf(bots, home, bot).map(said('config')),
     ...skillsTrouble(bots, home, bot).map(said('skill')),
-    ...inOrca(home, bot, setups),
-    ...runningOn(bots, home, bot, sessions),
+    ...inOrca(bots, home, bot, setups, sessions),
   ];
 }
 
@@ -213,7 +212,7 @@ const hooksOf = (bots, home, bot) => [...new Set(bot.sessions.map((session) => h
   .filter((trouble) => trouble !== undefined);
 
 /**
- * Each running session of this bot the book knows, with what it runs on set
+ * Each session of this bot running in a tab Orca has, with what it runs on set
  * beside what the bot asks for now, added to `sessions`; and a finding for each
  * one that runs on something else (#271, #272).
  *
@@ -226,15 +225,7 @@ const hooksOf = (bots, home, bot) => [...new Set(bot.sessions.map((session) => h
  * Only a mismatch and older rules are findings. What cannot be read is said as
  * unknown in `sessions`, and never taken for agreement.
  */
-function runningOn(bots, home, bot, sessions) {
-  let book;
-  try {
-    book = readBook(home);
-  } catch {
-    // Said already, with what to do about it, where the book is read for Orca.
-    return [];
-  }
-
+function runningOn(bots, home, bot, book, there, sessions) {
   const real = realpathOf(home) ?? home;
   const records = new Map();
   const recordOf = (harness, id) => {
@@ -247,7 +238,9 @@ function runningOn(bots, home, bot, sessions) {
   const found = [];
   for (const session of bot.sessions) {
     const entry = book.sessions[session.name];
-    if (bot.paused === true || session.paused === true || entry === null || typeof entry !== 'object') continue;
+    // Running is a tab Orca still has. A session whose tab is gone is not
+    // running whatever its record says, and the missing tab is said already.
+    if (bot.paused === true || session.paused === true || entry === null || typeof entry !== 'object' || !there.has(entry.tab)) continue;
 
     const harness = harnessOf(session, bot.harness);
     const conversation = typeof entry.session === 'string' ? entry.session : null;
@@ -282,7 +275,7 @@ function runningOn(bots, home, bot, sessions) {
  * session whose tab is gone, a conversation nobody claims, and a tab in the
  * bot's project that the book does not name.
  */
-function inOrca(home, bot, setups) {
+function inOrca(bots, home, bot, setups, sessions) {
   // The book is read where it is read, and a book nothing can parse is a
   // finding like any other: it says which tab each session is in and which
   // conversation it is running, so without it nothing else here can be asked —
@@ -331,6 +324,7 @@ function inOrca(home, bot, setups) {
     }
   }
 
+  found.push(...runningOn(bots, home, bot, book, there, sessions));
   return found;
 }
 

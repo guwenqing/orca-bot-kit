@@ -31,11 +31,12 @@ export function settingsInUse(harness, session, file, since) {
  * the conversation it had, so the file still holds what the process before it
  * wrote, and that says what that process ran with, not this one. Everything
  * from the first line written at or after the start counts, a line with no time
- * of its own included; with no start to go by, the whole record does.
+ * of its own included. With no start to go by, no line can be shown to be this
+ * process's, so none counts.
  */
 function sinceStart(entries, since) {
   const from = Date.parse(since ?? '');
-  if (Number.isNaN(from)) return entries;
+  if (Number.isNaN(from)) return [];
   const first = entries.findIndex((entry) => Date.parse(entry.timestamp ?? '') >= from);
   return first === -1 ? [] : entries.slice(first);
 }
