@@ -85,8 +85,28 @@ function parts(manifest) {
   }
 }
 
-/** The targets of the inline markdown links in a file, without the titles. */
-const linksIn = (text) => [...text.matchAll(/\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g)].map((match) => match[1]);
+/**
+ * A file without its fenced code blocks: markdown renders no links inside one,
+ * so a link there is text for the reader to copy, not a link in the skill. A
+ * fence closes on a line of its own character at least as long; one left open
+ * runs to the end of the file.
+ */
+function outsideFences(text) {
+  let fence = null;
+  return text.split('\n').filter((line) => {
+    if (fence === null) {
+      const open = /^ {0,3}(`{3,}(?=[^`]*$)|~{3,})/.exec(line);
+      if (open) fence = open[1];
+      return !open;
+    }
+    if (new RegExp(`^ {0,3}${fence[0]}{${fence.length},}[ \\t]*$`).test(line)) fence = null;
+    return false;
+  }).join('\n');
+}
+
+/** The targets of the inline markdown links in a file, outside code blocks, without the titles. */
+const linksIn = (text) => [...outsideFences(text).matchAll(/\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g)]
+  .map((match) => match[1]);
 
 const exists = (file) => stat(file).then(() => true, () => false);
 

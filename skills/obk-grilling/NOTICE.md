@@ -33,8 +33,7 @@ with thanks:
   being a glossary and not a spec or a scratchpad, creating files lazily when
   there is first something to write, the three conditions that must all hold
   before a decision is worth recording and what each one rules out, the
-  decision note being a short paragraph whose value is in recording that a
-  decision was made and why, optional parts included only when they earn it,
+  decision note's value being in recording that a decision was made and why,
   and the kinds of decision usually worth writing: the architectural shape,
   how the parts are meant to communicate with each other, a technology choice
   that carries lock-in, a boundary and what is deliberately outside it, a
@@ -92,6 +91,15 @@ not mistaken for consolidation:
   comes from the audit of the owner's own design session, where what he had
   merely agreed with in passing, and what had been assumed on his behalf, were
   the things that later had to be untangled.
+
+- **A decision note lists its alternatives and is replaced whole.**
+  `ADR-FORMAT` makes a note one paragraph, with the rejected options and the
+  consequences optional. The owner decided that a decision record lists every
+  alternative that was on the table with why it was not chosen, and that a
+  change is a new record replacing the old one whole, restating what still
+  holds with the full context and history (issue #264, 2026-09-24). `obk-arch`
+  teaches the record; this skill's note says the same, so the two do not
+  disagree.
 
 - **Questions are kept short.** `grilling` allows a question several
   paragraphs of setup; a long one here is taken as a sign it is two questions
