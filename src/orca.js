@@ -423,6 +423,14 @@ export const makeMailbox = (objective, handle) =>
 export const useMailbox = (id, handle) =>
   orca(['orchestration', 'run-use', '--id', id, ...(handle === undefined ? [] : ['--from', handle])]).run;
 
+/**
+ * The terminal a mailbox is bound to, or undefined when it has none. A closed
+ * tab keeps its binding, and a read as its handle still works: a read binds
+ * nothing, only `run-use` does (tech notes, section 1).
+ */
+export const coordinatorOf = (id) =>
+  orca(['orchestration', 'run-show', '--id', id]).run.coordinator_handle ?? undefined;
+
 /** Queue one message. `to` and `from` are mailboxes, written `run:<id>`. */
 export function postMessage({ to, from, subject, body, type = 'status', thread }) {
   const args = ['orchestration', 'send', '--to', to, '--subject', subject, '--body', body, '--type', type];

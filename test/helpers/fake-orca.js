@@ -125,8 +125,17 @@
 //               a terminal that coordinates another is refused
 //               `consumer_fenced`; the reader is the terminal `check
 //               --terminal` names, or the caller's own when it names none.
+//               A read binds nothing: a reader must be the Run's coordinator,
+//               and a closed tab stays one, so reading as its handle works. A
+//               live tab that holds no Run, or a closed one the Run has been
+//               bound away from, is refused `consumer_fenced`, and a handle
+//               Orca never issued `stable_pane_required` (all seen live on
+//               1.4.209, #249).
 //               `consumer_generation` stays 0 here: what Orca counts in it was
 //               not measured, and nothing the kit does reads it.
+//   closedHandles  [handle] — every terminal `terminal close` has closed:
+//               handles Orca issued and a Run may still name. Written by the
+//               fake, not by a test.
 //   messages    [{ id, to, from, subject, body, type, priority, threadId,
 //               at, acked }] — everything `orchestration send` has queued, in
 //               the order it was sent. `acked` is what `check --ack` sets, and
@@ -484,6 +493,9 @@ if (command === 'terminal close') {
   // With `closeLag` the answer comes back the same and the tab stays in the
   // listing a while longer, which is what Orca really does.
   const lag = state.closeLag ?? 0;
+  // Orca issued this handle, and a Run may go on naming it: a read as it is
+  // then fenced rather than refused as a handle nobody knows.
+  state.closedHandles = [...(state.closedHandles ?? []), terminal.handle];
   if (lag > 0) {
     terminal.closingFor = lag;
   } else {
@@ -788,10 +800,13 @@ if (command === 'orchestration check') {
   // The reader is the terminal `--terminal` names, or else the caller's own.
   // Seen live on 1.4.209: `--terminal S` reads and acks as S from another tab
   // or from a shell with no Orca terminal, and the fence is judged against S's
-  // binding, not the caller's. A reader bound to another Run is fenced out.
-  // What Orca says to a reader with no terminal at all, or to a `--terminal`
-  // with no live pane, was never measured, so the fake lets it read whatever
-  // Run it names.
+  // binding, not the caller's: S must be the Run's coordinator. A closed tab
+  // stays its Run's coordinator, and reading as its handle works and binds
+  // nothing (#249). A reader bound to another Run is fenced out; so is a live
+  // tab that holds no Run, and a closed handle once the Run was bound to
+  // another tab; a handle Orca never issued has no stable pane. What Orca says
+  // to a reader with no terminal at all was never measured, so the fake lets
+  // it read whatever Run it names.
   const reader = flag('--terminal') ?? caller;
   const boundTo = reader === undefined ? undefined : runHeldBy(reader)?.id;
   const run = flag('--run') ?? boundTo;
@@ -800,6 +815,17 @@ if (command === 'orchestration check') {
 
   if (boundTo !== undefined && boundTo !== run) {
     fail('consumer_fenced', `This coordinator terminal is bound to ${boundTo}, not ${run}.`);
+  }
+  if (reader !== undefined && boundTo === undefined) {
+    const issued = (state.terminals ?? []).some((terminal) => terminal.handle === reader)
+      || (state.closedHandles ?? []).includes(reader);
+    if (!issued) {
+      fail(
+        'stable_pane_required',
+        'The coordinator terminal has no stable pane identity. Run this command inside a live Orca terminal.',
+      );
+    }
+    fail('consumer_fenced', `This coordinator terminal is no longer bound to Run ${run}.`);
   }
 
   /** This Run's mail, oldest first. `--all` asks for the acknowledged ones too. */

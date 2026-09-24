@@ -401,6 +401,39 @@ test('check --terminal reads and acks as that terminal, from another tab or from
   assert.equal(shown(inA, toB).coordinator_handle, 'term_b', 'and B still holds its own');
 });
 
+test('a read binds nothing: only the Run\'s coordinator reads it, even after its tab is closed', async (t) => {
+  // Seen live on 1.4.209 (#249): a closed tab stays its Run's coordinator and
+  // reading as its handle works. A live tab holding no Run is fenced, a handle
+  // Orca never issued has no stable pane, and once the Run is bound to a new
+  // tab the closed handle is fenced out too.
+  const box = await createSandbox(t);
+  const { inA, outside } = await twoTabs(box);
+  const toB = inA(['orchestration', 'run-create', '--objective', 'b', '--from', 'term_b']).result.run.id;
+  outside(['orchestration', 'send', '--to', `run:${toB}`, '--subject', 'for b']);
+  outside(['terminal', 'close', '--terminal', 'term_b', '--tab']);
+
+  const peeked = outside(['orchestration', 'check', '--run', toB, '--terminal', 'term_b', '--peek']).result;
+  assert.deepEqual(peeked.messages.map((message) => message.subject), ['for b'], 'as the closed coordinator, it reads');
+  const read = inA(['orchestration', 'check', '--run', toB, '--terminal', 'term_b']).result;
+  inA(['orchestration', 'check', '--run', toB, '--terminal', 'term_b', '--ack', read.deliveryId]);
+  assert.deepEqual((await box.orca.messages()).map((message) => message.acked), [true], 'and acks');
+  assert.equal(shown(inA, toB).coordinator_handle, 'term_b', 'and the Run still names the closed tab');
+
+  const unbound = inA(['orchestration', 'check', '--run', toB]).error;
+  assert.equal(unbound?.code, 'consumer_fenced', 'a live tab that holds no Run is fenced');
+  assert.equal(unbound?.message, `This coordinator terminal is no longer bound to Run ${toB}.`);
+  assert.equal(
+    outside(['orchestration', 'check', '--run', toB, '--terminal', 'term_never']).error?.code,
+    'stable_pane_required',
+    'a handle Orca never issued has no stable pane',
+  );
+
+  inA(['orchestration', 'run-use', '--id', toB]);
+  const moved = outside(['orchestration', 'check', '--run', toB, '--terminal', 'term_b', '--peek']).error;
+  assert.equal(moved?.code, 'consumer_fenced', 'once the Run is bound to a new tab the closed handle is fenced');
+  assert.equal(moved?.message, `This coordinator terminal is no longer bound to Run ${toB}.`);
+});
+
 test('the sandbox does not hand the kit the Orca tab the suite itself runs in', async (t) => {
   // Run from inside Orca, the suite has a real ORCA_TERMINAL_HANDLE and the
   // rest. None of them is a terminal in the fake's world.

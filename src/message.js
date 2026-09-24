@@ -21,7 +21,7 @@ import path from 'node:path';
 import { readBook } from './book.js';
 import { botDir, botNames, readBot } from './bot.js';
 import { harnessOf, ownCli, reachesMail, shellWord } from './launch.js';
-import { ackMailbox, postMessage, readMailbox, tabs, tabToTypeInto, typeIntoTab, useMailbox } from './orca.js';
+import { ackMailbox, coordinatorOf, postMessage, readMailbox, tabs, tabToTypeInto, typeIntoTab, useMailbox } from './orca.js';
 
 /**
  * How much of a message travels as itself. Above this it is written to a file
@@ -195,9 +195,21 @@ export function checkMail(bots, { bot: botName, session: sessionName, tab, peek 
   // Read as the session's own tab, wherever this check was typed. Binding the
   // tab that asked would hand it the session's mailbox, and Orca's notice for
   // every message after (issue #228). A session with no live tab is read as
-  // this process's own terminal, as it always was.
-  const handle = who.tab === undefined ? undefined : tabs(who.home).find((tab) => tab.tabId === who.tab)?.handle;
-  useMailbox(who.mailbox, handle);
+  // whatever its mailbox is bound to, a closed tab included, and nothing is
+  // bound: the session's tab is bound again when it is back up (issue #249).
+  const live = who.tab === undefined ? undefined : tabs(who.home).find((tab) => tab.tabId === who.tab)?.handle;
+  if (live !== undefined) useMailbox(who.mailbox, live);
+  const handle = live ?? coordinatorOf(who.mailbox);
+  if (handle === undefined) {
+    return {
+      bots,
+      bot: who.bot,
+      session: who.session,
+      mailbox: who.mailbox,
+      messages: [],
+      trouble: `${who.bot}/${who.session} is not up, and its mailbox is bound to no tab, so there is nothing to read it as. Its mail waits until its tab is back: \`up\` brings it back, or \`unpause\` when it is paused.`,
+    };
+  }
   const found = readMailbox(who.mailbox, { peek, handle });
   const messages = (found.messages ?? []).map((message) => asMessage(bots, message));
   if (!peek && found.deliveryId !== undefined && messages.length > 0) ackMailbox(who.mailbox, found.deliveryId, handle);
