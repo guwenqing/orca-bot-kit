@@ -94,10 +94,10 @@ export async function retireBot(bots, { bot }) {
     } catch (error) {
       return { bot, closed, project: project.id, trouble: `Orca answered the delete of Orca project ${project.id}, and its project list could not be read afterwards, so the removal is not confirmed: ${error.message}. ${bot} was not moved. Once Orca is answering, retire ${bot} again with obk retire: it removes the project if it is still there, then finishes.` };
     }
-    tellWindowOfRemoval(bots, setups);
     if (setups.some((setup) => setup.id === project.id || setup.path === home)) {
       return { bot, closed, project: project.id, trouble: `Orca answered the delete of Orca project ${project.id}, and still lists it. ${bot} was not moved. Retire ${bot} again with obk retire; if Orca still lists the project after that, remove it in Orca yourself, then retire ${bot} again.` };
     }
+    tellWindowOfRemoval(bots, setups);
   }
 
   for (const name of new Set([...known.sessions, ...booked].map((session) => session.name))) {

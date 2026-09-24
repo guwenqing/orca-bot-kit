@@ -506,17 +506,17 @@ const LISTING_REFUSED_AFTER_DELETE = {
 };
 
 /**
- * `retire` of a running bot in a fresh sandbox with a working Orca app, Orca's
- * `fail` set to `fail` just before it. What the fake Orca was asked during the
- * run, split at the delete, comes back with it.
+ * `retire` of a running bot in a fresh sandbox with a working Orca app, the
+ * fake Orca changed by `orca` just before it. What the fake Orca was asked
+ * during the run, split at the delete, comes back with it.
  */
-async function retireOfABot(t, fail, json) {
+async function retireOfABot(t, orca, json) {
   const box = await createSandbox(t);
   const app = await orcaApp(box);
   await init(box);
   await runningBot(box);
   const apiBot = await setupOf(box, 'api-bot');
-  await box.orca.set({ fail });
+  await box.orca.set(orca);
   const called = (await app.calls()).length;
   const cliFrom = (await box.orca.calls()).length;
 
@@ -552,7 +552,7 @@ async function assertRefusedOnlyAfterTheDelete(refused) {
 // RB12, has the detail). What #224 still asks here: no crash, the listing not
 // tried again, and no call to Orca's window with no Bot Father project found.
 test('W7 W5 when Orca refuses the project listing after the delete, retire stops at not confirmed, quietly: no call, no reload line', async (t) => {
-  const refused = await retireOfABot(t, LISTING_REFUSED_AFTER_DELETE, []);
+  const refused = await retireOfABot(t, { fail: LISTING_REFUSED_AFTER_DELETE }, []);
 
   await assertRefusedOnlyAfterTheDelete(refused);
   const said = `${refused.result.stdout}${refused.result.stderr}`;
@@ -572,7 +572,7 @@ test('W7 W5 when Orca refuses the project listing after the delete, retire stops
 });
 
 test('W7 W6 when Orca refuses the project listing after the delete, retire --json answers the project and the trouble, and nothing of the window', async (t) => {
-  const refused = await retireOfABot(t, LISTING_REFUSED_AFTER_DELETE, ['--json']);
+  const refused = await retireOfABot(t, { fail: LISTING_REFUSED_AFTER_DELETE }, ['--json']);
 
   await assertRefusedOnlyAfterTheDelete(refused);
   assert.equal(refused.result.code, 1, `got:\n${refused.result.stdout}${refused.result.stderr}`);
@@ -593,3 +593,22 @@ test('W7 W6 when Orca refuses the project listing after the delete, retire --jso
   const worked = Object.keys(answerOf(works.result)).filter((key) => key !== 'moved');
   assert.deepEqual(Object.keys(answer).sort(), [...worked, 'trouble'].sort(), `got: ${JSON.stringify(answer)}`);
 });
+
+// #224's window call follows a removal, and after #282 a removal is one Orca's
+// listing confirms. A delete Orca answered while it still lists the project,
+// by its id or at the bot's folder, is not one, so there is no call.
+for (const { label, orca } of [
+  { label: 'still lists the project', orca: { keepOnDelete: true } },
+  { label: 'lists a project at the bot\'s folder under another id', orca: { readdOnDelete: true } },
+]) {
+  test(`W4 when Orca answers the delete but ${label}, retire makes no call to Orca's window`, async (t) => {
+    const kept = await retireOfABot(t, orca, []);
+
+    assert.equal(kept.deletes.length, 1, 'api-bot\'s project was deleted, once');
+    assert.equal(kept.result.code, 1, `the removal was not confirmed, got:\n${kept.result.stdout}${kept.result.stderr}`);
+    assert.deepEqual(kept.calls, [], 'no removal was confirmed, so nothing to tell the window');
+
+    const works = await retireOfABot(t, {}, []);
+    assert.equal(works.calls.length, 1, 'the working client was called');
+  });
+}
