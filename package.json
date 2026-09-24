@@ -6,6 +6,10 @@
     "type": "git",
     "url": "git+https://github.com/guwenqing/orca-bot-kit.git"
   },
+  "bugs": {
+    "url": "https://github.com/guwenqing/orca-bot-kit/issues"
+  },
+  "homepage": "https://github.com/guwenqing/orca-bot-kit#readme",
   "type": "module",
   "description": "A kit for running a fleet of long-lived role bots on Orca: an obk CLI and the skills the bots use.",
   "bin": {

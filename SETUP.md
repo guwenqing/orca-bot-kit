@@ -75,10 +75,13 @@ npm install -g @assuredloop/orca-bot-kit
 obk --version
 ```
 
-Only if npm says it has no such package, which is the case before the first
-release, install it from a clone instead:
+If `obk --version` still does not answer, npm has no working release yet: it
+refused the name, or it installed an early placeholder that has no `obk` in it.
+Take the placeholder off again if there is one, and install from a clone
+instead:
 
 ```sh
+npm uninstall -g @assuredloop/orca-bot-kit
 git clone https://github.com/guwenqing/orca-bot-kit
 cd orca-bot-kit
 npm install
