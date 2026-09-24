@@ -178,9 +178,9 @@ just does not need the essay. An easy one will simply be re-made, an
 unsurprising one raises no questions, and one with no alternative has nothing
 to explain beyond doing the obvious thing.
 
-One of these is short: what the situation was, what was decided and why, each
-alternative that was on the table with why it was not chosen, and what the
-choice costs. The value is in recording *that* it was decided and *why*, not in
+One of these is as short as it can be while it says what the situation was,
+what was decided and why, each alternative that was on the table with why it
+was not chosen, and what the choice costs. The value is in recording *that* it was decided and *why*, not in
 filling in headings. When the decision changes, write a new note that replaces
 the old one whole: it restates what still holds, gives the full context, and
 says what each earlier note decided and why it changed. The old note changes

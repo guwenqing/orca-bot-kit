@@ -319,8 +319,10 @@ What each part is for:
   newest record alone tell the full story.
 
 The headings are there to be answered, not filled in. Write in full sentences;
-bullets are for layout, not an excuse for fragments. Keep it to a page or two,
-with what matters most first; nobody reads a long one.
+bullets are for layout, not an excuse for fragments. Keep it short, with what
+matters most first, since a long record goes unread; but short never costs the
+full context, an alternative or a line of the history. What usually makes a
+record long is design detail, and that goes elsewhere, linked.
 
 ### Changing a decision
 
