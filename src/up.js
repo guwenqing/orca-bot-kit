@@ -12,7 +12,7 @@ import { botDir, botNames, displayName, readBot } from './bot.js';
 import { conversationsIn } from './conversations.js';
 import { installHook } from './hooks.js';
 import { addressOf, harnessOf, isShortPrompt, launchCommand, reachesMail, sessionTrouble, startPrompt, workDirOf } from './launch.js';
-import { asFolderProject, findProject, makeMailbox, makeProject, openTab, retitleTab, tabs, tuiInTab, typeIntoTab } from './orca.js';
+import { asFolderProject, findProject, makeMailbox, makeProject, openTab, retitleTab, tabs, tuiInTab, typeIntoTab, useMailbox } from './orca.js';
 import { buildAgents } from './rules.js';
 import { linkSkills } from './skills.js';
 
@@ -234,7 +234,7 @@ async function bringUpSession(bots, home, live, session, bot, title) {
     // live harness. Writing the name down here would advertise an address that
     // answers to nobody (review of PR #132, finding 1). It gets one the next
     // time it starts, which is the next time the kit types its launch line.
-    await ensureMailbox(home, bot, session, harness);
+    await ensureMailbox(home, bot, session, harness, known.handle);
 
     // Whatever runs in the tab may have rewritten its title. The kit writes its
     // own back, and reports that one rather than the name Orca last saw: the id
@@ -312,7 +312,7 @@ async function bringUpSession(bots, home, live, session, bot, title) {
   // tab is on the books, so a mailbox Orca will not make leaves a tab the next
   // run finds and finishes rather than a tab nobody owns (review of PR #132,
   // finding 3).
-  await ensureMailbox(home, bot, session, harness, { named: harness === 'claude' });
+  await ensureMailbox(home, bot, session, harness, made.handle, { named: harness === 'claude', opened: true });
 
   // And then asking whether a TUI came up, rather than assuming one did. The
   // text goes into the tab's own shell, which may have been busy with a
@@ -361,15 +361,23 @@ async function bringUpSession(bots, home, live, session, bot, title) {
  * a restart (tech notes, section 1). Orca offers no way to delete one, so this
  * makes exactly one per session and never a second.
  *
+ * It is bound to `handle`, the session's own tab, and never to the tab this run
+ * of `obk up` was typed in: Orca tells a Run's coordinator about its mail, and
+ * only the session the mail is for should be told (issue #228). A mailbox the
+ * session already had is bound again when this run `opened` a new tab for it —
+ * after a restart, or a closed tab brought back — or it would stay with the tab
+ * that is gone (review of PR #248, finding 1).
+ *
  * A Codex session whose user turned the sandbox switch off gets none: it could
  * not read a mailbox if it had one, and an address nobody can read is worse
  * than none at all. `obk message` says so in those words.
  */
-async function ensureMailbox(home, bot, session, harness, { named = false } = {}) {
+async function ensureMailbox(home, bot, session, harness, handle, { named = false, opened = false } = {}) {
   const held = readBook(home).sessions[session.name] ?? {};
+  if (opened && typeof held.mailbox === 'string') useMailbox(held.mailbox, handle);
 
   const address = named ? addressOf(bot.name, session.name) : undefined;
-  const mailbox = mailboxFor(readBook(home), bot, session, harness);
+  const mailbox = mailboxFor(readBook(home), bot, session, harness, handle);
 
   if (mailbox === undefined && (address === undefined || held.address === address)) return;
 
@@ -392,10 +400,10 @@ async function ensureMailbox(home, bot, session, harness, { named = false } = {}
  * The Orca call is made outside the book's lock, which is held for one read and
  * one write (book.js).
  */
-function mailboxFor(book, bot, session, harness) {
+function mailboxFor(book, bot, session, harness, handle) {
   const held = book.sessions[session.name] ?? {};
   if (typeof held.mailbox === 'string' || !reachesMail(session, harness)) return undefined;
-  return makeMailbox(`${bot.name}/${session.name}`);
+  return makeMailbox(`${bot.name}/${session.name}`, handle);
 }
 
 /**

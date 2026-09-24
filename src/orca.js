@@ -257,19 +257,27 @@ const SUBMIT_WAIT_S = 5;
  * A mailbox of one session's own: an Orca Run, which is a name and an inbox and
  * nothing else — it schedules nothing and runs nobody. The objective is what a
  * person sees in `orca orchestration run-list`, so it says whose it is.
+ *
+ * Bound to `handle`, the session's own tab, from the moment it is made. Orca
+ * tells a Run's coordinator terminal about its mail and nobody else, and binds
+ * the caller when no `--from` is given: the tab that ran `obk up` would be told
+ * about every session it brought up, and would lose its own Run's binding, since
+ * one terminal holds one Run (tech notes, section 1).
  */
-export const makeMailbox = (objective) =>
-  orca(['orchestration', 'run-create', '--objective', `obk ${objective}`]).run.id;
+export const makeMailbox = (objective, handle) =>
+  orca(['orchestration', 'run-create', '--objective', `obk ${objective}`, '--from', handle]).run.id;
 
 /**
- * Take this process's turn at reading a mailbox.
+ * Take a turn at reading a mailbox, as the terminal `handle`.
  *
- * Orca fences a Run to one reader: a `check` from a caller bound elsewhere is
+ * Orca fences a Run to one reader: a `check` from a terminal bound elsewhere is
  * refused with `consumer_fenced`, whatever the Run says. So a read binds first,
  * every time — the kit's runs are short and the binding is the last one to have
- * asked, not a lease anybody has to give back.
+ * asked, not a lease anybody has to give back. Without a handle it binds this
+ * process's own terminal.
  */
-export const useMailbox = (id) => orca(['orchestration', 'run-use', '--id', id]).run;
+export const useMailbox = (id, handle) =>
+  orca(['orchestration', 'run-use', '--id', id, ...(handle === undefined ? [] : ['--from', handle])]).run;
 
 /** Queue one message. `to` and `from` are mailboxes, written `run:<id>`. */
 export function postMessage({ to, from, subject, body, type = 'status', thread }) {
@@ -281,11 +289,16 @@ export function postMessage({ to, from, subject, body, type = 'status', thread }
 
 /**
  * What is waiting in a mailbox: the oldest batch that has not been
- * acknowledged, or, peeking, whatever is unread without touching it.
+ * acknowledged, or, peeking, whatever is unread without touching it. Read as
+ * the terminal `handle` when one is given, which is how a read works from a tab
+ * bound to another Run; otherwise as this process's own terminal.
  */
-export const readMailbox = (id, { peek = false } = {}) =>
-  orca(['orchestration', 'check', '--run', id, ...(peek ? ['--peek'] : [])]);
+export const readMailbox = (id, { peek = false, handle } = {}) =>
+  orca(['orchestration', 'check', '--run', id, ...as(handle), ...(peek ? ['--peek'] : [])]);
 
 /** Say a batch has been read, so the next check brings the one after it. */
-export const ackMailbox = (id, delivery) =>
-  orca(['orchestration', 'check', '--run', id, '--ack', delivery]);
+export const ackMailbox = (id, delivery, handle) =>
+  orca(['orchestration', 'check', '--run', id, ...as(handle), '--ack', delivery]);
+
+/** The reader of a `check`: the terminal named, or this process's own. */
+const as = (handle) => (handle === undefined ? [] : ['--terminal', handle]);

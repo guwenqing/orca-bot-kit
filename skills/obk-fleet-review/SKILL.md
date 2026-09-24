@@ -42,7 +42,8 @@ evidence. Neither is its name.
 `obk health` reports facts; judging them and proposing the fix is yours. A
 block in a bot's `AGENTS.md` edited by hand: move the edit into the charter or
 outside the block, then `obk rules build`. A permission bypass in Orca's own
-launch settings: remind the user, in plain words, every time it is reported.
+launch settings: remind the user, in plain words, every time `obk health`
+reports it.
 Something lying about that nobody owns: say what it is, and leave removing it
 to them.
 
@@ -85,7 +86,11 @@ the evidence is genuinely thin, and say what would settle it.
 
 Before a verdict that keeps or ends a bot, look at one real thing it produced
 lately, not its account of itself: did it run, was it right, and would anyone
-miss it.
+miss it. A grooming check can stand in for that look only when it cites the
+specific output and what the check found, still bears on this verdict and is
+current, and you say you are inheriting it. A "looks fine" summary is not the
+output. A changed charter, model or output, or evidence against it, warrants a
+fresh look.
 
 Nothing is retired or deleted because you concluded it. Stopping a bot and
 retiring one are the two that cannot be quietly undone: propose them, give

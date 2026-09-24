@@ -46,14 +46,15 @@ hangs off that anchor, and an investigation that never had one tends to answer
 a question nobody asked.
 
 Where the project keeps its history, start there. Who last touched these
-lines and in what change; the whole life of the file, including through
-renames; what the change said about itself; and whatever discussion is attached
-to it, which is usually where the reason actually is.
+lines and in what change; as much of the file's life, through renames, as it
+takes to reach the change that answers the question; what the change said about
+itself; and whatever discussion is attached to it, which is usually where the
+reason actually is.
 
 ## Then look where else this project keeps its reasons
 
 Different reasons live in different places, and which of these exist varies by
-project. Use the ones it has:
+project. Use the ones it has, as far as the question needs:
 
 - **The history and its discussion**, where the project keeps them. Best for
   the reason given at the time by the person doing it, under review. For a
@@ -72,11 +73,15 @@ project. Use the ones it has:
   Best for defensive code: a guard, a retry, a limit, a special case usually
   exists because something happened.
 
-Look in them in parallel where you can, one pass per source with its own
-question. Where a source does not exist or you cannot reach it, that is a
-finding: write down that you could not look there. Skipping something because
-it is probably irrelevant is not the same as it being provably irrelevant, and
-the first one belongs in the write-up as a gap.
+How many of them to open depends on what is still unanswered: once a change
+and its discussion settle the reason, the rest adds nothing unless something
+contradicts it, and they need neither a look nor a line in the write-up. While
+the answer is open, look in the sources that could still change it, in parallel
+where you can, one pass per source with its own question. Where one of those does
+not exist or you cannot reach it, that is a finding: write down that you could
+not look there. Skipping one of those because it is probably irrelevant is not
+the same as it being provably irrelevant, and the first belongs in the write-up
+as a gap.
 
 Watch for the newest change looking authoritative. The shape you are asking
 about is usually the accumulation of several decisions, and the most recent one
@@ -150,12 +155,18 @@ explanation of it.
 
 ## What you hand back
 
+These are the questions the hand-back answers, not headings to print: a one-line
+answer is one line, and it still carries its citation and any uncertainty or
+search limit that would change how it is used.
+
 - **The question**, as you understood it.
 - **The code**, so the reader knows what is being explained.
 - **What was actually recorded**, cited.
 - **What follows from it**, marked as reasoning.
 - **Other explanations that fit**, where more than one does.
-- **What nobody wrote down**, with what you searched.
+- **What nobody wrote down**, with what you searched: where the search
+  stopped, what settled it, and the places that could matter which you left
+  unchecked.
 - **Where you looked**, one line per source, including the ones that held
   nothing and the ones you could not reach, with the reason.
 - **How sure you are overall**, in a line.

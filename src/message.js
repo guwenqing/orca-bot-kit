@@ -192,10 +192,15 @@ export function checkMail(bots, { bot: botName, session: sessionName, tab, peek 
     };
   }
 
-  useMailbox(who.mailbox);
-  const found = readMailbox(who.mailbox, { peek });
+  // Read as the session's own tab, wherever this check was typed. Binding the
+  // tab that asked would hand it the session's mailbox, and Orca's notice for
+  // every message after (issue #228). A session with no live tab is read as
+  // this process's own terminal, as it always was.
+  const handle = who.tab === undefined ? undefined : tabs(who.home).find((tab) => tab.tabId === who.tab)?.handle;
+  useMailbox(who.mailbox, handle);
+  const found = readMailbox(who.mailbox, { peek, handle });
   const messages = (found.messages ?? []).map((message) => asMessage(bots, message));
-  if (!peek && found.deliveryId !== undefined && messages.length > 0) ackMailbox(who.mailbox, found.deliveryId);
+  if (!peek && found.deliveryId !== undefined && messages.length > 0) ackMailbox(who.mailbox, found.deliveryId, handle);
 
   return { bots, bot: who.bot, session: who.session, mailbox: who.mailbox, read: !peek, messages };
 }
