@@ -71,8 +71,10 @@ obk --version
 The command is `obk`. If `obk --version` does not answer after that, npm has no
 working release yet (an early placeholder has no `obk` in it): run
 `npm uninstall -g @assuredloop/orca-bot-kit`, then install from a clone of this
-repository with `npm install` and `npm link`. The same clone route is how you
-work on the kit itself: `obk` then runs your checkout.
+repository with `npm install` and `npm link`. To work on the kit itself, run
+your clone's `src/cli.js` by its full path instead of linking it: the `obk` on
+PATH stays the published one, and the kit calls itself back by the path of the
+CLI that started it, so what your clone brings up calls back into your clone.
 
 Releases go out from CI: publishing a GitHub Release tagged `v<version>` runs
 `.github/workflows/publish.yml`, which runs the suite and publishes that version

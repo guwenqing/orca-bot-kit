@@ -102,6 +102,8 @@ import test from 'node:test';
 import { setTimeout } from 'node:timers/promises';
 import { parse } from 'yaml';
 
+import { cliEntry } from '../helpers/cli.js';
+
 /**
  * Remove the throwaway bots folder and everything the kit made beside it.
  *
@@ -186,10 +188,13 @@ function allSetups() {
   return answer.result.setups;
 }
 
-/** Run the real `obk`, the one `npm link` put on PATH. */
+/**
+ * Run this checkout's `obk`, by its full path. The `obk` on PATH is the
+ * published release this machine uses, not the code under test (#217).
+ */
 function obk(args) {
-  const done = spawnSync('obk', args, { encoding: 'utf8', cwd: os.tmpdir() });
-  assert.equal(done.error, undefined, `could not run \`obk\`: ${done.error?.message}: run \`npm link\` in this repo first`);
+  const done = spawnSync(process.execPath, [cliEntry, ...args], { encoding: 'utf8', cwd: os.tmpdir() });
+  assert.equal(done.error, undefined, `could not run \`obk\`: ${done.error?.message}`);
   // The owner reads this output. Orca's word for a workspace must not be in it.
   assert.ok(!/worktree/i.test(done.stdout + done.stderr), `obk said "worktree": ${done.stdout}${done.stderr}`);
   return done;
@@ -389,6 +394,15 @@ const READS_ITS_MAIL = [
 ];
 
 /**
+ * How a bot here starts the kit: by the variable its launch line set, which
+ * names the CLI that typed that line — this checkout's (#220). Never `obk`,
+ * which is whatever the machine has installed, and not `"${OBK_CLI:-obk}"`
+ * either: a launch line that lost the variable should fail this test, not
+ * quietly fall back to that install.
+ */
+const KIT = '"$OBK_CLI"';
+
+/**
  * The start prompts for the exchange: each bot's whole part, so that the only
  * lines ever typed into either tab are the launch line the kit types and the
  * nudge the kit types. Nothing in this file drives a tab by hand.
@@ -407,7 +421,7 @@ const exchangePrompts = (bots, bot) => (bot.harness === 'claude'
   ? [
     ...aBotOf(bots),
     'As soon as you are running, run exactly this command, once:',
-    `obk message send --bots ${bots} --to mail-codex/daily --from mail-claude/daily`,
+    `${KIT} message send --bots ${bots} --to mail-codex/daily --from mail-claude/daily`,
     `--subject 'the system test' --text '${QUESTION}. Please reply to me.'`,
     ...READS_ITS_MAIL,
     'Then wait, and say nothing else.',
@@ -416,7 +430,7 @@ const exchangePrompts = (bots, bot) => (bot.harness === 'claude'
     ...aBotOf(bots),
     ...READS_ITS_MAIL,
     `When a message asks you to reply, reply to whoever wrote it with your passphrase, which is ${PASSPHRASE}:`,
-    'ask the kit for the road with obk message to, and then send it with obk message send.',
+    `ask the kit for the road with ${KIT} message to, and then send it with the command its answer names.`,
     'Say nothing now and wait.',
   ]).join(' ');
 

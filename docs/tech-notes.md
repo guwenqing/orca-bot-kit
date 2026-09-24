@@ -95,8 +95,17 @@ project → repo (`kind: "git" | "folder"`) → worktree (id = `<repoId>::<absPa
   entry). So the kit types the launch line into a new tab without waiting, then asks whether a harness
   came up; a line the shell swallowed shows as no harness, and the caller answers the shell and opens
   the tab again (SETUP.md, section 5). **verified** (live)
+- **A variable set on the launch line reaches the session's own shell tool, on both harnesses; a
+  `PATH` entry does not.** The kit's launch line starts `OBK_CLI=<the running CLI> …`, and a Claude
+  Code bot and a Codex bot each running `printenv OBK_CLI` wrote that path back exactly, a space in
+  it included, and their mail sent with `"$OBK_CLI" message send` reached that CLI (#220). A `PATH`
+  prefix on the same line is not enough: Codex's shell tool puts `/opt/homebrew/bin` back in front of
+  it, so a Codex bot runs the machine's `obk` whatever the line said (measured by the architect for
+  #220). A hook the harness runs inherits `PATH` from the harness's launch, on both harnesses. So the
+  kit names itself by path in its hook and nudge, and by `OBK_CLI` in the rules a bot reads.
+  **verified** (live, 2026-09-24, Claude Code 2.1.281, Codex 0.156.1)
 - `orca terminal wait --for exit|tui-idle --timeout-ms <n>`. **`tui-idle` is about a TUI, not a shell.**
-  All three answers seen live:
+  All four answers seen live:
   - a tab running no TUI, sitting at a clean shell prompt: exit 1, `ok:false`,
     `error.code: "timeout"` — never satisfied, however long the timeout. So this is **not** a way to
     ask whether a shell is ready for typing; there is no such way.
@@ -104,6 +113,13 @@ project → repo (`kind: "git" | "folder"`) → worktree (id = `<repoId>::<absPa
     `wait.blockedReason` says what it is — `"agent-interactive-prompt"` for Codex sitting on its
     folder-trust question.
   - a TUI waiting for work: `ok:true`, `wait.satisfied:true`.
+  - **a TUI busy working: exit 1, `ok:false`, `error.code: "timeout"`**, the same answer as a tab with
+    no TUI at all, until it goes idle. A Claude Code bot mid-turn (`✽ Architecting…`) answered a
+    2-second wait that way, and `ok:true`, `satisfied:true` two seconds later once the turn was done.
+    So `timeout` means "nothing went idle in time", not "no harness". `obk up` takes its second look
+    for 2 seconds, so a session already working on its start prompt then is reported as not started
+    (#232). **verified** (live, 2026-09-24, Orca 1.4.209, Claude Code 2.1.281; one sample, Codex not
+    tried)
   **`blockedReason` does not catch everything.** Claude Code showing its folder-trust screen answers
   `satisfied:true` with no `blockedReason` at all, while Codex on the same kind of screen answers
   `satisfied:false` with one. So it is a useful hint and not a test: whether something on screen wants
@@ -282,6 +298,7 @@ Proved live on 2026-09-21 (Orca 1.4.205), in throwaway workspaces since removed:
 - **Neither harness links a new conversation to the one the same process had before.** A `/clear` or a `/new` leaves nothing behind saying "this replaced that". With the point above, that means **a conversation that has ended cannot be tied to the session that had it** by anything either harness writes down — which is why the kit never assigns an unrecorded conversation to a session and says what it found instead. **verified** (live, and by reading both harnesses' own files)
 - **Codex's own record of every conversation**: `~/.codex/sessions/<yyyy>/<mm>/<dd>/rollout-<stamp>-<id>.jsonl`, whose first line is `{"type":"session_meta","payload":{ id, cwd, timestamp, … }}`. `cwd` is the folder the conversation ran in, which for a kit session is always the bot home. A conversation spawned as a subagent says so under `payload.source`. **verified** (live, read on this machine)
 - **Codex has no `/clear`; `/new` is its clear**, and Codex reports it as an ordinary start: no hook fires at `/new` itself, and when the first prompt of the new conversation arrives, SessionStart fires with `source: "startup"` and the **new** id. So the source word cannot tell a `/new` from a program start on Codex — the id can. `codex resume <id>` keeps the **same** id and fires SessionStart for it. **verified** (live)
+- **Codex 0.156.1's `/new` asks a question before the new conversation starts**: `Where should the new conversation run?` with `1. Current checkout` (keep the current working directory) and `2. New worktree` (an isolated managed checkout). Text typed while it is up goes into the menu: its return picks option 1 and the rest is lost. Whatever clears a Codex session answers it with `1` and waits for it to go before asking anything (#245). **verified** (live, screen recording of the tab, 2026-09-24, Codex 0.156.1)
 - No in-session scheduler in the CLI. **verified** (help)
 - Subagents: spawned only after a direct request or an instruction in a skill, so a skill must ask explicitly. **verified** (docs)
 - `codex queue --thread <id|name> --message <text>` (since 0.149): no official docs page, seems to reach only sessions on a shared app-server daemon, no delivery receipt, no sender identity; a queued row from 12 Sep was still undelivered a week later on this machine. Not trusted; retest. **verified as untrusted**

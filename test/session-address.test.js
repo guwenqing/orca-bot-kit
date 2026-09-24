@@ -81,8 +81,8 @@ test('a Claude session is launched under its own name: <bot>.<session>', async (
 
   const { lines } = await up(box, bots);
 
-  assert.equal(lines['Api Bot daily'], bareLaunch('claude', 'api-bot', 'daily'));
-  assert.equal(lines['Api Bot night'], bareLaunch('claude', 'api-bot', 'night'));
+  assert.equal(lines['Api Bot daily'], bareLaunch(box, 'claude', 'api-bot', 'daily'));
+  assert.equal(lines['Api Bot night'], bareLaunch(box, 'claude', 'api-bot', 'night'));
   assert.ok(lines['Api Bot night'].includes('-n api-bot.night'), `got: ${lines['Api Bot night']}`);
 });
 
@@ -92,7 +92,7 @@ test('a Codex session is launched with the sandbox switch that lets it reach Orc
 
   const { lines } = await up(box, bots);
 
-  assert.equal(lines['Api Bot daily'], bareLaunch('codex'));
+  assert.equal(lines['Api Bot daily'], bareLaunch(box, 'codex'));
   assert.ok(lines['Api Bot daily'].includes(CODEX_NETWORK), `got: ${lines['Api Bot daily']}`);
 });
 
@@ -106,12 +106,12 @@ test('a Codex session whose user turned the network off is launched without the 
 
   const { lines } = await up(box, bots);
 
-  assert.equal(lines['Api Bot daily'], launchLine(`codex --approve-for-me ${OFF_WORDS}`));
+  assert.equal(lines['Api Bot daily'], launchLine(box, `codex --approve-for-me ${OFF_WORDS}`));
   assert.ok(
     !lines['Api Bot daily'].includes(CODEX_NETWORK),
     `the kit must not put its own switch back beside theirs, got: ${lines['Api Bot daily']}`,
   );
-  assert.equal(lines['Api Bot night'], bareLaunch('codex'), 'and the session beside it is untouched');
+  assert.equal(lines['Api Bot night'], bareLaunch(box, 'codex'), 'and the session beside it is untouched');
 });
 
 test('a session that asks for the switch itself is not given it twice', async (t) => {
@@ -120,7 +120,7 @@ test('a session that asks for the switch itself is not given it twice', async (t
 
   const { lines } = await up(box, bots);
 
-  assert.equal(lines['Api Bot daily'], launchLine(`codex --approve-for-me ${CODEX_NETWORK}`));
+  assert.equal(lines['Api Bot daily'], launchLine(box, `codex --approve-for-me ${CODEX_NETWORK}`));
 });
 
 test('up gives a Claude session a mailbox and writes both addresses in the book', async (t) => {

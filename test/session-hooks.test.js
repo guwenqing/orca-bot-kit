@@ -27,7 +27,7 @@
 // in every sandbox is watching for.
 
 import assert from 'node:assert/strict';
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, rm, symlink } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 import { isDeepStrictEqual } from 'node:util';
@@ -177,22 +177,28 @@ for (const harness of ['claude', 'codex']) {
     );
   });
 
-  test(`the ${harness} hook with no obk on PATH does nothing and disturbs nothing`, async (t) => {
-    // ADR 0010: the hook must never block the session if `obk` is missing. The
-    // kit is installed with `npm link`, and a user who unlinks it, or upgrades
-    // Node, or runs a session on a machine where it was never installed, must
-    // get a session that starts anyway — and, above all, nothing on standard
-    // output, which is where the harness looks for the hook's answer.
+  test(`the ${harness} hook whose CLI is no longer there does nothing and disturbs nothing`, async (t) => {
+    // ADR 0010: the hook must never block the session if the kit is missing.
+    // The hook runs the kit by the path it was written with (#220), so a user
+    // who uninstalls it, or whose install moved, or who runs a session on a
+    // machine where it was never installed, must get a session that starts
+    // anyway — and, above all, nothing on standard output, which is where the
+    // harness looks for the hook's answer.
     const box = await createSandbox(t);
     await seeded(box);
     const bots = await withBot(box, 'api-bot', harness, [['daily']]);
     await up(box, 'api-bot');
     const tab = (await tabsOfBot(box, bots, 'api-bot'))[0];
+    const hook = await kitHookOf(bots, 'api-bot', harness);
 
-    const nowhere = path.join(box.root, 'empty-bin');
-    await mkdir(nowhere, { recursive: true });
-    const ran = await throughAHarness(box, await kitHookOf(bots, 'api-bot', harness), {
-      env: { ...box.env, PATH: nowhere },
+    // The link goes, not the checkout's file it leads to. And PATH holds node
+    // and nothing else, so no other `obk` on this machine can stand in for it.
+    await rm(box.cli);
+    const nodeOnly = path.join(box.root, 'node-only');
+    await mkdir(nodeOnly, { recursive: true });
+    await symlink(process.execPath, path.join(nodeOnly, 'node'));
+    const ran = await throughAHarness(box, hook, {
+      env: { ...box.env, PATH: nodeOnly },
       tab: tab.tabId,
       stdin: '{"session_id":"sess-1","hook_event_name":"SessionStart","source":"clear"}\n',
     });

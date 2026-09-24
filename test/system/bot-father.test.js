@@ -25,7 +25,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { setTimeout } from 'node:timers/promises';
 
-import { sessionTabIds } from '../helpers/cli.js';
+import { cliEntry, sessionTabIds } from '../helpers/cli.js';
 
 /**
  * Remove the throwaway bots folder and everything the kit made beside it.
@@ -118,10 +118,13 @@ function allSetups() {
   return answer.result.setups;
 }
 
-/** Run the real `obk`, the one `npm link` put on PATH. */
+/**
+ * Run this checkout's `obk`, by its full path. The `obk` on PATH is the
+ * published release this machine uses, not the code under test (#217).
+ */
 function obk(args) {
-  const done = spawnSync('obk', args, { encoding: 'utf8', cwd: os.tmpdir() });
-  assert.equal(done.error, undefined, `could not run \`obk\`: ${done.error?.message}: run \`npm link\` in this repo first`);
+  const done = spawnSync(process.execPath, [cliEntry, ...args], { encoding: 'utf8', cwd: os.tmpdir() });
+  assert.equal(done.error, undefined, `could not run \`obk\`: ${done.error?.message}`);
   // The owner reads this output. Orca's word for a workspace must not be in it.
   assert.ok(!/worktree/i.test(done.stdout + done.stderr), `obk said "worktree": ${done.stdout}${done.stderr}`);
   return done;

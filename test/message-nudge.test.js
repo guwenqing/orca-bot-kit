@@ -25,6 +25,7 @@ import {
   orcaCallsOf,
   orcaFlag,
   sessionIn,
+  spellingsOf,
   typedInto,
 } from './helpers/cli.js';
 
@@ -88,7 +89,11 @@ test('the line says who wrote, what about, and how to read it', async (t) => {
   const [line] = typedInto((await box.orca.terminals()).find((terminal) => terminal.tabId === reader)).slice(1);
   assert.ok(line.includes('writer'), `the sender, got: ${line}`);
   assert.ok(line.includes('the staging host'), `the subject, got: ${line}`);
-  assert.ok(line.includes('obk message check'), `and how to read it, got: ${line}`);
+  // By the CLI that sent it, never the bare `obk` (#220).
+  assert.ok(
+    spellingsOf(box.cli).some((cli) => line.includes(`${cli} message check --bots `)),
+    `and how to read it, got: ${line}`,
+  );
   assert.ok(!line.includes('\n'), `one line, got: ${JSON.stringify(line)}`);
 });
 
