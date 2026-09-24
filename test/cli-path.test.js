@@ -107,15 +107,16 @@ const runBy = (box, cli, args, { env = box.env } = {}) =>
 /**
  * A bots folder with one bot and one `daily` session, written but not brought
  * up: `up` is the step that writes the hook and types the launch line, so the
- * test says which CLI does it.
+ * test says which CLI does it. `folder` is the bots folder's name in the
+ * sandbox's working directory.
  */
-async function oneBot(box, harness, bot = 'api-bot') {
-  assert.equal((await box.run(['init', '--bots', 'bots', '--harness', 'claude'])).code, 0);
-  const made = await box.run(['bot', 'create', '--bots', 'bots', '--name', bot, '--harness', harness]);
+async function oneBot(box, harness, bot = 'api-bot', folder = 'bots') {
+  assert.equal((await box.run(['init', '--bots', folder, '--harness', 'claude'])).code, 0);
+  const made = await box.run(['bot', 'create', '--bots', folder, '--name', bot, '--harness', harness]);
   assert.equal(made.code, 0, made.stderr);
-  const added = await box.run(['session', 'add', '--bots', 'bots', '--bot', bot, '--name', 'daily']);
+  const added = await box.run(['session', 'add', '--bots', folder, '--bot', bot, '--name', 'daily']);
   assert.equal(added.code, 0, added.stderr);
-  return box.path('bots');
+  return box.path(folder);
 }
 
 /** The one hook command the kit wrote for a bot and harness. */
@@ -704,17 +705,27 @@ for (const [label, folder] of [['', null], [' with a space in its path', 'the ki
 // path has a space in it, so a line that names it without quoting it names
 // something else. The `--help` text, commands with a `<path>` to fill in, and
 // prose such as "obk up puts it back" stay as they are, and are not here.
+//
+// And the bots folder is one with a space in its path, for the same reason: it
+// is filled into the command too, and a folder that is not quoted there is two
+// words (second review of PR #247: `up --bots my bots` was refused).
+
+/** The bots folder every case here works in, inside the sandbox's working directory. */
+const BOTS_DIR = 'my bots';
+
+/** The bots folder as one word of a shell line, however the kit spells it. */
+const botsWordIn = (command, bots) => spellingsOf(bots).some((word) => command.includes(`--bots ${word} `) || command.endsWith(`--bots ${word}`));
 
 /** A bots folder with Bot Father, from the sandbox's own `obk`. */
 async function seeded(box) {
-  const init = await box.run(['init', '--bots', 'bots', '--harness', 'claude']);
+  const init = await box.run(['init', '--bots', BOTS_DIR, '--harness', 'claude']);
   assert.equal(init.code, 0, init.stderr);
 }
 
 /** `oneBot`'s api-bot, brought up. */
 async function botUp(box) {
-  await oneBot(box, 'claude');
-  const up = await box.run(['up', '--bots', 'bots', '--bot', 'api-bot']);
+  await oneBot(box, 'claude', 'api-bot', BOTS_DIR);
+  const up = await box.run(['up', '--bots', BOTS_DIR, '--bot', 'api-bot']);
   assert.equal(up.code, 0, up.stderr);
 }
 
@@ -724,7 +735,7 @@ async function botUp(box) {
  */
 async function botRunning(box) {
   await botUp(box);
-  const bots = box.path('bots');
+  const bots = box.path(BOTS_DIR);
   const tab = (await sessionIn(bots, 'api-bot', 'daily')).tab;
   const ran = await recordSession(box, { bots, bot: 'api-bot', tab, session: 'sess-1' });
   assert.equal(ran.code, 0, ran.stderr);
@@ -733,17 +744,17 @@ async function botRunning(box) {
 /** `botRunning`, then paused. */
 async function botPaused(box) {
   await botRunning(box);
-  const paused = await box.run(['pause', '--bots', 'bots', '--bot', 'api-bot']);
+  const paused = await box.run(['pause', '--bots', BOTS_DIR, '--bot', 'api-bot']);
   assert.equal(paused.code, 0, paused.stderr);
 }
 
 /** Bot Father's grooming, made (and so off) and, with `on`, switched on. */
 async function groomingMade(box, { on = false } = {}) {
   await seeded(box);
-  const made = await box.run(['groom', '--bots', 'bots', '--at', '04:00']);
+  const made = await box.run(['groom', '--bots', BOTS_DIR, '--at', '04:00']);
   assert.equal(made.code, 0, made.stderr);
   if (on) {
-    const switched = await box.run(['groom', '--bots', 'bots', '--on']);
+    const switched = await box.run(['groom', '--bots', BOTS_DIR, '--on']);
     assert.equal(switched.code, 0, switched.stderr);
   }
 }
@@ -761,10 +772,10 @@ async function sourceListed(box, { fetch = true, sha } = {}) {
   await repoAt(repo);
   await putSkills(repo, { 'their-skill': 'Their skill.' });
   await commitIn(repo, 'their skill');
-  const bots = box.path('bots');
+  const bots = box.path(BOTS_DIR);
   await writeSources(bots, sourcesYaml({ name: 'someones-skills', repo, ref: 'main', ...(sha === undefined ? {} : { sha }) }));
   if (fetch) {
-    const fetched = await box.run(['skills', 'fetch', '--bots', 'bots']);
+    const fetched = await box.run(['skills', 'fetch', '--bots', BOTS_DIR]);
     assert.equal(fetched.code, 0, `${fetched.stderr}${fetched.stdout}`);
   }
   return repo;
@@ -781,74 +792,74 @@ async function sourceListed(box, { fetch = true, sha } = {}) {
 const FOLLOW_UPS = {
   'pause says how to bring the bot back': {
     setup: botRunning,
-    args: ['pause', '--bots', 'bots', '--bot', 'api-bot'],
+    args: ['pause', '--bots', BOTS_DIR, '--bot', 'api-bot'],
     rest: 'unpause --bots ',
     runs: true,
   },
   'up says how to bring a paused bot back': {
     setup: botPaused,
-    args: ['up', '--bots', 'bots'],
+    args: ['up', '--bots', BOTS_DIR],
     rest: 'unpause --bots ',
     runs: true,
   },
   'bot create says how to give the bot a session': {
     setup: seeded,
-    args: ['bot', 'create', '--bots', 'bots', '--name', 'api-bot', '--harness', 'claude'],
+    args: ['bot', 'create', '--bots', BOTS_DIR, '--name', 'api-bot', '--harness', 'claude'],
     rest: 'session add --bots ',
     runs: false,
   },
   'session add says how to bring the session up': {
     setup: async (box) => {
       await seeded(box);
-      assert.equal((await box.run(['bot', 'create', '--bots', 'bots', '--name', 'api-bot', '--harness', 'claude'])).code, 0);
+      assert.equal((await box.run(['bot', 'create', '--bots', BOTS_DIR, '--name', 'api-bot', '--harness', 'claude'])).code, 0);
     },
-    args: ['session', 'add', '--bots', 'bots', '--bot', 'api-bot', '--name', 'daily'],
+    args: ['session', 'add', '--bots', BOTS_DIR, '--bot', 'api-bot', '--name', 'daily'],
     rest: 'up --bots ',
     runs: true,
   },
   'session change says how to restart the session': {
     setup: botUp,
-    args: ['session', 'change', '--bots', 'bots', '--bot', 'api-bot', '--session', 'daily', '--model', 'sonnet'],
+    args: ['session', 'change', '--bots', BOTS_DIR, '--bot', 'api-bot', '--session', 'daily', '--model', 'sonnet'],
     rest: 'restart --bots ',
     runs: false,
   },
   'skills add says how to link the skill': {
     setup: botUp,
-    args: ['skills', 'add', '--bots', 'bots', '--bot', 'api-bot', '--skill', 'kit:obk-tdd'],
+    args: ['skills', 'add', '--bots', BOTS_DIR, '--bot', 'api-bot', '--skill', 'kit:obk-tdd'],
     rest: 'skills build --bots ',
     runs: true,
   },
   'skills remove says how to unlink the skill': {
     setup: async (box) => {
       await botUp(box);
-      assert.equal((await box.run(['skills', 'add', '--bots', 'bots', '--bot', 'api-bot', '--skill', 'kit:obk-tdd'])).code, 0);
+      assert.equal((await box.run(['skills', 'add', '--bots', BOTS_DIR, '--bot', 'api-bot', '--skill', 'kit:obk-tdd'])).code, 0);
     },
-    args: ['skills', 'remove', '--bots', 'bots', '--bot', 'api-bot', '--skill', 'kit:obk-tdd'],
+    args: ['skills', 'remove', '--bots', BOTS_DIR, '--bot', 'api-bot', '--skill', 'kit:obk-tdd'],
     rest: 'skills build --bots ',
     runs: true,
   },
   'source add says how to fetch the source': {
     setup: seeded,
-    args: ['source', 'add', '--bots', 'bots', '--name', 'someones-skills', '--repo', 'https://github.com/someone/skills', '--ref', 'v1.2.0'],
+    args: ['source', 'add', '--bots', BOTS_DIR, '--name', 'someones-skills', '--repo', 'https://github.com/someone/skills', '--ref', 'v1.2.0'],
     rest: 'skills fetch --bots ',
     // It would reach a repository on the network.
     runs: false,
   },
   'groom with no grooming says how to make one': {
     setup: seeded,
-    args: ['groom', '--bots', 'bots'],
+    args: ['groom', '--bots', BOTS_DIR],
     rest: 'groom --bots ',
     runs: true,
   },
   'groom with the grooming off says how to switch it on': {
     setup: (box) => groomingMade(box),
-    args: ['groom', '--bots', 'bots'],
+    args: ['groom', '--bots', BOTS_DIR],
     rest: 'groom --bots ',
     runs: true,
   },
   'groom with the grooming on says how to switch it off': {
     setup: (box) => groomingMade(box, { on: true }),
-    args: ['groom', '--bots', 'bots'],
+    args: ['groom', '--bots', BOTS_DIR],
     rest: 'groom --bots ',
     runs: true,
   },
@@ -856,44 +867,44 @@ const FOLLOW_UPS = {
     setup: async (box) => {
       await seeded(box);
       // Bot Father's book as it is before its first `up`: no Orca project.
-      const book = path.join(box.path('bots'), 'bots', 'bot-father', 'sessions.yaml');
+      const book = path.join(box.path(BOTS_DIR), 'bots', 'bot-father', 'sessions.yaml');
       await writeFile(book, 'sessions: {}\n');
     },
-    args: ['groom', '--bots', 'bots', '--at', '04:00'],
+    args: ['groom', '--bots', BOTS_DIR, '--at', '04:00'],
     rest: 'up --bots ',
     runs: false,
   },
   'bot create whose rules cannot be built says how to build them': {
     setup: async (box) => {
       await seeded(box);
-      await addRules(defaultsOf(box.path('bots')), NO_SUCH_UNIT);
+      await addRules(defaultsOf(box.path(BOTS_DIR)), NO_SUCH_UNIT);
     },
-    args: ['bot', 'create', '--bots', 'bots', '--name', 'api-bot', '--harness', 'claude'],
+    args: ['bot', 'create', '--bots', BOTS_DIR, '--name', 'api-bot', '--harness', 'claude'],
     rest: 'rules build --bots ',
     runs: false,
   },
   'bot change whose rules cannot be built says how to build them': {
     setup: async (box) => {
-      await oneBot(box, 'claude');
-      await addRules(botYamlOf(box.path('bots'), 'api-bot'), NO_SUCH_UNIT);
+      await oneBot(box, 'claude', 'api-bot', BOTS_DIR);
+      await addRules(botYamlOf(box.path(BOTS_DIR), 'api-bot'), NO_SUCH_UNIT);
     },
-    args: ['bot', 'change', '--bots', 'bots', '--bot', 'api-bot', '--charter', 'Api Bot owns the API now.'],
+    args: ['bot', 'change', '--bots', BOTS_DIR, '--bot', 'api-bot', '--charter', 'Api Bot owns the API now.'],
     rest: 'rules build --bots ',
     runs: false,
   },
   'restart of a paused bot says how to bring it back': {
     setup: botPaused,
-    args: ['restart', '--bots', 'bots', '--bot', 'api-bot'],
+    args: ['restart', '--bots', BOTS_DIR, '--bot', 'api-bot'],
     rest: 'unpause --bots ',
     runs: false,
   },
   'restart of a paused session says how to bring it back': {
     setup: async (box) => {
       await botRunning(box);
-      const paused = await box.run(['pause', '--bots', 'bots', '--bot', 'api-bot', '--session', 'daily']);
+      const paused = await box.run(['pause', '--bots', BOTS_DIR, '--bot', 'api-bot', '--session', 'daily']);
       assert.equal(paused.code, 0, paused.stderr);
     },
-    args: ['restart', '--bots', 'bots', '--bot', 'api-bot', '--session', 'daily'],
+    args: ['restart', '--bots', BOTS_DIR, '--bot', 'api-bot', '--session', 'daily'],
     rest: 'unpause --bots ',
     runs: false,
   },
@@ -904,16 +915,16 @@ const FOLLOW_UPS = {
       // closeLag), so the kit gives up waiting and opens nothing.
       await box.orca.set({ closeLag: 100000 });
     },
-    args: ['restart', '--bots', 'bots', '--bot', 'api-bot'],
+    args: ['restart', '--bots', BOTS_DIR, '--bot', 'api-bot'],
     rest: 'up --bots ',
     runs: false,
   },
   'restart that closed one tab and could not close the next says how to bring it back': {
     setup: async (box) => {
-      await oneBot(box, 'claude');
-      const bots = box.path('bots');
-      assert.equal((await box.run(['session', 'add', '--bots', 'bots', '--bot', 'api-bot', '--name', 'night'])).code, 0);
-      assert.equal((await box.run(['up', '--bots', 'bots', '--bot', 'api-bot'])).code, 0);
+      await oneBot(box, 'claude', 'api-bot', BOTS_DIR);
+      const bots = box.path(BOTS_DIR);
+      assert.equal((await box.run(['session', 'add', '--bots', BOTS_DIR, '--bot', 'api-bot', '--name', 'night'])).code, 0);
+      assert.equal((await box.run(['up', '--bots', BOTS_DIR, '--bot', 'api-bot'])).code, 0);
       for (const [name, session] of [['daily', 'sess-1'], ['night', 'sess-2']]) {
         const tab = (await sessionIn(bots, 'api-bot', name)).tab;
         assert.equal((await recordSession(box, { bots, bot: 'api-bot', tab, session })).code, 0);
@@ -921,17 +932,17 @@ const FOLLOW_UPS = {
       // The first close goes through and the second is refused.
       await box.orca.set({ fail: { 'terminal close': { code: 'runtime_error', message: 'the tab will not close', after: 1 } } });
     },
-    args: ['restart', '--bots', 'bots', '--bot', 'api-bot'],
+    args: ['restart', '--bots', BOTS_DIR, '--bot', 'api-bot'],
     rest: 'up --bots ',
     runs: false,
   },
   'skills build with a source not fetched says how to fetch it': {
     setup: async (box) => {
       await sourceListed(box, { fetch: false });
-      assert.equal((await box.run(['bot', 'create', '--bots', 'bots', '--name', 'api-bot', '--harness', 'claude'])).code, 0);
-      await addSkills(botYamlOf(box.path('bots'), 'api-bot'), 'someones-skills:their-skill');
+      assert.equal((await box.run(['bot', 'create', '--bots', BOTS_DIR, '--name', 'api-bot', '--harness', 'claude'])).code, 0);
+      await addSkills(botYamlOf(box.path(BOTS_DIR), 'api-bot'), 'someones-skills:their-skill');
     },
-    args: ['skills', 'build', '--bots', 'bots', '--bot', 'api-bot'],
+    args: ['skills', 'build', '--bots', BOTS_DIR, '--bot', 'api-bot'],
     rest: 'skills fetch --bots ',
     runs: false,
   },
@@ -942,24 +953,24 @@ const FOLLOW_UPS = {
       await repoAt(elsewhere);
       await putSkills(elsewhere, { 'their-skill': 'Their fork of it.' });
       await commitIn(elsewhere, 'the fork');
-      await writeSources(box.path('bots'), sourcesYaml({ name: 'someones-skills', repo: elsewhere, ref: 'main' }));
+      await writeSources(box.path(BOTS_DIR), sourcesYaml({ name: 'someones-skills', repo: elsewhere, ref: 'main' }));
     },
-    args: ['skills', 'fetch', '--bots', 'bots'],
+    args: ['skills', 'fetch', '--bots', BOTS_DIR],
     rest: 'skills update --source ',
     runs: false,
   },
   'skills fetch of a pinned commit the repository no longer has says how to update it': {
     setup: (box) => sourceListed(box, { fetch: false, sha: '0123456789abcdef0123456789abcdef01234567' }),
-    args: ['skills', 'fetch', '--bots', 'bots'],
+    args: ['skills', 'fetch', '--bots', BOTS_DIR],
     rest: 'skills update --source ',
     runs: false,
   },
   'roster with no bots says how to make one': {
     setup: async (box) => {
       await seeded(box);
-      await rm(path.join(box.path('bots'), 'bots', 'bot-father'), { recursive: true, force: true });
+      await rm(path.join(box.path(BOTS_DIR), 'bots', 'bot-father'), { recursive: true, force: true });
     },
-    args: ['roster', '--bots', 'bots'],
+    args: ['roster', '--bots', BOTS_DIR],
     rest: 'bot create --bots ',
     runs: false,
   },
@@ -974,6 +985,12 @@ for (const [label, { setup, args, rest, runs }] of Object.entries(FOLLOW_UPS)) {
     const answered = await runBy(box, cli, args);
 
     const command = commandIn(answered.stdout + answered.stderr, cli, rest);
+    if (rest.includes('--bots')) {
+      assert.ok(
+        botsWordIn(command, box.path(BOTS_DIR)),
+        `the bots folder should be one word of the command, quoted as a shell needs it: ${shellWord(box.path(BOTS_DIR))}\ngot: ${command}`,
+      );
+    }
     if (!runs) return;
     const other = await decoy(box);
     const ran = await sh(command, { cwd: box.root, env: other.env });

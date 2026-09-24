@@ -461,7 +461,7 @@ function follow(bots, ref, sources) {
         throw new Error(`${ref} names the source ${named}, and skills.yaml lists no source called that.`);
       }
       if (!isCloned(bots, named)) {
-        throw new Error(`${ref}: ${named} has not been fetched yet, so there is nothing to link. Run ${shellWord(ownCli())} skills fetch --bots ${bots} --source ${named}.`);
+        throw new Error(`${ref}: ${named} has not been fetched yet, so there is nothing to link. Run ${shellWord(ownCli())} skills fetch --bots ${shellWord(bots)} --source ${named}.`);
       }
       const wrong = wrongClone(bots, source);
       if (wrong !== undefined) throw new Error(`${ref}: ${wrong}`);

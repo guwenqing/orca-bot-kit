@@ -486,7 +486,7 @@ const commands = {
       lines: [
         ...paused.closed.map((tab) => `closed     ${tab.bot} ${tab.name}  tab ${tab.tabId}  terminal ${tab.terminal}`),
         `${paused.changed ? 'paused' : 'there'.padEnd(6)}     ${what}${paused.changed ? '' : ' was paused already'}`,
-        `obk up leaves it closed, and the book keeps its conversations. Bring it back:  ${shellWord(ownCli())} unpause --bots ${bots} --bot ${values.bot}${back}`,
+        `obk up leaves it closed, and the book keeps its conversations. Bring it back:  ${shellWord(ownCli())} unpause --bots ${shellWord(bots)} --bot ${values.bot}${back}`,
       ],
     };
   },
@@ -548,8 +548,8 @@ const commands = {
         ...rulesLines(rules, bots),
         ...skillsLines(skills),
         trouble
-          ? `${made.bot} is written, and its rules are not. Settle what the line above says, then:  ${shellWord(ownCli())} rules build --bots ${bots} --bot ${made.bot}`
-          : `${made.bot} is written. Give it a session:  ${shellWord(ownCli())} session add --bots ${bots} --bot ${made.bot} --name <name>`,
+          ? `${made.bot} is written, and its rules are not. Settle what the line above says, then:  ${shellWord(ownCli())} rules build --bots ${shellWord(bots)} --bot ${made.bot}`
+          : `${made.bot} is written. Give it a session:  ${shellWord(ownCli())} session add --bots ${shellWord(bots)} --bot ${made.bot} --name <name>`,
       ],
       code: trouble ? 1 : 0,
     };
@@ -570,7 +570,7 @@ const commands = {
         `changed    the charter in ${path.join('bots', changed.bot, 'bot.yaml')}`,
         ...rulesLines(rules, bots),
         trouble
-          ? `${changed.bot}'s charter is written, and its rules are not. Settle what the line above says, then:  ${shellWord(ownCli())} rules build --bots ${bots} --bot ${changed.bot}`
+          ? `${changed.bot}'s charter is written, and its rules are not. Settle what the line above says, then:  ${shellWord(ownCli())} rules build --bots ${shellWord(bots)} --bot ${changed.bot}`
           : `${changed.bot}'s charter is changed. A session that is running read the old one when it started; it reads this one when it next starts.`,
       ],
       code: trouble ? 1 : 0,
@@ -600,7 +600,7 @@ const commands = {
         added.state === 'added'
           ? `added      ${added.skill} to ${path.join('bots', added.bot, 'bot.yaml')}`
           : `there      ${added.skill} is on ${added.bot}'s list already, and nothing was written`,
-        `Link it:   ${shellWord(ownCli())} skills build --bots ${bots} --bot ${added.bot}`,
+        `Link it:   ${shellWord(ownCli())} skills build --bots ${shellWord(bots)} --bot ${added.bot}`,
       ],
     };
   },
@@ -613,7 +613,7 @@ const commands = {
         removed.state === 'removed'
           ? `removed    ${removed.skill} from ${path.join('bots', removed.bot, 'bot.yaml')}`
           : `absent     ${removed.skill} is not on ${removed.bot}'s list, and nothing was written`,
-        `Unlink it: ${shellWord(ownCli())} skills build --bots ${bots} --bot ${removed.bot}`,
+        `Unlink it: ${shellWord(ownCli())} skills build --bots ${shellWord(bots)} --bot ${removed.bot}`,
       ],
     };
   },
@@ -627,7 +627,7 @@ const commands = {
         ...Object.entries(source)
           .filter(([key]) => key !== 'name')
           .map(([key, value]) => `           ${key.padEnd(5)}  ${value}`),
-        `Fetch it:  ${shellWord(ownCli())} skills fetch --bots ${bots} --source ${source.name}`,
+        `Fetch it:  ${shellWord(ownCli())} skills fetch --bots ${shellWord(bots)} --source ${source.name}`,
       ],
     };
   },
@@ -770,7 +770,7 @@ const commands = {
         ...Object.entries(added.session)
           .filter(([key]) => key !== 'name')
           .map(([key, value]) => `           ${key}  ${oneLine(value)}`),
-        `Bring it up:  ${shellWord(ownCli())} up --bots ${bots} --bot ${added.bot}`,
+        `Bring it up:  ${shellWord(ownCli())} up --bots ${shellWord(bots)} --bot ${added.bot}`,
       ],
     };
   },
@@ -781,7 +781,7 @@ const commands = {
     }
     const { name, ...settings } = settingsOf(values);
     const changed = changeSession(bots, values.bot, values.session, settings);
-    const restart = `${shellWord(ownCli())} restart --bots ${bots} --bot ${changed.bot} --session ${values.session}`;
+    const restart = `${shellWord(ownCli())} restart --bots ${shellWord(bots)} --bot ${changed.bot} --session ${values.session}`;
     return {
       answer: { bots, bot: changed.bot, home: changed.home, session: changed.session, restart },
       lines: [
@@ -954,15 +954,15 @@ function groomLines(groom, bots) {
   if (!groom.exists) {
     return [
       `${'groom'.padEnd(9)}  there is no daily grooming yet`,
-      `Make one:  ${shellWord(ownCli())} groom --bots ${bots} --at 04:00`,
+      `Make one:  ${shellWord(ownCli())} groom --bots ${shellWord(bots)} --at 04:00`,
     ];
   }
 
   return [
     `${'groom'.padEnd(9)}  daily at ${groom.at}  ${groom.enabled ? 'on' : 'off'}`,
     groom.enabled
-      ? `It runs every day at ${groom.at} and spends tokens each time. Turn it off with:  ${shellWord(ownCli())} groom --bots ${bots} --off`
-      : `It is not running yet. Try it by hand, read what it gives you, then:  ${shellWord(ownCli())} groom --bots ${bots} --on`,
+      ? `It runs every day at ${groom.at} and spends tokens each time. Turn it off with:  ${shellWord(ownCli())} groom --bots ${shellWord(bots)} --off`
+      : `It is not running yet. Try it by hand, read what it gives you, then:  ${shellWord(ownCli())} groom --bots ${shellWord(bots)} --on`,
   ];
 }
 
@@ -996,7 +996,7 @@ function rosterLines(roster, bots) {
   }
 
   lines.push(roster.length === 0
-    ? `No bots yet. Make one:  ${shellWord(ownCli())} bot create --bots ${bots} --name <name> --harness claude|codex`
+    ? `No bots yet. Make one:  ${shellWord(ownCli())} bot create --bots ${shellWord(bots)} --name <name> --harness claude|codex`
     : `${roster.length} bot${roster.length === 1 ? '' : 's'}. Your bots folder: ${bots}`);
   return lines;
 }
@@ -1089,7 +1089,7 @@ function tabLines({ bots, created, completed, rules, skills, tabs, paused = [], 
   for (const one of paused) {
     const what = one.session === undefined ? one.bot : `${one.bot} ${one.session}`;
     const back = one.session === undefined ? '' : ` --session ${one.session}`;
-    lines.push(`${'paused'.padEnd(9)}  ${what}  left closed. Bring it back:  ${shellWord(ownCli())} unpause --bots ${bots} --bot ${one.bot}${back}`);
+    lines.push(`${'paused'.padEnd(9)}  ${what}  left closed. Bring it back:  ${shellWord(ownCli())} unpause --bots ${shellWord(bots)} --bot ${one.bot}${back}`);
   }
 
   // Last before the summary, because what a check found is about the setup the

@@ -68,7 +68,7 @@ export function grooming(bots, { at, on } = {}) {
   const bot = readBot(home, BOT_FATHER);
   const book = readBook(home);
   if (book.orca.project === undefined) {
-    throw new Error(`${BOT_FATHER} has no Orca project yet, so there is nothing for the grooming to run in. Run ${shellWord(ownCli())} up --bots ${bots} --bot ${BOT_FATHER} first.`);
+    throw new Error(`${BOT_FATHER} has no Orca project yet, so there is nothing for the grooming to run in. Run ${shellWord(ownCli())} up --bots ${shellWord(bots)} --bot ${BOT_FATHER} first.`);
   }
 
   // Looking and making are one turn. Orca will not stop two runs creating two
