@@ -17,6 +17,7 @@ import { forgetClaimed, readBook, rememberSession, sessionIdsIn, updateBook, wit
 import { botDir, readBot } from './bot.js';
 import { conversationsIn } from './conversations.js';
 import { harnessOf, SHELL_ENV, startPrompt, workDirOf } from './launch.js';
+import { rulesStamp } from './rules.js';
 
 /** Where Orca says which tab a program is running in (tech notes, section 1). */
 export const TAB_ENV = 'ORCA_TAB_ID';
@@ -79,6 +80,11 @@ export async function recordSession(bots, name, said, tabId, shellPid) {
   // this bot's folder, which every session of the bot shares — so it can say
   // that a conversation nobody claims exists, and never whose it is.
   const unclaimed = unclaimedFor(readBook(home), home, bot, tabId, id);
+  // A clear on Claude Code reads the bot's instructions again, as a start does
+  // (tech notes, section 2), so the book notes which ones it read. Codex has no
+  // word for its clear, and whether its new conversation reads them again is
+  // not established, so nothing is noted for it.
+  const rules = said.source === CLEARED ? rulesStamp(home) : undefined;
 
   let cleared = false;
   let told;
@@ -100,7 +106,8 @@ export async function recordSession(bots, name, said, tabId, shellPid) {
     const uncertain = was.session === undefined && unclaimed.length > 0;
     told = session;
 
-    book.sessions[session] = withUnclaimed(rememberSession(was, id, said.source), unclaimed);
+    const now = rememberSession(was, id, said.source);
+    book.sessions[session] = withUnclaimed(rules === undefined ? now : { ...now, rules }, unclaimed);
     forgetClaimed(book);
     if (uncertain) cleared = true;
     return book;

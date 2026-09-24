@@ -13,7 +13,7 @@ import { conversationsIn } from './conversations.js';
 import { installHook } from './hooks.js';
 import { addressOf, harnessOf, isShortPrompt, launchCommand, reachesMail, sessionTrouble, startPrompt, workDirOf } from './launch.js';
 import { asFolderProject, findProject, harnessInTab, makeMailbox, makeProject, openTab, retitleTab, tabs, tellWindow, typeIntoTab, useMailbox } from './orca.js';
-import { buildAgents } from './rules.js';
+import { buildAgents, rulesStamp } from './rules.js';
 import { linkSkills } from './skills.js';
 
 /** The one bot with a tab beside its sessions: the ops tab (PRD 6.2). */
@@ -300,12 +300,17 @@ async function bringUpSession(bots, home, live, session, bot, title) {
   // started a harness in it, and a conversation taken over from the harness's
   // own record are new.
   const launched = new Date().toISOString();
+  // Which instructions it is about to read: the AGENTS.md this run has just
+  // built, noted so that health can say when the file moves on and the session
+  // does not (#272).
+  const rules = rulesStamp(home);
   await updateBook(home, (current) => {
     // What the harness has in this folder that nobody claims goes on the record,
     // for a person or Bot Father to settle — added to whatever was already noted,
     // because this run's scan cannot see what an earlier one found. The kit never
     // settles it itself.
-    const entry = { ...current.sessions[session.name], tab: made.tabId, launched };
+    const entry = { ...current.sessions[session.name], tab: made.tabId, launched, rules };
+    if (rules === undefined) delete entry.rules;
     current.sessions[session.name] = withUnclaimed(entry, which.unclaimed ?? []);
     forgetClaimed(current);
   });
