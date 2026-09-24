@@ -23,11 +23,11 @@ For code-writing bots the test author is always a different agent from the
 implementer, and so is the reviewer. A subagent with a fresh context counts;
 another session or bot also counts, by the user's flavour. The author gets the
 requirement and the public interfaces, not the implementer's code plan. The
-implementer cannot change a test to make it pass; a test that looks wrong is
-reported to the author (proposed; PRD 7.3 has recorded it as decided since
-2026-09-23, on the coordinator's reading of the owner's decisions kept in
-`AGENTS.md`, #108 and #193, and no word of the owner's confirming it is
-recorded). The author's tests are checked by the mutation check of PRD 7.3.
+implementer cannot change a test to make it pass. A test that looks wrong is
+reported to the author (proposed; PRD 7.3 has recorded this sentence as
+decided since 2026-09-23, on the coordinator's reading of the owner's
+decisions kept in `AGENTS.md`, #108 and #193, and no word of the owner's
+confirming it is recorded). The author's tests are checked by the mutation check of PRD 7.3.
 The reviewer never modifies code; it only comments, the implementer makes the
 change, and the change is verified again. When a substantial change means the
 old tests cannot hold, the author redoes them, usually deleting the old tests
