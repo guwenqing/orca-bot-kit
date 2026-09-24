@@ -12,11 +12,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 
-import { addSession, changeBot, changeSession, createBot, readBot, SESSION_FIELDS } from './bot.js';
+import { addSession, changeBot, changeSession, createBot, leadsOutside, readBot, SESSION_FIELDS } from './bot.js';
 import { grooming } from './groom.js';
 import { checkHealth, orcaSettingFindings } from './health.js';
 import { initBots } from './init.js';
-import { APPROVALS, HARNESSES, ownCli, shellWord } from './launch.js';
+import { APPROVALS, HARNESSES, ownCli, shellWord, workDirOf } from './launch.js';
 import { checkMail, lookUp, sendMessage } from './message.js';
 import { orcaCli, orcaTrouble } from './orca.js';
 import { pauseSessions, unpauseSessions } from './pause.js';
@@ -762,7 +762,8 @@ const commands = {
 
   'session add'(bots, values) {
     const added = addSession(bots, values.bot, settingsOf(values));
-    const answer = { bots, bot: added.bot, home: added.home, session: added.session };
+    const found = workDirFound(values, added.bot, added.home, added.session.name);
+    const answer = { bots, bot: added.bot, home: added.home, session: added.session, found };
     return {
       answer,
       lines: [
@@ -770,6 +771,7 @@ const commands = {
         ...Object.entries(added.session)
           .filter(([key]) => key !== 'name')
           .map(([key, value]) => `           ${key}  ${oneLine(value)}`),
+        ...foundLines(found),
         `Bring it up:  ${shellWord(ownCli())} up --bots ${shellWord(bots)} --bot ${added.bot}`,
       ],
     };
@@ -782,13 +784,15 @@ const commands = {
     const { name, ...settings } = settingsOf(values);
     const changed = changeSession(bots, values.bot, values.session, settings);
     const restart = `${shellWord(ownCli())} restart --bots ${shellWord(bots)} --bot ${changed.bot} --session ${values.session}`;
+    const found = workDirFound(values, changed.bot, changed.home, values.session);
     return {
-      answer: { bots, bot: changed.bot, home: changed.home, session: changed.session, restart },
+      answer: { bots, bot: changed.bot, home: changed.home, session: changed.session, restart, found },
       lines: [
         `changed    session ${values.session} in ${path.join('bots', changed.bot, 'bot.yaml')}`,
         ...Object.entries(changed.session)
           .filter(([key]) => key !== 'name')
           .map(([key, value]) => `           ${key}  ${oneLine(value)}`),
+        ...foundLines(found),
         `A running session takes this when it next starts:  ${restart}`,
       ],
     };
@@ -828,6 +832,23 @@ function nudgeLine(answer, where) {
     return `             it is queued, and its tab could not be told to look: ${answer.nudgeTrouble}`;
   }
   return `             ${where} is not up, so nothing was typed anywhere: the message waits in its mailbox.`;
+}
+
+/**
+ * What there is to say about the work dir this command was given: one finding
+ * when it leads out of the bot home, through `..` or a link or as a path
+ * elsewhere, and nothing otherwise (#222). A bot's work and its clones belong
+ * under its own `work/`. It is said, not refused: the user may ask for a folder
+ * anywhere (PRD 6.3), and it is written as they gave it.
+ */
+function workDirFound(values, bot, home, session) {
+  const workDir = workDirOf({ work_dir: values['work-dir'] }, home);
+  if (workDir === undefined || leadsOutside(home, workDir) === undefined) return [];
+  return [{
+    kind: 'work-dir',
+    where: workDir,
+    says: `${workDir} is outside ${bot}'s folder, ${home}. A session's work and every clone it needs go under the bot's work/, as work/${session}, unless you asked for this place in plain words. It is written as given, and nothing was moved.`,
+  }];
 }
 
 /** The settings a `session add` was given, as they go into bot.yaml. */
