@@ -113,6 +113,15 @@ nobody can compare with last week's.
 Approval is the ordinary automatic level unless the user asks for something
 else in plain words. Do not raise it to make a session smoother.
 
+A session that works on files of its own gets a work dir inside the bot's
+folder, under `work/`: `--work-dir work/<session>` unless the user names
+another place in plain words. Every clone it needs goes in there too, never
+beside the bots folder or anywhere else outside the bot home. `work/` is kept
+out of the bots repo, and a path written relative to the bot home still points
+at the right folder when the bots folder moves. `obk session add` and `obk
+session change` say so when a work dir leads out of the bot home; take that
+back to the user rather than past them.
+
 ## Offer a line-up rather than a blank page
 
 Someone making their first bots does not know what a good set looks like, so
