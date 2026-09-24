@@ -25,6 +25,8 @@
   "scripts": {
     "test": "node --test test/*.test.js",
     "test:system": "node scripts/test-system.js",
+    "use:checkout": "npm link",
+    "use:release": "npm install -g @assuredloop/orca-bot-kit",
     "mutate": "node scripts/mutate.js"
   },
   "engines": {

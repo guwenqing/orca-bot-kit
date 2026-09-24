@@ -15,7 +15,7 @@
 // tests, and does not answer as though it had.
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, readdirSync } from 'node:fs';
+import { accessSync, constants, existsSync, readdirSync, realpathSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -247,6 +247,46 @@ function whatItDoes() {
   ].join('\n'));
 }
 
+/**
+ * Where the `obk` PATH would run leads, following every link, or undefined when
+ * there is none. The first on PATH is the one a shell, a hook and a bot get.
+ */
+function obkOnPath() {
+  for (const dir of (process.env.PATH ?? '').split(path.delimiter)) {
+    if (dir === '') continue;
+    const candidate = path.join(dir, 'obk');
+    try {
+      accessSync(candidate, constants.X_OK);
+      return realpathSync(candidate);
+    } catch {
+      // Not here, or a link that leads nowhere; keep walking PATH.
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Why this run cannot test this checkout, or undefined when it can.
+ *
+ * The tests start this checkout's CLI by its full path, but not everything they
+ * set going does: the kit's session hook and the bots in Orca's tabs call `obk`
+ * by name, and get whatever PATH gives them (#217). The machine's `obk` is the
+ * published release the rest of the time, so a run on it would test the release
+ * in those places and pass.
+ */
+function notThisCheckout() {
+  const found = obkOnPath();
+  const mine = realpathSync(path.join(repo, 'src', 'cli.js'));
+  if (found === mine) return undefined;
+
+  const now = found === undefined ? 'There is no `obk` on PATH.' : `The \`obk\` on PATH is ${found}.`;
+  return `The system tests need this checkout to be the \`obk\` on PATH: the kit's hooks and the bots in Orca's tabs call \`obk\` by name. ${now}\n`
+    + 'Make it this checkout:            npm run use:checkout\n'
+    + 'and put the release back after:   npm run use:release\n'
+    + 'There is one `obk` for the whole machine, so tell whoever else works on it before you switch.\n'
+    + 'Nothing was driven.\n';
+}
+
 function run() {
   const cli = orcaCli();
 
@@ -268,6 +308,14 @@ function run() {
   }
 
   announce(cli, files);
+
+  const wrong = notThisCheckout();
+  if (wrong !== undefined) {
+    process.stdout.write(`\n${wrong}`);
+    // Not 0, for the same reason as an unconfirmed run below.
+    return 2;
+  }
+
   whatItDoes();
 
   if (!asked()) {

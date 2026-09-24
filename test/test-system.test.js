@@ -19,7 +19,7 @@
 // here makes a Run appear mid-run without anything real being brought up.
 
 import assert from 'node:assert/strict';
-import { chmod, copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { chmod, copyFile, mkdir, readFile, realpath, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, test } from 'node:test';
@@ -218,9 +218,54 @@ async function write(dir, rel, text) {
 /** The arguments of each call to a fake program, when the rest of the call does not matter. */
 const argsOf = (calls) => calls.map((call) => call.args);
 
+/** What a fixture's CLI is: something runnable, which says so if anything runs it. */
+const FIXTURE_CLI = "#!/usr/bin/env node\nprocess.stdout.write('FIXTURE-CLI-RAN\\n');\n";
+
+/** Where npm puts a package installed with -g, or linked with `npm link`, under a prefix. */
+const GLOBAL_PACKAGE = path.join('lib', 'node_modules', '@assuredloop', 'orca-bot-kit');
+
+/**
+ * Put one `obk` into a bin folder of its own, the way npm does: `bin/obk` is a
+ * relative symlink to the package's `src/cli.js` under the same prefix.
+ *
+ * `checkout` is the fixture repo's own CLI, linked straight at it. `linked` is
+ * what `npm link` makes of the same repo: the package folder is itself a
+ * symlink to the repo, so only following every link reaches it. `release` is
+ * the published package installed with -g: a real folder of its own, which is
+ * not this repo whatever it holds.
+ *
+ * Answers the folder, for PATH, and where its `obk` really is once every link
+ * is followed, for a test to look for in what the runner says.
+ */
+async function installObk(root, repo, kind, at) {
+  const prefix = path.join(root, `obk-${at}-${kind}`);
+  const bin = path.join(prefix, 'bin');
+  await mkdir(bin, { recursive: true });
+  if (kind === 'checkout') {
+    await symlink(path.join(repo, 'src', 'cli.js'), path.join(bin, 'obk'));
+    return { bin, resolved: await realpath(path.join(bin, 'obk')) };
+  }
+  const pkg = path.join(prefix, GLOBAL_PACKAGE);
+  await mkdir(path.dirname(pkg), { recursive: true });
+  if (kind === 'linked') {
+    await symlink(repo, pkg);
+  } else {
+    await write(pkg, path.join('src', 'cli.js'), FIXTURE_CLI);
+    await chmod(path.join(pkg, 'src', 'cli.js'), 0o755);
+  }
+  await symlink(path.join('..', GLOBAL_PACKAGE, 'src', 'cli.js'), path.join(bin, 'obk'));
+  return { bin, resolved: await realpath(path.join(bin, 'obk')) };
+}
+
 /**
  * A fresh repo holding a copy of the script, and a fake Orca for `OBK_ORCA` to
  * name. The fake is not found through PATH: the script resolves the CLI itself.
+ *
+ * PATH is built here rather than inherited, because the `obk` it finds is what
+ * the runner checks: `obk` lists, in PATH order, which ones it holds (see
+ * `installObk`), and by default it is the fixture repo's own. Node gets a folder
+ * of its own, since the folder the real node lives in may hold this machine's
+ * `obk` as well.
  */
 async function createRepo(t, {
   orca: orcaOptions = READY,
@@ -230,6 +275,7 @@ async function createRepo(t, {
   runListGarbles = 0,
   runListEnvelope = 'ok',
   appearsDuring = [],
+  obk = ['checkout'],
 } = {}) {
   const box = await createSandbox(t);
   const world = path.join(box.root, 'orca-runs.json');
@@ -244,12 +290,22 @@ async function createRepo(t, {
   await copyFile(scriptEntry, path.join(repo, 'scripts', 'test-system.js'));
   await write(repo, 'package.json', '{"name": "fixture", "type": "module"}\n');
   for (const [rel, text] of Object.entries(files)) await write(repo, rel, text);
+  await write(repo, path.join('src', 'cli.js'), FIXTURE_CLI);
+  await chmod(path.join(repo, 'src', 'cli.js'), 0o755);
+
+  const nodeBin = path.join(box.root, 'node-bin');
+  await mkdir(nodeBin);
+  await symlink(process.execPath, path.join(nodeBin, 'node'));
+  const obks = [];
+  for (const [at, kind] of obk.entries()) obks.push(await installObk(box.root, repo, kind, at));
+  const PATH = [...obks.map((one) => one.bin), nodeBin, '/usr/bin', '/bin'].join(path.delimiter);
 
   // This machine may have OBK_ORCA set for its own reasons; the fixture decides.
   // NODE_TEST_CONTEXT goes too: it is set in every process the test runner
   // starts, and a `node --test` that inherits it refuses to run any file. A
   // developer's shell does not have it, so neither does the script here.
-  const { OBK_ORCA: _override, NODE_TEST_CONTEXT: _context, ...bare } = box.env;
+  const { OBK_ORCA: _override, NODE_TEST_CONTEXT: _context, ...inherited } = box.env;
+  const bare = { ...inherited, PATH };
 
   // The world goes into the environment as well as into the fake, because the
   // fixture's system test files are spawned by the script and read it from there.
@@ -277,6 +333,8 @@ async function createRepo(t, {
     confirmed: (options = {}) => runScript([CONFIRM], options),
     /** The sandbox directory outside the repo, for running from elsewhere. */
     outside: box.cwd,
+    /** Where each `obk` on PATH really is, in PATH order. */
+    obkResolved: obks.map((one) => one.resolved),
   };
 }
 
@@ -394,6 +452,17 @@ describe('test-system', { concurrency: true }, () => {
     const pkg = JSON.parse(await readFile(path.join(repoRoot, 'package.json'), 'utf8'));
 
     assert.match(pkg.scripts['test:system'] ?? '', /scripts\/test-system\.js/);
+  });
+
+  test('the two commands the runner tells a developer to use exist, and do what it says they do', async () => {
+    // The runner's refusal is only as good as the advice in it. `use:checkout`
+    // points the machine's `obk` at this clone; `use:release` puts back the
+    // published package, named by package.json itself so that a rename or a typo
+    // cannot install some other package from the registry in its place.
+    const pkg = JSON.parse(await readFile(path.join(repoRoot, 'package.json'), 'utf8'));
+
+    assert.match(pkg.scripts['use:checkout'] ?? '', /^npm link$/);
+    assert.equal(pkg.scripts['use:release'], `npm install -g ${pkg.name}`);
   });
 
   test('the preflight asks the Orca CLI for its status as JSON, once', async (t) => {
@@ -750,6 +819,106 @@ describe('test-system', { concurrency: true }, () => {
 
       assertSkipped(result);
       assertAnnounces(result, fixture, [], missing);
+    });
+  });
+
+  // Once the machine's global `obk` is the published release, a system test
+  // run would drive the release through every hook and every bot's own `obk`
+  // command, and still pass. So the runner checks which `obk` PATH would start
+  // before it drives anything, and goes on only when it is this repo's own.
+  describe('the `obk` on PATH has to be this checkout', { concurrency: true }, () => {
+    const FIX = ['npm run use:checkout', 'npm run use:release'];
+
+    /** It stopped at the gate: drove nothing, did not pass, and said how to fix it. */
+    async function assertStoppedAtTheGate(result, fixture) {
+      const output = result.stdout + result.stderr;
+      assert.equal(result.signal, null, `it should decide and exit, not die: ${result.signal}`);
+      assert.notEqual(result.code, 0, `a run that drove nothing must not exit 0: ${output}`);
+      assert.doesNotMatch(output, /ALPHA/);
+      assert.doesNotMatch(output, /FIXTURE-CLI-RAN/, 'the check is where `obk` is, not a run of it');
+      // Asking Orca how it is drives nothing; listing its Runs is the first
+      // step of a run, and a run is what the gate stands in front of. The log
+      // holds every run of this fixture so far, so each call is looked at.
+      for (const args of argsOf(await fixture.orca.calls())) assert.deepEqual(args, ['status', '--json']);
+      for (const command of FIX) {
+        assert.ok(output.includes(command), `it should tell the developer to run \`${command}\`, got: ${output}`);
+      }
+    }
+
+    test('no `obk` on PATH at all: it drives nothing, and says there is none and what to run', async (t) => {
+      const fixture = await createRepo(t, { obk: [] });
+
+      for (const result of await eitherWay(fixture)) {
+        await assertStoppedAtTheGate(result, fixture);
+        assert.match(
+          unwrapped(result.stdout + result.stderr),
+          /\b(no|not|none)\b[^.]*\bobk\b|\bobk\b[^.]*\b(no|not|none)\b/i,
+          `it should say there is no \`obk\` on PATH, got: ${result.stdout}${result.stderr}`,
+        );
+      }
+    });
+
+    test('the published release on PATH: it drives nothing, and names where that `obk` really is', async (t) => {
+      // The case this is for: the machine's everyday `obk`, installed with -g.
+      // Named once every link is followed, which is the file that would run,
+      // and not the bin entry that only points at it.
+      const fixture = await createRepo(t, { obk: ['release'] });
+
+      for (const result of await eitherWay(fixture)) {
+        await assertStoppedAtTheGate(result, fixture);
+        const output = result.stdout + result.stderr;
+        assert.ok(
+          output.includes(fixture.obkResolved[0]),
+          `it should name ${fixture.obkResolved[0]}, got: ${output}`,
+        );
+      }
+    });
+
+    test('it goes by the `obk` PATH finds first, not by any `obk` on PATH', async (t) => {
+      // This checkout further down PATH is never the one a hook or a bot runs.
+      const fixture = await createRepo(t, { obk: ['release', 'checkout'] });
+
+      await assertStoppedAtTheGate(await fixture.confirmed(), fixture);
+    });
+
+    test('what `npm link` makes of this repo passes: it runs the system tests', async (t) => {
+      // The bin entry points into a package folder that is itself a link to
+      // the repo, so only following every link, folders included, gets here.
+      const fixture = await createRepo(t, { obk: ['linked'] });
+
+      const result = await fixture.confirmed();
+
+      assert.equal(result.code, 0, `it should run: ${result.stdout}${result.stderr}`);
+      assert.match(result.stdout, /ALPHA/);
+    });
+
+    test('this repo first on PATH, and another `obk` after it: it runs the system tests', async (t) => {
+      const fixture = await createRepo(t, { obk: ['checkout', 'release'] });
+
+      const result = await fixture.confirmed();
+
+      assert.equal(result.code, 0, `it should run: ${result.stdout}${result.stderr}`);
+      assert.match(result.stdout, /ALPHA/);
+    });
+
+    test('Orca not answering is still a skip, whatever `obk` is on PATH', async (t) => {
+      // Nothing would be driven either way, and a developer with Orca shut is
+      // told to start it, not to relink a CLI they may never need to.
+      const fixture = await createRepo(t, {
+        orca: status({ ok: true, result: { runtime: { reachable: false } } }),
+        obk: [],
+      });
+
+      for (const result of await eitherWay(fixture)) assertSkipped(result);
+    });
+
+    test('no system test files is still an answer of 0, whatever `obk` is on PATH', async (t) => {
+      const fixture = await createRepo(t, { files: { 'test/other.test.js': marker('OTHER') }, obk: ['release'] });
+
+      const result = await fixture.run();
+
+      assert.equal(result.code, 0);
+      assert.match(result.stdout, /system test/i);
     });
   });
 

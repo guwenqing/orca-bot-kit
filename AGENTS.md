@@ -35,6 +35,19 @@ research pack win over every source. A skill works in both harnesses (only `name
 `description` are portable frontmatter) and never contradicts the everyday rules.
 When the shape of a rule set or a skill is open, propose before writing.
 
+## This machine's `obk`
+
+The owner's decision (2026-09-24): the `obk` on this machine is the latest
+published `@assuredloop/orca-bot-kit`, the same one a user has. Each developer
+works in a clone of their own and runs its code by its full path
+(`node <clone>/src/cli.js …`); `npm test` needs nothing else. The system tests
+need more, because the kit's hooks and the bots in Orca's tabs call `obk` by
+name: for a system-test run, switch the machine's `obk` to your clone with
+`npm run use:checkout`, run `npm run test:system -- --yes`, then put the release
+back with `npm run use:release`. The runner refuses to start unless the `obk` on
+PATH is the checkout it belongs to. There is one `obk` for the whole machine:
+tell the coordinator before you switch it and again when it is back.
+
 ## Safety on the owner's machine
 
 He works in this same Orca. In live checks and system tests: use a throwaway bots

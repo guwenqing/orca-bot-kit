@@ -49,7 +49,7 @@ The owner already runs a similar setup on Orca elsewhere. This product is the Or
 
 Each line is a check a developer can run. Issues turn these into acceptance tests.
 
-1. After `npm link` and `obk init`, an Orca project "Bot Father" exists with a daily session tab and an ops tab; the bots folder is a git repo and contains no kit code.
+1. After installing the kit and `obk init`, an Orca project "Bot Father" exists with a daily session tab and an ops tab; the bots folder is a git repo and contains no kit code.
 2. `obk` creates a bot on Claude Code and a bot on Codex; each starts at its bot home and reads its `AGENTS.md`.
 3. A session created with a start prompt receives it once; after `/clear` it receives it again automatically.
 4. After `/clear`, the book holds the new session id and the old id is in that session's history.
@@ -79,7 +79,7 @@ Each line is a check a developer can run. Issues turn these into acceptance test
 
 ### 6.1 Shape
 
-- An npm package with a CLI and skills, installed with `npm install -g @assuredloop/orca-bot-kit`; `npm link` from a clone to work on the kit itself. [decided]
+- An npm package with a CLI and skills, installed with `npm install -g @assuredloop/orca-bot-kit`. A developer works in a clone and runs it by its full path; for a system-test run the machine's `obk` is switched to that clone and back (AGENTS.md). [decided]
 - Everything, skills included, comes from the package. [decided]
 - The user manages bots, skills and prompts through an LLM — normally Bot Father's management session, whose skills call the CLI. [decided]
 - The harnesses are assumed to be installed and configured. [decided]

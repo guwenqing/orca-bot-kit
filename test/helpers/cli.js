@@ -39,7 +39,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parse } from 'yaml';
 
 export const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
-const cliEntry = path.join(repoRoot, 'src', 'cli.js');
+/** This checkout's own CLI, by its full path: what the tests run, whatever `obk` is on PATH. */
+export const cliEntry = path.join(repoRoot, 'src', 'cli.js');
 const fakeOrcaEntry = fileURLToPath(new URL('./fake-orca.js', import.meta.url));
 
 /** Where the fake Orca keeps its world, inside a sandbox. */

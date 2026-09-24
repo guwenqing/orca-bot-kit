@@ -360,3 +360,73 @@ test('the release tag is checked against the package version before publishing',
     .filter((text) => /release\.tag_name|GITHUB_REF/.test(text) && /(?<!node-)\bversion\b|package\.json/.test(text));
   assert.ok(checks.length > 0, `no step in ${id} before \`npm publish\` compares the release tag with the package version`);
 });
+
+// Testing a checkout (#217): the `obk` on a developer's PATH is the published
+// release, as any user has it. A system test that starts `obk` from PATH tests
+// that release rather than the checkout it lives in, and still passes. Each one
+// starts this checkout's own `src/cli.js` by its full path instead.
+
+const systemTestsDir = path.join(repoRoot, 'test', 'system');
+
+/** The child_process calls that take a command to start, and what they start. */
+const START = /\b(?:spawn|spawnSync|exec|execSync|execFile|execFileSync)\s*\(\s*(?:(['"`])((?:(?!\1)[^\\]|\\.)*)\1|([A-Za-z_$][\w$]*))/g;
+
+/** Whether a command, or a shell line, starts the bare `obk` that PATH finds. */
+const isBareObk = (command) => /^obk(?:\s|$)/.test(command);
+
+/**
+ * Every place a source starts a process, with the line it is on and whether
+ * what it starts is the bare `obk`. A command named by a constant is followed
+ * to the string the file gives it. The word `obk` in a message or a comment is
+ * not a call and is not looked at.
+ */
+function startsIn(source) {
+  const constants = new Map([...source.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(['"`])((?:(?!\2)[^\\]|\\.)*)\2/g)]
+    .map((match) => [match[1], match[3]]));
+  return [...source.matchAll(START)].map((match) => {
+    const command = match[3] === undefined ? match[2] : constants.get(match[3]);
+    return {
+      line: source.slice(0, match.index).split('\n').length,
+      bareObk: command !== undefined && isBareObk(command),
+    };
+  });
+}
+
+test('the check for a bare `obk` sees a spawn of it, and not the word', () => {
+  const flagged = (source) => startsIn(source).filter((start) => start.bareObk).length;
+
+  assert.equal(flagged("spawnSync('obk', args);"), 1, 'a spawn of the bare `obk`');
+  assert.equal(flagged("execSync(`obk up --bots ${bots}`);"), 1, 'a shell line that starts with `obk`');
+  assert.equal(flagged("const OBK = 'obk';\nspawnSync(OBK, args);"), 1, 'the bare `obk` named by a constant');
+
+  assert.equal(flagged("spawnSync(process.execPath, [CLI, ...args]);"), 0, 'this checkout\'s CLI by its full path');
+  assert.equal(flagged("execFileSync('/work/obk-dev/src/cli.js', args);"), 0, 'a full path through a clone named after the kit');
+  assert.equal(flagged("/** Run the real `obk`. */\nconst done = spawnSync(ORCA, args);"), 0, 'the word in a comment');
+  assert.equal(flagged("assert.fail(`obk ${args.join(' ')} failed`);"), 0, 'the word in a message');
+  assert.equal(flagged("spawnSync('git', ['-C', dir, 'obk']);"), 0, 'the word as an argument to something else');
+});
+
+test('no system test starts `obk` from PATH instead of this checkout\'s own CLI', async () => {
+  const tree = await snapshot(systemTestsDir);
+  const files = Object.keys(tree).filter((rel) => rel.endsWith('.js') && tree[rel].startsWith('file:'));
+  assert.ok(files.length > 0, 'there should be system tests to check');
+
+  const found = [];
+  let starts = 0;
+  for (const rel of files) {
+    const source = await readFile(path.join(systemTestsDir, rel), 'utf8');
+    for (const start of startsIn(source)) {
+      starts += 1;
+      if (start.bareObk) found.push(`test/system/${rel}:${start.line}`);
+    }
+  }
+  // The system tests start Orca, at the least; finding no call at all means
+  // the check has stopped seeing them, not that they have stopped.
+  assert.ok(starts > 0, 'no process start was found in the system tests, so the check sees nothing');
+  assert.deepEqual(
+    found,
+    [],
+    'these start the `obk` on PATH, which is the published release, not this checkout;'
+    + ` start src/cli.js by its full path instead:\n  ${found.join('\n  ')}`,
+  );
+});
