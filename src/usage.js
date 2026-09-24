@@ -42,6 +42,21 @@ import { harnessOf } from './launch.js';
 const KINDS = ['input', 'output', 'cache_read', 'cache_write', 'reasoning'];
 
 /**
+ * What could not be counted, by why. A figure that quietly leaves something out
+ * reads as complete, so what is left out is said, and the totals cover only what
+ * was counted: nothing missing is guessed at, nor taken as zero, nor placed in a
+ * window it has no time to be placed in.
+ */
+const GAPS = ['unreadable_transcripts', 'broken_lines', 'records_without_numbers', 'records_without_time'];
+
+const noGaps = () => Object.fromEntries(GAPS.map((gap) => [gap, 0]));
+
+const addGaps = (into, more) => {
+  for (const gap of GAPS) into[gap] += more[gap];
+  return into;
+};
+
+/**
  * What each bot's sessions have used. `since` counts the calls made at or after
  * that moment rather than the conversations begun after it: a conversation that
  * started this morning and is still going has spent everything it spent today,
@@ -99,20 +114,28 @@ function forBot(bots, name, onlySession, window) {
 
   const sessions = bot.sessions
     .filter((session) => onlySession === undefined || session.name === onlySession)
-    .map((session) => ({
-      name: session.name,
-      conversations: idsIn(book.sessions[session.name] ?? {})
-        .filter((id) => onRecord.has(id))
-        .map((id) => counted(onRecord.get(id), window))
-        .filter((one) => one !== undefined),
-    }));
+    .map((session) => {
+      const { conversations, gaps } = all(
+        idsIn(book.sessions[session.name] ?? {}).filter((id) => onRecord.has(id)).map((id) => onRecord.get(id)),
+        window,
+      );
+      return { name: session.name, conversations, not_counted: gaps };
+    });
 
-  const unclaimed = [...onRecord.values()]
-    .filter((one) => !claimed.has(one.id))
-    .map((one) => counted(one, window))
-    .filter((one) => one !== undefined);
+  const unclaimed = all([...onRecord.values()].filter((one) => !claimed.has(one.id)), window);
 
-  return { bot: name, home, sessions, unclaimed };
+  return { bot: name, home, sessions, unclaimed: unclaimed.conversations, unclaimed_not_counted: unclaimed.gaps };
+}
+
+/** Some conversations counted, and what all of them together could not count. */
+function all(transcripts, window) {
+  const gaps = noGaps();
+  const conversations = transcripts.flatMap((one) => {
+    const { row, gaps: its } = counted(one, window);
+    addGaps(gaps, its);
+    return row === undefined ? [] : [row];
+  });
+  return { conversations, gaps };
 }
 
 /** The conversations a book entry names: the one it is in, then the ones before. */
@@ -122,9 +145,10 @@ const idsIn = (entry) => [
 ];
 
 /**
- * One conversation, counted. A conversation that spent nothing in the window is
- * left out rather than reported as a row of zeroes: it is not part of what has
- * happened since, and a page of zeroes is harder to read than a shorter page.
+ * One conversation, counted, and what in it could not be. A conversation that
+ * spent nothing in the window has no row rather than a row of zeroes: it is not
+ * part of what has happened since, and a page of zeroes is harder to read than a
+ * shorter page. What it could not count is still said.
  */
 function counted(one, window) {
   const read = one.harness === 'claude' ? fromClaude : fromCodex;
@@ -139,12 +163,16 @@ function counted(one, window) {
     byModel: new Map(),
     first: undefined,
     last: undefined,
+    gaps: noGaps(),
   };
 
-  read(lines(one.file), window, tally);
-  if (tally.calls === 0 && KINDS.every((kind) => tally.tokens[kind] === 0)) return undefined;
+  const { entries, unreadable, broken } = lines(one.file);
+  tally.gaps.unreadable_transcripts = unreadable;
+  tally.gaps.broken_lines = broken;
+  read(entries, window, tally);
+  if (tally.calls === 0 && KINDS.every((kind) => tally.tokens[kind] === 0)) return { gaps: tally.gaps };
 
-  return {
+  return { gaps: tally.gaps, row: {
     id: one.id,
     calls: tally.calls,
     tokens: tally.tokens,
@@ -154,7 +182,7 @@ function counted(one, window) {
     compactions: tally.compactions,
     first: new Date(tally.first).toISOString(),
     last: new Date(tally.last).toISOString(),
-  };
+  } };
 }
 
 /**
@@ -175,6 +203,9 @@ function counted(one, window) {
  * start. A transcript only grows, so one run's end is the next run's start and
  * the runs add up to the whole, with a call still being written at a boundary
  * charged once, part to each side (#169).
+ *
+ * A record with no time, or with a figure missing, is left out whole and said to
+ * be; the call it belongs to is counted from its other records, if it has any.
  */
 function fromClaude(entries, window, tally) {
   const byCall = new Map();
@@ -182,13 +213,22 @@ function fromClaude(entries, window, tally) {
   for (const entry of entries) {
     const when = Date.parse(entry.timestamp ?? '');
     if (entry.type === 'system' && entry.subtype === 'compact_boundary') {
-      if (inside(when, window)) tally.compactions += 1;
+      if (Number.isNaN(when)) tally.gaps.records_without_time += 1;
+      else if (inside(when, window)) tally.compactions += 1;
       continue;
     }
     if (entry.type !== 'assistant') continue;
 
     const usage = entry.message?.usage;
     if (usage === undefined || usage === null) continue;
+    if (Number.isNaN(when)) {
+      tally.gaps.records_without_time += 1;
+      continue;
+    }
+    if (!complete(usage, CLAUDE_FIELDS)) {
+      if (inside(when, window)) tally.gaps.records_without_numbers += 1;
+      continue;
+    }
     const call = `${entry.requestId}\u0000${entry.message?.id}`;
     if (!byCall.has(call)) byCall.set(call, []);
     byCall.get(call).push({ entry, when });
@@ -196,11 +236,9 @@ function fromClaude(entries, window, tally) {
 
   for (const records of byCall.values()) {
     const made = records[0].when;
-    // A record with no time of its own says nothing about being outside, as in
-    // `inside`: it counts as written before the end and not before the start.
-    const atEnd = records.findLast(({ when }) => Number.isNaN(when) || when < window.to);
+    const atEnd = records.findLast(({ when }) => when < window.to);
     if (atEnd === undefined) continue;
-    const atStart = records.findLast(({ when }) => !Number.isNaN(when) && when < window.from);
+    const atStart = records.findLast(({ when }) => when < window.from);
 
     const now = figures(atEnd.entry);
     const was = atStart === undefined ? undefined : figures(atStart.entry);
@@ -211,6 +249,9 @@ function fromClaude(entries, window, tally) {
     count(tally, grew, atEnd.entry.message?.model, atEnd.entry.effort, isNew ? made : atEnd.when, isNew ? 1 : 0);
   }
 }
+
+/** The figures Claude Code writes on every call, all of which a record needs to be counted. */
+const CLAUDE_FIELDS = ['input_tokens', 'output_tokens', 'cache_read_input_tokens', 'cache_creation_input_tokens'];
 
 /** What one Claude Code record says its call used so far. */
 function figures(entry) {
@@ -251,7 +292,9 @@ const CODEX_FIELDS = [
  * right on any conversation short enough to read by hand.
  *
  * The running total is followed through events outside the window as well, since
- * what a call added can only be measured against the event before it.
+ * what a call added can only be measured against the event before it. An event
+ * with a figure missing is not followed: it is left out and said to be, and the
+ * next call is measured against the last event that could be read in full.
  */
 function fromCodex(entries, window, tally) {
   let model;
@@ -269,13 +312,21 @@ function fromCodex(entries, window, tally) {
       continue;
     }
     if (entry.type === 'compacted') {
-      if (inside(when, window)) tally.compactions += 1;
+      if (Number.isNaN(when)) tally.gaps.records_without_time += 1;
+      else if (inside(when, window)) tally.compactions += 1;
       continue;
     }
     if (entry.type !== 'event_msg' || entry.payload?.type !== 'token_count') continue;
 
+    // No `info` is a note about rate limits, not a record of usage.
     const info = entry.payload?.info;
     if (info === undefined || info === null) continue;
+
+    if (!complete(info.total_token_usage ?? info.last_token_usage, CODEX_READ)) {
+      if (Number.isNaN(when)) tally.gaps.records_without_time += 1;
+      else if (inside(when, window)) tally.gaps.records_without_numbers += 1;
+      continue;
+    }
 
     const used = spent(running, info);
     if (info.total_token_usage !== undefined && info.total_token_usage !== null) {
@@ -283,11 +334,18 @@ function fromCodex(entries, window, tally) {
     }
     // A repeat is not a call, whether or not it is inside the window.
     if (used === undefined) continue;
+    if (Number.isNaN(when)) {
+      tally.gaps.records_without_time += 1;
+      continue;
+    }
     if (!inside(when, window)) continue;
 
     count(tally, used, model, effort, when);
   }
 }
+
+/** The fields Codex itself writes; it has no cache writes to report. */
+const CODEX_READ = CODEX_FIELDS.filter((field) => field !== 'cache_write_input_tokens').concat('total_tokens');
 
 /**
  * What one Codex event says its call used, measured against the event before it.
@@ -350,25 +408,30 @@ function count(tally, used, model, effort, when, calls = 1) {
   for (const kind of KINDS) its.tokens[kind] += used[kind];
 }
 
-/** The lines of a transcript that are readable JSON; the rest say nothing. */
+/**
+ * The lines of a transcript that are JSON records, and how many were not. A
+ * transcript that cannot be read is said to be, rather than a run that stops.
+ */
 function lines(file) {
   let text;
   try {
     text = readFileSync(file, 'utf8');
   } catch {
-    // A transcript that cannot be read is a conversation the kit knows nothing
-    // about, which is the honest answer rather than a run that stops.
-    return [];
+    return { entries: [], unreadable: 1, broken: 0 };
   }
-  return text.split('\n').flatMap((line) => {
+  let broken = 0;
+  const entries = text.split('\n').flatMap((line) => {
     if (line.trim() === '') return [];
     try {
       const entry = JSON.parse(line);
-      return entry !== null && typeof entry === 'object' ? [entry] : [];
+      if (entry !== null && typeof entry === 'object' && !Array.isArray(entry)) return [entry];
     } catch {
-      return [];
+      // Counted below with any other line that is not a record.
     }
+    broken += 1;
+    return [];
   });
+  return { entries, unreadable: 0, broken };
 }
 
 /** A bot home as the file system knows it, or as it was given when it is not there. */
@@ -382,20 +445,23 @@ function realHome(home) {
 
 const number = (value) => (typeof value === 'number' && Number.isFinite(value) ? value : 0);
 
+/** Whether a figure has every field it should, each a number. */
+const complete = (figure, fields) =>
+  figure !== undefined && figure !== null
+  && fields.every((field) => typeof figure[field] === 'number' && Number.isFinite(figure[field]));
+
 const add = (set, value) => {
   if (typeof value === 'string' && value !== '') set.add(value);
 };
 
 /**
  * Whether a moment is in the window: at or after its start, before its end. A
- * record with no time of its own is counted, as it always has been: nothing
- * says it is outside.
+ * record with no time of its own is in no window; it is left out and said to be.
  */
-const inside = (when, { from, to }) => Number.isNaN(when) || (when >= from && when < to);
+const inside = (when, { from, to }) => when >= from && when < to;
 
 /** When the first and the last counted call of this conversation were. */
 function mark(tally, when) {
-  if (Number.isNaN(when)) return;
   if (tally.first === undefined || when < tally.first) tally.first = when;
   if (tally.last === undefined || when > tally.last) tally.last = when;
 }
