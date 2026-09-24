@@ -145,8 +145,11 @@ const claudeSaid = (when, permissionMode) => ({
   message: { role: 'user', content: 'Carry on with the queue.' },
 });
 
-/** A change of permission mode, a line of its own. */
-const claudeModeChanged = (when, permissionMode) => ({ type: 'permission-mode', timestamp: when, permissionMode });
+/**
+ * A change of permission mode, a line of its own. As Claude Code writes it, it
+ * carries no timestamp; the conversation's id is put on it where it is planted.
+ */
+const claudeModeChanged = (permissionMode) => ({ type: 'permission-mode', permissionMode });
 
 /** What Codex was set to for the turns that follow it. */
 const codexTurn = (when, {
@@ -187,27 +190,38 @@ const transcriptOf = (box, harness, home, id, started) => (harness === 'codex'
 
 /**
  * Plant a conversation where its harness keeps it, for the folder `home`: its
- * first line as the harness writes it, then `lines`. `text` in place of lines
- * writes exactly that, which is how a file nothing can parse is planted.
+ * first line as the harness writes it, then `lines`. Claude Code writes the
+ * conversation's id on every line, and so every Claude line here gets it.
+ * `text` in place of lines writes exactly that, which is how a file nothing can
+ * parse is planted.
  */
 async function plantConversation(box, harness, home, id, { lines = [], text, started = onTheDay(8) } = {}) {
   const file = transcriptOf(box, harness, home, id, started);
   const first = harness === 'codex'
     ? { timestamp: started, type: 'session_meta', payload: { id, cwd: home, timestamp: started } }
     : { type: 'system', sessionId: id, cwd: home, timestamp: started };
+  const rest = harness === 'codex' ? lines : lines.map((line) => ({ sessionId: id, ...line }));
   await mkdir(path.dirname(file), { recursive: true });
-  await writeFile(file, text ?? `${[first, ...lines].map((line) => JSON.stringify(line)).join('\n')}\n`);
+  await writeFile(file, text ?? `${[first, ...rest].map((line) => JSON.stringify(line)).join('\n')}\n`);
   return file;
 }
 
 /**
- * A session running a conversation: the harness's record of it planted, and
- * the book naming it as the session's conversation now, the way the kit's hook
- * would have written it.
+ * When the kit last started the sessions these tests plant conversations for:
+ * the start of the day, before every line the conversations carry. Only what a
+ * record says from the moment the kit last started the session counts, and
+ * `up` writes the real clock's time, which is days after these lines.
+ */
+const LAUNCHED = onTheDay(8);
+
+/**
+ * A session running a conversation since the kit started it at LAUNCHED: the
+ * harness's record of it planted, and the book naming it as the session's
+ * conversation now, the way the kit's hook would have written it.
  */
 async function talking(box, bots, bot, session, harness, id, lines) {
   await plantConversation(box, harness, botHomeOf(bots, bot), id, { lines });
-  await editBook(bots, bot, (sessions) => { sessions[session].session = id; });
+  await editBook(bots, bot, (sessions) => { sessions[session].session = id; sessions[session].launched = LAUNCHED; });
 }
 
 // ------------------------------------------------------------- what it answers
@@ -662,7 +676,7 @@ test('S5 Claude approval: each level matches the mode it launches, and any other
   ].map((one) => ({
     ...one,
     lines: one.own
-      ? [claudeSaid(onTheDay(9)), claudeModeChanged(onTheDay(9, 1), one.mode), claudeReply(onTheDay(9, 2), { model: 'claude-opus-5-5', effort: 'high' })]
+      ? [claudeSaid(onTheDay(9)), claudeModeChanged(one.mode), claudeReply(onTheDay(9, 2), { model: 'claude-opus-5-5', effort: 'high' })]
       : [claudeSaid(onTheDay(9), one.mode), claudeReply(onTheDay(9, 1), { model: 'claude-opus-5-5', effort: 'high' })],
   }));
 
@@ -719,7 +733,7 @@ test('S6 the latest record wins, on each harness and for each setting', async (t
   await talking(box, bots, 'api-bot', 'daily', 'claude', conv(1), [
     claudeSaid(onTheDay(9), 'auto'),
     claudeReply(onTheDay(9, 1), { model: 'claude-sonnet-5', effort: 'high' }),
-    claudeModeChanged(onTheDay(9, 2), 'default'),
+    claudeModeChanged('default'),
     claudeReply(onTheDay(9, 3), { model: 'claude-opus-5-5', effort: 'xhigh' }),
     // A later line of another type, carrying no model, effort or mode, changes none of them.
     { type: 'system', subtype: 'compact_boundary', timestamp: onTheDay(9, 4), compactMetadata: { trigger: 'auto', preTokens: 120000, postTokens: 20000 } },
@@ -745,6 +759,175 @@ test('S6 the latest record wins, on each harness and for each setting', async (t
   assertSetting(nightly, 'effort', { state: 'match', configured: 'xhigh', observed: 'xhigh' }, 'the last turn ran xhigh');
   assertSetting(nightly, 'context', { state: 'match', configured: '123456', observed: '117283' }, 'the last count with info says 117283');
   assertCodexApproval(nightly, { state: 'match', configured: 'auto' }, ['on-request', 'auto_review', 'workspace-write'], 'the last turn ran auto');
+});
+
+// ---------------------------------------------------------------------------
+// S11 — only what the record says since the kit last started the session.
+//
+// `obk restart` resumes the same conversation, so its transcript still holds
+// the lines the process before it wrote, and those say what that process ran
+// with. The book's `launched` is when the kit last started the session: the
+// first line whose timestamp is at or after it, and every line after that one
+// (a Claude `permission-mode` line has no timestamp), is what counts. Nothing
+// at or after it is no record at all. An entry with no `launched`, a book
+// edited by hand, counts the whole record.
+// ---------------------------------------------------------------------------
+
+/** When the kit last started the sessions in these tests: noon, with the conversation begun at eleven. */
+const RESTARTED = onTheDay(12);
+
+/**
+ * A session resumed at RESTARTED in a conversation begun before it: the record
+ * planted, the book naming it, and `launched` set to `launched`, or taken out
+ * of the entry when that is null.
+ */
+async function resumed(box, bots, session, harness, id, lines, launched = RESTARTED) {
+  await plantConversation(box, harness, botHomeOf(bots, 'api-bot'), id, { lines, started: onTheDay(11) });
+  await editBook(bots, 'api-bot', (sessions) => {
+    sessions[session].session = id;
+    if (launched === null) delete sessions[session].launched;
+    else sessions[session].launched = launched;
+  });
+}
+
+/** What the process before the restart wrote: the person in auto mode, and a reply at high effort. */
+const beforeTheRestart = [
+  claudeSaid(onTheDay(11, 0), 'auto'),
+  claudeReply(onTheDay(11, 1), { model: 'claude-opus-5-5', effort: 'high' }),
+];
+
+test('S11 Claude: a record wholly before the kit last started the session says nothing; a reply at that moment does', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  await botUp(box, 'api-bot', {
+    sessions: [
+      ['before-only', '--model', 'opus', '--effort', 'xhigh'],
+      ['bare', '--effort', 'xhigh'],
+      ['reply-at-launch', '--model', 'opus', '--effort', 'xhigh'],
+    ],
+  });
+  await resumed(box, bots, 'before-only', 'claude', conv(1), beforeTheRestart);
+  await resumed(box, bots, 'bare', 'claude', conv(2), beforeTheRestart);
+  // At the moment itself, not after it: the first line that counts.
+  await resumed(box, bots, 'reply-at-launch', 'claude', conv(3), [
+    ...beforeTheRestart,
+    claudeReply(RESTARTED, { model: 'claude-opus-5-5', effort: 'xhigh' }),
+  ]);
+
+  const answer = await found(box);
+
+  const before = entryOf(answer, 'api-bot', 'before-only');
+  assertSetting(before, 'model', { state: 'unknown', configured: 'opus' }, 'what ran before the restart is not what runs now');
+  assertSetting(before, 'effort', { state: 'unknown', configured: 'xhigh' }, 'the high was the process before');
+  assertSetting(before, 'approval', { state: 'unknown', configured: 'auto' }, 'the mode was said before the restart');
+  assertSetting(before, 'context', { state: 'not-asked-for' }, 'not asked for');
+
+  assertSetting(entryOf(answer, 'api-bot', 'bare'), 'model', { state: 'not-asked-for' }, 'not asked for, and nothing on record since the start');
+
+  const at = entryOf(answer, 'api-bot', 'reply-at-launch');
+  assertSetting(at, 'model', { state: 'match', configured: 'opus', observed: 'claude-opus-5-5' }, 'the reply at the start counts');
+  assertSetting(at, 'effort', { state: 'match', configured: 'xhigh', observed: 'xhigh' }, 'the reply at the start ran xhigh');
+  assertSetting(at, 'approval', { state: 'unknown', configured: 'auto' }, 'the only mode on record was said before the start');
+
+  assert.deepEqual(of(answer, { kind: 'session', bot: 'api-bot' }), [], `unknown and match make no finding, got: ${JSON.stringify(answer.found, null, 2)}`);
+});
+
+test('S11 Claude: an effort changed in bot.yaml shows as a mismatch until a reply since the start runs it', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  await botUp(box, 'api-bot', { sessions: [['lowered', '--effort', 'xhigh'], ['no-effort-since', '--effort', 'xhigh']] });
+  // Before the start the process ran xhigh; since it, high.
+  await resumed(box, bots, 'lowered', 'claude', conv(1), [
+    claudeSaid(onTheDay(11, 0), 'auto'),
+    claudeReply(onTheDay(11, 1), { model: 'claude-opus-5-5', effort: 'xhigh' }),
+    claudeSaid(onTheDay(12, 5), 'auto'),
+    claudeReply(onTheDay(12, 6), { model: 'claude-opus-5-5', effort: 'high' }),
+  ]);
+  // Since the start only a reply with no effort on it: the xhigh before it is not what runs now.
+  await resumed(box, bots, 'no-effort-since', 'claude', conv(2), [
+    claudeSaid(onTheDay(11, 0), 'auto'),
+    claudeReply(onTheDay(11, 1), { model: 'claude-opus-5-5', effort: 'xhigh' }),
+    claudeSaid(onTheDay(12, 5), 'auto'),
+    claudeReply(onTheDay(12, 6), { model: 'claude-haiku-4-5-20251001' }),
+  ]);
+
+  const answer = await found(box);
+
+  assertSetting(entryOf(answer, 'api-bot', 'lowered'), 'effort', { state: 'mismatch', configured: 'xhigh', observed: 'high' }, 'the reply since the start ran high');
+  assertSetting(entryOf(answer, 'api-bot', 'no-effort-since'), 'effort', { state: 'unknown', configured: 'xhigh' }, 'no reply since the start carries an effort');
+  const mine = of(answer, { kind: 'session', bot: 'api-bot' });
+  assert.equal(mine.length, 1, `one finding, for the session that ran high, got: ${JSON.stringify(mine, null, 2)}`);
+  assert.ok(hasWord(mine[0].says, 'lowered') && mine[0].says.includes('xhigh') && hasWord(mine[0].says, 'high'), `it names the session and both efforts, got: ${mine[0].says}`);
+});
+
+test('S11 Claude: a permission-mode line with no timestamp counts after the first line since the start, and not before it', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  await botUp(box, 'api-bot', { sessions: [['mode-after', '--approval', 'ask'], ['mode-before', '--approval', 'ask']] });
+  await resumed(box, bots, 'mode-after', 'claude', conv(1), [
+    claudeReply(onTheDay(11, 1), { model: 'claude-opus-5-5', effort: 'high' }),
+    claudeSaid(RESTARTED),
+    claudeModeChanged('default'),
+  ]);
+  await resumed(box, bots, 'mode-before', 'claude', conv(2), [
+    claudeModeChanged('default'),
+    claudeReply(onTheDay(11, 1), { model: 'claude-opus-5-5', effort: 'high' }),
+    claudeSaid(onTheDay(12, 5)),
+    claudeReply(onTheDay(12, 6), { model: 'claude-opus-5-5', effort: 'high' }),
+  ]);
+
+  const answer = await found(box);
+
+  assertSetting(entryOf(answer, 'api-bot', 'mode-after'), 'approval', { state: 'match', configured: 'ask', observed: 'default' }, 'the mode line follows the first line since the start');
+  assertSetting(entryOf(answer, 'api-bot', 'mode-before'), 'approval', { state: 'unknown', configured: 'ask' }, 'the mode line comes before any line since the start');
+});
+
+test('S11 Codex: only turns and counts since the kit last started the session count', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  const settings = ['--model', 'gpt-6-sol', '--effort', 'xhigh', '--context', '200000'];
+  await botUp(box, 'api-bot', { harness: 'codex', sessions: [['before-only', ...settings], ['since', ...settings], ['changed', ...settings]] });
+  const earlier = [codexTurn(onTheDay(11, 0), { effort: 'xhigh' }), codexTokens(onTheDay(11, 1), 190000)];
+  await resumed(box, bots, 'before-only', 'codex', conv(1), earlier);
+  await resumed(box, bots, 'since', 'codex', conv(2), [...earlier, codexTurn(onTheDay(12, 5), { effort: 'xhigh' }), codexTokens(onTheDay(12, 6), 190000)]);
+  await resumed(box, bots, 'changed', 'codex', conv(3), [...earlier, codexTurn(onTheDay(12, 5), { effort: 'high' })]);
+
+  const answer = await found(box);
+
+  const before = entryOf(answer, 'api-bot', 'before-only');
+  assertSetting(before, 'model', { state: 'unknown', configured: 'gpt-6-sol' }, 'the turn was the process before');
+  assertSetting(before, 'effort', { state: 'unknown', configured: 'xhigh' }, 'the turn was the process before');
+  assertSetting(before, 'context', { state: 'unknown', configured: '200000' }, 'the count was the process before');
+  assertSetting(before, 'approval', { state: 'unknown', configured: 'auto' }, 'the turn was the process before');
+
+  const since = entryOf(answer, 'api-bot', 'since');
+  assertSetting(since, 'model', { state: 'match', configured: 'gpt-6-sol', observed: 'gpt-6-sol' }, 'a turn since the start');
+  assertSetting(since, 'effort', { state: 'match', configured: 'xhigh', observed: 'xhigh' }, 'a turn since the start');
+  assertSetting(since, 'context', { state: 'match', configured: '200000', observed: '190000' }, 'a count since the start');
+  assertCodexApproval(since, { state: 'match', configured: 'auto' }, ['on-request', 'auto_review', 'workspace-write'], 'a turn since the start');
+
+  const changed = entryOf(answer, 'api-bot', 'changed');
+  assertSetting(changed, 'effort', { state: 'mismatch', configured: 'xhigh', observed: 'high' }, 'the turn since the start ran high');
+  assertSetting(changed, 'context', { state: 'unknown', configured: '200000' }, 'no count since the start');
+
+  const mine = of(answer, { kind: 'session', bot: 'api-bot' });
+  assert.equal(mine.length, 1, `one finding, for changed, got: ${JSON.stringify(mine, null, 2)}`);
+  assert.ok(hasWord(mine[0].says, 'changed'), `the finding is changed's, got: ${mine[0].says}`);
+});
+
+test('S11 a book entry with no launched counts the whole record, on both harnesses', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  await botUp(box, 'api-bot', { sessions: [['daily', '--effort', 'xhigh'], ['nightly', '--harness', 'codex', '--effort', 'xhigh']] });
+  await resumed(box, bots, 'daily', 'claude', conv(1), beforeTheRestart, null);
+  await resumed(box, bots, 'nightly', 'codex', conv(2), [codexTurn(onTheDay(11, 0), { effort: 'high' })], null);
+  assert.equal((await sessionIn(bots, 'api-bot', 'daily')).launched, undefined, 'the premise: the entry has no launched');
+
+  const answer = await found(box);
+
+  assertSetting(entryOf(answer, 'api-bot', 'daily'), 'effort', { state: 'mismatch', configured: 'xhigh', observed: 'high' }, 'the whole transcript counts');
+  assertSetting(entryOf(answer, 'api-bot', 'daily'), 'approval', { state: 'match', configured: 'auto', observed: 'auto' }, 'the whole transcript counts');
+  assertSetting(entryOf(answer, 'api-bot', 'nightly'), 'effort', { state: 'mismatch', configured: 'xhigh', observed: 'high' }, 'the whole rollout counts');
 });
 
 // ---------------------------------------------------------------------------
@@ -1115,7 +1298,10 @@ test('S9 health writes nothing: the book, bot.yaml, AGENTS.md and every other fi
   // missing one: every state a health run might be tempted to write back.
   await plantConversation(box, 'claude', botHomeOf(bots, 'api-bot'), conv(50), { lines: claudeRan({ model: 'claude-sonnet-5', effort: 'high' }) });
   await plantConversation(box, 'codex', botHomeOf(bots, 'api-bot'), conv(51), { lines: [codexTurn(onTheDay(9), { effort: 'low' })] });
-  await editBook(bots, 'api-bot', (sessions) => { delete sessions.review.rules; });
+  await editBook(bots, 'api-bot', (sessions) => {
+    delete sessions.review.rules;
+    for (const one of Object.values(sessions)) one.launched = LAUNCHED;
+  });
   await CHARTER_CHANGES[0][1](box, bots);
 
   const before = await snapshot(box.root, skipOrcaFake);
