@@ -90,9 +90,8 @@ owner may overrule.)
 - Good: cross-harness messaging uses Orca's mailbox, so the kit needs no
   message service of its own.
 - Scheduled work does not use an Orca automation, because an automation cannot
-  carry a model or an effort of its own: a bot on Claude Code uses Claude
-  Code's own scheduling, and a bot on Codex runs each job as a temporary
-  session that reports to a placeholder session (PRD 6.8, the owner, #223).
+  carry a model or an effort of its own (the owner, #223). How it runs instead
+  is PRD 6.8's, #237's and #238's.
 - Bad: a user without Orca cannot use the kit.
 - Bad: the kit reads the operating system's process table as well as Orca, and
   `diagnostics memory` may change. A harness installed through a wrapper gets
