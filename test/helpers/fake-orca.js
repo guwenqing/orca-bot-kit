@@ -76,7 +76,10 @@
 //   fail        { "<command>": { code, message, after } } — that command
 //               answers ok:false. With `after: n` the first n calls of it go
 //               through and the ones after that fail, which is how a test
-//               breaks the second tab of a run and not the first.
+//               breaks the second tab of a run and not the first. With
+//               `since: "<other command>"` it goes through until that other
+//               command has been called, and fails every time after, which is
+//               how a test refuses the listing after a delete and not before.
 //   closeLag    a whole number: how many more `terminal list` answers still
 //               carry a terminal after its own `terminal close` has answered
 //               ok. 0, the default, is a close the listing agrees with at once.
@@ -247,12 +250,12 @@ if (aimedHere(state.runDuring)) {
 }
 
 const planned = (state.fail ?? {})[command];
-if (planned && callsSoFar() > (planned.after ?? 0)) {
+if (planned && callsSoFar() > (planned.after ?? 0) && (planned.since === undefined || callsSoFar(planned.since) > 0)) {
   fail(planned.code ?? 'orca_said_no', planned.message ?? 'orca said no', planned.data ?? {});
 }
 
-/** How many times this command has been called, this one included. */
-function callsSoFar() {
+/** How many times `of` (this command, by default) has been called, this one included. */
+function callsSoFar(of = command) {
   return readFileSync(path.join(dir, 'calls.log'), 'utf8')
     .split('\n')
     .filter((line) => line !== '')
@@ -263,7 +266,7 @@ function callsSoFar() {
         if (arg.startsWith('-')) break;
         words.push(arg);
       }
-      return words.join(' ') === command;
+      return words.join(' ') === of;
     })
     .length;
 }

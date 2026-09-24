@@ -97,10 +97,15 @@ export async function retireBot(bots, { bot }) {
 /**
  * Tell Orca's window a project went (#224). The call names a project that is
  * still there, and Bot Father's is the one that always is; when Orca has none
- * for it, there is nothing to call on.
+ * for it, there is nothing to call on. Finding it is part of the workaround,
+ * so it fails as quietly as the call: the project is gone either way.
  */
 function tellWindowOfRemoval(bots) {
-  const home = botDir(bots, BOT_FATHER);
-  const father = existsSync(home) ? findProject(realpathSync(home)) : undefined;
-  if (father !== undefined) tellWindow(father.projectId);
+  try {
+    const home = botDir(bots, BOT_FATHER);
+    const father = existsSync(home) ? findProject(realpathSync(home)) : undefined;
+    if (father !== undefined) tellWindow(father.projectId);
+  } catch {
+    // Nothing: see above.
+  }
 }

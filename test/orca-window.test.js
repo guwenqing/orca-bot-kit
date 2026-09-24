@@ -25,6 +25,8 @@
 // Whether the real window re-reads is the owner's to check by hand.
 
 import assert from 'node:assert/strict';
+import { stat } from 'node:fs/promises';
+import path from 'node:path';
 import test from 'node:test';
 
 import {
@@ -494,4 +496,80 @@ test('W7 a client that hangs holds up no more than about 5 seconds, and up still
     hung.took - works.took < 8000,
     `a client that hangs for ${CLIENT_HANG_MS} ms held the run ${hung.took} ms against ${works.took} ms for a working one`,
   );
+});
+
+const exists = (file) => stat(file).then(() => true, () => false);
+
+/** Orca refusing its project listing once the bot's project is deleted, and not before. */
+const LISTING_REFUSED_AFTER_DELETE = {
+  'project setups': { code: 'runtime_error', message: 'the store is locked', since: 'project setup-delete' },
+};
+
+/**
+ * `retire` of a running bot in a fresh sandbox with a working Orca app, Orca's
+ * `fail` set to `fail` just before it. What the fake Orca was asked during the
+ * run, split at the delete, comes back with it.
+ */
+async function retireOfABot(t, fail, json) {
+  const box = await createSandbox(t);
+  const app = await orcaApp(box);
+  await init(box);
+  await runningBot(box);
+  const apiBot = await setupOf(box, 'api-bot');
+  await box.orca.set({ fail });
+  const called = (await app.calls()).length;
+  const cliFrom = (await box.orca.calls()).length;
+
+  const result = await box.run(['retire', '--bots', 'bots', '--bot', 'api-bot', ...json]);
+
+  const cli = (await box.orca.calls()).slice(cliFrom);
+  const deleted = cli.findIndex((call) => orcaCallsOf([call], 'project setup-delete').length === 1);
+  return {
+    box,
+    result,
+    apiBot,
+    output: { code: result.code, stdout: withoutTheSandbox(box, result.stdout), stderr: withoutTheSandbox(box, result.stderr) },
+    before: deleted === -1 ? cli : cli.slice(0, deleted),
+    deletes: orcaCallsOf(cli, 'project setup-delete'),
+    after: deleted === -1 ? [] : cli.slice(deleted + 1),
+    calls: (await app.calls()).slice(called),
+  };
+}
+
+/** The premise of a test of a refused listing: the listings before the delete went through, the delete happened, a listing after it was refused. */
+async function assertRefusedOnlyAfterTheDelete(refused) {
+  assert.ok(orcaCallsOf(refused.before, 'project setups').length > 0, 'retire listed Orca\'s projects before the delete, and those went through');
+  assert.equal(refused.deletes.length, 1, 'api-bot\'s project was deleted, once');
+  assert.equal((await refused.box.orca.setups()).some((setup) => setup.id === refused.apiBot.id), false, 'the project was removed');
+  const listings = orcaCallsOf(refused.after, 'project setups').length;
+  assert.ok(listings >= 1, 'the kit listed Orca\'s projects after the delete, and was refused');
+  assert.ok(listings <= 1, `and did not try the listing again, got ${listings} listings`);
+}
+
+test('W7 W5 when Orca refuses the project listing after the delete, retire finishes as it does when the call works, reload line included', async (t) => {
+  const refused = await retireOfABot(t, LISTING_REFUSED_AFTER_DELETE, []);
+
+  await assertRefusedOnlyAfterTheDelete(refused);
+  assert.equal(refused.result.code, 0, refused.result.stderr);
+  assert.equal(reloadLines(refused.result), 1, `the reload line, once, got:\n${refused.result.stdout}${refused.result.stderr}`);
+  const bots = refused.box.path('bots');
+  assert.equal(await exists(botHomeOf(bots, 'api-bot')), false, 'api-bot is no longer in bots/');
+  assert.equal(await exists(path.join(bots, 'retired', 'api-bot')), true, 'api-bot was moved to retired/');
+  assert.deepEqual(refused.calls, [], 'there is no project of Bot Father\'s to call on that the kit could find');
+
+  const works = await retireOfABot(t, {}, []);
+  assert.equal(works.calls.length, 1, 'the working client was called');
+  assert.deepEqual(refused.output, works.output);
+});
+
+test('W7 W6 when Orca refuses the project listing after the delete, retire --json answers exactly what it answers when the call works', async (t) => {
+  const refused = await retireOfABot(t, LISTING_REFUSED_AFTER_DELETE, ['--json']);
+
+  await assertRefusedOnlyAfterTheDelete(refused);
+  const answer = answerOf(refused.result);
+  assert.equal(answer.project, refused.apiBot.id, 'it names the project it removed');
+
+  const works = await retireOfABot(t, {}, ['--json']);
+  assert.equal(works.calls.length, 1, 'the working client was called');
+  assert.deepEqual(refused.output, works.output);
 });
