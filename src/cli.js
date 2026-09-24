@@ -83,7 +83,8 @@ Usage:
                             a bot: close its tabs, remove its Orca project and
                             move its folder to retired/. It will not retire a
                             bot whose Orca project holds a tab your book does
-                            not name.
+                            not name, and moves the folder only once Orca no
+                            longer lists the project.
   obk rules build --bots <path> [--bot <bot>]
                             Build every bot's AGENTS.md from its charter and
                             the rule units it carries, or just the one you
@@ -518,6 +519,18 @@ const commands = {
     }
 
     const retired = await retireBot(bots, { bot: values.bot });
+    if (retired.trouble !== undefined) {
+      return {
+        answer: { bots, ...retired },
+        lines: [
+          ...closedLines(retired.closed),
+          `${'trouble'.padEnd(9)}  Orca project ${retired.project}`,
+          `             ${retired.trouble}`,
+          `Retire it again:  ${shellWord(ownCli())} retire --bots ${shellWord(bots)} --bot ${retired.bot}`,
+        ],
+        code: 1,
+      };
+    }
     return {
       answer: { bots, ...retired },
       lines: [

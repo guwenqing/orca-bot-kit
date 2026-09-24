@@ -41,7 +41,7 @@ import {
   tabsOfBot,
   typedInto,
 } from './helpers/cli.js';
-import { botYamlOf } from './helpers/skills.js';
+import { addSkills, botYamlOf, commonSkill, treeIn } from './helpers/skills.js';
 
 /** A duty long enough that the kit leaves it in a file beside the bots folder. */
 const LONG_DUTY = 'Watch the queue and say what you see. '.repeat(10);
@@ -469,6 +469,208 @@ test('RB6 a bot already in retired/ is refused, and nothing is done', async (t) 
   assert.deepEqual(await box.orca.terminals(), terminals);
   assert.ok((await box.orca.setups()).some((one) => one.id === setup.id));
   assert.deepEqual(await snapshot(bots, skipGit), before, 'the old retired bot and the live one are both as they were');
+});
+
+// ------------------------------------- a project gone only when Orca says so
+
+// #282. Orca answering the delete is not Orca no longer having the project: a
+// delete it answered but did not carry out would otherwise be reported as done,
+// with the bot already moved to retired/ by the time anyone looked. So after
+// the delete retire reads Orca's project list, and reports the project removed
+// only when it is no longer there. When it is still there, or the list cannot
+// be read, the retirement stops short: the tabs are closed (they went first),
+// but the bot stays where it is, prompt files and skill links and all, and the
+// user is told what was seen and to run `obk retire` again.
+
+/**
+ * botRunning, with the two things retire takes away only once the project is
+ * gone: daily's start-prompt file beside the bots folder, and a skill linked
+ * into the bot's folder for both harnesses.
+ */
+async function botWithLeftovers(box) {
+  const bots = await madeBot(box, [['daily', '--prompt', LONG_DUTY]]);
+  await commonSkill(bots, 'note-taking');
+  await addSkills(botYamlOf(bots, 'api-bot'), 'note-taking');
+  await up(box);
+  const daily = await liveTab(box, bots, 'api-bot', 'daily');
+  await recordSession(box, { bots, bot: 'api-bot', tab: daily.tabId, session: 'sess-1' });
+  const [setup] = (await box.orca.setups()).filter((one) => one.path === botHomeOf(bots, 'api-bot'));
+  assert.ok(setup, 'up should have made the bot an Orca project');
+  const prompt = path.join(`${bots}.prompts`, 'api-bot.daily.txt');
+  assert.ok(await exists(prompt), `bringing daily up should have left its start prompt at ${prompt}`);
+  const skills = await treeIn(bots, 'api-bot');
+  assert.ok(skills.claude['note-taking'] && skills.codex['note-taking'], `up should have linked note-taking, got: ${JSON.stringify(skills)}`);
+  return { bots, daily, setup, prompt, skills, retired: path.join(bots, 'retired', 'api-bot') };
+}
+
+/** Everything retire said, on either stream. */
+const saidBy = (result) => `${result.stdout}${result.stderr}`;
+const removedLine = (setup) => `removed    Orca project ${setup.id}`;
+
+/** The --json answer, which is JSON and nothing else whatever the exit code. */
+function answerIn(result) {
+  try {
+    return JSON.parse(result.stdout);
+  } catch (error) {
+    return assert.fail(`--json should print JSON and nothing else, got: ${result.stdout}${result.stderr} (${error.message})`);
+  }
+}
+
+// RB8 and RB9 describe what retire already did before #282 and passed against
+// it (2c70dfb): they hold the confirmed case to that, so the check added
+// cannot turn a clean retirement into trouble. They do not assert a listing
+// after the delete by itself, because the window refresh of #224 already lists
+// projects after it and would satisfy that on its own; RB10 to RB12 are what
+// show the listing is read.
+test('RB8 a project Orca no longer lists after the delete is reported removed, and the bot moves', async (t) => {
+  const box = await createSandbox(t);
+  const { bots, setup, prompt, retired } = await botWithLeftovers(box);
+
+  const result = await retire(box, '--bot', 'api-bot');
+
+  assert.equal(result.code, 0, saidBy(result));
+  assert.ok(result.stdout.split('\n').includes(removedLine(setup)), `got:\n${saidBy(result)}`);
+  assert.doesNotMatch(saidBy(result), /^trouble/m);
+  assert.equal(await exists(botHomeOf(bots, 'api-bot')), false);
+  assert.ok(await exists(path.join(retired, 'bot.yaml')), 'it is in retired/ now');
+  assert.equal(await exists(prompt), false, `${prompt} goes with a finished retirement, where RB12 keeps it`);
+});
+
+test('RB9 --json: a project confirmed gone is named, the move is named, and there is no trouble', async (t) => {
+  const box = await createSandbox(t);
+  const { setup, retired } = await botWithLeftovers(box);
+
+  const result = await retire(box, '--bot', 'api-bot', '--json');
+
+  assert.equal(result.code, 0, saidBy(result));
+  const answer = answerIn(result);
+  assert.equal(answer.project, setup.id);
+  assert.equal(answer.moved, retired);
+  assert.equal('trouble' in answer, false, `got: ${JSON.stringify(answer)}`);
+});
+
+/**
+ * The ways a delete Orca answered ok is not confirmed: its listing still has
+ * the project, by its setup id or at the bot's folder (the path retire finds a
+ * bot's project by), or its listing is refused. Each has its own words, so the
+ * user can tell "Orca still has it" from "could not see".
+ */
+const UNCONFIRMED = [
+  { label: 'Orca still lists the project', orca: { keepOnDelete: true }, words: 'still lists' },
+  { label: 'Orca lists a project at the bot\'s folder under another id', orca: { readdOnDelete: true }, words: 'still lists' },
+  { label: 'Orca\'s project list cannot be read', orca: { fail: { 'project setups': { since: 'project setup-delete' } } }, words: 'not confirmed' },
+];
+
+for (const { label, orca, words } of UNCONFIRMED) {
+  test(`RB10 when ${label} after the delete, retire does not report it removed and says what to do`, async (t) => {
+    const box = await createSandbox(t);
+    const { daily, setup } = await botWithLeftovers(box);
+    await box.orca.set(orca);
+
+    const result = await retire(box, '--bot', 'api-bot');
+
+    assert.equal(result.code, 1, `a project not confirmed gone ends the run in 1, got:\n${saidBy(result)}`);
+    assert.ok(!/^\s+at /m.test(saidBy(result)), `expected a message, got a crash:\n${saidBy(result)}`);
+    assert.ok(!saidBy(result).includes('removed    Orca project'), `nothing is reported removed, got:\n${saidBy(result)}`);
+    const trouble = saidBy(result).split('\n').filter((line) => line.startsWith('trouble'));
+    assert.ok(
+      trouble.some((line) => line.includes(`Orca project ${setup.id}`)),
+      `a trouble line should name Orca project ${setup.id}, got:\n${saidBy(result)}`,
+    );
+    assert.ok(saidBy(result).includes(words), `it should say "${words}", got:\n${saidBy(result)}`);
+    assert.ok(saidBy(result).includes('obk retire'), `and that running obk retire again is the next step, got:\n${saidBy(result)}`);
+    // The tabs went before the delete, and the report still says so.
+    assert.ok(
+      saidBy(result).split('\n').some((line) => line.startsWith('closed') && line.includes(daily.tabId)),
+      `daily's tab was closed and the report says so, got:\n${saidBy(result)}`,
+    );
+  });
+
+  test(`RB11 --json: when ${label} after the delete, the answer names the project and the trouble, and no move`, async (t) => {
+    const box = await createSandbox(t);
+    const { bots, daily, setup } = await botWithLeftovers(box);
+    await box.orca.set(orca);
+
+    const result = await retire(box, '--bot', 'api-bot', '--json');
+
+    assert.equal(result.code, 1, `got:\n${saidBy(result)}`);
+    const answer = answerIn(result);
+    assert.equal(answer.project, setup.id, `the answer names the project it tried to remove, got: ${JSON.stringify(answer)}`);
+    assert.equal(typeof answer.trouble, 'string', `and says what is wrong, got: ${JSON.stringify(answer)}`);
+    assert.ok(answer.trouble.includes(words), `the trouble says "${words}", so a reader can tell the two cases apart, got: ${answer.trouble}`);
+    assert.ok(answer.trouble.includes(setup.id), `and names the project, got: ${answer.trouble}`);
+    assert.equal('moved' in answer, false, `the bot was not moved, and the answer does not say it was: ${JSON.stringify(answer)}`);
+    assert.deepEqual(
+      (answer.closed ?? []).map((one) => one.tabId),
+      [daily.tabId],
+      `the tab closed before the delete is still reported closed, got: ${JSON.stringify(answer)}`,
+    );
+    assert.deepEqual(await tabsOfBot(box, bots, 'api-bot'), [], 'and it is gone from Orca');
+  });
+
+  test(`RB12 when ${label} after the delete, the bot stays where it is, prompt files and skill links and all`, async (t) => {
+    const box = await createSandbox(t);
+    const { bots, prompt, skills, retired } = await botWithLeftovers(box);
+    const yamlBefore = await readFile(botYamlOf(bots, 'api-bot'), 'utf8');
+    const promptBefore = await readFile(prompt, 'utf8');
+    await box.orca.set(orca);
+
+    const result = await retire(box, '--bot', 'api-bot');
+
+    assert.equal(result.code, 1, `got:\n${saidBy(result)}`);
+    assert.equal(await exists(retired), false, `${retired} should not exist`);
+    assert.equal(await readFile(botYamlOf(bots, 'api-bot'), 'utf8'), yamlBefore, 'bot.yaml is where it was, as it was');
+    assert.ok(
+      stringsIn(parse(await readFile(bookOf(bots, 'api-bot'), 'utf8'))).includes('sess-1'),
+      'the book is where it was, and still knows the conversation',
+    );
+    assert.equal(await readFile(prompt, 'utf8'), promptBefore, 'daily\'s start-prompt file is left as it was');
+    assert.deepEqual(await treeIn(bots, 'api-bot'), skills, 'and so are the skill links');
+  });
+}
+
+test('RB13 retire run again once Orca no longer lists the project finishes the retirement', async (t) => {
+  const box = await createSandbox(t);
+  const { bots, setup, prompt, retired } = await botWithLeftovers(box);
+  await box.orca.set({ keepOnDelete: true });
+  const first = await retire(box, '--bot', 'api-bot');
+  assert.equal(first.code, 1, `the first retirement this test stands on should have stopped short, got:\n${saidBy(first)}`);
+  assert.ok(await exists(botHomeOf(bots, 'api-bot')), 'and left the bot where it was');
+  // Orca catches up: the project is off its list.
+  await box.orca.set({ setups: (await box.orca.setups()).filter((one) => one.id !== setup.id) });
+
+  const again = await retire(box, '--bot', 'api-bot');
+
+  assert.equal(again.code, 0, saidBy(again));
+  assert.equal(await exists(botHomeOf(bots, 'api-bot')), false, 'the bot is gone from bots/');
+  assert.ok(await exists(path.join(retired, 'bot.yaml')), 'it is in retired/ now');
+  assert.ok(
+    stringsIn(parse(await readFile(path.join(retired, 'sessions.yaml'), 'utf8'))).includes('sess-1'),
+    'with its book, which still knows the conversation',
+  );
+  assert.equal(await exists(prompt), false, `${prompt} goes once the retirement is done`);
+});
+
+test('RB14 retire run again while Orca still lists the project deletes it again, and finishes once the delete takes', async (t) => {
+  // What the advice to run `obk retire` again most often meets: Orca still
+  // has the project, and this time its delete is carried out.
+  const box = await createSandbox(t);
+  const { bots, setup, prompt, retired } = await botWithLeftovers(box);
+  await box.orca.set({ keepOnDelete: true });
+  const first = await retire(box, '--bot', 'api-bot');
+  assert.equal(first.code, 1, `the first retirement this test stands on should have stopped short, got:\n${saidBy(first)}`);
+  assert.ok((await box.orca.setups()).some((one) => one.id === setup.id), 'and Orca should still list the project');
+  await box.orca.set({ keepOnDelete: false });
+  const from = await callCount(box);
+
+  const again = await retire(box, '--bot', 'api-bot');
+
+  assert.equal(again.code, 0, saidBy(again));
+  assert.deepEqual(deletes(await since(box, from)).map((call) => orcaFlag(call, '--setup')), [setup.id], 'the project is deleted again, by its setup id');
+  assert.ok(again.stdout.split('\n').includes(removedLine(setup)), `got:\n${saidBy(again)}`);
+  assert.equal(await exists(botHomeOf(bots, 'api-bot')), false, 'the bot is gone from bots/');
+  assert.ok(await exists(path.join(retired, 'bot.yaml')), 'it is in retired/ now');
+  assert.equal(await exists(prompt), false, `${prompt} goes once the retirement is done`);
 });
 
 // ------------------------------------------------------------ both kinds

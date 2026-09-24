@@ -80,6 +80,18 @@
 //               `since: "<other command>"` it goes through until that other
 //               command has been called, and fails every time after, which is
 //               how a test refuses the listing after a delete and not before.
+//   keepOnDelete  true: `project setup-delete` answers ok, in the same words
+//               as a delete that took, and the setup stays in `setups`, so the
+//               listing after it still has it. A delete Orca answered but did
+//               not carry out: not seen live, and the case #282 guards
+//               against, where the answer alone would have the kit report a
+//               project gone that Orca still has.
+//   readdOnDelete  true: `project setup-delete` removes the setup and answers
+//               ok, and a new setup appears at the same path under a new id,
+//               as `repo add` would make it. The id the kit deleted is off the
+//               listing, but the folder is still one of Orca's projects. Not
+//               seen live either; it is the other half of "no longer listed"
+//               in #282, which a check by id alone would call gone.
 //   closeLag    a whole number: how many more `terminal list` answers still
 //               carry a terminal after its own `terminal close` has answered
 //               ok. 0, the default, is a close the listing agrees with at once.
@@ -362,8 +374,15 @@ if (command === 'project setup-delete') {
   const setup = (state.setups ?? []).find((entry) => entry.id === wanted);
   if (!setup) fail('setup_not_found', `no setup with id ${wanted}`);
 
-  state.setups = state.setups.filter((entry) => entry !== setup);
-  save();
+  if (state.keepOnDelete !== true) {
+    state.setups = state.setups.filter((entry) => entry !== setup);
+    if (state.readdOnDelete === true) {
+      const n = state.nextId ?? 1;
+      state.nextId = n + 1;
+      state.setups.push({ ...setup, id: `repo_${n}`, projectId: `proj_${n}`, repoId: `repo_${n}` });
+    }
+    save();
+  }
   ok({ deleted: { setupId: setup.id, projectId: setup.projectId, repoId: setup.repoId, path: setup.path } });
 }
 

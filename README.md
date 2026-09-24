@@ -404,7 +404,10 @@ same refusals, and `obk up` leaves what is paused closed until `obk unpause`
 brings it back with its conversations. Retiring a session takes it off the bot
 and keeps its conversations in the book under `retired`. Retiring a bot closes
 its tabs, removes its Orca project and moves its folder to `retired/`; it will
-not touch a bot whose Orca project holds a tab your book does not name. Bot
+not touch a bot whose Orca project holds a tab your book does not name. The
+folder moves only once Orca no longer lists the project; if Orca still lists it,
+or its list cannot be read, retire says so and leaves the bot where it is, and
+retiring it again finishes the job. Bot
 Father itself, and its management session `daily`, are never paused or
 retired; its other sessions are like any bot's.
 

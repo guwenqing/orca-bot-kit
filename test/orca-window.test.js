@@ -528,7 +528,6 @@ async function retireOfABot(t, fail, json) {
     box,
     result,
     apiBot,
-    output: { code: result.code, stdout: withoutTheSandbox(box, result.stdout), stderr: withoutTheSandbox(box, result.stderr) },
     before: deleted === -1 ? cli : cli.slice(0, deleted),
     deletes: orcaCallsOf(cli, 'project setup-delete'),
     after: deleted === -1 ? [] : cli.slice(deleted + 1),
@@ -546,30 +545,51 @@ async function assertRefusedOnlyAfterTheDelete(refused) {
   assert.ok(listings <= 1, `and did not try the listing again, got ${listings} listings`);
 }
 
-test('W7 W5 when Orca refuses the project listing after the delete, retire finishes as it does when the call works, reload line included', async (t) => {
+// A refused listing after the delete once left retire finishing as if the
+// call had worked (#224). #282 supersedes that: the same listing is how retire
+// confirms the project is gone, so a refused one leaves the removal not
+// confirmed, the run ends in 1 and the bot stays put (retire.test.js, RB10 to
+// RB12, has the detail). What #224 still asks here: no crash, the listing not
+// tried again, and no call to Orca's window with no Bot Father project found.
+test('W7 W5 when Orca refuses the project listing after the delete, retire stops at not confirmed, quietly: no call, no reload line', async (t) => {
   const refused = await retireOfABot(t, LISTING_REFUSED_AFTER_DELETE, []);
 
   await assertRefusedOnlyAfterTheDelete(refused);
-  assert.equal(refused.result.code, 0, refused.result.stderr);
-  assert.equal(reloadLines(refused.result), 1, `the reload line, once, got:\n${refused.result.stdout}${refused.result.stderr}`);
+  const said = `${refused.result.stdout}${refused.result.stderr}`;
+  assert.equal(refused.result.code, 1, `a removal not confirmed ends the run in 1, got:\n${said}`);
+  assert.ok(!/^\s+at /m.test(said), `expected a message, got a crash:\n${said}`);
+  assert.ok(said.split('\n').some((line) => line.startsWith('trouble')), `a trouble line, got:\n${said}`);
+  assert.ok(said.includes('not confirmed'), `saying the removal is not confirmed, got:\n${said}`);
+  assert.equal(reloadLines(refused.result), 0, `nothing is reported removed, so no reload line, got:\n${said}`);
   const bots = refused.box.path('bots');
-  assert.equal(await exists(botHomeOf(bots, 'api-bot')), false, 'api-bot is no longer in bots/');
-  assert.equal(await exists(path.join(bots, 'retired', 'api-bot')), true, 'api-bot was moved to retired/');
+  assert.equal(await exists(botHomeOf(bots, 'api-bot')), true, 'api-bot is still in bots/');
+  assert.equal(await exists(path.join(bots, 'retired', 'api-bot')), false, 'api-bot was not moved to retired/');
   assert.deepEqual(refused.calls, [], 'there is no project of Bot Father\'s to call on that the kit could find');
 
   const works = await retireOfABot(t, {}, []);
   assert.equal(works.calls.length, 1, 'the working client was called');
-  assert.deepEqual(refused.output, works.output);
+  assert.equal(reloadLines(works.result), 1, 'and the working run printed the reload line');
 });
 
-test('W7 W6 when Orca refuses the project listing after the delete, retire --json answers exactly what it answers when the call works', async (t) => {
+test('W7 W6 when Orca refuses the project listing after the delete, retire --json answers the project and the trouble, and nothing of the window', async (t) => {
   const refused = await retireOfABot(t, LISTING_REFUSED_AFTER_DELETE, ['--json']);
 
   await assertRefusedOnlyAfterTheDelete(refused);
-  const answer = answerOf(refused.result);
-  assert.equal(answer.project, refused.apiBot.id, 'it names the project it removed');
+  assert.equal(refused.result.code, 1, `got:\n${refused.result.stdout}${refused.result.stderr}`);
+  assert.ok(!/^\s+at /m.test(refused.result.stderr), `expected no crash, got:\n${refused.result.stderr}`);
+  let answer;
+  try {
+    answer = JSON.parse(refused.result.stdout);
+  } catch (error) {
+    assert.fail(`--json should print JSON and nothing else, got: ${refused.result.stdout} (${error.message})`);
+  }
+  assert.equal(answer.project, refused.apiBot.id, 'it names the project it tried to remove');
+  assert.deepEqual(refused.calls, [], 'there is no project of Bot Father\'s to call on that the kit could find');
 
+  // The keys are those of a working run, with trouble for moved: the window
+  // workaround adds nothing to the answer, whichever way it went.
   const works = await retireOfABot(t, {}, ['--json']);
   assert.equal(works.calls.length, 1, 'the working client was called');
-  assert.deepEqual(refused.output, works.output);
+  const worked = Object.keys(answerOf(works.result)).filter((key) => key !== 'moved');
+  assert.deepEqual(Object.keys(answer).sort(), [...worked, 'trouble'].sort(), `got: ${JSON.stringify(answer)}`);
 });
