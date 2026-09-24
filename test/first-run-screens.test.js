@@ -36,9 +36,11 @@ import {
   createSandbox,
   recordSession,
   repoRoot,
+  sentInto,
   sessionIn,
   tabsOfBot,
   TAB_TITLES,
+  typedInto,
 } from './helpers/cli.js';
 
 /** The SETUP.md shipped with the kit under test: its package root is the repo root here. */
@@ -138,13 +140,14 @@ async function running(box) {
 /**
  * Each command that opens a tab, from a bots folder made with Orca behaving,
  * run with Orca in `state`: what it printed, and api-bot's daily tab as Orca
- * has it afterwards. `typed` is what every one of them types into that tab
- * with nothing on screen to answer: the launch line, a resume for the two that
- * bring a conversation back.
+ * has it afterwards. `typed(box)` is what every one of them types into that
+ * tab with nothing on screen to answer: the launch line, carrying the CLI that
+ * ran it in `box` (#220), and a resume for the two that bring a conversation
+ * back.
  */
 const COMMANDS = {
   'obk up': {
-    typed: [bareLaunch('claude', 'api-bot', 'daily')],
+    typed: (box) => [bareLaunch(box, 'claude', 'api-bot', 'daily')],
     async run(box, state) {
       const bots = await madeBot(box);
       await box.orca.set(state);
@@ -152,7 +155,7 @@ const COMMANDS = {
     },
   },
   'obk restart': {
-    typed: [`${bareLaunch('claude', 'api-bot', 'daily')} --resume sess-1`],
+    typed: (box) => [`${bareLaunch(box, 'claude', 'api-bot', 'daily')} --resume sess-1`],
     async run(box, state) {
       const bots = await running(box);
       await box.orca.set(state);
@@ -160,7 +163,7 @@ const COMMANDS = {
     },
   },
   'obk unpause': {
-    typed: [`${bareLaunch('claude', 'api-bot', 'daily')} --resume sess-1`],
+    typed: (box) => [`${bareLaunch(box, 'claude', 'api-bot', 'daily')} --resume sess-1`],
     async run(box, state) {
       const bots = await running(box);
       const paused = await box.run(['pause', '--bots', 'bots', '--bot', 'api-bot']);
@@ -232,11 +235,14 @@ for (const name of Object.keys(COMMANDS)) {
     const blocked = await opened(t, name, BLOCKED);
 
     assert.deepEqual(
-      blocked.terminal.typed.map((entry) => entry.text),
-      COMMANDS[name].typed,
+      typedInto(blocked.terminal),
+      COMMANDS[name].typed(blocked.box),
       `${name}: only the launch line goes into a waiting tab`,
     );
-    assert.deepEqual(blocked.terminal.typed, idle.terminal.typed, `${name}: and it goes in exactly as it does into an idle tab`);
+    // Two sandboxes, each with its own `obk`, so each line names its own CLI:
+    // that one word is set aside and the rest has to match exactly.
+    const sent = (run) => sentInto(run.terminal).map((entry) => ({ ...entry, text: entry.text.replaceAll(run.box.cli, '<cli>') }));
+    assert.deepEqual(sent(blocked), sent(idle), `${name}: and it goes in exactly as it does into an idle tab`);
   });
 }
 
