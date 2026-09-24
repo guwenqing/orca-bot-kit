@@ -5,17 +5,20 @@ description: >-
   and what done means, deciding the shape from the usage and the data with
   more than one candidate, making the thing runnable and testable so anyone
   can find out whether it works, and cutting the work into pieces that each
-  end in a check. Use when starting something new, planning a feature, adding
-  a public interface or a new data shape, making a choice that is hard to
-  undo, or when a change is big enough that jumping into the code would settle
-  the shape by accident.
+  end in a check, and handing a piece to someone else by what is wanted and
+  its boundary, with only the research that confirms and triages it. Use when
+  starting something new, planning a feature, adding a public interface or a
+  new data shape, making a choice that is hard to undo, handing work to
+  someone else to build, or when a change is big enough that jumping into the
+  code would settle the shape by accident.
 ---
 
 # Shaping work before you build it
 
 Four things: say what is wanted, decide the shape, make sure the thing can be
 started and driven so anyone can tell whether it works, and cut the work into
-pieces that each end in a check. The third is what makes the rest real.
+pieces that each end in a check. The third is what makes the rest real. When
+a piece goes to someone else, it goes by its intention; the how is theirs.
 
 None of this needs a particular document, tracker or format. Where a project
 has one, use it; where it does not, a few lines in the right place do the job.
@@ -344,6 +347,51 @@ expand, migrate, contract: add the new form beside the old so nothing breaks,
 move the callers over in batches sized by what each batch touches, then delete
 the old form once nothing calls it. If a piece deliberately leaves something
 broken in between, say which piece and for how long.
+
+## Hand a piece over
+
+When someone else will build a piece (a person, another session, a
+subagent), hand it over by its intention and leave the how to them. What goes
+with it:
+
+- **What is wanted, and why.** The note from "Say what is wanted", or where to
+  find it. The why is what lets the builder make the calls you did not
+  foresee.
+- **The boundary.** What is in, what is out, and what it must stay compatible
+  with. Saying what is out keeps the builder from gold-plating the next thing
+  along. A constraint you know of and they could not find belongs here too:
+  that is part of the intent, not a step.
+- **What done means**, as checks that can each be confirmed on their own.
+
+Describe what the thing should do, not how to make it: behaviour, and the
+names, types and contracts it touches, rather than file paths, line numbers or
+a list of steps. The code moves while a piece waits, so paths go stale. A step
+list settles the design before the builder has looked, carries your guesses as
+if they were decisions, and takes away the judgement you handed the piece over
+for. The design, the deeper research and the how are theirs, and so is
+everything in this skill about deciding the shape. One exception: a snippet
+from a prototype that pins a decision more exactly than words can (a state
+machine, a schema, a type), trimmed to the decision and marked as coming from
+a prototype.
+
+Research before handing over goes as far as validating and triaging the
+piece:
+
+- **Is it real?** Above all when someone outside reported it. Reproduce a bug
+  from their steps, or find the behaviour in the running thing or the code,
+  and say what came of it: confirmed and where, not reproduced, or not enough
+  to tell. In the last case, ask the reporter for the specific thing that is
+  missing rather than passing a guess on. A confirmed problem makes a much
+  stronger hand-over than a suspected one.
+- **Is it already there, or already turned down?** Look by what it does, not
+  by the reporter's words, and say where you looked.
+- **Enough to place it**: how much it matters, roughly how big it is, what it
+  touches, and whether it can be handed over at all or needs a person's
+  judgement.
+
+Then stop. Findings by file and line, a proposed fix, or a summary of all that
+in the hand-off message is the builder's work done early, without the
+builder's context.
 
 ## Before you build on it
 
