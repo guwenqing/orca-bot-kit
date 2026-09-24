@@ -12,15 +12,12 @@ work from a later slice into an earlier one.
 
 ## How code is made here
 
-The kit is built with its own skills and rules: `obk-tdd`, `obk-reviewing`,
-`obk-debugging` and `obk-arch`, and the rule units in `rules/`. Test first through
-the public interface, a test author and a reviewer who are not the implementer, the
-mutation check of PRD 7.3, what the standard library or the platform already does
-before a mechanism of your own, and a check run and read before anything is called
-done: all of that is in them, and they are what this repo follows. They load from
-`.claude/skills` and `.agents/skills`, links to `skills/`; a new skill gets both links.
+The owner's bots build the kit with its own skills and rule units: `obk-tdd`,
+`obk-reviewing`, `obk-debugging`, `obk-arch`, and the units in `rules/`. The skills
+load from `.claude/skills` and `.agents/skills`, links to `skills/`; a new skill gets
+both links.
 
-Beside them, the owner's decisions for this repo:
+The owner's decisions for this repo, which bind anyone working here:
 
 - Take no requirement stricter than the intent.
 - One PR per issue, squash-merged.
