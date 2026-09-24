@@ -147,14 +147,16 @@ around, and say what you counted.
 
 ## A bot's rules against a repo's
 
-A bot that works in a repo answers to two sets of rules: its own `AGENTS.md`
-and the repo's. A session that starts at the bot home is given only the first;
-the second reaches it only if it goes and reads it. So look for conflicts
-between the two whenever a bot starts on a repo, and in every review of a bot
-that works in one.
+A bot that works in a repo answers to two sets of rules: its own, which are
+its `AGENTS.md` and each session's start prompt, and the repo's. A session that
+starts at the bot home is given only its own; the repo's reach it only if it
+goes and reads them. So look for conflicts between the two whenever a bot
+starts on a repo, and in every review of a bot that works in one.
 
 The roster names each session's work dir, and a clone there is a repo the bot
-works in. Read the bot's `AGENTS.md`, its charter and rule units, and in the
+works in. Read the bot's `AGENTS.md`, its charter and rule units, and the
+start prompt of each session that works there, which the roster shows or
+names the file of; the kit sends it apart from `AGENTS.md`. Then read in the
 clone the `AGENTS.md` or `CLAUDE.md` at the root, any deeper ones, and the
 documents they say decide. Where two passages cover the same thing, set them
 side by side: who approves and who merges, whether work goes on a branch or
@@ -168,10 +170,10 @@ part of this review.
 
 Report each conflict to the user, or to whoever the bot's work comes from,
 quoting both passages and where each lives, with its one fix: the bot's
-charter or rules change, or the repo's owner is asked to change theirs. You
-change neither yourself, and nothing settles it automatically. Until it is
-settled, the bot holds the part of its work the conflict covers; tell its
-session what the conflict is.
+charter, rules or start prompt change, or the repo's owner is asked to change
+theirs. You change neither yourself, and nothing settles it automatically.
+Until it is settled, the bot holds the part of its work the conflict covers;
+tell its session what the conflict is.
 
 ## One finding, one kind of fix
 
