@@ -1,6 +1,6 @@
 // `obk skills build --bots <path> [--bot <bot>]` gives every bot the skills its
 // lists name, linked into both harnesses' skills directories inside the bot
-// home (PRD 6.7, ADR 0004, ADR 0009).
+// home (PRD 6.7, ADR 0014, ADR 0019).
 //
 // What is worth pinning hard is the two directions of "linked, never copied".
 // Inwards: what lands in the bot home is a symlink to the skill's own
@@ -121,7 +121,7 @@ test('a kit skill, a common skill and a path skill are each linked into both har
     );
   }
 
-  // ADR 0004: a kit skill stays in the installed package, which is outside the
+  // ADR 0014: a kit skill stays in the installed package, which is outside the
   // user's repo, so the link to it cannot be a relative one.
   const held = (await heldBy(bots, 'api-bot', 'claude')).get(KIT_SKILL);
   assert.ok(

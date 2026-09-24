@@ -1,7 +1,7 @@
 // What a session is started with: the one line typed into its tab, which brings
 // the harness up and carries the session's start prompt with it.
 //
-// The flag mapping is PRD 6.4 and ADR 0005, re-checked against the installed
+// The flag mapping is PRD 6.4 and ADR 0015, re-checked against the installed
 // CLIs (Claude Code 2.1.278, Codex 0.155.1). Every session is given its
 // approval level explicitly, so a user's own global harness defaults cannot
 // leak into a bot. The kit names no model: a session that sets none gets the
@@ -39,7 +39,7 @@ export const bypassFlags = (harness) => APPROVAL[harness]['dangerously-skip'];
 
 export const HARNESSES = Object.keys(APPROVAL);
 
-/** The level a session that names none runs at (ADR 0005). */
+/** The level a session that names none runs at (ADR 0015). */
 export const DEFAULT_APPROVAL = 'auto';
 
 /** A setting the user left out. An empty string is one too: it means the harness's own. */
@@ -50,7 +50,7 @@ export const harnessOf = (session, botHarness) => (set(session.harness) ? sessio
 
 /**
  * A session's name on Claude Code, which is also the address another Claude
- * session writes to (ADR 0008). It goes on the launch line as `-n`, and it is
+ * session writes to (ADR 0018). It goes on the launch line as `-n`, and it is
  * re-applied every time the session is started: a resume keeps the name by
  * itself (tech notes, section 2), and the kit does not depend on that.
  */
@@ -162,7 +162,7 @@ export function launchCommand(session, { harness, home, workDir, prompt, promptF
 
   if (harness === 'claude') {
     // The name is the address other Claude sessions write to, so it goes on
-    // every launch line, a resume included (ADR 0008).
+    // every launch line, a resume included (ADR 0018).
     if (address !== undefined) words.push('-n', address);
     // The context window rides on the model name: `sonnet[1m]`.
     if (set(session.model)) words.push('--model', set(session.context) ? `${session.model}[${session.context}]` : session.model);
@@ -175,7 +175,7 @@ export function launchCommand(session, { harness, home, workDir, prompt, promptF
     if (set(session.effort)) words.push('-c', `model_reasoning_effort=${session.effort}`);
     if (set(session.context)) words.push('-c', `model_context_window=${session.context}`);
     // In Codex's auto mode the sandbox lets it write in the folder it was
-    // started in, and nowhere else (ADR 0005), so a work dir outside the bot
+    // started in, and nowhere else (ADR 0015), so a work dir outside the bot
     // home has to be named.
     if (workDir !== undefined && !inside(home, workDir)) words.push('--add-dir', workDir);
   }

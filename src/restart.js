@@ -5,7 +5,7 @@
 // avoided, not banned, and one happens when the user asks for it).
 //
 // When they do ask, the session has to come back as itself. The book holds the
-// conversation each session is running (ADR 0002), so a restart is: close the
+// conversation each session is running (ADR 0012), so a restart is: close the
 // tab the book names, then let `up` open a new one and resume that
 // conversation. Nothing else about it is new.
 //

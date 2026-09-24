@@ -1,7 +1,7 @@
 // Bringing a session back (PRD 4.5, 6.5): the tab was closed, or the machine
 // was rebooted, and the conversation is still there in the harness. Orca cannot
 // help — it drops its resume record with the tab — so the book is what knows
-// the id (ADR 0002), and `up` hands it back to the harness.
+// the id (ADR 0012), and `up` hands it back to the harness.
 //
 // So a session whose tab is gone comes back two different ways, and which one
 // depends only on whether the book holds a harness session for it:

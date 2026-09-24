@@ -1,6 +1,6 @@
 // The kit's own skills: the directories under skills/ that the package ships and
 // that later slices symlink into a bot's .claude/skills and .agents/skills
-// (ADR 0009, tech notes 4). A SKILL.md with the wrong shape silently fails to
+// (ADR 0019, tech notes 4). A SKILL.md with the wrong shape silently fails to
 // load in one or both harnesses, and a skill left out of `files` exists in the
 // repo and nowhere a user installs it — both are cheap to catch here and
 // expensive to find on someone else's machine.

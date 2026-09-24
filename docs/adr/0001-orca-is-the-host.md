@@ -1,6 +1,6 @@
 # ADR 0001: Orca is the host
 
-Date: 2026-09-19. Status: the Decision is the owner's unless a sentence is marked (proposed).
+Date: 2026-09-19. Status: superseded by [ADR 0011](0011-orca-is-the-host.md). Until then, the Decision was the owner's unless a sentence is marked (proposed).
 
 ## Context
 

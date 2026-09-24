@@ -1,5 +1,5 @@
 // The book: `sessions.yaml` in a bot's home. It is the authority for what the
-// kit knows about a bot's sessions (ADR 0002) — Orca forgets a tab's resume
+// kit knows about a bot's sessions (ADR 0012) — Orca forgets a tab's resume
 // record the moment the tab is closed, so the kit keeps its own record.
 //
 // It is an ordinary file of the user's bots repo: committed, readable, and
@@ -254,7 +254,7 @@ const asRecord = (value) => (value !== null && typeof value === 'object' && !Arr
 /**
  * The session entry to keep once a harness has named the session it is running
  * as. The id the harness gave replaces the one the book held, and the one it
- * held goes into the history with the reason it was replaced (ADR 0002): old
+ * held goes into the history with the reason it was replaced (ADR 0012): old
  * ids are what recall, auditing and finops read later.
  *
  * The same id come back is a session resumed, not a new one, so nothing moves.

@@ -1,6 +1,6 @@
 // Creates the user's bots folder: their own git repo, seeded with the files the
 // kit reads, and Bot Father. The kit puts none of its own code in here — kit
-// skills are linked from the installed package (ADR 0004).
+// skills are linked from the installed package (ADR 0014).
 //
 // Seeding only ever adds what is missing. The user edits these files, by hand
 // or through Bot Father, so a re-run must never write over them.
@@ -15,7 +15,7 @@ import { RECORD, SKILL_DIRS } from './skills.js';
 
 /**
  * What the kit makes on this machine, and what the repo therefore does not
- * carry (ADR 0004, PRD 6.3).
+ * carry (ADR 0014, PRD 6.3).
  *
  * A bot's skills are symlinks into wherever the kit and the user's skill
  * sources are installed on the machine that made them, so a clone somewhere

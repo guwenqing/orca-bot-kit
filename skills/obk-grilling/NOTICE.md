@@ -41,7 +41,7 @@ with thanks:
   code, and an alternative rejected for a non-obvious reason.
 
 `grill-with-docs` is a one-line skill that loads the two above, and `grill-me`
-one that loads `grilling` alone. ADR 0009 proposes that a kit skill carries
+one that loads `grilling` alone. ADR 0019 proposes that a kit skill carries
 what it needs rather than relying on another being loaded, so the two are
 consolidated here into one. Issue #46 asks for a skill that works
 on its own, and PRD 7.2 proposes this shape (one self-contained skill that

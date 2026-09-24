@@ -1,6 +1,6 @@
 # ADR 0004: Skills are linked, never copied; online sources are cloned beside the bots repo
 
-Date: 2026-09-19. Status: the Decision is the owner's unless a sentence is marked (proposed).
+Date: 2026-09-19. Status: superseded by [ADR 0014](0014-skills-are-linked-never-copied.md). Until then, the Decision was the owner's unless a sentence is marked (proposed).
 
 ## Context
 

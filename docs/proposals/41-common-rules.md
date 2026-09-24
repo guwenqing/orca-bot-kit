@@ -260,7 +260,7 @@ Evidence: A3 — his file's "Talk" section, almost unchanged. A11.
 > A test that stands in your way goes back to its author with what you think is
 > wrong with it. It does not get weakened, skipped or deleted to reach green.
 
-Evidence: A12, all three sentences, and ADR 0007. The depth — how to write a
+Evidence: A12, all three sentences, and ADR 0017. The depth — how to write a
 good test, what a bad one looks like, the seam, the mutation check — is
 `obk-tdd`, per PRD 7.3. This unit is here rather than only in the skill because
 his own notes record that of 31 skills installed, none were being invoked, and
@@ -277,7 +277,7 @@ because one line is enough to start a procedure a model already knows.
 > Receiving one: check each point against the code before you act on it. Fix
 > it, or say why it does not hold and show what says so.
 
-Evidence: A13, word for word, and ADR 0007. How to give a good review, how to
+Evidence: A13, word for word, and ADR 0017. How to give a good review, how to
 filter it, what to look for in the tests: `obk-reviewing`.
 
 ## 4. What moves to a skill, and why it is depth

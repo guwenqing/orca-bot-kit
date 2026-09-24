@@ -1,6 +1,6 @@
 # ADR 0006: No kit-owned expert systems; only standard and famous tools
 
-Date: 2026-09-19. Status: the Decision is the owner's unless a sentence is marked (proposed).
+Date: 2026-09-19. Status: superseded by [ADR 0016](0016-no-kit-owned-expert-systems.md). Until then, the Decision was the owner's unless a sentence is marked (proposed).
 
 ## Context
 

@@ -106,7 +106,7 @@ const creates = (calls) => orcaCallsOf(calls, 'terminal create');
 /**
  * The line a claude session is started with when it resumes `id` and nothing
  * else is set. A session's own name is on that line — `-n <bot>.<session>`,
- * which is the address another Claude session writes to (ADR 0008) — and it
+ * which is the address another Claude session writes to (ADR 0018) — and it
  * goes on a resume as much as on a first start, so the session that comes back
  * answers to the name it had.
  */
@@ -517,7 +517,7 @@ test('R13 a session whose launch line would be refused is refused before anythin
 test('R13 a bot whose hook file cannot be read is refused before anything is closed', async (t) => {
   // The other half of the same rule, and the one that is not about the session
   // at all: the kit puts its session hook into the bot's own harness settings
-  // before any tab is opened (ADR 0010), and a file it cannot read as JSON
+  // before any tab is opened (ADR 0020), and a file it cannot read as JSON
   // stops the run. That preparation belongs before the close for the same
   // reason the launch checks do.
   const box = await createSandbox(t);

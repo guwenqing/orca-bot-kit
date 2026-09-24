@@ -71,13 +71,13 @@ test('init makes the bots folder its own git repo with no commit and an empty in
 });
 
 test('init puts no kit code in the bots folder', async (t) => {
-  // The kit's code and skills stay in the installed package (ADR 0004), and a
+  // The kit's code and skills stay in the installed package (ADR 0014), and a
   // link is how they would get in, so what a link points at is the check
   // rather than whether there is one. A bot's own `CLAUDE.md` -> `AGENTS.md`
   // (PRD 6.6) points at the file next to it and carries nothing of the kit's.
   //
   // A bot that carries a kit skill is given an absolute link into the installed
-  // package, which is ADR 0004 working rather than kit code in the repo (PRD
+  // package, which is ADR 0014 working rather than kit code in the repo (PRD
   // 6.7, test/skills-build.test.js, which pins that the link is absolute).
   // `init` used to seed no skill at all, so every link it made was relative and
   // the rule below could be flat. It now seeds Bot Father with the kit's two

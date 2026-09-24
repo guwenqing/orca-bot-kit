@@ -4,7 +4,7 @@
 // A pause is a mark in the bot's `bot.yaml` and the bot's tabs closed. The
 // mark is what `up` reads to leave it closed, and the book keeps the
 // conversation each session was in, so an unpause is the mark taken off and
-// the ordinary `up`, which resumes it (ADR 0002).
+// the ordinary `up`, which resumes it (ADR 0012).
 //
 // The closing is restart's, with restart's rules: only the tabs the book names,
 // one at a time by their own handles, and none at all when one of them holds a

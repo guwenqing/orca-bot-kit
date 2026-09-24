@@ -8,7 +8,7 @@
 // An approval level of `yolo` would become a flag the harness does not take —
 // it prints its usage, exits, and the tab falls back to a shell. Worse, a
 // mapping that quietly dropped it would start a session at the harness's own
-// permission level, which is the one failure ADR 0005 exists to stop.
+// permission level, which is the one failure ADR 0015 exists to stop.
 //
 // So the refusal comes before the tab is made. A tab opened and then abandoned
 // is worse than no tab: the book names it, the next run takes it for a live

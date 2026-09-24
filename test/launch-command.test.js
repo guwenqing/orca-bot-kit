@@ -159,7 +159,7 @@ test('a session with no harness of its own runs on the bot\'s', async (t) => {
 });
 
 test('Codex gets --add-dir for a work dir outside the bot home, and nothing for one inside', async (t) => {
-  // PRD 6.4 and ADR 0005: Codex's auto mode sandboxes writes to the folder it
+  // PRD 6.4 and ADR 0015: Codex's auto mode sandboxes writes to the folder it
   // was launched in, so a work dir anywhere else has to be named. A work dir
   // always brings its note with it, which is the prompt word at the end.
   const box = await createSandbox(t);

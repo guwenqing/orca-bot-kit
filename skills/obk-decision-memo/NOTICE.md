@@ -116,7 +116,7 @@ prescribes neither, because PRD 7.1 leaves the user free in how they keep
 documents, and it says instead to match whatever the project already does.
 
 Where this overlaps `obk-grilling` and `obk-why`, that is deliberate and
-what ADR 0009 proposes: a skill carries what it needs rather than depending on
+what ADR 0019 proposes: a skill carries what it needs rather than depending on
 another being loaded. `obk-grilling` settles a decision by interviewing;
 `obk-why` recovers one that was already taken; this one writes a decision up so
 somebody else can take it.

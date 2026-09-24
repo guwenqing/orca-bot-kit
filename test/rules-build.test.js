@@ -1,5 +1,5 @@
 // `obk rules build --bots <path> [--bot <bot>]` writes a bot's `AGENTS.md` from
-// its charter and the rule units it carries (PRD 6.6, ADR 0003). It is the one
+// its charter and the rule units it carries (PRD 6.6, ADR 0013). It is the one
 // place the kit's own text lands inside the user's repo, so the promise around
 // it is narrow and worth pinning hard: the build owns a marked block and
 // nothing else in the file, what the user wrote outside it comes back exactly,
@@ -546,7 +546,7 @@ test('rules build never talks to Orca, and works with Orca down', async (t) => {
 // A bot's two harnesses read one file through two names: Codex reads
 // `AGENTS.md` and Claude Code reads `CLAUDE.md`, which is a link to it (PRD
 // 6.6, tech notes section 2). Anything else at that name and the two harnesses
-// are reading different instructions in the same bot — the split ADR 0003
+// are reading different instructions in the same bot — the split ADR 0013
 // exists to prevent. The kit does not touch what the user put there; it says so
 // and ends in 1, and the build of `AGENTS.md` itself is reported as what it
 // was, because that file really was written.

@@ -1,4 +1,4 @@
-// Skills from an online repo, at the version the user pinned (PRD 6.7, ADR 0004).
+// Skills from an online repo, at the version the user pinned (PRD 6.7, ADR 0014).
 //
 // A source is a git repository the user names in `<bots>/skills.yaml`. The kit
 // clones it into `<bots>.skill-sources/<name>`, a sibling of the bots folder and

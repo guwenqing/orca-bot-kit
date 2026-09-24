@@ -9,7 +9,7 @@
 // in a tab. Those two together are the whole of its input: the book keys on
 // the tab id (PRD 6.2), so the tab is what says which session reported.
 //
-// What it does with them is ADR 0002: the book is the authority for session
+// What it does with them is ADR 0012: the book is the authority for session
 // ids. The id the harness gave becomes the session's current one, and the id
 // the book held goes into that session's history with the reason it was
 // replaced and when — a clear makes a new id every time, and the old ones are
@@ -45,7 +45,7 @@
 // The answer echoes the event it was sent rather than naming one itself.
 //
 // The rule over all of it is that it runs inside the user's own session and
-// must never disturb it (ADR 0010). Every input a harness should not send, and
+// must never disturb it (ADR 0020). Every input a harness should not send, and
 // every one it might, ends the same way: exit 0, nothing printed, the book as
 // it was, and not a single call to Orca.
 
@@ -391,7 +391,7 @@ for (const [label, twist] of Object.entries(NOTHING_TO_DO)) {
 
 test('recording makes no Orca call, even when it does the work', async (t) => {
   // The hook runs on every session start, every resume and every clear. Orca is
-  // not in that road at all: the book is the authority (ADR 0002) and the tab
+  // not in that road at all: the book is the authority (ADR 0012) and the tab
   // id came in on the environment.
   const box = await createSandbox(t);
   const { bots, tabs } = await fleet(box);

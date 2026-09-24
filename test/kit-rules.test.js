@@ -1,5 +1,5 @@
 // The kit's rule units: the files under rules/ that the build pastes into every
-// bot's AGENTS.md (PRD 6.6, ADR 0003). A malformed unit would reach a bot as
+// bot's AGENTS.md (PRD 6.6, ADR 0013). A malformed unit would reach a bot as
 // broken instructions, and an oversized set is paid for on every turn of every
 // session, so both are cheap to check here and expensive to find later.
 //
