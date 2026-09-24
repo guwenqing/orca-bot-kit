@@ -33,6 +33,7 @@ import {
   bookIn,
   bookOf,
   createSandbox,
+  recordSession,
   sessionIn,
   typedInto,
 } from './helpers/cli.js';
@@ -326,6 +327,89 @@ test('#228: init from a plain shell gives Bot Father a mailbox bound to its own 
 
   await assertBoundToItsOwnTab(box, bots, 'bot-father');
 });
+
+// A session that already has a mailbox and is given a new tab: by `restart`,
+// which closes its tab and brings it up again, or by `up` after its tab was
+// closed. The mailbox is the same Run, kept for ever (a Run cannot be
+// deleted), so it has to follow the session into the new tab. Left where it
+// was, it is coordinated by a tab that is gone, and Orca's notice for the
+// session's mail goes nowhere, or anywhere but its tab. Whether Orca clears a
+// closed tab's binding was not measured, so the closed-tab road is run both
+// ways: the dead handle left on the Run, and the Run left with none.
+
+/** Up from Bot Father's tab: the fleet a restart or a reopen starts from. */
+async function coderUpFromBotFather(box) {
+  const own = await ownTab(box);
+  const bots = await initIn(box, own);
+  const a = await tabOf(box, bots, 'bot-father');
+  await addBot(box, a, 'coder', 'codex');
+  await obkIn(box, a, ['up', '--bots', 'bots', '--bot', 'coder']);
+  const old = await tabOf(box, bots, 'coder');
+  const { mailbox } = await sessionIn(bots, 'coder', 'daily');
+  return { own, bots, a, old, mailbox, runs: (await box.orca.runs()).length };
+}
+
+/** Assert the session's mailbox moved to its new tab, and nothing else moved or was made. */
+async function assertFollowedToTheNewTab(box, { bots, old, mailbox, runs }, caller, ownRun) {
+  const now = await tabOf(box, bots, 'coder');
+  assert.notEqual(now.handle, old.handle, 'the session should be in a new tab');
+  assert.equal((await sessionIn(bots, 'coder', 'daily')).mailbox, mailbox, 'it keeps the mailbox it had');
+  assert.equal((await box.orca.runs()).length, runs, 'and no new Run is made for it');
+  await assertBoundToItsOwnTab(box, bots, 'coder');
+  assert.deepEqual(
+    (await box.orca.runs()).filter((run) => run.coordinator_handle === caller.handle).map((run) => run.id),
+    ownRun === undefined ? [] : [ownRun],
+    `the tab the command ran in (${caller.title}) coordinates its own Run, if it has one, and no other`,
+  );
+
+  // Mail for the session afterwards is told in the new tab and nowhere else.
+  await mail(box, caller, 'coder', 'after the new tab');
+  const told = await noticesIn(box, now.handle);
+  assert.equal(told.length, 1, `the new tab is told about the session's mail, got: ${JSON.stringify(told)}`);
+  assert.ok(told[0].includes(mailbox), `naming its mailbox ${mailbox}, got: ${told[0]}`);
+  for (const terminal of await box.orca.terminals()) {
+    if (terminal.handle === now.handle) continue;
+    assert.deepEqual(terminal.notices ?? [], [], `${terminal.title} must not be told about coder's mail`);
+  }
+}
+
+test('#228 review: restart from Bot Father\'s tab binds the session\'s mailbox to its new tab', async (t) => {
+  const box = await createSandbox(t);
+  const fleet = await coderUpFromBotFather(box);
+  // Restart closes a tab only when it can bring the conversation back.
+  const hooked = await recordSession(box, { bots: fleet.bots, bot: 'coder', tab: fleet.old.tabId, session: 'sess-1' });
+  assert.equal(hooked.code, 0, hooked.stderr);
+
+  await obkIn(box, fleet.a, ['restart', '--bots', 'bots', '--bot', 'coder']);
+
+  const botFather = (await sessionIn(fleet.bots, 'bot-father', 'daily')).mailbox;
+  await assertFollowedToTheNewTab(box, fleet, fleet.a, botFather);
+  await assertBoundToItsOwnTab(box, fleet.bots, 'bot-father');
+});
+
+for (const [closed, leftOnTheRun] of [
+  ['the closed tab\'s handle left on the Run', (handle) => handle],
+  ['the Run left with no coordinator', () => null],
+]) {
+  test(`#228 review: up from a tab of the user's own reopens a closed session tab and binds its mailbox there (${closed})`, async (t) => {
+    const box = await createSandbox(t);
+    const fleet = await coderUpFromBotFather(box);
+    // The user closed the session's tab. What Orca does to the Run's binding
+    // then was not measured; both answers are given here.
+    const state = await box.orca.state();
+    await box.orca.set({
+      terminals: state.terminals.filter((terminal) => terminal.handle !== fleet.old.handle),
+      runs: state.runs.map((run) => (run.id === fleet.mailbox
+        ? { ...run, coordinator_handle: leftOnTheRun(fleet.old.handle) }
+        : run)),
+    });
+
+    await obkIn(box, fleet.own, ['up', '--bots', 'bots', '--bot', 'coder']);
+
+    await assertFollowedToTheNewTab(box, fleet, fleet.own, undefined);
+    await assertBoundToItsOwnTab(box, fleet.bots, 'bot-father');
+  });
+}
 
 test('#228: every Orca call a fleet brought up from tab A makes is one of the allowed ones', async (t) => {
   const box = await createSandbox(t);

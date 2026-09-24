@@ -12,7 +12,7 @@ import { botDir, botNames, displayName, readBot } from './bot.js';
 import { conversationsIn } from './conversations.js';
 import { installHook } from './hooks.js';
 import { addressOf, harnessOf, isShortPrompt, launchCommand, reachesMail, sessionTrouble, startPrompt, workDirOf } from './launch.js';
-import { asFolderProject, findProject, makeMailbox, makeProject, openTab, retitleTab, tabs, tuiInTab, typeIntoTab } from './orca.js';
+import { asFolderProject, findProject, makeMailbox, makeProject, openTab, retitleTab, tabs, tuiInTab, typeIntoTab, useMailbox } from './orca.js';
 import { buildAgents } from './rules.js';
 import { linkSkills } from './skills.js';
 
@@ -312,7 +312,7 @@ async function bringUpSession(bots, home, live, session, bot, title) {
   // tab is on the books, so a mailbox Orca will not make leaves a tab the next
   // run finds and finishes rather than a tab nobody owns (review of PR #132,
   // finding 3).
-  await ensureMailbox(home, bot, session, harness, made.handle, { named: harness === 'claude' });
+  await ensureMailbox(home, bot, session, harness, made.handle, { named: harness === 'claude', opened: true });
 
   // And then asking whether a TUI came up, rather than assuming one did. The
   // text goes into the tab's own shell, which may have been busy with a
@@ -363,14 +363,18 @@ async function bringUpSession(bots, home, live, session, bot, title) {
  *
  * It is bound to `handle`, the session's own tab, and never to the tab this run
  * of `obk up` was typed in: Orca tells a Run's coordinator about its mail, and
- * only the session the mail is for should be told (issue #228).
+ * only the session the mail is for should be told (issue #228). A mailbox the
+ * session already had is bound again when this run `opened` a new tab for it —
+ * after a restart, or a closed tab brought back — or it would stay with the tab
+ * that is gone (review of PR #248, finding 1).
  *
  * A Codex session whose user turned the sandbox switch off gets none: it could
  * not read a mailbox if it had one, and an address nobody can read is worse
  * than none at all. `obk message` says so in those words.
  */
-async function ensureMailbox(home, bot, session, harness, handle, { named = false } = {}) {
+async function ensureMailbox(home, bot, session, harness, handle, { named = false, opened = false } = {}) {
   const held = readBook(home).sessions[session.name] ?? {};
+  if (opened && typeof held.mailbox === 'string') useMailbox(held.mailbox, handle);
 
   const address = named ? addressOf(bot.name, session.name) : undefined;
   const mailbox = mailboxFor(readBook(home), bot, session, harness, handle);
