@@ -519,3 +519,33 @@ test('the fake puts at most 50 messages in a batch, and shows at most 100 in a p
   assert.equal(next.count, 50);
   assert.equal(next.messages[0].subject, 'note 51', 'and the next 50 after them');
 });
+
+test('the fake can refuse a handle as stale for a while, and hand it out anew at the next listing', async (t) => {
+  // Seen live on 1.4.209 (#294): `terminal wait` refused a handle `terminal
+  // list` had just given with `terminal_handle_stale`, and minutes later the
+  // same handle worked. A fake that can only fail for ever cannot show a kit
+  // that tries again.
+  const box = await createSandbox(t);
+  const home = box.path('bots', 'bots', 'bot-father');
+  answer(ask(box, ['repo', 'add', '--path', home, '--json']));
+  const setup = (await box.orca.setups())[0];
+  answer(ask(box, ['project', 'setup-update', '--setup', setup.id, '--kind', 'folder', '--json']));
+  const handle = answer(ask(box, ['terminal', 'create', '--worktree', `path:${home}`, '--title', 'Daily', '--json'])).result.terminal.handle;
+  const wait = (on) => ask(box, ['terminal', 'wait', '--terminal', on, '--for', 'tui-idle', '--timeout-ms', '2000', '--json']);
+  const list = () => answer(ask(box, ['terminal', 'list', '--worktree', `path:${home}`, '--json'])).result.terminals;
+
+  await box.orca.set({ fail: { 'terminal wait': { code: 'terminal_handle_stale', message: 'terminal_handle_stale', after: 1, times: 1 } } });
+  assert.equal(JSON.parse(wait(handle).stdout).ok, true, 'the first call goes through');
+  const stale = JSON.parse(wait(handle).stdout);
+  assert.deepEqual([stale.ok, stale.error.code], [false, 'terminal_handle_stale'], 'the next one is refused');
+  assert.equal(JSON.parse(wait(handle).stdout).ok, true, 'and the one after it goes through again');
+
+  // The same refusal, with the listing after it handing the tab out anew.
+  await box.orca.set({ fail: { 'terminal wait': { code: 'terminal_handle_stale', message: 'terminal_handle_stale' } }, reissue: { [handle]: 'term_90' } });
+  assert.deepEqual(list().map((terminal) => terminal.handle), [handle], 'nothing is re-issued before a refusal');
+  assert.equal(JSON.parse(wait(handle).stdout).error.code, 'terminal_handle_stale');
+  assert.deepEqual(list().map((terminal) => terminal.handle), ['term_90'], 'the listing after the refusal hands out the new handle');
+  await box.orca.set({ fail: {} });
+  assert.equal(JSON.parse(wait('term_90').stdout).ok, true, 'which works');
+  assert.equal(JSON.parse(wait(handle).stdout).error.code, 'terminal_not_found', 'and the old one names nothing any more');
+});

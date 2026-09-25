@@ -138,6 +138,21 @@ project → repo (`kind: "git" | "folder"`) → worktree (id = `<repoId>::<absPa
   used to say that a `timeout` meant "no TUI". That was wrong, and it is how a busy session was told
   it was not up (#232). The kit asks the process table instead (the entry on the foreground process
   group, below). **verified** (live, 2026-09-24, Orca 1.4.209, both harnesses)
+  **A handle just listed can be refused as `terminal_handle_stale`, for a moment.** Seen five times
+  between 2026-09-24 20:30Z and 2026-09-25 06:40Z (Orca 1.4.209), every time `obk message send`'s
+  `terminal wait --for tui-idle` on a Codex review tab (four on `kit-dev/reviewer`, one on
+  `kit-dev/review-271`), from developer-1 and from the architect. When it was checked, the same
+  handle was listed again minutes later with `orphaned: false`, and `terminal wait`, `show` and
+  `read` worked on it; once the same wait a minute later answered `timeout` instead. So it comes
+  and goes on a handle that stays good (#294). Read in the 1.4.209 bundle: a handle's record keeps
+  the renderer graph epoch it was issued in and the pane's pty generation, and a look at a tab the
+  window has loaded refuses `terminal_handle_stale` when either has moved since, `terminal wait`
+  and `terminal show` alike. A graph reload
+  moves the epoch and also rejects every wait in progress with that code. `terminal list` issues
+  the handle again at the current epoch, under the same `term_…` string while the pane's process
+  is the same one. So `obk message send` lists the tab again and looks once more after that
+  refusal, and reports a second one as it is (#294). What moves the epoch or the generation that
+  often on that one tab was not found. **verified** (live, the five sightings) and read in the bundle.
   **What that costs, proven the hard way.** A start prompt sent as a second `terminal send` into a fresh
   Claude tab that had answered `satisfied:true` landed on the folder-trust list and confirmed its
   default `No, exit`: the harness quit back to the shell. Nothing Orca offers tells that screen from a

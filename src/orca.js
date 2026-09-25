@@ -30,10 +30,16 @@ export function orca(args) {
   if (answer.ok !== true) {
     // Orca's own words: it knows what went wrong, and the caller is an LLM
     // that can act on them.
-    throw new Error(`Orca refused ${args.join(' ')}: ${answer.error?.message ?? 'no reason given'}`);
+    throw refusal(args, answer);
   }
   return answer.result;
 }
+
+/** Orca's refusal as an error, with its code on it, so a caller can tell a stale handle from the rest (#294). */
+const refusal = (args, answer) => Object.assign(
+  new Error(`Orca refused ${args.join(' ')}: ${answer.error?.message ?? 'no reason given'}`),
+  { code: answer.error?.code },
+);
 
 /** One Orca command, and the whole envelope back, refusals included. */
 function ask(args) {
@@ -257,7 +263,7 @@ export function harnessInTab(handle, timeoutMs) {
   // Out of time means nothing went idle, busy or absent alike. That is an
   // answer, not a breakdown.
   if (answer.ok !== true && answer.error?.code !== 'timeout') {
-    throw new Error(`Orca refused ${args.join(' ')}: ${answer.error?.message ?? 'no reason given'}`);
+    throw refusal(args, answer);
   }
 
   const shown = orca(['terminal', 'show', '--terminal', handle]).terminal;
