@@ -146,7 +146,8 @@ project → repo (`kind: "git" | "folder"`) → worktree (id = `<repoId>::<absPa
   `read` worked on it; once the same wait a minute later answered `timeout` instead. So it comes
   and goes on a handle that stays good (#294). Read in the 1.4.209 bundle: a handle's record keeps
   the renderer graph epoch it was issued in and the pane's pty generation, and a look at a tab the
-  window has loaded refuses `terminal_handle_stale` when either has moved since. A graph reload
+  window has loaded refuses `terminal_handle_stale` when either has moved since, `terminal wait`
+  and `terminal show` alike. A graph reload
   moves the epoch and also rejects every wait in progress with that code. `terminal list` issues
   the handle again at the current epoch, under the same `term_…` string while the pane's process
   is the same one. So `obk message send` lists the tab again and looks once more after that

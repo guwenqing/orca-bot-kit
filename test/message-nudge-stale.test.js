@@ -51,15 +51,20 @@ async function send(box) {
   return JSON.parse(result.stdout);
 }
 
-/** How many times `terminal wait` has been called so far: where a refusal set now starts counting. */
-const waitsSoFar = async (box) => orcaCallsOf(await box.orca.calls(), 'terminal wait').length;
-
-/** Make the next `times` looks be refused with `refusal`, or every one after now when `times` is left out. */
-async function refuseLooks(box, refusal, times) {
+/**
+ * Make the next `times` calls of `command` be refused with `refusal`, or every
+ * one after now when `times` is left out. Counted from the calls made so far,
+ * since `up` makes them too.
+ */
+async function refuse(box, command, refusal, times) {
+  const after = orcaCallsOf(await box.orca.calls(), command).length;
   await box.orca.set({
-    fail: { 'terminal wait': { ...refusal, after: await waitsSoFar(box), ...(times === undefined ? {} : { times }) } },
+    fail: { [command]: { ...refusal, after, ...(times === undefined ? {} : { times }) } },
   });
 }
+
+/** Make the next `times` waits of the look be refused, or every one after now. */
+const refuseLooks = (box, refusal, times) => refuse(box, 'terminal wait', refusal, times);
 
 /** The Orca calls `message send` made: everything after the first `before` calls. */
 const callsSince = async (box, before) => (await box.orca.calls()).slice(before);
@@ -205,3 +210,130 @@ for (const [what, found] of [
     assert.deepEqual(Object.values(await typedSinceLaunch(box)).flat(), [], 'and nothing was typed anywhere');
   });
 }
+
+// The look is `terminal wait` and then `terminal show` on the same handle, and
+// Orca 1.4.209 refuses `show` with `terminal_handle_stale` too: read in its
+// bundle, `showTerminal` checks that the handle still points at its pty and
+// throws that code when it does not. A stale refusal of either half of the
+// look is the same refusal, and it earns the same one fresh listing and one
+// more look.
+
+test('a show refused as a stale handle after a good wait is tried once more after a fresh listing, and the tab is told', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await fleetIn(box);
+  const reader = await readerTab(box, bots);
+  await refuse(box, 'terminal show', STALE, 1);
+  const before = (await box.orca.calls()).length;
+
+  const answer = await send(box);
+
+  assert.equal(answer.nudged, true, `the tab should have been told, got: ${JSON.stringify(answer)}`);
+  assert.equal((await box.orca.messages()).length, 1, 'the message is in the mailbox');
+
+  const calls = await callsSince(box, before);
+  const shows = calls.flatMap((call, at) => (orcaCommand(call) === 'terminal show' ? [at] : []));
+  assert.equal(shows.length, 2, `the refused show and one more, got: ${JSON.stringify(calls.map((call) => call.args))}`);
+  assert.deepEqual(shows.map((at) => orcaFlag(calls[at], '--terminal')), [reader.handle, reader.handle], 'both at the receiver\'s tab');
+  assert.ok(
+    calls.slice(shows[0] + 1, shows[1]).some((call) => orcaCommand(call) === 'terminal list'),
+    `the tab is listed afresh between the refused show and the next look, got: ${JSON.stringify(calls.map((call) => call.args))}`,
+  );
+
+  const typed = await typedSinceLaunch(box);
+  assert.equal(typed[reader.tab].length, 1, `one line into the receiver's tab, got: ${JSON.stringify(typed[reader.tab])}`);
+  assert.ok(typed[reader.tab][0].includes('the staging host'), `the nudge as ever, got: ${typed[reader.tab][0]}`);
+  for (const [tab, lines] of Object.entries(typed)) {
+    if (tab === reader.tab) continue;
+    assert.deepEqual(lines, [], `nothing may be typed into ${tab}: it is not the receiver's`);
+  }
+});
+
+test('after a stale show, the next look is made with the handle the fresh listing gives, and so is the line', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await fleetIn(box);
+  const reader = await readerTab(box, bots);
+  await refuse(box, 'terminal show', STALE, 1);
+  await box.orca.set({ reissue: { [reader.handle]: 'term_90' } });
+  const before = (await box.orca.calls()).length;
+
+  const answer = await send(box);
+
+  assert.equal(answer.nudged, true, `the tab should have been told, got: ${JSON.stringify(answer)}`);
+  const calls = await callsSince(box, before);
+  assert.deepEqual(
+    orcaCallsOf(calls, 'terminal show').map((call) => orcaFlag(call, '--terminal')),
+    [reader.handle, 'term_90'],
+    'the first show with the handle first listed, the second with the one listed after the refusal',
+  );
+  assert.deepEqual(
+    orcaCallsOf(calls, 'terminal send').map((call) => orcaFlag(call, '--terminal')),
+    ['term_90'],
+    'and the line goes to the tab by its new handle',
+  );
+  const typed = await typedSinceLaunch(box);
+  assert.equal(typed[reader.tab].length, 1, `one line into the receiver's tab, got: ${JSON.stringify(typed[reader.tab])}`);
+});
+
+test('a show refused as stale on the second look too is reported plainly, and there is no third look', async (t) => {
+  const box = await createSandbox(t);
+  await fleetIn(box);
+  await refuse(box, 'terminal show', STALE);
+  const before = (await box.orca.calls()).length;
+
+  const answer = await send(box);
+
+  assert.equal((await box.orca.messages()).length, 1, 'the message is in the mailbox');
+  assert.equal(answer.nudged, false);
+  assert.match(answer.nudgeTrouble ?? '', /terminal_handle_stale/, `Orca's refusal, in its words, got: ${JSON.stringify(answer)}`);
+  assert.equal(
+    orcaCallsOf(await callsSince(box, before), 'terminal show').length,
+    2,
+    'one look, one more after a fresh listing, and no more than that',
+  );
+  assert.deepEqual(Object.values(await typedSinceLaunch(box)).flat(), [], 'and nothing was typed anywhere');
+});
+
+test('a stale wait and then a stale show make two looks between them, not three', async (t) => {
+  // One more look in all, whichever half of it Orca called stale: not one
+  // retry for the wait and another for the show.
+  const box = await createSandbox(t);
+  await fleetIn(box);
+  const waitsBefore = orcaCallsOf(await box.orca.calls(), 'terminal wait').length;
+  const showsBefore = orcaCallsOf(await box.orca.calls(), 'terminal show').length;
+  await box.orca.set({
+    fail: {
+      'terminal wait': { ...STALE, after: waitsBefore, times: 1 },
+      'terminal show': { ...STALE, after: showsBefore },
+    },
+  });
+  const before = (await box.orca.calls()).length;
+
+  const answer = await send(box);
+
+  assert.equal((await box.orca.messages()).length, 1, 'the message is in the mailbox');
+  assert.equal(answer.nudged, false, `the second look was refused, got: ${JSON.stringify(answer)}`);
+  assert.match(answer.nudgeTrouble ?? '', /terminal_handle_stale/, `Orca's refusal, in its words, got: ${JSON.stringify(answer)}`);
+  const calls = await callsSince(box, before);
+  assert.equal(orcaCallsOf(calls, 'terminal wait').length, 2, `the refused wait and one more look, got: ${JSON.stringify(calls.map((call) => call.args))}`);
+  assert.equal(orcaCallsOf(calls, 'terminal show').length, 1, `the show of that one more look, and no third, got: ${JSON.stringify(calls.map((call) => call.args))}`);
+  assert.deepEqual(Object.values(await typedSinceLaunch(box)).flat(), [], 'and nothing was typed anywhere');
+});
+
+test('a show refused for any other reason is reported after one look, as before', async (t) => {
+  // The refusal goes away after one call here, so a kit that looked again on
+  // any refusal of show would get through and type.
+  const box = await createSandbox(t);
+  await fleetIn(box);
+  await refuse(box, 'terminal show', { code: 'runtime_error', message: 'the renderer did not answer' }, 1);
+  const before = (await box.orca.calls()).length;
+
+  const answer = await send(box);
+
+  assert.equal((await box.orca.messages()).length, 1, 'the message is in the mailbox');
+  assert.equal(answer.nudged, false);
+  assert.match(answer.nudgeTrouble ?? '', /the renderer did not answer/, `Orca's refusal, in its words, got: ${JSON.stringify(answer)}`);
+  const calls = await callsSince(box, before);
+  assert.equal(orcaCallsOf(calls, 'terminal show').length, 1, 'one show and no second');
+  assert.equal(orcaCallsOf(calls, 'terminal wait').length, 1, 'and one look in all');
+  assert.deepEqual(Object.values(await typedSinceLaunch(box)).flat(), [], 'and nothing was typed anywhere');
+});
