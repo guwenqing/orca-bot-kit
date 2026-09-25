@@ -443,6 +443,10 @@ What it looks for:
   go, and a link with nothing at the end of it;
 - **a session the book knows that Orca does not**: its tab was closed, or the
   machine was restarted, and `obk up` brings it back;
+- **a session whose tab is open and whose harness is gone**: only the tab's
+  shell is in front, because the harness quit or crashed. `obk up` leaves an
+  open tab alone, so the finding names the `obk restart … --session` that
+  brings it back. A tab the kit cannot read is never called down;
 - **leftovers no book owns**: an Orca project inside your bots folder with no
   bot in it, a tab in a bot's project that the book does not name, a start
   prompt written for a session that has gone, a clone of a skills source you no
