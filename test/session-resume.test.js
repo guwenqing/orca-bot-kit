@@ -280,6 +280,7 @@ test('a resumed Claude session keeps the address it was started under', async (t
   assert.match(String(address), addressPattern('api-bot', 'daily'), 'the first start gave it an address of its own');
   assert.equal(nameOnLine(first.typed[0]), address, 'and started it under that name');
   await reported(box, bots, first.entry.tabId, 'sess-1');
+  await onRecord(box, 'claude', bots, 'sess-1');
   await closeTab(box, first.entry.tabId);
 
   const again = await up(box);
@@ -314,6 +315,7 @@ for (const [label, held, made] of HELD) {
     const box = await createSandbox(t);
     const { bots, first } = await started(box, 'claude');
     await reported(box, bots, first.entry.tabId, 'sess-1');
+    await onRecord(box, 'claude', bots, 'sess-1');
     const book = await bookIn(bots, 'api-bot');
     if (held === undefined) delete book.sessions.daily.address;
     else book.sessions.daily.address = held;

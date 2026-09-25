@@ -38,6 +38,8 @@ import {
   assertRefused,
   bookIn,
   bookOf,
+  botHomeOf,
+  conversationOnRecord,
   createSandbox,
   nameOnLine,
   orcaCallsOf,
@@ -178,6 +180,7 @@ test('a session resumed from a book holding the bare name is answered through it
   const { tab } = await sessionIn(bots, 'auto-two', 'daily');
   const hook = await recordSession(box, { bots, bot: 'auto-two', tab, session: 'sess-1' });
   assert.equal(hook.code, 0, hook.stderr);
+  await conversationOnRecord(box, { harness: 'claude', cwd: botHomeOf(bots, 'auto-two'), id: 'sess-1' });
   const book = await bookIn(bots, 'auto-two');
   book.sessions.daily.address = 'auto-two.daily';
   await writeFile(bookOf(bots, 'auto-two'), stringify(book));
