@@ -418,9 +418,11 @@ obk retire --bots /path/to/my-bots --bot api-bot [--session daily]
 A change to a charter or a setting is written at once, and a running session
 takes it when it next starts. A session keeps its harness: to move one, retire
 it and add another. A pause closes the tabs the way a restart does, with the
-same refusals, and `obk up` leaves what is paused closed until `obk unpause`
-brings it back with its conversations. Retiring a session takes it off the bot
-and keeps its conversations in the book under `retired`. Retiring a bot closes
+same refusals, and one more: it also refuses a tab with only its shell in front
+whose conversation the book does not name. `obk up` leaves what is paused
+closed until `obk unpause` brings it back with its conversations. Retiring a
+session takes it off the bot and keeps its conversations in the book under
+`retired`. Retiring a bot closes
 its tabs, removes its Orca project and moves its folder to `retired/`; it will
 not touch a bot whose Orca project holds a tab your book does not name. The
 folder moves only once Orca no longer lists the project; if Orca still lists it,
