@@ -21,7 +21,7 @@
 import { existsSync, readdirSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 
-import { bookFile, readBook, tabIdsIn } from './book.js';
+import { bookFile, readBook, sessionIdsIn, tabIdsIn } from './book.js';
 import { botDir, botNames, botsDir, readBot } from './bot.js';
 import { transcriptsIn } from './conversations.js';
 import { hookTrouble } from './hooks.js';
@@ -326,19 +326,26 @@ function inOrca(bots, home, bot, setups, sessions) {
   // what paused means rather than something lost.
   const closed = new Set(bot.sessions.filter((session) => bot.paused === true || session.paused === true).map((session) => session.name));
 
+  // What the harness has on record in this bot's folder, read once: it is a walk
+  // through every conversation on the machine.
+  const onRecord = recordIn(real ?? home, bot);
+  // A conversation the harness marks as a subagent's was never a session's, so a
+  // note that holds one is not a loose end for it (#287). The note stays as it is.
+  const helpers = new Set(onRecord.filter((one) => one.subagent).map((one) => one.id));
+
   const found = [];
   for (const [name, entry] of Object.entries(book.sessions)) {
     if (typeof entry?.tab === 'string' && !there.has(entry.tab) && !closed.has(name)) {
       found.push(finding('session', entry.tab, `${bot.name}'s session ${name} is in the book with tab ${entry.tab}, and Orca has no tab of that id: the tab was closed, or the machine was restarted. The conversation is in the book, and obk up opens a tab and brings it back.`, bot.name));
     }
 
-    const unclaimed = Array.isArray(entry?.unclaimed) ? entry.unclaimed : [];
+    const unclaimed = (Array.isArray(entry?.unclaimed) ? entry.unclaimed : []).filter((id) => !helpers.has(id));
     if (unclaimed.length > 0) {
       found.push(finding('leftover', bookFile(home), `The book notes conversations under ${bot.name}'s session ${name} that no session of this bot claims: ${unclaimed.join(', ')}. They ran in this bot's folder, and the kit will not say whose they were. To give one back, write it into ${bookFile(home)} under ${name} as  session: <id>  and run obk up again.`, bot.name));
     }
   }
 
-  found.push(...offTheBook(real ?? home, bot, book));
+  found.push(...offTheBook(real ?? home, bot, book, onRecord));
 
   // A tab outside the book is somebody else's, and in Bot Father's project it
   // is the ops tab: the one tab the kit deliberately keeps no record of, so it
@@ -360,25 +367,28 @@ function inOrca(bots, home, bot, setups, sessions) {
  * fails it fails quietly (ADR 0020), so this is where a stale book shows: the
  * harness's own record set beside it (ADR 0012).
  */
-function offTheBook(home, bot, book) {
-  const named = new Set();
+function offTheBook(home, bot, book, onRecord) {
+  // A retired session's conversations are in the book too, under `retired`.
+  const named = sessionIdsIn(book);
   for (const entry of Object.values(book.sessions)) {
-    if (typeof entry?.session === 'string') named.add(entry.session);
-    for (const was of Array.isArray(entry?.history) ? entry.history : []) named.add(was?.session);
     for (const id of Array.isArray(entry?.unclaimed) ? entry.unclaimed : []) named.add(id);
   }
 
-  // Every harness any of its sessions runs on, as `obk usage` reads them.
-  const harnesses = new Set(bot.sessions.map((session) => harnessOf(session, bot.harness)));
-  if (harnesses.size === 0) harnesses.add(bot.harness);
-  const stray = [...harnesses]
-    .filter((harness) => HARNESSES.includes(harness))
-    .flatMap((harness) => transcriptsIn(harness, home))
-    .filter((one) => !named.has(one.id));
+  // A subagent's conversation is no session's, so the book has no reason to name it.
+  const stray = onRecord.filter((one) => !one.subagent && !named.has(one.id));
   if (stray.length === 0) return [];
 
   const listed = stray.map((one) => `${one.id} (begun ${one.at})`).join(', ');
   return [finding('session', bookFile(home), `The harness has conversations on record in ${bot.name}'s folder that the book does not name: ${listed}. The kit's hook may have missed them: a clear it did not record, or a Codex hooks file trusted late. To give one to a session, write it into ${bookFile(home)} under that session as  session: <id>  and run obk up again.`, bot.name)];
+}
+
+/** Every conversation on record in the bot's folder, from every harness any of its sessions runs on, as `obk usage` reads them. */
+function recordIn(home, bot) {
+  const harnesses = new Set(bot.sessions.map((session) => harnessOf(session, bot.harness)));
+  if (harnesses.size === 0) harnesses.add(bot.harness);
+  return [...harnesses]
+    .filter((harness) => HARNESSES.includes(harness))
+    .flatMap((harness) => transcriptsIn(harness, home));
 }
 
 /** What a directory holds, and nothing at all when there is no directory. */
