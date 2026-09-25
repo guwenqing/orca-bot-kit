@@ -391,7 +391,10 @@ What it will not do, in order of how much it would cost you. It closes only a
 tab your book names, so Bot Father's ops tab and anything you opened yourself
 are left alone. It will not close a tab whose conversation the book cannot name:
 that close would be the end of that conversation, so it refuses, tells you which
-session and which file to settle it in, and touches nothing. It will not close
+session and which file to settle it in, and touches nothing. The one exception
+is a tab with only its shell in front: its harness has already quit, so there
+is nothing in it to lose, and restart closes it and starts the session fresh
+with its duty. It will not close
 anything at all until everything that would stop the session starting again has
 been settled — the same refusals `obk up` gives, made before the tab goes rather
 than after. If Orca refuses to close a tab it stops there, rather than start a
