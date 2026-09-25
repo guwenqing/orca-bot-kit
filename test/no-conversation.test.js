@@ -38,8 +38,12 @@ import {
   botHomeOf,
   conversationOnRecord,
   createSandbox,
+  harnessChain,
+  orcaCallsOf,
   recordSession,
   sessionIn,
+  sessionStart,
+  shellWord,
   tabsOfBot,
   typedInto,
 } from './helpers/cli.js';
@@ -420,3 +424,66 @@ test('N14 in one run, each session is judged by its own record', async (t) => {
   assert.equal(newTabOf(result, 'daily').resumed, true);
   assertReportedFresh(newTabOf(result, 'review'), conv(2));
 });
+
+// ------------------------------------------------ a report while the tab is being opened
+
+/**
+ * Arrange for the kit's hook to report `id` for the session in `tab` while the
+ * next run is inside Orca's `terminal create`: a harness still running in the
+ * old tab, starting a new conversation while `up` opens the new one. Run under
+ * the process chain the kit reads ownership from (helpers/cli.js `harnessChain`).
+ */
+async function aReportDuringCreate(box, bots, tab, id) {
+  const hook = [box.cli, 'session', 'record', '--bots', bots, '--bot', BOT].map(shellWord).join(' ');
+  const chain = await harnessChain(box, hook, { stdin: sessionStart({ session: id }) });
+  await box.orca.set({
+    runDuring: {
+      command: 'terminal create',
+      argv: chain.argv,
+      env: { ...chain.env, ORCA_TAB_ID: tab },
+      on: orcaCallsOf(await box.orca.calls(), 'terminal create').length + 1,
+    },
+  });
+}
+
+for (const harness of ['claude', 'codex']) {
+  // Covers the race in the review of PR #310: the book holds A with nothing on
+  // record, so `up` decides on a fresh start; while it opens the new tab, the
+  // old tab's hook reports B. The new tab's launch line carries the duty, so
+  // the session is told it once: when its own hook reports C, the hook hands
+  // nothing over. The book ends on C, with A and B both kept in history and B
+  // replaced by the fresh start; the tab's report still names A.
+  test(`N15 on ${harness}, an id reported while up opens the fresh tab does not get the duty handed over twice`, async (t) => {
+    const box = await createSandbox(t);
+    const { bots, tabs } = await started(box, harness);
+    await reported(box, bots, tabs.daily.tabId, conv(1));
+    await closeTab(box, tabs.daily.tabId);
+    await aReportDuringCreate(box, bots, tabs.daily.tabId, conv(2));
+
+    const back = newTabOf(await ran(box, 'up', ['--json']));
+
+    const during = await box.orca.ranDuring();
+    assert.equal(during.length, 1, `the old tab's hook should have reported in the middle of the run, got: ${JSON.stringify(during)}`);
+    assert.equal(during[0].status, 0, `and not failed: ${during[0].stderr}`);
+    assert.equal(await lineOf(box, bots), freshLine(box, harness), 'the premise: the new tab was started fresh, with its duty');
+    assertReportedFresh(back, conv(1));
+
+    const own = await reported(box, bots, back.tabId, conv(3));
+
+    assert.equal(own.code, 0, own.stderr);
+    assert.equal(own.stdout, '', `the launch line gave the session its duty, so the hook hands it nothing, got: ${own.stdout}`);
+    const entry = await sessionIn(bots, BOT, 'daily');
+    assert.equal(entry.session, conv(3), `the book takes the new tab's own id, got: ${JSON.stringify(entry)}`);
+    const history = Array.isArray(entry.history) ? entry.history : [];
+    assert.ok(history.some((old) => old?.session === conv(1)), `A stays in history, got: ${JSON.stringify(entry)}`);
+    assert.deepEqual(
+      history.filter((old) => old?.session === conv(2)).map(({ session, ended }) => ({ session, ended })),
+      [{ session: conv(2), ended: 'replaced' }],
+      `B is in history once, replaced by the fresh start, got: ${JSON.stringify(entry)}`,
+    );
+
+    const cleared = await reported(box, bots, back.tabId, conv(4), 'clear');
+    assert.equal(cleared.code, 0, cleared.stderr);
+    assert.ok(cleared.stdout.includes(PROMPT), `after a clear the hook does hand the duty over, got: ${cleared.stdout}`);
+  });
+}

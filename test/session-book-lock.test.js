@@ -125,6 +125,9 @@ test('a clear the hook records while up is opening a tab keeps its history too',
   assert.equal((await box.run(['up', '--bots', 'bots', '--bot', 'api-bot'])).code, 0);
   const was = (await sessionIn(bots, 'api-bot', 'daily')).tab;
   await recordSession(box, { bots, bot: 'api-bot', tab: was, session: 'sess-1', source: 'startup' });
+  // The conversation has had a turn, so Claude Code has it on record and the
+  // run resumes it (#295).
+  await conversationOnRecord(box, { harness: 'claude', cwd: botHomeOf(bots, 'api-bot'), id: 'sess-1' });
 
   await box.orca.set({
     terminals: (await box.orca.terminals()).filter((one) => one.tabId !== was),

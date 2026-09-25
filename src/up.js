@@ -314,7 +314,11 @@ async function bringUpSession(bots, home, live, session, bot, title) {
     if (rules === undefined) delete entry.rules;
     // Before the line is typed, so the hook finds no id here and takes the one
     // it reports for a start rather than a clear, which would tell the duty twice.
-    if (which.noConversation !== undefined && entry.session === which.noConversation) entry = forgetSession(entry, 'no conversation');
+    // An id a hook wrote while the tab was being opened goes too: the line about
+    // to be typed is a fresh start either way (review of PR #310).
+    if (which.noConversation !== undefined && typeof entry.session === 'string') {
+      entry = forgetSession(entry, entry.session === which.noConversation ? 'no conversation' : 'replaced');
+    }
     current.sessions[session.name] = withUnclaimed(entry, which.unclaimed ?? []);
     forgetClaimed(current);
   });
