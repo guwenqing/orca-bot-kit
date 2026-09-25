@@ -176,8 +176,8 @@ export function sendMessage(bots, { to: target, from: sender, tab, subject, text
  * Orca fences a Run to one reader, its coordinator. A session whose tab is live
  * is bound to that tab and read as it; one whose tab is down is read as its
  * Run's coordinator, and nothing is bound (issue #249). A read that
- * is not a peek acknowledges the batch it read: that is what makes the next
- * check bring the next one rather than the same again.
+ * is not a peek acknowledges every batch waiting, one after another, so one
+ * check hands over all of it (issue #299).
  */
 export function checkMail(bots, { bot: botName, session: sessionName, tab, peek = false }) {
   const who = sessionName === undefined && botName === undefined
@@ -212,9 +212,16 @@ export function checkMail(bots, { bot: botName, session: sessionName, tab, peek 
       trouble: `${who.bot}/${who.session} is not up, and its mailbox is bound to no tab, so there is nothing to read it as. Its mail waits until its tab is back: \`up\` brings it back, or \`unpause\` when it is paused.`,
     };
   }
-  const found = readMailbox(who.mailbox, { peek, handle });
-  const messages = (found.messages ?? []).map((message) => asMessage(bots, message));
-  if (!peek && found.deliveryId !== undefined && messages.length > 0) ackMailbox(who.mailbox, found.deliveryId, handle);
+  // Orca hands mail over a batch at a time and replays the oldest until it is
+  // acknowledged; the acknowledgement answers with the next batch. So a read
+  // takes every batch in turn, or newer mail waits behind an older one (#299).
+  const messages = [];
+  let found = readMailbox(who.mailbox, { peek, handle });
+  for (;;) {
+    messages.push(...(found.messages ?? []).map((message) => asMessage(bots, message)));
+    if (peek || !found.deliveryId || (found.messages ?? []).length === 0) break;
+    found = ackMailbox(who.mailbox, found.deliveryId, handle);
+  }
 
   return { bots, bot: who.bot, session: who.session, mailbox: who.mailbox, read: !peek, messages };
 }
