@@ -342,7 +342,7 @@ function nudge(to, from, subject) {
   if (to.tab === undefined) return { nudged: false };
 
   try {
-    const found = tabToTypeInto(to.home, to.tab, LOOK_MS);
+    const found = lookAt(to);
     if (found.blocked !== undefined) return { nudged: false, blocked: found.blocked };
     // A line that lands in a shell is run there, with the sender's subject in it.
     if (found.unsure !== undefined) return { nudged: false, nudgeTrouble: found.unsure };
@@ -360,6 +360,21 @@ function nudge(to, from, subject) {
     // silent `false` would read as "the session is not up", which is a
     // different thing from "Orca would not say".
     return { nudged: false, nudgeTrouble: error.message };
+  }
+}
+
+/**
+ * The look before the nudge. Orca now and then refuses a handle it has just
+ * listed as stale, and a fresh listing hands out one that works (tech notes,
+ * section 1), so that refusal earns one more listing and one more look. Only
+ * one: a second refusal is reported as it is (#294).
+ */
+function lookAt(to) {
+  try {
+    return tabToTypeInto(to.home, to.tab, LOOK_MS);
+  } catch (error) {
+    if (error.code !== 'terminal_handle_stale') throw error;
+    return tabToTypeInto(to.home, to.tab, LOOK_MS);
   }
 }
 

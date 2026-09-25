@@ -257,7 +257,11 @@ export function harnessInTab(handle, timeoutMs) {
   // Out of time means nothing went idle, busy or absent alike. That is an
   // answer, not a breakdown.
   if (answer.ok !== true && answer.error?.code !== 'timeout') {
-    throw new Error(`Orca refused ${args.join(' ')}: ${answer.error?.message ?? 'no reason given'}`);
+    // With Orca's code on it, so a caller can tell a stale handle from the rest (#294).
+    throw Object.assign(
+      new Error(`Orca refused ${args.join(' ')}: ${answer.error?.message ?? 'no reason given'}`),
+      { code: answer.error?.code },
+    );
   }
 
   const shown = orca(['terminal', 'show', '--terminal', handle]).terminal;

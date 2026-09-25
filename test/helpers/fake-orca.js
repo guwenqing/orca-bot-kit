@@ -82,6 +82,19 @@
 //               `since: "<other command>"` it goes through until that other
 //               command has been called, and fails every time after, which is
 //               how a test refuses the listing after a delete and not before.
+//               With `times: n` only n calls fail, the first n after the `after`
+//               ones, and every call after them goes through again: a refusal
+//               that comes and goes, as `terminal_handle_stale` did live on
+//               1.4.209 (#294), where the same handle worked minutes later.
+//   reissue     { "<handle>": "<new handle>" } — once a call naming that handle
+//               with `--terminal` has been refused, the next `terminal list`
+//               that reports its terminal hands it out under the new handle,
+//               and from then on it has only that one: the old handle is
+//               refused as any handle the fake does not have. Read in Orca
+//               1.4.209's bundle (#294): `terminal list` re-issues a handle at
+//               the tab's current state, and the string usually stays the
+//               same; this is the case where it does not. Left out, a listing
+//               hands out the handle it always has.
 //   keepOnDelete  true: `project setup-delete` answers ok, in the same words
 //               as a delete that took, and the setup stays in `setups`, so the
 //               listing after it still has it. A delete Orca answered but did
@@ -283,7 +296,18 @@ if (aimedHere(state.runDuring)) {
 }
 
 const planned = (state.fail ?? {})[command];
-if (planned && callsSoFar() > (planned.after ?? 0) && (planned.since === undefined || callsSoFar(planned.since) > 0)) {
+if (
+  planned
+  && callsSoFar() > (planned.after ?? 0)
+  && (planned.times === undefined || callsSoFar() <= (planned.after ?? 0) + planned.times)
+  && (planned.since === undefined || callsSoFar(planned.since) > 0)
+) {
+  // A refused handle the test wants re-issued is handed out anew by the next listing.
+  const refused = flag('--terminal');
+  if (refused !== undefined && (state.reissue ?? {})[refused] !== undefined) {
+    state.reissueDue = [...(state.reissueDue ?? []), refused];
+    save();
+  }
   fail(planned.code ?? 'orca_said_no', planned.message ?? 'orca said no', planned.data ?? {});
 }
 
@@ -439,7 +463,18 @@ if (command === 'terminal list') {
     if (terminal.closingFor <= 0) caughtUp = true;
   }
   if (caughtUp) state.terminals = state.terminals.filter((terminal) => (terminal.closingFor ?? 1) > 0);
-  if (shown.some((terminal) => terminal.closingFor !== undefined)) save();
+
+  // A handle refused since the last listing, handed out under its new name.
+  let reissued = false;
+  for (const terminal of shown) {
+    if (!(state.reissueDue ?? []).includes(terminal.handle)) continue;
+    const old = terminal.handle;
+    terminal.handle = state.reissue[old];
+    state.reissueDue = state.reissueDue.filter((handle) => handle !== old);
+    delete state.reissue[old];
+    reissued = true;
+  }
+  if (reissued || shown.some((terminal) => terminal.closingFor !== undefined)) save();
 
   ok({ terminals: shown.map(asReported) });
 }
