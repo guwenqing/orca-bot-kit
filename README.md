@@ -494,10 +494,16 @@ obk message check --bots /path/to/my-bots --bot api-bot --session daily
 Two roads, and a bot never picks. Claude Code to Claude Code in the same
 approval class (`auto` and `ask` are one class, `dangerously-skip` the other)
 is the harness's own messaging: `message to` answers with the
-session's name — `<bot>.<session>`, which `obk up` puts on its launch line —
-and the sending session writes to that name itself, because no command can send
-that message for it. Everything else goes through Orca's mailbox, which the kit
-does carry.
+session's name, `<bot>.<session>.<token>`, which `obk up` puts on its launch
+line, and the sending session writes to that name itself, because no command
+can send that message for it. The token is new for each new conversation and
+kept when one is resumed, because Claude Code refuses a name that other fleets'
+sessions also answer to. Ask `message to` each time rather than keeping the
+name. Everything else goes through Orca's mailbox, which the kit does carry.
+
+That includes a Claude session still running under a name from before the
+token, `<bot>.<session>`: `message to` answers the mailbox road for it, never
+that name, until the session next starts a new conversation.
 
 A session's mailbox is made the first time `obk up` brings it up, and written in
 the book beside its tab. It is an Orca Run rather than the session's tab,

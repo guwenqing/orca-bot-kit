@@ -48,6 +48,7 @@ import {
   sessionIn,
   tabsOfBot,
   TAB_TITLES,
+  tokenless,
   typedInto,
 } from './helpers/cli.js';
 import { addRules, agentsOf } from './helpers/rules.js';
@@ -115,10 +116,11 @@ const creates = (calls) => orcaCallsOf(calls, 'terminal create');
 
 /**
  * The line a claude session is started with when it resumes `id` and nothing
- * else is set. A session's own name is on that line — `-n <bot>.<session>`,
+ * else is set. A session's own name is on that line — `-n <bot>.<session>.<token>`,
  * which is the address another Claude session writes to (ADR 0018) — and it
  * goes on a resume as much as on a first start, so the session that comes back
- * answers to the name it had.
+ * answers to the name it had. The token is compared through `tokenless`;
+ * session-resume checks that it is the one the book held.
  */
 const resumeLine = (box, id, bot = 'api-bot', session = 'daily') =>
   `${bareLaunch(box, 'claude', bot, session)} --resume ${id}`;
@@ -147,7 +149,7 @@ test('R1 a session that is up is closed once, by its own handle, and comes back 
   const after = await liveTab(box, bots, 'api-bot', 'daily');
   assert.notEqual(after.tabId, before.tabId, 'a tab that comes back is a new tab');
   assert.deepEqual(
-    typedInto(after.terminal),
+    typedInto(after.terminal).map(tokenless),
     [resumeLine(box, 'sess-1')],
     'and the line typed into it picks up the conversation the book held',
   );
@@ -181,7 +183,7 @@ test('R2 with no --session every session of the bot is restarted', async (t) => 
   for (const [name, id] of [['daily', 'sess-daily'], ['review', 'sess-review']]) {
     const after = await liveTab(box, bots, 'api-bot', name);
     assert.notEqual(after.tabId, before[name].tabId, `${name} should be in a new tab`);
-    assert.deepEqual(typedInto(after.terminal), [resumeLine(box, id, 'api-bot', name)], `${name} should come back as itself`);
+    assert.deepEqual(typedInto(after.terminal).map(tokenless), [resumeLine(box, id, 'api-bot', name)], `${name} should come back as itself`);
   }
 });
 
@@ -228,7 +230,7 @@ test('R3 only the tabs the book names are closed: Bot Father keeps its ops tab',
   const came = await liveTab(box, bots, 'bot-father', 'daily');
   assert.notEqual(came.tabId, daily.tabId);
   assert.equal(came.terminal.title, TAB_TITLES.daily);
-  assert.deepEqual(typedInto(came.terminal), [resumeLine(box, 'sess-bf', 'bot-father', 'daily')]);
+  assert.deepEqual(typedInto(came.terminal).map(tokenless), [resumeLine(box, 'sess-bf', 'bot-father', 'daily')]);
 });
 
 test('R4 Orca\'s whole-project close is never called, by this command or any other', async (t) => {
@@ -339,7 +341,7 @@ test('R7 a session whose tab Orca no longer has is brought back, and nothing is 
   assert.equal(creates(calls).length, 1, 'and the session comes back all the same');
   const after = await liveTab(box, bots, 'api-bot', 'daily');
   assert.notEqual(after.tabId, before.tabId);
-  assert.deepEqual(typedInto(after.terminal), [resumeLine(box, 'sess-1')], 'with the conversation the book held');
+  assert.deepEqual(typedInto(after.terminal).map(tokenless), [resumeLine(box, 'sess-1')], 'with the conversation the book held');
 });
 
 test('R8 a session that has never had a tab is started fresh, with its duty and no resume', async (t) => {
@@ -355,7 +357,7 @@ test('R8 a session that has never had a tab is started fresh, with its duty and 
   assert.equal(creates(calls).length, 1);
   const after = await liveTab(box, bots, 'api-bot', 'daily');
   assert.deepEqual(
-    typedInto(after.terminal),
+    typedInto(after.terminal).map(tokenless),
     [`${bareLaunch(box, 'claude', 'api-bot', 'daily')} -- '${PROMPT}'`],
     'a session with no conversation behind it starts one, and is told what it is for',
   );
@@ -578,7 +580,7 @@ test('R14 a close the listing is slow to agree with still ends with the session 
 
   const after = await liveTab(box, bots, 'api-bot', 'daily');
   assert.notEqual(after.tabId, before.tabId, 'the tab Orca was still listing is not the tab that came back');
-  assert.deepEqual(typedInto(after.terminal), [resumeLine(box, 'sess-1')], 'with the conversation the book held');
+  assert.deepEqual(typedInto(after.terminal).map(tokenless), [resumeLine(box, 'sess-1')], 'with the conversation the book held');
   const entry = await sessionIn(bots, 'api-bot', 'daily');
   assert.equal(entry.tab, after.tabId, 'and the book holds the new tab');
   assert.equal(entry.session, 'sess-1');

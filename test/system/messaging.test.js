@@ -102,7 +102,7 @@ import test from 'node:test';
 import { setTimeout } from 'node:timers/promises';
 import { parse } from 'yaml';
 
-import { cliEntry } from '../helpers/cli.js';
+import { addressPattern, cliEntry } from '../helpers/cli.js';
 
 /**
  * Remove the throwaway bots folder and everything the kit made beside it.
@@ -532,7 +532,7 @@ async function aFleet(t, label, promptFor) {
     // it down, and a Claude session carries its name as well.
     const session = await sessionIn(homeOf(bot.name), 'daily');
     assert.match(String(session.mailbox), /^run_/, `${bot.name} should have a Run mailbox, got: ${JSON.stringify(session)}`);
-    if (bot.harness === 'claude') assert.equal(session.address, `${bot.name}.daily`);
+    if (bot.harness === 'claude') assert.match(String(session.address), addressPattern(bot.name, 'daily'));
 
     // And it is answerable before the next bot is started. A bot's part begins
     // the moment its own harness is running, and the bot before it may still be

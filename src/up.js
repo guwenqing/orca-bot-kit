@@ -12,7 +12,7 @@ import { forgetClaimed, forgetSession, readBook, sessionIdsIn, tabIdsIn, updateB
 import { botDir, botNames, displayName, readBot } from './bot.js';
 import { conversationsIn, hasConversation, heldAsUserTurn, transcriptsIn } from './conversations.js';
 import { installHook } from './hooks.js';
-import { addressOf, harnessOf, isShortPrompt, launchCommand, reachesMail, sessionTrouble, startPrompt, workDirOf } from './launch.js';
+import { addressOf, harnessOf, isAddressOf, isShortPrompt, launchCommand, reachesMail, sessionTrouble, startPrompt, workDirOf } from './launch.js';
 import { asFolderProject, findProject, harnessInTab, makeMailbox, makeProject, openTab, retitleTab, tabs, tellWindow, typeIntoTab, useMailbox } from './orca.js';
 import { buildAgents, rulesStamp } from './rules.js';
 import { linkSkills } from './skills.js';
@@ -264,7 +264,7 @@ async function bringUpSession(bots, home, live, session, bot, title) {
   // Asked before the book is held, because it reads a folder of the harness's
   // own files: nothing slow happens under the lock.
   let which = whichConversation(book, home, bot, session, was, harness);
-  const launchOf = (chosen) => launchFor(bots, bot, session, harness, home, workDir, chosen.resume);
+  const launchOf = (chosen) => launchFor(bots, bot, session, harness, home, workDir, chosen.resume, was?.address);
   let launch = launchOf(which);
 
   // A work dir is a plain folder, made for the session before it is told about
@@ -328,7 +328,7 @@ async function bringUpSession(bots, home, live, session, bot, title) {
   // tab is on the books, so a mailbox Orca will not make leaves a tab the next
   // run finds and finishes rather than a tab nobody owns (review of PR #132,
   // finding 3).
-  await ensureMailbox(home, bot, session, harness, made.handle, { named: harness === 'claude', opened: true });
+  await ensureMailbox(home, bot, session, harness, made.handle, { address: launch.address, opened: true });
 
   // And then asking whether a TUI came up, rather than assuming one did. The
   // text goes into the tab's own shell, which may have been busy with a
@@ -365,13 +365,21 @@ async function bringUpSession(bots, home, live, session, bot, title) {
 
 /**
  * The line that starts this session: resuming `resume`, or, with none, a fresh
- * start carrying its duty. Returns `{ resume, prompt, promptFile, command }`.
+ * start carrying its duty. Returns `{ resume, prompt, promptFile, command, address }`.
  */
-function launchFor(bots, bot, session, harness, home, workDir, resume) {
+function launchFor(bots, bot, session, harness, home, workDir, resume, held) {
   const prompt = resume === undefined ? startPrompt(session, { home, workDir }) : undefined;
   // Anything longer than a line goes to the harness out of a file, rather than
   // through the tab's shell a character at a time.
   const promptFile = prompt === undefined || isShortPrompt(prompt) ? undefined : promptPath(bots, bot.name, session.name);
+  // A new conversation is given a new name. A resume goes on under the one the
+  // kit gave it, and under no `-n` at all when the book `held` none of the
+  // kit's own: a resume keeps whatever name the conversation has, which is
+  // proven, and whether `-n` renames it is not (#286). Such a session is
+  // written to through its mailbox until it next starts fresh.
+  const address = harness !== 'claude' ? undefined
+    : resume === undefined ? addressOf(bot.name, session.name)
+    : isAddressOf(bot.name, session.name, held) ? held : undefined;
   const command = launchCommand(session, {
     harness,
     home,
@@ -379,9 +387,9 @@ function launchFor(bots, bot, session, harness, home, workDir, resume) {
     prompt,
     promptFile,
     resume,
-    address: harness === 'claude' ? addressOf(bot.name, session.name) : undefined,
+    address,
   });
-  return { resume, prompt, promptFile, command };
+  return { resume, prompt, promptFile, command, address };
 }
 
 /**
@@ -468,11 +476,10 @@ function lookFor(handle, timeoutMs) {
  * not read a mailbox if it had one, and an address nobody can read is worse
  * than none at all. `obk message` says so in those words.
  */
-async function ensureMailbox(home, bot, session, harness, handle, { named = false, opened = false } = {}) {
+async function ensureMailbox(home, bot, session, harness, handle, { address, opened = false } = {}) {
   const held = readBook(home).sessions[session.name] ?? {};
   if (opened && typeof held.mailbox === 'string') useMailbox(held.mailbox, handle);
 
-  const address = named ? addressOf(bot.name, session.name) : undefined;
   const mailbox = mailboxFor(readBook(home), bot, session, harness, handle);
 
   if (mailbox === undefined && (address === undefined || held.address === address)) return;

@@ -31,6 +31,7 @@ import {
   sessionIn,
   sessionTabIds,
   TAB_TITLES,
+  tokenless,
   typedInto,
 } from './helpers/cli.js';
 
@@ -89,14 +90,14 @@ test('no second harness is started in the tab the first run made', async (t) => 
   await box.orca.set({ fail: { 'terminal wait': { code: 'terminal_not_found', message: 'no such terminal' } } });
   assertCleanFailure(await box.run(['init', '--bots', 'bots', '--harness', 'claude']));
   const orphan = (await box.orca.terminals())[0];
-  assert.deepEqual(typedInto(orphan), [bareLaunch(box, 'claude', 'bot-father', 'daily')], 'the first run did type it in');
+  assert.deepEqual(typedInto(orphan).map(tokenless), [bareLaunch(box, 'claude', 'bot-father', 'daily')], 'the first run did type it in');
 
   await box.orca.set({ fail: {} });
   const soFar = (await box.orca.calls()).length;
   assert.equal((await box.run(['up', '--bots', 'bots'])).code, 0);
 
   const { inBook } = await botFatherTabs(box, box.path('bots'));
-  assert.deepEqual(typedInto(inBook[0]), [bareLaunch(box, 'claude', 'bot-father', 'daily')], 'and the second run must not type it in again');
+  assert.deepEqual(typedInto(inBook[0]).map(tokenless), [bareLaunch(box, 'claude', 'bot-father', 'daily')], 'and the second run must not type it in again');
   assert.deepEqual(
     orcaCallsOf((await box.orca.calls()).slice(soFar), 'terminal send'),
     [],
