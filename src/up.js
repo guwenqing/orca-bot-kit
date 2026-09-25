@@ -8,9 +8,9 @@ import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { setTimeout as pause } from 'node:timers/promises';
 
-import { forgetClaimed, readBook, sessionIdsIn, tabIdsIn, updateBook, withUnclaimed } from './book.js';
+import { forgetClaimed, forgetSession, readBook, sessionIdsIn, tabIdsIn, updateBook, withUnclaimed } from './book.js';
 import { botDir, botNames, displayName, readBot } from './bot.js';
-import { conversationsIn, heldAsUserTurn, transcriptsIn } from './conversations.js';
+import { conversationsIn, hasConversation, heldAsUserTurn, transcriptsIn } from './conversations.js';
 import { installHook } from './hooks.js';
 import { addressOf, harnessOf, isShortPrompt, launchCommand, reachesMail, sessionTrouble, startPrompt, workDirOf } from './launch.js';
 import { asFolderProject, findProject, harnessInTab, makeMailbox, makeProject, openTab, retitleTab, tabs, tellWindow, typeIntoTab, useMailbox } from './orca.js';
@@ -310,8 +310,11 @@ async function bringUpSession(bots, home, live, session, bot, title) {
     // for a person or Bot Father to settle — added to whatever was already noted,
     // because this run's scan cannot see what an earlier one found. The kit never
     // settles it itself.
-    const entry = { ...current.sessions[session.name], tab: made.tabId, launched, rules };
+    let entry = { ...current.sessions[session.name], tab: made.tabId, launched, rules };
     if (rules === undefined) delete entry.rules;
+    // Before the line is typed, so the hook finds no id here and takes the one
+    // it reports for a start rather than a clear, which would tell the duty twice.
+    if (which.noConversation !== undefined && entry.session === which.noConversation) entry = forgetSession(entry, 'no conversation');
     current.sessions[session.name] = withUnclaimed(entry, which.unclaimed ?? []);
     forgetClaimed(current);
   });
@@ -356,6 +359,7 @@ async function bringUpSession(bots, home, live, session, bot, title) {
     promptReceived,
     promptFile,
     resumed: resume !== undefined,
+    noConversation: which.noConversation,
     unclaimed: which.unclaimed,
   });
 }
@@ -479,7 +483,14 @@ function mailboxFor(book, bot, session, harness, handle) {
  * has already started a harness in, the harness's own record is asked.
  */
 function whichConversation(book, home, bot, session, was, harness) {
-  if (typeof was?.session === 'string') return { resume: was.session };
+  if (typeof was?.session === 'string') {
+    if (hasConversation(harness, home, was.session)) return { resume: was.session };
+    // The hook reported an id and the harness never wrote a conversation behind
+    // it: a session paused before its first turn is one. There is nothing to
+    // resume, so it starts again with its duty, and the book keeps the id in the
+    // history with the reason (#295).
+    return { noConversation: was.session };
+  }
   // No tab: nothing has ever run for this session, so there is nothing to find.
   if (typeof was?.tab !== 'string') return {};
 
@@ -526,11 +537,13 @@ const ids = (setup, change) => ({ project: setup.projectId, setup: setup.id, cha
 export const promptPath = (bots, bot, session) =>
   path.join(`${bots}.prompts`, `${encodeURIComponent(bot)}.${encodeURIComponent(session)}.txt`);
 
-function entry(tab, { bot, name, created, running = false, blockedReason, promptReceived, promptFile, resumed, unclaimed }) {
+function entry(tab, { bot, name, created, running = false, blockedReason, promptReceived, promptFile, resumed, noConversation, unclaimed }) {
   const made = { bot, name, title: tab.title, tabId: tab.tabId, terminal: tab.handle, created, harnessStarted: running };
   // Whether this run picked the session up where it was or started a new one.
   // Only for a tab this run opened: a tab that was already there was left alone.
   if (resumed !== undefined) made.resumed = resumed;
+  // The id the book held that had no conversation behind it, now in the history.
+  if (noConversation !== undefined) made.noConversation = noConversation;
   // Orca's own words for what is on screen waiting to be answered, when it
   // gave any: the caller acts on it, the kit only passes it on.
   if (blockedReason !== undefined) made.blockedReason = blockedReason;

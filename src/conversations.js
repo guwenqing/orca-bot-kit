@@ -10,7 +10,7 @@
 // directory, and every session starts at its bot home. Read only, never
 // written: these are the harness's files (tech notes, sections 2 and 3).
 
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 
@@ -37,6 +37,20 @@ export function conversationsIn(harness, home, since) {
   return transcriptsIn(harness, home, since)
     .filter((one) => !one.subagent)
     .map((one) => ({ id: one.id, at: one.at }));
+}
+
+/**
+ * Whether the harness has a record of the conversation `id` for this bot home,
+ * which is what its own resume looks for. A session paused before its first
+ * turn has an id the hook reported and nothing written behind it, and Claude
+ * Code answers a resume of it with "No conversation found" (#295).
+ *
+ * Asked of the file names alone, which both harnesses make from the id: nothing
+ * is opened, however many conversations the machine has.
+ */
+export function hasConversation(harness, home, id) {
+  if (harness === 'claude') return existsSync(path.join(claudeDir(home), `${id}.jsonl`));
+  return rollouts(codexDir()).some((file) => path.basename(file).endsWith(`-${id}.jsonl`));
 }
 
 /**

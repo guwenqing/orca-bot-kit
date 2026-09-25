@@ -30,6 +30,8 @@ import { parse } from 'yaml';
 import {
   bookIn,
   bookOf,
+  botHomeOf,
+  conversationOnRecord,
   createSandbox,
   harnessChain,
   orcaCallsOf,
@@ -151,6 +153,9 @@ test('a hook that writes while the run is busy with another session loses nothin
   const bots = await written(box, ['daily', 'review']);
   assert.equal((await box.run(['up', '--bots', 'bots', '--bot', 'api-bot'])).code, 0);
   const before = await bookIn(bots, 'api-bot');
+  // The conversation the hook reports has had a turn, so Claude Code has it on
+  // record and the run reaching review resumes it (#295).
+  await conversationOnRecord(box, { harness: 'claude', cwd: botHomeOf(bots, 'api-bot'), id: 'sess-review' });
 
   await box.orca.set({
     terminals: [],
