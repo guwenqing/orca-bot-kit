@@ -213,8 +213,9 @@ const hooksOf = (bots, home, bot) => [...new Set(bot.sessions.map((session) => h
 
 /**
  * Each session of this bot running in a tab Orca has, with what it runs on set
- * beside what the bot asks for now, added to `sessions`; and a finding for each
- * one that runs on something else (#271, #272).
+ * beside what the bot asks for now, added to `sessions`; a finding for each
+ * one that runs on something else (#271, #272); and a finding for each one
+ * whose tab is open with its harness gone from it (#300).
  *
  * Two questions, each answered from where the answer is written. The settings
  * from the harness's own record of the conversation the session is in now,
@@ -248,10 +249,24 @@ function runningOn(bots, home, bot, book, handles, sessions) {
     // A harness can quit to the tab's shell and leave the tab open (#232), so
     // the tab alone is not the answer: who holds its terminal is, asked the way
     // the kit asks before it types into a tab. The shell in front is a session
-    // that is not running. Anything else that is not its own harness, or a front
-    // that cannot be read, leaves it unsaid, and nothing unsaid is a finding.
+    // that is not running, and a finding: `up` finds the tab open and types
+    // nothing into it, so only a restart brings it back (#300). Anything else
+    // that is not its own harness, or a front that cannot be read, leaves it
+    // unsaid, and nothing unsaid is a finding.
+    const restart = `${shellWord(ownCli())} restart --bots ${shellWord(bots)} --bot ${bot.name} --session ${session.name}`;
     const front = frontOfTab(handle);
-    if (front.front === 'shell') continue;
+    if (front.front === 'shell') {
+      // Restart refuses a live tab whose conversation the book cannot name, and
+      // there may be none to name: the harness can quit before it has one. Its
+      // harness is gone, so closing the tab ends nothing, and `up` then starts
+      // the session again as it does any closed tab with no conversation.
+      const up = `${shellWord(ownCli())} up --bots ${shellWord(bots)} --bot ${bot.name} --session ${session.name}`;
+      const back = typeof entry.session === 'string'
+        ? `${restart} does`
+        : `nor does obk restart, which refuses to close a tab whose conversation the book does not name, and the book names none for it. Its harness has already quit, so close the tab in Orca yourself; then ${up} starts it again, with a new conversation and its duty. Any conversation it left in this bot's folder is noted in the book as unclaimed, for health to list`;
+      found.push(finding('session', entry.tab, `${bot.name}'s session ${session.name} is not running: its tab ${entry.tab} is open with only the tab's shell in front, so its harness quit or crashed. obk up finds the tab open and types nothing into it, so it does not bring the session back; ${back}.`, bot.name));
+      continue;
+    }
     const harness = harnessOf(session, bot.harness);
     const running = front.front === 'program' && front.command === harness ? 'yes' : 'unknown';
     const conversation = typeof entry.session === 'string' ? entry.session : null;
@@ -261,7 +276,6 @@ function runningOn(bots, home, bot, book, handles, sessions) {
     sessions.push({ bot: bot.name, session: session.name, harness, running, conversation, settings, rules });
     if (running !== 'yes') continue;
 
-    const restart = `${shellWord(ownCli())} restart --bots ${shellWord(bots)} --bot ${bot.name} --session ${session.name}`;
     const off = Object.entries(settings).filter(([, one]) => one.state === 'mismatch');
     if (off.length > 0) {
       const parts = off.map(([name, one]) => `${name}: bot.yaml asks for ${one.configured}, and it runs on ${one.observed}`).join('; ');
