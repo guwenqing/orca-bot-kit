@@ -35,6 +35,7 @@ import {
   bareLaunch,
   bookOf,
   botHomeOf,
+  conversationOnRecord,
   createSandbox,
   fakeProgram,
   hooksIn,
@@ -161,7 +162,10 @@ test('a child\'s report cannot put the session\'s own conversation into history'
   assert.equal(daily.session, 'sess-1', `got: ${JSON.stringify(daily)}`);
   assert.equal('history' in daily, false, `nothing was replaced, so there is no history: ${JSON.stringify(daily)}`);
 
-  // And the run that follows resumes the session's own conversation.
+  // And the run that follows resumes the session's own conversation, which the
+  // harness has on record (#295); the child's is on record too.
+  await conversationOnRecord(box, { harness: 'codex', cwd: bot.home, id: 'sess-1' });
+  await conversationOnRecord(box, { harness: 'codex', cwd: bot.home, id: 'sess-inner' });
   const tab = (await tabsOfBot(box, bot.bots, 'api-bot'))[0];
   await box.orca.set({ terminals: (await box.orca.terminals()).filter((one) => one.tabId !== tab.tabId) });
   assert.equal((await box.run(['up', '--bots', 'bots', '--bot', 'api-bot'])).code, 0);

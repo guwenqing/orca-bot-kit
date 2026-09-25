@@ -32,6 +32,7 @@ import {
   bareLaunch,
   botFatherTabs,
   botHomeOf,
+  conversationOnRecord,
   createSandbox,
   orcaCallsOf,
   orcaCommand,
@@ -62,8 +63,17 @@ async function up(box, bot = 'api-bot') {
   assert.equal(result.code, 0, result.stderr);
 }
 
-/** Tell the book which conversation a session is running, the way the kit's hook does. */
-const reported = (box, bots, bot, tab, session) => recordSession(box, { bots, bot, tab, session });
+/**
+ * Tell the book which conversation a session is running, the way the kit's
+ * hook does, and leave that conversation on Claude Code's own record, as a
+ * session that has had a turn has it: what `unpause` resumes (#295). Every bot
+ * here runs on Claude Code.
+ */
+async function reported(box, bots, bot, tab, session) {
+  const ran = await recordSession(box, { bots, bot, tab, session });
+  await conversationOnRecord(box, { harness: 'claude', cwd: botHomeOf(bots, bot), id: session });
+  return ran;
+}
 
 /** The tab the book gives a session, and Orca's own record of it. */
 async function liveTab(box, bots, bot, name) {

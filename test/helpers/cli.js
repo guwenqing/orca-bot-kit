@@ -789,6 +789,33 @@ export function recordSession(box, { bots, bot, tab, env, stdin, raw = false, ne
 }
 
 /**
+ * Leave a conversation on the harness's own record, the way the harness does
+ * once the conversation has had a turn: a file under the sandbox's home, named
+ * by the id (tech notes, sections 2 and 3). A session whose book id has one
+ * behind it is resumed; an id with none has nothing to resume (#295).
+ *
+ *   claude  ~/.claude/projects/<slug>/<id>.jsonl, where <slug> is `cwd`'s real
+ *           path with everything but a letter or a digit turned into a dash
+ *   codex   ~/.codex/sessions/<yyyy>/<mm>/<dd>/rollout-<stamp>-<id>.jsonl,
+ *           filed under the day `at` falls on
+ *
+ * `cwd` is the folder the conversation ran in: the bot home, for a session.
+ * The file's first line is the one each harness starts it with. Returns its path.
+ */
+export async function conversationOnRecord(box, { harness, cwd, id, at = new Date() }) {
+  const real = await realpath(cwd);
+  const stamp = at.toISOString();
+  const file = harness === 'codex'
+    ? path.join(box.home, '.codex', 'sessions', ...stamp.slice(0, 10).split('-'), `rollout-${stamp.replaceAll(':', '-').replace(/\..*$/, '')}-${id}.jsonl`)
+    : path.join(box.home, '.claude', 'projects', real.replaceAll(/[^A-Za-z0-9]/g, '-'), `${id}.jsonl`);
+  await mkdir(path.dirname(file), { recursive: true });
+  await writeFile(file, harness === 'codex'
+    ? `${JSON.stringify({ timestamp: stamp, type: 'session_meta', payload: { id, cwd: real, timestamp: stamp } })}\n`
+    : `${JSON.stringify({ type: 'system', sessionId: id, cwd: real, timestamp: stamp })}\n`);
+  return file;
+}
+
+/**
  * Where each harness reads a project's hooks from, inside a bot home. Both
  * were proven live on this machine: Claude Code fires a `SessionStart` hook
  * out of `<cwd>/.claude/settings.json` and Codex out of `<cwd>/.codex/hooks.json`,

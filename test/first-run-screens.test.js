@@ -41,6 +41,8 @@ import test from 'node:test';
 
 import {
   bareLaunch,
+  botHomeOf,
+  conversationOnRecord,
   createSandbox,
   recordSession,
   repoRoot,
@@ -183,13 +185,17 @@ async function madeBot(box, harness = 'claude') {
   return box.path('bots');
 }
 
-/** api-bot up in Orca, with the book holding its conversation `sess-1`. */
-async function running(box, harness) {
+/**
+ * api-bot up in Orca, with the book holding its conversation `sess-1`, and the
+ * harness holding it on record, so it is there to resume (#295).
+ */
+async function running(box, harness = 'claude') {
   const bots = await madeBot(box, harness);
   const up = await box.run(['up', '--bots', 'bots', '--bot', 'api-bot']);
   assert.equal(up.code, 0, up.stderr);
   const entry = await sessionIn(bots, 'api-bot', 'daily');
   await recordSession(box, { bots, bot: 'api-bot', tab: entry.tab, session: 'sess-1' });
+  await conversationOnRecord(box, { harness, cwd: botHomeOf(bots, 'api-bot'), id: 'sess-1' });
   return bots;
 }
 
