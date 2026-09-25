@@ -256,7 +256,12 @@ function runningOn(bots, home, bot, book, handles, sessions) {
     const restart = `${shellWord(ownCli())} restart --bots ${shellWord(bots)} --bot ${bot.name} --session ${session.name}`;
     const front = frontOfTab(handle);
     if (front.front === 'shell') {
-      found.push(finding('session', entry.tab, `${bot.name}'s session ${session.name} is not running: its tab ${entry.tab} is open with only the tab's shell in front, so its harness quit or crashed. obk up finds the tab open and types nothing into it, so it does not bring the session back; ${restart} does.`, bot.name));
+      // Restart refuses a live tab whose conversation the book cannot name, so
+      // without one the id has to go into the book first.
+      const back = typeof entry.session === 'string'
+        ? `${restart} does`
+        : `${restart} does once the book names its conversation, and it names none yet: write the id into ${bookFile(home)} under ${session.name} as  session: <id>  first`;
+      found.push(finding('session', entry.tab, `${bot.name}'s session ${session.name} is not running: its tab ${entry.tab} is open with only the tab's shell in front, so its harness quit or crashed. obk up finds the tab open and types nothing into it, so it does not bring the session back; ${back}.`, bot.name));
       continue;
     }
     const harness = harnessOf(session, bot.harness);

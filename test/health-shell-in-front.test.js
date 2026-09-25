@@ -76,12 +76,15 @@ async function botUp(box, name, { harness = 'claude', sessions = ['daily'] } = {
   await obk(box, 'up', '--bots', 'bots', '--bot', name);
 }
 
-/** Give every named session of a bot a conversation in the book, so that pause and restart will take it. */
-async function conversationsFor(bots, bot, names) {
+/**
+ * Give every named session of a bot a conversation in the book, so that pause
+ * and restart will take it: ids counted from `from`.
+ */
+async function conversationsFor(bots, bot, names, from = 50) {
   const file = bookOf(bots, bot);
   const book = parse(await readFile(file, 'utf8'));
   for (const [n, name] of names.entries()) {
-    book.sessions[name].session = `0199b2c0-${String(50 + n).padStart(4, '0')}-4444-8888-cccccccccccc`;
+    book.sessions[name].session = `0199b2c0-${String(from + n).padStart(4, '0')}-4444-8888-cccccccccccc`;
   }
   await writeFile(file, stringify(book));
 }
@@ -367,6 +370,57 @@ test('D4 after the restart the finding names, the session runs again and the fin
     'yes',
     `review's harness is in front of its new tab, got: ${JSON.stringify(after.sessions, null, 2)}`,
   );
+  assert.deepEqual(after.found, [], `nothing is left to report, got: ${JSON.stringify(after.found, null, 2)}`);
+});
+
+// Right after `up` the book has a session's tab and no conversation yet: the
+// kit's hook has not reported one. `obk restart` refuses a live tab whose entry
+// names no conversation, since closing it would end a conversation nobody could
+// bring back, and asks for the id to be written into the book first. So for
+// such a session the restart alone does not bring it back, and the finding says
+// so by naming the book; with an id in the book it says nothing about that.
+// (Review of PR #301.)
+
+test('D5 following the finding brings a session back: with no conversation in the book it names the book as well as the restart, and with one only the restart', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  await botUp(box, 'api-bot', { sessions: ['daily', 'review'] });
+  await conversationsFor(bots, 'api-bot', ['daily']);
+  assert.equal((await sessionIn(bots, 'api-bot', 'review')).session, undefined, 'the premise: the book names no conversation for review');
+  await frontOf(box, bots, 'api-bot', 'daily', 'shell');
+  await frontOf(box, bots, 'api-bot', 'review', 'shell');
+  const book = bookOf(bots, 'api-bot');
+
+  const answer = await found(box);
+  const plain = await health(box);
+
+  assertReportedDown(answer, plain, box, bots, 'api-bot', 'review');
+  assertReportedDown(answer, plain, box, bots, 'api-bot', 'daily');
+  const [review] = about(answer, 'api-bot', 'review');
+  const [daily] = about(answer, 'api-bot', 'daily');
+  assert.ok(
+    spellingsOf(book).some((spelling) => review.says.includes(spelling)),
+    `the restart alone will not take review, so its finding names the book the id goes in, ${book}, got: ${review.says}`,
+  );
+  assert.ok(!daily.says.includes(book), `the book names daily's conversation, so its finding says nothing about the book, got: ${daily.says}`);
+
+  // The restart alone is refused for review, which is why the book is named.
+  const refused = await box.run(['restart', '--bots', 'bots', '--bot', 'api-bot', '--session', 'review']);
+  assert.notEqual(refused.code, 0, `the premise: restart refuses a live tab whose conversation the book does not name, got: ${refused.stdout}${refused.stderr}`);
+
+  // Doing what the findings say: the id written into the book, then the restart.
+  await conversationsFor(bots, 'api-bot', ['review'], 60);
+  await obk(box, 'restart', '--bots', 'bots', '--bot', 'api-bot', '--session', 'review');
+  await obk(box, 'restart', '--bots', 'bots', '--bot', 'api-bot', '--session', 'daily');
+  const after = await found(box);
+
+  for (const session of ['daily', 'review']) {
+    assert.equal(
+      after.sessions.find((one) => one.bot === 'api-bot' && one.session === session)?.running,
+      'yes',
+      `${session} runs again, got: ${JSON.stringify(after.sessions, null, 2)}`,
+    );
+  }
   assert.deepEqual(after.found, [], `nothing is left to report, got: ${JSON.stringify(after.found, null, 2)}`);
 });
 
