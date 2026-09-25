@@ -41,6 +41,8 @@ import test from 'node:test';
 
 import {
   bareLaunch,
+  botHomeOf,
+  conversationOnRecord,
   createSandbox,
   recordSession,
   repoRoot,
@@ -48,6 +50,7 @@ import {
   sessionIn,
   tabsOfBot,
   TAB_TITLES,
+  tokenless,
   typedInto,
 } from './helpers/cli.js';
 
@@ -183,13 +186,17 @@ async function madeBot(box, harness = 'claude') {
   return box.path('bots');
 }
 
-/** api-bot up in Orca, with the book holding its conversation `sess-1`. */
-async function running(box, harness) {
+/**
+ * api-bot up in Orca, with the book holding its conversation `sess-1`, and the
+ * harness holding it on record, so it is there to resume (#295).
+ */
+async function running(box, harness = 'claude') {
   const bots = await madeBot(box, harness);
   const up = await box.run(['up', '--bots', 'bots', '--bot', 'api-bot']);
   assert.equal(up.code, 0, up.stderr);
   const entry = await sessionIn(bots, 'api-bot', 'daily');
   await recordSession(box, { bots, bot: 'api-bot', tab: entry.tab, session: 'sess-1' });
+  await conversationOnRecord(box, { harness, cwd: botHomeOf(bots, 'api-bot'), id: 'sess-1' });
   return bots;
 }
 
@@ -289,13 +296,14 @@ for (const name of Object.keys(COMMANDS)) {
     const blocked = await opened(t, name, BLOCKED);
 
     assert.deepEqual(
-      typedInto(blocked.terminal),
+      typedInto(blocked.terminal).map(tokenless),
       COMMANDS[name].typed(blocked.box),
       `${name}: only the launch line goes into a waiting tab`,
     );
-    // Two sandboxes, each with its own `obk`, so each line names its own CLI:
-    // that one word is set aside and the rest has to match exactly.
-    const sent = (run) => sentInto(run.terminal).map((entry) => ({ ...entry, text: entry.text.replaceAll(run.box.cli, '<cli>') }));
+    // Two sandboxes, each with its own `obk` and its own session name, so each
+    // line names its own CLI and token (#286): those are set aside and the
+    // rest has to match exactly.
+    const sent = (run) => sentInto(run.terminal).map((entry) => ({ ...entry, text: tokenless(entry.text).replaceAll(run.box.cli, '<cli>') }));
     assert.deepEqual(sent(blocked), sent(idle), `${name}: and it goes in exactly as it does into an idle tab`);
   });
 }

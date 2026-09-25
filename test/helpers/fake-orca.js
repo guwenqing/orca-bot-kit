@@ -82,6 +82,19 @@
 //               `since: "<other command>"` it goes through until that other
 //               command has been called, and fails every time after, which is
 //               how a test refuses the listing after a delete and not before.
+//               With `times: n` only n calls fail, the first n after the `after`
+//               ones, and every call after them goes through again: a refusal
+//               that comes and goes, as `terminal_handle_stale` did live on
+//               1.4.209 (#294), where the same handle worked minutes later.
+//   reissue     { "<handle>": "<new handle>" } — once a call naming that handle
+//               with `--terminal` has been refused, the next `terminal list`
+//               that reports its terminal hands it out under the new handle,
+//               and from then on it has only that one: the old handle is
+//               refused as any handle the fake does not have. Read in Orca
+//               1.4.209's bundle (#294): `terminal list` re-issues a handle at
+//               the tab's current state, and the string usually stays the
+//               same; this is the case where it does not. Left out, a listing
+//               hands out the handle it always has.
 //   keepOnDelete  true: `project setup-delete` answers ok, in the same words
 //               as a delete that took, and the setup stays in `setups`, so the
 //               listing after it still has it. A delete Orca answered but did
@@ -140,10 +153,20 @@
 //               fake, not by a test.
 //   messages    [{ id, to, from, subject, body, type, priority, threadId,
 //               at, acked }] — everything `orchestration send` has queued, in
-//               the order it was sent. `acked` is what `check --ack` sets, and
-//               an unacked message is replayed on every read. Those are this
+//               the order it was sent. `acked` is what `check --ack` sets on
+//               the messages of the delivery it acknowledges. Those are this
 //               fake's own names, for a test to read; Orca's own words for the
 //               same message are in `asOrca` below.
+//   deliveries  [{ id, run, messageIds, acknowledged }] — the batches a plain
+//               `check` has handed over, as Orca 1.4.209 keeps them (read in
+//               its bundle, `getOrCreateRunDelivery` and
+//               `acknowledgeMailboxDelivery`; the head-of-line part seen live
+//               in #299). A Run has at most one outstanding delivery, and a
+//               plain read replays it, the same messages under the same
+//               `delivery_…` id, however much newer mail has come in since;
+//               only when there is none does a read make a new one, of the
+//               oldest unread messages, at most 50. Written by the fake; a test
+//               may leave one outstanding to put a Run in that state.
 //   runDuring   { command, argv, env, on } — run `argv` to completion once,
 //               before answering the `on`th call of `command` (the first by
 //               default), so another writer really lands in the middle of a run
@@ -273,7 +296,18 @@ if (aimedHere(state.runDuring)) {
 }
 
 const planned = (state.fail ?? {})[command];
-if (planned && callsSoFar() > (planned.after ?? 0) && (planned.since === undefined || callsSoFar(planned.since) > 0)) {
+if (
+  planned
+  && callsSoFar() > (planned.after ?? 0)
+  && (planned.times === undefined || callsSoFar() <= (planned.after ?? 0) + planned.times)
+  && (planned.since === undefined || callsSoFar(planned.since) > 0)
+) {
+  // A refused handle the test wants re-issued is handed out anew by the next listing.
+  const refused = flag('--terminal');
+  if (refused !== undefined && (state.reissue ?? {})[refused] !== undefined) {
+    state.reissueDue = [...(state.reissueDue ?? []), refused];
+    save();
+  }
   fail(planned.code ?? 'orca_said_no', planned.message ?? 'orca said no', planned.data ?? {});
 }
 
@@ -429,7 +463,18 @@ if (command === 'terminal list') {
     if (terminal.closingFor <= 0) caughtUp = true;
   }
   if (caughtUp) state.terminals = state.terminals.filter((terminal) => (terminal.closingFor ?? 1) > 0);
-  if (shown.some((terminal) => terminal.closingFor !== undefined)) save();
+
+  // A handle refused since the last listing, handed out under its new name.
+  let reissued = false;
+  for (const terminal of shown) {
+    if (!(state.reissueDue ?? []).includes(terminal.handle)) continue;
+    const old = terminal.handle;
+    terminal.handle = state.reissue[old];
+    state.reissueDue = state.reissueDue.filter((handle) => handle !== old);
+    delete state.reissue[old];
+    reissued = true;
+  }
+  if (reissued || shown.some((terminal) => terminal.closingFor !== undefined)) save();
 
   ok({ terminals: shown.map(asReported) });
 }
@@ -834,29 +879,54 @@ if (command === 'orchestration check') {
   const mailIn = () => (state.messages ?? [])
     .filter((message) => message.to === `run:${run}` && (args.includes('--all') || !message.acked));
 
-  // A delivery is the batch a read hands over, and acknowledging it
-  // acknowledges everything up to and including it: FIFO, and replayed until
-  // acked, so a reader that never acked would be given the same mail for ever.
-  const acked = [];
-  const wanted = flag('--ack');
-  if (wanted !== undefined) {
-    const upTo = (state.messages ?? []).findIndex((entry) => entry.id === wanted);
-    if (upTo < 0) fail('delivery_not_found', `no delivery with id ${wanted}`);
-    for (const message of mailIn()) {
-      if ((state.messages ?? []).indexOf(message) > upTo) continue;
-      message.acked = true;
-      acked.push(message.id);
-    }
-    save();
+  // A peek lists every unread message, up to 100, whether or not it sits in a
+  // delivery, names no delivery and changes nothing.
+  if (args.includes('--peek')) {
+    const waiting = mailIn().slice(0, 100);
+    ok({ runId: run, messages: waiting.map(asOrca), count: waiting.length, acknowledged: null });
   }
 
-  const waiting = mailIn();
+  // A delivery is the batch a plain read hands over: at most one outstanding
+  // per Run, replayed until it is acknowledged, so a reader that never acks is
+  // given the same mail for ever, and newer mail waits behind it. `--ack`
+  // takes exactly the outstanding delivery, by its own id — a message id is
+  // stale — and answers with the next batch in the same call.
+  const outstanding = () => (state.deliveries ?? []).find((delivery) => delivery.run === run && !delivery.acknowledged);
+  let acknowledged = null;
+  const wanted = flag('--ack');
+  if (wanted !== undefined) {
+    const delivery = outstanding();
+    if (delivery?.id !== wanted) fail('stale_delivery', `${wanted} is not the outstanding delivery of ${run}`);
+    for (const message of state.messages ?? []) {
+      if (delivery.messageIds.includes(message.id)) message.acked = true;
+    }
+    delivery.acknowledged = true;
+    acknowledged = wanted;
+  }
+
+  let delivery = outstanding();
+  const replayed = delivery !== undefined;
+  if (delivery === undefined) {
+    const batch = (state.messages ?? []).filter((message) => message.to === `run:${run}` && !message.acked).slice(0, 50);
+    if (batch.length > 0) {
+      const n = state.nextId ?? 1;
+      state.nextId = n + 1;
+      delivery = { id: `delivery_${n}`, run, messageIds: batch.map((message) => message.id), acknowledged: false };
+      state.deliveries = [...(state.deliveries ?? []), delivery];
+    }
+  }
+  save();
+
+  const handed = delivery === undefined
+    ? []
+    : delivery.messageIds.map((id) => (state.messages ?? []).find((message) => message.id === id));
   ok({
-    run,
-    messages: waiting.map(asOrca),
-    // What to acknowledge when this batch has been read.
-    ...(waiting.length > 0 ? { deliveryId: waiting[waiting.length - 1].id } : {}),
-    ...(acked.length > 0 ? { acked } : {}),
+    runId: run,
+    deliveryId: delivery?.id ?? null,
+    messages: handed.map(asOrca),
+    count: handed.length,
+    replayed,
+    acknowledged,
   });
 }
 

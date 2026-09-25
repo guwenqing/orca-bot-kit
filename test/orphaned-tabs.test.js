@@ -28,6 +28,7 @@ import {
   bookOf,
   botFatherTabs,
   botHomeOf,
+  conversationOnRecord,
   createSandbox,
   orcaCallsOf,
   orcaFlag,
@@ -36,6 +37,7 @@ import {
   sh,
   tabsOfBot,
   TAB_TITLES,
+  tokenless,
   typedInto,
 } from './helpers/cli.js';
 
@@ -57,12 +59,16 @@ async function tabOf(box, bots, bot = 'api-bot', name = 'daily') {
   return { tabId, handle: terminal.handle, terminal };
 }
 
-/** A running api-bot/daily whose conversation the book knows, with its tab now listed as orphaned. */
+/**
+ * A running api-bot/daily whose conversation the book knows, and Claude Code
+ * has on record (#295), with its tab now listed as orphaned.
+ */
 async function orphanedSession(box) {
   const bots = await fleet(box);
   const before = await tabOf(box, bots);
   const recorded = await recordSession(box, { bots, bot: 'api-bot', tab: before.tabId, session: 'sess-1' });
   assert.equal(recorded.code, 0, recorded.stderr);
+  await conversationOnRecord(box, { harness: 'claude', cwd: botHomeOf(bots, 'api-bot'), id: 'sess-1' });
   await box.orca.orphan(before.handle);
   return { bots, ...before };
 }
@@ -274,7 +280,7 @@ test('OT5 restart closes an orphaned session tab by its handle and brings the se
   assert.ok(calls.indexOf(closed[0]) < calls.indexOf(made[0]), 'the old tab goes first');
   const after = await tabOf(box, bots);
   assert.notEqual(after.tabId, tabId);
-  assert.deepEqual(typedInto(after.terminal), [resumeLine(box, 'sess-1')]);
+  assert.deepEqual(typedInto(after.terminal).map(tokenless), [resumeLine(box, 'sess-1')]);
   assert.equal((await box.orca.terminals()).some((one) => one.handle === handle), false, 'the old tab is gone');
 });
 

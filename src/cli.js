@@ -892,9 +892,14 @@ function refuseWhenOrcaIsDown() {
 
 /** The same facts as `--json`, as lines, for a person reading along. */
 /** The one line that says which conversation this tab was given, and from where. */
-const howLine = (tab) => (tab.resumed === true
-  ? '             it was told to resume the session the book holds, with its conversation.'
-  : '             it was told to start a new session: the book holds none for this one yet.');
+const howLines = (tab) => {
+  if (tab.resumed === true) return ['             it was told to resume the session the book holds, with its conversation.'];
+  if (tab.noConversation === undefined) return ['             it was told to start a new session: the book holds none for this one yet.'];
+  return [
+    `             it was told to start a new session: the book's conversation ${tab.noConversation} had nothing on record`,
+    "             behind it, so it went into the session's history.",
+  ];
+};
 
 /**
  * What the harness still has in this bot's folder that no session claims. The
@@ -1205,7 +1210,7 @@ function harnessLines(tab, bots) {
   // What the line that was typed in asked for, and where the kit got it: the
   // session the book holds, one the harness itself still had on record, or a new
   // one — and if a new one, whether anything was known about an older one.
-  const how = [howLine(tab)];
+  const how = howLines(tab);
 
   if (!tab.harnessStarted) {
     return [
@@ -1213,6 +1218,7 @@ function harnessLines(tab, bots) {
       '             the harness was typed in, and no session came up in the tab.',
       `             Look at it:  ${lookAt(tab.terminal)}`,
       ...ANSWER_IT,
+      ...promptLines(tab),
     ];
   }
 
@@ -1234,12 +1240,19 @@ function harnessLines(tab, bots) {
       ...ANSWER_IT,
     ];
 
-  if (tab.promptSent === true) lines.push('             the start prompt was typed in.');
-  if (tab.promptSent === false) {
-    lines.push('             the start prompt was not typed in: the tab was not ready for it.');
-  }
+  lines.push(...promptLines(tab));
   if (tab.unclaimed !== undefined) lines.push(...unclaimedLines(tab, bots));
   return lines;
+}
+
+/**
+ * Whether the session got its start prompt, as its own record has it (#274):
+ * received, or not confirmed yet. Nothing for a session that was told nothing.
+ */
+function promptLines(tab) {
+  if (tab.promptReceived === true) return ['             the start prompt was received: the session\'s own record holds it.'];
+  if (tab.promptReceived === false) return ['             the start prompt is not confirmed: the session\'s own record does not hold it yet.'];
+  return [];
 }
 
 try {

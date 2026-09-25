@@ -350,6 +350,11 @@ conversation it was having, rather than starting a new one. Clear a session —
 keeps the old one, and gives the session its start prompt again, because that
 prompt is what tells one session's duty from another's.
 
+A session paused before its first turn can have an id in the book and no
+conversation behind it: the harness has nothing on record for that id. There is
+nothing to resume, so it starts again with its duty, and the book moves the id
+into its history as `no conversation`.
+
 One tab holds one session: the harness the kit started in it. Anything that
 session runs inside the tab — a `codex exec`, a helper, a subagent's own process
 — is not the session, and never becomes the conversation the kit brings back.
@@ -386,7 +391,10 @@ What it will not do, in order of how much it would cost you. It closes only a
 tab your book names, so Bot Father's ops tab and anything you opened yourself
 are left alone. It will not close a tab whose conversation the book cannot name:
 that close would be the end of that conversation, so it refuses, tells you which
-session and which file to settle it in, and touches nothing. It will not close
+session and which file to settle it in, and touches nothing. The one exception
+is a tab with only its shell in front: its harness has already quit, so there
+is nothing in it to lose, and restart closes it and starts the session fresh
+with its duty. It will not close
 anything at all until everything that would stop the session starting again has
 been settled — the same refusals `obk up` gives, made before the tab goes rather
 than after. If Orca refuses to close a tab it stops there, rather than start a
@@ -410,9 +418,11 @@ obk retire --bots /path/to/my-bots --bot api-bot [--session daily]
 A change to a charter or a setting is written at once, and a running session
 takes it when it next starts. A session keeps its harness: to move one, retire
 it and add another. A pause closes the tabs the way a restart does, with the
-same refusals, and `obk up` leaves what is paused closed until `obk unpause`
-brings it back with its conversations. Retiring a session takes it off the bot
-and keeps its conversations in the book under `retired`. Retiring a bot closes
+same refusals, and one more: it also refuses a tab with only its shell in front
+whose conversation the book does not name. `obk up` leaves what is paused
+closed until `obk unpause` brings it back with its conversations. Retiring a
+session takes it off the bot and keeps its conversations in the book under
+`retired`. Retiring a bot closes
 its tabs, removes its Orca project and moves its folder to `retired/`; it will
 not touch a bot whose Orca project holds a tab your book does not name. The
 folder moves only once Orca no longer lists the project; if Orca still lists it,
@@ -485,10 +495,16 @@ obk message check --bots /path/to/my-bots --bot api-bot --session daily
 Two roads, and a bot never picks. Claude Code to Claude Code in the same
 approval class (`auto` and `ask` are one class, `dangerously-skip` the other)
 is the harness's own messaging: `message to` answers with the
-session's name — `<bot>.<session>`, which `obk up` puts on its launch line —
-and the sending session writes to that name itself, because no command can send
-that message for it. Everything else goes through Orca's mailbox, which the kit
-does carry.
+session's name, `<bot>.<session>.<token>`, which `obk up` puts on its launch
+line, and the sending session writes to that name itself, because no command
+can send that message for it. The token is new for each new conversation and
+kept when one is resumed, because Claude Code refuses a name that other fleets'
+sessions also answer to. Ask `message to` each time rather than keeping the
+name. Everything else goes through Orca's mailbox, which the kit does carry.
+
+That includes a Claude session still running under a name from before the
+token, `<bot>.<session>`: `message to` answers the mailbox road for it, never
+that name, until the session next starts a new conversation.
 
 A session's mailbox is made the first time `obk up` brings it up, and written in
 the book beside its tab. It is an Orca Run rather than the session's tab,

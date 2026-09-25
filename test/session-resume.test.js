@@ -22,25 +22,47 @@
 // two harnesses differ only in where the id goes: Claude Code takes
 // `--resume <id>` as a flag, Codex takes `resume` as a subcommand.
 //
+// A resumed Claude session keeps its address, too (#286): the fleet has been
+// writing to it there. That holds only for an address the kit made for this
+// bot and session, `<bot>.<session>.` and a token of eight lowercase letters
+// and digits, and then the line carries it after `-n`. Anything else — none,
+// the bare `<bot>.<session>` every fleet shared before, one made for some other
+// session, a token of the wrong shape — and the line carries no `-n` at all,
+// and the book is left as it was. What is proven is only that a resume keeps
+// the name a conversation already has; that `--resume <id> -n <other>` renames
+// it is not, so the kit does not rely on it. Such a session is reached through
+// its mailbox until it next starts a fresh conversation, which gets an address
+// of its own.
+//
 // The tests read the line the kit typed and then run it through a real shell
 // against a fake harness, so what is checked is the argv a real harness would
 // have been handed.
 
 import assert from 'node:assert/strict';
+import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
+import { stringify } from 'yaml';
 
 import {
+  addressPattern,
   assertOrcaCallsAllowed,
   bareLaunch,
+  bookIn,
+  bookOf,
+  botHomeOf,
+  conversationOnRecord,
   createSandbox,
   fakeProgram,
   launchLine,
+  nameOnLine,
   orcaCallsOf,
   recordSession,
   sessionIn,
   sh,
   tabsOfBot,
+  TOKEN,
+  tokenlessWord,
   typedInto,
 } from './helpers/cli.js';
 
@@ -81,6 +103,14 @@ async function closeTab(box, tabId) {
 const reported = (box, bots, tab, session, source = 'startup') =>
   recordSession(box, { bots, bot: 'api-bot', tab, session, source });
 
+/**
+ * Leave the conversation on the harness's own record, as a session that has
+ * had a turn has it: what a resume picks up, where an id with nothing behind
+ * it is started fresh instead (#295).
+ */
+const onRecord = (box, harness, bots, id) =>
+  conversationOnRecord(box, { harness, cwd: botHomeOf(bots, 'api-bot'), id });
+
 /** The arguments a shell running `line` hands the harness. */
 async function argvOf(box, line, fake) {
   const ran = await sh(line, { cwd: box.cwd, env: box.env });
@@ -101,6 +131,9 @@ function settingsOnly(argv) {
  * `OBK_TAB_SHELL=…` and `OBK_CLI=…` in front of it and without the harness word itself.
  */
 const bareArgvOf = (box, harness) => bareLaunch(box, harness, 'api-bot', 'daily').split(' ').slice(3);
+
+/** Arguments with the token of the name after `-n` written the way `bareLaunch` writes it. */
+const tokenlessArgv = (argv) => argv.map((word, at) => (argv[at - 1] === '-n' ? tokenlessWord(word) : word));
 
 /**
  * The launch arguments with the resume words taken out, whichever harness's
@@ -126,6 +159,7 @@ test('claude resumes the session the book holds, and is not told its duty again'
   const fake = await fakeProgram(box, 'claude', {});
   const { bots, first } = await started(box, 'claude');
   await reported(box, bots, first.entry.tabId, 'sess-1');
+  await onRecord(box, 'claude', bots, 'sess-1');
   await closeTab(box, first.entry.tabId);
 
   const again = await up(box);
@@ -138,7 +172,7 @@ test('claude resumes the session the book holds, and is not told its duty again'
   const argv = await argvOf(box, line, fake);
   assert.equal(argv[argv.indexOf('sess-1') - 1], '--resume', 'the id belongs to the flag that asks for it');
   assert.deepEqual(
-    withoutResume(argv, 'sess-1'),
+    tokenlessArgv(withoutResume(argv, 'sess-1')),
     settingsOnly(bareArgvOf(box, 'claude')),
     'and every other setting is the one a fresh session is started with',
   );
@@ -150,6 +184,7 @@ test('codex resumes the session the book holds, and is not told its duty again',
   const fake = await fakeProgram(box, 'codex', {});
   const { bots, first } = await started(box, 'codex');
   await reported(box, bots, first.entry.tabId, 'sess-1');
+  await onRecord(box, 'codex', bots, 'sess-1');
   await closeTab(box, first.entry.tabId);
 
   const again = await up(box);
@@ -174,7 +209,7 @@ for (const [harness, settings, fresh] of [
   [
     'claude',
     ['--approval', 'ask', '--model', 'opus', '--context', '1m', '--effort', 'xhigh', '--extra-arg=--verbose'],
-    ['--permission-mode', 'manual', '-n', 'api-bot.daily', '--model', 'opus[1m]', '--effort', 'xhigh', '--verbose'],
+    ['--permission-mode', 'manual', '-n', `api-bot.daily.${TOKEN}`, '--model', 'opus[1m]', '--effort', 'xhigh', '--verbose'],
   ],
   [
     'codex',
@@ -191,12 +226,13 @@ for (const [harness, settings, fresh] of [
     const fake = await fakeProgram(box, harness, {});
     const { bots, first } = await started(box, harness, [...settings, '--prompt', PROMPT]);
     await reported(box, bots, first.entry.tabId, 'sess-1');
+    await onRecord(box, harness, bots, 'sess-1');
     await closeTab(box, first.entry.tabId);
 
     const again = await up(box);
 
     const argv = await argvOf(box, again.typed[0], fake);
-    assert.deepEqual(withoutResume(argv, 'sess-1'), fresh);
+    assert.deepEqual(tokenlessArgv(withoutResume(argv, 'sess-1')), fresh);
   });
 }
 
@@ -208,6 +244,7 @@ test('a resumed Codex session keeps its --add-dir for a work dir outside the bot
   const outside = path.join(box.root, 'clones', 'api');
   const { bots, first } = await started(box, 'codex', ['--work-dir', outside]);
   await reported(box, bots, first.entry.tabId, 'sess-1');
+  await onRecord(box, 'codex', bots, 'sess-1');
   await closeTab(box, first.entry.tabId);
 
   const again = await up(box);
@@ -222,6 +259,7 @@ test('the session that came back is the one the book named, and the book follows
   const box = await createSandbox(t);
   const { bots, first } = await started(box, 'claude');
   await reported(box, bots, first.entry.tabId, 'sess-1');
+  await onRecord(box, 'claude', bots, 'sess-1');
   await closeTab(box, first.entry.tabId);
 
   const again = await up(box);
@@ -230,6 +268,89 @@ test('the session that came back is the one the book named, and the book follows
   assert.equal(daily.tab, again.entry.tabId, 'the new tab is the session\'s tab');
   assert.notEqual(again.entry.tabId, first.entry.tabId, 'a tab that comes back is a new tab');
   assert.equal(daily.session, 'sess-1', 'and the harness session it resumed is still the one it is running');
+});
+
+test('a resumed Claude session keeps the address it was started under', async (t) => {
+  // The conversation is the same one, and the fleet has been writing to it at
+  // this address: a resume that renamed it would leave every sender holding an
+  // address nobody answers to.
+  const box = await createSandbox(t);
+  const { bots, first } = await started(box, 'claude');
+  const address = (await sessionIn(bots, 'api-bot', 'daily')).address;
+  assert.match(String(address), addressPattern('api-bot', 'daily'), 'the first start gave it an address of its own');
+  assert.equal(nameOnLine(first.typed[0]), address, 'and started it under that name');
+  await reported(box, bots, first.entry.tabId, 'sess-1');
+  await onRecord(box, 'claude', bots, 'sess-1');
+  await closeTab(box, first.entry.tabId);
+
+  const again = await up(box);
+
+  const line = again.typed[0];
+  assert.ok(line.includes('--resume sess-1'), `the run should have resumed, got: ${line}`);
+  assert.equal(nameOnLine(line), address, 'the line carries the address it had');
+  assert.equal((await sessionIn(bots, 'api-bot', 'daily')).address, address, 'and the book still holds it');
+});
+
+/**
+ * What a book may hold as a Claude session's address when it is resumed, and
+ * whether it is one the kit made for this bot and session, which the resume
+ * carries on the line.
+ */
+const HELD = [
+  ['an address made for this bot and session', 'api-bot.daily.k3x9q2m7', true],
+  ['no address at all', undefined, false],
+  ['the bare <bot>.<session> every fleet shared before #286', 'api-bot.daily', false],
+  ['an address made for another session of the bot', 'api-bot.night.k3x9q2m7', false],
+  ['an address made for another bot', 'web-bot.daily.k3x9q2m7', false],
+  ['an address for a session whose name only begins the same', 'api-bot.daily2.k3x9q2m7', false],
+  // The token is exactly eight lowercase letters and digits (review of PR
+  // #314): anything else is not an address the kit made.
+  ['a token of six characters', 'api-bot.daily.k3x9q2', false],
+  ['a token of nine characters', 'api-bot.daily.k3x9q2m7z', false],
+  ['a token in capitals', 'api-bot.daily.K3X9Q2M7', false],
+];
+
+for (const [label, held, made] of HELD) {
+  test(`a resumed Claude session whose book holds ${label} ${made ? 'is resumed under it' : 'is resumed with no -n, and its book is left alone'}`, async (t) => {
+    const box = await createSandbox(t);
+    const { bots, first } = await started(box, 'claude');
+    await reported(box, bots, first.entry.tabId, 'sess-1');
+    await onRecord(box, 'claude', bots, 'sess-1');
+    const book = await bookIn(bots, 'api-bot');
+    if (held === undefined) delete book.sessions.daily.address;
+    else book.sessions.daily.address = held;
+    await writeFile(bookOf(bots, 'api-bot'), stringify(book));
+    await closeTab(box, first.entry.tabId);
+
+    const again = await up(box);
+
+    assert.deepEqual(
+      again.typed,
+      [launchLine(box, `claude --permission-mode auto${made ? ` -n ${held}` : ''} --resume sess-1`)],
+      made ? 'the line carries the address the book held' : 'the line names no address: the conversation keeps whatever name it has',
+    );
+    const daily = await sessionIn(bots, 'api-bot', 'daily');
+    assert.equal(daily.address, held, 'the book\'s address is as it was');
+    assert.equal(Object.hasOwn(daily, 'address'), held !== undefined, `neither written nor removed: ${JSON.stringify(daily)}`);
+  });
+}
+
+test('a session whose book holds the bare name gets an address of its own at its next fresh start', async (t) => {
+  // The way out of the mailbox for a session from before #286: no conversation
+  // to resume, so a new one, and a new conversation gets a new address.
+  const box = await createSandbox(t);
+  const { bots, first } = await started(box, 'claude');
+  const book = await bookIn(bots, 'api-bot');
+  book.sessions.daily.address = 'api-bot.daily';
+  await writeFile(bookOf(bots, 'api-bot'), stringify(book));
+  await closeTab(box, first.entry.tabId);
+
+  const again = await up(box);
+
+  const line = again.typed[0];
+  assert.ok(!line.includes('--resume'), `a fresh start, got: ${line}`);
+  assert.match(String(nameOnLine(line)), addressPattern('api-bot', 'daily'), `got: ${line}`);
+  assert.equal((await sessionIn(bots, 'api-bot', 'daily')).address, nameOnLine(line), 'and the book holds what the line carried');
 });
 
 test('a session the book holds no id for comes up fresh, with its start prompt', async (t) => {
@@ -269,12 +390,13 @@ test('--json says a tab was resumed, and says so only of the tabs it opened', as
   assert.equal(first.entry.resumed, false, 'the first run started a fresh harness');
 
   await reported(box, bots, first.entry.tabId, 'sess-1');
+  await onRecord(box, 'claude', bots, 'sess-1');
   await closeTab(box, first.entry.tabId);
   const again = await up(box);
 
   assert.equal(again.entry.created, true);
   assert.equal(again.entry.resumed, true, 'this one picked the conversation up again');
-  assert.equal('promptSent' in again.entry, false, 'and told it nothing, so it has nothing to report');
+  assert.equal('promptReceived' in again.entry, false, 'and told it nothing, so it has nothing to report');
 });
 
 test('--json says a tab was not resumed when it started a fresh session', async (t) => {
@@ -286,7 +408,11 @@ test('--json says a tab was not resumed when it started a fresh session', async 
 
   assert.equal(again.entry.created, true);
   assert.equal(again.entry.resumed, false, 'nothing was in the book to come back to');
-  assert.equal(again.entry.promptSent, true, 'so it was told its duty, as a new session is');
+  assert.equal(
+    again.entry.promptReceived,
+    false,
+    'so it was given its duty, as a new session is, and there is something to report: nothing on record holds it yet',
+  );
 });
 
 test('the plain report tells a session that came back from one that started over', async (t) => {
@@ -296,6 +422,7 @@ test('the plain report tells a session that came back from one that started over
   const box = await createSandbox(t);
   const { bots, first } = await started(box, 'claude');
   await reported(box, bots, first.entry.tabId, 'sess-1');
+  await onRecord(box, 'claude', bots, 'sess-1');
   await closeTab(box, first.entry.tabId);
   const resumed = await box.run(['up', '--bots', 'bots', '--bot', 'api-bot']);
 
@@ -332,7 +459,9 @@ test('two sessions each come back as themselves', async (t) => {
   const book = await sessionIn(bots, 'api-bot', 'daily');
   const review = await sessionIn(bots, 'api-bot', 'review');
   await reported(box, bots, book.tab, 'sess-daily');
+  await onRecord(box, 'claude', bots, 'sess-daily');
   await reported(box, bots, review.tab, 'sess-review');
+  await onRecord(box, 'claude', bots, 'sess-review');
   await box.orca.set({ terminals: [] });
   assert.equal((await box.run(['up', '--bots', 'bots', '--bot', 'api-bot'])).code, 0);
 
@@ -346,6 +475,7 @@ test('a resume keeps to the allowed Orca commands, and closes nothing', async (t
   const box = await createSandbox(t);
   const { bots, first } = await started(box, 'codex', ['--prompt', PROMPT, '--work-dir', 'work/api']);
   await reported(box, bots, first.entry.tabId, 'sess-1');
+  await onRecord(box, 'codex', bots, 'sess-1');
   await closeTab(box, first.entry.tabId);
 
   const again = await up(box);

@@ -448,3 +448,104 @@ test('the sandbox does not hand the kit the Orca tab the suite itself runs in', 
 
   assert.deepEqual(Object.keys(box.env).filter((name) => name.startsWith('ORCA_')), []);
 });
+
+test('the fake hands a Run\'s mail over a batch at a time, replayed until acked, as Orca 1.4.209 does', async (t) => {
+  // Read in Orca's bundle and seen live in #299: a plain read replays the one
+  // outstanding delivery even after newer mail came in, `--ack` takes exactly
+  // that delivery and answers with the next batch, and a peek lists every
+  // unread message whatever batch it is in.
+  const box = await createSandbox(t);
+  const { inA, outside } = await twoTabs(box);
+  const run = inA(['orchestration', 'run-create', '--objective', 'a']).result.run.id;
+  const subjects = (answer) => answer.messages.map((message) => message.subject);
+  outside(['orchestration', 'send', '--to', `run:${run}`, '--subject', 'older']);
+
+  const first = inA(['orchestration', 'check', '--run', run]).result;
+  assert.deepEqual(subjects(first), ['older']);
+  assert.match(first.deliveryId, /^delivery_/, 'a delivery has an id of its own, not a message\'s');
+  assert.equal(first.count, 1);
+  assert.equal(first.runId, run);
+
+  outside(['orchestration', 'send', '--to', `run:${run}`, '--subject', 'newer']);
+  const again = inA(['orchestration', 'check', '--run', run]).result;
+  assert.deepEqual(subjects(again), ['older'], 'the outstanding batch is replayed, and the newer mail waits behind it');
+  assert.equal(again.deliveryId, first.deliveryId);
+  assert.equal(again.replayed, true);
+
+  const peeked = inA(['orchestration', 'check', '--run', run, '--peek']).result;
+  assert.deepEqual(subjects(peeked), ['older', 'newer'], 'a peek shows every unread message');
+  assert.equal(peeked.count, 2);
+  assert.equal(peeked.deliveryId, undefined, 'and names no delivery');
+
+  const [older] = await box.orca.messages();
+  assert.equal(
+    inA(['orchestration', 'check', '--run', run, '--ack', older.id]).error?.code,
+    'stale_delivery',
+    'a message id is not a delivery id',
+  );
+
+  const next = inA(['orchestration', 'check', '--run', run, '--ack', first.deliveryId]).result;
+  assert.equal(next.acknowledged, first.deliveryId);
+  assert.deepEqual(subjects(next), ['newer'], 'the ack answers with the next batch');
+  assert.notEqual(next.deliveryId, first.deliveryId);
+  assert.deepEqual((await box.orca.messages()).map((message) => message.acked), [true, false], 'only the acked batch is read');
+
+  const last = inA(['orchestration', 'check', '--run', run, '--ack', next.deliveryId]).result;
+  assert.equal(last.acknowledged, next.deliveryId);
+  assert.equal(last.deliveryId, null, 'nothing is left');
+  assert.equal(last.count, 0);
+  assert.deepEqual(last.messages, []);
+  assert.deepEqual((await box.orca.messages()).map((message) => message.acked), [true, true]);
+});
+
+test('the fake puts at most 50 messages in a batch, and shows at most 100 in a peek', async (t) => {
+  const box = await createSandbox(t);
+  const { inA } = await twoTabs(box);
+  const run = inA(['orchestration', 'run-create', '--objective', 'a']).result.run.id;
+  await box.orca.set({
+    messages: Array.from({ length: 120 }, (_, i) => ({
+      id: `msg_seeded_${i + 1}`, to: `run:${run}`, from: null, subject: `note ${i + 1}`, body: '',
+      type: 'status', priority: 'normal', threadId: null, at: '2026-09-24T12:00:00.000Z', acked: false,
+    })),
+  });
+
+  const peeked = inA(['orchestration', 'check', '--run', run, '--peek']).result;
+  const read = inA(['orchestration', 'check', '--run', run]).result;
+  const next = inA(['orchestration', 'check', '--run', run, '--ack', read.deliveryId]).result;
+
+  assert.equal(peeked.count, 100);
+  assert.equal(read.count, 50);
+  assert.equal(read.messages.at(-1).subject, 'note 50', 'the oldest 50');
+  assert.equal(next.count, 50);
+  assert.equal(next.messages[0].subject, 'note 51', 'and the next 50 after them');
+});
+
+test('the fake can refuse a handle as stale for a while, and hand it out anew at the next listing', async (t) => {
+  // Seen live on 1.4.209 (#294): `terminal wait` refused a handle `terminal
+  // list` had just given with `terminal_handle_stale`, and minutes later the
+  // same handle worked. A fake that can only fail for ever cannot show a kit
+  // that tries again.
+  const box = await createSandbox(t);
+  const home = box.path('bots', 'bots', 'bot-father');
+  answer(ask(box, ['repo', 'add', '--path', home, '--json']));
+  const setup = (await box.orca.setups())[0];
+  answer(ask(box, ['project', 'setup-update', '--setup', setup.id, '--kind', 'folder', '--json']));
+  const handle = answer(ask(box, ['terminal', 'create', '--worktree', `path:${home}`, '--title', 'Daily', '--json'])).result.terminal.handle;
+  const wait = (on) => ask(box, ['terminal', 'wait', '--terminal', on, '--for', 'tui-idle', '--timeout-ms', '2000', '--json']);
+  const list = () => answer(ask(box, ['terminal', 'list', '--worktree', `path:${home}`, '--json'])).result.terminals;
+
+  await box.orca.set({ fail: { 'terminal wait': { code: 'terminal_handle_stale', message: 'terminal_handle_stale', after: 1, times: 1 } } });
+  assert.equal(JSON.parse(wait(handle).stdout).ok, true, 'the first call goes through');
+  const stale = JSON.parse(wait(handle).stdout);
+  assert.deepEqual([stale.ok, stale.error.code], [false, 'terminal_handle_stale'], 'the next one is refused');
+  assert.equal(JSON.parse(wait(handle).stdout).ok, true, 'and the one after it goes through again');
+
+  // The same refusal, with the listing after it handing the tab out anew.
+  await box.orca.set({ fail: { 'terminal wait': { code: 'terminal_handle_stale', message: 'terminal_handle_stale' } }, reissue: { [handle]: 'term_90' } });
+  assert.deepEqual(list().map((terminal) => terminal.handle), [handle], 'nothing is re-issued before a refusal');
+  assert.equal(JSON.parse(wait(handle).stdout).error.code, 'terminal_handle_stale');
+  assert.deepEqual(list().map((terminal) => terminal.handle), ['term_90'], 'the listing after the refusal hands out the new handle');
+  await box.orca.set({ fail: {} });
+  assert.equal(JSON.parse(wait('term_90').stdout).ok, true, 'which works');
+  assert.equal(JSON.parse(wait(handle).stdout).error.code, 'terminal_not_found', 'and the old one names nothing any more');
+});

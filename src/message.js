@@ -20,7 +20,7 @@ import path from 'node:path';
 
 import { readBook } from './book.js';
 import { botDir, botNames, readBot } from './bot.js';
-import { harnessOf, ownCli, reachesMail, shellWord } from './launch.js';
+import { harnessOf, isAddressOf, ownCli, reachesMail, shellWord } from './launch.js';
 import { ackMailbox, coordinatorOf, postMessage, readMailbox, tabs, tabToTypeInto, typeIntoTab, useMailbox } from './orca.js';
 
 /**
@@ -67,7 +67,10 @@ export function findSession(bots, target) {
     session: session.name,
     harness,
     approval: classOf(session),
-    address: typeof held.address === 'string' ? held.address : undefined,
+    // Only a name the kit gave this session is an address. A bare
+    // `<bot>.<session>`, from before #286, is shared with other fleets'
+    // sessions, and Claude Code refuses a send to it.
+    address: isAddressOf(bot.name, session.name, held.address) ? held.address : undefined,
     mailbox: typeof held.mailbox === 'string' ? held.mailbox : undefined,
     tab: typeof held.tab === 'string' ? held.tab : undefined,
     trouble: whyNotReachable(bot.name, session, harness, held),
@@ -91,7 +94,8 @@ export function roadBetween(from, to) {
     address: to.mailbox === undefined ? undefined : `run:${to.mailbox}`,
     // A Claude pair that the native road cannot carry, because the receiver is
     // running under no name the kit gave it: it was started before the kit
-    // named sessions, and nothing renames a live harness. The mailbox is the
+    // named sessions, or before it gave them names of their own (#286), and
+    // nothing renames a live harness. The mailbox is the
     // road that exists, and the caller is told why it is the one being used
     // rather than left to wonder (review of PR #132, finding 1).
     unnamed: pair ? true : undefined,
@@ -176,8 +180,8 @@ export function sendMessage(bots, { to: target, from: sender, tab, subject, text
  * Orca fences a Run to one reader, its coordinator. A session whose tab is live
  * is bound to that tab and read as it; one whose tab is down is read as its
  * Run's coordinator, and nothing is bound (issue #249). A read that
- * is not a peek acknowledges the batch it read: that is what makes the next
- * check bring the next one rather than the same again.
+ * is not a peek acknowledges every batch waiting, one after another, so one
+ * check hands over all of it (issue #299).
  */
 export function checkMail(bots, { bot: botName, session: sessionName, tab, peek = false }) {
   const who = sessionName === undefined && botName === undefined
@@ -212,9 +216,16 @@ export function checkMail(bots, { bot: botName, session: sessionName, tab, peek 
       trouble: `${who.bot}/${who.session} is not up, and its mailbox is bound to no tab, so there is nothing to read it as. Its mail waits until its tab is back: \`up\` brings it back, or \`unpause\` when it is paused.`,
     };
   }
-  const found = readMailbox(who.mailbox, { peek, handle });
-  const messages = (found.messages ?? []).map((message) => asMessage(bots, message));
-  if (!peek && found.deliveryId !== undefined && messages.length > 0) ackMailbox(who.mailbox, found.deliveryId, handle);
+  // Orca hands mail over a batch at a time and replays the oldest until it is
+  // acknowledged; the acknowledgement answers with the next batch. So a read
+  // takes every batch in turn, or newer mail waits behind an older one (#299).
+  const messages = [];
+  let found = readMailbox(who.mailbox, { peek, handle });
+  for (;;) {
+    messages.push(...(found.messages ?? []).map((message) => asMessage(bots, message)));
+    if (peek || !found.deliveryId || (found.messages ?? []).length === 0) break;
+    found = ackMailbox(who.mailbox, found.deliveryId, handle);
+  }
 
   return { bots, bot: who.bot, session: who.session, mailbox: who.mailbox, read: !peek, messages };
 }
@@ -335,7 +346,7 @@ function nudge(to, from, subject) {
   if (to.tab === undefined) return { nudged: false };
 
   try {
-    const found = tabToTypeInto(to.home, to.tab, LOOK_MS);
+    const found = lookAt(to);
     if (found.blocked !== undefined) return { nudged: false, blocked: found.blocked };
     // A line that lands in a shell is run there, with the sender's subject in it.
     if (found.unsure !== undefined) return { nudged: false, nudgeTrouble: found.unsure };
@@ -353,6 +364,21 @@ function nudge(to, from, subject) {
     // silent `false` would read as "the session is not up", which is a
     // different thing from "Orca would not say".
     return { nudged: false, nudgeTrouble: error.message };
+  }
+}
+
+/**
+ * The look before the nudge. Orca now and then refuses a handle it has just
+ * listed as stale, and a fresh listing hands out one that works (tech notes,
+ * section 1), so that refusal earns one more listing and one more look. Only
+ * one: a second refusal is reported as it is (#294).
+ */
+function lookAt(to) {
+  try {
+    return tabToTypeInto(to.home, to.tab, LOOK_MS);
+  } catch (error) {
+    if (error.code !== 'terminal_handle_stale') throw error;
+    return tabToTypeInto(to.home, to.tab, LOOK_MS);
   }
 }
 

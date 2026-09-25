@@ -18,9 +18,12 @@ import test from 'node:test';
 import { parse } from 'yaml';
 
 import {
+  addressPattern,
   assertCleanFailure,
   bookIn,
   bookOf,
+  botHomeOf,
+  conversationOnRecord,
   createSandbox,
   recordSession,
   sessionIn,
@@ -64,7 +67,7 @@ test('the session the harness reported sits in the book beside the tab, and the 
   );
   assert.equal(book.sessions.daily.tab, tabs.daily.tabId);
   assert.equal(book.sessions.daily.session, 'sess-1');
-  assert.equal(book.sessions.daily.address, 'api-bot.daily');
+  assert.match(book.sessions.daily.address, addressPattern('api-bot', 'daily'));
 });
 
 test('up leaves what the hook wrote exactly as it found it', async (t) => {
@@ -89,6 +92,8 @@ test('a session whose tab came back keeps the id and the history it had', async 
   const { bots, tabs } = await fleet(box);
   await recordSession(box, { bots, bot: 'api-bot', tab: tabs.daily.tabId, session: 'sess-1', source: 'startup' });
   await recordSession(box, { bots, bot: 'api-bot', tab: tabs.daily.tabId, session: 'sess-2', source: 'clear' });
+  // The conversation it cleared into has had a turn, so Claude Code has it on record (#295).
+  await conversationOnRecord(box, { harness: 'claude', cwd: botHomeOf(bots, 'api-bot'), id: 'sess-2' });
   await box.orca.set({
     terminals: (await box.orca.terminals()).filter((terminal) => terminal.tabId !== tabs.daily.tabId),
   });

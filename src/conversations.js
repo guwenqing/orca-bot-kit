@@ -10,7 +10,7 @@
 // directory, and every session starts at its bot home. Read only, never
 // written: these are the harness's files (tech notes, sections 2 and 3).
 
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 
@@ -40,6 +40,20 @@ export function conversationsIn(harness, home, since) {
 }
 
 /**
+ * Whether the harness has a record of the conversation `id` for this bot home,
+ * which is what its own resume looks for. A session paused before its first
+ * turn has an id the hook reported and nothing written behind it, and Claude
+ * Code answers a resume of it with "No conversation found" (#295).
+ *
+ * Asked of the file names alone, which both harnesses make from the id: nothing
+ * is opened, however many conversations the machine has.
+ */
+export function hasConversation(harness, home, id) {
+  if (harness === 'claude') return existsSync(path.join(claudeDir(home), `${id}.jsonl`));
+  return rollouts(codexDir()).some((file) => path.basename(file).endsWith(`-${id}.jsonl`));
+}
+
+/**
  * The same conversations, each with the file the harness keeps it in, for a
  * caller that has to read what is inside one rather than only know it is there,
  * and whether the harness marks it as a subagent's.
@@ -51,6 +65,46 @@ export function transcriptsIn(harness, home, since) {
     .filter((one) => Number.isNaN(from) || one.at >= from)
     .sort((left, right) => left.at - right.at)
     .map((one) => ({ id: one.id, at: new Date(one.at).toISOString(), file: one.file, subagent: one.subagent === true }));
+}
+
+/**
+ * Whether a conversation's own record holds `text` as a turn of the user's:
+ * what the harness itself wrote down as said to it, not a screen that was up.
+ *
+ * Only the user's turns count. Claude Code writes them as `user` lines, and its
+ * own meta lines and tool results in that same shape are not the user's. Codex
+ * writes each as a `user` message item; its `user_message` event is missing
+ * from many rollouts, and the item is in every one (tech notes, section 3).
+ * Its AGENTS.md goes in as a `user` item too, and cannot be the text asked about.
+ */
+export function heldAsUserTurn(harness, file, text) {
+  let lines;
+  try {
+    lines = readFileSync(file, 'utf8').split('\n');
+  } catch {
+    return false;
+  }
+  const wanted = text.trim();
+  return lines.some((line) => userTexts(harness, line).some((said) => said.trim() === wanted));
+}
+
+/** The texts of one record line, when it is a turn of the user's. */
+function userTexts(harness, line) {
+  let parsed;
+  try {
+    parsed = JSON.parse(line);
+  } catch {
+    return [];
+  }
+  if (harness === 'claude') {
+    if (parsed?.type !== 'user' || parsed.isMeta === true) return [];
+    const content = parsed.message?.content;
+    if (typeof content === 'string') return [content];
+    return Array.isArray(content) ? content.filter((block) => block?.type === 'text').map((block) => String(block.text)) : [];
+  }
+  const item = parsed?.type === 'response_item' ? parsed.payload : undefined;
+  if (item?.type !== 'message' || item.role !== 'user' || !Array.isArray(item.content)) return [];
+  return item.content.filter((block) => block?.type === 'input_text').map((block) => String(block.text));
 }
 
 function claudeConversations(home) {

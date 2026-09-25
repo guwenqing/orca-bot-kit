@@ -15,7 +15,9 @@
 //      else open in a bot's project, belongs to the user (PRD 6.2).
 //   2. Never a tab whose conversation the kit could not name again. A live tab
 //      with no session id in the book is refused before anything is touched:
-//      the close would be the end of that conversation.
+//      the close would be the end of that conversation. Unless only its shell
+//      is in front: its harness has quit, so the close ends nothing, and `up`
+//      starts the session fresh as it does any closed tab with no id (#303).
 //   3. One tab at a time, by its own handle. Orca's `--worktree <sel> --all`
 //      ends every tab of a project and is never called from anywhere in the kit.
 //
@@ -32,7 +34,7 @@ import { setTimeout as pause } from 'node:timers/promises';
 import { bookFile, readBook } from './book.js';
 import { botDir, readBot } from './bot.js';
 import { ownCli, shellWord } from './launch.js';
-import { closeTab, findProject, tabs } from './orca.js';
+import { closeTab, findProject, frontOfTab, tabs } from './orca.js';
 import { botsNamed, bringUp, prepareBots, sessionsOf } from './up.js';
 
 /**
@@ -65,7 +67,7 @@ export async function restartSessions(bots, { bot: name, session: onlySession } 
     throw new Error(`${name} would not come up again as it is, so nothing was closed. ${prepared.rules[0].trouble}`);
   }
 
-  const going = tabsToClose(bots, name, home, sessions.filter((session) => session.paused !== true));
+  const going = tabsToClose(bots, name, home, sessions.filter((session) => session.paused !== true), { quit: true });
   const closed = await closeTabs(home, going, bots, name);
   return { closed, ...(await bringUp(bots, { bot: name, session: onlySession })) };
 }
@@ -75,9 +77,11 @@ export async function restartSessions(bots, { bot: name, session: onlySession } 
  * has been judged safe to close: a live tab whose conversation the book cannot
  * name refuses the lot, before anything is touched. With `keepless`, a tab is
  * closed whatever the book knows, for a caller that is ending the session on
- * purpose.
+ * purpose. With `quit`, a tab whose harness has quit to its shell is closed
+ * too, for a caller that starts the session again: there is nothing in it to
+ * lose. A program in front, or a front that cannot be read, still refuses.
  */
-export function tabsToClose(bots, name, home, sessions, { keepless = false } = {}) {
+export function tabsToClose(bots, name, home, sessions, { keepless = false, quit = false } = {}) {
   const book = readBook(home);
 
   // Orca is asked what the project holds only when it has one: a folder Orca
@@ -96,7 +100,7 @@ export function tabsToClose(bots, name, home, sessions, { keepless = false } = {
     // Nothing of this session's is open: there is nothing to close, and `up`
     // brings it back the way it brings back a tab the user closed themselves.
     if (tab === undefined) continue;
-    if (keepless || typeof was.session === 'string') going.push({ name: session.name, tab });
+    if (keepless || typeof was.session === 'string' || (quit && frontOfTab(tab.handle).front === 'shell')) going.push({ name: session.name, tab });
     else refusals.push(cannotComeBack(bots, name, session.name, was));
   }
 

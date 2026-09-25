@@ -264,7 +264,7 @@ async function upJson(box, bots) {
   return { entry: answer.tabs[0], typed: typedInto(tabs[0]) };
 }
 
-test('a fresh session busy on its start prompt is reported started, with the prompt sent', async (t) => {
+test('a fresh session busy on its start prompt is reported started, with the prompt not confirmed', async (t) => {
   // What every session with a start prompt does the moment it comes up: it
   // gets to work on the prompt, and Orca's wait times out on both looks. Its
   // `agentIdentity` may not be there yet either, so `up` does not ask for it.
@@ -275,7 +275,7 @@ test('a fresh session busy on its start prompt is reported started, with the pro
   const { entry, typed } = await upJson(box, bots);
 
   assert.equal(entry.harnessStarted, true, 'a harness in front of its tab is a harness that started');
-  assert.equal(entry.promptSent, true, 'and it is working on the prompt it was given');
+  assert.equal(entry.promptReceived, false, 'busy is not received: no record the book names holds the prompt (#274)');
   assert.equal('blockedReason' in entry, false, 'nothing is waiting to be answered');
   assert.equal(typed.length, 1, `the launch line and nothing after it, got: ${JSON.stringify(typed)}`);
 });
@@ -312,7 +312,7 @@ for (const [label, waitIdle] of [
     const { entry, typed } = await upJson(box, bots);
 
     assert.equal(entry.harnessStarted, false, 'a harness that is gone is not a harness that started');
-    assert.equal(entry.promptSent, false, 'and it took the prompt with it');
+    assert.equal(entry.promptReceived, false, 'and it took the prompt with it');
     assert.equal(typed.length, 1, `nothing is typed after the launch line, got: ${JSON.stringify(typed)}`);
   });
 }
@@ -352,7 +352,7 @@ for (const [label, state, started] of [
     const { entry, typed } = await upJson(box, bots);
 
     assert.equal(entry.harnessStarted, started);
-    assert.equal(entry.promptSent, started);
+    assert.equal(entry.promptReceived, false, 'whatever the look found, no record holds the prompt (#274)');
     assert.equal(typed.length, 1, `nothing is typed after the launch line, got: ${JSON.stringify(typed)}`);
   });
 }

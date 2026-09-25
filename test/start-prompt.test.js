@@ -311,7 +311,11 @@ test('a session with a work dir and no prompt still has the note to say', async 
     `the note is something to say, got: ${JSON.stringify(typed)}`,
   );
   assert.ok(typed[0].includes(path.join(botHomeOf(bots, 'prompt-bot'), 'work', 'api')));
-  assert.equal(onlyTab(result).promptSent, true);
+  assert.equal(
+    onlyTab(result).promptReceived,
+    false,
+    'the note is a duty to report on, and nothing on record holds it yet (#274)',
+  );
 });
 
 test('an absolute work dir reaches the note as it is', async (t) => {
@@ -334,13 +338,15 @@ test('a session with nothing to say gets a launch line with no prompt word', asy
   assert.deepEqual(typed, [bareLaunch(box, 'codex')], 'the launch line, and that is all there was to say');
   assert.deepEqual(await argvOf(box, typed[0], fake), ['--approve-for-me', '-c', 'sandbox_workspace_write.network_access=true'], 'no empty word on the end either');
   assert.equal(
-    'promptSent' in onlyTab(result),
+    'promptReceived' in onlyTab(result),
     false,
     'a session with nothing to say has nothing to report about it',
   );
 });
 
-test('a prompt on a line the harness took is reported as sent', async (t) => {
+test('a prompt on a line the harness took is not confirmed while no record holds it', async (t) => {
+  // A harness running in the tab is not a conversation that got its duty
+  // (#274): here no hook ran, so the book names no conversation to look in.
   const box = await createSandbox(t);
   const bots = await withSession(box, ['--prompt', PROMPT]);
 
@@ -348,7 +354,8 @@ test('a prompt on a line the harness took is reported as sent', async (t) => {
 
   const entry = onlyTab(result);
   assert.equal(entry.harnessStarted, true);
-  assert.equal(entry.promptSent, true);
+  assert.equal(entry.promptReceived, false);
+  assert.equal('promptSent' in entry, false, 'the old field is gone');
 });
 
 test('a harness sitting on its trust question has the prompt already in its argv', async (t) => {
@@ -364,7 +371,7 @@ test('a harness sitting on its trust question has the prompt already in its argv
   const entry = onlyTab(result);
   assert.equal(entry.harnessStarted, true, 'a TUI that is up is a harness that started');
   assert.equal(entry.blockedReason, 'agent-interactive-prompt');
-  assert.equal(entry.promptSent, true, 'the prompt is with the harness, waiting behind the question');
+  assert.equal(entry.promptReceived, false, 'the prompt is waiting behind the question, so the conversation does not hold it yet');
 });
 
 test('a harness that never came up took the duty with it, and the run says so', async (t) => {
@@ -378,7 +385,7 @@ test('a harness that never came up took the duty with it, and the run says so', 
   assert.deepEqual(typed, [`${bareLaunch(box, 'codex')} -- '${PROMPT}'`], 'the line was still typed; it is the outcome that failed');
   const entry = onlyTab(result);
   assert.equal(entry.harnessStarted, false);
-  assert.equal(entry.promptSent, false);
+  assert.equal(entry.promptReceived, false);
 });
 
 test('a harness that came up and then died is not reported as running', async (t) => {
@@ -396,7 +403,7 @@ test('a harness that came up and then died is not reported as running', async (t
   assert.deepEqual(typed, [`${bareLaunch(box, 'codex')} -- '${PROMPT}'`], 'the line went in; it is what became of it that failed');
   const entry = onlyTab(result);
   assert.equal(entry.harnessStarted, false, 'a harness that is gone is not a harness that started');
-  assert.equal(entry.promptSent, false, 'and it took the duty with it when it went');
+  assert.equal(entry.promptReceived, false, 'and it took the duty with it when it went');
 });
 
 test('a harness still up on the second look is reported as running', async (t) => {
@@ -410,7 +417,7 @@ test('a harness still up on the second look is reported as running', async (t) =
 
   const entry = onlyTab(result);
   assert.equal(entry.harnessStarted, true);
-  assert.equal(entry.promptSent, true);
+  assert.equal(entry.promptReceived, false, 'running is not received: no record holds the prompt (#274)');
 });
 
 test('a tab that was already there is never typed into, launch line and prompt both', async (t) => {
@@ -432,7 +439,7 @@ test('a tab that was already there is never typed into, launch line and prompt b
   assert.deepEqual(orcaCallsOf(later, 'terminal send'), [], 'nothing typed into a tab that was already live');
   assert.deepEqual(orcaCallsOf(later, 'terminal wait'), [], 'and nothing to wait for either');
   assert.equal(
-    'promptSent' in onlyTab(again.result),
+    'promptReceived' in onlyTab(again.result),
     false,
     'this run typed nothing, so it has nothing to say about a prompt',
   );
@@ -454,7 +461,7 @@ test('a session tab that came back is told its duty again', async (t) => {
   assert.deepEqual(again.typed, [`${bareLaunch(box, 'codex')} -- '${PROMPT}'`]);
 });
 
-test('the plain report says the prompt went with the line, and says so only when it did', async (t) => {
+test('the plain report says what became of the prompt, and a harness that came up does not read like one that did not', async (t) => {
   const box = await createSandbox(t);
   await withSession(box, ['--prompt', PROMPT]);
 
@@ -472,7 +479,7 @@ test('the plain report says the prompt went with the line, and says so only when
     lost.stdout.split(other.root).join('<root>'),
     'a session that was told its duty must not read like one that was not',
   );
-  assert.match(sent.stdout, /prompt/i, `the reader should be told the duty went in, got: ${sent.stdout}`);
+  assert.match(sent.stdout, /prompt/i, `the reader should be told about the duty, got: ${sent.stdout}`);
   for (const result of [sent, lost]) {
     assert.ok(!result.stdout.includes('undefined'), `nothing should be undefined, got: ${result.stdout}`);
   }

@@ -594,11 +594,43 @@ export const cliOnLine = (cli) => `OBK_CLI=${shellWord(cli)}`;
 export const launchLine = (box, rest) => `${TAB_SHELL} ${cliOnLine(box.cli)} ${rest}`;
 
 /**
- * A session's name, which is also the address a Claude session is reached at:
- * `<bot>.<session>` (PRD 6.9, ADR 0018). Proved live that the name survives a
- * resume, and the kit passes it on every launch anyway (tech notes, section 2).
+ * A Claude session's name, which is also the address it is reached at:
+ * `<bot>.<session>.<token>` (PRD 6.9, ADR 0018). Proved live that the name
+ * survives a resume, and the kit passes it on every launch anyway (tech notes,
+ * section 2).
+ *
+ * The token is exactly eight lowercase letters and digits, and new each time
+ * the kit starts a session on a fresh conversation (#286). Without it every
+ * fleet's Bot Father answered to `bot-father.daily` — old runs, other
+ * machines, the fleets system tests bring up — and Claude Code refuses a send
+ * to a name more than one session answers to. Eight characters give 36^8
+ * names, so that sessions of the same name across every fleet do not meet by
+ * chance (review of PR #314).
+ *
+ * So a test can only say what shape an address has, and that the line, the
+ * book and `obk message to` all give the same one.
  */
-export const addressOf = (bot, session) => `${bot}.${session}`;
+export const addressPattern = (bot, session) => new RegExp(
+  `^${[bot, session].map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\.')}\\.[a-z0-9]{8}$`,
+);
+
+/** What `tokenless` writes in place of the token, so a line can be pinned whole. */
+export const TOKEN = '<token>';
+
+/**
+ * A launch line, or one word of one, with the token of the Claude address
+ * after `-n` written `TOKEN`: the rest of the line is then pinned exactly, as
+ * `bareLaunch` spells it. Only a token of the right shape is replaced — an
+ * address with none, like the old `<bot>.<session>`, or with one that is not
+ * exactly eight lowercase letters and digits, is left as it was and fails the
+ * comparison. Which token it is, and that the book holds the same one, is for
+ * the tests of the address itself (session-address, session-resume, message-to).
+ */
+export const tokenlessWord = (word) => word.replace(/^([^ .]+\.[^ .]+\.)[a-z0-9]{8}$/, `$1${TOKEN}`);
+export const tokenless = (line) => line.replace(/( -n )([^ ]+)/, (all, flag, word) => `${flag}${tokenlessWord(word)}`);
+
+/** The name a Claude launch line carries after `-n`, as the kit typed it, or undefined for a line with none. */
+export const nameOnLine = (line) => / -n ([^ ]+)/.exec(line)?.[1];
 
 /**
  * The one Codex setting that lets a sandboxed session reach the Orca CLI at
@@ -617,7 +649,7 @@ export const CODEX_NETWORK = '-c sandbox_workspace_write.network_access=true';
  * sandbox that flag chose far enough to reach Orca.
  */
 export const bareLaunch = (box, harness, bot, session) => launchLine(box, harness === 'claude'
-  ? `claude --permission-mode auto -n ${addressOf(bot, session)}`
+  ? `claude --permission-mode auto -n ${bot}.${session}.${TOKEN}`
   : `codex --approve-for-me ${CODEX_NETWORK}`);
 
 /** Where a bot lives inside a bots folder. */
@@ -786,6 +818,33 @@ export function recordSession(box, { bots, bot, tab, env, stdin, raw = false, ne
     });
   }
   return throughAHarness(box, [box.cli, ...args].map(shellWord).join(' '), { env, tab, stdin: input, nested });
+}
+
+/**
+ * Leave a conversation on the harness's own record, the way the harness does
+ * once the conversation has had a turn: a file under the sandbox's home, named
+ * by the id (tech notes, sections 2 and 3). A session whose book id has one
+ * behind it is resumed; an id with none has nothing to resume (#295).
+ *
+ *   claude  ~/.claude/projects/<slug>/<id>.jsonl, where <slug> is `cwd`'s real
+ *           path with everything but a letter or a digit turned into a dash
+ *   codex   ~/.codex/sessions/<yyyy>/<mm>/<dd>/rollout-<stamp>-<id>.jsonl,
+ *           filed under the day `at` falls on
+ *
+ * `cwd` is the folder the conversation ran in: the bot home, for a session.
+ * The file's first line is the one each harness starts it with. Returns its path.
+ */
+export async function conversationOnRecord(box, { harness, cwd, id, at = new Date() }) {
+  const real = await realpath(cwd);
+  const stamp = at.toISOString();
+  const file = harness === 'codex'
+    ? path.join(box.home, '.codex', 'sessions', ...stamp.slice(0, 10).split('-'), `rollout-${stamp.replaceAll(':', '-').replace(/\..*$/, '')}-${id}.jsonl`)
+    : path.join(box.home, '.claude', 'projects', real.replaceAll(/[^A-Za-z0-9]/g, '-'), `${id}.jsonl`);
+  await mkdir(path.dirname(file), { recursive: true });
+  await writeFile(file, harness === 'codex'
+    ? `${JSON.stringify({ timestamp: stamp, type: 'session_meta', payload: { id, cwd: real, timestamp: stamp } })}\n`
+    : `${JSON.stringify({ type: 'system', sessionId: id, cwd: real, timestamp: stamp })}\n`);
+  return file;
 }
 
 /**

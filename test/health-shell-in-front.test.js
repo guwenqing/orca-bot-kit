@@ -7,13 +7,11 @@
 // the shell in front the session gets no `sessions` entry and no settings or
 // rules finding (S8 in test/session-settings.test.js), and until #300 nothing
 // else either: the user is not told the session is down. `obk up` finds the
-// tab live and types nothing, so for a session whose book entry names its
-// conversation the command that brings it back is `obk restart … --session
-// <name>`, and the finding names it. `obk restart` refuses a live tab whose
-// entry names no conversation, and a harness can quit before there is one; for
-// that session the finding says restart would refuse, that the user closes the
-// tab, and that `obk up … --session <name>` then starts it again (D5). Health
-// still does not bring it back itself.
+// tab live and types nothing, so the command that brings it back is `obk
+// restart … --session <name>`, and the finding names it: with a conversation in
+// the book the restart resumes it, and since #303 with none it closes the tab
+// and starts the session fresh (D5). Health still does not bring it back
+// itself.
 //
 // A front that cannot be read, or holds a program that is not the session's
 // harness, is "cannot tell" (running: unknown), never down: no such finding and
@@ -164,33 +162,20 @@ function assertCommandIn(says, box, bots, bot, session, verb) {
   assert.ok(hasWord(says, `--session ${session}`), `the ${verb} names the session, got: ${says}`);
 }
 
-/** Words that say a command would be refused. */
-const REFUSES = /\b(refuse|refuses|refused|would not|will not|won't|wouldn't|cannot|can't)\b/i;
-
 /**
- * The one finding that calls a session not running, with what brings it back,
- * and its plain lines: a line with its kind and where, then what it says.
- * `via: 'restart'` is a session whose book names its conversation: the restart
- * brings it back. `via: 'up'` is one whose book names none: restart would
- * refuse, so the finding says so, has the user close the tab, and gives the up
- * that starts it again, never the restart as what brings it back.
+ * The one finding that calls a session not running, with the restart that
+ * brings it back, and its plain lines: a line with its kind and where, then
+ * what it says.
  */
-function assertReportedDown(answer, plain, box, bots, bot, session, { via = 'restart' } = {}) {
+function assertReportedDown(answer, plain, box, bots, bot, session) {
   const mine = about(answer, bot, session);
   assert.equal(mine.length, 1, `one finding about ${bot} ${session}, whose harness quit, got: ${JSON.stringify(answer.found, null, 2)}`);
   const { says } = mine[0];
   assert.ok(hasWord(says, session), `it names the session, got: ${says}`);
   assert.ok(says.includes(bot), `and the bot, got: ${says}`);
   assert.match(says, NOT_RUNNING, `it says the session is not running, got: ${says}`);
-  assertCommandIn(says, box, bots, bot, session, via);
-  if (via === 'restart') {
-    assert.ok(!commandIn(says, box, 'up'), `the restart brings it back, so no up is offered, got: ${says}`);
-  } else {
-    assert.ok(!commandIn(says, box, 'restart'), `restart would refuse, so it is not offered as what brings it back, got: ${says}`);
-    assert.match(says, /\brestart\b/, `it says restart would refuse, got: ${says}`);
-    assert.match(says, REFUSES, `it says restart would refuse, got: ${says}`);
-    assert.match(says, /\bclos(e|es|ing)\b/i, `it has the user close the tab first, got: ${says}`);
-  }
+  assertCommandIn(says, box, bots, bot, session, 'restart');
+  assert.ok(!commandIn(says, box, 'up'), `the restart brings it back, so no up is offered, got: ${says}`);
   assert.ok(
     !answer.sessions.some((one) => one.bot === bot && one.session === session && one.running === 'yes'),
     `a session with its shell in front is not said to be running, got: ${JSON.stringify(answer.sessions, null, 2)}`,
@@ -395,15 +380,15 @@ test('D4 after the restart the finding names, the session runs again and the fin
 
 // A harness can quit to the shell before any conversation exists, and right
 // after `up` the book has the session's tab and no conversation until the kit's
-// hook reports one. `obk restart` refuses a live tab whose entry names no
-// conversation. So for such a session the finding says restart would refuse,
-// has the user close the tab (its harness has already quit), and gives `obk up
-// … --session <name>`, which opens a new tab with a new conversation. With a
-// conversation in the book the restart brings it back, and nothing about the
-// book or up is said. (Review of PR #301, and the architect's decision on it.)
+// hook reports one. Until #303 `obk restart` refused that tab, and the finding
+// had the user close it by hand and run `obk up` (#300). Since #303 restart
+// closes a tab with its shell in front and starts the session fresh, so the
+// finding for such a session gives the restart as what brings it back, as it
+// does for one whose book names its conversation, and no longer says restart
+// would refuse or has the user close the tab.
 
 for (const harness of ['claude', 'codex']) {
-  test(`D5 ${harness}: following the finding brings a session back: with no conversation in the book, close the tab and up; with one, the restart`, async (t) => {
+  test(`D5 ${harness}: following the finding brings a session back with the restart it names, with or without a conversation in the book`, async (t) => {
     const box = await createSandbox(t);
     const bots = await seeded(box);
     await botUp(box, 'api-bot', { harness, sessions: ['daily', 'review'] });
@@ -416,21 +401,17 @@ for (const harness of ['claude', 'codex']) {
     const answer = await found(box);
     const plain = await health(box);
 
-    assertReportedDown(answer, plain, box, bots, 'api-bot', 'review', { via: 'up' });
-    assertReportedDown(answer, plain, box, bots, 'api-bot', 'daily', { via: 'restart' });
+    assertReportedDown(answer, plain, box, bots, 'api-bot', 'review');
+    assertReportedDown(answer, plain, box, bots, 'api-bot', 'daily');
     const [daily] = about(answer, 'api-bot', 'daily');
     assert.ok(!spellingsOf(book).some((spelling) => daily.says.includes(spelling)), `the book names daily's conversation, so its finding says nothing about the book, got: ${daily.says}`);
+    const [review] = about(answer, 'api-bot', 'review');
+    assert.doesNotMatch(review.says, /\b(refuse|refuses|refused)\b/i, `restart brings review back, so the finding does not say it would refuse, got: ${review.says}`);
+    assert.doesNotMatch(review.says, /\bclose (the|its|that) tab\b/i, `and does not have the user close the tab by hand, got: ${review.says}`);
 
-    // The premise of the up: the restart alone is refused for review.
-    const refused = await box.run(['restart', '--bots', 'bots', '--bot', 'api-bot', '--session', 'review']);
-    assert.notEqual(refused.code, 0, `the premise: restart refuses a live tab whose conversation the book does not name, got: ${refused.stdout}${refused.stderr}`);
-
-    // Doing what the findings say, and nothing more: review's tab closed in
-    // Orca the way a user closes one, then its up; daily's restart. No
-    // conversation id is written anywhere.
-    const { tab } = await sessionIn(bots, 'api-bot', 'review');
-    await box.orca.set({ terminals: (await box.orca.terminals()).filter((one) => one.tabId !== tab) });
-    await obk(box, 'up', '--bots', 'bots', '--bot', 'api-bot', '--session', 'review');
+    // Doing what the findings say, and nothing more: each session's restart.
+    // No tab is closed by hand and no conversation id is written anywhere.
+    await obk(box, 'restart', '--bots', 'bots', '--bot', 'api-bot', '--session', 'review');
     await obk(box, 'restart', '--bots', 'bots', '--bot', 'api-bot', '--session', 'daily');
     const after = await found(box);
 
