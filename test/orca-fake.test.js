@@ -448,3 +448,74 @@ test('the sandbox does not hand the kit the Orca tab the suite itself runs in', 
 
   assert.deepEqual(Object.keys(box.env).filter((name) => name.startsWith('ORCA_')), []);
 });
+
+test('the fake hands a Run\'s mail over a batch at a time, replayed until acked, as Orca 1.4.209 does', async (t) => {
+  // Read in Orca's bundle and seen live in #299: a plain read replays the one
+  // outstanding delivery even after newer mail came in, `--ack` takes exactly
+  // that delivery and answers with the next batch, and a peek lists every
+  // unread message whatever batch it is in.
+  const box = await createSandbox(t);
+  const { inA, outside } = await twoTabs(box);
+  const run = inA(['orchestration', 'run-create', '--objective', 'a']).result.run.id;
+  const subjects = (answer) => answer.messages.map((message) => message.subject);
+  outside(['orchestration', 'send', '--to', `run:${run}`, '--subject', 'older']);
+
+  const first = inA(['orchestration', 'check', '--run', run]).result;
+  assert.deepEqual(subjects(first), ['older']);
+  assert.match(first.deliveryId, /^delivery_/, 'a delivery has an id of its own, not a message\'s');
+  assert.equal(first.count, 1);
+  assert.equal(first.runId, run);
+
+  outside(['orchestration', 'send', '--to', `run:${run}`, '--subject', 'newer']);
+  const again = inA(['orchestration', 'check', '--run', run]).result;
+  assert.deepEqual(subjects(again), ['older'], 'the outstanding batch is replayed, and the newer mail waits behind it');
+  assert.equal(again.deliveryId, first.deliveryId);
+  assert.equal(again.replayed, true);
+
+  const peeked = inA(['orchestration', 'check', '--run', run, '--peek']).result;
+  assert.deepEqual(subjects(peeked), ['older', 'newer'], 'a peek shows every unread message');
+  assert.equal(peeked.count, 2);
+  assert.equal(peeked.deliveryId, undefined, 'and names no delivery');
+
+  const [older] = await box.orca.messages();
+  assert.equal(
+    inA(['orchestration', 'check', '--run', run, '--ack', older.id]).error?.code,
+    'stale_delivery',
+    'a message id is not a delivery id',
+  );
+
+  const next = inA(['orchestration', 'check', '--run', run, '--ack', first.deliveryId]).result;
+  assert.equal(next.acknowledged, first.deliveryId);
+  assert.deepEqual(subjects(next), ['newer'], 'the ack answers with the next batch');
+  assert.notEqual(next.deliveryId, first.deliveryId);
+  assert.deepEqual((await box.orca.messages()).map((message) => message.acked), [true, false], 'only the acked batch is read');
+
+  const last = inA(['orchestration', 'check', '--run', run, '--ack', next.deliveryId]).result;
+  assert.equal(last.acknowledged, next.deliveryId);
+  assert.equal(last.deliveryId, null, 'nothing is left');
+  assert.equal(last.count, 0);
+  assert.deepEqual(last.messages, []);
+  assert.deepEqual((await box.orca.messages()).map((message) => message.acked), [true, true]);
+});
+
+test('the fake puts at most 50 messages in a batch, and shows at most 100 in a peek', async (t) => {
+  const box = await createSandbox(t);
+  const { inA } = await twoTabs(box);
+  const run = inA(['orchestration', 'run-create', '--objective', 'a']).result.run.id;
+  await box.orca.set({
+    messages: Array.from({ length: 120 }, (_, i) => ({
+      id: `msg_seeded_${i + 1}`, to: `run:${run}`, from: null, subject: `note ${i + 1}`, body: '',
+      type: 'status', priority: 'normal', threadId: null, at: '2026-09-24T12:00:00.000Z', acked: false,
+    })),
+  });
+
+  const peeked = inA(['orchestration', 'check', '--run', run, '--peek']).result;
+  const read = inA(['orchestration', 'check', '--run', run]).result;
+  const next = inA(['orchestration', 'check', '--run', run, '--ack', read.deliveryId]).result;
+
+  assert.equal(peeked.count, 100);
+  assert.equal(read.count, 50);
+  assert.equal(read.messages.at(-1).subject, 'note 50', 'the oldest 50');
+  assert.equal(next.count, 50);
+  assert.equal(next.messages[0].subject, 'note 51', 'and the next 50 after them');
+});

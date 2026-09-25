@@ -461,7 +461,7 @@ export function postMessage({ to, from, subject, body, type = 'status', thread }
 export const readMailbox = (id, { peek = false, handle } = {}) =>
   orca(['orchestration', 'check', '--run', id, ...as(handle), ...(peek ? ['--peek'] : [])]);
 
-/** Say a batch has been read, so the next check brings the one after it. */
+/** Say a batch has been read. Orca answers with the batch after it. */
 export const ackMailbox = (id, delivery, handle) =>
   orca(['orchestration', 'check', '--run', id, ...as(handle), '--ack', delivery]);
 
