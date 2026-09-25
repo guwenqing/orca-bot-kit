@@ -50,6 +50,8 @@ import {
   bareLaunch,
   bookIn,
   bookOf,
+  botHomeOf,
+  conversationOnRecord,
   createSandbox,
   fakeProgram,
   launchLine,
@@ -101,6 +103,14 @@ async function closeTab(box, tabId) {
 const reported = (box, bots, tab, session, source = 'startup') =>
   recordSession(box, { bots, bot: 'api-bot', tab, session, source });
 
+/**
+ * Leave the conversation on the harness's own record, as a session that has
+ * had a turn has it: what a resume picks up, where an id with nothing behind
+ * it is started fresh instead (#295).
+ */
+const onRecord = (box, harness, bots, id) =>
+  conversationOnRecord(box, { harness, cwd: botHomeOf(bots, 'api-bot'), id });
+
 /** The arguments a shell running `line` hands the harness. */
 async function argvOf(box, line, fake) {
   const ran = await sh(line, { cwd: box.cwd, env: box.env });
@@ -149,6 +159,7 @@ test('claude resumes the session the book holds, and is not told its duty again'
   const fake = await fakeProgram(box, 'claude', {});
   const { bots, first } = await started(box, 'claude');
   await reported(box, bots, first.entry.tabId, 'sess-1');
+  await onRecord(box, 'claude', bots, 'sess-1');
   await closeTab(box, first.entry.tabId);
 
   const again = await up(box);
@@ -173,6 +184,7 @@ test('codex resumes the session the book holds, and is not told its duty again',
   const fake = await fakeProgram(box, 'codex', {});
   const { bots, first } = await started(box, 'codex');
   await reported(box, bots, first.entry.tabId, 'sess-1');
+  await onRecord(box, 'codex', bots, 'sess-1');
   await closeTab(box, first.entry.tabId);
 
   const again = await up(box);
@@ -214,6 +226,7 @@ for (const [harness, settings, fresh] of [
     const fake = await fakeProgram(box, harness, {});
     const { bots, first } = await started(box, harness, [...settings, '--prompt', PROMPT]);
     await reported(box, bots, first.entry.tabId, 'sess-1');
+    await onRecord(box, harness, bots, 'sess-1');
     await closeTab(box, first.entry.tabId);
 
     const again = await up(box);
@@ -231,6 +244,7 @@ test('a resumed Codex session keeps its --add-dir for a work dir outside the bot
   const outside = path.join(box.root, 'clones', 'api');
   const { bots, first } = await started(box, 'codex', ['--work-dir', outside]);
   await reported(box, bots, first.entry.tabId, 'sess-1');
+  await onRecord(box, 'codex', bots, 'sess-1');
   await closeTab(box, first.entry.tabId);
 
   const again = await up(box);
@@ -245,6 +259,7 @@ test('the session that came back is the one the book named, and the book follows
   const box = await createSandbox(t);
   const { bots, first } = await started(box, 'claude');
   await reported(box, bots, first.entry.tabId, 'sess-1');
+  await onRecord(box, 'claude', bots, 'sess-1');
   await closeTab(box, first.entry.tabId);
 
   const again = await up(box);
@@ -373,6 +388,7 @@ test('--json says a tab was resumed, and says so only of the tabs it opened', as
   assert.equal(first.entry.resumed, false, 'the first run started a fresh harness');
 
   await reported(box, bots, first.entry.tabId, 'sess-1');
+  await onRecord(box, 'claude', bots, 'sess-1');
   await closeTab(box, first.entry.tabId);
   const again = await up(box);
 
@@ -404,6 +420,7 @@ test('the plain report tells a session that came back from one that started over
   const box = await createSandbox(t);
   const { bots, first } = await started(box, 'claude');
   await reported(box, bots, first.entry.tabId, 'sess-1');
+  await onRecord(box, 'claude', bots, 'sess-1');
   await closeTab(box, first.entry.tabId);
   const resumed = await box.run(['up', '--bots', 'bots', '--bot', 'api-bot']);
 
@@ -440,7 +457,9 @@ test('two sessions each come back as themselves', async (t) => {
   const book = await sessionIn(bots, 'api-bot', 'daily');
   const review = await sessionIn(bots, 'api-bot', 'review');
   await reported(box, bots, book.tab, 'sess-daily');
+  await onRecord(box, 'claude', bots, 'sess-daily');
   await reported(box, bots, review.tab, 'sess-review');
+  await onRecord(box, 'claude', bots, 'sess-review');
   await box.orca.set({ terminals: [] });
   assert.equal((await box.run(['up', '--bots', 'bots', '--bot', 'api-bot'])).code, 0);
 
@@ -454,6 +473,7 @@ test('a resume keeps to the allowed Orca commands, and closes nothing', async (t
   const box = await createSandbox(t);
   const { bots, first } = await started(box, 'codex', ['--prompt', PROMPT, '--work-dir', 'work/api']);
   await reported(box, bots, first.entry.tabId, 'sess-1');
+  await onRecord(box, 'codex', bots, 'sess-1');
   await closeTab(box, first.entry.tabId);
 
   const again = await up(box);

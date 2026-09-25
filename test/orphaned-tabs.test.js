@@ -28,6 +28,7 @@ import {
   bookOf,
   botFatherTabs,
   botHomeOf,
+  conversationOnRecord,
   createSandbox,
   orcaCallsOf,
   orcaFlag,
@@ -58,12 +59,16 @@ async function tabOf(box, bots, bot = 'api-bot', name = 'daily') {
   return { tabId, handle: terminal.handle, terminal };
 }
 
-/** A running api-bot/daily whose conversation the book knows, with its tab now listed as orphaned. */
+/**
+ * A running api-bot/daily whose conversation the book knows, and Claude Code
+ * has on record (#295), with its tab now listed as orphaned.
+ */
 async function orphanedSession(box) {
   const bots = await fleet(box);
   const before = await tabOf(box, bots);
   const recorded = await recordSession(box, { bots, bot: 'api-bot', tab: before.tabId, session: 'sess-1' });
   assert.equal(recorded.code, 0, recorded.stderr);
+  await conversationOnRecord(box, { harness: 'claude', cwd: botHomeOf(bots, 'api-bot'), id: 'sess-1' });
   await box.orca.orphan(before.handle);
   return { bots, ...before };
 }

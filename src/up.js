@@ -8,9 +8,9 @@ import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { setTimeout as pause } from 'node:timers/promises';
 
-import { forgetClaimed, readBook, sessionIdsIn, tabIdsIn, updateBook, withUnclaimed } from './book.js';
+import { forgetClaimed, forgetSession, readBook, sessionIdsIn, tabIdsIn, updateBook, withUnclaimed } from './book.js';
 import { botDir, botNames, displayName, readBot } from './bot.js';
-import { conversationsIn, heldAsUserTurn, transcriptsIn } from './conversations.js';
+import { conversationsIn, hasConversation, heldAsUserTurn, transcriptsIn } from './conversations.js';
 import { installHook } from './hooks.js';
 import { addressOf, harnessOf, isAddressOf, isShortPrompt, launchCommand, reachesMail, sessionTrouble, startPrompt, workDirOf } from './launch.js';
 import { asFolderProject, findProject, harnessInTab, makeMailbox, makeProject, openTab, retitleTab, tabs, tellWindow, typeIntoTab, useMailbox } from './orca.js';
@@ -263,41 +263,14 @@ async function bringUpSession(bots, home, live, session, bot, title) {
   // given again (PRD 6.4) — after a clear it is, and that is the hook's work.
   // Asked before the book is held, because it reads a folder of the harness's
   // own files: nothing slow happens under the lock.
-  const which = whichConversation(book, home, bot, session, was, harness);
-  const resume = which.resume;
-  const prompt = resume === undefined ? startPrompt(session, { home, workDir }) : undefined;
-  // Anything longer than a line goes to the harness out of a file, rather than
-  // through the tab's shell a character at a time.
-  const promptFile = prompt === undefined || isShortPrompt(prompt) ? undefined : promptPath(bots, bot.name, session.name);
-  // A new conversation is given a new name. A resume goes on under the one the
-  // kit gave it, and under no `-n` at all when the book holds none of the kit's
-  // own: a resume keeps whatever name the conversation has, which is proven,
-  // and whether `-n` renames it is not (#286). Such a session is written to
-  // through its mailbox until it next starts fresh.
-  const address = harness !== 'claude' ? undefined
-    : resume === undefined ? addressOf(bot.name, session.name)
-    : isAddressOf(bot.name, session.name, was?.address) ? was.address : undefined;
-  const command = launchCommand(session, {
-    harness,
-    home,
-    workDir,
-    prompt,
-    promptFile,
-    resume,
-    address,
-  });
+  let which = whichConversation(book, home, bot, session, was, harness);
+  const launchOf = (chosen) => launchFor(bots, bot, session, harness, home, workDir, chosen.resume, was?.address);
+  let launch = launchOf(which);
 
   // A work dir is a plain folder, made for the session before it is told about
   // it (PRD 6.4). Nothing here is a git worktree.
   if (workDir !== undefined) mkdirSync(workDir, { recursive: true });
-
-  // The prompt is written where the launch line can read it from, before that
-  // line is typed. It is the kit's own file, not the user's: theirs stays where
-  // they put it, in the bot home.
-  if (promptFile !== undefined) {
-    mkdirSync(path.dirname(promptFile), { recursive: true });
-    writeFileSync(promptFile, prompt);
-  }
+  writePrompt(launch);
 
   const made = openTab(home, tabTitle);
 
@@ -313,20 +286,41 @@ async function bringUpSession(bots, home, live, session, bot, title) {
   // built, noted so that health can say when the file moves on and the session
   // does not (#272).
   const rules = rulesStamp(home);
+  let held;
   await updateBook(home, (current) => {
     // What the harness has in this folder that nobody claims goes on the record,
     // for a person or Bot Father to settle — added to whatever was already noted,
     // because this run's scan cannot see what an earlier one found. The kit never
     // settles it itself.
-    const entry = { ...current.sessions[session.name], tab: made.tabId, launched, rules };
+    let entry = { ...current.sessions[session.name], tab: made.tabId, launched, rules };
     if (rules === undefined) delete entry.rules;
+    held = entry.session;
+    // Before the line is typed, so the hook finds no id here and takes the one
+    // it reports for a start rather than a clear, which would tell the duty twice.
+    if (which.noConversation !== undefined && held === which.noConversation) entry = forgetSession(entry, 'no conversation');
     current.sessions[session.name] = withUnclaimed(entry, which.unclaimed ?? []);
     forgetClaimed(current);
   });
 
+  // The old tab's hook can name another conversation while the tab is being
+  // opened. A fresh start chosen before that is chosen again from the id the
+  // book holds now: resumed if the harness has it, and otherwise set aside the
+  // same way (review of PR #310).
+  if (which.noConversation !== undefined && typeof held === 'string' && held !== which.noConversation) {
+    which = hasConversation(harness, home, held) ? { resume: held } : { noConversation: held };
+    if (which.noConversation !== undefined) {
+      await updateBook(home, (current) => {
+        const entry = current.sessions[session.name];
+        if (entry?.session === held) current.sessions[session.name] = forgetSession(entry, 'no conversation');
+      });
+    }
+    launch = launchOf(which);
+    writePrompt(launch);
+  }
+
   // Typing it in is the way: for a project the kit has just made, giving Orca
   // the harness as the tab's own command times out and leaves a dead tab.
-  typeIntoTab(made.handle, command);
+  typeIntoTab(made.handle, launch.command);
 
   // Now the session has an address, and not before: the mailbox it can be
   // written to, and — on Claude Code — the name that line just gave it, which
@@ -334,7 +328,7 @@ async function bringUpSession(bots, home, live, session, bot, title) {
   // tab is on the books, so a mailbox Orca will not make leaves a tab the next
   // run finds and finishes rather than a tab nobody owns (review of PR #132,
   // finding 3).
-  await ensureMailbox(home, bot, session, harness, made.handle, { address, opened: true });
+  await ensureMailbox(home, bot, session, harness, made.handle, { address: launch.address, opened: true });
 
   // And then asking whether a TUI came up, rather than assuming one did. The
   // text goes into the tab's own shell, which may have been busy with a
@@ -352,9 +346,9 @@ async function bringUpSession(bots, home, live, session, bot, title) {
   // duty: one held on a first-run screen, or one that refused the argument, has
   // been told nothing. So it is received only when the session's own record
   // holds it as a user turn, and otherwise not confirmed (#274).
-  const promptReceived = prompt === undefined
+  const promptReceived = launch.prompt === undefined
     ? undefined
-    : await heldInRecord(home, session.name, harness, prompt, { launched, running: tui.running === true });
+    : await heldInRecord(home, session.name, harness, launch.prompt, { launched, running: tui.running === true });
 
   return entry(made, {
     bot: bot.name,
@@ -362,10 +356,51 @@ async function bringUpSession(bots, home, live, session, bot, title) {
     created: true,
     ...tui,
     promptReceived,
-    promptFile,
-    resumed: resume !== undefined,
+    promptFile: launch.promptFile,
+    resumed: launch.resume !== undefined,
+    noConversation: which.noConversation,
     unclaimed: which.unclaimed,
   });
+}
+
+/**
+ * The line that starts this session: resuming `resume`, or, with none, a fresh
+ * start carrying its duty. Returns `{ resume, prompt, promptFile, command, address }`.
+ */
+function launchFor(bots, bot, session, harness, home, workDir, resume, held) {
+  const prompt = resume === undefined ? startPrompt(session, { home, workDir }) : undefined;
+  // Anything longer than a line goes to the harness out of a file, rather than
+  // through the tab's shell a character at a time.
+  const promptFile = prompt === undefined || isShortPrompt(prompt) ? undefined : promptPath(bots, bot.name, session.name);
+  // A new conversation is given a new name. A resume goes on under the one the
+  // kit gave it, and under no `-n` at all when the book `held` none of the
+  // kit's own: a resume keeps whatever name the conversation has, which is
+  // proven, and whether `-n` renames it is not (#286). Such a session is
+  // written to through its mailbox until it next starts fresh.
+  const address = harness !== 'claude' ? undefined
+    : resume === undefined ? addressOf(bot.name, session.name)
+    : isAddressOf(bot.name, session.name, held) ? held : undefined;
+  const command = launchCommand(session, {
+    harness,
+    home,
+    workDir,
+    prompt,
+    promptFile,
+    resume,
+    address,
+  });
+  return { resume, prompt, promptFile, command, address };
+}
+
+/**
+ * The prompt is written where the launch line can read it from, before that
+ * line is typed. It is the kit's own file, not the user's: theirs stays where
+ * they put it, in the bot home.
+ */
+function writePrompt({ prompt, promptFile }) {
+  if (promptFile === undefined) return;
+  mkdirSync(path.dirname(promptFile), { recursive: true });
+  writeFileSync(promptFile, prompt);
 }
 
 /**
@@ -486,7 +521,14 @@ function mailboxFor(book, bot, session, harness, handle) {
  * has already started a harness in, the harness's own record is asked.
  */
 function whichConversation(book, home, bot, session, was, harness) {
-  if (typeof was?.session === 'string') return { resume: was.session };
+  if (typeof was?.session === 'string') {
+    if (hasConversation(harness, home, was.session)) return { resume: was.session };
+    // The hook reported an id and the harness never wrote a conversation behind
+    // it: a session paused before its first turn is one. There is nothing to
+    // resume, so it starts again with its duty, and the book keeps the id in the
+    // history with the reason (#295).
+    return { noConversation: was.session };
+  }
   // No tab: nothing has ever run for this session, so there is nothing to find.
   if (typeof was?.tab !== 'string') return {};
 
@@ -533,11 +575,13 @@ const ids = (setup, change) => ({ project: setup.projectId, setup: setup.id, cha
 export const promptPath = (bots, bot, session) =>
   path.join(`${bots}.prompts`, `${encodeURIComponent(bot)}.${encodeURIComponent(session)}.txt`);
 
-function entry(tab, { bot, name, created, running = false, blockedReason, promptReceived, promptFile, resumed, unclaimed }) {
+function entry(tab, { bot, name, created, running = false, blockedReason, promptReceived, promptFile, resumed, noConversation, unclaimed }) {
   const made = { bot, name, title: tab.title, tabId: tab.tabId, terminal: tab.handle, created, harnessStarted: running };
   // Whether this run picked the session up where it was or started a new one.
   // Only for a tab this run opened: a tab that was already there was left alone.
   if (resumed !== undefined) made.resumed = resumed;
+  // The id the book held that had no conversation behind it, now in the history.
+  if (noConversation !== undefined) made.noConversation = noConversation;
   // Orca's own words for what is on screen waiting to be answered, when it
   // gave any: the caller acts on it, the kit only passes it on.
   if (blockedReason !== undefined) made.blockedReason = blockedReason;

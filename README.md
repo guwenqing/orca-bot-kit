@@ -350,6 +350,11 @@ conversation it was having, rather than starting a new one. Clear a session —
 keeps the old one, and gives the session its start prompt again, because that
 prompt is what tells one session's duty from another's.
 
+A session paused before its first turn can have an id in the book and no
+conversation behind it: the harness has nothing on record for that id. There is
+nothing to resume, so it starts again with its duty, and the book moves the id
+into its history as `no conversation`.
+
 One tab holds one session: the harness the kit started in it. Anything that
 session runs inside the tab — a `codex exec`, a helper, a subagent's own process
 — is not the session, and never becomes the conversation the kit brings back.

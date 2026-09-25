@@ -1020,6 +1020,10 @@ test('S7 obk restart brings a session back onto the current rules: one session, 
   const bots = await seeded(box);
   await botUp(box, 'api-bot', { sessions: [['daily'], ['nightly', '--harness', 'codex']] });
   await conversationsFor(bots, 'api-bot', ['daily', 'nightly']);
+  // Both conversations are on their harness's record, so each restart resumes
+  // them and the book keeps them (#295).
+  await plantConversation(box, 'claude', botHomeOf(bots, 'api-bot'), conv(50));
+  await plantConversation(box, 'codex', botHomeOf(bots, 'api-bot'), conv(51));
   await CHARTER_CHANGES[0][1](box, bots);
 
   const before = await found(box);

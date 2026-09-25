@@ -22,6 +22,8 @@ import {
   assertCleanFailure,
   bookIn,
   bookOf,
+  botHomeOf,
+  conversationOnRecord,
   createSandbox,
   recordSession,
   sessionIn,
@@ -90,6 +92,8 @@ test('a session whose tab came back keeps the id and the history it had', async 
   const { bots, tabs } = await fleet(box);
   await recordSession(box, { bots, bot: 'api-bot', tab: tabs.daily.tabId, session: 'sess-1', source: 'startup' });
   await recordSession(box, { bots, bot: 'api-bot', tab: tabs.daily.tabId, session: 'sess-2', source: 'clear' });
+  // The conversation it cleared into has had a turn, so Claude Code has it on record (#295).
+  await conversationOnRecord(box, { harness: 'claude', cwd: botHomeOf(bots, 'api-bot'), id: 'sess-2' });
   await box.orca.set({
     terminals: (await box.orca.terminals()).filter((terminal) => terminal.tabId !== tabs.daily.tabId),
   });
