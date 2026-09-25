@@ -6,10 +6,11 @@
 
 import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { setTimeout as pause } from 'node:timers/promises';
 
 import { forgetClaimed, readBook, sessionIdsIn, tabIdsIn, updateBook, withUnclaimed } from './book.js';
 import { botDir, botNames, displayName, readBot } from './bot.js';
-import { conversationsIn } from './conversations.js';
+import { conversationsIn, heldAsUserTurn, transcriptsIn } from './conversations.js';
 import { installHook } from './hooks.js';
 import { addressOf, harnessOf, isShortPrompt, launchCommand, reachesMail, sessionTrouble, startPrompt, workDirOf } from './launch.js';
 import { asFolderProject, findProject, harnessInTab, makeMailbox, makeProject, openTab, retitleTab, tabs, tellWindow, typeIntoTab, useMailbox } from './orca.js';
@@ -339,22 +340,52 @@ async function bringUpSession(bots, home, live, session, bot, title) {
   const tui = first.running ? lookFor(made.handle, SECOND_LOOK_MS) : first;
 
   // The start prompt went in with that line, as the harness's own prompt
-  // argument, so it is the harness that holds it until it is ready — through
-  // its folder-trust question and its update offer. What is still worth saying
-  // is whether the line took at all: a shell that swallowed it swallowed the
-  // duty with it, and nobody has been told anything.
-  const promptSent = prompt === undefined ? undefined : tui.running === true;
+  // argument, and a harness running in the tab is not yet a session told its
+  // duty: one held on a first-run screen, or one that refused the argument, has
+  // been told nothing. So it is received only when the session's own record
+  // holds it as a user turn, and otherwise not confirmed (#274).
+  const promptReceived = prompt === undefined
+    ? undefined
+    : await heldInRecord(home, session.name, harness, prompt, { launched, running: tui.running === true });
 
   return entry(made, {
     bot: bot.name,
     name: session.name,
     created: true,
     ...tui,
-    promptSent,
+    promptReceived,
     promptFile,
     resumed: resume !== undefined,
     unclaimed: which.unclaimed,
   });
+}
+
+/**
+ * How long a running harness's own record is given to show the start prompt.
+ * Seen live (Claude Code 2.1.282, a trusted folder): the hook's id and the
+ * user turn landed about as the second look ended, so one read there comes a
+ * moment too early. A harness held on a first-run screen costs the whole wait.
+ */
+const RECORD_MS = 5000;
+const RECORD_ASK_MS = 250;
+
+/**
+ * Whether the conversation the book names for this session holds `prompt` as a
+ * user turn in the harness's own record. The name comes from the session's own
+ * hook, so a harness that has not reported one — held on a first-run screen,
+ * say — has no record to be read, and the answer is that it is not confirmed.
+ * Another conversation in the same folder is never asked: it may be a sister
+ * session told the same words.
+ */
+async function heldInRecord(home, name, harness, prompt, { launched, running }) {
+  const until = Date.now() + (running ? RECORD_MS : 0);
+  for (;;) {
+    const id = readBook(home).sessions[name]?.session;
+    const record = typeof id === 'string' ? transcriptsIn(harness, home, launched).find((one) => one.id === id) : undefined;
+    if (record !== undefined && heldAsUserTurn(harness, record.file, prompt)) return true;
+    if (Date.now() >= until) return false;
+    await pause(RECORD_ASK_MS);
+  }
 }
 
 /**
@@ -495,7 +526,7 @@ const ids = (setup, change) => ({ project: setup.projectId, setup: setup.id, cha
 export const promptPath = (bots, bot, session) =>
   path.join(`${bots}.prompts`, `${encodeURIComponent(bot)}.${encodeURIComponent(session)}.txt`);
 
-function entry(tab, { bot, name, created, running = false, blockedReason, promptSent, promptFile, resumed, unclaimed }) {
+function entry(tab, { bot, name, created, running = false, blockedReason, promptReceived, promptFile, resumed, unclaimed }) {
   const made = { bot, name, title: tab.title, tabId: tab.tabId, terminal: tab.handle, created, harnessStarted: running };
   // Whether this run picked the session up where it was or started a new one.
   // Only for a tab this run opened: a tab that was already there was left alone.
@@ -507,7 +538,7 @@ function entry(tab, { bot, name, created, running = false, blockedReason, prompt
   // claims: the caller is told, because the kit will not pick one.
   if (unclaimed !== undefined && unclaimed.length > 0) made.unclaimed = unclaimed;
   // Only for a session this run started that had something to be told.
-  if (promptSent !== undefined) made.promptSent = promptSent;
+  if (promptReceived !== undefined) made.promptReceived = promptReceived;
   // And the file it was told it out of, when it was too long for the line.
   if (promptFile !== undefined) made.promptFile = promptFile;
   return made;

@@ -1213,6 +1213,7 @@ function harnessLines(tab, bots) {
       '             the harness was typed in, and no session came up in the tab.',
       `             Look at it:  ${lookAt(tab.terminal)}`,
       ...ANSWER_IT,
+      ...promptLines(tab),
     ];
   }
 
@@ -1234,12 +1235,19 @@ function harnessLines(tab, bots) {
       ...ANSWER_IT,
     ];
 
-  if (tab.promptSent === true) lines.push('             the start prompt was typed in.');
-  if (tab.promptSent === false) {
-    lines.push('             the start prompt was not typed in: the tab was not ready for it.');
-  }
+  lines.push(...promptLines(tab));
   if (tab.unclaimed !== undefined) lines.push(...unclaimedLines(tab, bots));
   return lines;
+}
+
+/**
+ * Whether the session got its start prompt, as its own record has it (#274):
+ * received, or not confirmed yet. Nothing for a session that was told nothing.
+ */
+function promptLines(tab) {
+  if (tab.promptReceived === true) return ['             the start prompt was received: the session\'s own record holds it.'];
+  if (tab.promptReceived === false) return ['             the start prompt is not confirmed: the session\'s own record does not hold it yet.'];
+  return [];
 }
 
 try {

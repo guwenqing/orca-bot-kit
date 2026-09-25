@@ -868,7 +868,7 @@ test('a session whose tab was closed comes back with its conversation', async (t
     assert.equal(back.created, true, 'a new tab was opened for it');
     assert.notEqual(back.tabId, opened.tabId, 'and it is a new tab, with a new id');
     assert.equal(back.resumed, true, 'and the run says it picked the conversation up again');
-    assert.equal('promptSent' in back, false, 'a resumed session is not told its duty a second time');
+    assert.equal('promptReceived' in back, false, 'a resumed session is not told its duty a second time');
     assert.equal(
       back.harnessStarted,
       true,

@@ -48,6 +48,46 @@ export function transcriptsIn(harness, home, since) {
     .map((one) => ({ id: one.id, at: new Date(one.at).toISOString(), file: one.file }));
 }
 
+/**
+ * Whether a conversation's own record holds `text` as a turn of the user's:
+ * what the harness itself wrote down as said to it, not a screen that was up.
+ *
+ * Only the user's turns count. Claude Code writes them as `user` lines, and its
+ * own meta lines and tool results in that same shape are not the user's. Codex
+ * writes each as a `user` message item; its `user_message` event is missing
+ * from many rollouts, and the item is in every one (tech notes, section 3).
+ * Its AGENTS.md goes in as a `user` item too, and cannot be the text asked about.
+ */
+export function heldAsUserTurn(harness, file, text) {
+  let lines;
+  try {
+    lines = readFileSync(file, 'utf8').split('\n');
+  } catch {
+    return false;
+  }
+  const wanted = text.trim();
+  return lines.some((line) => userTexts(harness, line).some((said) => said.trim() === wanted));
+}
+
+/** The texts of one record line, when it is a turn of the user's. */
+function userTexts(harness, line) {
+  let parsed;
+  try {
+    parsed = JSON.parse(line);
+  } catch {
+    return [];
+  }
+  if (harness === 'claude') {
+    if (parsed?.type !== 'user' || parsed.isMeta === true) return [];
+    const content = parsed.message?.content;
+    if (typeof content === 'string') return [content];
+    return Array.isArray(content) ? content.filter((block) => block?.type === 'text').map((block) => String(block.text)) : [];
+  }
+  const item = parsed?.type === 'response_item' ? parsed.payload : undefined;
+  if (item?.type !== 'message' || item.role !== 'user' || !Array.isArray(item.content)) return [];
+  return item.content.filter((block) => block?.type === 'input_text').map((block) => String(block.text));
+}
+
 function claudeConversations(home) {
   return files(claudeDir(home))
     .filter((name) => name.endsWith('.jsonl'))

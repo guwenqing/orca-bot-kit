@@ -274,7 +274,7 @@ test('--json says a tab was resumed, and says so only of the tabs it opened', as
 
   assert.equal(again.entry.created, true);
   assert.equal(again.entry.resumed, true, 'this one picked the conversation up again');
-  assert.equal('promptSent' in again.entry, false, 'and told it nothing, so it has nothing to report');
+  assert.equal('promptReceived' in again.entry, false, 'and told it nothing, so it has nothing to report');
 });
 
 test('--json says a tab was not resumed when it started a fresh session', async (t) => {
@@ -286,7 +286,11 @@ test('--json says a tab was not resumed when it started a fresh session', async 
 
   assert.equal(again.entry.created, true);
   assert.equal(again.entry.resumed, false, 'nothing was in the book to come back to');
-  assert.equal(again.entry.promptSent, true, 'so it was told its duty, as a new session is');
+  assert.equal(
+    again.entry.promptReceived,
+    false,
+    'so it was given its duty, as a new session is, and there is something to report: nothing on record holds it yet',
+  );
 });
 
 test('the plain report tells a session that came back from one that started over', async (t) => {
