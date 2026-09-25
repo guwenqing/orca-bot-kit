@@ -486,7 +486,9 @@ approval class (`auto` and `ask` are one class, `dangerously-skip` the other)
 is the harness's own messaging: `message to` answers with the
 session's name — `<bot>.<session>.<token>`, which `obk up` puts on its launch
 line; the token is new for each new conversation and kept when one is resumed,
-because Claude Code refuses a name that other fleets' sessions also answer to —
+because Claude Code refuses a name that other fleets' sessions also answer to.
+A session named before the token came in is written to through its mailbox
+until it next starts a new conversation —
 and the sending session writes to that name itself, because no command can send
 that message for it. Ask `message to` each time rather than keeping the name. Everything else goes through Orca's mailbox, which the kit
 does carry.

@@ -12,7 +12,7 @@ import { forgetClaimed, readBook, sessionIdsIn, tabIdsIn, updateBook, withUnclai
 import { botDir, botNames, displayName, readBot } from './bot.js';
 import { conversationsIn, heldAsUserTurn, transcriptsIn } from './conversations.js';
 import { installHook } from './hooks.js';
-import { addressOf, harnessOf, isShortPrompt, launchCommand, reachesMail, sessionTrouble, startPrompt, workDirOf } from './launch.js';
+import { addressOf, harnessOf, isAddressOf, isShortPrompt, launchCommand, reachesMail, sessionTrouble, startPrompt, workDirOf } from './launch.js';
 import { asFolderProject, findProject, harnessInTab, makeMailbox, makeProject, openTab, retitleTab, tabs, tellWindow, typeIntoTab, useMailbox } from './orca.js';
 import { buildAgents, rulesStamp } from './rules.js';
 import { linkSkills } from './skills.js';
@@ -269,9 +269,14 @@ async function bringUpSession(bots, home, live, session, bot, title) {
   // Anything longer than a line goes to the harness out of a file, rather than
   // through the tab's shell a character at a time.
   const promptFile = prompt === undefined || isShortPrompt(prompt) ? undefined : promptPath(bots, bot.name, session.name);
-  // A resume goes on under the name its conversation already has; a new
-  // conversation is given a new one.
-  const address = harness === 'claude' ? addressOf(bot.name, session.name, resume === undefined ? undefined : was?.address) : undefined;
+  // A new conversation is given a new name. A resume goes on under the one the
+  // kit gave it, and under no `-n` at all when the book holds none of the kit's
+  // own: a resume keeps whatever name the conversation has, which is proven,
+  // and whether `-n` renames it is not (#286). Such a session is written to
+  // through its mailbox until it next starts fresh.
+  const address = harness !== 'claude' ? undefined
+    : resume === undefined ? addressOf(bot.name, session.name)
+    : isAddressOf(bot.name, session.name, was?.address) ? was.address : undefined;
   const command = launchCommand(session, {
     harness,
     home,

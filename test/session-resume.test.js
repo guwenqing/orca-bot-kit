@@ -24,9 +24,15 @@
 //
 // A resumed Claude session keeps its address, too (#286): the fleet has been
 // writing to it there. That holds only for an address the kit made for this
-// bot and session, `<bot>.<session>.<token>`. A book holding none, the bare
-// `<bot>.<session>` every fleet shared before, or one made for some other
-// session, gets a new one, and the line and the book carry the same.
+// bot and session, `<bot>.<session>.` and a token of eight lowercase letters
+// and digits, and then the line carries it after `-n`. Anything else — none,
+// the bare `<bot>.<session>` every fleet shared before, one made for some other
+// session, a token of the wrong shape — and the line carries no `-n` at all,
+// and the book is left as it was. What is proven is only that a resume keeps
+// the name a conversation already has; that `--resume <id> -n <other>` renames
+// it is not, so the kit does not rely on it. Such a session is reached through
+// its mailbox until it next starts a fresh conversation, which gets an address
+// of its own.
 //
 // The tests read the line the kit typed and then run it through a real shell
 // against a fake harness, so what is checked is the argv a real harness would
@@ -269,21 +275,29 @@ test('a resumed Claude session keeps the address it was started under', async (t
   assert.equal((await sessionIn(bots, 'api-bot', 'daily')).address, address, 'and the book still holds it');
 });
 
-/** What a book may hold as a Claude session's address when it is resumed, and whether the resume keeps it. */
+/**
+ * What a book may hold as a Claude session's address when it is resumed, and
+ * whether it is one the kit made for this bot and session, which the resume
+ * carries on the line.
+ */
 const HELD = [
-  ['an address made for this bot and session', 'api-bot.daily.k3x9q2', true],
+  ['an address made for this bot and session', 'api-bot.daily.k3x9q2m7', true],
   ['no address at all', undefined, false],
   ['the bare <bot>.<session> every fleet shared before #286', 'api-bot.daily', false],
-  ['an address made for another session of the bot', 'api-bot.night.k3x9q2', false],
-  ['an address made for another bot', 'web-bot.daily.k3x9q2', false],
-  ['an address for a session whose name only begins the same', 'api-bot.daily2.k3x9q2', false],
+  ['an address made for another session of the bot', 'api-bot.night.k3x9q2m7', false],
+  ['an address made for another bot', 'web-bot.daily.k3x9q2m7', false],
+  ['an address for a session whose name only begins the same', 'api-bot.daily2.k3x9q2m7', false],
+  // The token is exactly eight lowercase letters and digits (review of PR
+  // #314): anything else is not an address the kit made.
+  ['a token of six characters', 'api-bot.daily.k3x9q2', false],
+  ['a token of nine characters', 'api-bot.daily.k3x9q2m7z', false],
+  ['a token in capitals', 'api-bot.daily.K3X9Q2M7', false],
 ];
 
-for (const [label, held, kept] of HELD) {
-  test(`a resumed Claude session whose book holds ${label} ${kept ? 'keeps it' : 'is given a new address'}`, async (t) => {
+for (const [label, held, made] of HELD) {
+  test(`a resumed Claude session whose book holds ${label} ${made ? 'is resumed under it' : 'is resumed with no -n, and its book is left alone'}`, async (t) => {
     const box = await createSandbox(t);
     const { bots, first } = await started(box, 'claude');
-    const had = (await sessionIn(bots, 'api-bot', 'daily')).address;
     await reported(box, bots, first.entry.tabId, 'sess-1');
     const book = await bookIn(bots, 'api-bot');
     if (held === undefined) delete book.sessions.daily.address;
@@ -293,19 +307,34 @@ for (const [label, held, kept] of HELD) {
 
     const again = await up(box);
 
-    const line = again.typed[0];
-    assert.ok(line.includes('--resume sess-1'), `the run should have resumed, got: ${line}`);
-    const name = nameOnLine(line);
-    if (kept) {
-      assert.equal(name, held, `the address the book held is the one the line carries, got: ${line}`);
-    } else {
-      assert.match(String(name), addressPattern('api-bot', 'daily'), `got: ${line}`);
-      assert.notEqual(name, held, 'not the address the book held');
-      assert.notEqual(name, had, 'and not one the session had before either: it is new');
-    }
-    assert.equal((await sessionIn(bots, 'api-bot', 'daily')).address, name, 'and the book holds what the line carried');
+    assert.deepEqual(
+      again.typed,
+      [launchLine(box, `claude --permission-mode auto${made ? ` -n ${held}` : ''} --resume sess-1`)],
+      made ? 'the line carries the address the book held' : 'the line names no address: the conversation keeps whatever name it has',
+    );
+    const daily = await sessionIn(bots, 'api-bot', 'daily');
+    assert.equal(daily.address, held, 'the book\'s address is as it was');
+    assert.equal(Object.hasOwn(daily, 'address'), held !== undefined, `neither written nor removed: ${JSON.stringify(daily)}`);
   });
 }
+
+test('a session whose book holds the bare name gets an address of its own at its next fresh start', async (t) => {
+  // The way out of the mailbox for a session from before #286: no conversation
+  // to resume, so a new one, and a new conversation gets a new address.
+  const box = await createSandbox(t);
+  const { bots, first } = await started(box, 'claude');
+  const book = await bookIn(bots, 'api-bot');
+  book.sessions.daily.address = 'api-bot.daily';
+  await writeFile(bookOf(bots, 'api-bot'), stringify(book));
+  await closeTab(box, first.entry.tabId);
+
+  const again = await up(box);
+
+  const line = again.typed[0];
+  assert.ok(!line.includes('--resume'), `a fresh start, got: ${line}`);
+  assert.match(String(nameOnLine(line)), addressPattern('api-bot', 'daily'), `got: ${line}`);
+  assert.equal((await sessionIn(bots, 'api-bot', 'daily')).address, nameOnLine(line), 'and the book holds what the line carried');
+});
 
 test('a session the book holds no id for comes up fresh, with its start prompt', async (t) => {
   // Nothing has ever reported for this session — the hook never ran, or the

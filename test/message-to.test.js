@@ -11,9 +11,12 @@
 //            held for approval — so the kit calls that pair `orca` in advance
 //            rather than letting it hang. The address is the receiver's own
 //            session name, `<bot>.<session>.<token>`: the one its launch line
-//            carried and its book holds, whatever the token is (#286).
-//   orca     everything else: Codex at either end, or a mixed-approval pair.
-//            The address is the receiver's mailbox, `run:<id>`.
+//            carried and its book holds, the token eight lowercase letters and
+//            digits (#286).
+//   orca     everything else: Codex at either end, a mixed-approval pair, or
+//            a Claude receiver whose book holds no name of that kind — one
+//            running since before the kit gave tokens. The address is the
+//            receiver's mailbox, `run:<id>`.
 //
 // The refusals matter as much as the answers. A bot that is told an address
 // for a session that was never brought up would send into nowhere and never
@@ -164,10 +167,12 @@ test('the native address is the name the receiver\'s harness was launched under'
   assert.equal(answer.address, launched);
 });
 
-test('a session a resume gave a new address is answered at the new one, not the bare name it had', async (t) => {
+test('a session resumed from a book holding the bare name is answered through its mailbox', async (t) => {
   // The upgrade: a book written before #286 holds `<bot>.<session>`, the name
-  // every fleet's session of that name answers to. The resume launches it under
-  // a name of its own, and the answer is that name.
+  // every fleet's session of that name answers to. The resume cannot be relied
+  // on to rename the conversation, so the line carries no name, the harness
+  // answers to whatever it did before, and the answer is the mailbox rather
+  // than any name.
   const box = await createSandbox(t);
   const bots = await fleetIn(box, [['auto-one', 'claude', []], ['auto-two', 'claude', []]]);
   const { tab } = await sessionIn(bots, 'auto-two', 'daily');
@@ -182,13 +187,74 @@ test('a session a resume gave a new address is answered at the new one, not the 
   assert.equal(up.code, 0, up.stderr);
   const line = typedInto(await tabOf(box, bots, 'auto-two'))[0];
   assert.ok(line.includes('--resume sess-1'), `the run should have resumed, got: ${line}`);
+  assert.equal(nameOnLine(line), undefined, `and named nothing, got: ${line}`);
 
   const answer = await askTo(box, ['--to', 'auto-two', '--from', 'auto-one/daily']);
 
-  assert.equal(answer.transport, 'native', `got: ${JSON.stringify(answer)}`);
-  assert.notEqual(answer.address, 'auto-two.daily', 'not the name every fleet shares');
-  assert.match(answer.address, addressPattern('auto-two', 'daily'));
-  assert.equal(answer.address, nameOnLine(line), 'the name the resumed harness came up under');
+  assert.equal(answer.transport, 'orca', `got: ${JSON.stringify(answer)}`);
+  assert.equal(answer.address, `run:${(await sessionIn(bots, 'auto-two', 'daily')).mailbox}`);
+});
+
+/**
+ * What a Claude receiver's book may hold as its address, and whether it is one
+ * the kit made for it: `<bot>.<session>.` and a token of exactly eight
+ * lowercase letters and digits (review of PR #314).
+ */
+const RECEIVER_HELD = [
+  ['an address the kit made for it', 'auto-two.daily.k3x9q2m7', true],
+  ['the bare <bot>.<session> from before #286', 'auto-two.daily', false],
+  ['an address made for another bot', 'auto-one.daily.k3x9q2m7', false],
+  ['an address made for another session of the bot', 'auto-two.night.k3x9q2m7', false],
+  ['a token of six characters', 'auto-two.daily.k3x9q2', false],
+  ['a token of nine characters', 'auto-two.daily.k3x9q2m7z', false],
+  ['a token in capitals', 'auto-two.daily.K3X9Q2M7', false],
+];
+
+for (const [label, held, made] of RECEIVER_HELD) {
+  test(`a Claude receiver whose book holds ${label} ${made ? 'is written to natively at it' : 'goes by the mailbox'}`, async (t) => {
+    // The case the review of PR #314 found: a session already running when the
+    // kit started giving tokens. Its tab is live, `up` does not relaunch it,
+    // and nothing renames a running harness, so the name in its book is shared
+    // with every other fleet's session of that name. Answering `native` with it
+    // is the send Claude Code refuses. The mailbox reaches it, as it reaches a
+    // Claude session the kit never named.
+    const box = await createSandbox(t);
+    const bots = await fleetIn(box, [['auto-one', 'claude', []], ['auto-two', 'claude', []]]);
+    const book = await bookIn(bots, 'auto-two');
+    book.sessions.daily.address = held;
+    await writeFile(bookOf(bots, 'auto-two'), stringify(book));
+
+    const answer = await askTo(box, ['--to', 'auto-two', '--from', 'auto-one/daily']);
+
+    assert.deepEqual(
+      { transport: answer.transport, address: answer.address },
+      made
+        ? { transport: 'native', address: held }
+        : { transport: 'orca', address: `run:${(await sessionIn(bots, 'auto-two', 'daily')).mailbox}` },
+      `got: ${JSON.stringify(answer)}`,
+    );
+  });
+}
+
+test('a session running since before #286 is still reached through its mailbox after up', async (t) => {
+  // End to end: the book holds the bare name the session was launched under,
+  // its tab is still live, and `up` runs again. `up` types nothing into a live
+  // tab, so the harness still answers to the shared name, and the answer is
+  // the mailbox rather than that name.
+  const box = await createSandbox(t);
+  const bots = await fleetIn(box, [['auto-one', 'claude', []], ['auto-two', 'claude', []]]);
+  const book = await bookIn(bots, 'auto-two');
+  book.sessions.daily.address = 'auto-two.daily';
+  await writeFile(bookOf(bots, 'auto-two'), stringify(book));
+  const typedBefore = typedInto(await tabOf(box, bots, 'auto-two'));
+
+  const up = await box.run(['up', '--bots', 'bots']);
+
+  assert.equal(up.code, 0, up.stderr);
+  assert.deepEqual(typedInto(await tabOf(box, bots, 'auto-two')), typedBefore, 'the live session was not relaunched');
+  const answer = await askTo(box, ['--to', 'auto-two', '--from', 'auto-one/daily']);
+  assert.equal(answer.transport, 'orca', `got: ${JSON.stringify(answer)}`);
+  assert.equal(answer.address, `run:${(await sessionIn(bots, 'auto-two', 'daily')).mailbox}`);
 });
 
 test('a bot named on its own is its one session', async (t) => {

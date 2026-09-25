@@ -599,16 +599,19 @@ export const launchLine = (box, rest) => `${TAB_SHELL} ${cliOnLine(box.cli)} ${r
  * survives a resume, and the kit passes it on every launch anyway (tech notes,
  * section 2).
  *
- * The token is at most eight lowercase letters and digits, and new each time
+ * The token is exactly eight lowercase letters and digits, and new each time
  * the kit starts a session on a fresh conversation (#286). Without it every
  * fleet's Bot Father answered to `bot-father.daily` — old runs, other
  * machines, the fleets system tests bring up — and Claude Code refuses a send
- * to a name more than one session answers to. So a test can only say what
- * shape an address has, and that the line, the book and `obk message to` all
- * give the same one.
+ * to a name more than one session answers to. Eight characters give 36^8
+ * names, so that sessions of the same name across every fleet do not meet by
+ * chance (review of PR #314).
+ *
+ * So a test can only say what shape an address has, and that the line, the
+ * book and `obk message to` all give the same one.
  */
 export const addressPattern = (bot, session) => new RegExp(
-  `^${[bot, session].map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\.')}\\.[a-z0-9]{1,8}$`,
+  `^${[bot, session].map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\.')}\\.[a-z0-9]{8}$`,
 );
 
 /** What `tokenless` writes in place of the token, so a line can be pinned whole. */
@@ -619,11 +622,11 @@ export const TOKEN = '<token>';
  * after `-n` written `TOKEN`: the rest of the line is then pinned exactly, as
  * `bareLaunch` spells it. Only a token of the right shape is replaced — an
  * address with none, like the old `<bot>.<session>`, or with one that is not
- * one to eight lowercase letters and digits, is left as it was and fails the
+ * exactly eight lowercase letters and digits, is left as it was and fails the
  * comparison. Which token it is, and that the book holds the same one, is for
  * the tests of the address itself (session-address, session-resume, message-to).
  */
-export const tokenlessWord = (word) => word.replace(/^([^ .]+\.[^ .]+\.)[a-z0-9]{1,8}$/, `$1${TOKEN}`);
+export const tokenlessWord = (word) => word.replace(/^([^ .]+\.[^ .]+\.)[a-z0-9]{8}$/, `$1${TOKEN}`);
 export const tokenless = (line) => line.replace(/( -n )([^ ]+)/, (all, flag, word) => `${flag}${tokenlessWord(word)}`);
 
 /** The name a Claude launch line carries after `-n`, as the kit typed it, or undefined for a line with none. */

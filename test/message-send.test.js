@@ -166,6 +166,32 @@ test('a Claude pair whose receiver answers to no name is carried, not refused', 
   assert.equal(message.from, await addressOfMailbox(bots, 'writer'));
 });
 
+for (const [label, held] of [
+  ['the bare <bot>.<session> it had before #286', 'reader.daily'],
+  ['a token that is not eight lowercase letters and digits', 'reader.daily.k3x9q2'],
+]) {
+  test(`a Claude pair whose receiver's book holds ${label} is carried through the mailbox`, async (t) => {
+    // A session already running when the kit started giving tokens (review of
+    // PR #314): its tab is live, so `up` never relaunched it, and nothing
+    // renames a running harness. The name in its book is not one the kit made
+    // for it, so there is no native road to refuse the send for.
+    const box = await createSandbox(t);
+    const bots = await fleetIn(box);
+    const book = await bookIn(bots, 'reader');
+    book.sessions.daily.address = held;
+    await writeFile(bookOf(bots, 'reader'), stringify(book));
+
+    const result = await send(box, [
+      '--to', 'reader', '--from', 'writer/daily', '--subject', 'about the review', '--text', 'have you started?',
+    ]);
+
+    assert.equal(result.code, 0, result.stderr);
+    const message = await theMessage(box);
+    assert.equal(message.to, await addressOfMailbox(bots, 'reader'));
+    assert.equal(message.from, await addressOfMailbox(bots, 'writer'));
+  });
+}
+
 test('a body of 4 KiB travels as itself', async (t) => {
   const box = await createSandbox(t);
   const bots = await fleetIn(box);

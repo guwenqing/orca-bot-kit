@@ -20,7 +20,7 @@ import path from 'node:path';
 
 import { readBook } from './book.js';
 import { botDir, botNames, readBot } from './bot.js';
-import { harnessOf, ownCli, reachesMail, shellWord } from './launch.js';
+import { harnessOf, isAddressOf, ownCli, reachesMail, shellWord } from './launch.js';
 import { ackMailbox, coordinatorOf, postMessage, readMailbox, tabs, tabToTypeInto, typeIntoTab, useMailbox } from './orca.js';
 
 /**
@@ -67,7 +67,10 @@ export function findSession(bots, target) {
     session: session.name,
     harness,
     approval: classOf(session),
-    address: typeof held.address === 'string' ? held.address : undefined,
+    // Only a name the kit gave this session is an address. A bare
+    // `<bot>.<session>`, from before #286, is shared with other fleets'
+    // sessions, and Claude Code refuses a send to it.
+    address: isAddressOf(bot.name, session.name, held.address) ? held.address : undefined,
     mailbox: typeof held.mailbox === 'string' ? held.mailbox : undefined,
     tab: typeof held.tab === 'string' ? held.tab : undefined,
     trouble: whyNotReachable(bot.name, session, harness, held),
@@ -91,7 +94,8 @@ export function roadBetween(from, to) {
     address: to.mailbox === undefined ? undefined : `run:${to.mailbox}`,
     // A Claude pair that the native road cannot carry, because the receiver is
     // running under no name the kit gave it: it was started before the kit
-    // named sessions, and nothing renames a live harness. The mailbox is the
+    // named sessions, or before it gave them names of their own (#286), and
+    // nothing renames a live harness. The mailbox is the
     // road that exists, and the caller is told why it is the one being used
     // rather than left to wonder (review of PR #132, finding 1).
     unnamed: pair ? true : undefined,
