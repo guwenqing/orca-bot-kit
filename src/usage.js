@@ -314,7 +314,7 @@ function fromCodex(entries, window, tally) {
   let model;
   let effort;
   let running;
-  // Whether the event before had its running total with something missing.
+  // Whether a running total with something missing came since the last complete one.
   let broken = false;
 
   for (const entry of entries) {
@@ -341,8 +341,10 @@ function fromCodex(entries, window, tally) {
     const total = info.total_token_usage ?? undefined;
     let used;
     if (total === undefined) {
-      // Nothing to measure against: the per-call figure is all there is.
-      used = perCall(info);
+      // Nothing to measure against: the per-call figure is all there is. After a
+      // broken running total it may be the broken one written again, so it is
+      // not counted either until a complete running total says where things are.
+      used = broken ? null : perCall(info);
     } else if (!complete(total, CODEX_READ)) {
       used = null;
       broken = true;
