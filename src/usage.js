@@ -304,13 +304,14 @@ const CODEX_FIELDS = [
  * and after it the running total is not known: measured against the event before
  * it, the next call would take in what the broken one used, at the next call's
  * time and perhaps in another window. So the next event is its own per-call
- * figure, but it may also be the broken one written down again, which is not a
- * new call. It may be when its figure is the broken one's, or when the running
- * total has risen by its figure and no more. Then the call was made at one of
- * their times, and is counted only when those are all on the same side of the
- * window; where they are not, it cannot be placed, and is said to be. A call
- * whose figure is needed and has something missing is not counted either, and
- * is said to be; nothing missing is taken as zero.
+ * figure, but it may also be a broken one written down again, which is not a
+ * new call. A repeat is an event whose running total has not moved, so it may
+ * be where what the broken one shows of its running total is this one's; equal
+ * per-call figures alone are two calls of the same size. Then the call was made
+ * at one of their times, and is counted only when those are all on the same
+ * side of the window; where they are not, it cannot be placed, and is said to
+ * be. A call whose figure is needed and has something missing is not counted
+ * either, and is said to be; nothing missing is taken as zero.
  */
 function fromCodex(entries, window, tally) {
   let model;
@@ -347,9 +348,9 @@ function fromCodex(entries, window, tally) {
       used = perCall(info);
     } else if (!complete(total, CODEX_READ)) {
       used = null;
-      broken.push({ when, last: info.last_token_usage });
+      broken.push({ when, total });
     } else {
-      used = broken.length === 0 ? spent(running, total, info) : afterBroken(running, total, info, broken, when, window);
+      used = broken.length === 0 ? spent(running, total, info) : afterBroken(total, info, broken, when, window);
       running = total;
       broken = [];
     }
@@ -396,22 +397,15 @@ function spent(running, total, info) {
  * is a new call or the broken one written again on the same side of the window;
  * `null` where its figure is missing something or the call cannot be placed.
  */
-function afterBroken(running, total, info, broken, when, window) {
+function afterBroken(total, info, broken, when, window) {
   const own = perCall(info);
   if (own === null) return null;
 
-  const last = info.last_token_usage;
-  const before = broken.at(-1).last;
-  const rose = Object.fromEntries(CODEX_READ.map((field) => [field, total[field] - (running?.[field] ?? 0)]));
-  const again = (complete(before, CODEX_READ) && same(before, last)) || same(rose, last);
-  if (!again) return own;
-
+  const earlier = broken.filter((one) => CODEX_READ.every((field) => !isNumber(one.total[field]) || one.total[field] === total[field]));
   // One with no time is in no window, so it is never on the side of one that counts.
-  const placed = broken.every((one) => inside(one.when, window) === inside(when, window));
+  const placed = earlier.every((one) => inside(one.when, window) === inside(when, window));
   return placed ? own : null;
 }
-
-const same = (one, other) => CODEX_READ.every((field) => one[field] === other[field]);
 
 /** A Codex event's own per-call figure, or `null` when something in it is missing. */
 const perCall = (info) =>
@@ -493,10 +487,11 @@ function realHome(home) {
 
 const number = (value) => (typeof value === 'number' && Number.isFinite(value) ? value : 0);
 
+const isNumber = (value) => typeof value === 'number' && Number.isFinite(value);
+
 /** Whether a figure has every field it should, each a number. */
 const complete = (figure, fields) =>
-  figure !== undefined && figure !== null
-  && fields.every((field) => typeof figure[field] === 'number' && Number.isFinite(figure[field]));
+  figure !== undefined && figure !== null && fields.every((field) => isNumber(figure[field]));
 
 const add = (set, value) => {
   if (typeof value === 'string' && value !== '') set.add(value);
