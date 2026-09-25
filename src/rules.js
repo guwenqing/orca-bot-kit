@@ -406,3 +406,18 @@ function sameFile(one, other) {
     return false;
   }
 }
+
+/**
+ * A stamp of a bot's `AGENTS.md` as it is now, or undefined when there is none
+ * to read. It is what a session read when it started, noted in the book at that
+ * moment, so that health can tell a session running on older rules from one on
+ * the current ones. The whole file, not only the build's block: what the user
+ * wrote below the end marker is part of what the session reads.
+ */
+export function rulesStamp(home) {
+  try {
+    return checksum(readFileSync(path.join(home, AGENTS), 'utf8'));
+  } catch {
+    return undefined;
+  }
+}

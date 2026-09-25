@@ -64,6 +64,8 @@
 //   foreground  who is in front of every launched tab, for the fake `ps`:
 //               'harness', 'shell', or one of the ways it cannot be read
 //               (helpers/fake-ps.js lists them). Left out, it follows waitIdle.
+//               One terminal can carry a `foreground` of its own, for that
+//               tab alone; Orca never reports it.
 //   agentIdentity  what `terminal show` and `terminal list` give as every
 //               tab's `agentIdentity`, when the key is there (null included).
 //               Left out, a tab carries its own: null when it is made, and the
@@ -397,10 +399,10 @@ if (command === 'project setup-delete') {
 
 /**
  * What Orca reports about a tab. What was typed into it is ours, and stays
- * ours, and so are the notices Orca wrote into it and how many more listings a
- * closed tab still shows up in.
+ * ours, and so are the notices Orca wrote into it, how many more listings a
+ * closed tab still shows up in, and who a test put in front of it.
  */
-const asReported = ({ typed: _typed, notices: _notices, closingFor: _closingFor, ...rest }) => (rest.orphaned === true
+const asReported = ({ typed: _typed, notices: _notices, closingFor: _closingFor, foreground: _foreground, ...rest }) => (rest.orphaned === true
   ? { ...rest, ...identity(), tabId: `pty:${rest.ptyId}`, leafId: `pty:${rest.ptyId}`, orphaned: true }
   : { ...rest, ...identity(), orphaned: false });
 
@@ -518,7 +520,7 @@ if (command === 'terminal close') {
 if (command === 'terminal show') {
   const terminal = (state.terminals ?? []).find((entry) => entry.handle === flag('--terminal'));
   if (!terminal) fail('terminal_not_found', `no terminal with handle ${flag('--terminal')}`);
-  const { typed: _typed, notices: _notices, closingFor: _closingFor, ...rest } = terminal;
+  const { typed: _typed, notices: _notices, closingFor: _closingFor, foreground: _foreground, ...rest } = terminal;
   ok({ terminal: { ...rest, ...identity(), orphaned: terminal.orphaned === true } });
 }
 

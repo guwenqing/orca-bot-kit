@@ -166,7 +166,7 @@ function counted(one, window) {
     gaps: noGaps(),
   };
 
-  const { entries, unreadable, broken } = lines(one.file);
+  const { entries, unreadable, broken } = transcript(one.file);
   tally.gaps.unreadable_transcripts = unreadable;
   tally.gaps.broken_lines = broken;
   read(entries, window, tally);
@@ -434,11 +434,14 @@ function count(tally, used, model, effort, when, calls = 1) {
   for (const kind of KINDS) its.tokens[kind] += used[kind];
 }
 
+/** The lines of a transcript that are readable JSON; the rest say nothing. */
+export const lines = (file) => transcript(file).entries;
+
 /**
  * The lines of a transcript that are JSON records, and how many were not. A
  * transcript that cannot be read is said to be, rather than a run that stops.
  */
-function lines(file) {
+function transcript(file) {
   let text;
   try {
     text = readFileSync(file, 'utf8');
