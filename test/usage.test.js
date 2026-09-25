@@ -33,7 +33,7 @@
 // `~/.codex`.
 
 import assert from 'node:assert/strict';
-import { mkdir, symlink, utimes, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, stat, symlink, utimes, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 import { stringify } from 'yaml';
@@ -1513,4 +1513,1217 @@ test('U12 a bots folder reached through a symlink is the same fleet', async (t) 
     'down to the figures',
   );
   assert.equal(throughLink.bots, bots, 'and bots comes back as the folder itself, not the way in');
+});
+
+// ------------------------------------------------ what it could not count
+//
+// Issue #275. A usage figure that quietly leaves things out reads as complete.
+// Four things can be left out: a transcript that cannot be read, a line that is
+// not a JSON object, a usage record whose figures are not all there, and a
+// record with no time that can be placed in a window. Each is left out of the
+// totals and named, per session and for the bot's unclaimed transcripts, in
+// `not_counted` and `unclaimed_not_counted`.
+
+/** Nothing left out, in the answer's words. */
+const NOTHING_LEFT_OUT = {
+  unreadable_transcripts: 0,
+  broken_lines: 0,
+  records_without_numbers: 0,
+  records_without_time: 0,
+};
+
+/** What was left out, of the four kinds, with every kind not named at 0. */
+const leftOut = (some) => ({ ...NOTHING_LEFT_OUT, ...some });
+
+/** What a session, or a bot's unclaimed transcripts, say they left out: the four kinds and only those. */
+function leftOutOf(owner, field = 'not_counted') {
+  const said = owner[field];
+  assert.ok(
+    said !== null && typeof said === 'object',
+    `it should say what it left out in ${field}, got: ${JSON.stringify(owner)}`,
+  );
+  return Object.fromEntries(Object.keys(NOTHING_LEFT_OUT).map((kind) => [kind, said[kind]]));
+}
+
+/**
+ * Put lines into a planted transcript as they are, after its first `after`
+ * lines: a string as the text it is, anything else as JSON. What a torn write
+ * or a garbled record leaves, which `plant` cannot, since it writes JSON. The
+ * file keeps the time it had.
+ */
+async function slipIn(file, after, ...lines) {
+  const { atime, mtime } = await stat(file);
+  const had = (await readFile(file, 'utf8')).split('\n');
+  had.splice(after, 0, ...lines.map((line) => (typeof line === 'string' ? line : JSON.stringify(line))));
+  await writeFile(file, had.join('\n'));
+  await utimes(file, atime, mtime);
+}
+
+/** A Claude Code call with some of its figures replaced; `undefined` takes one out. */
+const claudeCallAnd = (call, figures) => {
+  const record = claudeCall(call);
+  Object.assign(record.message.usage, figures);
+  return record;
+};
+
+/** A Codex call with some figures of its running total replaced; `undefined` takes one out. */
+const codexCallAnd = (call, figures) => {
+  const record = codexCall(call);
+  Object.assign(record.payload.info.total_token_usage, figures);
+  return record;
+};
+
+/** A Codex call with some figures of its own per-call usage replaced; `undefined` takes one out. */
+const codexCallAndLast = (call, figures) => {
+  const record = codexCall(call);
+  Object.assign(record.payload.info.last_token_usage, figures);
+  return record;
+};
+
+/** What Codex writes when it has only rate limits to report: not a usage record. */
+const codexRateLimits = (when) => ({
+  timestamp: when,
+  type: 'event_msg',
+  payload: { type: 'token_count', info: null, rate_limits: { primary: { used_percent: 12.5, window_minutes: 300 } } },
+});
+
+/** A Claude Code transcript line that cannot be a JSON object: a write torn off mid record. */
+const TORN = '{"type":"assistant","timestamp":"2026-09-20T09:20:00.000Z","requestId":"req-torn","message":{"id":"msg-torn","usage":{"input_tokens":7000';
+
+/** Root reads a file whatever its permissions, so a transcript cannot be made unreadable to it. */
+const UNREADABLE_NEEDS_A_USER = process.getuid?.() === 0
+  && 'runs as root, which reads a file whatever its permissions, so no transcript can be made unreadable';
+
+/** The lines of a plain report that say something was not counted. */
+const notCountedLines = (stdout) => stdout.split('\n').filter((line) => /not counted/i.test(line));
+
+test('U14 an unreadable transcript, a broken line and an undated record are each reported and left out of the totals', { skip: UNREADABLE_NEEDS_A_USER }, async (t) => {
+  // The issue's first acceptance case. Today the locked transcript gives no
+  // lines, the torn line is skipped and the undated call counts as inside the
+  // window, and none of it is said.
+  const box = await createSandbox(t);
+  const { bots, home } = await fleet(box, { harness: 'claude' });
+  const locked = await plant(box, 'claude', home, {
+    id: 'conv-locked',
+    started: at(9),
+    lines: [claudeCall({ when: at(9, 1), request: 'req-L', message: 'msg-L', input: 9000, output: 900 })],
+  });
+  await chmod(locked, 0o000);
+  const file = await plant(box, 'claude', home, {
+    id: 'conv-a',
+    started: at(9),
+    lines: [
+      claudeCall({ when: at(9, 10), request: 'req-1', message: 'msg-1', input: 12, cacheRead: 340, cacheWrite: 56, output: 78 }),
+      claudeCall({ when: undefined, request: 'req-2', message: 'msg-2', input: 5000, cacheRead: 5000, cacheWrite: 5000, output: 5000 }),
+    ],
+  });
+  await slipIn(file, 2, TORN);
+  await bookSays(bots, 'api-bot', { daily: ran('conv-a', 'conv-locked') });
+
+  const entry = entryOf(await usage(box), 'api-bot');
+  const session = sessionOf(entry, 'daily');
+
+  assert.deepEqual(
+    leftOutOf(session),
+    leftOut({ unreadable_transcripts: 1, broken_lines: 1, records_without_time: 1 }),
+    'each of the three is named, once',
+  );
+  assert.deepEqual(idsOf(conversationsOf(session)), ['conv-a'], 'the locked transcript counted nothing, so it has no row');
+  const conversation = conversationOf(conversationsOf(session), 'conv-a');
+  assert.equal(conversation.calls, 1, 'the undated call is not counted as inside the window');
+  assert.equal(tokensOf(conversation).input, 12, 'the totals are the one good call and nothing else');
+  assert.equal(tokensOf(conversation).cache_read, 340);
+  assert.equal(tokensOf(conversation).cache_write, 56);
+  assert.equal(tokensOf(conversation).output, 78);
+  assert.deepEqual(leftOutOf(entry, 'unclaimed_not_counted'), NOTHING_LEFT_OUT, 'and none of it is laid at the unclaimed door');
+});
+
+test('U14 a clean fleet reports nothing left out, on every session and bot, and the totals it always had', async (t) => {
+  // The issue's second acceptance case. The fixture carries what real
+  // transcripts carry that is not a gap: a summary line and a person talking
+  // (no usage), a blank line, a call written down twice, a Codex turn_context
+  // with no time, a rate-limit note with `info: null`, and a Codex record with
+  // no cache_write_input_tokens, which Codex does not write. None of them may
+  // show up as something left out.
+  const box = await createSandbox(t);
+  const { bots, home } = await fleet(box, { harness: 'claude', sessions: ['daily', 'review'] });
+  const madeCodex = await box.run(['bot', 'create', '--bots', 'bots', '--name', 'codex-bot', '--harness', 'codex']);
+  assert.equal(madeCodex.code, 0, madeCodex.stderr);
+  const addedCodex = await box.run(['session', 'add', '--bots', 'bots', '--bot', 'codex-bot', '--name', 'daily']);
+  assert.equal(addedCodex.code, 0, addedCodex.stderr);
+
+  const repeated = claudeCall({
+    when: at(9, 1), request: 'req-1', message: 'msg-1', input: 2, cacheRead: 13460, cacheWrite: 200, output: 500,
+  });
+  const claudeFile = await plant(box, 'claude', home, {
+    id: 'conv-a',
+    started: at(9),
+    lines: [
+      { type: 'summary', summary: 'Usage report for the day', leafUuid: 'leaf-1' },
+      claudeSaid(at(9), 'how much did we use?'),
+      repeated,
+      repeated,
+      claudeCall({ when: at(9, 5), request: 'req-2', message: 'msg-2', input: 7, cacheRead: 20000, output: 300 }),
+      claudeCompaction(at(9, 6)),
+    ],
+  });
+  await slipIn(claudeFile, 3, '');
+
+  const noCacheWrite = { cache_write_input_tokens: undefined };
+  const second = codexCall({
+    when: at(9, 4),
+    last: { input: 2000, cached: 900, output: 100, reasoning: 40 },
+    total: { input: 3000, cached: 900, output: 150, reasoning: 60 },
+  });
+  Object.assign(second.payload.info.last_token_usage, noCacheWrite);
+  Object.assign(second.payload.info.total_token_usage, noCacheWrite);
+  await plant(box, 'codex', botHomeOf(bots, 'codex-bot'), {
+    id: 'conv-c',
+    started: at(9),
+    lines: [
+      codexTurn({ when: undefined }),
+      codexCall({
+        when: at(9, 1),
+        last: { input: 1000, cached: 0, output: 50, reasoning: 20 },
+        total: { input: 1000, cached: 0, output: 50, reasoning: 20 },
+      }),
+      codexRateLimits(at(9, 2)),
+      second,
+    ],
+  });
+  await bookSays(bots, 'api-bot', { daily: ran('conv-a') });
+  await bookSays(bots, 'codex-bot', { daily: ran('conv-c') });
+
+  const answer = await usage(box);
+
+  assert.deepEqual(answer.usage.map((entry) => entry.bot).sort(), ['api-bot', 'bot-father', 'codex-bot']);
+  for (const entry of answer.usage) {
+    assert.deepEqual(leftOutOf(entry, 'unclaimed_not_counted'), NOTHING_LEFT_OUT, `${entry.bot}'s unclaimed`);
+    assert.ok((entry.sessions ?? []).length > 0, `${entry.bot} should have its sessions, got: ${JSON.stringify(entry)}`);
+    for (const session of entry.sessions) {
+      assert.deepEqual(leftOutOf(session), NOTHING_LEFT_OUT, `${entry.bot} ${session.name}, run or not`);
+    }
+  }
+
+  const claude = conversationOf(conversationsOf(sessionOf(entryOf(answer, 'api-bot'), 'daily')), 'conv-a');
+  assert.equal(claude.calls, 2);
+  assert.equal(claude.compactions, 1);
+  assert.equal(tokensOf(claude).input, 9);
+  assert.equal(tokensOf(claude).cache_read, 33460);
+  assert.equal(tokensOf(claude).cache_write, 200);
+  assert.equal(tokensOf(claude).output, 800);
+
+  const codex = conversationOf(conversationsOf(sessionOf(entryOf(answer, 'codex-bot'), 'daily')), 'conv-c');
+  assert.equal(codex.calls, 2, 'the rate-limit note is not a call');
+  assert.equal(tokensOf(codex).input, 2100, '3,000 less the 900 cached');
+  assert.equal(tokensOf(codex).cache_read, 900);
+  assert.equal(tokensOf(codex).output, 150);
+  assert.equal(tokensOf(codex).reasoning, 60);
+});
+
+test('U14 Claude Code: an unreadable transcript is the session\'s when the book names it, and the bot\'s unclaimed when not', { skip: UNREADABLE_NEEDS_A_USER }, async (t) => {
+  // Claude Code files a transcript by folder and name, so one that cannot be
+  // read is still known to be there, and whose it is follows the book.
+  const box = await createSandbox(t);
+  const { bots, home } = await fleet(box, { harness: 'claude' });
+  for (const id of ['conv-mine', 'conv-nobodys']) {
+    const file = await plant(box, 'claude', home, {
+      id,
+      started: at(9),
+      lines: [claudeCall({ when: at(9, 1), request: `req-${id}`, message: `msg-${id}`, input: 800, output: 80 })],
+    });
+    await chmod(file, 0o000);
+  }
+  await plant(box, 'claude', home, {
+    id: 'conv-ok',
+    started: at(9),
+    lines: [claudeCall({ when: at(9, 2), request: 'req-ok', message: 'msg-ok', input: 3, output: 4 })],
+  });
+  await bookSays(bots, 'api-bot', { daily: ran('conv-ok', 'conv-mine') });
+
+  const entry = entryOf(await usage(box), 'api-bot');
+  const session = sessionOf(entry, 'daily');
+
+  assert.deepEqual(leftOutOf(session), leftOut({ unreadable_transcripts: 1 }), 'the one the book names for daily');
+  assert.deepEqual(leftOutOf(entry, 'unclaimed_not_counted'), leftOut({ unreadable_transcripts: 1 }), 'the one nobody names');
+  assert.deepEqual(idsOf(conversationsOf(session)), ['conv-ok'], 'neither has a row, having counted nothing');
+  assert.deepEqual(entry.unclaimed ?? [], []);
+  assert.equal(tokensOf(conversationOf(conversationsOf(session), 'conv-ok')).input, 3, 'and the readable one counts as it did');
+});
+
+test('U14 Claude Code: an unreadable transcript is reported whatever the window', { skip: UNREADABLE_NEEDS_A_USER }, async (t) => {
+  // Whether anything in it fell inside the window cannot be known without
+  // reading it. A window that opens after the file was last written must not
+  // make it disappear, nor one that closes before it began.
+  const box = await createSandbox(t);
+  const { bots, home } = await fleet(box, { harness: 'claude' });
+  const file = await plant(box, 'claude', home, {
+    id: 'conv-locked',
+    started: at(9),
+    lines: [claudeCall({ when: at(9, 1), request: 'req-1', message: 'msg-1', input: 800, output: 80 })],
+  });
+  await chmod(file, 0o000);
+  await bookSays(bots, 'api-bot', { daily: ran('conv-locked') });
+
+  const later = sessionOf(entryOf(await usage(box, '--since', at(12), '--until', at(13)), 'api-bot'), 'daily');
+  const earlier = sessionOf(entryOf(await usage(box, '--until', at(8)), 'api-bot'), 'daily');
+
+  assert.deepEqual(leftOutOf(later), leftOut({ unreadable_transcripts: 1 }), 'a window after it');
+  assert.deepEqual(leftOutOf(earlier), leftOut({ unreadable_transcripts: 1 }), 'a window before it');
+});
+
+test('U14 Claude Code: every non-blank line that is not a JSON object is a broken line, and the good lines still count', async (t) => {
+  // `null`, a list and a string are all JSON, and none of them is a record.
+  // A blank line is not a broken one.
+  const box = await createSandbox(t);
+  const { bots, home } = await fleet(box, { harness: 'claude' });
+  const file = await plant(box, 'claude', home, {
+    id: 'conv-a',
+    started: at(9),
+    lines: [claudeCall({ when: at(9, 1), request: 'req-1', message: 'msg-1', input: 3, cacheRead: 30, output: 4 })],
+  });
+  await slipIn(file, 2, 'not json at all', TORN, '', '[1, 2]', '"a string"', 'null');
+  await bookSays(bots, 'api-bot', { daily: ran('conv-a') });
+
+  const session = sessionOf(entryOf(await usage(box), 'api-bot'), 'daily');
+
+  assert.deepEqual(leftOutOf(session), leftOut({ broken_lines: 5 }), 'five broken lines; the blank one is not');
+  const conversation = conversationOf(conversationsOf(session), 'conv-a');
+  assert.equal(conversation.calls, 1);
+  assert.equal(tokensOf(conversation).input, 3);
+  assert.equal(tokensOf(conversation).cache_read, 30);
+  assert.equal(tokensOf(conversation).output, 4);
+});
+
+test('U14 Codex: a broken line in a rollout is reported under the session that owns the rollout', async (t) => {
+  const box = await createSandbox(t);
+  const { bots, home } = await fleet(box, { harness: 'codex' });
+  const file = await plant(box, 'codex', home, {
+    id: 'conv-c',
+    started: at(9),
+    lines: [
+      codexTurn({ when: at(9) }),
+      codexCall({ when: at(9, 1), last: { input: 10, output: 1 }, total: { input: 10, output: 1 } }),
+    ],
+  });
+  await slipIn(file, 2, '{"timestamp":"2026-09-20T09:00:30.000Z","type":"event_msg","payload":{"type":"token_co');
+  await bookSays(bots, 'api-bot', { daily: ran('conv-c') });
+
+  const entry = entryOf(await usage(box), 'api-bot');
+  const session = sessionOf(entry, 'daily');
+
+  assert.deepEqual(leftOutOf(session), leftOut({ broken_lines: 1 }));
+  assert.deepEqual(leftOutOf(entry, 'unclaimed_not_counted'), NOTHING_LEFT_OUT);
+  assert.equal(conversationOf(conversationsOf(session), 'conv-c').calls, 1, 'and the good call is still counted');
+});
+
+test('U14 a broken line is reported whatever the window, since it has no time to read', async (t) => {
+  const box = await createSandbox(t);
+  const { bots, home } = await fleet(box, { harness: 'claude' });
+  const file = await plant(box, 'claude', home, {
+    id: 'conv-a',
+    started: at(9),
+    lines: [claudeCall({ when: at(9, 1), request: 'req-1', message: 'msg-1', input: 3, output: 4 })],
+  });
+  await slipIn(file, 2, TORN);
+  await bookSays(bots, 'api-bot', { daily: ran('conv-a') });
+
+  const session = sessionOf(entryOf(await usage(box, '--since', at(12)), 'api-bot'), 'daily');
+
+  assert.deepEqual(conversationsOf(session), [], 'the one good call is before the window');
+  assert.deepEqual(leftOutOf(session), leftOut({ broken_lines: 1 }), 'and the broken line is still named');
+});
+
+test('U14 Claude Code: a usage record with a figure missing or not a number is left out whole and reported', async (t) => {
+  // No partial counting: the good figures of a broken record are not added,
+  // nor its model, nor its moment. Today a missing figure becomes 0 and the
+  // rest of the record is counted.
+  const box = await createSandbox(t);
+  const { bots, home } = await fleet(box, { harness: 'claude' });
+  const broken = { model: 'claude-sonnet-5', input: 1000, cacheRead: 2000, cacheWrite: 3000, output: 4000 };
+  await plant(box, 'claude', home, {
+    id: 'conv-a',
+    started: at(9),
+    lines: [
+      claudeCall({ when: at(9, 1), request: 'req-1', message: 'msg-1', input: 5, cacheRead: 60, cacheWrite: 70, output: 7 }),
+      claudeCallAnd({ when: at(9, 2), request: 'req-2', message: 'msg-2', ...broken }, { output_tokens: undefined }),
+      claudeCallAnd({ when: at(9, 3), request: 'req-3', message: 'msg-3', ...broken }, { input_tokens: '400' }),
+      claudeCallAnd({ when: at(9, 4), request: 'req-4', message: 'msg-4', ...broken }, { cache_creation_input_tokens: null }),
+      claudeCallAnd({ when: at(9, 5), request: 'req-5', message: 'msg-5', ...broken }, { cache_read_input_tokens: undefined }),
+    ],
+  });
+  await bookSays(bots, 'api-bot', { daily: ran('conv-a') });
+
+  const session = sessionOf(entryOf(await usage(box), 'api-bot'), 'daily');
+
+  assert.deepEqual(leftOutOf(session), leftOut({ records_without_numbers: 4 }));
+  const conversation = conversationOf(conversationsOf(session), 'conv-a');
+  assert.equal(conversation.calls, 1);
+  assert.equal(tokensOf(conversation).input, 5, 'not 2,005: the broken ones\' good figures are not added either');
+  assert.equal(tokensOf(conversation).cache_read, 60);
+  assert.equal(tokensOf(conversation).cache_write, 70);
+  assert.equal(tokensOf(conversation).output, 7);
+  assert.deepEqual([...conversation.models], ['claude-opus-5'], 'only the model of what was counted');
+  assert.equal(Date.parse(conversation.last), Date.parse(at(9, 1)), `the last counted call, got: ${conversation.last}`);
+});
+
+test('U14 Claude Code: a call written down twice with one broken copy is counted once from its good copy', async (t) => {
+  // The later copy is normally the one kept (U9), so the trap is a broken
+  // later copy taking the call with it, or being counted as zeros over it.
+  // The other call has its broken copy first.
+  const box = await createSandbox(t);
+  const { bots, home } = await fleet(box, { harness: 'claude' });
+  await plant(box, 'claude', home, {
+    id: 'conv-a',
+    started: at(9),
+    lines: [
+      claudeCall({
+        when: '2026-09-20T09:29:21.187Z', request: 'req-1', message: 'msg-1', input: 2, cacheRead: 5000, cacheWrite: 30, output: 16,
+      }),
+      claudeCallAnd(
+        { when: '2026-09-20T09:29:21.936Z', request: 'req-1', message: 'msg-1', input: 2, cacheRead: 5000, cacheWrite: 30 },
+        { output_tokens: undefined },
+      ),
+      claudeCallAnd(
+        { when: '2026-09-20T09:40:00.000Z', request: 'req-2', message: 'msg-2', input: 5, output: 9 },
+        { input_tokens: 'five' },
+      ),
+      claudeCall({ when: '2026-09-20T09:40:01.000Z', request: 'req-2', message: 'msg-2', input: 5, output: 7 }),
+    ],
+  });
+  await bookSays(bots, 'api-bot', { daily: ran('conv-a') });
+
+  const session = sessionOf(entryOf(await usage(box), 'api-bot'), 'daily');
+
+  assert.deepEqual(leftOutOf(session), leftOut({ records_without_numbers: 2 }), 'each broken copy is named');
+  const conversation = conversationOf(conversationsOf(session), 'conv-a');
+  assert.equal(conversation.calls, 2, 'and each call is still counted, once');
+  const tokens = tokensOf(conversation);
+  assert.equal(tokens.output, 23, '16 from the good copy of the first call, 7 from the second');
+  assert.equal(tokens.input, 7);
+  assert.equal(tokens.cache_read, 5000);
+  assert.equal(tokens.cache_write, 30);
+});
+
+test('U14 Codex: after a token_count with its running total incomplete, the next whole one is not counted, and the one after it is measured by its rise', async (t) => {
+  // After B the running total is unknown, so C, the next event with a whole
+  // total, cannot be measured: whether it is a new call or B written again
+  // is not guessed. It is not counted, though its own figure (400 in, 100
+  // cached, 20 out) is whole, and it is named. The total resumes from C's,
+  // and D is measured by its rise as usual: 600 in, 200 cached, 30 out,
+  // though its own figure says otherwise. Uncached input is 1,000 + 400.
+  const box = await createSandbox(t);
+  const { bots, home } = await fleet(box, { harness: 'codex' });
+  await plant(box, 'codex', home, {
+    id: 'conv-c',
+    started: at(9),
+    lines: [
+      codexTurn({ when: at(9) }),
+      codexCall({
+        when: at(9, 1),
+        last: { input: 1000, cached: 0, output: 50 },
+        total: { input: 1000, cached: 0, output: 50 },
+      }),
+      codexCallAnd({
+        when: at(9, 2),
+        last: { input: 2000, cached: 500, output: 100 },
+        total: { input: 3000, cached: 500, output: 150 },
+      }, { output_tokens: undefined }),
+      codexCall({
+        when: at(9, 3),
+        last: { input: 400, cached: 100, output: 20 },
+        total: { input: 3400, cached: 600, output: 170 },
+      }),
+      codexCall({
+        when: at(9, 4),
+        last: { input: 50, cached: 0, output: 5 },
+        total: { input: 4000, cached: 800, output: 200 },
+      }),
+    ],
+  });
+  await bookSays(bots, 'api-bot', { daily: ran('conv-c') });
+
+  const session = sessionOf(entryOf(await usage(box), 'api-bot'), 'daily');
+
+  assert.deepEqual(leftOutOf(session), leftOut({ records_without_numbers: 2 }), 'B and C');
+  const conversation = conversationOf(conversationsOf(session), 'conv-c');
+  assert.equal(conversation.calls, 2, 'A and D');
+  assert.equal(tokensOf(conversation).input, 1400, '1,000, then D\'s rise of 400; not C\'s own 300 as well');
+  assert.equal(tokensOf(conversation).cache_read, 200);
+  assert.equal(tokensOf(conversation).output, 80, '50 + 30');
+});
+
+test('U14 Codex: a running total that falls, on an event whose own figure is incomplete, is not a call, and the total resumes from it', async (t) => {
+  // On a fall the call is the event's own last_token_usage, and B's lacks its
+  // output. B is then a record without numbers, not a call with 0 output. C
+  // is its rise from B's total, 300 in, 50 cached, 30 out; resuming from A's
+  // instead would read C as a fall too and take its own figure.
+  const box = await createSandbox(t);
+  const { bots, home } = await fleet(box, { harness: 'codex' });
+  await plant(box, 'codex', home, {
+    id: 'conv-c',
+    started: at(9),
+    lines: [
+      codexTurn({ when: at(9) }),
+      codexCall({
+        when: at(9, 1),
+        last: { input: 1000, cached: 0, output: 100 },
+        total: { input: 1000, cached: 0, output: 100 },
+      }),
+      codexCallAndLast({
+        when: at(9, 2),
+        last: { input: 100, cached: 0, output: 10 },
+        total: { input: 100, cached: 0, output: 10 },
+      }, { output_tokens: undefined }),
+      codexCall({
+        when: at(9, 3),
+        last: { input: 7, cached: 0, output: 1 },
+        total: { input: 400, cached: 50, output: 40 },
+      }),
+    ],
+  });
+  await bookSays(bots, 'api-bot', { daily: ran('conv-c') });
+
+  const session = sessionOf(entryOf(await usage(box), 'api-bot'), 'daily');
+
+  assert.deepEqual(leftOutOf(session), leftOut({ records_without_numbers: 1 }));
+  const conversation = conversationOf(conversationsOf(session), 'conv-c');
+  assert.equal(conversation.calls, 2, 'A and C; B is not a call');
+  assert.equal(tokensOf(conversation).input, 1250, '1,000, then C\'s rise of 300 less its 50 cached');
+  assert.equal(tokensOf(conversation).cache_read, 50);
+  assert.equal(tokensOf(conversation).output, 130);
+});
+
+test('U14 Codex: a figure that is not a number, or a lone last_token_usage with one missing, is a record without numbers', async (t) => {
+  // A string that reads as a number is still not one. With no running total,
+  // `last_token_usage` is the figure, and its gap is a gap. After them the
+  // running total is unknown, so the last event, the first with a whole total
+  // again, is not counted either.
+  const box = await createSandbox(t);
+  const { bots, home } = await fleet(box, { harness: 'codex' });
+  await plant(box, 'codex', home, {
+    id: 'conv-c',
+    started: at(9),
+    lines: [
+      codexTurn({ when: at(9) }),
+      codexCall({
+        when: at(9, 1),
+        last: { input: 1000, cached: 0, output: 50 },
+        total: { input: 1000, cached: 0, output: 50 },
+      }),
+      codexCallAnd({
+        when: at(9, 2),
+        last: { input: 1000, cached: 0, output: 10 },
+        total: { input: 2000, cached: 0, output: 60 },
+      }, { input_tokens: '2000' }),
+      {
+        timestamp: at(9, 3),
+        type: 'event_msg',
+        payload: {
+          type: 'token_count',
+          info: { last_token_usage: { ...codexTokens({ input: 600, output: 30 }), output_tokens: undefined }, model_context_window: 190000 },
+        },
+      },
+      codexCallAnd({
+        when: at(9, 4),
+        last: { input: 100, cached: 0, output: 5 },
+        total: { input: 2100, cached: 0, output: 65 },
+      }, { total_tokens: null }),
+      codexCall({
+        when: at(9, 5),
+        last: { input: 1000, cached: 500, output: 85 },
+        total: { input: 3000, cached: 500, output: 150 },
+      }),
+    ],
+  });
+  await bookSays(bots, 'api-bot', { daily: ran('conv-c') });
+
+  const session = sessionOf(entryOf(await usage(box), 'api-bot'), 'daily');
+
+  assert.deepEqual(leftOutOf(session), leftOut({ records_without_numbers: 4 }), 'the three broken ones, and the last');
+  const conversation = conversationOf(conversationsOf(session), 'conv-c');
+  assert.equal(conversation.calls, 1, 'the first alone');
+  assert.equal(tokensOf(conversation).input, 1000);
+  assert.equal(tokensOf(conversation).cache_read, 0);
+  assert.equal(tokensOf(conversation).output, 50);
+});
+
+test('U14 Claude Code: a record without numbers is reported only when its own time is in the window', async (t) => {
+  // The window is half open, as for the calls: at or after --since, before
+  // --until. Broken records at 09:59, 10:00, 10:30 and 11:00; the window
+  // 10:00 to 11:00 holds two of them.
+  const box = await createSandbox(t);
+  const { bots, home } = await fleet(box, { harness: 'claude' });
+  const brokenAt = (when, n) => claudeCallAnd(
+    { when, request: `req-b${n}`, message: `msg-b${n}`, input: 100, output: 100 },
+    { output_tokens: undefined },
+  );
+  await plant(box, 'claude', home, {
+    id: 'conv-a',
+    started: at(9),
+    lines: [
+      brokenAt(at(9, 59), 1),
+      brokenAt(at(10, 0), 2),
+      claudeCall({ when: at(10, 15), request: 'req-1', message: 'msg-1', input: 3, output: 4 }),
+      brokenAt(at(10, 30), 3),
+      brokenAt(at(11, 0), 4),
+    ],
+  });
+  await bookSays(bots, 'api-bot', { daily: ran('conv-a') });
+
+  const windowed = sessionOf(entryOf(await usage(box, '--since', at(10), '--until', at(11)), 'api-bot'), 'daily');
+  const whole = sessionOf(entryOf(await usage(box), 'api-bot'), 'daily');
+
+  assert.deepEqual(leftOutOf(windowed), leftOut({ records_without_numbers: 2 }), 'the 10:00 and the 10:30 ones');
+  assert.deepEqual(leftOutOf(whole), leftOut({ records_without_numbers: 4 }), 'with no window, every dated one is inside');
+  assert.equal(conversationOf(conversationsOf(windowed), 'conv-a').calls, 1);
+});
+
+test('U14 Codex: after a broken running total, the next whole one is not counted even when it looks like a new call', async (t) => {
+  // The reviewer's first probe. A at 09:00: 1,000 in, 100 out. B at 09:30,
+  // its total broken, its own figure 200/20. C at 11:00: its own figure 300
+  // in, 200 cached, 30 out, and a total 1,500/150 that moved past B's. C looks
+  // like a new call, but with the total unknown before it, it is not counted
+  // in any window, and B's usage is counted nowhere either.
+  const box = await createSandbox(t);
+  const { bots, home } = await fleet(box, { harness: 'codex' });
+  await plant(box, 'codex', home, {
+    id: 'conv-c',
+    started: at(9),
+    lines: [
+      codexTurn({ when: at(9) }),
+      codexCall({
+        when: at(9, 0),
+        last: { input: 1000, cached: 0, output: 100 },
+        total: { input: 1000, cached: 0, output: 100 },
+      }),
+      codexCallAnd({
+        when: at(9, 30),
+        last: { input: 200, cached: 100, output: 20 },
+        total: { input: 1200, cached: 100, output: 120 },
+      }, { output_tokens: undefined }),
+      codexCall({
+        when: at(11, 0),
+        last: { input: 300, cached: 200, output: 30 },
+        total: { input: 1500, cached: 300, output: 150 },
+      }),
+    ],
+  });
+  await bookSays(bots, 'api-bot', { daily: ran('conv-c') });
+
+  const late = sessionOf(entryOf(await usage(box, '--since', at(10)), 'api-bot'), 'daily');
+  const whole = sessionOf(entryOf(await usage(box), 'api-bot'), 'daily');
+
+  assert.deepEqual(conversationsOf(late), [], 'from 10:00 nothing is counted: not C, and not B\'s usage');
+  assert.deepEqual(leftOutOf(late), leftOut({ records_without_numbers: 1 }), 'C, and not B, which is before 10:00');
+
+  const all = conversationOf(conversationsOf(whole), 'conv-c');
+  assert.equal(all.calls, 1, 'A alone');
+  assert.equal(tokensOf(all).input, 1000);
+  assert.equal(tokensOf(all).cache_read, 0);
+  assert.equal(tokensOf(all).output, 100);
+  assert.deepEqual(leftOutOf(whole), leftOut({ records_without_numbers: 2 }), 'B and C');
+});
+
+/** A Codex event whose running total lacks its output: its own figure may be whole, its total is not. */
+const codexBrokenTotal = ({ when, last, total }) => codexCallAnd({ when, last, total }, { output_tokens: undefined });
+
+test('U14 Codex: after a broken running total, the next whole one is not counted even when it looks like a repeat, in any window', async (t) => {
+  // The reviewer's second probe. B's total is broken, but what is left of it
+  // stands where C's total does, and the own figures are the same: C looks
+  // like B written down again. It is not counted either way, and it is named
+  // only in a window that holds its own moment.
+  const box = await createSandbox(t);
+  const { bots, home } = await fleet(box, { harness: 'codex' });
+  await plant(box, 'codex', home, {
+    id: 'conv-c',
+    started: at(9),
+    lines: [
+      codexTurn({ when: at(9) }),
+      codexCall({ when: at(9, 0), last: { input: 1000, output: 100 }, total: { input: 1000, output: 100 } }),
+      codexBrokenTotal({ when: at(9, 30), last: { input: 200, output: 20 }, total: { input: 1200, output: 120 } }),
+      codexCall({ when: at(11, 0), last: { input: 200, output: 20 }, total: { input: 1200, output: 120 } }),
+    ],
+  });
+  await bookSays(bots, 'api-bot', { daily: ran('conv-c') });
+
+  const late = sessionOf(entryOf(await usage(box, '--since', at(10)), 'api-bot'), 'daily');
+  const whole = sessionOf(entryOf(await usage(box), 'api-bot'), 'daily');
+  const early = sessionOf(entryOf(await usage(box, '--until', at(10)), 'api-bot'), 'daily');
+  const both = sessionOf(entryOf(await usage(box, '--since', at(9, 15)), 'api-bot'), 'daily');
+
+  assert.deepEqual(conversationsOf(late), [], 'from 10:00 nothing is counted');
+  assert.deepEqual(leftOutOf(late), leftOut({ records_without_numbers: 1 }), 'C');
+
+  const all = conversationOf(conversationsOf(whole), 'conv-c');
+  assert.equal(all.calls, 1, 'A alone');
+  assert.equal(tokensOf(all).input, 1000);
+  assert.equal(tokensOf(all).output, 100);
+  assert.deepEqual(leftOutOf(whole), leftOut({ records_without_numbers: 2 }), 'B and C');
+
+  const first = conversationOf(conversationsOf(early), 'conv-c');
+  assert.equal(first.calls, 1, 'A');
+  assert.equal(tokensOf(first).input, 1000);
+  assert.deepEqual(leftOutOf(early), leftOut({ records_without_numbers: 1 }), 'B; C is after 10:00');
+
+  assert.deepEqual(conversationsOf(both), [], 'from 09:15, with B and C both inside, still nothing is counted');
+  assert.deepEqual(leftOutOf(both), leftOut({ records_without_numbers: 2 }), 'B and C');
+});
+
+test('U14 Codex: after a broken running total, the next whole one is not counted even when its total moved past the broken one\'s', async (t) => {
+  // The reviewer's third probe. B's total is broken, but its input (1,200)
+  // and its total_tokens (1,320) are there, and C's stand higher (1,400 and
+  // 1,540), with the same own figure: C looks like a second call the size of
+  // B's. It is still not counted.
+  const box = await createSandbox(t);
+  const { bots, home } = await fleet(box, { harness: 'codex' });
+  await plant(box, 'codex', home, {
+    id: 'conv-c',
+    started: at(9),
+    lines: [
+      codexTurn({ when: at(9) }),
+      codexCall({ when: at(9, 0), last: { input: 1000, output: 100 }, total: { input: 1000, output: 100 } }),
+      codexBrokenTotal({ when: at(9, 30), last: { input: 200, output: 20 }, total: { input: 1200, output: 120 } }),
+      codexCall({ when: at(11, 0), last: { input: 200, output: 20 }, total: { input: 1400, output: 140 } }),
+    ],
+  });
+  await bookSays(bots, 'api-bot', { daily: ran('conv-c') });
+
+  const late = sessionOf(entryOf(await usage(box, '--since', at(10)), 'api-bot'), 'daily');
+  const whole = sessionOf(entryOf(await usage(box), 'api-bot'), 'daily');
+
+  assert.deepEqual(conversationsOf(late), [], 'from 10:00 nothing is counted');
+  assert.deepEqual(leftOutOf(late), leftOut({ records_without_numbers: 1 }), 'C');
+  const all = conversationOf(conversationsOf(whole), 'conv-c');
+  assert.equal(all.calls, 1, 'A alone');
+  assert.equal(tokensOf(all).input, 1000);
+  assert.equal(tokensOf(all).output, 100);
+  assert.deepEqual(leftOutOf(whole), leftOut({ records_without_numbers: 2 }), 'B and C');
+});
+
+test('U14 Codex: after an undated broken running total, the next whole one is not counted, and the undated one is named as without time', async (t) => {
+  const box = await createSandbox(t);
+  const { bots, home } = await fleet(box, { harness: 'codex' });
+  await plant(box, 'codex', home, {
+    id: 'conv-c',
+    started: at(9),
+    lines: [
+      codexTurn({ when: at(9) }),
+      codexCall({ when: at(9, 0), last: { input: 1000, output: 100 }, total: { input: 1000, output: 100 } }),
+      codexBrokenTotal({ when: undefined, last: { input: 200, output: 20 }, total: { input: 1200, output: 120 } }),
+      codexCall({ when: at(11, 0), last: { input: 200, output: 20 }, total: { input: 1200, output: 120 } }),
+    ],
+  });
+  await bookSays(bots, 'api-bot', { daily: ran('conv-c') });
+
+  const whole = sessionOf(entryOf(await usage(box), 'api-bot'), 'daily');
+  const early = sessionOf(entryOf(await usage(box, '--until', at(10)), 'api-bot'), 'daily');
+
+  const all = conversationOf(conversationsOf(whole), 'conv-c');
+  assert.equal(all.calls, 1, 'A alone');
+  assert.equal(tokensOf(all).input, 1000);
+  assert.equal(tokensOf(all).output, 100);
+  assert.deepEqual(leftOutOf(whole), leftOut({ records_without_numbers: 1, records_without_time: 1 }), 'C, and B');
+  assert.deepEqual(leftOutOf(early), leftOut({ records_without_time: 1 }), 'before 10:00 only B, C being outside');
+});
+
+test('U14 Codex: an undated next whole one after a broken running total is not counted and is named as without time, and the one after it is its rise', async (t) => {
+  // C has a whole total and no time. It is not counted, and it is named as
+  // without time in every window. The total still resumes from C's: D at
+  // 09:40 rose 300/30 above it, whatever D's own figure says.
+  const box = await createSandbox(t);
+  const { bots, home } = await fleet(box, { harness: 'codex' });
+  await plant(box, 'codex', home, {
+    id: 'conv-c',
+    started: at(9),
+    lines: [
+      codexTurn({ when: at(9) }),
+      codexCall({ when: at(9, 0), last: { input: 1000, output: 100 }, total: { input: 1000, output: 100 } }),
+      codexBrokenTotal({ when: at(9, 30), last: { input: 200, output: 20 }, total: { input: 1200, output: 120 } }),
+      codexCall({ when: undefined, last: { input: 200, output: 20 }, total: { input: 1200, output: 120 } }),
+      codexCall({ when: at(9, 40), last: { input: 50, output: 5 }, total: { input: 1500, output: 150 } }),
+    ],
+  });
+  await bookSays(bots, 'api-bot', { daily: ran('conv-c') });
+
+  const whole = sessionOf(entryOf(await usage(box), 'api-bot'), 'daily');
+  const late = sessionOf(entryOf(await usage(box, '--since', at(9, 35)), 'api-bot'), 'daily');
+
+  const all = conversationOf(conversationsOf(whole), 'conv-c');
+  assert.equal(all.calls, 2, 'A and D');
+  assert.equal(tokensOf(all).input, 1300, '1,000, and D\'s rise of 300');
+  assert.equal(tokensOf(all).output, 130);
+  assert.deepEqual(leftOutOf(whole), leftOut({ records_without_numbers: 1, records_without_time: 1 }), 'B, and C');
+
+  const after = conversationOf(conversationsOf(late), 'conv-c');
+  assert.equal(after.calls, 1, 'D');
+  assert.equal(tokensOf(after).input, 300);
+  assert.equal(tokensOf(after).output, 30);
+  assert.deepEqual(leftOutOf(late), leftOut({ records_without_time: 1 }), 'C, whatever the window; B is before it');
+});
+
+test('U14 Codex: several broken running totals in a row make one next whole one that is not counted', async (t) => {
+  // B1 at 09:20 and B2 at 09:40 both have broken totals; C at 11:00 is the
+  // first whole total after them. Each of the three is named when its own
+  // moment is in the window, once, and none of them is counted.
+  const box = await createSandbox(t);
+  const { bots, home } = await fleet(box, { harness: 'codex' });
+  await plant(box, 'codex', home, {
+    id: 'conv-c',
+    started: at(9),
+    lines: [
+      codexTurn({ when: at(9) }),
+      codexCall({ when: at(9, 0), last: { input: 1000, output: 100 }, total: { input: 1000, output: 100 } }),
+      codexBrokenTotal({ when: at(9, 20), last: { input: 200, output: 20 }, total: { input: 1200, output: 120 } }),
+      codexBrokenTotal({ when: at(9, 40), last: { input: 200, output: 20 }, total: { input: 1200, output: 120 } }),
+      codexCall({ when: at(11, 0), last: { input: 200, output: 20 }, total: { input: 1200, output: 120 } }),
+    ],
+  });
+  await bookSays(bots, 'api-bot', { daily: ran('conv-c') });
+
+  const split = sessionOf(entryOf(await usage(box, '--since', at(9, 30)), 'api-bot'), 'daily');
+  const inside = sessionOf(entryOf(await usage(box, '--since', at(9, 10)), 'api-bot'), 'daily');
+  const whole = sessionOf(entryOf(await usage(box), 'api-bot'), 'daily');
+
+  assert.deepEqual(conversationsOf(split), [], 'from 09:30 nothing is counted');
+  assert.deepEqual(leftOutOf(split), leftOut({ records_without_numbers: 2 }), 'B2, and C');
+
+  assert.deepEqual(conversationsOf(inside), [], 'from 09:10, with all three inside, nothing is counted either');
+  assert.deepEqual(leftOutOf(inside), leftOut({ records_without_numbers: 3 }), 'B1, B2 and C, once each');
+
+  const all = conversationOf(conversationsOf(whole), 'conv-c');
+  assert.equal(all.calls, 1, 'A alone');
+  assert.equal(tokensOf(all).input, 1000);
+  assert.equal(tokensOf(all).output, 100);
+  assert.deepEqual(leftOutOf(whole), leftOut({ records_without_numbers: 3 }), 'B1, B2 and C');
+});
+
+/** A Codex token_count with only its own per-call figure and no running total at all. */
+const codexLastOnly = (when, figure) => ({
+  timestamp: when,
+  type: 'event_msg',
+  payload: { type: 'token_count', info: { last_token_usage: codexTokens(figure), model_context_window: 190000 } },
+});
+
+test('U14 Codex: an event with no running total, while a broken one is open, is not counted either', async (t) => {
+  // The reviewer's probe. B's total is broken; C has only its own figure,
+  // 200/20, and no total at all; D's whole total stands where B's does. C may
+  // be B written down again, so counting it by its own figure from 10:00
+  // brings B's usage into a window B is not in.
+  const box = await createSandbox(t);
+  const { bots, home } = await fleet(box, { harness: 'codex' });
+  await plant(box, 'codex', home, {
+    id: 'conv-c',
+    started: at(9),
+    lines: [
+      codexTurn({ when: at(9) }),
+      codexCall({ when: at(9, 0), last: { input: 1000, output: 100 }, total: { input: 1000, output: 100 } }),
+      codexBrokenTotal({ when: at(9, 30), last: { input: 200, output: 20 }, total: { input: 1200, output: 120 } }),
+      codexLastOnly(at(11, 0), { input: 200, output: 20 }),
+      codexCall({ when: at(11, 30), last: { input: 200, output: 20 }, total: { input: 1200, output: 120 } }),
+    ],
+  });
+  await bookSays(bots, 'api-bot', { daily: ran('conv-c') });
+
+  const late = sessionOf(entryOf(await usage(box, '--since', at(10)), 'api-bot'), 'daily');
+  const whole = sessionOf(entryOf(await usage(box), 'api-bot'), 'daily');
+  const early = sessionOf(entryOf(await usage(box, '--until', at(10)), 'api-bot'), 'daily');
+
+  assert.deepEqual(conversationsOf(late), [], 'from 10:00 nothing is counted: not C, and not D');
+  assert.deepEqual(leftOutOf(late), leftOut({ records_without_numbers: 2 }), 'C and D');
+
+  const all = conversationOf(conversationsOf(whole), 'conv-c');
+  assert.equal(all.calls, 1, 'A alone');
+  assert.equal(tokensOf(all).input, 1000);
+  assert.equal(tokensOf(all).output, 100);
+  assert.deepEqual(leftOutOf(whole), leftOut({ records_without_numbers: 3 }), 'B, C and D');
+
+  const first = conversationOf(conversationsOf(early), 'conv-c');
+  assert.equal(first.calls, 1, 'A');
+  assert.equal(tokensOf(first).input, 1000);
+  assert.equal(tokensOf(first).output, 100);
+  assert.deepEqual(leftOutOf(early), leftOut({ records_without_numbers: 1 }), 'B; C and D are after 10:00');
+});
+
+test('U14 Codex: every event with no running total while a broken one is open is named, as without numbers or, undated, without time', async (t) => {
+  // Two such events between B and D: C1 at 10:30, and C2 with no time. Each
+  // is named once, C1 only in a window that holds it, C2 in every window.
+  const box = await createSandbox(t);
+  const { bots, home } = await fleet(box, { harness: 'codex' });
+  await plant(box, 'codex', home, {
+    id: 'conv-c',
+    started: at(9),
+    lines: [
+      codexTurn({ when: at(9) }),
+      codexCall({ when: at(9, 0), last: { input: 1000, output: 100 }, total: { input: 1000, output: 100 } }),
+      codexBrokenTotal({ when: at(9, 30), last: { input: 200, output: 20 }, total: { input: 1200, output: 120 } }),
+      codexLastOnly(at(10, 30), { input: 70, output: 7 }),
+      codexLastOnly(undefined, { input: 90, output: 9 }),
+      codexCall({ when: at(11, 0), last: { input: 200, output: 20 }, total: { input: 1400, output: 140 } }),
+    ],
+  });
+  await bookSays(bots, 'api-bot', { daily: ran('conv-c') });
+
+  const whole = sessionOf(entryOf(await usage(box), 'api-bot'), 'daily');
+  const late = sessionOf(entryOf(await usage(box, '--since', at(10, 45)), 'api-bot'), 'daily');
+
+  const all = conversationOf(conversationsOf(whole), 'conv-c');
+  assert.equal(all.calls, 1, 'A alone');
+  assert.equal(tokensOf(all).input, 1000, 'neither C1\'s 70 nor C2\'s 90');
+  assert.equal(tokensOf(all).output, 100);
+  assert.deepEqual(
+    leftOutOf(whole),
+    leftOut({ records_without_numbers: 3, records_without_time: 1 }),
+    'B, C1 and D without numbers; C2 without time',
+  );
+  assert.deepEqual(conversationsOf(late), []);
+  assert.deepEqual(
+    leftOutOf(late),
+    leftOut({ records_without_numbers: 1, records_without_time: 1 }),
+    'from 10:45, D, and C2 whatever the window',
+  );
+});
+
+test('U14 Codex: an event with no running total, before any broken one or after the total has resumed, still counts by its own figure', async (t) => {
+  // The other side of the pair above. L1 comes before B; L2 comes after C,
+  // whose whole total closed what B opened. Both are calls by their own
+  // figure: 50/5 and 30/3.
+  const box = await createSandbox(t);
+  const { bots, home } = await fleet(box, { harness: 'codex' });
+  await plant(box, 'codex', home, {
+    id: 'conv-c',
+    started: at(9),
+    lines: [
+      codexTurn({ when: at(9) }),
+      codexCall({ when: at(9, 0), last: { input: 1000, output: 100 }, total: { input: 1000, output: 100 } }),
+      codexLastOnly(at(9, 10), { input: 50, output: 5 }),
+      codexBrokenTotal({ when: at(9, 20), last: { input: 200, output: 20 }, total: { input: 1200, output: 120 } }),
+      codexCall({ when: at(9, 30), last: { input: 200, output: 20 }, total: { input: 1200, output: 120 } }),
+      codexLastOnly(at(9, 40), { input: 30, output: 3 }),
+    ],
+  });
+  await bookSays(bots, 'api-bot', { daily: ran('conv-c') });
+
+  const whole = sessionOf(entryOf(await usage(box), 'api-bot'), 'daily');
+
+  const all = conversationOf(conversationsOf(whole), 'conv-c');
+  assert.equal(all.calls, 3, 'A, L1 and L2');
+  assert.equal(tokensOf(all).input, 1080, '1,000 + 50 + 30');
+  assert.equal(tokensOf(all).output, 108, '100 + 5 + 3');
+  assert.deepEqual(leftOutOf(whole), leftOut({ records_without_numbers: 2 }), 'B and C only');
+});
+
+test('U14 Claude Code: a call whose copy last written before the window is broken is not counted in that window, and is reported there', async (t) => {
+  // One call written down three times, the middle copy broken. What it grew
+  // inside a window that opens after the broken copy cannot be measured, so
+  // that window counts none of it and names one record without numbers.
+  // Measuring from the older good copy would charge the window with growth
+  // made before it. A window that opens before the broken copy measures from
+  // the good copy before it, as a broken copy inside the window always has.
+  const box = await createSandbox(t);
+  const { bots, home } = await fleet(box, { harness: 'claude' });
+  await plant(box, 'claude', home, {
+    id: 'conv-a',
+    started: at(9),
+    lines: [
+      claudeCall({ when: at(9, 0), request: 'req-1', message: 'msg-1', input: 2, cacheRead: 500, output: 10 }),
+      claudeCallAnd(
+        { when: at(9, 30), request: 'req-1', message: 'msg-1', input: 2, cacheRead: 500 },
+        { output_tokens: undefined },
+      ),
+      claudeCall({ when: at(11, 0), request: 'req-1', message: 'msg-1', input: 2, cacheRead: 500, output: 30 }),
+    ],
+  });
+  await bookSays(bots, 'api-bot', { daily: ran('conv-a') });
+
+  const after = sessionOf(entryOf(await usage(box, '--since', at(10)), 'api-bot'), 'daily');
+  const before = sessionOf(entryOf(await usage(box, '--since', at(9, 15)), 'api-bot'), 'daily');
+  const whole = sessionOf(entryOf(await usage(box), 'api-bot'), 'daily');
+
+  assert.deepEqual(conversationsOf(after), [], 'from 10:00 nothing of the call is counted, not the 20 it grew since 09:00');
+  assert.deepEqual(leftOutOf(after), leftOut({ records_without_numbers: 1 }), 'and it is named once in that window');
+
+  assert.deepEqual(leftOutOf(before), leftOut({ records_without_numbers: 1 }), 'from 09:15 the broken copy is inside');
+  const grown = conversationOf(conversationsOf(before), 'conv-a');
+  assert.equal(grown.calls, 0, 'the call was made before 09:15');
+  assert.equal(tokensOf(grown).output, 20, 'and grew 20 after it, measured from the good 09:00 copy');
+
+  assert.deepEqual(leftOutOf(whole), leftOut({ records_without_numbers: 1 }));
+  const all = conversationOf(conversationsOf(whole), 'conv-a');
+  assert.equal(all.calls, 1);
+  assert.equal(tokensOf(all).output, 30, 'the last copy written');
+  assert.equal(tokensOf(all).cache_read, 500);
+});
+
+test('U14 Claude Code: an undated call or compaction is never counted and always reported, whatever the window', async (t) => {
+  // Today a record with no timestamp counts as inside any window. A timestamp
+  // that is not a moment is no better than none.
+  const box = await createSandbox(t);
+  const { bots, home } = await fleet(box, { harness: 'claude' });
+  const file = await plant(box, 'claude', home, {
+    id: 'conv-a',
+    started: at(9),
+    lines: [
+      claudeCall({ when: at(9, 1), request: 'req-1', message: 'msg-1', input: 11, output: 13 }),
+      claudeCompaction(at(9, 2)),
+      claudeCall({ when: undefined, request: 'req-2', message: 'msg-2', input: 500, output: 500 }),
+      claudeCompaction(undefined),
+    ],
+  });
+  await slipIn(file, 3, claudeCall({ when: 'teatime', request: 'req-3', message: 'msg-3', input: 700, output: 700 }));
+  await bookSays(bots, 'api-bot', { daily: ran('conv-a') });
+
+  const whole = sessionOf(entryOf(await usage(box), 'api-bot'), 'daily');
+  const around = sessionOf(entryOf(await usage(box, '--since', at(9), '--until', at(10)), 'api-bot'), 'daily');
+  const after = sessionOf(entryOf(await usage(box, '--since', at(12)), 'api-bot'), 'daily');
+
+  for (const [name, session] of [['no window', whole], ['09:00 to 10:00', around]]) {
+    const conversation = conversationOf(conversationsOf(session), 'conv-a');
+    assert.equal(conversation.calls, 1, `${name}: only the dated call`);
+    assert.equal(conversation.compactions, 1, `${name}: only the dated marker`);
+    assert.equal(tokensOf(conversation).input, 11, `${name}: not 1,211`);
+    assert.equal(tokensOf(conversation).output, 13, name);
+    assert.deepEqual(leftOutOf(session), leftOut({ records_without_time: 3 }), `${name}: two calls and a marker`);
+  }
+  assert.deepEqual(conversationsOf(after), [], 'nothing dated is after 12:00');
+  assert.deepEqual(leftOutOf(after), leftOut({ records_without_time: 3 }), 'and the undated three are still named');
+});
+
+test('U14 Codex: an undated token_count or compaction is never counted and is reported; an undated turn_context is not a gap', async (t) => {
+  const box = await createSandbox(t);
+  const { bots, home } = await fleet(box, { harness: 'codex' });
+  await plant(box, 'codex', home, {
+    id: 'conv-c',
+    started: at(9),
+    lines: [
+      codexTurn({ when: undefined }),
+      codexCall({
+        when: at(9, 1),
+        last: { input: 1000, cached: 0, output: 50 },
+        total: { input: 1000, cached: 0, output: 50 },
+      }),
+      codexCompaction(at(9, 2)),
+      codexCall({
+        when: undefined,
+        last: { input: 500, cached: 0, output: 5 },
+        total: { input: 1500, cached: 0, output: 55 },
+      }),
+      codexCompaction(undefined),
+    ],
+  });
+  await bookSays(bots, 'api-bot', { daily: ran('conv-c') });
+
+  const session = sessionOf(entryOf(await usage(box), 'api-bot'), 'daily');
+
+  assert.deepEqual(leftOutOf(session), leftOut({ records_without_time: 2 }), 'the call and the marker, not the turn_context');
+  const conversation = conversationOf(conversationsOf(session), 'conv-c');
+  assert.equal(conversation.calls, 1);
+  assert.equal(conversation.compactions, 1);
+  assert.equal(tokensOf(conversation).input, 1000, 'not 1,500');
+  assert.equal(tokensOf(conversation).output, 50);
+});
+
+test('U14 a record with neither a time nor its numbers is reported once, as without time', async (t) => {
+  const box = await createSandbox(t);
+  const { bots, home } = await fleet(box, { harness: 'claude' });
+  const madeCodex = await box.run(['bot', 'create', '--bots', 'bots', '--name', 'codex-bot', '--harness', 'codex']);
+  assert.equal(madeCodex.code, 0, madeCodex.stderr);
+  const addedCodex = await box.run(['session', 'add', '--bots', 'bots', '--bot', 'codex-bot', '--name', 'daily']);
+  assert.equal(addedCodex.code, 0, addedCodex.stderr);
+  await plant(box, 'claude', home, {
+    id: 'conv-a',
+    started: at(9),
+    lines: [
+      claudeCall({ when: at(9, 1), request: 'req-1', message: 'msg-1', input: 3, output: 4 }),
+      claudeCallAnd({ when: undefined, request: 'req-2', message: 'msg-2', input: 9 }, { output_tokens: undefined }),
+    ],
+  });
+  await plant(box, 'codex', botHomeOf(bots, 'codex-bot'), {
+    id: 'conv-c',
+    started: at(9),
+    lines: [
+      codexTurn({ when: at(9) }),
+      codexCall({ when: at(9, 1), last: { input: 10, output: 1 }, total: { input: 10, output: 1 } }),
+      codexCallAnd({ when: undefined, last: { input: 10, output: 1 }, total: { input: 20, output: 2 } }, { output_tokens: undefined }),
+    ],
+  });
+  await bookSays(bots, 'api-bot', { daily: ran('conv-a') });
+  await bookSays(bots, 'codex-bot', { daily: ran('conv-c') });
+
+  const answer = await usage(box);
+
+  assert.deepEqual(leftOutOf(sessionOf(entryOf(answer, 'api-bot'), 'daily')), leftOut({ records_without_time: 1 }), 'Claude Code');
+  assert.deepEqual(leftOutOf(sessionOf(entryOf(answer, 'codex-bot'), 'daily')), leftOut({ records_without_time: 1 }), 'Codex');
+});
+
+test('U14 a conversation whose every record was left out has no row, and its gaps are still reported', async (t) => {
+  const box = await createSandbox(t);
+  const { bots, home } = await fleet(box, { harness: 'claude' });
+  await plant(box, 'claude', home, {
+    id: 'conv-a',
+    started: at(9),
+    lines: [claudeCall({ when: at(9, 1), request: 'req-1', message: 'msg-1', input: 3, output: 4 })],
+  });
+  const file = await plant(box, 'claude', home, {
+    id: 'conv-empty',
+    started: at(9),
+    lines: [
+      claudeCall({ when: undefined, request: 'req-2', message: 'msg-2', input: 50, output: 50 }),
+      claudeCallAnd({ when: at(9, 5), request: 'req-3', message: 'msg-3', input: 60 }, { cache_read_input_tokens: undefined }),
+    ],
+  });
+  await slipIn(file, 1, TORN);
+  await bookSays(bots, 'api-bot', { daily: ran('conv-a', 'conv-empty') });
+
+  const session = sessionOf(entryOf(await usage(box), 'api-bot'), 'daily');
+
+  assert.deepEqual(idsOf(conversationsOf(session)), ['conv-a'], 'a conversation that counted nothing is not listed');
+  assert.deepEqual(
+    leftOutOf(session),
+    leftOut({ broken_lines: 1, records_without_numbers: 1, records_without_time: 1 }),
+    'but what it left out is',
+  );
+});
+
+test('U14 --session reports that session\'s own gaps, not the bot\'s', async (t) => {
+  const box = await createSandbox(t);
+  const { bots, home } = await fleet(box, { harness: 'claude', sessions: ['daily', 'review'] });
+  const daily = await plant(box, 'claude', home, {
+    id: 'conv-d',
+    started: at(9),
+    lines: [claudeCall({ when: at(9, 1), request: 'req-1', message: 'msg-1', input: 3, output: 4 })],
+  });
+  await slipIn(daily, 2, TORN, 'garbage');
+  await plant(box, 'claude', home, {
+    id: 'conv-r',
+    started: at(9),
+    lines: [
+      claudeCall({ when: at(9, 1), request: 'req-2', message: 'msg-2', input: 3, output: 4 }),
+      claudeCall({ when: undefined, request: 'req-3', message: 'msg-3', input: 3, output: 4 }),
+    ],
+  });
+  await bookSays(bots, 'api-bot', { daily: ran('conv-d'), review: ran('conv-r') });
+
+  const all = entryOf(await usage(box), 'api-bot');
+  const one = entryOf(await usage(box, '--bot', 'api-bot', '--session', 'review'), 'api-bot');
+
+  assert.deepEqual(leftOutOf(sessionOf(all, 'daily')), leftOut({ broken_lines: 2 }), 'daily has its own');
+  assert.deepEqual((one.sessions ?? []).map((session) => session.name), ['review']);
+  assert.deepEqual(leftOutOf(sessionOf(one, 'review')), leftOut({ records_without_time: 1 }), 'review\'s alone, not daily\'s added in');
+});
+
+test('U14 gaps in a transcript no session claims are reported as the bot\'s unclaimed, and under no session', async (t) => {
+  const box = await createSandbox(t);
+  const { bots, home } = await fleet(box, { harness: 'claude' });
+  const mine = await plant(box, 'claude', home, {
+    id: 'conv-mine',
+    started: at(9),
+    lines: [claudeCall({ when: at(9, 1), request: 'req-1', message: 'msg-1', input: 3, output: 4 })],
+  });
+  await slipIn(mine, 2, TORN);
+  await plant(box, 'claude', home, {
+    id: 'conv-nobodys',
+    started: at(10),
+    lines: [
+      claudeCall({ when: at(10, 1), request: 'req-2', message: 'msg-2', input: 640, output: 21 }),
+      claudeCall({ when: undefined, request: 'req-3', message: 'msg-3', input: 1000, output: 1000 }),
+      claudeCallAnd({ when: at(10, 2), request: 'req-4', message: 'msg-4', input: 1000 }, { output_tokens: undefined }),
+      claudeCallAnd({ when: at(10, 3), request: 'req-5', message: 'msg-5', input: 1000 }, { input_tokens: null }),
+    ],
+  });
+  await bookSays(bots, 'api-bot', { daily: ran('conv-mine') });
+
+  const entry = entryOf(await usage(box), 'api-bot');
+
+  assert.deepEqual(
+    leftOutOf(entry, 'unclaimed_not_counted'),
+    leftOut({ records_without_numbers: 2, records_without_time: 1 }),
+  );
+  assert.deepEqual(leftOutOf(sessionOf(entry, 'daily')), leftOut({ broken_lines: 1 }), 'daily keeps only its own');
+  const nobodys = conversationOf(entry.unclaimed, 'conv-nobodys');
+  assert.equal(nobodys.calls, 1);
+  assert.equal(tokensOf(nobodys).input, 640, 'the unclaimed totals cover only what was counted');
+  assert.equal(tokensOf(nobodys).output, 21);
+});
+
+test('U14 the plain report names what a session left out, each count with its kind, on a not counted line', async (t) => {
+  // Three broken lines, four records without numbers, five without time: the
+  // counts differ so that each one can only be the count it is.
+  const box = await createSandbox(t);
+  const { bots, home } = await fleet(box, { harness: 'claude' });
+  const file = await plant(box, 'claude', home, {
+    id: 'conv-a',
+    started: at(9),
+    lines: [
+      claudeCall({ when: at(9, 1), request: 'req-1', message: 'msg-1', input: 3, output: 4 }),
+      ...[1, 2, 3, 4].map((n) => claudeCallAnd(
+        { when: at(9, 10 + n), request: `req-n${n}`, message: `msg-n${n}`, input: 9 },
+        { output_tokens: undefined },
+      )),
+      ...[1, 2, 3, 4, 5].map((n) => claudeCall({ when: undefined, request: `req-t${n}`, message: `msg-t${n}`, input: 9 })),
+    ],
+  });
+  await slipIn(file, 2, TORN, 'garbage', '[]');
+  await bookSays(bots, 'api-bot', { daily: ran('conv-a') });
+
+  const result = await box.run(['usage', '--bots', 'bots']);
+
+  assert.equal(result.code, 0, result.stderr);
+  const lines = notCountedLines(result.stdout);
+  assert.equal(lines.length, 1, `one line should say what daily did not count, got:\n${result.stdout}`);
+  const [line] = lines;
+  for (const [count, kind] of [[3, /broken/i], [4, /number/i], [5, /time/i]]) {
+    assert.match(line, new RegExp(`\\b${count}\\b`), `the line should give the count ${count}, got: ${line}`);
+    assert.match(line, kind, `and name its kind, ${kind}, got: ${line}`);
+  }
+});
+
+test('U14 the plain report names what the bot\'s unclaimed transcripts left out', { skip: UNREADABLE_NEEDS_A_USER }, async (t) => {
+  const box = await createSandbox(t);
+  const { bots, home } = await fleet(box, { harness: 'claude' });
+  await plant(box, 'claude', home, {
+    id: 'conv-a',
+    started: at(9),
+    lines: [claudeCall({ when: at(9, 1), request: 'req-1', message: 'msg-1', input: 3, output: 4 })],
+  });
+  for (const id of ['conv-x', 'conv-y']) {
+    const file = await plant(box, 'claude', home, {
+      id,
+      started: at(9),
+      lines: [claudeCall({ when: at(9, 2), request: `req-${id}`, message: `msg-${id}`, input: 3, output: 4 })],
+    });
+    await chmod(file, 0o000);
+  }
+  await bookSays(bots, 'api-bot', { daily: ran('conv-a') });
+
+  const result = await box.run(['usage', '--bots', 'bots']);
+
+  assert.equal(result.code, 0, result.stderr);
+  const lines = notCountedLines(result.stdout);
+  assert.equal(lines.length, 1, `one line should say what the unclaimed transcripts did not count, got:\n${result.stdout}`);
+  assert.match(lines[0], /\b2\b/, `two transcripts, got: ${lines[0]}`);
+  assert.match(lines[0], /unreadable/i, `that could not be read, got: ${lines[0]}`);
+});
+
+test('U14 a clean plain report says nothing about what was not counted', async (t) => {
+  // The pair of the two above: the same report, with nothing left out.
+  const box = await createSandbox(t);
+  const { bots, home } = await fleet(box, { harness: 'claude' });
+  await plant(box, 'claude', home, {
+    id: 'conv-a',
+    started: at(9),
+    lines: [claudeCall({ when: at(9, 1), request: 'req-1', message: 'msg-1', input: 3, output: 4 })],
+  });
+  await plant(box, 'claude', home, {
+    id: 'conv-nobodys',
+    started: at(9),
+    lines: [claudeCall({ when: at(9, 2), request: 'req-2', message: 'msg-2', input: 3, output: 4 })],
+  });
+  await bookSays(bots, 'api-bot', { daily: ran('conv-a') });
+
+  const result = await box.run(['usage', '--bots', 'bots']);
+
+  assert.equal(result.code, 0, result.stderr);
+  assert.ok(result.stdout.includes('conv-a') && result.stdout.includes('conv-nobodys'), `the report is there, got:\n${result.stdout}`);
+  assert.deepEqual(notCountedLines(result.stdout), [], `nothing was left out, got:\n${result.stdout}`);
 });

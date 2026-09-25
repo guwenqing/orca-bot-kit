@@ -957,12 +957,15 @@ function usageLines(usage, bots) {
     lines.push(`${'bot'.padEnd(9)}  ${entry.bot}`);
     for (const session of entry.sessions) {
       lines.push(`${'session'.padEnd(9)}  ${session.name}`);
+      const notCounted = notCountedLine(session.not_counted);
       lines.push(...session.conversations.map(conversationLine));
-      if (session.conversations.length === 0) lines.push('             nothing on record');
+      if (session.conversations.length === 0 && notCounted.length === 0) lines.push('             nothing on record');
+      lines.push(...notCounted);
     }
-    if (entry.unclaimed.length > 0) {
+    if (entry.unclaimed.length > 0 || notCountedLine(entry.unclaimed_not_counted).length > 0) {
       lines.push(`${'unclaimed'.padEnd(9)}  ${entry.bot}: no session of this bot claims these`);
       lines.push(...entry.unclaimed.map(conversationLine));
+      lines.push(...notCountedLine(entry.unclaimed_not_counted));
     }
   }
 
@@ -970,6 +973,19 @@ function usageLines(usage, bots) {
     ? `No bots yet. Your bots folder: ${bots}`
     : `${usage.length} bot${usage.length === 1 ? '' : 's'}. What a token costs is yours to look up. Your bots folder: ${bots}`);
   return lines;
+}
+
+/** What could not be counted, as one line, or no line when everything was. */
+function notCountedLine(gaps) {
+  const said = [
+    [gaps.unreadable_transcripts, 'transcript', 'transcripts', 'unreadable'],
+    [gaps.broken_lines, 'line', 'lines', 'broken'],
+    [gaps.records_without_numbers, 'record', 'records', 'with no usable number'],
+    [gaps.records_without_time, 'record', 'records', 'with no time'],
+  ]
+    .filter(([count]) => count > 0)
+    .map(([count, one, many, why]) => `${count} ${count === 1 ? one : many} ${why}`);
+  return said.length === 0 ? [] : [`             not counted: ${said.join(', ')}`];
 }
 
 /** One conversation: what it is, what it ran as, and what it used. */
