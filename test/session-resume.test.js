@@ -22,25 +22,39 @@
 // two harnesses differ only in where the id goes: Claude Code takes
 // `--resume <id>` as a flag, Codex takes `resume` as a subcommand.
 //
+// A resumed Claude session keeps its address, too (#286): the fleet has been
+// writing to it there. That holds only for an address the kit made for this
+// bot and session, `<bot>.<session>.<token>`. A book holding none, the bare
+// `<bot>.<session>` every fleet shared before, or one made for some other
+// session, gets a new one, and the line and the book carry the same.
+//
 // The tests read the line the kit typed and then run it through a real shell
 // against a fake harness, so what is checked is the argv a real harness would
 // have been handed.
 
 import assert from 'node:assert/strict';
+import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
+import { stringify } from 'yaml';
 
 import {
+  addressPattern,
   assertOrcaCallsAllowed,
   bareLaunch,
+  bookIn,
+  bookOf,
   createSandbox,
   fakeProgram,
   launchLine,
+  nameOnLine,
   orcaCallsOf,
   recordSession,
   sessionIn,
   sh,
   tabsOfBot,
+  TOKEN,
+  tokenlessWord,
   typedInto,
 } from './helpers/cli.js';
 
@@ -102,6 +116,9 @@ function settingsOnly(argv) {
  */
 const bareArgvOf = (box, harness) => bareLaunch(box, harness, 'api-bot', 'daily').split(' ').slice(3);
 
+/** Arguments with the token of the name after `-n` written the way `bareLaunch` writes it. */
+const tokenlessArgv = (argv) => argv.map((word, at) => (argv[at - 1] === '-n' ? tokenlessWord(word) : word));
+
 /**
  * The launch arguments with the resume words taken out, whichever harness's
  * form they took: Codex's `resume` subcommand, Claude Code's `--resume` flag,
@@ -138,7 +155,7 @@ test('claude resumes the session the book holds, and is not told its duty again'
   const argv = await argvOf(box, line, fake);
   assert.equal(argv[argv.indexOf('sess-1') - 1], '--resume', 'the id belongs to the flag that asks for it');
   assert.deepEqual(
-    withoutResume(argv, 'sess-1'),
+    tokenlessArgv(withoutResume(argv, 'sess-1')),
     settingsOnly(bareArgvOf(box, 'claude')),
     'and every other setting is the one a fresh session is started with',
   );
@@ -174,7 +191,7 @@ for (const [harness, settings, fresh] of [
   [
     'claude',
     ['--approval', 'ask', '--model', 'opus', '--context', '1m', '--effort', 'xhigh', '--extra-arg=--verbose'],
-    ['--permission-mode', 'manual', '-n', 'api-bot.daily', '--model', 'opus[1m]', '--effort', 'xhigh', '--verbose'],
+    ['--permission-mode', 'manual', '-n', `api-bot.daily.${TOKEN}`, '--model', 'opus[1m]', '--effort', 'xhigh', '--verbose'],
   ],
   [
     'codex',
@@ -196,7 +213,7 @@ for (const [harness, settings, fresh] of [
     const again = await up(box);
 
     const argv = await argvOf(box, again.typed[0], fake);
-    assert.deepEqual(withoutResume(argv, 'sess-1'), fresh);
+    assert.deepEqual(tokenlessArgv(withoutResume(argv, 'sess-1')), fresh);
   });
 }
 
@@ -231,6 +248,64 @@ test('the session that came back is the one the book named, and the book follows
   assert.notEqual(again.entry.tabId, first.entry.tabId, 'a tab that comes back is a new tab');
   assert.equal(daily.session, 'sess-1', 'and the harness session it resumed is still the one it is running');
 });
+
+test('a resumed Claude session keeps the address it was started under', async (t) => {
+  // The conversation is the same one, and the fleet has been writing to it at
+  // this address: a resume that renamed it would leave every sender holding an
+  // address nobody answers to.
+  const box = await createSandbox(t);
+  const { bots, first } = await started(box, 'claude');
+  const address = (await sessionIn(bots, 'api-bot', 'daily')).address;
+  assert.match(String(address), addressPattern('api-bot', 'daily'), 'the first start gave it an address of its own');
+  assert.equal(nameOnLine(first.typed[0]), address, 'and started it under that name');
+  await reported(box, bots, first.entry.tabId, 'sess-1');
+  await closeTab(box, first.entry.tabId);
+
+  const again = await up(box);
+
+  const line = again.typed[0];
+  assert.ok(line.includes('--resume sess-1'), `the run should have resumed, got: ${line}`);
+  assert.equal(nameOnLine(line), address, 'the line carries the address it had');
+  assert.equal((await sessionIn(bots, 'api-bot', 'daily')).address, address, 'and the book still holds it');
+});
+
+/** What a book may hold as a Claude session's address when it is resumed, and whether the resume keeps it. */
+const HELD = [
+  ['an address made for this bot and session', 'api-bot.daily.k3x9q2', true],
+  ['no address at all', undefined, false],
+  ['the bare <bot>.<session> every fleet shared before #286', 'api-bot.daily', false],
+  ['an address made for another session of the bot', 'api-bot.night.k3x9q2', false],
+  ['an address made for another bot', 'web-bot.daily.k3x9q2', false],
+  ['an address for a session whose name only begins the same', 'api-bot.daily2.k3x9q2', false],
+];
+
+for (const [label, held, kept] of HELD) {
+  test(`a resumed Claude session whose book holds ${label} ${kept ? 'keeps it' : 'is given a new address'}`, async (t) => {
+    const box = await createSandbox(t);
+    const { bots, first } = await started(box, 'claude');
+    const had = (await sessionIn(bots, 'api-bot', 'daily')).address;
+    await reported(box, bots, first.entry.tabId, 'sess-1');
+    const book = await bookIn(bots, 'api-bot');
+    if (held === undefined) delete book.sessions.daily.address;
+    else book.sessions.daily.address = held;
+    await writeFile(bookOf(bots, 'api-bot'), stringify(book));
+    await closeTab(box, first.entry.tabId);
+
+    const again = await up(box);
+
+    const line = again.typed[0];
+    assert.ok(line.includes('--resume sess-1'), `the run should have resumed, got: ${line}`);
+    const name = nameOnLine(line);
+    if (kept) {
+      assert.equal(name, held, `the address the book held is the one the line carries, got: ${line}`);
+    } else {
+      assert.match(String(name), addressPattern('api-bot', 'daily'), `got: ${line}`);
+      assert.notEqual(name, held, 'not the address the book held');
+      assert.notEqual(name, had, 'and not one the session had before either: it is new');
+    }
+    assert.equal((await sessionIn(bots, 'api-bot', 'daily')).address, name, 'and the book holds what the line carried');
+  });
+}
 
 test('a session the book holds no id for comes up fresh, with its start prompt', async (t) => {
   // Nothing has ever reported for this session — the hook never ran, or the

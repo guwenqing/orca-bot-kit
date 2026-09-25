@@ -37,6 +37,7 @@ import {
   plainCli,
   sentInto,
   TAB_TITLES,
+  tokenless,
   typedInto,
 } from './helpers/cli.js';
 
@@ -65,8 +66,8 @@ for (const harness of ['claude', 'codex']) {
     const { daily, ops } = await tabsOf(box);
     // The harness and the approval level it takes, and nothing else: Bot
     // Father's seeded session names no model, no effort and no start prompt.
-    assert.deepEqual(typedInto(daily), [bareLaunch(box, harness, 'bot-father', 'daily')]);
-    assert.deepEqual(sentInto(daily), [{ text: bareLaunch(box, harness, 'bot-father', 'daily'), enter: true }], 'the line has to be sent off');
+    assert.deepEqual(typedInto(daily).map(tokenless), [bareLaunch(box, harness, 'bot-father', 'daily')]);
+    assert.deepEqual(sentInto(daily).map((entry) => ({ ...entry, text: tokenless(entry.text) })), [{ text: bareLaunch(box, harness, 'bot-father', 'daily'), enter: true }], 'the line has to be sent off');
     assert.deepEqual(typedInto(ops), [], 'the ops tab is a plain shell');
     assert.equal(daily.worktreePath, botHomeIn(box));
     assert.equal(ops.worktreePath, botHomeIn(box));
@@ -167,7 +168,7 @@ test('a harness that came up on its trust question counts as started', async (t)
   const daily = JSON.parse(result.stdout).tabs.find((tab) => tab.name === 'daily');
   assert.equal(daily.harnessStarted, true, 'a TUI that is up is a harness that started');
   const { daily: tab } = await tabsOf(box);
-  assert.deepEqual(typedInto(tab), [bareLaunch(box, 'claude', 'bot-father', 'daily')]);
+  assert.deepEqual(typedInto(tab).map(tokenless), [bareLaunch(box, 'claude', 'bot-father', 'daily')]);
 });
 
 test('a harness that never came up is reported, and the run still succeeds', async (t) => {
@@ -180,7 +181,7 @@ test('a harness that never came up is reported, and the run still succeeds', asy
 
   assert.equal(result.code, 0, `a harness that did not come up is not a failure: ${result.stderr}`);
   const { daily, ops } = await tabsOf(box);
-  assert.deepEqual(typedInto(daily), [bareLaunch(box, 'claude', 'bot-father', 'daily')], 'the line was still typed; it is the outcome that was checked');
+  assert.deepEqual(typedInto(daily).map(tokenless), [bareLaunch(box, 'claude', 'bot-father', 'daily')], 'the line was still typed; it is the outcome that was checked');
   assert.deepEqual(typedInto(ops), [], 'and the other tab is still a plain shell');
   // The caller has to learn which tab it must look at itself.
   assert.ok(

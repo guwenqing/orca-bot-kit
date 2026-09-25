@@ -269,6 +269,9 @@ async function bringUpSession(bots, home, live, session, bot, title) {
   // Anything longer than a line goes to the harness out of a file, rather than
   // through the tab's shell a character at a time.
   const promptFile = prompt === undefined || isShortPrompt(prompt) ? undefined : promptPath(bots, bot.name, session.name);
+  // A resume goes on under the name its conversation already has; a new
+  // conversation is given a new one.
+  const address = harness === 'claude' ? addressOf(bot.name, session.name, resume === undefined ? undefined : was?.address) : undefined;
   const command = launchCommand(session, {
     harness,
     home,
@@ -276,7 +279,7 @@ async function bringUpSession(bots, home, live, session, bot, title) {
     prompt,
     promptFile,
     resume,
-    address: harness === 'claude' ? addressOf(bot.name, session.name) : undefined,
+    address,
   });
 
   // A work dir is a plain folder, made for the session before it is told about
@@ -326,7 +329,7 @@ async function bringUpSession(bots, home, live, session, bot, title) {
   // tab is on the books, so a mailbox Orca will not make leaves a tab the next
   // run finds and finishes rather than a tab nobody owns (review of PR #132,
   // finding 3).
-  await ensureMailbox(home, bot, session, harness, made.handle, { named: harness === 'claude', opened: true });
+  await ensureMailbox(home, bot, session, harness, made.handle, { address, opened: true });
 
   // And then asking whether a TUI came up, rather than assuming one did. The
   // text goes into the tab's own shell, which may have been busy with a
@@ -433,11 +436,10 @@ function lookFor(handle, timeoutMs) {
  * not read a mailbox if it had one, and an address nobody can read is worse
  * than none at all. `obk message` says so in those words.
  */
-async function ensureMailbox(home, bot, session, harness, handle, { named = false, opened = false } = {}) {
+async function ensureMailbox(home, bot, session, harness, handle, { address, opened = false } = {}) {
   const held = readBook(home).sessions[session.name] ?? {};
   if (opened && typeof held.mailbox === 'string') useMailbox(held.mailbox, handle);
 
-  const address = named ? addressOf(bot.name, session.name) : undefined;
   const mailbox = mailboxFor(readBook(home), bot, session, harness, handle);
 
   if (mailbox === undefined && (address === undefined || held.address === address)) return;

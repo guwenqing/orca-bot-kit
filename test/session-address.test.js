@@ -3,9 +3,14 @@
 //
 // Three things, and each one was forced by a live check on 2026-09-21:
 //
-//   1. A Claude session is launched under its own name, `<bot>.<session>`.
-//      That name is the address native messaging uses, it survives a resume,
-//      and the kit passes `-n` on every launch anyway (tech notes, section 2).
+//   1. A Claude session is launched under its own name, which is the address
+//      native messaging uses. It survives a resume, and the kit passes `-n` on
+//      every launch anyway (tech notes, section 2). The name is
+//      `<bot>.<session>.<token>`, the token new each time the kit starts a
+//      session on a fresh conversation (#286): Claude Code refuses a send to a
+//      name more than one session answers to, and every fleet's Bot Father
+//      used to answer to `bot-father.daily`. Whatever the line carries is what
+//      the book holds.
 //   2. A Codex session is launched with `-c
 //      sandbox_workspace_write.network_access=true`. Without it a Codex bot at
 //      the kit's own approval level cannot reach the Orca CLI at all — every
@@ -29,7 +34,7 @@ import test from 'node:test';
 import { parse, stringify } from 'yaml';
 
 import {
-  addressOf,
+  addressPattern,
   assertOrcaCallsAllowed,
   bareLaunch,
   bookIn,
@@ -37,9 +42,11 @@ import {
   CODEX_NETWORK,
   createSandbox,
   launchLine,
+  nameOnLine,
   orcaCallsOf,
   sessionIn,
   tabsOfBot,
+  tokenless,
   typedInto,
 } from './helpers/cli.js';
 
@@ -72,7 +79,7 @@ async function up(box, bots, bot = 'api-bot') {
   return { result, lines };
 }
 
-test('a Claude session is launched under its own name: <bot>.<session>', async (t) => {
+test('a Claude session is launched under its own name: <bot>.<session>.<token>', async (t) => {
   // The name is the address. Two sessions of the one bot, so a name that
   // followed the bot alone — or a name that was written once and reused —
   // shows up as two sessions answering to the same address.
@@ -81,9 +88,79 @@ test('a Claude session is launched under its own name: <bot>.<session>', async (
 
   const { lines } = await up(box, bots);
 
-  assert.equal(lines['Api Bot daily'], bareLaunch(box, 'claude', 'api-bot', 'daily'));
-  assert.equal(lines['Api Bot night'], bareLaunch(box, 'claude', 'api-bot', 'night'));
-  assert.ok(lines['Api Bot night'].includes('-n api-bot.night'), `got: ${lines['Api Bot night']}`);
+  assert.equal(tokenless(lines['Api Bot daily']), bareLaunch(box, 'claude', 'api-bot', 'daily'));
+  assert.equal(tokenless(lines['Api Bot night']), bareLaunch(box, 'claude', 'api-bot', 'night'));
+  assert.match(nameOnLine(lines['Api Bot daily']), addressPattern('api-bot', 'daily'));
+  assert.match(nameOnLine(lines['Api Bot night']), addressPattern('api-bot', 'night'));
+  for (const session of ['daily', 'night']) {
+    assert.equal(
+      (await sessionIn(bots, 'api-bot', session)).address,
+      nameOnLine(lines[`Api Bot ${session}`]),
+      `the book holds the name the line carried, for ${session}`,
+    );
+  }
+});
+
+test('two bots folders with the same bot and session names give their sessions different addresses', async (t) => {
+  // The case behind #286: every fleet has a Bot Father with a daily session,
+  // and so does every throwaway fleet a system test brings up. Two fleets that
+  // named their sessions alike must still not share an address, or Claude Code
+  // refuses the send.
+  const one = await createSandbox(t);
+  const other = await createSandbox(t);
+  const first = await withBot(one, 'claude', [['daily']]);
+  const second = await withBot(other, 'claude', [['daily']]);
+
+  const a = (await up(one, first)).lines['Api Bot daily'];
+  const b = (await up(other, second)).lines['Api Bot daily'];
+
+  assert.match(nameOnLine(a), addressPattern('api-bot', 'daily'));
+  assert.match(nameOnLine(b), addressPattern('api-bot', 'daily'));
+  assert.notEqual(nameOnLine(a), nameOnLine(b), 'two fleets, two addresses');
+  assert.equal((await sessionIn(first, 'api-bot', 'daily')).address, nameOnLine(a));
+  assert.equal((await sessionIn(second, 'api-bot', 'daily')).address, nameOnLine(b));
+});
+
+test('Bot Father\'s daily session in two fleets answers to two different addresses', async (t) => {
+  // The very name the issue was reported against: `init` brings Bot Father up
+  // itself, and the name it launches under is the fleet's own.
+  const one = await createSandbox(t);
+  const other = await createSandbox(t);
+  for (const box of [one, other]) {
+    const made = await box.run(['init', '--bots', 'bots', '--harness', 'claude']);
+    assert.equal(made.code, 0, made.stderr);
+  }
+
+  const [a, b] = await Promise.all([one, other].map(async (box) => ({
+    book: (await sessionIn(box.path('bots'), 'bot-father', 'daily')).address,
+    line: nameOnLine(typedInto((await tabsOfBot(box, box.path('bots'), 'bot-father')).find((tab) => tab.typed?.length))[0]),
+  })));
+
+  assert.match(a.line, addressPattern('bot-father', 'daily'));
+  assert.match(b.line, addressPattern('bot-father', 'daily'));
+  assert.notEqual(a.line, b.line);
+  assert.equal(a.book, a.line, 'and each book holds the name its own line carried');
+  assert.equal(b.book, b.line);
+});
+
+test('a session started fresh again is given a new address, not the one it had', async (t) => {
+  // No harness session in the book, so the next start is a new conversation.
+  // The old address may still be answered by the harness that is gone — a
+  // tab closed with its harness still running, or a conversation the user
+  // opens again by hand — so the new one must not share it.
+  const box = await createSandbox(t);
+  const bots = await withBot(box, 'claude', [['daily']]);
+  const before = (await up(box, bots)).lines['Api Bot daily'];
+  assert.equal((await sessionIn(bots, 'api-bot', 'daily')).session, undefined, 'nothing to resume');
+  // The user closed the tab, so the next run opens another and types the line.
+  await box.orca.set({ terminals: [] });
+
+  const after = (await up(box, bots)).lines['Api Bot daily'];
+
+  assert.ok(!after.includes('--resume'), `a fresh start, got: ${after}`);
+  assert.match(nameOnLine(after), addressPattern('api-bot', 'daily'));
+  assert.notEqual(nameOnLine(after), nameOnLine(before), 'a fresh start is a new address');
+  assert.equal((await sessionIn(bots, 'api-bot', 'daily')).address, nameOnLine(after), 'and the book follows it');
 });
 
 test('a Codex session is launched with the sandbox switch that lets it reach Orca', async (t) => {
@@ -134,7 +211,12 @@ test('up gives a Claude session a mailbox and writes both addresses in the book'
     (await box.orca.runs()).some((run) => run.id === daily.mailbox),
     `the book should hold a Run Orca really made, got: ${JSON.stringify(daily)}`,
   );
-  assert.equal(daily.address, addressOf('api-bot', 'daily'), `and the name it is launched under: ${JSON.stringify(daily)}`);
+  assert.match(String(daily.address), addressPattern('api-bot', 'daily'), `and the name it is launched under: ${JSON.stringify(daily)}`);
+  assert.equal(
+    daily.address,
+    nameOnLine(typedInto((await tabsOfBot(box, bots, 'api-bot'))[0])[0]),
+    'which is the name on the line the tab was started with',
+  );
 });
 
 test('up gives a Codex session a mailbox too, and it is the only address it has', async (t) => {
@@ -148,6 +230,7 @@ test('up gives a Codex session a mailbox too, and it is the only address it has'
     (await box.orca.runs()).some((run) => run.id === daily.mailbox),
     `a Codex session's mailbox is a Run like any other, got: ${JSON.stringify(daily)}`,
   );
+  assert.equal(daily.address, undefined, `Codex has no session name to be reached at: ${JSON.stringify(daily)}`);
 });
 
 test('a session fleet mail cannot reach is given no mailbox at all', async (t) => {
@@ -336,9 +419,10 @@ test('a session whose tab this run opened is given its name, because the line ca
 
   assert.equal(again.code, 0, again.stderr);
   const daily = await sessionIn(bots, 'api-bot', 'daily');
-  assert.equal(daily.address, addressOf('api-bot', 'daily'), `got: ${JSON.stringify(daily)}`);
-  assert.ok(
-    typedInto((await tabsOfBot(box, bots, 'api-bot'))[0])[0].includes(`-n ${addressOf('api-bot', 'daily')}`),
+  assert.match(String(daily.address), addressPattern('api-bot', 'daily'), `got: ${JSON.stringify(daily)}`);
+  assert.equal(
+    daily.address,
+    nameOnLine(typedInto((await tabsOfBot(box, bots, 'api-bot'))[0])[0]),
     'and that is the name the line it typed carried',
   );
 });

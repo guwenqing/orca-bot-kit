@@ -42,6 +42,7 @@ import {
   snapshot,
   TAB_TITLES,
   tabsOfBot,
+  tokenless,
   typedInto,
 } from './helpers/cli.js';
 
@@ -344,7 +345,7 @@ test('P9 obk up skips a paused session and opens its sibling', async (t) => {
   assert.equal(result.code, 0, result.stderr);
   assert.equal(creates(await since(box, from)).length, 1, 'one tab, for the session that is not paused');
   const open = await tabsOfBot(box, bots, 'api-bot');
-  assert.deepEqual(open.map(typedInto), [[resumeLine(box, 'sess-review', 'review')]], 'and it is review, with its conversation');
+  assert.deepEqual(open.map((tab) => typedInto(tab).map(tokenless)), [[resumeLine(box, 'sess-review', 'review')]], 'and it is review, with its conversation');
   assert.match(result.stdout, /paused/i, `up should say daily is paused, got: ${result.stdout}`);
 });
 
@@ -373,7 +374,7 @@ for (const [label, args] of [
 
     assert.equal(result.code, 0, `the paused session is not one up starts, so its file is nothing to up: ${result.stderr}`);
     const open = await tabsOfBot(box, bots, 'api-bot');
-    assert.deepEqual(open.map(typedInto), [[bareLaunch(box, 'claude', 'api-bot', 'review')]], 'review has its tab, and daily has none');
+    assert.deepEqual(open.map((tab) => typedInto(tab).map(tokenless)), [[bareLaunch(box, 'claude', 'api-bot', 'review')]], 'review has its tab, and daily has none');
     assert.equal((await sessionIn(bots, 'api-bot', 'daily'))?.tab, undefined, 'the book gives daily no tab');
     assert.match(result.stdout, /paused/i, `up should say daily is paused, got: ${result.stdout}`);
     assert.ok(result.stdout.includes('daily'), `and name it, got: ${result.stdout}`);
@@ -468,7 +469,7 @@ test('U1 unpausing a bot brings its session back with the conversation the book 
   assert.equal(creates(await since(box, from)).length, 1);
   const after = await liveTab(box, bots, 'api-bot', 'daily');
   assert.notEqual(after.tabId, tabs.daily.tabId, 'a new tab');
-  assert.deepEqual(typedInto(after.terminal), [resumeLine(box, 'sess-daily')], 'resuming the conversation it had');
+  assert.deepEqual(typedInto(after.terminal).map(tokenless), [resumeLine(box, 'sess-daily')], 'resuming the conversation it had');
   assert.notEqual((await rosterEntry(box, 'api-bot')).paused, true, 'and the mark is gone');
 
   // Gone for good: the next up treats it as any other bot, and opens nothing
@@ -491,7 +492,7 @@ test('U2 unpausing one session brings back that session and leaves its sibling a
   assert.equal(creates(calls).length, 1, 'one tab, for daily');
   assert.deepEqual(closes(calls), [], 'and nothing closed');
   const daily = await liveTab(box, bots, 'api-bot', 'daily');
-  assert.deepEqual(typedInto(daily.terminal), [resumeLine(box, 'sess-daily')]);
+  assert.deepEqual(typedInto(daily.terminal).map(tokenless), [resumeLine(box, 'sess-daily')]);
   assert.equal((await liveTab(box, bots, 'api-bot', 'review')).tabId, tabs.review.tabId, 'review is still in the tab it was in');
   assert.notEqual(rosterSession(await rosterEntry(box, 'api-bot'), 'daily').paused, true);
 });
@@ -617,7 +618,7 @@ test('U4 unpausing a Bot Father session that is not daily brings it back with th
   assert.deepEqual(closes(calls), [], 'and nothing closed');
   const back = await liveTab(box, bots, 'bot-father', 'grooming');
   assert.notEqual(back.tabId, grooming.tabId, 'a new tab');
-  assert.deepEqual(typedInto(back.terminal), [resumeLine(box, 'sess-grooming', 'grooming', 'bot-father')], 'resuming the conversation it had');
+  assert.deepEqual(typedInto(back.terminal).map(tokenless), [resumeLine(box, 'sess-grooming', 'grooming', 'bot-father')], 'resuming the conversation it had');
   assert.deepEqual(await terminalOf(box, daily.tabId), daily.terminal, 'daily\'s tab is as it was');
   assert.deepEqual(await terminalOf(box, ops.tabId), ops, 'and so is the ops tab');
   assert.notEqual(rosterSession(await rosterEntry(box, 'bot-father'), 'grooming').paused, true, 'and the mark is gone');

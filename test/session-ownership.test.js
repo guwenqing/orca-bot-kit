@@ -46,6 +46,7 @@ import {
   tabsOfBot,
   TAB_SHELL,
   throughAHarness,
+  tokenless,
   typedInto,
 } from './helpers/cli.js';
 
@@ -93,7 +94,7 @@ test('the launch line hands the tab\'s own shell pid to the harness', async (t) 
 
   const typed = typedInto((await box.orca.terminals()).find((one) => one.tabId === tab.tabId))[0];
   assert.ok(typed.startsWith(`${TAB_SHELL} `), `the pid comes first, got: ${typed}`);
-  assert.equal(typed, bareLaunch(box, 'claude', 'api-bot', 'daily'), 'and nothing else about the line changed');
+  assert.equal(tokenless(typed), bareLaunch(box, 'claude', 'api-bot', 'daily'), 'and nothing else about the line changed');
 
   // `$$` is the shell's own pid, and it is the shell reading the line that
   // fills it in — so what the harness is given is a real live process, not the

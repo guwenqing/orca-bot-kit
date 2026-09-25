@@ -594,11 +594,40 @@ export const cliOnLine = (cli) => `OBK_CLI=${shellWord(cli)}`;
 export const launchLine = (box, rest) => `${TAB_SHELL} ${cliOnLine(box.cli)} ${rest}`;
 
 /**
- * A session's name, which is also the address a Claude session is reached at:
- * `<bot>.<session>` (PRD 6.9, ADR 0018). Proved live that the name survives a
- * resume, and the kit passes it on every launch anyway (tech notes, section 2).
+ * A Claude session's name, which is also the address it is reached at:
+ * `<bot>.<session>.<token>` (PRD 6.9, ADR 0018). Proved live that the name
+ * survives a resume, and the kit passes it on every launch anyway (tech notes,
+ * section 2).
+ *
+ * The token is at most eight lowercase letters and digits, and new each time
+ * the kit starts a session on a fresh conversation (#286). Without it every
+ * fleet's Bot Father answered to `bot-father.daily` — old runs, other
+ * machines, the fleets system tests bring up — and Claude Code refuses a send
+ * to a name more than one session answers to. So a test can only say what
+ * shape an address has, and that the line, the book and `obk message to` all
+ * give the same one.
  */
-export const addressOf = (bot, session) => `${bot}.${session}`;
+export const addressPattern = (bot, session) => new RegExp(
+  `^${[bot, session].map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\.')}\\.[a-z0-9]{1,8}$`,
+);
+
+/** What `tokenless` writes in place of the token, so a line can be pinned whole. */
+export const TOKEN = '<token>';
+
+/**
+ * A launch line, or one word of one, with the token of the Claude address
+ * after `-n` written `TOKEN`: the rest of the line is then pinned exactly, as
+ * `bareLaunch` spells it. Only a token of the right shape is replaced — an
+ * address with none, like the old `<bot>.<session>`, or with one that is not
+ * one to eight lowercase letters and digits, is left as it was and fails the
+ * comparison. Which token it is, and that the book holds the same one, is for
+ * the tests of the address itself (session-address, session-resume, message-to).
+ */
+export const tokenlessWord = (word) => word.replace(/^([^ .]+\.[^ .]+\.)[a-z0-9]{1,8}$/, `$1${TOKEN}`);
+export const tokenless = (line) => line.replace(/( -n )([^ ]+)/, (all, flag, word) => `${flag}${tokenlessWord(word)}`);
+
+/** The name a Claude launch line carries after `-n`, as the kit typed it, or undefined for a line with none. */
+export const nameOnLine = (line) => / -n ([^ ]+)/.exec(line)?.[1];
 
 /**
  * The one Codex setting that lets a sandboxed session reach the Orca CLI at
@@ -617,7 +646,7 @@ export const CODEX_NETWORK = '-c sandbox_workspace_write.network_access=true';
  * sandbox that flag chose far enough to reach Orca.
  */
 export const bareLaunch = (box, harness, bot, session) => launchLine(box, harness === 'claude'
-  ? `claude --permission-mode auto -n ${addressOf(bot, session)}`
+  ? `claude --permission-mode auto -n ${bot}.${session}.${TOKEN}`
   : `codex --approve-for-me ${CODEX_NETWORK}`);
 
 /** Where a bot lives inside a bots folder. */

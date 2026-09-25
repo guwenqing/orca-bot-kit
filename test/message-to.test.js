@@ -10,7 +10,8 @@
 //            and prompting (everything else), and a message across them is
 //            held for approval — so the kit calls that pair `orca` in advance
 //            rather than letting it hang. The address is the receiver's own
-//            session name, `<bot>.<session>`.
+//            session name, `<bot>.<session>.<token>`: the one its launch line
+//            carried and its book holds, whatever the token is (#286).
 //   orca     everything else: Codex at either end, or a mixed-approval pair.
 //            The address is the receiver's mailbox, `run:<id>`.
 //
@@ -30,13 +31,17 @@ import test from 'node:test';
 import { stringify } from 'yaml';
 
 import {
+  addressPattern,
   assertRefused,
   bookIn,
   bookOf,
   createSandbox,
+  nameOnLine,
   orcaCallsOf,
+  recordSession,
   sessionIn,
   tabsOfBot,
+  typedInto,
 } from './helpers/cli.js';
 
 /**
@@ -121,11 +126,13 @@ for (const [label, from, to, transport] of PAIRS) {
     const answer = await askTo(box, ['--to', to, '--from', `${from}/daily`]);
 
     assert.equal(answer.transport, transport, `got: ${JSON.stringify(answer)}`);
+    const receiver = await sessionIn(bots, to, 'daily');
     assert.equal(
       answer.address,
-      transport === 'native' ? `${to}.daily` : `run:${(await sessionIn(bots, to, 'daily')).mailbox}`,
+      transport === 'native' ? receiver.address : `run:${receiver.mailbox}`,
       `the address is the receiver's, not the sender's: ${JSON.stringify(answer)}`,
     );
+    if (transport === 'native') assert.match(answer.address, addressPattern(to, 'daily'));
   });
 }
 
@@ -141,6 +148,47 @@ test('the answer is about the receiver, whichever of its sessions was named', as
   assert.equal(day.address, `run:${(await sessionIn(bots, 'codex-one', 'daily')).mailbox}`);
   assert.equal(night.address, `run:${(await sessionIn(bots, 'codex-one', 'night')).mailbox}`);
   assert.notEqual(day.address, night.address);
+});
+
+test('the native address is the name the receiver\'s harness was launched under', async (t) => {
+  // #286: the address has to reach the live session on the first try, so it is
+  // the very name on the line that started it, token and all.
+  const box = await createSandbox(t);
+  const bots = await fleetIn(box, [['auto-one', 'claude', []], ['auto-two', 'claude', []]]);
+  const launched = nameOnLine(typedInto(await tabOf(box, bots, 'auto-two'))[0]);
+
+  const answer = await askTo(box, ['--to', 'auto-two', '--from', 'auto-one/daily']);
+
+  assert.equal(answer.transport, 'native', `got: ${JSON.stringify(answer)}`);
+  assert.match(String(launched), addressPattern('auto-two', 'daily'));
+  assert.equal(answer.address, launched);
+});
+
+test('a session a resume gave a new address is answered at the new one, not the bare name it had', async (t) => {
+  // The upgrade: a book written before #286 holds `<bot>.<session>`, the name
+  // every fleet's session of that name answers to. The resume launches it under
+  // a name of its own, and the answer is that name.
+  const box = await createSandbox(t);
+  const bots = await fleetIn(box, [['auto-one', 'claude', []], ['auto-two', 'claude', []]]);
+  const { tab } = await sessionIn(bots, 'auto-two', 'daily');
+  const hook = await recordSession(box, { bots, bot: 'auto-two', tab, session: 'sess-1' });
+  assert.equal(hook.code, 0, hook.stderr);
+  const book = await bookIn(bots, 'auto-two');
+  book.sessions.daily.address = 'auto-two.daily';
+  await writeFile(bookOf(bots, 'auto-two'), stringify(book));
+  // The tab was closed, so the next up resumes the conversation in a new one.
+  await box.orca.set({ terminals: (await box.orca.terminals()).filter((terminal) => terminal.tabId !== tab) });
+  const up = await box.run(['up', '--bots', 'bots', '--bot', 'auto-two']);
+  assert.equal(up.code, 0, up.stderr);
+  const line = typedInto(await tabOf(box, bots, 'auto-two'))[0];
+  assert.ok(line.includes('--resume sess-1'), `the run should have resumed, got: ${line}`);
+
+  const answer = await askTo(box, ['--to', 'auto-two', '--from', 'auto-one/daily']);
+
+  assert.equal(answer.transport, 'native', `got: ${JSON.stringify(answer)}`);
+  assert.notEqual(answer.address, 'auto-two.daily', 'not the name every fleet shares');
+  assert.match(answer.address, addressPattern('auto-two', 'daily'));
+  assert.equal(answer.address, nameOnLine(line), 'the name the resumed harness came up under');
 });
 
 test('a bot named on its own is its one session', async (t) => {

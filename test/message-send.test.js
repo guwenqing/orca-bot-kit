@@ -26,6 +26,7 @@ import test from 'node:test';
 import { stringify } from 'yaml';
 
 import {
+  addressPattern,
   assertOrcaCallsAllowed,
   assertRefused,
   bookIn,
@@ -136,7 +137,9 @@ test('a native pair is refused, the address to write to is named, and nothing is
     '--to', 'reader', '--from', 'writer/daily', '--subject', 'about the review', '--text', 'have you started?',
   ]);
 
-  assertRefused(result, 'reader.daily');
+  const { address } = await sessionIn(bots, 'reader', 'daily');
+  assert.match(String(address), addressPattern('reader', 'daily'));
+  assertRefused(result, address);
   assert.deepEqual(await box.orca.messages(), [], 'nothing may be queued for a pair the mailbox does not carry');
   assert.deepEqual(await box.orca.terminals(), before, 'and nothing may be typed into anybody\'s tab');
 });

@@ -48,6 +48,7 @@ import {
   sessionIn,
   tabsOfBot,
   TAB_TITLES,
+  tokenless,
   typedInto,
 } from './helpers/cli.js';
 
@@ -289,13 +290,14 @@ for (const name of Object.keys(COMMANDS)) {
     const blocked = await opened(t, name, BLOCKED);
 
     assert.deepEqual(
-      typedInto(blocked.terminal),
+      typedInto(blocked.terminal).map(tokenless),
       COMMANDS[name].typed(blocked.box),
       `${name}: only the launch line goes into a waiting tab`,
     );
-    // Two sandboxes, each with its own `obk`, so each line names its own CLI:
-    // that one word is set aside and the rest has to match exactly.
-    const sent = (run) => sentInto(run.terminal).map((entry) => ({ ...entry, text: entry.text.replaceAll(run.box.cli, '<cli>') }));
+    // Two sandboxes, each with its own `obk` and its own session name, so each
+    // line names its own CLI and token (#286): those are set aside and the
+    // rest has to match exactly.
+    const sent = (run) => sentInto(run.terminal).map((entry) => ({ ...entry, text: tokenless(entry.text).replaceAll(run.box.cli, '<cli>') }));
     assert.deepEqual(sent(blocked), sent(idle), `${name}: and it goes in exactly as it does into an idle tab`);
   });
 }

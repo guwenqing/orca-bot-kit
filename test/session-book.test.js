@@ -18,6 +18,7 @@ import test from 'node:test';
 import { parse } from 'yaml';
 
 import {
+  addressPattern,
   assertCleanFailure,
   bookIn,
   bookOf,
@@ -64,7 +65,7 @@ test('the session the harness reported sits in the book beside the tab, and the 
   );
   assert.equal(book.sessions.daily.tab, tabs.daily.tabId);
   assert.equal(book.sessions.daily.session, 'sess-1');
-  assert.equal(book.sessions.daily.address, 'api-bot.daily');
+  assert.match(book.sessions.daily.address, addressPattern('api-bot', 'daily'));
 });
 
 test('up leaves what the hook wrote exactly as it found it', async (t) => {
