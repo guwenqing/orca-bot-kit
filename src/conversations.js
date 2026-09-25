@@ -32,12 +32,17 @@ const codexDir = () => path.join(homedir(), '.codex', 'sessions');
  * then that it does not know, which is the honest one.
  */
 export function conversationsIn(harness, home, since) {
-  return transcriptsIn(harness, home, since).map((one) => ({ id: one.id, at: one.at }));
+  // A subagent's conversation ran in the folder too, but no session had it: the
+  // harness says it is a helper's, so it is never offered to one to claim.
+  return transcriptsIn(harness, home, since)
+    .filter((one) => !one.subagent)
+    .map((one) => ({ id: one.id, at: one.at }));
 }
 
 /**
  * The same conversations, each with the file the harness keeps it in, for a
- * caller that has to read what is inside one rather than only know it is there.
+ * caller that has to read what is inside one rather than only know it is there,
+ * and whether the harness marks it as a subagent's.
  */
 export function transcriptsIn(harness, home, since) {
   const from = since === undefined ? 0 : Date.parse(since);
@@ -45,7 +50,7 @@ export function transcriptsIn(harness, home, since) {
   return found
     .filter((one) => Number.isNaN(from) || one.at >= from)
     .sort((left, right) => left.at - right.at)
-    .map((one) => ({ id: one.id, at: new Date(one.at).toISOString(), file: one.file }));
+    .map((one) => ({ id: one.id, at: new Date(one.at).toISOString(), file: one.file, subagent: one.subagent === true }));
 }
 
 /**
@@ -127,7 +132,7 @@ function codexConversations(home, from) {
     .flatMap((file) => {
       const meta = sessionMeta(file);
       return meta?.cwd === home && typeof meta.id === 'string'
-        ? [{ id: meta.id, at: Date.parse(meta.timestamp ?? '') || startedAt(file) || 0, file }]
+        ? [{ id: meta.id, at: Date.parse(meta.timestamp ?? '') || startedAt(file) || 0, file, subagent: isSubagent(meta) }]
         : [];
     });
 }
@@ -152,6 +157,15 @@ function sessionMeta(file) {
     return undefined;
   }
 }
+
+/**
+ * Codex marks a conversation it ran as a subagent under `source`: its own
+ * auto-review is `{ subagent: { other: 'guardian' } }`, and one a session spawned
+ * is `{ subagent: { thread_spawn: … } }`. A session's own is a plain word, such as
+ * `cli` or `exec` (tech notes, section 3).
+ */
+const isSubagent = (meta) =>
+  meta.source !== null && typeof meta.source === 'object' && 'subagent' in meta.source;
 
 /** When a file was last written, for leaving out what is plainly too old. */
 function lastTouched(file) {
