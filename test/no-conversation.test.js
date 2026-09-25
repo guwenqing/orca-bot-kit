@@ -447,13 +447,15 @@ async function aReportDuringCreate(box, bots, tab, id) {
 }
 
 for (const harness of ['claude', 'codex']) {
-  // Covers the race in the review of PR #310: the book holds A with nothing on
-  // record, so `up` decides on a fresh start; while it opens the new tab, the
-  // old tab's hook reports B. The new tab's launch line carries the duty, so
-  // the session is told it once: when its own hook reports C, the hook hands
-  // nothing over. The book ends on C, with A and B both kept in history and B
-  // replaced by the fresh start; the tab's report still names A.
-  test(`N15 on ${harness}, an id reported while up opens the fresh tab does not get the duty handed over twice`, async (t) => {
+  // Covers the race in the reviews of PR #310: the book holds A with nothing on
+  // record when `up` decides, and while it opens the new tab the old tab's hook
+  // reports B. The run decides again from B, the id the book holds once the tab
+  // is written down, before it types anything. Here B has nothing on record
+  // either: the new tab starts fresh with its duty, B goes into history as 'no
+  // conversation' and is the id the tab's report names, and A stays in history
+  // as the hook left it. The session is told its duty once: when its own hook
+  // reports C, the hook hands nothing over, and the book ends on C.
+  test(`N15 on ${harness}, an id with nothing on record reported while up opens the tab is moved aside, and the duty is handed over once`, async (t) => {
     const box = await createSandbox(t);
     const { bots, tabs } = await started(box, harness);
     await reported(box, bots, tabs.daily.tabId, conv(1));
@@ -465,8 +467,8 @@ for (const harness of ['claude', 'codex']) {
     const during = await box.orca.ranDuring();
     assert.equal(during.length, 1, `the old tab's hook should have reported in the middle of the run, got: ${JSON.stringify(during)}`);
     assert.equal(during[0].status, 0, `and not failed: ${during[0].stderr}`);
-    assert.equal(await lineOf(box, bots), freshLine(box, harness), 'the premise: the new tab was started fresh, with its duty');
-    assertReportedFresh(back, conv(1));
+    assert.equal(await lineOf(box, bots), freshLine(box, harness), 'B has nothing on record, so the new tab starts fresh, with its duty');
+    assertReportedFresh(back, conv(2));
 
     const own = await reported(box, bots, back.tabId, conv(3));
 
@@ -478,12 +480,40 @@ for (const harness of ['claude', 'codex']) {
     assert.ok(history.some((old) => old?.session === conv(1)), `A stays in history, got: ${JSON.stringify(entry)}`);
     assert.deepEqual(
       history.filter((old) => old?.session === conv(2)).map(({ session, ended }) => ({ session, ended })),
-      [{ session: conv(2), ended: 'replaced' }],
-      `B is in history once, replaced by the fresh start, got: ${JSON.stringify(entry)}`,
+      [{ session: conv(2), ended: 'no conversation' }],
+      `B is in history once, gone for having no conversation, got: ${JSON.stringify(entry)}`,
     );
 
     const cleared = await reported(box, bots, back.tabId, conv(4), 'clear');
     assert.equal(cleared.code, 0, cleared.stderr);
     assert.ok(cleared.stdout.includes(PROMPT), `after a clear the hook does hand the duty over, got: ${cleared.stdout}`);
+  });
+
+  // Covers the same race when B does have a conversation on record: the run,
+  // deciding again from B, resumes it, with no duty on the line, and B stays
+  // the session's conversation. A is in history as the hook left it.
+  test(`N16 on ${harness}, an id with a conversation on record reported while up opens the tab is resumed`, async (t) => {
+    const box = await createSandbox(t);
+    const { bots, home, tabs } = await started(box, harness);
+    await reported(box, bots, tabs.daily.tabId, conv(1));
+    await conversationOnRecord(box, { harness, cwd: home, id: conv(2) });
+    await closeTab(box, tabs.daily.tabId);
+    await aReportDuringCreate(box, bots, tabs.daily.tabId, conv(2));
+
+    const back = newTabOf(await ran(box, 'up', ['--json']));
+
+    const during = await box.orca.ranDuring();
+    assert.equal(during.length, 1, `the old tab's hook should have reported in the middle of the run, got: ${JSON.stringify(during)}`);
+    assert.equal(during[0].status, 0, `and not failed: ${during[0].stderr}`);
+    const line = await lineOf(box, bots);
+    assert.equal(line, resumeLine(box, harness, conv(2)), 'B is on record, so the new tab resumes it');
+    assert.ok(!line.includes(PROMPT), `and is not told its duty again, got: ${line}`);
+    assert.equal(back.resumed, true, `the tab's report says it resumed, got: ${JSON.stringify(back)}`);
+    assert.equal('noConversation' in back, false, `and names no id as missing, got: ${JSON.stringify(back)}`);
+    const entry = await sessionIn(bots, BOT, 'daily');
+    assert.equal(entry.session, conv(2), `the book keeps B as the session's conversation, got: ${JSON.stringify(entry)}`);
+    const history = Array.isArray(entry.history) ? entry.history : [];
+    assert.ok(history.some((old) => old?.session === conv(1)), `A stays in history, got: ${JSON.stringify(entry)}`);
+    assert.equal(history.some((old) => old?.session === conv(2)), false, `B is nowhere in history, got: ${JSON.stringify(entry)}`);
   });
 }

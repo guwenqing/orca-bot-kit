@@ -263,33 +263,14 @@ async function bringUpSession(bots, home, live, session, bot, title) {
   // given again (PRD 6.4) — after a clear it is, and that is the hook's work.
   // Asked before the book is held, because it reads a folder of the harness's
   // own files: nothing slow happens under the lock.
-  const which = whichConversation(book, home, bot, session, was, harness);
-  const resume = which.resume;
-  const prompt = resume === undefined ? startPrompt(session, { home, workDir }) : undefined;
-  // Anything longer than a line goes to the harness out of a file, rather than
-  // through the tab's shell a character at a time.
-  const promptFile = prompt === undefined || isShortPrompt(prompt) ? undefined : promptPath(bots, bot.name, session.name);
-  const command = launchCommand(session, {
-    harness,
-    home,
-    workDir,
-    prompt,
-    promptFile,
-    resume,
-    address: harness === 'claude' ? addressOf(bot.name, session.name) : undefined,
-  });
+  let which = whichConversation(book, home, bot, session, was, harness);
+  const launchOf = (chosen) => launchFor(bots, bot, session, harness, home, workDir, chosen.resume);
+  let launch = launchOf(which);
 
   // A work dir is a plain folder, made for the session before it is told about
   // it (PRD 6.4). Nothing here is a git worktree.
   if (workDir !== undefined) mkdirSync(workDir, { recursive: true });
-
-  // The prompt is written where the launch line can read it from, before that
-  // line is typed. It is the kit's own file, not the user's: theirs stays where
-  // they put it, in the bot home.
-  if (promptFile !== undefined) {
-    mkdirSync(path.dirname(promptFile), { recursive: true });
-    writeFileSync(promptFile, prompt);
-  }
+  writePrompt(launch);
 
   const made = openTab(home, tabTitle);
 
@@ -305,6 +286,7 @@ async function bringUpSession(bots, home, live, session, bot, title) {
   // built, noted so that health can say when the file moves on and the session
   // does not (#272).
   const rules = rulesStamp(home);
+  let held;
   await updateBook(home, (current) => {
     // What the harness has in this folder that nobody claims goes on the record,
     // for a person or Bot Father to settle — added to whatever was already noted,
@@ -312,20 +294,33 @@ async function bringUpSession(bots, home, live, session, bot, title) {
     // settles it itself.
     let entry = { ...current.sessions[session.name], tab: made.tabId, launched, rules };
     if (rules === undefined) delete entry.rules;
+    held = entry.session;
     // Before the line is typed, so the hook finds no id here and takes the one
     // it reports for a start rather than a clear, which would tell the duty twice.
-    // An id a hook wrote while the tab was being opened goes too: the line about
-    // to be typed is a fresh start either way (review of PR #310).
-    if (which.noConversation !== undefined && typeof entry.session === 'string') {
-      entry = forgetSession(entry, entry.session === which.noConversation ? 'no conversation' : 'replaced');
-    }
+    if (which.noConversation !== undefined && held === which.noConversation) entry = forgetSession(entry, 'no conversation');
     current.sessions[session.name] = withUnclaimed(entry, which.unclaimed ?? []);
     forgetClaimed(current);
   });
 
+  // The old tab's hook can name another conversation while the tab is being
+  // opened. A fresh start chosen before that is chosen again from the id the
+  // book holds now: resumed if the harness has it, and otherwise set aside the
+  // same way (review of PR #310).
+  if (which.noConversation !== undefined && typeof held === 'string' && held !== which.noConversation) {
+    which = hasConversation(harness, home, held) ? { resume: held } : { noConversation: held };
+    if (which.noConversation !== undefined) {
+      await updateBook(home, (current) => {
+        const entry = current.sessions[session.name];
+        if (entry?.session === held) current.sessions[session.name] = forgetSession(entry, 'no conversation');
+      });
+    }
+    launch = launchOf(which);
+    writePrompt(launch);
+  }
+
   // Typing it in is the way: for a project the kit has just made, giving Orca
   // the harness as the tab's own command times out and leaves a dead tab.
-  typeIntoTab(made.handle, command);
+  typeIntoTab(made.handle, launch.command);
 
   // Now the session has an address, and not before: the mailbox it can be
   // written to, and — on Claude Code — the name that line just gave it, which
@@ -351,9 +346,9 @@ async function bringUpSession(bots, home, live, session, bot, title) {
   // duty: one held on a first-run screen, or one that refused the argument, has
   // been told nothing. So it is received only when the session's own record
   // holds it as a user turn, and otherwise not confirmed (#274).
-  const promptReceived = prompt === undefined
+  const promptReceived = launch.prompt === undefined
     ? undefined
-    : await heldInRecord(home, session.name, harness, prompt, { launched, running: tui.running === true });
+    : await heldInRecord(home, session.name, harness, launch.prompt, { launched, running: tui.running === true });
 
   return entry(made, {
     bot: bot.name,
@@ -361,11 +356,43 @@ async function bringUpSession(bots, home, live, session, bot, title) {
     created: true,
     ...tui,
     promptReceived,
-    promptFile,
-    resumed: resume !== undefined,
+    promptFile: launch.promptFile,
+    resumed: launch.resume !== undefined,
     noConversation: which.noConversation,
     unclaimed: which.unclaimed,
   });
+}
+
+/**
+ * The line that starts this session: resuming `resume`, or, with none, a fresh
+ * start carrying its duty. Returns `{ resume, prompt, promptFile, command }`.
+ */
+function launchFor(bots, bot, session, harness, home, workDir, resume) {
+  const prompt = resume === undefined ? startPrompt(session, { home, workDir }) : undefined;
+  // Anything longer than a line goes to the harness out of a file, rather than
+  // through the tab's shell a character at a time.
+  const promptFile = prompt === undefined || isShortPrompt(prompt) ? undefined : promptPath(bots, bot.name, session.name);
+  const command = launchCommand(session, {
+    harness,
+    home,
+    workDir,
+    prompt,
+    promptFile,
+    resume,
+    address: harness === 'claude' ? addressOf(bot.name, session.name) : undefined,
+  });
+  return { resume, prompt, promptFile, command };
+}
+
+/**
+ * The prompt is written where the launch line can read it from, before that
+ * line is typed. It is the kit's own file, not the user's: theirs stays where
+ * they put it, in the bot home.
+ */
+function writePrompt({ prompt, promptFile }) {
+  if (promptFile === undefined) return;
+  mkdirSync(path.dirname(promptFile), { recursive: true });
+  writeFileSync(promptFile, prompt);
 }
 
 /**
