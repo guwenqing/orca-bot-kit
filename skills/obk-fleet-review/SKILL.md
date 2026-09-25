@@ -251,6 +251,7 @@ identifiers, counts and paths that only show the work; where evidence matters,
 say where it is.
 
 Say what you did not look at. Where you changed anything in the bots folder,
-commit it, staging each file by name; the kit never commits by itself.
+commit it, naming each file when you stage it and again in the commit; the
+kit never commits by itself.
 
 Sources and licences: [NOTICE.md](NOTICE.md).

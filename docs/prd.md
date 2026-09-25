@@ -182,7 +182,7 @@ Each line is a check a developer can run. Issues turn these into acceptance test
 ### 6.10 Git behaviour of the bots repo
 
 - Config, rules, prompts, grooming findings and `sessions.yaml` are committed. The CLI never commits by itself; Bot Father commits after a management action; grooming commits once a day. [decided]
-  Changed by the owner on 2026-09-24 (#235): every bot commits its own changes to the bots repo often, staging by name only what it changed. It is a rule every bot carries, not left to Bot Father or grooming. The CLI still never commits by itself, and no bot pushes. [decided] A bot commits its own folder, its book included; Bot Father commits what no bot owns: init's files, the defaults, the user's rules and skill lists. [the architect's reading, 2026-09-24; the owner may overrule]
+  Changed by the owner on 2026-09-24 (#235): every bot commits its own changes to the bots repo often, staging by name only what it changed. It is a rule every bot carries, not left to Bot Father or grooming. The CLI still never commits by itself. Pushing is not part of this decision. [decided] A bot commits its own folder, its book included; Bot Father commits what no bot owns: init's files, the defaults, the user's rules and skill lists. [the architect's reading, 2026-09-24; the owner may overrule]
 
 ## 7. Methodology skills
 
