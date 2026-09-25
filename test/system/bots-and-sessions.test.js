@@ -318,8 +318,15 @@ test('two bots on the two harnesses come up in the real Orca, and nothing else i
     // The start prompt rode in on the launch line, as the harness's own prompt
     // argument. The harness holds it until it is ready — behind its folder-trust
     // question on this first run — which is why there is no second send to get
-    // wrong. A line the harness took is a prompt the harness has.
-    assert.equal(entry.promptSent, true, 'the prompt went in with the line that started the harness');
+    // wrong. Whether the conversation holds it yet when `up` answers depends on
+    // how far the harness got by then, so the run says one or the other (#274);
+    // the note the bot writes below is the proof that it got its duty.
+    assert.equal(
+      typeof entry.promptReceived,
+      'boolean',
+      `the run should say whether the prompt was received, got: ${JSON.stringify(entry)}`,
+    );
+    assert.equal('promptSent' in entry, false, 'the old field is gone');
 
     // The kit calls itself back by the CLI that is running, and that is this
     // checkout's, never the machine's own `obk` (#220). Its hook names it...
@@ -360,6 +367,6 @@ test('two bots on the two harnesses come up in the real Orca, and nothing else i
     const entry = tabOf(again, 'daily');
     assert.equal(entry.created, false, 'a second run makes nothing');
     assert.equal(entry.harnessStarted, false, 'this run typed into nothing and looked at nothing');
-    assert.equal('promptSent' in entry, false, 'and told the session nothing, so has nothing to report');
+    assert.equal('promptReceived' in entry, false, 'and told the session nothing, so has nothing to report');
   }
 });
