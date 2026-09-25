@@ -446,7 +446,9 @@ What it looks for:
 - **a session whose tab is open and whose harness is gone**: only the tab's
   shell is in front, because the harness quit or crashed. `obk up` leaves an
   open tab alone, so the finding names the `obk restart … --session` that
-  brings it back. A tab the kit cannot read is never called down;
+  brings it back; when the book names no conversation for it, restart would
+  refuse, and the finding says to close the tab in Orca and run
+  `obk up … --session`. A tab the kit cannot read is never called down;
 - **leftovers no book owns**: an Orca project inside your bots folder with no
   bot in it, a tab in a bot's project that the book does not name, a start
   prompt written for a session that has gone, a clone of a skills source you no
