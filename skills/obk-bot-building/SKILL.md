@@ -217,8 +217,8 @@ turning them on for one. It is a hand edit, and say that you made it.
 After each change, commit what it changed in the bots folder, staging each
 file by name. Commit with it what no bot owns and nobody has committed yet:
 `init`'s files, `defaults.yaml`, `skills.yaml`, and the user's `rules/` and
-`skills/`. A bot's own folder is that bot's to commit. The kit never commits
-by itself.
+`skills/`. What it changed includes the folder of a bot it made or changed.
+The kit never commits by itself.
 
 Do the reversible part and stop at the line. Making a bot, adding a session
 and linking skills add things and are safe to run again; closing a tab,
