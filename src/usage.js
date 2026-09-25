@@ -301,24 +301,21 @@ const CODEX_FIELDS = [
  * what a call added can only be measured against the event before it.
  *
  * An event whose running total has a figure missing is left out and said to be,
- * and after it the running total is not known: measured against the event before
- * it, the next call would take in what the broken one used, at the next call's
- * time and perhaps in another window. So the next event is its own per-call
- * figure, but it may also be a broken one written down again, which is not a
- * new call. A repeat is an event whose running total has not moved, so it may
- * be where what the broken one shows of its running total is this one's; equal
- * per-call figures alone are two calls of the same size. Then the call was made
- * at one of their times, and is counted only when those are all on the same
- * side of the window; where they are not, it cannot be placed, and is said to
- * be. A call whose figure is needed and has something missing is not counted
- * either, and is said to be; nothing missing is taken as zero.
+ * and after it the running total is not known, so neither is what the next
+ * complete event added. Measured against the event before the broken one, it
+ * would take in what the broken one used, at its own time and perhaps in
+ * another window; taken by its own per-call figure, it may be the broken one
+ * written down again. Telling those apart is guessing, so it is not counted
+ * either, and is said to be; the running total follows on from it. A call whose
+ * figure is needed and has something missing is not counted, and is said to
+ * be; nothing missing is taken as zero.
  */
 function fromCodex(entries, window, tally) {
   let model;
   let effort;
   let running;
-  // The events since `running` whose own running total had something missing.
-  let broken = [];
+  // Whether the event before had its running total with something missing.
+  let broken = false;
 
   for (const entry of entries) {
     const when = Date.parse(entry.timestamp ?? '');
@@ -348,11 +345,11 @@ function fromCodex(entries, window, tally) {
       used = perCall(info);
     } else if (!complete(total, CODEX_READ)) {
       used = null;
-      broken.push({ when, total });
+      broken = true;
     } else {
-      used = broken.length === 0 ? spent(running, total, info) : afterBroken(total, info, broken, when, window);
+      used = broken ? null : spent(running, total, info);
       running = total;
-      broken = [];
+      broken = false;
     }
 
     // A repeat is not a call, whether or not it is inside the window.
@@ -390,21 +387,6 @@ function spent(running, total, info) {
   return kindsOf(Object.fromEntries(
     CODEX_FIELDS.map((field) => [field, number(total[field]) - number(running[field])]),
   ));
-}
-
-/**
- * What the first complete event after broken ones used: its own figure, where it
- * is a new call or the broken one written again on the same side of the window;
- * `null` where its figure is missing something or the call cannot be placed.
- */
-function afterBroken(total, info, broken, when, window) {
-  const own = perCall(info);
-  if (own === null) return null;
-
-  const earlier = broken.filter((one) => CODEX_READ.every((field) => !isNumber(one.total[field]) || one.total[field] === total[field]));
-  // One with no time is in no window, so it is never on the side of one that counts.
-  const placed = earlier.every((one) => inside(one.when, window) === inside(when, window));
-  return placed ? own : null;
 }
 
 /** A Codex event's own per-call figure, or `null` when something in it is missing. */
@@ -487,11 +469,10 @@ function realHome(home) {
 
 const number = (value) => (typeof value === 'number' && Number.isFinite(value) ? value : 0);
 
-const isNumber = (value) => typeof value === 'number' && Number.isFinite(value);
-
 /** Whether a figure has every field it should, each a number. */
 const complete = (figure, fields) =>
-  figure !== undefined && figure !== null && fields.every((field) => isNumber(figure[field]));
+  figure !== undefined && figure !== null
+  && fields.every((field) => typeof figure[field] === 'number' && Number.isFinite(figure[field]));
 
 const add = (set, value) => {
   if (typeof value === 'string' && value !== '') set.add(value);
