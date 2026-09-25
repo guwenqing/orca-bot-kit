@@ -22,7 +22,7 @@ import { existsSync, readdirSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 
 import { bookFile, readBook, sessionIdsIn, tabIdsIn } from './book.js';
-import { botDir, botNames, botsDir, readBot } from './bot.js';
+import { botDir, botNames, botsDir, readBot, unknownKeys } from './bot.js';
 import { transcriptsIn } from './conversations.js';
 import { hookTrouble } from './hooks.js';
 import { bypassFlags, harnessOf, HARNESSES, ownCli, sessionTrouble, shellWord } from './launch.js';
@@ -186,6 +186,7 @@ function aboutBot(bots, name, setups, sessions) {
 
   const said = (kind) => ({ where, says }) => finding(kind, where, says, name);
   return [
+    ...unknownKeys(home, name).map(said('config')),
     ...sessionSettings(home, bot).map(said('config')),
     ...agentsTrouble(bots, home, bot).map(said('config')),
     ...hooksOf(bots, home, bot).map(said('config')),

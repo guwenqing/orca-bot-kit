@@ -433,11 +433,12 @@ link, not a tab — so everything it finds is yours to decide about.
 
 What it looks for:
 
-- **configuration that will not work**: a `bot.yaml` nothing can read, a session
-  the kit would refuse to start, a bot with no `AGENTS.md`, a block somebody
-  edited by hand, a file bigger than the 32 KiB Codex reads, a `CLAUDE.md` that
-  is not this bot's rules, and a hooks file without the kit's own hook in it,
-  which is how a book goes stale without anything saying so;
+- **configuration that will not work**: a `bot.yaml` nothing can read, a key
+  in it the kit does not know (a typo such as `efort: high`, which nothing
+  reads), a session the kit would refuse to start, a bot with no `AGENTS.md`,
+  a block somebody edited by hand, a file bigger than the 32 KiB Codex reads, a
+  `CLAUDE.md` that is not this bot's rules, and a hooks file without the kit's
+  own hook in it, which is how a book goes stale without anything saying so;
 - **a skill that is not where its list says**: a listed skill missing from one
   of the two harnesses, a skill of your own standing where a listed one would
   go, and a link with nothing at the end of it;
