@@ -15,7 +15,7 @@
 // tests, and does not answer as though it had.
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -210,6 +210,78 @@ const CONFIRM = '--yes';
 
 const asked = () => process.argv.slice(2).includes(CONFIRM);
 
+/** The files named on the command line: every argument that is not a flag. */
+const named = () => process.argv.slice(2).filter((arg) => !arg.startsWith('-'));
+
+/**
+ * The system test files this run is for: all of them when none is named, and
+ * otherwise the ones named, as `{ files }`, or `{ refused }` with the first name
+ * that is not one of them.
+ *
+ * A name counts only when two things hold. As written, it is a `*.test.js` path
+ * inside `test/system/`. And the file it really leads to, every link followed,
+ * is one of the files a run with no names would run, a regular file inside
+ * `test/system/` as the file system knows it; that file's own path is what runs.
+ * That is the whole point of the check: this command is allowed to drive the
+ * machine because what it runs is the repo's own reviewed system tests, and a
+ * name must not turn it into a way to run anything else, nor reach one of them
+ * from outside the folder (#325, review of PR #326).
+ */
+function chosen(names) {
+  const all = testFiles();
+  if (names.length === 0) return { files: all };
+
+  const root = realPath(systemTests);
+  const inside = (real) => root !== undefined && real !== undefined && real.startsWith(root + path.sep);
+  const byReal = new Map(all.map((file) => [realPath(file), file]).filter(([real]) => inside(real)));
+
+  const folder = `${path.relative(repo, systemTests).split(path.sep).join('/')}/`;
+  const files = [];
+  for (const name of names) {
+    const written = asWritten(name);
+    const real = realPath(path.resolve(repo, name));
+    const counts = written !== undefined && written.startsWith(folder) && written.endsWith('.test.js') && isFile(real);
+    const file = counts ? byReal.get(real) : undefined;
+    if (file === undefined) return { refused: name };
+    if (!files.includes(file)) files.push(file);
+  }
+  return { files };
+}
+
+/**
+ * Where a name sits below the repo root as written, `/`-separated: `..` taken as
+ * it stands and no link below the root followed, or undefined when it is not
+ * below the root at all. The root is found by where it really is, because it
+ * may be reached through a link above it: a temp folder on macOS is both
+ * `/var/…` and `/private/var/…`.
+ */
+function asWritten(name) {
+  const parts = path.resolve(repo, name).split(path.sep);
+  const root = realPath(repo);
+  for (let depth = 1; depth <= parts.length; depth += 1) {
+    if (realPath(parts.slice(0, depth).join(path.sep) || path.sep) === root) return parts.slice(depth).join('/');
+  }
+  return undefined;
+}
+
+/** Whether a path is a regular file: a folder named like a test is not one. */
+function isFile(target) {
+  try {
+    return target !== undefined && statSync(target).isFile();
+  } catch {
+    return false;
+  }
+}
+
+/** A path as the file system knows it, or undefined when it leads nowhere. */
+function realPath(target) {
+  try {
+    return realpathSync(target);
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * What this run is about to drive, said before it drives any of it: whose
  * machine, which Orca, and which files. Printed whatever happens next, because
@@ -248,10 +320,22 @@ function whatItDoes() {
 }
 
 function run() {
+  // Before anything else, Orca included: a name that is not one of the system
+  // tests is refused whether or not there is an Orca to drive.
+  const choice = chosen(named());
+  if (choice.refused !== undefined) {
+    process.stderr.write(
+      `${choice.refused} is not one of this repo's system tests, so nothing was run.\n`
+      + `Only the *.test.js files under ${path.relative(repo, systemTests)}/ can be named, such as:\n`
+      + `  npm run test:system -- ${CONFIRM} ${path.relative(repo, systemTests)}/<file>.test.js\n`,
+    );
+    return 1;
+  }
+  const { files } = choice;
   const cli = orcaCli();
 
   if (!orcaIsReady()) {
-    announce(cli, testFiles());
+    announce(cli, files);
     process.stdout.write(
       '\nIts runtime is not reachable, so the system tests were skipped and nothing ran.\n'
       + 'Start Orca, or point OBK_ORCA at its CLI, and ask for them again.\n',
@@ -259,7 +343,6 @@ function run() {
     return 0;
   }
 
-  const files = testFiles();
   if (files.length === 0) {
     // Nothing to drive is nothing to confirm, so this is not the unconfirmed
     // case below: there is no question to have answered.

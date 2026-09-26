@@ -545,6 +545,7 @@ failing quietly.
 npm test                      # the whole suite, in a few minutes
 npm run test:system           # what the system tests would drive, and nothing else
 npm run test:system -- --yes  # drive them, on this machine, for real
+npm run test:system -- --yes test/system/groom.test.js  # only the ones you name
 npm run mutate                # the mutation audit, on what your branch changed
 ```
 
@@ -570,7 +571,9 @@ which Orca, which files, and what they will do to it — and then stops without
 driving any of it, answering non-zero so that a run which did not run them
 cannot be read as one that passed. `-- --yes` is how you say you meant it. When
 Orca is not answering, the command says which Orca it asked and skips, rather
-than report a kit that is not broken.
+than report a kit that is not broken. Name files after it to run only those;
+each must be one of the `*.test.js` files under `test/system/`, links followed,
+and a name that is not is refused before anything runs.
 
 `npm run mutate` runs [StrykerJS](https://stryker-mutator.io) over the
 JavaScript this branch changed against `main` — committed, still in the working
