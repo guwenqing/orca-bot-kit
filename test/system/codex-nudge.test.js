@@ -18,8 +18,15 @@
 //
 //   1. `idle`: waiting at its prompt. It is nudged, and reads the mail with the
 //      command the nudge names.
-//   2. `busy`: part way through a shell loop of about a minute and a half. It
-//      is nudged, finishes the loop, and reads the mail after it (PRD 6.9).
+//   2. `busy`: part way through a shell loop of about a minute and a half.
+//      Nothing is typed, and the send says it could not tell, naming
+//      `tty_boundary`. That is an Orca bug, not the kit's choice: on macOS,
+//      `terminal.inspectProcess` answers verdict `unverifiable`, reason
+//      `tty_boundary`, whenever the harness has a child with no terminal (`ps`
+//      prints `??`), which is every Claude Code running a command (read in
+//      Orca's source and seen live). The receiver finishes its loop, and its
+//      mail waits unread. The day Orca fixes it this case fails, loudly, and
+//      #350 turns it back into a nudge read after the work (PRD 6.9).
 //   3. `quit`: its Claude Code ended with `/exit`, so the tab's shell is in
 //      front. Nothing is typed, the send says it was not nudged, and plainly:
 //      the shell in front is no harness (#232).
@@ -40,12 +47,13 @@
 // tab it is waited for in was never told. Each message's body carries a word
 // that is only in the Codex bot's start prompt; the nudge says who wrote and
 // what the subject is, and not the body, so that word on a receiver's screen
-// is the mail having been read. The busy receiver's receipt is also the total
-// of its loop, which its instruction asks for and never states. Nothing
-// having arrived is read the same way: neither the subject nor the body word
-// is on the quit or pager tab's screen long after the send, `less` is still
-// showing the test's own file, and Orca's mailbox holds that mail unread,
-// where the idle and busy receivers' is read.
+// is the mail having been read. Nothing having arrived is read the same way:
+// neither the subject nor the body word is on the busy, quit or pager tab's
+// screen long after the send, and Orca's mailbox holds that mail unread, where
+// the idle receiver's is read. The busy receiver's loop was still running when
+// its answer came back, and its total, which its instruction asks for and
+// never states, says it finished; a minute after that total nothing of the
+// mail is on its screen. `less` is still showing the test's own file.
 //
 // The machine it runs on is someone's working machine, with their own tabs open.
 // So this test, like the ones beside it:
@@ -69,7 +77,7 @@
 // Code's Remote Control list, and the Run mailboxes Orca cannot delete.
 //
 // It is slow: two warm-up tabs, four receivers, a loop of a minute and a half
-// and four real reads. Ten minutes or more, attended.
+// and a real read. Ten minutes or more, attended.
 //
 // **It is attended.** A bot folder nobody has opened before asks questions
 // before the harness is running in it, and this test answers none of them —
@@ -87,7 +95,7 @@
 //      return. `quit`, `pager` and `busy` come up in the same folder after
 //      it, and should ask nothing.
 //   4. Any Claude tab: if Claude Code asks before it runs a command (the loop
-//      in `busy`, or the command a nudge names in `idle` or `busy`), allow it.
+//      in `busy`, or the command the nudge names in `idle`), allow it.
 //   5. Any tab, if its harness offers an update: accept it (PRD 6.5). In
 //      `Nudge Codex sender` or `Nudge Claude busy` that costs time the loop
 //      may not have; a run that misses it says so.
@@ -139,6 +147,13 @@ const HOOK_MS = 60000;
 
 /** How long a tab is given to get past the screens of its own, a person answering them included. */
 const READY_MS = 180000;
+
+/**
+ * How long after the busy receiver's loop is done its screen is watched for
+ * the mail. A line typed while it worked would be its next turn, read within
+ * seconds of the total.
+ */
+const AFTER_WORK_MS = 60000;
 
 /**
  * How long a harness that quit is given before mail is sent to its tab. Orca
@@ -457,7 +472,7 @@ const unreadFor = (bots, session) => obkJson([
   'message', 'check', '--bots', bots, '--bot', CLAUDE.name, '--session', session, '--peek',
 ]).messages;
 
-test('mail from a Codex session in its sandbox nudges an idle and a busy Claude receiver, and nothing is typed where no harness can be seen', async (t) => {
+test('mail from a Codex session in its sandbox nudges an idle Claude receiver, and nothing is typed into a busy one, a quit one or one behind a pager', async (t) => {
   const before = {
     handles: new Set(allTerminals().map((terminal) => terminal.handle)),
     setups: new Set(allSetups().map((setup) => setup.id)),
@@ -602,11 +617,11 @@ test('mail from a Codex session in its sandbox nudges an idle and a busy Claude 
       () => whatIsUp(sender.terminal),
     );
     if (send.session === 'busy') {
-      // The nudge was typed before this file was written, so a loop not yet
+      // The send was made before this file was written, so a loop not yet
       // finished now was not finished then.
       assert.ok(
         !screenOf(busy.terminal).includes(TOTAL),
-        `the loop finished before the mail was sent, so this shows nothing about a busy receiver: ${screenOf(busy.terminal).slice(0, 2000)}`,
+        `the loop finished before the mail was sent, so this shows nothing about a receiver running a command: ${screenOf(busy.terminal).slice(0, 2000)}`,
       );
     }
     const { nudged, nudgeTrouble, blocked } = answers[send.session];
@@ -620,7 +635,20 @@ test('mail from a Codex session in its sandbox nudges an idle and a busy Claude 
     assert.equal(answer.address, `run:${mailbox}`, `${send.session}: the kit's own answer, sent to the Run the book holds, got: ${JSON.stringify(answer)}`);
   }
   assert.equal(answers.idle.nudged, true, `the idle receiver should have been nudged, got: ${JSON.stringify(answers.idle)}`);
-  assert.equal(answers.busy.nudged, true, `the busy receiver should have been nudged, got: ${JSON.stringify(answers.busy)}`);
+  // Orca's runtime cannot see past a child with no terminal (`??`), so the kit
+  // cannot tell and types nothing. When this fails because the busy receiver
+  // was nudged, Orca has fixed it: #350 turns this back into a nudge.
+  assert.equal(answers.busy.nudged, false, `nothing is typed while Orca's runtime answers tty_boundary (#350), got: ${JSON.stringify(answers.busy)}`);
+  assert.match(
+    String(answers.busy.nudgeTrouble),
+    /could not tell whether a harness is running in it/,
+    `and the kit says it could not tell, got: ${JSON.stringify(answers.busy)}`,
+  );
+  assert.match(
+    String(answers.busy.nudgeTrouble),
+    /tty_boundary/,
+    `naming Orca's reason, tty_boundary (#350), got: ${JSON.stringify(answers.busy)}`,
+  );
   assert.equal(answers.quit.nudged, false, `nothing is typed into a tab with its shell in front, got: ${JSON.stringify(answers.quit)}`);
   assert.equal(
     'nudgeTrouble' in answers.quit,
@@ -637,24 +665,19 @@ test('mail from a Codex session in its sandbox nudges an idle and a busy Claude 
   // 1. The idle receiver read its mail: the body's word is only in the mail.
   await showsUp(idle.terminal, sendTo('idle').body, ROUND_TRIP_MS);
 
-  // 2. The busy receiver finished its loop and read its mail after it.
-  await showsUp(busy.terminal, sendTo('busy').body, ROUND_TRIP_MS);
-  const screen = screenOf(busy.terminal);
-  assert.ok(screen.includes(TOTAL), `the loop should have finished, and ${TOTAL} is what finishing it produces: ${screen.slice(0, 3000)}`);
-  assert.ok(
-    screen.indexOf(TOTAL) < screen.indexOf(sendTo('busy').body),
-    `the mail should have been read after the work, not in the middle of it: ${screen.slice(0, 3000)}`,
-  );
-
-  // Both read it with the kit's own command, the one the nudge named: Orca
-  // holds nothing of theirs unread.
+  // It read it with the kit's own command, the one the nudge named: Orca holds
+  // nothing of its unread.
   assert.deepEqual(unreadFor(bots, 'idle'), [], 'the idle receiver\'s mail was read');
-  assert.deepEqual(unreadFor(bots, 'busy'), [], 'the busy receiver\'s mail was read');
 
-  // 3 and 4. Minutes after the sends, nothing arrived in the tabs with no
-  // harness in front: neither word is on either screen, the pager still shows
-  // this test's file, and the mail waits unread.
-  for (const [session, entry] of [['quit', quit], ['pager', pager]]) {
+  // 2. The busy receiver finishes its loop, and a minute on nothing of the
+  //    mail has reached it.
+  await showsUp(busy.terminal, TOTAL, ANSWER_MS);
+  await setTimeout(AFTER_WORK_MS);
+
+  // 2, 3 and 4. Minutes after the sends, nothing arrived in the tabs the kit
+  // could not see a harness in: neither word is on any of their screens, and
+  // the mail waits unread.
+  for (const [session, entry] of [['busy', busy], ['quit', quit], ['pager', pager]]) {
     const shown = screenOf(entry.terminal);
     const { subject, body } = sendTo(session);
     const word = subject.split(' ').at(-1);
