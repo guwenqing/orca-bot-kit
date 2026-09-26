@@ -13,11 +13,15 @@
 // grooming tab asking the session to schedule, unschedule, run once, or
 // compact. Four things decide almost every test here:
 //
-//   1. **A job lives in one conversation, and only while its tab is up.** Jobs
-//      are session-only: `--resume` brings them back, `/clear` starts a
-//      conversation with none. So the grooming jobs are the ones made in the
-//      conversation the book holds for the session now, read from that
-//      conversation's transcript, and nothing in its history counts.
+//   1. **A job lives in the Claude Code process, and only while its tab is
+//      up.** Seen live (run 3, Claude Code 2.1.283): after `/clear` in the
+//      grooming tab, CronList in the new conversation still answered the job
+//      made before it. So the grooming jobs are the ones made in the
+//      conversations that process has had: the one the book holds now, and
+//      going back through its history each one that ended by `clear`,
+//      stopping after the first whose transcript shows the process began
+//      there (a SessionStart `startup` or `resume`). A conversation from
+//      before a restart, a restore or a fresh start does not count.
 //   2. **A recurring job ends 7 days after it was made** (604800000 ms, Claude
 //      Code 2.1.282). One is alive from the answer to its CronCreate until a
 //      later successful CronDelete of its id or those 7 days, whichever comes
@@ -77,6 +81,8 @@ const after = (iso, ms) => new Date(Date.parse(iso) + ms).toISOString();
 const CONV = '0199b2c0-0001-4444-8888-cccccccccccc';
 const OLD_CONV = '0199b2c0-0002-4444-8888-cccccccccccc';
 const STRAY_CONV = '0199b2c0-0003-4444-8888-cccccccccccc';
+const OLDER_CONV = '0199b2c0-0004-4444-8888-cccccccccccc';
+const OLDEST_CONV = '0199b2c0-0005-4444-8888-cccccccccccc';
 
 /**
  * A bots folder with Bot Father on `father`, and a session of Bot Father's
@@ -633,19 +639,127 @@ test('G3 a grooming job ends at a successful CronDelete of its id or 7 days afte
   ], 'd0000001 is past its 7 days and d0000003 was deleted');
 });
 
-test('G3 only the conversation the book holds now counts: not one before a /clear, not another in the same folder', async (t) => {
+// Which conversations count. A job lives in the Claude Code process, so the
+// grooming jobs are those of every conversation the current process has had:
+// the book's current one, then back through its history while each ended by a
+// clear, stopping after the first whose transcript shows the process began
+// there (a SessionStart `startup` or `resume` marker). The book's history is
+// written the way the kit writes it, by the hook (`clear`, `startup`); the
+// markers the way the kit's hook leaves them in the transcript. Each
+// transcript is written at the point in the session's life where its calls
+// happen, stamped with the clock as it is then.
+
+/**
+ * What the kit's SessionStart hook leaves in a transcript, seen live on Claude
+ * Code 2.1.283: `startup` on a fresh start, `resume` on `--resume`, `clear` in
+ * the conversation a /clear began, `compact` after a compact.
+ */
+const started = (how, at = ago(0)) => ({
+  type: 'attachment',
+  attachment: { type: 'hook_success', hookEvent: 'SessionStart', hookName: `SessionStart:${how}` },
+  timestamp: at,
+});
+
+/** A grooming job at 04:00 made now, in the grooming session's words. */
+const madeNow = (bots, id) => created({ id, cron: '0 4 * * *', prompt: groomingPrompt(bots), at: ago(0) });
+
+test('G3 a job made before a /clear counts while the conversation after it began by the clear; a stray transcript never counts', async (t) => {
   const box = await createSandbox(t);
   const bots = await fleet(box, { conversation: OLD_CONV });
+  await transcriptOf(box, bots, OLD_CONV, [started('startup'), madeNow(bots, 'e0000001')]);
+  await transcriptOf(box, bots, STRAY_CONV, [started('startup'), madeNow(bots, 'e0000002')]);
   await reports(box, bots, CONV, 'clear');
-  const prompt = groomingPrompt(bots);
-  await transcriptOf(box, bots, OLD_CONV, [created({ id: 'e0000001', cron: '0 4 * * *', prompt, at: ago(2 * DAY) })]);
-  await transcriptOf(box, bots, STRAY_CONV, [created({ id: 'e0000002', cron: '0 4 * * *', prompt, at: ago(2 * DAY) })]);
-  await transcriptOf(box, bots, CONV, [created({ id: 'e0000003', cron: '0 4 * * *', prompt, at: ago(HOUR) })]);
+  await transcriptOf(box, bots, CONV, [started('clear'), madeNow(bots, 'e0000003')]);
 
   const answer = await groom(box);
 
   assert.equal(answer.groom.session?.conversation, CONV);
-  assert.deepEqual(idsOf(answer), ['e0000003']);
+  assert.deepEqual(idsOf(answer), ['e0000001', 'e0000003'], 'the cleared conversation\'s job and the current one\'s, oldest first');
+});
+
+test('G3 once the current conversation shows a resume, a job made before its /clear no longer counts', async (t) => {
+  // A restart by the kit, or Orca restoring the tab with a bare --resume,
+  // starts a new process in the current conversation: it has that
+  // conversation's jobs back, and none of the one before the clear.
+  const box = await createSandbox(t);
+  const bots = await fleet(box, { conversation: OLD_CONV });
+  await transcriptOf(box, bots, OLD_CONV, [started('startup'), madeNow(bots, 'g0000001')]);
+  await reports(box, bots, CONV, 'clear');
+  const current = [started('clear'), madeNow(bots, 'g0000002')];
+  await transcriptOf(box, bots, CONV, current);
+  const beforeResume = await groom(box);
+
+  await transcriptOf(box, bots, CONV, [...current, started('resume')]);
+  const afterResume = await groom(box);
+
+  assert.deepEqual(idsOf(beforeResume), ['g0000001', 'g0000002'], 'while the process is the one the clear ran in');
+  assert.equal(afterResume.groom.session?.conversation, CONV);
+  assert.deepEqual(idsOf(afterResume), ['g0000002'], 'after the resume, only the conversation it resumed');
+});
+
+test('G3 a job made before a /clear and deleted after it is gone; one made beside it and not deleted is not', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await fleet(box, { conversation: OLD_CONV });
+  await transcriptOf(box, bots, OLD_CONV, [started('startup'), madeNow(bots, 'f0000001'), madeNow(bots, 'f0000002')]);
+  await reports(box, bots, CONV, 'clear');
+  await transcriptOf(box, bots, CONV, [started('clear'), deleted('f0000001', ago(0))]);
+
+  const answer = await groom(box);
+
+  assert.deepEqual(idsOf(answer), ['f0000002']);
+});
+
+test('G3 a chain of /clears counts back to the conversation where the process began, and nothing before it', async (t) => {
+  // OLDER was resumed (a restore) and then cleared twice: OLDER, OLD and CONV
+  // are one process. OLDEST, cleared into OLDER before that resume, is not.
+  // A `clear` or `compact` marker does not stop the walk; a `resume` does.
+  const box = await createSandbox(t);
+  const bots = await fleet(box, { conversation: OLDEST_CONV });
+  await transcriptOf(box, bots, OLDEST_CONV, [started('startup'), madeNow(bots, 'i0000000')]);
+  await reports(box, bots, OLDER_CONV, 'clear');
+  await transcriptOf(box, bots, OLDER_CONV, [started('clear'), started('resume'), madeNow(bots, 'i0000001')]);
+  await reports(box, bots, OLD_CONV, 'clear');
+  await transcriptOf(box, bots, OLD_CONV, [started('clear'), madeNow(bots, 'i0000002'), started('compact')]);
+  await reports(box, bots, CONV, 'clear');
+  await transcriptOf(box, bots, CONV, [started('clear'), madeNow(bots, 'i0000003')]);
+
+  const answer = await groom(box);
+
+  assert.deepEqual(idsOf(answer), ['i0000001', 'i0000002', 'i0000003']);
+});
+
+test('G3 a history entry that ended other than by a clear stops the walk, whatever its transcript says', async (t) => {
+  // The current transcript carries no start marker of its own here, so only
+  // the history's `ended` can stop the walk: OLD ended by a fresh start, and
+  // neither it nor OLDER, cleared into it, counts.
+  const box = await createSandbox(t);
+  const bots = await fleet(box, { conversation: OLDER_CONV });
+  await transcriptOf(box, bots, OLDER_CONV, [started('startup'), madeNow(bots, 'h0000001')]);
+  await reports(box, bots, OLD_CONV, 'clear');
+  await transcriptOf(box, bots, OLD_CONV, [started('clear'), madeNow(bots, 'h0000002')]);
+  await reports(box, bots, CONV, 'startup');
+  await transcriptOf(box, bots, CONV, [madeNow(bots, 'h0000003')]);
+
+  const answer = await groom(box);
+
+  assert.deepEqual(idsOf(answer), ['h0000003']);
+});
+
+test('G3 --on and --off name by id a job made before a /clear in the same process', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await fleet(box, { conversation: OLD_CONV });
+  await transcriptOf(box, bots, OLD_CONV, [started('startup'), madeNow(bots, 'j0000001')]);
+  await reports(box, bots, CONV, 'clear');
+  await transcriptOf(box, bots, CONV, [started('clear')]);
+
+  for (const [flags, asked] of [[['--on', '--at', '06:30'], 'on'], [['--off'], 'off']]) {
+    const before = await sendsByTab(box);
+    const answer = await groom(box, ...flags);
+    const line = await theLineTyped(box, bots, before);
+    assert.ok(line.includes('j0000001'), `groom ${flags.join(' ')} should name the job the process still has, got: ${line}`);
+    assert.deepEqual(idsOf(answer), ['j0000001']);
+    assert.equal(answer.groom.asked, asked);
+  }
 });
 
 test('G3 no conversation yet, or one with no transcript yet, has no grooming jobs, and the report still answers', async (t) => {
