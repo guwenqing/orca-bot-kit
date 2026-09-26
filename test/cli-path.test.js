@@ -580,24 +580,26 @@ test('a bots folder with a space in its path gives a "Send it:" line that sends 
 // The other commands the kit hands a session to run
 // ---------------------------------------------------------------------------
 
-// A refusal a bot receives tells it what to run next, and the grooming prompt
-// tells the grooming session what to count with. Each names the CLI that
+// A refusal a bot receives tells it what to run next, and the grooming line
+// tells the grooming session which kit to run. Each names the CLI that
 // wrote it, and each runs as written. The wording around a command is the
 // kit's, so a command is found by the CLI it starts with, and runs to the end
 // of its line.
 
 /**
  * The command in `said` that starts with `cli` (either spelling) and then
- * `rest`, up to the end of its line.
+ * `rest`, up to the end of its line; with `has`, the first such command that
+ * holds each of those words as well.
  */
-function commandIn(said, cli, rest) {
+function commandIn(said, cli, rest, has = []) {
   for (const line of said.split('\n')) {
     for (const word of spellingsOf(cli)) {
       const at = line.indexOf(`${word} ${rest}`);
-      if (at >= 0) return line.slice(at).trim();
+      const command = line.slice(at).trim();
+      if (at >= 0 && has.every((part) => command.includes(part))) return command;
     }
   }
-  return assert.fail(`there should be a command starting ${shellWord(cli)} ${rest}, got:\n${said}`);
+  return assert.fail(`there should be a command starting ${shellWord(cli)} ${rest}${has.length > 0 ? ` with ${has.join(', ')}` : ''}, got:\n${said}`);
 }
 
 /**
@@ -648,48 +650,36 @@ for (const [label, folder] of [['', null], [' with a space in its path', 'the ki
     assert.notEqual((await sessionIn(bots, 'later', 'daily'))?.mailbox, undefined, `the command should have brought later/daily up: ${command}`);
   });
 
-  test(`the grooming prompt names the CLI that made it, and that CLI answers${label}`, async (t) => {
-    // The grooming session is started by Orca's automation, not by a launch
-    // line of the kit's, so it has no OBK_CLI to go by: the prompt itself has
-    // to name the CLI. Its command has placeholders for the window, so what is
-    // run here is the CLI word the prompt gives, asking for the same count.
+  test(`the grooming lines name the CLI that typed them, and that CLI answers${label}`, async (t) => {
+    // `obk groom --on --at` types into the grooming tab the run the schedule
+    // will make every day, and `--now` the same run once. The skills that run
+    // works by say `obk`, and the tab may have been launched by another kit
+    // than the one that typed the line, so the line names the kit that typed
+    // it, by its own path, spelled so a shell runs it as one word. What is run
+    // here is that word, asking for a count as the run does.
     const box = await createSandbox(t);
     const cli = folder === null ? box.cli : await linkedAt(box, folder);
     assert.equal((await box.run(['init', '--bots', 'bots', '--harness', 'claude'])).code, 0);
+    const added = await box.run(['session', 'add', '--bots', 'bots', '--bot', 'bot-father', '--name', 'grooming']);
+    assert.equal(added.code, 0, added.stderr);
+    assert.equal((await box.run(['up', '--bots', 'bots'])).code, 0);
     const bots = box.path('bots');
+    const tab = (await sessionIn(bots, 'bot-father', 'grooming')).tab;
+    const typedInGrooming = async () => (await box.orca.terminals()).find((one) => one.tabId === tab)?.typed ?? [];
     const other = await decoy(box);
 
-    const made = await runBy(box, cli, ['groom', '--bots', bots, '--at', '04:00']);
-    assert.equal(made.code, 0, made.stderr);
-    const [automation] = (await box.orca.state()).automations ?? [];
-    assert.ok(automation !== undefined, 'the grooming should have been made');
-    const word = spellingsOf(cli).find((spelling) => automation.prompt.includes(`${spelling} usage `));
-    assert.ok(word !== undefined, `the prompt should count with ${shellWord(cli)} usage, got: ${automation.prompt}`);
-    const ran = await sh(`${word} usage --bots ${shellWord(bots)}`, { cwd: box.root, env: other.env });
-
-    assert.equal(ran.code, 0, `${word} usage\n${ran.stdout}${ran.stderr}`);
+    for (const flags of [['--on', '--at', '04:00'], ['--now']]) {
+      const before = (await typedInGrooming()).length;
+      const made = await runBy(box, cli, ['groom', '--bots', bots, ...flags]);
+      assert.equal(made.code, 0, made.stderr);
+      const lines = (await typedInGrooming()).slice(before).map((entry) => entry.text);
+      assert.equal(lines.length, 1, `groom ${flags.join(' ')} should type one line into the grooming tab, got: ${JSON.stringify(lines)}`);
+      const word = spellingsOf(cli).find((spelling) => lines[0].includes(spelling));
+      assert.ok(word !== undefined, `groom ${flags.join(' ')}: the line should name ${shellWord(cli)}, got: ${lines[0]}`);
+      const ran = await sh(`${word} usage --bots ${shellWord(bots)}`, { cwd: box.root, env: other.env });
+      assert.equal(ran.code, 0, `${word} usage\n${ran.stdout}${ran.stderr}`);
+    }
     assert.deepEqual(await other.runs(), [], 'the obk on PATH should never have been run');
-  });
-
-  test(`the grooming prompt says which kit to run wherever a skill says obk${label}`, async (t) => {
-    // The skills the grooming session works by say `obk` (obk-grooming sends
-    // what it finds with `obk message to` and `obk message send`), and a
-    // session Orca's automation starts has no OBK_CLI to turn that into this
-    // kit. So the prompt says it, in one sentence (review of PR #247).
-    const box = await createSandbox(t);
-    const cli = folder === null ? box.cli : await linkedAt(box, folder);
-    assert.equal((await box.run(['init', '--bots', 'bots', '--harness', 'claude'])).code, 0);
-
-    const made = await runBy(box, cli, ['groom', '--bots', box.path('bots'), '--at', '04:00']);
-
-    assert.equal(made.code, 0, made.stderr);
-    const [automation] = (await box.orca.state()).automations ?? [];
-    assert.ok(automation !== undefined, 'the grooming should have been made');
-    const said = spellingsOf(cli).map((word) => `The kit here is ${word}: run it wherever a skill says obk.`);
-    assert.ok(
-      said.some((sentence) => automation.prompt.includes(sentence)),
-      `the prompt should say: ${said[0]}\ngot: ${automation.prompt}`,
-    );
   });
 }
 
@@ -748,14 +738,14 @@ async function botPaused(box) {
   assert.equal(paused.code, 0, paused.stderr);
 }
 
-/** Bot Father's grooming, made (and so off) and, with `on`, switched on. */
-async function groomingMade(box, { on = false } = {}) {
+/** Bot Father with a session called grooming added and, with `up`, brought up, with nothing scheduled in it. */
+async function groomingAdded(box, { up = false } = {}) {
   await seeded(box);
-  const made = await box.run(['groom', '--bots', BOTS_DIR, '--at', '04:00']);
-  assert.equal(made.code, 0, made.stderr);
-  if (on) {
-    const switched = await box.run(['groom', '--bots', BOTS_DIR, '--on']);
-    assert.equal(switched.code, 0, switched.stderr);
+  const added = await box.run(['session', 'add', '--bots', BOTS_DIR, '--bot', 'bot-father', '--name', 'grooming']);
+  assert.equal(added.code, 0, added.stderr);
+  if (up) {
+    const brought = await box.run(['up', '--bots', BOTS_DIR]);
+    assert.equal(brought.code, 0, brought.stderr);
   }
 }
 
@@ -784,7 +774,8 @@ async function sourceListed(box, { fetch = true, sha } = {}) {
 /**
  * Each report that ends in a command to run next: what it takes to get there,
  * the run whose report it is, the words after the CLI that start the command,
- * and whether the command as printed is one that can be run as it stands
+ * any words further on that make it the command meant (`has`), and whether the
+ * command as printed is one that can be run as it stands
  * (`runs`), with nothing to fill in and nothing outside the sandbox to reach.
  * A command inside a sentence runs on to the sentence's own words, and is not
  * run here either.
@@ -845,33 +836,26 @@ const FOLLOW_UPS = {
     // It would reach a repository on the network.
     runs: false,
   },
-  'groom with no grooming says how to make one': {
+  'groom with no grooming session says how to add one': {
     setup: seeded,
     args: ['groom', '--bots', BOTS_DIR],
-    rest: 'groom --bots ',
-    runs: true,
+    rest: 'session add --bots ',
+    has: ['--bot bot-father', '--name grooming'],
+    // The session's other settings are the user's to choose.
+    runs: false,
   },
-  'groom with the grooming off says how to switch it on': {
-    setup: (box) => groomingMade(box),
+  'groom with the grooming session not up says how to bring it up': {
+    setup: (box) => groomingAdded(box),
     args: ['groom', '--bots', BOTS_DIR],
-    rest: 'groom --bots ',
-    runs: true,
-  },
-  'groom with the grooming on says how to switch it off': {
-    setup: (box) => groomingMade(box, { on: true }),
-    args: ['groom', '--bots', BOTS_DIR],
-    rest: 'groom --bots ',
-    runs: true,
-  },
-  'groom before Bot Father has an Orca project says how to bring it up': {
-    setup: async (box) => {
-      await seeded(box);
-      // Bot Father's book as it is before its first `up`: no Orca project.
-      const book = path.join(box.path(BOTS_DIR), 'bots', 'bot-father', 'sessions.yaml');
-      await writeFile(book, 'sessions: {}\n');
-    },
-    args: ['groom', '--bots', BOTS_DIR, '--at', '04:00'],
     rest: 'up --bots ',
+    runs: true,
+  },
+  'groom with grooming off says how to turn it on': {
+    setup: (box) => groomingAdded(box, { up: true }),
+    args: ['groom', '--bots', BOTS_DIR],
+    rest: 'groom --bots ',
+    has: ['--on', '--at'],
+    // It has a time to fill in.
     runs: false,
   },
   'bot create whose rules cannot be built says how to build them': {
@@ -976,7 +960,7 @@ const FOLLOW_UPS = {
   },
 };
 
-for (const [label, { setup, args, rest, runs }] of Object.entries(FOLLOW_UPS)) {
+for (const [label, { setup, args, rest, has, runs }] of Object.entries(FOLLOW_UPS)) {
   test(`${label}, by the CLI that answered`, async (t) => {
     const box = await createSandbox(t);
     await setup(box);
@@ -984,7 +968,7 @@ for (const [label, { setup, args, rest, runs }] of Object.entries(FOLLOW_UPS)) {
 
     const answered = await runBy(box, cli, args);
 
-    const command = commandIn(answered.stdout + answered.stderr, cli, rest);
+    const command = commandIn(answered.stdout + answered.stderr, cli, rest, has);
     if (rest.includes('--bots')) {
       assert.ok(
         botsWordIn(command, box.path(BOTS_DIR)),
