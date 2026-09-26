@@ -19,7 +19,7 @@
 // here makes a Run appear mid-run without anything real being brought up.
 
 import assert from 'node:assert/strict';
-import { chmod, copyFile, mkdir, readFile, symlink, writeFile } from 'node:fs/promises';
+import { chmod, copyFile, mkdir, readFile, realpath, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, test } from 'node:test';
@@ -445,14 +445,26 @@ async function ranIn(fixture) {
  * test file beside the repo, a folder of tests beside it too, and two symlinks
  * in test/system/ that lead out, `leak.test.js` to the test file and `linked`
  * to the folder.
+ *
+ * And the ways in that are not a name of a system test file: `alias.test.js`
+ * links to beta from outside test/system/, in test/ and beside the repo;
+ * `alias.js` links to it from inside under a name that is not a test's; and
+ * two folders in test/system/ are named like test files, one empty and one
+ * holding a test.
  */
 async function withWaysOut(fixture) {
   const beside = path.dirname(fixture.repo);
+  const beta = path.join(fixture.repo, 'test', 'system', 'beta.test.js');
   await write(beside, 'package.json', '{"name": "outside"}\n');
   await write(beside, 'outside.test.js', tallies('OUTSIDE'));
   await write(beside, 'elsewhere/escaped.test.js', tallies('ESCAPED'));
   await symlink(path.join(beside, 'outside.test.js'), path.join(fixture.repo, 'test', 'system', 'leak.test.js'));
   await symlink(path.join(beside, 'elsewhere'), path.join(fixture.repo, 'test', 'system', 'linked'));
+  await symlink(beta, path.join(fixture.repo, 'test', 'alias.test.js'));
+  await symlink(beta, path.join(beside, 'alias.test.js'));
+  await symlink('beta.test.js', path.join(fixture.repo, 'test', 'system', 'alias.js'));
+  await mkdir(path.join(fixture.repo, 'test', 'system', 'empty.test.js'));
+  await write(fixture.repo, 'test/system/suite.test.js/inner.test.js', tallies('INNER'));
   return fixture;
 }
 
@@ -478,6 +490,12 @@ const REFUSED = [
   ['a name that does not exist', () => 'test/system/missing.test.js'],
   ['test/system/ itself', () => 'test/system'],
   ['a folder under test/system/', () => 'test/system/nested'],
+  ['a test file outside test/system/ that links to a system test', () => 'test/alias.test.js'],
+  ['a test file beside the repo that links to a system test', () => '../alias.test.js'],
+  ['an absolute path to a test file beside the repo that links to a system test', (fixture) => path.join(path.dirname(fixture.repo), 'alias.test.js')],
+  ['a file in test/system/ that is not a test file but links to one', () => 'test/system/alias.js'],
+  ['an empty folder in test/system/ named like a test file', () => 'test/system/empty.test.js'],
+  ['a folder in test/system/ named like a test file, holding a test', () => 'test/system/suite.test.js'],
 ];
 
 // Each test owns a throwaway repo, so they can all run at the same time.
@@ -1274,6 +1292,47 @@ describe('test-system', { concurrency: true }, () => {
 
       assert.equal(result.code, 0, `${result.stdout}${result.stderr}`);
       assert.deepEqual(await ranIn(fixture), ['BETA']);
+    });
+
+    test('an absolute name spelled through a link above the repo runs the file it names', async (t) => {
+      // A repo is often reached through a link above it: on macOS the temp
+      // folder is /var/…, and its real path /private/var/…. The fixture repo is
+      // known by its real path, so a link of the test's own stands in for that
+      // on any machine, and the temp folder's own spelling is tried as well.
+      const fixture = await createRepo(t, { files: NAMED_FILES });
+      const through = path.join(fixture.outside, 'through');
+      await symlink(path.dirname(fixture.repo), through);
+      const tmpSpelling = path.join(os.tmpdir(), path.relative(await realpath(os.tmpdir()), fixture.repo));
+
+      const viaLink = await fixture.confirmed({ names: [path.join(through, path.basename(fixture.repo), BETA_FILE)] });
+
+      assert.equal(viaLink.code, 0, `${viaLink.stdout}${viaLink.stderr}`);
+      assert.deepEqual(await ranIn(fixture), ['BETA']);
+
+      const viaTmp = await fixture.confirmed({ names: [path.join(tmpSpelling, BETA_FILE)] });
+
+      assert.equal(viaTmp.code, 0, `${viaTmp.stdout}${viaTmp.stderr}`);
+      assert.deepEqual(await ranIn(fixture), ['BETA', 'BETA']);
+    });
+
+    test('a name that leaves test/system/ and comes straight back runs that file alone', async (t) => {
+      const fixture = await createRepo(t, { files: NAMED_FILES });
+
+      const result = await fixture.confirmed({ names: ['test/system/../system/beta.test.js'] });
+
+      assert.equal(result.code, 0, `${result.stdout}${result.stderr}`);
+      assert.deepEqual(await ranIn(fixture), ['BETA']);
+    });
+
+    test('the announcement names the file it will run, not the spelling it was named by', async (t) => {
+      // What runs is the listed file's own path, so that is what the reader
+      // is asked to agree to.
+      const fixture = await createRepo(t, { files: NAMED_FILES });
+
+      const result = await fixture.run({ names: ['test/system/../system/beta.test.js'] });
+
+      assert.equal(result.code, 2, `${result.stdout}${result.stderr}`);
+      assertAnnounces(result, fixture, [BETA_FILE]);
     });
 
     test('a file in a folder under test/system/ can be named', async (t) => {
