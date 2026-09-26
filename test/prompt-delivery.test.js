@@ -75,12 +75,14 @@ async function argvOf(box, text, fake) {
 /**
  * The launch line reads the kit's file back: `-- "$(cat <file>)"`. The path is
  * quoted the way a shell needs it and no more, so what is pinned here is the
- * shape around it and the path inside it, not the quotes.
+ * shape around it and the path inside it, not the quotes. In front of it all
+ * is the session's mailbox step (#317), whose words the sandbox's paths leave
+ * bare.
  */
 function assertReadsBack(typed, file) {
   assert.match(
     typed,
-    /^OBK_TAB_SHELL=\$\$ OBK_CLI=\S+ codex --approve-for-me -c sandbox_workspace_write.network_access=true -- "\$\(cat .+\)"$/,
+    /^\S+ session mailbox --bots \S+ --bot \S+ --session daily; OBK_TAB_SHELL=\$\$ OBK_CLI=\S+ codex --approve-for-me -c sandbox_workspace_write.network_access=true -- "\$\(cat .+\)"$/,
     `the line should read the prompt back inside one double-quoted word, got: ${typed}`,
   );
   assert.ok(typed.includes(file), `and read it from ${file}, got: ${typed}`);
@@ -104,7 +106,7 @@ test('a short prompt of one line is typed into the launch line as it stands', as
 
   const { typed, tab } = await up(box, bots, 'short-bot');
 
-  assert.equal(typed, launchLine(box, `codex --approve-for-me -c sandbox_workspace_write.network_access=true -- '${short}'`), 'the text itself, quoted, after the separator');
+  assert.equal(typed, launchLine(box, `codex --approve-for-me -c sandbox_workspace_write.network_access=true -- '${short}'`, { bot: 'short-bot', session: 'daily' }), 'the text itself, quoted, after the separator');
   assert.ok(!typed.includes('cat '), `nothing to read back, got: ${typed}`);
   assert.equal('promptFile' in tab, false, 'a prompt that went in on the line was not handed over in a file');
   assert.equal(await isThere(promptPathOf(bots, 'short-bot')), false, 'and no file was written for it');
@@ -335,7 +337,7 @@ test('a session with nothing to say is handed nothing at all', async (t) => {
 
   const { typed, tab } = await up(box, bots, 'quiet-bot');
 
-  assert.equal(typed, bareLaunch(box, 'codex'), 'no separator, no prompt, no file');
+  assert.equal(typed, bareLaunch(box, 'codex', 'quiet-bot', 'daily'), 'no separator, no prompt, no file');
   assert.equal('promptFile' in tab, false);
   assert.equal(await isThere(promptPathOf(bots, 'quiet-bot')), false);
 });

@@ -96,8 +96,8 @@ test('the start prompt is the last word of the launch line, and the tab\'s one s
   const { result, typed, tab } = await up(box, bots);
 
   assert.equal(result.code, 0, result.stderr);
-  assert.deepEqual(typed, [`${bareLaunch(box, 'codex')} -- '${PROMPT}'`]);
-  assert.deepEqual(sentInto(tab), [{ text: `${bareLaunch(box, 'codex')} -- '${PROMPT}'`, enter: true }], 'the line has to be sent off');
+  assert.deepEqual(typed, [`${bareLaunch(box, 'codex', 'prompt-bot', 'daily')} -- '${PROMPT}'`]);
+  assert.deepEqual(sentInto(tab), [{ text: `${bareLaunch(box, 'codex', 'prompt-bot', 'daily')} -- '${PROMPT}'`, enter: true }], 'the line has to be sent off');
 
   const sends = orcaCallsOf(await box.orca.calls(), 'terminal send')
     .filter((call) => orcaFlag(call, '--terminal') === tab.handle);
@@ -198,7 +198,7 @@ test('a block scalar\'s own trailing newline is not part of the prompt', async (
 
   assert.deepEqual(
     typed,
-    [`${bareLaunch(box, 'codex')} -- 'Read your AGENTS.md.'`],
+    [`${bareLaunch(box, 'codex', 'prompt-bot', 'daily')} -- 'Read your AGENTS.md.'`],
     'one short line, typed in as one short line',
   );
 });
@@ -307,7 +307,7 @@ test('a session with a work dir and no prompt still has the note to say', async 
   const { result, typed } = await up(box, bots, ['--json']);
 
   assert.ok(
-    typed[0].startsWith(`${bareLaunch(box, 'codex')} -- '`),
+    typed[0].startsWith(`${bareLaunch(box, 'codex', 'prompt-bot', 'daily')} -- '`),
     `the note is something to say, got: ${JSON.stringify(typed)}`,
   );
   assert.ok(typed[0].includes(path.join(botHomeOf(bots, 'prompt-bot'), 'work', 'api')));
@@ -335,7 +335,7 @@ test('a session with nothing to say gets a launch line with no prompt word', asy
 
   const { result, typed } = await up(box, bots, ['--json']);
 
-  assert.deepEqual(typed, [bareLaunch(box, 'codex')], 'the launch line, and that is all there was to say');
+  assert.deepEqual(typed, [bareLaunch(box, 'codex', 'prompt-bot', 'daily')], 'the launch line, and that is all there was to say');
   assert.deepEqual(await argvOf(box, typed[0], fake), ['--approve-for-me', '-c', 'sandbox_workspace_write.network_access=true'], 'no empty word on the end either');
   assert.equal(
     'promptReceived' in onlyTab(result),
@@ -367,7 +367,7 @@ test('a harness sitting on its trust question has the prompt already in its argv
 
   const { result, typed } = await up(box, bots, ['--json']);
 
-  assert.deepEqual(typed, [`${bareLaunch(box, 'codex')} -- '${PROMPT}'`], 'the line went in whole');
+  assert.deepEqual(typed, [`${bareLaunch(box, 'codex', 'prompt-bot', 'daily')} -- '${PROMPT}'`], 'the line went in whole');
   const entry = onlyTab(result);
   assert.equal(entry.harnessStarted, true, 'a TUI that is up is a harness that started');
   assert.equal(entry.blockedReason, 'agent-interactive-prompt');
@@ -382,7 +382,7 @@ test('a harness that never came up took the duty with it, and the run says so', 
 
   const { result, typed } = await up(box, bots, ['--json']);
 
-  assert.deepEqual(typed, [`${bareLaunch(box, 'codex')} -- '${PROMPT}'`], 'the line was still typed; it is the outcome that failed');
+  assert.deepEqual(typed, [`${bareLaunch(box, 'codex', 'prompt-bot', 'daily')} -- '${PROMPT}'`], 'the line was still typed; it is the outcome that failed');
   const entry = onlyTab(result);
   assert.equal(entry.harnessStarted, false);
   assert.equal(entry.promptReceived, false);
@@ -400,7 +400,7 @@ test('a harness that came up and then died is not reported as running', async (t
 
   const { result, typed } = await up(box, bots, ['--json']);
 
-  assert.deepEqual(typed, [`${bareLaunch(box, 'codex')} -- '${PROMPT}'`], 'the line went in; it is what became of it that failed');
+  assert.deepEqual(typed, [`${bareLaunch(box, 'codex', 'prompt-bot', 'daily')} -- '${PROMPT}'`], 'the line went in; it is what became of it that failed');
   const entry = onlyTab(result);
   assert.equal(entry.harnessStarted, false, 'a harness that is gone is not a harness that started');
   assert.equal(entry.promptReceived, false, 'and it took the duty with it when it went');
@@ -431,7 +431,7 @@ test('a tab that was already there is never typed into, launch line and prompt b
   const third = await up(box, bots);
 
   assert.equal(third.result.code, 0, third.result.stderr);
-  assert.deepEqual(again.typed, [`${bareLaunch(box, 'codex')} -- '${PROMPT}'`], 'the session was told its duty once, and once only');
+  assert.deepEqual(again.typed, [`${bareLaunch(box, 'codex', 'prompt-bot', 'daily')} -- '${PROMPT}'`], 'the session was told its duty once, and once only');
   assert.deepEqual(third.typed, again.typed);
   assert.equal(again.tab.tabId, first.tab.tabId, 'it is the same tab throughout');
 
@@ -458,7 +458,7 @@ test('a session tab that came back is told its duty again', async (t) => {
 
   assert.equal(again.result.code, 0, again.result.stderr);
   assert.notEqual(again.tab.tabId, first.tab.tabId, 'a tab that comes back is a new tab');
-  assert.deepEqual(again.typed, [`${bareLaunch(box, 'codex')} -- '${PROMPT}'`]);
+  assert.deepEqual(again.typed, [`${bareLaunch(box, 'codex', 'prompt-bot', 'daily')} -- '${PROMPT}'`]);
 });
 
 test('the plain report says what became of the prompt, and a harness that came up does not read like one that did not', async (t) => {

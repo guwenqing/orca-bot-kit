@@ -17,7 +17,7 @@ import { addCommand, groomCommand, grooming, upCommand } from './groom.js';
 import { checkHealth, orcaSettingFindings } from './health.js';
 import { initBots } from './init.js';
 import { APPROVALS, HARNESSES, ownCli, shellWord, workDirOf } from './launch.js';
-import { checkMail, lookUp, sendMessage } from './message.js';
+import { checkMail, lookUp, noMailboxYet, sendMessage } from './message.js';
 import { orcaCli, orcaTrouble, RELOAD_LINE } from './orca.js';
 import { pauseSessions, unpauseSessions } from './pause.js';
 import { recordSession, SHELL_ENV, TAB_ENV } from './record.js';
@@ -28,7 +28,7 @@ import { buildAgents, buildRules, CODEX_CAP } from './rules.js';
 import { addSkill, buildSkills, linkSkills, removeSkill } from './skills.js';
 import { addSource, fetchSources } from './sources.js';
 import { readUsage } from './usage.js';
-import { BOT_FATHER, bringUp } from './up.js';
+import { BOT_FATHER, bringUp, ownMailbox } from './up.js';
 
 const USAGE = `obk — Orca Bot Kit.
 
@@ -191,6 +191,10 @@ Usage:
                             For the kit's own hook, not for typing: it reads
                             what the harness says about a session starting on
                             standard input and writes it into the book.
+  obk session mailbox --bots <path> --bot <bot> --session <name>
+                            For the kit's own launch line, not for typing: run
+                            in the session's own tab, it gives the session its
+                            mailbox, or binds the one it has, to that tab.
   obk --version             Print the kit's version.
   obk --help                Print this text.
 
@@ -226,6 +230,7 @@ const COMMANDS = {
   'message send': ['bots', 'to', 'subject'],
   'message check': ['bots'],
   'session record': ['bots', 'bot'],
+  'session mailbox': ['bots', 'bot', 'session'],
 };
 
 /** What each flag is for, in the sentence a caller reads when it is missing. */
@@ -808,6 +813,17 @@ const commands = {
     };
   },
 
+  async 'session mailbox'(bots, values) {
+    const answer = await ownMailbox(bots, values.bot, values.session);
+    const who = `${answer.bot}/${answer.session}`;
+    const said = {
+      made: `${who} has its mailbox ${answer.mailbox}, made in this tab.`,
+      bound: `${who}'s mailbox ${answer.mailbox} is bound to this tab.`,
+      none: `${who} gets no mailbox: it is a Codex session with its sandbox switch off, which could not read one.`,
+    };
+    return { answer, lines: [said[answer.change]] };
+  },
+
   'session change'(bots, values) {
     if (values.harness !== undefined) {
       throw new Error(`session change does not change a session's harness: its conversations belong to the harness they ran on. To move it, retire it with obk retire and add one on ${values.harness} with obk session add.`);
@@ -1247,6 +1263,9 @@ function tabLines({ bots, created, completed, rules, skills, tabs, paused = [], 
   for (const tab of tabs) {
     lines.push(`${tab.created ? 'opened' : 'found '}     ${tab.title}  tab ${tab.tabId}  terminal ${tab.terminal}`);
     lines.push(...harnessLines(tab, bots));
+    if (tab.noMailbox) {
+      lines.push(`             it has no mailbox: ${noMailboxYet({ bots, bot: tab.bot, session: tab.name })}`);
+    }
   }
   for (const one of paused) {
     const what = one.session === undefined ? one.bot : `${one.bot} ${one.session}`;

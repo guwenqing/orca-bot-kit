@@ -153,7 +153,7 @@ test('a closed tab is opened again, with a new id, and the live tab is left alon
   assert.equal(after.inBook.length, 1);
   assert.notEqual(after.inBook[0].tabId, before.daily.tabId, 'a new tab has a new id');
   assert.equal(after.inBook[0].title, TAB_TITLES.daily, 'the kit writes the name the book gives it');
-  assert.deepEqual(typedInto(after.inBook[0]), [bareLaunch(box, 'codex')], 'the new tab runs the harness bot.yaml names');
+  assert.deepEqual(typedInto(after.inBook[0]), [bareLaunch(box, 'codex', 'bot-father', 'daily')], 'the new tab runs the harness bot.yaml names');
   assertOrcaCallsAllowed(await box.orca.calls());
 });
 

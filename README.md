@@ -529,10 +529,16 @@ That includes a Claude session still running under a name from before the
 token, `<bot>.<session>`: `message to` answers the mailbox road for it, never
 that name, until the session next starts a new conversation.
 
-A session's mailbox is made the first time `obk up` brings it up, and written in
+A session's mailbox is made the first time the kit starts it, and written in
 the book beside its tab. It is an Orca Run rather than the session's tab,
 because a tab's address dies with the tab and a Run does not — so a message sent
 while a session is down is still there when it comes back.
+
+Orca lets a tab bind a mailbox to itself and to no other, so the mailbox is made
+and bound from inside the session's own tab: the launch line the kit types there
+runs `obk session mailbox` before the harness. For the same reason a session's
+mail is read in its own tab. `message check` from any other tab reads nothing,
+binds nothing, and says so; the mail waits.
 
 Nothing in a mailbox wakes anybody, so `message send` also types one line into
 the receiver's tab telling it to look. Both harnesses take a typed line as the

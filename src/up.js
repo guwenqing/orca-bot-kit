@@ -12,8 +12,9 @@ import { forgetClaimed, forgetSession, readBook, sessionIdsIn, tabIdsIn, updateB
 import { botDir, botNames, displayName, readBot } from './bot.js';
 import { conversationsIn, hasConversation, heldAsUserTurn, transcriptsIn } from './conversations.js';
 import { installHook } from './hooks.js';
-import { addressOf, harnessOf, isAddressOf, isShortPrompt, launchCommand, reachesMail, sessionTrouble, startPrompt, workDirOf } from './launch.js';
-import { asFolderProject, findProject, harnessInTab, makeMailbox, makeProject, openTab, retitleTab, tabs, tellWindow, typeIntoTab, useMailbox } from './orca.js';
+import { addressOf, harnessOf, isAddressOf, isShortPrompt, launchCommand, mailboxStep, reachesMail, sessionTrouble, startPrompt, workDirOf } from './launch.js';
+import { asFolderProject, coordinatorOf, findProject, harnessInTab, makeMailbox, makeProject, openTab, retitleTab, tabs, TERMINAL_ENV, TIMED_OUT, tellWindow, typeIntoTab, useMailbox } from './orca.js';
+import { TAB_ENV } from './record.js';
 import { buildAgents, rulesStamp } from './rules.js';
 import { linkSkills } from './skills.js';
 
@@ -237,20 +238,21 @@ async function bringUpSession(bots, home, live, session, bot, title) {
   const tabTitle = `${title} ${session.name}`;
 
   if (known) {
-    // A mailbox it can be written to, and no name. The name is the one thing
-    // the kit cannot give a session that is already running: `-n` goes on the
+    // No name, and no mailbox from here. The name is the one thing the kit
+    // cannot give a session that is already running: `-n` goes on the
     // launch line, this session was launched without one, and nothing renames a
     // live harness. Writing the name down here would advertise an address that
     // answers to nobody (review of PR #132, finding 1). It gets one the next
-    // time it starts, which is the next time the kit types its launch line.
-    await ensureMailbox(home, bot, session, harness, known.handle);
+    // time it starts, which is the next time the kit types its launch line. So
+    // does a mailbox, if its book has none: that is made from inside the tab
+    // the session starts in, and nothing is typed into this one (#317).
 
     // Whatever runs in the tab may have rewritten its title. The kit writes its
     // own back, and reports that one rather than the name Orca last saw: the id
     // is the session, and a title is only ever set. Nothing is typed into a tab
     // that is already there — the session is in the middle of its work.
     retitleTab(known.handle, tabTitle);
-    return entry({ ...known, title: tabTitle }, { bot: bot.name, name: session.name, created: false });
+    return entry({ ...known, title: tabTitle }, { bot: bot.name, name: session.name, created: false, noMailbox: lacksMailbox(home, session, harness) });
   }
 
   // Everything that can be refused is settled before Orca is asked for
@@ -322,13 +324,12 @@ async function bringUpSession(bots, home, live, session, bot, title) {
   // the harness as the tab's own command times out and leaves a dead tab.
   typeIntoTab(made.handle, launch.command);
 
-  // Now the session has an address, and not before: the mailbox it can be
-  // written to, and — on Claude Code — the name that line just gave it, which
-  // is the name another Claude session writes to. Both are written after the
-  // tab is on the books, so a mailbox Orca will not make leaves a tab the next
-  // run finds and finishes rather than a tab nobody owns (review of PR #132,
-  // finding 3).
-  await ensureMailbox(home, bot, session, harness, made.handle, { address: launch.address, opened: true });
+  // Now the session has an address, and not before: on Claude Code, the name
+  // that line just gave it, which is the name another Claude session writes
+  // to. Its mailbox comes from the line's own first step, in the tab, and a
+  // mailbox Orca will not make there leaves a tab on the books all the same,
+  // which the next launch finishes (#317; review of PR #132, finding 3).
+  if (launch.address !== undefined) await writeAddress(home, session, launch.address);
 
   // And then asking whether a TUI came up, rather than assuming one did. The
   // text goes into the tab's own shell, which may have been busy with a
@@ -354,6 +355,9 @@ async function bringUpSession(bots, home, live, session, bot, title) {
     bot: bot.name,
     name: session.name,
     created: true,
+    // Asked once the tab is up: the step at the head of the line has run by
+    // then, and whatever it said is on the tab's screen, not in this report.
+    noMailbox: lacksMailbox(home, session, harness),
     ...tui,
     promptReceived,
     promptFile: launch.promptFile,
@@ -380,7 +384,7 @@ function launchFor(bots, bot, session, harness, home, workDir, resume, held) {
   const address = harness !== 'claude' ? undefined
     : resume === undefined ? addressOf(bot.name, session.name)
     : isAddressOf(bot.name, session.name, held) ? held : undefined;
-  const command = launchCommand(session, {
+  const line = launchCommand(session, {
     harness,
     home,
     workDir,
@@ -389,6 +393,9 @@ function launchFor(bots, bot, session, harness, home, workDir, resume, held) {
     resume,
     address,
   });
+  // The session's mailbox first, from inside its own tab (#317), and the
+  // harness whatever became of it.
+  const command = reachesMail(session, harness) ? `${mailboxStep(bots, bot.name, session.name)}; ${line}` : line;
   return { resume, prompt, promptFile, command, address };
 }
 
@@ -449,8 +456,8 @@ function lookFor(handle, timeoutMs) {
 }
 
 /**
- * Make sure the book holds this session's mailbox, and — only where this run
- * has just launched the session under it — the name it answers to.
+ * Write down the name a session answers to, where this run has just launched it
+ * under that name.
  *
  * The name is written by whoever typed the launch line that gave it, and by
  * nobody else. A session that was already running when the kit reached it was
@@ -458,55 +465,143 @@ function lookFor(handle, timeoutMs) {
  * that no harness answers to is worse than no name: the kit would send another
  * session to an address with nobody at it.
  *
+ * The session's mailbox is not made here. The launch line this run typed
+ * starts with `obk session mailbox`, which the new tab's shell runs before the
+ * harness: Orca 1.4.210 lets a process in a tab bind a Run to that tab and to
+ * no other, so the `obk` that opened the tab cannot (#317, `ownMailbox`).
+ */
+async function writeAddress(home, session, address) {
+  if (readBook(home).sessions[session.name]?.address === address) return;
+
+  await updateBook(home, (current) => {
+    current.sessions[session.name] = { ...current.sessions[session.name], address };
+  });
+}
+
+/**
+ * `obk session mailbox`: give one session its mailbox, bound to the tab this
+ * runs in, which is the session's own. The kit's launch line runs it in a new
+ * tab before the harness, and nothing else is meant to.
+ *
  * The mailbox is an Orca Run, made once and kept for ever. It has to be a Run
  * rather than the session's tab: Orca calls a terminal a live terminal-only
  * mailbox, says plainly that delivery does not outlive the tab, and refuses a
  * send once the pane is gone, while a Run survives a closed tab, a relaunch and
  * a restart (tech notes, section 1). Orca offers no way to delete one, so this
- * makes exactly one per session and never a second.
+ * makes one for a session whose book names none, and otherwise binds the one
+ * the book names to this tab: after a restart, or a closed tab brought back,
+ * it would stay with the tab that is gone (review of PR #248, finding 1).
  *
- * It is bound to `handle`, the session's own tab, and never to the tab this run
- * of `obk up` was typed in: Orca tells a Run's coordinator about its mail, and
- * only the session the mail is for should be told (issue #228). A mailbox the
- * session already had is bound again when this run `opened` a new tab for it —
- * after a restart, or a closed tab brought back — or it would stay with the tab
- * that is gone (review of PR #248, finding 1).
+ * Only inside an Orca tab. Asked from anywhere else, Orca picks a terminal
+ * itself, and seen live that was not the asker's (tech notes, section 1), so
+ * this refuses rather than bind somebody else's tab.
  *
  * A Codex session whose user turned the sandbox switch off gets none: it could
  * not read a mailbox if it had one, and an address nobody can read is worse
  * than none at all. `obk message` says so in those words.
  */
-async function ensureMailbox(home, bot, session, harness, handle, { address, opened = false } = {}) {
-  const held = readBook(home).sessions[session.name] ?? {};
-  if (opened && typeof held.mailbox === 'string') useMailbox(held.mailbox, handle);
+export async function ownMailbox(bots, botName, sessionName) {
+  const home = botDir(bots, botName);
+  const bot = readBot(home, botName);
+  const session = (bot.sessions ?? []).find((entry) => entry.name === sessionName);
+  if (session === undefined) throw new Error(`${botName} has no session called ${sessionName} in ${path.join(home, 'bot.yaml')}.`);
+  const who = `${botName}/${sessionName}`;
 
-  const mailbox = mailboxFor(readBook(home), bot, session, harness, handle);
+  if (!reachesMail(session, harnessOf(session, bot.harness))) {
+    return { bot: botName, session: sessionName, mailbox: null, change: 'none' };
+  }
+  if (process.env[TERMINAL_ENV] === undefined) {
+    throw new Error(`session mailbox binds ${who}'s mailbox to the Orca tab it runs in, and this is not one: ${TERMINAL_ENV} is not set. The kit runs it in the session's own tab when it starts the session.`);
+  }
 
-  if (mailbox === undefined && (address === undefined || held.address === address)) return;
+  // Only in the tab the book names for the session. Two runs of `up` at once
+  // can leave a session two tabs, and the book one of them: a mailbox made or
+  // bound in the other would be bound to a tab no message is meant for.
+  const entry = readBook(home).sessions[sessionName] ?? {};
+  const here = process.env[TAB_ENV];
+  if (entry.tab === undefined || entry.tab !== here) {
+    throw new Error(`${who}'s mailbox is given in the tab the book names for it, ${entry.tab ?? 'none yet'}, and this is ${here ?? 'a tab that does not say which it is'}. Nothing was made or bound.`);
+  }
 
-  await updateBook(home, (current) => {
-    const entry = { ...current.sessions[session.name] };
-    // Under the lock, and only if the book still has none: two runs at once
-    // would each have made one, and a session with two mailboxes is a session
-    // half its mail never reaches. The loser's Run is left unused.
-    if (mailbox !== undefined && typeof entry.mailbox !== 'string') entry.mailbox = mailbox;
-    if (address !== undefined) entry.address = address;
-    current.sessions[session.name] = entry;
-  });
+  const held = entry.mailbox;
+  if (typeof held === 'string') {
+    try {
+      useMailbox(held, undefined, STEP_WAIT);
+    } catch (error) {
+      // An Orca that did not answer may still have done it, and is not asked
+      // a second time.
+      if (error.code === TIMED_OUT) {
+        throw new Error(`${error.message}\n${who}'s mailbox ${held} may now be bound to this tab, or may still be bound where it was: Orca did not say which.`);
+      }
+      throw new Error(`${error.message}\n${who}'s mailbox ${held} is unchanged: it is still bound to ${boundTo(held)}.`);
+    }
+    return { bot: botName, session: sessionName, mailbox: held, change: 'bound' };
+  }
+
+  // Made outside the book's lock, which is held for one read and one write
+  // (book.js).
+  let made;
+  try {
+    made = makeMailbox(who, STEP_WAIT);
+  } catch (error) {
+    const left = error.code === TIMED_OUT
+      ? `None is written down for ${who}; a Run Orca made after the kit stopped waiting is left unused.`
+      : `No mailbox was made for ${who}, and none is written down.`;
+    throw new Error(`${error.message}\n${left} It gets one the next time the kit starts it.`);
+  }
+
+  let kept;
+  let movedTo;
+  try {
+    await updateBook(home, (current) => {
+      const now = { ...current.sessions[sessionName] };
+      // The book may have moved to another tab while Orca was asked: a second
+      // `up` of the same session. Then nothing is written here and nothing
+      // bound, so the tab the book names keeps whatever it has.
+      if (now.tab !== here) {
+        movedTo = now.tab ?? 'none';
+        return undefined;
+      }
+      // Under the lock, and only if the book still has none: two runs at once
+      // would each have made one, and a session with two mailboxes is a session
+      // half its mail never reaches. The loser's Run is left unused.
+      if (typeof now.mailbox !== 'string') now.mailbox = made;
+      kept = now.mailbox;
+      current.sessions[sessionName] = now;
+      return undefined;
+    });
+  } catch (error) {
+    throw new Error(`${error.message}\nOrca made the mailbox ${made} for ${who}, bound to this tab, but it could not be written into the book, so it is left unused. The next time the kit starts ${who}, it makes another.`);
+  }
+  if (movedTo !== undefined) {
+    throw new Error(`the book now names another tab for ${who}, ${movedTo}, so the mailbox ${made} made in this tab is left unused. It is bound to this tab, and nothing was written into the book: ${who}'s mailbox there is left where it is.`);
+  }
+  // One terminal holds one Run, so making the loser took this tab off the one
+  // the book kept. It goes back.
+  if (kept !== made) useMailbox(kept, undefined, STEP_WAIT);
+  return { bot: botName, session: sessionName, mailbox: kept, change: kept === made ? 'made' : 'bound' };
 }
 
 /**
- * A new mailbox for this session, or undefined when it should not have one: it
- * has one already, or it is a Codex session whose user turned the sandbox
- * switch off, which could not read a mailbox if it had one.
- *
- * The Orca call is made outside the book's lock, which is held for one read and
- * one write (book.js).
+ * How long the step gives each Orca call. The step runs in front of the
+ * harness on the launch line, so it has to end: an Orca that never answers
+ * would otherwise leave the tab blank and the session never started. Generous,
+ * because a busy machine is slow.
  */
-function mailboxFor(book, bot, session, harness, handle) {
-  const held = book.sessions[session.name] ?? {};
-  if (typeof held.mailbox === 'string' || !reachesMail(session, harness)) return undefined;
-  return makeMailbox(`${bot.name}/${session.name}`, handle);
+const STEP_WAIT = { timeoutMs: 20_000 };
+
+/** Whether a session that can have a mailbox has none in its book. */
+const lacksMailbox = (home, session, harness) => reachesMail(session, harness)
+  && typeof readBook(home).sessions[session.name]?.mailbox !== 'string';
+
+/** Where a Run is bound, as a sentence can say it, or the plain truth when Orca will not say. */
+function boundTo(id) {
+  try {
+    const handle = coordinatorOf(id, STEP_WAIT);
+    return handle === undefined ? 'no tab' : `the terminal ${handle}`;
+  } catch {
+    return 'whatever it was bound to before';
+  }
 }
 
 /**
@@ -575,7 +670,7 @@ const ids = (setup, change) => ({ project: setup.projectId, setup: setup.id, cha
 export const promptPath = (bots, bot, session) =>
   path.join(`${bots}.prompts`, `${encodeURIComponent(bot)}.${encodeURIComponent(session)}.txt`);
 
-function entry(tab, { bot, name, created, running = false, blockedReason, promptReceived, promptFile, resumed, noConversation, unclaimed }) {
+function entry(tab, { bot, name, created, running = false, blockedReason, promptReceived, promptFile, resumed, noConversation, unclaimed, noMailbox = false }) {
   const made = { bot, name, title: tab.title, tabId: tab.tabId, terminal: tab.handle, created, harnessStarted: running };
   // Whether this run picked the session up where it was or started a new one.
   // Only for a tab this run opened: a tab that was already there was left alone.
@@ -585,6 +680,9 @@ function entry(tab, { bot, name, created, running = false, blockedReason, prompt
   // Orca's own words for what is on screen waiting to be answered, when it
   // gave any: the caller acts on it, the kit only passes it on.
   if (blockedReason !== undefined) made.blockedReason = blockedReason;
+  // A session that should have a mailbox and has none: the step in its tab
+  // did not make one, and nothing in this run would (#317).
+  if (noMailbox) made.noMailbox = true;
   // Conversations the harness still has in this bot's folder that no session
   // claims: the caller is told, because the kit will not pick one.
   if (unclaimed !== undefined && unclaimed.length > 0) made.unclaimed = unclaimed;

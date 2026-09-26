@@ -180,7 +180,7 @@ test('a Claude context written the Claude way still comes up', async (t) => {
   assert.equal(daily.length, 1, `the session should have come up, got ${JSON.stringify(await box.orca.terminals())}`);
   assert.deepEqual(
     (daily[0].typed ?? []).map((entry) => tokenless(entry.text)),
-    [launchLine(box, `claude --permission-mode auto -n bot-father.daily.${TOKEN} --model 'sonnet[1m]'`)],
+    [launchLine(box, `claude --permission-mode auto -n bot-father.daily.${TOKEN} --model 'sonnet[1m]'`, { bot: 'bot-father', session: 'daily' })],
     'the context rides on the model name, and the model name stays quoted',
   );
 });
