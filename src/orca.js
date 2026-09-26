@@ -1,4 +1,4 @@
-// Every call the kit makes to Orca goes through here (ADR 0023). Orca's CLI
+// Every call the kit makes to Orca goes through here (ADR 0024). Orca's CLI
 // changes often, so the kit reads `--json` and never the human text, and keeps
 // the parsing in one place.
 //
@@ -177,7 +177,7 @@ export function asFolderProject(setupId, title) {
  */
 export const deleteProject = (setupId) => orca(['project', 'setup-delete', '--setup', setupId]);
 
-/** Said after a run that made, renamed or removed a project, whatever `tellWindow` answered. */
+/** Said after a run that made or renamed a project, whatever `tellWindow` answered, and after a removal `reloadWindow` could not follow. */
 export const RELOAD_LINE = "If Orca's sidebar does not show it, reload the window with Cmd+Shift+R.";
 
 /** How long Orca's client waits for its runtime, and how long the kit waits for the client. */
@@ -192,9 +192,10 @@ const CLIENT_KILL_MS = 3000;
  * `setup-update` and `setup-delete` do not say so. `project.update` with no
  * changes does, and Orca's CLI does not offer it, so this goes through Orca's
  * own runtime client out of the installed app, run by Orca's binary the way
- * its `bin/orca` runs its CLI (ADR 0023). None of that is Orca's published
+ * its `bin/orca` runs its CLI (ADR 0024). None of that is Orca's published
  * interface, so anything that goes wrong is a quiet false: it never throws and
- * is never tried twice, and the caller prints `RELOAD_LINE` either way.
+ * is never tried twice, and the caller prints `RELOAD_LINE` either way. It
+ * does not take a removed project out of the sidebar: `reloadWindow` does.
  */
 export function tellWindow(projectId) {
   try {
@@ -219,6 +220,43 @@ export function tellWindow(projectId) {
 }
 
 const WINDOW_SCRIPT = fileURLToPath(new URL('./orca-window.cjs', import.meta.url));
+
+/** The `osascript` this run asks. OBK_OSASCRIPT overrides it, as OBK_PS does `ps`. */
+const osascriptCli = () => process.env.OBK_OSASCRIPT || '/usr/bin/osascript';
+
+/** How long macOS is given to click the menu item. */
+const RELOAD_KILL_MS = 5000;
+
+/**
+ * Have Orca's window force-reload itself, after a project was removed: true
+ * only when it did (#343, ADR 0024).
+ *
+ * The window keeps a removed project in its sidebar until it is rebuilt, and
+ * `tellWindow` only relabels the row "Unknown" (stablyai/orca#23224; once a
+ * release fixes it, this can go behind a version check). Orca's own menu item
+ * Force Reload rebuilds it and keeps every terminal. So on macOS the kit has
+ * System Events click that item, in the Orca app its CLI belongs to and no
+ * other. None of that is Orca's published interface, and macOS may refuse it,
+ * so anything that goes wrong is a quiet false, as with `tellWindow`: it never
+ * throws and is never tried twice, and the caller prints `RELOAD_LINE`.
+ */
+export function reloadWindow() {
+  if (process.platform !== 'darwin') return false;
+  try {
+    // <Orca.app>/Contents/Resources/bin/orca, often reached through a link.
+    const app = path.resolve(realpathSync(orcaCli()), '..', '..', '..', '..');
+    const asked = spawnSync(osascriptCli(), [RELOAD_SCRIPT, app], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: RELOAD_KILL_MS,
+    });
+    return asked.error === undefined && asked.status === 0 && asked.stdout.trim() === 'reloaded';
+  } catch {
+    return false;
+  }
+}
+
+const RELOAD_SCRIPT = fileURLToPath(new URL('./orca-reload.applescript', import.meta.url));
 
 /**
  * The live tabs of the Orca project at `home`, each under its own tab id.
@@ -320,7 +358,7 @@ const ON_A_CHOICE = /^( *[›❯] +)\d+\. /;
  * Whether the rows of a rendered screen hold a question of the harness's own.
  *
  * Every one seen is a numbered list of choices with the harness's pointer on
- * one (tech notes, section 1; ADR 0023). The same pointer starts the harness's
+ * one (tech notes, section 1; ADR 0024). The same pointer starts the harness's
  * input line and its echo of the user's past turns, and the input line is the
  * lowest of them whenever it is on screen, so only the lowest pointer row is
  * asked about: a question counts while it stands in the input line's place.
@@ -409,7 +447,7 @@ const psCli = () => process.env.OBK_PS || '/bin/ps';
  * leading the group in front, or `{ unreadable: <why> }`.
  *
  * Orca gives the pane's pid in `diagnostics memory` and nowhere else, and `ps`
- * gives that pid's terminal's foreground process group (ADR 0023).
+ * gives that pid's terminal's foreground process group (ADR 0024).
  * On macOS the pane is `login` with the shell as its child, so the shell is in
  * front when the group is the pane's own or that of a child of a `login` pane.
  * `diagnostics memory` is a diagnostics command and may change, so everything

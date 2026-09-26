@@ -5,6 +5,9 @@
 //   <root>/bin/obk       symlink to the repo's src/cli.js (what `npm link` makes)
 //   <root>/bin/orca      fake Orca (helpers/fake-orca.js), what OBK_ORCA names
 //   <root>/bin/fake-ps   fake ps (helpers/fake-ps.js), what OBK_PS names
+//   <root>/bin/fake-osascript
+//                        fake osascript (helpers/fake-osascript.js), what
+//                        OBK_OSASCRIPT names
 //   <root>/orca-fake/    the fake Orca's world: state.json and calls.log
 //   <root>/cwd           the working directory the CLI is spawned from
 //   <root>/home          HOME, so a stray write to the home dir shows up here
@@ -48,6 +51,8 @@ export const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
 export const cliEntry = path.join(repoRoot, 'src', 'cli.js');
 const fakeOrcaEntry = fileURLToPath(new URL('./fake-orca.js', import.meta.url));
 const fakePsEntry = fileURLToPath(new URL('./fake-ps.js', import.meta.url));
+const fakeOsascriptEntry = fileURLToPath(new URL('./fake-osascript.js', import.meta.url));
+const asPlatformEntry = fileURLToPath(new URL('./as-platform.js', import.meta.url));
 
 /** Where the fake Orca keeps its world, inside a sandbox. */
 const FAKE_ORCA_DIR = 'orca-fake';
@@ -193,6 +198,21 @@ export async function createSandbox(t) {
   ].join('\n'));
   await chmod(fakePs, 0o755);
 
+  // The fake osascript (#343): the kit reloads Orca's window through it, and
+  // the real one would reach System Events and the real Orca's menu. Not called
+  // `osascript`, for the same reason as the fake ps; only OBK_OSASCRIPT names it.
+  const fakeOsascript = path.join(bin, 'fake-osascript');
+  await writeFile(fakeOsascript, [
+    '#!/usr/bin/env node',
+    `process.env.OBK_FAKE_ORCA_DIR = ${JSON.stringify(fakeDir)};`,
+    `import(${JSON.stringify(pathToFileURL(fakeOsascriptEntry).href)}).then((osascript) => osascript.runOsascript()).catch((error) => {`,
+    "  process.stderr.write(`fake osascript: ${error && error.stack || error}\\n`);",
+    '  process.exit(70);',
+    '});',
+    '',
+  ].join('\n'));
+  await chmod(fakeOsascript, 0o755);
+
   // The suite is often run from an Orca tab of its own, and Orca puts that
   // tab's variables in everything started there. None of them names a terminal
   // in the fake's world, and a kit that read them would behave one way on a
@@ -210,9 +230,23 @@ export async function createSandbox(t) {
     HOME: home,
     OBK_ORCA: fakeOrca,
     OBK_PS: fakePs,
+    OBK_OSASCRIPT: fakeOsascript,
   };
 
   const readState = async () => JSON.parse(await readFile(stateFile, 'utf8'));
+
+  /** One of the fake osascript's logs, `{ args }` per line, oldest first. */
+  const osascriptLog = async (name) => {
+    try {
+      return (await readFile(path.join(fakeDir, name), 'utf8'))
+        .split('\n')
+        .filter((line) => line !== '')
+        .map((line) => JSON.parse(line));
+    } catch (error) {
+      if (error.code === 'ENOENT') return [];
+      throw error;
+    }
+  };
 
   /** How many times the fake Orca has answered `terminal wait` so far. */
   const waitsSoFar = async () => {
@@ -278,6 +312,19 @@ export async function createSandbox(t) {
           throw error;
         }
       },
+    },
+    /**
+     * The fake osascript (helpers/fake-osascript.js): what it is, every argv the
+     * kit handed it, `{ args }` in order, and `answer`, which tells it what to
+     * answer from the next call on: one of its OSASCRIPT answers, or
+     * `{ stdout, stderr, code, delayMs }`. Untold, it refuses. `answered`
+     * is the calls that got as far as answering, which a killed one never does.
+     */
+    osascript: {
+      cli: fakeOsascript,
+      calls: () => osascriptLog('osascript.log'),
+      answered: () => osascriptLog('osascript-answered.log'),
+      answer: (told) => writeFile(path.join(fakeDir, 'osascript.json'), `${JSON.stringify(told)}\n`),
     },
     /** The fake Orca: what it is, what it knows, and what it was asked. */
     orca: {
@@ -399,6 +446,17 @@ export async function createSandbox(t) {
       },
     },
   };
+}
+
+/**
+ * From here on, every run of `box` that takes its environment from `box.env`
+ * believes it is on `platform` ('darwin', 'linux'): its `process.platform`
+ * says so (helpers/as-platform.js). The kit reloads Orca's window only on
+ * macOS (#343), and CI is Linux.
+ */
+export function asPlatform(box, platform) {
+  box.env.NODE_OPTIONS = [box.env.NODE_OPTIONS, `--import=${pathToFileURL(asPlatformEntry).href}`].filter(Boolean).join(' ');
+  box.env.OBK_TEST_PLATFORM = platform;
 }
 
 /** How long a fake runtime client told to hang keeps its process alive: far past any wait the kit should make. */

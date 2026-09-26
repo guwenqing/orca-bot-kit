@@ -26,6 +26,7 @@ import test from '../helpers/system.js';
 import { setTimeout } from 'node:timers/promises';
 
 import { cliEntry, sessionTabIds } from '../helpers/cli.js';
+import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
 
 /**
  * Remove the throwaway bots folder and everything the kit made beside it.
@@ -165,10 +166,15 @@ test('Bot Father comes up in the real Orca, and nothing else is touched', async 
       orca(['terminal', 'close', '--terminal', terminal.handle, '--tab']);
       closed.push(terminal.handle);
     }
+    let deleted = 0;
     for (const setup of allSetups()) {
       if (setup.path !== home || before.setups.has(setup.id)) continue;
       orca(['project', 'setup-delete', '--setup', setup.id]);
+      deleted += 1;
     }
+    // Orca's sidebar keeps a deleted project's row until its window is
+    // rebuilt (#343): the kit's own reload, as after a retire.
+    if (deleted > 0 && !(await reloadWindow())) t.diagnostic(RELOAD_LINE);
     await removeBotsFolderAndSiblings(bots);
 
     // The point of all the care above: everything that was open is still open.

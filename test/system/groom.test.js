@@ -109,6 +109,7 @@ import { setTimeout } from 'node:timers/promises';
 import { parse } from 'yaml';
 
 import { cliEntry } from '../helpers/cli.js';
+import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
 
 /**
  * Remove the throwaway bots folder and everything the kit made beside it.
@@ -673,10 +674,15 @@ test('grooming runs on Claude Code\'s own schedule in the grooming session: off 
       orca(['terminal', 'close', '--terminal', terminal.handle, '--tab']);
       closed.push(terminal.handle);
     }
+    let deleted = 0;
     for (const setup of allSetups()) {
       if (setup.path !== home || before.setups.has(setup.id)) continue;
       orca(['project', 'setup-delete', '--setup', setup.id]);
+      deleted += 1;
     }
+    // Orca's sidebar keeps a deleted project's row until its window is
+    // rebuilt (#343): the kit's own reload, as after a retire.
+    if (deleted > 0 && !(await reloadWindow())) t.diagnostic(RELOAD_LINE);
     await removeBotsFolderAndSiblings(bots);
 
     // It closed nothing but its own. Every tab this teardown closed is one the

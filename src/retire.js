@@ -16,16 +16,16 @@
 // restart or a pause it does not wait for the book to know which one it was.
 // The mailbox Runs stay: Orca has no way to remove one (ADR 0018).
 
-import { existsSync, mkdirSync, realpathSync, renameSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, renameSync, rmSync } from 'node:fs';
 import path from 'node:path';
 
 import { readBook, tabIdsIn, updateBook } from './book.js';
 import { botDir, dropSession, readBot } from './bot.js';
-import { deleteProject, findProject, projects, tabs, tellWindow } from './orca.js';
+import { deleteProject, findProject, projects, reloadWindow, tabs } from './orca.js';
 import { fleetMember } from './pause.js';
 import { closeTabs, tabsToClose } from './restart.js';
 import { unlinkSkills } from './skills.js';
-import { BOT_FATHER, promptPath, sessionsOf } from './up.js';
+import { promptPath, sessionsOf } from './up.js';
 
 /** Where retired bots go: beside `bots/`, where nothing the kit runs looks. */
 export const retiredDir = (bots) => path.join(bots, 'retired');
@@ -53,8 +53,9 @@ export async function retireSession(bots, { bot, session }) {
 }
 
 /**
- * Retire the bot `bot`. Returns `{ bot, closed, project, moved }`: the tabs it
- * closed, the Orca project it took away (if it had one) and where the bot is now.
+ * Retire the bot `bot`. Returns `{ bot, closed, project, windowReloaded, moved }`:
+ * the tabs it closed, the Orca project it took away (if it had one), whether
+ * Orca's window was reloaded after that, and where the bot is now.
  * When Orca does not confirm the project gone, it returns `{ bot, closed,
  * project, trouble }` instead, and the bot is left where it was.
  */
@@ -81,13 +82,13 @@ export async function retireBot(bots, { bot }) {
   // they are gone.
   const booked = Object.keys(readBook(home).sessions).map((name) => ({ name }));
   const closed = await closeTabs(home, tabsToClose(bots, bot, home, booked, { keepless: true }), bots, bot);
+  let windowReloaded;
   if (project !== undefined) {
     deleteProject(project.id);
     // Orca's answer to the delete is not the same as the project being gone
     // (#282): its list afterwards is. Until that list is read and no longer
     // has the project, the bot stays where it is, so that retiring it again
-    // takes the project away and then finishes. The list is read once, for
-    // this and for the window both.
+    // takes the project away and then finishes.
     let setups;
     try {
       setups = projects();
@@ -97,7 +98,9 @@ export async function retireBot(bots, { bot }) {
     if (setups.some((setup) => setup.id === project.id || setup.path === home)) {
       return { bot, closed, project: project.id, trouble: `Orca answered the delete of Orca project ${project.id}, and still lists it. ${bot} was not moved. Retire ${bot} again with obk retire; if Orca still lists the project after that, remove it in Orca yourself, then retire ${bot} again.` };
     }
-    tellWindowOfRemoval(bots, setups);
+    // Only now: Orca's window keeps a removed project in its sidebar until
+    // it is rebuilt (#343).
+    windowReloaded = reloadWindow();
   }
 
   for (const name of new Set([...known.sessions, ...booked].map((session) => session.name))) {
@@ -107,21 +110,5 @@ export async function retireBot(bots, { bot }) {
   mkdirSync(retiredDir(bots), { recursive: true });
   renameSync(botDir(bots, bot), moved);
 
-  return { bot, closed, ...(project === undefined ? {} : { project: project.id }), moved };
-}
-
-/**
- * Tell Orca's window a project went (#224). The call names a project that is
- * still there, and Bot Father's is the one that always is; when Orca has none
- * for it in `setups`, Orca's list after the delete, there is nothing to call
- * on. Finding it is part of the workaround, so it fails as quietly as the call.
- */
-function tellWindowOfRemoval(bots, setups) {
-  try {
-    const home = botDir(bots, BOT_FATHER);
-    const father = existsSync(home) ? setups.find((setup) => setup.path === realpathSync(home)) : undefined;
-    if (father !== undefined) tellWindow(father.projectId);
-  } catch {
-    // Nothing: see above.
-  }
+  return { bot, closed, ...(project === undefined ? {} : { project: project.id, windowReloaded }), moved };
 }

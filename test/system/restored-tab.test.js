@@ -91,6 +91,7 @@ import { parse } from 'yaml';
 
 import { cliEntry, spellingsOf } from '../helpers/cli.js';
 import { waitingOn } from '../helpers/screens.js';
+import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
 
 /**
  * Remove the throwaway bots folder and everything the kit made beside it: the
@@ -502,10 +503,15 @@ test('a session Orca brought back without the kit\'s launch line is named by hea
         closed.push(terminal.handle);
       }
     }
+    let deleted = 0;
     for (const setup of allSetups()) {
       if (!homes.includes(setup.path) || before.setups.has(setup.id)) continue;
       orca(['project', 'setup-delete', '--setup', setup.id]);
+      deleted += 1;
     }
+    // Orca's sidebar keeps a deleted project's row until its window is
+    // rebuilt (#343): the kit's own reload, as after a retire.
+    if (deleted > 0 && !(await reloadWindow())) t.diagnostic(RELOAD_LINE);
     await removeBotsFolderAndSiblings(bots);
 
     // The point of all the care above: everything that was open is still open.
