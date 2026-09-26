@@ -377,13 +377,13 @@ function launchFor(bots, bot, session, harness, home, workDir, resume, held) {
   // through the tab's shell a character at a time.
   const promptFile = prompt === undefined || isShortPrompt(prompt) ? undefined : promptPath(bots, bot.name, session.name);
   // A new conversation is given a new name. A resume goes on under the one the
-  // kit gave it, and under no `-n` at all when the book `held` none of the
-  // kit's own: a resume keeps whatever name the conversation has, which is
-  // proven, and whether `-n` renames it is not (#286). Such a session is
-  // written to through its mailbox until it next starts fresh.
+  // kit gave it, and gets a new one when the book `held` none of the kit's own:
+  // `--resume <id> -n <name>` renames the conversation, proven live (#319), so
+  // a session still under the shared `<bot>.<session>` moves to an address of
+  // its own here.
   const address = harness !== 'claude' ? undefined
-    : resume === undefined ? addressOf(bot.name, session.name)
-    : isAddressOf(bot.name, session.name, held) ? held : undefined;
+    : resume !== undefined && isAddressOf(bot.name, session.name, held) ? held
+    : addressOf(bot.name, session.name);
   const line = launchCommand(session, {
     harness,
     home,

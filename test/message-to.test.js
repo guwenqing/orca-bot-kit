@@ -169,34 +169,53 @@ test('the native address is the name the receiver\'s harness was launched under'
   assert.equal(answer.address, launched);
 });
 
-test('a session resumed from a book holding the bare name is answered through its mailbox', async (t) => {
-  // The upgrade: a book written before #286 holds `<bot>.<session>`, the name
-  // every fleet's session of that name answers to. The resume cannot be relied
-  // on to rename the conversation, so the line carries no name, the harness
-  // answers to whatever it did before, and the answer is the mailbox rather
-  // than any name.
-  const box = await createSandbox(t);
-  const bots = await fleetIn(box, [['auto-one', 'claude', []], ['auto-two', 'claude', []]]);
-  const { tab } = await sessionIn(bots, 'auto-two', 'daily');
-  const hook = await recordSession(box, { bots, bot: 'auto-two', tab, session: 'sess-1' });
-  assert.equal(hook.code, 0, hook.stderr);
-  await conversationOnRecord(box, { harness: 'claude', cwd: botHomeOf(bots, 'auto-two'), id: 'sess-1' });
-  const book = await bookIn(bots, 'auto-two');
-  book.sessions.daily.address = 'auto-two.daily';
-  await writeFile(bookOf(bots, 'auto-two'), stringify(book));
-  // The tab was closed, so the next up resumes the conversation in a new one.
-  await box.orca.set({ terminals: (await box.orca.terminals()).filter((terminal) => terminal.tabId !== tab) });
-  const up = await box.run(['up', '--bots', 'bots', '--bot', 'auto-two']);
-  assert.equal(up.code, 0, up.stderr);
-  const line = typedInto(await tabOf(box, bots, 'auto-two'))[0];
-  assert.ok(line.includes('--resume sess-1'), `the run should have resumed, got: ${line}`);
-  assert.equal(nameOnLine(line), undefined, `and named nothing, got: ${line}`);
+/**
+ * The two ways the kit's own launch line resumes a session whose tab is no
+ * longer the one it was running in: `up` after the tab was closed, and
+ * `restart`, which closes it itself. Each with whether the test closes the tab.
+ */
+const RESUMED_BY = [
+  ['brought back by up after its tab was closed', 'up', true],
+  ['restarted', 'restart', false],
+];
 
-  const answer = await askTo(box, ['--to', 'auto-two', '--from', 'auto-one/daily']);
+for (const [route, command, closed] of RESUMED_BY) {
+  for (const [label, held] of [['the bare name', 'auto-two.daily'], ['no address', undefined]]) {
+    test(`a session ${route} from a book holding ${label} is written to natively, at the new address its line carried`, async (t) => {
+      // The upgrade (#319): a book written before #286 holds `<bot>.<session>`,
+      // the name every fleet's session of that name answers to, or no name at
+      // all. The resume moves the conversation to an address of its own — the
+      // harness's `--resume <id> -n <new>` renames it, proven live — so from
+      // then on the pair has the native road, at that address.
+      const box = await createSandbox(t);
+      const bots = await fleetIn(box, [['auto-one', 'claude', []], ['auto-two', 'claude', []]]);
+      const { tab } = await sessionIn(bots, 'auto-two', 'daily');
+      const hook = await recordSession(box, { bots, bot: 'auto-two', tab, session: 'sess-1' });
+      assert.equal(hook.code, 0, hook.stderr);
+      await conversationOnRecord(box, { harness: 'claude', cwd: botHomeOf(bots, 'auto-two'), id: 'sess-1' });
+      const book = await bookIn(bots, 'auto-two');
+      if (held === undefined) delete book.sessions.daily.address;
+      else book.sessions.daily.address = held;
+      await writeFile(bookOf(bots, 'auto-two'), stringify(book));
+      if (closed) await box.orca.set({ terminals: (await box.orca.terminals()).filter((terminal) => terminal.tabId !== tab) });
+      const ran = await box.run([command, '--bots', 'bots', '--bot', 'auto-two']);
+      assert.equal(ran.code, 0, ran.stderr);
+      const line = typedInto(await tabOf(box, bots, 'auto-two'))[0];
+      assert.ok(line.includes('--resume sess-1'), `the run should have resumed, got: ${line}`);
+      const address = nameOnLine(line);
+      assert.match(String(address), addressPattern('auto-two', 'daily'), `under a new address of the kit's kind, got: ${line}`);
 
-  assert.equal(answer.transport, 'orca', `got: ${JSON.stringify(answer)}`);
-  assert.equal(answer.address, `run:${(await sessionIn(bots, 'auto-two', 'daily')).mailbox}`);
-});
+      const answer = await askTo(box, ['--to', 'auto-two', '--from', 'auto-one/daily']);
+
+      assert.deepEqual(
+        { transport: answer.transport, address: answer.address },
+        { transport: 'native', address },
+        `the answer is the address the line carried: ${JSON.stringify(answer)}`,
+      );
+      assert.equal((await sessionIn(bots, 'auto-two', 'daily')).address, address, 'which is the one the book holds');
+    });
+  }
+}
 
 /**
  * What a Claude receiver's book may hold as its address, and whether it is one
