@@ -121,7 +121,7 @@ Each line is a check a developer can run. Issues turn these into acceptance test
 ### 6.5 Session identity
 
 - The kit's book is the authority for session ids. Orca loses its resume record when a tab is closed. [decided] → ADR 0012
-- The kit learns a session's new id whenever the session starts, resumes or is cleared, and keeps the old one in that session's history. Whatever it installs for this lives in the bot's own folder, never in user-level settings. [decided] → ADR 0020
+- The kit learns a session's new id whenever the session starts, resumes or is cleared, and keeps the old one in that session's history. Whatever it installs for this lives in the bot's own folder, never in user-level settings. [decided] → ADR 0022
 - `/clear` and compact are supported. `/clear` always makes the harness generate a new session id (certain for Claude Code, likely the same for Codex). The old ids are kept, for history, auditing, finops or whatever needs them. `/clear` means the user wants a clean start; no handoff happens automatically. [decided]
 - Session ids are remembered across a restart, whether from a computer restart or one asked for by Bot Father. [decided]
 - When skills change, Bot Father's management skill knows how to reload them without a restart. [decided]

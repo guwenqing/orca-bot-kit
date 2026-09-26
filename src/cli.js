@@ -414,7 +414,7 @@ const RECORD = 'session record';
  * A hook runs inside the user's own session, so this one stays out of the way:
  * it writes on standard output only what the harness is to read as JSON, and
  * whatever goes wrong, it goes wrong quietly. A book left stale is a thing the
- * health check finds later; a session disturbed is the user's work (ADR 0020).
+ * health check finds later; a session disturbed is the user's work (ADR 0022).
  */
 async function record(bots, bot) {
   try {

@@ -234,6 +234,67 @@ test('the fake ps reads one pid and does nothing else', async (t) => {
   assert.equal((await box.ps.calls()).length, 4, 'and every call is on the record, the refused ones too');
 });
 
+test('the fake ps reads one process\'s environment the way macOS prints it, and in no other shape', async (t) => {
+  // Measured on Orca 1.4.210 (#318, tech notes section 1): `ps -E -ww -o
+  // command= -p <pid>` prints the command and its arguments, then every
+  // variable as a NAME=value word. A harness the kit's launch line started
+  // carries OBK_TAB_SHELL, the pid of the shell it ran in; one Orca resumed by
+  // itself carries Orca's variables and none of the kit's. A fake that got
+  // this wrong would pass a kit that reads the wrong process or the wrong word.
+  const box = await createSandbox(t);
+  const { handle, ptyId } = oneTab(box);
+  answer(ask(box, ['terminal', 'send', '--terminal', handle, '--text', 'OBK_TAB_SHELL=$$ OBK_CLI=/x/obk claude -n a.b', '--enter', '--json']));
+  const { tabId } = (await box.orca.terminals()).find((one) => one.handle === handle);
+  const panes = answer(ask(box, ['diagnostics', 'memory', '--json'])).result.worktrees.flatMap((worktree) => worktree.sessions);
+  const login = psLine(ps(box, panes.find((one) => one.sessionId === ptyId).pid));
+  const harness = psLine(ps(box, login.tpgid));
+  const environment = (pid) => spawnSync(box.ps.cli, ['-E', '-ww', '-o', 'command=', '-p', String(pid)], { env: box.env, encoding: 'utf8' });
+  const wordsOf = (pid) => {
+    const done = environment(pid);
+    assert.equal(done.status, 0, done.stderr);
+    return done.stdout.trim().split(' ');
+  };
+  const kits = (words) => words.filter((word) => word.startsWith('OBK_'));
+
+  const launched = wordsOf(harness.pid);
+  assert.deepEqual(launched.slice(0, 3), ['claude', '-n', 'a.b'], `the command comes first, got: ${launched.join(' ')}`);
+  assert.ok(launched.includes(`ORCA_TAB_ID=${tabId}`), `then Orca's variables, got: ${launched.join(' ')}`);
+  assert.deepEqual(kits(launched), [`OBK_TAB_SHELL=${harness.ppid}`, 'OBK_CLI=/x/obk'], 'and the launch line\'s, the shell\'s own pid among them');
+  const shell = wordsOf(harness.ppid);
+  assert.ok(shell.includes(`ORCA_TAB_ID=${tabId}`), `the tab's shell carries Orca's variables, got: ${shell.join(' ')}`);
+  assert.deepEqual(kits(shell), [], 'and none of the kit\'s, which the line gave the harness alone');
+
+  const retab = async (word) => {
+    const terminals = await box.orca.terminals();
+    await box.orca.set({ terminals: terminals.map((one) => (one.handle === handle ? { ...one, environment: word } : one)) });
+  };
+
+  await retab('orca');
+  const resumed = wordsOf(harness.pid);
+  assert.deepEqual(resumed.slice(0, 2), ['claude', '--resume'], `Orca's own resume, got: ${resumed.join(' ')}`);
+  assert.ok(resumed.includes(`ORCA_TAB_ID=${tabId}`), `with Orca's variables, got: ${resumed.join(' ')}`);
+  assert.deepEqual(kits(resumed), [], 'and none of the kit\'s');
+
+  await retab('other-tab');
+  const elsewhere = wordsOf(harness.pid).filter((word) => word.startsWith('ORCA_TAB_ID='));
+  assert.equal(elsewhere.length, 1);
+  assert.notEqual(elsewhere[0], `ORCA_TAB_ID=${tabId}`, 'another tab\'s id');
+  assert.ok(elsewhere[0].startsWith(`ORCA_TAB_ID=${tabId}`), 'which begins with this one\'s, so only a whole word tells them apart');
+
+  await retab('no-tab-id');
+  assert.deepEqual(wordsOf(harness.pid).filter((word) => word.includes('=')), [], 'no variables at all');
+
+  await retab('ps-fails');
+  const failed = environment(harness.pid);
+  assert.equal(failed.status, 1, 'an environment that cannot be read');
+  assert.notEqual(failed.stderr, '');
+
+  for (const argv of [['-E', '-o', 'command=', '-p', String(harness.pid)], ['-E', '-ww', '-o', 'command=', '-p', '-1'], ['-Eww', '-o', 'command=', '-p', String(harness.pid)]]) {
+    const refused = spawnSync(box.ps.cli, argv, { env: box.env, encoding: 'utf8' });
+    assert.equal(refused.status, 70, `${argv.join(' ')} is not the one environment read the kit may make`);
+  }
+});
+
 test('the fake times out on a busy harness, and answers ok for a shell a harness quit to', async (t) => {
   const box = await createSandbox(t);
   const { handle } = oneTab(box);

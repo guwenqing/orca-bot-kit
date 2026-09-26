@@ -45,7 +45,7 @@
 // The answer echoes the event it was sent rather than naming one itself.
 //
 // The rule over all of it is that it runs inside the user's own session and
-// must never disturb it (ADR 0020). Every input a harness should not send, and
+// must never disturb it (ADR 0022). Every input a harness should not send, and
 // every one it might, ends the same way: exit 0, nothing printed, the book as
 // it was, and not a single call to Orca.
 

@@ -20,6 +20,8 @@
 // front of the harness word, filled in by the tab's shell as it reads the line —
 // and a report counts only when the harness that invoked the hook is a child of
 // it. A harness the session started is a generation further down and is not.
+// A harness Orca resumed by itself has no marker at all; how that one is told
+// apart since #318 is in test/restored-tab-record.test.js.
 //
 // Testing a rule about ancestry needs real ancestry, so these tests build the
 // chain rather than describe it: `throughAHarness` in helpers/cli.js stands in
@@ -190,11 +192,12 @@ test('a child\'s report is not believed even when the session has reported nothi
   assert.equal('session' in (await sessionIn(bot.bots, 'api-bot', 'daily')), false);
 });
 
-test('a report with no OBK_TAB_SHELL in the environment records nothing', async (t) => {
-  // A harness that was already running before the kit began sending the pid has
-  // none, and there is no way to tell it from a child. Nothing is written rather
-  // than something guessed — which does mean such a session stops being recorded
-  // until it is next restarted.
+test('a report with no OBK_TAB_SHELL and no tab\'s harness above it records nothing', async (t) => {
+  // This test used to say a harness with no marker cannot be told from a child.
+  // #318 overturned that: with no marker, a harness is the tab's own when it sits
+  // where one does, under the tab's shell under `login` (restored-tab-record).
+  // The hook run here on its own has nothing like that above it, so it is no
+  // tab's, and nothing is written rather than something guessed.
   const box = await createSandbox(t);
   const bot = await started(box, 'claude');
   const before = await readFile(bookOf(bot.bots, 'api-bot'), 'utf8');

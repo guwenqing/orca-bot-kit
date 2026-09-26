@@ -340,7 +340,7 @@ with why that one ended and when
 
 The book stays true to the harness through a hook `obk up` puts in the bot's own
 folder — `.claude/settings.json` or `.codex/hooks.json`, never your user-level
-settings ([ADR 0020](docs/adr/0020-kit-hooks-live-in-the-bot-folder.md)). Your own
+settings ([ADR 0022](docs/adr/0022-kit-hooks-live-in-the-bot-folder.md)). Your own
 settings in those files are kept. Codex asks you to trust a hooks file the first
 time it sees one; answer its question in the tab.
 

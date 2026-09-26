@@ -94,7 +94,7 @@ test('a session with no work dir has none made for it', async (t) => {
   assert.deepEqual(
     (await readdir(botHomeOf(bots, 'api-bot'))).sort(),
     // The bot's own harness hooks are the kit's, and belong to every bot with a
-    // session (ADR 0020), and so do the folders of its two skills directories,
+    // session (ADR 0022), and so do the folders of its two skills directories,
     // which every bot has. What the session did not ask for is a work dir.
     ['.agents', '.claude', path.dirname(HOOK_FILES.codex), '.gitignore', 'AGENTS.md', 'CLAUDE.md', 'bot.yaml', 'sessions.yaml'].sort(),
     'nothing is made that the session did not ask for',

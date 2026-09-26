@@ -1,9 +1,9 @@
-# ADR 0020: Kit hooks live in the bot folder, not in user settings
+# ADR 0022: Kit hooks live in the bot folder, not in user settings
 
-Date: 2026-09-24.
-Status: superseded by [ADR 0022](0022-kit-hooks-live-in-the-bot-folder.md).
-Decided by: the owner, in his design session of 2026-09-19; for what the kit does when the book cannot name a conversation, what slice 04 built after its review (#88), recorded on 2026-09-23, which the owner may overrule. Consulted: the coordinator, who proposed the hook's place.
-Supersedes: [ADR 0010](0010-kit-hooks-live-in-the-bot-folder.md).
+Date: 2026-09-25.
+Status: accepted.
+Decided by: the owner, in his design session of 2026-09-19; for what the kit does when the book cannot name a conversation, what slice 04 built after its review (#88), recorded on 2026-09-23, which the owner may overrule; the architect, for #318, for how the hook knows the session's own harness in a tab the kit did not launch, which the owner may overrule. Consulted: the coordinator, who proposed the hook's place.
+Supersedes: [ADR 0020](0020-kit-hooks-live-in-the-bot-folder.md).
 
 ## Context
 
@@ -26,6 +26,22 @@ A bot's folder holds the conversations of every one of its sessions and of
 anything they start inside themselves, and neither harness links a new
 conversation to the one the same session had before (tech notes).
 
+Every program in a tab carries the tab's id, a harness the session starts
+inside itself included, so the tab alone does not say whether a report is the
+session's own (#88). Since slice 04 the kit's launch line gives the harness
+the pid of the tab's shell, and a report counts only when its harness is that
+shell's child.
+
+When Orca brings its tabs back by itself, after a machine restart or an Orca
+update, it resumes each harness with a bare `claude --resume <id>` or `codex
+resume <id>`, with none of the kit's launch line. So a `/clear` there was not
+written to the book, and the session was not told its duty again: the book
+kept the conversation before the clear, which a later restart would resume
+(seen on 2026-09-25, Orca 1.4.210, #318). The harness Orca resumes sits where
+the kit's own does: the direct child of the tab's login shell, which is the
+child of the pane's `login` (seen with `ps` the same day, for Claude Code and
+Codex, restored and kit-launched alike; tech notes).
+
 Writing is not banned: an AI acting on the user's instruction may write what
 the user asks, user-level settings included. The kit's own mechanical code
 does not reach into user-level settings by itself (PRD 6.3, the owner,
@@ -37,6 +53,14 @@ The kit's hook lives in the bot's own folder inside the bots repo, for each
 harness in the place that harness reads. Through it the kit updates the book
 and makes sure the session has its start prompt again after a clear. The kit
 never writes to user-level settings.
+
+The hook writes down only what the session's own harness reports: the harness
+in the tab the book names for the session, started by that tab's shell. The
+launch line names the shell. In a tab that has no launch line, such as one
+Orca brought back by itself, the tab's shell is the one `login` started for
+the pane. A harness the session starts inside itself is never the session's
+own. (The architect, #318, for the tab with no launch line; the owner may
+overrule.)
 
 The kit does not fall back to the newest transcript in a bot's folder. When
 the book cannot name a session's conversation, the kit writes the ones it
@@ -59,11 +83,23 @@ review, #88, recorded on 2026-09-23; the owner may overrule.)
 - **The tab's `ORCA_TAB_ID` alone as proof that a conversation is the
   session's.** Not chosen: a child `codex exec` in the same tab carries the
   same value and took the session over (#88). The kit uses the process tree
-  from the launch shell instead.
-- **`up` adopting a single unclaimed conversation, or refusing to start while
-  there are several.** Tried and dropped in the same review: a fleet that will
-  not come up because the kit is unsure is worse than one that starts fresh
-  and says so (#88).
+  from the tab's shell instead.
+- **Only the shell the launch line names.** What slice 04 built. Not enough on
+  its own: a tab Orca brought back has no launch line, so its `/clear` went
+  unrecorded and its duty was not handed back (#318).
+- **Only the `login` shell, with no launch-line marker.** Not chosen: the
+  marker is proven, and it still covers a tab whose shell hands over to
+  another one, such as a shell that starts tmux, where the harness is not
+  `login`'s grandchild (#318).
+- **Putting the kit's variables into a tab it did not launch.** Out of bounds
+  for #318: the kit does not fake its own variables or Orca's in a tab.
+- **The hook asking Orca** which program is in the tab and what Orca names it.
+  Not chosen: the hook runs inside the user's session and makes no calls, and
+  the process table answers the question on its own (#318).
+- **Noting the harness's pid in the book when it first reports**, and
+  believing that pid afterwards. Not chosen: it churns a file that is
+  committed, and in a tab whose book is already stale there is no first report
+  to anchor on (#318).
 - **The kit owning the whole hook group in a settings file.** Not chosen: it
   deleted a user's own hook in the same group. The kit owns only its own entry
   (#88, #165).
@@ -77,18 +113,31 @@ review, #88, recorded on 2026-09-23; the owner may overrule.)
 
 - Good: bot-level settings are versioned with the bot and do not collide with
   other tools.
+- Good: a session Orca brought back by itself still has its clears written to
+  the book and is told its duty again after one.
 - Bad: Codex requires hooks to be trusted once; init handles it or tells the
   user the one step.
 - The hook must be fast and must never block the session if `obk` is missing.
 - Bad: a conversation the book cannot name is not guessed at; a person or Bot
   Father has to choose, and until then the session runs on a fresh
   conversation.
+- Bad: the rule for a tab with no launch line rests on the pane being `login`
+  with the shell as its child, which is what Orca does on macOS. Where the
+  pane is the shell itself, or the tab's shell hands over to another, such a
+  tab's reports are not recorded, as before #318.
+- The hook reads the process table with `ps`. Codex runs its SessionStart hook
+  outside its `workspace-write` sandbox, where `ps` would not start (#298), so
+  the reading works on Codex at the kit's default level (tech notes).
 - Revisit if: a harness reports every new conversation with a link to the
   session that had it, or offers a hook place outside the project folder that
-  no other tool writes. Confidence: high; the fallback's failure was seen on
-  real Codex. (Proposed in #262; not recorded when it was decided.)
-- Checked by: `test/session-hooks.test.js`, `test/session-unclaimed.test.js`
-  and `test/hook-links.test.js`.
+  no other tool writes; or Orca brings tabs back through the kit's launch
+  line, or gives a tab a way to say who launched its harness. Confidence:
+  high; the fallback's failure was seen on real Codex, and the restored tabs'
+  tree was read live. (Proposed in #262 for the first part; not recorded when
+  it was decided.)
+- Checked by: `test/session-hooks.test.js`, `test/session-unclaimed.test.js`,
+  `test/session-ownership.test.js`, `test/restored-tab-record.test.js` and
+  `test/hook-links.test.js`.
 
 ## History
 
@@ -102,11 +151,15 @@ review, #88, recorded on 2026-09-23; the owner may overrule.)
   mechanism names, and the file names and the command went out (#85, following
   #84).
 - 2026-09-20: slice 04 built the book and the hook without the fallback, after
-  its review found the guess going wrong both ways (#88). ADR 0010 was not
-  changed.
+  its review found the guess going wrong both ways, and with the launch line
+  naming the tab's shell (#88). ADR 0010 was not changed.
 - 2026-09-23, [ADR 0010](0010-kit-hooks-live-in-the-bot-folder.md): a section
   added after acceptance recorded that the fallback is not used and what the
   kit does instead (#175, #193).
-- 2026-09-24, this record: nothing decided changes. The later section moves
-  into the Decision with its attribution, in place of the fallback sentence,
-  and the record replaces ADR 0010 (#262).
+- 2026-09-24, [ADR 0020](0020-kit-hooks-live-in-the-bot-folder.md): nothing
+  decided changed. The later section moved into the Decision with its
+  attribution, in place of the fallback sentence, and the record replaced ADR
+  0010 (#262).
+- 2026-09-25, this record: the hook also knows the session's own harness in a
+  tab with no launch line, by the tab's `login` shell, and the rule moves from
+  the alternatives into the Decision. It replaces ADR 0020 (#318).

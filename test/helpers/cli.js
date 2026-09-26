@@ -199,10 +199,11 @@ export async function createSandbox(t) {
   // laptop and another in CI. So the kit starts as a plain shell outside Orca
   // does, with none, and a test that means it to run in a tab says which.
   //
-  // A tab the kit launched also has OBK_CLI from its launch line (#220). A
-  // sandbox starts without that too; a test that is about it sets it.
+  // A tab the kit launched also has OBK_CLI and OBK_TAB_SHELL from its launch
+  // line (#220, #318). A sandbox starts without those too; a test that is
+  // about them sets them.
   const outsideOrca = Object.fromEntries(Object.entries(process.env)
-    .filter(([name]) => !name.startsWith('ORCA_') && name !== 'OBK_CLI'));
+    .filter(([name]) => !name.startsWith('ORCA_') && name !== 'OBK_CLI' && name !== 'OBK_TAB_SHELL'));
   const env = {
     ...outsideOrca,
     PATH: `${bin}${path.delimiter}${process.env.PATH}`,
@@ -856,6 +857,97 @@ export async function throughAHarness(box, command, { env, tab, stdin = '', nest
 }
 
 /**
+ * One step of the chain `throughATab` builds: start the next process in the
+ * plan under the name it is given, and at the end of the plan run the hook the
+ * way a harness does, with the event on standard input.
+ */
+const TAB_STEP = `
+  const { spawnSync } = require('node:child_process');
+  const plan = JSON.parse(process.env.OBK_TEST_CHAIN);
+  const next = Number(process.argv[2]);
+  if (next < plan.length) {
+    const ran = spawnSync(plan[next].file, [__filename, String(next + 1)], { argv0: plan[next].argv0, stdio: 'inherit' });
+    process.exit(ran.status ?? 0);
+  }
+  const ran = spawnSync('/bin/sh', ['-c', process.env.OBK_TEST_HOOK], {
+    input: process.env.OBK_TEST_PAYLOAD ?? '',
+    stdio: ['pipe', 'inherit', 'inherit'],
+  });
+  process.exit(ran.status ?? 0);
+`;
+
+/**
+ * Run `command` — one shell line — the way a harness in an Orca tab runs its
+ * hook, under the ancestry a tab really has, and with nothing of the kit's
+ * launch line in the environment: no OBK_TAB_SHELL and no OBK_CLI. That is a
+ * tab Orca brought back by itself after a restart (#318). Measured live on Orca
+ * 1.4.210 with Claude Code 2.1.282 and Codex, for restored and kit-launched
+ * harnesses alike (tech notes, section 1):
+ *
+ *     the pane         /usr/bin/login
+ *     the tab's shell  -/bin/zsh          parent: the pane
+ *     the harness      claude / codex     parent: the tab's shell
+ *     the hook         /bin/sh -c <hook>  parent: the harness
+ *
+ * The kit reads that tree with the machine's own `ps`, so each stand-in is a
+ * real process under the name `ps -o comm=` shows for the real one: on macOS
+ * that is the argv[0] a process was started with, and on Linux the name of the
+ * file it was started from. So each is a link to Node, named as the real
+ * program is, and started with the argv[0] the real one has.
+ *
+ * `harness` is the one the tab runs. `shape` bends the chain:
+ *   'tab'       as above
+ *   'nested'    a second harness under the first, one generation further down:
+ *               a session running a harness of its own, like `codex exec`
+ *   'no-login'  the shell with no `login` above it, its parent this test
+ *   'no-shell'  the harness straight under `login`, no shell between them
+ * `direct: true` leaves no shell between the harness and the hook: the shell
+ * the harness runs the hook in replaces itself with it (`exec`), which a
+ * shell does of its own accord with a single command.
+ *
+ * `env` is the environment to start from, the sandbox's by default, and is
+ * taken as it is: a test that wants a marker in it puts one there. Answers
+ * like `box.run`: the hook's own exit code, stdout and stderr.
+ */
+export async function throughATab(box, command, { tab, stdin = '', harness = 'claude', shape = 'tab', direct = false, env } = {}) {
+  const dir = path.join(box.root, 'tab');
+  await mkdir(dir, { recursive: true });
+  const step = path.join(dir, 'step.cjs');
+  await writeFile(step, `${TAB_STEP.trim()}\n`);
+  const link = async (name) => {
+    const file = path.join(dir, name);
+    await rm(file, { force: true });
+    await symlink(process.execPath, file);
+    return file;
+  };
+
+  const login = { file: await link('login'), argv0: path.join(dir, 'login') };
+  const shell = { file: await link('zsh'), argv0: `-${path.join(dir, 'zsh')}` };
+  const own = { file: await link(harness), argv0: harness };
+  const inner = harness === 'claude' ? 'codex' : 'claude';
+  const plan = {
+    tab: [login, shell, own],
+    nested: [login, shell, own, { file: await link(inner), argv0: inner }],
+    'no-login': [shell, own],
+    'no-shell': [login, own],
+  }[shape];
+  if (plan === undefined) throw new Error(`throughATab: no chain of the shape ${shape}`);
+
+  const [first, ...rest] = plan;
+  return capture(first.file, [step, '0'], {
+    argv0: first.argv0,
+    cwd: box.cwd,
+    env: {
+      ...(env ?? box.env),
+      ...(tab === undefined ? {} : { ORCA_TAB_ID: tab }),
+      OBK_TEST_CHAIN: JSON.stringify(rest),
+      OBK_TEST_HOOK: direct ? `exec ${command}` : command,
+      OBK_TEST_PAYLOAD: stdin,
+    },
+  });
+}
+
+/**
  * Run the kit's hook the way a harness runs it: the event on standard input,
  * the Orca pane's own `ORCA_TAB_ID` in the environment (proven live: Orca's
  * variables reach a program started in a tab and its children), and under the
@@ -910,7 +1002,7 @@ export async function conversationOnRecord(box, { harness, cwd, id, at = new Dat
  * Where each harness reads a project's hooks from, inside a bot home. Both
  * were proven live on this machine: Claude Code fires a `SessionStart` hook
  * out of `<cwd>/.claude/settings.json` and Codex out of `<cwd>/.codex/hooks.json`,
- * with no user-level settings involved either side (ADR 0020).
+ * with no user-level settings involved either side (ADR 0022).
  */
 export const HOOK_FILES = {
   claude: path.join('.claude', 'settings.json'),
