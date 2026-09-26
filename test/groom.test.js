@@ -360,6 +360,33 @@ function assertCron(line, cron) {
   assert.match(line, new RegExp(`(?:^|[^0-9])${escaped}(?![0-9])`), `the line should carry the cron ${cron}, got: ${line}`);
 }
 
+/**
+ * The line asks the session, when it runs it, to list its jobs and delete
+ * every one whose prompt starts with `obk grooming`: CronList, CronDelete and
+ * that rule, whatever the kit read from the transcript when it typed. A line
+ * waits in the tab until the session gets to it, so by then what the kit read
+ * can be stale (review of PR #322).
+ */
+function assertClearsEveryGroomingJob(line) {
+  assert.match(line, /CronList/, `the line should ask the session to call CronList when it runs it, got: ${line}`);
+  assert.match(line, /CronDelete/, `and to CronDelete, got: ${line}`);
+  assert.ok(line.includes('obk grooming'), `every job whose prompt starts with obk grooming, got: ${line}`);
+}
+
+/**
+ * The same, asked before the line's CronCreate: the listing, the deleting and
+ * the `obk grooming` rule all come ahead of it in the line, so the rule is not
+ * only the new job's own marker, which follows it.
+ */
+function assertClearsBeforeCreating(line) {
+  assertClearsEveryGroomingJob(line);
+  const create = line.indexOf('CronCreate');
+  assert.ok(create >= 0, `the line should ask for a CronCreate, got: ${line}`);
+  for (const asked of ['CronList', 'CronDelete', 'obk grooming']) {
+    assert.ok(line.indexOf(asked) < create, `${asked} should come before the CronCreate, got: ${line}`);
+  }
+}
+
 /** The line names the CLI that is running, by its own path, in either spelling. */
 function assertNamesCli(box, line) {
   assert.ok(
@@ -809,6 +836,23 @@ test('G6 --on --at types one line into the grooming tab asking for one recurring
   assert.deepEqual(answer.groom.jobs, [], 'jobs is read before the line, so the job it asked for is not there yet');
 });
 
+test('G6 --on --at twice before either has run: each line clears every grooming job before it creates one', async (t) => {
+  // The second is typed while the first still waits in the tab, so the kit
+  // sees no job either time. A second line that only created would leave the
+  // fleet with two jobs, groomed twice a day (review of PR #322).
+  const box = await createSandbox(t);
+  const bots = await fleet(box);
+
+  for (const time of ['first', 'second']) {
+    const before = await sendsByTab(box);
+    const answer = await groom(box, '--on', '--at', '04:00');
+    const line = await theLineTyped(box, bots, before);
+    assertClearsBeforeCreating(line);
+    assertCron(line, '0 4 * * *');
+    assert.equal(answer.groom.asked, 'on', `the ${time} --on`);
+  }
+});
+
 test('G6 the time becomes a cron of plain numbers, minute then hour, every day', async (t) => {
   const box = await createSandbox(t);
   const bots = await fleet(box);
@@ -962,23 +1006,79 @@ test('G7 --off asks for each grooming job to be deleted by id, and for none to b
   assert.equal(answer.groom.asked, 'off');
 });
 
-test('G7 --off with no grooming job types nothing, says grooming is off, and answers 0; with one it types the line', async (t) => {
-  const box = await createSandbox(t);
-  const bots = await fleet(box);
+/**
+ * `--off` where there is no tab to tell and no job to see: nothing typed,
+ * grooming said to be off, exit 0, nothing asked.
+ */
+async function offWithNothingToTell(box, state) {
   const before = await sendsByTab(box);
 
   const plain = await run(box, '--off');
   const answer = await groom(box, '--off');
 
-  assert.equal(plain.code, 0, plain.stderr);
-  assert.match(plain.stdout.replaceAll(/--[a-z-]+/g, ' '), /\boff\b/i, `it should say grooming is off, got:\n${plain.stdout}`);
-  assert.equal(answer.groom.asked, null, 'nothing was typed, so nothing was asked');
-  await assertNothingTyped(box, before, '--off with nothing to turn off');
+  assert.equal(plain.code, 0, `${state}: ${plain.stderr}`);
+  assert.match(plain.stdout.replaceAll(/--[a-z-]+/g, ' '), /\boff\b/i, `${state}: it should say grooming is off, got:\n${plain.stdout}`);
+  assert.equal(answer.groom.asked, null, `${state}: nothing was typed, so nothing was asked`);
+  await assertNothingTyped(box, before, `${state}: --off`);
+}
 
-  await oneJob(box, bots, 'a1b2c3d4');
-  const turnedOff = await groom(box, '--off');
-  assert.ok((await theLineTyped(box, bots, before)).includes('a1b2c3d4'));
-  assert.equal(turnedOff.groom.asked, 'off');
+test('G7 --off with no job listed types its line into an up Claude grooming tab; with no tab to tell, nothing, off, exit 0', async (t) => {
+  // An --on typed a moment before may still be waiting in the tab, and the
+  // transcript shows no job until the session has run it. So an up Claude
+  // grooming tab is told to clear every grooming job whether or not the kit
+  // sees one. Where there is no such tab and no job to see, grooming is off.
+  const box = await createSandbox(t);
+  const bots = await fleet(box);
+  const before = await sendsByTab(box);
+
+  const answer = await groom(box, '--off');
+
+  const line = await theLineTyped(box, bots, before);
+  assertClearsEveryGroomingJob(line);
+  assert.doesNotMatch(line, /CronCreate/, `turning it off makes no job, got: ${line}`);
+  assert.equal(answer.groom.asked, 'off');
+  assert.deepEqual(answer.groom.jobs, [], 'no job was listed when it typed');
+
+  const paused = await box.run(['pause', '--bots', 'bots', '--bot', 'bot-father', '--session', 'grooming']);
+  assert.equal(paused.code, 0, paused.stderr);
+  await offWithNothingToTell(box, 'a grooming tab Orca no longer lists');
+
+  const other = await createSandbox(t);
+  assert.equal((await other.run(['init', '--bots', 'bots', '--harness', 'claude'])).code, 0);
+  await offWithNothingToTell(other, 'no grooming session');
+  assert.equal((await other.run(['session', 'add', '--bots', 'bots', '--bot', 'bot-father', '--name', 'grooming'])).code, 0);
+  await offWithNothingToTell(other, 'a grooming session never brought up');
+
+  const codex = await createSandbox(t);
+  await fleet(codex, { harness: 'codex', conversation: null });
+  await offWithNothingToTell(codex, 'a Codex grooming session');
+});
+
+test('G7 --on --at, --off, --on --at with nothing run between: three lines, each clearing every grooming job, only the on lines creating one', async (t) => {
+  // The review of PR #322: typed one after another, none of them run yet, the
+  // transcript shows no job at any of the three. An --off that went by the
+  // transcript typed nothing, and grooming stayed on after the user said off.
+  // Run in order in the tab, these three leave exactly one job.
+  const box = await createSandbox(t);
+  const bots = await fleet(box);
+
+  const lines = [];
+  for (const [flags, asked] of [[['--on', '--at', '04:00'], 'on'], [['--off'], 'off'], [['--on', '--at', '04:00'], 'on']]) {
+    const before = await sendsByTab(box);
+    const answer = await groom(box, ...flags);
+    lines.push(await theLineTyped(box, bots, before));
+    assert.equal(answer.groom.asked, asked, `groom ${flags.join(' ')}`);
+    assert.deepEqual(answer.groom.jobs, [], `groom ${flags.join(' ')}: nothing has run in the tab, so no job is listed`);
+  }
+
+  const [on, off, again] = lines;
+  assertClearsEveryGroomingJob(off);
+  assert.doesNotMatch(off, /CronCreate/, `the off line makes no job, got: ${off}`);
+  for (const line of [on, again]) {
+    assertClearsBeforeCreating(line);
+    assertCron(line, '0 4 * * *');
+    assert.ok(line.includes(markerOf(bots)), `got: ${line}`);
+  }
 });
 
 test('G8 --now asks for one grooming run now, the run a job would do, and schedules nothing', async (t) => {
