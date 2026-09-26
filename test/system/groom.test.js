@@ -29,7 +29,11 @@
 //      CronList and the answer is read from its transcript. After a `/clear`,
 //      what `obk groom` lists and what CronList answers in the new conversation
 //      are the same thing: either the job is still there and the kit says so, or
-//      it is gone and the kit says grooming is off.
+//      it is gone and the kit says grooming is off. Then two resumes of the
+//      conversation the `/clear` began, each leaving a new `SessionStart:resume`
+//      line and each held to the same agreement: `obk restart`, and a bare
+//      `claude --resume <id>` typed into the tab's shell after `/exit`, which is
+//      how Orca's own cold restore starts a tab (#318).
 //   5. Nothing is scheduled before `--on`: the session is added and brought up,
 //      `obk groom` is asked, `--at` on its own is refused, and through all of it
 //      the grooming conversation makes no job and `daily` hears nothing.
@@ -92,7 +96,7 @@
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { mkdtemp, readdir, realpath, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -355,9 +359,9 @@ function whatIsUp(handle) {
 /**
  * Wait until the tab will take a question: a TUI is up, and the tab is not
  * waiting on a screen of its own. The wait is long because a person may be
- * answering one.
+ * answering one. `hint` says what that screen is likely to be, when it is known.
  */
-async function readyForAQuestion(handle, within = READY_MS) {
+async function readyForAQuestion(handle, within = READY_MS, hint = '') {
   await until(
     `${handle} to be past the questions of its own`,
     within,
@@ -366,7 +370,7 @@ async function readyForAQuestion(handle, within = READY_MS) {
       if (answer.ok !== true) return undefined;
       return answer.result?.wait?.blockedReason === undefined ? true : undefined;
     },
-    () => whatIsUp(handle),
+    () => `${hint}${whatIsUp(handle)}`,
   );
 }
 
@@ -383,12 +387,20 @@ function idleNow(handle) {
 
 /**
  * Type a line into this test's own tab, once it is ready to take one, with
- * `--enter` to submit it. Orca gates `--enter` as an agent prompt now and then,
- * and a reissue was refused when it was tried live, so a gated line fails with
- * the screen and the id rather than retrying (see `session-identity.test.js`).
+ * `--enter` to submit it. `hint` is for the message of a wait that runs out.
  */
-async function askIn(handle, text) {
-  await readyForAQuestion(handle);
+async function askIn(handle, text, hint = '') {
+  await readyForAQuestion(handle, READY_MS, hint);
+  sendLine(handle, text);
+}
+
+/**
+ * Send one line into this test's own tab, with `--enter`, whatever is in front
+ * of it. Orca gates `--enter` as an agent prompt now and then, and a reissue was
+ * refused when it was tried live, so a gated line fails with the screen and the
+ * id rather than retrying (see `session-identity.test.js`).
+ */
+function sendLine(handle, text) {
   const sent = orca(['terminal', 'send', '--terminal', handle, '--text', text, '--enter']);
   if (sent.ok === true) return;
 
@@ -537,19 +549,63 @@ function reportsIn(lines, since) {
 function tailOf(lines, count = 15) {
   if (lines.length === 0) return '    (nothing)';
   return lines.slice(-count).map((line) => {
-    const said = line.message?.content ?? line.toolUseResult ?? line.compactMetadata ?? '';
+    const said = line.message?.content ?? line.toolUseResult ?? line.compactMetadata ?? line.attachment ?? '';
     return `    ${line.timestamp ?? '-'}  ${line.type}${line.subtype ? `/${line.subtype}` : ''}  ${JSON.stringify(said).slice(0, 200)}`;
   }).join('\n');
 }
 
 /**
+ * The lines the kit's SessionStart hook left for a `--resume` (tech notes,
+ * section 2: an `attachment` whose `hookName` is `SessionStart:resume`). One is
+ * written each time a process resumes the conversation.
+ */
+const resumesIn = (lines) => lines.filter((line) => line.type === 'attachment' && line.attachment?.hookName === 'SessionStart:resume');
+
+/** Claude Code's registry of running processes, one file each, `<pid>.json` (tech notes, section 2). */
+const REGISTRY = path.join(os.homedir(), '.claude', 'sessions');
+
+/**
+ * The Claude Code processes having conversation `id` right now: the registry's
+ * entries for it whose process is still there. A file left behind by a process
+ * that was killed with its tab is not one, which is why the process itself is
+ * looked at as well. That look is `ps -p`, which only reads: nothing here
+ * signals any process.
+ */
+function processesIn(id) {
+  return registry()
+    .filter((entry) => entry.sessionId === id && Number.isInteger(entry.pid) && entry.pid > 0)
+    .filter((entry) => spawnSync('ps', ['-p', String(entry.pid), '-o', 'pid='], { encoding: 'utf8' }).status === 0)
+    .map((entry) => entry.pid);
+}
+
+/** Every entry in the registry, read as it is; one being written or removed as it is read is left out. */
+function registry() {
+  let names;
+  try {
+    names = readdirSync(REGISTRY);
+  } catch {
+    return [];
+  }
+  const entries = [];
+  for (const name of names.filter((one) => one.endsWith('.json'))) {
+    try {
+      entries.push(JSON.parse(readFileSync(path.join(REGISTRY, name), 'utf8')));
+    } catch {
+      // The next look reads it again.
+    }
+  }
+  return entries.filter((entry) => entry !== null && typeof entry === 'object');
+}
+
+/**
  * Ask the grooming session to call CronList, and read what Claude Code answered
  * out of the transcript (`toolUseResult.jobs`). The question carries no marker,
- * so it is never taken for a fire.
+ * so it is never taken for a fire. `hint` is for the message of a wait that runs
+ * out.
  */
-async function cronListIn(home, handle) {
+async function cronListIn(home, handle, hint = '') {
   const asked = Date.now();
-  await askIn(handle, 'Use your CronList tool to list the jobs scheduled in this session, then reply with the single word listed.');
+  await askIn(handle, 'Use your CronList tool to list the jobs scheduled in this session, then reply with the single word listed.', hint);
   return until(
     'the grooming session to answer a CronList',
     ANSWER_MS,
@@ -561,7 +617,7 @@ async function cronListIn(home, handle) {
       assert.ok(Array.isArray(answer.toolUseResult?.jobs), `CronList answered without a list of jobs: ${JSON.stringify(answer.toolUseResult)}`);
       return answer.toolUseResult.jobs;
     },
-    () => `\n  its conversation since the question:\n${tailOf(after(conversationOf(home, 'grooming').lines, asked))}${whatIsUp(handle)}`,
+    () => `${hint}\n  its conversation since the question:\n${tailOf(after(conversationOf(home, 'grooming').lines, asked))}${whatIsUp(handle)}`,
     POLL_MS,
   );
 }
@@ -936,7 +992,7 @@ test('grooming runs on Claude Code\'s own schedule in the grooming session: off 
   // says grooming is off. What must not happen is the two disagreeing: a job the
   // kit does not see is a fleet groomed twice once the user turns it on again.
   await askIn(handle, '/clear');
-  await until(
+  const cleared = await until(
     'the grooming session to report the conversation /clear began',
     HOOK_MS,
     async () => {
@@ -961,4 +1017,106 @@ test('grooming runs on Claude Code\'s own schedule in the grooming session: off 
     assert.match(gone.stdout, /\boff\b/i, `with no job, obk groom says grooming is off: ${gone.stdout}`);
     assert.ok(gone.stdout.includes('--on'), `and how to turn it on again: ${gone.stdout}`);
   }
+
+  // What obk groom lists against what Claude Code itself holds, said both ways
+  // when they differ: which jobs came back, and whether the one made before the
+  // /clear was among them. Neither side is assumed; they only have to agree.
+  const agrees = (jobs, when) => {
+    const held = jobs.filter((job) => String(job.prompt ?? '').startsWith(marker)).map((job) => job.id).sort();
+    const listed = obkJson(['groom', '--bots', bots]).groom.jobs.map((job) => job.id).sort();
+    assert.deepEqual(
+      listed,
+      held,
+      `${when}, obk groom should list exactly the grooming jobs Claude Code holds. CronList held ${JSON.stringify(held)}:`
+      + ` the job made before the /clear, ${kept.id}, ${held.includes(kept.id) ? 'came back' : 'did not come back'}.`
+      + ` obk groom listed ${JSON.stringify(listed)}.`,
+    );
+  };
+
+  // ---------------------------------------------------------------------------
+  // 4, after the /clear: a resume. The kit reads a Claude Code process's jobs
+  // from every conversation it has had since it began, back through the book's
+  // `clear` history to the transcript with the hook's `startup` or `resume`
+  // line. Which jobs a resume of a conversation that began with a /clear brings
+  // back has not been seen live (tech notes, section 2), so this finds out, and
+  // holds the kit to whatever Claude Code does.
+  const resumedBefore = resumesIn(linesOf(home, cleared)).length;
+  const reopened = obkJson(['restart', '--bots', bots, '--bot', 'bot-father', '--session', 'grooming']);
+  assert.deepEqual(
+    (reopened.closed ?? []).map((one) => one.name),
+    ['grooming'],
+    `the restart should close the grooming tab and no other: ${JSON.stringify(reopened.closed)}`,
+  );
+  const again = tabOf(reopened, 'grooming');
+  assert.equal(again.resumed, true, 'and bring back the conversation the /clear began');
+  assert.equal(
+    again.harnessStarted,
+    true,
+    `no claude came up in ${again.title}: look at it with \`orca terminal read --terminal ${again.terminal} --screen\``,
+  );
+  handle = again.terminal;
+  await readyForAQuestion(handle);
+  assert.equal(sessionIn(home, 'grooming').session, cleared, 'the book still holds the conversation the /clear began');
+  agrees(await cronListIn(home, handle), 'After a restart that resumed the conversation the /clear began');
+
+  // Looked for after the question rather than before it: whether the hook's
+  // line is written as the process starts or with its first turn has not been
+  // seen, and after a turn it is there either way.
+  await until(
+    'the resumed conversation to carry a new SessionStart:resume line',
+    HOOK_MS,
+    async () => (resumesIn(linesOf(home, cleared)).length > resumedBefore ? true : undefined),
+    () => `\n  the conversation ${cleared}, at its end:\n${tailOf(linesOf(home, cleared))}${whatIsUp(handle)}`,
+  );
+
+  // ---------------------------------------------------------------------------
+  // 4, a bare resume: how Orca's own cold restore starts a tab again (#318). A
+  // new process, `claude --resume <id>` in Bot Father's folder, with none of the
+  // kit's launch line: no OBK_* variables, no -n, no --permission-mode. The
+  // kit's hook is in the folder's own settings, so it should still run and leave
+  // its `resume` line; that has not been seen live either.
+  //
+  // In this test's own tab: the running harness is ended with /exit, and the
+  // line typed into the shell that is then in front.
+  const bareHint = ' The session was started bare, so it runs on this machine\'s own settings'
+    + ' and not the kit\'s launch line: manual approval, and it may be asking something on'
+    + ' screen first. Answer it in Orca.';
+  const running = processesIn(cleared);
+  assert.equal(
+    running.length,
+    1,
+    `the premise: one running Claude Code process is having the conversation ${cleared}, and there are ${running.length}.`
+    + ` The registry in ${REGISTRY} holds, for this folder: ${JSON.stringify(registry()
+      .filter((entry) => entry.cwd === home)
+      .map((entry) => ({ pid: entry.pid, sessionId: entry.sessionId })))}`,
+  );
+  await askIn(handle, '/exit');
+  await until(
+    `the grooming session's Claude Code (pid ${running[0]}) to exit, so the shell is in front`,
+    ANSWER_MS,
+    async () => (processesIn(cleared).includes(running[0]) ? undefined : true),
+    () => whatIsUp(handle),
+  );
+
+  const resumedBeforeBare = resumesIn(linesOf(home, cleared)).length;
+  sendLine(handle, `claude --resume ${cleared}`);
+  await until(
+    `a new Claude Code process to resume ${cleared} from the bare command`,
+    READY_MS,
+    async () => processesIn(cleared).find((pid) => pid !== running[0]),
+    () => `${bareHint}${whatIsUp(handle)}`,
+  );
+  await readyForAQuestion(handle, READY_MS, bareHint);
+  agrees(await cronListIn(home, handle, bareHint), 'After a bare `claude --resume`');
+
+  // And the kit's hook ran for it, with no launch line of the kit's: a new
+  // `resume` line (looked for after the question, as above), and the book still
+  // on the same conversation.
+  await until(
+    'the bare resume to leave a new SessionStart:resume line',
+    HOOK_MS,
+    async () => (resumesIn(linesOf(home, cleared)).length > resumedBeforeBare ? true : undefined),
+    () => `${bareHint}\n  the conversation ${cleared}, at its end:\n${tailOf(linesOf(home, cleared))}${whatIsUp(handle)}`,
+  );
+  assert.equal(sessionIn(home, 'grooming').session, cleared, 'the book still holds the same conversation after the bare resume');
 });
