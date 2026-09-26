@@ -1,40 +1,211 @@
 // The daily grooming run (PRD 6.8): an optional pass that reads what the bots
 // have been doing, works out what it cost, and tells Bot Father.
 //
-// It is an Orca automation rather than a tab in the book, and that is forced by
-// how Orca works rather than chosen: an automation can only reuse a session it
-// started itself, so it cannot be pointed at a tab the kit made (tech notes,
-// section 1). So grooming is the automation's own session, and whatever it has
-// to remember between runs lives in files, which is what the profile notes are.
+// It runs on Claude Code's own scheduler, in a session of Bot Father's called
+// `grooming`, because the owner decided that scheduled work does not use an
+// Orca automation: an automation cannot carry a model or an effort of its own,
+// and a session's launch line can (#223). The user adds that session like any
+// other, with the model and effort it is to run at, and brings it up; the kit
+// never makes, starts or closes it.
 //
-// It is created off. It spends tokens every day, and a routine nobody has
-// watched should not be running unwatched, so it waits for one explicit yes.
+// So the kit schedules nothing itself. The job is the session's: its own
+// `CronCreate`, which lives only in that conversation and only while its tab is
+// up, comes back on a resume, and is gone after a `/clear` (tech notes,
+// section 2). The kit reads which grooming jobs there are out of the
+// conversation's transcript, and when asked it types one line into the
+// grooming tab: schedule, unschedule, run once, or compact. It keeps no copy of
+// what is scheduled, so what it reports is what the conversation holds.
 //
-// The one thing this must get right is that there is never more than one.
-// Orca does not deduplicate an automation by name: asked twice, it makes two,
-// and a user with two of these is groomed twice a day for ever. So the kit
-// looks for its own before it creates anything, and the looking is by both the
-// name it gives its own and the folder it attached it to, because a user's own
-// automation can live in the same project and must be left alone.
+// Claude Code ends a recurring job a week after it was made, so the job's own
+// prompt ends by renewing it. A renewal that fails either way shows here: no
+// job means the fleet has quietly stopped being groomed, two mean it is groomed
+// twice, and both are said plainly.
 
 import { existsSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 
 import { botDir, readBot, requireBotsFolder } from './bot.js';
-import { readBook, takeLock } from './book.js';
-import { ownCli, shellWord } from './launch.js';
-import { orca } from './orca.js';
+import { readBook } from './book.js';
+import { claudeTranscript } from './conversations.js';
+import { harnessOf, ownCli, shellWord } from './launch.js';
+import { tabs, tabToTypeInto, typeIntoTab } from './orca.js';
 import { BOT_FATHER } from './up.js';
+import { lines } from './usage.js';
 
-/** What the kit calls its own grooming automation. */
-const NAME = 'obk grooming';
+/** Bot Father's session the grooming runs in. */
+export const GROOMING = 'grooming';
 
 /** A time of day, as a person writes one. */
 const AT = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
-/** What the automation's session is told to do when it wakes. */
-const prompt = (bots) =>
-  'Run the daily grooming for this fleet, with the obk-grooming skill. Fix this '
+/** A daily cron as the kit writes one: minute, hour, every day. */
+const DAILY = /^(\d{1,2}) (\d{1,2}) \* \* \*$/;
+
+/** How long Claude Code keeps a recurring job after it was made (tech notes, section 2). */
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** How long Orca is given to say what is in the grooming tab. */
+const LOOK_MS = 2000;
+
+/**
+ * What every grooming job's prompt starts with, which is how the kit and the
+ * session tell it from a job of the user's own in the same conversation.
+ */
+export const markerOf = (bots) => `obk grooming for ${bots}`;
+
+/**
+ * Say what the grooming is, and ask the grooming session for a change when
+ * told to. `ask` is one of `on`, `move` (a new time for grooming that is on),
+ * `off`, `now` and `compact`, or undefined to only report; `at` is a time of
+ * day, `HH:MM`.
+ *
+ * Returns `{ session, jobs, asked }`: the grooming session as the book has it
+ * (or null), the grooming jobs alive in its conversation as the command found
+ * them, before anything it typed was done, and what it typed (or null).
+ */
+export function grooming(bots, { at, ask } = {}) {
+  requireBotsFolder(bots);
+
+  // The folder as the file system knows it: Claude Code files a transcript
+  // under the real path, and Orca knows a tab's project by it.
+  const home = realHome(botDir(bots, BOT_FATHER));
+  if (!existsSync(path.join(home, 'bot.yaml'))) {
+    throw new Error(`there is no ${BOT_FATHER} in ${bots}, and the grooming runs in a session of its. Run obk init first.`);
+  }
+  if (at !== undefined && !AT.test(at)) {
+    throw new Error(`--at is a time of day as 24 hours, such as 04:00, and got: ${at}`);
+  }
+
+  const bot = readBot(home, BOT_FATHER);
+  const found = bot.sessions.find((one) => one.name === GROOMING);
+  const entry = readBook(home).sessions[GROOMING] ?? {};
+  const tab = typeof entry.tab === 'string' ? entry.tab : undefined;
+  const conversation = typeof entry.session === 'string' ? entry.session : null;
+
+  const session = found === undefined ? null : {
+    name: GROOMING,
+    harness: harnessOf(found, bot.harness),
+    up: tab !== undefined && tabs(home).some((one) => one.tabId === tab),
+    conversation,
+  };
+  const jobs = session?.harness === 'claude' && conversation !== null
+    ? groomingJobs(lines(claudeTranscript(home, conversation)), markerOf(bots), Date.now())
+    : [];
+
+  const line = ask === undefined ? undefined : lineFor(ask, { bots, session, jobs, at });
+  if (line !== undefined) typeInto(bots, home, session, tab, line);
+
+  // A move is turning it on at another time, and is typed as one.
+  return { session, jobs, asked: line === undefined ? null : (ask === 'move' ? 'on' : ask) };
+}
+
+/**
+ * The line that asks the grooming session for `ask`, or undefined when there is
+ * nothing to ask. Everything that makes the ask impossible refuses here, before
+ * Orca is asked for anything.
+ */
+function lineFor(ask, { bots, session, jobs, at }) {
+  // Nothing to turn off is an answer, whatever the session is.
+  if (ask === 'off' && jobs.length === 0) return undefined;
+  if (session === null) {
+    throw new Error(`${BOT_FATHER} has no ${GROOMING} session, so there is nothing to ask. Add it: ${addCommand(bots)}, then ${upCommand(bots)}.`);
+  }
+  if (session.harness !== 'claude') {
+    throw new Error(`${BOT_FATHER}'s ${GROOMING} session runs on ${session.harness}, and grooming runs on Claude Code's own schedule, so its session has to be a Claude Code one. Retire it and add it again: ${retireCommand(bots)}, then ${addCommand(bots)} --harness claude.`);
+  }
+
+  if (ask === 'off') return offLine(jobs);
+  if (ask === 'now') return nowLine(bots);
+  if (ask === 'compact') return '/compact';
+
+  if (ask === 'move' && jobs.length === 0) {
+    throw new Error(`grooming is off, so there is no job to move. Turning it on at that time is ${groomCommand(bots)} --on --at ${at}, once the user has said yes.`);
+  }
+
+  // On: at the time given, or at the one time every job there already has.
+  const times = [...new Set(jobs.map((job) => job.at))];
+  const when = at ?? (times.length === 1 ? times[0] : undefined);
+  if (when === undefined) {
+    throw new Error(jobs.length === 0
+      ? `grooming is off, so there is no time to keep. Say when: ${groomCommand(bots)} --on --at <HH:MM>.`
+      : `the grooming jobs there run at different times (${times.join(', ')}). Say which one to keep: ${groomCommand(bots)} --on --at <HH:MM>.`);
+  }
+  return onLine(bots, cronOf(when), jobs);
+}
+
+/**
+ * Type `line` into the grooming tab, through the kit's one gate for typing into
+ * a running session: nothing goes into a tab with something on screen waiting
+ * for an answer, or with anything but Claude Code in front of it.
+ */
+function typeInto(bots, home, session, tab, line) {
+  if (!session.up) {
+    throw new Error(`${BOT_FATHER}'s ${GROOMING} session is not up, so nothing was typed. Bring it up with ${upCommand(bots)}, then run this again.`);
+  }
+  const found = tabToTypeInto(home, tab, LOOK_MS);
+  if (found.blocked !== undefined) {
+    throw new Error(`the ${GROOMING} tab is waiting for an answer (${found.blocked}), so nothing was typed. Answer it in the tab, then run this again.`);
+  }
+  if (found.unsure !== undefined) throw new Error(`the ${GROOMING} tab: ${found.unsure}.`);
+  if (found.handle === undefined || found.agent !== 'claude') {
+    throw new Error(`the ${GROOMING} tab has no Claude Code in front of it, so nothing was typed. Bring it back with ${restartCommand(bots)}, then run this again.`);
+  }
+  typeIntoTab(found.handle, line);
+}
+
+/**
+ * The grooming jobs alive in a conversation's transcript at `now`, oldest
+ * first: `{ id, at, cron, made, expires }`.
+ *
+ * A job is made by a CronCreate that succeeded, recurring (Claude Code's
+ * default), with a prompt that starts with the marker. It ends at a CronDelete
+ * of its id that succeeded, or a week after it was made. A call is matched to
+ * its answer by the tool call's id; an answer that failed is a string, not the
+ * job, and makes or ends nothing.
+ */
+export function groomingJobs(entries, marker, now) {
+  const calls = new Map();
+  const alive = new Map();
+  for (const entry of entries) {
+    const content = Array.isArray(entry.message?.content) ? entry.message.content : [];
+    for (const item of content) {
+      if (entry.type === 'assistant' && item?.type === 'tool_use') calls.set(item.id, item);
+      if (entry.type !== 'user' || item?.type !== 'tool_result' || item.is_error === true) continue;
+
+      const call = calls.get(item.tool_use_id);
+      const result = entry.toolUseResult;
+      if (call === undefined || result === null || typeof result !== 'object' || typeof result.id !== 'string') continue;
+      if (call.name === 'CronDelete') alive.delete(result.id);
+      if (call.name !== 'CronCreate') continue;
+
+      const { cron, prompt, recurring } = call.input ?? {};
+      const made = Date.parse(entry.timestamp ?? '');
+      if (recurring === false || typeof prompt !== 'string' || !prompt.startsWith(marker) || Number.isNaN(made)) continue;
+      alive.set(result.id, { id: result.id, at: timeOf(cron), cron, made, expires: made + WEEK_MS });
+    }
+  }
+  return [...alive.values()]
+    .filter((job) => job.expires > now)
+    .sort((left, right) => left.made - right.made)
+    .map((job) => ({ ...job, made: new Date(job.made).toISOString(), expires: new Date(job.expires).toISOString() }));
+}
+
+/** `HH:MM` as the daily cron Claude Code takes: `04:00` is `0 4 * * *`. */
+const cronOf = (at) => {
+  const [, hour, minute] = AT.exec(at);
+  return `${Number(minute)} ${Number(hour)} * * *`;
+};
+
+/** A daily cron read back as `HH:MM`, or undefined for any other shape. */
+function timeOf(cron) {
+  const found = DAILY.exec(String(cron ?? ''));
+  if (found === null) return undefined;
+  return `${found[2].padStart(2, '0')}:${found[1].padStart(2, '0')}`;
+}
+
+/** The grooming run itself: what a job does each day, and what `--now` asks for once. */
+const run = (bots) =>
+  `${markerOf(bots)}: run the daily grooming for this fleet, with the obk-grooming skill. Fix this `
   + 'run\'s end now and read what has happened since the last run\'s end up to it, '
   + `counting with ${shellWord(ownCli())} usage --since <last end> --until <this end>, and write this `
   + 'end down for the next run. Work out what it cost with obk-finops, keep '
@@ -43,102 +214,42 @@ const prompt = (bots) =>
   + `The bots folder is ${bots}.`;
 
 /**
- * Say what the grooming is, and make it so when asked.
- * Returns `{ exists }`, and `{ exists, enabled, at, id }` once there is one.
- *
- * Reading and setting are one command because they are one question: a caller
- * that has just moved the time wants to be told what it is now, and what it is
- * now is whatever Orca says rather than whatever the kit last asked for.
+ * A job's prompt: the run, and then its own renewal, since Claude Code ends a
+ * recurring job a week after it was made. The renewal copies the prompt it was
+ * fired with, so the job carries itself on; the one that fired is then the
+ * older of the two.
  */
-export function grooming(bots, { at, on } = {}) {
-  requireBotsFolder(bots);
+const jobPrompt = (bots, cron) =>
+  `${run(bots)} When the report is sent, renew this schedule, which Claude Code ends a week after it was made: `
+  + `call CronCreate with cron "${cron}", recurring true, and this whole prompt, word for word, as its prompt; `
+  + 'then call CronDelete on the job that fired this run, the older of the two grooming jobs CronList shows.';
 
-  // The folder as the file system knows it, the way `restart` and `message`
-  // take it: Orca records an automation's workspace by its real path, so a
-  // spelling that is not the canonical one finds nothing and offers to make a
-  // second of what is already there.
-  const home = realHome(botDir(bots, BOT_FATHER));
-  if (!existsSync(path.join(home, 'bot.yaml'))) {
-    throw new Error(`there is no ${BOT_FATHER} in ${bots}, and the grooming runs in its Orca project. Run obk init first.`);
-  }
-  if (at !== undefined && !AT.test(at)) {
-    throw new Error(`--at is a time of day as 24 hours, such as 04:00, and got: ${at}`);
-  }
+const onLine = (bots, cron, jobs) =>
+  'obk groom asks you to schedule the daily grooming. '
+  + (jobs.length === 0 ? '' : `First call CronDelete on each of these jobs: ${jobs.map((job) => job.id).join(', ')}. `)
+  + `Then call CronCreate once, with cron "${cron}", recurring true, and as its prompt everything after "Prompt:" `
+  + 'at the end of this line, word for word. Do not run the grooming now; say in one line what you scheduled. '
+  + `Prompt: ${jobPrompt(bots, cron)}`;
 
-  const bot = readBot(home, BOT_FATHER);
-  const book = readBook(home);
-  if (book.orca.project === undefined) {
-    throw new Error(`${BOT_FATHER} has no Orca project yet, so there is nothing for the grooming to run in. Run ${shellWord(ownCli())} up --bots ${shellWord(bots)} --bot ${BOT_FATHER} first.`);
-  }
+const offLine = (jobs) =>
+  `obk groom asks you to turn the daily grooming off: call CronDelete on each of these jobs: ${jobs.map((job) => job.id).join(', ')}. `
+  + 'Schedule nothing in their place, and say in one line what you cancelled.';
 
-  // Looking and making are one turn. Orca will not stop two runs creating two
-  // automations for one fleet, and two of these means being groomed twice a day
-  // for ever, so the lock the kit already uses for a bot's own file is held
-  // across the pair (src/book.js).
-  const lock = takeLock(home);
-  try {
-    return settle(bots, home, bot, { at, on });
-  } finally {
-    lock.release();
-  }
-}
+const nowLine = (bots) => `obk groom asks you to run the daily grooming once, now, and to schedule nothing. ${run(bots)}`;
 
-/** The looking and the making, with the turn already taken. */
-function settle(bots, home, bot, { at, on }) {
-  let mine = ours(home);
+/** The command that adds the grooming session, for a caller to run. */
+export const addCommand = (bots) =>
+  `${shellWord(ownCli())} session add --bots ${shellWord(bots)} --bot ${BOT_FATHER} --name ${GROOMING}`;
 
-  if (mine === undefined && at !== undefined) {
-    orca([
-      'automations', 'create',
-      '--name', NAME,
-      '--provider', bot.harness,
-      '--trigger', 'daily',
-      '--time', at,
-      '--prompt', prompt(bots),
-      '--workspace', `path:${home}`,
-      '--workspace-mode', 'existing',
-      // Off, whatever else was asked for: turning it on is a separate decision
-      // and is made below, so that the one path into "it runs daily" is the
-      // same whether it was made just now or a month ago.
-      '--disabled',
-    ]);
-    mine = ours(home);
-  } else if (mine !== undefined && at !== undefined && at !== timeOf(mine)) {
-    // Orca refuses a time on its own, so the trigger goes with it every time.
-    orca(['automations', 'edit', '--id', mine.id, '--trigger', 'daily', '--time', at]);
-  }
+/** The command that brings Bot Father's sessions up. */
+export const upCommand = (bots) => `${shellWord(ownCli())} up --bots ${shellWord(bots)} --bot ${BOT_FATHER}`;
 
-  if (on !== undefined && mine !== undefined) {
-    orca(['automations', 'edit', '--id', mine.id, on ? '--enabled' : '--disabled']);
-  }
+/** This command again, for a caller to add its flags to. */
+export const groomCommand = (bots) => `${shellWord(ownCli())} groom --bots ${shellWord(bots)}`;
 
-  // Asked again rather than assumed: the user can move it or switch it in
-  // Orca's own interface, and what this prints has to be what is there.
-  const now = ours(home);
-  return now === undefined
-    ? { exists: false }
-    : { exists: true, enabled: now.enabled === true, at: timeOf(now), id: now.id };
-}
+const retireCommand = (bots) => `${shellWord(ownCli())} retire --bots ${shellWord(bots)} --bot ${BOT_FATHER} --session ${GROOMING}`;
 
-/**
- * The kit's own grooming automation for this Bot Father, if there is one.
- *
- * Both halves are needed. The folder alone would adopt whatever the user set up
- * in the same project, and the name alone would collide across two bots folders
- * on one machine, which each have a Bot Father of their own.
- */
-function ours(home) {
-  const listed = orca(['automations', 'list']).automations ?? [];
-  const found = listed.filter((one) => one?.name === NAME && one?.runContext?.path === home);
-
-  // More than one is not a thing to pick from. Whichever were chosen, the other
-  // would go on running unseen, and this command is where the user would have
-  // looked for it. So it says what it found and leaves both alone.
-  if (found.length > 1) {
-    throw new Error(`${home} has ${found.length} groomings rather than one: ${found.map((one) => one.id).join(', ')}. Remove the ones you do not want in Orca, then run this again.`);
-  }
-  return found[0];
-}
+const restartCommand = (bots) => `${shellWord(ownCli())} restart --bots ${shellWord(bots)} --bot ${BOT_FATHER} --session ${GROOMING}`;
 
 /** A bot home as the file system knows it, or as it was given when it is not there. */
 function realHome(home) {
@@ -147,13 +258,4 @@ function realHome(home) {
   } catch {
     return home;
   }
-}
-
-/** When an automation runs, read out of Orca's own recurrence rule. */
-function timeOf(automation) {
-  const rule = String(automation?.rrule ?? '');
-  const hour = /BYHOUR=(\d+)/.exec(rule)?.[1];
-  const minute = /BYMINUTE=(\d+)/.exec(rule)?.[1];
-  if (hour === undefined || minute === undefined) return undefined;
-  return `${hour.padStart(2, '0')}:${minute.padStart(2, '0')}`;
 }

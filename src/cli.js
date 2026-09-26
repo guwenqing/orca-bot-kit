@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 
 import { addSession, changeBot, changeSession, createBot, leadsOutside, readBot, SESSION_FIELDS } from './bot.js';
-import { grooming } from './groom.js';
+import { addCommand, groomCommand, grooming, upCommand } from './groom.js';
 import { checkHealth, orcaSettingFindings } from './health.js';
 import { initBots } from './init.js';
 import { APPROVALS, HARNESSES, ownCli, shellWord, workDirOf } from './launch.js';
@@ -164,13 +164,18 @@ Usage:
                             with its settings, its tab and the conversation it
                             is in. It reads your files and reports them as they
                             stand; what to make of them is yours.
-  obk groom --bots <path> [--at <HH:MM>] [--on | --off]
-                            Say whether the daily grooming exists, when it runs
-                            and whether it is on, and set it up or change it
-                            when you ask. --at makes one, in Bot Father's Orca
-                            project. It is made off, because it spends tokens
-                            every day: run it by hand once, read what it gives
-                            you, then --on.
+  obk groom --bots <path> [--on [--at <HH:MM>] | --at <HH:MM> | --off | --now | --compact]
+                            Say what the daily grooming is: Bot Father's session
+                            grooming, and the job scheduled in it on Claude
+                            Code's own scheduler. Add that session like any
+                            other, with the model and effort each run is to use.
+                            --now asks it to run the grooming once. --on --at
+                            asks it to schedule it daily, and each run renews
+                            it; it starts off, because it spends tokens every
+                            day, so run it by hand once and read it first. --at
+                            moves it, --off unschedules it, and --compact
+                            compacts its conversation between runs. It fires
+                            only while its tab is up in Orca.
   obk usage --bots <path> [--bot <bot>] [--session <name>] [--since <time>] [--until <time>]
                             Say what your sessions have used: the conversations
                             each one had, their calls and tokens, the models and
@@ -276,6 +281,8 @@ async function run(argv) {
       at: { type: 'string' },
       on: { type: 'boolean' },
       off: { type: 'boolean' },
+      now: { type: 'boolean' },
+      compact: { type: 'boolean' },
       skill: { type: 'string' },
       repo: { type: 'string' },
       ref: { type: 'string' },
@@ -350,7 +357,7 @@ async function run(argv) {
 /**
  * The bots folder as the file system knows it. A folder reached through a
  * symlink is the same fleet: the harnesses file their transcripts under the real
- * path, Orca records an automation's workspace by it, and what the kit keeps
+ * path, and what the kit keeps
  * beside the folder (the skill sources, the start prompts, the messages) is
  * named after it. Asked by one spelling and then another, a fleet would
  * otherwise have two of each, and a pin set through one is undone through the
@@ -653,11 +660,16 @@ const commands = {
 
   groom(bots, values) {
     refuseWhenOrcaIsDown();
-    if (values.on === true && values.off === true) {
-      throw new Error('groom takes --on or --off, and got both. Say which one you want.');
+    const asks = ['on', 'off', 'now', 'compact'].filter((flag) => values[flag] === true);
+    if (asks.length > 1) {
+      throw new Error(`groom asks for one thing at a time, and got ${asks.map((flag) => `--${flag}`).join(' and ')}. Say which one you want.`);
     }
-    const on = values.on === true ? true : (values.off === true ? false : undefined);
-    const groom = grooming(bots, { at: values.at, on });
+    if (values.at !== undefined && asks.length === 1 && asks[0] !== 'on') {
+      throw new Error(`--at is the time grooming runs at, and goes with --on, not with --${asks[0]}.`);
+    }
+    // --at on its own moves grooming that is on to another time.
+    const ask = asks[0] ?? (values.at === undefined ? undefined : 'move');
+    const groom = grooming(bots, { at: values.at, ask });
     return { answer: { bots, groom }, lines: groomLines(groom, bots) };
   },
 
@@ -1007,25 +1019,80 @@ function conversationLine(one) {
 }
 
 /**
- * What there is to say about the daily grooming: whether it exists, when it
- * runs, and whether it is on. A grooming that is off is not a fault, so this
- * says what is there and what the next step would be rather than warning.
+ * What there is to say about the daily grooming: the session it runs in, the
+ * jobs scheduled there, and what this run asked of it. Grooming that is off is
+ * not a fault, so this says what is there and what the next step would be;
+ * no job where one was expected, or more than one, is said plainly, because
+ * either means the fleet is groomed a different number of times a day than
+ * anyone decided.
  */
-function groomLines(groom, bots) {
-  if (!groom.exists) {
+function groomLines({ session, jobs, asked }, bots) {
+  const head = 'groom'.padEnd(9);
+  const more = ' '.repeat(11);
+  const said = asked === null ? [] : [ASKED[asked]];
+
+  if (session === null) {
     return [
-      `${'groom'.padEnd(9)}  there is no daily grooming yet`,
-      `Make one:  ${shellWord(ownCli())} groom --bots ${shellWord(bots)} --at 04:00`,
+      ...said,
+      `${head}  there is no daily grooming: Bot Father has no session called grooming`,
+      `${more}It runs in that session, on Claude Code's own scheduler. Give the session`,
+      `${more}--model and --effort for what each run is to use.`,
+      `Add it:    ${addCommand(bots)}`,
+      `Then:      ${upCommand(bots)}`,
+    ];
+  }
+  if (session.harness !== 'claude') {
+    return [
+      ...said,
+      `${head}  Bot Father's grooming session runs on ${session.harness}, and grooming runs on`,
+      `${more}Claude Code's own scheduler, so it has to be a Claude Code session: retire it`,
+      `${more}and add it again with --harness claude.`,
     ];
   }
 
+  const lines = [...said];
+  if (!session.up) {
+    lines.push(`${head}  Bot Father's grooming session is not up, so nothing fires`);
+    lines.push(`Bring it up:  ${upCommand(bots)}`);
+  }
+  if (asked === null) lines.push(...jobLines(jobs, bots, session.up ? head : more));
+  lines.push(`${more}It fires only while its tab is up in Orca and Claude Code is idle there, up to`);
+  lines.push(`${more}half an hour after its time, and a run it misses is not made up.`);
+  return lines;
+}
+
+/** What is scheduled in the grooming session's conversation. */
+function jobLines(jobs, bots, head) {
+  const more = ' '.repeat(11);
+  if (jobs.length === 0) {
+    return [
+      `${head}  off: its conversation has no grooming job`,
+      `${more}It spends tokens every day. Run it by hand first:  ${groomCommand(bots)} --now`,
+      `Turn it on, once the user has read a run and said yes:  ${groomCommand(bots)} --on --at 04:00`,
+    ];
+  }
+  if (jobs.length === 1) {
+    const [job] = jobs;
+    return [
+      `${head}  on, daily at ${job.at ?? job.cron}  job ${job.id}`,
+      `${more}Each run renews it; with no run, Claude Code ends it at ${job.expires}.`,
+      `Turn it off:  ${groomCommand(bots)} --off`,
+    ];
+  }
+  const times = [...new Set(jobs.map((job) => job.at))];
   return [
-    `${'groom'.padEnd(9)}  daily at ${groom.at}  ${groom.enabled ? 'on' : 'off'}`,
-    groom.enabled
-      ? `It runs every day at ${groom.at} and spends tokens each time. Turn it off with:  ${shellWord(ownCli())} groom --bots ${shellWord(bots)} --off`
-      : `It is not running yet. Try it by hand, read what it gives you, then:  ${shellWord(ownCli())} groom --bots ${shellWord(bots)} --on`,
+    `${head}  ${jobs.length} grooming jobs, so the fleet is groomed ${jobs.length} times a day: ${jobs.map((job) => `${job.id} at ${job.at ?? job.cron}`).join(', ')}`,
+    `Back to one:  ${groomCommand(bots)} --on${times.length === 1 && times[0] !== undefined ? '' : ' --at <HH:MM>'}`,
   ];
 }
+
+/** What each ask typed into the grooming tab, as the line that says so. */
+const ASKED = {
+  on: `${'asked'.padEnd(9)}  the grooming session to schedule the grooming, in a line typed into its tab. It is listed once the session has done it.`,
+  off: `${'asked'.padEnd(9)}  the grooming session to delete its grooming jobs, in a line typed into its tab.`,
+  now: `${'asked'.padEnd(9)}  the grooming session to run the grooming once, now. Its report goes to Bot Father's management session.`,
+  compact: `${'asked'.padEnd(9)}  the grooming session to compact its conversation: /compact was typed into its tab.`,
+};
 
 /** The settings a session carries, in the order a session is written down. */
 const SHOWN = SESSION_FIELDS.filter((field) => field !== 'name' && field !== 'harness');

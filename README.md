@@ -431,6 +431,29 @@ retiring it again finishes the job. Bot
 Father itself, and its management session `daily`, are never paused or
 retired; its other sessions are like any bot's.
 
+## Daily grooming
+
+Grooming is an optional daily pass over the fleet: what each bot did, what it
+cost, and what to improve, sent as one short report to Bot Father's management
+session. It runs in a session of Bot Father's called `grooming`, on Claude
+Code's own scheduler, at the model and effort you give that session.
+
+```sh
+obk session add --bots /path/to/my-bots --bot bot-father --name grooming --model sonnet --effort medium
+obk up --bots /path/to/my-bots --bot bot-father
+obk groom --bots /path/to/my-bots --now           # run it once, by hand, and read it
+obk groom --bots /path/to/my-bots --on --at 04:00 # then schedule it
+obk groom --bots /path/to/my-bots                 # what is scheduled
+```
+
+It starts off, and Bot Father asks you before it turns it on, because it spends
+tokens every day. It fires only while its tab is open in Orca and Claude Code is
+idle there, up to half an hour after its time, and a day it misses is not made
+up. Each run renews its own schedule, which Claude Code would otherwise end
+after a week; a `/clear` in its tab ends it, and `--on --at` puts it back.
+`obk groom --compact` compacts its conversation between runs. Grooming on Codex
+comes later: on a Codex Bot Father, add the session with `--harness claude`.
+
 ## When something is wrong
 
 ```sh
