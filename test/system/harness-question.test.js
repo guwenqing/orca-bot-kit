@@ -68,7 +68,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdtemp, readdir, realpath, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import test from 'node:test';
+import test from '../helpers/system.js';
 import { setTimeout } from 'node:timers/promises';
 
 import { cliEntry } from '../helpers/cli.js';
