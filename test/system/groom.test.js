@@ -85,9 +85,10 @@
 // are read from the transcripts: one JSON object per line, under
 // `~/.claude/projects/<the folder with everything but letters and digits made a
 // dash>/<conversation id>.jsonl`. The conversation is always the one Bot Father's
-// book holds for the session now. How a fired job and an arriving message are
-// written there has not been seen live by this test's author, so every wait on
-// them prints the lines it was looking through when it runs out.
+// book holds for the session now. How a fired job is written there was seen in
+// this test's first live run (see `firesIn`); how an arriving message is written
+// has not been seen yet. Every wait on either prints the lines it was looking
+// through when it runs out.
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -158,6 +159,16 @@ const LEAD_MS = 5 * 60000;
  * documented.
  */
 const JITTER_MS = 30 * 60000;
+
+/**
+ * And how far past that a fire still counts as within it. The scheduler looks
+ * for due jobs once a second (docs), so a job given the most jitter fires up to a
+ * second after it, and its prompt is written down a moment after that. Seen live
+ * on 2026-09-26 (Claude Code 2.1.283): a job due at 04:11:00Z fired at
+ * 04:41:01.000Z and its prompt was written at 04:41:01.059Z. Ten seconds is that
+ * with room for a busy machine, and still well short of a minute.
+ */
+const FIRE_SLACK_MS = 10000;
 
 /** And a little more, for the fired turn to be written down after it fired. */
 const LATE_MS = 2 * 60000;
@@ -486,7 +497,10 @@ const schedulesIn = (lines) => lines.flatMap(toolUses).filter((use) => /^Cron/.t
 /**
  * The times the grooming job fired, after `since`: a turn said to the harness,
  * as text, that carries the marker. The job's prompt starts with it, and a fire
- * is Claude Code handing that prompt to the session.
+ * is Claude Code handing that prompt to the session. Seen live on 2026-09-26
+ * (2.1.283): a `{"type":"system","subtype":"scheduled_task_fire"}` line, then the
+ * prompt as a `type: "user"` line with string content 59 ms later. The prompt's
+ * line is the one read, because it is the one that says which job fired.
  *
  * Not a fire: a tool's answer (a CronCreate or CronList answer may repeat the
  * prompt), the summary a compaction writes, and a message from another session,
@@ -758,8 +772,9 @@ test('grooming runs on Claude Code\'s own schedule in the grooming session: off 
   const firedAt = Date.parse(fire.timestamp);
   assert.ok(firedAt >= due.getTime(), `it fired at ${fire.timestamp}, before its time ${due.toISOString()}`);
   assert.ok(
-    firedAt <= due.getTime() + JITTER_MS,
-    `it fired at ${fire.timestamp}, more than the documented ${JITTER_MS / 60000} minutes after ${due.toISOString()}`,
+    firedAt <= due.getTime() + JITTER_MS + FIRE_SLACK_MS,
+    `it fired at ${fire.timestamp}, more than the documented ${JITTER_MS / 60000} minutes after ${due.toISOString()},`
+    + ` and more than ${FIRE_SLACK_MS / 1000} seconds past them for the scheduler's once-a-second look`,
   );
 
   // The run: it reports to daily, renews its job, and finishes. Finished is the
