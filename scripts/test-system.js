@@ -15,7 +15,7 @@
 // tests, and does not answer as though it had.
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, readdirSync, realpathSync } from 'node:fs';
+import { existsSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -218,12 +218,14 @@ const named = () => process.argv.slice(2).filter((arg) => !arg.startsWith('-'));
  * otherwise the ones named, as `{ files }`, or `{ refused }` with the first name
  * that is not one of them.
  *
- * A name counts only when the file it really leads to, every link followed, is
- * one of the files a run with no names would run, inside `test/system/` as the
- * file system knows it. That is the whole point of the check: this command is
- * allowed to drive the machine because what it runs is the repo's own reviewed
- * system tests, and a name must not turn it into a way to run anything else —
- * not by `..`, not by a path from elsewhere, not by a link out of the folder.
+ * A name counts only when two things hold. As written, it is a `*.test.js` path
+ * inside `test/system/`. And the file it really leads to, every link followed,
+ * is one of the files a run with no names would run, a regular file inside
+ * `test/system/` as the file system knows it; that file's own path is what runs.
+ * That is the whole point of the check: this command is allowed to drive the
+ * machine because what it runs is the repo's own reviewed system tests, and a
+ * name must not turn it into a way to run anything else, nor reach one of them
+ * from outside the folder (#325, review of PR #326).
  */
 function chosen(names) {
   const all = testFiles();
@@ -233,13 +235,42 @@ function chosen(names) {
   const inside = (real) => root !== undefined && real !== undefined && real.startsWith(root + path.sep);
   const byReal = new Map(all.map((file) => [realPath(file), file]).filter(([real]) => inside(real)));
 
+  const folder = `${path.relative(repo, systemTests).split(path.sep).join('/')}/`;
   const files = [];
   for (const name of names) {
-    const file = byReal.get(realPath(path.resolve(repo, name)));
+    const written = asWritten(name);
+    const real = realPath(path.resolve(repo, name));
+    const counts = written !== undefined && written.startsWith(folder) && written.endsWith('.test.js') && isFile(real);
+    const file = counts ? byReal.get(real) : undefined;
     if (file === undefined) return { refused: name };
     if (!files.includes(file)) files.push(file);
   }
   return { files };
+}
+
+/**
+ * Where a name sits below the repo root as written, `/`-separated: `..` taken as
+ * it stands and no link below the root followed, or undefined when it is not
+ * below the root at all. The root is found by where it really is, because it
+ * may be reached through a link above it: a temp folder on macOS is both
+ * `/var/…` and `/private/var/…`.
+ */
+function asWritten(name) {
+  const parts = path.resolve(repo, name).split(path.sep);
+  const root = realPath(repo);
+  for (let depth = 1; depth <= parts.length; depth += 1) {
+    if (realPath(parts.slice(0, depth).join(path.sep) || path.sep) === root) return parts.slice(depth).join('/');
+  }
+  return undefined;
+}
+
+/** Whether a path is a regular file: a folder named like a test is not one. */
+function isFile(target) {
+  try {
+    return target !== undefined && statSync(target).isFile();
+  } catch {
+    return false;
+  }
 }
 
 /** A path as the file system knows it, or undefined when it leads nowhere. */
