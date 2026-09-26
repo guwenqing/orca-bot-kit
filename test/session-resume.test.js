@@ -419,6 +419,73 @@ for (const [quoting, scalar] of [
   });
 }
 
+/**
+ * A Codex session whose `extra_args` is written by hand as one string (the
+ * bot.yaml scalar, YAML's quotes around the shell's), brought up, its tab
+ * closed, and brought up again: the argv its resume hands codex.
+ */
+async function resumedWithExtraArgs(box, fake, scalar) {
+  assert.equal((await box.run(['init', '--bots', 'bots', '--harness', 'claude'])).code, 0);
+  assert.equal((await box.run(['bot', 'create', '--bots', 'bots', '--name', 'api-bot', '--harness', 'codex'])).code, 0);
+  const bots = box.path('bots');
+  await writeFile(
+    path.join(botHomeOf(bots, 'api-bot'), 'bot.yaml'),
+    'name: api-bot\nharness: codex\ncharter: mine\nrules: []\nskills: []\n'
+    + `sessions:\n  - name: daily\n    approval: auto\n    prompt: ${PROMPT}\n    extra_args: ${scalar}\n`,
+  );
+  const first = await up(box);
+  await reported(box, bots, first.entry.tabId, 'sess-1');
+  await onRecord(box, 'codex', bots, 'sess-1');
+  await closeTab(box, first.entry.tabId);
+
+  const again = await up(box);
+  return argvOf(box, again.typed[0], fake);
+}
+
+// The string is read as the shell splits it into words, so a word the shell
+// glues together out of quoted or escaped pieces is `--no-daemon` all the same,
+// and the user's own.
+for (const [spelled, scalar] of [
+  ['with its name half-quoted', `'--search --no-"daemon"'`],
+  ['with its dash escaped', `'--search \\--no-daemon'`],
+]) {
+  test(`#330: a resumed Codex session whose extra_args string carries --no-daemon ${spelled} gets it once, where the user put it`, async (t) => {
+    const box = await createSandbox(t);
+    const fake = await fakeProgram(box, 'codex', {});
+
+    assert.deepEqual(await resumedWithExtraArgs(box, fake, scalar), [
+      'resume',
+      '--approve-for-me',
+      '-c', 'sandbox_workspace_write.network_access=true',
+      '--search',
+      '--no-daemon',
+      'sess-1',
+    ]);
+  });
+}
+
+// And the other way: `--no-daemon` inside a quoted word is part of that word,
+// here a path, and not a flag at all. So the kit adds its own, and the path
+// reaches Codex whole, as one argument.
+for (const [quoting, scalar] of [
+  ['single', `"--add-dir '/tmp/foo --no-daemon bar'"`],
+  ['double', `'--add-dir "/tmp/foo --no-daemon bar"'`],
+]) {
+  test(`#330: a resumed Codex session with --no-daemon inside a ${quoting}-quoted path in its extra_args string gets the kit's own`, async (t) => {
+    const box = await createSandbox(t);
+    const fake = await fakeProgram(box, 'codex', {});
+
+    assert.deepEqual(await resumedWithExtraArgs(box, fake, scalar), [
+      'resume',
+      '--approve-for-me',
+      '--no-daemon',
+      '-c', 'sandbox_workspace_write.network_access=true',
+      '--add-dir', '/tmp/foo --no-daemon bar',
+      'sess-1',
+    ]);
+  });
+}
+
 test('the session that came back is the one the book named, and the book follows it', async (t) => {
   const box = await createSandbox(t);
   const { bots, first } = await started(box, 'claude');

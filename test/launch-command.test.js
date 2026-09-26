@@ -451,6 +451,50 @@ for (const [quoting, scalar] of [
   });
 }
 
+// The string is read as the shell splits it into words, so a word the shell
+// glues together out of quoted or escaped pieces is `--no-daemon` all the same,
+// and the user's own.
+for (const [spelled, scalar] of [
+  ['with its name half-quoted', `'--search --no-"daemon"'`],
+  ['with its dash escaped', `'--search \\--no-daemon'`],
+]) {
+  test(`#330: a Codex session whose extra_args string carries --no-daemon ${spelled} gets it once, where the user put it`, async (t) => {
+    const box = await createSandbox(t);
+    const fake = await fakeProgram(box, 'codex', {});
+
+    const typed = await handWritten(box, scalar);
+
+    assert.deepEqual(await argvOf(box, typed, fake), [
+      '--approve-for-me',
+      '-c', 'sandbox_workspace_write.network_access=true',
+      '--search',
+      '--no-daemon',
+    ]);
+  });
+}
+
+// And the other way: `--no-daemon` inside a quoted word is part of that word,
+// here a path, and not a flag at all. So the kit adds its own, and the path
+// reaches Codex whole, as one argument.
+for (const [quoting, scalar] of [
+  ['single', `"--add-dir '/tmp/foo --no-daemon bar'"`],
+  ['double', `'--add-dir "/tmp/foo --no-daemon bar"'`],
+]) {
+  test(`#330: --no-daemon inside a ${quoting}-quoted path in the extra_args string is not the user's flag, and the kit adds its own`, async (t) => {
+    const box = await createSandbox(t);
+    const fake = await fakeProgram(box, 'codex', {});
+
+    const typed = await handWritten(box, scalar);
+
+    assert.deepEqual(await argvOf(box, typed, fake), [
+      '--approve-for-me',
+      '--no-daemon',
+      '-c', 'sandbox_workspace_write.network_access=true',
+      '--add-dir', '/tmp/foo --no-daemon bar',
+    ]);
+  });
+}
+
 test('#330: a Codex session with a work dir outside the bot home still runs with --no-daemon', async (t) => {
   const box = await createSandbox(t);
   const fake = await fakeProgram(box, 'codex', {});
