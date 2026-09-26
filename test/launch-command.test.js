@@ -428,6 +428,29 @@ test('#330: a word in the extra_args string that only begins with --no-daemon is
   );
 });
 
+// An extra_args string is the user's own shell text, so a quoted `--no-daemon`
+// in it reaches Codex as the word `--no-daemon`, the same as a bare one. The
+// kit adds none of its own then, or Codex refuses the flag twice. Each case is
+// the bot.yaml scalar as written by hand: YAML's quotes around the shell's.
+for (const [quoting, scalar] of [
+  ['single', `"--search '--no-daemon'"`],
+  ['double', `'--search "--no-daemon"'`],
+]) {
+  test(`#330: a Codex session whose extra_args string carries --no-daemon ${quoting}-quoted gets it once, where the user put it`, async (t) => {
+    const box = await createSandbox(t);
+    const fake = await fakeProgram(box, 'codex', {});
+
+    const typed = await handWritten(box, scalar);
+
+    assert.deepEqual(await argvOf(box, typed, fake), [
+      '--approve-for-me',
+      '-c', 'sandbox_workspace_write.network_access=true',
+      '--search',
+      '--no-daemon',
+    ]);
+  });
+}
+
 test('#330: a Codex session with a work dir outside the bot home still runs with --no-daemon', async (t) => {
   const box = await createSandbox(t);
   const fake = await fakeProgram(box, 'codex', {});

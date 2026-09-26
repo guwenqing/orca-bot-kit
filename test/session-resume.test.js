@@ -383,6 +383,42 @@ test('#330: a resumed Codex session whose extra_args string carries --no-daemon 
   ]);
 });
 
+// The same with the word quoted as shell text, which the shell hands Codex as
+// `--no-daemon` all the same. The bot.yaml scalar as written by hand: YAML's
+// quotes around the shell's.
+for (const [quoting, scalar] of [
+  ['single', `"--search '--no-daemon'"`],
+  ['double', `'--search "--no-daemon"'`],
+]) {
+  test(`#330: a resumed Codex session whose extra_args string carries --no-daemon ${quoting}-quoted gets it once, where the user put it`, async (t) => {
+    const box = await createSandbox(t);
+    const fake = await fakeProgram(box, 'codex', {});
+    assert.equal((await box.run(['init', '--bots', 'bots', '--harness', 'claude'])).code, 0);
+    assert.equal((await box.run(['bot', 'create', '--bots', 'bots', '--name', 'api-bot', '--harness', 'codex'])).code, 0);
+    const bots = box.path('bots');
+    await writeFile(
+      path.join(botHomeOf(bots, 'api-bot'), 'bot.yaml'),
+      'name: api-bot\nharness: codex\ncharter: mine\nrules: []\nskills: []\n'
+      + `sessions:\n  - name: daily\n    approval: auto\n    prompt: ${PROMPT}\n    extra_args: ${scalar}\n`,
+    );
+    const first = await up(box);
+    await reported(box, bots, first.entry.tabId, 'sess-1');
+    await onRecord(box, 'codex', bots, 'sess-1');
+    await closeTab(box, first.entry.tabId);
+
+    const again = await up(box);
+
+    assert.deepEqual(await argvOf(box, again.typed[0], fake), [
+      'resume',
+      '--approve-for-me',
+      '-c', 'sandbox_workspace_write.network_access=true',
+      '--search',
+      '--no-daemon',
+      'sess-1',
+    ]);
+  });
+}
+
 test('the session that came back is the one the book named, and the book follows it', async (t) => {
   const box = await createSandbox(t);
   const { bots, first } = await started(box, 'claude');

@@ -189,6 +189,27 @@ async function terminalsAfterClosing(home, closed, within = 5000) {
   return left;
 }
 
+/** What every throwaway bots folder of this file is named from, under the system temp directory. */
+const THROWAWAY = 'obk-system-restart-';
+
+/**
+ * The handles of every tab that was open before a case began, which the case
+ * must leave open. A tab under a throwaway bots folder of this file is not the
+ * person's: it is an earlier case's, still being closed by that case's cleanup
+ * when Orca was asked, and gone a moment later. Counting it would fail this
+ * case for another case's timing (seen live, #330: the Claude case's own Bot
+ * Father tab was still listed when the Codex case began). Every other tab is
+ * counted, as it always was.
+ */
+async function openBefore() {
+  const temp = await realpath(os.tmpdir());
+  const ours = (terminal) => {
+    const inside = path.relative(temp, terminal.worktreePath ?? '');
+    return !inside.startsWith('..') && !path.isAbsolute(inside) && inside.split(path.sep)[0].startsWith(THROWAWAY);
+  };
+  return new Set(allTerminals().filter((terminal) => !ours(terminal)).map((terminal) => terminal.handle));
+}
+
 /** Every workspace Orca knows about right now. */
 function allSetups() {
   const answer = orca(['project', 'setups']);
@@ -376,11 +397,11 @@ test('a restart closes the session\'s tab and brings the conversation back with 
   );
 
   const before = {
-    handles: new Set(allTerminals().map((terminal) => terminal.handle)),
+    handles: await openBefore(),
     setups: new Set(allSetups().map((setup) => setup.id)),
   };
 
-  const bots = await realpath(await mkdtemp(path.join(os.tmpdir(), 'obk-system-restart-')));
+  const bots = await realpath(await mkdtemp(path.join(os.tmpdir(), THROWAWAY)));
   const homeOf = (bot) => path.join(bots, 'bots', bot);
   const homes = ['bot-father', BOT.name].map(homeOf);
   const home = homeOf(BOT.name);
@@ -601,6 +622,43 @@ function inFront(handle) {
 const argvOf = (pid) => (psOf(pid, ['-ww', '-o', 'command=']) ?? '').split(/\s+/);
 
 /**
+ * The file a process is running, as `lsof` lists it: the first `n` line of
+ * its `txt` files, which is the executable, before the loader and anything
+ * mapped after it. Read, and never a road to a signal. Undefined when it
+ * cannot be read.
+ */
+function executableOf(pid) {
+  assert.match(String(pid), /^[1-9]\d*$/, `lsof is asked about one positive pid, got: ${pid}`);
+  const done = spawnSync('lsof', ['-a', '-p', String(pid), '-d', 'txt', '-Fn'], { encoding: 'utf8' });
+  if (done.status !== 0) return undefined;
+  return done.stdout.split('\n').find((line) => line.startsWith('n'))?.slice(1);
+}
+
+/** What `<codex> --version` says, and the minor version it names, if it names one. */
+function codexVersion(executable) {
+  const done = spawnSync(executable, ['--version'], { encoding: 'utf8' });
+  const said = `${done.stdout ?? ''}${done.stderr ?? ''}${done.error?.message ?? ''}`.trim();
+  return { said, minor: Number(/\b0\.(\d+)\.\d+\b/.exec(done.stdout ?? '')?.[1]) };
+}
+
+/**
+ * The premise that counts: the Codex running in the tab is 0.157 or later. On
+ * 0.156 the shared server is off unless asked for, so a green run there would
+ * say nothing about the failure this case guards against. Read off the harness
+ * the tab is running, not the `codex` this process finds on its own PATH: the
+ * tab's shell reads the user's startup files and may find another one.
+ */
+function assertTabRunsCodex157(pid, which) {
+  const executable = executableOf(pid);
+  assert.ok(executable, `${which}: could not read which file codex (pid ${pid}) is running from \`lsof -a -p ${pid} -d txt -Fn\``);
+  const { said, minor } = codexVersion(executable);
+  assert.ok(
+    Number.isInteger(minor) && minor >= 157,
+    `${which}: this case is about Codex 0.157 and on, and the tab runs ${executable}, whose --version said: ${said}`,
+  );
+}
+
+/**
  * What Codex 0.157.1 printed when a resume went through its shared background
  * server and failed, before exiting to the shell (tech notes, section 3). A
  * piece of the line only: the rest is Codex's and may be worded differently.
@@ -645,16 +703,14 @@ const PASSPHRASE_FORMS = [
 test('#330: a Codex session restarted again and again comes back each time, on the same conversation, without the shared server', async (t) => {
   assert.equal(PASSPHRASE_FORMS.length, RESTARTS, 'one passphrase form per restart');
 
-  // The premise: this is a check of Codex 0.157 and on. On 0.156 the shared
-  // server is off unless asked for, so a green run there would say nothing
-  // about the failure this guards against. Read before anyone is asked to sit
-  // through the run. It reads the `codex` this process finds, which is meant to
-  // be the one the tab's shell finds too.
-  const version = spawnSync('codex', ['--version'], { encoding: 'utf8' });
-  const minor = Number(/\b0\.(\d+)\.\d+\b/.exec(`${version.stdout}`)?.[1]);
+  // A fast fail, before anyone is asked to sit through the run: the `codex`
+  // this process finds is 0.157 or later. It is not the check that counts —
+  // the tab's shell may find another one — so the Codex each tab really runs
+  // is read again once it is up (`assertTabRunsCodex157`).
+  const version = codexVersion('codex');
   assert.ok(
-    Number.isInteger(minor) && minor >= 157,
-    `this case is about Codex 0.157 and on, and \`codex --version\` said: ${version.stdout}${version.stderr}${version.error?.message ?? ''}`,
+    Number.isInteger(version.minor) && version.minor >= 157,
+    `this case is about Codex 0.157 and on, and \`codex --version\` here said: ${version.said}`,
   );
 
   const knows = obk(['restart']);
@@ -664,11 +720,11 @@ test('#330: a Codex session restarted again and again comes back each time, on t
   );
 
   const before = {
-    handles: new Set(allTerminals().map((terminal) => terminal.handle)),
+    handles: await openBefore(),
     setups: new Set(allSetups().map((setup) => setup.id)),
   };
 
-  const bots = await realpath(await mkdtemp(path.join(os.tmpdir(), 'obk-system-restart-codex-')));
+  const bots = await realpath(await mkdtemp(path.join(os.tmpdir(), `${THROWAWAY}codex-`)));
   const homeOf = (bot) => path.join(bots, 'bots', bot);
   const homes = ['bot-father', CODEX_BOT.name].map(homeOf);
   const home = homeOf(CODEX_BOT.name);
@@ -739,6 +795,7 @@ test('#330: a Codex session restarted again and again comes back each time, on t
     },
     () => whatIsUp(opened.terminal),
   );
+  assertTabRunsCodex157(started.pid, 'the first start');
   const fresh = argvOf(started.pid);
   assert.ok(!fresh.includes('resume'), `the first start is not a resume, got: ${fresh.join(' ')}`);
   assert.equal(fresh.filter((word) => word === '--no-daemon').length, 1, `the first start carries --no-daemon once, got: ${fresh.join(' ')}`);
@@ -798,6 +855,7 @@ test('#330: a Codex session restarted again and again comes back each time, on t
     // What the kit's launch line started: a resume of the book's conversation,
     // without the shared server, `--no-daemon` once and straight after the
     // approval flag, and the id last.
+    assertTabRunsCodex157(front.pid, which);
     const argv = argvOf(front.pid);
     const said = argv.join(' ');
     assert.equal(path.basename(argv[0]), 'codex', `${which}: the harness is codex, got: ${said}`);

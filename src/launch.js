@@ -102,8 +102,10 @@ export const reachesMail = (session, harness) =>
 /** Codex's flag for running without its shared background server (0.156.1 on). */
 const NO_DAEMON = '--no-daemon';
 
+// A string is shell text, so the word may be quoted there: `'--no-daemon'`
+// reaches Codex as the flag all the same.
 const setsNoDaemon = (session) =>
-  extraWords(session.extra_args).some((word) => word.split(/\s+/).includes(NO_DAEMON));
+  extraWords(session.extra_args).some((word) => word.split(/\s+/).map((part) => part.replace(/['"\\]/g, '')).includes(NO_DAEMON));
 
 const turnedOff = (session) =>
   extraWords(session.extra_args).some((word) => word.includes(`${NETWORK_ACCESS}=false`));
