@@ -92,6 +92,24 @@
 //       'no-tab-id'  the command alone and no variables, which is what ps
 //                    gives for a process whose environment it may not read
 //       'ps-fails'   the read fails: stderr, exit 1
+//
+// And one way it answers nothing at all (#298): `ps` in state.json set to
+// 'not-permitted' is a `ps` that does not start, as inside Codex's
+// `workspace-write` sandbox, where /bin/ps gave `Operation not permitted` and
+// exit 126 on every pid, the caller's own included (seen live, codex-cli
+// 0.156.1). Every call, of either shape, fails that way, and is still logged.
+//
+// What Orca's runtime says is in front of a tab (#298) is here too, since it
+// reads the same tab: `runtimeViewOf` gives the `process` that
+// `terminal.inspectProcess` answers for it, for the fake runtime client in
+// helpers/cli.js (`orcaApp`). The shapes were seen live on Orca 1.4.212, but
+// for the harness, which was read in Orca's code: a shell at its prompt is
+// verdict `live` with `processName` and `foregroundProcess` null and no child;
+// `less` is `foregroundProcess: "less"`, `processName` null, with children;
+// a recognised harness is named in both. A front that only `ps` or Orca's
+// diagnostics cannot read ('ps-fails', 'garbage', 'gone', 'no-tpgid',
+// 'no-pid') is a tab holding the harness it was launched with, which the
+// runtime sees.
 
 import { appendFileSync, readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -191,6 +209,32 @@ function processesOf(state, terminal, dir) {
   }
 }
 
+/**
+ * What Orca's runtime answers as a tab's `process` to `terminal.inspectProcess`,
+ * a verdict `live` for every front: see the list at the top. What is inside
+ * `fence` is this fake's own; the kit has no use for it.
+ */
+export function runtimeViewOf(state, terminal, dir) {
+  const program = launchedIn(terminal) ?? 'claude';
+  const other = program === 'claude' ? 'codex' : 'claude';
+  const live = (foregroundProcess, processName, hasChildProcesses) => ({
+    foregroundProcess,
+    hasChildProcesses,
+    foregroundProcessEvidence: { verdict: 'live', processName, fence: { ptyId: terminal.ptyId ?? null } },
+  });
+  switch (foregroundOf(state, terminal, dir)) {
+    case 'shell':
+    case 'bare-shell':
+      return live(null, null, false);
+    case 'program':
+      return live('less', null, true);
+    case 'other-harness':
+      return live(other, other, true);
+    default:
+      return live(program, program, true);
+  }
+}
+
 /** A conversation id of the shape both harnesses use, for a harness Orca resumed. */
 const RESUMED = '0199b2c0-0318-4444-8888-cccccccccccc';
 
@@ -258,6 +302,12 @@ export function runPs() {
   const args = process.argv.slice(2);
   appendFileSync(path.join(dir, 'ps.log'), `${JSON.stringify({ args })}\n`);
 
+  const state = JSON.parse(readFileSync(path.join(dir, 'state.json'), 'utf8'));
+  if (state.ps === 'not-permitted') {
+    process.stderr.write(`${process.argv[1]}: Operation not permitted\n`);
+    process.exit(126);
+  }
+
   const asks = (shape) => args.length === shape.length + 1
     && shape.every((word, at) => args[at] === word)
     && /^[1-9]\d*$/.test(args[shape.length]);
@@ -269,7 +319,6 @@ export function runPs() {
   }
   const pid = Number(args.at(-1));
 
-  const state = JSON.parse(readFileSync(path.join(dir, 'state.json'), 'utf8'));
   for (const terminal of state.terminals ?? []) {
     if (read && pid === panePid(state, terminal) && foregroundOf(state, terminal, dir) === 'garbage') {
       process.stdout.write('ps: the table was busy; this is not a line of it\n');

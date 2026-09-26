@@ -424,7 +424,19 @@ export const CLIENT_HANG_MS = 30_000;
  * `client` is how the runtime client behaves:
  *   'answers'            as Orca's runtime does: `project.update` on a project
  *                        Orca has resolves `{ id, ok: true, result, _meta }`, on
- *                        one it has not rejects with `Project not found`
+ *                        one it has not rejects with `Project not found`; and
+ *                        `terminal.inspectProcess` on a terminal Orca has, by
+ *                        its handle, resolves the same envelope with
+ *                        `result: { process }`, on one it has not rejects (#298).
+ *                        The `process` is what is in front of that tab, from
+ *                        the same world the fake `ps` reads (`runtimeViewOf` in
+ *                        helpers/fake-ps.js), unless the terminal in state.json
+ *                        carries `inspect`, which says what the runtime answers
+ *                        for that tab alone:
+ *                          { process }   the envelope, with this `process`
+ *                          { resolves }  `call` resolves this, as it is, in
+ *                                        place of the envelope
+ *                          { rejects }   `call` rejects with this message
  *   'missing'            there is no client file at all
  *   'no-export'          the file loads but exports no `RuntimeClient`
  *   'method-not-found'   `call` rejects with an error whose code is `method_not_found`
@@ -435,7 +447,8 @@ export const CLIENT_HANG_MS = 30_000;
  *
  * The client writes one line per load and per call to a log in the fake's
  * world, which `loads()` and `calls()` read back. A load carries the variables
- * of its environment the kit is meant to set or leave out.
+ * of its environment the kit is meant to set or leave out; a call, what its
+ * client was made with, which `clients()` reads back.
  */
 export async function orcaApp(box, { client = 'answers', executable = true } = {}) {
   const contents = path.join(box.root, 'Orca.app', 'Contents');
@@ -473,22 +486,37 @@ export async function orcaApp(box, { client = 'answers', executable = true } = {
       `const LOG = ${JSON.stringify(log)};`,
       `const STATE = ${JSON.stringify(path.join(fakeDir, 'state.json'))};`,
       `const MODE = ${JSON.stringify(client)};`,
+      `const FAKE_DIR = ${JSON.stringify(fakeDir)};`,
+      `const FAKE_PS = ${JSON.stringify(pathToFileURL(fakePsEntry).href)};`,
       "const note = (entry) => appendFileSync(LOG, JSON.stringify(entry) + '\\n');",
       'const { ELECTRON_RUN_AS_NODE, NODE_OPTIONS, NODE_REPL_EXTERNAL_MODULE } = process.env;',
       "note({ event: 'load', env: { ELECTRON_RUN_AS_NODE, NODE_OPTIONS, NODE_REPL_EXTERNAL_MODULE } });",
       'const refusal = (message, code) => Object.assign(new Error(message), code === undefined ? {} : { code });',
       'let answered = 0;',
+      '// What is in front of one tab, by its handle (#298). The envelope is the one the real call answers with.',
+      'async function inspect(params) {',
+      "  const state = JSON.parse(readFileSync(STATE, 'utf8'));",
+      '  const terminal = (state.terminals || []).find((one) => params != null && one.handle === params.terminal);',
+      "  if (terminal === undefined) throw refusal(`Terminal not found: ${params == null ? params : params.terminal}`);",
+      '  const told = terminal.inspect || {};',
+      "  if ('rejects' in told) throw refusal(told.rejects);",
+      "  if ('resolves' in told) return told.resolves;",
+      "  const inFront = 'process' in told ? told.process : (await import(FAKE_PS)).runtimeViewOf(state, terminal, FAKE_DIR);",
+      '  answered += 1;',
+      '  return { id: `rpc_${answered}`, ok: true, result: { process: inFront }, _meta: { durationMs: 1 } };',
+      '}',
       'class RuntimeClient {',
       '  constructor(profile, timeoutMs) {',
       '    this.profile = profile;',
       '    this.timeoutMs = timeoutMs;',
       '  }',
       '  call(method, params) {',
-      "    note({ event: 'call', method, params });",
+      "    note({ event: 'call', method, params, profileIsUndefined: this.profile === undefined, timeoutMs: this.timeoutMs });",
       "    if (MODE === 'method-not-found') return Promise.reject(refusal(`Unknown method: ${method}`, 'method_not_found'));",
       "    if (MODE === 'project-not-found') return Promise.reject(refusal('Project not found'));",
       "    if (MODE === 'never-settles') return new Promise(() => {});",
       `    if (MODE === 'hangs') { setTimeout(() => {}, ${CLIENT_HANG_MS}); return new Promise(() => {}); }`,
+      "    if (method === 'terminal.inspectProcess') return inspect(params);",
       "    if (method !== 'project.update') return Promise.reject(refusal(`Unknown method: ${method}`, 'method_not_found'));",
       "    const setups = JSON.parse(readFileSync(STATE, 'utf8')).setups || [];",
       '    const setup = setups.find((one) => params != null && one.projectId === params.projectId);',
@@ -522,6 +550,8 @@ export async function orcaApp(box, { client = 'answers', executable = true } = {
     calls: async () => (await entries('call')).map(({ method, params }) => ({ method, params })),
     /** Every time the client file was loaded, with the environment it was loaded in. */
     loads: () => entries('load'),
+    /** What the client of each call was made with, in order: { profileIsUndefined, timeoutMs }. */
+    clients: async () => (await entries('call')).map(({ profileIsUndefined, timeoutMs }) => ({ profileIsUndefined, timeoutMs })),
   };
 }
 
