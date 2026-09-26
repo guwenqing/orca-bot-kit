@@ -26,7 +26,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { assertCleanFailure, bareLaunch, createSandbox, sentInto, TAB_TITLES } from './helpers/cli.js';
+import { assertCleanFailure, bareLaunch, createSandbox, sentInto, TAB_TITLES, tokenless } from './helpers/cli.js';
 
 /** The answer of a run that was asked for JSON: parsed, and nothing but JSON on the way out. */
 function answerOf(result) {
@@ -146,7 +146,7 @@ test('a harness that did not come up says so, and the run still succeeds', async
   const real = (await box.orca.terminals()).find((terminal) => terminal.title === TAB_TITLES.daily);
   assert.equal(tab(answer, 'daily').terminal, real.handle);
   assert.deepEqual(
-    sentInto(real),
+    sentInto(real).map((entry) => ({ ...entry, text: tokenless(entry.text) })),
     [{ text: bareLaunch(box, 'claude', 'bot-father', 'daily'), enter: true }],
     'the line was typed; only the outcome was missing',
   );

@@ -363,7 +363,28 @@ export async function createSandbox(t) {
           throw error;
         }
       },
-      /** One entry per call the CLI made to Orca: { args, cwd }, in order. */
+      /**
+       * Every mailbox step the fake ran in a tab, from a launch line typed
+       * there, in order: { handle, tabId, step, status, stdout, stderr }. What
+       * the step said is what the tab's screen would show.
+       */
+      async steps() {
+        try {
+          return (await readFile(path.join(fakeDir, 'steps.log'), 'utf8'))
+            .split('\n')
+            .filter((line) => line !== '')
+            .map((line) => JSON.parse(line));
+        } catch (error) {
+          if (error.code === 'ENOENT') return [];
+          throw error;
+        }
+      },
+      /**
+       * One entry per call made to Orca: { args, cwd, caller }, in order. The
+       * kit's own calls and those of a step the fake ran in a tab are both
+       * here; `caller` is the terminal the calling process ran in, and is not
+       * there for a process outside Orca.
+       */
       async calls() {
         try {
           return (await readFile(path.join(fakeDir, 'calls.log'), 'utf8'))
@@ -568,14 +589,15 @@ const NEEDLESSLY_QUOTED = String.raw`'([A-Za-z0-9,._+:@%/=-]+)'`;
 
 /**
  * A line the kit typed or wrote, with the CLI it names spelled the `shellWord`
- * way: `OBK_CLI='/a/b/obk'` read as `OBK_CLI=/a/b/obk`, and a hook's leading
- * `'/a/b/obk' session record` as `/a/b/obk session record`. The two spellings
- * are the same word to a shell, so a test that pins the rest of a line
- * exactly does not pin which of them the kit chose (#220).
+ * way: `OBK_CLI='/a/b/obk'` read as `OBK_CLI=/a/b/obk`, and a hook's or a
+ * launch line's leading `'/a/b/obk' session record` or `'/a/b/obk' session
+ * mailbox` as `/a/b/obk session …`. The two spellings are the same word to a
+ * shell, so a test that pins the rest of a line exactly does not pin which of
+ * them the kit chose (#220).
  */
 export const plainCli = (line) => line
-  .replace(new RegExp(String.raw`^(OBK_TAB_SHELL=\$\$ OBK_CLI=)${NEEDLESSLY_QUOTED}(?= )`), '$1$2')
-  .replace(new RegExp(String.raw`^${NEEDLESSLY_QUOTED}(?= session record )`), '$1');
+  .replace(new RegExp(String.raw`(^|; )(OBK_TAB_SHELL=\$\$ OBK_CLI=)${NEEDLESSLY_QUOTED}(?= )`), '$1$2$3')
+  .replace(new RegExp(String.raw`^${NEEDLESSLY_QUOTED}(?= session (?:record|mailbox) )`), '$1');
 
 /**
  * What a launch line carries after the pid: the CLI that typed it, for every
@@ -587,18 +609,80 @@ export const plainCli = (line) => line
 export const cliOnLine = (cli) => `OBK_CLI=${shellWord(cli)}`;
 
 /**
- * A launch line: the tab shell's pid, the CLI that typed it, then the harness
- * and its flags. `box` is the sandbox whose `obk` ran the `up`; a line typed
- * by the kit started some other way takes `{ cli }` instead.
+ * The step a launch line starts with, for a session that can have a mailbox
+ * (#317): the kit's own CLI, run in the new tab before the harness, giving the
+ * session its mailbox bound to that tab. Orca 1.4.210 lets a process in a tab
+ * bind a Run to that tab and to no other, so this is done from inside the tab,
+ * never by the `obk` that opened it. Every word as `shellWord` spells it.
+ * `bots` is the sandbox's own `bots` folder unless it is named.
  */
-export const launchLine = (box, rest) => `${TAB_SHELL} ${cliOnLine(box.cli)} ${rest}`;
+export const mailboxStep = (box, { bots = box.path('bots'), bot, session }) =>
+  `${shellWord(box.cli)} session mailbox --bots ${shellWord(bots)} --bot ${shellWord(bot)} --session ${shellWord(session)}`;
 
 /**
- * A session's name, which is also the address a Claude session is reached at:
- * `<bot>.<session>` (PRD 6.9, ADR 0018). Proved live that the name survives a
- * resume, and the kit passes it on every launch anyway (tech notes, section 2).
+ * A launch line: the mailbox step, joined by `;` so the harness starts whatever
+ * became of it; then the tab shell's pid, the CLI that typed it, and the harness
+ * and its flags. `box` is the sandbox whose `obk` ran the `up`; a line typed by
+ * the kit started some other way takes `{ cli }` instead, and names `bots`.
+ *
+ * `mailbox` says whose step it is: `{ bot, session }`, with `bots` when it is
+ * not the sandbox's own folder. `null` is a session that cannot have a mailbox
+ * (a Codex session whose sandbox switch is off), whose line is today's with no
+ * step. It has to be said either way, so a line nobody said has no step cannot
+ * be expected by accident.
  */
-export const addressOf = (bot, session) => `${bot}.${session}`;
+export function launchLine(box, rest, mailbox) {
+  if (mailbox === undefined) {
+    throw new Error('launchLine: say whose mailbox step the line starts with ({ bot, session }), or null for a session that has none (#317)');
+  }
+  const harness = `${TAB_SHELL} ${cliOnLine(box.cli)} ${rest}`;
+  return mailbox === null ? harness : `${mailboxStep(box, mailbox)}; ${harness}`;
+}
+
+/** A launch line with its mailbox step taken off: what starts the harness, and nothing before it. */
+export function harnessPartOf(line) {
+  const at = line.indexOf(`${TAB_SHELL} `);
+  return at < 0 ? line : line.slice(at);
+}
+
+/**
+ * A Claude session's name, which is also the address it is reached at:
+ * `<bot>.<session>.<token>` (PRD 6.9, ADR 0018). Proved live that the name
+ * survives a resume, and the kit passes it on every launch anyway (tech notes,
+ * section 2).
+ *
+ * The token is exactly eight lowercase letters and digits, and new each time
+ * the kit starts a session on a fresh conversation (#286). Without it every
+ * fleet's Bot Father answered to `bot-father.daily` — old runs, other
+ * machines, the fleets system tests bring up — and Claude Code refuses a send
+ * to a name more than one session answers to. Eight characters give 36^8
+ * names, so that sessions of the same name across every fleet do not meet by
+ * chance (review of PR #314).
+ *
+ * So a test can only say what shape an address has, and that the line, the
+ * book and `obk message to` all give the same one.
+ */
+export const addressPattern = (bot, session) => new RegExp(
+  `^${[bot, session].map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\.')}\\.[a-z0-9]{8}$`,
+);
+
+/** What `tokenless` writes in place of the token, so a line can be pinned whole. */
+export const TOKEN = '<token>';
+
+/**
+ * A launch line, or one word of one, with the token of the Claude address
+ * after `-n` written `TOKEN`: the rest of the line is then pinned exactly, as
+ * `bareLaunch` spells it. Only a token of the right shape is replaced — an
+ * address with none, like the old `<bot>.<session>`, or with one that is not
+ * exactly eight lowercase letters and digits, is left as it was and fails the
+ * comparison. Which token it is, and that the book holds the same one, is for
+ * the tests of the address itself (session-address, session-resume, message-to).
+ */
+export const tokenlessWord = (word) => word.replace(/^([^ .]+\.[^ .]+\.)[a-z0-9]{8}$/, `$1${TOKEN}`);
+export const tokenless = (line) => line.replace(/( -n )([^ ]+)/, (all, flag, word) => `${flag}${tokenlessWord(word)}`);
+
+/** The name a Claude launch line carries after `-n`, as the kit typed it, or undefined for a line with none. */
+export const nameOnLine = (line) => / -n ([^ ]+)/.exec(line)?.[1];
 
 /**
  * The one Codex setting that lets a sandboxed session reach the Orca CLI at
@@ -614,11 +698,18 @@ export const CODEX_NETWORK = '-c sandbox_workspace_write.network_access=true';
  * defaults cannot leak into a bot, and `auto` is what a session that named no
  * level takes. What makes the session reachable comes straight after
  * it: a Claude session's own name, and on Codex the switch that widens the
- * sandbox that flag chose far enough to reach Orca.
+ * sandbox that flag chose far enough to reach Orca. In front of all of it, the
+ * step that gives the session its mailbox (#317), which names the bot and the
+ * session on either harness; `bots` is the sandbox's own folder unless given.
  */
-export const bareLaunch = (box, harness, bot, session) => launchLine(box, harness === 'claude'
-  ? `claude --permission-mode auto -n ${addressOf(bot, session)}`
-  : `codex --approve-for-me ${CODEX_NETWORK}`);
+export function bareLaunch(box, harness, bot, session, { bots } = {}) {
+  if (bot === undefined || session === undefined) {
+    throw new Error('bareLaunch: name the bot and the session; the line\'s mailbox step names them (#317)');
+  }
+  return launchLine(box, harness === 'claude'
+    ? `claude --permission-mode auto -n ${bot}.${session}.${TOKEN}`
+    : `codex --approve-for-me ${CODEX_NETWORK}`, { bots, bot, session });
+}
 
 /** Where a bot lives inside a bots folder. */
 export const botHomeOf = (bots, bot = 'bot-father') => path.join(bots, 'bots', bot);

@@ -2,15 +2,19 @@
 // PRD 6.4 maps its settings to, and last the start prompt as the harness's own
 // prompt argument.
 //
-// This is the contract with the two harnesses, so the text is pinned exactly.
+// This is the contract with the two harnesses, so the text is pinned exactly,
+// all but the token at the end of a Claude session's name, which is new for
+// every fresh conversation (#286). `tokenless` writes it `<token>` once it has
+// the right shape; session-address checks which one it is.
 // A flag named wrongly is the failure that matters most here: the harness
 // starts anyway, on its own defaults, and the session runs for days at the
 // wrong approval level or the wrong model with nothing to show for it.
 //
-// The order is fixed — the tab shell's pid, the kit's own CLI, harness,
-// approval, model, effort, context, `--add-dir`, extra args, `--`, prompt — so a
-// reader of an Orca tab sees the same shape for every session. The two in front
-// are `OBK_TAB_SHELL` and `OBK_CLI`, which the tables below leave out and
+// The order is fixed — the session's mailbox step and its `;` (#317), the tab
+// shell's pid, the kit's own CLI, harness, approval, model, effort, context,
+// `--add-dir`, extra args, `--`, prompt — so a reader of an Orca tab sees the
+// same shape for every session. The three in front are the mailbox step,
+// `OBK_TAB_SHELL` and `OBK_CLI`, which the tables below leave out and
 // `launchLine` puts back: they say nothing about the flag mapping, which is
 // what they are for. The `--` comes only with a prompt, and it is there
 // because a prompt may begin with a dash: without it `claude` exits 1 with
@@ -42,8 +46,14 @@ import {
   launchLine,
   sh,
   tabsOfBot,
+  TOKEN,
+  tokenless,
+  tokenlessWord,
   typedInto,
 } from './helpers/cli.js';
+
+/** Whose mailbox step `launchOf`'s line starts with: its one bot and session. */
+const API_DAILY = { bot: 'api-bot', session: 'daily' };
 
 /**
  * A bot with one session, brought up, and the line that was typed into its tab.
@@ -66,27 +76,27 @@ async function launchOf(box, harness, settings, { bot = 'api-bot' } = {}) {
 }
 
 const CLAUDE = [
-  ['nothing set at all', [], 'claude --permission-mode auto -n api-bot.daily'],
-  ['approval auto', ['--approval', 'auto'], 'claude --permission-mode auto -n api-bot.daily'],
-  ['approval ask', ['--approval', 'ask'], 'claude --permission-mode manual -n api-bot.daily'],
-  ['approval dangerously-skip', ['--approval', 'dangerously-skip'], 'claude --dangerously-skip-permissions -n api-bot.daily'],
-  ['a model', ['--model', 'sonnet'], 'claude --permission-mode auto -n api-bot.daily --model sonnet'],
-  ['an effort', ['--effort', 'high'], 'claude --permission-mode auto -n api-bot.daily --effort high'],
+  ['nothing set at all', [], `claude --permission-mode auto -n api-bot.daily.${TOKEN}`],
+  ['approval auto', ['--approval', 'auto'], `claude --permission-mode auto -n api-bot.daily.${TOKEN}`],
+  ['approval ask', ['--approval', 'ask'], `claude --permission-mode manual -n api-bot.daily.${TOKEN}`],
+  ['approval dangerously-skip', ['--approval', 'dangerously-skip'], `claude --dangerously-skip-permissions -n api-bot.daily.${TOKEN}`],
+  ['a model', ['--model', 'sonnet'], `claude --permission-mode auto -n api-bot.daily.${TOKEN} --model sonnet`],
+  ['an effort', ['--effort', 'high'], `claude --permission-mode auto -n api-bot.daily.${TOKEN} --effort high`],
   [
     // `[1m]` is a glob to the tab's zsh, so the model has to stay quoted.
     'a model with a context window',
     ['--model', 'sonnet', '--context', '1m'],
-    "claude --permission-mode auto -n api-bot.daily --model 'sonnet[1m]'",
+    `claude --permission-mode auto -n api-bot.daily.${TOKEN} --model 'sonnet[1m]'`,
   ],
   [
     'extra args',
     ['--extra-arg=--verbose', '--extra-arg=--debug'],
-    'claude --permission-mode auto -n api-bot.daily --verbose --debug',
+    `claude --permission-mode auto -n api-bot.daily.${TOKEN} --verbose --debug`,
   ],
   [
     'a start prompt, last of all',
     ['--prompt', 'Read your AGENTS.md.'],
-    "claude --permission-mode auto -n api-bot.daily -- 'Read your AGENTS.md.'",
+    `claude --permission-mode auto -n api-bot.daily.${TOKEN} -- 'Read your AGENTS.md.'`,
   ],
   [
     'everything at once',
@@ -94,7 +104,7 @@ const CLAUDE = [
       '--approval', 'ask', '--model', 'opus', '--context', '1m', '--effort', 'xhigh',
       '--extra-arg=--verbose', '--prompt', 'Read your AGENTS.md.',
     ],
-    "claude --permission-mode manual -n api-bot.daily --model 'opus[1m]' --effort xhigh --verbose -- 'Read your AGENTS.md.'",
+    `claude --permission-mode manual -n api-bot.daily.${TOKEN} --model 'opus[1m]' --effort xhigh --verbose -- 'Read your AGENTS.md.'`,
   ],
 ];
 
@@ -141,7 +151,7 @@ for (const [harness, cases] of [['claude', CLAUDE], ['codex', CODEX]]) {
     test(`${harness}, ${label}: ${expected}`, async (t) => {
       const box = await createSandbox(t);
 
-      assert.equal(await launchOf(box, harness, settings), launchLine(box, expected));
+      assert.equal(tokenless(await launchOf(box, harness, settings)), launchLine(box, expected, API_DAILY));
     });
   }
 }
@@ -149,13 +159,13 @@ for (const [harness, cases] of [['claude', CLAUDE], ['codex', CODEX]]) {
 test('a session runs on its own harness, whatever the bot runs on', async (t) => {
   const box = await createSandbox(t);
 
-  assert.equal(await launchOf(box, 'codex', ['--harness', 'claude']), bareLaunch(box, 'claude', 'api-bot', 'daily'));
+  assert.equal(tokenless(await launchOf(box, 'codex', ['--harness', 'claude'])), bareLaunch(box, 'claude', 'api-bot', 'daily'));
 });
 
 test('a session with no harness of its own runs on the bot\'s', async (t) => {
   const box = await createSandbox(t);
 
-  assert.equal(await launchOf(box, 'codex', []), bareLaunch(box, 'codex'));
+  assert.equal(await launchOf(box, 'codex', []), bareLaunch(box, 'codex', 'api-bot', 'daily'));
 });
 
 test('Codex gets --add-dir for a work dir outside the bot home, and nothing for one inside', async (t) => {
@@ -170,11 +180,11 @@ test('Codex gets --add-dir for a work dir outside the bot home, and nothing for 
   const near = await launchOf(inside, 'codex', ['--work-dir', 'work/api']);
 
   assert.ok(
-    far.startsWith(launchLine(box, `codex --approve-for-me -c sandbox_workspace_write.network_access=true --add-dir ${outside} -- '`)),
+    far.startsWith(launchLine(box, `codex --approve-for-me -c sandbox_workspace_write.network_access=true --add-dir ${outside} -- '`, API_DAILY)),
     `--add-dir should come after the settings and before the prompt, got: ${far}`,
   );
   assert.ok(
-    near.startsWith(`${bareLaunch(inside, 'codex')} -- '`),
+    near.startsWith(`${bareLaunch(inside, 'codex', 'api-bot', 'daily')} -- '`),
     `a work dir under the bot home is already inside the sandbox, got: ${near}`,
   );
 });
@@ -189,7 +199,7 @@ test('a work dir that is the bot home itself brings no --add-dir', async (t) => 
   const typed = await launchOf(box, 'codex', ['--work-dir', '.']);
 
   assert.ok(!typed.includes('--add-dir'), `the bot home is already inside the sandbox, got: ${typed}`);
-  assert.ok(typed.startsWith(bareLaunch(box, 'codex')), `got: ${typed}`);
+  assert.ok(typed.startsWith(bareLaunch(box, 'codex', 'api-bot', 'daily')), `got: ${typed}`);
 });
 
 test('--add-dir is given the absolute path, even when the work dir was written relative', async (t) => {
@@ -201,7 +211,7 @@ test('--add-dir is given the absolute path, even when the work dir was written r
 
   const home = botHomeOf(box.path('bots'), 'api-bot');
   assert.ok(
-    typed.startsWith(launchLine(box, `codex --approve-for-me -c sandbox_workspace_write.network_access=true --add-dir ${path.resolve(home, '../shared-clones')} -- '`)),
+    typed.startsWith(launchLine(box, `codex --approve-for-me -c sandbox_workspace_write.network_access=true --add-dir ${path.resolve(home, '../shared-clones')} -- '`, API_DAILY)),
     `got: ${typed}`,
   );
 });
@@ -216,7 +226,7 @@ test('Claude never gets --add-dir, wherever its work dir is', async (t) => {
   const typed = await launchOf(box, 'claude', ['--work-dir', outside]);
 
   assert.ok(!typed.includes('--add-dir'), `Claude should get no --add-dir, got: ${typed}`);
-  assert.ok(typed.startsWith(`${bareLaunch(box, 'claude', 'api-bot', 'daily')} -- '`), `got: ${typed}`);
+  assert.ok(tokenless(typed).startsWith(`${bareLaunch(box, 'claude', 'api-bot', 'daily')} -- '`), `got: ${typed}`);
 });
 
 test('an extra_args written by hand as one string is typed as it stands', async (t) => {
@@ -234,7 +244,7 @@ test('an extra_args written by hand as one string is typed as it stands', async 
   assert.equal((await box.run(['up', '--bots', 'bots', '--bot', 'api-bot'])).code, 0);
 
   const tabs = await tabsOfBot(box, box.path('bots'), 'api-bot');
-  assert.deepEqual(typedInto(tabs[0]), [launchLine(box, 'codex --approve-for-me -c sandbox_workspace_write.network_access=true --search --profile mine')]);
+  assert.deepEqual(typedInto(tabs[0]), [launchLine(box, 'codex --approve-for-me -c sandbox_workspace_write.network_access=true --search --profile mine', API_DAILY)]);
 });
 
 for (const harness of ['claude', 'codex']) {
@@ -269,7 +279,11 @@ test('a model with a context window reaches the harness as one word, unglobbed',
 
   const ran = await sh(typed, { cwd: box.cwd, env: box.env });
   assert.equal(ran.code, 0, `${typed}\n${ran.stderr}`);
-  assert.deepEqual((await fake.calls())[0].args, ['--permission-mode', 'auto', '-n', 'api-bot.daily', '--model', 'sonnet[1m]']);
+  const { args } = (await fake.calls())[0];
+  assert.deepEqual(
+    args.map((word, at) => (args[at - 1] === '-n' ? tokenlessWord(word) : word)),
+    ['--permission-mode', 'auto', '-n', `api-bot.daily.${TOKEN}`, '--model', 'sonnet[1m]'],
+  );
 });
 
 test('Codex\'s -c settings reach codex as one argument each', async (t) => {

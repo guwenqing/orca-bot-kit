@@ -10,6 +10,7 @@
 // The text goes into the tab's ordinary shell, so every word is quoted the way
 // a shell needs it. `claude --model sonnet[1m]` would be a glob to zsh.
 
+import { randomInt } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -53,8 +54,22 @@ export const harnessOf = (session, botHarness) => (set(session.harness) ? sessio
  * session writes to (ADR 0018). It goes on the launch line as `-n`, and it is
  * re-applied every time the session is started: a resume keeps the name by
  * itself (tech notes, section 2), and the kit does not depend on that.
+ *
+ * `<bot>.<session>` alone is not an address: every fleet with that bot and
+ * session answers to it, old runs and throwaway test fleets included, and
+ * Claude Code refuses a send to a name more than one session holds (#286). So
+ * the name ends in a token of its own, made for each new conversation: eight
+ * letters and digits, 36^8 names, so that no two conversations draw the same
+ * one by chance.
  */
-export const addressOf = (bot, session) => `${bot}.${session}`;
+export const addressOf = (bot, session) =>
+  `${bot}.${session}.${Array.from({ length: 8 }, () => randomInt(36).toString(36)).join('')}`;
+
+/** Whether `address` is one `addressOf` made for this bot and session. */
+export function isAddressOf(bot, session, address) {
+  const own = `${bot}.${session}.`;
+  return typeof address === 'string' && address.startsWith(own) && /^[a-z0-9]{8}$/.test(address.slice(own.length));
+}
 
 /**
  * The Codex setting without which a bot cannot reach Orca at all.
@@ -276,6 +291,17 @@ const quoted = (word) => (/^[A-Za-z0-9,._+:@%/=-]+$/.test(word) ? word : `'${wor
 
 /** The same, for anything else of the kit's that has to build a shell line. */
 export const shellWord = quoted;
+
+/**
+ * What a launch line starts with for a session that can have a mailbox: the
+ * kit itself, run by the new tab's shell before the harness, giving the session
+ * its mailbox bound to that tab. Orca 1.4.210 lets a process in a tab bind a
+ * Run to that tab and to no other, so the `obk` that opened the tab cannot do
+ * it (#317). The line joins it with `;`, so the harness starts whatever became
+ * of it.
+ */
+export const mailboxStep = (bots, bot, session) =>
+  [ownCli(), 'session', 'mailbox', '--bots', bots, '--bot', bot, '--session', session].map(quoted).join(' ');
 
 /**
  * The CLI that is running, by the path it was started by: the kit calls itself

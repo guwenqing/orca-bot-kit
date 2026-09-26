@@ -8,13 +8,19 @@
 // world is two files in one directory, named by OBK_FAKE_ORCA_DIR:
 //
 //   state.json   what Orca "has", and how it should misbehave
-//   calls.log    one JSON line per call: { args, cwd }
+//   calls.log    one JSON line per call: { args, cwd, caller }. `caller` is
+//                the ORCA_TERMINAL_HANDLE of the process that made the call,
+//                the terminal Orca attests it as, and is left out for a call
+//                from a plain shell outside Orca, which has none.
 //
 // state.json, all optional except the lists:
 //   setups      [{ id, projectId, hostId, repoId, path, displayName, kind, ... }]
 //   terminals   [{ handle, tabId, worktreePath, title, typed: [...],
 //               notices: [...], ... }]
 //               `typed` is what the kit sent into the tab with `terminal send`.
+//               The fake does not run what is typed, with one exception: the
+//               step a launch line starts with, which gives the session its
+//               mailbox (see `holdSteps`).
 //               `notices` is what Orca itself wrote there: "You have N
 //               orchestration message. Run `orca orchestration check --run
 //               <id>`", one per message sent to a Run this terminal
@@ -119,6 +125,15 @@
 //               from the fake's world once the count runs out. It goes on
 //               answering `rename`, `wait` and `send` while it lags, because to
 //               anything that found it in a listing it is a tab like any other.
+//   hang        { command, ms, applied } — that command is answered as it would
+//               have been, `ms` later (a minute if left out): an Orca that is
+//               slow to answer, or has stopped answering. What cuts it short
+//               is a limit of the caller's own; `session mailbox` gives each
+//               Orca call twenty seconds (#317). With `applied: true` the
+//               command takes effect at once, in the world the fake keeps,
+//               and only its answer is held back: an Orca that did what it was
+//               asked and then went quiet, so a caller that gave up cannot
+//               know whether it happened.
 //   crash       { command, exitCode, stdout, stderr } — no JSON, a bad exit code
 //   garbage     { command, text } — output that is not JSON at all
 //   runs        [{ id, objective, coordinator_handle, consumer_generation,
@@ -131,8 +146,11 @@
 //               was seen as an empty coordinator. `run-create` and `run-use`
 //               bind the caller's own terminal (`ORCA_TERMINAL_HANDLE`), or the
 //               one `--from` names instead, leaving the caller's own binding as
-//               it was. One terminal holds one Run: binding it to a Run takes it
-//               off the Run it held before, which is left with no coordinator.
+//               it was. On Orca 1.4.210 a caller inside a tab may name only its
+//               own terminal: see "attestation" below. One terminal holds one
+//               Run: binding it to a Run takes it off the Run it held before,
+//               which is left with no coordinator; a new tab takes a Run over
+//               from a closed one the same way.
 //               A `--from` with no live pane is refused `stable_pane_required`,
 //               and a caller with no terminal that names none is refused
 //               `no_active_sender_terminal` (both seen live on 1.4.209; the
@@ -178,6 +196,28 @@
 //               cannot know before the run. What to start is the harness chain
 //               of helpers/cli.js, not the hook command on its own: a report
 //               with no harness above it is not the session's and is ignored.
+//   holdSteps   true: the fake leaves the mailbox step of a launch line for the
+//               test to run. Left out, a `terminal send` whose text starts
+//               `<cli> session mailbox …;` before `OBK_TAB_SHELL=` has that
+//               step run by /bin/sh to completion before the send is answered,
+//               the way the tab's own shell runs it (#317): in the tab's folder,
+//               with the tab's own ORCA_TERMINAL_HANDLE and ORCA_TAB_ID and
+//               none of the ORCA_* variables, OBK_CLI or OBK_TAB_SHELL of
+//               whoever typed the line. Everything after the `;` is the harness,
+//               a real program, and is never run. Each step run is written to
+//               steps.log, one JSON line: { handle, tabId, step, status,
+//               stdout, stderr }.
+//
+// Attestation, as Orca 1.4.210 does it (measured live on 2026-09-25, #317). A
+// process in a tab carries that tab's handle in ORCA_TERMINAL_HANDLE, and Orca
+// lets it act as that terminal and no other: `run-create --from H`, `run-use
+// --id R --from H` and `check --run R --terminal H`, from a tab that is not H,
+// are refused `consumer_fenced` and change nothing, whether H is a live tab or
+// a closed one. The same calls naming the caller's own handle, or naming none,
+// go through; `run-show` and `send` go through from any tab. What 1.4.210 says
+// to a caller with no terminal at all, a plain shell outside Orca, naming
+// `--from H` or `--terminal H` was not measured: the fake lets it through, as
+// 1.4.209 did, and that part is unverified on 1.4.210.
 //
 // In `crash` and `garbage`, `command` may be "*" for every command. A command
 // is its leading words: "status", "repo add", "terminal create", and so on.
@@ -197,7 +237,8 @@
 // refused with `terminal_not_found`, as `rename`, `wait` and `send` refuse one.
 
 import { spawnSync } from 'node:child_process';
-import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { foregroundOf, launchedIn, panePid } from './fake-ps.js';
@@ -210,7 +251,11 @@ if (dir === undefined) {
 
 const stateFile = path.join(dir, 'state.json');
 const args = process.argv.slice(2);
-appendFileSync(path.join(dir, 'calls.log'), `${JSON.stringify({ args, cwd: process.cwd() })}\n`);
+// `caller` goes unwritten for a process outside Orca: JSON leaves an undefined out.
+appendFileSync(
+  path.join(dir, 'calls.log'),
+  `${JSON.stringify({ args, cwd: process.cwd(), caller: process.env.ORCA_TERMINAL_HANDLE })}\n`,
+);
 
 let state = JSON.parse(readFileSync(stateFile, 'utf8'));
 const save = () => writeFileSync(stateFile, `${JSON.stringify(state, null, 2)}\n`);
@@ -236,6 +281,8 @@ function write(answer) {
 }
 
 function ok(result) {
+  // Whatever the command did is saved by now; only the answer is held back.
+  if (aimedHere(state.hang) && state.hang.applied === true) hangFor(state.hang.ms);
   write({ id: `fake-${answered + 1}`, ok: true, result, _meta: { durationMs: 1 } });
   process.exit(0);
 }
@@ -262,6 +309,16 @@ if (aimedHere(state.crash)) {
 if (aimedHere(state.garbage)) {
   process.stdout.write(state.garbage.text ?? 'not json at all\n');
   process.exit(0);
+}
+
+/** Wait out a `hang`, as a process does that nothing wakes. */
+const hangFor = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms ?? 60_000);
+
+// An Orca slow to answer: the call waits, then goes on as it would have, on
+// whatever the world holds by then. One that applies first waits in `ok`.
+if (aimedHere(state.hang) && state.hang.applied !== true) {
+  hangFor(state.hang.ms);
+  state = JSON.parse(readFileSync(stateFile, 'utf8'));
 }
 
 // Another writer, run to completion before this call is answered. It sees the
@@ -624,8 +681,39 @@ if (command === 'terminal send') {
     terminal.agentIdentity = launchedIn(terminal);
   }
   save();
+  runMailboxStep(terminal, flag('--text') ?? '');
   // `accepted: true` means the input was accepted, not that anything read it.
   ok({ accepted: true, terminal: terminal.handle });
+}
+
+/**
+ * What the tab's own shell does with the step in front of a launch line: it
+ * runs it, in the tab, before the harness (#317). Only that step, and only one
+ * that is the kit's mailbox step; the harness after the `;` is a real program
+ * and the fake never starts it. Whatever the step did to Orca's world it did
+ * through calls of its own, which this call must not write over, and nothing
+ * here writes the state again.
+ */
+function runMailboxStep(terminal, text) {
+  const step = /^(.*?)\s*;\s*OBK_TAB_SHELL=/s.exec(text)?.[1];
+  if (step === undefined || !/\bsession mailbox\b/.test(step) || state.holdSteps === true) return;
+
+  // The tab's own variables, not those of whoever typed the line into it.
+  const theirs = Object.entries(process.env)
+    .filter(([name]) => !name.startsWith('ORCA_') && name !== 'OBK_CLI' && name !== 'OBK_TAB_SHELL');
+  const ran = spawnSync('/bin/sh', ['-c', step], {
+    encoding: 'utf8',
+    cwd: terminal.worktreePath !== undefined && existsSync(terminal.worktreePath) ? terminal.worktreePath : undefined,
+    env: { ...Object.fromEntries(theirs), ORCA_TERMINAL_HANDLE: terminal.handle, ORCA_TAB_ID: terminal.tabId },
+  });
+  appendFileSync(path.join(dir, 'steps.log'), `${JSON.stringify({
+    handle: terminal.handle,
+    tabId: terminal.tabId,
+    step,
+    status: ran.status,
+    stdout: ran.stdout,
+    stderr: ran.stderr,
+  })}\n`);
 }
 
 // What each pane costs, and the pid of the process each pane runs: the one
@@ -733,6 +821,21 @@ function bind(run, handle) {
   run.updated_at = STAMP;
 }
 
+/**
+ * Orca 1.4.210's attestation (see the top of this file): a caller in a tab may
+ * name no terminal but its own. Refused in Orca's own words, with nothing done.
+ * A caller outside Orca is let through, which is 1.4.209's answer and was not
+ * measured on 1.4.210.
+ */
+function attested(named) {
+  if (caller === undefined || named === undefined || named === caller) return;
+  fail(
+    'consumer_fenced',
+    `This terminal is attested as ${caller} and cannot act as ${named}. Orchestration mutation request ID: ${randomUUID()}.`,
+    { effectsApplied: false },
+  );
+}
+
 /** A fixed time for every Run: nothing the kit does reads it. */
 const STAMP = '2026-09-24T12:00:00.000Z';
 
@@ -740,6 +843,7 @@ const STAMP = '2026-09-24T12:00:00.000Z';
 const runIn = (address) => (typeof address === 'string' && address.startsWith('run:') ? address.slice('run:'.length) : undefined);
 
 if (command === 'orchestration run-create') {
+  attested(flag('--from'));
   const coordinator = coordinatorFor();
   const n = state.nextId ?? 1;
   state.nextId = n + 1;
@@ -760,6 +864,7 @@ if (command === 'orchestration run-create') {
 }
 
 if (command === 'orchestration run-use') {
+  attested(flag('--from'));
   const wanted = runNamed(flag('--id'));
   if (wanted === undefined) fail('run_not_found', `no run with id ${flag('--id')}`);
   bind(wanted, coordinatorFor());
@@ -853,7 +958,9 @@ if (command === 'orchestration check') {
   // tab that holds no Run, and a closed handle once the Run was bound to
   // another tab; a handle Orca never issued has no stable pane. What Orca says
   // to a reader with no terminal at all was never measured, so the fake lets
-  // it read whatever Run it names.
+  // it read whatever Run it names. On 1.4.210 a caller in a tab that names
+  // another terminal is refused before any of that (`attested`).
+  attested(flag('--terminal'));
   const reader = flag('--terminal') ?? caller;
   const boundTo = reader === undefined ? undefined : runHeldBy(reader)?.id;
   const run = flag('--run') ?? boundTo;

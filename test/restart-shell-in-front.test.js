@@ -42,6 +42,7 @@ import {
   skipGit,
   snapshot,
   tabsOfBot,
+  tokenless,
   typedInto,
 } from './helpers/cli.js';
 
@@ -114,7 +115,11 @@ async function leftBehind(box, bots, harness, name, id) {
   await conversationOnRecord(box, { harness, cwd: botHomeOf(bots, BOT), id, at: new Date(when + 1000) });
 }
 
-/** The line a session starts fresh on: its settings, then its duty. */
+/**
+ * The line a session starts fresh on: its settings, then its duty. What was
+ * typed is compared through `tokenless`, which writes the token of a Claude
+ * address as `bareLaunch` does (#286).
+ */
 const freshLine = (box, harness, name) => `${bareLaunch(box, harness, BOT, name)} -- '${PROMPT}'`;
 
 /** The line a session resumes `id` on: Claude Code by the flag, Codex by the subcommand. */
@@ -160,7 +165,7 @@ for (const harness of ['claude', 'codex']) {
 
     const after = await liveTab(box, bots, 'review');
     assert.notEqual(after.tabId, review.tabId, 'review comes back in a new tab');
-    assert.deepEqual(typedInto(after.terminal), [freshLine(box, harness, 'review')], 'started fresh and told its duty, not resumed');
+    assert.deepEqual(typedInto(after.terminal).map(tokenless), [freshLine(box, harness, 'review')], 'started fresh and told its duty, not resumed');
     const entry = await sessionIn(bots, BOT, 'review');
     assert.equal(entry.tab, after.tabId, 'the book follows review to its new tab');
     assert.equal('session' in entry, false, `and names no conversation until the new one's hook reports it, got: ${JSON.stringify(entry)}`);
@@ -185,7 +190,7 @@ for (const harness of ['claude', 'codex']) {
     assert.equal(result.code, 0, `restart should bring daily back without a hand step: ${result.stderr}${result.stdout}`);
     const after = await liveTab(box, bots, 'daily');
     assert.notEqual(after.tabId, before.tabId, 'daily comes back in a new tab');
-    const line = typedInto(after.terminal);
+    const line = typedInto(after.terminal).map(tokenless);
     assert.deepEqual(line, [freshLine(box, harness, 'daily')], 'fresh, with its duty');
     assert.ok(!line[0].includes(conv(7)), `the conversation nobody claims is not resumed, got: ${line[0]}`);
     const entry = await sessionIn(bots, BOT, 'daily');
@@ -210,7 +215,7 @@ test('S3 the bare shell in front counts as the shell: the tab is closed and the 
   assert.deepEqual(closed.map((call) => orcaFlag(call, '--terminal')), [before.handle], 'daily\'s tab, once, by its handle');
   const after = await liveTab(box, bots, 'daily');
   assert.notEqual(after.tabId, before.tabId);
-  assert.deepEqual(typedInto(after.terminal), [freshLine(box, 'claude', 'daily')]);
+  assert.deepEqual(typedInto(after.terminal).map(tokenless), [freshLine(box, 'claude', 'daily')]);
 });
 
 // ---------------------------------------------------------------------------
@@ -289,8 +294,8 @@ test('S5 a whole-bot restart with one session\'s shell in front and no conversat
   const review = await liveTab(box, bots, 'review');
   assert.notEqual(daily.tabId, before.daily.tabId);
   assert.notEqual(review.tabId, before.review.tabId);
-  assert.deepEqual(typedInto(daily.terminal), [freshLine(box, 'claude', 'daily')], 'daily had no conversation, so it starts fresh with its duty');
-  assert.deepEqual(typedInto(review.terminal), [resumeLine(box, 'claude', conv(2), 'review')], 'review comes back as itself');
+  assert.deepEqual(typedInto(daily.terminal).map(tokenless), [freshLine(box, 'claude', 'daily')], 'daily had no conversation, so it starts fresh with its duty');
+  assert.deepEqual(typedInto(review.terminal).map(tokenless), [resumeLine(box, 'claude', conv(2), 'review')], 'review comes back as itself');
 });
 
 // ---------------------------------------------------------------------------

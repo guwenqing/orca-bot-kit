@@ -413,6 +413,31 @@ export const SESSION_FIELDS = [
   'name', 'harness', 'model', 'effort', 'context', 'approval', 'prompt', 'prompt_file', 'work_dir', 'extra_args',
 ];
 
+/** Everything the top of a bot's own file can hold. */
+const BOT_FIELDS = ['name', 'harness', 'charter', 'rules', 'skills', 'sessions', 'paused'];
+
+/**
+ * The keys in a bot's file that the kit does not know, and so that nothing
+ * reads: a typo such as `efort` leaves its session on the harness's default
+ * while the file says otherwise (#273). Said, and never refused or taken out,
+ * because the file is the user's.
+ */
+export function unknownKeys(home, name = path.basename(home)) {
+  const file = path.join(home, BOT_YAML);
+  const unknown = (entry, known) => Object.keys(entry).filter((key) => !known.includes(key));
+  const sessionKeys = [...SESSION_FIELDS, 'paused'];
+  return [
+    ...unknown(asMapping(parseYaml(file), file), BOT_FIELDS).map((key) => ({
+      where: file,
+      says: `${file} has a key the kit does not know, ${key}, so nothing reads it and ${name} runs as if it were not there. The keys a bot's file can have are ${BOT_FIELDS.join(', ')}.`,
+    })),
+    ...readBot(home, name).sessions.flatMap((session) => unknown(session, sessionKeys).map((key) => ({
+      where: file,
+      says: `${file}: ${name}'s session ${session.name} has a setting the kit does not know, ${key}, so nothing reads it and the session runs as if it were not there. The settings a session can have are ${sessionKeys.join(', ')}.`,
+    }))),
+  ];
+}
+
 /** A session's settings, in that order, without the ones left out. */
 function ordered(session) {
   const entry = {};

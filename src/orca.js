@@ -24,9 +24,11 @@ export const orcaCli = () => process.env.OBK_ORCA || BUILT_IN;
 /**
  * Run one Orca command and give back its `result`.
  * Every call asks for `--json`; anything else would be text to guess at.
+ * With `timeoutMs`, Orca is given that long to answer, and the call is ended
+ * and refused if it has not.
  */
-export function orca(args) {
-  const answer = ask(args);
+export function orca(args, { timeoutMs } = {}) {
+  const answer = ask(args, timeoutMs);
   if (answer.ok !== true) {
     // Orca's own words: it knows what went wrong, and the caller is an LLM
     // that can act on them.
@@ -35,6 +37,9 @@ export function orca(args) {
   return answer.result;
 }
 
+/** What an error carries when Orca was given a time and did not answer in it. */
+export const TIMED_OUT = 'orca_timed_out';
+
 /** Orca's refusal as an error, with its code on it, so a caller can tell a stale handle from the rest (#294). */
 const refusal = (args, answer) => Object.assign(
   new Error(`Orca refused ${args.join(' ')}: ${answer.error?.message ?? 'no reason given'}`),
@@ -42,8 +47,11 @@ const refusal = (args, answer) => Object.assign(
 );
 
 /** One Orca command, and the whole envelope back, refusals included. */
-function ask(args) {
-  const asked = spawnSync(orcaCli(), [...args, '--json'], { encoding: 'utf8' });
+function ask(args, timeoutMs) {
+  const asked = spawnSync(orcaCli(), [...args, '--json'], { encoding: 'utf8', ...(timeoutMs === undefined ? {} : { timeout: timeoutMs }) });
+  if (asked.error?.code === 'ETIMEDOUT') {
+    throw Object.assign(new Error(`Orca did not answer ${args.join(' ')} within ${timeoutMs / 1000} seconds.`), { code: TIMED_OUT });
+  }
   if (asked.error) {
     throw new Error(`could not run Orca at ${orcaCli()}: ${asked.error.message}`);
   }
@@ -418,37 +426,41 @@ export function typeIntoTab(handle, text) {
 /** How long a re-issued line is given to be submitted before Orca gives up on it. */
 const SUBMIT_WAIT_S = 5;
 
+/** Where Orca names the terminal a process runs in, in every pane it opens. */
+export const TERMINAL_ENV = 'ORCA_TERMINAL_HANDLE';
+
 /**
  * A mailbox of one session's own: an Orca Run, which is a name and an inbox and
  * nothing else — it schedules nothing and runs nobody. The objective is what a
  * person sees in `orca orchestration run-list`, so it says whose it is.
  *
- * Bound to `handle`, the session's own tab, from the moment it is made. Orca
- * tells a Run's coordinator terminal about its mail and nobody else, and binds
- * the caller when no `--from` is given: the tab that ran `obk up` would be told
- * about every session it brought up, and would lose its own Run's binding, since
- * one terminal holds one Run (tech notes, section 1).
+ * Bound to the terminal this process runs in, which has to be the session's own
+ * tab: Orca tells a Run's coordinator terminal about its mail and nobody else,
+ * and one terminal holds one Run. Orca 1.4.210 lets a process in a tab bind a
+ * Run to that tab and to no other, so this is called from inside the session's
+ * tab and names no `--from` (tech notes, section 1; #317).
  */
-export const makeMailbox = (objective, handle) =>
-  orca(['orchestration', 'run-create', '--objective', `obk ${objective}`, '--from', handle]).run.id;
+export const makeMailbox = (objective, options) =>
+  orca(['orchestration', 'run-create', '--objective', `obk ${objective}`], options).run.id;
 
 /**
  * Bind a mailbox to the terminal `handle`, which makes it the Run's coordinator
  * and its one reader: Orca refuses a `check` from any other terminal with
  * `consumer_fenced`. A read itself binds nothing, so this is for a session's own
  * live tab, never for whoever is reading (tech notes, section 1). Without a
- * handle it binds this process's own terminal.
+ * handle it binds this process's own terminal; on Orca 1.4.210 a process in a
+ * tab may name no other (#317).
  */
-export const useMailbox = (id, handle) =>
-  orca(['orchestration', 'run-use', '--id', id, ...(handle === undefined ? [] : ['--from', handle])]).run;
+export const useMailbox = (id, handle, options) =>
+  orca(['orchestration', 'run-use', '--id', id, ...(handle === undefined ? [] : ['--from', handle])], options).run;
 
 /**
  * The terminal a mailbox is bound to, or undefined when it has none. A closed
  * tab keeps its binding, and a read as its handle still works: a read binds
  * nothing, only `run-use` does (tech notes, section 1).
  */
-export const coordinatorOf = (id) =>
-  orca(['orchestration', 'run-show', '--id', id]).run.coordinator_handle ?? undefined;
+export const coordinatorOf = (id, options) =>
+  orca(['orchestration', 'run-show', '--id', id], options).run.coordinator_handle ?? undefined;
 
 /** Queue one message. `to` and `from` are mailboxes, written `run:<id>`. */
 export function postMessage({ to, from, subject, body, type = 'status', thread }) {

@@ -18,7 +18,14 @@
 // told about its mail. The kit's own nudge line, typed into the session's tab,
 // goes on as it did.
 //
-// The fake Orca keeps each Run's coordinator and each terminal's notices (see
+// Orca 1.4.210 narrowed the rules (#317): a process in a tab may bind a Run to
+// its own terminal and no other, so `--from <the session's tab>` from tab A is
+// refused. The session's tab now makes and binds its own mailbox, in the step
+// its launch line starts with; `up` makes no Run call of its own. What these
+// tests hold, where each Run ends up bound, is the same either way.
+//
+// The fake Orca keeps each Run's coordinator and each terminal's notices, and
+// runs the mailbox step of a launch line as the tab it was typed into (see
 // helpers/fake-orca.js). "Tab A" below is a terminal in that world, and a run
 // of `obk` "in" it carries its `ORCA_TERMINAL_HANDLE` and `ORCA_TAB_ID`, the
 // way Orca sets them in every pane.
@@ -259,11 +266,12 @@ test('#228 check 4: a session checked by name from tab A keeps its mailbox bound
   await assertBoundToItsOwnTab(box, bots, 'coder');
 });
 
-test('#228 check 4: Bot Father reads another session\'s mail by name from its own tab, and neither mailbox moves', async (t) => {
+test('#228 check 4: Bot Father asking for another session\'s mail by name from its own tab moves neither mailbox', async (t) => {
   // Bot Father's tab holds Bot Father's own Run, so reading coder's Run as
   // itself is fenced, and binding it to coder's Run would take it off its
-  // own. Orca 1.4.209 reads as the terminal `check --terminal` names, which
-  // is how this can work and leave both bindings where they are.
+  // own. Orca 1.4.209 read as the terminal `check --terminal` named, which is
+  // how this used to work; 1.4.210 lets a tab read as itself and no other, so
+  // the check reads nothing and says so (#317; mailbox-attestation.test.js).
   //
   // Coder reads once from its own tab first, so its Run is bound there
   // whatever `up` did, and only the check from Bot Father's tab can move it.
@@ -276,18 +284,21 @@ test('#228 check 4: Bot Father reads another session\'s mail by name from its ow
   await assertBoundToItsOwnTab(box, bots, 'coder');
   await mail(box, a, 'coder', 'the staging host');
 
-  const read = await obkIn(box, a, ['message', 'check', '--bots', 'bots', '--bot', 'coder', '--session', 'daily']);
+  const read = await box.run(['message', 'check', '--bots', 'bots', '--bot', 'coder', '--session', 'daily'], { env: inTab(box, a) });
 
-  assert.ok(read.stdout.includes('the staging host'), `the check reads coder's mail, got: ${read.stdout}`);
-  assert.deepEqual((await box.orca.messages()).map((message) => message.acked), [true], 'and takes it');
+  assert.notEqual(read.code, 0, `from another tab the check cannot read coder's mail, got: ${read.stdout}`);
+  assert.ok(read.stdout.includes('coder/daily') || read.stderr.includes('coder/daily'), `and it says whose, got: ${read.stdout}${read.stderr}`);
+  assert.deepEqual((await box.orca.messages()).map((message) => message.acked), [false], 'the mail is still waiting');
   await assertBoundToItsOwnTab(box, bots, 'coder');
   await assertBoundToItsOwnTab(box, bots, 'bot-father');
 });
 
-test('#228: a session already running with no mailbox is given one at the next up, bound to its own tab', async (t) => {
+test('#228: a session already running with no mailbox is given none by up from tab A, and tab A is bound to nothing new', async (t) => {
   // A book written before mailboxes existed, or by hand: the tab is live and
   // in the book, the mailbox is not. This `up` opens no tab and types no launch
-  // line; it has to find the session's terminal among the ones Orca already has.
+  // line, and on Orca 1.4.210 it cannot bind a Run to a tab it is not running
+  // in, so the session gets its mailbox the next time the kit launches it
+  // (#317). What must not happen is a Run made for it here, bound to tab A.
   const box = await createSandbox(t);
   const a = await ownTab(box);
   const bots = await initIn(box, a);
@@ -297,17 +308,25 @@ test('#228: a session already running with no mailbox is given one at the next u
   delete book.sessions.daily.mailbox;
   await writeFile(bookOf(bots, 'coder'), stringify(book));
   const tabs = (await box.orca.terminals()).length;
+  const runs = (await box.orca.runs()).length;
 
   await obkIn(box, a, ['up', '--bots', 'bots', '--bot', 'coder']);
 
   assert.equal((await box.orca.terminals()).length, tabs, 'the session was running already: no tab is opened for it');
-  await assertBoundToItsOwnTab(box, bots, 'coder');
+  assert.equal((await sessionIn(bots, 'coder', 'daily')).mailbox, undefined, 'and it is given no mailbox by this up');
+  assert.equal((await box.orca.runs()).length, runs, 'no Run is made for it');
+  assert.deepEqual(
+    (await box.orca.runs()).filter((run) => run.coordinator_handle === a.handle).map((run) => run.id),
+    [],
+    'and tab A coordinates nothing',
+  );
 });
 
 test('#228: up from a plain shell with no Orca terminal binds each Run to its session\'s tab', async (t) => {
   // No `ORCA_TERMINAL_HANDLE` at all: a terminal outside Orca, or a script.
   // Orca 1.4.209 refuses a Run made from there unless it is told which
-  // terminal to bind, and the only right answer is the session's own.
+  // terminal to bind, and the only right answer is the session's own; since
+  // #317 the session's own tab makes it, from inside itself.
   const box = await createSandbox(t);
   const bots = await initIn(box, await ownTab(box));
   await addBot(box, null, 'coder', 'codex', ['daily', 'night']);
@@ -335,7 +354,8 @@ test('#228: init from a plain shell gives Bot Father a mailbox bound to its own 
 // was, it is coordinated by a tab that is gone, and Orca's notice for the
 // session's mail goes nowhere, or anywhere but its tab. Whether Orca clears a
 // closed tab's binding was not measured, so the closed-tab road is run both
-// ways: the dead handle left on the Run, and the Run left with none.
+// ways: the dead handle left on the Run, and the Run left with none. Since
+// #317 the new tab binds the Run to itself, in its launch line's step.
 
 /** Up from Bot Father's tab: the fleet a restart or a reopen starts from. */
 async function coderUpFromBotFather(box) {

@@ -20,8 +20,8 @@ import path from 'node:path';
 
 import { readBook } from './book.js';
 import { botDir, botNames, readBot } from './bot.js';
-import { harnessOf, ownCli, reachesMail, shellWord } from './launch.js';
-import { ackMailbox, coordinatorOf, postMessage, readMailbox, tabs, tabToTypeInto, typeIntoTab, useMailbox } from './orca.js';
+import { harnessOf, isAddressOf, ownCli, reachesMail, shellWord } from './launch.js';
+import { ackMailbox, coordinatorOf, postMessage, readMailbox, tabs, tabToTypeInto, TERMINAL_ENV, typeIntoTab, useMailbox } from './orca.js';
 
 /**
  * How much of a message travels as itself. Above this it is written to a file
@@ -67,7 +67,10 @@ export function findSession(bots, target) {
     session: session.name,
     harness,
     approval: classOf(session),
-    address: typeof held.address === 'string' ? held.address : undefined,
+    // Only a name the kit gave this session is an address. A bare
+    // `<bot>.<session>`, from before #286, is shared with other fleets'
+    // sessions, and Claude Code refuses a send to it.
+    address: isAddressOf(bot.name, session.name, held.address) ? held.address : undefined,
     mailbox: typeof held.mailbox === 'string' ? held.mailbox : undefined,
     tab: typeof held.tab === 'string' ? held.tab : undefined,
     trouble: whyNotReachable(bot.name, session, harness, held),
@@ -91,7 +94,8 @@ export function roadBetween(from, to) {
     address: to.mailbox === undefined ? undefined : `run:${to.mailbox}`,
     // A Claude pair that the native road cannot carry, because the receiver is
     // running under no name the kit gave it: it was started before the kit
-    // named sessions, and nothing renames a live harness. The mailbox is the
+    // named sessions, or before it gave them names of their own (#286), and
+    // nothing renames a live harness. The mailbox is the
     // road that exists, and the caller is told why it is the one being used
     // rather than left to wonder (review of PR #132, finding 1).
     unnamed: pair ? true : undefined,
@@ -147,7 +151,9 @@ export function sendMessage(bots, { to: target, from: sender, tab, subject, text
     return {
       ...answer,
       sent: false,
-      trouble: `${from.bot}/${from.session} has no mailbox of its own yet, so a reply would have nowhere to go. Bring it up first:  ${shellWord(ownCli())} up --bots ${shellWord(bots)} --bot ${shellWord(from.bot)}`,
+      trouble: from.tab === undefined
+        ? `${from.bot}/${from.session} has no mailbox of its own yet, so a reply would have nowhere to go. Bring it up first:  ${upCommand(from)}`
+        : `${from.bot}/${from.session} has no mailbox of its own, so a reply would have nowhere to go: ${noMailboxYet(from)}`,
     };
   }
 
@@ -200,6 +206,20 @@ export function checkMail(bots, { bot: botName, session: sessionName, tab, peek 
   // whatever its mailbox is bound to, a closed tab included, and nothing is
   // bound: the session's tab is bound again when it is back up (issue #249).
   const live = who.tab === undefined ? undefined : tabs(who.home).find((tab) => tab.tabId === who.tab)?.handle;
+  // Orca 1.4.210 lets a process in a tab bind and read as that tab and no
+  // other, and refuses the rest with nothing done (#317). So from inside any
+  // other tab, the kit asks nothing and says where the mail can be read.
+  const caller = process.env[TERMINAL_ENV];
+  if (caller !== undefined && caller !== live) {
+    return {
+      bots,
+      bot: who.bot,
+      session: who.session,
+      mailbox: who.mailbox,
+      messages: [],
+      trouble: `${who.bot}/${who.session}'s mail can be read only in its own tab: Orca lets a tab bind and read its own mailbox and no other. Nothing was read, and its mail is still waiting.`,
+    };
+  }
   if (live !== undefined) useMailbox(who.mailbox, live);
   const handle = live ?? coordinatorOf(who.mailbox);
   if (handle === undefined) {
@@ -417,5 +437,22 @@ function whyNotReachable(bot, session, harness, held) {
   return `${bot}/${session.name} is a Codex session whose extra arguments turn sandbox_workspace_write.network_access off. Orca is out of reach from inside that sandbox, so it can neither be written to nor read its own mail. Take that argument out, or write to it another way.`;
 }
 
-const notUpYet = (who) =>
-  `${who.bot}/${who.session} has no mailbox yet: it has never been brought up. Start it and it gets one:  ${shellWord(ownCli())} up --bots ${shellWord(who.bots)} --bot ${shellWord(who.bot)} --session ${shellWord(who.session)}`;
+const notUpYet = (who) => (who.tab === undefined
+  ? `${who.bot}/${who.session} has no mailbox yet: it has never been brought up. Start it and it gets one:  ${upCommand(who)} --session ${shellWord(who.session)}`
+  : `${who.bot}/${who.session} has no mailbox: ${noMailboxYet(who)}`);
+
+/**
+ * Why a session the kit has started has no mailbox, and what gets it one. Its
+ * mailbox is made by the step at the head of its launch line, in its own tab
+ * (#317), so `up` of a session that is running gives it none: starting it
+ * again does, and `up` does when its tab is closed.
+ */
+export const noMailboxYet = (who) =>
+  `its tab did not make one when it started, and the tab shows why. Start it again and its tab makes one:  ${restartCommand(who)}  (or, if its tab is closed:  ${upCommand(who)} --session ${shellWord(who.session)})`;
+
+/** The command that starts one session again, in a new tab. */
+const restartCommand = (who) =>
+  `${shellWord(ownCli())} restart --bots ${shellWord(who.bots)} --bot ${shellWord(who.bot)} --session ${shellWord(who.session)}`;
+
+/** The command that brings a bot's sessions up, for the caller to finish with a session or not. */
+const upCommand = (who) => `${shellWord(ownCli())} up --bots ${shellWord(who.bots)} --bot ${shellWord(who.bot)}`;
