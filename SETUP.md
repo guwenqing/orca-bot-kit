@@ -102,8 +102,9 @@ Ask both in one message, then wait.
 
 **Where the bots folder goes.** An absolute path. It becomes a git repository of
 theirs holding every bot's configuration: charters, rules, session settings, the
-book of sessions. It holds none of the kit's code. They may push it somewhere
-later; the kit never commits for them.
+book of sessions. It holds none of the kit's code. The bots commit their own
+changes to it; the kit's commands never commit, and pushing it somewhere is
+theirs to decide.
 
 **Which harness Bot Father runs on**, `claude` or `codex`. There is no default
 and the kit will not guess. It is Bot Father's own harness only; each bot they
