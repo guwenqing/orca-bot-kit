@@ -346,8 +346,8 @@ const psCli = () => process.env.OBK_PS || '/bin/ps';
 
 /**
  * Who holds the terminal of the pane `ptyId`: `{ front: 'shell' }`,
- * `{ front: 'program', command }` with the name of the process leading the
- * group in front, or `{ unreadable: <why> }`.
+ * `{ front: 'program', command, pid }` with the name and pid of the process
+ * leading the group in front, or `{ unreadable: <why> }`.
  *
  * Orca gives the pane's pid in `diagnostics memory` and nowhere else, and `ps`
  * gives that pid's terminal's foreground process group (ADR 0021).
@@ -374,7 +374,20 @@ function frontOf(ptyId) {
   const front = psLine(own.tpgid);
   if (front === undefined) return { unreadable: `ps could not read the process in front, pid ${own.tpgid}` };
   const shell = front.ppid === pane && path.basename(own.comm) === 'login';
-  return shell ? { front: 'shell' } : { front: 'program', command: path.basename(front.comm) };
+  return shell ? { front: 'shell' } : { front: 'program', command: path.basename(front.comm), pid: own.tpgid };
+}
+
+/**
+ * The process `pid` as `ps -E` gives it, word by word: its command, its
+ * arguments, then its environment as `NAME=value` words. Undefined when it
+ * cannot be read. macOS gives a same-user harness's environment this way (tech
+ * notes, section 1); nothing in it says where the arguments end, so a caller
+ * looks for one whole word it knows.
+ */
+export function wordsOfProcess(pid) {
+  const asked = spawnSync(psCli(), ['-E', '-ww', '-o', 'command=', '-p', String(pid)], { encoding: 'utf8' });
+  if (asked.error || asked.status !== 0) return undefined;
+  return asked.stdout.trim().split(/\s+/);
 }
 
 /** One process as `ps` gives it, read only: `{ ppid, tpgid, comm }`, or undefined. */

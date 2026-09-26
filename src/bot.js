@@ -59,7 +59,7 @@ export function botNames(bots) {
  * link the user made takes it out of that folder; undefined when it stays in.
  *
  * The kit writes only in the bot folder, never in user-level settings (PRD 6.3,
- * ADR 0020), and a link would make the one the other without a word. So the
+ * ADR 0022), and a link would make the one the other without a word. So the
  * answer is the file system's, not the spelling's: see `whereItLeads`.
  */
 export function leadsOutside(home, target) {

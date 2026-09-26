@@ -71,7 +71,11 @@
 //               'harness', 'shell', or one of the ways it cannot be read
 //               (helpers/fake-ps.js lists them). Left out, it follows waitIdle.
 //               One terminal can carry a `foreground` of its own, for that
-//               tab alone; Orca never reports it.
+//               tab alone; Orca never reports it. A terminal's `environment`
+//               says what the program in front carries for `ps -E` (#318):
+//               left out, what the kit's launch line gave it; 'orca' for a
+//               harness Orca resumed by itself (helpers/fake-ps.js lists the
+//               rest). Orca never reports that either.
 //   agentIdentity  what `terminal show` and `terminal list` give as every
 //               tab's `agentIdentity`, when the key is there (null included).
 //               Left out, a tab carries its own: null when it is made, and the

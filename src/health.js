@@ -25,8 +25,9 @@ import { bookFile, readBook, sessionIdsIn, tabIdsIn } from './book.js';
 import { botDir, botNames, botsDir, readBot, unknownKeys } from './bot.js';
 import { transcriptsIn } from './conversations.js';
 import { hookTrouble } from './hooks.js';
-import { bypassFlags, harnessOf, HARNESSES, ownCli, sessionTrouble, shellWord } from './launch.js';
-import { frontOfTab, orcaDefaultArgs, projects, tabs } from './orca.js';
+import { bypassFlags, harnessOf, HARNESSES, ownCli, sessionTrouble, SHELL_ENV, shellWord } from './launch.js';
+import { frontOfTab, orcaDefaultArgs, projects, tabs, wordsOfProcess } from './orca.js';
+import { TAB_ENV } from './record.js';
 import { agentsTrouble, rulesStamp } from './rules.js';
 import { settingsInUse } from './settings.js';
 import { skillsTrouble } from './skills.js';
@@ -215,8 +216,9 @@ const hooksOf = (bots, home, bot) => [...new Set(bot.sessions.map((session) => h
 /**
  * Each session of this bot running in a tab Orca has, with what it runs on set
  * beside what the bot asks for now, added to `sessions`; a finding for each
- * one that runs on something else (#271, #272); and a finding for each one
- * whose tab is open with its harness gone from it (#300).
+ * one that runs on something else (#271, #272), or whose harness the kit's
+ * launch line did not start (#318); and a finding for each one whose tab is
+ * open with its harness gone from it (#300).
  *
  * Two questions, each answered from where the answer is written. The settings
  * from the harness's own record of the conversation the session is in now,
@@ -270,8 +272,15 @@ function runningOn(bots, home, bot, book, handles, sessions) {
     if (running !== 'yes') continue;
 
     const off = Object.entries(settings).filter(([, one]) => one.state === 'mismatch');
-    if (off.length > 0) {
-      const parts = off.map(([name, one]) => `${name}: bot.yaml asks for ${one.configured}, and it runs on ${one.observed}`).join('; ');
+    const parts = off.map(([name, one]) => `${name}: bot.yaml asks for ${one.configured}, and it runs on ${one.observed}`).join('; ');
+    if (startedByKit(front.pid, entry.tab) === false) {
+      // Orca brings its tabs back by itself after a restart or an update, with
+      // a bare resume and none of the kit's launch line (#318). What health can
+      // see may still match, by the harness's own defaults; the rest of what
+      // bot.yaml asks for is not on it either way.
+      const drift = off.length === 0 ? '' : ` ${parts}, as the harness's own record of its conversation ${conversation} says.`;
+      found.push(finding('session', entry.tab, `${bot.name}'s session ${session.name} was not started by the kit: the harness in its tab ${entry.tab} carries nothing of the kit's launch line, as when Orca brings its tabs back by itself after a restart or an update. So it runs on the harness's own defaults and whatever Orca added, not on what ${path.join(home, 'bot.yaml')} asks for.${drift} ${restart} starts it on bot.yaml.`, bot.name));
+    } else if (off.length > 0) {
       found.push(finding('session', file, `${bot.name}'s session ${session.name} does not run on what ${path.join(home, 'bot.yaml')} asks for. ${parts}. That is what the harness's own record of its conversation ${conversation} says. A session takes these when it starts, so if bot.yaml changed after it started, ${restart} starts it on them; if not, something else set them, such as a default of the harness's own or a change made inside the session.`, bot.name));
     }
 
@@ -287,6 +296,19 @@ function runningOn(bots, home, bot, book, handles, sessions) {
     }
   }
   return found;
+}
+
+/**
+ * Whether the kit's launch line started the process `pid` in the tab `tab`:
+ * true when it carries the marker the line puts there, false when it carries
+ * that tab's id and no marker, and undefined when its environment cannot be
+ * read (tech notes, section 1). Only a whole word counts: an argument, such as
+ * a start prompt, can hold anything.
+ */
+function startedByKit(pid, tab) {
+  const words = pid === undefined ? undefined : wordsOfProcess(pid);
+  if (words === undefined || !words.includes(`${TAB_ENV}=${tab}`)) return undefined;
+  return words.some((word) => new RegExp(`^${SHELL_ENV}=[0-9]+$`).test(word));
 }
 
 /**
@@ -357,7 +379,7 @@ function inOrca(bots, home, bot, setups, sessions) {
 /**
  * The conversations a harness has on record in this bot's folder that the book
  * does not name anywhere. The hook is how an id reaches the book, and when it
- * fails it fails quietly (ADR 0020), so this is where a stale book shows: the
+ * fails it fails quietly (ADR 0022), so this is where a stale book shows: the
  * harness's own record set beside it (ADR 0012).
  */
 function offTheBook(home, bot, book, onRecord) {

@@ -126,6 +126,9 @@ project → repo (`kind: "git" | "folder"`) → worktree (id = `<repoId>::<absPa
     a Claude tab writing out a long answer). Codex busy on a `sleep 25` it ran answered `ok:true`,
     `satisfied:true` throughout, and so did a Claude Code and a Codex bot each busy on a `sleep 45`
     their start prompt gave them, so a busy harness can read as idle too (same day, Codex 0.156.1).
+    Seen again on Orca 1.4.210: at 16:23Z on 2026-09-25, `tui-idle` answered idle for both kit-dev
+    Codex reviewers that Orca's cold restore had resumed, while their screens showed Codex working
+    (the architect, #318). The kit acts on the tab's foreground, not on this answer (below).
   **`blockedReason` does not catch everything.** Claude Code showing its folder-trust screen answers
   `satisfied:true` with no `blockedReason` at all, while Codex on the same kind of screen answers
   `satisfied:false` with one. So it is a useful hint and not a test: whether something on screen wants
@@ -191,6 +194,26 @@ project → repo (`kind: "git" | "folder"`) → worktree (id = `<repoId>::<absPa
   Orca names. When the pid or the group cannot be read it says it cannot tell and
   types nothing (ADR 0021). `diagnostics memory` is a diagnostics command and may change.
   **verified** (live, 2026-09-24, Orca 1.4.209, macOS 26.6.2, Claude Code 2.1.281, Codex 0.156.1, #232)
+- **A harness Orca resumed by itself sits where the kit's own does, and carries none of the kit's
+  variables.** Read with `ps` on 2026-09-25, after that morning's machine restart and Orca's cold
+  restore (below). Every kit-dev harness Orca had resumed, four Claude Code and two Codex, was the
+  direct child of its tab's login shell (`-/bin/zsh`), which was the child of the pane's
+  `/usr/bin/login`, and it led the terminal's foreground group. The two Codex sessions the kit
+  launched that evening had the same tree. The restored ones carried `ORCA_TAB_ID`, the other `ORCA_*`
+  variables and `ORCA_AGENT_LAUNCH_TOKEN`, and neither `OBK_TAB_SHELL` nor `OBK_CLI`. The kit-launched
+  ones carried both, with `OBK_TAB_SHELL` equal to their parent's pid, and no launch token. So the
+  process tree tells the tab's own harness from one the session started, launch line or not: a child
+  of the shell that `login` started for the pane. The marker tells only whether the kit's launch line
+  started it (#318). **verified** (live: the restore by Orca 1.4.210, read at 03:00Z on 2026-09-26
+  under the 1.4.212 app and the 1.4.210 daemon; macOS 26.6.2, Claude Code 2.1.282, Codex 0.156.1)
+- **`ps -E` reads a same-user harness's environment.** `ps -E -ww -o command= -p <pid>` answers with
+  one line: the command and its arguments, then each variable as a `NAME=value` word, all separated
+  by spaces. It did so for `claude` and `codex` alike (same date and versions). A value with a space
+  in it cannot be told from the next word, and an argument such as a start prompt can look like a
+  variable, so a reader should look for one whole word it knows. That answers the reading half of
+  #261's open question on macOS. #318 uses the marker only to report in `obk health` which sessions
+  the kit's launch line did not start, never to decide what is typed into a tab. Whether the mail
+  nudge may rest on it is still #261's to settle, and ADR 0021 still lists it as open. **verified** (live)
 - `orca terminal send [--terminal <h>] [--text <t>] [--enter] [--interrupt] [--wait-submit <s>] [--retry-request <id>]` — `accepted:true` means input accepted, not that the agent read it; never resend on silence; use `--retry-request` for an idempotent retry.
   **A carriage return or a line feed inside `--text` does not submit early.** Sent with `--enter` into a running agent, a line with `\r` or `\n` in the middle arrives as **one** message with a line break where the character was, and is answered once: Claude Code's transcript shows one user turn holding both lines, and Codex's screen shows one prompt of two lines and one answer. So the mail nudge, which carries the sender's subject as typed, cannot be split into two prompts by a subject that has one in it. **verified** (live, 2026-09-23, Orca 1.4.207, Claude Code 2.1.280 with `--model haiku`, Codex 0.155.1; #176)
   **While Codex sits on its own update offer, Orca refuses a line with `--enter` as `agent_prompt_blocked`.** Seen three times in a row on 2026-09-23 (Codex 0.155.1 offering 0.156.0); answered `2` (Skip), the next line went through. **verified** (live)
@@ -256,9 +279,64 @@ config puts it in "YOLO mode"), only the update offer.
 
 Orca stores a resume record per pane key (`sleepingAgentSessionsByPaneKey`) and relaunches with `claude --resume <id>` / `codex resume <id>`. Closing a tab drops the record. Orca's Session History can find old transcripts but does not know which bot and session they belonged to. This is why the kit keeps its own book (ADR 0012).
 
+### When Orca restores its tabs by itself (cold restore)
+
+- **Seen on 1.4.210, after the owner's machine restart on 2026-09-25, when Orca also moved from 1.4.209
+  to 1.4.210** (the architect, about 16:20Z, #318). Orca resumed every kit-dev tab's harness by itself,
+  3 s after it started, as a bare `claude --resume <id>` or `codex resume <id>`. None of the kit's launch
+  line came with it. The harnesses carried `ORCA_AGENT_LAUNCH_TOKEN` and no `OBK_*` variable (the tree
+  and the variables are in section 1). With no kit flags, Codex fell back to the user's
+  `~/.codex/config.toml`. kit-dev's `reviewer` and `review-286` ran on `approval_policy never` with
+  `sandbox danger-full-access`, where `bot.yaml` asks for `auto`, and `obk health` flagged both. The
+  Claude Code sessions matched their settings only because the user's own defaults happen to match.
+  Bot Father's `daily` and `grooming` and amc-tutor's `prep` were not brought back. A `/clear` in a
+  restored Claude tab was not written to the book, and the session was not told its duty again (#318).
+  **verified** (live)
+- **How it works, read in the 1.4.212 bundle.** Orca's own trace (`logs/main.trace.ndjson`,
+  `updater.install`) records 1.4.210 installed at 16:08Z on 2026-09-25 and 1.4.212 at 00:13Z on
+  2026-09-26. The restore above ran on 1.4.210, whose bundle was not read.
+  - The id is the agent's `providerSession` for the pane while its state is not `done`, and otherwise
+    the pane's sleeping record (`sleepingAgentSessionsByPaneKey`).
+  - The command is the agent's configured command with `--resume <id>` (Claude Code) or `resume <id>`
+    (Codex) added, plus Orca's default launch arguments: `settings.agentDefaultArgs`, or the arguments
+    the pane's own Orca launch saved. A bypass there reaches every restored session (section 1, and
+    `obk health`'s finding on Orca's settings).
+  - It is the pane's startup command. The daemon starts the login shell with Orca's wrapper, and the
+    wrapper `eval`s the command at the first prompt. So the harness is the shell's child, as seen.
+  - It mints `ORCA_AGENT_LAUNCH_TOKEN` for the pane.
+  - It runs when the daemon has no live session for the pane and the pane's terminal history is on
+    disk. A pane the daemon still holds is attached again and nothing is run.
+  - Sleeping records are written when Orca quits and every 60 s, and only for an agent that is not
+    `done`, has a provider session id and is on Orca's resumable list. That would explain the tabs
+    that were not brought back; it was not checked for them.
+  - No setting turns the restore off.
+- **An Orca update that leaves the daemon running leaves the tabs and their harnesses running.** The
+  update to 1.4.212 restarted the app at 00:13:54Z on 2026-09-26. At 03:40Z the terminal daemon was
+  still the 1.4.210 one (`daemon/daemon-v36.pid`, `appVersion` 1.4.210, running since 16:20Z), and so
+  were the harnesses the morning's restore had started, so nothing was restored again. The bundle says
+  an update keeps an old daemon that owns live sessions. A pane's `ORCA_APP_VERSION` is the daemon's:
+  a tab opened after the update still read 1.4.210. So the version a fact was seen on is the app's
+  (the trace above, or `orca --version` once the app has restarted), and for anything about a pane,
+  also the daemon's. **verified** (live, with `ps` and Orca's own files)
+- **What the kit does with such a tab, proven live with a stand-in** (#318,
+  `test/system/restored-tab.test.js`, passed on 2026-09-26: Orca app 1.4.212 with the 1.4.210 daemon,
+  Claude Code 2.1.283, Codex 0.156.1). A cold restore can't be staged without restarting the owner's
+  Orca. So the kit's harness is quit, and the same bare resume is typed into the tab's shell. The
+  harness in front then had the tab's `ORCA_TAB_ID` and no `OBK_TAB_SHELL`. `obk health` named each
+  such session, with its restart. A `/clear` (Claude Code) and a `/new` (Codex) there were written to
+  the book, the old id went into history, and the session was told its duty again. A stranger's
+  `claude` in another tab of the same project was not written down. **verified** (live)
+- **Not what the 2026-09-25 restore showed, and not explained:** in that stand-in, the bare `codex
+  resume <id>` of a conversation the kit had started with `--approve-for-me`, and the `/new` after it,
+  recorded `approval_policy on-request` and `sandbox_policy workspace-write`. That is the kit's `auto`,
+  not the user's `never` and `danger-full-access`. Orca's own restore runs the command through its
+  shell wrapper, with its default arguments, which this stand-in did not. **verified** (live, from the
+  rollouts)
+- Not known: whether 1.4.209 restored the same way. No older bundle is on disk.
+
 ### Orca's own agent hooks (verified)
 
-Orca writes hooks into the user-level harness settings (`~/.claude/settings.json`, Codex hooks). They post to a local port using env vars set in each pane: `ORCA_PANE_KEY`, `ORCA_TAB_ID`, `ORCA_WORKTREE_ID`, `ORCA_TERMINAL_HANDLE`, `ORCA_AGENT_HOOK_PORT`, `ORCA_AGENT_HOOK_TOKEN`. Those variables are inherited all the way down — a harness started in a tab has them, and so does a hook the harness runs — so `ORCA_TAB_ID` is how anything running in a tab knows which tab it is in. **verified** (live). Orca's own per-pane record (`providerSessionId` in `…/orca/agent-hooks/last-status.json`) was empty for kit-made tabs, so it is not a cross-check to lean on. `…/orca/agent-hooks/last-status.json` holds per pane: state, last hook event, provider session id, transcript path. Internal; a cross-check only. The kit's hooks live in the bot folder and must not touch these (ADR 0020).
+Orca writes hooks into the user-level harness settings (`~/.claude/settings.json`, Codex hooks). They post to a local port using env vars set in each pane: `ORCA_PANE_KEY`, `ORCA_TAB_ID`, `ORCA_WORKTREE_ID`, `ORCA_TERMINAL_HANDLE`, `ORCA_AGENT_HOOK_PORT`, `ORCA_AGENT_HOOK_TOKEN`. Those variables are inherited all the way down — a harness started in a tab has them, and so does a hook the harness runs — so `ORCA_TAB_ID` is how anything running in a tab knows which tab it is in. **verified** (live). Orca's own per-pane record (`providerSessionId` in `…/orca/agent-hooks/last-status.json`) was empty for kit-made tabs, so it is not a cross-check to lean on. `…/orca/agent-hooks/last-status.json` holds per pane: state, last hook event, provider session id, transcript path. Internal; a cross-check only. The kit's hooks live in the bot folder and must not touch these (ADR 0022).
 
 ### Mailbox
 
@@ -373,6 +451,16 @@ Proved live on 2026-09-21 (Orca 1.4.205), in throwaway workspaces since removed:
 - A project hooks file must be **trusted once**. The TUI shows `Hooks need review … 1. Review hooks / 2. Trust all and continue / 3. Continue without trusting`; `t` on the review screen trusts all. Until then the hook does not run and nothing else says so. Orca has reported that screen as `blockedReason: "agent-hooks-review-prompt"`, but on Orca 1.4.209 it does not: see the next line. Trust is recorded per hook entry in `~/.codex/config.toml` under `[hooks.state."<file>:<event>:<n>:<m>"]` as a hash, so **changing an entry asks again** while an unrelated change to the file does not. `--dangerously-bypass-hook-trust` skips it; the kit does not use it. **verified** (live)
 - **Orca does not flag either Codex first-run screen on 1.4.209.** Measured live (2026-09-24, Orca 1.4.209, codex-cli 0.156.1, #288): a tab the kit opened stopped on `Trust this folder?`, and after that was answered, on `Hooks need review`. On each screen `terminal wait --for tui-idle` answered `ok:true`, `satisfied:true` with no `blockedReason`, three times in a row, and `agentIdentity` was null. `obk up` reported both tabs as come up. The rendered screen (`terminal read --screen`) is the only thing that shows either question. So `up`, `restart` and `unpause` do not say a tab came up when Orca names no reason; they say the kit cannot see whether a screen is waiting, and point the caller at the tab. **verified** (live)
 - **A hook runs as a child of the harness process here too.** Measured live (0.155.1): the hook command's process has `codex` as its parent, and `codex`'s parent is the shell the launch line ran in. A `codex exec` the session starts is a harness of its own, further down that chain, and it fires the same hook with its own conversation id — which is how a child's conversation can be mistaken for the session's. **verified** (live)
+- **Codex runs its SessionStart hook outside its `workspace-write` sandbox**, where `/bin/ps` does not
+  start at all (#298). Seen through the kit on 2026-09-25 (codex-cli 0.156.1). kit-dev's `review-237`
+  and `review-325` ran at the kit's `auto` level, and their rollouts' `turn_context` records
+  `sandbox_policy.type: "workspace-write"`. The book holds each one's conversation id. The only code
+  that writes that id is the hook's `recordSession`, and it writes only after its `ps -Ao
+  pid=,ppid=,comm=` has answered. So the hook's `ps` ran, and the process-tree check works on Codex at
+  the kit's default level. Codex says so itself: its `Hooks need review` screen reads "Hooks can run
+  outside the sandbox after you trust them" (seen 2026-09-26 on 0.156.1 and on 0.157.1). A `/new`
+  goes the same way: in #318's live check (0.156.1), a `/new` in a `workspace-write` session was
+  written to the book. **verified** (through the kit's own record, and on Codex's screen)
 - **Trusting a hooks file does not replay what it missed.** A conversation that was already running when the file was still untrusted is never reported: no SessionStart arrives for it after `t`, and nothing else says the kit missed one. The next conversation reports normally. So "no id recorded" cannot be read as "there was no conversation". **verified** (live, in the PR #88 review)
 - **Codex records no pid anywhere a reader can use.** `~/.codex/thread-writer-locks/<thread>.lock` is an empty lock file; `~/.codex/session_index.jsonl` holds `{ id, thread_name, updated_at }`; a rollout's `session_meta` carries the id, the folder and the time and no pid. So there is no Codex equivalent of Claude Code's live-session registry. **verified** (read on this machine, 0.155.1)
 - **Neither harness links a new conversation to the one the same process had before.** A `/clear` or a `/new` leaves nothing behind saying "this replaced that". With the point above, that means **a conversation that has ended cannot be tied to the session that had it** by anything either harness writes down — which is why the kit never assigns an unrecorded conversation to a session and says what it found instead. **verified** (live, and by reading both harnesses' own files)

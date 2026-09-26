@@ -1,4 +1,4 @@
-// The kit's own hook, in the bot's folder and nowhere else (ADR 0020).
+// The kit's own hook, in the bot's folder and nowhere else (ADR 0022).
 //
 // Both harnesses read a hooks file out of the folder a session starts in, and
 // every session starts at its bot home, so the bot folder is where the kit's
@@ -35,7 +35,7 @@ const TIMEOUT = 10;
  * What the hook runs: the CLI that wrote it, by its own path, so the session
  * reports to the kit that set it up and not to whatever `obk` PATH finds in the
  * harness's shell (#220). `|| true` and a quiet stderr because a hook must never
- * disturb the session it fires in (ADR 0020): a kit that is not there, or a book
+ * disturb the session it fires in (ADR 0022): a kit that is not there, or a book
  * that cannot be written, leaves the session alone and the health check finds
  * the stale book later.
  */
@@ -124,7 +124,7 @@ export function hookTrouble(home, harness, { bots, bot }) {
 /**
  * What to say about a hooks file that a link takes out of the bot folder, or
  * undefined when it stays in. The kit writes its hook in the bot folder and
- * nowhere else (ADR 0020); through a link like that it would be writing the
+ * nowhere else (ADR 0022); through a link like that it would be writing the
  * user's own settings, so it does not, and says why.
  */
 function outside(home, file) {

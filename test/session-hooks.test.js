@@ -1,4 +1,4 @@
-// The kit's own hook, and where `obk up` puts it (ADR 0020).
+// The kit's own hook, and where `obk up` puts it (ADR 0022).
 //
 // The book has to learn a session's harness session id whenever the session
 // starts, resumes or is cleared, and the only thing that knows is the harness
@@ -103,7 +103,7 @@ for (const [harness, other] of [['claude', 'codex'], ['codex', 'claude']]) {
       false,
       `no session runs on ${other}, so ${hookFileOf(bots, 'api-bot', other)} has no reason to exist`,
     );
-    // In the bot's own folder, where it is versioned with the bot (ADR 0020).
+    // In the bot's own folder, where it is versioned with the bot (ADR 0022).
     assert.equal(
       path.relative(botHomeOf(bots, 'api-bot'), hookFileOf(bots, 'api-bot', harness)),
       HOOK_FILES[harness],
@@ -178,7 +178,7 @@ for (const harness of ['claude', 'codex']) {
   });
 
   test(`the ${harness} hook whose CLI is no longer there does nothing and disturbs nothing`, async (t) => {
-    // ADR 0020: the hook must never block the session if the kit is missing.
+    // ADR 0022: the hook must never block the session if the kit is missing.
     // The hook runs the kit by the path it was written with (#220), so a user
     // who uninstalls it, or whose install moved, or who runs a session on a
     // machine where it was never installed, must get a session that starts
@@ -556,7 +556,7 @@ test('two bots each get their own hook, naming their own bot', async (t) => {
 });
 
 test('no command of the kit writes anything to user-level settings', async (t) => {
-  // The rule ADR 0020 exists for: Orca writes its hooks into `~/.claude` and
+  // The rule ADR 0022 exists for: Orca writes its hooks into `~/.claude` and
   // the user had to take that file out of version control because of it. HOME
   // is inside the sandbox, so anything reaching for it lands here.
   const box = await createSandbox(t);
@@ -573,7 +573,7 @@ test('no command of the kit writes anything to user-level settings', async (t) =
 
 // ---------------------------------------------------------------------------
 // Which entries are the kit's (#165). The kit changes or removes only what it
-// wrote (PRD 6.5, ADR 0020). An entry is the kit's when its command is the
+// wrote (PRD 6.5, ADR 0022). An entry is the kit's when its command is the
 // line the kit writes, `obk session record --bots <word> --bot <word> 2>/dev/null
 // || true`, for whatever bots folder and bot it was written for. A line of the
 // user's that only mentions `obk session record` is theirs, however close it

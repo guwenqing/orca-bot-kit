@@ -292,7 +292,7 @@ export function unlinkSkills(home) {
  * user made, or one of the kit's that they have since repointed, is theirs.
  *
  * It is the kit's own file and lives beside the hook files it already keeps in
- * the bot folder (ADR 0020). A record that cannot be read is treated as an
+ * the bot folder (ADR 0022). A record that cannot be read is treated as an
  * empty one: the worst that follows is that the kit leaves alone something it
  * would otherwise have tidied up, which is the safe way round.
  */

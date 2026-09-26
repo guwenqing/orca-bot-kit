@@ -1,13 +1,14 @@
 // A fake `ps` for the ordinary suite. `OBK_PS` points every sandboxed run at
 // it, so `npm test` never reads the machine's own process table.
 //
-// It answers the one question the kit may ask (#232): who is in front of an
+// It answers the question the kit asks it most (#232): who is in front of an
 // Orca tab's terminal. The kit reads the tab's pane pid out of `orca
 // diagnostics memory` and asks, one pid per call,
 //
 //   <ps> -o pid=,ppid=,tpgid=,comm= -p <pid>
 //
-// and nothing else. Any other shape is refused here with exit 70, the way the
+// and nothing else but the environment read further down (#318). Any other
+// shape is refused here with exit 70, the way the
 // fake Orca falls over on a close it must never be asked for: `ps` is a reader
 // for the kit and never a road to a `kill` (AGENTS.md, 2026-09-20), and a call
 // with other flags is a call that was not thought through. Every call, refused
@@ -62,12 +63,44 @@
 //     before any wait was made, counting from where the list was set, as
 //     the fake Orca does. `false` and 'quit' are a shell in front; every
 //     other answer is the harness.
+//
+// It answers one more question (#318): what one process of a tab carries in
+// its environment, which says whether the kit's launch line started it. The
+// kit asks, one pid per call,
+//
+//   <ps> -E -ww -o command= -p <pid>
+//
+// and macOS answers with one line: the command and its arguments, then each
+// variable as a `NAME=value` word, all separated by spaces (tech notes,
+// section 1, measured live on Orca 1.4.210, Claude Code 2.1.282, Codex
+// 0.156.1). What each process of a tab carries:
+//
+//   - the pane and its shell: the variables Orca puts in every tab, ORCA_TAB_ID
+//     among them, and none of the kit's.
+//   - the program the shell started (the harness, or whatever is there in its
+//     place), by `environment` on its terminal:
+//       left out     what the tab's first typed line gave it, as the tab's shell
+//                    would: Orca's variables, and with the kit's launch line
+//                    `OBK_TAB_SHELL` (the pid of the shell it ran in) and
+//                    `OBK_CLI`
+//       'orca'       Orca resumed it by itself, as after a cold restore: `claude
+//                    --resume <id>` or `codex resume <id>`, Orca's variables with
+//                    ORCA_AGENT_LAUNCH_TOKEN, and none of the kit's
+//       'other-tab'  as 'orca', with ORCA_TAB_ID naming another tab, whose id
+//                    begins with this tab's own: only a whole word tells them
+//                    apart
+//       'no-tab-id'  the command alone and no variables, which is what ps
+//                    gives for a process whose environment it may not read
+//       'ps-fails'   the read fails: stderr, exit 1
 
 import { appendFileSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
-/** The only argv the kit may hand `ps`, but for the pid on the end. */
+/** The argv the kit may hand `ps` to ask who is in front, but for the pid on the end. */
 export const PS_READ = ['-o', 'pid=,ppid=,tpgid=,comm=', '-p'];
+
+/** The argv the kit may hand `ps` to read one process's environment (#318), but for the pid on the end. */
+export const PS_ENVIRONMENT = ['-E', '-ww', '-o', 'command=', '-p'];
 
 /** The harness a tab was launched with: the first line typed into it names one, or none was. */
 export function launchedIn(terminal) {
@@ -158,6 +191,62 @@ function processesOf(state, terminal, dir) {
   }
 }
 
+/** A conversation id of the shape both harnesses use, for a harness Orca resumed. */
+const RESUMED = '0199b2c0-0318-4444-8888-cccccccccccc';
+
+/** What every process of the user's carries, whoever started it. */
+const USERS = ['TERM=xterm-256color', 'SHELL=/bin/zsh', 'HOME=/Users/someone', 'LANG=en_US.UTF-8', 'PATH=/usr/bin:/bin:/usr/sbin:/sbin'];
+
+/** What Orca puts in the environment of everything in a tab (tech notes, section 1). */
+const orcaVariables = (terminal, tabId = terminal.tabId) => [
+  `ORCA_PANE_KEY=${terminal.handle}:0`,
+  `ORCA_TAB_ID=${tabId}`,
+  `ORCA_TERMINAL_HANDLE=${terminal.handle}`,
+  `ORCA_WORKTREE_ID=${terminal.worktreeId ?? 'wt_1'}`,
+  'ORCA_AGENT_HOOK_PORT=51234',
+  'ORCA_AGENT_HOOK_TOKEN=hook-token',
+];
+
+/**
+ * What `ps -E` prints for one process of a tab: its command and arguments, then
+ * its variables, or undefined when the read fails. Only the program the shell
+ * started carries anything of the kit's; see the list at the top.
+ */
+function environmentOf(state, terminal, row) {
+  const harness = panePid(state, terminal) + 2;
+  if (row.pid !== harness) return [row.comm, ...USERS.slice(0, 2), ...orcaVariables(terminal), ...USERS.slice(2)].join(' ');
+
+  const program = row.comm;
+  const typed = terminal.typed?.[0]?.text ?? '';
+  const resumed = program === 'codex' ? `codex resume ${RESUMED}` : `${program} --resume ${RESUMED}`;
+  switch (terminal.environment) {
+    case 'ps-fails':
+      return undefined;
+    case 'no-tab-id':
+      return resumed;
+    case 'orca':
+    case 'other-tab':
+      return [
+        resumed,
+        ...USERS.slice(0, 2),
+        ...orcaVariables(terminal, terminal.environment === 'other-tab' ? `${terminal.tabId}0` : terminal.tabId),
+        'ORCA_AGENT_LAUNCH_TOKEN=launch-token',
+        ...USERS.slice(2),
+      ].join(' ');
+    default: {
+      // The arguments the line gave the program, as ps shows them: unquoted.
+      const at = typed.search(new RegExp(`(?:^|\\s)${program}(?=\\s|$)`));
+      const command = at < 0 ? program : typed.slice(at).trim().replaceAll("'\\''", "'").replaceAll("'", '');
+      const cli = /(?:^|\s)OBK_CLI=('(?:[^']|'\\'')*'|\S+)/.exec(typed)?.[1];
+      const kits = [
+        ...(typed.includes('OBK_TAB_SHELL=$$') ? [`OBK_TAB_SHELL=${row.ppid}`] : []),
+        ...(cli === undefined ? [] : [`OBK_CLI=${cli.replaceAll("'\\''", "'").replace(/^'(.*)'$/, '$1')}`]),
+      ];
+      return [command, ...USERS.slice(0, 2), ...orcaVariables(terminal), ...kits, ...USERS.slice(2)].join(' ');
+    }
+  }
+}
+
 /** Run as `ps`: read the fake Orca's world and answer for one pid. */
 export function runPs() {
   const dir = process.env.OBK_FAKE_ORCA_DIR;
@@ -169,22 +258,33 @@ export function runPs() {
   const args = process.argv.slice(2);
   appendFileSync(path.join(dir, 'ps.log'), `${JSON.stringify({ args })}\n`);
 
-  const read = args.length === PS_READ.length + 1
-    && PS_READ.every((word, at) => args[at] === word)
-    && /^[1-9]\d*$/.test(args[PS_READ.length]);
-  if (!read) {
+  const asks = (shape) => args.length === shape.length + 1
+    && shape.every((word, at) => args[at] === word)
+    && /^[1-9]\d*$/.test(args[shape.length]);
+  const read = asks(PS_READ);
+  const environment = asks(PS_ENVIRONMENT);
+  if (!read && !environment) {
     process.stderr.write(`fake ps: ${args.join(' ')} is not a read of one pid; the kit asks ps nothing else\n`);
     process.exit(70);
   }
-  const pid = Number(args[PS_READ.length]);
+  const pid = Number(args.at(-1));
 
   const state = JSON.parse(readFileSync(path.join(dir, 'state.json'), 'utf8'));
   for (const terminal of state.terminals ?? []) {
-    if (pid === panePid(state, terminal) && foregroundOf(state, terminal, dir) === 'garbage') {
+    if (read && pid === panePid(state, terminal) && foregroundOf(state, terminal, dir) === 'garbage') {
       process.stdout.write('ps: the table was busy; this is not a line of it\n');
       process.exit(0);
     }
     const found = processesOf(state, terminal, dir).find((one) => one.pid === pid);
+    if (found !== undefined && environment) {
+      const line = environmentOf(state, terminal, found);
+      if (line === undefined) {
+        process.stderr.write(`ps: cannot read the environment of process ${pid}\n`);
+        process.exit(1);
+      }
+      process.stdout.write(`${line}\n`);
+      process.exit(0);
+    }
     if (found !== undefined) {
       const column = (value) => String(value).padStart(5);
       process.stdout.write(`${column(found.pid)} ${column(found.ppid)} ${column(found.tpgid)} ${found.comm}\n`);

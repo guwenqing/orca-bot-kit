@@ -1109,7 +1109,7 @@ test('H16 the tab outside Bot Father\'s book is the ops tab, and is never report
 //
 // The book learns a session's conversation from the kit's hook, and the hook
 // can miss one: a clear it did not record, a Codex hooks file trusted after the
-// event it would have caught (ADR 0012, ADR 0020). Then the book is stale, and
+// event it would have caught (ADR 0012, ADR 0022). Then the book is stale, and
 // the only other record is the harness's own. So health reads what each
 // harness keeps for the bot's folder, the way `obk usage` does, and says which
 // conversations the book does not name.

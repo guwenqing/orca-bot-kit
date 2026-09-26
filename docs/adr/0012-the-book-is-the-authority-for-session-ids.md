@@ -55,7 +55,7 @@ clear and killed-tab recovery.
 - Good: the fleet can be brought back from the book alone.
 - Good: old session ids stay available for `obk-recall` and grooming.
 - Bad: the book must be kept fresh by a hook
-  ([ADR 0020](0020-kit-hooks-live-in-the-bot-folder.md)); if the hook fails,
+  ([ADR 0022](0022-kit-hooks-live-in-the-bot-folder.md)); if the hook fails,
   the book goes stale, so the kit's health check compares it with the
   harness's own records.
 - Revisit if: Orca handles session identity fully, including `/clear` and

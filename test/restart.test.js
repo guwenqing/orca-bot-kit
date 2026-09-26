@@ -529,7 +529,7 @@ test('R13 a session whose launch line would be refused is refused before anythin
 test('R13 a bot whose hook file cannot be read is refused before anything is closed', async (t) => {
   // The other half of the same rule, and the one that is not about the session
   // at all: the kit puts its session hook into the bot's own harness settings
-  // before any tab is opened (ADR 0020), and a file it cannot read as JSON
+  // before any tab is opened (ADR 0022), and a file it cannot read as JSON
   // stops the run. That preparation belongs before the close for the same
   // reason the launch checks do.
   const box = await createSandbox(t);

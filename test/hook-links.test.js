@@ -1,11 +1,11 @@
 // The kit never writes outside a bot's own folder through a link the user made
-// (#170; PRD 6.3's paragraph on writing, PRD 6.5, ADR 0020).
+// (#170; PRD 6.3's paragraph on writing, PRD 6.5, ADR 0022).
 //
 // The kit writes its session hook into `<bot>/.claude/settings.json` and
 // `<bot>/.codex/hooks.json`, and links skills into `<bot>/.claude/skills`. A
 // user can make any of those a link: the file to their own user-level settings,
 // or the whole `.claude` directory to their own `~/.claude`. Writing the nominal
-// path then writes the user's own settings, which is exactly what ADR 0020 says
+// path then writes the user's own settings, which is exactly what ADR 0022 says
 // the kit does not do. So such a link is refused, said out loud, and left alone;
 // it is never followed silently.
 //

@@ -166,22 +166,26 @@ function unclaimedFor(book, home, bot, tabId, id) {
 }
 
 /**
- * Whether the harness that ran this hook is the session's own — the one the kit
- * typed into the tab — rather than a harness started inside the session.
+ * Whether the harness that ran this hook is the session's own — the one the
+ * tab's shell started — rather than a harness started inside the session.
  *
  * Proved live on both harnesses (tech notes, sections 2 and 3): a hook's process
  * is the harness's own child, or the child of the shell the harness ran the hook
  * command through. Either way the harness itself is the process just above, and
- * the session's harness is the child of the shell named in the launch line. A
- * harness started inside the session sits further down a longer chain, under
- * whatever shell the agent ran it from, so it can never answer this.
+ * the session's harness is the child of the tab's shell. A harness started
+ * inside the session sits further down a longer chain, under whatever shell the
+ * agent ran it from, so it can never answer this.
+ *
+ * The launch line names the tab's shell. A tab Orca brought back by itself has
+ * no launch line (#318), and there the tab's shell is the one `login` started
+ * for the pane, which is where Orca's own resume puts the harness too (tech
+ * notes, section 1).
  *
  * Anything it cannot establish is a no: a report that cannot be shown to be the
  * session's own is not written down.
  */
 export function startedTheSession(shellPid, pid = process.pid) {
-  if (!/^[0-9]+$/.test(String(shellPid ?? ''))) return false;
-  const shell = Number(shellPid);
+  if (shellPid !== undefined && !/^[0-9]+$/.test(String(shellPid))) return false;
 
   const tree = processTree();
   if (tree === undefined) return false;
@@ -190,11 +194,21 @@ export function startedTheSession(shellPid, pid = process.pid) {
   const parent = mine === undefined ? undefined : tree.get(mine.ppid);
   if (parent === undefined) return false;
 
-  if (parent.ppid === shell) return true;
-  if (!isShell(parent.command)) return false;
+  if (shellPid !== undefined) {
+    const shell = Number(shellPid);
+    if (parent.ppid === shell) return true;
+    if (!isShell(parent.command)) return false;
 
-  const above = tree.get(parent.ppid);
-  return above !== undefined && above.ppid === shell;
+    const above = tree.get(parent.ppid);
+    return above !== undefined && above.ppid === shell;
+  }
+
+  // With no shell named, which process is the harness has to be settled first:
+  // the one above the shell the hook ran through, or the hook's own parent.
+  const harness = isShell(parent.command) ? tree.get(parent.ppid) : parent;
+  const shell = harness === undefined ? undefined : tree.get(harness.ppid);
+  const pane = shell === undefined ? undefined : tree.get(shell.ppid);
+  return pane !== undefined && path.basename(pane.command) === 'login';
 }
 
 /** Every process on the machine, by pid: who its parent is and what it runs. */
