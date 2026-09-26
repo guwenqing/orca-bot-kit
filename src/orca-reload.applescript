@@ -18,7 +18,6 @@ on run argv
 	tell application "System Events"
 		repeat with candidate in (every application process whose name is "Orca")
 			if POSIX path of application file of candidate is appPath then
-				if frontmost of candidate is false then return "Orca is not the front app"
 				tell candidate
 					-- Menu 1 is Apple's own.
 					repeat with b from 2 to count of menu bar items of menu bar 1
@@ -28,6 +27,9 @@ on run argv
 							set label to item i of labels
 							if label is not missing value then
 								if label is "Force Reload" or label starts with ("Force Reload" & tab) or label ends with (tab & "⌘⇧R") then
+									-- Asked last, right before the click, so Orca has had no time to
+									-- lose the front since.
+									if frontmost of candidate is false then return "Orca is not the front app"
 									click menu item i of m
 									return "reloaded"
 								end if
