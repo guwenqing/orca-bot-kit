@@ -24,10 +24,16 @@
 // conversation again. So each is asked for in lower case, a form nobody wrote
 // down and only a session that holds the word can produce (issue #163).
 //
-// One harness, not two: this is about the kit's own close-and-resume, which is
-// the same code either side, and Claude Code is the cheaper one to sit with —
-// one screen to answer rather than two. The resume flags themselves are proved
-// on both harnesses by `session-identity.test.js`.
+// The kit's own close-and-resume is the same code either side, and Claude Code
+// is the cheaper one to sit with, so the first case is Claude Code alone. The
+// second is Codex, for a reason of Codex's own (#330): 0.157 starts a shared
+// background server by default, and a `codex resume` through it was seen to
+// fail once in two tries with "Cannot use the shared background server". The
+// kit launches Codex with `--no-daemon`, and that case restarts one Codex
+// session several times over, reading after each one what the harness was
+// started with, what the book holds, what the screen shows and what the
+// conversation remembers. The resume flags themselves are proved on both
+// harnesses by `session-identity.test.js`.
 //
 // The other half of the claim rides along for nothing, because both are already
 // open by the time the restart runs: a tab in the same Orca project that the
@@ -46,13 +52,16 @@
 //   - closes its own tabs one by one (`--terminal <handle> --tab`) and then
 //     deletes its own workspaces — that order, because a workspace deleted
 //     first leaves tabs no command line can reach;
-//   - checks afterwards that every terminal that was there before is still there.
+//   - checks afterwards that every tab it closed was one of its own, and that
+//     none of its own is left. Not that every tab open before is still open:
+//     on a busy machine other sessions close their own tabs meanwhile (#330).
 //
 // `orca terminal close --worktree … --all` is never run here, and the helper
 // below refuses to run it at all. What the kit itself asks Orca for is the
 // implementation's business and is pinned in `test/restart.test.js`; what this
-// file can say about it is the thing that matters to the person at the keyboard,
-// and it says it at the end: everything that was open before is still open.
+// file can say about it is the thing that matters to the person at the keyboard:
+// the one tab the kit closed was the session's own, and at the end, every tab
+// the test closed was its own.
 //
 // It is slow: a real agent, three real answers, and a tab closed and reopened in
 // between. Minutes, not seconds.
@@ -73,9 +82,16 @@
 //   4. `Bot Father daily` will be sitting on its own trust question. Leave it:
 //      nothing is asked of Bot Father here, and a screen nobody talks to costs
 //      this test nothing.
+//   5. In the Codex case, `Restart Codex daily`: Codex's directory trust, `1.
+//      Yes, continue`, already selected; then `Hooks need review`, answered
+//      `2`, "Trust all and continue" — without it the kit's hook never runs and
+//      the book never learns the session's id. After each restart the tab is
+//      the same folder and should come straight up; if it asks again, answer
+//      it the same way. `Bot Father daily` is as in 4.
 //
 // The keys, measured live and written down in `session-identity.test.js`:
-// Claude Code's folder trust takes `\x1b[B\r` — down, then return — sent as one
+// Claude Code's folder trust takes `\x1b[B\r` — down, then return — Codex's
+// directory trust `1\r` and its `Hooks need review` `2\r`, each sent as one
 // payload with its own return and no `--enter`, because a menu takes a return as
 // the key it is waiting for. A question put to the agent itself is the other
 // case and needs `--enter`: see `askIn`. Nothing here sends any of them; which
@@ -176,6 +192,9 @@ async function terminalsAfterClosing(home, closed, within = 5000) {
   }
   return left;
 }
+
+/** What every throwaway bots folder of this file is named from, under the system temp directory. */
+const THROWAWAY = 'obk-system-restart-';
 
 /** Every workspace Orca knows about right now. */
 function allSetups() {
@@ -373,7 +392,7 @@ test('a restart closes the session\'s tab and brings the conversation back with 
     setups: new Set(allSetups().map((setup) => setup.id)),
   };
 
-  const bots = await realpath(await mkdtemp(path.join(os.tmpdir(), 'obk-system-restart-')));
+  const bots = await realpath(await mkdtemp(path.join(os.tmpdir(), THROWAWAY)));
   const homeOf = (bot) => path.join(bots, 'bots', bot);
   const homes = ['bot-father', BOT.name].map(homeOf);
   const home = homeOf(BOT.name);
@@ -394,11 +413,13 @@ test('a restart closes the session\'s tab and brings the conversation back with 
     }
     await removeBotsFolderAndSiblings(bots);
 
-    // The point of all the care above: everything that was open is still open.
-    const left = new Set(allTerminals().map((terminal) => terminal.handle));
-    for (const handle of before.handles) {
-      assert.ok(left.has(handle), `${handle} was open before this test and is gone now`);
-    }
+    // The point of all the care above: this test closes only tabs of its own.
+    // The loop above picks them, and it picks only a tab listed at one of the
+    // homes this test made and not open before it began; the one tab the kit
+    // closed for it is checked where the restart ran. Whether every tab open
+    // before is still open is not asked: on a busy machine other sessions
+    // close their own tabs while this runs (seen live, #330), and that is not
+    // this test's doing. What is asked is that nothing of its own is left.
     for (const each of homes) {
       assert.deepEqual(await terminalsAfterClosing(each, closed), [], `this test left tabs behind in ${each}`);
     }
@@ -557,4 +578,315 @@ test('a restart closes the session\'s tab and brings the conversation back with 
   const after = await sessionIn(home, 'daily');
   assert.equal(after.session, id, `the session is still the one the book named, got: ${JSON.stringify(after)}`);
   assert.equal(after.history, undefined, `and it never started a second one, got: ${JSON.stringify(after)}`);
+});
+
+/** Read `ps` for one pid, and nothing else: it is a reader here and never a road to a signal. */
+function psOf(pid, columns) {
+  assert.match(String(pid), /^[1-9]\d*$/, `ps is asked about one positive pid, got: ${pid}`);
+  const done = spawnSync('ps', [...columns, '-p', String(pid)], { encoding: 'utf8' });
+  return done.status === 0 ? done.stdout.trim() : undefined;
+}
+
+/**
+ * The process in front of a tab's terminal, the way the kit finds it (tech
+ * notes, section 1): the tab's pty id, the pane's pid from `orca diagnostics
+ * memory`, and the pane's terminal foreground group from `ps`. A harness leads
+ * its own group, and its `comm` is exactly `codex`. `name` is the command's own
+ * name, a login shell's leading `-` aside. Undefined when any of it cannot be
+ * read. As `restored-tab.test.js` has it; the system tests share no helpers.
+ */
+function inFront(handle) {
+  const ptyId = allTerminals().find((terminal) => terminal.handle === handle)?.ptyId;
+  const memory = orca(['diagnostics', 'memory']);
+  const pane = memory.ok === true
+    ? (memory.result?.worktrees ?? []).flatMap((worktree) => worktree.sessions ?? []).find((one) => one.sessionId === ptyId)?.pid
+    : undefined;
+  if (ptyId === undefined || pane === undefined) return undefined;
+  const group = Number(psOf(pane, ['-o', 'tpgid=']));
+  if (!Number.isInteger(group) || group <= 0) return undefined;
+  const comm = psOf(group, ['-o', 'comm=']);
+  return comm === undefined ? undefined : { pid: group, name: path.basename(comm.replace(/^-/, '')) };
+}
+
+/**
+ * The words the harness in front was started with: what the tab's shell made
+ * of the launch line the kit typed. `command=` and not `-E`, so none of the
+ * environment is read. A resume line carries no prompt, so no word of it has a
+ * space in it and the split is exact.
+ */
+const argvOf = (pid) => (psOf(pid, ['-ww', '-o', 'command=']) ?? '').split(/\s+/);
+
+/**
+ * The file a process is running, as `lsof` lists it: the first `n` line of
+ * its `txt` files, which is the executable, before the loader and anything
+ * mapped after it. Read, and never a road to a signal. Undefined when it
+ * cannot be read.
+ */
+function executableOf(pid) {
+  assert.match(String(pid), /^[1-9]\d*$/, `lsof is asked about one positive pid, got: ${pid}`);
+  const done = spawnSync('lsof', ['-a', '-p', String(pid), '-d', 'txt', '-Fn'], { encoding: 'utf8' });
+  if (done.status !== 0) return undefined;
+  return done.stdout.split('\n').find((line) => line.startsWith('n'))?.slice(1);
+}
+
+/** What `<codex> --version` says, and the minor version it names, if it names one. */
+function codexVersion(executable) {
+  const done = spawnSync(executable, ['--version'], { encoding: 'utf8' });
+  const said = `${done.stdout ?? ''}${done.stderr ?? ''}${done.error?.message ?? ''}`.trim();
+  return { said, minor: Number(/\b0\.(\d+)\.\d+\b/.exec(done.stdout ?? '')?.[1]) };
+}
+
+/**
+ * The premise that counts: the Codex running in the tab is 0.157 or later. On
+ * 0.156 the shared server is off unless asked for, so a green run there would
+ * say nothing about the failure this case guards against. Read off the harness
+ * the tab is running, not the `codex` this process finds on its own PATH: the
+ * tab's shell reads the user's startup files and may find another one.
+ */
+function assertTabRunsCodex157(pid, which) {
+  const executable = executableOf(pid);
+  assert.ok(executable, `${which}: could not read which file codex (pid ${pid}) is running from \`lsof -a -p ${pid} -d txt -Fn\``);
+  const { said, minor } = codexVersion(executable);
+  assert.ok(
+    Number.isInteger(minor) && minor >= 157,
+    `${which}: this case is about Codex 0.157 and on, and the tab runs ${executable}, whose --version said: ${said}`,
+  );
+}
+
+/**
+ * What Codex 0.157.1 printed when a resume went through its shared background
+ * server and failed, before exiting to the shell (tech notes, section 3). A
+ * piece of the line only: the rest is Codex's and may be worded differently.
+ */
+const SHARED_SERVER_ERROR = 'Cannot use the shared background server';
+
+/**
+ * How many restarts in a row. The failure was seen once in two tries, so one
+ * clean restart would say little; three in a row that each come back is a
+ * claim worth a person's time.
+ */
+const RESTARTS = 3;
+
+/** The Codex bot: one session, one word in its start prompt, one word only its conversation will carry. */
+const CODEX_BOT = {
+  name: 'restart-codex',
+  harness: 'codex',
+  display: 'Restart Codex',
+  codeword: 'OTTER-5293',
+  passphrase: 'AMBER-7716',
+};
+
+const CODEX_START_PROMPT = [
+  `You are a system test's bot and you own nothing. Your codeword is ${CODEX_BOT.codeword}.`,
+  'When anyone asks you for your codeword or your passphrase, give it in exactly the form they ask for, and nothing else.',
+  'Do not run any command, do not read or write any file, and do not use any tool.',
+  'Say nothing now and wait.',
+].join(' ');
+
+/**
+ * The form the passphrase is asked for in, one per restart. A resumed Codex
+ * shows the conversation again, so every form already given is on the new
+ * screen; each restart asks for one nobody has written down yet, and the
+ * question only describes it (see `answers`).
+ */
+const PASSPHRASE_FORMS = [
+  ['in lower case', (word) => word.toLowerCase()],
+  ['in lower case, with the dash replaced by an underscore', (word) => word.toLowerCase().replace('-', '_')],
+  ['in lower case, with the dash replaced by a full stop', (word) => word.toLowerCase().replace('-', '.')],
+];
+
+test('#330: a Codex session restarted again and again comes back each time, on the same conversation, without the shared server', async (t) => {
+  assert.equal(PASSPHRASE_FORMS.length, RESTARTS, 'one passphrase form per restart');
+
+  // A fast fail, before anyone is asked to sit through the run: the `codex`
+  // this process finds is 0.157 or later. It is not the check that counts —
+  // the tab's shell may find another one — so the Codex each tab really runs
+  // is read again once it is up (`assertTabRunsCodex157`).
+  const version = codexVersion('codex');
+  assert.ok(
+    Number.isInteger(version.minor) && version.minor >= 157,
+    `this case is about Codex 0.157 and on, and \`codex --version\` here said: ${version.said}`,
+  );
+
+  const knows = obk(['restart']);
+  assert.ok(
+    !/there is no "restart" command/.test(knows.stderr),
+    `this \`obk\` has no restart command yet, so there is nothing live to check: ${knows.stderr}`,
+  );
+
+  const before = {
+    handles: new Set(allTerminals().map((terminal) => terminal.handle)),
+    setups: new Set(allSetups().map((setup) => setup.id)),
+  };
+
+  const bots = await realpath(await mkdtemp(path.join(os.tmpdir(), `${THROWAWAY}codex-`)));
+  const homeOf = (bot) => path.join(bots, 'bots', bot);
+  const homes = ['bot-father', CODEX_BOT.name].map(homeOf);
+  const home = homeOf(CODEX_BOT.name);
+
+  // Registered before anything is created, so it runs however this test ends.
+  t.after(async () => {
+    const closed = [];
+    for (const each of homes) {
+      for (const terminal of terminalsAt(each)) {
+        if (before.handles.has(terminal.handle)) continue;
+        orca(['terminal', 'close', '--terminal', terminal.handle, '--tab']);
+        closed.push(terminal.handle);
+      }
+    }
+    for (const setup of allSetups()) {
+      if (!homes.includes(setup.path) || before.setups.has(setup.id)) continue;
+      orca(['project', 'setup-delete', '--setup', setup.id]);
+    }
+    await removeBotsFolderAndSiblings(bots);
+
+    // The point of all the care above: this test closes only tabs of its own.
+    // The loop above picks them, and it picks only a tab listed at one of the
+    // homes this test made and not open before it began; the one tab the kit
+    // closed for it is checked where the restart ran. Whether every tab open
+    // before is still open is not asked: on a busy machine other sessions
+    // close their own tabs while this runs (seen live, #330), and that is not
+    // this test's doing. What is asked is that nothing of its own is left.
+    for (const each of homes) {
+      assert.deepEqual(await terminalsAfterClosing(each, closed), [], `this test left tabs behind in ${each}`);
+    }
+  });
+
+  obkJson(['init', '--bots', bots, '--harness', 'claude']);
+  obkJson([
+    'bot', 'create', '--bots', bots, '--name', CODEX_BOT.name, '--harness', CODEX_BOT.harness,
+    '--charter', `${CODEX_BOT.display} exists for one system test run and owns nothing.`,
+  ]);
+  obkJson([
+    'session', 'add', '--bots', bots, '--bot', CODEX_BOT.name, '--name', 'daily',
+    `--prompt=${CODEX_START_PROMPT}`,
+  ]);
+
+  const opened = tabOf(obkJson(['up', '--bots', bots, '--bot', CODEX_BOT.name]), 'daily');
+  assert.equal(opened.created, true);
+  assert.equal(
+    opened.harnessStarted,
+    true,
+    `no ${CODEX_BOT.harness} came up in ${opened.title}: look at it with `
+    + `\`orca terminal read --terminal ${opened.terminal} --screen\``,
+  );
+
+  // The id the book learns from the kit's hook. On Codex the hook runs only
+  // once `Hooks need review` is answered, and a person is answering it, so this
+  // waits with their patience rather than the hook's.
+  const id = await until(
+    `${CODEX_BOT.name} to report its session id`,
+    READY_MS,
+    async () => (await sessionIn(home, 'daily')).session,
+    () => ` The kit's hook has not run. On Codex that is usually the \`Hooks need review\` screen: answer it with 2.${whatIsUp(opened.terminal)}`,
+  );
+
+  // The fresh start carried `--no-daemon` too, straight after the approval
+  // flag, and was not a resume. Read off the harness itself, not the book.
+  const started = await until(
+    `codex to be in front of ${opened.title}`,
+    READY_MS,
+    async () => {
+      const now = inFront(opened.terminal);
+      return now?.name === 'codex' ? now : undefined;
+    },
+    () => whatIsUp(opened.terminal),
+  );
+  assertTabRunsCodex157(started.pid, 'the first start');
+  const fresh = argvOf(started.pid);
+  assert.ok(!fresh.includes('resume'), `the first start is not a resume, got: ${fresh.join(' ')}`);
+  assert.equal(fresh.filter((word) => word === '--no-daemon').length, 1, `the first start carries --no-daemon once, got: ${fresh.join(' ')}`);
+  assert.equal(fresh[fresh.indexOf('--approve-for-me') + 1], '--no-daemon', `straight after the approval flag, got: ${fresh.join(' ')}`);
+
+  // Something in this conversation and nowhere else, and a turn, so Codex has
+  // the conversation on its own record and a resume has something to find
+  // (#295). What is waited for is the codeword in lower case, not the
+  // passphrase, whose echo would answer the wait with no agent there at all.
+  await answers(
+    opened.terminal,
+    `Remember this passphrase: ${CODEX_BOT.passphrase}. Then reply with your codeword in lower case and nothing else.`,
+    CODEX_BOT.codeword.toLowerCase(),
+  );
+
+  let current = opened;
+  for (const [round, [form, shaped]] of PASSPHRASE_FORMS.entries()) {
+    const which = `restart ${round + 1} of ${RESTARTS}`;
+    const answer = obkJson(['restart', '--bots', bots, '--bot', CODEX_BOT.name]);
+
+    assert.equal((answer.closed ?? []).length, 1, `${which}: the run should say it closed one tab, got: ${JSON.stringify(answer.closed)}`);
+    assert.equal(answer.closed[0].terminal, current.terminal, `${which}: and it is the session's own tab that went`);
+    const back = tabOf(answer, 'daily');
+    assert.equal(back.created, true, `${which}: a new tab was opened for it`);
+    assert.notEqual(back.tabId, current.tabId, `${which}: and it is a new tab, with a new id`);
+    assert.equal(back.resumed, true, `${which}: and the run says it picked the conversation up again`);
+    assert.equal('promptReceived' in back, false, `${which}: a resumed session is not told its duty a second time`);
+    assert.equal(
+      back.harnessStarted,
+      true,
+      `${which}: no ${CODEX_BOT.harness} came up in ${back.title}: look at it with `
+      + `\`orca terminal read --terminal ${back.terminal} --screen\``,
+    );
+    assert.deepEqual(
+      (await terminalsAfterClosing(home, [current.terminal])).map((terminal) => terminal.handle),
+      [back.terminal],
+      `${which}: the session's old tab should be gone and the new one there`,
+    );
+
+    // Codex is up in the new tab and stays up. A resume that went through the
+    // shared server printed the error and dropped to the shell, so the error on
+    // the screen ends the wait at once, with the screen, rather than at the
+    // end of the patience.
+    const front = await until(
+      `${which}: codex to be in front of ${back.title}`,
+      READY_MS,
+      async () => {
+        if (screenOf(back.terminal).includes(SHARED_SERVER_ERROR)) {
+          assert.fail(`${which}: Codex could not use its shared background server.${whatIsUp(back.terminal)}`);
+        }
+        const now = inFront(back.terminal);
+        return now?.name === 'codex' ? now : undefined;
+      },
+      () => whatIsUp(back.terminal),
+    );
+
+    // What the kit's launch line started: a resume of the book's conversation,
+    // without the shared server, `--no-daemon` once and straight after the
+    // approval flag, and the id last.
+    assertTabRunsCodex157(front.pid, which);
+    const argv = argvOf(front.pid);
+    const said = argv.join(' ');
+    assert.equal(path.basename(argv[0]), 'codex', `${which}: the harness is codex, got: ${said}`);
+    assert.equal(argv[1], 'resume', `${which}: it is a resume, got: ${said}`);
+    assert.equal(argv.filter((word) => word === '--no-daemon').length, 1, `${which}: it carries --no-daemon once, got: ${said}`);
+    assert.equal(argv[argv.indexOf('--approve-for-me') + 1], '--no-daemon', `${which}: straight after the approval flag, got: ${said}`);
+    assert.equal(argv.at(-1), id, `${which}: and it resumes the conversation the book held, got: ${said}`);
+
+    const daily = await sessionIn(home, 'daily');
+    assert.equal(daily.tab, back.tabId, `${which}: the book should hold the new tab, got: ${JSON.stringify(daily)}`);
+    assert.equal(daily.session, id, `${which}: and the same conversation, got: ${JSON.stringify(daily)}`);
+
+    // The proof that the conversation came back: the passphrase was said in it
+    // and nowhere else. In a form nobody has written down, because a resumed
+    // Codex shows the conversation again, earlier answers and all.
+    await answers(
+      back.terminal,
+      `What was the passphrase I gave you? Reply with it ${form} and nothing else.`,
+      shaped(CODEX_BOT.passphrase),
+    );
+
+    // And it is still that conversation. A resume keeps its id (tech notes,
+    // section 3); a fresh one would have reported a new id at its first
+    // prompt, just now, and pushed this one into the history.
+    const after = await sessionIn(home, 'daily');
+    assert.equal(after.session, id, `${which}: the session is still the one the book named, got: ${JSON.stringify(after)}`);
+    assert.equal(after.history, undefined, `${which}: and it never started a second one, got: ${JSON.stringify(after)}`);
+    if (screenOf(back.terminal).includes(SHARED_SERVER_ERROR)) {
+      assert.fail(`${which}: the shared server's error is on the screen.${whatIsUp(back.terminal)}`);
+    }
+    if (inFront(back.terminal)?.name !== 'codex') {
+      assert.fail(`${which}: codex is no longer in front.${whatIsUp(back.terminal)}`);
+    }
+
+    current = back;
+  }
 });

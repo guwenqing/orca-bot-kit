@@ -109,31 +109,31 @@ const CLAUDE = [
 ];
 
 const CODEX = [
-  ['nothing set at all', [], 'codex --approve-for-me -c sandbox_workspace_write.network_access=true'],
-  ['approval auto', ['--approval', 'auto'], 'codex --approve-for-me -c sandbox_workspace_write.network_access=true'],
-  ['approval ask', ['--approval', 'ask'], 'codex -a on-request -c sandbox_workspace_write.network_access=true'],
+  ['nothing set at all', [], 'codex --approve-for-me --no-daemon -c sandbox_workspace_write.network_access=true'],
+  ['approval auto', ['--approval', 'auto'], 'codex --approve-for-me --no-daemon -c sandbox_workspace_write.network_access=true'],
+  ['approval ask', ['--approval', 'ask'], 'codex -a on-request --no-daemon -c sandbox_workspace_write.network_access=true'],
   [
     'approval dangerously-skip',
     ['--approval', 'dangerously-skip'],
-    'codex --dangerously-bypass-approvals-and-sandbox -c sandbox_workspace_write.network_access=true',
+    'codex --dangerously-bypass-approvals-and-sandbox --no-daemon -c sandbox_workspace_write.network_access=true',
   ],
-  ['a model', ['--model', 'gpt-5.4'], 'codex --approve-for-me -c sandbox_workspace_write.network_access=true -m gpt-5.4'],
-  ['an effort', ['--effort', 'high'], 'codex --approve-for-me -c sandbox_workspace_write.network_access=true -c model_reasoning_effort=high'],
+  ['a model', ['--model', 'gpt-5.4'], 'codex --approve-for-me --no-daemon -c sandbox_workspace_write.network_access=true -m gpt-5.4'],
+  ['an effort', ['--effort', 'high'], 'codex --approve-for-me --no-daemon -c sandbox_workspace_write.network_access=true -c model_reasoning_effort=high'],
   [
     'a context window, with no model to hang it on',
     ['--context', '200000'],
-    'codex --approve-for-me -c sandbox_workspace_write.network_access=true -c model_context_window=200000',
+    'codex --approve-for-me --no-daemon -c sandbox_workspace_write.network_access=true -c model_context_window=200000',
   ],
   [
     'a model and a context window',
     ['--model', 'gpt-5.4', '--context', '200000'],
-    'codex --approve-for-me -c sandbox_workspace_write.network_access=true -m gpt-5.4 -c model_context_window=200000',
+    'codex --approve-for-me --no-daemon -c sandbox_workspace_write.network_access=true -m gpt-5.4 -c model_context_window=200000',
   ],
-  ['extra args', ['--extra-arg=--search'], 'codex --approve-for-me -c sandbox_workspace_write.network_access=true --search'],
+  ['extra args', ['--extra-arg=--search'], 'codex --approve-for-me --no-daemon -c sandbox_workspace_write.network_access=true --search'],
   [
     'a start prompt, last of all',
     ['--prompt', 'Read your AGENTS.md.'],
-    "codex --approve-for-me -c sandbox_workspace_write.network_access=true -- 'Read your AGENTS.md.'",
+    "codex --approve-for-me --no-daemon -c sandbox_workspace_write.network_access=true -- 'Read your AGENTS.md.'",
   ],
   [
     'everything at once',
@@ -141,7 +141,7 @@ const CODEX = [
       '--approval', 'ask', '--model', 'gpt-5.4', '--effort', 'high', '--context', '200000',
       '--extra-arg=--search', '--prompt', 'Read your AGENTS.md.',
     ],
-    'codex -a on-request -c sandbox_workspace_write.network_access=true -m gpt-5.4 -c model_reasoning_effort=high -c model_context_window=200000 '
+    'codex -a on-request --no-daemon -c sandbox_workspace_write.network_access=true -m gpt-5.4 -c model_reasoning_effort=high -c model_context_window=200000 '
     + "--search -- 'Read your AGENTS.md.'",
   ],
 ];
@@ -180,7 +180,7 @@ test('Codex gets --add-dir for a work dir outside the bot home, and nothing for 
   const near = await launchOf(inside, 'codex', ['--work-dir', 'work/api']);
 
   assert.ok(
-    far.startsWith(launchLine(box, `codex --approve-for-me -c sandbox_workspace_write.network_access=true --add-dir ${outside} -- '`, API_DAILY)),
+    far.startsWith(launchLine(box, `codex --approve-for-me --no-daemon -c sandbox_workspace_write.network_access=true --add-dir ${outside} -- '`, API_DAILY)),
     `--add-dir should come after the settings and before the prompt, got: ${far}`,
   );
   assert.ok(
@@ -211,7 +211,7 @@ test('--add-dir is given the absolute path, even when the work dir was written r
 
   const home = botHomeOf(box.path('bots'), 'api-bot');
   assert.ok(
-    typed.startsWith(launchLine(box, `codex --approve-for-me -c sandbox_workspace_write.network_access=true --add-dir ${path.resolve(home, '../shared-clones')} -- '`, API_DAILY)),
+    typed.startsWith(launchLine(box, `codex --approve-for-me --no-daemon -c sandbox_workspace_write.network_access=true --add-dir ${path.resolve(home, '../shared-clones')} -- '`, API_DAILY)),
     `got: ${typed}`,
   );
 });
@@ -244,7 +244,7 @@ test('an extra_args written by hand as one string is typed as it stands', async 
   assert.equal((await box.run(['up', '--bots', 'bots', '--bot', 'api-bot'])).code, 0);
 
   const tabs = await tabsOfBot(box, box.path('bots'), 'api-bot');
-  assert.deepEqual(typedInto(tabs[0]), [launchLine(box, 'codex --approve-for-me -c sandbox_workspace_write.network_access=true --search --profile mine', API_DAILY)]);
+  assert.deepEqual(typedInto(tabs[0]), [launchLine(box, 'codex --approve-for-me --no-daemon -c sandbox_workspace_write.network_access=true --search --profile mine', API_DAILY)]);
 });
 
 for (const harness of ['claude', 'codex']) {
@@ -300,10 +300,216 @@ test('Codex\'s -c settings reach codex as one argument each', async (t) => {
   assert.equal(calls.length, 1, `the line should start codex once, got: ${typed}`);
   assert.deepEqual(calls[0].args, [
     '--approve-for-me',
+    '--no-daemon',
     '-c', 'sandbox_workspace_write.network_access=true',
     '-c', 'model_reasoning_effort=high',
     '-c', 'model_context_window=200000',
   ]);
+});
+
+// #330: Codex 0.157 turned on a shared background server by default, and a
+// `codex resume` through it was seen to fail with "Cannot use the shared
+// background server". Codex 0.156.1 and 0.157.1 both take `--no-daemon`, so
+// every Codex line the kit types carries it, straight after the approval
+// flags, whatever else the session sets. A Claude line never does. The
+// resumed lines are in session-resume.
+const LEVELS = [
+  ['auto', ['--approve-for-me'], ['--permission-mode', 'auto']],
+  ['ask', ['-a', 'on-request'], ['--permission-mode', 'manual']],
+  ['dangerously-skip', ['--dangerously-bypass-approvals-and-sandbox'], ['--dangerously-skip-permissions']],
+];
+
+/** The arguments a shell running `typed` hands the fake harness. */
+async function argvOf(box, typed, fake) {
+  const ran = await sh(typed, { cwd: box.cwd, env: box.env });
+  assert.equal(ran.code, 0, `the line should run: ${typed}\n${ran.stderr}`);
+  const calls = await fake.calls();
+  assert.equal(calls.length, 1, `the line should start the harness once, got: ${typed}`);
+  return calls[0].args;
+}
+
+for (const [approval, codexFlags, claudeFlags] of LEVELS) {
+  test(`#330: a fresh Codex session at ${approval} runs with --no-daemon, straight after its approval flags`, async (t) => {
+    const box = await createSandbox(t);
+    const fake = await fakeProgram(box, 'codex', {});
+
+    const typed = await launchOf(box, 'codex', [
+      '--approval', approval, '--model', 'gpt-5.4', '--effort', 'high', '--extra-arg=--search', '--prompt', 'Read your AGENTS.md.',
+    ]);
+
+    assert.deepEqual(await argvOf(box, typed, fake), [
+      ...codexFlags,
+      '--no-daemon',
+      '-c', 'sandbox_workspace_write.network_access=true',
+      '-m', 'gpt-5.4',
+      '-c', 'model_reasoning_effort=high',
+      '--search',
+      '--', 'Read your AGENTS.md.',
+    ]);
+  });
+
+  test(`#330: a fresh Claude session at ${approval} never carries --no-daemon`, async (t) => {
+    const box = await createSandbox(t);
+    const fake = await fakeProgram(box, 'claude', {});
+
+    const typed = await launchOf(box, 'claude', [
+      '--approval', approval, '--model', 'sonnet', '--effort', 'high', '--extra-arg=--verbose', '--prompt', 'Read your AGENTS.md.',
+    ]);
+
+    const argv = await argvOf(box, typed, fake);
+    assert.deepEqual(argv.map((word, at) => (argv[at - 1] === '-n' ? tokenlessWord(word) : word)), [
+      ...claudeFlags,
+      '-n', `api-bot.daily.${TOKEN}`,
+      '--model', 'sonnet',
+      '--effort', 'high',
+      '--verbose',
+      '--', 'Read your AGENTS.md.',
+    ]);
+  });
+}
+
+// #330: Codex refuses `--no-daemon` given twice ("the argument '--no-daemon'
+// cannot be used multiple times", on 0.157.1, fresh and resume alike). So when
+// the session's own extra_args already carry it, the kit adds none of its own,
+// and the line carries it once, where the user put it.
+test('#330: a Codex session whose extra args carry --no-daemon gets it once, where the user put it', async (t) => {
+  const box = await createSandbox(t);
+  const fake = await fakeProgram(box, 'codex', {});
+
+  const typed = await launchOf(box, 'codex', ['--extra-arg=--search', '--extra-arg=--no-daemon', '--prompt', 'Read your AGENTS.md.']);
+
+  assert.deepEqual(await argvOf(box, typed, fake), [
+    '--approve-for-me',
+    '-c', 'sandbox_workspace_write.network_access=true',
+    '--search',
+    '--no-daemon',
+    '--', 'Read your AGENTS.md.',
+  ]);
+});
+
+/** A codex bot whose one session has `extra_args` written by hand as one string, brought up; the line typed. */
+async function handWritten(box, extraArgs) {
+  assert.equal((await box.run(['init', '--bots', 'bots', '--harness', 'claude'])).code, 0);
+  assert.equal((await box.run(['bot', 'create', '--bots', 'bots', '--name', 'api-bot', '--harness', 'codex'])).code, 0);
+  await writeFile(
+    path.join(botHomeOf(box.path('bots'), 'api-bot'), 'bot.yaml'),
+    'name: api-bot\nharness: codex\ncharter: mine\nrules: []\nskills: []\n'
+    + `sessions:\n  - name: daily\n    approval: auto\n    extra_args: ${extraArgs}\n`,
+  );
+
+  const up = await box.run(['up', '--bots', 'bots', '--bot', 'api-bot']);
+  assert.equal(up.code, 0, up.stderr);
+  const typed = typedInto((await tabsOfBot(box, box.path('bots'), 'api-bot'))[0]);
+  assert.equal(typed.length, 1, `one send per new session tab, got: ${JSON.stringify(typed)}`);
+  return typed[0];
+}
+
+test('#330: a Codex session whose extra_args string carries --no-daemon as a word gets it once, where the user put it', async (t) => {
+  const box = await createSandbox(t);
+
+  const typed = await handWritten(box, '--search --no-daemon --profile mine');
+
+  assert.equal(
+    typed,
+    launchLine(box, 'codex --approve-for-me -c sandbox_workspace_write.network_access=true --search --no-daemon --profile mine', API_DAILY),
+  );
+});
+
+test('#330: a word in the extra_args string that only begins with --no-daemon is not the user\'s own, and the kit still adds it', async (t) => {
+  // Only the whole word counts: `--no-daemonize` is some other flag, and a
+  // line without the kit's `--no-daemon` would start the background server.
+  const box = await createSandbox(t);
+
+  const typed = await handWritten(box, '--search --no-daemonize');
+
+  assert.equal(
+    typed,
+    launchLine(box, 'codex --approve-for-me --no-daemon -c sandbox_workspace_write.network_access=true --search --no-daemonize', API_DAILY),
+  );
+});
+
+// An extra_args string is the user's own shell text, so a quoted `--no-daemon`
+// in it reaches Codex as the word `--no-daemon`, the same as a bare one. The
+// kit adds none of its own then, or Codex refuses the flag twice. Each case is
+// the bot.yaml scalar as written by hand: YAML's quotes around the shell's.
+for (const [quoting, scalar] of [
+  ['single', `"--search '--no-daemon'"`],
+  ['double', `'--search "--no-daemon"'`],
+]) {
+  test(`#330: a Codex session whose extra_args string carries --no-daemon ${quoting}-quoted gets it once, where the user put it`, async (t) => {
+    const box = await createSandbox(t);
+    const fake = await fakeProgram(box, 'codex', {});
+
+    const typed = await handWritten(box, scalar);
+
+    assert.deepEqual(await argvOf(box, typed, fake), [
+      '--approve-for-me',
+      '-c', 'sandbox_workspace_write.network_access=true',
+      '--search',
+      '--no-daemon',
+    ]);
+  });
+}
+
+// The string is read as the shell splits it into words, so a word the shell
+// glues together out of quoted or escaped pieces is `--no-daemon` all the same,
+// and the user's own.
+for (const [spelled, scalar] of [
+  ['with its name half-quoted', `'--search --no-"daemon"'`],
+  ['with its dash escaped', `'--search \\--no-daemon'`],
+]) {
+  test(`#330: a Codex session whose extra_args string carries --no-daemon ${spelled} gets it once, where the user put it`, async (t) => {
+    const box = await createSandbox(t);
+    const fake = await fakeProgram(box, 'codex', {});
+
+    const typed = await handWritten(box, scalar);
+
+    assert.deepEqual(await argvOf(box, typed, fake), [
+      '--approve-for-me',
+      '-c', 'sandbox_workspace_write.network_access=true',
+      '--search',
+      '--no-daemon',
+    ]);
+  });
+}
+
+// And the other way: `--no-daemon` inside a quoted word is part of that word,
+// here a path, and not a flag at all. So the kit adds its own, and the path
+// reaches Codex whole, as one argument.
+for (const [quoting, scalar] of [
+  ['single', `"--add-dir '/tmp/foo --no-daemon bar'"`],
+  ['double', `'--add-dir "/tmp/foo --no-daemon bar"'`],
+]) {
+  test(`#330: --no-daemon inside a ${quoting}-quoted path in the extra_args string is not the user's flag, and the kit adds its own`, async (t) => {
+    const box = await createSandbox(t);
+    const fake = await fakeProgram(box, 'codex', {});
+
+    const typed = await handWritten(box, scalar);
+
+    assert.deepEqual(await argvOf(box, typed, fake), [
+      '--approve-for-me',
+      '--no-daemon',
+      '-c', 'sandbox_workspace_write.network_access=true',
+      '--add-dir', '/tmp/foo --no-daemon bar',
+    ]);
+  });
+}
+
+test('#330: a Codex session with a work dir outside the bot home still runs with --no-daemon', async (t) => {
+  const box = await createSandbox(t);
+  const fake = await fakeProgram(box, 'codex', {});
+  const outside = path.join(box.root, 'clones', 'api');
+
+  const typed = await launchOf(box, 'codex', ['--work-dir', outside]);
+
+  const argv = await argvOf(box, typed, fake);
+  assert.deepEqual(argv.slice(0, 6), [
+    '--approve-for-me',
+    '--no-daemon',
+    '-c', 'sandbox_workspace_write.network_access=true',
+    '--add-dir', outside,
+  ]);
+  assert.equal(argv.filter((word) => word === '--no-daemon').length, 1, `once, got: ${JSON.stringify(argv)}`);
 });
 
 test('every Orca call a launch makes is one of the allowed ones, and no tab is closed', async (t) => {

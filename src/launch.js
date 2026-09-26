@@ -99,6 +99,48 @@ export const setsNetworkAccess = (session) =>
 export const reachesMail = (session, harness) =>
   harness !== 'codex' || !turnedOff(session);
 
+/** Codex's flag for running without its shared background server (0.156.1 on). */
+const NO_DAEMON = '--no-daemon';
+
+// A string is shell text, so it is read as the shell will split it: `'--no-daemon'`
+// is the flag, and `'/tmp/a --no-daemon b'` is one path that merely says it.
+const setsNoDaemon = (session) => {
+  const extra = session.extra_args;
+  const words = Array.isArray(extra) ? extra.map(String) : set(extra) ? shellWords(String(extra)) : [];
+  return words.includes(NO_DAEMON);
+};
+
+/**
+ * The words a shell makes of `text`: split on blanks outside quotes, quotes
+ * removed, a backslash keeping the next character. Nothing is expanded.
+ */
+function shellWords(text) {
+  const words = [];
+  let word;
+  let quote;
+  for (let at = 0; at < text.length; at += 1) {
+    const char = text[at];
+    if (quote === "'") {
+      if (char === "'") quote = undefined;
+      else word += char;
+    } else if (quote === '"') {
+      if (char === '"') quote = undefined;
+      else if (char === '\\' && '"\\$`'.includes(text[at + 1] ?? ' ')) word += text[(at += 1)];
+      else word += char;
+    } else if (/\s/.test(char)) {
+      if (word !== undefined) words.push(word);
+      word = undefined;
+    } else {
+      word ??= '';
+      if (char === "'" || char === '"') quote = char;
+      else if (char === '\\') word += text[(at += 1)] ?? '';
+      else word += char;
+    }
+  }
+  if (word !== undefined) words.push(word);
+  return words;
+}
+
 const turnedOff = (session) =>
   extraWords(session.extra_args).some((word) => word.includes(`${NETWORK_ACCESS}=false`));
 
@@ -174,6 +216,11 @@ export function launchCommand(session, { harness, home, workDir, prompt, promptF
   // take every other flag exactly as a fresh session does.
   if (resume !== undefined && harness === 'codex') words.push('resume');
   words.push(...APPROVAL[harness][set(session.approval) ? session.approval : DEFAULT_APPROVAL]);
+  // Codex 0.157 shares one background server between sessions by default, and
+  // a resume through it was seen to fail; without it Codex runs as 0.156 did
+  // (tech notes, section 3, #330). Codex refuses the flag twice, so the user's
+  // own wins.
+  if (harness === 'codex' && !setsNoDaemon(session)) words.push(NO_DAEMON);
 
   if (harness === 'claude') {
     // The name is the address other Claude sessions write to, so it goes on

@@ -187,7 +187,7 @@ test('a Codex session whose user turned the network off is launched without the 
 
   const { lines } = await up(box, bots);
 
-  assert.equal(lines['Api Bot daily'], launchLine(box, `codex --approve-for-me ${OFF_WORDS}`, null));
+  assert.equal(lines['Api Bot daily'], launchLine(box, `codex --approve-for-me --no-daemon ${OFF_WORDS}`, null));
   assert.ok(
     !lines['Api Bot daily'].includes(CODEX_NETWORK),
     `the kit must not put its own switch back beside theirs, got: ${lines['Api Bot daily']}`,
@@ -201,7 +201,7 @@ test('a session that asks for the switch itself is not given it twice', async (t
 
   const { lines } = await up(box, bots);
 
-  assert.equal(lines['Api Bot daily'], launchLine(box, `codex --approve-for-me ${CODEX_NETWORK}`, { bot: 'api-bot', session: 'daily' }));
+  assert.equal(lines['Api Bot daily'], launchLine(box, `codex --approve-for-me --no-daemon ${CODEX_NETWORK}`, { bot: 'api-bot', session: 'daily' }));
 });
 
 test('up gives a Claude session a mailbox and writes both addresses in the book', async (t) => {

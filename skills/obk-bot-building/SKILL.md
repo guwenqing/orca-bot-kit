@@ -260,9 +260,10 @@ table: a harness that has added an option has moved them. Codex's hooks
 question matters most. The kit's hook is how the book learns which
 conversation the session is running, and until it is answered the
 conversation has not started. Codex's trust applies to the repository root,
-which is the whole bots folder. Codex's `/new` asks where the new
-conversation runs; the answer is always the current checkout, the bot home,
-and never `2. New worktree`: the kit never makes a git worktree.
+which is the whole bots folder. Codex's `/new` may ask where the new
+conversation runs (0.156.1 did; 0.157.1 has not so far); the answer is
+always the current checkout, the bot home, and never `2. New worktree`:
+the kit never makes a git worktree.
 
 Where the kit says no session came up, the shell swallowed the launch line,
 usually while it was asking its own question. Answer the shell, then close
