@@ -1,4 +1,4 @@
-// Every call the kit makes to Orca goes through here (ADR 0023). Orca's CLI
+// Every call the kit makes to Orca goes through here (ADR 0024). Orca's CLI
 // changes often, so the kit reads `--json` and never the human text, and keeps
 // the parsing in one place.
 //
@@ -190,13 +190,21 @@ const CLIENT_KILL_MS = 3000;
  *
  * Orca's window re-reads only when its runtime says the projects changed, and
  * `setup-update` and `setup-delete` do not say so. `project.update` with no
- * changes does, and Orca's CLI does not offer it, so this goes through Orca's
- * own runtime client out of the installed app, run by Orca's binary the way
- * its `bin/orca` runs its CLI (ADR 0023). None of that is Orca's published
- * interface, so anything that goes wrong is a quiet false: it never throws and
- * is never tried twice, and the caller prints `RELOAD_LINE` either way.
+ * changes does, and Orca's CLI does not offer it (ADR 0024). The caller prints
+ * `RELOAD_LINE` either way.
  */
-export function tellWindow(projectId) {
+export const tellWindow = (projectId) => askRuntime('project.update', { projectId, updates: {} }) !== undefined;
+
+/**
+ * One call to Orca's runtime for a method its CLI does not offer, and the
+ * runtime's answer, or undefined when there is none to be had.
+ *
+ * It goes through Orca's own runtime client out of the installed app, run by
+ * Orca's binary the way its `bin/orca` runs its CLI (ADR 0024). None of that is
+ * Orca's published interface, so anything that goes wrong is a quiet
+ * undefined: it never throws and is never tried twice.
+ */
+function askRuntime(method, params) {
   try {
     // The CLI sits at <Orca.app>/Contents/Resources/bin/orca, often reached
     // through a link.
@@ -209,16 +217,17 @@ export function tellWindow(projectId) {
 
     const asked = spawnSync(
       path.join(contents, 'MacOS', 'Orca'),
-      [WINDOW_SCRIPT, client, projectId, String(CLIENT_WAIT_MS)],
-      { env, stdio: 'ignore', timeout: CLIENT_KILL_MS },
+      [RUNTIME_SCRIPT, client, method, JSON.stringify(params), String(CLIENT_WAIT_MS)],
+      { env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: CLIENT_KILL_MS },
     );
-    return asked.error === undefined && asked.status === 0;
+    if (asked.error !== undefined || asked.status !== 0) return undefined;
+    return parse(asked.stdout) ?? undefined;
   } catch {
-    return false;
+    return undefined;
   }
 }
 
-const WINDOW_SCRIPT = fileURLToPath(new URL('./orca-window.cjs', import.meta.url));
+const RUNTIME_SCRIPT = fileURLToPath(new URL('./orca-runtime.cjs', import.meta.url));
 
 /**
  * The live tabs of the Orca project at `home`, each under its own tab id.
@@ -282,7 +291,7 @@ export function harnessInTab(handle, timeoutMs) {
     answered: answer.ok === true,
     blockedReason: answer.result?.wait?.blockedReason,
     agent,
-    ...frontOf(shown?.ptyId),
+    ...frontOf(handle, shown?.ptyId),
     ...screenOf(handle),
   };
 }
@@ -320,7 +329,7 @@ const ON_A_CHOICE = /^( *[›❯] +)\d+\. /;
  * Whether the rows of a rendered screen hold a question of the harness's own.
  *
  * Every one seen is a numbered list of choices with the harness's pointer on
- * one (tech notes, section 1; ADR 0023). The same pointer starts the harness's
+ * one (tech notes, section 1; ADR 0024). The same pointer starts the harness's
  * input line and its echo of the user's past turns, and the input line is the
  * lowest of them whenever it is on screen, so only the lowest pointer row is
  * asked about: a question counts while it stands in the input line's place.
@@ -397,25 +406,63 @@ export function frontOfTab(handle) {
   } catch (error) {
     return { unreadable: `Orca would not show the tab: ${error.message}` };
   }
-  return frontOf(shown?.ptyId);
+  return frontOf(handle, shown?.ptyId);
 }
 
 /** The `ps` this run reads. OBK_PS overrides it, as OBK_ORCA does Orca. */
 const psCli = () => process.env.OBK_PS || '/bin/ps';
 
 /**
- * Who holds the terminal of the pane `ptyId`: `{ front: 'shell' }`,
- * `{ front: 'program', command, pid }` with the name and pid of the process
- * leading the group in front, or `{ unreadable: <why> }`.
+ * Who holds the terminal of the tab `handle`, whose pane is `ptyId`:
+ * `{ front: 'shell' }`, `{ front: 'program', command, pid }` with the name and,
+ * where `ps` gave it, the pid of the process leading the group in front, or
+ * `{ unreadable: <why> }`.
+ *
+ * `ps` is asked first. Where it cannot read the tab, as inside Codex's
+ * sandbox, where it does not start at all, Orca's runtime is asked instead
+ * (#298, ADR 0024).
+ */
+function frontOf(handle, ptyId) {
+  const read = frontByPs(ptyId);
+  if (read.unreadable === undefined) return read;
+  const asked = frontByOrca(handle);
+  return asked.unreadable === undefined ? asked : { unreadable: `${read.unreadable}, and ${asked.unreadable}` };
+}
+
+/**
+ * Who holds the tab's terminal as Orca's runtime says it, through
+ * `terminal.inspectProcess`: Orca's own daemon reads the process table from
+ * outside any sandbox of the kit's, and names what leads the terminal's
+ * foreground group. Only a `live` answer counts. A process named there is the
+ * program in front; none named and no child in front is the shell. Anything
+ * else is "cannot tell": for a moment after a harness quits, Orca can name
+ * nothing and still see a child in front (read in the Orca 1.4.212 bundle).
+ */
+function frontByOrca(handle) {
+  const seen = askRuntime('terminal.inspectProcess', { terminal: handle })?.result?.process;
+  const evidence = seen?.foregroundProcessEvidence;
+  if (evidence?.verdict !== 'live') {
+    const why = typeof evidence?.reason === 'string' ? `: ${evidence.reason}` : '';
+    return { unreadable: `Orca's runtime could not say who is in front of it${why}` };
+  }
+  const name = (word) => typeof word === 'string' && word !== '';
+  if (name(evidence.processName)) return { front: 'program', command: evidence.processName };
+  if (evidence.processName === null && name(seen.foregroundProcess)) return { front: 'program', command: seen.foregroundProcess };
+  if (evidence.processName === null && seen.foregroundProcess === null && seen.hasChildProcesses === false) return { front: 'shell' };
+  return { unreadable: "Orca's runtime gave no answer the kit can read about who is in front of it" };
+}
+
+/**
+ * Who holds the terminal of the pane `ptyId`, as `ps` says it.
  *
  * Orca gives the pane's pid in `diagnostics memory` and nowhere else, and `ps`
- * gives that pid's terminal's foreground process group (ADR 0023).
+ * gives that pid's terminal's foreground process group (ADR 0024).
  * On macOS the pane is `login` with the shell as its child, so the shell is in
  * front when the group is the pane's own or that of a child of a `login` pane.
  * `diagnostics memory` is a diagnostics command and may change, so everything
  * here ends in "cannot tell" rather than in an error or a guess.
  */
-function frontOf(ptyId) {
+function frontByPs(ptyId) {
   let pane;
   try {
     pane = orca(['diagnostics', 'memory']).worktrees

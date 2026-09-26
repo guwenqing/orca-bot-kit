@@ -1,9 +1,9 @@
-# ADR 0023: Orca is the host
+# ADR 0024: Orca is the host
 
 Date: 2026-09-26.
-Status: superseded by [ADR 0024](0024-orca-is-the-host.md).
-Decided by: the owner, in his design session of 2026-09-19, and on 2026-09-20 for the plain folder; the architect, for #232 and PR #260, for the sentences marked so; the owner on 2026-09-24 for calling Orca's runtime through Orca's own client (#224), with the architect deciding how the user is told, for the sentences marked so; the architect, for #329, for the kit's own reading of a tab's screen before it types into it, for the sentences marked so. The owner may overrule the architect's sentences. Consulted: the coordinator, who researched Orca. A sentence marked (proposed) is not decided yet.
-Supersedes: [ADR 0021](0021-orca-is-the-host.md).
+Status: accepted.
+Decided by: the owner, in his design session of 2026-09-19, and on 2026-09-20 for the plain folder; the architect, for #232 and PR #260, for the sentences marked so; the owner on 2026-09-24 for calling Orca's runtime through Orca's own client (#224), with the architect deciding how the user is told, for the sentences marked so; the architect, for #329, for the kit's own reading of a tab's screen before it types into it, for the sentences marked so; the architect, for #298, for asking Orca's runtime who is in front of a tab where `ps` cannot read it, for the sentences marked so. The owner may overrule the architect's sentences. Consulted: the coordinator, who researched Orca. A sentence marked (proposed) is not decided yet.
+Supersedes: [ADR 0023](0023-orca-is-the-host.md).
 
 ## Context
 
@@ -39,6 +39,24 @@ Codex 0.156.1, macOS 26.6.2, measured 2026-09-24, #232):
 
 The kit runs only on the machine Orca runs on (PRD 5's "No cloud execution",
 itself still marked proposed), so reading the local process table is enough.
+
+Not from everywhere the kit runs, though (#298). A Codex session at the kit's
+`auto` level runs its commands in Codex's `workspace-write` sandbox, and
+there `/bin/ps`, which is setuid root, does not start at all: `Operation not
+permitted`, exit 126, even for its own pid (codex-cli 0.156.1, seen
+2026-09-24). So every `obk message send` from a Codex reviewer said it could
+not tell, and typed no nudge. Orca's runtime has a method its CLI does not
+expose, `terminal.inspectProcess`, that reads the same thing from inside Orca:
+its terminal daemon runs `ps` over the process table, walks down from the
+tab's own process to its terminal's foreground group, and names what leads it
+(read in the Orca 1.4.212 bundle, 2026-09-26). Orca's runtime runs in the app,
+outside any sandbox of the caller, and only `orchestration.*` methods go
+through Orca's attestation of the caller. Seen live on Orca 1.4.212 from a tab
+of a probe's own: the shell at its prompt answered verdict `live` with no
+process named and no child in front, `less` answered `foregroundProcess:
+"less"`, and a `node` program `"node"`. That a harness answers under its own
+name (`processName` `claude` or `codex`, from its arguments) is read in the
+bundle and proven by the system test of #298.
 
 Orca's word on whether something on a tab's screen wants answering does not
 cover every question a harness asks (#329). Read in the Orca 1.4.212 bundle on
@@ -99,6 +117,17 @@ is "cannot tell", as is a pid or group that cannot be read; then the kit says
 it cannot tell, and it types nothing. (The architect, #232 and PR #260; the
 owner may overrule.)
 
+Where `ps` cannot read the tab, as inside Codex's sandbox, the kit asks
+Orca's runtime `terminal.inspectProcess` for the tab instead, through Orca's
+own client, the same way as the window call below. Only an answer with the
+verdict `live` counts. A process named there, by `processName` or else by
+`foregroundProcess`, is the program in front, under that name, and the rules
+above apply to it as to one `ps` named. No process named and nothing but the
+shell in front (`hasChildProcesses` false) is the shell. Anything else, and
+anything that goes wrong with the call, is "cannot tell". Where `ps` reads the
+tab, Orca's runtime is not asked. The call is given at most 3 seconds and is
+never retried. (The architect, #298; the owner may overrule.)
+
 Before the kit types a line into a tab with a harness running in it, it also
 reads the tab's rendered screen with `terminal read --screen`. When the
 lowest row there that starts with the harness's pointer is on a numbered
@@ -113,8 +142,8 @@ started. (The architect, #329; the owner may overrule.)
 
 Where Orca's CLI has no call for what the kit needs, the kit calls Orca's
 runtime through Orca's own client, loaded from the installed app and run by
-Orca's own binary the way Orca's `bin/orca` runs its CLI. Today that is one
-call. After a run makes a bot's project, or turns a registration into its
+Orca's own binary the way Orca's `bin/orca` runs its CLI. Today that is two
+calls: `terminal.inspectProcess`, above, and the window call. After a run makes a bot's project, or turns a registration into its
 folder project, the kit calls `project.update` with no changes on that
 project; after `retire` removes one, it makes the same call on Bot Father's
 project, which is never retired, and makes none when Orca has no project for
@@ -146,6 +175,21 @@ overrule.)
   idle harness (#232).
 - **`agentIdentity` alone.** Not chosen: it is late, and it can name a harness
   that has quit, so a nudge could go into a shell (#232).
+- **`terminal.inspectProcess` for every tab, in place of `ps`.** Not chosen:
+  the `ps` reading is what #232 measured, it rests on no unpublished method,
+  and it needs no second process per look. The runtime is asked only where
+  `ps` cannot answer (#298).
+- **Orca's `terminal.isRunningAgent` or `terminal.agentStatus`.** Not chosen:
+  both are guesses from the tab's title, its recent output, hook reports and
+  the process name (read in the 1.4.212 bundle), so a stale title can say a
+  harness is there after it quit. `isRunningAgent` also took more than 5
+  seconds on a `node` program in front, and timed out (seen, #298).
+- **Opening Codex's sandbox further, or changing the user's Codex config.**
+  Out: ADR 0015 already opens the network for Orca, and any further opening is
+  the owner's call (#298).
+- **Reading the tab from the harness's hook**, which Codex runs outside its
+  sandbox (tech notes, section 3). Not a fit: the nudge is typed by the
+  sender's own `obk message send`, which runs where the sender's commands run.
 - **Orca's hook state from `orca worktree ps`.** Not enough: a resumed Codex
   has no entry until its first prompt (#226, #232).
 - **Any program in front with an identity counts as the harness.** Not
@@ -203,6 +247,14 @@ overrule.)
 - Bad: the kit reads the operating system's process table as well as Orca, and
   `diagnostics memory` may change. A harness installed through a wrapper gets
   "cannot tell", so its mail waits without a nudge, until #261.
+- Good: mail sent from a Codex session at the kit's `auto` level nudges its
+  receiver, as mail from a Claude session does, and `health`, `restart`, the
+  skills reload and grooming read a tab from there too (#298).
+- Bad: from inside a sandbox, that reading rests on what Orca does not
+  publish: `terminal.inspectProcess` and the shape of its answer. If they go
+  in a release, a Codex sender is back to "cannot tell" and its mail waits
+  unannounced, as before #298. A look from a sandbox can take up to 3 seconds
+  longer when the client hangs.
 - Good: after `obk up` of a new bot, the window can show it with its name and
   as a folder project without the user doing anything.
 - Bad: the call rests on what Orca does not publish: where the client file is
@@ -231,10 +283,11 @@ overrule.)
   in every run measured; low for the window call until the window has been
   seen to re-read. (Proposed in #262; not recorded when it was decided.)
 - Checked by: `test/harness-in-tab.test.js` for the reading of a tab,
+  `test/front-without-ps.test.js` for asking Orca's runtime where `ps` cannot,
   `test/question-on-screen.test.js` for the reading of its screen,
   `test/orca-window.test.js` for the window call and its fallbacks, and the
   system tests, which drive the real Orca, `test/system/harness-question.test.js`
-  among them.
+  and `test/system/codex-nudge.test.js` among them.
 
 ## History
 
@@ -261,6 +314,10 @@ overrule.)
   runtime through Orca's own client where the CLI has no call, today to make
   the window read its projects again, and prints a reload line after any
   change to a project (#224). It replaced ADR 0011.
-- 2026-09-26, this record: before it types into a tab, the kit also reads the
-  tab's rendered screen, and types nothing while a harness's own choice list is
-  up (#329). The marker question (#261) stays open. It replaces ADR 0021.
+- 2026-09-26, [ADR 0023](0023-orca-is-the-host.md): before it types into a
+  tab, the kit also reads the tab's rendered screen, and types nothing while a
+  harness's own choice list is up (#329). The marker question (#261) stays
+  open. It replaced ADR 0021.
+- 2026-09-26, this record: where `ps` cannot read a tab, as inside Codex's
+  sandbox, the kit asks Orca's runtime `terminal.inspectProcess` instead
+  (#298). It replaces ADR 0023.

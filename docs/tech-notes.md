@@ -175,7 +175,7 @@ project → repo (`kind: "git" | "folder"`) → worktree (id = `<repoId>::<absPa
   under it and lined up with it (`  GPT-6-Luna medium · <path>`), and a wrapped draft or echo goes on
   in rows lined up the same way. So the kit takes the lowest pointer row on the screen, which is the
   input line whenever that is up, and counts a question only when that row is a numbered choice with
-  another numbered choice lined up beside it (ADR 0023). Claude Code's trust list does not count; what
+  another numbered choice lined up beside it (ADR 0024). Claude Code's trust list does not count; what
   keeps the nudge out of it is Orca naming no agent in that tab. **verified** (live, 2026-09-26)
   **A handle just listed can be refused as `terminal_handle_stale`, for a moment.** Seen five times
   between 2026-09-24 20:30Z and 2026-09-25 06:40Z (Orca 1.4.209), every time `obk message send`'s
@@ -228,8 +228,24 @@ project → repo (`kind: "git" | "folder"`) → worktree (id = `<repoId>::<absPa
   `satisfied:true` for 20 s. So the kit takes a harness to be in a tab when the foreground is not its
   shell (a busy one included), and the mail nudge types only when the process in front is the one
   Orca names. When the pid or the group cannot be read it says it cannot tell and
-  types nothing (ADR 0023). `diagnostics memory` is a diagnostics command and may change.
+  types nothing (ADR 0024). `diagnostics memory` is a diagnostics command and may change.
   **verified** (live, 2026-09-24, Orca 1.4.209, macOS 26.6.2, Claude Code 2.1.281, Codex 0.156.1, #232)
+- **Orca's runtime says who is in front of a tab, from outside any sandbox: `terminal.inspectProcess`.**
+  Its CLI does not offer it; Orca's own runtime client does (`call('terminal.inspectProcess', {
+  terminal: <handle> })`), and no attestation of the caller applies to it (only `orchestration.*`
+  goes through that). Read in the Orca 1.4.212 bundle on 2026-09-26: Orca's terminal daemon runs `ps
+  -axo pid=,ppid=,pgid=,tpgid=,stat=,tty=,lstart=,command=`, walks down from the tab's own process to
+  its terminal's foreground group, and answers `{ foregroundProcess, hasChildProcesses,
+  foregroundProcessEvidence: { verdict: 'live'|'unverifiable'|'exited', processName, reason?, fence }
+  }`. `processName` is set only for a program Orca knows as an agent, named from its arguments;
+  anything else is named in `foregroundProcess` by its short kernel name. Seen live on 1.4.212 from a
+  probe's own tab: the shell at its prompt gave `live`, `processName: null`, `foregroundProcess:
+  null`, `hasChildProcesses: false`; `less` gave `foregroundProcess: "less"`, `hasChildProcesses:
+  true`; a `node` program gave `"node"`. `terminal.isRunningAgent` took more than 5 s on that `node`
+  program and timed out, and it guesses from titles and output as well. The kit asks
+  `inspectProcess` where `ps` cannot read a tab (ADR 0024, #298). **verified** (live, 2026-09-26, Orca
+  1.4.212, for the shell, `less` and `node`); a harness in front is **unverified** until #298's
+  system test has run.
 - **A harness Orca resumed by itself sits where the kit's own does, and carries none of the kit's
   variables.** Read with `ps` on 2026-09-25, after that morning's machine restart and Orca's cold
   restore (below). Every kit-dev harness Orca had resumed, four Claude Code and two Codex, was the
@@ -249,7 +265,7 @@ project → repo (`kind: "git" | "folder"`) → worktree (id = `<repoId>::<absPa
   variable, so a reader should look for one whole word it knows. That answers the reading half of
   #261's open question on macOS. #318 uses the marker only to report in `obk health` which sessions
   the kit's launch line did not start, never to decide what is typed into a tab. Whether the mail
-  nudge may rest on it is still #261's to settle, and ADR 0023 still lists it as open. **verified** (live)
+  nudge may rest on it is still #261's to settle, and ADR 0024 still lists it as open. **verified** (live)
 - `orca terminal send [--terminal <h>] [--text <t>] [--enter] [--interrupt] [--wait-submit <s>] [--retry-request <id>]` — `accepted:true` means input accepted, not that the agent read it; never resend on silence; use `--retry-request` for an idempotent retry.
   **A carriage return or a line feed inside `--text` does not submit early.** Sent with `--enter` into a running agent, a line with `\r` or `\n` in the middle arrives as **one** message with a line break where the character was, and is answered once: Claude Code's transcript shows one user turn holding both lines, and Codex's screen shows one prompt of two lines and one answer. So the mail nudge, which carries the sender's subject as typed, cannot be split into two prompts by a subject that has one in it. **verified** (live, 2026-09-23, Orca 1.4.207, Claude Code 2.1.280 with `--model haiku`, Codex 0.155.1; #176)
   **While Codex sits on its own update offer, Orca refuses a line with `--enter` as `agent_prompt_blocked`.** Seen three times in a row on 2026-09-23 (Codex 0.155.1 offering 0.156.0); answered `2` (Skip), the next line went through. **verified** (live)
