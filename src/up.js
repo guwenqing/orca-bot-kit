@@ -13,7 +13,7 @@ import { botDir, botNames, displayName, readBot } from './bot.js';
 import { conversationsIn, hasConversation, heldAsUserTurn, transcriptsIn } from './conversations.js';
 import { installHook } from './hooks.js';
 import { addressOf, harnessOf, isAddressOf, isShortPrompt, launchCommand, mailboxStep, reachesMail, sessionTrouble, startPrompt, workDirOf } from './launch.js';
-import { asFolderProject, coordinatorOf, findProject, harnessInTab, makeMailbox, makeProject, openTab, retitleTab, tabs, TERMINAL_ENV, TIMED_OUT, tellWindow, typeIntoTab, useMailbox } from './orca.js';
+import { asFolderProject, coordinatorOf, findProject, harnessInTab, makeMailbox, makeProject, openTab, QUESTION_ON_SCREEN, retitleTab, tabs, TERMINAL_ENV, TIMED_OUT, tellWindow, typeIntoTab, useMailbox } from './orca.js';
 import { TAB_ENV } from './record.js';
 import { buildAgents, rulesStamp } from './rules.js';
 import { linkSkills } from './skills.js';
@@ -440,7 +440,7 @@ async function heldInRecord(home, name, harness, prompt, { launched, running }) 
 
 /**
  * One look at a tab the kit just typed a launch line into: whether a harness
- * is running there, and what it is waiting on if Orca says.
+ * is running there, and what it is waiting on if Orca or its screen says.
  *
  * The harness is up when something other than the shell holds the tab's
  * terminal, busy or not, or when Orca sees a question on its screen. Orca's
@@ -452,7 +452,10 @@ function lookFor(handle, timeoutMs) {
   const seen = harnessInTab(handle, timeoutMs);
   const running = seen.blockedReason !== undefined
     || (seen.front === undefined ? seen.answered || seen.agent !== undefined : seen.front === 'program');
-  return { running, blockedReason: seen.blockedReason };
+  // A question the kit sees on the screen of a harness that is running, where
+  // Orca named none (#329).
+  const question = running && seen.question === true ? QUESTION_ON_SCREEN : undefined;
+  return { running, blockedReason: seen.blockedReason ?? question };
 }
 
 /**

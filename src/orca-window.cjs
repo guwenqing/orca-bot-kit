@@ -3,7 +3,7 @@
 //
 // It asks Orca's runtime, through Orca's own client, for `project.update` with
 // no changes on one project. That is the call that makes Orca's window read its
-// projects again, and Orca's CLI does not offer it (#224, ADR 0021). It exits 0
+// projects again, and Orca's CLI does not offer it (#224, ADR 0023). It exits 0
 // only when the runtime took the call; anything else is a non-zero exit, and
 // the kit reads every non-zero exit the same way.
 
