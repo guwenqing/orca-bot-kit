@@ -53,11 +53,13 @@ say what was and was not looked at rather than taking the report's word for it.
 
 ## Where it remembers
 
-Each run is a fresh conversation, so everything it knows from the last one is
-in files in the bots folder: the window and the open findings in a `grooming/`
-folder unless the project already keeps them elsewhere, and the profile notes
-in `profiles/`, where the fleet's rules tell every bot to look. Say at the top
-of each what it is. A run that cannot find
+The runs share one long conversation, and a compacted conversation keeps a
+summary of the earlier runs, not their detail; a `/clear` keeps nothing. So
+everything a run needs from the last one is in files in the bots folder: the
+window and the open findings in a `grooming/` folder unless the project already
+keeps them elsewhere, and the profile notes in `profiles/`, where the fleet's
+rules tell every bot to look. Say at the top of each what it is. Trust the
+files over what the conversation seems to remember. A run that cannot find
 them says so and reads less, not everything.
 
 The open findings are what stops the same thing being reported every day:
@@ -213,11 +215,45 @@ places and sending one to the other loses it.
 
 ## Turning it on
 
-Do not schedule a pass nobody has watched. Run it by hand once, read what it
-produced, and fix the run rather than the report. So `obk groom --at <HH:MM>`
-creates it off, and `obk groom --on` turns it on after one explicit yes from
-the user who has read a run. Tell them what it will cost them each day before
-they say it. Make it through that command rather than by hand, so there is only
-ever one.
+The pass runs in a session of Bot Father's own, `grooming`, on Claude Code's
+own scheduler. Add it like any session, with the model and effort it is to run
+at: `obk session add --bots <folder> --bot bot-father --name grooming --model
+<m> --effort <e>`, with `--harness claude` where Bot Father runs on Codex, then
+`obk up`. Its launch line carries them, so they are what every run uses.
+
+Do not schedule a pass nobody has watched. `obk groom --now` runs it once in its
+tab; read what it produced, and fix the run rather than the report. Then, after
+one explicit yes from the user who has read a run, `obk groom --on --at <HH:MM>`
+schedules it. Tell them what it will cost them each day before they say it.
+Schedule it through that command rather than by hand, so there is one job and
+the kit can see it. `obk groom` says what is scheduled, and says so plainly
+when there is none or more than one.
+
+It fires only while its tab is open in Orca and Claude Code is idle in it, up to
+half an hour after its time, and a day it misses is not made up. Tell the user
+that before they rely on it. Claude Code ends a recurring job a week after it
+was made, so each run renews its own; a week with no run ends it, and then
+`obk groom --on --at <HH:MM>` puts back what the user agreed to. A `/clear` in
+its tab leaves it running: the job belongs to the running Claude Code, not to
+one conversation. It keeps running until the session is next restarted or
+Orca restores its tab: a resume brings back only the jobs of the conversation
+it resumes, so after a `/clear` and then a restart the job is gone. `obk groom`
+says so, and `--on --at` puts it back.
+
+## Compacting
+
+The runs share one conversation and each adds to it, so each run carries more
+than the last and costs more. A compact shrinks it to a summary. The run cannot
+do it: a scheduled run cannot type a built-in command, and a session cannot
+compact itself. So the report says when one is due, and the management session
+does it between runs with `obk groom --compact`.
+
+One is due when the run's calls carry about half the model's context window.
+`obk usage --bots <folder> --bot bot-father --session grooming --since <this
+run's start>` gives the run's calls and tokens: input, cache read and cache
+write together, divided by the calls, is roughly what each call carried.
+Claude Code also compacts on its own near the limit. That is the backstop, not
+the plan: it comes when the conversation is full, most likely in the middle of
+a run.
 
 Sources and licences: [NOTICE.md](NOTICE.md).

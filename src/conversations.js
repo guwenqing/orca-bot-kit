@@ -49,9 +49,15 @@ export function conversationsIn(harness, home, since) {
  * is opened, however many conversations the machine has.
  */
 export function hasConversation(harness, home, id) {
-  if (harness === 'claude') return existsSync(path.join(claudeDir(home), `${id}.jsonl`));
+  if (harness === 'claude') return existsSync(claudeTranscript(home, id));
   return rollouts(codexDir()).some((file) => path.basename(file).endsWith(`-${id}.jsonl`));
 }
+
+/**
+ * Where Claude Code keeps the conversation `id` of this bot home, whether or
+ * not it has written it yet.
+ */
+export const claudeTranscript = (home, id) => path.join(claudeDir(home), `${id}.jsonl`);
 
 /**
  * The same conversations, each with the file the harness keeps it in, for a
