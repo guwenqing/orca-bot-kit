@@ -235,7 +235,10 @@ that before they rely on it. Claude Code ends a recurring job a week after it
 was made, so each run renews its own; a week with no run ends it, and then
 `obk groom --on --at <HH:MM>` puts back what the user agreed to. A `/clear` in
 its tab leaves it running: the job belongs to the running Claude Code, not to
-one conversation.
+one conversation. It keeps running until the session is next restarted or
+Orca restores its tab: a resume brings back only the jobs of the conversation
+it resumes, so after a `/clear` and then a restart the job is gone. `obk groom`
+says so, and `--on --at` puts it back.
 
 ## Compacting
 

@@ -450,8 +450,9 @@ It starts off, and Bot Father asks you before it turns it on, because it spends
 tokens every day. It fires only while its tab is open in Orca and Claude Code is
 idle there, up to half an hour after its time, and a day it misses is not made
 up. Each run renews its own schedule, which Claude Code would otherwise end
-after a week, and `--on --at` puts it back if it lapses; a `/clear` in its tab
-leaves it running.
+after a week, and `--on --at` puts it back if it lapses. A `/clear` in its tab
+leaves it running until the session is next restarted; after that, `--on --at`
+puts it back.
 `obk groom --compact` compacts its conversation between runs. Grooming on Codex
 comes later: on a Codex Bot Father, add the session with `--harness claude`.
 
