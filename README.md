@@ -599,7 +599,9 @@ cannot be read as one that passed. `-- --yes` is how you say you meant it. When
 Orca is not answering, the command says which Orca it asked and skips, rather
 than report a kit that is not broken. Name files after it to run only those;
 each must be one of the `*.test.js` files under `test/system/`, links followed,
-and a name that is not is refused before anything runs.
+and a name that is not is refused before anything runs. This command is the
+only way in: a system test loaded any other way, with `node --test` or an
+editor's runner, skips and says how to run it.
 
 `npm run mutate` runs [StrykerJS](https://stryker-mutator.io) over the
 JavaScript this branch changed against `main` — committed, still in the working

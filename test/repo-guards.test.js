@@ -507,3 +507,69 @@ test('no script under scripts/ links this checkout or installs anything globally
   }
   assert.deepEqual(found, [], `these change the machine's own obk:\n  ${found.join('\n  ')}`);
 });
+
+// The system-test gate (#328): a system test drives the real Orca only when
+// `npm run test:system -- --yes` started it. Loading a node:test file runs it,
+// so every other way in — `node --test <file>`, `node -e "import('<file>')"`, an
+// editor's runner — ran it against the real Orca too, and once did (#318). The
+// gate is test/helpers/system.js, whose `test` skips unless the runner started
+// the file; it holds for a system test only when that is where its `test`
+// comes from and nothing of node:test is loaded around it.
+
+const systemHelper = path.join(repoRoot, 'test', 'helpers', 'system.js');
+
+/**
+ * Why a system test file is outside the gate, one reason each: empty when it is
+ * inside. `file` is where it sits, since the helper's relative path from a
+ * subfolder is not the one from test/system/ itself.
+ */
+function outsideTheGate(source, file) {
+  const code = codeOf(source);
+  const reasons = [];
+  if (/(['"`])node:test\1/.test(code)) reasons.push('it loads node:test itself');
+  const takesTest = [...code.matchAll(/^\s*import\s+test\s+from\s+(['"])([^'"]+)\1/gm)]
+    .some((match) => match[2].startsWith('.') && path.resolve(path.dirname(file), match[2]) === systemHelper);
+  if (!takesTest) reasons.push('it does not take `test` from test/helpers/system.js');
+  return reasons;
+}
+
+test('the check for the system-test gate sees node:test loaded any way, and finds the helper from any folder', () => {
+  const top = path.join(systemTestsDir, 'a.test.js');
+  const nested = path.join(systemTestsDir, 'group', 'b.test.js');
+  const fromHelper = "import test from '../helpers/system.js';\n";
+
+  assert.deepEqual(outsideTheGate(fromHelper, top), [], 'the helper, from test/system/');
+  assert.deepEqual(outsideTheGate("import test from '../../helpers/system.js';\n", nested), [], 'the helper, from a folder under it');
+  assert.deepEqual(outsideTheGate(`${fromHelper}// never 'node:test' here: it runs on load\n`, top), [], 'the word in a comment');
+
+  assert.notDeepEqual(outsideTheGate(fromHelper, nested), [], 'from a folder down, ../helpers/system.js is not the helper');
+  assert.notDeepEqual(outsideTheGate("import assert from 'node:assert/strict';\n", top), [], 'no `test` from the helper at all');
+  assert.notDeepEqual(outsideTheGate("import test from './helpers/system.js';\n", top), [], 'a helper of the same name somewhere else');
+  for (const loads of [
+    "import test from 'node:test';",
+    'import { describe } from "node:test";',
+    "const { test: raw } = await import('node:test');",
+    "const { test: raw } = process.getBuiltinModule('node:test');",
+  ]) {
+    assert.notDeepEqual(outsideTheGate(`${fromHelper}${loads}\n`, top), [], `should be seen: ${loads}`);
+  }
+});
+
+test('every system test takes its `test` from test/helpers/system.js, and none loads node:test itself', async () => {
+  const tree = await snapshot(systemTestsDir);
+  const files = Object.keys(tree).filter((rel) => rel.endsWith('.test.js') && tree[rel].startsWith('file:'));
+  assert.ok(files.length > 0, 'there should be system tests to check');
+
+  const found = [];
+  for (const rel of files) {
+    const file = path.join(systemTestsDir, rel);
+    const reasons = outsideTheGate(await readFile(file, 'utf8'), file);
+    if (reasons.length > 0) found.push(`test/system/${rel}: ${reasons.join('; ')}`);
+  }
+  assert.deepEqual(
+    found,
+    [],
+    'these run against the real Orca however they are loaded, not only under `npm run test:system -- --yes`;'
+    + ` import test from the helper instead:\n  ${found.join('\n  ')}`,
+  );
+});
