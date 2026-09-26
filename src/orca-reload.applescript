@@ -6,15 +6,19 @@
 -- version check), and its menu item Force Reload rebuilds it. This has System Events
 -- click that item in the Orca at <Orca.app path>, and in no other app. The
 -- item's name is localized, so it is also known by the shortcut the menu draws
--- after a tab, Orca's own ⌘⇧R. It prints `reloaded` only when it clicked; no
--- such Orca or no such item prints something else, and anything macOS refuses
--- is an error. The kit reads all of those the same way.
+-- after a tab, Orca's own ⌘⇧R. Only when that Orca is the front app: macOS
+-- takes a click on a background Orca's menu and Orca does nothing, and the
+-- kit never brings Orca to the front, where the user's typing would land. It
+-- prints `reloaded` only when it clicked; no such Orca, Orca not in front or
+-- no such item prints something else, and anything macOS refuses is an
+-- error. The kit reads all of those the same way.
 
 on run argv
 	set appPath to item 1 of argv
 	tell application "System Events"
 		repeat with candidate in (every application process whose name is "Orca")
 			if POSIX path of application file of candidate is appPath then
+				if frontmost of candidate is false then return "Orca is not the front app"
 				tell candidate
 					-- Menu 1 is Apple's own.
 					repeat with b from 2 to count of menu bar items of menu bar 1

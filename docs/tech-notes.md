@@ -42,7 +42,11 @@ project → repo (`kind: "git" | "folder"`) → worktree (id = `<repoId>::<absPa
   (read in the bundle). Orca's menu item View › Force Reload (`Force Reload\t⌘⇧R` as the menu draws
   it; the name is localized, the shortcut is `app.forceReload` and the user may change it) rebuilds
   the window and the row goes. macOS System Events can click it in the `Orca` process with no
-  keystroke. Orca had 11 terminals before the reload and 11 after. **verified** (live, the owner's
+  keystroke, but only with Orca the front app: with another app in front the click is taken (no
+  error) and the window does not reload. That was seen twice with the sidebar read through
+  Accessibility before and after, where each project row is a button "Project actions for <name>"
+  and a stale one reads "Unknown" (#343). One Force Reload drops every stale row. Orca had 11
+  terminals before the reload and 11 after. **verified** (live, the owner's
   eye on the sidebar, 2026-09-26, Orca 1.4.212, #343). Reported to Orca as stablyai/orca#23224 (open
   on 2026-09-26), with a proposed fix; once a release carries it, the kit's Force Reload can be
   retired behind a version check.

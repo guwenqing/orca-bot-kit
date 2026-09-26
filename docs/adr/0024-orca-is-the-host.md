@@ -96,9 +96,13 @@ on it. Force Reload rebuilds the window's page
 shortcut, ⌘⇧R by default). No runtime call and no CLI command does it. macOS
 System Events can click that menu item in Orca's process without a keystroke,
 when macOS allows the app it runs from to (Accessibility); from a kit session
-inside Orca it was allowed and worked. The item's name is localized, and it
-carries the shortcut after a tab, as the menu draws it: `Force Reload\t⌘⇧R`.
-The shortcut is the user's to change.
+inside Orca it was allowed and worked, with Orca the front app. With another
+app in front, the click is taken and Orca does nothing: seen twice on
+2026-09-26, once after a system test and once on its own, with the sidebar
+read through Accessibility before and after (#343). One Force Reload drops
+every stale row, not only the last removal's. The item's name is localized,
+and it carries the shortcut after a tab, as the menu draws it:
+`Force Reload\t⌘⇧R`. The shortcut is the user's to change.
 
 ## Decision
 
@@ -141,8 +145,10 @@ other Orca call. This is the owner's yes of 2026-09-24: "can be as dirty as it
 is, try to be protective in case orca changes".
 
 After `retire` has removed a bot's project, and Orca's list no longer has it,
-the kit has Orca's window force-reload itself: it has macOS System Events
-click Orca's menu item Force Reload. That is the owner's ask of 2026-09-26, that
+the kit has Orca's window force-reload itself when Orca is the front app: it
+has macOS System Events click Orca's menu item Force Reload. When another app
+is in front it clicks nothing, and never brings Orca to the front. (The
+architect, #343; the owner may overrule.) That is the owner's ask of 2026-09-26, that
 the sidebar drop a removed project "automatically, not that I have to do it"
 (#343). The system tests do the same after they remove their throwaway
 projects. The click is aimed at the Orca the kit talks to, the app its Orca CLI
@@ -220,6 +226,10 @@ architect, #224 and #343; the owner may overrule.)
 - **Keeping the `project.update` call after a removal as well.** Not chosen:
   the row it leaves reads "Unknown", which says less than the old name, and the
   Force Reload does not need it (#343).
+- **Bringing Orca to the front for the click, and back after.** Not chosen
+  for now: it takes the user's screen, and while Orca is in front whatever
+  they type lands in Orca's focused tab, a harness or a shell, where an Enter
+  sends it. That is the owner's to accept; it is put to them (#343).
 - **The menu item by its English name alone.** Not chosen: Orca localizes it
   (#343).
 - **The menu item by its place, the second in View.** Not chosen: a menu Orca
@@ -254,8 +264,12 @@ architect, #224 and #343; the owner may overrule.)
   to 3 seconds longer when the client hangs.
 - Bad: until the owner has seen the window re-read, every run that makes or
   renames a project prints the reload line, even when the call worked.
-- Good: after `obk retire`, and after the system tests, the sidebar drops the
-  removed project with no reload by hand and no restart (#343).
+- Good: after `obk retire` run with Orca in front, as from one of its own
+  tabs, the sidebar drops the removed project, and every older stale row
+  with it, with no reload by hand and no restart (#343).
+- Bad: a removal made while another app is in front, a system test run
+  included, leaves its row until the next reload, and the user is told to
+  reload by hand, as before.
 - Bad: every `retire` redraws the whole of Orca's window, and every system
   test file that removed a project does it once more. The Force Reload rests on
   what Orca does not publish either: the menu item's name, its shortcut, and a
@@ -322,6 +336,7 @@ architect, #224 and #343; the owner may overrule.)
   harness's own choice list is up (#329). The marker question (#261) stays
   open. It replaced ADR 0021.
 - 2026-09-26, this record: after a removal, the kit has Orca's window
-  force-reload itself through Orca's menu, in place of the `project.update`
-  call, and prints the reload line only when that was not done (#343). It
+  force-reload itself through Orca's menu when Orca is the front app, in
+  place of the `project.update` call, and prints the reload line only when
+  that was not done (#343). It
   replaces ADR 0023.

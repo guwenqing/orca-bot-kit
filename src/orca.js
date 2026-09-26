@@ -236,7 +236,8 @@ const RELOAD_KILL_MS = 5000;
  * release fixes it, this can go behind a version check). Orca's own menu item
  * Force Reload rebuilds it and keeps every terminal. So on macOS the kit has
  * System Events click that item, in the Orca app its CLI belongs to and no
- * other. None of that is Orca's published interface, and macOS may refuse it,
+ * other, and only while that Orca is the front app: a click on a background
+ * Orca is taken and does nothing, and the kit does not take the user's screen. None of that is Orca's published interface, and macOS may refuse it,
  * so anything that goes wrong is a quiet false, as with `tellWindow`: it never
  * throws and is never tried twice, and the caller prints `RELOAD_LINE`.
  */
