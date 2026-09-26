@@ -53,10 +53,14 @@
 //     `obk` (#220);
 //   - closes its own tabs one by one (`--terminal <handle> --tab`) and deletes
 //     its own workspace, whatever happened;
-//   - checks afterwards that everything that was there before is still there,
-//     automations included, unchanged, and that no automation was made in its
-//     folder: the kit creates, edits and removes none. One that was made anyway
-//     is removed by its id, and the test says so.
+//   - checks afterwards that it closed nothing but its own: every tab it closed
+//     is one the kit said it opened for this run, and each `obk restart` closed
+//     only the grooming tab the test held. A tab from before that is gone is
+//     reported, not failed: other sessions on this machine open and close their
+//     own tabs during a run this long;
+//   - checks that Orca's automations are as it found them, and that no
+//     automation was made in its folder: the kit creates, edits and removes
+//     none. One that was made anyway is removed by its id, and the test says so.
 //
 // `orca terminal close --worktree … --all` is never run here, and the helper
 // below refuses to run it at all.
@@ -645,6 +649,16 @@ test('grooming runs on Claude Code\'s own schedule in the grooming session: off 
   // path, which `bots` already is.
   const marker = `obk grooming for ${bots}`;
 
+  // Every tab the kit said it opened for this run, by handle, from each answer
+  // that opens one: init, up and the restarts.
+  const ourTabs = new Set();
+  const openedBy = (answer) => {
+    for (const entry of answer.tabs ?? []) {
+      if (entry.created === true && typeof entry.terminal === 'string') ourTabs.add(entry.terminal);
+    }
+    return answer;
+  };
+
   // Registered before anything is created, so it runs however this test ends.
   t.after(async () => {
     // The kit creates, edits and removes no Orca automation. One made in this
@@ -665,10 +679,26 @@ test('grooming runs on Claude Code\'s own schedule in the grooming session: off 
     }
     await removeBotsFolderAndSiblings(bots);
 
-    // Everything that was there before is still there, and nothing of ours is.
+    // It closed nothing but its own. Every tab this teardown closed is one the
+    // kit said it opened for this run, and each restart closed only the grooming
+    // tab it held (checked where it ran); nothing else here closes a tab, and
+    // `orca` refuses the blanket close.
+    assert.deepEqual(
+      closed.filter((one) => !ourTabs.has(one)),
+      [],
+      `this test closed tabs in its own folder that the kit never said it opened for it; it opened: ${JSON.stringify([...ourTabs])}`,
+    );
+
+    // A tab that was open before and is gone now was closed by someone else: the
+    // machine is shared, and other sessions open and close their own tabs while
+    // this runs. So it is said, not failed.
     const left = new Set(allTerminals().map((terminal) => terminal.handle));
-    for (const one of before.handles) {
-      assert.ok(left.has(one), `${one} was open before this test and is gone now`);
+    const goneElsewhere = [...before.handles].filter((one) => !left.has(one));
+    if (goneElsewhere.length > 0) {
+      t.diagnostic(
+        `${goneElsewhere.length} tab(s) open before this test are gone now, and this test did not close them`
+        + ` (it closed only ${JSON.stringify(closed)}, in its own folder): ${goneElsewhere.join(', ')}`,
+      );
     }
     // Orca's automations as this test found them: none gone, none edited. What
     // is compared is only what a kit could change about one, not what Orca
@@ -691,7 +721,7 @@ test('grooming runs on Claude Code\'s own schedule in the grooming session: off 
   // The fleet: Bot Father on Claude Code, and the grooming session the user adds
   // like any other, with the model and effort it is to run at. No `--harness`:
   // Bot Father's own is Claude Code, and the session takes it.
-  const init = obkJson(['init', '--bots', bots, '--harness', 'claude']);
+  const init = openedBy(obkJson(['init', '--bots', bots, '--harness', 'claude']));
   const daily = tabOf(init, 'daily');
   assert.equal(
     daily.harnessStarted,
@@ -716,7 +746,7 @@ test('grooming runs on Claude Code\'s own schedule in the grooming session: off 
   assert.deepEqual(groom.jobs, [], 'there is no job before --on');
   assert.equal(groom.asked, null, 'and a question with no flag types nothing');
 
-  const opened = tabOf(obkJson(['up', '--bots', bots, '--bot', 'bot-father']), 'grooming');
+  const opened = tabOf(openedBy(obkJson(['up', '--bots', bots, '--bot', 'bot-father'])), 'grooming');
   assert.equal(opened.created, true, 'up opened a tab for the grooming session');
   assert.equal(
     opened.harnessStarted,
@@ -929,12 +959,13 @@ test('grooming runs on Claude Code\'s own schedule in the grooming session: off 
   // ---------------------------------------------------------------------------
   // 4. The restart the user asks for. The kit closes the grooming tab and brings
   // the conversation back in a new one; the job has to come back with it.
-  const restarted = obkJson(['restart', '--bots', bots, '--bot', 'bot-father', '--session', 'grooming']);
+  const restarted = openedBy(obkJson(['restart', '--bots', bots, '--bot', 'bot-father', '--session', 'grooming']));
   assert.deepEqual(
     (restarted.closed ?? []).map((one) => one.name),
     ['grooming'],
     `the restart should close the grooming tab and no other: ${JSON.stringify(restarted.closed)}`,
   );
+  assert.equal(restarted.closed[0].terminal, handle, 'and it is the grooming tab this test had');
   const back = tabOf(restarted, 'grooming');
   assert.equal(back.resumed, true, 'and bring its conversation back');
   assert.equal(
@@ -1041,12 +1072,13 @@ test('grooming runs on Claude Code\'s own schedule in the grooming session: off 
   // back has not been seen live (tech notes, section 2), so this finds out, and
   // holds the kit to whatever Claude Code does.
   const resumedBefore = resumesIn(linesOf(home, cleared)).length;
-  const reopened = obkJson(['restart', '--bots', bots, '--bot', 'bot-father', '--session', 'grooming']);
+  const reopened = openedBy(obkJson(['restart', '--bots', bots, '--bot', 'bot-father', '--session', 'grooming']));
   assert.deepEqual(
     (reopened.closed ?? []).map((one) => one.name),
     ['grooming'],
     `the restart should close the grooming tab and no other: ${JSON.stringify(reopened.closed)}`,
   );
+  assert.equal(reopened.closed[0].terminal, handle, 'and it is the grooming tab this test had');
   const again = tabOf(reopened, 'grooming');
   assert.equal(again.resumed, true, 'and bring back the conversation the /clear began');
   assert.equal(
