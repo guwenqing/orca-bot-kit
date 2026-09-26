@@ -9,10 +9,10 @@
 // never makes, starts or closes it.
 //
 // So the kit schedules nothing itself. The job is the session's: its own
-// `CronCreate`, which lives only in that conversation and only while its tab is
-// up, comes back on a resume, and is gone after a `/clear` (tech notes,
-// section 2). The kit reads which grooming jobs there are out of the
-// conversation's transcript, and when asked it types one line into the
+// `CronCreate`, which lives in the running Claude Code and only while its tab is
+// up, comes back on a resume, and outlives a `/clear` (tech notes, section 2).
+// The kit reads which grooming jobs there are out of the transcripts of the
+// conversations that process has had, and when asked it types one line into the
 // grooming tab: schedule, unschedule, run once, or compact. It keeps no copy of
 // what is scheduled, so what it reports is what the conversation holds.
 //
@@ -105,7 +105,7 @@ export function grooming(bots, { at, ask } = {}) {
     conversation,
   };
   const jobs = session?.harness === 'claude' && conversation !== null
-    ? groomingJobs(lines(claudeTranscript(home, conversation)), markerOf(bots), Date.now())
+    ? groomingJobs(ofThisProcess(home, entry), markerOf(bots), Date.now())
     : [];
 
   const line = ask === undefined ? undefined : lineFor(ask, { bots, session, jobs, at });
@@ -171,8 +171,40 @@ function typeInto(bots, home, session, tab, line) {
 }
 
 /**
- * The grooming jobs alive in a conversation's transcript at `now`, oldest
- * first: `{ id, at, cron, made, expires }`.
+ * The transcript lines of every conversation the grooming session's running
+ * Claude Code has had, oldest conversation first.
+ *
+ * A job lives in the process, not in one conversation: seen live, a `/clear`
+ * left the job made before it running, and the new conversation's CronList
+ * still answered it. So the conversation the book holds now is read, and before
+ * it each one it cleared, back through the book's history, until the one where
+ * this process began: the kit's own SessionStart hook leaves a line in every
+ * conversation it sees start, and `startup` or `resume` there means a process
+ * started with it (a fresh start, the kit's restart, or Orca restoring the tab).
+ * Whatever came before that belonged to a process that has gone.
+ */
+function ofThisProcess(home, entry) {
+  const history = Array.isArray(entry.history) ? entry.history : [];
+  const read = [];
+  let id = entry.session;
+  for (let back = history.length - 1; ; back -= 1) {
+    const those = lines(claudeTranscript(home, id));
+    read.unshift(those);
+    if (those.some(beganHere)) break;
+    const was = history[back];
+    if (was === null || typeof was !== 'object' || was.ended !== 'clear' || typeof was.session !== 'string') break;
+    id = was.session;
+  }
+  return read.flat();
+}
+
+/** Whether a transcript line is the kit's hook seeing a process start on this conversation. */
+const beganHere = (line) => line.type === 'attachment'
+  && ['SessionStart:startup', 'SessionStart:resume'].includes(line.attachment?.hookName);
+
+/**
+ * The grooming jobs alive in transcript lines at `now`, oldest first:
+ * `{ id, at, cron, made, expires }`.
  *
  * A job is made by a CronCreate that succeeded, recurring (Claude Code's
  * default), with a prompt that starts with the marker. It ends at a CronDelete

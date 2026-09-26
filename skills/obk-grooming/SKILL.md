@@ -232,9 +232,10 @@ when there is none or more than one.
 It fires only while its tab is open in Orca and Claude Code is idle in it, up to
 half an hour after its time, and a day it misses is not made up. Tell the user
 that before they rely on it. Claude Code ends a recurring job a week after it
-was made, so each run renews its own; a week with no run ends it. A `/clear` in
-its tab ends it too, since a new conversation starts with none. After either,
-`obk groom --on --at <HH:MM>` puts back what the user agreed to.
+was made, so each run renews its own; a week with no run ends it, and then
+`obk groom --on --at <HH:MM>` puts back what the user agreed to. A `/clear` in
+its tab leaves it running: the job belongs to the running Claude Code, not to
+one conversation.
 
 ## Compacting
 
