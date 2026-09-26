@@ -27,12 +27,14 @@
 // bot and session, `<bot>.<session>.` and a token of eight lowercase letters
 // and digits, and then the line carries it after `-n`. Anything else — none,
 // the bare `<bot>.<session>` every fleet shared before, one made for some other
-// session, a token of the wrong shape — and the line carries no `-n` at all,
-// and the book is left as it was. What is proven is only that a resume keeps
-// the name a conversation already has; that `--resume <id> -n <other>` renames
-// it is not, so the kit does not rely on it. Such a session is reached through
-// its mailbox until it next starts a fresh conversation, which gets an address
-// of its own.
+// session, a token of the wrong shape — and the line carries `-n` with a new
+// address of that kind, and the book records it (#319). Proven live:
+// `--resume <id> -n <other>` reopens the same conversation under the new name,
+// and a native message to that name is delivered. So a session from before
+// #286 moves to an address of its own the next time the kit's own launch line
+// resumes it, whether that is `up` after its tab was closed, `restart` or
+// `unpause`. What the kit does not launch it does not rename: a live tab, a
+// tab Orca restored by itself, a hook's report.
 //
 // The tests read the line the kit typed and then run it through a real shell
 // against a fake harness, so what is checked is the argv a real harness would
@@ -63,6 +65,7 @@ import {
   sh,
   tabsOfBot,
   TOKEN,
+  tokenless,
   tokenlessWord,
   typedInto,
 } from './helpers/cli.js';
@@ -82,8 +85,11 @@ async function started(box, harness, settings = ['--prompt', PROMPT]) {
 }
 
 /** Bring the bot up, and give back the one session tab's entry and the line typed into it. */
-async function up(box, flags = []) {
-  const result = await box.run(['up', '--bots', 'bots', '--bot', 'api-bot', '--json', ...flags]);
+const up = (box, flags = []) => broughtUp(box, 'up', flags);
+
+/** Run `command` for the bot (`up`, `restart`, `unpause`), and give back what `up` gives back. */
+async function broughtUp(box, command, flags = []) {
+  const result = await box.run([command, '--bots', 'bots', '--bot', 'api-bot', '--json', ...flags]);
   assert.equal(result.code, 0, result.stderr);
   const answer = JSON.parse(result.stdout);
   assert.equal(answer.tabs.length, 1, `the bot has one session tab, got: ${result.stdout}`);
@@ -312,30 +318,156 @@ const HELD = [
   ['a token in capitals', 'api-bot.daily.K3X9Q2M7', false],
 ];
 
+/** Write `held` into the book as the daily session's address, or take the address out when it is undefined. */
+async function holding(bots, held) {
+  const book = await bookIn(bots, 'api-bot');
+  if (held === undefined) delete book.sessions.daily.address;
+  else book.sessions.daily.address = held;
+  await writeFile(bookOf(bots, 'api-bot'), stringify(book));
+}
+
+/**
+ * What a resume of a session whose book holds no address the kit made has to
+ * show (#319): the line resumes the same conversation and carries `-n` with a
+ * new address of the kit's kind for this bot and session, every other word as
+ * it was, and the book records exactly that address.
+ */
+async function assertMovedToANewAddress(box, bots, typed, held) {
+  assert.equal(typed.length, 1, `one send per tab the kit opens, got: ${JSON.stringify(typed)}`);
+  const [line] = typed;
+  assert.deepEqual(
+    typed.map(tokenless),
+    [launchLine(box, `claude --permission-mode auto -n api-bot.daily.${TOKEN} --resume sess-1`, { bot: 'api-bot', session: 'daily' })],
+    `the line resumes the conversation under an address of the kit's kind, got: ${line}`,
+  );
+  const address = nameOnLine(line);
+  assert.match(String(address), addressPattern('api-bot', 'daily'), `got: ${line}`);
+  assert.notEqual(address, held, 'a new address, not the one the book held');
+  const daily = await sessionIn(bots, 'api-bot', 'daily');
+  assert.equal(daily.address, address, `and the book records the address the line carried: ${JSON.stringify(daily)}`);
+  assert.equal(daily.session, 'sess-1', 'and it is still the same conversation');
+}
+
 for (const [label, held, made] of HELD) {
-  test(`a resumed Claude session whose book holds ${label} ${made ? 'is resumed under it' : 'is resumed with no -n, and its book is left alone'}`, async (t) => {
+  test(`a resumed Claude session whose book holds ${label} ${made ? 'is resumed under it' : 'is resumed under a new address of its own, and its book records it'}`, async (t) => {
     const box = await createSandbox(t);
     const { bots, first } = await started(box, 'claude');
     await reported(box, bots, first.entry.tabId, 'sess-1');
     await onRecord(box, 'claude', bots, 'sess-1');
-    const book = await bookIn(bots, 'api-bot');
-    if (held === undefined) delete book.sessions.daily.address;
-    else book.sessions.daily.address = held;
-    await writeFile(bookOf(bots, 'api-bot'), stringify(book));
+    await holding(bots, held);
     await closeTab(box, first.entry.tabId);
 
     const again = await up(box);
 
+    if (!made) {
+      await assertMovedToANewAddress(box, bots, again.typed, held);
+      return;
+    }
     assert.deepEqual(
       again.typed,
-      [launchLine(box, `claude --permission-mode auto${made ? ` -n ${held}` : ''} --resume sess-1`, { bot: 'api-bot', session: 'daily' })],
-      made ? 'the line carries the address the book held' : 'the line names no address: the conversation keeps whatever name it has',
+      [launchLine(box, `claude --permission-mode auto -n ${held} --resume sess-1`, { bot: 'api-bot', session: 'daily' })],
+      'the line carries the address the book held',
     );
-    const daily = await sessionIn(bots, 'api-bot', 'daily');
-    assert.equal(daily.address, held, 'the book\'s address is as it was');
-    assert.equal(Object.hasOwn(daily, 'address'), held !== undefined, `neither written nor removed: ${JSON.stringify(daily)}`);
+    assert.equal((await sessionIn(bots, 'api-bot', 'daily')).address, held, 'and the book\'s address is as it was');
   });
 }
+
+/**
+ * The other launch lines of the kit's that resume a session (#319): `restart`,
+ * which closes the session's live tab first, and `unpause`, which brings back a
+ * session `pause` closed. Each with what is run before the book is written.
+ */
+const ROUTES = [
+  ['obk restart of its live tab', [], 'restart'],
+  ['obk unpause after a pause', ['pause'], 'unpause'],
+];
+
+for (const [route, before, command] of ROUTES) {
+  for (const [label, held] of [
+    ['the bare <bot>.<session> from before #286', 'api-bot.daily'],
+    ['no address at all', undefined],
+  ]) {
+    test(`${route}: a Claude session whose book holds ${label} is resumed under a new address of its own, and its book records it`, async (t) => {
+      const box = await createSandbox(t);
+      const { bots, first } = await started(box, 'claude');
+      await reported(box, bots, first.entry.tabId, 'sess-1');
+      await onRecord(box, 'claude', bots, 'sess-1');
+      for (const step of before) {
+        const ran = await box.run([step, '--bots', 'bots', '--bot', 'api-bot']);
+        assert.equal(ran.code, 0, `obk ${step} should succeed: ${ran.stderr}${ran.stdout}`);
+      }
+      await holding(bots, held);
+
+      const again = await broughtUp(box, command);
+
+      assert.notEqual(again.entry.tabId, first.entry.tabId, 'the session came back in a new tab, on a line the kit typed');
+      await assertMovedToANewAddress(box, bots, again.typed, held);
+    });
+  }
+}
+
+test('a session moved to a new address keeps it on its next resume', async (t) => {
+  // Once moved, the address is one the kit made for this bot and session, and
+  // the fleet is being told it: the next resume carries it again rather than
+  // moving the session a second time.
+  const box = await createSandbox(t);
+  const { bots, first } = await started(box, 'claude');
+  await reported(box, bots, first.entry.tabId, 'sess-1');
+  await onRecord(box, 'claude', bots, 'sess-1');
+  await holding(bots, 'api-bot.daily');
+  await closeTab(box, first.entry.tabId);
+  const moved = await up(box);
+  const address = nameOnLine(moved.typed[0]);
+  assert.match(String(address), addressPattern('api-bot', 'daily'), `the first resume moved it, got: ${moved.typed[0]}`);
+  await closeTab(box, moved.entry.tabId);
+
+  const again = await up(box);
+
+  assert.deepEqual(
+    again.typed,
+    [launchLine(box, `claude --permission-mode auto -n ${address} --resume sess-1`, { bot: 'api-bot', session: 'daily' })],
+    'the line carries the address the first resume gave it',
+  );
+  assert.equal((await sessionIn(bots, 'api-bot', 'daily')).address, address, 'and the book still holds it');
+});
+
+test('a resumed Codex session is given no name, and its book no address', async (t) => {
+  // Unchanged by #319, and pinned beside it: Codex has no session name to be
+  // reached at, so a resume with no address in the book gives it none.
+  const box = await createSandbox(t);
+  const { bots, first } = await started(box, 'codex');
+  await reported(box, bots, first.entry.tabId, 'sess-1');
+  await onRecord(box, 'codex', bots, 'sess-1');
+  await closeTab(box, first.entry.tabId);
+
+  const again = await up(box);
+
+  const [line] = again.typed;
+  assert.ok(line.includes('resume') && line.includes('sess-1'), `the run should have resumed, got: ${line}`);
+  assert.equal(nameOnLine(line), undefined, `the line names nothing, got: ${line}`);
+  const daily = await sessionIn(bots, 'api-bot', 'daily');
+  assert.equal(Object.hasOwn(daily, 'address'), false, `and the book holds no address: ${JSON.stringify(daily)}`);
+});
+
+test('a hook report writes no address: a book holding the bare name keeps it', async (t) => {
+  // Unchanged by #319, and pinned beside it: only a launch line the kit typed
+  // can give a conversation a name, so only the kit's own launch writes one.
+  // A report from the harness, whether it resumed the conversation or cleared
+  // it, says nothing about the name it runs under.
+  const box = await createSandbox(t);
+  const { bots, first } = await started(box, 'claude');
+  await reported(box, bots, first.entry.tabId, 'sess-1');
+  await holding(bots, 'api-bot.daily');
+
+  const resumed = await reported(box, bots, first.entry.tabId, 'sess-1', 'resume');
+  const cleared = await reported(box, bots, first.entry.tabId, 'sess-2', 'clear');
+
+  assert.equal(resumed.code, 0, resumed.stderr);
+  assert.equal(cleared.code, 0, cleared.stderr);
+  const daily = await sessionIn(bots, 'api-bot', 'daily');
+  assert.equal(daily.session, 'sess-2', `the reports were written: ${JSON.stringify(daily)}`);
+  assert.equal(daily.address, 'api-bot.daily', `and the address is as it was: ${JSON.stringify(daily)}`);
+});
 
 test('a session whose book holds the bare name gets an address of its own at its next fresh start', async (t) => {
   // The way out of the mailbox for a session from before #286: no conversation

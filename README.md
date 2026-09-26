@@ -529,7 +529,8 @@ name. Everything else goes through Orca's mailbox, which the kit does carry.
 
 That includes a Claude session still running under a name from before the
 token, `<bot>.<session>`: `message to` answers the mailbox road for it, never
-that name, until the session next starts a new conversation.
+that name, until the kit's launch line next starts it (`obk restart`, or
+`obk up` after its tab is gone), which gives it a token name of its own.
 
 A session's mailbox is made the first time the kit starts it, and written in
 the book beside its tab. It is an Orca Run rather than the session's tab,
