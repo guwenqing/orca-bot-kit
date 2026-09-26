@@ -10,6 +10,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { createSandbox, fakeProgram } from './helpers/cli.js';
+import { CLAUDE_IDLE, CODEX_IDLE, CODEX_NEW_MENU, CODEX_UPDATE_OFFER, questionOn } from './helpers/screens.js';
 
 /** Call the fake Orca the way the kit would. */
 function ask(box, args) {
@@ -309,6 +310,103 @@ test('the fake times out on a busy harness, and answers ok for a shell a harness
   const quit = answer(look());
   assert.equal(quit.ok, true);
   assert.equal(quit.result.wait.satisfied, true);
+});
+
+// What a tab shows (#329). Orca's `tui-idle` answered ok and satisfied, with no
+// `blockedReason`, on Codex's update offer, so the screen itself is the only
+// place a harness's own question can be seen. A fake that could not show one
+// could not test a kit that looks.
+
+test('the fake shows a tab\'s screen as Orca 1.4.212 renders it, an idle one with no question unless told otherwise', async (t) => {
+  const box = await createSandbox(t);
+  const { handle } = oneTab(box);
+
+  const read = answer(ask(box, ['terminal', 'read', '--terminal', handle, '--screen', '--json']));
+
+  assert.equal(read.ok, true);
+  assert.deepEqual(Object.keys(read.result.terminal).sort(), [
+    'handle', 'latestCursor', 'limited', 'nextCursor', 'oldestCursor', 'returnedLineCount', 'source', 'status', 'tail', 'truncated',
+  ], 'every key the live answer carried, and no other');
+  assert.equal(read.result.terminal.handle, handle);
+  assert.equal(read.result.terminal.status, 'running');
+  assert.equal(read.result.terminal.source, 'screen');
+  assert.deepEqual(read.result.terminal.tail, CLAUDE_IDLE, 'a tab nobody gave a screen shows an idle one');
+  assert.equal(questionOn(read.result.terminal.tail), undefined, 'and it asks nothing');
+  assert.equal(read.result.terminal.returnedLineCount, CLAUDE_IDLE.length);
+});
+
+test('the fake shows each harness\'s own idle screen, by the launch line typed into the tab', async (t) => {
+  const box = await createSandbox(t);
+  const { handle: codex } = oneTab(box);
+  const claude = answer(ask(box, ['terminal', 'create', '--worktree', `path:${box.path('bots', 'bots', 'bot-father')}`, '--title', 'Other', '--json'])).result.terminal.handle;
+  answer(ask(box, ['terminal', 'send', '--terminal', codex, '--text', 'OBK_TAB_SHELL=$$ codex --approve-for-me', '--enter', '--json']));
+  answer(ask(box, ['terminal', 'send', '--terminal', claude, '--text', 'OBK_TAB_SHELL=$$ claude -n a.b', '--enter', '--json']));
+  const read = (on) => answer(ask(box, ['terminal', 'read', '--terminal', on, '--screen', '--json'])).result.terminal.tail;
+
+  assert.deepEqual(read(codex), CODEX_IDLE, 'Codex\'s idle input line, with its status rows under it');
+  assert.deepEqual(read(claude), CLAUDE_IDLE);
+});
+
+test('the fake shows the screen a test gives every tab, or one tab, and nowhere but terminal read', async (t) => {
+  const box = await createSandbox(t);
+  const { handle } = oneTab(box);
+  const other = answer(ask(box, ['terminal', 'create', '--worktree', `path:${box.path('bots', 'bots', 'bot-father')}`, '--title', 'Other', '--json'])).result.terminal.handle;
+  const read = (on) => answer(ask(box, ['terminal', 'read', '--terminal', on, '--screen', '--json'])).result.terminal;
+
+  await box.orca.set({ screen: CODEX_UPDATE_OFFER });
+  assert.deepEqual(read(handle).tail, CODEX_UPDATE_OFFER, 'the screen every tab shows');
+  assert.deepEqual(read(other).tail, CODEX_UPDATE_OFFER);
+  assert.equal(read(handle).returnedLineCount, CODEX_UPDATE_OFFER.length, 'trailing rows included');
+
+  await box.orca.set({
+    terminals: (await box.orca.terminals()).map((terminal) => (terminal.handle === handle ? { ...terminal, screen: CODEX_NEW_MENU } : terminal)),
+  });
+  assert.deepEqual(read(handle).tail, CODEX_NEW_MENU, 'a tab\'s own screen wins');
+  assert.deepEqual(read(other).tail, CODEX_UPDATE_OFFER, 'and the other tab still shows the one every tab does');
+
+  // Orca reports a tab's screen through `terminal read` alone.
+  const listed = answer(ask(box, ['terminal', 'list', '--json'])).result.terminals.find((terminal) => terminal.handle === handle);
+  const shown = answer(ask(box, ['terminal', 'show', '--terminal', handle, '--json'])).result.terminal;
+  for (const [what, reported] of [['list', listed], ['show', shown]]) {
+    assert.equal('screen' in reported, false, `terminal ${what} carries no screen`);
+    assert.equal('screenSource' in reported, false, `terminal ${what} carries no screenSource`);
+  }
+});
+
+test('the fake says when it could not render a screen, and answers from the stream when none was asked for', async (t) => {
+  const box = await createSandbox(t);
+  const { handle } = oneTab(box);
+  const read = (...more) => answer(ask(box, ['terminal', 'read', '--terminal', handle, ...more, '--json'])).result.terminal;
+
+  assert.equal(read().source, 'stream', 'without --screen, accumulated output');
+
+  await box.orca.set({ screenSource: 'screen-unavailable' });
+  const unavailable = read('--screen');
+  assert.equal(unavailable.source, 'screen-unavailable', 'a screen asked for and none rendered');
+  assert.deepEqual(unavailable.tail, CLAUDE_IDLE, 'with rows all the same, which a kit that ignored source would believe');
+
+  await box.orca.set({
+    screenSource: 'screen',
+    terminals: (await box.orca.terminals()).map((terminal) => ({ ...terminal, screenSource: 'screen-unavailable' })),
+  });
+  assert.equal(read('--screen').source, 'screen-unavailable', 'a tab\'s own source wins');
+});
+
+test('the fake refuses to read a tab it does not have, and can be told to refuse any read', async (t) => {
+  const box = await createSandbox(t);
+  const { handle } = oneTab(box);
+
+  const nowhere = ask(box, ['terminal', 'read', '--terminal', 'term_gone', '--screen', '--json']);
+  assert.equal(nowhere.status, 1);
+  assert.equal(JSON.parse(nowhere.stdout).error.code, 'terminal_not_found');
+
+  await box.orca.set({ fail: { 'terminal read': { code: 'runtime_error', message: 'the renderer did not answer' } } });
+  const refused = ask(box, ['terminal', 'read', '--terminal', handle, '--screen', '--json']);
+  assert.equal(refused.status, 1);
+  assert.deepEqual(
+    [JSON.parse(refused.stdout).ok, JSON.parse(refused.stdout).error.message],
+    [false, 'the renderer did not answer'],
+  );
 });
 
 test('the fake answers human text when the caller forgets --json', async (t) => {

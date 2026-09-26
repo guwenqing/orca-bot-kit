@@ -91,6 +91,7 @@ import { setTimeout } from 'node:timers/promises';
 import { parse } from 'yaml';
 
 import { cliEntry } from '../helpers/cli.js';
+import { waitingOn } from '../helpers/screens.js';
 
 /**
  * Remove the throwaway bots folder and everything the kit made beside it.
@@ -260,7 +261,11 @@ function whatIsUp(handle) {
  * by a shell, and the tab is not waiting on a screen of its own. Idle is not the
  * same as ready — Orca refuses an agent's prompt to a tab that is itself waiting
  * on one — so this waits for the screen to be answered rather than asking
- * through it. The wait is long because a person is answering.
+ * through it. Nor is no reason from Orca the same as no question: Orca called
+ * Codex's update offer idle, and a return typed into it updated the machine
+ * (#329). So the screen itself is read too, and a harness's own question on it
+ * is waited out like one Orca names (helpers/screens.js, `waitingOn`). The wait
+ * is long because a person is answering.
  */
 async function readyForAQuestion(handle, within = READY_MS) {
   await until(
@@ -269,9 +274,10 @@ async function readyForAQuestion(handle, within = READY_MS) {
     async () => {
       const answer = orca(['terminal', 'wait', '--terminal', handle, '--for', 'tui-idle', '--timeout-ms', '5000']);
       if (answer.ok !== true) return undefined;
-      return answer.result?.wait?.blockedReason === undefined ? true : undefined;
+      if (answer.result?.wait?.blockedReason !== undefined) return undefined;
+      return waitingOn(orca, handle) === undefined ? true : undefined;
     },
-    () => whatIsUp(handle),
+    () => `${waitingOn(orca, handle) ?? ''}${whatIsUp(handle)}`,
   );
 }
 
@@ -463,8 +469,10 @@ test('a restart closes the session\'s tab and brings the conversation back with 
   // all: on Claude Code the kit's hook runs once the folder is trusted (tech
   // notes, section 2), so an id in the book means the trust list has already
   // been answered and this line goes to a live session rather than into a menu.
-  // `readyForAQuestion` alone would not settle that — Orca reports that screen
-  // as idle with nothing blocking.
+  // What Orca says of that screen has moved: it was seen idle with nothing
+  // blocking, and on Claude Code 2.1.283 its wait timed out (#329), which
+  // `readyForAQuestion` does not pass. The screen check it makes as well takes
+  // only numbered lists, and that one has no numbers. So the id stays the proof.
   await answers(
     opened.terminal,
     `Remember this passphrase: ${BOT.passphrase}. Then reply with your codeword in lower case and nothing else.`,

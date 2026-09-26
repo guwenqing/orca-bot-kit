@@ -119,6 +119,7 @@ import { setTimeout } from 'node:timers/promises';
 import { parse } from 'yaml';
 
 import { cliEntry } from '../helpers/cli.js';
+import { waitingOn } from '../helpers/screens.js';
 
 /**
  * Remove the throwaway bots folder and everything the kit made beside it.
@@ -390,6 +391,12 @@ function whatIsUp(handle) {
  * land however long it waited afterwards (round 3, live run). The other tests
  * only survived that by luck: their screens happened to be answered first.
  *
+ * And no reason from Orca is not the same as no question. Orca called Codex's
+ * update offer idle with no reason, and a line typed into it with a return took
+ * "Update now" and updated the machine (#329); `/new`'s menu below reads the
+ * same way. So the screen itself is read too, and a harness's own question on
+ * it is waited out like one Orca names (helpers/screens.js, `waitingOn`).
+ *
  * The wait is long because a person is answering those screens.
  */
 async function readyForAQuestion(handle, within = READY_MS) {
@@ -399,9 +406,10 @@ async function readyForAQuestion(handle, within = READY_MS) {
     async () => {
       const answer = orca(['terminal', 'wait', '--terminal', handle, '--for', 'tui-idle', '--timeout-ms', '5000']);
       if (answer.ok !== true) return undefined;
-      return answer.result?.wait?.blockedReason === undefined ? true : undefined;
+      if (answer.result?.wait?.blockedReason !== undefined) return undefined;
+      return waitingOn(orca, handle) === undefined ? true : undefined;
     },
-    () => whatIsUp(handle),
+    () => `${waitingOn(orca, handle) ?? ''}${whatIsUp(handle)}`,
   );
 }
 
@@ -487,9 +495,9 @@ async function answers(handle, question, word, within = ANSWER_MS) {
  *
  * Seen live on a screen recording of the tab. Orca does not report the menu as
  * anything waiting to be answered — no `blockedReason`, and the tab reads as
- * idle — so `readyForAQuestion` walks straight past it: a question typed then
- * went into the menu, its return picked option 1, and the new conversation sat
- * waiting with nothing asked.
+ * idle — so `readyForAQuestion` walked straight past it until it read the
+ * screen as well (#329): a question typed then went into the menu, its return
+ * picked option 1, and the new conversation sat waiting with nothing asked.
  */
 const WHERE_TO_RUN = 'Where should the new conversation run?';
 
