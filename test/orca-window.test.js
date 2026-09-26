@@ -10,12 +10,14 @@
 // wrong with the call is swallowed: the command still succeeds, as fast as
 // before, and says the same thing.
 //
-// What the call is made on:
+// What the call is made on: a project this run made, or turned from another
+// kind into a folder project: that project.
 //
-//   - a project this run made, or turned from another kind into a folder
-//     project: that project;
-//   - a bot's project `retire` removed: Bot Father's project of the same bots
-//     folder, which is never retired, and no call at all when Orca has none.
+// A bot's project `retire` removed once had the call too, on Bot Father's
+// project. It did not take the removed project's row out of the sidebar, only
+// renamed it "Unknown" (#343), so `retire` now force-reloads Orca's window
+// instead and makes no call (orca-reload.test.js has the reload). What
+// `retire` prints and answers when the reload cannot be done is here.
 //
 // The fake app (helpers/cli.js, `orcaApp`) is laid out the way the installed
 // one is, and its runtime client writes down every call it gets. The ordinary
@@ -30,6 +32,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import {
+  asPlatform,
   bookIn,
   botHomeOf,
   CLIENT_HANG_MS,
@@ -302,20 +305,21 @@ test('W8 W6 several bots made in one up are each listed in projects', async (t) 
 
 // ----------------------------------------------------- a project removed
 
-test('W4 retire of a bot calls project.update once on Bot Father\'s project, and its answer is as it was', async (t) => {
+test('W4 retire of a bot makes no project.update call: the window is force-reloaded instead (#343), and its answer names the project as before', async (t) => {
   const box = await createSandbox(t);
   const app = await orcaApp(box);
+  // The reload is macOS's: on any other platform it is not tried at all.
+  asPlatform(box, 'darwin');
   await init(box);
   await runningBot(box);
-  const botFather = await setupOf(box, 'bot-father');
   const apiBot = await setupOf(box, 'api-bot');
   const from = (await app.calls()).length;
 
   const answer = answerOf(await box.run(['retire', '--bots', 'bots', '--bot', 'api-bot', '--json']));
 
   assert.equal((await box.orca.setups()).some((setup) => setup.id === apiBot.id), false, 'the project was removed');
-  assert.deepEqual((await app.calls()).slice(from), [touch(botFather.projectId)], 'one call, on Bot Father\'s project');
-  assert.deepEqual(Object.keys(answer).sort(), ['bot', 'bots', 'closed', 'moved', 'project'], 'no new key in retire\'s answer');
+  assert.deepEqual((await app.calls()).slice(from), [], 'no call on any project');
+  assert.equal((await box.osascript.calls()).length, 1, 'the force reload was tried instead, once');
   assert.equal(answer.project, apiBot.id, 'it still names the project it removed, as it did before');
 });
 
@@ -331,9 +335,11 @@ test('W4 W5 retire of a bot that had a project prints the reload line once', asy
   assert.equal(reloadLines(result), 1, `got:\n${result.stdout}${result.stderr}`);
 });
 
-test('W4 W5 with no project for Bot Father\'s folder, retire makes no call and still prints the line', async (t) => {
+test('W4 W5 with no project for Bot Father\'s folder, retire makes no call, still tries the reload and prints the line', async (t) => {
   const box = await createSandbox(t);
   const app = await orcaApp(box);
+  // The reload is macOS's: on any other platform it is not tried at all.
+  asPlatform(box, 'darwin');
   await init(box);
   await runningBot(box);
   const home = botHomeOf(box.path('bots'), 'bot-father');
@@ -346,12 +352,15 @@ test('W4 W5 with no project for Bot Father\'s folder, retire makes no call and s
   assert.equal(result.code, 0, result.stderr);
   assert.equal(orcaCallsOf((await box.orca.calls()).slice(cliFrom), 'project setup-delete').length, 1, 'api-bot\'s project was removed');
   assert.deepEqual((await app.calls()).slice(from), [], 'there is no project of Bot Father\'s to call on');
+  assert.equal((await box.osascript.calls()).length, 1, 'the reload does not need Bot Father\'s project');
   assert.equal(reloadLines(result), 1, `a project was removed all the same, got:\n${result.stdout}${result.stderr}`);
 });
 
-test('W4 retire of a bot that had no Orca project makes no call and prints no line', async (t) => {
+test('W4 retire of a bot that had no Orca project tries no reload and prints no line', async (t) => {
   const box = await createSandbox(t);
   const app = await orcaApp(box);
+  // The reload is macOS's: on any other platform it is not tried at all.
+  asPlatform(box, 'darwin');
   await init(box);
   await newBot(box, 'idle-bot');
   await runningBot(box, 'api-bot');
@@ -361,19 +370,22 @@ test('W4 retire of a bot that had no Orca project makes no call and prints no li
 
   assert.equal(never.code, 0, never.stderr);
   assert.deepEqual((await app.calls()).slice(from), [], 'nothing was removed, so nothing to call about');
+  assert.deepEqual(await box.osascript.calls(), [], 'nor a reload to try');
   assert.equal(reloadLines(never), 0, `got:\n${never.stdout}`);
 
-  // Beside it, a bot that did have one: the call and the line.
+  // Beside it, a bot that did have one: the reload tried, and the line.
   const had = await box.run(['retire', '--bots', 'bots', '--bot', 'api-bot']);
 
   assert.equal(had.code, 0, had.stderr);
-  assert.equal((await app.calls()).slice(from).length, 1);
+  assert.equal((await box.osascript.calls()).length, 1);
   assert.equal(reloadLines(had), 1, `got:\n${had.stdout}`);
 });
 
-test('W4 retire of a session removes no project: no call, no line', async (t) => {
+test('W4 retire of a session removes no project: no call, no reload, no line', async (t) => {
   const box = await createSandbox(t);
   const app = await orcaApp(box);
+  // The reload is macOS's: on any other platform it is not tried at all.
+  asPlatform(box, 'darwin');
   await init(box);
   await runningBot(box);
   await ok(box, ['session', 'add', '--bots', 'bots', '--bot', 'api-bot', '--name', 'review']);
@@ -383,13 +395,14 @@ test('W4 retire of a session removes no project: no call, no line', async (t) =>
 
   assert.equal(session.code, 0, session.stderr);
   assert.deepEqual((await app.calls()).slice(from), []);
+  assert.deepEqual(await box.osascript.calls(), []);
   assert.equal(reloadLines(session), 0, `got:\n${session.stdout}`);
 
-  // The bot itself, after it: its project goes, so the call and the line.
+  // The bot itself, after it: its project goes, so the reload and the line.
   const bot = await box.run(['retire', '--bots', 'bots', '--bot', 'api-bot']);
 
   assert.equal(bot.code, 0, bot.stderr);
-  assert.equal((await app.calls()).slice(from).length, 1);
+  assert.equal((await box.osascript.calls()).length, 1);
   assert.equal(reloadLines(bot), 1, `got:\n${bot.stdout}`);
 });
 
@@ -513,6 +526,7 @@ const LISTING_REFUSED_AFTER_DELETE = {
 async function retireOfABot(t, orca, json) {
   const box = await createSandbox(t);
   const app = await orcaApp(box);
+  asPlatform(box, 'darwin');
   await init(box);
   await runningBot(box);
   const apiBot = await setupOf(box, 'api-bot');
@@ -532,6 +546,7 @@ async function retireOfABot(t, orca, json) {
     deletes: orcaCallsOf(cli, 'project setup-delete'),
     after: deleted === -1 ? [] : cli.slice(deleted + 1),
     calls: (await app.calls()).slice(called),
+    reloads: await box.osascript.calls(),
   };
 }
 
@@ -551,6 +566,8 @@ async function assertRefusedOnlyAfterTheDelete(refused) {
 // confirmed, the run ends in 1 and the bot stays put (retire.test.js, RB10 to
 // RB12, has the detail). What #224 still asks here: no crash, the listing not
 // tried again, and no call to Orca's window with no Bot Father project found.
+// Since #343 a working retire makes no such call either: it force-reloads the
+// window instead, and one not confirmed does not.
 test('W7 W5 when Orca refuses the project listing after the delete, retire stops at not confirmed, quietly: no call, no reload line', async (t) => {
   const refused = await retireOfABot(t, { fail: LISTING_REFUSED_AFTER_DELETE }, []);
 
@@ -565,10 +582,12 @@ test('W7 W5 when Orca refuses the project listing after the delete, retire stops
   assert.equal(await exists(botHomeOf(bots, 'api-bot')), true, 'api-bot is still in bots/');
   assert.equal(await exists(path.join(bots, 'retired', 'api-bot')), false, 'api-bot was not moved to retired/');
   assert.deepEqual(refused.calls, [], 'there is no project of Bot Father\'s to call on that the kit could find');
+  assert.deepEqual(refused.reloads, [], 'and no reload tried');
 
   const works = await retireOfABot(t, {}, []);
-  assert.equal(works.calls.length, 1, 'the working client was called');
-  assert.equal(reloadLines(works.result), 1, 'and the working run printed the reload line');
+  assert.deepEqual(works.calls, [], 'the working run makes no project.update call either (#343)');
+  assert.equal(works.reloads.length, 1, 'it tries the reload');
+  assert.equal(reloadLines(works.result), 1, 'and, the fake osascript refusing, the working run printed the reload line');
 });
 
 test('W7 W6 when Orca refuses the project listing after the delete, retire --json answers the project and the trouble, and nothing of the window', async (t) => {
@@ -585,13 +604,17 @@ test('W7 W6 when Orca refuses the project listing after the delete, retire --jso
   }
   assert.equal(answer.project, refused.apiBot.id, 'it names the project it tried to remove');
   assert.deepEqual(refused.calls, [], 'there is no project of Bot Father\'s to call on that the kit could find');
+  assert.deepEqual(refused.reloads, [], 'and no reload tried');
+  assert.notEqual(answer.windowReloaded, true, `got: ${JSON.stringify(answer)}`);
 
-  // The keys are those of a working run, with trouble for moved: the window
-  // workaround adds nothing to the answer, whichever way it went.
+  // The keys are those of a working run, with trouble for moved, and nothing
+  // of the window: windowReloaded answers for a removal (#343), and none was
+  // confirmed here.
   const works = await retireOfABot(t, {}, ['--json']);
-  assert.equal(works.calls.length, 1, 'the working client was called');
-  const worked = Object.keys(answerOf(works.result)).filter((key) => key !== 'moved');
-  assert.deepEqual(Object.keys(answer).sort(), [...worked, 'trouble'].sort(), `got: ${JSON.stringify(answer)}`);
+  assert.equal(works.reloads.length, 1, 'the working run tried the reload');
+  const worked = Object.keys(answerOf(works.result)).filter((key) => key !== 'moved' && key !== 'windowReloaded');
+  const refusedKeys = Object.keys(answer).filter((key) => key !== 'windowReloaded');
+  assert.deepEqual(refusedKeys.sort(), [...worked, 'trouble'].sort(), `got: ${JSON.stringify(answer)}`);
 });
 
 // #224's window call follows a removal, and after #282 a removal is one Orca's
@@ -601,14 +624,16 @@ for (const { label, orca } of [
   { label: 'still lists the project', orca: { keepOnDelete: true } },
   { label: 'lists a project at the bot\'s folder under another id', orca: { readdOnDelete: true } },
 ]) {
-  test(`W4 when Orca answers the delete but ${label}, retire makes no call to Orca's window`, async (t) => {
+  test(`W4 when Orca answers the delete but ${label}, retire makes no call to Orca's window and tries no reload`, async (t) => {
     const kept = await retireOfABot(t, orca, []);
 
     assert.equal(kept.deletes.length, 1, 'api-bot\'s project was deleted, once');
     assert.equal(kept.result.code, 1, `the removal was not confirmed, got:\n${kept.result.stdout}${kept.result.stderr}`);
     assert.deepEqual(kept.calls, [], 'no removal was confirmed, so nothing to tell the window');
+    assert.deepEqual(kept.reloads, [], 'and no reload tried');
 
     const works = await retireOfABot(t, {}, []);
-    assert.equal(works.calls.length, 1, 'the working client was called');
+    assert.deepEqual(works.calls, [], 'the working run makes no project.update call either (#343)');
+    assert.equal(works.reloads.length, 1, 'it tries the reload');
   });
 }

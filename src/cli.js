@@ -551,9 +551,12 @@ const commands = {
       answer: { bots, ...retired },
       lines: [
         ...closedLines(retired.closed),
-        // After every removal, whatever the window was told: Orca's window can
-        // keep a removed project's row even after it re-reads (stablyai/orca#20102).
-        ...(retired.project === undefined ? [] : [`removed    Orca project ${retired.project}`, RELOAD_LINE]),
+        // Orca's window keeps a removed project's row until it is rebuilt
+        // (#343): the user reloads it by hand only when the kit could not.
+        ...(retired.project === undefined ? [] : [
+          `removed    Orca project ${retired.project}`,
+          retired.windowReloaded ? "reloaded   Orca's window, so its sidebar no longer shows the project" : RELOAD_LINE,
+        ]),
         `retired    ${retired.bot}: moved to ${path.relative(bots, retired.moved)}, with its book, charter and memory`,
       ],
     };

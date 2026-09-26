@@ -42,6 +42,7 @@ import { setTimeout } from 'node:timers/promises';
 import { parse } from 'yaml';
 
 import { cliEntry } from '../helpers/cli.js';
+import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
 
 /**
  * Remove the throwaway bots folder and everything the kit made beside it.
@@ -236,10 +237,15 @@ test('a bot is changed, paused, brought back and retired through the kit\'s comm
         closed.push(terminal.handle);
       }
     }
+    let deleted = 0;
     for (const setup of allSetups()) {
       if (!homes.includes(setup.path) || before.setups.has(setup.id)) continue;
       orca(['project', 'setup-delete', '--setup', setup.id]);
+      deleted += 1;
     }
+    // Orca's sidebar keeps a deleted project's row until its window is
+    // rebuilt (#343): the kit's own reload, as after a retire.
+    if (deleted > 0 && !(await reloadWindow())) t.diagnostic(RELOAD_LINE);
     await removeBotsFolderAndSiblings(bots);
 
     const left = new Set(allTerminals().map((terminal) => terminal.handle));

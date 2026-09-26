@@ -108,6 +108,7 @@ import { parse } from 'yaml';
 
 import { cliEntry } from '../helpers/cli.js';
 import { waitingOn } from '../helpers/screens.js';
+import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
 
 /**
  * Remove the throwaway bots folder and everything the kit made beside it.
@@ -407,10 +408,15 @@ test('a restart closes the session\'s tab and brings the conversation back with 
         closed.push(terminal.handle);
       }
     }
+    let deleted = 0;
     for (const setup of allSetups()) {
       if (!homes.includes(setup.path) || before.setups.has(setup.id)) continue;
       orca(['project', 'setup-delete', '--setup', setup.id]);
+      deleted += 1;
     }
+    // Orca's sidebar keeps a deleted project's row until its window is
+    // rebuilt (#343): the kit's own reload, as after a retire.
+    if (deleted > 0 && !(await reloadWindow())) t.diagnostic(RELOAD_LINE);
     await removeBotsFolderAndSiblings(bots);
 
     // The point of all the care above: this test closes only tabs of its own.
@@ -734,10 +740,15 @@ test('#330: a Codex session restarted again and again comes back each time, on t
         closed.push(terminal.handle);
       }
     }
+    let deleted = 0;
     for (const setup of allSetups()) {
       if (!homes.includes(setup.path) || before.setups.has(setup.id)) continue;
       orca(['project', 'setup-delete', '--setup', setup.id]);
+      deleted += 1;
     }
+    // Orca's sidebar keeps a deleted project's row until its window is
+    // rebuilt (#343): the kit's own reload, as after a retire.
+    if (deleted > 0 && !(await reloadWindow())) t.diagnostic(RELOAD_LINE);
     await removeBotsFolderAndSiblings(bots);
 
     // The point of all the care above: this test closes only tabs of its own.
