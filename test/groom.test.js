@@ -148,13 +148,20 @@ const toolAnswer = (tool, content, toolUseResult, at, error = false) => ({
 });
 
 /**
+ * What `created` takes as `recurring` for a call that leaves the key out, which
+ * Claude Code takes as recurring. Not `undefined`: a default parameter replaces
+ * that with the default, and the call would say `recurring: true` after all.
+ */
+const LEFT_OUT = Symbol('recurring left out');
+
+/**
  * A job made: the CronCreate call three seconds before its answer, and the
- * answer at `at`, which is when the job was made. `recurring` left undefined
- * leaves it out of the call, which Claude Code takes as recurring.
+ * answer at `at`, which is when the job was made. `recurring: LEFT_OUT` leaves
+ * the key out of the call.
  */
 function created({ id, cron, prompt, recurring = true, at }) {
   const tool = toolId();
-  const input = recurring === undefined ? { cron, prompt } : { cron, prompt, recurring };
+  const input = recurring === LEFT_OUT ? { cron, prompt } : { cron, prompt, recurring };
   const kept = recurring !== false;
   return [
     toolCall(tool, 'CronCreate', input, after(at, -3000)),
@@ -562,7 +569,7 @@ test('G3 only a successful recurring CronCreate whose prompt starts with the mar
   await transcriptOf(box, bots, CONV, [
     said(`CronCreate a recurring job, cron 0 4 * * *, prompt "${prompt}"`, ago(6 * DAY)),
     created({ id: 'c0000001', cron: '0 4 * * *', prompt, recurring: true, at: ago(5 * DAY) }),
-    created({ id: 'c0000002', cron: '0 4 * * *', prompt, recurring: undefined, at: ago(4 * DAY) }),
+    created({ id: 'c0000002', cron: '0 4 * * *', prompt, recurring: LEFT_OUT, at: ago(4 * DAY) }),
     created({ id: 'c0000003', cron: '0 4 26 9 *', prompt, recurring: false, at: ago(3 * DAY) }),
     created({ id: 'c0000004', cron: '0 9 * * *', prompt: 'Remind me to stretch.', at: ago(3 * DAY) }),
     created({ id: 'c0000005', cron: '0 4 * * *', prompt: `Every morning: ${marker}. Groom the fleet.`, at: ago(2 * DAY) }),
