@@ -133,7 +133,13 @@ test('no obk command makes a commit in the bots repo: the bots commit, the CLI d
     ['pause', '--bots', 'bots', '--bot', 'api-bot', '--session', 'nightly'],
     ['unpause', '--bots', 'bots', '--bot', 'api-bot', '--session', 'nightly'],
     ['retire', '--bots', 'bots', '--bot', 'api-bot', '--session', 'nightly'],
-    ['groom', '--bots', 'bots', '--at', '06:30'],
+    // #237: groom works through a session of Bot Father's called grooming, so
+    // it is added and brought up first; turning grooming on is --on --at, and
+    // the plain groom is the report.
+    ['session', 'add', '--bots', 'bots', '--bot', 'bot-father', '--name', 'grooming'],
+    ['up', '--bots', 'bots', '--bot', 'bot-father'],
+    ['groom', '--bots', 'bots', '--on', '--at', '06:30'],
+    ['groom', '--bots', 'bots'],
     ['up', '--bots', 'bots'],
   ];
 

@@ -38,9 +38,9 @@ export const HARNESSES = Object.keys(SKILL_DIRS);
  * as it stood on main and collided on the next rebase, which is the whole cost
  * of saying the same thing twice.
  *
- * The last two are Bot Father's because `obk groom` writes an automation whose
- * prompt tells the waking session to use them by name, and a prompt that names
- * a skill the bot cannot load gets a session improvising the job.
+ * The last two are Bot Father's because `obk groom` types a line into its
+ * grooming session that tells the run to use them by name, and a line that
+ * names a skill the bot cannot load gets a session improvising the job.
  */
 export const MANAGEMENT_SKILLS = ['obk-bot-building', 'obk-finops', 'obk-fleet-review', 'obk-grooming'];
 

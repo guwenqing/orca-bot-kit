@@ -27,8 +27,7 @@ import {
   bookOf,
   botHomeOf,
   createSandbox,
-  orcaCallsOf,
-  orcaFlag,
+  sessionIn,
 } from './helpers/cli.js';
 import {
   answerOf,
@@ -48,7 +47,7 @@ import {
  * The skills Bot Father's job needs, and the entries that name them. The list
  * itself is in helpers/skills.js, because a second test file states it too and
  * the two went stale against each other once already; the test at the foot of
- * this file is what holds it to the grooming prompt that names them.
+ * this file is what holds it to the grooming lines that name them.
  */
 const ENTRIES = MANAGEMENT.map((name) => `kit:${name}`);
 
@@ -258,7 +257,32 @@ const skillsNamedIn = (text, bots, root) => [
   ),
 ].sort();
 
-test('R4 every skill the grooming prompt names is one Bot Father can load', async (t) => {
+/**
+ * What `obk groom` types into Bot Father's grooming tab to hand it a grooming
+ * run: the line `--on --at` types, whose run the schedule makes every day, and
+ * the line `--now` types, the same run once. The grooming session is added and
+ * brought up first, the way a user does it. The two lines, as one text.
+ */
+async function groomingLines(box, bots) {
+  const added = await box.run(['session', 'add', '--bots', 'bots', '--bot', 'bot-father', '--name', 'grooming']);
+  assert.equal(added.code, 0, added.stderr);
+  const up = await box.run(['up', '--bots', 'bots']);
+  assert.equal(up.code, 0, up.stderr);
+  const tab = (await sessionIn(bots, 'bot-father', 'grooming')).tab;
+  const typed = async () => (await box.orca.terminals()).find((one) => one.tabId === tab)?.typed ?? [];
+  const launched = (await typed()).length;
+
+  for (const flags of [['--on', '--at', '04:00'], ['--now']]) {
+    const groomed = await box.run(['groom', '--bots', 'bots', ...flags]);
+    assert.equal(groomed.code, 0, groomed.stderr);
+  }
+
+  const lines = (await typed()).slice(launched).map((entry) => entry.text);
+  assert.equal(lines.length, 2, `each should have typed one line into the grooming tab, got: ${JSON.stringify(lines)}`);
+  return lines.join('\n');
+}
+
+test('R4 every skill the grooming lines name is one Bot Father can load', async (t) => {
   // The live failure this is about, found by running it rather than reading it:
   // `obk groom` wrote an automation whose prompt said to use obk-grooming and
   // obk-finops, and Bot Father's skills directory held neither. Every morning a
@@ -266,26 +290,23 @@ test('R4 every skill the grooming prompt names is one Bot Father can load', asyn
   // and improvised the job instead of doing it the way the skill says.
   //
   // Neither half of that is wrong on its own, which is why nothing caught it.
-  // So this asks the one question that spans them, and asks it of the prompt
-  // Orca was really handed rather than of any wording in the source: whatever
-  // skills that text names, Bot Father has.
+  // So this asks the one question that spans them, and asks it of the lines
+  // the grooming tab was really handed rather than of any wording in the
+  // source: whatever skills that text names, Bot Father has. The automation is
+  // gone (#237); the grooming run is now a line typed into a session of Bot
+  // Father's, and the question is the same.
   const box = await createSandbox(t);
   const bots = await seeded(box);
 
-  const groomed = await box.run(['groom', '--bots', 'bots', '--at', '04:00']);
-  assert.equal(groomed.code, 0, groomed.stderr);
+  const lines = await groomingLines(box, bots);
+  const named = skillsNamedIn(lines, bots, box.root);
 
-  const created = orcaCallsOf(await box.orca.calls(), 'automations create');
-  assert.equal(created.length, 1, `the grooming should have been created once, got: ${JSON.stringify(created)}`);
-  const prompt = orcaFlag(created[0], '--prompt') ?? '';
-  const named = skillsNamedIn(prompt, bots, box.root);
-
-  // Not a rule that the prompt must name skills; a note that this test only
-  // says anything while it does. A prompt that stops naming them is a decision
+  // Not a rule that the lines must name skills; a note that this test only
+  // says anything while they do. Lines that stop naming them are a decision
   // to take here, deliberately, rather than a guard that quietly went quiet.
   assert.ok(
     named.length > 0,
-    `the grooming prompt names no kit skill, so this test now proves nothing; got: ${prompt}`,
+    `the grooming lines name no kit skill, so this test now proves nothing; got: ${lines}`,
   );
 
   for (const harness of HARNESSES) {
@@ -293,25 +314,22 @@ test('R4 every skill the grooming prompt names is one Bot Father can load', asyn
     for (const name of named) {
       assert.ok(
         held.includes(name),
-        `the grooming prompt tells the session to use ${name}, and ${harness} finds only `
+        `the grooming line tells the session to use ${name}, and ${harness} finds only `
         + `${held.join(', ') || 'nothing'} in Bot Father's home`,
       );
     }
   }
 });
 
-test('R4 a skill the grooming prompt names is a skill the kit actually ships', async (t) => {
-  // The other way the pair can come apart: a prompt that names something which
+test('R4 a skill the grooming lines name is a skill the kit actually ships', async (t) => {
+  // The other way the pair can come apart: a line that names something which
   // is nowhere, which no amount of seeding would fix.
   const box = await createSandbox(t);
   const bots = await seeded(box);
-  const groomed = await box.run(['groom', '--bots', 'bots', '--at', '04:00']);
-  assert.equal(groomed.code, 0, groomed.stderr);
 
-  const created = orcaCallsOf(await box.orca.calls(), 'automations create');
-  const named = skillsNamedIn(orcaFlag(created[0], '--prompt') ?? '', bots, box.root);
+  const named = skillsNamedIn(await groomingLines(box, bots), bots, box.root);
 
-  assert.ok(named.length > 0, 'the prompt should still be naming the skills it wants used');
+  assert.ok(named.length > 0, 'the lines should still be naming the skills they want used');
   for (const name of named) {
     await kitSkill(name);
   }

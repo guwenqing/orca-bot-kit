@@ -50,11 +50,13 @@ profile notes and that any bot may read them; and the routing, where something
 the kit does wrong is filed as an issue in one step and something a bot does
 wrong goes back to that bot's session as feedback.
 
-That grooming is the automation's own session rather than a tab in the book,
-and that what it must remember therefore lives in files, follows from a fact
-measured for this slice: an Orca automation cannot reuse a session it did not
-start, so it cannot be pointed at a tab the kit made. It is written down in
-the tech notes.
+Grooming runs in a session in the book, on Claude Code's own scheduler,
+because the owner decided on 2026-09-24 (#223) that scheduled work does not use
+an Orca automation: an automation cannot carry a model or an effort of its
+own. Its runs share one long conversation, which the owner accepted in the
+same decision ("just do /compact when needed, add to the skill"). What a run
+must remember still lives in files, because a compacted conversation keeps
+only a summary. The facts about Claude Code's scheduler are in the tech notes.
 
 ## Ideas taken from material with no licence
 
@@ -109,3 +111,17 @@ Sources and licences in full: [LICENSES.md](LICENSES.md).
   expected). The load limit and where the memory lives are the tech notes'
   facts, verified live on Claude Code 2.1.280; Codex's store is the user's and
   is left alone.
+
+## What moving to Claude Code's scheduler changed (#237)
+
+- Where it remembers: the runs share one conversation now, so the files are
+  kept because a compact leaves a summary and a `/clear` leaves nothing, rather
+  than because each run starts fresh.
+- Turning it on: a `grooming` session in the book with its own model and
+  effort, a run by hand with `obk groom --now`, then `--on --at` after the yes.
+  That it fires only while its tab is up, the week-long limit each run renews,
+  and what a `/clear` does are Claude Code's documented behaviour, in the tech
+  notes.
+- Compacting is new, from the owner's decision on #223. Who types `/compact`
+  (the management session, through the kit) is the architect's reading of it on
+  #237.
