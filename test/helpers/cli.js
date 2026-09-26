@@ -699,7 +699,9 @@ export const CODEX_NETWORK = '-c sandbox_workspace_write.network_access=true';
  * defaults cannot leak into a bot, and `auto` is what a session that named no
  * level takes. What makes the session reachable comes straight after
  * it: a Claude session's own name, and on Codex the switch that widens the
- * sandbox that flag chose far enough to reach Orca. In front of all of it, the
+ * sandbox that flag chose far enough to reach Orca. On Codex `--no-daemon`
+ * sits between the two (#330): Codex 0.157 starts a shared background server
+ * by default, and a resume through it was seen to fail. In front of all of it, the
  * step that gives the session its mailbox (#317), which names the bot and the
  * session on either harness; `bots` is the sandbox's own folder unless given.
  */
@@ -709,7 +711,7 @@ export function bareLaunch(box, harness, bot, session, { bots } = {}) {
   }
   return launchLine(box, harness === 'claude'
     ? `claude --permission-mode auto -n ${bot}.${session}.${TOKEN}`
-    : `codex --approve-for-me ${CODEX_NETWORK}`, { bots, bot, session });
+    : `codex --approve-for-me --no-daemon ${CODEX_NETWORK}`, { bots, bot, session });
 }
 
 /** Where a bot lives inside a bots folder. */

@@ -216,7 +216,7 @@ for (const [harness, settings, fresh] of [
   [
     'codex',
     ['--approval', 'ask', '--model', 'gpt-5.4', '--effort', 'high', '--context', '200000', '--extra-arg=--search'],
-    ['-a', 'on-request', '-c', 'sandbox_workspace_write.network_access=true', '-m', 'gpt-5.4', '-c', 'model_reasoning_effort=high', '-c', 'model_context_window=200000', '--search'],
+    ['-a', 'on-request', '--no-daemon', '-c', 'sandbox_workspace_write.network_access=true', '-m', 'gpt-5.4', '-c', 'model_reasoning_effort=high', '-c', 'model_context_window=200000', '--search'],
   ],
 ]) {
   test(`a resumed ${harness} session keeps every setting, in the same order`, async (t) => {
@@ -253,8 +253,134 @@ test('a resumed Codex session keeps its --add-dir for a work dir outside the bot
 
   assert.deepEqual(
     withoutResume(await argvOf(box, again.typed[0], fake), 'sess-1'),
-    ['--approve-for-me', '-c', 'sandbox_workspace_write.network_access=true', '--add-dir', outside],
+    ['--approve-for-me', '--no-daemon', '-c', 'sandbox_workspace_write.network_access=true', '--add-dir', outside],
   );
+});
+
+// #330: a `codex resume` on Codex 0.157.1 was seen to fail with "Cannot use the
+// shared background server ... rerun the same command with --no-daemon". So a
+// resume carries `--no-daemon` as a fresh start does, straight after the
+// approval flags, and the id stays last. A Claude resume never carries it.
+for (const [approval, codexFlags, claudeFlags] of [
+  ['auto', ['--approve-for-me'], ['--permission-mode', 'auto']],
+  ['ask', ['-a', 'on-request'], ['--permission-mode', 'manual']],
+  ['dangerously-skip', ['--dangerously-bypass-approvals-and-sandbox'], ['--dangerously-skip-permissions']],
+]) {
+  test(`#330: a resumed Codex session at ${approval} runs with --no-daemon, straight after its approval flags`, async (t) => {
+    const box = await createSandbox(t);
+    const fake = await fakeProgram(box, 'codex', {});
+    const { bots, first } = await started(box, 'codex', ['--approval', approval, '--prompt', PROMPT]);
+    await reported(box, bots, first.entry.tabId, 'sess-1');
+    await onRecord(box, 'codex', bots, 'sess-1');
+    await closeTab(box, first.entry.tabId);
+
+    const again = await up(box);
+
+    assert.deepEqual(await argvOf(box, again.typed[0], fake), [
+      'resume',
+      ...codexFlags,
+      '--no-daemon',
+      '-c', 'sandbox_workspace_write.network_access=true',
+      'sess-1',
+    ]);
+  });
+
+  test(`#330: a resumed Claude session at ${approval} never carries --no-daemon`, async (t) => {
+    const box = await createSandbox(t);
+    const fake = await fakeProgram(box, 'claude', {});
+    const { bots, first } = await started(box, 'claude', ['--approval', approval, '--prompt', PROMPT]);
+    await reported(box, bots, first.entry.tabId, 'sess-1');
+    await onRecord(box, 'claude', bots, 'sess-1');
+    await closeTab(box, first.entry.tabId);
+
+    const again = await up(box);
+
+    assert.deepEqual(tokenlessArgv(await argvOf(box, again.typed[0], fake)), [
+      ...claudeFlags,
+      '-n', `api-bot.daily.${TOKEN}`,
+      '--resume', 'sess-1',
+    ]);
+  });
+}
+
+test('#330: a resumed Codex session with every setting keeps --no-daemon once, straight after its approval flags', async (t) => {
+  const box = await createSandbox(t);
+  const fake = await fakeProgram(box, 'codex', {});
+  const outside = path.join(box.root, 'clones', 'api');
+  const { bots, first } = await started(box, 'codex', [
+    '--approval', 'ask', '--model', 'gpt-5.4', '--effort', 'high', '--context', '200000',
+    '--work-dir', outside, '--extra-arg=--search', '--prompt', PROMPT,
+  ]);
+  await reported(box, bots, first.entry.tabId, 'sess-1');
+  await onRecord(box, 'codex', bots, 'sess-1');
+  await closeTab(box, first.entry.tabId);
+
+  const again = await up(box);
+
+  assert.deepEqual(await argvOf(box, again.typed[0], fake), [
+    'resume',
+    '-a', 'on-request',
+    '--no-daemon',
+    '-c', 'sandbox_workspace_write.network_access=true',
+    '-m', 'gpt-5.4',
+    '-c', 'model_reasoning_effort=high',
+    '-c', 'model_context_window=200000',
+    '--add-dir', outside,
+    '--search',
+    'sess-1',
+  ]);
+});
+
+// #330: Codex refuses `--no-daemon` twice, `codex resume` included, so a
+// session whose own extra_args carry it resumes with it once, where the user
+// put it, and the kit adds none of its own.
+test('#330: a resumed Codex session whose extra args carry --no-daemon gets it once, where the user put it', async (t) => {
+  const box = await createSandbox(t);
+  const fake = await fakeProgram(box, 'codex', {});
+  const { bots, first } = await started(box, 'codex', ['--extra-arg=--search', '--extra-arg=--no-daemon', '--prompt', PROMPT]);
+  await reported(box, bots, first.entry.tabId, 'sess-1');
+  await onRecord(box, 'codex', bots, 'sess-1');
+  await closeTab(box, first.entry.tabId);
+
+  const again = await up(box);
+
+  assert.deepEqual(await argvOf(box, again.typed[0], fake), [
+    'resume',
+    '--approve-for-me',
+    '-c', 'sandbox_workspace_write.network_access=true',
+    '--search',
+    '--no-daemon',
+    'sess-1',
+  ]);
+});
+
+test('#330: a resumed Codex session whose extra_args string carries --no-daemon as a word gets it once, where the user put it', async (t) => {
+  const box = await createSandbox(t);
+  const fake = await fakeProgram(box, 'codex', {});
+  assert.equal((await box.run(['init', '--bots', 'bots', '--harness', 'claude'])).code, 0);
+  assert.equal((await box.run(['bot', 'create', '--bots', 'bots', '--name', 'api-bot', '--harness', 'codex'])).code, 0);
+  const bots = box.path('bots');
+  await writeFile(
+    path.join(botHomeOf(bots, 'api-bot'), 'bot.yaml'),
+    'name: api-bot\nharness: codex\ncharter: mine\nrules: []\nskills: []\n'
+    + `sessions:\n  - name: daily\n    approval: auto\n    prompt: ${PROMPT}\n    extra_args: --search --no-daemon --profile mine\n`,
+  );
+  const first = await up(box);
+  await reported(box, bots, first.entry.tabId, 'sess-1');
+  await onRecord(box, 'codex', bots, 'sess-1');
+  await closeTab(box, first.entry.tabId);
+
+  const again = await up(box);
+
+  assert.deepEqual(await argvOf(box, again.typed[0], fake), [
+    'resume',
+    '--approve-for-me',
+    '-c', 'sandbox_workspace_write.network_access=true',
+    '--search',
+    '--no-daemon',
+    '--profile', 'mine',
+    'sess-1',
+  ]);
 });
 
 test('the session that came back is the one the book named, and the book follows it', async (t) => {

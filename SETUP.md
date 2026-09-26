@@ -37,7 +37,7 @@ node --version                                          # 24.21.0 or newer
 git --version
 /Applications/Orca.app/Contents/Resources/bin/orca status --json
 claude --version                                        # at least one of these
-codex --version
+codex --version                                         # 0.156.1 or newer
 ```
 
 The Orca line must come back with `ok: true` and `result.runtime.reachable:
@@ -54,6 +54,10 @@ first release measured here that loads it without an experimental warning.
 
 If neither harness is installed, say so and stop. If only one is, that is fine,
 and it is the one Bot Father will run on.
+
+If Codex is older than 0.156.1, say so and ask them to update it before a bot
+runs on Codex. The kit starts Codex with `--no-daemon`, and older Codex refuses
+that flag.
 
 ## 2. Make `obk` runnable
 
@@ -206,8 +210,9 @@ empty book and nothing says why.
 Codex's trust question applies to the **repository root**, which for a bot means
 the whole bots folder rather than the one bot. That is what they are agreeing to.
 
-Codex's `/new` question (0.156.1 on) is always answered with the current
-checkout, which is the bot home. The kit never makes a git worktree, so
+Codex's `/new` question (seen on 0.156.1; 0.157.1 did not show it in the runs
+seen so far) is always answered with the current checkout, which is the bot
+home. The kit never makes a git worktree, so
 `2. New worktree` is never the answer.
 
 **Anything you do not recognise: type nothing.** Tell them what is on the

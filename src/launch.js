@@ -99,6 +99,12 @@ export const setsNetworkAccess = (session) =>
 export const reachesMail = (session, harness) =>
   harness !== 'codex' || !turnedOff(session);
 
+/** Codex's flag for running without its shared background server (0.156.1 on). */
+const NO_DAEMON = '--no-daemon';
+
+const setsNoDaemon = (session) =>
+  extraWords(session.extra_args).some((word) => word.split(/\s+/).includes(NO_DAEMON));
+
 const turnedOff = (session) =>
   extraWords(session.extra_args).some((word) => word.includes(`${NETWORK_ACCESS}=false`));
 
@@ -174,6 +180,11 @@ export function launchCommand(session, { harness, home, workDir, prompt, promptF
   // take every other flag exactly as a fresh session does.
   if (resume !== undefined && harness === 'codex') words.push('resume');
   words.push(...APPROVAL[harness][set(session.approval) ? session.approval : DEFAULT_APPROVAL]);
+  // Codex 0.157 shares one background server between sessions by default, and
+  // a resume through it was seen to fail; without it Codex runs as 0.156 did
+  // (tech notes, section 3, #330). Codex refuses the flag twice, so the user's
+  // own wins.
+  if (harness === 'codex' && !setsNoDaemon(session)) words.push(NO_DAEMON);
 
   if (harness === 'claude') {
     // The name is the address other Claude sessions write to, so it goes on
