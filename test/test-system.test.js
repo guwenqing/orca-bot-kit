@@ -24,7 +24,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, test } from 'node:test';
 
-import { createSandbox, node, orcaCallsOf, repoRoot } from './helpers/cli.js';
+import { assertRefused, createSandbox, node, orcaCallsOf, repoRoot } from './helpers/cli.js';
 
 const scriptEntry = path.join(repoRoot, 'scripts', 'test-system.js');
 
@@ -209,6 +209,44 @@ const DEFAULT_FILES = {
   'test/other.test.js': marker('OTHER'),
 };
 
+/**
+ * A system test file that writes down that it ran, in `ran.log` beside the
+ * repo, as well as printing its marker. The log says which files ran and how
+ * many times each, which the output cannot: the test runner prints a test's
+ * name beside whatever the test wrote.
+ *
+ * Built on `process.getBuiltinModule` rather than `import` or `require`, so the
+ * same file runs inside the fixture repo, which is an ES module package, and
+ * outside it, where nothing says what a `.js` file is.
+ */
+const tallies = (name) => [
+  "const { appendFileSync } = process.getBuiltinModule('node:fs');",
+  "const path = process.getBuiltinModule('node:path');",
+  "const { test } = process.getBuiltinModule('node:test');",
+  '',
+  `test(${JSON.stringify(name)}, () => {`,
+  `  appendFileSync(path.join(path.dirname(process.env[${JSON.stringify(WORLD)}]), 'ran.log'), ${JSON.stringify(`${name}\n`)});`,
+  `  process.stdout.write(${JSON.stringify(`${name}\n`)});`,
+  '});',
+  '',
+].join('\n');
+
+/**
+ * Three system test files, two at the top of test/system/ and one a folder
+ * down, so that naming some of them leaves others that must not run. Beside them
+ * a file in test/system/ that is not a test, a test folder beside test/system/
+ * whose name begins the same, and a test outside test/system/ altogether: each
+ * of them writes down that it ran, should anything run it.
+ */
+const NAMED_FILES = {
+  'test/system/alpha.test.js': tallies('ALPHA'),
+  'test/system/beta.test.js': tallies('BETA'),
+  'test/system/nested/gamma.test.js': tallies('GAMMA'),
+  'test/system/helper.js': tallies('HELPER'),
+  'test/system-extra/sneaky.test.js': tallies('SNEAKY'),
+  'test/other.test.js': tallies('OTHER'),
+};
+
 async function write(dir, rel, text) {
   const file = path.join(dir, rel);
   await mkdir(path.dirname(file), { recursive: true });
@@ -270,11 +308,12 @@ async function createRepo(t, {
     envWithoutOverride: bare,
     /**
      * Run it the way `npm run test:system` on its own does: no confirmation.
-     * From the repo (or `options.cwd`, with `options.env`).
+     * From the repo (or `options.cwd`, with `options.env`), naming the files in
+     * `options.names` when there are any.
      */
-    run: (options = {}) => runScript([], options),
+    run: (options = {}) => runScript(options.names ?? [], options),
     /** Run it the way the developer who means it does: with the confirmation flag. */
-    confirmed: (options = {}) => runScript([CONFIRM], options),
+    confirmed: (options = {}) => runScript([CONFIRM, ...(options.names ?? [])], options),
     /** The sandbox directory outside the repo, for running from elsewhere. */
     outside: box.cwd,
   };
@@ -387,6 +426,59 @@ function assertSkipped(result) {
   assert.match(result.stdout, /skip/i, `the message should say it skipped, got: ${result.stdout}`);
   assert.doesNotMatch(result.stdout + result.stderr, /ALPHA/);
 }
+
+/** Which of the files built by `tallies` ran, once per run of each, sorted: empty when none did. */
+async function ranIn(fixture) {
+  try {
+    return (await readFile(path.join(path.dirname(fixture.repo), 'ran.log'), 'utf8'))
+      .split('\n')
+      .filter((line) => line !== '')
+      .sort();
+  } catch (error) {
+    if (error.code === 'ENOENT') return [];
+    throw error;
+  }
+}
+
+/**
+ * The ways out of test/system/ that a name could take: a package.json and a
+ * test file beside the repo, a folder of tests beside it too, and two symlinks
+ * in test/system/ that lead out, `leak.test.js` to the test file and `linked`
+ * to the folder.
+ */
+async function withWaysOut(fixture) {
+  const beside = path.dirname(fixture.repo);
+  await write(beside, 'package.json', '{"name": "outside"}\n');
+  await write(beside, 'outside.test.js', tallies('OUTSIDE'));
+  await write(beside, 'elsewhere/escaped.test.js', tallies('ESCAPED'));
+  await symlink(path.join(beside, 'outside.test.js'), path.join(fixture.repo, 'test', 'system', 'leak.test.js'));
+  await symlink(path.join(beside, 'elsewhere'), path.join(fixture.repo, 'test', 'system', 'linked'));
+  return fixture;
+}
+
+/**
+ * Names that are not a system test file, each with why it is not. A name
+ * is a path from the repo, or an absolute one, and what counts is where it
+ * really leads once every symlink is followed: to a `*.test.js` file inside
+ * test/system/, or it is refused.
+ */
+const REFUSED = [
+  ['a `..` that leaves the repo', () => '../package.json'],
+  ['a `..` that leaves test/system/ and the repo', () => 'test/system/../../package.json'],
+  ['a `..` that leaves test/system/ and comes back into the folder beside it', () => 'test/system/../system-extra/sneaky.test.js'],
+  ['a folder beside test/system/ whose name begins the same', () => 'test/system-extra/sneaky.test.js'],
+  ['a `..` that leaves the repo and comes back in to a test outside test/system/', (fixture) => `../${path.basename(fixture.repo)}/test/other.test.js`],
+  ['an absolute path outside the repo', (fixture) => path.join(path.dirname(fixture.repo), 'outside.test.js')],
+  ['an absolute path into the repo but outside test/system/', (fixture) => path.join(fixture.repo, 'test', 'other.test.js')],
+  ['a test file that is not a system test', () => 'test/other.test.js'],
+  ['a file under test/system/ that is not a test file', () => 'test/system/helper.js'],
+  ['a test file symlinked into test/system/ from outside it', () => 'test/system/leak.test.js'],
+  ['a symlinked folder in test/system/ that leads outside it', () => 'test/system/linked'],
+  ['a test file reached through a symlinked folder that leads outside', () => 'test/system/linked/escaped.test.js'],
+  ['a name that does not exist', () => 'test/system/missing.test.js'],
+  ['test/system/ itself', () => 'test/system'],
+  ['a folder under test/system/', () => 'test/system/nested'],
+];
 
 // Each test owns a throwaway repo, so they can all run at the same time.
 describe('test-system', { concurrency: true }, () => {
@@ -1081,6 +1173,226 @@ describe('test-system', { concurrency: true }, () => {
       assert.equal(result.code, 0);
       const report = afterTheRun(result);
       assertSaidItCouldNotTell(report);
+    });
+  });
+
+  // One system test file takes 20 to 70 minutes of attended running, and a
+  // developer checking one feature live needs that one file, not all of them
+  // (#325). The names are also the one way into this command from outside: the
+  // owner allowed kit-dev's sessions to run it so the kit's own reviewed system
+  // tests can run, and a name must never turn it into a way to run anything else.
+  describe('naming the files to run', { concurrency: true }, () => {
+    const BETA_FILE = 'test/system/beta.test.js';
+    const GAMMA_FILE = 'test/system/nested/gamma.test.js';
+
+    test('a named system test file runs alone', async (t) => {
+      const fixture = await createRepo(t, { files: NAMED_FILES });
+
+      const result = await fixture.confirmed({ names: [BETA_FILE] });
+
+      assert.equal(result.code, 0, `${result.stdout}${result.stderr}`);
+      assert.deepEqual(await ranIn(fixture), ['BETA']);
+    });
+
+    test('the named files\' verdict is the command\'s, not the verdict of the files left out', async (t) => {
+      const fixture = await createRepo(t, {
+        files: {
+          ...NAMED_FILES,
+          'test/system/alpha.test.js': [
+            "import test from 'node:test';",
+            '',
+            "test('alpha', () => { throw new Error('ALPHA failed'); });",
+            '',
+          ].join('\n'),
+        },
+      });
+
+      const passing = await fixture.confirmed({ names: [BETA_FILE] });
+      const failing = await fixture.confirmed({ names: ['test/system/alpha.test.js'] });
+
+      assert.equal(passing.code, 0, `alpha fails but was not named, got:\n${passing.stdout}${passing.stderr}`);
+      assert.equal(failing.code, 1, `alpha was named and fails, got:\n${failing.stdout}${failing.stderr}`);
+    });
+
+    test('the confirmed run announces only the named files, before it runs them', async (t) => {
+      const fixture = await createRepo(t, { files: NAMED_FILES });
+
+      const result = await fixture.confirmed({ names: [BETA_FILE] });
+
+      assertAnnounces(result, fixture, [BETA_FILE]);
+      assert.ok(!result.stdout.includes('alpha.test.js'), `alpha was not named, got: ${result.stdout}`);
+      assert.ok(!result.stdout.includes('gamma.test.js'), `gamma was not named, got: ${result.stdout}`);
+      const ran = result.stdout.indexOf('BETA');
+      assert.ok(ran >= 0, `the run's own output should reach stdout, got: ${result.stdout}`);
+      assert.ok(result.stdout.indexOf(BETA_FILE) < ran, `the announcement should come before the run, got: ${result.stdout}`);
+    });
+
+    test('named without the confirmation: it announces those files and how many, drives nothing, and exits 2', async (t) => {
+      const fixture = await createRepo(t, { files: NAMED_FILES });
+
+      const result = await fixture.run({ names: [BETA_FILE, GAMMA_FILE] });
+
+      assert.equal(result.code, 2, `${result.stdout}${result.stderr}`);
+      assertAnnounces(result, fixture, [BETA_FILE, GAMMA_FILE]);
+      assert.ok(!result.stdout.includes('alpha.test.js'), `alpha was not named, got: ${result.stdout}`);
+      assert.match(result.stdout, /^.*\b2\b.*\bfiles?\b/im, `it should say how many files, got: ${result.stdout}`);
+      assert.deepEqual(await ranIn(fixture), []);
+      assert.deepEqual(orcaCallsOf(await fixture.orca.calls(), 'orchestration run-list'), []);
+    });
+
+    test('a named run is accounted for: the Runs that appeared are named, and those already there are not', async (t) => {
+      const fixture = await createRepo(t, {
+        runs: ALREADY_THERE,
+        files: { ...NAMED_FILES, [BETA_FILE]: mintsRuns('BETA', MINTED) },
+      });
+
+      const result = await fixture.confirmed({ names: [BETA_FILE] });
+
+      assert.equal(result.code, 0, `${result.stdout}${result.stderr}`);
+      const report = afterTheRun(result, 'BETA');
+      for (const run of MINTED) {
+        assert.ok(report.includes(run.id), `it should name ${run.id}, got: ${report}`);
+      }
+      for (const run of ALREADY_THERE) {
+        assert.ok(!report.includes(run.id), `${run.id} was there before the run, got: ${report}`);
+      }
+    });
+
+    test('a name given twice runs once', async (t) => {
+      const fixture = await createRepo(t, { files: NAMED_FILES });
+
+      const result = await fixture.confirmed({ names: [BETA_FILE, BETA_FILE] });
+
+      assert.equal(result.code, 0, `${result.stdout}${result.stderr}`);
+      assert.deepEqual(await ranIn(fixture), ['BETA']);
+    });
+
+    test('an absolute name runs the file it names', async (t) => {
+      const fixture = await createRepo(t, { files: NAMED_FILES });
+
+      const result = await fixture.confirmed({ names: [path.join(fixture.repo, 'test', 'system', 'beta.test.js')] });
+
+      assert.equal(result.code, 0, `${result.stdout}${result.stderr}`);
+      assert.deepEqual(await ranIn(fixture), ['BETA']);
+    });
+
+    test('a file in a folder under test/system/ can be named', async (t) => {
+      const fixture = await createRepo(t, { files: NAMED_FILES });
+
+      const result = await fixture.confirmed({ names: [GAMMA_FILE] });
+
+      assert.equal(result.code, 0, `${result.stdout}${result.stderr}`);
+      assert.deepEqual(await ranIn(fixture), ['GAMMA']);
+    });
+
+    test('a relative name is read from the repo, whatever the working directory', async (t) => {
+      const fixture = await createRepo(t, { files: NAMED_FILES });
+
+      const result = await fixture.confirmed({ cwd: fixture.outside, names: [BETA_FILE] });
+
+      assert.equal(result.code, 0, `${result.stdout}${result.stderr}`);
+      assert.deepEqual(await ranIn(fixture), ['BETA']);
+    });
+
+    test('with no names every system test file still runs, and nothing else', async (t) => {
+      const fixture = await createRepo(t, { files: NAMED_FILES });
+
+      const result = await fixture.confirmed();
+
+      assert.equal(result.code, 0, `${result.stdout}${result.stderr}`);
+      assert.deepEqual(await ranIn(fixture), ['ALPHA', 'BETA', 'GAMMA']);
+    });
+
+    test('named, with Orca not ready: the same skip, exit 0, nothing run', async (t) => {
+      const fixture = await createRepo(t, {
+        files: NAMED_FILES,
+        orca: status({ ok: true, result: { runtime: { reachable: false } } }),
+      });
+
+      const result = await fixture.confirmed({ names: [BETA_FILE] });
+
+      assertSkipped(result);
+      assert.deepEqual(await ranIn(fixture), []);
+    });
+
+    describe('a name that is not a system test file is refused, and nothing runs', { concurrency: true }, () => {
+      for (const [what, nameIn] of REFUSED) {
+        test(`${what} is refused before Orca is asked anything`, async (t) => {
+          const fixture = await withWaysOut(await createRepo(t, { files: NAMED_FILES }));
+          const name = nameIn(fixture);
+
+          const refused = await fixture.confirmed({ names: [name] });
+
+          assertRefused(refused, name);
+          assert.deepEqual(await ranIn(fixture), [], `nothing should have run, got:\n${refused.stdout}${refused.stderr}`);
+          assert.deepEqual(argsOf(await fixture.orca.calls()), []);
+
+          // The same repo with a name it runs: the log and the fake Orca both
+          // hear of it, so their silence above was the refusal's doing.
+          const accepted = await fixture.confirmed({ names: [BETA_FILE] });
+
+          assert.equal(accepted.code, 0, `${accepted.stdout}${accepted.stderr}`);
+          assert.deepEqual(await ranIn(fixture), ['BETA']);
+          assert.deepEqual(argsOf(orcaCallsOf(await fixture.orca.calls(), 'status')), [['status', '--json']]);
+        });
+      }
+
+      test('the refusal says that only files under test/system/ can be run', async (t) => {
+        // The name has no `test/system` in it, so the words are the reason and
+        // not the name said back.
+        const fixture = await createRepo(t, { files: NAMED_FILES });
+
+        const result = await fixture.confirmed({ names: ['test/other.test.js'] });
+
+        assertRefused(result, 'test/other.test.js', 'test/system');
+      });
+
+      test('one refused name among several refuses them all: none of them runs', async (t) => {
+        const fixture = await createRepo(t, { files: NAMED_FILES });
+
+        const refused = await fixture.confirmed({ names: [BETA_FILE, 'test/other.test.js', GAMMA_FILE] });
+
+        assertRefused(refused, 'test/other.test.js');
+        assert.deepEqual(await ranIn(fixture), [], `nothing should have run, got:\n${refused.stdout}${refused.stderr}`);
+        assert.deepEqual(argsOf(await fixture.orca.calls()), []);
+
+        const accepted = await fixture.confirmed({ names: [BETA_FILE, GAMMA_FILE] });
+
+        assert.equal(accepted.code, 0, `${accepted.stdout}${accepted.stderr}`);
+        assert.deepEqual(await ranIn(fixture), ['BETA', 'GAMMA']);
+      });
+
+      test('without the confirmation a refused name is still refused: 1, not the 2 of a run not confirmed', async (t) => {
+        const fixture = await createRepo(t, { files: NAMED_FILES });
+
+        const refused = await fixture.run({ names: ['test/other.test.js'] });
+
+        assertRefused(refused, 'test/other.test.js');
+        assert.deepEqual(argsOf(await fixture.orca.calls()), []);
+
+        const unconfirmed = await fixture.run({ names: [BETA_FILE] });
+
+        assert.equal(unconfirmed.code, 2, `${unconfirmed.stdout}${unconfirmed.stderr}`);
+      });
+
+      test('with Orca not ready a refused name is still refused, not skipped', async (t) => {
+        // The refusal comes before the readiness check: a name outside
+        // test/system/ is wrong whatever state Orca is in.
+        const fixture = await createRepo(t, {
+          files: NAMED_FILES,
+          orca: status({ ok: true, result: { runtime: { reachable: false } } }),
+        });
+
+        const refused = await fixture.confirmed({ names: ['test/other.test.js'] });
+
+        assertRefused(refused, 'test/other.test.js');
+        assert.deepEqual(argsOf(await fixture.orca.calls()), []);
+
+        const accepted = await fixture.confirmed({ names: [BETA_FILE] });
+
+        assertSkipped(accepted);
+        assert.deepEqual(argsOf(await fixture.orca.calls()), [['status', '--json']]);
+      });
     });
   });
 });
