@@ -29,7 +29,7 @@
 // attestation, which the kit must not try.
 
 import assert from 'node:assert/strict';
-import { writeFile } from 'node:fs/promises';
+import { chmod, writeFile } from 'node:fs/promises';
 import test from 'node:test';
 import { parse, stringify } from 'yaml';
 
@@ -38,6 +38,7 @@ import {
   bareLaunch,
   bookIn,
   bookOf,
+  botHomeOf,
   CODEX_NETWORK,
   createSandbox,
   fakeProgram,
@@ -47,6 +48,7 @@ import {
   sessionIn,
   sh,
   shellWord,
+  tokenless,
   typedInto,
 } from './helpers/cli.js';
 
@@ -191,7 +193,7 @@ test('#317: the launch line starts with the session\'s mailbox step, each word o
   await obkIn(box, null, ['up', '--bots', bots, '--bot', 'coder']);
 
   assert.deepEqual(
-    typedInto(await tabOf(box, bots, 'bot-father')),
+    typedInto(await tabOf(box, bots, 'bot-father')).map(tokenless),
     [bareLaunch(box, 'claude', 'bot-father', 'daily', { bots })],
     'Bot Father\'s line, brought up by init',
   );
@@ -604,6 +606,157 @@ test('#317: a Codex session whose sandbox switch is off gets no mailbox from ses
   const since = await runCallsSince(box, from);
   assert.deepEqual(since, [], `nor was it asked to, got: ${shown(since)}`);
 });
+
+test('#317 review: when the book cannot be written after Orca made the Run, session mailbox fails, names that Run and the session, and the book names none', async (t) => {
+  // Orca has made the Run and bound it to this tab, and a Run cannot be taken
+  // back, but the book, where the fleet reads the session's address, could not
+  // be written. What is left to do is say which Run that is. The bot's folder
+  // is made read-only while Orca is making the Run, so the write after it fails.
+  const box = await createSandbox(t);
+  const { bots, coder } = await coderWithNoMailbox(box);
+  const home = botHomeOf(bots, 'coder');
+  const before = new Set((await box.orca.runs()).map((run) => run.id));
+  await box.orca.set({
+    runDuring: {
+      command: 'orchestration run-create',
+      on: orcaCallsOf(await box.orca.calls(), 'orchestration run-create').length + 1,
+      argv: ['/bin/chmod', '555', home],
+    },
+  });
+
+  let result;
+  try {
+    result = await obkFrom(box, coder, MAILBOX);
+  } finally {
+    await chmod(home, 0o755);
+  }
+
+  assert.equal((await box.orca.ranDuring()).length, 1, 'the folder was made read-only while the Run was being made');
+  const made = (await box.orca.runs()).filter((run) => !before.has(run.id));
+  assert.equal(made.length, 1, `Orca made the one Run, got: ${JSON.stringify(made)}`);
+  assertFailedPlainly(result, 'coder/daily', made[0].id);
+  assert.match(result.stdout + result.stderr, /EACCES|permission denied/i, 'and gives the error underneath');
+  assert.equal((await sessionIn(bots, 'coder', 'daily')).mailbox, undefined, 'the book names no mailbox');
+});
+
+// ---------------------------------------------------------------------------
+// obk session mailbox anywhere but the tab the book names (review of PR #320)
+// ---------------------------------------------------------------------------
+
+/** Where `session mailbox` for coder/daily can be typed that is not coder's own tab. */
+const ELSEWHERE = [
+  ['Bot Father\'s tab', (box, bots) => tabOf(box, bots, 'bot-father')],
+  ['a tab of the user\'s own', (box) => ownTab(box)],
+  ['a plain shell', async () => null],
+];
+
+for (const [where, placeOf] of ELSEWHERE) {
+  test(`#317 review: session mailbox from ${where}, for a session with no mailbox, makes none and fails, naming the session`, async (t) => {
+    // Only the tab the book names gets the session's mailbox: made from
+    // anywhere else it would be bound to the wrong tab, or to none. The same
+    // command in coder's own tab afterwards shows it was the place that was
+    // refused, not the command.
+    const box = await createSandbox(t);
+    const { bots, coder } = await coderWithNoMailbox(box);
+    const place = await placeOf(box, bots);
+    const runs = (await box.orca.runs()).length;
+    const from = (await box.orca.calls()).length;
+
+    const result = await obkFrom(box, place, MAILBOX);
+
+    assertFailedPlainly(result, 'coder/daily');
+    const since = await runCallsSince(box, from);
+    assert.deepEqual(since, [], `it asks Orca for no Run and binds none, got: ${shown(since)}`);
+    assert.equal((await box.orca.runs()).length, runs, 'no Run is made');
+    assert.equal((await sessionIn(bots, 'coder', 'daily')).mailbox, undefined, 'and the book names none');
+
+    await obkIn(box, coder, MAILBOX);
+    await assertBoundToItsOwnTab(box, bots, 'coder');
+  });
+
+  test(`#317 review: session mailbox from ${where}, for a session with a mailbox, binds nothing and fails, naming the session`, async (t) => {
+    // The session's Run is bound to no tab, so a bind from here would show.
+    const box = await createSandbox(t);
+    const { bots, coder, mailbox } = await coderWithMailbox(box);
+    await setCoordinator(box, mailbox, null);
+    const place = await placeOf(box, bots);
+    const from = (await box.orca.calls()).length;
+
+    const result = await obkFrom(box, place, MAILBOX);
+
+    assertFailedPlainly(result, 'coder/daily');
+    const since = await runCallsSince(box, from);
+    assert.deepEqual(since, [], `it asks Orca for no Run and binds none, got: ${shown(since)}`);
+    assert.equal((await mailboxOf(box, bots, 'coder')).coordinator_handle, null, 'coder\'s mailbox is still bound to nothing');
+    await assertBoundToItsOwnTab(box, bots, 'bot-father');
+
+    await obkIn(box, coder, MAILBOX);
+    await assertBoundToItsOwnTab(box, bots, 'coder');
+  });
+}
+
+/** Run the mailbox step a tab's launch line starts with, the way that tab's shell runs it: as that tab. */
+async function runStepIn(box, terminal) {
+  const text = terminal.typed?.[0]?.text ?? '';
+  const at = text.indexOf('; OBK_TAB_SHELL=');
+  assert.ok(at > 0, `${terminal.title} should have had a launch line with a mailbox step typed into it, got: ${text}`);
+  return sh(text.slice(0, at), { cwd: box.cwd, env: inTab(box, terminal) });
+}
+
+for (const [order, bookFirst] of [['the tab the book names runs its step first', true], ['the other tab runs its step first', false]]) {
+  test(`#317 review: two tabs for one session from two ups at once: only the one the book names gets the mailbox (${order})`, async (t) => {
+    // The review's reproduction. Two runs of `up` at the same moment each open
+    // a tab for coder/daily and type its launch line, and the book ends up
+    // naming one of the two. Each tab's shell runs its step when it gets to it,
+    // in either order. Before, the second step to run bound the Run to its own
+    // tab, so the book could name one tab while the mailbox was bound to the
+    // other. Whatever the order, the mailbox is bound to the tab the book
+    // names, and the other tab makes no Run and binds none.
+    //
+    // The overlap is arranged: the fake runs the second `up` to completion in
+    // the middle of the first one's `terminal create`, with both steps held.
+    const box = await createSandbox(t);
+    const bots = await initIn(box, null);
+    await addBot(box, null, 'coder', 'codex');
+    await box.orca.set({
+      holdSteps: true,
+      runDuring: {
+        command: 'terminal create',
+        on: orcaCallsOf(await box.orca.calls(), 'terminal create').length + 1,
+        argv: ['/bin/sh', '-c', `${shellWord(box.cli)} up --bots ${shellWord(bots)} --bot coder > /dev/null`],
+      },
+    });
+    await obkIn(box, null, ['up', '--bots', 'bots', '--bot', 'coder']);
+    const ran = await box.orca.ranDuring();
+    assert.equal(ran.length, 1, `the second up should have gone through the middle of the first, got: ${JSON.stringify(ran)}`);
+    assert.equal(ran[0].status, 0, `and it should not have failed: ${ran[0].stderr}`);
+    const named = await tabOf(box, bots, 'coder');
+    const others = (await box.orca.terminals())
+      .filter((terminal) => terminal.worktreePath === named.worktreePath && terminal.handle !== named.handle);
+    assert.equal(others.length, 1, `two tabs for coder/daily, one of them the book's, got: ${JSON.stringify(others)}`);
+    const [stray] = others;
+    const runs = (await box.orca.runs()).length;
+
+    const steps = {};
+    for (const terminal of bookFirst ? [named, stray] : [stray, named]) {
+      const from = (await box.orca.calls()).length;
+      steps[terminal.handle] = { ran: await runStepIn(box, terminal), calls: await runCallsSince(box, from) };
+    }
+
+    const lost = steps[stray.handle];
+    assert.notEqual(lost.ran.code, 0, `the step in the tab the book does not name fails, got: ${lost.ran.stdout}${lost.ran.stderr}`);
+    assert.ok(`${lost.ran.stdout}${lost.ran.stderr}`.includes('coder/daily'), `and names the session, got: ${lost.ran.stdout}${lost.ran.stderr}`);
+    assert.deepEqual(lost.calls, [], `and asks Orca for no Run and binds none, got: ${shown(lost.calls)}`);
+    assert.equal(steps[named.handle].ran.code, 0, `the step in the tab the book names works: ${steps[named.handle].ran.stderr}`);
+    await assertBoundToItsOwnTab(box, bots, 'coder');
+    assert.equal((await box.orca.runs()).length, runs + 1, 'one Run, for the one session');
+    assert.deepEqual(
+      (await box.orca.runs()).filter((run) => run.coordinator_handle === stray.handle).map((run) => run.id),
+      [],
+      'and none is bound to the tab the book does not name',
+    );
+  });
+}
 
 // ---------------------------------------------------------------------------
 // obk message check, from the session's own tab and from another

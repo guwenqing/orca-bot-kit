@@ -12,8 +12,9 @@ import { forgetClaimed, forgetSession, readBook, sessionIdsIn, tabIdsIn, updateB
 import { botDir, botNames, displayName, readBot } from './bot.js';
 import { conversationsIn, hasConversation, heldAsUserTurn, transcriptsIn } from './conversations.js';
 import { installHook } from './hooks.js';
-import { addressOf, harnessOf, isShortPrompt, launchCommand, mailboxStep, reachesMail, sessionTrouble, startPrompt, workDirOf } from './launch.js';
+import { addressOf, harnessOf, isAddressOf, isShortPrompt, launchCommand, mailboxStep, reachesMail, sessionTrouble, startPrompt, workDirOf } from './launch.js';
 import { asFolderProject, coordinatorOf, findProject, harnessInTab, makeMailbox, makeProject, openTab, retitleTab, tabs, TERMINAL_ENV, tellWindow, typeIntoTab, useMailbox } from './orca.js';
+import { TAB_ENV } from './record.js';
 import { buildAgents, rulesStamp } from './rules.js';
 import { linkSkills } from './skills.js';
 
@@ -251,7 +252,7 @@ async function bringUpSession(bots, home, live, session, bot, title) {
     // is the session, and a title is only ever set. Nothing is typed into a tab
     // that is already there — the session is in the middle of its work.
     retitleTab(known.handle, tabTitle);
-    return entry({ ...known, title: tabTitle }, { bot: bot.name, name: session.name, created: false });
+    return entry({ ...known, title: tabTitle }, { bot: bot.name, name: session.name, created: false, noMailbox: lacksMailbox(home, session, harness) });
   }
 
   // Everything that can be refused is settled before Orca is asked for
@@ -265,7 +266,7 @@ async function bringUpSession(bots, home, live, session, bot, title) {
   // Asked before the book is held, because it reads a folder of the harness's
   // own files: nothing slow happens under the lock.
   let which = whichConversation(book, home, bot, session, was, harness);
-  const launchOf = (chosen) => launchFor(bots, bot, session, harness, home, workDir, chosen.resume);
+  const launchOf = (chosen) => launchFor(bots, bot, session, harness, home, workDir, chosen.resume, was?.address);
   let launch = launchOf(which);
 
   // A work dir is a plain folder, made for the session before it is told about
@@ -328,7 +329,7 @@ async function bringUpSession(bots, home, live, session, bot, title) {
   // to. Its mailbox comes from the line's own first step, in the tab, and a
   // mailbox Orca will not make there leaves a tab on the books all the same,
   // which the next launch finishes (#317; review of PR #132, finding 3).
-  if (harness === 'claude') await writeAddress(home, bot, session);
+  if (launch.address !== undefined) await writeAddress(home, session, launch.address);
 
   // And then asking whether a TUI came up, rather than assuming one did. The
   // text goes into the tab's own shell, which may have been busy with a
@@ -354,6 +355,9 @@ async function bringUpSession(bots, home, live, session, bot, title) {
     bot: bot.name,
     name: session.name,
     created: true,
+    // Asked once the tab is up: the step at the head of the line has run by
+    // then, and whatever it said is on the tab's screen, not in this report.
+    noMailbox: lacksMailbox(home, session, harness),
     ...tui,
     promptReceived,
     promptFile: launch.promptFile,
@@ -365,13 +369,21 @@ async function bringUpSession(bots, home, live, session, bot, title) {
 
 /**
  * The line that starts this session: resuming `resume`, or, with none, a fresh
- * start carrying its duty. Returns `{ resume, prompt, promptFile, command }`.
+ * start carrying its duty. Returns `{ resume, prompt, promptFile, command, address }`.
  */
-function launchFor(bots, bot, session, harness, home, workDir, resume) {
+function launchFor(bots, bot, session, harness, home, workDir, resume, held) {
   const prompt = resume === undefined ? startPrompt(session, { home, workDir }) : undefined;
   // Anything longer than a line goes to the harness out of a file, rather than
   // through the tab's shell a character at a time.
   const promptFile = prompt === undefined || isShortPrompt(prompt) ? undefined : promptPath(bots, bot.name, session.name);
+  // A new conversation is given a new name. A resume goes on under the one the
+  // kit gave it, and under no `-n` at all when the book `held` none of the
+  // kit's own: a resume keeps whatever name the conversation has, which is
+  // proven, and whether `-n` renames it is not (#286). Such a session is
+  // written to through its mailbox until it next starts fresh.
+  const address = harness !== 'claude' ? undefined
+    : resume === undefined ? addressOf(bot.name, session.name)
+    : isAddressOf(bot.name, session.name, held) ? held : undefined;
   const line = launchCommand(session, {
     harness,
     home,
@@ -379,12 +391,12 @@ function launchFor(bots, bot, session, harness, home, workDir, resume) {
     prompt,
     promptFile,
     resume,
-    address: harness === 'claude' ? addressOf(bot.name, session.name) : undefined,
+    address,
   });
   // The session's mailbox first, from inside its own tab (#317), and the
   // harness whatever became of it.
   const command = reachesMail(session, harness) ? `${mailboxStep(bots, bot.name, session.name)}; ${line}` : line;
-  return { resume, prompt, promptFile, command };
+  return { resume, prompt, promptFile, command, address };
 }
 
 /**
@@ -458,8 +470,7 @@ function lookFor(handle, timeoutMs) {
  * harness: Orca 1.4.210 lets a process in a tab bind a Run to that tab and to
  * no other, so the `obk` that opened the tab cannot (#317, `ownMailbox`).
  */
-async function writeAddress(home, bot, session) {
-  const address = addressOf(bot.name, session.name);
+async function writeAddress(home, session, address) {
   if (readBook(home).sessions[session.name]?.address === address) return;
 
   await updateBook(home, (current) => {
@@ -503,7 +514,16 @@ export async function ownMailbox(bots, botName, sessionName) {
     throw new Error(`session mailbox binds ${who}'s mailbox to the Orca tab it runs in, and this is not one: ${TERMINAL_ENV} is not set. The kit runs it in the session's own tab when it starts the session.`);
   }
 
-  const held = readBook(home).sessions[sessionName]?.mailbox;
+  // Only in the tab the book names for the session. Two runs of `up` at once
+  // can leave a session two tabs, and the book one of them: a mailbox made or
+  // bound in the other would be bound to a tab no message is meant for.
+  const entry = readBook(home).sessions[sessionName] ?? {};
+  const here = process.env[TAB_ENV];
+  if (entry.tab === undefined || entry.tab !== here) {
+    throw new Error(`${who}'s mailbox is given in the tab the book names for it, ${entry.tab ?? 'none yet'}, and this is ${here ?? 'a tab that does not say which it is'}. Nothing was made or bound.`);
+  }
+
+  const held = entry.mailbox;
   if (typeof held === 'string') {
     try {
       useMailbox(held);
@@ -523,20 +543,28 @@ export async function ownMailbox(bots, botName, sessionName) {
   }
 
   let kept;
-  await updateBook(home, (current) => {
-    const entry = { ...current.sessions[sessionName] };
-    // Under the lock, and only if the book still has none: two runs at once
-    // would each have made one, and a session with two mailboxes is a session
-    // half its mail never reaches. The loser's Run is left unused.
-    if (typeof entry.mailbox !== 'string') entry.mailbox = made;
-    kept = entry.mailbox;
-    current.sessions[sessionName] = entry;
-  });
+  try {
+    await updateBook(home, (current) => {
+      const now = { ...current.sessions[sessionName] };
+      // Under the lock, and only if the book still has none: two runs at once
+      // would each have made one, and a session with two mailboxes is a session
+      // half its mail never reaches. The loser's Run is left unused.
+      if (typeof now.mailbox !== 'string') now.mailbox = made;
+      kept = now.mailbox;
+      current.sessions[sessionName] = now;
+    });
+  } catch (error) {
+    throw new Error(`${error.message}\nOrca made the mailbox ${made} for ${who}, bound to this tab, but it could not be written into the book, so it is left unused. The next time the kit starts ${who}, it makes another.`);
+  }
   // One terminal holds one Run, so making the loser took this tab off the one
   // the book kept. It goes back.
   if (kept !== made) useMailbox(kept);
   return { bot: botName, session: sessionName, mailbox: kept, change: kept === made ? 'made' : 'bound' };
 }
+
+/** Whether a session that can have a mailbox has none in its book. */
+const lacksMailbox = (home, session, harness) => reachesMail(session, harness)
+  && typeof readBook(home).sessions[session.name]?.mailbox !== 'string';
 
 /** Where a Run is bound, as a sentence can say it, or the plain truth when Orca will not say. */
 function boundTo(id) {
@@ -614,7 +642,7 @@ const ids = (setup, change) => ({ project: setup.projectId, setup: setup.id, cha
 export const promptPath = (bots, bot, session) =>
   path.join(`${bots}.prompts`, `${encodeURIComponent(bot)}.${encodeURIComponent(session)}.txt`);
 
-function entry(tab, { bot, name, created, running = false, blockedReason, promptReceived, promptFile, resumed, noConversation, unclaimed }) {
+function entry(tab, { bot, name, created, running = false, blockedReason, promptReceived, promptFile, resumed, noConversation, unclaimed, noMailbox = false }) {
   const made = { bot, name, title: tab.title, tabId: tab.tabId, terminal: tab.handle, created, harnessStarted: running };
   // Whether this run picked the session up where it was or started a new one.
   // Only for a tab this run opened: a tab that was already there was left alone.
@@ -624,6 +652,9 @@ function entry(tab, { bot, name, created, running = false, blockedReason, prompt
   // Orca's own words for what is on screen waiting to be answered, when it
   // gave any: the caller acts on it, the kit only passes it on.
   if (blockedReason !== undefined) made.blockedReason = blockedReason;
+  // A session that should have a mailbox and has none: the step in its tab
+  // did not make one, and nothing in this run would (#317).
+  if (noMailbox) made.noMailbox = true;
   // Conversations the harness still has in this bot's folder that no session
   // claims: the caller is told, because the kit will not pick one.
   if (unclaimed !== undefined && unclaimed.length > 0) made.unclaimed = unclaimed;

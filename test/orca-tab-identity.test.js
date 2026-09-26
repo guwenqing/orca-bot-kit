@@ -30,6 +30,7 @@ import {
   skipGit,
   snapshot,
   TAB_TITLES,
+  tokenless,
   typedInto,
 } from './helpers/cli.js';
 
@@ -129,7 +130,7 @@ test('titles that have drifted change nothing, and the session\'s is written bac
   assert.equal(after.inBook[0].tabId, before.daily.tabId, 'it is the same tab, found by its id');
   assert.equal(after.inBook[0].title, TAB_TITLES.daily, 'and its title is written back');
   assert.deepEqual(after.leftovers, [{ ...before.ops, title: 'my own shell' }], 'the renamed tab is left as the user left it');
-  assert.deepEqual(typedInto(after.inBook[0]), [bareLaunch(box, 'claude', 'bot-father', 'daily')], 'a tab that was already live is not typed into again');
+  assert.deepEqual(typedInto(after.inBook[0]).map(tokenless), [bareLaunch(box, 'claude', 'bot-father', 'daily')], 'a tab that was already live is not typed into again');
 });
 
 test('a closed tab is opened again, with a new id, and the live tab is left alone', async (t) => {

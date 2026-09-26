@@ -17,7 +17,7 @@ import { grooming } from './groom.js';
 import { checkHealth, orcaSettingFindings } from './health.js';
 import { initBots } from './init.js';
 import { APPROVALS, HARNESSES, ownCli, shellWord, workDirOf } from './launch.js';
-import { checkMail, lookUp, sendMessage } from './message.js';
+import { checkMail, lookUp, noMailboxYet, sendMessage } from './message.js';
 import { orcaCli, orcaTrouble, RELOAD_LINE } from './orca.js';
 import { pauseSessions, unpauseSessions } from './pause.js';
 import { recordSession, SHELL_ENV, TAB_ENV } from './record.js';
@@ -1196,6 +1196,9 @@ function tabLines({ bots, created, completed, rules, skills, tabs, paused = [], 
   for (const tab of tabs) {
     lines.push(`${tab.created ? 'opened' : 'found '}     ${tab.title}  tab ${tab.tabId}  terminal ${tab.terminal}`);
     lines.push(...harnessLines(tab, bots));
+    if (tab.noMailbox) {
+      lines.push(`             it has no mailbox: ${noMailboxYet({ bots, bot: tab.bot, session: tab.name })}`);
+    }
   }
   for (const one of paused) {
     const what = one.session === undefined ? one.bot : `${one.bot} ${one.session}`;

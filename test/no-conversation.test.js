@@ -34,17 +34,20 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  addressPattern,
   bareLaunch,
   botHomeOf,
   conversationOnRecord,
   createSandbox,
   harnessChain,
+  nameOnLine,
   orcaCallsOf,
   recordSession,
   sessionIn,
   sessionStart,
   shellWord,
   tabsOfBot,
+  tokenless,
   typedInto,
 } from './helpers/cli.js';
 
@@ -101,14 +104,18 @@ function newTabOf(result, name = 'daily') {
   return found[0];
 }
 
-/** What was typed into the tab the book now gives `name`: the one line that started it. */
+/**
+ * What was typed into the tab the book now gives `name`: the one line that
+ * started it, with the token of its Claude address written as `bareLaunch`
+ * writes it (#286).
+ */
 async function lineOf(box, bots, name = 'daily') {
   const entry = await sessionIn(bots, BOT, name);
   const terminal = (await tabsOfBot(box, bots, BOT)).find((one) => one.tabId === entry?.tab);
   assert.ok(terminal, `Orca should have ${name}'s tab ${entry?.tab}`);
   const typed = typedInto(terminal);
   assert.equal(typed.length, 1, `one line per tab the kit opens, got: ${JSON.stringify(typed)}`);
-  return typed[0];
+  return tokenless(typed[0]);
 }
 
 /** The line a session starts fresh on: its settings, then its duty. */
@@ -203,7 +210,17 @@ for (const harness of ['claude', 'codex']) {
     const after = await sessionIn(bots, BOT, 'daily');
     assert.equal(after.tab, newTabOf(result).tabId, 'the book follows the session to its new tab');
     assert.equal(after.mailbox, before.mailbox, 'the mailbox is the session\'s, and stays');
-    assert.equal(after.address, before.address, 'and so is its address');
+    if (harness === 'claude') {
+      // The session starts a fresh conversation, and a fresh conversation gets
+      // an address of its own (#286): the old one may still be answered by
+      // whatever holds it.
+      const typed = typedInto((await tabsOfBot(box, bots, BOT)).find((one) => one.tabId === after.tab))[0];
+      assert.match(String(after.address), addressPattern(BOT, 'daily'), `got: ${JSON.stringify(after)}`);
+      assert.notEqual(after.address, before.address, 'a fresh conversation has a new address');
+      assert.equal(after.address, nameOnLine(typed), 'and the book holds the one its line carried');
+    } else {
+      assert.equal(after.address, before.address, 'and so is its address');
+    }
     assert.notEqual(after.session, conv(1), `the id with nothing behind it is not the session's any more, got: ${JSON.stringify(after)}`);
   });
 }

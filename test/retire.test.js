@@ -39,6 +39,7 @@ import {
   skipGit,
   snapshot,
   tabsOfBot,
+  tokenless,
   typedInto,
 } from './helpers/cli.js';
 import { addSkills, botYamlOf, commonSkill, treeIn } from './helpers/skills.js';
@@ -278,7 +279,7 @@ test('RS7 a session added later under the same name starts a new conversation', 
 
   const daily = await liveTab(box, bots, 'api-bot', 'daily');
   assert.deepEqual(
-    typedInto(daily.terminal),
+    typedInto(daily.terminal).map(tokenless),
     [bareLaunch(box, 'claude', 'api-bot', 'daily')],
     'a fresh start, with no resume of the retired session\'s conversation',
   );

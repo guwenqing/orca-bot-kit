@@ -50,6 +50,7 @@ import {
   sessionIn,
   tabsOfBot,
   TAB_TITLES,
+  tokenless,
   typedInto,
 } from './helpers/cli.js';
 
@@ -295,16 +296,17 @@ for (const name of Object.keys(COMMANDS)) {
     const blocked = await opened(t, name, BLOCKED);
 
     assert.deepEqual(
-      typedInto(blocked.terminal),
+      typedInto(blocked.terminal).map(tokenless),
       COMMANDS[name].typed(blocked.box),
       `${name}: only the launch line goes into a waiting tab`,
     );
-    // Two sandboxes, each with its own `obk` and its own bots folder, so each
-    // line names its own CLI and, in its mailbox step (#317), its own folder:
-    // those two are set aside and the rest has to match exactly.
+    // Two sandboxes, each with its own `obk`, its own bots folder and its own
+    // session name, so each line names its own CLI, token (#286) and, in its
+    // mailbox step (#317), folder: those are set aside and the rest has to
+    // match exactly.
     const sent = (run) => sentInto(run.terminal).map((entry) => ({
       ...entry,
-      text: entry.text.replaceAll(run.box.cli, '<cli>').replaceAll(run.box.path('bots'), '<bots>'),
+      text: tokenless(entry.text).replaceAll(run.box.cli, '<cli>').replaceAll(run.box.path('bots'), '<bots>'),
     }));
     assert.deepEqual(sent(blocked), sent(idle), `${name}: and it goes in exactly as it does into an idle tab`);
   });

@@ -443,11 +443,12 @@ link, not a tab — so everything it finds is yours to decide about.
 
 What it looks for:
 
-- **configuration that will not work**: a `bot.yaml` nothing can read, a session
-  the kit would refuse to start, a bot with no `AGENTS.md`, a block somebody
-  edited by hand, a file bigger than the 32 KiB Codex reads, a `CLAUDE.md` that
-  is not this bot's rules, and a hooks file without the kit's own hook in it,
-  which is how a book goes stale without anything saying so;
+- **configuration that will not work**: a `bot.yaml` nothing can read, a key
+  in it the kit does not know (a typo such as `efort: high`, which nothing
+  reads), a session the kit would refuse to start, a bot with no `AGENTS.md`,
+  a block somebody edited by hand, a file bigger than the 32 KiB Codex reads, a
+  `CLAUDE.md` that is not this bot's rules, and a hooks file without the kit's
+  own hook in it, which is how a book goes stale without anything saying so;
 - **a skill that is not where its list says**: a listed skill missing from one
   of the two harnesses, a skill of your own standing where a listed one would
   go, and a link with nothing at the end of it;
@@ -494,10 +495,16 @@ obk message check --bots /path/to/my-bots --bot api-bot --session daily
 Two roads, and a bot never picks. Claude Code to Claude Code in the same
 approval class (`auto` and `ask` are one class, `dangerously-skip` the other)
 is the harness's own messaging: `message to` answers with the
-session's name — `<bot>.<session>`, which `obk up` puts on its launch line —
-and the sending session writes to that name itself, because no command can send
-that message for it. Everything else goes through Orca's mailbox, which the kit
-does carry.
+session's name, `<bot>.<session>.<token>`, which `obk up` puts on its launch
+line, and the sending session writes to that name itself, because no command
+can send that message for it. The token is new for each new conversation and
+kept when one is resumed, because Claude Code refuses a name that other fleets'
+sessions also answer to. Ask `message to` each time rather than keeping the
+name. Everything else goes through Orca's mailbox, which the kit does carry.
+
+That includes a Claude session still running under a name from before the
+token, `<bot>.<session>`: `message to` answers the mailbox road for it, never
+that name, until the session next starts a new conversation.
 
 A session's mailbox is made the first time the kit starts it, and written in
 the book beside its tab. It is an Orca Run rather than the session's tab,
