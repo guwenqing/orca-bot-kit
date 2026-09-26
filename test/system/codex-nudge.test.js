@@ -102,7 +102,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { mkdtemp, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import test from 'node:test';
+import test from '../helpers/system.js';
 import { setTimeout } from 'node:timers/promises';
 import { parse } from 'yaml';
 
