@@ -85,10 +85,10 @@
 // are read from the transcripts: one JSON object per line, under
 // `~/.claude/projects/<the folder with everything but letters and digits made a
 // dash>/<conversation id>.jsonl`. The conversation is always the one Bot Father's
-// book holds for the session now. How a fired job is written there was seen in
-// this test's first live run (see `firesIn`); how an arriving message is written
-// has not been seen yet. Every wait on either prints the lines it was looking
-// through when it runs out.
+// book holds for the session now. How a fired job and an arriving message are
+// written there was seen in this test's first two live runs (see `firesIn` and
+// `reportsIn`). Every wait on either prints the lines it was looking through
+// when it runs out.
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -521,6 +521,11 @@ function firesIn(lines, marker, since) {
  * anything else goes through the Orca mailbox, and what reaches the conversation
  * is the kit's nudge naming who wrote. In this fleet only the grooming session
  * writes to `daily`; which one it was is checked on what is found.
+ *
+ * Seen live on 2026-09-26 (2.1.283): a `type: "user"` line with string content,
+ * `Another Claude session sent a message:\n<cross-session-message
+ * from="uds:/tmp/cc-socks/<pid>.sock" from-name="<the sender's session name>"
+ * from-mode="prompting">\n…`. So the sender's address is `from-name`.
  */
 function reportsIn(lines, since) {
   return lines.filter((line) => line.type === 'user'
@@ -825,9 +830,11 @@ test('grooming runs on Claude Code\'s own schedule in the grooming session: off 
   const reports = reportsIn(conversationOf(home, 'daily').lines, firedAt);
   assert.equal(reports.length, 1, `the run should send daily one report, and daily's conversation has ${reports.length}:\n${tailOf(reports)}`);
   const address = sessionIn(home, 'grooming').address;
+  // By Claude Code's own messaging the sender's name is `from-name`; `from` is
+  // the socket it wrote from (see `reportsIn`).
   if (textsOf(reports[0]).some((text) => text.includes(CROSS_SESSION))) {
     assert.ok(
-      textsOf(reports[0]).some((text) => text.includes(`from="${address}`)),
+      textsOf(reports[0]).some((text) => text.includes(`from-name="${address}"`)),
       `the message daily got should be from the grooming session's address ${address}:\n${tailOf(reports)}`,
     );
   }
