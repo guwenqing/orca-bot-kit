@@ -136,8 +136,8 @@ review, #88, recorded on 2026-09-23; the owner may overrule.)
   tree was read live. (Proposed in #262 for the first part; not recorded when
   it was decided.)
 - Checked by: `test/session-hooks.test.js`, `test/session-unclaimed.test.js`,
-  `test/session-ownership.test.js`, `test/restored-tab-record.test.js` and
-  `test/hook-links.test.js`.
+  `test/session-ownership.test.js`, `test/restored-tab-record.test.js`,
+  `test/hook-links.test.js` and the system test `test/system/restored-tab.test.js`.
 
 ## History
 

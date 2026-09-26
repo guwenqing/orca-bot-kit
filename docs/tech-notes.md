@@ -318,6 +318,20 @@ Orca stores a resume record per pane key (`sleepingAgentSessionsByPaneKey`) and 
   a tab opened after the update still read 1.4.210. So the version a fact was seen on is the app's
   (the trace above, or `orca --version` once the app has restarted), and for anything about a pane,
   also the daemon's. **verified** (live, with `ps` and Orca's own files)
+- **What the kit does with such a tab, proven live with a stand-in** (#318,
+  `test/system/restored-tab.test.js`, passed on 2026-09-26: Orca app 1.4.212 with the 1.4.210 daemon,
+  Claude Code 2.1.283, Codex 0.156.1). A cold restore can't be staged without restarting the owner's
+  Orca. So the kit's harness is quit, and the same bare resume is typed into the tab's shell. The
+  harness in front then had the tab's `ORCA_TAB_ID` and no `OBK_TAB_SHELL`. `obk health` named each
+  such session, with its restart. A `/clear` (Claude Code) and a `/new` (Codex) there were written to
+  the book, the old id went into history, and the session was told its duty again. A stranger's
+  `claude` in another tab of the same project was not written down. **verified** (live)
+- **Not what the 2026-09-25 restore showed, and not explained:** in that stand-in, the bare `codex
+  resume <id>` of a conversation the kit had started with `--approve-for-me`, and the `/new` after it,
+  recorded `approval_policy on-request` and `sandbox_policy workspace-write`. That is the kit's `auto`,
+  not the user's `never` and `danger-full-access`. Orca's own restore runs the command through its
+  shell wrapper, with its default arguments, which this stand-in did not. **verified** (live, from the
+  rollouts)
 - Not known: whether 1.4.209 restored the same way. No older bundle is on disk.
 
 ### Orca's own agent hooks (verified)
@@ -443,8 +457,10 @@ Proved live on 2026-09-21 (Orca 1.4.205), in throwaway workspaces since removed:
   `sandbox_policy.type: "workspace-write"`. The book holds each one's conversation id. The only code
   that writes that id is the hook's `recordSession`, and it writes only after its `ps -Ao
   pid=,ppid=,comm=` has answered. So the hook's `ps` ran, and the process-tree check works on Codex at
-  the kit's default level. Not seen: a hook fired at a Codex `/new`, which is the same hook in the
-  same process. **verified** (through the kit's own record)
+  the kit's default level. Codex says so itself: its `Hooks need review` screen reads "Hooks can run
+  outside the sandbox after you trust them" (seen 2026-09-26 on 0.156.1 and on 0.157.1). A `/new`
+  goes the same way: in #318's live check (0.156.1), a `/new` in a `workspace-write` session was
+  written to the book. **verified** (through the kit's own record, and on Codex's screen)
 - **Trusting a hooks file does not replay what it missed.** A conversation that was already running when the file was still untrusted is never reported: no SessionStart arrives for it after `t`, and nothing else says the kit missed one. The next conversation reports normally. So "no id recorded" cannot be read as "there was no conversation". **verified** (live, in the PR #88 review)
 - **Codex records no pid anywhere a reader can use.** `~/.codex/thread-writer-locks/<thread>.lock` is an empty lock file; `~/.codex/session_index.jsonl` holds `{ id, thread_name, updated_at }`; a rollout's `session_meta` carries the id, the folder and the time and no pid. So there is no Codex equivalent of Claude Code's live-session registry. **verified** (read on this machine, 0.155.1)
 - **Neither harness links a new conversation to the one the same process had before.** A `/clear` or a `/new` leaves nothing behind saying "this replaced that". With the point above, that means **a conversation that has ended cannot be tied to the session that had it** by anything either harness writes down — which is why the kit never assigns an unrecorded conversation to a session and says what it found instead. **verified** (live, and by reading both harnesses' own files)
