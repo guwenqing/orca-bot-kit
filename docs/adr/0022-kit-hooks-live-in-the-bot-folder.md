@@ -84,6 +84,10 @@ review, #88, recorded on 2026-09-23; the owner may overrule.)
   session's.** Not chosen: a child `codex exec` in the same tab carries the
   same value and took the session over (#88). The kit uses the process tree
   from the tab's shell instead.
+- **`up` adopting a single unclaimed conversation, or refusing to start while
+  there are several.** Tried and dropped in the same review: a fleet that will
+  not come up because the kit is unsure is worse than one that starts fresh
+  and says so (#88).
 - **Only the shell the launch line names.** What slice 04 built. Not enough on
   its own: a tab Orca brought back has no launch line, so its `/clear` went
   unrecorded and its duty was not handed back (#318).
