@@ -20,6 +20,13 @@
 // with no trace of the nudge in it: nothing answered it. Then the test answers
 // its own menu, and cleans up.
 //
+// Two things about today's Orca (1.4.212) shape how the test gets there, both
+// seen live. After Codex's folder trust is answered, Orca goes on naming
+// `agent-trust-workspace` for the tab until something redraws its screen, so
+// the test's own wait goes by the screen and only reports Orca's reason. And
+// while Orca names a reason it refuses any line sent with `--enter`, so the
+// test presses keys instead: the text, then a return on its own.
+//
 // The fake Orca cannot say any of this: whether the kit's look at a real
 // screen sees a real menu, and whether a line it held back really stayed out
 // of the tab.
@@ -216,11 +223,17 @@ function whatIsUp(handle) {
 }
 
 /**
- * Wait until the tab will take a line: a TUI is up, Orca names nothing waiting
- * on it, and its screen shows no question of the harness's own
- * (helpers/screens.js, `waitingOn`). Orca refuses an agent's prompt to a tab
- * waiting on one, and calls some of them idle with no reason (#329), so this
- * waits for the screens to be answered rather than typing through them.
+ * Wait until the tab will take a line: a TUI is up, and its screen shows no
+ * question of the harness's own (helpers/screens.js, `waitingOn`). The screen
+ * decides; what Orca names is only reported when the wait runs out.
+ *
+ * Seen live on Orca 1.4.212 with Codex 0.157.1: once Codex's folder trust was
+ * answered, `tui-idle` went on naming `agent-trust-workspace` through the idle
+ * input line and a finished turn, and let go only when `/new` redrew the
+ * screen. A wait that trusted that reason never passed, with nothing on the
+ * screen but the idle input line. Codex's first-run screens are numbered lists
+ * the screen check sees, Orca's reason or not; one it would not see is for the
+ * person attending this run.
  */
 async function readyForAQuestion(handle, within = READY_MS) {
   await until(
@@ -229,47 +242,81 @@ async function readyForAQuestion(handle, within = READY_MS) {
     async () => {
       const answer = orca(['terminal', 'wait', '--terminal', handle, '--for', 'tui-idle', '--timeout-ms', '5000']);
       if (answer.ok !== true) return undefined;
-      if (answer.result?.wait?.blockedReason !== undefined) return undefined;
       return waitingOn(orca, handle) === undefined ? true : undefined;
     },
     () => `${waitingOn(orca, handle) ?? ''}${whatIsUp(handle)}`,
   );
 }
 
-/** The request id an `agent_prompt_blocked` carries, when that is what came back. */
-function requestIdIn(error) {
-  const found = /"orchestrationRequestId"\s*:\s*"([^"]+)"/.exec(JSON.stringify(error ?? null));
-  return found === null ? undefined : found[1];
-}
+/** How long the tab is given to take a key in before the return that goes after it. */
+const KEY_GAP_MS = 1000;
 
 /**
- * Type one line into the test's own tab, once it is ready, and submit it with
- * `--enter`, the only thing that submits one (session-identity.test.js,
- * `askIn`). A refusal fails with the line, so the person running this can type
- * it in the tab themselves.
+ * Press keys in the test's own tab: `text`, then a return as a send of its own,
+ * neither with `--enter`. Orca's gate refuses a line sent with `--enter` while
+ * it names a reason, stale or not (`agent_prompt_blocked`, seen live), and
+ * lets through one sent without it. On Codex a return inside the text lands in
+ * the draft rather than sending it, so the return goes alone, a moment later.
+ * Seen live on Codex 0.157.1: `/new`, then a return, brought up its menu.
  */
-async function askIn(handle, text) {
-  await readyForAQuestion(handle);
-  const sent = orca(['terminal', 'send', '--terminal', handle, '--text', text, '--enter']);
-  if (sent.ok === true) return;
-  const gated = requestIdIn(sent.error);
-  assert.fail(
-    `orca terminal send --enter failed: ${JSON.stringify(sent.error)}.`
-    + (gated === undefined ? '' : ' Orca gated it as an agent prompt.')
-    + ` Type \`${text}\` into that tab yourself and run the test again.${whatIsUp(handle)}`,
-  );
+async function pressIn(handle, text) {
+  for (const keys of [text, '\r']) {
+    const sent = orca(['terminal', 'send', '--terminal', handle, '--text', keys]);
+    assert.equal(sent.ok, true, `typing ${JSON.stringify(keys)} into ${handle} failed: ${JSON.stringify(sent.error)}.${whatIsUp(handle)}`);
+    await setTimeout(KEY_GAP_MS);
+  }
 }
 
 /**
- * What Codex 0.156.1 asks as soon as `/new` is typed, before the new
- * conversation starts (a screen recording of the tab, quoted in
- * session-identity.test.js):
+ * What Codex asks as soon as `/new` is typed, before the new conversation
+ * starts: seen on a screen recording on 0.156.1 (quoted in
+ * session-identity.test.js), and captured on 0.157.1 with a footer under it
+ * (helpers/screens.js, CODEX_NEW_MENU):
  *
  *       Where should the new conversation run?
  *     › 1. Current checkout  Keep using the current working directory
  *       2. New worktree      Create an isolated managed checkout
+ *       enter select · esc back
  */
 const WHERE_TO_RUN = 'Where should the new conversation run?';
+
+/** How long one `/new` is given to bring its menu up before the test tries again. */
+const MENU_MS = 10000;
+
+/**
+ * Bring up Codex's `/new` menu in the test's own tab, and come back once it is
+ * on the screen.
+ *
+ * Codex refuses `/new` while a turn is running: seen live on 0.157.1, typed
+ * while the start prompt's turn was still going, it answered "'/new' is
+ * disabled while a task is in progress" and cleared its input line. And Orca's
+ * `tui-idle` answered ok all the while, as it can for a busy Codex (tech notes,
+ * section 1), so nothing here can tell that the turn is over before trying. So
+ * it tries: `/new`, then up to MENU_MS to see the menu, and again while it has
+ * not come. It presses nothing while the menu is up, since a return would
+ * answer it, nor while another question of Codex's own is on the screen, which
+ * is for the person attending this run.
+ */
+async function bringUpNewMenu(handle) {
+  await readyForAQuestion(handle);
+  const asking = () => screenOf(handle).includes(WHERE_TO_RUN);
+  let tries = 0;
+  let lastTry = 0;
+  await until(
+    `${handle} to ask where the new conversation should run`,
+    READY_MS,
+    async () => {
+      if (asking()) return true;
+      if (Date.now() < lastTry + MENU_MS || waitingOn(orca, handle) !== undefined) return undefined;
+      await pressIn(handle, '/new');
+      tries += 1;
+      lastTry = Date.now();
+      return undefined;
+    },
+    () => ` \`/new\` was tried ${tries} times. This needs Codex's \`/new\` menu, seen on 0.156.1 and 0.157.1; a Codex`
+      + ` that starts the new conversation without asking cannot run this test.${waitingOn(orca, handle) ?? ''}${whatIsUp(handle)}`,
+  );
+}
 
 /** The Codex bot the test brings up, and the kit's word for a tab showing a harness's own question. */
 const BOT = { name: 'question-codex', display: 'Question Codex' };
@@ -340,13 +387,7 @@ test('a nudge types nothing into a tab whose harness is asking its own question,
 
   // 1. The question, brought up by the test in its own tab, once the tab is
   //    past its first-run screens and its start prompt.
-  await askIn(handle, '/new');
-  await until(
-    `${handle} to ask where the new conversation should run`,
-    READY_MS,
-    async () => (screenOf(handle).includes(WHERE_TO_RUN) ? true : undefined),
-    () => ` This needs Codex's \`/new\` menu, seen on 0.156.1; a Codex that starts the new conversation without asking cannot run this test.${whatIsUp(handle)}`,
-  );
+  await bringUpNewMenu(handle);
 
   // The premise: Orca names no reason for this menu, as it named none for the
   // update offer. With a reason from Orca, the kit's old guard would have held
@@ -375,11 +416,11 @@ test('a nudge types nothing into a tab whose harness is asking its own question,
   assert.ok(screen.includes(WHERE_TO_RUN), `the menu should still be up, nothing having answered it: ${screen.slice(0, 3000)}`);
   assert.ok(!screen.includes(SUBJECT_WORD), `no line of the kit's should be in the tab: ${screen.slice(0, 3000)}`);
 
-  // 4. The test answers its own menu, the way session-identity.test.js does: a
-  //    return inside the payload, no `--enter`, because a menu takes a return as
-  //    the key it waits for. Then it waits for the menu to go.
-  const picked = orca(['terminal', 'send', '--terminal', handle, '--text', '1\r']);
-  assert.equal(picked.ok, true, `answering the menu failed: ${JSON.stringify(picked.error)}.${whatIsUp(handle)}`);
+  // 4. The test answers its own menu with keys, as it brought it up: `1`, then
+  //    a return on its own. Should the `1` already take the choice, the return
+  //    lands in the new conversation's empty input line, which should send
+  //    nothing (not seen live). Then it waits for the menu to go.
+  await pressIn(handle, '1');
   await until(
     `${handle} to start the new conversation`,
     READY_MS,
