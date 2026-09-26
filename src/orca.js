@@ -1,4 +1,4 @@
-// Every call the kit makes to Orca goes through here (ADR 0021). Orca's CLI
+// Every call the kit makes to Orca goes through here (ADR 0023). Orca's CLI
 // changes often, so the kit reads `--json` and never the human text, and keeps
 // the parsing in one place.
 //
@@ -192,7 +192,7 @@ const CLIENT_KILL_MS = 3000;
  * `setup-update` and `setup-delete` do not say so. `project.update` with no
  * changes does, and Orca's CLI does not offer it, so this goes through Orca's
  * own runtime client out of the installed app, run by Orca's binary the way
- * its `bin/orca` runs its CLI (ADR 0021). None of that is Orca's published
+ * its `bin/orca` runs its CLI (ADR 0023). None of that is Orca's published
  * interface, so anything that goes wrong is a quiet false: it never throws and
  * is never tried twice, and the caller prints `RELOAD_LINE` either way.
  */
@@ -262,7 +262,9 @@ export const retitleTab = (handle, title) =>
  * undefined when that cannot be read, with `unreadable` saying why. `answered` (an `ok` from `tui-idle`) and
  * `agent` are Orca's own hints, for a caller that has nothing better.
  * `blockedReason` is Orca saying something on screen wants answering, which is
- * for the caller to deal with, not the kit.
+ * for the caller to deal with, not the kit. `question` is the kit's own look at
+ * the screen, as `questionIn` answers, and `screenUnreadable` says why there
+ * was none.
  */
 export function harnessInTab(handle, timeoutMs) {
   const args = ['terminal', 'wait', '--terminal', handle, '--for', 'tui-idle', '--timeout-ms', String(timeoutMs)];
@@ -281,7 +283,57 @@ export function harnessInTab(handle, timeoutMs) {
     blockedReason: answer.result?.wait?.blockedReason,
     agent,
     ...frontOf(shown?.ptyId),
+    ...screenOf(handle),
   };
+}
+
+/** The kit's word for a tab whose screen shows a question of its harness's own (#329). */
+export const QUESTION_ON_SCREEN = 'question-on-screen';
+
+/**
+ * What the tab `handle` renders: `{ question }`, true when it shows a question
+ * of its harness's own, or `{ screenUnreadable: <why> }`. Orca refusing is an
+ * answer that cannot be read, not an error, and so is anything that is not the
+ * rendered screen: accumulated output comes back in fragments (tech notes,
+ * section 1).
+ */
+function screenOf(handle) {
+  let read;
+  try {
+    read = orca(['terminal', 'read', '--terminal', handle, '--screen']).terminal;
+  } catch (error) {
+    return { screenUnreadable: `Orca would not read its screen: ${error.message}` };
+  }
+  if (read?.source !== 'screen' || !Array.isArray(read.tail)) {
+    return { screenUnreadable: `Orca gave no rendered screen for it (source: ${read?.source ?? 'none'})` };
+  }
+  return { question: questionIn(read.tail) };
+}
+
+/** A row the harness starts with its selection pointer: `›` on Codex, `❯` on Claude Code. */
+const POINTER_ROW = /^ *[›❯]/;
+
+/** That pointer on a numbered choice, and the column its number starts in. */
+const ON_A_CHOICE = /^( *[›❯] +)\d+\. /;
+
+/**
+ * Whether the rows of a rendered screen hold a question of the harness's own.
+ *
+ * Every one seen is a numbered list of choices with the harness's pointer on
+ * one (tech notes, section 1; ADR 0023). The same pointer starts the harness's
+ * input line and its echo of the user's past turns, and the input line is the
+ * lowest of them whenever it is on screen, so only the lowest pointer row is
+ * asked about: a question counts while it stands in the input line's place.
+ * Unnumbered lists do not count. Codex puts a status row right under its input
+ * line, lined up with it, and by its layout that is one.
+ */
+export function questionIn(rows) {
+  const at = rows.findLastIndex((row) => POINTER_ROW.test(row));
+  const pointer = at < 0 ? null : ON_A_CHOICE.exec(rows[at]);
+  if (pointer === null) return false;
+  const column = pointer[1].length;
+  const choice = (row) => typeof row === 'string' && row.slice(0, column).trim() === '' && /^\d+\. /.test(row.slice(column));
+  return choice(rows[at - 1]) || choice(rows[at + 1]);
 }
 
 /**
@@ -323,6 +375,13 @@ export function tabToTypeInto(home, tabId, timeoutMs) {
       : `${seen.command} holds its terminal, and Orca names ${seen.agent ?? 'no agent'} in it`;
     return { unsure: `the kit could not tell whether a harness is running in it (${why}), so nothing was typed` };
   }
+  // Orca's reason does not cover every question: it called Codex's update
+  // offer idle, and a return typed into it took "Update now" (#329). So the
+  // screen is read too, and one that cannot be read is not a reason to type.
+  if (seen.question === true) return { blocked: QUESTION_ON_SCREEN };
+  if (seen.question === undefined) {
+    return { unsure: `the kit could not tell whether a question is waiting on its screen (${seen.screenUnreadable}), so nothing was typed` };
+  }
   return { handle: live.handle, agent: seen.agent };
 }
 
@@ -350,7 +409,7 @@ const psCli = () => process.env.OBK_PS || '/bin/ps';
  * leading the group in front, or `{ unreadable: <why> }`.
  *
  * Orca gives the pane's pid in `diagnostics memory` and nowhere else, and `ps`
- * gives that pid's terminal's foreground process group (ADR 0021).
+ * gives that pid's terminal's foreground process group (ADR 0023).
  * On macOS the pane is `login` with the shell as its child, so the shell is in
  * front when the group is the pane's own or that of a child of a `login` pane.
  * `diagnostics memory` is a diagnostics command and may change, so everything

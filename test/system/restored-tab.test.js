@@ -90,6 +90,7 @@ import { setTimeout } from 'node:timers/promises';
 import { parse } from 'yaml';
 
 import { cliEntry, spellingsOf } from '../helpers/cli.js';
+import { waitingOn } from '../helpers/screens.js';
 
 /**
  * Remove the throwaway bots folder and everything the kit made beside it: the
@@ -304,8 +305,9 @@ function whatIsUp(handle) {
 
 /**
  * Wait until the tab will take a question: a TUI is up and the tab is not
- * waiting on a screen of its own (session-identity.test.js says why idle is not
- * enough).
+ * waiting on a screen of its own, whether Orca names one or only the screen
+ * shows it (session-identity.test.js says why idle is not enough, and #329 why
+ * Orca's reason is not either).
  */
 async function readyForAQuestion(handle, within = READY_MS) {
   await until(
@@ -314,9 +316,10 @@ async function readyForAQuestion(handle, within = READY_MS) {
     async () => {
       const answer = orca(['terminal', 'wait', '--terminal', handle, '--for', 'tui-idle', '--timeout-ms', '5000']);
       if (answer.ok !== true) return undefined;
-      return answer.result?.wait?.blockedReason === undefined ? true : undefined;
+      if (answer.result?.wait?.blockedReason !== undefined) return undefined;
+      return waitingOn(orca, handle) === undefined ? true : undefined;
     },
-    () => whatIsUp(handle),
+    () => `${waitingOn(orca, handle) ?? ''}${whatIsUp(handle)}`,
   );
 }
 

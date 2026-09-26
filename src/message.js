@@ -350,13 +350,15 @@ const stamp = () => new Date().toISOString().replaceAll(':', '-').replace('.', '
  * into one of those is not a message: it is an answer to whatever question is
  * up. That is not a worry, it is a thing that happened — in slice 03 a second
  * line went into a tab on Claude Code's folder-trust list, confirmed its
- * default, `No, exit`, and the harness quit (tech notes, section 1). So where
- * Orca says a tab is blocked, nothing is typed and the mail waits.
+ * default, `No, exit`, and the harness quit (tech notes, section 1). And in
+ * #329 a return took Codex's "Update now". So where Orca says a tab is
+ * blocked, or the kit sees a numbered choice list of the harness's own on its
+ * screen, nothing is typed and the mail waits.
  *
- * Orca's `blockedReason` catches Codex's screens and not Claude Code's, which
- * answer as idle with nothing said, so this narrows the case rather than
- * closing it. What closes it is nobody sending to a session before its first
- * screens are answered, which is the caller's work either way.
+ * That narrows the case rather than closing it: a question drawn any other way,
+ * such as Claude Code's unnumbered trust list, is seen by neither. What closes
+ * it is nobody sending to a session before its first screens are answered,
+ * which is the caller's work either way.
  */
 function nudge(to, from, subject) {
   if (to.tab === undefined) return { nudged: false };

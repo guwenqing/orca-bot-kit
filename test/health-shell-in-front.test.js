@@ -3,7 +3,7 @@
 //
 // A tab stays open after its harness quits or crashes, and then the tab's shell
 // is in front. Since #271 health reads each live tab's front the way the kit
-// does before it types into one (ADR 0021): Orca's pane pid, then `ps`. With
+// does before it types into one (ADR 0023): Orca's pane pid, then `ps`. With
 // the shell in front the session gets no `sessions` entry and no settings or
 // rules finding (S8 in test/session-settings.test.js), and until #300 nothing
 // else either: the user is not told the session is down. `obk up` finds the

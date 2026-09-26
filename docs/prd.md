@@ -87,7 +87,7 @@ Each line is a check a developer can run. Issues turn these into acceptance test
 
 ### 6.2 Host
 
-- Orca. A bot is an Orca project; a session is a tab. Naming, ordering, phone and remote access are Orca's. [decided] → ADR 0021
+- Orca. A bot is an Orca project; a session is a tab. Naming, ordering, phone and remote access are Orca's. [decided] → ADR 0023
 - A bot's Orca project is a folder workspace; many tabs share it. Proven live: a git-kind registration of a folder inside the bots repo gets no worktree and cannot host tabs. So a bot's project shows no git status in Orca. [decided by the coordinator on evidence]
 - Everything is in the book except one special tab. A session's Orca tab id and the bot's Orca project id live in the book with the session. The only exception is Bot Father's ops tab for whole-fleet maintenance. The kit does not track it at all: no id, no title matching, no session id, no history, not seen by grooming. The kit only makes sure it exists: if Bot Father's Orca project has no tab besides the ones in the book, `obk up` creates one (and sets its title). Nothing more. [decided]
 - The kit always tries to set a tab's title to the name in the book, and never reads or relies on what a tab is currently called; the tab id is the key. [decided] (Observed: titles can change even with Orca's dynamic title option off, because the program in the tab writes its own title.)

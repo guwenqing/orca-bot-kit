@@ -141,6 +141,42 @@ project → repo (`kind: "git" | "folder"`) → worktree (id = `<repoId>::<absPa
   used to say that a `timeout` meant "no TUI". That was wrong, and it is how a busy session was told
   it was not up (#232). The kit asks the process table instead (the entry on the foreground process
   group, below). **verified** (live, 2026-09-24, Orca 1.4.209, both harnesses)
+  **What `blockedReason` rests on, and what it misses (#329).** Read in the Orca 1.4.212 bundle on
+  2026-09-26: the reason comes from one text match on the tab's output, lowercased, over its last 12
+  non-blank lines, the lowest match winning, and dropped when the agent's own start screen shows below
+  it. The reasons and their words: `agent-update-prompt` (`update available`, then `press enter to
+  continue`), `agent-cwd-prompt` (`choose working directory to`, then the same),
+  `codex-model-migration-prompt` (`codex just got an upgrade`, then the same),
+  `agent-hooks-review-prompt` (`hooks need review`, then `press enter to confirm`),
+  `agent-trust-workspace` (`do you trust`, `trust this` or `trusted workspace`, then workspace, folder,
+  directory or repo), `agent-interactive-prompt` and `agent-approval-prompt`. No pattern covers Claude
+  Code's menus; Orca sees those only through the harness's hooks. **verified** (read in the bundle)
+  Measured against it live on 2026-09-26 (Orca 1.4.212, Codex 0.157.1, Claude Code 2.1.283):
+  - Codex 0.156.1's update offer ended "enter continue · esc skip", matched nothing, and a system
+    test's line typed with a return took `1. Update now` (#329).
+  - Codex's hooks review now ends "enter confirm · esc skip", and its `/new` menu "enter select · esc
+    back". Both answered `satisfied:true` with no reason.
+  - Codex's trust screen answered `agent-trust-workspace`, and **went on answering it once it had
+    been answered**: on the idle input line, and after a finished turn, until `/new` redrew the screen.
+    While it did, Orca's gate refused a line sent with `--enter` (below).
+  - Claude Code's trust list answered `timeout` with no reason, and `terminal show` named no agent in
+    the tab for minutes, until its selection was moved; then it answered `agent-trust-workspace`.
+  **verified** (live)
+  **What a harness's own question looks like on screen.** `terminal read --screen --json` answers
+  `{ terminal: { handle, status, tail: [rows], …, source } }`: one string per rendered row, and
+  `source: "screen"`. An orphaned Codex tab's screen came back that way too. Every question of the
+  harnesses' own seen here is a list of choices, one per row, with the harness's pointer at the start
+  of one: `›` on Codex, `❯` on Claude Code. All of Codex's are numbered (trust
+  `› 1. Trust and continue` / `2. Quit`, the hooks review, `/new`, the update offer), and so are Claude
+  Code's but its trust list, which on 2.1.283 is ` ❯ No, exit` / `   Yes, I trust this folder` /
+  ` Enter to confirm · Esc to cancel`. The same pointer starts each harness's input line and its echo
+  of the user's past turns. Claude Code's idle input line is `❯` alone, or with placeholder text,
+  between two rules of `─`. Codex 0.157.1's is `› Ask Codex to do anything`, with a status row right
+  under it and lined up with it (`  GPT-6-Luna medium · <path>`), and a wrapped draft or echo goes on
+  in rows lined up the same way. So the kit takes the lowest pointer row on the screen, which is the
+  input line whenever that is up, and counts a question only when that row is a numbered choice with
+  another numbered choice lined up beside it (ADR 0023). Claude Code's trust list does not count; what
+  keeps the nudge out of it is Orca naming no agent in that tab. **verified** (live, 2026-09-26)
   **A handle just listed can be refused as `terminal_handle_stale`, for a moment.** Seen five times
   between 2026-09-24 20:30Z and 2026-09-25 06:40Z (Orca 1.4.209), every time `obk message send`'s
   `terminal wait --for tui-idle` on a Codex review tab (four on `kit-dev/reviewer`, one on
@@ -192,7 +228,7 @@ project → repo (`kind: "git" | "folder"`) → worktree (id = `<repoId>::<absPa
   `satisfied:true` for 20 s. So the kit takes a harness to be in a tab when the foreground is not its
   shell (a busy one included), and the mail nudge types only when the process in front is the one
   Orca names. When the pid or the group cannot be read it says it cannot tell and
-  types nothing (ADR 0021). `diagnostics memory` is a diagnostics command and may change.
+  types nothing (ADR 0023). `diagnostics memory` is a diagnostics command and may change.
   **verified** (live, 2026-09-24, Orca 1.4.209, macOS 26.6.2, Claude Code 2.1.281, Codex 0.156.1, #232)
 - **A harness Orca resumed by itself sits where the kit's own does, and carries none of the kit's
   variables.** Read with `ps` on 2026-09-25, after that morning's machine restart and Orca's cold
@@ -213,10 +249,19 @@ project → repo (`kind: "git" | "folder"`) → worktree (id = `<repoId>::<absPa
   variable, so a reader should look for one whole word it knows. That answers the reading half of
   #261's open question on macOS. #318 uses the marker only to report in `obk health` which sessions
   the kit's launch line did not start, never to decide what is typed into a tab. Whether the mail
-  nudge may rest on it is still #261's to settle, and ADR 0021 still lists it as open. **verified** (live)
+  nudge may rest on it is still #261's to settle, and ADR 0023 still lists it as open. **verified** (live)
 - `orca terminal send [--terminal <h>] [--text <t>] [--enter] [--interrupt] [--wait-submit <s>] [--retry-request <id>]` — `accepted:true` means input accepted, not that the agent read it; never resend on silence; use `--retry-request` for an idempotent retry.
   **A carriage return or a line feed inside `--text` does not submit early.** Sent with `--enter` into a running agent, a line with `\r` or `\n` in the middle arrives as **one** message with a line break where the character was, and is answered once: Claude Code's transcript shows one user turn holding both lines, and Codex's screen shows one prompt of two lines and one answer. So the mail nudge, which carries the sender's subject as typed, cannot be split into two prompts by a subject that has one in it. **verified** (live, 2026-09-23, Orca 1.4.207, Claude Code 2.1.280 with `--model haiku`, Codex 0.155.1; #176)
   **While Codex sits on its own update offer, Orca refuses a line with `--enter` as `agent_prompt_blocked`.** Seen three times in a row on 2026-09-23 (Codex 0.155.1 offering 0.156.0); answered `2` (Skip), the next line went through. **verified** (live)
+  Not every time: the gate rests on the same text match as `blockedReason` (above; read in the
+  1.4.212 bundle). On Codex 0.156.1's offer, whose footer matched nothing, a system test's line sent
+  with `--enter` went through, and its return took `1. Update now` (#329). And on a Codex tab whose
+  trust screen had been answered, the stale `agent-trust-workspace` refused every line sent with
+  `--enter` (2026-09-26); the gated runs below may have been that, which was not checked. In the
+  bundle, a re-issue with `--retry-request` runs the gate again rather than getting past it, and a
+  send without `--enter` passes no gate. On Codex 0.157.1, text sent that way with a return inside it
+  landed in the input line as a draft and was not submitted. **verified** (live, except what is said
+  to be read in the bundle)
   **A line into a tab with an agent in it can be gated, and the recovery can be refused too.** Seen live on 2026-09-21, in system test runs:
   `ok:false`, `error.code: "agent_prompt_blocked"`, with `error.data.orchestrationRequestId` and the message
   "Re-issue the exact command with `--retry-request <id> --wait-submit <seconds>`; do not retry it without

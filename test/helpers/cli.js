@@ -1122,6 +1122,8 @@ export const ALLOWED_ORCA_COMMANDS = [
   'terminal rename',
   'terminal wait',
   'terminal send',
+  // Read-only: what a tab shows, so nothing typed answers a harness's own question (#329).
+  'terminal read',
   // Read-only: each pane's pid, the one place Orca gives it (#232).
   'diagnostics memory',
   'orchestration run-create',

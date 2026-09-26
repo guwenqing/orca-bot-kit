@@ -103,6 +103,7 @@ import { setTimeout } from 'node:timers/promises';
 import { parse } from 'yaml';
 
 import { addressPattern, cliEntry } from '../helpers/cli.js';
+import { waitingOn } from '../helpers/screens.js';
 
 /**
  * Remove the throwaway bots folder and everything the kit made beside it.
@@ -269,9 +270,12 @@ const showsUp = (handle, word, within = ANSWER_MS) => until(
 );
 
 /**
- * Wait until a tab can be written to at all: a TUI is up, and Orca reports
- * nothing of its own waiting to be answered on it. Nothing is typed here; this
- * only waits.
+ * Wait until a tab can be written to at all: a TUI is up, Orca reports nothing
+ * waiting to be answered on it, and its screen shows no question of the
+ * harness's own. Orca called Codex's update offer idle with no reason, and a
+ * return typed into it updated the machine (#329), so the screen is read as
+ * well (helpers/screens.js, `waitingOn`). Nothing is typed here; this only
+ * waits.
  *
  * A bot whose part is to write to another has to wait for that one, and brought
  * up is not the same as ready. Seen live: the Claude bot sent the moment its own
@@ -288,9 +292,10 @@ async function readyForMail(handle, within = READY_MS) {
     async () => {
       const answer = orca(['terminal', 'wait', '--terminal', handle, '--for', 'tui-idle', '--timeout-ms', '5000']);
       if (answer.ok !== true) return undefined;
-      return answer.result?.wait?.blockedReason === undefined ? true : undefined;
+      if (answer.result?.wait?.blockedReason !== undefined) return undefined;
+      return waitingOn(orca, handle) === undefined ? true : undefined;
     },
-    () => whatIsUp(handle),
+    () => `${waitingOn(orca, handle) ?? ''}${whatIsUp(handle)}`,
   );
 }
 

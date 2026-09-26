@@ -76,6 +76,26 @@
 //               left out, what the kit's launch line gave it; 'orca' for a
 //               harness Orca resumed by itself (helpers/fake-ps.js lists the
 //               rest). Orca never reports that either.
+//   screen      the rows `terminal read --screen` renders for every tab that has
+//               no `screen` of its own: one string per row, as Orca 1.4.212
+//               answered (captured live, #329; the captures in
+//               helpers/screens.js end at their last drawn row). Left out, the
+//               harness's idle screen as captured, with no question on it:
+//               Codex's for a tab a Codex launch line was typed into, Claude
+//               Code's for any other (helpers/screens.js, CODEX_IDLE and
+//               CLAUDE_IDLE). So a test that says nothing about screens means
+//               what it meant before. One terminal can carry a `screen` of its
+//               own, for that tab alone. Orca shows it only through `terminal
+//               read`, never in `list` or `show`.
+//   screenSource  the `source` `terminal read --screen` answers with: `screen`,
+//               the default, for the rendered screen, or `screen-unavailable`,
+//               Orca's word when a screen was asked for and none could be
+//               rendered, when `tail` holds accumulated output instead (here the
+//               same rows, so a kit that ignored `source` would believe them).
+//               A read without `--screen` answers `stream`, for accumulated
+//               output. Those three words are Orca's help text; only `screen`
+//               was seen live. One terminal can carry a `screenSource` of its
+//               own, as with `screen`.
 //   agentIdentity  what `terminal show` and `terminal list` give as every
 //               tab's `agentIdentity`, when the key is there (null included).
 //               Left out, a tab carries its own: null when it is made, and the
@@ -246,6 +266,7 @@ import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs
 import path from 'node:path';
 
 import { foregroundOf, launchedIn, panePid } from './fake-ps.js';
+import { CLAUDE_IDLE, CODEX_IDLE } from './screens.js';
 
 const dir = process.env.OBK_FAKE_ORCA_DIR;
 if (dir === undefined) {
@@ -495,9 +516,10 @@ if (command === 'project setup-delete') {
 /**
  * What Orca reports about a tab. What was typed into it is ours, and stays
  * ours, and so are the notices Orca wrote into it, how many more listings a
- * closed tab still shows up in, and who a test put in front of it.
+ * closed tab still shows up in, who a test put in front of it, and the screen
+ * a test gave it, which only `terminal read` shows.
  */
-const asReported = ({ typed: _typed, notices: _notices, closingFor: _closingFor, foreground: _foreground, ...rest }) => (rest.orphaned === true
+const asReported = ({ typed: _typed, notices: _notices, closingFor: _closingFor, foreground: _foreground, screen: _screen, screenSource: _screenSource, ...rest }) => (rest.orphaned === true
   ? { ...rest, ...identity(), tabId: `pty:${rest.ptyId}`, leafId: `pty:${rest.ptyId}`, orphaned: true }
   : { ...rest, ...identity(), orphaned: false });
 
@@ -626,8 +648,35 @@ if (command === 'terminal close') {
 if (command === 'terminal show') {
   const terminal = (state.terminals ?? []).find((entry) => entry.handle === flag('--terminal'));
   if (!terminal) fail('terminal_not_found', `no terminal with handle ${flag('--terminal')}`);
-  const { typed: _typed, notices: _notices, closingFor: _closingFor, foreground: _foreground, ...rest } = terminal;
+  const { typed: _typed, notices: _notices, closingFor: _closingFor, foreground: _foreground, screen: _screen, screenSource: _screenSource, ...rest } = terminal;
   ok({ terminal: { ...rest, ...identity(), orphaned: terminal.orphaned === true } });
+}
+
+// What a tab shows. The answer is the one Orca 1.4.212 gave live, key for key
+// (#329): the rendered rows in `tail` and where they came from in `source`.
+// Its cursors here count rows. Orca's do not (15 rows came back with
+// `nextCursor` 19, 10 with 2), what they count was not measured, and nothing
+// the kit does reads them.
+if (command === 'terminal read') {
+  const terminal = (state.terminals ?? []).find((entry) => entry.handle === flag('--terminal'));
+  if (!terminal) fail('terminal_not_found', `no terminal with handle ${flag('--terminal')}`);
+
+  const tail = terminal.screen ?? state.screen ?? (launchedIn(terminal) === 'codex' ? CODEX_IDLE : CLAUDE_IDLE);
+  const source = args.includes('--screen') ? (terminal.screenSource ?? state.screenSource ?? 'screen') : 'stream';
+  ok({
+    terminal: {
+      handle: terminal.handle,
+      status: 'running',
+      tail,
+      truncated: false,
+      limited: false,
+      oldestCursor: '0',
+      nextCursor: String(tail.length),
+      latestCursor: String(tail.length),
+      returnedLineCount: tail.length,
+      source,
+    },
+  });
 }
 
 if (command === 'terminal rename') {

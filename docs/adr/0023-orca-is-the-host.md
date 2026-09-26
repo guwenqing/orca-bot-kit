@@ -1,9 +1,9 @@
-# ADR 0021: Orca is the host
+# ADR 0023: Orca is the host
 
-Date: 2026-09-24.
-Status: superseded by [ADR 0023](0023-orca-is-the-host.md).
-Decided by: the owner, in his design session of 2026-09-19, and on 2026-09-20 for the plain folder; the architect, for #232 and PR #260, for the sentences marked so; the owner on 2026-09-24 for calling Orca's runtime through Orca's own client (#224), with the architect deciding how the user is told, for the sentences marked so. The owner may overrule the architect's sentences. Consulted: the coordinator, who researched Orca. A sentence marked (proposed) is not decided yet.
-Supersedes: [ADR 0011](0011-orca-is-the-host.md).
+Date: 2026-09-26.
+Status: accepted.
+Decided by: the owner, in his design session of 2026-09-19, and on 2026-09-20 for the plain folder; the architect, for #232 and PR #260, for the sentences marked so; the owner on 2026-09-24 for calling Orca's runtime through Orca's own client (#224), with the architect deciding how the user is told, for the sentences marked so; the architect, for #329, for the kit's own reading of a tab's screen before it types into it, for the sentences marked so. The owner may overrule the architect's sentences. Consulted: the coordinator, who researched Orca. A sentence marked (proposed) is not decided yet.
+Supersedes: [ADR 0021](0021-orca-is-the-host.md).
 
 ## Context
 
@@ -39,6 +39,28 @@ Codex 0.156.1, macOS 26.6.2, measured 2026-09-24, #232):
 
 The kit runs only on the machine Orca runs on (PRD 5's "No cloud execution",
 itself still marked proposed), so reading the local process table is enough.
+
+Orca's word on whether something on a tab's screen wants answering does not
+cover every question a harness asks (#329). Read in the Orca 1.4.212 bundle on
+2026-09-26: the `blockedReason` of `terminal wait --for tui-idle`, and the gate
+that refuses a line sent with `--enter` as `agent_prompt_blocked`, both come
+from one text match on the last 12 non-blank lines of the tab's output, and
+from the harnesses' hooks. The match knows Codex's update offer only by the
+footer "press enter to continue". Codex 0.156.1 drew "enter continue · esc
+skip" instead, and nothing matched. There is no pattern for Claude Code's
+numbered menus at all. Seen on 2026-09-26: a system test's first line, typed
+with Enter into a Codex tab that was showing the offer, took its default,
+`1. Update now`, and Codex updated itself on the owner's machine (#329). Every
+question of the harnesses' own seen here is drawn the same way: a list of
+choices, one per row, with the selection pointer at the start of one, `›` on
+Codex and `❯` on Claude Code. All of Codex's are numbered, and so are Claude
+Code's but one: its folder-trust list (2.1.283). Both harnesses also start
+their input line, and their echo of the user's past turns, with the same
+pointer. Codex 0.157.1 puts a status row right under its input line, lined up
+with it, and a wrapped draft looks the same; by layout alone, neither can be
+told from an unnumbered list. On a fresh Claude Code tab sitting on its trust
+list, Orca named no agent for minutes, and `tui-idle` timed out. `terminal
+read --screen` gives the rendered screen, row by row.
 
 Orca's window reads its projects again only when its runtime sends the
 `repos:changed` event, and nothing polls (read in the Orca 1.4.209 bundle,
@@ -76,6 +98,18 @@ to be answered. A program Orca names no agent for, or one under another name,
 is "cannot tell", as is a pid or group that cannot be read; then the kit says
 it cannot tell, and it types nothing. (The architect, #232 and PR #260; the
 owner may overrule.)
+
+Before the kit types a line into a tab with a harness running in it, it also
+reads the tab's rendered screen with `terminal read --screen`. When the
+lowest row there that starts with the harness's pointer is on a numbered
+choice, with another numbered choice lined up beside it, the kit types nothing
+and says the tab is waiting on a question. The lowest such row is the
+input line whenever that is on screen, so the conversation above it never
+counts. That holds for any question a harness draws that way, whatever it
+asks: the kit keeps no list of screens. A screen that cannot be read, or that
+Orca gives as anything but the rendered screen, is "cannot tell", and nothing
+is typed. `up` and `restart` report the same question on a tab they have just
+started. (The architect, #329; the owner may overrule.)
 
 Where Orca's CLI has no call for what the kit needs, the kit calls Orca's
 runtime through Orca's own client, loaded from the installed app and run by
@@ -119,6 +153,23 @@ overrule.)
   and the nudge would have gone into `less` (PR #260 review).
 - **A program with no identity counts as not up.** Not chosen: it is as often
   a harness seconds into its launch, so it is "cannot tell" (PR #260 review).
+- **Orca's `blockedReason` alone to tell whether a question is up**, as
+  before #329. Not enough: its text match missed Codex 0.156.1's update offer,
+  and it has nothing for Claude Code's menus (#329).
+- **A list of the known screens, each by its own text**, the way Orca does it.
+  Not chosen: a list that grows with every screen a harness adds is what
+  [ADR 0016](0016-no-kit-owned-expert-systems.md) rules out, and Orca's own list
+  fell behind one Codex release (#329).
+- **Any choice list, numbered or not**, to take in Claude Code's trust list
+  too. Not chosen: Codex's idle input line has a status row lined up under it,
+  which reads as the same shape, so every idle Codex tab would count as asking
+  something. That trust list gets no nudge anyway while Orca names no agent in
+  its tab (#329).
+- **Orca's hook state, from `terminal show`'s `agentWait` or `worktree ps`.**
+  Not enough on its own: nothing in it covers the update offer, which Codex
+  shows before its session has started (#329).
+- **Waiting for Orca to match the new footer.** Outside the repo, and the next
+  change to a footer would open the same gap (#329).
 - **A marker in the launch shell's environment, read with `ps -E`.** Open, not
   yet proven (#261). Until then a harness run through a wrapper such as `node`
   is "cannot tell".
@@ -161,16 +212,29 @@ overrule.)
   to 3 seconds longer when the client hangs.
 - Bad: until the owner has seen the window re-read, every run that changes a
   project prints the reload line, even when the call worked.
+- Good: the nudge and `/reload-skills` hold back on every numbered menu either
+  harness draws, the update offer included, whether Orca names it or not.
+- Bad: one more Orca call before every line typed. A tab whose screen Orca
+  cannot render gets no nudge, and its mail waits in the mailbox until it is
+  checked. A numbered list the user typed, sitting at the bottom of the screen
+  under the harness's pointer, is taken for a question, and the nudge waits.
+- Bad: a harness that draws a question another way, or changes its pointer, is
+  not caught by the kit's reading; only Orca's own answer is left for it.
+  Claude Code's unnumbered trust list is one such screen today: what keeps the
+  nudge out of it is Orca naming no agent in that tab, seen live and not
+  promised by Orca.
 - Revisit if: Orca offers a supported way to tell whether a harness is running
   in a tab, or the kit has to run where Orca does not; or Orca's
   `setup-update` and `setup-delete` send the event themselves, or its CLI
-  offers a call that does. Confidence: high for Orca as the host; the
-  process-group reading was right in every run measured; low for the window
-  call until the window has been seen to re-read. (Proposed in #262; not
-  recorded when it was decided.)
+  offers a call that does; or a harness draws its questions another way.
+  Confidence: high for Orca as the host; the process-group reading was right
+  in every run measured; low for the window call until the window has been
+  seen to re-read. (Proposed in #262; not recorded when it was decided.)
 - Checked by: `test/harness-in-tab.test.js` for the reading of a tab,
+  `test/question-on-screen.test.js` for the reading of its screen,
   `test/orca-window.test.js` for the window call and its fallbacks, and the
-  system tests, which drive the real Orca.
+  system tests, which drive the real Orca, `test/system/harness-question.test.js`
+  among them.
 
 ## History
 
@@ -193,7 +257,10 @@ overrule.)
   stated the #232 rule as it was merged, dropped the proposed mark from the
   plain folder, replaced the scheduling consequence with what holds, and
   replaced ADR 0001 (#262).
-- 2026-09-24, this record: the kit calls Orca's runtime through Orca's own
-  client where the CLI has no call, today to make the window read its projects
-  again, and prints a reload line after any change to a project (#224). It
-  replaces ADR 0011.
+- 2026-09-24, [ADR 0021](0021-orca-is-the-host.md): the kit calls Orca's
+  runtime through Orca's own client where the CLI has no call, today to make
+  the window read its projects again, and prints a reload line after any
+  change to a project (#224). It replaced ADR 0011.
+- 2026-09-26, this record: before it types into a tab, the kit also reads the
+  tab's rendered screen, and types nothing while a harness's own choice list is
+  up (#329). The marker question (#261) stays open. It replaces ADR 0021.
