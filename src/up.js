@@ -528,9 +528,12 @@ export async function ownMailbox(bots, botName, sessionName) {
     try {
       useMailbox(held, undefined, STEP_WAIT);
     } catch (error) {
-      // Orca that did not answer one call is not asked a second.
-      const where = error.code === TIMED_OUT ? 'whatever it was bound to before' : boundTo(held);
-      throw new Error(`${error.message}\n${who}'s mailbox ${held} is unchanged: it is still bound to ${where}.`);
+      // An Orca that did not answer may still have done it, and is not asked
+      // a second time.
+      if (error.code === TIMED_OUT) {
+        throw new Error(`${error.message}\n${who}'s mailbox ${held} may now be bound to this tab, or may still be bound where it was: Orca did not say which.`);
+      }
+      throw new Error(`${error.message}\n${who}'s mailbox ${held} is unchanged: it is still bound to ${boundTo(held)}.`);
     }
     return { bot: botName, session: sessionName, mailbox: held, change: 'bound' };
   }
@@ -571,7 +574,7 @@ export async function ownMailbox(bots, botName, sessionName) {
     throw new Error(`${error.message}\nOrca made the mailbox ${made} for ${who}, bound to this tab, but it could not be written into the book, so it is left unused. The next time the kit starts ${who}, it makes another.`);
   }
   if (movedTo !== undefined) {
-    throw new Error(`the book now names another tab for ${who}, ${movedTo}, so the mailbox ${made} made in this tab is left unused. Nothing was written down or bound.`);
+    throw new Error(`the book now names another tab for ${who}, ${movedTo}, so the mailbox ${made} made in this tab is left unused. It is bound to this tab, and nothing was written into the book: ${who}'s mailbox there is left where it is.`);
   }
   // One terminal holds one Run, so making the loser took this tab off the one
   // the book kept. It goes back.

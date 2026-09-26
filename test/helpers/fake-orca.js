@@ -125,11 +125,15 @@
 //               from the fake's world once the count runs out. It goes on
 //               answering `rename`, `wait` and `send` while it lags, because to
 //               anything that found it in a listing it is a tab like any other.
-//   hang        { command, ms } — that command is answered as it would have
-//               been, `ms` later (a minute if left out): an Orca that is slow
-//               to answer, or has stopped answering. What cuts it short is a
-//               limit of the caller's own; `session mailbox` gives each Orca
-//               call twenty seconds (#317).
+//   hang        { command, ms, applied } — that command is answered as it would
+//               have been, `ms` later (a minute if left out): an Orca that is
+//               slow to answer, or has stopped answering. What cuts it short
+//               is a limit of the caller's own; `session mailbox` gives each
+//               Orca call twenty seconds (#317). With `applied: true` the
+//               command takes effect at once, in the world the fake keeps,
+//               and only its answer is held back: an Orca that did what it was
+//               asked and then went quiet, so a caller that gave up cannot
+//               know whether it happened.
 //   crash       { command, exitCode, stdout, stderr } — no JSON, a bad exit code
 //   garbage     { command, text } — output that is not JSON at all
 //   runs        [{ id, objective, coordinator_handle, consumer_generation,
@@ -277,6 +281,8 @@ function write(answer) {
 }
 
 function ok(result) {
+  // Whatever the command did is saved by now; only the answer is held back.
+  if (aimedHere(state.hang) && state.hang.applied === true) hangFor(state.hang.ms);
   write({ id: `fake-${answered + 1}`, ok: true, result, _meta: { durationMs: 1 } });
   process.exit(0);
 }
@@ -305,10 +311,13 @@ if (aimedHere(state.garbage)) {
   process.exit(0);
 }
 
+/** Wait out a `hang`, as a process does that nothing wakes. */
+const hangFor = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms ?? 60_000);
+
 // An Orca slow to answer: the call waits, then goes on as it would have, on
-// whatever the world holds by then.
-if (aimedHere(state.hang)) {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, state.hang.ms ?? 60_000);
+// whatever the world holds by then. One that applies first waits in `ok`.
+if (aimedHere(state.hang) && state.hang.applied !== true) {
+  hangFor(state.hang.ms);
   state = JSON.parse(readFileSync(stateFile, 'utf8'));
 }
 

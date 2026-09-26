@@ -291,6 +291,29 @@ test('the fake can be slow to answer one command, and then answers it as it woul
   assert.equal(slow.result.runtime.reachable, true);
 });
 
+test('the fake can do what a command asks and then hold its answer back', async (t) => {
+  // The case a caller that gives up on Orca cannot see into: the Run is made,
+  // and nobody is told so.
+  const box = await createSandbox(t);
+  await twoTabs(box);
+  await box.orca.set({ hang: { command: 'orchestration run-create', ms: 10_000, applied: true } });
+
+  const cut = spawnSync(box.orca.cli, ['orchestration', 'run-create', '--objective', 'quiet', '--json'], {
+    cwd: box.cwd,
+    env: { ...box.env, ORCA_TERMINAL_HANDLE: 'term_a' },
+    encoding: 'utf8',
+    timeout: 1000,
+  });
+
+  assert.equal(cut.error?.code, 'ETIMEDOUT', 'the caller gave up waiting');
+  assert.equal(cut.stdout, '', 'with no answer');
+  assert.deepEqual(
+    (await box.orca.runs()).map((run) => [run.objective, run.coordinator_handle]),
+    [['quiet', 'term_a']],
+    'and the Run was made, and bound, all the same',
+  );
+});
+
 test('the fake records every call, in order, with what it was asked', async (t) => {
   const box = await createSandbox(t);
 

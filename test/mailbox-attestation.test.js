@@ -828,6 +828,12 @@ test('#317 review: a session mailbox that made a Run while the book moved to ano
   const unused = runs.filter((run) => !before.has(run.id) && run.id !== kept.id);
   assert.equal(unused.length, 1, `A made one Run of its own, got: ${JSON.stringify(unused)}`);
   assertFailedPlainly(result, 'coder/daily', unused[0].id);
+  // A's own `run-create` bound that Run to A, so "nothing was bound" would be
+  // false: what A says is that its Run is bound here and left unused.
+  const said = result.stdout + result.stderr;
+  assert.equal(unused[0].coordinator_handle, a.handle, 'A\'s own Run is bound to A, which is what the step has to say');
+  assert.doesNotMatch(said, /nothing was (written down or )?bound/i, `it must not say nothing was bound, got:\n${said}`);
+  assert.match(said, /bound to this tab/i, `it says the Run it made is bound to this tab, got:\n${said}`);
   const byA = (await runCallsSince(box, from)).filter((call) => call.caller === a.handle);
   assert.deepEqual(orcaCallsOf(byA, 'orchestration run-use'), [], `A binds nothing more, got: ${shown(byA)}`);
 });
@@ -860,8 +866,38 @@ test('#317 review: when Orca does not answer the step, the step gives up and fai
   assert.ok(took < HANG_MS, `having given up before Orca answered, after ${took} ms`);
   assert.ok(ran.stderr.includes('coder/daily'), `it names the session, got: ${ran.stderr}`);
   assert.ok(!/^\s+at /m.test(ran.stderr), `plainly, not a crash, got: ${ran.stderr}`);
+  // Orca may have made a Run after the step stopped waiting; the step cannot
+  // know, so it says that any such Run is left unused.
+  assert.match(ran.stderr, /unused/i, `and that any Run Orca made is left unused, got: ${ran.stderr}`);
   assert.equal((await harness.calls()).length, 1, 'and then the harness starts');
   assert.equal((await sessionIn(bots, 'coder', 'daily')).mailbox, undefined, 'the book names no mailbox that was never made');
+});
+
+test('#317 review: when Orca binds the mailbox and then does not answer, the step fails naming it, and does not claim it is unchanged', async (t) => {
+  // Orca did the `run-use` and never said so. The step gives up after twenty
+  // seconds knowing nothing of what happened: the mailbox may now be bound to
+  // this tab, or may still be where it was. So it must not say it is
+  // unchanged, which is what it rightly says when Orca answered no (the
+  // refusal test above). This one waits the twenty seconds out too.
+  const box = await createSandbox(t);
+  const { coder, mailbox } = await coderWithMailbox(box);
+  await setCoordinator(box, mailbox, null);
+  await box.orca.set({ hang: { command: 'orchestration run-use', ms: HANG_MS, applied: true } });
+
+  const started = Date.now();
+  const result = await obkFrom(box, coder, MAILBOX);
+  const took = Date.now() - started;
+
+  const said = result.stdout + result.stderr;
+  assert.equal(
+    (await box.orca.runs()).find((run) => run.id === mailbox).coordinator_handle,
+    coder.handle,
+    'Orca did bind it, which is the case this test is about',
+  );
+  assertFailedPlainly(result, 'coder/daily', mailbox);
+  assert.ok(took < HANG_MS, `having given up before Orca answered, after ${took} ms`);
+  assert.doesNotMatch(said, /unchanged|as it was/i, `it does not claim what it cannot know, got:\n${said}`);
+  assert.match(said, /\bmay\b.{0,80}\bbound\b|\bbound\b.{0,80}\bmay\b/is, `it says the mailbox may be bound here, got:\n${said}`);
 });
 
 // ---------------------------------------------------------------------------
