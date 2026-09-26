@@ -4,7 +4,7 @@
 //
 // Before #298 a Codex session's mail never told anybody. The kit types the
 // one-line nudge into a receiver's tab only when it can see a harness in front
-// of it (ADR 0023), and it looked with `/bin/ps`. At the kit's `auto` level,
+// of it (ADR 0024), and it looked with `/bin/ps`. At the kit's `auto` level,
 // the default, the kit launches Codex with `--approve-for-me -c
 // sandbox_workspace_write.network_access=true`: Codex's `workspace-write`
 // sandbox, where /bin/ps does not start at all (`Operation not permitted`, exit

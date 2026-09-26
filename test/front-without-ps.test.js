@@ -3,7 +3,7 @@
 //
 // Mail sent from a Codex session never told the receiver. Before it types the
 // one line that says mail is waiting, the kit asks who holds the tab's
-// terminal (ADR 0023): the pane pid from `orca diagnostics memory`, then
+// terminal (ADR 0024): the pane pid from `orca diagnostics memory`, then
 // `ps`. Inside Codex's `workspace-write` sandbox, the kit's `auto` level,
 // /bin/ps does not start at all: `Operation not permitted`, exit 126, on every
 // pid, the caller's own included (seen live, codex-cli 0.156.1). So the gate
@@ -28,7 +28,7 @@
 // process but children still there), fields missing or of the wrong type, an
 // envelope that is not ok, no client, a call that rejects, never settles or
 // hangs. Cannot tell keeps what #232 decided: nothing is typed, and the kit
-// says it could not tell. The rest of the gate is as ADR 0023 has it: only the
+// says it could not tell. The rest of the gate is as ADR 0024 has it: only the
 // harness Orca names in `agentIdentity` is typed into, never a tab with a
 // question on it, and the shell in front is no harness, plainly. Where `ps`
 // reads the tab nothing changes, and Orca's runtime is not asked at all.
@@ -349,7 +349,7 @@ for (const [label, front] of [
 }
 
 test('F4 Codex in front as the runtime says, in a tab where Orca names no agent, is not typed into', async (t) => {
-  // Only the harness Orca names is typed into (ADR 0023). With no name the kit
+  // Only the harness Orca names is typed into (ADR 0024). With no name the kit
   // cannot tell a harness a few seconds into its launch from anything else.
   const { box, bots } = await sandboxedFleet(t);
   await changeTab(box, (await tabOf(box, bots, 'coder')).tabId, { agentIdentity: null, inspect: { process: CODEX } });
