@@ -244,8 +244,18 @@ project → repo (`kind: "git" | "folder"`) → worktree (id = `<repoId>::<absPa
   true`; a `node` program gave `"node"`. `terminal.isRunningAgent` took more than 5 s on that `node`
   program and timed out, and it guesses from titles and output as well. The kit asks
   `inspectProcess` where `ps` cannot read a tab (ADR 0024, #298). **verified** (live, 2026-09-26, Orca
-  1.4.212, for the shell, `less` and `node`); a harness in front is **unverified** until #298's
-  system test has run.
+  1.4.212, for the shell, `less` and `node`, and in #298's attended system test for an idle Claude Code,
+  which was named in front).
+  **On macOS it cannot see a harness that is running a command.** `ps` prints `??` for a process with
+  no terminal, and the check that walks the tab's processes takes `??` for another terminal: the answer
+  is `unverifiable`, reason `tty_boundary`, `foregroundProcess` the leader's short kernel name, and
+  `hasChildProcesses: true`. Claude Code runs every command in `/bin/zsh -c …` with no terminal, so a
+  Claude tab running a command, or holding one in the background, answers that way. The kernel name of
+  a native Claude Code is its version file (`2.1.282`; `ps -o comm=` gives `claude`, `-o ucomm=` gives
+  the version). Seen live on 2026-09-26 (Orca 1.4.212, Claude Code 2.1.282, the architect, #298's run
+  and a direct call); read in Orca's source at `agent-foreground-process-remote-evidence.ts:74-78` and
+  `process-table-snapshot.ts:156`, whose own pty code does treat `??` as no terminal. An Orca bug; the
+  kit's answer to it is #350. **verified** (live)
 - **A harness Orca resumed by itself sits where the kit's own does, and carries none of the kit's
   variables.** Read with `ps` on 2026-09-25, after that morning's machine restart and Orca's cold
   restore (below). Every kit-dev harness Orca had resumed, four Claude Code and two Codex, was the

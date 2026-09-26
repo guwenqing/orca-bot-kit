@@ -54,9 +54,17 @@ outside any sandbox of the caller, and only `orchestration.*` methods go
 through Orca's attestation of the caller. Seen live on Orca 1.4.212 from a tab
 of a probe's own: the shell at its prompt answered verdict `live` with no
 process named and no child in front, `less` answered `foregroundProcess:
-"less"`, and a `node` program `"node"`. That a harness answers under its own
-name (`processName` `claude` or `codex`, from its arguments) is read in the
-bundle and proven by the system test of #298.
+"less"`, and a `node` program `"node"`. A harness answers under its own name
+(`processName` `claude` or `codex`, from its arguments): read in the bundle,
+and seen for an idle Claude Code in #298's attended system test. Not while
+it runs a command, though. On macOS `ps` prints `??` for a process with no
+terminal, and Orca takes that for another terminal: any process in the tab
+with no terminal makes the answer `unverifiable`, reason `tty_boundary`, with
+`foregroundProcess` the leader's short kernel name (`2.1.282`, the version
+file, for a native Claude Code). Claude Code runs its commands in a shell
+with no terminal, so a Claude session running a command, or holding one in
+the background, gets that answer (seen live in the same run, and read in
+Orca's source; an Orca bug, #350).
 
 Orca's word on whether something on a tab's screen wants answering does not
 cover every question a harness asks (#329). Read in the Orca 1.4.212 bundle on
@@ -188,8 +196,18 @@ overrule.)
   Out: ADR 0015 already opens the network for Orca, and any further opening is
   the owner's call (#298).
 - **Reading the tab from the harness's hook**, which Codex runs outside its
-  sandbox (tech notes, section 3). Not a fit: the nudge is typed by the
-  sender's own `obk message send`, which runs where the sender's commands run.
+  sandbox (tech notes, section 3). Not now: the nudge is typed by the
+  sender's own `obk message send`, which runs where the sender's commands run,
+  and handing it to a hook needs a hook event beside SessionStart and a queue.
+  It is the road for a busy receiver if Orca has not fixed `tty_boundary`
+  when #350 comes up.
+- **On `tty_boundary`, taking the tab as the harness's when Orca's hook
+  status says one is running there.** Not chosen: that is a guess from hooks
+  where #232 asks for the process in front (#298).
+- **Taking an `unverifiable` answer's `foregroundProcess` as the program in
+  front.** Not chosen: it is the kernel's short name, which for a native
+  Claude Code is its version file, and differs between sessions started
+  before and after an update.
 - **Orca's hook state from `orca worktree ps`.** Not enough: a resumed Codex
   has no entry until its first prompt (#226, #232).
 - **Any program in front with an identity counts as the harness.** Not
@@ -247,9 +265,12 @@ overrule.)
 - Bad: the kit reads the operating system's process table as well as Orca, and
   `diagnostics memory` may change. A harness installed through a wrapper gets
   "cannot tell", so its mail waits without a nudge, until #261.
-- Good: mail sent from a Codex session at the kit's `auto` level nudges its
-  receiver, as mail from a Claude session does, and `health`, `restart`, the
-  skills reload and grooming read a tab from there too (#298).
+- Good: mail sent from a Codex session at the kit's `auto` level nudges an
+  idle receiver, as mail from a Claude session does, and `health`, `restart`,
+  the skills reload and grooming read a tab from there too (#298).
+- Bad: not a busy one. A Claude receiver running a command, or holding one in
+  the background, is "cannot tell" from inside the sandbox until Orca reads
+  `??` as no terminal, and its mail waits unannounced (#350).
 - Bad: from inside a sandbox, that reading rests on what Orca does not
   publish: `terminal.inspectProcess` and the shape of its answer. If they go
   in a release, a Codex sender is back to "cannot tell" and its mail waits
