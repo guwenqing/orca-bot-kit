@@ -18,6 +18,11 @@
 // live tab that holds no Run, or another Run, is fenced out, and so is a closed
 // handle once the Run has been bound to a new tab.
 //
+// Orca 1.4.210 lets a process in a tab read as that tab and no other (#317),
+// so reading as the closed tab works only from outside Orca. From a plain
+// shell the read goes on as #249 made it; from another tab the kit reads
+// nothing, binds nothing, and says so.
+//
 // Out of scope: sessions whose tab is live (#228), and Orca's own notice rule.
 
 import assert from 'node:assert/strict';
@@ -161,7 +166,6 @@ async function assertNothingMoved(box, fleet, reader, coordinator) {
 const botFathers = ['from Bot Father\'s tab', (fleet) => fleet.a];
 const users = ['from a tab of the user\'s own that holds no Run', (fleet) => fleet.own];
 const shell = ['from a plain shell with no Orca terminal', () => null];
-const readers = [botFathers, users, shell];
 
 const ways = [
   ['a plain check', [], true],
@@ -170,7 +174,8 @@ const ways = [
 
 // Checks 1 and 2 of the issue: the read works, and moves nothing. Each is run
 // as a plain check, which takes the mail, and as a peek, which leaves it.
-for (const [where, readerOf] of readers) {
+// Since #317 that holds from a plain shell; see the tests after these for a tab.
+for (const [where, readerOf] of [shell]) {
   for (const [how, flags, takes] of ways) {
     test(`#249 checks 1-2: ${how} of a paused session's mail ${where} reads it and moves no mailbox`, async (t) => {
       const box = await createSandbox(t);
@@ -191,15 +196,43 @@ for (const [where, readerOf] of readers) {
   }
 }
 
+// The same reads from inside a tab that is not the session's. Orca 1.4.210
+// refuses a tab reading as the closed one, and binding coder's mailbox to the
+// reader's tab would hand it coder's notices, so the kit asks Orca for neither
+// and says the mail is read in the session's own tab (#317).
+for (const [where, readerOf] of [botFathers, users]) {
+  for (const [how, flags] of ways) {
+    test(`#249/#317: ${how} of a paused session's mail ${where} reads nothing, moves no mailbox, and says so`, async (t) => {
+      const box = await createSandbox(t);
+      const fleet = await pausedCoder(box);
+      const reader = readerOf(fleet);
+      await mail(box, fleet.a, 'coder', 'while you were away');
+      const from = (await box.orca.calls()).length;
+
+      const read = await obkFrom(box, reader, checkCoder(flags));
+
+      assert.notEqual(read.code, 0, `from another tab the check cannot read coder's mail, got: ${read.stdout}`);
+      assert.ok(`${read.stdout}${read.stderr}`.includes('coder/daily'), `and it says whose, got: ${read.stdout}${read.stderr}`);
+      assert.ok(!read.stdout.includes('while you were away'), `nothing is read, got: ${read.stdout}`);
+      const asked = (await box.orca.calls()).slice(from)
+        .filter((call) => ['orchestration run-use', 'orchestration check'].includes(call.args.slice(0, 2).join(' ')));
+      assert.deepEqual(asked.map((call) => call.args.join(' ')), [], 'no binding and no read was asked of Orca');
+      assert.deepEqual((await box.orca.messages()).map((message) => message.acked), [false], 'the mail is still waiting');
+      await assertNothingMoved(box, fleet, reader, fleet.old.handle);
+    });
+  }
+}
+
 // Check 3: when the session is back, its mailbox is in its new tab, and the
-// reader's tab hears nothing about the session's mail.
+// reader's tab hears nothing about the session's mail. From Bot Father's tab
+// the read itself is refused since #317; what comes after it is the same.
 for (const [where, readerOf] of [botFathers, shell]) {
   test(`#249 check 3: after a read ${where}, unpause binds the session's mailbox to its new tab and only it is told`, async (t) => {
     const box = await createSandbox(t);
     const fleet = await pausedCoder(box);
     const reader = readerOf(fleet);
     await mail(box, fleet.a, 'coder', 'while you were away');
-    await obkIn(box, reader, checkCoder());
+    await obkFrom(box, reader, checkCoder());
 
     await obkIn(box, fleet.a, ['unpause', '--bots', 'bots', '--bot', 'coder']);
 

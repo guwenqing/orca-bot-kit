@@ -54,6 +54,7 @@ import {
   conversationOnRecord,
   createSandbox,
   fakeProgram,
+  harnessPartOf,
   launchLine,
   nameOnLine,
   orcaCallsOf,
@@ -128,9 +129,10 @@ function settingsOnly(argv) {
 
 /**
  * The arguments a bare launch line hands its harness: the line without the
- * `OBK_TAB_SHELL=…` and `OBK_CLI=…` in front of it and without the harness word itself.
+ * mailbox step, `OBK_TAB_SHELL=…` and `OBK_CLI=…` in front of it and without
+ * the harness word itself.
  */
-const bareArgvOf = (box, harness) => bareLaunch(box, harness, 'api-bot', 'daily').split(' ').slice(3);
+const bareArgvOf = (box, harness) => harnessPartOf(bareLaunch(box, harness, 'api-bot', 'daily')).split(' ').slice(3);
 
 /** Arguments with the token of the name after `-n` written the way `bareLaunch` writes it. */
 const tokenlessArgv = (argv) => argv.map((word, at) => (argv[at - 1] === '-n' ? tokenlessWord(word) : word));
@@ -191,7 +193,7 @@ test('codex resumes the session the book holds, and is not told its duty again',
 
   assert.equal(again.typed.length, 1, `one send per tab the kit opens, got: ${JSON.stringify(again.typed)}`);
   const line = again.typed[0];
-  assert.ok(line.startsWith(launchLine(box, 'codex resume ')), `Codex resumes through the subcommand, got: ${line}`);
+  assert.ok(line.startsWith(launchLine(box, 'codex resume ', { bot: 'api-bot', session: 'daily' })), `Codex resumes through the subcommand, got: ${line}`);
   assert.ok(!line.includes(PROMPT), `the session already has its duty, got: ${line}`);
 
   const argv = await argvOf(box, line, fake);
@@ -326,7 +328,7 @@ for (const [label, held, made] of HELD) {
 
     assert.deepEqual(
       again.typed,
-      [launchLine(box, `claude --permission-mode auto${made ? ` -n ${held}` : ''} --resume sess-1`)],
+      [launchLine(box, `claude --permission-mode auto${made ? ` -n ${held}` : ''} --resume sess-1`, { bot: 'api-bot', session: 'daily' })],
       made ? 'the line carries the address the book held' : 'the line names no address: the conversation keeps whatever name it has',
     );
     const daily = await sessionIn(bots, 'api-bot', 'daily');
@@ -363,7 +365,7 @@ test('a session the book holds no id for comes up fresh, with its start prompt',
 
   const again = await up(box);
 
-  assert.deepEqual(again.typed, [`${bareLaunch(box, 'codex')} -- '${PROMPT}'`]);
+  assert.deepEqual(again.typed, [`${bareLaunch(box, 'codex', 'api-bot', 'daily')} -- '${PROMPT}'`]);
   assert.ok(!again.typed[0].includes('resume'), `there is nothing to resume, got: ${again.typed[0]}`);
 });
 

@@ -130,7 +130,7 @@ test('the harness is typed into the daily tab only, and the tab is checked after
   assert.equal(sends.length, 1, 'one tab is told what to run, and it is one line');
   assert.equal(orcaFlag(sends[0], '--terminal'), daily.handle);
   assert.notEqual(orcaFlag(sends[0], '--terminal'), ops.handle);
-  assert.equal(plainCli(orcaFlag(sends[0], '--text')), bareLaunch(box, 'codex'));
+  assert.equal(plainCli(orcaFlag(sends[0], '--text')), bareLaunch(box, 'codex', 'bot-father', 'daily'));
   assert.ok(sends[0].args.includes('--enter'), `the line has to be sent off: ${sends[0].args.join(' ')}`);
   assert.deepEqual(orcaFlags(sends[0]), ['--enter', '--json', '--terminal', '--text']);
 
@@ -218,7 +218,7 @@ test('the daily tab that comes back is the one that gets the harness', async (t)
 
   const back = await tabsOf(box);
   assert.notEqual(back.daily.tabId, daily.tabId, 'a tab that comes back is a new tab');
-  assert.deepEqual(typedInto(back.daily), [bareLaunch(box, 'codex')], 'the new tab runs the harness bot.yaml names');
+  assert.deepEqual(typedInto(back.daily), [bareLaunch(box, 'codex', 'bot-father', 'daily')], 'the new tab runs the harness bot.yaml names');
   assert.deepEqual(back.ops, ops, 'the tab that was still there must be untouched');
 
   const sends = orcaCallsOf((await box.orca.calls()).slice(sofar), 'terminal send');
