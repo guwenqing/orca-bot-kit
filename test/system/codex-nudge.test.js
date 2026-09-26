@@ -55,6 +55,22 @@
 // never states, says it finished; a minute after that total nothing of the
 // mail is on its screen. `less` is still showing the test's own file.
 //
+// **How the mailboxes are looked at, and what that rests on.** A live run is
+// started from an Orca tab, and everything it runs inherits that tab's
+// `ORCA_TERMINAL_HANDLE`, `ORCA_PANE_KEY` and `ORCA_AGENT_LAUNCH_TOKEN`. From
+// there `obk message check` refuses any session but the tab's own, `--peek`
+// included (#317), and Orca 1.4.210 lets an attested tab name no other. So
+// this test asks Orca directly, `orca orchestration check --run <the session's
+// Run> --terminal <the session's own tab> --peek`, with every `ORCA_*`
+// variable taken out of that one call's environment. `--peek` lists what is
+// unread and changes nothing: no batch, no acknowledgement, no binding (tech
+// notes, section 1, verified live). That an unattested caller may name a live
+// tab this way was read in Orca 1.4.210's bundle and is not proven live; the
+// tech notes record that the kit itself does not build on it. If Orca refuses
+// it, the test fails at that look with Orca's own words, after every check of
+// the kit's behaviour has already passed; it never passes on a look that did
+// not happen.
+//
 // The machine it runs on is someone's working machine, with their own tabs open.
 // So this test, like the ones beside it:
 //
@@ -162,13 +178,16 @@ const AFTER_WORK_MS = 60000;
  */
 const QUIT_SETTLE_MS = 5000;
 
-/** Ask Orca something and read its JSON. Never the blanket close, on any road. */
-function orca(args) {
+/**
+ * Ask Orca something and read its JSON. Never the blanket close, on any road.
+ * `env` is the environment of the call, this process's own unless it says.
+ */
+function orca(args, env = process.env) {
   assert.ok(
     !(args.includes('--all') && args.includes('close')),
     `refusing to run \`orca ${args.join(' ')}\`: it would take away someone else's tabs`,
   );
-  const done = spawnSync(ORCA, [...args, '--json'], { encoding: 'utf8' });
+  const done = spawnSync(ORCA, [...args, '--json'], { encoding: 'utf8', env });
   assert.equal(done.error, undefined, `could not run ${ORCA}: ${done.error?.message}`);
   let answer;
   try {
@@ -178,6 +197,9 @@ function orca(args) {
   }
   return answer;
 }
+
+/** This process's environment with every `ORCA_*` variable taken out: a caller Orca attests as no tab. */
+const UNATTESTED = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith('ORCA_')));
 
 /** Every terminal Orca knows about right now. */
 function allTerminals() {
@@ -467,10 +489,25 @@ function answerIn(file) {
   }
 }
 
-/** Whether Orca holds mail for a session that nobody has read, by a look that leaves it unread. */
-const unreadFor = (bots, session) => obkJson([
-  'message', 'check', '--bots', bots, '--bot', CLAUDE.name, '--session', session, '--peek',
-]).messages;
+/**
+ * The mail waiting unread in one session's mailbox, by a look that leaves it
+ * unread: Orca's own `check --peek` on the session's Run, as its own tab,
+ * from a caller attested as no tab. See the header for what this rests on.
+ */
+async function unreadFor(home, session, handle) {
+  const { mailbox } = await sessionIn(home, session);
+  assert.match(String(mailbox), /^run_/, `the book should hold ${session}'s Run, got: ${mailbox}`);
+  const answer = orca(['orchestration', 'check', '--run', mailbox, '--terminal', handle, '--peek'], UNATTESTED);
+  assert.equal(
+    answer.ok,
+    true,
+    `Orca would not let a caller outside every tab look at ${session}'s mailbox as ${handle}: ${JSON.stringify(answer.error)}.`
+    + ' This look rests on Orca letting an unattested caller name a live tab, read in its 1.4.210 bundle and not proven live;'
+    + ' the kit behaviour above had already passed.',
+  );
+  assert.ok(Array.isArray(answer.result?.messages), `a peek answers a list of messages, got: ${JSON.stringify(answer.result)}`);
+  return answer.result.messages;
+}
 
 test('mail from a Codex session in its sandbox nudges an idle Claude receiver, and nothing is typed into a busy one, a quit one or one behind a pager', async (t) => {
   const before = {
@@ -665,26 +702,30 @@ test('mail from a Codex session in its sandbox nudges an idle Claude receiver, a
   // 1. The idle receiver read its mail: the body's word is only in the mail.
   await showsUp(idle.terminal, sendTo('idle').body, ROUND_TRIP_MS);
 
-  // It read it with the kit's own command, the one the nudge named: Orca holds
-  // nothing of its unread.
-  assert.deepEqual(unreadFor(bots, 'idle'), [], 'the idle receiver\'s mail was read');
-
   // 2. The busy receiver finishes its loop, and a minute on nothing of the
   //    mail has reached it.
   await showsUp(busy.terminal, TOTAL, ANSWER_MS);
   await setTimeout(AFTER_WORK_MS);
 
   // 2, 3 and 4. Minutes after the sends, nothing arrived in the tabs the kit
-  // could not see a harness in: neither word is on any of their screens, and
-  // the mail waits unread.
+  // could not see a harness in: neither word is on any of their screens.
   for (const [session, entry] of [['busy', busy], ['quit', quit], ['pager', pager]]) {
     const shown = screenOf(entry.terminal);
     const { subject, body } = sendTo(session);
     const word = subject.split(' ').at(-1);
     assert.ok(!shown.includes(word) && !shown.includes(body), `nothing should have been typed into ${session}: ${shown.slice(0, 3000)}`);
-    const unread = unreadFor(bots, session);
-    assert.equal(unread.length, 1, `${session}'s mail waits unread, got: ${JSON.stringify(unread)}`);
-    assert.ok(unread[0].body.includes(body), `and it is the mail that was sent, got: ${JSON.stringify(unread[0])}`);
   }
   assert.ok(screenOf(pager.terminal).includes(PAGER_WORD), `less is still showing this test's file: ${screenOf(pager.terminal).slice(0, 3000)}`);
+
+  // Last, the mailboxes, by the look the header describes, so a refusal of it
+  // stops nothing above. The idle receiver read its mail with the kit's own
+  // command, the one the nudge named, so Orca holds nothing of its unread; the
+  // other three's mail waits unread.
+  assert.deepEqual(await unreadFor(claudeHome, 'idle', idle.terminal), [], 'the idle receiver\'s mail was read');
+  for (const [session, entry] of [['busy', busy], ['quit', quit], ['pager', pager]]) {
+    const { body } = sendTo(session);
+    const unread = await unreadFor(claudeHome, session, entry.terminal);
+    assert.equal(unread.length, 1, `${session}'s mail waits unread, got: ${JSON.stringify(unread)}`);
+    assert.ok(String(unread[0].body).includes(body), `and it is the mail that was sent, got: ${JSON.stringify(unread[0])}`);
+  }
 });
