@@ -857,16 +857,17 @@ export async function throughAHarness(box, command, { env, tab, stdin = '', nest
 }
 
 /**
- * One step of the chain `throughATab` builds: start the next process in the
- * plan under the name it is given, and at the end of the plan run the hook the
- * way a harness does, with the event on standard input.
+ * One step of the chain `throughATab` builds: take the name the plan gives
+ * this step, then start the next step, and at the end of the plan run the hook
+ * the way a harness does, with the event on standard input.
  */
 const TAB_STEP = `
   const { spawnSync } = require('node:child_process');
   const plan = JSON.parse(process.env.OBK_TEST_CHAIN);
-  const next = Number(process.argv[2]);
-  if (next < plan.length) {
-    const ran = spawnSync(plan[next].file, [__filename, String(next + 1)], { argv0: plan[next].argv0, stdio: 'inherit' });
+  const at = Number(process.argv[2]);
+  process.title = plan[at];
+  if (at + 1 < plan.length) {
+    const ran = spawnSync(process.execPath, [__filename, String(at + 1)], { stdio: 'inherit' });
     process.exit(ran.status ?? 0);
   }
   const ran = spawnSync('/bin/sh', ['-c', process.env.OBK_TEST_HOOK], {
@@ -890,10 +891,13 @@ const TAB_STEP = `
  *     the hook         /bin/sh -c <hook>  parent: the harness
  *
  * The kit reads that tree with the machine's own `ps`, so each stand-in is a
- * real process under the name `ps -o comm=` shows for the real one: on macOS
- * that is the argv[0] a process was started with, and on Linux the name of the
- * file it was started from. So each is a link to Node, named as the real
- * program is, and started with the argv[0] the real one has.
+ * real Node process that sets its `process.title` to the name above before it
+ * starts the next. That is what reaches `ps -o comm=` on both systems: libuv
+ * writes the title over the process's original argv, which is what macOS `ps`
+ * shows, and on Linux also gives it to prctl(PR_SET_NAME), which is what
+ * Linux `ps` shows. The name of the file run does not do it: on Linux, Node 25
+ * names its main thread `node-MainThread` whatever it was started as (seen on
+ * CI, #318). Linux keeps 15 characters of a name, and every name here fits.
  *
  * `harness` is the one the tab runs. `shape` bends the chain:
  *   'tab'       as above
@@ -914,33 +918,24 @@ export async function throughATab(box, command, { tab, stdin = '', harness = 'cl
   await mkdir(dir, { recursive: true });
   const step = path.join(dir, 'step.cjs');
   await writeFile(step, `${TAB_STEP.trim()}\n`);
-  const link = async (name) => {
-    const file = path.join(dir, name);
-    await rm(file, { force: true });
-    await symlink(process.execPath, file);
-    return file;
-  };
 
-  const login = { file: await link('login'), argv0: path.join(dir, 'login') };
-  const shell = { file: await link('zsh'), argv0: `-${path.join(dir, 'zsh')}` };
-  const own = { file: await link(harness), argv0: harness };
+  const login = '/usr/bin/login';
+  const shell = '-/bin/zsh';
   const inner = harness === 'claude' ? 'codex' : 'claude';
   const plan = {
-    tab: [login, shell, own],
-    nested: [login, shell, own, { file: await link(inner), argv0: inner }],
-    'no-login': [shell, own],
-    'no-shell': [login, own],
+    tab: [login, shell, harness],
+    nested: [login, shell, harness, inner],
+    'no-login': [shell, harness],
+    'no-shell': [login, harness],
   }[shape];
   if (plan === undefined) throw new Error(`throughATab: no chain of the shape ${shape}`);
 
-  const [first, ...rest] = plan;
-  return capture(first.file, [step, '0'], {
-    argv0: first.argv0,
+  return capture(process.execPath, [step, '0'], {
     cwd: box.cwd,
     env: {
       ...(env ?? box.env),
       ...(tab === undefined ? {} : { ORCA_TAB_ID: tab }),
-      OBK_TEST_CHAIN: JSON.stringify(rest),
+      OBK_TEST_CHAIN: JSON.stringify(plan),
       OBK_TEST_HOOK: direct ? `exec ${command}` : command,
       OBK_TEST_PAYLOAD: stdin,
     },
