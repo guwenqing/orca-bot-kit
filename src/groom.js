@@ -16,6 +16,15 @@
 // grooming tab: schedule, unschedule, run once, or compact. It keeps no copy of
 // what is scheduled, so what it reports is what the conversation holds.
 //
+// A line typed into the tab is run when the session gets to it, which may be
+// after the kit has typed another, so what the kit read from the transcript
+// when it typed can be out of date: an `--on` not yet run leaves no job to see.
+// So the lines that schedule and unschedule say what the schedule is to be
+// rather than what to change: when the session runs one, it looks at what it
+// has itself (CronList), removes every grooming job, and then makes the one
+// asked for, or none. Run in any order, the last one typed is what holds
+// (review of PR #322).
+//
 // Claude Code ends a recurring job a week after it was made, so the job's own
 // prompt ends by renewing it. A renewal that fails either way shows here: no
 // job means the fleet has quietly stopped being groomed, two mean it is groomed
@@ -43,6 +52,13 @@ const DAILY = /^(\d{1,2}) (\d{1,2}) \* \* \*$/;
 
 /** How long Claude Code keeps a recurring job after it was made (tech notes, section 2). */
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * What the session looks for in its own CronList to find its grooming jobs.
+ * Only the start of the marker: CronList shows a prompt cut short, and the
+ * grooming session is one Bot Father's, so its jobs are all this fleet's.
+ */
+const PREFIX = 'obk grooming';
 
 /** How long Orca is given to say what is in the grooming tab. */
 const LOOK_MS = 2000;
@@ -105,8 +121,9 @@ export function grooming(bots, { at, ask } = {}) {
  * Orca is asked for anything.
  */
 function lineFor(ask, { bots, session, jobs, at }) {
-  // Nothing to turn off is an answer, whatever the session is.
-  if (ask === 'off' && jobs.length === 0) return undefined;
+  // Nothing to turn off is an answer, unless a session is there to be told: an
+  // `--on` typed a moment ago may still be waiting in its tab.
+  if (ask === 'off' && jobs.length === 0 && !(session?.harness === 'claude' && session.up)) return undefined;
   if (session === null) {
     throw new Error(`${BOT_FATHER} has no ${GROOMING} session, so there is nothing to ask. Add it: ${addCommand(bots)}, then ${upCommand(bots)}.`);
   }
@@ -222,17 +239,24 @@ const run = (bots) =>
 const jobPrompt = (bots, cron) =>
   `${run(bots)} When the report is sent, renew this schedule, which Claude Code ends a week after it was made: `
   + `call CronCreate with cron "${cron}", recurring true, and this whole prompt, word for word, as its prompt; `
-  + 'then call CronDelete on the job that fired this run, the older of the two grooming jobs CronList shows.';
+  + `then call CronList and CronDelete every other job there whose prompt starts with "${PREFIX}".`;
+
+/**
+ * The part of a line that clears the grooming jobs the session has when it runs
+ * the line, which is not always what the kit saw when it typed it.
+ */
+const clearing = (jobs) =>
+  `call CronList, and call CronDelete on every job there whose prompt starts with "${PREFIX}"`
+  + (jobs.length === 0 ? '' : ` (when this was typed they were ${jobs.map((job) => job.id).join(', ')})`);
 
 const onLine = (bots, cron, jobs) =>
-  'obk groom asks you to schedule the daily grooming. '
-  + (jobs.length === 0 ? '' : `First call CronDelete on each of these jobs: ${jobs.map((job) => job.id).join(', ')}. `)
+  `obk groom asks you to schedule the daily grooming. First ${clearing(jobs)}. `
   + `Then call CronCreate once, with cron "${cron}", recurring true, and as its prompt everything after "Prompt:" `
   + 'at the end of this line, word for word. Do not run the grooming now; say in one line what you scheduled. '
   + `Prompt: ${jobPrompt(bots, cron)}`;
 
 const offLine = (jobs) =>
-  `obk groom asks you to turn the daily grooming off: call CronDelete on each of these jobs: ${jobs.map((job) => job.id).join(', ')}. `
+  `obk groom asks you to turn the daily grooming off: ${clearing(jobs)}. `
   + 'Schedule nothing in their place, and say in one line what you cancelled.';
 
 const nowLine = (bots) => `obk groom asks you to run the daily grooming once, now, and to schedule nothing. ${run(bots)}`;

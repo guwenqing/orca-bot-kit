@@ -1050,7 +1050,7 @@ function groomLines({ session, jobs, asked }, bots) {
   if (session === null) {
     return [
       ...said,
-      `${head}  there is no daily grooming: Bot Father has no session called grooming`,
+      `${head}  off: Bot Father has no session called grooming, which is where it runs`,
       `${more}It runs in that session, on Claude Code's own scheduler. Give the session`,
       `${more}--model and --effort for what each run is to use.`,
       `Add it:    ${addCommand(bots)}`,
@@ -1060,9 +1060,9 @@ function groomLines({ session, jobs, asked }, bots) {
   if (session.harness !== 'claude') {
     return [
       ...said,
-      `${head}  Bot Father's grooming session runs on ${session.harness}, and grooming runs on`,
-      `${more}Claude Code's own scheduler, so it has to be a Claude Code session: retire it`,
-      `${more}and add it again with --harness claude.`,
+      `${head}  off: Bot Father's grooming session runs on ${session.harness}, and grooming runs`,
+      `${more}on Claude Code's own scheduler, so it has to be a Claude Code session: retire`,
+      `${more}it and add it again with --harness claude.`,
     ];
   }
 
