@@ -13,7 +13,7 @@ import { botDir, botNames, displayName, readBot } from './bot.js';
 import { conversationsIn, hasConversation, heldAsUserTurn, transcriptsIn } from './conversations.js';
 import { installHook } from './hooks.js';
 import { addressOf, harnessOf, isAddressOf, isShortPrompt, launchCommand, mailboxStep, reachesMail, sessionTrouble, startPrompt, workDirOf } from './launch.js';
-import { asFolderProject, coordinatorOf, findProject, harnessInTab, makeMailbox, makeProject, openTab, retitleTab, tabs, TERMINAL_ENV, tellWindow, typeIntoTab, useMailbox } from './orca.js';
+import { asFolderProject, coordinatorOf, findProject, harnessInTab, makeMailbox, makeProject, openTab, retitleTab, tabs, TERMINAL_ENV, TIMED_OUT, tellWindow, typeIntoTab, useMailbox } from './orca.js';
 import { TAB_ENV } from './record.js';
 import { buildAgents, rulesStamp } from './rules.js';
 import { linkSkills } from './skills.js';
@@ -526,9 +526,11 @@ export async function ownMailbox(bots, botName, sessionName) {
   const held = entry.mailbox;
   if (typeof held === 'string') {
     try {
-      useMailbox(held);
+      useMailbox(held, undefined, STEP_WAIT);
     } catch (error) {
-      throw new Error(`${error.message}\n${who}'s mailbox ${held} is unchanged: it is still bound to ${boundTo(held)}.`);
+      // Orca that did not answer one call is not asked a second.
+      const where = error.code === TIMED_OUT ? 'whatever it was bound to before' : boundTo(held);
+      throw new Error(`${error.message}\n${who}'s mailbox ${held} is unchanged: it is still bound to ${where}.`);
     }
     return { bot: botName, session: sessionName, mailbox: held, change: 'bound' };
   }
@@ -537,30 +539,53 @@ export async function ownMailbox(bots, botName, sessionName) {
   // (book.js).
   let made;
   try {
-    made = makeMailbox(who);
+    made = makeMailbox(who, STEP_WAIT);
   } catch (error) {
-    throw new Error(`${error.message}\nNo mailbox was made for ${who}, and none is written down. It gets one the next time the kit starts it.`);
+    const left = error.code === TIMED_OUT
+      ? `None is written down for ${who}; a Run Orca made after the kit stopped waiting is left unused.`
+      : `No mailbox was made for ${who}, and none is written down.`;
+    throw new Error(`${error.message}\n${left} It gets one the next time the kit starts it.`);
   }
 
   let kept;
+  let movedTo;
   try {
     await updateBook(home, (current) => {
       const now = { ...current.sessions[sessionName] };
+      // The book may have moved to another tab while Orca was asked: a second
+      // `up` of the same session. Then nothing is written here and nothing
+      // bound, so the tab the book names keeps whatever it has.
+      if (now.tab !== here) {
+        movedTo = now.tab ?? 'none';
+        return undefined;
+      }
       // Under the lock, and only if the book still has none: two runs at once
       // would each have made one, and a session with two mailboxes is a session
       // half its mail never reaches. The loser's Run is left unused.
       if (typeof now.mailbox !== 'string') now.mailbox = made;
       kept = now.mailbox;
       current.sessions[sessionName] = now;
+      return undefined;
     });
   } catch (error) {
     throw new Error(`${error.message}\nOrca made the mailbox ${made} for ${who}, bound to this tab, but it could not be written into the book, so it is left unused. The next time the kit starts ${who}, it makes another.`);
   }
+  if (movedTo !== undefined) {
+    throw new Error(`the book now names another tab for ${who}, ${movedTo}, so the mailbox ${made} made in this tab is left unused. Nothing was written down or bound.`);
+  }
   // One terminal holds one Run, so making the loser took this tab off the one
   // the book kept. It goes back.
-  if (kept !== made) useMailbox(kept);
+  if (kept !== made) useMailbox(kept, undefined, STEP_WAIT);
   return { bot: botName, session: sessionName, mailbox: kept, change: kept === made ? 'made' : 'bound' };
 }
+
+/**
+ * How long the step gives each Orca call. The step runs in front of the
+ * harness on the launch line, so it has to end: an Orca that never answers
+ * would otherwise leave the tab blank and the session never started. Generous,
+ * because a busy machine is slow.
+ */
+const STEP_WAIT = { timeoutMs: 20_000 };
 
 /** Whether a session that can have a mailbox has none in its book. */
 const lacksMailbox = (home, session, harness) => reachesMail(session, harness)
@@ -569,7 +594,7 @@ const lacksMailbox = (home, session, harness) => reachesMail(session, harness)
 /** Where a Run is bound, as a sentence can say it, or the plain truth when Orca will not say. */
 function boundTo(id) {
   try {
-    const handle = coordinatorOf(id);
+    const handle = coordinatorOf(id, STEP_WAIT);
     return handle === undefined ? 'no tab' : `the terminal ${handle}`;
   } catch {
     return 'whatever it was bound to before';

@@ -125,6 +125,11 @@
 //               from the fake's world once the count runs out. It goes on
 //               answering `rename`, `wait` and `send` while it lags, because to
 //               anything that found it in a listing it is a tab like any other.
+//   hang        { command, ms } — that command is answered as it would have
+//               been, `ms` later (a minute if left out): an Orca that is slow
+//               to answer, or has stopped answering. What cuts it short is a
+//               limit of the caller's own; `session mailbox` gives each Orca
+//               call twenty seconds (#317).
 //   crash       { command, exitCode, stdout, stderr } — no JSON, a bad exit code
 //   garbage     { command, text } — output that is not JSON at all
 //   runs        [{ id, objective, coordinator_handle, consumer_generation,
@@ -298,6 +303,13 @@ if (aimedHere(state.crash)) {
 if (aimedHere(state.garbage)) {
   process.stdout.write(state.garbage.text ?? 'not json at all\n');
   process.exit(0);
+}
+
+// An Orca slow to answer: the call waits, then goes on as it would have, on
+// whatever the world holds by then.
+if (aimedHere(state.hang)) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, state.hang.ms ?? 60_000);
+  state = JSON.parse(readFileSync(stateFile, 'utf8'));
 }
 
 // Another writer, run to completion before this call is answered. It sees the

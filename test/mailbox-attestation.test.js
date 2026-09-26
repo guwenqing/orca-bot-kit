@@ -759,6 +759,112 @@ for (const [order, bookFirst] of [['the tab the book names runs its step first',
 }
 
 // ---------------------------------------------------------------------------
+// The book moves while the step is asking Orca, and an Orca that does not
+// answer (reviews of 472edad)
+// ---------------------------------------------------------------------------
+
+/** A second tab in a bot's Orca project, as a second `up` at the same moment opens one: nothing typed into it yet. */
+async function anotherTab(box, bots, bot) {
+  const made = await sh(
+    `${shellWord(box.orca.cli)} terminal create --worktree ${shellWord(`path:${botHomeOf(bots, bot)}`)} --title 'Coder daily' --json`,
+    { cwd: box.cwd, env: box.env },
+  );
+  assert.equal(made.code, 0, `the fake should have made the tab: ${made.stdout}${made.stderr}`);
+  return JSON.parse(made.stdout).result.terminal;
+}
+
+/**
+ * A command that moves coder/daily's tab in the book from one tab id to
+ * another, the way another run of `up` writes the tab it has just opened. It
+ * fails if the book did not name `from`, so a test cannot pass on a move that
+ * never happened.
+ */
+const moveTab = (bots, from, to) => [process.execPath, '-e', [
+  "const fs = require('fs');",
+  `const file = ${JSON.stringify(bookOf(bots, 'coder'))};`,
+  "const was = fs.readFileSync(file, 'utf8');",
+  `const now = was.replace(${JSON.stringify(`tab: ${from}\n`)}, ${JSON.stringify(`tab: ${to}\n`)});`,
+  'if (now === was) process.exit(3);',
+  'fs.writeFileSync(file, now);',
+].join(' ')].map(shellWord).join(' ');
+
+test('#317 review: a session mailbox that made a Run while the book moved to another tab writes nothing, names that Run, and leaves the book\'s Run bound where it is', async (t) => {
+  // The review's reproduced race. Tab A's step finds the book naming A and no
+  // mailbox, and asks Orca for a Run. Meanwhile another run of `up` writes its
+  // own tab B into the book, and B's step makes its Run and writes it first.
+  // When A comes to write, the book no longer names A. A writes nothing and
+  // binds nothing more, rather than take B's Run for itself: the book's Run
+  // stays bound to the tab the book names, and A says which Run of its own it
+  // left unused.
+  //
+  // The overlap is arranged: the fake moves the book to B and runs B's step,
+  // as B, in the middle of A's `run-create`.
+  const box = await createSandbox(t);
+  const { bots, coder: a } = await coderWithNoMailbox(box);
+  const b = await anotherTab(box, bots, 'coder');
+  const before = new Set((await box.orca.runs()).map((run) => run.id));
+  const stepOfB = [box.cli, 'session', 'mailbox', '--bots', bots, '--bot', 'coder', '--session', 'daily'].map(shellWord).join(' ');
+  await box.orca.set({
+    runDuring: {
+      command: 'orchestration run-create',
+      on: orcaCallsOf(await box.orca.calls(), 'orchestration run-create').length + 1,
+      argv: ['/bin/sh', '-c', `${moveTab(bots, a.tabId, b.tabId)} && ${stepOfB}`],
+      env: { ORCA_TERMINAL_HANDLE: b.handle, ORCA_TAB_ID: b.tabId },
+    },
+  });
+  const from = (await box.orca.calls()).length;
+
+  const result = await obkFrom(box, a, MAILBOX);
+
+  const ran = await box.orca.ranDuring();
+  assert.equal(ran.length, 1, `the book should have moved in the middle of A's step, got: ${JSON.stringify(ran)}`);
+  assert.equal(ran[0].status, 0, `and B's step should have worked: ${ran[0].stdout}${ran[0].stderr}`);
+  const daily = await sessionIn(bots, 'coder', 'daily');
+  assert.equal(daily.tab, b.tabId, 'the book names B, as the other run left it');
+  const runs = await box.orca.runs();
+  const kept = runs.find((run) => run.id === daily.mailbox);
+  assert.ok(kept !== undefined && !before.has(kept.id), `the book holds the Run B's step made: ${JSON.stringify(daily)}`);
+  assert.equal(kept.coordinator_handle, b.handle, 'and it is still bound to B, the tab the book names');
+  const unused = runs.filter((run) => !before.has(run.id) && run.id !== kept.id);
+  assert.equal(unused.length, 1, `A made one Run of its own, got: ${JSON.stringify(unused)}`);
+  assertFailedPlainly(result, 'coder/daily', unused[0].id);
+  const byA = (await runCallsSince(box, from)).filter((call) => call.caller === a.handle);
+  assert.deepEqual(orcaCallsOf(byA, 'orchestration run-use'), [], `A binds nothing more, got: ${shown(byA)}`);
+});
+
+/** How long the fake takes to answer a call that is meant never to be answered in time: far past the step's own limit. */
+const HANG_MS = 60_000;
+
+test('#317 review: when Orca does not answer the step, the step gives up and fails naming the session, and the line still starts the harness', async (t) => {
+  // The step sits in front of the harness on the launch line, so it must end,
+  // whatever Orca does: each Orca call it makes is given twenty seconds. There
+  // is nothing to shorten that by, so this test waits it out. Here Orca takes a
+  // minute to answer the `run-create` of a new session's mailbox.
+  const box = await createSandbox(t);
+  const { bots, coder } = await coderWithNoMailbox(box);
+  const harness = await fakeProgram(box, 'codex', {});
+  await box.orca.set({ hang: { command: 'orchestration run-create', ms: HANG_MS } });
+  const text = coder.typed[0]?.text ?? '';
+  const at = text.indexOf('; OBK_TAB_SHELL=');
+  assert.ok(at > 0, `the launch line should start with the mailbox step, got: ${text}`);
+  // The typed line, run by the tab's shell, with one thing put between its two
+  // halves: the step's own exit code, which the harness after it never sees.
+  const line = `${text.slice(0, at)}; echo "step exited $?" >&2${text.slice(at)}`;
+
+  const started = Date.now();
+  const ran = await sh(line, { cwd: box.cwd, env: inTab(box, coder) });
+  const took = Date.now() - started;
+
+  const exited = /step exited (\d+)/.exec(ran.stderr)?.[1];
+  assert.ok(exited !== undefined && exited !== '0', `the step failed, got: ${ran.stderr}`);
+  assert.ok(took < HANG_MS, `having given up before Orca answered, after ${took} ms`);
+  assert.ok(ran.stderr.includes('coder/daily'), `it names the session, got: ${ran.stderr}`);
+  assert.ok(!/^\s+at /m.test(ran.stderr), `plainly, not a crash, got: ${ran.stderr}`);
+  assert.equal((await harness.calls()).length, 1, 'and then the harness starts');
+  assert.equal((await sessionIn(bots, 'coder', 'daily')).mailbox, undefined, 'the book names no mailbox that was never made');
+});
+
+// ---------------------------------------------------------------------------
 // obk message check, from the session's own tab and from another
 // ---------------------------------------------------------------------------
 

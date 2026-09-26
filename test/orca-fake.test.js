@@ -278,6 +278,19 @@ test('the fake can be made to fail, to crash and to talk nonsense', async (t) =>
   assert.equal(nonsense.stdout, 'starting up\n');
 });
 
+test('the fake can be slow to answer one command, and then answers it as it would have', async (t) => {
+  const box = await createSandbox(t);
+  await box.orca.set({ hang: { command: 'status', ms: 1500 } });
+
+  const started = Date.now();
+  const slow = answer(ask(box, ['status', '--json']));
+  const took = Date.now() - started;
+
+  assert.ok(took >= 1500, `the call should have waited, took ${took} ms`);
+  assert.equal(slow.ok, true, 'and then answered as ever');
+  assert.equal(slow.result.runtime.reachable, true);
+});
+
 test('the fake records every call, in order, with what it was asked', async (t) => {
   const box = await createSandbox(t);
 
