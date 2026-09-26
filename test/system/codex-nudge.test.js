@@ -503,9 +503,23 @@ async function inboxOf(home, sessions) {
     assert.match(String(mailbox), /^run_/, `the book should hold ${session}'s Run, got: ${mailbox}`);
     runs[session] = mailbox;
   }
-  const answer = orca(['orchestration', 'inbox', '--limit', String(INBOX_LIMIT)]);
-  // Orca's error is about the call, not about anybody's mail.
-  assert.equal(answer.ok, true, `orca orchestration inbox --limit ${INBOX_LIMIT} failed: ${JSON.stringify(answer.error)}`);
+  // Not through `orca()`, whose failures print Orca's output: here that output
+  // is everybody's mail. Every failure below says what went wrong in words
+  // that cannot carry any of it: a status, a length, an error code.
+  const asked = `orca orchestration inbox --json --limit ${INBOX_LIMIT}`;
+  const done = spawnSync(ORCA, ['orchestration', 'inbox', '--json', '--limit', String(INBOX_LIMIT)], { encoding: 'utf8' });
+  assert.equal(done.error, undefined, `could not run ${ORCA}: ${done.error?.code}`);
+  let answer;
+  try {
+    answer = JSON.parse(done.stdout);
+  } catch {
+    assert.fail(`${asked} exited ${done.status} and did not answer JSON (${done.stdout.length} characters on stdout, ${done.stderr.length} on stderr; not shown, as they may hold other people's mail)`);
+  }
+  assert.equal(
+    answer?.ok,
+    true,
+    `${asked} was refused: error code ${JSON.stringify(answer?.error?.code ?? null)} (Orca's message is not shown, as it may quote other people's mail)`,
+  );
   const all = answer.result?.messages;
   assert.ok(Array.isArray(all), `the inbox should answer a list of messages, and answered ${all === undefined ? 'none' : typeof all}`);
   const ours = {};
