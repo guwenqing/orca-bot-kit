@@ -367,7 +367,13 @@ function run() {
   // machine already had.
   const before = listRuns();
 
-  const result = spawnSync(process.execPath, ['--test', ...files], { cwd: repo, stdio: 'inherit' });
+  // OBK_SYSTEM_TESTS is how a system test knows this command started it: loaded
+  // any other way, it skips (test/helpers/system.js, #328).
+  const result = spawnSync(process.execPath, ['--test', ...files], {
+    cwd: repo,
+    stdio: 'inherit',
+    env: { ...process.env, OBK_SYSTEM_TESTS: '1' },
+  });
 
   // After the tests, whatever they did: a failing run leaves Runs behind just
   // as a passing one does, and the developer is owed the accounting either way.

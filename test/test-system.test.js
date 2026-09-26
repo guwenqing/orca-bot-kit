@@ -23,6 +23,7 @@ import { chmod, copyFile, mkdir, readFile, realpath, symlink, writeFile } from '
 import os from 'node:os';
 import path from 'node:path';
 import { describe, test } from 'node:test';
+import { pathToFileURL } from 'node:url';
 
 import { assertRefused, createSandbox, node, orcaCallsOf, repoRoot } from './helpers/cli.js';
 
@@ -247,6 +248,152 @@ const NAMED_FILES = {
   'test/other.test.js': tallies('OTHER'),
 };
 
+// A system test drives the real Orca only when this command started it (#328).
+// Loaded any other way — `node --test <file>`, `node -e "import('<file>')"`, an
+// editor's runner — it touches nothing and says how to run it. The runner says
+// so to the files it starts through one variable, and the files take their
+// `test` from test/helpers/system.js, which skips unless the variable says so.
+
+/** The variable the runner sets for the system tests it starts. */
+const GATE = 'OBK_SYSTEM_TESTS';
+
+/** What a system test loaded any other way tells the developer to run instead. */
+const HOW_TO_RUN = 'npm run test:system -- --yes';
+
+/** The helper every system test takes its `test` from. */
+const helperEntry = path.join(repoRoot, 'test', 'helpers', 'system.js');
+
+/**
+ * A system test file that writes down what it saw of the gate, `<name>:<value>`,
+ * in `ran.log` beside the repo: the value of OBK_SYSTEM_TESTS its process was
+ * started with, or `unset`.
+ */
+const seesGate = (name) => [
+  "const { appendFileSync } = process.getBuiltinModule('node:fs');",
+  "const path = process.getBuiltinModule('node:path');",
+  "const { test } = process.getBuiltinModule('node:test');",
+  '',
+  `test(${JSON.stringify(name)}, () => {`,
+  `  const seen = process.env[${JSON.stringify(GATE)}] ?? 'unset';`,
+  `  appendFileSync(path.join(path.dirname(process.env[${JSON.stringify(WORLD)}]), 'ran.log'), ${JSON.stringify(`${name}:`)} + seen + '\\n');`,
+  '});',
+  '',
+].join('\n');
+
+/**
+ * A system test file written the way the real ones are: its `test` comes from
+ * `../helpers/system.js`, and nothing of node:test is loaded by the file itself.
+ * Its body writes its name in `ran.log` beside the repo, so a body that never
+ * ran leaves nothing there.
+ */
+const behindTheGate = (name) => [
+  "import { appendFileSync } from 'node:fs';",
+  "import path from 'node:path';",
+  '',
+  "import test from '../helpers/system.js';",
+  '',
+  `test(${JSON.stringify(name)}, () => {`,
+  `  appendFileSync(path.join(path.dirname(process.env[${JSON.stringify(WORLD)}]), 'ran.log'), ${JSON.stringify(`${name}\n`)});`,
+  '});',
+  '',
+].join('\n');
+
+/**
+ * A reporter for the test runner that prints one JSON line per test: whether it
+ * passed or failed, its name, and its skip reason exactly as the runner was
+ * given it (null when it was not skipped). The human reporters print the reason
+ * among other things; this one lets a test read it whole.
+ */
+const REPORTER = [
+  'export default async function* report(source) {',
+  '  for await (const event of source) {',
+  "    if (event.type !== 'test:pass' && event.type !== 'test:fail') continue;",
+  '    const { name, skip = null } = event.data;',
+  "    yield JSON.stringify({ type: event.type, name, skip }) + '\\n';",
+  '  }',
+  '}',
+  '',
+].join('\n');
+
+/** What the JSON reporter said, one entry per test, from a run's stdout. */
+const reported = (result) => result.stdout
+  .split('\n')
+  .filter((line) => line.startsWith('{'))
+  .map((line) => JSON.parse(line));
+
+/**
+ * A test file outside test/system/, in a throwaway folder, whose `test` is the
+ * real helper's: never a system test, so loading it drives nothing whatever the
+ * helper does. Its body writes `typeof t.after` into `ran.log` — `function` when
+ * it was handed node:test's own test context, as the system tests' bodies use it
+ * — and then throws when `fails` asks it to.
+ *
+ * It can be loaded the two ways #318's accident took: `viaTest`, as
+ * `node --test <file>` (and an editor's runner) does, and `viaImport`, as
+ * `node -e "import('<file>')"` did. Each takes the value of OBK_SYSTEM_TESTS to
+ * start it with, and none at all when `gate` is undefined, whatever the shell
+ * running this suite has; `reporter: false` gives the runner's own reporter,
+ * what a developer sees.
+ */
+async function guardedFile(t, { fails = false } = {}) {
+  const box = await createSandbox(t);
+  const file = path.join(box.root, 'guarded.test.mjs');
+  const ranLog = path.join(box.root, 'ran.log');
+  const reporter = path.join(box.root, 'reporter.mjs');
+  await writeFile(file, [
+    "import { appendFileSync } from 'node:fs';",
+    '',
+    `import test from ${JSON.stringify(pathToFileURL(helperEntry).href)};`,
+    '',
+    "test('GUARDED', (t) => {",
+    `  appendFileSync(${JSON.stringify(ranLog)}, typeof t.after + '\\n');`,
+    ...(fails ? ["  throw new Error('GUARDED failed');"] : []),
+    '});',
+    '',
+  ].join('\n'));
+  await writeFile(reporter, REPORTER);
+
+  // NODE_TEST_CONTEXT is set in every process this suite's runner starts, and a
+  // `node --test` that inherits it runs nothing (see createRepo).
+  const { NODE_TEST_CONTEXT: _context, [GATE]: _gate, ...bare } = box.env;
+  const envWith = (gate) => (gate === undefined ? bare : { ...bare, [GATE]: gate });
+  const reporterFlag = (wanted) => (wanted ? [`--test-reporter=${reporter}`] : []);
+
+  return {
+    viaTest: ({ gate, reporter: wanted = true } = {}) => node(
+      [...reporterFlag(wanted), '--test', file],
+      { cwd: box.cwd, env: envWith(gate) },
+    ),
+    viaImport: ({ gate, reporter: wanted = true } = {}) => node(
+      [...reporterFlag(wanted), '-e', `import(${JSON.stringify(pathToFileURL(file).href)})`],
+      { cwd: box.cwd, env: envWith(gate) },
+    ),
+    /** What the body wrote, once per time it ran: empty when it never did. */
+    async ran() {
+      try {
+        return (await readFile(ranLog, 'utf8')).split('\n').filter((line) => line !== '');
+      } catch (error) {
+        if (error.code === 'ENOENT') return [];
+        throw error;
+      }
+    },
+  };
+}
+
+/**
+ * The test was skipped, and says how to run it: one test, reported as a skip
+ * rather than a pass or a failure, whose reason is one line naming the command.
+ */
+function assertGated(result, what) {
+  const tests = reported(result);
+  assert.equal(tests.length, 1, `${what}: one test should be reported, got:\n${result.stdout}${result.stderr}`);
+  const [only] = tests;
+  assert.equal(only.type, 'test:pass', `${what}: a skip is not a failure, got:\n${result.stdout}${result.stderr}`);
+  assert.equal(typeof only.skip, 'string', `${what}: it should be skipped with a reason, got: ${JSON.stringify(only)}`);
+  assert.ok(!only.skip.includes('\n'), `${what}: the reason should be one line, got: ${JSON.stringify(only.skip)}`);
+  assert.ok(only.skip.includes(HOW_TO_RUN), `${what}: the reason should name \`${HOW_TO_RUN}\`, got: ${JSON.stringify(only.skip)}`);
+}
+
 async function write(dir, rel, text) {
   const file = path.join(dir, rel);
   await mkdir(path.dirname(file), { recursive: true });
@@ -287,7 +434,9 @@ async function createRepo(t, {
   // NODE_TEST_CONTEXT goes too: it is set in every process the test runner
   // starts, and a `node --test` that inherits it refuses to run any file. A
   // developer's shell does not have it, so neither does the script here.
-  const { OBK_ORCA: _override, NODE_TEST_CONTEXT: _context, ...bare } = box.env;
+  // OBK_SYSTEM_TESTS goes as well: it is the runner's to set (#328), and one
+  // left over in this shell would make a test of that pass whatever it did.
+  const { OBK_ORCA: _override, NODE_TEST_CONTEXT: _context, [GATE]: _gate, ...bare } = box.env;
 
   // The world goes into the environment as well as into the fake, because the
   // fixture's system test files are spawned by the script and read it from there.
@@ -1452,6 +1601,162 @@ describe('test-system', { concurrency: true }, () => {
         assertSkipped(accepted);
         assert.deepEqual(argsOf(await fixture.orca.calls()), [['status', '--json']]);
       });
+    });
+  });
+
+  // #318's accident: a test author checked that a new system test loads with
+  // `node -e "import('./test/system/…')"`, and loading a node:test file runs it,
+  // so it ran once against the real Orca. The runner is the one reviewed way
+  // in, and a system test loaded any other way must drive nothing (#328).
+  describe('a system test drives the machine only when this command started it', { concurrency: true }, () => {
+    describe('the helper a system test takes its `test` from', { concurrency: true }, () => {
+      test('loaded by `node --test` without OBK_SYSTEM_TESTS, the test is skipped, its body never runs, and it says how to run it', async (t) => {
+        const file = await guardedFile(t);
+
+        const result = await file.viaTest();
+
+        assert.equal(result.code, 0, `${result.stdout}${result.stderr}`);
+        assertGated(result, 'node --test');
+        assert.deepEqual(await file.ran(), [], 'the body should never have run');
+      });
+
+      test('loaded by `node --test` with the runner\'s own reporter, the developer is told the command', async (t) => {
+        const file = await guardedFile(t);
+
+        const result = await file.viaTest({ reporter: false });
+
+        assert.ok(
+          `${result.stdout}${result.stderr}`.includes(HOW_TO_RUN),
+          `the output should name \`${HOW_TO_RUN}\`, got:\n${result.stdout}${result.stderr}`,
+        );
+        assert.deepEqual(await file.ran(), [], 'the body should never have run');
+      });
+
+      test('loaded by `node -e "import(...)"` without OBK_SYSTEM_TESTS, the same: skipped, body never run, the command named', async (t) => {
+        const file = await guardedFile(t);
+
+        const result = await file.viaImport();
+        const plain = await file.viaImport({ reporter: false });
+
+        assert.equal(result.code, 0, `${result.stdout}${result.stderr}`);
+        assertGated(result, 'node -e import');
+        assert.ok(
+          `${plain.stdout}${plain.stderr}`.includes(HOW_TO_RUN),
+          `the output should name \`${HOW_TO_RUN}\`, got:\n${plain.stdout}${plain.stderr}`,
+        );
+        assert.deepEqual(await file.ran(), [], 'the body should never have run');
+      });
+
+      test('OBK_SYSTEM_TESTS set to anything but exactly 1 is the same as not set', async (t) => {
+        const file = await guardedFile(t);
+
+        for (const gate of ['', '0', 'true', 'yes', '01', '1 ', ' 1', '11']) {
+          const result = await file.viaTest({ gate });
+
+          assertGated(result, `OBK_SYSTEM_TESTS=${JSON.stringify(gate)}`);
+        }
+        assert.deepEqual(await file.ran(), [], 'the body should never have run');
+      });
+
+      test('with OBK_SYSTEM_TESTS=1 it is node:test\'s test: the body runs, with its test context, and passes', async (t) => {
+        const file = await guardedFile(t);
+
+        const tested = await file.viaTest({ gate: '1' });
+        const imported = await file.viaImport({ gate: '1' });
+
+        for (const [what, result] of [['node --test', tested], ['node -e import', imported]]) {
+          assert.equal(result.code, 0, `${what}: ${result.stdout}${result.stderr}`);
+          assert.deepEqual(
+            reported(result),
+            [{ type: 'test:pass', name: 'GUARDED', skip: null }],
+            `${what}: it should run and pass, not skip, got:\n${result.stdout}${result.stderr}`,
+          );
+        }
+        // Once for each load, and each time handed a test context with `after`,
+        // which is what the system tests clean up with.
+        assert.deepEqual(await file.ran(), ['function', 'function']);
+      });
+
+      test('with OBK_SYSTEM_TESTS=1 a body that fails fails the test, as node:test\'s own would', async (t) => {
+        const file = await guardedFile(t, { fails: true });
+
+        const result = await file.viaTest({ gate: '1' });
+
+        assert.equal(result.code, 1, `${result.stdout}${result.stderr}`);
+        assert.deepEqual(
+          reported(result).map(({ type, name }) => ({ type, name })),
+          [{ type: 'test:fail', name: 'GUARDED' }],
+          `${result.stdout}${result.stderr}`,
+        );
+        assert.deepEqual(await file.ran(), ['function']);
+      });
+    });
+
+    describe('the runner', { concurrency: true }, () => {
+      test('the confirmed run starts the system tests with OBK_SYSTEM_TESTS=1, a folder down as well', async (t) => {
+        const fixture = await createRepo(t, {
+          files: {
+            'test/system/alpha.test.js': seesGate('ALPHA'),
+            'test/system/nested/gamma.test.js': seesGate('GAMMA'),
+          },
+        });
+
+        const result = await fixture.confirmed();
+
+        assert.equal(result.code, 0, `${result.stdout}${result.stderr}`);
+        assert.deepEqual(await ranIn(fixture), ['ALPHA:1', 'GAMMA:1']);
+      });
+
+      test('the confirmed run sets OBK_SYSTEM_TESTS=1 whatever the developer\'s shell had in it', async (t) => {
+        const fixture = await createRepo(t, { files: { 'test/system/alpha.test.js': seesGate('ALPHA') } });
+
+        const result = await fixture.confirmed({ env: { ...fixture.env, [GATE]: '0' } });
+
+        assert.equal(result.code, 0, `${result.stdout}${result.stderr}`);
+        assert.deepEqual(await ranIn(fixture), ['ALPHA:1']);
+      });
+
+      test('a named run starts the named file with OBK_SYSTEM_TESTS=1 too', async (t) => {
+        const fixture = await createRepo(t, {
+          files: {
+            'test/system/alpha.test.js': seesGate('ALPHA'),
+            'test/system/beta.test.js': seesGate('BETA'),
+          },
+        });
+
+        const result = await fixture.confirmed({ names: ['test/system/beta.test.js'] });
+
+        assert.equal(result.code, 0, `${result.stdout}${result.stderr}`);
+        assert.deepEqual(await ranIn(fixture), ['BETA:1']);
+      });
+    });
+
+    test('a system test on the real helper runs under the confirmed command, and loaded any other way runs nothing and says how to run it', async (t) => {
+      // End to end, in a throwaway repo: a copy of the real helper beside a
+      // system test written the way the real ones are. Loaded directly first,
+      // so that anything in ran.log afterwards is the confirmed run's.
+      const fixture = await createRepo(t, {
+        files: {
+          'test/helpers/system.js': await readFile(helperEntry, 'utf8'),
+          'test/system/alpha.test.js': behindTheGate('ALPHA'),
+        },
+      });
+
+      const direct = await node(['--test', 'test/system/alpha.test.js'], { cwd: fixture.repo, env: fixture.env });
+      const imported = await node(['-e', "import('./test/system/alpha.test.js')"], { cwd: fixture.repo, env: fixture.env });
+
+      for (const [what, result] of [['node --test', direct], ['node -e import', imported]]) {
+        assert.ok(
+          `${result.stdout}${result.stderr}`.includes(HOW_TO_RUN),
+          `${what}: it should name \`${HOW_TO_RUN}\`, got:\n${result.stdout}${result.stderr}`,
+        );
+      }
+      assert.deepEqual(await ranIn(fixture), [], 'loaded directly, the system test\'s body should never have run');
+
+      const confirmed = await fixture.confirmed();
+
+      assert.equal(confirmed.code, 0, `${confirmed.stdout}${confirmed.stderr}`);
+      assert.deepEqual(await ranIn(fixture), ['ALPHA'], 'under the confirmed command it should have run once');
     });
   });
 });
