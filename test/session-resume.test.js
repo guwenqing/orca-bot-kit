@@ -37,6 +37,7 @@ import {
   conversationOnRecord,
   createSandbox,
   fakeProgram,
+  harnessPartOf,
   launchLine,
   orcaCallsOf,
   recordSession,
@@ -108,9 +109,10 @@ function settingsOnly(argv) {
 
 /**
  * The arguments a bare launch line hands its harness: the line without the
- * `OBK_TAB_SHELL=…` and `OBK_CLI=…` in front of it and without the harness word itself.
+ * mailbox step, `OBK_TAB_SHELL=…` and `OBK_CLI=…` in front of it and without
+ * the harness word itself.
  */
-const bareArgvOf = (box, harness) => bareLaunch(box, harness, 'api-bot', 'daily').split(' ').slice(3);
+const bareArgvOf = (box, harness) => harnessPartOf(bareLaunch(box, harness, 'api-bot', 'daily')).split(' ').slice(3);
 
 /**
  * The launch arguments with the resume words taken out, whichever harness's
@@ -168,7 +170,7 @@ test('codex resumes the session the book holds, and is not told its duty again',
 
   assert.equal(again.typed.length, 1, `one send per tab the kit opens, got: ${JSON.stringify(again.typed)}`);
   const line = again.typed[0];
-  assert.ok(line.startsWith(launchLine(box, 'codex resume ')), `Codex resumes through the subcommand, got: ${line}`);
+  assert.ok(line.startsWith(launchLine(box, 'codex resume ', { bot: 'api-bot', session: 'daily' })), `Codex resumes through the subcommand, got: ${line}`);
   assert.ok(!line.includes(PROMPT), `the session already has its duty, got: ${line}`);
 
   const argv = await argvOf(box, line, fake);
@@ -257,7 +259,7 @@ test('a session the book holds no id for comes up fresh, with its start prompt',
 
   const again = await up(box);
 
-  assert.deepEqual(again.typed, [`${bareLaunch(box, 'codex')} -- '${PROMPT}'`]);
+  assert.deepEqual(again.typed, [`${bareLaunch(box, 'codex', 'api-bot', 'daily')} -- '${PROMPT}'`]);
   assert.ok(!again.typed[0].includes('resume'), `there is nothing to resume, got: ${again.typed[0]}`);
 });
 

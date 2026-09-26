@@ -16,12 +16,14 @@
 //   3. Every session gets a Run mailbox, made once and kept for ever. A
 //      terminal handle is not an address to keep: Orca calls it a legacy
 //      mailbox that dies with the tab, and refuses a send to a handle whose
-//      pane is gone. A Run is refused nothing, so `up` makes one per session
-//      and writes it in the book beside the tab.
+//      pane is gone. A Run is refused nothing, so each session has one,
+//      written in the book beside the tab. Since #317 the session's own tab
+//      makes it, in the step its launch line starts with: Orca 1.4.210 lets a
+//      tab bind a Run to itself and to no other, so `up` cannot.
 //
 // A Run cannot be deleted — Orca has no command for it — so making one twice
-// is a Run that belongs to nothing for ever. That is why `up` making exactly
-// one, however often it runs, is a test of its own.
+// is a Run that belongs to nothing for ever. That is why exactly one, however
+// often `up` runs, is a test of its own.
 
 import assert from 'node:assert/strict';
 import { writeFile } from 'node:fs/promises';
@@ -92,7 +94,7 @@ test('a Codex session is launched with the sandbox switch that lets it reach Orc
 
   const { lines } = await up(box, bots);
 
-  assert.equal(lines['Api Bot daily'], bareLaunch(box, 'codex'));
+  assert.equal(lines['Api Bot daily'], bareLaunch(box, 'codex', 'api-bot', 'daily'));
   assert.ok(lines['Api Bot daily'].includes(CODEX_NETWORK), `got: ${lines['Api Bot daily']}`);
 });
 
@@ -100,18 +102,20 @@ test('a Codex session whose user turned the network off is launched without the 
   // The switch widens that session's sandbox beyond localhost and there is no
   // narrower setting, so a user who does not want it says so for that session.
   // Their own setting wins and the kit adds nothing beside it; nothing else
-  // about the line changes, and the session beside it is untouched.
+  // about the line changes, and the session beside it is untouched. A session
+  // that cannot reach Orca can have no mailbox, so its line has no mailbox
+  // step either (#317).
   const box = await createSandbox(t);
   const bots = await withBot(box, 'codex', [['daily', ...OFF], ['night']]);
 
   const { lines } = await up(box, bots);
 
-  assert.equal(lines['Api Bot daily'], launchLine(box, `codex --approve-for-me ${OFF_WORDS}`));
+  assert.equal(lines['Api Bot daily'], launchLine(box, `codex --approve-for-me ${OFF_WORDS}`, null));
   assert.ok(
     !lines['Api Bot daily'].includes(CODEX_NETWORK),
     `the kit must not put its own switch back beside theirs, got: ${lines['Api Bot daily']}`,
   );
-  assert.equal(lines['Api Bot night'], bareLaunch(box, 'codex'), 'and the session beside it is untouched');
+  assert.equal(lines['Api Bot night'], bareLaunch(box, 'codex', 'api-bot', 'night'), 'and the session beside it is untouched');
 });
 
 test('a session that asks for the switch itself is not given it twice', async (t) => {
@@ -120,7 +124,7 @@ test('a session that asks for the switch itself is not given it twice', async (t
 
   const { lines } = await up(box, bots);
 
-  assert.equal(lines['Api Bot daily'], launchLine(box, `codex --approve-for-me ${CODEX_NETWORK}`));
+  assert.equal(lines['Api Bot daily'], launchLine(box, `codex --approve-for-me ${CODEX_NETWORK}`, { bot: 'api-bot', session: 'daily' }));
 });
 
 test('up gives a Claude session a mailbox and writes both addresses in the book', async (t) => {
@@ -205,32 +209,29 @@ test('a mailbox is made once and kept, however many times up runs', async (t) =>
   assert.equal((await sessionIn(bots, 'api-bot', 'daily')).mailbox, first.mailbox, 'and the book still names it');
 });
 
-test('two runs at the same moment leave the session with the mailbox that was written first', async (t) => {
-  // The case running `up` twice in a row cannot reach. Both runs read a book
-  // with no mailbox in it and both ask Orca for a Run, because the Orca call is
-  // made outside the book's lock; what must not happen is the later one writing
-  // its Run over the one already in the book. A session whose mailbox is
-  // replaced is a session that no longer reads the mailbox its fleet has been
-  // writing to, and whatever was waiting in the first one is unreachable — Orca
-  // has no way to hand a Run's mail to another Run, or to delete either.
+// Two runs of `up` at the same moment used to race for the mailbox here, each
+// asking Orca for a Run outside the book's lock (#228). Since #317 `up` asks
+// Orca for no Run, and the race is the step's: mailbox-attestation.test.js has
+// the test that the book keeps the mailbox written first.
+
+test('two runs at the same moment, neither of which found the session\'s tab, leave it one mailbox bound to the tab the book names', async (t) => {
+  // Both runs open a tab and type the launch line, and each tab's step gives
+  // the session its mailbox. The book ends up naming the tab of whichever run
+  // wrote last, which is a real tab, and one mailbox, which is where the
+  // fleet's mail goes; that mailbox has to be bound to that tab, or Orca's
+  // notice for it goes to a tab the book has forgotten.
   //
   // The overlap is arranged rather than hoped for: the fake runs the second
-  // `up` to completion in the middle of the first one's `run-create`, so the
-  // second one has read, made its Run and written the book before the first one
-  // has its own Run in hand.
+  // `up` to completion in the middle of the first one's `terminal create`, so
+  // the second has opened its tab, typed its line and had its step run before
+  // the first has a tab at all.
   const box = await createSandbox(t);
   const bots = await withBot(box, 'claude', [['daily']]);
-  await up(box, bots);
-  const book = await bookIn(bots, 'api-bot');
-  delete book.sessions.daily.mailbox;
-  await writeFile(bookOf(bots, 'api-bot'), stringify(book));
   const runsBefore = (await box.orca.runs()).length;
   await box.orca.set({
     runDuring: {
-      command: 'orchestration run-create',
-      on: orcaCallsOf(await box.orca.calls(), 'orchestration run-create').length + 1,
-      // The second run, and then the book as it left it: what the first run
-      // must not undo.
+      command: 'terminal create',
+      on: orcaCallsOf(await box.orca.calls(), 'terminal create').length + 1,
       argv: ['/bin/sh', '-c', `obk up --bots ${bots} --bot api-bot > /dev/null && cat ${bookOf(bots, 'api-bot')}`],
     },
   });
@@ -243,62 +244,29 @@ test('two runs at the same moment leave the session with the mailbox that was wr
   assert.equal(ran[0].status, 0, `and it should not have failed: ${ran[0].stderr}`);
 
   const wonIt = (parse(ran[0].stdout) ?? {}).sessions?.daily?.mailbox;
-  assert.ok(typeof wonIt === 'string', `the second run should have written a mailbox, got: ${ran[0].stdout}`);
-  assert.equal(
-    (await sessionIn(bots, 'api-bot', 'daily')).mailbox,
-    wonIt,
-    'the book keeps the mailbox that was there, and the later run leaves its own Run unused',
-  );
-  assert.equal(
-    (await box.orca.runs()).length,
-    runsBefore + 2,
-    'both runs did ask Orca for one, which is what makes this worth guarding: the ask is outside the lock',
-  );
-});
-
-test('and the same when neither run has opened the session\'s tab yet', async (t) => {
-  // The same requirement one branch over. The book is written in two places —
-  // beside the tab a run has just opened, and on its own for a session whose
-  // tab was already there — and a session that has never been up goes through
-  // the first of them. Both runs open a tab and both make a Run; the book ends
-  // up naming the tab of whichever run wrote last, which is a real tab, and the
-  // mailbox of whichever wrote first, which is where the fleet's mail is.
-  const box = await createSandbox(t);
-  const bots = await withBot(box, 'claude', [['daily']]);
-  const runsBefore = (await box.orca.runs()).length;
-  await box.orca.set({
-    runDuring: {
-      command: 'orchestration run-create',
-      on: orcaCallsOf(await box.orca.calls(), 'orchestration run-create').length + 1,
-      argv: ['/bin/sh', '-c', `obk up --bots ${bots} --bot api-bot > /dev/null && cat ${bookOf(bots, 'api-bot')}`],
-    },
-  });
-
-  const first = await box.run(['up', '--bots', 'bots', '--bot', 'api-bot']);
-
-  assert.equal(first.code, 0, first.stderr);
-  const ran = await box.orca.ranDuring();
-  assert.equal(ran.length, 1, `the second run should have gone through the middle of the first, got: ${JSON.stringify(ran)}`);
-  assert.equal(ran[0].status, 0, `and it should not have failed: ${ran[0].stderr}`);
-
-  const wonIt = (parse(ran[0].stdout) ?? {}).sessions?.daily?.mailbox;
-  assert.ok(typeof wonIt === 'string', `the second run should have written a mailbox, got: ${ran[0].stdout}`);
+  assert.ok(typeof wonIt === 'string', `the second run's tab should have written a mailbox, got: ${ran[0].stdout}`);
   const daily = await sessionIn(bots, 'api-bot', 'daily');
   assert.equal(daily.mailbox, wonIt, 'the mailbox the session already had is the one it keeps, tab or no tab');
-  assert.equal((await box.orca.runs()).length, runsBefore + 2, 'and both runs did ask Orca for one');
-  assert.ok(
-    (await tabsOfBot(box, bots, 'api-bot')).some((tab) => tab.tabId === daily.tab),
-    `and the tab the book names is one Orca really has: ${JSON.stringify(daily)}`,
+  assert.equal((await box.orca.runs()).length, runsBefore + 1, 'and no second Run is made for it');
+  const tab = (await tabsOfBot(box, bots, 'api-bot')).find((one) => one.tabId === daily.tab);
+  assert.ok(tab !== undefined, `the tab the book names is one Orca really has: ${JSON.stringify(daily)}`);
+  assert.equal(
+    (await box.orca.runs()).find((run) => run.id === daily.mailbox).coordinator_handle,
+    tab.handle,
+    'and the mailbox is bound to it',
   );
 });
 
-test('a session that was already running is given a mailbox and no name', async (t) => {
+test('a session that was already running is given no mailbox and no name', async (t) => {
   // The upgrade: a session started by a kit that did not name sessions, its tab
   // still live. Nothing renames a live harness — the name is what `-n` put on
-  // the line that started it — so a run that finds the tab already there may
-  // write the mailbox and must not write a name. A name in the book that no
-  // harness answers to is worse than none: it is an address the fleet would be
-  // told to write to, and nothing would ever arrive.
+  // the line that started it — so a run that finds the tab already there must
+  // not write a name. A name in the book that no harness answers to is worse
+  // than none: it is an address the fleet would be told to write to, and
+  // nothing would ever arrive. Nor can it give the tab a mailbox: on Orca
+  // 1.4.210 only the tab itself can bind one to itself, and nothing is typed
+  // into a tab that is already running, so the session gets its mailbox the
+  // next time the kit launches it (#317).
   const box = await createSandbox(t);
   const bots = await withBot(box, 'claude', [['daily']]);
   await up(box, bots);
@@ -307,11 +275,14 @@ test('a session that was already running is given a mailbox and no name', async 
   delete book.sessions.daily.mailbox;
   await writeFile(bookOf(bots, 'api-bot'), stringify(book));
 
+  const runs = (await box.orca.runs()).length;
+
   const again = await box.run(['up', '--bots', 'bots', '--bot', 'api-bot']);
 
   assert.equal(again.code, 0, again.stderr);
   const daily = await sessionIn(bots, 'api-bot', 'daily');
-  assert.ok(typeof daily.mailbox === 'string', `it can be written to: ${JSON.stringify(daily)}`);
+  assert.equal(daily.mailbox, undefined, `it is given no mailbox this time: ${JSON.stringify(daily)}`);
+  assert.equal((await box.orca.runs()).length, runs, 'and no Run is made for it');
   assert.equal(daily.address, undefined, `and it answers to no name: ${JSON.stringify(daily)}`);
   assert.deepEqual(
     typedInto((await tabsOfBot(box, bots, 'api-bot'))[0]).slice(1),
@@ -343,15 +314,17 @@ test('a session whose tab this run opened is given its name, because the line ca
   );
 });
 
-test('a session whose book entry has no mailbox is given one at the next up', async (t) => {
+test('a session whose book entry has no mailbox is given one the next time up launches it', async (t) => {
   // The honest case behind "cannot be reached yet": a book written before this
-  // existed, or by hand. `up` is what fills it in.
+  // existed, or by hand. The launch that `up` types into a new tab is what
+  // fills it in (#317), so the session's tab is closed first.
   const box = await createSandbox(t);
   const bots = await withBot(box, 'claude', [['daily']]);
   await up(box, bots);
   const book = await bookIn(bots, 'api-bot');
   delete book.sessions.daily.mailbox;
   await writeFile(bookOf(bots, 'api-bot'), stringify(book));
+  await box.orca.set({ terminals: [] });
 
   const again = await box.run(['up', '--bots', 'bots', '--bot', 'api-bot']);
 

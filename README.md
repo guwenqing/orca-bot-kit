@@ -499,10 +499,16 @@ and the sending session writes to that name itself, because no command can send
 that message for it. Everything else goes through Orca's mailbox, which the kit
 does carry.
 
-A session's mailbox is made the first time `obk up` brings it up, and written in
+A session's mailbox is made the first time the kit starts it, and written in
 the book beside its tab. It is an Orca Run rather than the session's tab,
 because a tab's address dies with the tab and a Run does not — so a message sent
 while a session is down is still there when it comes back.
+
+Orca lets a tab bind a mailbox to itself and to no other, so the mailbox is made
+and bound from inside the session's own tab: the launch line the kit types there
+runs `obk session mailbox` before the harness. For the same reason a session's
+mail is read in its own tab. `message check` from any other tab reads nothing,
+binds nothing, and says so; the mail waits.
 
 Nothing in a mailbox wakes anybody, so `message send` also types one line into
 the receiver's tab telling it to look. Both harnesses take a typed line as the

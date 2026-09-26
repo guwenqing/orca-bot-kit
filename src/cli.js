@@ -28,7 +28,7 @@ import { buildAgents, buildRules, CODEX_CAP } from './rules.js';
 import { addSkill, buildSkills, linkSkills, removeSkill } from './skills.js';
 import { addSource, fetchSources } from './sources.js';
 import { readUsage } from './usage.js';
-import { BOT_FATHER, bringUp } from './up.js';
+import { BOT_FATHER, bringUp, ownMailbox } from './up.js';
 
 const USAGE = `obk — Orca Bot Kit.
 
@@ -186,6 +186,10 @@ Usage:
                             For the kit's own hook, not for typing: it reads
                             what the harness says about a session starting on
                             standard input and writes it into the book.
+  obk session mailbox --bots <path> --bot <bot> --session <name>
+                            For the kit's own launch line, not for typing: run
+                            in the session's own tab, it gives the session its
+                            mailbox, or binds the one it has, to that tab.
   obk --version             Print the kit's version.
   obk --help                Print this text.
 
@@ -221,6 +225,7 @@ const COMMANDS = {
   'message send': ['bots', 'to', 'subject'],
   'message check': ['bots'],
   'session record': ['bots', 'bot'],
+  'session mailbox': ['bots', 'bot', 'session'],
 };
 
 /** What each flag is for, in the sentence a caller reads when it is missing. */
@@ -794,6 +799,17 @@ const commands = {
         `Bring it up:  ${shellWord(ownCli())} up --bots ${shellWord(bots)} --bot ${added.bot}`,
       ],
     };
+  },
+
+  async 'session mailbox'(bots, values) {
+    const answer = await ownMailbox(bots, values.bot, values.session);
+    const who = `${answer.bot}/${answer.session}`;
+    const said = {
+      made: `${who} has its mailbox ${answer.mailbox}, made in this tab.`,
+      bound: `${who}'s mailbox ${answer.mailbox} is bound to this tab.`,
+      none: `${who} gets no mailbox: it is a Codex session with its sandbox switch off, which could not read one.`,
+    };
+    return { answer, lines: [said[answer.change]] };
   },
 
   'session change'(bots, values) {

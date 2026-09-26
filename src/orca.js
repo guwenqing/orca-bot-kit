@@ -418,26 +418,30 @@ export function typeIntoTab(handle, text) {
 /** How long a re-issued line is given to be submitted before Orca gives up on it. */
 const SUBMIT_WAIT_S = 5;
 
+/** Where Orca names the terminal a process runs in, in every pane it opens. */
+export const TERMINAL_ENV = 'ORCA_TERMINAL_HANDLE';
+
 /**
  * A mailbox of one session's own: an Orca Run, which is a name and an inbox and
  * nothing else — it schedules nothing and runs nobody. The objective is what a
  * person sees in `orca orchestration run-list`, so it says whose it is.
  *
- * Bound to `handle`, the session's own tab, from the moment it is made. Orca
- * tells a Run's coordinator terminal about its mail and nobody else, and binds
- * the caller when no `--from` is given: the tab that ran `obk up` would be told
- * about every session it brought up, and would lose its own Run's binding, since
- * one terminal holds one Run (tech notes, section 1).
+ * Bound to the terminal this process runs in, which has to be the session's own
+ * tab: Orca tells a Run's coordinator terminal about its mail and nobody else,
+ * and one terminal holds one Run. Orca 1.4.210 lets a process in a tab bind a
+ * Run to that tab and to no other, so this is called from inside the session's
+ * tab and names no `--from` (tech notes, section 1; #317).
  */
-export const makeMailbox = (objective, handle) =>
-  orca(['orchestration', 'run-create', '--objective', `obk ${objective}`, '--from', handle]).run.id;
+export const makeMailbox = (objective) =>
+  orca(['orchestration', 'run-create', '--objective', `obk ${objective}`]).run.id;
 
 /**
  * Bind a mailbox to the terminal `handle`, which makes it the Run's coordinator
  * and its one reader: Orca refuses a `check` from any other terminal with
  * `consumer_fenced`. A read itself binds nothing, so this is for a session's own
  * live tab, never for whoever is reading (tech notes, section 1). Without a
- * handle it binds this process's own terminal.
+ * handle it binds this process's own terminal; on Orca 1.4.210 a process in a
+ * tab may name no other (#317).
  */
 export const useMailbox = (id, handle) =>
   orca(['orchestration', 'run-use', '--id', id, ...(handle === undefined ? [] : ['--from', handle])]).run;

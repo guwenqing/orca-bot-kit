@@ -278,6 +278,17 @@ const quoted = (word) => (/^[A-Za-z0-9,._+:@%/=-]+$/.test(word) ? word : `'${wor
 export const shellWord = quoted;
 
 /**
+ * What a launch line starts with for a session that can have a mailbox: the
+ * kit itself, run by the new tab's shell before the harness, giving the session
+ * its mailbox bound to that tab. Orca 1.4.210 lets a process in a tab bind a
+ * Run to that tab and to no other, so the `obk` that opened the tab cannot do
+ * it (#317). The line joins it with `;`, so the harness starts whatever became
+ * of it.
+ */
+export const mailboxStep = (bots, bot, session) =>
+  [ownCli(), 'session', 'mailbox', '--bots', bots, '--bot', bot, '--session', session].map(quoted).join(' ');
+
+/**
  * The CLI that is running, by the path it was started by: the kit calls itself
  * back with this, never with the bare name `obk`, because the bare name is
  * whatever PATH says, and PATH is not the kit's to decide (#220). A user's

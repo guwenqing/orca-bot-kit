@@ -21,7 +21,7 @@ import path from 'node:path';
 import { readBook } from './book.js';
 import { botDir, botNames, readBot } from './bot.js';
 import { harnessOf, ownCli, reachesMail, shellWord } from './launch.js';
-import { ackMailbox, coordinatorOf, postMessage, readMailbox, tabs, tabToTypeInto, typeIntoTab, useMailbox } from './orca.js';
+import { ackMailbox, coordinatorOf, postMessage, readMailbox, tabs, tabToTypeInto, TERMINAL_ENV, typeIntoTab, useMailbox } from './orca.js';
 
 /**
  * How much of a message travels as itself. Above this it is written to a file
@@ -200,6 +200,20 @@ export function checkMail(bots, { bot: botName, session: sessionName, tab, peek 
   // whatever its mailbox is bound to, a closed tab included, and nothing is
   // bound: the session's tab is bound again when it is back up (issue #249).
   const live = who.tab === undefined ? undefined : tabs(who.home).find((tab) => tab.tabId === who.tab)?.handle;
+  // Orca 1.4.210 lets a process in a tab bind and read as that tab and no
+  // other, and refuses the rest with nothing done (#317). So from inside any
+  // other tab, the kit asks nothing and says where the mail can be read.
+  const caller = process.env[TERMINAL_ENV];
+  if (caller !== undefined && caller !== live) {
+    return {
+      bots,
+      bot: who.bot,
+      session: who.session,
+      mailbox: who.mailbox,
+      messages: [],
+      trouble: `${who.bot}/${who.session}'s mail can be read only in its own tab: Orca lets a tab bind and read its own mailbox and no other. Nothing was read, and its mail is still waiting.`,
+    };
+  }
   if (live !== undefined) useMailbox(who.mailbox, live);
   const handle = live ?? coordinatorOf(who.mailbox);
   if (handle === undefined) {

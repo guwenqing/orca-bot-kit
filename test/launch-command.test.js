@@ -7,10 +7,11 @@
 // starts anyway, on its own defaults, and the session runs for days at the
 // wrong approval level or the wrong model with nothing to show for it.
 //
-// The order is fixed — the tab shell's pid, the kit's own CLI, harness,
-// approval, model, effort, context, `--add-dir`, extra args, `--`, prompt — so a
-// reader of an Orca tab sees the same shape for every session. The two in front
-// are `OBK_TAB_SHELL` and `OBK_CLI`, which the tables below leave out and
+// The order is fixed — the session's mailbox step and its `;` (#317), the tab
+// shell's pid, the kit's own CLI, harness, approval, model, effort, context,
+// `--add-dir`, extra args, `--`, prompt — so a reader of an Orca tab sees the
+// same shape for every session. The three in front are the mailbox step,
+// `OBK_TAB_SHELL` and `OBK_CLI`, which the tables below leave out and
 // `launchLine` puts back: they say nothing about the flag mapping, which is
 // what they are for. The `--` comes only with a prompt, and it is there
 // because a prompt may begin with a dash: without it `claude` exits 1 with
@@ -44,6 +45,9 @@ import {
   tabsOfBot,
   typedInto,
 } from './helpers/cli.js';
+
+/** Whose mailbox step `launchOf`'s line starts with: its one bot and session. */
+const API_DAILY = { bot: 'api-bot', session: 'daily' };
 
 /**
  * A bot with one session, brought up, and the line that was typed into its tab.
@@ -141,7 +145,7 @@ for (const [harness, cases] of [['claude', CLAUDE], ['codex', CODEX]]) {
     test(`${harness}, ${label}: ${expected}`, async (t) => {
       const box = await createSandbox(t);
 
-      assert.equal(await launchOf(box, harness, settings), launchLine(box, expected));
+      assert.equal(await launchOf(box, harness, settings), launchLine(box, expected, API_DAILY));
     });
   }
 }
@@ -155,7 +159,7 @@ test('a session runs on its own harness, whatever the bot runs on', async (t) =>
 test('a session with no harness of its own runs on the bot\'s', async (t) => {
   const box = await createSandbox(t);
 
-  assert.equal(await launchOf(box, 'codex', []), bareLaunch(box, 'codex'));
+  assert.equal(await launchOf(box, 'codex', []), bareLaunch(box, 'codex', 'api-bot', 'daily'));
 });
 
 test('Codex gets --add-dir for a work dir outside the bot home, and nothing for one inside', async (t) => {
@@ -170,11 +174,11 @@ test('Codex gets --add-dir for a work dir outside the bot home, and nothing for 
   const near = await launchOf(inside, 'codex', ['--work-dir', 'work/api']);
 
   assert.ok(
-    far.startsWith(launchLine(box, `codex --approve-for-me -c sandbox_workspace_write.network_access=true --add-dir ${outside} -- '`)),
+    far.startsWith(launchLine(box, `codex --approve-for-me -c sandbox_workspace_write.network_access=true --add-dir ${outside} -- '`, API_DAILY)),
     `--add-dir should come after the settings and before the prompt, got: ${far}`,
   );
   assert.ok(
-    near.startsWith(`${bareLaunch(inside, 'codex')} -- '`),
+    near.startsWith(`${bareLaunch(inside, 'codex', 'api-bot', 'daily')} -- '`),
     `a work dir under the bot home is already inside the sandbox, got: ${near}`,
   );
 });
@@ -189,7 +193,7 @@ test('a work dir that is the bot home itself brings no --add-dir', async (t) => 
   const typed = await launchOf(box, 'codex', ['--work-dir', '.']);
 
   assert.ok(!typed.includes('--add-dir'), `the bot home is already inside the sandbox, got: ${typed}`);
-  assert.ok(typed.startsWith(bareLaunch(box, 'codex')), `got: ${typed}`);
+  assert.ok(typed.startsWith(bareLaunch(box, 'codex', 'api-bot', 'daily')), `got: ${typed}`);
 });
 
 test('--add-dir is given the absolute path, even when the work dir was written relative', async (t) => {
@@ -201,7 +205,7 @@ test('--add-dir is given the absolute path, even when the work dir was written r
 
   const home = botHomeOf(box.path('bots'), 'api-bot');
   assert.ok(
-    typed.startsWith(launchLine(box, `codex --approve-for-me -c sandbox_workspace_write.network_access=true --add-dir ${path.resolve(home, '../shared-clones')} -- '`)),
+    typed.startsWith(launchLine(box, `codex --approve-for-me -c sandbox_workspace_write.network_access=true --add-dir ${path.resolve(home, '../shared-clones')} -- '`, API_DAILY)),
     `got: ${typed}`,
   );
 });
@@ -234,7 +238,7 @@ test('an extra_args written by hand as one string is typed as it stands', async 
   assert.equal((await box.run(['up', '--bots', 'bots', '--bot', 'api-bot'])).code, 0);
 
   const tabs = await tabsOfBot(box, box.path('bots'), 'api-bot');
-  assert.deepEqual(typedInto(tabs[0]), [launchLine(box, 'codex --approve-for-me -c sandbox_workspace_write.network_access=true --search --profile mine')]);
+  assert.deepEqual(typedInto(tabs[0]), [launchLine(box, 'codex --approve-for-me -c sandbox_workspace_write.network_access=true --search --profile mine', API_DAILY)]);
 });
 
 for (const harness of ['claude', 'codex']) {
