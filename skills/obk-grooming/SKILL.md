@@ -65,7 +65,8 @@ them says so and reads less, not everything.
 The open findings are what stops the same thing being reported every day:
 before filing an issue or sending feedback, look there, and where it is already
 open, add to it rather than raising it again. Take a finding off when it is
-fixed or no longer true. Commit these once a day, at the end of the run.
+fixed or no longer true. Commit these at the end of each run, naming each
+file when you stage it and again in the commit.
 
 ## Keep the run bounded
 
