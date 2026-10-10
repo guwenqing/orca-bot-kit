@@ -824,26 +824,34 @@ test('R3 a child started on TERM in a group of its own, whose parent exits later
   assert.deepEqual(processesIn(answer).stopped.filter((one) => one.pid === 51232).map((one) => one.signal), ['SIGKILL']);
 });
 
-test('R3 a child that first appears at the deadline gets its own TERM, and KILL only 3 s after it', async (t) => {
+test('R3 a child that first appears after the deadline gets its own TERM, and KILL only 3 s after it', async (t) => {
   const box = await createSandbox(t);
   await devFleet(box);
   const outside = await throwaway(box);
-  // 51241 ignores TERM. Its child 51242, in its group, starts 2.9 s after the
-  // first signal: about when the first wait ends and 51241 gets its KILL.
+  // 51241 ignores TERM, and KILL does not end it either, so it is alive when
+  // its child 51242, in its group, starts 3.5 s after the first signal: after
+  // the first wait has ended and 51241 has had its KILL. A child is forked by
+  // a parent that is alive, so the parent stays in the table.
   await table(box, [
-    { pid: 51241, ppid: 1, pgid: 51241, cwd: workOf(box, 'dev'), command: 'node respawner.js', ignoresTerm: true },
-    { pid: 51242, ppid: 51241, pgid: 51241, cwd: outside, command: 'node late-worker.js', ignoresTerm: true, appearsAfterMs: 2900 },
+    { pid: 51241, ppid: 1, pgid: 51241, cwd: workOf(box, 'dev'), command: 'node respawner.js', ignoresTerm: true, unkillable: true },
+    { pid: 51242, ppid: 51241, pgid: 51241, cwd: outside, command: 'node late-worker.js', ignoresTerm: true, appearsAfterMs: 3500 },
   ]);
 
   const answer = answerIn(await retire(box, ['--session', 'dev', '--json']));
 
   const calls = await box.kill.calls();
+  const argvs = JSON.stringify(calls.map((call) => call.args));
   assert.deepEqual(calls[0]?.args, term(-51241), 'TERM to the group comes first');
+  const parentKill = callOf(calls, kill(51241));
   const childTerm = callOf(calls, term(51242));
   const childKill = callOf(calls, kill(51242));
-  assert.ok(childTerm !== undefined, `the late child gets its own TERM, by pid, got: ${JSON.stringify(calls.map((call) => call.args))}`);
-  assert.ok(childKill !== undefined && childKill.index > childTerm.index, `and KILL by pid after it, got: ${JSON.stringify(calls.map((call) => call.args))}`);
+  assert.ok(parentKill !== undefined, `the premise: the parent got its KILL at the first deadline, got: ${argvs}`);
+  assert.ok(childTerm !== undefined, `the late child gets its own TERM, by pid, got: ${argvs}`);
+  assert.ok(childTerm.index > parentKill.index, `the premise: the child was found after the first deadline, got: ${argvs}`);
+  assert.ok(childKill !== undefined && childKill.index > childTerm.index, `and KILL by pid after it, got: ${argvs}`);
   const waited = childKill.at - childTerm.at;
   assert.ok(waited >= 2500, `KILL comes only after its own wait of 3 s from its own TERM; it came after ${waited} ms`);
-  assert.deepEqual(processesIn(answer).stopped.filter((one) => one.pid === 51242).map((one) => one.signal), ['SIGKILL']);
+  const processes = processesIn(answer);
+  assert.deepEqual(processes.stopped.filter((one) => one.pid === 51242).map((one) => one.signal), ['SIGKILL']);
+  assert.deepEqual(processes.left.map((one) => one.pid), [51241], 'the parent, which KILL did not end, is left');
 });
