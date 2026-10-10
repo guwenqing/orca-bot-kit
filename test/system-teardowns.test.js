@@ -192,6 +192,9 @@ function closingOf(code, open) {
   return -1;
 }
 
+/** `text` with every regular expression metacharacter escaped, to match it as it is. */
+const escaped = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 /**
  * The list a `deleteOwnProject(` at `at` keeps its failure in, or undefined
  * when it does not keep it: the call is awaited, sits in the innermost `try`
@@ -213,7 +216,7 @@ function keptIn(body, at) {
   const open = inner + caught[0].length;
   const handler = body.slice(open + 1, closingOf(body, open));
   const list = /([A-Za-z_$][\w$]*)\.push\(/.exec(handler)?.[1];
-  if (list === undefined || !new RegExp(`\\b${caught[1].replace(/\$/g, '\\$')}\\b`).test(handler)) return undefined;
+  if (list === undefined || !new RegExp(`\\b${escaped(caught[1])}\\b`).test(handler)) return undefined;
   return list;
 }
 
@@ -223,7 +226,7 @@ function assertsLastThatNoneFailed(body, lists) {
   let rest = body;
   let first = Infinity;
   for (const list of lists) {
-    const found = [...body.matchAll(new RegExp(`\\bassert\\.deepEqual\\(\\s*${list.replace(/\$/g, '\\$')}\\s*,\\s*\\[\\s*\\]`, 'g'))].at(-1);
+    const found = [...body.matchAll(new RegExp(`\\bassert\\.deepEqual\\(\\s*${escaped(list)}\\s*,\\s*\\[\\s*\\]`, 'g'))].at(-1);
     if (found === undefined || found.index < removed) return false;
     first = Math.min(first, found.index);
     const end = closingOf(body, found.index + 'assert.deepEqual'.length);
@@ -243,8 +246,8 @@ function forbiddenIn(code) {
 }
 
 /**
- * The #536 rule, on the raw text with nothing taken out (the owner's ruling on
- * the fourth review of PR #546): a system test names neither `setup-delete` nor
+ * The #536 rule, on the raw text with nothing taken out (the developer's
+ * decision, accepted in the fourth review of PR #546): a system test names neither `setup-delete` nor
  * `deleteProject(` anywhere, comments and strings included.
  */
 function namedIn(source) {
@@ -502,8 +505,8 @@ test('the check names a guarded teardown that still sends its own setup-delete, 
   assert.deepEqual(teardownTrouble(GUARDED_BEFORE_536), [SENDS]);
 });
 
-// The owner's ruling on the fourth review of PR #546: the #536 rule reads the
-// raw text, so no reading of slashes, strings or comments can hide it.
+// The developer's decision, accepted in the fourth review of PR #546: the #536
+// rule reads the raw text, so no reading of slashes, strings or comments can hide it.
 test('the check names setup-delete anywhere in a system test: a test body, a helper, a string, or a comment', () => {
   const inBody = rewritten(
     "  orca(['terminal', 'close', '--terminal', mine, '--tab']);\n",
