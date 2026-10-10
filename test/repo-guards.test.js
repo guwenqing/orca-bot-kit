@@ -4,7 +4,7 @@
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { isBuiltin } from 'node:module';
 import os from 'node:os';
@@ -1368,14 +1368,38 @@ test('every system test takes its `test` from test/helpers/system.js, and none l
 // `import()` at run time is left alone: a file can check that a package is
 // there before it loads it (test-system.test.js does, for smol-toml).
 
+// V8 reads the imports, not a pattern over the text (review of #533): a
+// child Node parses each file as a module, `vm.SourceTextModule`, and lists
+// its `moduleRequests`. Parsing runs none of the file. The class needs
+// --experimental-vm-modules, so it runs in a child, whose warning about the
+// flag stays in the child's stderr.
+const STATIC_IMPORTS = `
+const { readFileSync } = require('node:fs');
+const vm = require('node:vm');
+const found = {};
+for (const file of JSON.parse(readFileSync(0, 'utf8'))) {
+  const module = new vm.SourceTextModule(readFileSync(file, 'utf8'), { identifier: file });
+  found[file] = module.moduleRequests.map((request) => request.specifier);
+}
+process.stdout.write(JSON.stringify(found));
+`;
+
 /**
- * Every specifier a file imports statically: `import … from '<x>'`, `import
- * '<x>'` and `export … from '<x>'`, each where it starts a line. Comments are
- * taken out first, and `import(…)` is not a static import.
+ * Every specifier each of `files` (absolute paths) imports statically, as
+ * Node parses it: `import … from`, `import '…'` and `export … from`, and not
+ * `import(…)`, which runs only when the code does. A file that does not parse
+ * fails the check, naming the file.
  */
-const staticImportsIn = (source) => [...codeOf(source)
-  .matchAll(/^[ \t]*(?:import|export)\b(?:[^'"`;()]*?\bfrom)?\s*(['"])([^'"\n]+)\1/gm)]
-  .map((match) => match[2]);
+function staticImportsOf(files) {
+  if (files.length === 0) return {};
+  const done = spawnSync(process.execPath, ['--experimental-vm-modules', '-e', STATIC_IMPORTS], {
+    input: JSON.stringify(files),
+    encoding: 'utf8',
+    timeout: 60_000,
+  });
+  assert.equal(done.status, 0, `the files' imports could not be read:\n${done.stderr}`);
+  return JSON.parse(done.stdout);
+}
 
 /** The package a bare specifier names: `yaml/util` is yaml, `@scope/name/x` is @scope/name. */
 const packageOf = (specifier) => specifier.split('/').slice(0, specifier.startsWith('@') ? 2 : 1).join('/');
@@ -1383,31 +1407,29 @@ const packageOf = (specifier) => specifier.split('/').slice(0, specifier.startsW
 /**
  * Each `{ file, package }` where a file that `entries` reach (paths relative to
  * `root`, followed through relative imports) imports a package that is neither
- * one of Node's own modules nor one of `dependencies`. A relative import of a
- * file that is not there is left to Node, which fails to load it anywhere.
+ * one of Node's own modules nor one of `dependencies`. Only JavaScript files
+ * are read: a JSON file imports nothing. A relative import of a file that is
+ * not there is left to Node, which fails to load it anywhere.
  */
 async function importsBeyond(root, entries, dependencies) {
   const seen = new Set();
-  const queue = [...entries];
   const found = [];
-  while (queue.length > 0) {
-    const rel = queue.shift();
-    if (seen.has(rel)) continue;
-    seen.add(rel);
-    let source;
-    try {
-      source = await readFile(path.join(root, rel), 'utf8');
-    } catch (error) {
-      if (error.code === 'ENOENT') continue;
-      throw error;
-    }
-    for (const specifier of staticImportsIn(source)) {
-      if (specifier.startsWith('./') || specifier.startsWith('../')) {
-        queue.push(path.relative(root, path.resolve(root, path.dirname(rel), specifier)).split(path.sep).join('/'));
-      } else if (!isBuiltin(specifier) && !dependencies.includes(packageOf(specifier))) {
-        found.push({ file: rel, package: packageOf(specifier) });
+  // One child Node for each step out from the entries, not one for each file.
+  for (let next = [...new Set(entries)]; next.length > 0;) {
+    for (const rel of next) seen.add(rel);
+    const read = next.filter((rel) => /\.m?js$/.test(rel) && existsSync(path.join(root, rel)));
+    const imports = staticImportsOf(read.map((rel) => path.join(root, rel)));
+    const reached = [];
+    for (const rel of read) {
+      for (const specifier of imports[path.join(root, rel)]) {
+        if (specifier.startsWith('./') || specifier.startsWith('../')) {
+          reached.push(path.relative(root, path.resolve(root, path.dirname(rel), specifier)).split(path.sep).join('/'));
+        } else if (!isBuiltin(specifier) && !dependencies.includes(packageOf(specifier))) {
+          found.push({ file: rel, package: packageOf(specifier) });
+        }
       }
     }
+    next = [...new Set(reached)].filter((rel) => !seen.has(rel));
   }
   return found;
 }
@@ -1446,6 +1468,12 @@ test('the check for what the floor needs sees a dev dependency imported by a flo
     // Import dev dependencies, and are reached by no file the floor runs.
     'test/dev/premises.test.js': "import { parse } from 'smol-toml';\n",
     'test/helpers/unused.js': "import { parse } from 'smol-toml';\n",
+    // Read as Node reads them (review of #533): two imports on one line, an
+    // import between strings that hold comment marks, and import text that is
+    // only a template literal's.
+    'test/one-line.test.js': "import assert from 'node:assert/strict'; import { parse } from 'smol-toml';\n",
+    'test/marks-in-strings.test.js': "const open = '/*';\nimport { parse } from 'smol-toml';\nconst close = '*/';\n",
+    'test/in-template.test.js': "import test from 'node:test';\nconst fixture = `\nimport { parse } from 'smol-toml';\n`;\ntest('fixture text', () => {});\n",
   };
   for (const [rel, text] of Object.entries(files)) {
     await mkdir(path.dirname(path.join(root, rel)), { recursive: true });
@@ -1465,6 +1493,17 @@ test('the check for what the floor needs sees a dev dependency imported by a flo
     { file: 'test/helpers/toml.js', package: 'smol-toml' },
   ], 'all three together');
   assert.deepEqual(await importsBeyond(root, ['test/direct.test.js', 'test/through.test.js'], ['yaml', 'smol-toml', '@scope/dev-thing']), [], 'the same packages, as dependencies');
+
+  const alone = (rel) => importsBeyond(root, [rel], ['yaml']);
+  assert.deepEqual({
+    'two imports on one line': await alone('test/one-line.test.js'),
+    'an import between strings that hold comment marks': await alone('test/marks-in-strings.test.js'),
+    'import text in a template literal': await alone('test/in-template.test.js'),
+  }, {
+    'two imports on one line': [{ file: 'test/one-line.test.js', package: 'smol-toml' }],
+    'an import between strings that hold comment marks': [{ file: 'test/marks-in-strings.test.js', package: 'smol-toml' }],
+    'import text in a template literal': [],
+  }, 'the static imports Node sees, and no others');
 });
 
 test('no test file the floor runs, nor any file it reaches by a relative import, statically imports a package a user does not install', async () => {
