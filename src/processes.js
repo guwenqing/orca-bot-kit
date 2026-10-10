@@ -120,10 +120,10 @@ export async function stopProcesses(dirs) {
   // then TERM_WAIT_MS more to be gone. A process a read shows one of them
   // started meanwhile is theirs as much as they are (R1): it is tracked from
   // that read, even after its parent has gone, and is given the same, and so
-  // is one whose working folder is in the work dir. One that only joined a
-  // group signalled whole, and works elsewhere, is not shown to be theirs, and
-  // is named and never signalled (R2, review of PR #543). All are looked for
-  // until ADOPT_MS.
+  // is any new process whose working folder is in the work dir, so each read
+  // until ADOPT_MS reads the working folders too. One that only joined a group
+  // signalled whole, and works elsewhere, is not shown to be theirs, and is
+  // named and never signalled (R2, review of PR #543).
   // All of it ends by STOP_MS, and what still runs then is named. Where the
   // table can no longer be read, nothing more is sent: the kit cannot see
   // which pid is still theirs.
@@ -141,21 +141,21 @@ export async function stopProcesses(dirs) {
     for (const one of tracked.values()) if (!live(one)) ended.add(one.pid);
 
     if (at - begun < ADOPT_MS) {
-      const found = [...now].flatMap(([pid, seen]) => {
-        if (tracked.has(pid) || refused.has(pid) || named.has(pid) || mine.has(pid) || seen.uid !== uid) return [];
-        const parent = [...ancestorsOf(now, pid)].map((one) => tracked.get(one)).find((one) => one !== undefined && live(one));
-        const mate = parent === undefined && whole.has(seen.pgid) ? [...tracked.values()].find((one) => one.pgid === seen.pgid) : undefined;
-        return parent === undefined && mate === undefined ? [] : [{ pid, seen, parent, mate }];
-      });
-      // Their working folders, read once when there is someone new to name.
-      const folders = found.length === 0 ? new Map() : workingFolders().cwds ?? new Map();
-      for (const { pid, seen, parent, mate } of found) {
+      // The retire's own run as it is now: the `ps` and `lsof` it starts for
+      // each read work where it works, which can be the work dir.
+      const ours = ownRun(now);
+      const fresh = [...now].filter(([pid, seen]) => !tracked.has(pid) && !refused.has(pid) && !named.has(pid) && !mine.has(pid) && !ours.has(pid) && seen.uid === uid);
+      // A process whose working folder is in a work dir is that session's
+      // own by R1, whatever its group and its parent (review of PR #543).
+      const folders = fresh.length === 0 ? new Map() : workingFolders().cwds ?? new Map();
+      for (const [pid, seen] of fresh) {
         const one = { pid, cwd: folders.get(pid) ?? null, command: seen.command };
-        // A group-mate whose working folder is in a work dir is that session's own by R1.
-        const home = parent === undefined && one.cwd !== null ? where.find(({ real }) => inside(one.cwd, real)) : undefined;
+        const parent = [...ancestorsOf(now, pid)].map((it) => tracked.get(it)).find((it) => it !== undefined && live(it));
+        const home = one.cwd === null ? undefined : where.find(({ real }) => inside(one.cwd, real));
         const theirs = parent ?? home;
         if (theirs !== undefined) note({ session: theirs.session, ...one, pgid: seen.pgid, started: seen.started }, signal('TERM', pid), 'SIGTERM', at);
-        else {
+        else if (whole.has(seen.pgid)) {
+          const mate = [...tracked.values()].find((it) => it.pgid === seen.pgid);
           named.add(pid);
           left.push({ session: mate.session, ...one, why: `it joined process group ${seen.pgid} of ${mate.session}'s processes, and the kit cannot show it is ${mate.session}'s own` });
         }
