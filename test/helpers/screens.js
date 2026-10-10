@@ -335,6 +335,32 @@ export const CODEX_HOOKS_REVIEW_ON_TWO = [
   '  enter confirm · esc skip',
 ];
 
+/** The count row of the captured hooks review, which says how many hooks the review covers. */
+const HOOKS_COUNT_ROW = '  1 hook is new or changed.';
+
+/**
+ * A hooks review, `rows` (CODEX_HOOKS_REVIEW or CODEX_HOOKS_REVIEW_ON_TWO), with
+ * its count row saying `count` hooks, as Codex writes it: `1 hook is new or
+ * changed.`, or `N hooks are new or changed.` (#506, the brief's wording). The
+ * other rows are the captured ones, unchanged. A reconstruction for any count
+ * but 1.
+ */
+export const codexHooksReview = (count, rows = CODEX_HOOKS_REVIEW) => rows.map((row) => (row === HOOKS_COUNT_ROW
+  ? `  ${count === 1 ? '1 hook is' : `${count} hooks are`} new or changed.`
+  : row));
+
+/**
+ * The review a fresh Codex bot's three kit hooks bring up (SessionStart,
+ * PostToolUse for Bash, Stop), none of them trusted yet: a reconstruction.
+ */
+export const CODEX_HOOKS_REVIEW_THREE = codexHooksReview(3);
+
+/** The same, its selection moved down to `2`, no return pressed yet: a reconstruction. */
+export const CODEX_HOOKS_REVIEW_THREE_ON_TWO = codexHooksReview(3, CODEX_HOOKS_REVIEW_ON_TWO);
+
+/** The captured hooks review with its count row taken out: a reconstruction (#506). */
+export const CODEX_HOOKS_REVIEW_NO_COUNT = CODEX_HOOKS_REVIEW.filter((row) => row !== HOOKS_COUNT_ROW);
+
 /**
  * Claude Code 2.1.283's folder-trust list, its selection on `No, exit`, its
  * choices unnumbered: a capture, the whole `tail` of a kit-made tab. Above it,

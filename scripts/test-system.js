@@ -292,13 +292,16 @@ function runFoldersNow() {
  * The system tests whose Codex writes its trust on purpose, by their folders'
  * prefix, and why: codex-first-run-screens answers Codex's trust screens
  * itself (#240), codex-groom-run's grooming session answers its Codex
- * run's first-run screens, as a maker does (#238), and temp-of-temp's
- * temporary Claude session answers its Codex session's hooks review (#464).
+ * run's first-run screens, as a maker does (#238), temp-of-temp's
+ * temporary Claude session answers its Codex session's hooks review (#464),
+ * and session-first-run answers a long-lived Codex session's hooks review
+ * with obk session trust-hooks (#506).
  */
 const KNOWN_WRITERS = [
   { prefix: 'obk-system-codex-screens-', test: 'codex-first-run-screens', does: 'answers Codex\'s trust screens on purpose', issue: '#240' },
   { prefix: 'obk-system-codex-groom-', test: 'codex-groom-run', does: 'has its grooming session answer its Codex run\'s first-run screens', issue: '#238' },
   { prefix: 'obk-system-temp-of-temp-', test: 'temp-of-temp', does: 'has its temporary Claude session answer its Codex session\'s hooks review', issue: '#464' },
+  { prefix: 'obk-system-session-first-run-', test: 'session-first-run', does: 'answers a long-lived Codex session\'s hooks review with obk session trust-hooks', issue: '#506' },
 ];
 const writerOf = (key) => KNOWN_WRITERS.find((one) => runFolderOf(key).startsWith(one.prefix));
 

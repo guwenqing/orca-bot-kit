@@ -21,8 +21,10 @@
 // Two forms of it are each taken for the calls named below only, and named
 // anywhere else: `codexTrustArgs(…, { hooks: false })`, the folder trusted and
 // the hooks review not bypassed, for session-identity's `untrusted-codex`, the
-// case that wants the kit's hook not to run (#240), and for temp-of-temp's
-// Codex session, whose hooks review its maker answers (#464); and
+// case that wants the kit's hook not to run (#240), for temp-of-temp's
+// Codex session, whose hooks review its maker answers (#464), and for
+// session-first-run's `CODEX_BOT`, whose real hooks review `obk session
+// trust-hooks` answers (#506); and
 // `codexTrustArgs(…, { sleep: true })`, Codex's sleep tool left on, for
 // codex-sleep's sleep-codex, the check that a real bot with the tool still gets
 // its mail (#432).
@@ -50,13 +52,15 @@ const LEFT_OUT = new Set(['codex-first-run-screens.test.js', 'codex-trust-overri
  * The forms of `codexTrustArgs` each taken for the calls named only, by file
  * and bot for a session add, by file and name for a temp make: `hooks: false`
  * for session-identity's case of a conversation that ran before the hooks file
- * was trusted, which wants the kit's hook not to run (#240), and for
- * temp-of-temp's Codex session, whose maker answers its hooks review (#464);
- * `sleep: true` for codex-sleep's bot that keeps Codex's sleep tool (#432).
+ * was trusted, which wants the kit's hook not to run (#240), for
+ * temp-of-temp's Codex session, whose maker answers its hooks review (#464),
+ * and for session-first-run's Codex bot, whose hooks review `obk session
+ * trust-hooks` answers (#506); `sleep: true` for codex-sleep's bot that keeps Codex's sleep tool (#432).
  */
 const ONE_CALL_FORMS = [
   { form: 'hooks: false', words: /\bhooks:\s*false\b/, file: 'session-identity.test.js', bot: "'untrusted-codex'" },
   { form: 'hooks: false', words: /\bhooks:\s*false\b/, file: 'temp-of-temp.test.js', make: 'REVIEW' },
+  { form: 'hooks: false', words: /\bhooks:\s*false\b/, file: 'session-first-run.test.js', bot: 'CODEX_BOT' },
   { form: 'sleep: true', words: /\bsleep:\s*true\b/, file: 'codex-sleep.test.js', bot: 'SLEEPER.name' },
 ];
 
@@ -248,11 +252,11 @@ test('hooks: false is taken for the one call named for it, and named anywhere el
     + "obkJson(['session', 'add', '--bots', bots, '--bot', 'untrusted-codex', '--name', 'daily', ...codexTrustArgs(bots, { hooks: false })]);\n";
   assert.deepEqual(untrustedCodexIn(untrusted, 'session-identity.test.js'), [], 'the named call, in its file');
   assert.deepEqual(untrustedCodexIn(untrusted, 'other.test.js'), [
-    'a session add for \'untrusted-codex\' \'daily\' passes codexTrustArgs with hooks: false, which only session-identity.test.js\'s untrusted-codex may',
+    'a session add for \'untrusted-codex\' \'daily\' passes codexTrustArgs with hooks: false, which only session-identity.test.js\'s untrusted-codex or session-first-run.test.js\'s CODEX_BOT may',
   ], 'the same call in another file');
   const otherBot = untrusted.replaceAll('untrusted-codex', 'some-codex');
   assert.deepEqual(untrustedCodexIn(otherBot, 'session-identity.test.js'), [
-    'a session add for \'some-codex\' \'daily\' passes codexTrustArgs with hooks: false, which only session-identity.test.js\'s untrusted-codex may',
+    'a session add for \'some-codex\' \'daily\' passes codexTrustArgs with hooks: false, which only session-identity.test.js\'s untrusted-codex or session-first-run.test.js\'s CODEX_BOT may',
   ], 'another bot in that file');
 });
 
@@ -271,7 +275,7 @@ test('a temp make on Codex is read by its name: hooks: false is taken for temp-o
   const added = "obkJson(['bot', 'create', '--bots', bots, '--name', 'untrusted-codex', '--harness', 'codex']);\n"
     + "obkJson(['session', 'add', '--bots', bots, '--bot', 'untrusted-codex', '--name', 'daily', ...codexTrustArgs(bots, { hooks: false })]);\n";
   assert.deepEqual(untrustedCodexIn(added, 'temp-of-temp.test.js'), [
-    'a session add for \'untrusted-codex\' \'daily\' passes codexTrustArgs with hooks: false, which only session-identity.test.js\'s untrusted-codex may',
+    'a session add for \'untrusted-codex\' \'daily\' passes codexTrustArgs with hooks: false, which only session-identity.test.js\'s untrusted-codex or session-first-run.test.js\'s CODEX_BOT may',
   ], 'temp-of-temp\'s leave covers its temp make, not a session add in it');
 });
 
@@ -285,6 +289,23 @@ test('sleep: true is taken for the one call named for it, and named anywhere els
   assert.deepEqual(untrustedCodexIn(sleeper.replaceAll('SLEEPER', 'AWAKE'), 'codex-sleep.test.js'), [
     'a session add for AWAKE.name \'daily\' passes codexTrustArgs with sleep: true, which only codex-sleep.test.js\'s SLEEPER.name may',
   ], 'another bot in that file');
+});
+
+test('a session add on Codex: hooks: false is taken for session-first-run\'s CODEX_BOT, and named anywhere else (#506)', () => {
+  const firstRun = "const CODEX_BOT = 'first-codex';\nconst CODEX_SESSION = 'daily';\n"
+    + "obkJson(['bot', 'create', '--bots', bots, '--name', CODEX_BOT, '--harness', 'codex']);\n"
+    + "obkJson([\n  'session', 'add', '--bots', bots, '--bot', CODEX_BOT, '--name', CODEX_SESSION,\n  ...codexTrustArgs(bots, { hooks: false }),\n]);\n";
+  assert.deepEqual(untrustedCodexIn(firstRun, 'session-first-run.test.js'), [], 'the named call, in its file');
+  assert.deepEqual(untrustedCodexIn(firstRun, 'other.test.js'), [
+    'a session add for CODEX_BOT CODEX_SESSION passes codexTrustArgs with hooks: false, which only session-identity.test.js\'s untrusted-codex or session-first-run.test.js\'s CODEX_BOT may',
+  ], 'the same call in another file');
+  assert.deepEqual(untrustedCodexIn(firstRun.replaceAll('CODEX_BOT', 'OTHER_BOT'), 'session-first-run.test.js'), [
+    'a session add for OTHER_BOT CODEX_SESSION passes codexTrustArgs with hooks: false, which only session-identity.test.js\'s untrusted-codex or session-first-run.test.js\'s CODEX_BOT may',
+  ], 'another bot in that file');
+  const make = "obkJson(['temp', 'make', '--bots', bots, '--name', CODEX_BOT, '--harness', 'codex', ...codexTrustArgs(bots, { hooks: false })]);\n";
+  assert.deepEqual(untrustedCodexIn(make, 'session-first-run.test.js'), [
+    'a temp make of CODEX_BOT passes codexTrustArgs with hooks: false, which only temp-of-temp.test.js\'s REVIEW may',
+  ], 'session-first-run\'s leave covers its session add, not a temp make in it');
 });
 
 // ------------------------------------------------------------- the system tests

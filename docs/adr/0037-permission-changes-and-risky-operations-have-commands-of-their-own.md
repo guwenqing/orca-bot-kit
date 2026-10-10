@@ -68,6 +68,7 @@ The commands kept out of the default set, which keep the user's yes:
 | `retire` | It closes a long-lived session and takes it off its bot, or closes a whole bot, removes its Orca project and moves its folder. |
 | `pause` | It closes a long-lived session's tabs, and `up` leaves them closed. |
 | `init` | It is the user's own first step, which makes the bots folder. |
+| `session trust-hooks`, `session answer` | They answer a long-lived session's first-run screens, which are Bot Father's and the user's (#506). |
 
 Every other command the kit has today is ordinary, and on the list of
 default commands. A command added later is on neither list until someone puts

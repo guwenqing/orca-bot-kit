@@ -248,6 +248,26 @@ Bash(<kit> temp answer --bots <their path>:*)
 Bash(<kit> temp trust-hooks --bots <their path>:*)
 ```
 
+A long-lived session's two screens go through the kit as well, not through the
+keys. On Codex's hooks review, run
+`obk session trust-hooks --bots <their path> --bot <bot> --session <session>`.
+On Claude Code's `Teach auto mode` screen, run
+`obk session answer --bots <their path> --bot <bot> --session <session>`.
+A long-lived session is Bot Father's, so run them from outside the fleet's tabs,
+as you do here, or from a Bot Father session. A session of any other bot is
+refused. They make the same checks as the temp commands. Before either
+trust-hooks command trusts hooks, the kit checks that the hooks on the review
+are its own: the bot's `.codex/hooks.json` holds only the kit's hooks, and the
+count on the screen is the number of the kit's hooks that Codex does not trust
+yet. When it refuses, it says what it saw: type nothing, and tell them what it
+said. Use the keys in the table for the screens the kit does not answer.
+The kit reads Codex's trust from the caller's `CODEX_HOME`, else `~/.codex`;
+a bot run under another `CODEX_HOME` is outside what the kit can see.
+The kit also records the extra arguments it launched each session with, and
+refuses when they mention hooks, or when there is no record. A Codex that
+someone started again by hand in that tab, with other flags, is outside what
+the kit records.
+
 **Anything you do not recognise: type nothing.** Tell them what is on the
 screen and which tab it is in, and wait. A keypress into a menu you have not read
 is how a harness quits back to the shell.

@@ -309,7 +309,10 @@ async function bringUpSession(bots, home, live, session, bot, title) {
       // for a person or Bot Father to settle — added to whatever was already noted,
       // because this run's scan cannot see what an earlier one found. The kit never
       // settles it itself.
-      let entry = { ...current.sessions[session.name], tab: made.tabId, launched, rules };
+      // The extra arguments typed on this line, as the kit's own record of what
+      // this harness was started with: bot.yaml says only what the next launch
+      // gets, and trust-hooks asks what this one got (#506).
+      let entry = { ...current.sessions[session.name], tab: made.tabId, launched, launched_with: session.extra_args ?? [], rules };
       if (rules === undefined) delete entry.rules;
       held = entry.session;
       // Before the line is typed, so the hook finds no id here and takes the one

@@ -1,7 +1,9 @@
 // `obk temp make` and `obk temp retire`: a session's own temporary sessions
 // (PRD 6.4, #227). And `obk temp trust-hooks` and `obk temp answer`, the
 // answers a maker gives its Codex run's hooks review (#238) and its Claude
-// session's Teach auto mode form (#489).
+// session's Teach auto mode form (#489). And `obk session trust-hooks` and
+// `obk session answer`, the same answers to a long-lived session's screens,
+// given by Bot Father or the user (#506), on the same code.
 //
 // Any long-lived session can make a temporary session of its own bot for a
 // piece of work, and retire it when the work is done, without Bot Father, who
@@ -31,11 +33,12 @@ import { setTimeout as pause } from 'node:timers/promises';
 
 import { readBook, takeLineTurn, TYPING_HELD, TYPING_WAIT_MS, updateBook } from './book.js';
 import { addSession, dropSession, NAME, readBot, tempRoles } from './bot.js';
+import { untrustedKitHooks } from './hook-trust.js';
 import { approvalRank, DEFAULT_APPROVAL, harnessOf, isShortPrompt, ownCli, refuseApprovalArgs, shellWord, startPrompt, workDirOf } from './launch.js';
-import { sessionInTab } from './message.js';
+import { findSession, sessionInTab } from './message.js';
 import { orca, screenRows, tabs } from './orca.js';
 import { retireSession } from './retire.js';
-import { bringUp, promptPath } from './up.js';
+import { BOT_FATHER, bringUp, promptPath } from './up.js';
 
 /** The settings a temporary session takes from its maker unless told otherwise. */
 const INHERITED = ['model', 'effort', 'context', 'approval'];
@@ -357,26 +360,72 @@ const REVIEW_GONE_MS = 5000;
  */
 export async function trustHooks(bots, { tab, name }) {
   const caller = callerIn(bots, tab, 'trust-hooks', "answer a run's hooks review");
+  const { bot, session } = ownTemp(caller, name, 'answer for', 'Nothing was typed.');
+  await trustAll({ bots, run: `${caller.bot}/${name}`, bot: caller.bot, home: caller.home, session: name, harness: harnessOf(session, bot.harness) }, 'temp');
+  return { bot: caller.bot, session: name, maker: caller.session };
+}
+
+/** Shell text the shell passes on as it is, split at its spaces: what the kit's own launch line leaves unquoted, and spaces. */
+const SHELL_PLAIN = /^[A-Za-z0-9,._+:@%/= -]*$/;
+
+/** A count row of Codex's hooks review: `1 hook is new or changed.`, `3 hooks are new or changed.` */
+const HOOKS_COUNT = /^ *(\d+) hooks? (?:is|are) new or changed\. *$/;
+
+/**
+ * Answer `target`'s hooks review with "Trust all and continue", for `temp
+ * trust-hooks` or `session trust-hooks` (`kind`). "Trust all" lets every hook
+ * the review counts run outside the sandbox, so first the bot's
+ * `.codex/hooks.json` must hold the kit's own hooks alone, and the review's
+ * count row must be the number of them Codex does not trust yet (#506, R4).
+ * Codex also takes hook trust, and hooks, from the session's own `-c` flags,
+ * which its extra_args can carry. What it was started with is the book's
+ * `launched_with`, which the kit writes at each launch: when that names hooks
+ * at all, or there is none, the kit cannot tell the count, and refuses (the
+ * review of PR #517). The arguments are not quoted: they can hold a secret.
+ */
+async function trustAll(target, kind) {
   const nothing = 'Nothing was typed.';
-  const { bot, session } = ownTemp(caller, name, 'answer for', nothing);
-  const run = `${caller.bot}/${name}`;
-  const harness = harnessOf(session, bot.harness);
-  if (harness !== 'codex') {
-    throw new Error(`${run} runs on ${harness}, and temp trust-hooks answers a Codex run's "${HOOKS_REVIEW}" alone. ${nothing}`);
+  if (target.harness !== 'codex') {
+    throw new Error(`${target.run} runs on ${target.harness}, and ${kind} trust-hooks answers a Codex session's "${HOOKS_REVIEW}" alone. ${nothing}`);
   }
-  await answerScreen(caller, name, {
+  const launchedWith = readBook(target.home).sessions[target.session]?.launched_with;
+  if (launchedWith === undefined) {
+    throw new Error(`${target.run}'s book entry does not say what extra arguments it was launched with: it was started before the kit kept that record, or not by the kit. Codex takes hooks and their trust from a session's own -c flags as well, so the kit cannot tell which hooks its review covers. Start it again with the kit, then run this again: ${shellWord(ownCli())} restart --bots ${shellWord(target.bots)} --bot ${target.bot} --session ${target.session}. ${nothing}`);
+  }
+  // A list is the arguments themselves. A string is shell text, which the
+  // shell reads before Codex does (`'h''ooks'` is `hooks`), so it is read only
+  // when it holds nothing the shell would change (the review of PR #517).
+  if (typeof launchedWith === 'string' && !SHELL_PLAIN.test(launchedWith)) {
+    throw new Error(`${target.run} was launched with extra arguments written as shell text the kit does not read, and Codex takes hooks and their trust from a session's own -c flags as well, so the kit cannot tell which hooks its review covers. ${nothing}`);
+  }
+  const words = typeof launchedWith === 'string' ? launchedWith.split(' ') : [launchedWith].flat().map(String);
+  if (words.some((word) => /hooks/i.test(word))) {
+    throw new Error(`${target.run} was launched with extra arguments that mention hooks, and Codex takes hooks and their trust from a session's own -c flags as well, so the kit cannot tell which hooks its review covers. ${nothing}`);
+  }
+  // `--profile <name>` (`-p`) adds `<name>.config.toml` from Codex's home as a
+  // second user layer, and Codex reads hook trust from it too (codex-rs
+  // 0.162.0, cli/src/main.rs:1954-1962, config/src/loader/mod.rs:290-332).
+  if (words.some((word) => /profile/i.test(word) || /^-[^-]*p/.test(word))) {
+    throw new Error(`${target.run} was launched with a Codex profile, whose own config file can hold hook trust the kit does not read, so the kit cannot tell which hooks its review covers. ${nothing}`);
+  }
+  const { untrusted, file } = untrustedKitHooks(target.home, target.run, nothing);
+  await answerScreen(target, {
     what: 'hooks review',
     mark: HOOKS_REVIEW,
     done: `"${TRUST_ALL}" was chosen on its hooks review`,
     answer(rows, { send }) {
       const keys = keysToTrustAll(rows);
       if (keys === undefined) {
-        throw new Error(`${run}'s screen shows no "${HOOKS_REVIEW}" with its choices, so there is nothing for this to answer. It shows: ${shown(rows)}. ${nothing}`);
+        throw new Error(`${target.run}'s screen shows no "${HOOKS_REVIEW}" with its choices, so there is nothing for this to answer. It shows: ${shown(rows)}. ${nothing}`);
+      }
+      const counts = rows.filter((row) => HOOKS_COUNT.test(row));
+      if (counts.length !== 1 || Number(HOOKS_COUNT.exec(counts[0])[1]) !== untrusted) {
+        const saw = counts.length === 0 ? 'shows no row that says how many hooks it covers' : `says "${counts.map((row) => row.trim()).join('" and "')}"`;
+        throw new Error(`${target.run}'s hooks review ${saw}, but ${untrusted} of the kit's own hooks in ${file} are not trusted by Codex yet, so the review may cover hooks that are not the kit's, and "${TRUST_ALL}" would let them run outside the sandbox. ${nothing}`);
       }
       send(keys);
     },
   });
-  return { bot: caller.bot, session: name, maker: caller.session };
 }
 
 /**
@@ -401,23 +450,22 @@ function shown(rows) {
 }
 
 /**
- * Answer a screen of `name`, a temporary session the caller made: under the
- * session's turn for a line (#482), read its screen and hand it to
- * `answer(rows, { send, look })`, which sends keys with `send`, may read the
- * screen again with `look`, and throws when the screen is not its to answer.
- * Then wait for `mark` to leave the screen. `what` names the screen and `done`
- * says what was sent, for the sentences that refuse or fail; `done` may be a
- * function of what `answer` returned.
+ * Answer a screen of the session `target`, `{ run, home, session }`, `run`
+ * being its `<bot>/<session>`: under the session's turn for a line (#482),
+ * read its screen and hand it to `answer(rows, { send, look })`, which sends
+ * keys with `send`, may read the screen again with `look`, and throws when the
+ * screen is not its to answer. Then wait for `mark` to leave the screen.
+ * `what` names the screen and `done` says what was sent, for the sentences
+ * that refuse or fail; `done` may be a function of what `answer` returned.
  */
-async function answerScreen(caller, name, { what, mark, done, answer }) {
-  const run = `${caller.bot}/${name}`;
+async function answerScreen({ run, home, session }, { what, mark, done, answer }) {
   const nothing = 'Nothing was typed.';
-  const tabId = readBook(caller.home).sessions[name]?.tab;
-  const handle = tabId === undefined ? undefined : tabs(caller.home).find((one) => one.tabId === tabId)?.handle;
+  const tabId = readBook(home).sessions[session]?.tab;
+  const handle = tabId === undefined ? undefined : tabs(home).find((one) => one.tabId === tabId)?.handle;
   if (handle === undefined) {
     throw new Error(`${run} has no tab open in Orca, so there is no ${what} of its to answer. ${nothing}`);
   }
-  const turn = takeLineTurn(caller.home, name, TYPING_WAIT_MS);
+  const turn = takeLineTurn(home, session, TYPING_WAIT_MS);
   if (turn === undefined) throw new Error(`${run}: ${TYPING_HELD}.`);
   let answered;
   try {
@@ -555,18 +603,27 @@ const wholeScreen = (rows) => rows.filter((row) => row.trim() !== '').map((row) 
  */
 export async function answerTemp(bots, { tab, name }) {
   const caller = callerIn(bots, tab, 'answer', "answer a session's first-run screen");
+  ownTemp(caller, name, 'answer for', 'Nothing was typed.');
+  const sent = await answerTeach({ run: `${caller.bot}/${name}`, home: caller.home, session: name }, 'temp');
+  return { bot: caller.bot, session: name, maker: caller.session, sent };
+}
+
+/**
+ * Answer `target`'s Teach auto mode screen with Not now, for `temp answer` or
+ * `session answer` (`kind`). Returns what answered it.
+ */
+function answerTeach(target, kind) {
+  const { run } = target;
   const nothing = 'Nothing was typed.';
-  ownTemp(caller, name, 'answer for', nothing);
-  const run = `${caller.bot}/${name}`;
-  const sent = await answerScreen(caller, name, {
+  return answerScreen(target, {
     what: `"${TEACH_TITLE}"`,
     mark: TEACH_TITLE,
     done: (said) => `${said} was sent to its Teach auto mode screen`,
     answer(rows, { send, look }) {
       const seen = teachScreen(rows);
       if (seen.misfit !== undefined) {
-        const hooks = rows.some((row) => row.includes(HOOKS_REVIEW)) ? ` A Codex run's "${HOOKS_REVIEW}" is answered with temp trust-hooks.` : '';
-        throw new Error(`${run}'s screen is not one temp answer answers: ${seen.misfit}.${hooks} ${nothing} It shows:\n${wholeScreen(rows)}`);
+        const hooks = rows.some((row) => row.includes(HOOKS_REVIEW)) ? ` A Codex session's "${HOOKS_REVIEW}" is answered with ${kind} trust-hooks.` : '';
+        throw new Error(`${run}'s screen is not one ${kind} answer answers: ${seen.misfit}.${hooks} ${nothing} It shows:\n${wholeScreen(rows)}`);
       }
       if (seen.shape === TEACH_SHAPES[0]) {
         send('\x1b');
@@ -589,7 +646,55 @@ export async function answerTemp(bots, { tab, name }) {
       return `"${NOT_NOW_CHOICE}"`;
     },
   });
-  return { bot: caller.bot, session: name, maker: caller.session, sent };
+}
+
+/**
+ * `obk session trust-hooks`: answer the hooks review of `bot`/`session`, a
+ * long-lived Codex session, as `temp trust-hooks` answers a temporary one's
+ * (#506). Returns `{ bot, session }`.
+ */
+export async function trustSessionHooks(bots, { tab, bot, session }) {
+  const target = longLivedTarget(bots, { tab, bot, session }, 'trust-hooks');
+  await trustAll(target, 'session');
+  return { bot: target.bot, session: target.session };
+}
+
+/**
+ * `obk session answer`: answer the Teach auto mode screen of `bot`/`session`,
+ * a long-lived Claude Code session, as `temp answer` answers a temporary
+ * one's (#506). Returns `{ bot, session, sent }`.
+ */
+export async function answerSession(bots, { tab, bot, session }) {
+  const target = longLivedTarget(bots, { tab, bot, session }, 'answer');
+  const sent = await answerTeach(target, 'session');
+  return { bot: target.bot, session: target.session, sent };
+}
+
+/**
+ * The long-lived session `bot`/`session`, whose first-run screen `session
+ * <verb>` answers, or a refusal. A long-lived session is Bot Father's, so the
+ * caller is a session of Bot Father's, or no session of this fleet: the user,
+ * or an assistant of theirs (#506, R2). A temporary session's screen is its
+ * maker's to answer, with the temp command.
+ */
+function longLivedTarget(bots, { tab, bot, session }, verb) {
+  const nothing = 'Nothing was typed.';
+  const caller = tab === undefined ? undefined : sessionInTab(bots, tab);
+  if (caller !== undefined && caller.bot !== BOT_FATHER) {
+    throw new Error(`session ${verb} runs in ${caller.bot}/${caller.session}'s tab, but a long-lived session is Bot Father's: Bot Father (${BOT_FATHER}) or the user answers its first-run screen. ${nothing}`);
+  }
+  let found;
+  try {
+    found = findSession(bots, `${bot}/${session}`);
+  } catch (error) {
+    throw new Error(`${error.message} ${nothing}`);
+  }
+  const run = `${found.bot}/${found.session}`;
+  const temporary = readBook(found.home).sessions[found.session]?.temporary;
+  if (temporary !== undefined) {
+    throw new Error(`${run} is a temporary session ${temporary.maker} made, so its first-run screen is ${temporary.maker}'s to answer, with temp ${verb} run in ${temporary.maker}'s tab. ${nothing}`);
+  }
+  return { bots, run, bot: found.bot, session: found.session, home: found.home, harness: found.harness };
 }
 
 /**

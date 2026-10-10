@@ -32,7 +32,7 @@ import { readRoster } from './roster.js';
 import { buildAgents, buildRules, CODEX_CAP } from './rules.js';
 import { addSkill, buildSkills, linkSkills, removeSkill } from './skills.js';
 import { addSource, fetchSources } from './sources.js';
-import { answerTemp, listRoles, makeTemp, optionsLine, retireTemp, trustHooks } from './temp.js';
+import { answerSession, answerTemp, listRoles, makeTemp, optionsLine, retireTemp, trustHooks, trustSessionHooks } from './temp.js';
 import { readUsage } from './usage.js';
 import { BOT_FATHER, bringUp, ownMailbox } from './up.js';
 
@@ -155,7 +155,8 @@ Usage:
                             of a Codex temporary session it made with "Trust
                             all and continue", and check the review went. It
                             refuses anything else on that screen, and types
-                            nothing then.
+                            nothing then. It refuses, as obk session
+                            trust-hooks does, hooks that are not the kit's.
   obk temp answer --bots <path> --name <session>
                             Run in the maker's own tab: answer Claude Code's
                             "Teach auto mode" screen on a temporary session it
@@ -282,6 +283,19 @@ Usage:
                             next starts where it stopped, so no call is counted
                             twice. It counts tokens and never money: what a
                             token costs is looked up live by whoever is asking.
+  obk session trust-hooks --bots <path> --bot <bot> --session <name>
+                            Run by Bot Father or the user: answer the hooks
+                            review of a long-lived Codex session with "Trust
+                            all and continue", as obk temp trust-hooks does,
+                            and check the review went. It refuses when the
+                            bot's .codex/hooks.json holds a hook that is not
+                            the kit's, or when the review counts other hooks
+                            than the kit's own that Codex does not trust yet.
+  obk session answer --bots <path> --bot <bot> --session <name>
+                            Run by Bot Father or the user: answer Claude Code's
+                            "Teach auto mode" screen on a long-lived session
+                            with Not now, as obk temp answer does, and check
+                            the screen went.
   obk session record --bots <path> --bot <bot>
                             For the kit's own hook, not for typing: it reads
                             what the harness says about a session starting on
@@ -831,6 +845,26 @@ const commands = {
     };
   },
 
+  async 'session trust-hooks'(bots, values) {
+    const tab = callerTab(bots, true);
+    refuseWhenOrcaIsDown();
+    const trusted = await trustSessionHooks(bots, { tab, bot: values.bot, session: values.session });
+    return {
+      answer: { bots, ...trusted },
+      lines: [`trusted    ${trusted.bot} ${trusted.session}'s hooks: chose "Trust all and continue" on its hooks review, and the review has gone`],
+    };
+  },
+
+  async 'session answer'(bots, values) {
+    const tab = callerTab(bots, true);
+    refuseWhenOrcaIsDown();
+    const answered = await answerSession(bots, { tab, bot: values.bot, session: values.session });
+    return {
+      answer: { bots, ...answered },
+      lines: [`answered   ${answered.bot} ${answered.session}: sent ${answered.sent} to its "Teach auto mode about your environment?" screen, and the screen has gone`],
+    };
+  },
+
   'bot create'(bots, values) {
     const made = createBot(bots, { name: values.name, harness: values.harness, charter: values.charter });
     // The bot's AGENTS.md is the rules build's, here as everywhere else, so
@@ -1290,7 +1324,12 @@ const commands = {
 function toLines(answer, bots, where) {
   if (answer.trouble !== undefined) return [`             ${answer.trouble}`];
   if (answer.transport === 'native') {
-    return [`             Write to ${answer.address} with your own harness's messaging. The kit does not carry that road.`];
+    // A refused call is not re-sent by another road (PRD 6.9), so the answer
+    // says what to do instead, before the bot needs it (#521).
+    return [
+      `             Write to ${answer.address} with your own harness's messaging. The kit does not carry that road.`,
+      "             If your harness refuses that call, do not send the message again by another road. Tell your maker or your user that it was refused, with the harness's reason. A refusal can mean a missing permission rule, which they can add through the kit after the user's yes.",
+    ];
   }
   return [
     ...(answer.unnamed === true

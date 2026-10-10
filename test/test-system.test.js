@@ -2320,6 +2320,36 @@ describe('test-system: what a run leaves in the harness configs (#240)', { concu
     assertNoSecrets(result);
   });
 
+  test('a Codex key under an obk-system-session-first-run folder made mid-run is that test\'s known write (#506): named with its writer, removed, and the exit code stays the tests\'', async (t) => {
+    // session-first-run answers its long-lived Codex session's hooks review on
+    // purpose, with `obk session trust-hooks`: Codex writes the hooks' trust for
+    // its bot's folder (#506). Its bots folder is the throwaway folder itself.
+    let hooksFile;
+    let key;
+    const built = await withConfigs(t, ({ dir }) => {
+      const mine = `${dir}/obk-system-session-first-run-Sf06`;
+      hooksFile = `${mine}/bots/first-codex/.codex/hooks.json`;
+      key = `${hooksFile}:session_start:0:0`;
+      return {
+        before: { codex: codexConfig({}) },
+        during: { makes: [mine], codex: codexConfig({ hooks: [key] }) },
+      };
+    });
+
+    const result = await built.fixture.confirmed({ env: built.env });
+
+    assert.equal(result.code, 0, `session-first-run's known write does not fail a run whose tests passed:\n${everything(result)}`);
+    assertNamed(result, hooksFile, 'a session-first-run hooks.state key');
+    const report = unwrapped(afterTheRun(result));
+    // Its folder's name holds the words too; the test's own name is the one
+    // that is not part of an obk-system-* folder.
+    assert.match(report, /(?<!obk-system-)session-first-run/, `it should name the test that wrote it (session-first-run), not only its folder, got:\n${afterTheRun(result)}`);
+    assert.match(report, /#506/, `it should say this is that test's known write (#506), got:\n${afterTheRun(result)}`);
+    assert.equal(await readFile(built.files.codex, 'utf8'), codexConfig({}), 'and the key is removed again');
+    assertRemovedIn(result, built.files.codex, [key]);
+    assertNoSecrets(result);
+  });
+
   test('a codex-groom key under a folder that was there before the run is not named as the run\'s known writes', async (t) => {
     let key;
     const { fixture, env } = await withConfigs(t, ({ dir }) => {

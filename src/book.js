@@ -28,6 +28,9 @@ const HEADER = `# What Orca calls this bot on this machine, and where each of it
 # \`rules\` is a stamp of the bot's AGENTS.md as the session last read it, so a
 # change to it after the session started can be told apart.
 #
+# \`launched_with\` is the extra arguments the kit typed on the session's last
+# launch line, as bot.yaml's extra_args gave them then.
+#
 # \`retired\` holds what the book knew about each session \`obk retire\` took off
 # the bot, with when, so the conversations it had are still accounted for.
 #

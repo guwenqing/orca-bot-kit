@@ -41,6 +41,8 @@ export const COMMANDS = {
   'session mail': ['bots', 'bot'],
   'session name': ['bots', 'bot'],
   'session mailbox': ['bots', 'bot', 'session'],
+  'session trust-hooks': ['bots', 'bot', 'session'],
+  'session answer': ['bots', 'bot', 'session'],
   'temp make': ['bots', 'name'],
   'temp roles': ['bots'],
   'temp retire': ['bots', 'name'],
@@ -66,6 +68,10 @@ export const DEFAULT_COMMANDS = [
 /**
  * The commands kept out of the default permission set, which keep the user's
  * yes (ADR 0037): the ones that change permissions, close a long-lived
- * session, or make the bots folder.
+ * session, or make the bots folder; and the answers to a long-lived session's
+ * first-run screens, which are Bot Father's and the user's (#506).
  */
-export const KEPT_BACK = ['init', 'retire', 'pause', 'permission allow', 'permission disallow', 'permission approval'];
+export const KEPT_BACK = [
+  'init', 'retire', 'pause', 'permission allow', 'permission disallow', 'permission approval',
+  'session trust-hooks', 'session answer',
+];

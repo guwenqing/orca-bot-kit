@@ -59,10 +59,12 @@ test('the session the harness reported sits in the book beside the tab, and the 
   // harness's own conversations could have been this session's. `mailbox` and
   // `address` are how the session is written to (PRD 6.9): the Run made for it
   // at `up`, and, on Claude Code, the name it was launched under. `rules` is a
-  // stamp of AGENTS.md as the session last read it (#272).
+  // stamp of AGENTS.md as the session last read it (#272). `launched_with` is
+  // the extra_args the kit launched the session with, written with `launched`
+  // (#506).
   assert.deepEqual(
     Object.keys(book.sessions.daily).sort(),
-    ['address', 'launched', 'mailbox', 'rules', 'session', 'tab'],
+    ['address', 'launched', 'launched_with', 'mailbox', 'rules', 'session', 'tab'],
     `got: ${JSON.stringify(book.sessions.daily)}`,
   );
   assert.equal(book.sessions.daily.tab, tabs.daily.tabId);

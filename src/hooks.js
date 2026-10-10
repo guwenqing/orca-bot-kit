@@ -20,6 +20,9 @@ import { ownCli, shellWord } from './launch.js';
 /** Where each harness reads a project's hooks, inside the bot home. */
 const HOOK_FILE = { claude: '.claude/settings.json', codex: '.codex/hooks.json' };
 
+/** The hooks file `harness` reads in the bot at `home`. */
+export const hooksFileOf = (home, harness) => path.join(home, HOOK_FILE[harness]);
+
 /**
  * The one thing the kit asks to be told: a session beginning. Both harnesses
  * report it whenever a session starts, resumes or is begun again by the user —
@@ -380,6 +383,14 @@ const KIT_SENT = new RegExp(String.raw`^(${WORD}) session sent --bots ${WORD} --
 const KIT_NUDGE = new RegExp(String.raw`^(${WORD}) session nudge --bots ${WORD} --bot ${WORD} 2>/dev/null \|\| true$`);
 const KIT_MAIL = new RegExp(String.raw`^(${WORD}) session mail --bots ${WORD} --bot ${WORD} 2>/dev/null \|\| true$`);
 const KIT_NAME = new RegExp(String.raw`^(${WORD}) session name --bots ${WORD} --bot ${WORD} 2>/dev/null \|\| true$`);
+
+/**
+ * Whether a hook entry is one of the kit's own as this kit writes it: a
+ * command of exactly a shape the kit writes, run by `cli`, the kit running now
+ * (#506). One that runs some other program, even another `obk`, is not.
+ */
+export const runsThisKit = (hook, cli = ownCli()) =>
+  hook?.type === 'command' && [KIT_HOOK, KIT_SENT, KIT_NUDGE, KIT_NAME].some((pattern) => programOf(hook.command, pattern) === cli);
 
 /** The program a bot made before the kit named itself by path runs. */
 const BARE = 'obk';

@@ -333,6 +333,19 @@ knows it (Esc on the 2.1.283 form, 2. Not now on the 2.1.289 list, the return
 only after a second look), refuses any other screen, and checks that it went. The kit's
 default set allows it, as it allows `obk temp trust-hooks`.
 
+A long-lived session's two screens go through the kit too: Codex's hooks
+review with `obk session trust-hooks --bots <bots> --bot <bot> --session
+<session>`, and Claude Code's `Teach auto mode` screen with `obk session
+answer --bots <bots> --bot <bot> --session <session>`. A long-lived session is
+Bot Father's: the caller is a Bot Father session or the user, from outside the
+fleet's tabs, and a session of any other bot is refused. They make the same
+checks as the temp commands. Before either trust-hooks command trusts hooks,
+it checks that the hooks on the review are the kit's own: the bot's
+`.codex/hooks.json` holds only the kit's, and the count on the screen is the
+number of the kit's hooks Codex does not trust yet. A refusal says what it
+saw; then type nothing and take it to the user. The keys in the table are for
+the screens the kit does not answer.
+
 Where the kit says no session came up, the shell swallowed the launch line,
 usually while it was asking its own question. Answer the shell, then close
 that one tab (`<orca> terminal close --terminal <handle> --tab`) and run

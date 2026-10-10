@@ -32,7 +32,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { describe, it } from 'node:test';
 
 import { createSandbox, kitLaunchMark, sentInto, sessionIn } from './helpers/cli.js';
-import { CODEX_AFTER_TRUST, CODEX_HOOKS_REVIEW } from './helpers/screens.js';
+import { CODEX_AFTER_TRUST, CODEX_HOOKS_REVIEW_THREE } from './helpers/screens.js';
 import { withTypingTurnHeld } from './helpers/typing-turn.js';
 
 /** The words the refusal gives for keys the turn kept out. */
@@ -79,7 +79,7 @@ async function fleet(box) {
   const scout = (await sessionIn(bots, BOT, 'scout')).tab;
   await box.orca.set({
     terminals: (await box.orca.terminals()).map((terminal) => (terminal.tabId === scout
-      ? { ...terminal, screen: CODEX_HOOKS_REVIEW, screenAfterSend: CODEX_AFTER_TRUST }
+      ? { ...terminal, screen: CODEX_HOOKS_REVIEW_THREE, screenAfterSend: CODEX_AFTER_TRUST }
       : terminal)),
   });
   return { bots, planner, scout };

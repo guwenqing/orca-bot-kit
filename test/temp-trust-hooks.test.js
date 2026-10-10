@@ -25,6 +25,13 @@
 // Every refusal types nothing into any tab. Every run is in the sandbox
 // (helpers/cli.js): the fake Orca shows each tab the screen a test gives it,
 // and moves it on at the next key when told to (`screenAfterSend`).
+//
+// Since #506 the command answers a review only when its count row is the
+// number of the kit's own hooks Codex does not trust yet
+// (codex-hooks-only-the-kits.test.js). scout's bot has the kit's three Codex
+// hooks and the sandbox has no config.toml, so every review here says
+// "3 hooks are new or changed." (helpers/screens.js CODEX_HOOKS_REVIEW_THREE),
+// where these tests showed the 0.157.1 capture's "1 hook" before.
 
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -37,8 +44,8 @@ import {
 } from './helpers/cli.js';
 import {
   CODEX_AFTER_TRUST,
-  CODEX_HOOKS_REVIEW,
-  CODEX_HOOKS_REVIEW_ON_TWO,
+  CODEX_HOOKS_REVIEW_THREE,
+  CODEX_HOOKS_REVIEW_THREE_ON_TWO,
   CODEX_IDLE,
   CODEX_TRUST,
 } from './helpers/screens.js';
@@ -146,7 +153,7 @@ test('TH1 a name the bot has no session of is refused, and nothing is typed', as
 test('TH1 a long-lived session is refused, and nothing is typed', async (t) => {
   const box = await createSandbox(t);
   const { bots, planner } = await fleet(box);
-  await showIn(box, bots, 'nightly', { screen: CODEX_HOOKS_REVIEW });
+  await showIn(box, bots, 'nightly', { screen: CODEX_HOOKS_REVIEW_THREE });
   const before = await sendsByTab(box);
 
   const said = await assertRefusedUntyped(box, await trustHooks(box, planner, 'nightly'), before, 'a long-lived session');
@@ -156,7 +163,7 @@ test('TH1 a long-lived session is refused, and nothing is typed', async (t) => {
 test('TH1 a temporary session another session made is refused, and nothing is typed; its maker is not', async (t) => {
   const box = await createSandbox(t);
   const { bots, planner, nightly } = await fleet(box);
-  await showIn(box, bots, 'scout', { screen: CODEX_HOOKS_REVIEW, screenAfterSend: CODEX_AFTER_TRUST });
+  await showIn(box, bots, 'scout', { screen: CODEX_HOOKS_REVIEW_THREE, screenAfterSend: CODEX_AFTER_TRUST });
   const before = await sendsByTab(box);
 
   const said = await assertRefusedUntyped(box, await trustHooks(box, nightly, 'scout'), before, 'a run another session made');
@@ -169,7 +176,7 @@ test('TH1 a temporary session another session made is refused, and nothing is ty
 test('TH1 run outside any tab it is refused, and nothing is typed', async (t) => {
   const box = await createSandbox(t);
   const { bots } = await fleet(box);
-  await showIn(box, bots, 'scout', { screen: CODEX_HOOKS_REVIEW });
+  await showIn(box, bots, 'scout', { screen: CODEX_HOOKS_REVIEW_THREE });
   const before = await sendsByTab(box);
 
   const said = await assertRefusedUntyped(box, await trustHooks(box, null, 'scout'), before, 'a call from outside any tab');
@@ -181,7 +188,7 @@ test('TH1 run outside any tab it is refused, and nothing is typed', async (t) =>
 test('TH2 a run that is not on Codex is refused, whatever its screen shows, and nothing is typed', async (t) => {
   const box = await createSandbox(t);
   const { bots, planner } = await fleet(box);
-  await showIn(box, bots, 'drafter', { screen: CODEX_HOOKS_REVIEW });
+  await showIn(box, bots, 'drafter', { screen: CODEX_HOOKS_REVIEW_THREE });
   const before = await sendsByTab(box);
 
   const said = await assertRefusedUntyped(box, await trustHooks(box, planner, 'drafter'), before, 'a run on Claude Code');
@@ -212,9 +219,9 @@ for (const [label, change] of [
   test(`TH3 a Codex run whose screen cannot be read (${label}) is refused, says so, and nothing is typed`, async (t) => {
     const box = await createSandbox(t);
     const { bots, planner } = await fleet(box);
-    if (change === null) await showIn(box, bots, 'scout', { screen: CODEX_HOOKS_REVIEW, screenSource: 'screen-unavailable' });
+    if (change === null) await showIn(box, bots, 'scout', { screen: CODEX_HOOKS_REVIEW_THREE, screenSource: 'screen-unavailable' });
     else {
-      await showIn(box, bots, 'scout', { screen: CODEX_HOOKS_REVIEW });
+      await showIn(box, bots, 'scout', { screen: CODEX_HOOKS_REVIEW_THREE });
       await box.orca.set(change);
     }
     const before = await sendsByTab(box);
@@ -229,7 +236,7 @@ for (const [label, change] of [
 test('TH4 with the pointer on "1. Review hooks": down, then return, into the run\'s tab alone, and it says what it chose', async (t) => {
   const box = await createSandbox(t);
   const { bots, planner } = await fleet(box);
-  await showIn(box, bots, 'scout', { screen: CODEX_HOOKS_REVIEW, screenAfterSend: CODEX_AFTER_TRUST });
+  await showIn(box, bots, 'scout', { screen: CODEX_HOOKS_REVIEW_THREE, screenAfterSend: CODEX_AFTER_TRUST });
   const scout = (await sessionIn(bots, BOT, 'scout')).tab;
   const before = await sendsByTab(box);
 
@@ -246,7 +253,7 @@ test('TH4 with the pointer on "1. Review hooks": down, then return, into the run
 test('TH4 with the pointer already on "2. Trust all and continue": return alone', async (t) => {
   const box = await createSandbox(t);
   const { bots, planner } = await fleet(box);
-  await showIn(box, bots, 'scout', { screen: CODEX_HOOKS_REVIEW_ON_TWO, screenAfterSend: CODEX_AFTER_TRUST });
+  await showIn(box, bots, 'scout', { screen: CODEX_HOOKS_REVIEW_THREE_ON_TWO, screenAfterSend: CODEX_AFTER_TRUST });
   const scout = (await sessionIn(bots, BOT, 'scout')).tab;
   const before = await sendsByTab(box);
 
@@ -265,7 +272,7 @@ test('TH5 a review still on screen after the answer is a failure, and it says so
   // shows the review.
   const box = await createSandbox(t);
   const { bots, planner } = await fleet(box);
-  await showIn(box, bots, 'scout', { screen: CODEX_HOOKS_REVIEW });
+  await showIn(box, bots, 'scout', { screen: CODEX_HOOKS_REVIEW_THREE });
   const scout = (await sessionIn(bots, BOT, 'scout')).tab;
   const before = await sendsByTab(box);
 
