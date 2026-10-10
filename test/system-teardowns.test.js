@@ -51,8 +51,11 @@ const systemTestsDir = path.join(repoRoot, 'test', 'system');
  */
 const regexMayStart = (out) => {
   const before = out.trimEnd();
+  // A postfix `++` or `--` ends an operand, so a `/` after it divides.
+  if (/(?:\+\+|--)$/.test(before)) return false;
   return before === '' || /[(,=:[!&|?{};+\-*%<>~^]$/.test(before)
-    || /\b(?:return|typeof|case|do|else|in|of|void|yield|await|throw|new|delete)$/.test(before);
+    // The keyword itself, not a property or a name that ends in it (`obj.in`, `$in`).
+    || /(?<![\w$.])(?:return|typeof|case|do|else|in|of|void|yield|await|throw|new|delete)$/.test(before);
 };
 
 /**
@@ -360,6 +363,17 @@ test('the check is not fooled by a quote in a regular expression: comments after
 
   const division = rewritten('    const failedDeletes = [];\n', '    const failedDeletes = [];\n    const half = total / 2; const rest = (total) / 2;\n');
   assert.deepEqual(teardownTrouble(division), [], 'a division is not a regular expression');
+});
+
+test('the check takes a division after a postfix ++ or --, or after a property named like a keyword, for a division: a setup-delete after it on the line is still named', () => {
+  // Found in the review of PR #546: each of these was read as the start of a
+  // regular expression, which swallowed the rest of the line and hid the delete.
+  for (const division of ['n++ / 2', 'n-- / 2', 'obj.in / 2', 'obj.return / 2', 'obj.of / 2', 'obj?.typeof / 2', '$in / 2']) {
+    const line = `let n = 8; const half = ${division}; orca(["project", "setup-delete", "--setup", id]);\n`;
+    assert.deepEqual(teardownTrouble(`${line}${GUARDED}`), [SENDS], `after \`${division}\``);
+  }
+  const keyword = 'const id = typeof /"requestId"/.exec(text); const back = () => { return /"x"/; };\n// orca([\'project\', \'setup-delete\', \'--setup\', id]);\n';
+  assert.deepEqual(teardownTrouble(`${keyword}${GUARDED}`), [], 'after a keyword itself it is still a regular expression');
 });
 
 test('the check names a guarded teardown that still sends its own setup-delete, and only for that', () => {
