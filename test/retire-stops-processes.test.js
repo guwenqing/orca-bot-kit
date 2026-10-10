@@ -1137,3 +1137,85 @@ test('R3 a process that turns into another user\'s after TERM gets no KILL, and 
   assert.equal(left.length, 1, `it is named under left, got: ${JSON.stringify(processes.left)}`);
   assert.match(left[0].why ?? '', /another user/i, `why says it runs as another user: ${left[0].why}`);
 });
+
+// ------------------------------------------------------------------ R3, the deadlines one rule at a time
+//
+// The hand mutation check at 7d0ba1d found that the test above lets three
+// mistakes through: no adoption deadline after a slow read, a "could not
+// confirm" said as "still runs", and reads not bounded by what is left of the
+// stop. In its scenario each covers for another. Each test here holds one of
+// those rules alone. The stop's budget is 12 s from its start, and newcomers
+// are adopted for 6 s of it (6.75 s with the margin above).
+
+test('R3 a newcomer first seen by a read that ends after 6 s is not adopted: no TERM to it later than 6 s after the first TERM', async (t) => {
+  const box = await createSandbox(t);
+  await devFleet(box);
+  // 62201 ignores TERM until its KILL. 62203 starts 1.5 s after the first
+  // signal, in the work dir, in a group of its own, and ignores TERM. The
+  // table is fast, and each read of the working folders takes 7 s after the
+  // first signal: the read that first sees 62203 ends at about 8.7 s, after
+  // the 6 s deadline and well within the 12 s budget, so a read bounded by
+  // the budget is not cut.
+  await table(box, [
+    { pid: 62201, ppid: 1, pgid: 62201, cwd: workOf(box, 'dev'), command: 'node respawner.js', ignoresTerm: true },
+    { pid: 62203, ppid: 62201, pgid: 62203, cwd: workOf(box, 'dev'), command: 'node worker.js', ignoresTerm: true, appearsAfterMs: 1500 },
+  ]);
+  await box.orca.set({ lsofDelayAfterKillMs: 7000 });
+
+  const answer = answerIn(await retire(box, ['--session', 'dev', '--json']));
+
+  const calls = await box.kill.calls();
+  const argvs = JSON.stringify(calls.map((call) => [call.args, call.at - calls[0].at]));
+  assert.deepEqual(calls[0]?.args, term(-62201), 'the premise: TERM to the group comes first');
+  assert.ok(callOf(calls, kill(62201)) !== undefined, `the premise: 62201 gets its KILL, so the kit read on after it, got: ${argvs}`);
+  const late = calls.filter((call) => call.args[1] === 'TERM' && reaching([call.args], 62203).length > 0 && call.at - calls[0].at > 6750);
+  assert.deepEqual(late.map((call) => call.args), [], `no TERM to the newcomer later than 6 s after the first TERM, got: ${argvs}`);
+  assert.deepEqual(processesIn(answer).stopped.filter((one) => one.pid === 62203), [], 'and it is not named as stopped');
+});
+
+test('R3 a last signal that no read follows, because the KILL call returned after the stop\'s time, is left as not confirmed, never as still running', async (t) => {
+  const box = await createSandbox(t);
+  await devFleet(box);
+  // 62211 ignores TERM. Its KILL, the second kill call, blocks for 9.5 s, so
+  // it goes at about 12.5 s, past the 12 s budget, and no read can follow it.
+  await table(box, [{ pid: 62211, ppid: 1, pgid: 62211, cwd: workOf(box, 'dev'), command: 'node stubborn.js', ignoresTerm: true }]);
+  await box.orca.set({ killDelaysMs: [0, 9500] });
+
+  const answer = answerIn(await retire(box, ['--session', 'dev', '--json']));
+
+  const calls = await box.kill.calls();
+  const argvs = JSON.stringify(calls.map((call) => [call.args, call.at - calls[0].at]));
+  assert.deepEqual(calls.map((call) => call.args), [term(-62211), kill(62211)], 'the premise: TERM, then the slow KILL');
+  const reads = await box.ps.tableReads();
+  const checked = reads.filter((read) => read.at > calls[1].at);
+  assert.deepEqual(checked, [], `the premise: no read of the table followed the KILL, so the set of signals not confirmed is not empty, got reads: ${JSON.stringify(reads.map((read) => read.at - calls[0].at))}, calls: ${argvs}`);
+  const processes = processesIn(answer);
+  assert.deepEqual(processes.stopped.filter((one) => one.pid === 62211), [], `nothing checked that it ended, so it is not stopped: ${JSON.stringify(processes.stopped)}`);
+  const left = processes.left.filter((one) => one.pid === 62211);
+  assert.equal(left.length, 1, `it is named under left, got: ${JSON.stringify(processes.left)}`);
+  assert.match(left[0].why ?? '', /confirm/i, `why says the kit could not confirm it ended: ${left[0].why}`);
+  assert.doesNotMatch(left[0].why ?? '', /still runs/i, `and not that it still runs: ${left[0].why}`);
+});
+
+test('R3 a read that would run past the stop\'s end is cut at the end: no read is answered after it, and the process is left because the kit could not read again', async (t) => {
+  const box = await createSandbox(t);
+  await devFleet(box);
+  // The first TERM call blocks for 9 s, so the first read after it starts
+  // with about 3 s of the 12 s budget left. That read of the table takes 6 s,
+  // which is within a single read's own 10 s limit but not within the stop's.
+  await table(box, [{ pid: 62221, ppid: 1, pgid: 62221, cwd: workOf(box, 'dev'), command: 'node stubborn.js', ignoresTerm: true }]);
+  await box.orca.set({ killDelaysMs: [9000], psDelayAfterKillMs: 6000 });
+
+  const answer = answerIn(await retire(box, ['--session', 'dev', '--json']));
+
+  const calls = await box.kill.calls();
+  assert.deepEqual(calls.map((call) => call.args), [term(-62221)], 'the premise: the TERM, which took 9 s, and no time left for a KILL');
+  const reads = await box.ps.tableReads();
+  const after = reads.filter((read) => read.at >= calls[0].at).map((read) => read.done - calls[0].at);
+  assert.ok(after.every((done) => done <= 3750), `a read after the TERM is cut when the stop's 12 s are up, about 3 s after the TERM went; answered ${JSON.stringify(after)} ms after it`);
+  const processes = processesIn(answer);
+  assert.deepEqual(processes.stopped.filter((one) => one.pid === 62221), [], 'it is not named as stopped');
+  const left = processes.left.filter((one) => one.pid === 62221);
+  assert.equal(left.length, 1, `it is named under left, got: ${JSON.stringify(processes.left)}`);
+  assert.match(left[0].why ?? '', /read/i, `why says the kit could not read again: ${left[0].why}`);
+});
