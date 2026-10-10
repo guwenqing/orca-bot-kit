@@ -101,20 +101,24 @@ export async function stopProcesses(dirs) {
   const tracked = new Map();
   const refused = new Map();
   const ended = new Set();
-  const note = (one, sent, name, at) => {
+  // Each signal is timed once its `kill` has returned, so a slow one does not
+  // eat into the wait it starts (review of PR #543).
+  const note = (one, sent, name) => {
     if (sent.refused !== undefined) refused.set(one.pid, { ...one, why: `kill refused ${name}: ${sent.refused}` });
     else {
       refused.delete(one.pid);
-      tracked.set(one.pid, { ...one, signal: name, at });
+      tracked.set(one.pid, { ...one, signal: name, at: Date.now() });
     }
   };
   const begun = Date.now();
+  /** What is left of the stop, for a read or a signal to take. */
+  const budget = () => begun + STOP_MS - Date.now();
   const first = (pid, one) => ({ ...one, pgid: table.get(pid).pgid, started: table.get(pid).started });
   for (const pgid of whole) {
     const sent = signal('TERM', -pgid);
-    for (const [pid, one] of targets) if (table.get(pid).pgid === pgid) note(first(pid, one), sent, 'SIGTERM', begun);
+    for (const [pid, one] of targets) if (table.get(pid).pgid === pgid) note(first(pid, one), sent, 'SIGTERM');
   }
-  for (const [pid, one] of targets) if (!whole.has(table.get(pid).pgid)) note(first(pid, one), signal('TERM', pid), 'SIGTERM', begun);
+  for (const [pid, one] of targets) if (!whole.has(table.get(pid).pgid)) note(first(pid, one), signal('TERM', pid), 'SIGTERM');
 
   // Each process has TERM_WAIT_MS after its own SIGTERM to end, then SIGKILL,
   // then TERM_WAIT_MS more to be gone. A process a read shows one of them
@@ -124,37 +128,54 @@ export async function stopProcesses(dirs) {
   // until ADOPT_MS reads the working folders too. One that only joined a group
   // signalled whole, and works elsewhere, is not shown to be theirs, and is
   // named and never signalled (R2, review of PR #543).
-  // All of it ends by STOP_MS, and what still runs then is named. Where the
-  // table can no longer be read, nothing more is sent: the kit cannot see
-  // which pid is still theirs.
+  // All of it ends by STOP_MS: each read is given only what is left of it, and
+  // the clock is asked again after each read and before each signal. Where
+  // the table or the working folders can no longer be read, nothing more is
+  // sent: the kit cannot see which pid is still theirs. A process a uid other
+  // than the user's now runs is sent nothing more either.
   const named = new Set(left.map((one) => one.pid));
   let lost;
+  // When the last read that worked was asked: it says nothing of a signal sent after it.
+  let lastRead;
   for (;;) {
-    const read = processTable();
+    const asked = Date.now();
+    if (budget() <= 0) break;
+    const read = processTable(budget());
     if (read.unreadable !== undefined) {
       lost = read.unreadable;
       break;
     }
+    lastRead = asked;
     const now = read.table;
-    const at = Date.now();
     const live = (one) => !ended.has(one.pid) && now.get(one.pid)?.started === one.started;
     for (const one of tracked.values()) if (!live(one)) ended.add(one.pid);
 
-    if (at - begun < ADOPT_MS) {
+    if (Date.now() - begun < ADOPT_MS) {
       // The retire's own run as it is now: the `ps` and `lsof` it starts for
       // each read work where it works, which can be the work dir.
       const ours = ownRun(now);
       const fresh = [...now].filter(([pid, seen]) => !tracked.has(pid) && !refused.has(pid) && !named.has(pid) && !mine.has(pid) && !ours.has(pid) && seen.uid === uid);
       // A process whose working folder is in a work dir is that session's
       // own by R1, whatever its group and its parent (review of PR #543).
-      const folders = fresh.length === 0 ? new Map() : workingFolders().cwds ?? new Map();
+      let folders = new Map();
+      if (fresh.length > 0) {
+        const folderRead = workingFolders(budget());
+        if (folderRead.unreadable !== undefined) {
+          lost = folderRead.unreadable;
+          break;
+        }
+        folders = folderRead.cwds;
+      }
       for (const [pid, seen] of fresh) {
         const one = { pid, cwd: folders.get(pid) ?? null, command: seen.command };
         const parent = [...ancestorsOf(now, pid)].map((it) => tracked.get(it)).find((it) => it !== undefined && live(it));
         const home = one.cwd === null ? undefined : where.find(({ real }) => inside(one.cwd, real));
         const theirs = parent ?? home;
-        if (theirs !== undefined) note({ session: theirs.session, ...one, pgid: seen.pgid, started: seen.started }, signal('TERM', pid), 'SIGTERM', at);
-        else if (whole.has(seen.pgid)) {
+        if (theirs !== undefined) {
+          // The read may have used up the time for looking.
+          if (Date.now() - begun >= ADOPT_MS) break;
+          note({ session: theirs.session, ...one, pgid: seen.pgid, started: seen.started }, signal('TERM', pid), 'SIGTERM');
+        } else if (whole.has(seen.pgid)) {
           const mate = [...tracked.values()].find((it) => it.pgid === seen.pgid);
           named.add(pid);
           left.push({ session: mate.session, ...one, why: `it joined process group ${seen.pgid} of ${mate.session}'s processes, and the kit cannot show it is ${mate.session}'s own` });
@@ -164,11 +185,15 @@ export async function stopProcesses(dirs) {
 
     const running = [...tracked.values()].filter((one) => !refused.has(one.pid) && live(one));
     for (const one of running) {
-      if (one.signal === 'SIGTERM' && at - one.at >= TERM_WAIT_MS) note({ ...one, command: now.get(one.pid).command }, signal('KILL', one.pid), 'SIGKILL', at);
+      if (one.signal !== 'SIGTERM' || Date.now() - one.at < TERM_WAIT_MS) continue;
+      if (budget() <= 0) break;
+      const seen = now.get(one.pid);
+      if (seen.uid !== uid) refused.set(one.pid, { ...one, why: 'it runs as another user now, so the kit sends it no SIGKILL' });
+      else note({ ...one, command: seen.command }, signal('KILL', one.pid), 'SIGKILL');
     }
-    const waiting = running.filter((one) => !refused.has(one.pid) && at - tracked.get(one.pid).at < TERM_WAIT_MS);
-    if (running.length === 0 || waiting.length === 0 || at - begun >= STOP_MS) break;
-    await delay(POLL_MS);
+    const waiting = running.filter((one) => !refused.has(one.pid) && Date.now() - tracked.get(one.pid).at < TERM_WAIT_MS);
+    if (running.length === 0 || waiting.length === 0 || budget() <= 0) break;
+    await delay(Math.max(0, Math.min(POLL_MS, budget())));
   }
 
   const stopped = [];
@@ -176,7 +201,9 @@ export async function stopProcesses(dirs) {
     if (refused.has(one.pid)) continue;
     if (ended.has(one.pid)) stopped.push(shown(one));
     else {
-      const why = lost === undefined ? `it still runs after ${one.signal}` : `the kit could not read the processes again after ${one.signal}, so it sent nothing more: ${lost}`;
+      let why = `it still runs after ${one.signal}`;
+      if (lost !== undefined) why = `the kit could not read the processes again after ${one.signal}, so it sent nothing more: ${lost}`;
+      else if (lastRead === undefined || lastRead < one.at) why = `the kit could not confirm that it ended after ${one.signal}: the stop's time ran out before a read after it`;
       left.push(shown({ ...one, why }));
     }
   }
@@ -218,9 +245,13 @@ function readProcesses() {
   return folders.unreadable !== undefined ? folders : { table: listed.table, cwds: folders.cwds };
 }
 
-/** The working folder of each of the user's processes, `cwds`: pid to folder, as `lsof` gives it. Or `{ unreadable: <why> }`. */
-function workingFolders() {
-  const asked = spawnSync(lsofCli(), ['-a', '-d', 'cwd', '-u', String(process.getuid()), '-Fpn'], { encoding: 'utf8', timeout: READ_MS, maxBuffer: 64 * 1024 * 1024 });
+/**
+ * The working folder of each of the user's processes, `cwds`: pid to folder,
+ * as `lsof` gives it. Or `{ unreadable: <why> }`. `ms` bounds the read below
+ * READ_MS.
+ */
+function workingFolders(ms = READ_MS) {
+  const asked = spawnSync(lsofCli(), ['-a', '-d', 'cwd', '-u', String(process.getuid()), '-Fpn'], { encoding: 'utf8', timeout: bound(ms), maxBuffer: 64 * 1024 * 1024 });
   if (asked.error?.code === 'ETIMEDOUT') return { unreadable: 'lsof did not answer in time' };
   if (asked.error || asked.status !== 0) return { unreadable: `lsof could not list the processes' working folders${because(asked)}` };
   const cwds = new Map();
@@ -238,8 +269,8 @@ function workingFolders() {
  * process from another: a pid can be taken again, and a process can change its
  * own command line (review of PR #543). Or `{ unreadable: <why> }`.
  */
-function processTable() {
-  const asked = spawnSync(psCli(), ['-A', '-ww', '-o', 'pid=,ppid=,pgid=,uid=,stat=,lstart=,command='], { encoding: 'utf8', timeout: READ_MS, maxBuffer: 64 * 1024 * 1024 });
+function processTable(ms = READ_MS) {
+  const asked = spawnSync(psCli(), ['-A', '-ww', '-o', 'pid=,ppid=,pgid=,uid=,stat=,lstart=,command='], { encoding: 'utf8', timeout: bound(ms), maxBuffer: 64 * 1024 * 1024 });
   if (asked.error?.code === 'ETIMEDOUT') return { unreadable: 'ps did not answer in time' };
   if (asked.error || asked.status !== 0) return { unreadable: `ps could not read the process table${because(asked)}` };
   const table = new Map();
@@ -252,6 +283,9 @@ function processTable() {
   if (table.size === 0) return { unreadable: 'ps listed no processes' };
   return { table };
 }
+
+/** A read's time limit: `ms`, but never more than READ_MS, and at least 1. */
+const bound = (ms) => Math.max(1, Math.min(READ_MS, Math.floor(ms)));
 
 /** What a failed call said for itself, as the end of a sentence. */
 function because(asked) {
