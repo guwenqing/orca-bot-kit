@@ -68,11 +68,12 @@
 // let every write through, the fix or not, and the test would show nothing. So
 // this test makes its bots folder under the checkout's own `local-data/`,
 // which .gitignore keeps out of git, and checks that premise against the
-// $TMPDIR the sender itself sees. The runner's check of Codex's trust keys
-// (scripts/test-system.js) looks for run folders under the temp folder only,
-// so it would not attribute a key under this folder to the run. Every Codex
-// here is launched with its trust given at launch (helpers/codex-trust.js), so
-// none is expected; not seen live.
+// $TMPDIR the sender itself sees. The folder is named `obk-system-…` and sits
+// directly in `local-data/`, which is where the runner (scripts/test-system.js)
+// looks for a run's own folders besides the temp folder: for a Codex trust key
+// the run left, and for an Orca project it left (#536). Every Codex here is
+// launched with its trust given at launch (helpers/codex-trust.js), so no key
+// is expected; not seen live.
 //
 // The sender also writes the exit status of a `/bin/ps` it runs, as
 // codex-nudge does: inside the sandbox `ps` does not start, so a status of 0
@@ -84,7 +85,8 @@
 // by its full path, never the machine's `obk` (#220), and the sessions reach
 // the kit through the `$OBK_CLI` their launch line set; types into no tab at
 // all; closes only its own tabs, one by one through the tab guard, and
-// deletes its own workspaces, whatever happened; and removes the bots folder
+// deletes its own workspaces through deleteOwnProject (#536), whatever
+// happened, failing on any it could not remove; and removes the bots folder
 // and every folder of the kit's beside it. `orca terminal close --worktree …
 // --all` is never run, and the guard refuses it. Each run leaves the fleet's
 // orchestration Runs behind, which Orca offers no way to delete.
@@ -111,6 +113,7 @@ import { parse } from 'yaml';
 
 import { cliEntry, repoRoot, shellWord } from '../helpers/cli.js';
 import { codexTrustArgs } from '../helpers/codex-trust.js';
+import { deleteOwnProject } from '../helpers/own-project.js';
 import { rolloutFilesOf } from '../helpers/codex-rollout.js';
 import { waitingOn } from '../helpers/screens.js';
 import { tabGuard } from '../helpers/tab-guard.js';
@@ -676,10 +679,15 @@ test('#534 a Codex session at auto sends a long fleet message, makes and retires
     const { closed, foreign } = guard.closeOwnAt(homes);
     const held = new Set(foreign.map((one) => one.home));
     let deleted = 0;
+    const failedDeletes = [];
     for (const setup of allSetups()) {
       if (!homes.includes(setup.path) || before.setups.has(setup.id) || held.has(setup.path)) continue;
-      orca(['project', 'setup-delete', '--setup', setup.id]);
-      deleted += 1;
+      try {
+        await deleteOwnProject(setup, bots);
+        deleted += 1;
+      } catch (error) {
+        failedDeletes.push(`${setup.path}: ${error.message}`);
+      }
     }
     // Orca's sidebar keeps a deleted project's row until its window is rebuilt (#343).
     if (deleted > 0 && !(await reloadWindow())) t.diagnostic(RELOAD_LINE);
@@ -693,6 +701,7 @@ test('#534 a Codex session at auto sends a long fleet message, makes and retires
     for (const each of homes) {
       assert.deepEqual(await terminalsAfterClosing(each, closed), [], `this test left tabs behind in ${each}`);
     }
+    assert.deepEqual(failedDeletes, [], 'projects this test could not remove, left in Orca');
   });
 
   for (const tmp of new Set([os.tmpdir(), await realpath(os.tmpdir()), '/tmp', '/private/tmp'])) {

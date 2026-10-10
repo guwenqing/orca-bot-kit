@@ -250,9 +250,12 @@ function trustKeys() {
 }
 
 /**
- * The folder of this run's under the temp folder that `key` names, or
- * undefined: a system test makes its bots folder as `<tmp>/obk-system-<name>-…`,
- * and macOS spells the temp folder both with `/private` in front and without.
+ * The folder of this run's that `key` names, or undefined: a system test makes
+ * its bots folder as `<tmp>/obk-system-<name>-…`, and macOS spells the temp
+ * folder both with `/private` in front and without. A test whose Codex
+ * sessions must not reach their bots folder through the sandbox's temp folder
+ * makes it as `<repo>/local-data/obk-system-<name>-…` instead (#534), named
+ * `local-data/<folder>` here so it is never taken for one in the temp folder.
  */
 function runFolderOf(raw) {
   // `..`, `.` and doubled slashes are resolved first, so a key that names the
@@ -270,7 +273,22 @@ function runFolderOf(raw) {
     const folder = key.slice(tmp.length + 1).split('/')[0];
     if (folder.startsWith('obk-system-')) return folder;
   }
+  for (const root of localDataSpellings()) {
+    if (!key.startsWith(`${root}/`)) continue;
+    const folder = key.slice(root.length + 1).split('/')[0];
+    if (folder.startsWith('obk-system-')) return `local-data/${folder}`;
+  }
   return undefined;
+}
+
+/** The checkout's `local-data/` (#534), as it is named and by its real path. */
+function localDataSpellings() {
+  const named = path.join(repo, 'local-data');
+  try {
+    return [...new Set([named, path.join(realpathSync(repo), 'local-data')])];
+  } catch {
+    return [named];
+  }
 }
 
 /** Whether `key` names a place in one of this run's own folders: one that was not there before it (#240). */
@@ -280,18 +298,22 @@ function runOwns(key, foldersBefore) {
 }
 
 /**
- * The obk-system-* folders under the temp folder right now, by name. Taken
+ * The obk-system-* folders under the temp folder and in `<repo>/local-data`
+ * right now, by name (`local-data/<name>` for the second, #534). Taken
  * before the tests run, so that a folder another session made earlier is not
  * mistaken for this run's: only a folder that appears while the run goes on
  * counts as its own (#240). A second system-test run started on this machine at
  * the same time would still be counted; nothing here can tell the two apart.
  */
 function runFoldersNow() {
-  try {
-    return new Set(readdirSync(os.tmpdir()).filter((name) => name.startsWith('obk-system-')));
-  } catch {
-    return new Set();
-  }
+  const named = (dir, as = (name) => name) => {
+    try {
+      return readdirSync(dir).filter((name) => name.startsWith('obk-system-')).map(as);
+    } catch {
+      return [];
+    }
+  };
+  return new Set([...named(os.tmpdir()), ...named(path.join(repo, 'local-data'), (name) => `local-data/${name}`)]);
 }
 
 /**

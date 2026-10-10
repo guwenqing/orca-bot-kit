@@ -16,12 +16,12 @@
 
 import assert, { AssertionError } from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, realpath, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rm, rmdir } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { createSandbox, orcaCallsOf } from './helpers/cli.js';
+import { createSandbox, orcaCallsOf, repoRoot } from './helpers/cli.js';
 import { deleteOwnProject } from './helpers/own-project.js';
 
 /**
@@ -199,4 +199,71 @@ for (const [why, build] of NOT_OURS) {
       assert.deepEqual(await listedIds(box), [theirs.id], 'the project is still there');
     });
   }
+}
+
+// ------------------------------------------------------------- a throwaway bots folder in <repo>/local-data
+
+// A system test whose sessions run in Codex's sandbox cannot keep its bots
+// folder in the temp folder: the sandbox lets every session write /tmp and
+// $TMPDIR, so a test of what the sandbox refuses would show nothing there
+// (test/system/codex-sandbox-writes.test.js, #534). Its bots folder is
+// `<repo>/local-data/obk-system-<name>-…` instead, which .gitignore keeps out
+// of git, and its projects go through the same helper, with the same rule:
+// strictly inside a folder named obk-system-, directly in that folder.
+
+/**
+ * A folder made in the checkout's own `local-data/`, which is made for it when
+ * it is not there; both removed when the test ends, `local-data/` only when
+ * this made it and it is empty.
+ */
+async function localDataFolder(t, prefix) {
+  const parent = path.join(await realpath(repoRoot), 'local-data');
+  const made = await mkdir(parent, { recursive: true });
+  const folder = await realpath(await mkdtemp(path.join(parent, prefix)));
+  t.after(async () => {
+    await rm(folder, { recursive: true, force: true });
+    if (made !== undefined) await rmdir(parent).catch(() => {});
+  });
+  return folder;
+}
+
+test('a project inside the run\'s own bots folder in <repo>/local-data goes, sent with --force, and no other project is touched', async (t) => {
+  const box = await fakeOrcaFor(t);
+  const bots = await localDataFolder(t, 'obk-system-own-project-');
+  const owner = await projectAt(box, '/Users/owner/work/app');
+  const mine = await projectAt(box, path.join(bots, 'bots', 'bot-father'));
+  await box.orca.set({ deleteGuard: {} });
+
+  await deleteOwnProject(mine, bots);
+
+  assert.deepEqual(await listedIds(box), [owner.id], 'only the project named goes');
+  assert.deepEqual(await deletesSent(box), [['project', 'setup-delete', '--setup', mine.id, '--force', '--json']]);
+});
+
+for (const [why, build] of [
+  ['a bots folder in <repo>/local-data whose name does not start with obk-system-', async (t) => {
+    const bots = await localDataFolder(t, 'obk-other-own-project-');
+    return { bots, home: path.join(bots, 'bots', 'bot-father') };
+  }],
+  ['a bots folder named like one but not directly in <repo>/local-data', async (t) => {
+    const outer = await localDataFolder(t, 'obk-system-outer-');
+    const bots = await folderIn(t, outer, 'obk-system-nested-');
+    return { bots, home: path.join(bots, 'bots', 'bot-father') };
+  }],
+  ['the project is in <repo>/local-data beside the bots folder, not inside it', async (t) => {
+    const bots = await localDataFolder(t, 'obk-system-own-project-');
+    return { bots, home: path.join(path.dirname(bots), 'owner-project') };
+  }],
+]) {
+  test(`not the run's own, so nothing is sent and it fails with an AssertionError: ${why}`, async (t) => {
+    const box = await fakeOrcaFor(t);
+    const { bots, home } = await build(t);
+    const theirs = await projectAt(box, home);
+    await box.orca.set({ deleteGuard: {} });
+
+    await assert.rejects(async () => deleteOwnProject(theirs, bots), AssertionError);
+
+    assert.deepEqual(await deletesSent(box), [], 'no setup-delete at all');
+    assert.deepEqual(await listedIds(box), [theirs.id], 'the project is still there');
+  });
 }
