@@ -213,6 +213,14 @@ async function findings(box) {
   return answer.found;
 }
 
+/**
+ * Whether a finding is about temp_approval itself. MINE holds a key the kit
+ * does not know, `notes`, and health's finding about it may list every key a
+ * bot's file can have, temp_approval among them: that finding is about
+ * `notes`, not about temp_approval, so it does not count here.
+ */
+const aboutTempApproval = (one) => typeof one.says === 'string' && one.says.includes('temp_approval') && !one.says.includes('notes');
+
 /** Set temp_approval in the bot's bot.yaml by hand, as the user would. */
 async function handSet(bots, value) {
   const doc = parse(await botText(bots));
@@ -228,7 +236,7 @@ for (const level of ['auto', 'ask', 'dangerously-skip']) {
 
     const found = await findings(box);
 
-    const named = found.filter((one) => typeof one.says === 'string' && one.says.includes('temp_approval'));
+    const named = found.filter(aboutTempApproval);
     assert.deepEqual(named, [], `temp_approval is the kit's own key, and ${level} a level it knows, got: ${JSON.stringify(found, null, 2)}`);
   });
 }
@@ -240,7 +248,7 @@ test('PA4 health does not name a temp_approval written by permission approval --
 
   const found = await findings(box);
 
-  assert.deepEqual(found.filter((one) => typeof one.says === 'string' && one.says.includes('temp_approval')), []);
+  assert.deepEqual(found.filter(aboutTempApproval), []);
 });
 
 for (const [label, value] of [['an unknown level', 'sometimes'], ['a number', 3], ['a list', ['auto']]]) {
@@ -251,7 +259,7 @@ for (const [label, value] of [['an unknown level', 'sometimes'], ['a number', 3]
 
     const found = await findings(box);
 
-    const named = found.filter((one) => typeof one.says === 'string' && one.says.includes('temp_approval'));
+    const named = found.filter(aboutTempApproval);
     assert.equal(named.length, 1, `one finding should name temp_approval, got: ${JSON.stringify(found, null, 2)}`);
     assert.equal(named[0].kind, 'config');
     assert.equal(named[0].bot, BOT);
