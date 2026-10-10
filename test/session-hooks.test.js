@@ -129,11 +129,15 @@ test('a bot with no sessions gets neither hook file', async (t) => {
 
   await up(box, 'quiet-bot');
 
+  // #527: bot create writes the kit's default rules into .claude/settings.json
+  // before the bot has a session, so the file may be there; what it must not
+  // hold is a hook of the kit's.
   for (const harness of ['claude', 'codex']) {
-    assert.equal(
-      await hasHook(bots, 'quiet-bot', harness),
-      false,
-      `nothing runs in ${'quiet-bot'}, so ${hookFileOf(bots, 'quiet-bot', harness)} has no reason to exist`,
+    const held = await hooksIn(bots, 'quiet-bot', harness);
+    const events = held === undefined ? {} : (eventsIn(held) ?? {});
+    assert.ok(
+      !/\bsession (record|sent|mail|nudge|name)\b/.test(JSON.stringify(events)),
+      `nothing runs in quiet-bot, so ${hookFileOf(bots, 'quiet-bot', harness)} holds none of the kit's hooks, got: ${JSON.stringify(held)}`,
     );
   }
 });

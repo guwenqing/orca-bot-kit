@@ -39,6 +39,7 @@ import {
   orcaCallsOf,
   sessionIn,
 } from './helpers/cli.js';
+import { addSession } from './helpers/permissions.js';
 import { agentsIn, blockIn, headingsIn, kitUnit, underIn } from './helpers/rules.js';
 
 /** The kit's rule unit that tells a bot how to write to another session. */
@@ -50,7 +51,8 @@ async function fleetIn(box, fleet) {
   for (const [bot, harness, settings = []] of fleet) {
     const made = await box.run(['bot', 'create', '--bots', 'bots', '--name', bot, '--harness', harness]);
     assert.equal(made.code, 0, made.stderr);
-    const added = await box.run(['session', 'add', '--bots', 'bots', '--bot', bot, '--name', 'daily', ...settings]);
+    // #527: the approval in `settings` is set by `obk permission approval`, after session add.
+    const added = await addSession(box, { bot, name: 'daily', settings });
     assert.equal(added.code, 0, added.stderr);
   }
   const up = await box.run(['up', '--bots', 'bots']);

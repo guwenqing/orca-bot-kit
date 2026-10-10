@@ -54,12 +54,13 @@ async function fleet(box, { approval, temps } = {}) {
   return { bots, lead: await liveTab(box, bots, 'lead') };
 }
 
-/** A make that is refused, names the road, and makes nothing. */
+/** A make that is refused, names the road, and makes nothing. `level` is a level, or the approval args as given. */
 async function assertWidthRefused(box, bots, lead, level) {
   const before = await world(box, bots);
   const from = (await box.orca.calls()).length;
 
-  const result = await make(box, lead, ['--name', 'scout', '--prompt', TASK, '--approval', level]);
+  const given = Array.isArray(level) ? level : ['--approval', level];
+  const result = await make(box, lead, ['--name', 'scout', '--prompt', TASK, ...given]);
 
   assertRefused(result, 'permission approval', '--temps');
   assert.deepEqual(await world(box, bots), before, 'bot.yaml, the book and Orca are as they were');
@@ -158,3 +159,33 @@ for (const [maker, temps] of [['ask', 'dangerously-skip'], ['dangerously-skip', 
     assert.equal(await madeAt(box, bots, lead, []), maker);
   });
 }
+
+// ----------------------------------------------------------------- a blank approval counts as auto
+
+// From the review: a blank `--approval` on temp make counts as its effective
+// level, the kit's default auto; and a maker whose own approval is blank in
+// bot.yaml counts as auto.
+for (const [label, given] of [['an empty --approval=', ['--approval=']], ['a blank --approval=" "', ['--approval= ']]]) {
+  test(`TA5 a maker at ask with no temp_approval making a temp with ${label} is refused, as for auto, and makes nothing`, async (t) => {
+    const box = await createSandbox(t);
+    const { bots, lead } = await fleet(box, { approval: 'ask' });
+
+    await assertWidthRefused(box, bots, lead, given);
+  });
+
+  test(`TA5 a maker at auto making a temp with ${label} goes through as today`, async (t) => {
+    const box = await createSandbox(t);
+    const { bots, lead } = await fleet(box, { approval: 'auto' });
+
+    await made(box, lead, ['--name', 'scout', '--prompt', TASK, ...given]);
+    assert.ok(['auto', ''].includes(String((await settingsOf(bots, 'scout')).approval).trim()), 'the temp is at the kit default, auto, or left blank for it');
+  });
+}
+
+test('TA5 a maker whose own approval is blank in bot.yaml counts as auto: dangerously-skip is refused, auto is made', async (t) => {
+  const box = await createSandbox(t);
+  const { bots, lead } = await fleet(box, { approval: '' });
+
+  await assertWidthRefused(box, bots, lead, 'dangerously-skip');
+  assert.equal(await madeAt(box, bots, lead, ['--approval', 'auto']), 'auto');
+});
