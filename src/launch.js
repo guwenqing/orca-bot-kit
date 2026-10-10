@@ -206,7 +206,7 @@ const where = (session) => (set(session.name) ? `session ${session.name}` : 'thi
  * send would land on that list and answer it. A prompt given as an argument is
  * held by the harness until it is ready for it (tech notes, section 1).
  */
-export function launchCommand(session, { harness, home, workDir, prompt, promptFile: fromFile, resume, address }) {
+export function launchCommand(session, { harness, home, workDir, prompt, promptFile: fromFile, resume, address, kit }) {
   const trouble = sessionTrouble(session, harness, home);
   if (trouble !== undefined) throw new Error(trouble);
 
@@ -240,6 +240,10 @@ export function launchCommand(session, { harness, home, workDir, prompt, promptF
     // started in, and nowhere else (ADR 0015), so a work dir outside the bot
     // home has to be named.
     if (workDir !== undefined && !inside(home, workDir)) words.push('--add-dir', workDir);
+    // And the kit's own folders for this bot beside the bots folder: its long
+    // message bodies, its start prompts and its locks (#534). The bot's, and no
+    // other bot's: a session never gets to write another bot's mail.
+    if (kit !== undefined) for (const folder of Object.values(kit)) words.push('--add-dir', folder);
   }
 
   return [
@@ -313,6 +317,19 @@ const resumeWords = (harness, resume) => {
   if (resume === undefined) return [];
   return harness === 'claude' ? ['--resume', quoted(resume)] : [quoted(resume)];
 };
+
+/**
+ * The kit's own folders for one bot, beside the bots folder: `messages` for
+ * the bodies of its long fleet mail, `prompts` for its sessions' start
+ * prompts, `locks` for its book's and its sessions' turns. Each is a folder of
+ * the bot's own, so that a Codex session, whose sandbox writes only where its
+ * launch line says, can be given its bot's and no other's (#534).
+ */
+export const kitFolders = (bots, bot) => ({
+  messages: path.join(`${bots}.messages`, bot),
+  prompts: path.join(`${bots}.prompts`, bot),
+  locks: path.join(`${bots}.locks`, bot),
+});
 
 /** Whether `target` is the folder at `home` or something inside it. */
 const inside = (home, target) => target === home || target.startsWith(home + path.sep);

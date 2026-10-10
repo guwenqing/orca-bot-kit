@@ -18,7 +18,7 @@
 // is, the one thing to go and look at, and a sentence naming it — so that
 // somebody who cannot read code knows what was found and where.
 
-import { existsSync, readdirSync, realpathSync } from 'node:fs';
+import { existsSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import path from 'node:path';
 
 import { bookFile, readBook, sessionIdsIn, tabIdsIn } from './book.js';
@@ -33,7 +33,7 @@ import { agentsTrouble, rulesStamp } from './rules.js';
 import { settingsInUse } from './settings.js';
 import { skillsTrouble } from './skills.js';
 import { readSources, sourcesDir } from './sources.js';
-import { BOT_FATHER, botsNamed, promptPath } from './up.js';
+import { BOT_FATHER, botsNamed, oldPromptPath, promptPath } from './up.js';
 
 /**
  * Everything wrong with the setup at `bots`, in one list: what Orca's own
@@ -141,6 +141,9 @@ function leftBeside(bots) {
     try {
       for (const session of readBot(botDir(bots, name), name).sessions) {
         owned.add(promptPath(bots, name, session.name));
+        // Where a live session's prompt was before #534: nothing reads it once
+        // the session starts again, and its retire removes it.
+        owned.add(oldPromptPath(bots, name, session.name));
       }
     } catch {
       known = false;
@@ -148,8 +151,7 @@ function leftBeside(bots) {
   }
 
   if (known) {
-    for (const file of namesIn(`${bots}.prompts`)) {
-      const at = path.join(`${bots}.prompts`, file);
+    for (const at of promptFilesIn(`${bots}.prompts`)) {
       if (owned.has(at)) continue;
       found.push(finding('leftover', at, `${at} is a start prompt the kit wrote beside your bots folder, and no session of any bot answers to it now. Nothing reads it.`));
     }
@@ -455,6 +457,21 @@ function recordIn(home, bot) {
 }
 
 /** What a directory holds, and nothing at all when there is no directory. */
+/**
+ * The files in the kit's folder of start prompts: in each bot's own folder
+ * there (#534), and flat in the folder itself, where they were before.
+ */
+function promptFilesIn(dir) {
+  return namesIn(dir).flatMap((name) => {
+    const at = path.join(dir, name);
+    try {
+      return statSync(at).isDirectory() ? namesIn(at).map((file) => path.join(at, file)) : [at];
+    } catch {
+      return [];
+    }
+  });
+}
+
 function namesIn(dir) {
   try {
     return readdirSync(dir);

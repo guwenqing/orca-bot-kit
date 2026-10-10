@@ -13,7 +13,7 @@ import { botDir, botNames, displayName, projectName, readBot } from './bot.js';
 import { conversationsIn, hasConversation, heldAsUserTurn, transcriptsIn } from './conversations.js';
 import { installHook } from './hooks.js';
 import { writePermissions } from './permissions.js';
-import { addressOf, harnessOf, isAddressOf, isShortPrompt, launchCommand, mailboxStep, reachesMail, sessionTrouble, startPrompt, workDirOf } from './launch.js';
+import { addressOf, harnessOf, isAddressOf, isShortPrompt, kitFolders, launchCommand, mailboxStep, reachesMail, sessionTrouble, startPrompt, workDirOf } from './launch.js';
 import { asFolderProject, coordinatorOf, findProject, harnessInTab, makeMailbox, makeProject, openTab, QUESTION_ON_SCREEN, retitleTab, runMissing, screenRows, shellInTab, tabs, tabToTypeInto, TERMINAL_ENV, TIMED_OUT, tellWindow, typeIntoTab, useMailbox } from './orca.js';
 import { TAB_ENV } from './record.js';
 import { buildAgents, rulesStamp } from './rules.js';
@@ -279,6 +279,9 @@ async function bringUpSession(bots, home, live, session, bot, title) {
   // A work dir is a plain folder, made for the session before it is told about
   // it (PRD 6.4). Nothing here is a git worktree.
   if (workDir !== undefined) mkdirSync(workDir, { recursive: true });
+  // The kit's own folders for the bot, which a Codex launch line names for its
+  // sandbox to write, are there before the line is (#534).
+  if (harness === 'codex') for (const folder of Object.values(kitFolders(bots, bot.name))) mkdirSync(folder, { recursive: true });
   writePrompt(launch);
 
   const made = openTab(home, tabTitle);
@@ -550,6 +553,7 @@ function launchFor(bots, bot, session, harness, home, workDir, resume, held) {
     promptFile,
     resume,
     address,
+    kit: kitFolders(bots, bot.name),
   });
   // The session's mailbox first, from inside its own tab (#317), and the
   // harness whatever became of it.
@@ -870,9 +874,16 @@ const ids = (setup, change) => ({ project: setup.projectId, setup: setup.id, cha
  *
  * Beside *this* bots folder, and not in a shared temp directory: two bots
  * folders may each hold an api-bot with a daily session, and one file for both
- * of them is one bot's duty handed to another's session.
+ * of them is one bot's duty handed to another's session. In the bot's own
+ * folder there, which a Codex session of the bot may write and no other bot's
+ * may: a temporary session's maker writes its prompt from inside its sandbox
+ * (#534).
  */
 export const promptPath = (bots, bot, session) =>
+  path.join(kitFolders(bots, bot).prompts, `${encodeURIComponent(session)}.txt`);
+
+/** Where a session's start prompt was before #534, flat beside the others: removed with the session. */
+export const oldPromptPath = (bots, bot, session) =>
   path.join(`${bots}.prompts`, `${encodeURIComponent(bot)}.${encodeURIComponent(session)}.txt`);
 
 function entry(tab, { bot, name, created, running = false, blockedReason, promptReceived, promptFile, resumed, noConversation, unclaimed, noMailbox = false, listLine, listLineTrouble, notLaunched }) {

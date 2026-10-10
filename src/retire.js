@@ -32,7 +32,7 @@ import { fleetMember } from './pause.js';
 import { closeTabs, commandLine, tabsToClose } from './restart.js';
 import { unlinkSkills } from './skills.js';
 import { takeUnread } from './unread.js';
-import { promptPath, sessionsOf } from './up.js';
+import { oldPromptPath, promptPath, sessionsOf } from './up.js';
 
 /** Where retired bots go: beside `bots/`, where nothing the kit runs looks. */
 export const retiredDir = (bots) => path.join(bots, 'retired');
@@ -76,7 +76,7 @@ export async function retireSession(bots, { bot, session }) {
     if (retiredWith.length > 0) error.message = `${error.message} ${goneBefore(session, retiredWith)}`;
     throw error;
   }
-  const left = removePrompts([promptPath(bots, bot, session)]);
+  const left = removePrompts(promptFiles(bots, bot, session));
   const unread = takeUnread(home, session);
 
   return { bot, session, closed, retiredWith, ...left, ...(unread === undefined ? {} : { unread }) };
@@ -161,7 +161,7 @@ export async function retireBot(bots, { bot }) {
   }
 
   const names = new Set([...known.sessions, ...booked].map((session) => session.name));
-  const left = removePrompts([...names].map((name) => promptPath(bots, bot, name)));
+  const left = removePrompts([...names].flatMap((name) => promptFiles(bots, bot, name)));
   // Before the folder moves: the hint is filed under the bot home's real path.
   const unread = [...names].flatMap((name) => {
     const taken = takeUnread(home, name);
@@ -173,6 +173,9 @@ export async function retireBot(bots, { bot }) {
 
   return { bot, closed, ...(project === undefined ? {} : { project: project.id, windowReloaded }), moved, ...left, ...(unread.length === 0 ? {} : { unread }) };
 }
+
+/** A session's start-prompt files: where the kit writes it, and where it did before #534. */
+const promptFiles = (bots, bot, session) => [promptPath(bots, bot, session), oldPromptPath(bots, bot, session)];
 
 /**
  * Remove start-prompt files, and say which could not be: `{ promptsLeft: [{

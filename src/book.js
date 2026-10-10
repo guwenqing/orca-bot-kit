@@ -6,11 +6,13 @@
 // theirs. Beside each session's tab it holds the harness session id that
 // session is running under, and every id it ran under before.
 
-import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { isDeepStrictEqual } from 'node:util';
 import { parse, stringify } from 'yaml';
+
+import { kitFolders } from './launch.js';
 
 const HEADER = `# What Orca calls this bot on this machine, and where each of its sessions
 # lives. \`obk up\` writes this file; it is committed with the rest of the repo.
@@ -151,7 +153,7 @@ function takeLock(home) {
   try {
     return lockOn(lockFile(home), WAIT_MS);
   } catch (error) {
-    throw waitedTooLong(home, error);
+    throw error instanceof LockNotWritable ? error : waitedTooLong(home, error);
   }
 }
 
@@ -162,7 +164,16 @@ function takeLock(home) {
  * `EXCLUSIVE`, alone, once every `SHARED` holder has let go.
  */
 function lockOn(file, waitMs, how = 'IMMEDIATE') {
-  mkdirSync(path.dirname(file), { recursive: true });
+  // SQLite opens a file it cannot write read-only, without a word, and a
+  // read-only connection's BEGIN passes while another process holds the lock:
+  // seen in Codex's sandbox (#534). So the file is opened for writing first,
+  // and a lock that cannot be held is an error, never a turn that is not one.
+  try {
+    mkdirSync(path.dirname(file), { recursive: true });
+    closeSync(openSync(file, 'a'));
+  } catch (error) {
+    throw new LockNotWritable(file, error);
+  }
 
   const db = new DatabaseSync(file);
   try {
@@ -213,13 +224,30 @@ function lockOn(file, waitMs, how = 'IMMEDIATE') {
  * the bots folder through a link and another by its real path, and two paths
  * would be two locks for one book (#375).
  */
-const lockFile = (home) => {
+const lockFile = (home) => path.join(botLocks(home), `${encodeURIComponent(path.basename(realpathSync(home)))}.lock`);
+
+/**
+ * The bot's own folder of locks, `<bots>.locks/<bot>/`: the one a Codex
+ * session of the bot is given to write, beside its mail and its start prompts
+ * (#534). One folder per bot, so a bot's sessions can take each other's turns
+ * and no other bot's.
+ */
+const botLocks = (home) => {
   const real = realpathSync(home);
-  return path.join(
-    `${path.dirname(path.dirname(real))}.locks`,
-    `${encodeURIComponent(path.basename(real))}.lock`,
-  );
+  return kitFolders(path.dirname(path.dirname(real)), path.basename(real)).locks;
 };
+
+/**
+ * A lock the kit cannot write. Inside Codex's sandbox that is a session
+ * started before the kit gave its bot a folder of locks, so it says what puts
+ * it right.
+ */
+class LockNotWritable extends Error {
+  constructor(file, why) {
+    super(`the kit cannot write its lock ${file} (${why.code ?? why.message}), so it did not take the turn, and nothing was done. A Codex session started before this version of the kit cannot write its bot's folder of locks: restart this session with the kit. Elsewhere, make ${path.dirname(file)} writable.`);
+    this.code = why.code;
+  }
+}
 
 /**
  * One session's turn at its mailbox (#321): held by `session mailbox` for its
@@ -344,10 +372,8 @@ const SQLITE_BUSY = 5;
  * link by one command and by its real path by another, and two paths would be
  * two turns.
  */
-const mailboxLockFile = (home, session) => {
-  const real = realpathSync(home);
-  return path.join(`${path.dirname(path.dirname(real))}.locks`, `${path.basename(real)}.${session}.mailbox.lock`);
-};
+const mailboxLockFile = (home, session) =>
+  path.join(botLocks(home), `${path.basename(realpathSync(home))}.${session}.mailbox.lock`);
 
 /**
  * Something else has been writing the book for longer than this run is prepared
