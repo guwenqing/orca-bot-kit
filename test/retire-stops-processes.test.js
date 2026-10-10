@@ -685,14 +685,18 @@ test('R5 the book keeps a retired temporary session\'s work dir too', async (t) 
 //     signalled, and is named by what it is now.
 //   - When the table cannot be read again after TERM, nothing more is sent:
 //     what still might run is left, with why.
-//   - A process found during the wait, a new descendant of a tracked process
-//     or a new member of a group signalled whole, is tracked from the read
-//     that first sees it. It gets TERM by pid at once, and KILL only when it
-//     still runs 3 s after its own TERM, even when it is found at or after the
-//     first deadline. So no process gets KILL without its own TERM and its
-//     own wait. Its parent exiting meanwhile, which leaves it to pid 1, does
-//     not end that. (The whole stop is bounded to about 9 s; what still runs
-//     after that is left. That bound has no test of its own here.)
+//   - A process found during the wait that a read shows to descend, by parent
+//     pid, from a live tracked process is tracked from that read on. It gets
+//     TERM by pid at once, and KILL only when it still runs 3 s after its own
+//     TERM, even when it is found at or after the first deadline. So no
+//     process gets KILL without its own TERM and its own wait. A descent once
+//     seen stays known when the parent exits and leaves it to pid 1. (The
+//     whole stop is bounded to about 9 s; what still runs after that is left.
+//     That bound has no test of its own here.)
+//   - A newcomer in a group that was signalled whole, which no read showed to
+//     descend from the session's processes, is not shown to be the session's
+//     own (R2; the review of 6d36262): it is never signalled, and is named
+//     under left once, with why naming the group.
 
 /** The one call in `calls` with exactly the argv `args`, with its index, or undefined. */
 const callOf = (calls, args) => {
@@ -763,12 +767,13 @@ test('R3 when the table cannot be read again after TERM, no KILL is sent, and th
   await assertRetired(box, 'dev');
 });
 
-test('R3 a child started on TERM in the group signalled whole, whose parent then exits, is still stopped: TERM by pid, then KILL', async (t) => {
+test('R2 a child started on TERM in the group signalled whole, whose parent exits before any read shows it, is not signalled: it is named under left as a group-mate the kit cannot show is its own', async (t) => {
   const box = await createSandbox(t);
   await devFleet(box);
   const outside = await throwaway(box);
-  // On TERM 51221 starts 51222 in its own group, 51221, and exits, so 51222
-  // is left to pid 1. 51222 ignores TERM.
+  // On TERM 51221 starts 51222 in its own group, 51221, and exits at once, so
+  // the first read after TERM finds 51222 with parent pid 1: no read shows it
+  // to descend from 51221, only that it shares the group. 51222 ignores TERM.
   await table(box, [{
     pid: 51221,
     ppid: 1,
@@ -782,14 +787,13 @@ test('R3 a child started on TERM in the group signalled whole, whose parent then
 
   const calls = await kills(box);
   assert.deepEqual(calls[0], term(-51221), 'TERM to the group comes first');
-  const termAt = calls.findIndex((args) => JSON.stringify(args) === JSON.stringify(term(51222)));
-  const killAt = calls.findIndex((args) => JSON.stringify(args) === JSON.stringify(kill(51222)));
-  const timed = await box.kill.calls();
-  assert.ok(termAt > 0, `the new member of the group gets TERM by pid, got: ${JSON.stringify(calls)}`);
-  assert.ok(killAt > termAt, `and KILL by pid after it, got: ${JSON.stringify(calls)}`);
-  const waited = timed[killAt].at - timed[termAt].at;
-  assert.ok(waited >= 2500, `KILL comes only after its own wait of 3 s from its own TERM; it came after ${waited} ms`);
-  assert.deepEqual(processesIn(answer).stopped.filter((one) => one.pid === 51222).map((one) => one.signal), ['SIGKILL']);
+  assert.deepEqual(reaching(calls, 51222), [], `nothing is sent to 51222 by its pid, got: ${JSON.stringify(calls)}`);
+  assert.deepEqual(reaching(calls, 51221), [term(-51221)], `and the group, which now holds 51222, gets nothing more, got: ${JSON.stringify(calls)}`);
+  const processes = processesIn(answer);
+  assert.deepEqual(processes.stopped.filter((one) => one.pid === 51222), [], 'it is not named as stopped');
+  const left = processes.left.filter((one) => one.pid === 51222);
+  assert.deepEqual(left.map((one) => [one.session, one.cwd, one.command]), [['dev', outside, 'node worker.js']], `it is named once under left, got: ${JSON.stringify(processes.left)}`);
+  assert.match(left[0].why ?? '', /\b51221\b/, `why names the group it shares: ${left[0].why}`);
 });
 
 test('R3 a child started on TERM in a group of its own, whose parent exits later in the wait, is still stopped: TERM by pid, then KILL', async (t) => {
@@ -854,4 +858,31 @@ test('R3 a child that first appears after the deadline gets its own TERM, and KI
   const processes = processesIn(answer);
   assert.deepEqual(processes.stopped.filter((one) => one.pid === 51242).map((one) => one.signal), ['SIGKILL']);
   assert.deepEqual(processes.left.map((one) => one.pid), [51241], 'the parent, which KILL did not end, is left');
+});
+
+test('R2 a process that joins the group signalled whole during the wait, and descends from nothing of the session\'s, is never signalled and is named under left', async (t) => {
+  const box = await createSandbox(t);
+  await devFleet(box);
+  const elsewhere = path.join(box.home, 'elsewhere');
+  // The reviewer's case (the review of 6d36262): 62002 is no process of dev's,
+  // in a group and a folder of its own. Once the TERM to group 62001 has gone
+  // out, it moves into that group (setpgid), with the same pid and start time.
+  // 62001 ignores TERM, so the kit goes on reading through the wait.
+  await table(box, [
+    { pid: 62001, ppid: 1, pgid: 62001, cwd: workOf(box, 'dev'), command: 'node --test', ignoresTerm: true },
+    { pid: 62002, ppid: 1, pgid: 62999, cwd: elsewhere, command: 'node server.js', joinsGroupAfterFirstSignal: 62001 },
+  ]);
+
+  const answer = answerIn(await retire(box, ['--session', 'dev', '--json']));
+
+  const calls = await kills(box);
+  assert.deepEqual(calls[0], term(-62001), 'TERM to the group, before 62002 joins it');
+  assert.deepEqual(reaching(calls, 62002), [], `nothing is sent to 62002 by its pid, got: ${JSON.stringify(calls)}`);
+  assert.deepEqual(calls.filter((args) => args[3] === '-62001'), [term(-62001)], `and the group, which now holds 62002, gets nothing more, got: ${JSON.stringify(calls)}`);
+  assert.ok(reaching(calls, 62001).some((args) => args[1] === 'KILL'), `the premise: 62001 itself still gets its KILL, by pid, got: ${JSON.stringify(calls)}`);
+  const processes = processesIn(answer);
+  assert.deepEqual(processes.stopped.filter((one) => one.pid === 62002), [], 'it is not named as stopped');
+  const left = processes.left.filter((one) => one.pid === 62002);
+  assert.deepEqual(left.map((one) => [one.session, one.cwd, one.command]), [['dev', elsewhere, 'node server.js']], `it is named once under left, with its folder and command, got: ${JSON.stringify(processes.left)}`);
+  assert.match(left[0].why ?? '', /\b62001\b/, `why names the group it joined: ${left[0].why}`);
 });

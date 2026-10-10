@@ -42,6 +42,12 @@
 //                      time an hour after the old one's unless the entry
 //                      gives one. A pid the system gave out again, which the
 //                      kit must not take for the old one
+//   joinsGroupAfterFirstSignal
+//                      a group id: once the first signal the fake kill is
+//                      asked for has gone out, the process moves into that
+//                      group (setpgid), keeping its pid, parent and start
+//                      time. That first signal does not reach it in the new
+//                      group
 //   commandOnTerm      a command line: on TERM the process takes it, as a
 //                      program that renames itself, and keeps its pid and
 //                      start time. With `ignoresTerm` it runs on under it
@@ -157,6 +163,12 @@ export function runKill() {
   }
   drop(exited);
   state.processes.push(...reused);
+  for (const entry of state.processes) {
+    if (entry.joinsGroupAfterFirstSignal !== undefined && entry.joined !== true) {
+      entry.joined = true;
+      entry.pgid = entry.joinsGroupAfterFirstSignal;
+    }
+  }
   save();
   process.exit(0);
 }
