@@ -683,6 +683,8 @@ except the mailbox Runs Orca gives no way to delete, which the run names; it
 never closes a tab it did not open. The trust its harnesses write into your
 `~/.codex/config.toml` and `~/.claude.json` for the run's own throwaway folders
 is taken out again after the run, and named; nothing else in them is changed.
+An Orca project the run leaves in one of its own throwaway folders is named,
+with its setup id, and fails the run; the command removes none itself.
 
 They run on the machine the command is typed on, so the command will not start
 them by itself. On its own it says what it is about to drive — whose machine,
