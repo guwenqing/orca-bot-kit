@@ -63,6 +63,7 @@ export async function stopProcesses(dirs) {
   const { table, cwds } = read;
 
   const owner = ownersIn(table, cwds, dirs);
+  const where = realDirs(dirs);
   const mine = ownRun(table);
   const uid = process.getuid();
   const about = (pid) => ({ session: owner.get(pid), pid, cwd: cwds.get(pid) ?? null, command: table.get(pid).command });
@@ -118,9 +119,10 @@ export async function stopProcesses(dirs) {
   // Each process has TERM_WAIT_MS after its own SIGTERM to end, then SIGKILL,
   // then TERM_WAIT_MS more to be gone. A process a read shows one of them
   // started meanwhile is theirs as much as they are (R1): it is tracked from
-  // that read, even after its parent has gone, and is given the same. One that
-  // only joined a group signalled whole is not shown to be theirs, and is
-  // named and never signalled (R2, review of PR #543). Both are looked for
+  // that read, even after its parent has gone, and is given the same, and so
+  // is one whose working folder is in the work dir. One that only joined a
+  // group signalled whole, and works elsewhere, is not shown to be theirs, and
+  // is named and never signalled (R2, review of PR #543). All are looked for
   // until ADOPT_MS.
   // All of it ends by STOP_MS, and what still runs then is named. Where the
   // table can no longer be read, nothing more is sent: the kit cannot see
@@ -149,7 +151,10 @@ export async function stopProcesses(dirs) {
       const folders = found.length === 0 ? new Map() : workingFolders().cwds ?? new Map();
       for (const { pid, seen, parent, mate } of found) {
         const one = { pid, cwd: folders.get(pid) ?? null, command: seen.command };
-        if (parent !== undefined) note({ session: parent.session, ...one, pgid: seen.pgid, started: seen.started }, signal('TERM', pid), 'SIGTERM', at);
+        // A group-mate whose working folder is in a work dir is that session's own by R1.
+        const home = parent === undefined && one.cwd !== null ? where.find(({ real }) => inside(one.cwd, real)) : undefined;
+        const theirs = parent ?? home;
+        if (theirs !== undefined) note({ session: theirs.session, ...one, pgid: seen.pgid, started: seen.started }, signal('TERM', pid), 'SIGTERM', at);
         else {
           named.add(pid);
           left.push({ session: mate.session, ...one, why: `it joined process group ${seen.pgid} of ${mate.session}'s processes, and the kit cannot show it is ${mate.session}'s own` });
