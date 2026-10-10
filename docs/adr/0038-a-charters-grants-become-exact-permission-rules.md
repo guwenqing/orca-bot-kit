@@ -1,18 +1,18 @@
-# ADR 0027: A charter's grants become exact permission rules, and broad rules stay the user's
+# ADR 0038: A charter's grants become exact permission rules, and broad rules stay the user's
 
-Date: 2026-09-26.
-Status: superseded by [ADR 0038](0038-a-charters-grants-become-exact-permission-rules.md).
-Decided by: the owner, on 2026-09-26, for a bot's charter deciding which rules it needs and the user's yes before any is written (#344, #353); the architect, on 2026-09-26, for Bot Father listing the rules and slice A's `bot change --allow` recording them with no second list, for `--allow` refusing broad rules and leaving them to the user by hand, for health's neutral wording about those, and for a charter change naming the rules allowed now. The owner may overrule the architect's parts. The exact line between narrow and broad is developer-1's, for #353.
+Date: 2026-10-10.
+Status: accepted.
+Decided by: the owner, on 2026-09-26, for a bot's charter deciding which rules it needs and the user's yes before any is written (#344, #353); the architect, on 2026-09-26, for Bot Father listing the rules and slice A's `bot change --allow` (now `permission allow`) recording them with no second list, for it refusing broad rules and leaving them to the user by hand, for health's neutral wording about those, and for a charter change naming the rules allowed now. The owner may overrule the architect's parts. The exact line between narrow and broad is developer-1's, for #353. The owner, on 2026-10-10, for the rules being recorded by `obk permission allow` rather than `bot change` (#527).
+Supersedes: [ADR 0027](0027-a-charters-grants-become-exact-permission-rules.md).
 
 ## Context
 
 kit-dev's charter says it "merges and closes issues without asking". Auto mode
 still refused `gh pr merge` three times on PR #334, until the owner added
 `Bash(gh pr merge:*)` and `Bash(gh issue close:*)` to the bot's settings by
-hand (#344). [ADR 0026](0026-the-kit-writes-a-bots-permission-rules-after-the-users-yes.md)
-gave every Claude bot a default set of rules, kept the user's yes in
-`bot.yaml`'s `allow` and had the kit's code write it; it left a charter's
-grants to #353.
+hand (#344). [ADR 0036](0036-the-kit-writes-every-bots-default-permission-rules.md)
+gives every bot a default set of rules, kept in `bot.yaml`'s `allow` and
+written by the kit's code. A charter's grants go beyond that set (#353).
 
 The owner, 2026-09-26: "charter decides what are needed, for safety you should
 ask user to allow it". The issue keeps the rules narrow and exact: broad rules
@@ -30,12 +30,11 @@ Bot Father reads the charter, when it is written and whenever it changes, and
 lists the exact rules it grants, spelled as the bot will run each command: the
 kit by the path the bot's rules give it, every folder absolute. It shows them
 to the user word for word, with a line on what each lets the bot do, and only
-after their yes runs `obk bot change --allow` with the rules they said yes to.
+after their yes runs `obk permission allow` with the rules they said yes to.
 On a no it runs nothing. The skill that guides Bot Father says so; the kit
 keeps no second list of proposed rules.
 
-`bot change --allow` refuses a broad rule, says why, and writes nothing, the
-charter included when it is given too. Broad is a rule that lets the bot run
+`permission allow` refuses a broad rule, says why, and writes nothing. Broad is a rule that lets the bot run
 any command or any file on the disk:
 
 - a Bash rule with no command, or with fewer than two words before its first
@@ -57,7 +56,7 @@ and judged from its program, the first word after any shell assignments in
 front of it: `Bash(X="a b" gh:*)` is broad. A shell or interpreter with a
 version on its name, such as `python3.12`, is that shell or interpreter.
 
-`--allow` also refuses a Bash rule that is not plain words, naming the
+`permission allow` also refuses a Bash rule that is not plain words, naming the
 character: outside quotes a word holds only letters, digits, `-_./:=@%+,^`, a
 `~` at its start, `*` as the wildcard, and `\'` for an apostrophe (the form
 the kit quotes one with in a path); inside double quotes no `$`, backtick or
@@ -71,20 +70,25 @@ write, and says only that the user added it and not the kit, and that it stays.
 
 `bot change --charter` names the rules the bot is allowed now beyond the
 kit's defaults, says they stay allowed until the user takes them out, and that
-no new one is written until the user answers. A charter change writes no rule.
+no new one is written until the user answers, through `obk permission allow`.
+A charter change writes no rule.
 
-Codex's form of these rules is #354's.
+Codex's form of these rules is
+[ADR 0039](0039-a-codex-bots-rules-are-written-in-codexs-own-form.md)'s.
+Why the rules are written by a `permission` command of their own, and not by
+`bot change`, is
+[ADR 0037](0037-permission-changes-and-risky-operations-have-commands-of-their-own.md).
 
 ## Alternatives considered
 
 - **A `grants` list in `bot.yaml`, set by a `--grant` flag, shown as waiting
   like the defaults.** Not chosen: Bot Father would still spell the rules, so a
   second list and a new flag add code without making them more exact. The
-  owner's "the kit script does the change" is met by `--allow` doing the
+  owner's "the kit script does the change" is met by the kit's command doing the
   writing (the architect).
 - **The kit reading rules out of the charter.** Not chosen: a charter is the
   user's prose, and a guessed rule is not an exact one.
-- **Accepting broad rules on `--allow`.** Not chosen: the boundary leaves them
+- **Accepting broad rules on `permission allow`.** Not chosen: the boundary leaves them
   to the user by hand, and a model passing one on by mistake is refused.
 - **Reading every shell escape and expansion to find the program.** Not
   chosen: each review round found another one (a wrapper, a quoted
@@ -92,8 +96,9 @@ Codex's form of these rules is #354's.
   and a narrow rule a charter grants is plain words.
 - **Calling a hand-added broad rule broad or unsafe in health.** Not chosen:
   it is the user's rule, and they chose it (the architect).
-- **Taking back a rule a new charter no longer grants.** Not in this slice; a
-  follow-up issue.
+- **Taking back a rule a new charter no longer grants.** Not in this slice;
+  [ADR 0040](0040-a-rule-is-taken-back-through-the-kit-after-the-users-yes.md)
+  decides it.
 
 ## Consequences
 
@@ -107,8 +112,11 @@ Codex's form of these rules is #354's.
   the user takes it out; the change's report names it.
 - Whether a rule is exact still rests on Bot Father spelling the command as
   the bot runs it; a rule spelled differently does not match and goes to the
-  check, as in ADR 0026.
+  check, as in ADR 0036.
 
 ## History
 
-- 2026-09-26: recorded for #353 (slice B of #344: Claude Code).
+- 2026-09-26, [ADR 0027](0027-a-charters-grants-become-exact-permission-rules.md):
+  recorded for #353 (slice B of #344: Claude Code), with `bot change --allow`
+  as the command.
+- 2026-10-10: the command is `obk permission allow` (#527).

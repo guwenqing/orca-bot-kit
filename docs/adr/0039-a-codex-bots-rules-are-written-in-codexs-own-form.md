@@ -1,16 +1,17 @@
-# ADR 0028: A Codex bot's permission rules are written in Codex's own form, from the same yes
+# ADR 0039: A Codex bot's permission rules are written in Codex's own form, from the same list
 
-Date: 2026-09-26.
-Status: superseded by [ADR 0039](0039-a-codex-bots-rules-are-written-in-codexs-own-form.md).
-Decided by: the owner, on 2026-09-26, for a Codex bot getting the same default rules and charter grants as a Claude bot ("regardless if it is claude or codex … even if codex, we prepare it", #354); the architect, on 2026-09-26, for `allow` staying the one record in Claude Code's text with the Codex form made from it, for a file the kit owns whole, for saying so where a rule has no Codex form, and for the system test's own sandbox settings. The owner may overrule the architect's parts.
+Date: 2026-10-10.
+Status: accepted.
+Decided by: the owner, on 2026-09-26, for a Codex bot getting the same default rules and charter grants as a Claude bot ("regardless if it is claude or codex … even if codex, we prepare it", #354); the architect, on 2026-09-26, for `allow` staying the one record in Claude Code's text with the Codex form made from it, for a file the kit owns whole, for saying so where a rule has no Codex form, and for the system test's own sandbox settings; the owner, on 2026-10-10, for the default set being written with nobody asked and the rules being recorded by `obk permission allow` (#527). The owner may overrule the architect's parts.
+Supersedes: [ADR 0028](0028-a-codex-bots-rules-are-written-in-codexs-own-form.md).
 
 ## Context
 
-[ADR 0026](0026-the-kit-writes-a-bots-permission-rules-after-the-users-yes.md)
-gave every Claude bot a default set of rules and
-[ADR 0027](0027-a-charters-grants-become-exact-permission-rules.md) the rules
-its charter grants. Both keep the user's yes in `bot.yaml`'s `allow`, as
-Claude Code's rule text, and both left Codex to #354.
+[ADR 0036](0036-the-kit-writes-every-bots-default-permission-rules.md)
+gives every bot a default set of rules and
+[ADR 0038](0038-a-charters-grants-become-exact-permission-rules.md) the rules
+its charter grants. Both keep what a bot is allowed in `bot.yaml`'s `allow`,
+as Claude Code's rule text.
 
 A Codex bot at the kit's `auto` level (`--approve-for-me`) runs in Codex's
 `workspace-write` sandbox and sends what the sandbox stops to Codex's own
@@ -31,15 +32,15 @@ the sandbox with no review.
 
 A bot that runs on Codex, by its own harness or any session's, gets its rules
 in `.codex/rules/obk.rules` in its bot folder. The kit owns that file whole:
-`rules build`, `up` and `bot change --allow` rewrite it from `allow`, and it
+`rules build`, `up` and `permission allow` rewrite it from `allow`, and it
 holds nothing else. The kit writes no other file in `.codex/rules/`, so a
 `default.rules` of the user's or of Codex's own is never touched; health names
 each rule in such a file, and says it stays.
 
-`allow` stays the one record of the yes, in Claude Code's text. The Codex form
+`allow` stays the one record of what a bot is allowed, in Claude Code's text. The Codex form
 is made from it:
 
-- `Bash(<words>:*)`, or `Bash(<words> *)`, the words plain as ADR 0027 reads
+- `Bash(<words>:*)`, or `Bash(<words> *)`, the words plain as ADR 0038 reads
   them, becomes `prefix_rule(pattern=[<words>], decision="allow")`, one word
   per string.
 - `Read(...)` needs nothing: Codex's sandbox reads every file already. So a
@@ -47,11 +48,12 @@ is made from it:
 - Anything else has no Codex form, and the kit says so rather than write a
   looser rule: `Edit` and `Write`, a Bash rule for one exact command (a prefix
   rule would let any arguments after it), and a wildcard anywhere but the end.
-  `--allow` refuses such a rule for a bot that runs only on Codex; for a bot
+  `permission allow` refuses such a rule for a bot that runs only on Codex; for a bot
   that runs on both, it is written for Claude Code only.
 
 Codex reads rules when a session starts, so a rule allowed while a Codex
-session runs reaches that session at its next start; `--allow` says so.
+session runs reaches that session at its next start; `permission allow` says
+so.
 
 Codex ignores an untrusted project's `.codex/` layers (its docs). A kit
 session always runs in a trusted one: Codex's trust screen offers only to
@@ -66,7 +68,7 @@ config, so an untrusted project cannot be tried with it.
   is.** Not chosen: Codex's conventional file may be written by the user or by
   Codex, and a file of the kit's own needs no merging and is never mistaken
   for theirs (the architect).
-- **A harness-neutral form in `allow`.** Not chosen: ADR 0026 kept Claude
+- **A harness-neutral form in `allow`.** Not chosen: ADR 0036 kept Claude
   Code's text, which is what the user is shown, and every rule the kit and Bot
   Father spell has a Codex form or needs none.
 - **Writing a prefix rule for an exact command.** Not chosen: it lets the bot
@@ -80,7 +82,8 @@ config, so an untrusted project cannot be tried with it.
 
 - Good: a Codex bot reads and sends its mail, commits, and runs what its
   charter grants without the sandbox stopping it or the reviewer being asked,
-  once the user has said yes to each exact rule.
+  from the kit's default set with nobody asked, and from the user's yes to
+  each rule beyond it.
 - An allowed command runs outside the sandbox, as the user's own Codex rules
   do. That is what the rule is for, and why each is narrow.
 - A hand edit to `obk.rules` is lost at the next build. Rules of the user's own
@@ -94,4 +97,7 @@ config, so an untrusted project cannot be tried with it.
 
 ## History
 
-- 2026-09-26: recorded for #354 (slice C of #344: Codex).
+- 2026-09-26, [ADR 0028](0028-a-codex-bots-rules-are-written-in-codexs-own-form.md):
+  recorded for #354 (slice C of #344: Codex).
+- 2026-10-10: the default set is written with nobody asked, and rules beyond
+  it are recorded by `obk permission allow` (#527).

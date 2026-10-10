@@ -128,11 +128,12 @@ tab, which is a plain shell for work across the whole fleet.
 Read everything it prints. Three parts of it matter to them:
 
 - **what it created** — say it in a sentence, not as a file listing;
-- **the permission rules it says wait for their yes**, when Bot Father runs on
-  Claude Code: its mail through the kit, reading a long message beside the
-  bots folder, and its commits, so auto mode does not stop it for those. Show
-  them the rules word for word and ask. Only on a yes, run the one command
-  `init` printed for them; on a no, run nothing, and nothing is written;
+- **the permission rules it wrote**: the kit's default set, so auto mode does
+  not stop Bot Father for the kit's own commands, reading a long message
+  beside the bots folder, and its commits. The kit writes this set for every
+  bot, with nobody asked. Say in a sentence what it allows, and that
+  `obk permission`, `obk retire`, `obk pause` and `obk init` are not in it and
+  keep their yes;
 - **anything it says about Orca's own default launch arguments.** Orca adds
   these to every agent it launches, relaunches and resumes. When they carry a
   permission bypass, every session runs in that mode whatever approval level the
@@ -228,8 +229,8 @@ home. The kit never makes a git worktree, so
 `2. New worktree` is never the answer.
 
 A bot's own temporary sessions are answered by their maker, through the kit, so
-that one narrow permission rule allows it rather than a rule to type into any
-tab. On Codex's hooks review, the maker runs
+that a narrow permission rule of the kit's default set allows it rather than a
+rule to type into any tab. On Codex's hooks review, the maker runs
 `obk temp trust-hooks --bots <their path> --name <session>`. On Claude Code's
 `Teach auto mode` screen, it runs `obk temp answer --bots <their path> --name <session>`.
 That command reads the screen and answers only when it holds one of the two
@@ -237,16 +238,8 @@ shapes in the table exactly as the kit knows it: Esc for the 2.1.283 form, and
 **2. Not now** for the 2.1.289 list. On the list it sends the arrows, reads the
 screen again, and sends the return only with the selection on **2. Not now**.
 It refuses any other screen, types nothing then, and prints what it saw.
-Afterwards it checks that the screen has gone. In
-auto mode the maker's bot needs this rule, with the kit's full CLI path for
-`<kit>`, as the command's own output prints it:
-
-```text
-Bash(<kit> temp answer:*)
-```
-
-Ask the user, and only after their yes run
-`obk bot change --bots <their path> --bot <bot> --allow 'Bash(<kit> temp answer:*)'`.
+Afterwards it checks that the screen has gone. The kit's default set allows
+both commands for every bot, so there is nothing to ask the user.
 
 **Anything you do not recognise: type nothing.** Tell them what is on the
 screen and which tab it is in, and wait. A keypress into a menu you have not read
