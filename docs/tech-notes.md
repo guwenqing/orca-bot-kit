@@ -571,7 +571,9 @@ by the owner and the architect)
 
 macOS has no working folder in `ps`. `lsof -a -d cwd -u <uid> -Fpn` lists each of the user's processes
 with its working folder (`p<pid>`, `fcwd`, `n<path>`), as a real path, and exits 0; `ps -A -ww -o
-pid=,ppid=,pgid=,uid=,stat=,command=` gives the tree and the groups. `/bin/kill -s TERM -- -<pgid>`
+pid=,ppid=,pgid=,uid=,stat=,lstart=,command=` gives the tree, the groups, and when each process started,
+as five words (`Fri Oct  9 14:26:20 2026`, a space before a one-digit day). A pid can be taken again and
+a process can change its own command line, so the kit knows a process again by its pid and start time. `/bin/kill -s TERM -- -<pgid>`
 signals a group and `/bin/kill -s TERM -- <pid>` one process; a pid that is not there gives `kill: <pid>:
 No such process` and exit 1. **verified** (live, 2026-10-10, macOS 27.0.1, by developer-537)
 

@@ -206,7 +206,8 @@ function aboutBot(bots, name, setups, sessions) {
  * it, so this is one from before that, or one a retire could not stop. The
  * book keeps a retired session's work dir; a temporary session retired before
  * it did worked in `work/<name>`, where `obk temp make` puts it. A work dir a
- * session in bot.yaml still uses is that session's, and not looked at.
+ * session in bot.yaml still uses is that session's, and not looked at, by its
+ * real path, so a link to it is not taken for a retired one (review of PR #543).
  */
 function leftRunning(home, bot) {
   let book;
@@ -216,12 +217,17 @@ function leftRunning(home, bot) {
     // A book that cannot be read is said where the book is read.
     return [];
   }
-  const live = new Set(bot.sessions.map((session) => workDirOf(session, home)));
+  const real = (dir) => (dir === undefined ? undefined : realpathOf(dir));
+  const live = new Set(bot.sessions.map((session) => real(workDirOf(session, home))));
   const dirs = [];
+  const seen = new Set();
   for (const entry of Array.isArray(book.retired) ? book.retired : []) {
     const named = typeof entry?.work_dir === 'string' && entry.work_dir !== '' ? entry.work_dir : undefined;
     const dir = workDirOf({ work_dir: named ?? (entry?.temporary === undefined ? undefined : `work/${entry.name}`) }, home);
-    if (dir === undefined || live.has(dir) || dirs.some((one) => one.dir === dir) || !existsSync(dir)) continue;
+    // One that is not there holds nothing.
+    const at = real(dir);
+    if (at === undefined || live.has(at) || seen.has(at)) continue;
+    seen.add(at);
     dirs.push({ session: entry.name, dir });
   }
   if (dirs.length === 0) return [];

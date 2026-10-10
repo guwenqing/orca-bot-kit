@@ -39,6 +39,12 @@ const READ_MS = 10_000;
 /** How long the processes have to end after SIGTERM, before SIGKILL. */
 const TERM_WAIT_MS = 3000;
 
+/** How long after the first SIGTERM a new process of theirs is still looked for. */
+const ADOPT_MS = 2 * TERM_WAIT_MS;
+
+/** The end of the whole stop: the last one found has its own wait after SIGTERM, then after SIGKILL. */
+const STOP_MS = ADOPT_MS + 2 * TERM_WAIT_MS;
+
 /** How often the table is read again while they end. */
 const POLL_MS = 100;
 
@@ -87,45 +93,81 @@ export async function stopProcesses(dirs) {
   }
   if (targets.size === 0) return { stopped: [], left };
 
-  const signalled = new Map();
+  // Each process the kit signalled, by pid, with when it started: a pid that
+  // later has another start time is another process, and the one signalled
+  // has ended. A process can change its own command line; it cannot change
+  // when it started.
+  const tracked = new Map();
   const refused = new Map();
+  const ended = new Set();
+  const note = (one, sent, name, at) => {
+    if (sent.refused !== undefined) refused.set(one.pid, { ...one, why: `kill refused ${name}: ${sent.refused}` });
+    else {
+      refused.delete(one.pid);
+      tracked.set(one.pid, { ...one, signal: name, at });
+    }
+  };
+  const begun = Date.now();
+  const first = (pid, one) => ({ ...one, pgid: table.get(pid).pgid, started: table.get(pid).started });
   for (const pgid of whole) {
     const sent = signal('TERM', -pgid);
-    for (const [pid, one] of targets) if (table.get(pid).pgid === pgid) note(pid, one, sent, 'SIGTERM');
+    for (const [pid, one] of targets) if (table.get(pid).pgid === pgid) note(first(pid, one), sent, 'SIGTERM', begun);
   }
-  for (const [pid, one] of targets) if (!whole.has(table.get(pid).pgid)) note(pid, one, signal('TERM', pid), 'SIGTERM');
+  for (const [pid, one] of targets) if (!whole.has(table.get(pid).pgid)) note(first(pid, one), signal('TERM', pid), 'SIGTERM', begun);
 
-  function note(pid, one, sent, name) {
-    if (sent.refused !== undefined) refused.set(pid, { ...one, why: `kill refused ${name}: ${sent.refused}` });
-    else {
-      refused.delete(pid);
-      signalled.set(pid, { ...one, signal: name });
+  // Each process has TERM_WAIT_MS after its own SIGTERM to end, then SIGKILL,
+  // then TERM_WAIT_MS more to be gone. A process one of them starts
+  // meanwhile, or that joins a group signalled whole, is theirs as much as
+  // they are: it is tracked from the read that first sees it, even after its
+  // parent has gone, and is given the same; one is looked for until ADOPT_MS.
+  // All of it ends by STOP_MS, and what still runs then is named. Where the
+  // table can no longer be read, nothing more is sent: the kit cannot see
+  // which pid is still theirs.
+  let lost;
+  for (;;) {
+    const read = processTable();
+    if (read.unreadable !== undefined) {
+      lost = read.unreadable;
+      break;
     }
-  }
+    const now = read.table;
+    const at = Date.now();
+    const live = (one) => !ended.has(one.pid) && now.get(one.pid)?.started === one.started;
+    for (const one of tracked.values()) if (!live(one)) ended.add(one.pid);
 
-  // Up to TERM_WAIT_MS for them to end, then SIGKILL to each that runs on, and
-  // to any child it started meanwhile, which is its own as much as it is.
-  let running = await stillRunning(signalled, Date.now() + TERM_WAIT_MS);
-  if (running.alive.length > 0) {
-    const late = running.table === undefined ? [] : descendantsOf(running.table, running.alive)
-      .filter((pid) => !signalled.has(pid) && !mine.has(pid) && running.table.get(pid).uid === uid);
-    for (const pid of late) {
-      const parent = signalled.get([...ancestorsOf(running.table, pid)].find((one) => signalled.has(one)));
-      signalled.set(pid, { session: parent.session, pid, cwd: null, command: running.table.get(pid).command, signal: 'SIGTERM' });
+    if (at - begun < ADOPT_MS) {
+      for (const [pid, seen] of now) {
+        if (tracked.has(pid) || refused.has(pid) || mine.has(pid) || seen.uid !== uid) continue;
+        const parent = [...ancestorsOf(now, pid)].map((one) => tracked.get(one)).find((one) => one !== undefined && live(one));
+        const theirs = parent ?? (whole.has(seen.pgid) ? [...tracked.values()].find((one) => one.pgid === seen.pgid) : undefined);
+        if (theirs === undefined) continue;
+        note({ session: theirs.session, pid, cwd: null, command: seen.command, pgid: seen.pgid, started: seen.started }, signal('TERM', pid), 'SIGTERM', at);
+      }
     }
-    for (const pid of [...running.alive, ...late]) note(pid, signalled.get(pid), signal('KILL', pid), 'SIGKILL');
-    running = await stillRunning(signalled, Date.now() + TERM_WAIT_MS);
+
+    const running = [...tracked.values()].filter((one) => !refused.has(one.pid) && live(one));
+    for (const one of running) {
+      if (one.signal === 'SIGTERM' && at - one.at >= TERM_WAIT_MS) note({ ...one, command: now.get(one.pid).command }, signal('KILL', one.pid), 'SIGKILL', at);
+    }
+    const waiting = running.filter((one) => !refused.has(one.pid) && at - tracked.get(one.pid).at < TERM_WAIT_MS);
+    if (running.length === 0 || waiting.length === 0 || at - begun >= STOP_MS) break;
+    await delay(POLL_MS);
   }
 
-  const alive = new Set(running.alive);
   const stopped = [];
-  for (const [pid, one] of signalled) {
-    if (refused.has(pid)) continue;
-    if (alive.has(pid)) left.push({ ...withoutSignal(one), why: running.table === undefined ? `the kit could not read the processes again after ${one.signal}: ${running.unreadable}` : `it still runs after ${one.signal}` });
-    else stopped.push(one);
+  for (const one of tracked.values()) {
+    if (refused.has(one.pid)) continue;
+    if (ended.has(one.pid)) stopped.push(shown(one));
+    else {
+      const why = lost === undefined ? `it still runs after ${one.signal}` : `the kit could not read the processes again after ${one.signal}, so it sent nothing more: ${lost}`;
+      left.push(shown({ ...one, why }));
+    }
   }
-  return { stopped, left: [...left, ...refused.values()] };
+  return { stopped, left: [...left, ...[...refused.values()].map(shown)] };
 }
+
+/** A process as the answer gives it, without what the kit kept to know it again. */
+const shown = ({ pgid: _, started: __, at: ___, signal, why, ...one }) => (why === undefined ? { ...one, signal } : { ...one, why });
 
 /**
  * The processes that run in the work dirs in `dirs`, a list of `{ session, dir
@@ -167,16 +209,22 @@ function readProcesses() {
   return { table: listed.table, cwds };
 }
 
-/** The process table alone, as `readProcesses` gives it, or `{ unreadable: <why> }`. */
+/**
+ * The process table alone, as `readProcesses` gives it, with `started`, when
+ * each process started as `ps` gives it, which with its pid is what tells one
+ * process from another: a pid can be taken again, and a process can change its
+ * own command line (review of PR #543). Or `{ unreadable: <why> }`.
+ */
 function processTable() {
-  const asked = spawnSync(psCli(), ['-A', '-ww', '-o', 'pid=,ppid=,pgid=,uid=,stat=,command='], { encoding: 'utf8', timeout: READ_MS, maxBuffer: 64 * 1024 * 1024 });
+  const asked = spawnSync(psCli(), ['-A', '-ww', '-o', 'pid=,ppid=,pgid=,uid=,stat=,lstart=,command='], { encoding: 'utf8', timeout: READ_MS, maxBuffer: 64 * 1024 * 1024 });
   if (asked.error?.code === 'ETIMEDOUT') return { unreadable: 'ps did not answer in time' };
   if (asked.error || asked.status !== 0) return { unreadable: `ps could not read the process table${because(asked)}` };
   const table = new Map();
   for (const line of asked.stdout.split('\n')) {
-    const read = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\S+)(?:\s+(.*?))?\s*$/.exec(line);
+    // lstart is five words: `Sat Oct 10 14:40:01 2026`.
+    const read = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(\S+\s+\S+\s+\d+\s+\d+:\d+:\d+\s+\d+)(?:\s+(.*?))?\s*$/.exec(line);
     if (read === null || read[5].startsWith('Z')) continue;
-    table.set(Number(read[1]), { ppid: Number(read[2]), pgid: Number(read[3]), uid: Number(read[4]), command: read[6] ?? '' });
+    table.set(Number(read[1]), { ppid: Number(read[2]), pgid: Number(read[3]), uid: Number(read[4]), started: read[6].replace(/\s+/g, ' '), command: read[7] ?? '' });
   }
   if (table.size === 0) return { unreadable: 'ps listed no processes' };
   return { table };
@@ -260,21 +308,3 @@ function signal(name, target) {
   if (/No such process/i.test(sent.stderr ?? '')) return {};
   return { refused: (sent.error?.message ?? sent.stderr ?? '').trim() || `kill exited ${sent.status}` };
 }
-
-/**
- * The signalled processes that still run, read again until none does or
- * `until` passes: `{ alive: [pid], table }`, or, where `ps` could no longer be
- * read, every one of them as alive, with `unreadable`. A pid that now runs
- * another command is another process, and the one signalled has ended.
- */
-async function stillRunning(signalled, until) {
-  for (;;) {
-    const read = processTable();
-    if (read.unreadable !== undefined) return { alive: [...signalled.keys()], unreadable: read.unreadable };
-    const alive = [...signalled].filter(([pid, one]) => read.table.get(pid)?.command === one.command).map(([pid]) => pid);
-    if (alive.length === 0 || Date.now() >= until) return { alive, table: read.table };
-    await delay(POLL_MS);
-  }
-}
-
-const withoutSignal = ({ signal: _, ...one }) => one;
