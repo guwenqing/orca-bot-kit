@@ -29,7 +29,7 @@
 // SendMessage rule is neither required nor forbidden.
 
 import assert from 'node:assert/strict';
-import { writeFile } from 'node:fs/promises';
+import { chmod, writeFile } from 'node:fs/promises';
 import test from 'node:test';
 
 import { createSandbox, sh, shellWord, skipGit, snapshot } from './helpers/cli.js';
@@ -386,6 +386,49 @@ function answerOf(result) {
       { holds: sorted(holdsLinesIn(plain.stdout)), held: sorted(heldOf(entryAt(answer, BOT, settingsOf(bots, BOT)))) },
       { holds: sorted(heldRules(box, bots).map((rule) => heldLine(box, bots, BOT, rule))), held: sorted(heldRules(box, bots)) },
       `one holds line for each rule allow holds, and held naming both, though the settings file was refused, got:\n${plain.stdout}${plain.stderr}`,
+    );
+  });
+}
+
+// The same for a bot whose obk.rules the kit may not write (the reviewer's ask
+// on PR #549): the file is read-only, and a rule of the user's own is added to
+// allow after the first build, so the next build has to write it.
+for (const [label, sessions, files] of [
+  ['a bot only on Codex', [['daily']], ['codex']],
+  ['a bot on both harnesses', BOTH, ['claude', 'codex']],
+]) {
+  test(`H4 R4 rules build of ${label} whose obk.rules it may not write still names both rules its allow holds, in text and in held on each entry`, async (t) => {
+    const box = await createSandbox(t);
+    const bots = await seeded(box);
+    await makeBot(box, BOT, 'codex', sessions);
+    await hold(bots, BOT, heldRules(box, bots));
+    await ok(box.run(['rules', 'build', '--bots', 'bots', '--bot', BOT]));
+    await hold(bots, BOT, [OWN_RULE]);
+    const rules = codexRulesOf(bots, BOT);
+    await chmod(rules, 0o444);
+    t.after(() => chmod(rules, 0o644).catch(() => {}));
+    const args = ['rules', 'build', '--bots', 'bots', '--bot', BOT];
+
+    const plain = await box.run(args);
+    const answer = answerOf(await box.run([...args, '--json']));
+
+    // The premises: the file's trouble is reported, and allow still holds both rules.
+    assert.ok(plain.stdout.split('\n').some((line) => line.trim().startsWith(`${'refused'.padEnd(9)}  `)), `the premise: a refused line about obk.rules, got:\n${plain.stdout}${plain.stderr}`);
+    const allow = await allowOf(bots, BOT);
+    for (const rule of heldRules(box, bots)) assert.equal(count(allow, rule), 1, `the premise: allow still holds ${rule}`);
+
+    const entryFiles = { claude: settingsOf(bots, BOT), codex: rules };
+    // All claims in one comparison, so a failure shows the text and the JSON together.
+    assert.deepEqual(
+      {
+        holds: sorted(holdsLinesIn(plain.stdout)),
+        held: Object.fromEntries(files.map((harness) => [harness, sorted(heldOf(entryAt(answer, BOT, entryFiles[harness])))])),
+      },
+      {
+        holds: sorted(heldRules(box, bots).map((rule) => heldLine(box, bots, BOT, rule))),
+        held: Object.fromEntries(files.map((harness) => [harness, sorted(heldRules(box, bots))])),
+      },
+      `one holds line for each rule allow holds, and held naming both on each entry, though obk.rules was refused, got:\n${plain.stdout}${plain.stderr}`,
     );
   });
 }
