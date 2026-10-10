@@ -377,3 +377,30 @@ for (const [where, parentOf] of [
     assert.deepEqual(await listedIds(box), [], 'the project is gone from Orca');
   });
 }
+
+// The review of PR #552, a third time: a dangling link is not on disk to
+// realpath, which answers ENOENT for it as for a part that is not there. So
+// `<bots>/linked`, a link to a folder that does not exist elsewhere, was read
+// as a missing part and the project beneath it passed. A part that is there
+// as a link, whatever it leads to, is never taken for a missing one.
+
+for (const [where, parentOf] of [
+  ['the temp folder', async () => ({ parent: await realpath(os.tmpdir()), tidy: () => {} })],
+  ['<repo>/local-data', localDataParent],
+]) {
+  test(`not the run's own, so nothing is sent and it fails with an AssertionError: a project in a bots folder in ${where} beneath a dangling link to a folder elsewhere`, async (t) => {
+    const box = await fakeOrcaFor(t);
+    const { parent, tidy } = await parentOf();
+    const bots = await folderIn(t, parent, 'obk-system-own-project-');
+    t.after(tidy);
+    const elsewhere = await folderIn(t, os.tmpdir(), 'obk-elsewhere-');
+    await symlink(path.join(elsewhere, 'not-there'), path.join(bots, 'linked'));
+    const theirs = await projectAt(box, path.join(bots, 'linked', 'app'));
+    await box.orca.set({ deleteGuard: {} });
+
+    await assert.rejects(async () => deleteOwnProject(theirs, bots), AssertionError);
+
+    assert.deepEqual(await deletesSent(box), [], 'no setup-delete at all');
+    assert.deepEqual(await listedIds(box), [theirs.id], 'the project is still there');
+  });
+}

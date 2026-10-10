@@ -10,7 +10,7 @@
 // find their bots folder writable through the sandbox's temp folder (#534).
 
 import assert from 'node:assert/strict';
-import { realpathSync } from 'node:fs';
+import { lstatSync, realpathSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,7 +23,10 @@ const localData = () => path.join(fileURLToPath(new URL('../..', import.meta.url
 /**
  * The real path of `target`: of the nearest part of it that is on disk, with
  * the rest as written. A part that is not there cannot be a link, so a path
- * gone from disk is read as safely as one that is there.
+ * gone from disk is read as safely as one that is there. A part that is there
+ * but cannot be resolved is a dangling link, which realpath answers ENOENT for
+ * as for a missing part: that is refused, never taken as missing (the review
+ * of PR #552).
  */
 function realOf(target) {
   const rest = [];
@@ -32,6 +35,13 @@ function realOf(target) {
       return path.join(realpathSync(at), ...rest);
     } catch (error) {
       if (error.code !== 'ENOENT' || path.dirname(at) === at) throw error;
+      let there = true;
+      try {
+        lstatSync(at);
+      } catch {
+        there = false;
+      }
+      assert.ok(!there, `${at} is a link to something that is not there, so ${target} cannot be read by its real path and is not this run's to remove`);
       rest.unshift(path.basename(at));
     }
   }
