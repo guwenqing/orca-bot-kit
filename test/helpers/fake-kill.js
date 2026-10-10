@@ -48,6 +48,9 @@
 //                      group (setpgid), keeping its pid, parent and start
 //                      time. That first signal does not reach it in the new
 //                      group
+//   uidOnTerm          a uid: on TERM the process takes it as its own, as a
+//                      program that changes its user, and keeps its pid and
+//                      start time. With `ignoresTerm` it runs on as that user
 //   commandOnTerm      a command line: on TERM the process takes it, as a
 //                      program that renames itself, and keeps its pid and
 //                      start time. With `ignoresTerm` it runs on under it
@@ -60,9 +63,14 @@
 // permitted, as `refuses`. A group signal reaches every process in the group
 // that may be signalled, and is refused only when none may.
 //
+// `killDelaysMs` in state.json, a list, makes calls slow: the nth call (0 is
+// the first) takes the nth number of ms before it does anything, as a kill
+// that blocks. The call is written down when the wait is over, as the signal
+// goes.
+//
 // Every call, refused or not, is written to kill.log in the fake Orca's
 // directory, `{ args, at, caller, tabs }` per line: `at` in ms since the
-// epoch, `caller` the pid that ran this fake (the kit), and `tabs` the tab ids
+// epoch, when the signal went, `caller` the pid that ran this fake (the kit), and `tabs` the tab ids
 // the fake Orca still had open at that moment, so a test can tell whether a
 // session's tab was closed before anything was signalled.
 
@@ -82,9 +90,19 @@ export function runKill() {
     process.exit(70);
   }
   const stateFile = path.join(dir, 'state.json');
+  const logFile = path.join(dir, 'kill.log');
+  const before = (() => {
+    try {
+      return readFileSync(logFile, 'utf8').split('\n').filter((line) => line !== '').length;
+    } catch {
+      return 0;
+    }
+  })();
+  const delay = JSON.parse(readFileSync(stateFile, 'utf8')).killDelaysMs?.[before];
+  if (Number.isFinite(delay) && delay > 0) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delay);
   const state = JSON.parse(readFileSync(stateFile, 'utf8'));
   const args = process.argv.slice(2);
-  appendFileSync(path.join(dir, 'kill.log'), `${JSON.stringify({
+  appendFileSync(logFile, `${JSON.stringify({
     args,
     at: Date.now(),
     caller: process.ppid,
@@ -141,6 +159,7 @@ export function runKill() {
   for (const row of allowed) {
     const { entry } = row;
     if (args[1] === 'TERM' && entry.commandOnTerm !== undefined) entry.command = entry.commandOnTerm;
+    if (args[1] === 'TERM' && entry.uidOnTerm !== undefined) entry.uid = entry.uidOnTerm;
     if (entry.unkillable === true || row.stat.startsWith('Z')) continue;
     if (args[1] === 'KILL') {
       exited.push(row);

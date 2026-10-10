@@ -47,7 +47,8 @@
 // directory; writes down every terminal and workspace Orca already had; runs
 // this checkout's `src/cli.js` by its full path, never the machine's `obk`
 // (#220); closes only its own tabs, through the tab guard, and deletes its own
-// workspaces, whatever happened. `orca terminal close --worktree … --all` is
+// workspaces through `deleteOwnProject` (#536), whatever happened, failing at
+// the end on any it could not remove. `orca terminal close --worktree … --all` is
 // never run, and the guard refuses it. Each run leaves the fleet's
 // orchestration Runs behind, which Orca offers no way to delete; the runner
 // lists them.
@@ -74,6 +75,7 @@ import { parse } from 'yaml';
 
 import { cliEntry } from '../helpers/cli.js';
 import { tabGuard } from '../helpers/tab-guard.js';
+import { deleteOwnProject } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
 
 /**
@@ -285,10 +287,15 @@ test('temp retire stops the real processes a temporary session left in its work 
     const { closed, foreign } = guard.closeOwnAt(homes);
     const held = new Set(foreign.map((one) => one.home));
     let deleted = 0;
+    const failedDeletes = [];
     for (const setup of allSetups()) {
       if (!homes.includes(setup.path) || before.setups.has(setup.id) || held.has(setup.path)) continue;
-      orca(['project', 'setup-delete', '--setup', setup.id]);
-      deleted += 1;
+      try {
+        await deleteOwnProject(setup, bots);
+        deleted += 1;
+      } catch (error) {
+        failedDeletes.push(`${setup.path}: ${error.message}`);
+      }
     }
     // Orca's sidebar keeps a deleted project's row until its window is rebuilt (#343).
     if (deleted > 0 && !(await reloadWindow())) t.diagnostic(RELOAD_LINE);
@@ -305,6 +312,7 @@ test('temp retire stops the real processes a temporary session left in its work 
     const stop = Date.now() + SETTLE_MS;
     while (mine.some(alive) && Date.now() < stop) await setTimeout(250);
     assert.deepEqual(mine.filter(alive).map((one) => `${one.name} ${one.pid}`), [], 'this test left processes of its own running');
+    assert.deepEqual(failedDeletes, [], 'projects this test could not remove, left in Orca');
   });
 
   // ---------------------------------------------------------------------------

@@ -57,7 +57,10 @@
 // a process of the user's to list. `lsof` in state.json set to
 // 'not-permitted' is an lsof that cannot read the process table, as a sandbox
 // may forbid it: every call, of either shape, prints why and exits 1, and is
-// still logged.
+// still logged. 'fails-after-kill' answers as usual until the fake kill
+// (helpers/fake-kill.js) has been called once, and then fails every call that
+// way. `lsofDelayAfterKillMs` holds every lsof answer back that long, but only
+// once the fake kill has been called: a read made slow during the wait.
 //
 // Any other call shape is refused with exit 70, as the fake `ps` refuses one.
 // Every call, refused or not, is written to lsof.log or stty.log in the fake
@@ -207,7 +210,15 @@ function userProcessesOf(state, terminal, dir) {
 /** Run as `lsof`: name fd 0 of every process of the user's. */
 export function runLsof() {
   const { dir, args, state } = begin('lsof');
-  if (state.lsof === 'not-permitted') {
+  const killed = (() => {
+    try {
+      return readFileSync(path.join(dir, 'kill.log'), 'utf8').trim() !== '';
+    } catch {
+      return false;
+    }
+  })();
+  if (killed) holdBack(state.lsofDelayAfterKillMs);
+  if (state.lsof === 'not-permitted' || (state.lsof === 'fails-after-kill' && killed)) {
     process.stderr.write('lsof: WARNING: can\'t stat() of the process table: Operation not permitted\n');
     process.exit(1);
   }

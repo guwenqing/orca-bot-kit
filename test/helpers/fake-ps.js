@@ -169,6 +169,12 @@
 // has been called once, and from then on fails every call that same way: a
 // table that could be read before a signal and not after it.
 //
+// `psDelayAfterKillMs` holds each read of the table back that long, but only
+// once the fake kill has been called: a read made slow during the wait. Each
+// read of the table that is answered is also written to ps-table.log, `{ at,
+// done }` per line, ms since the epoch: when it was asked and when it was
+// answered. A read the kit gave up on and killed is not there.
+//
 // What Orca's runtime says is in front of a tab (#298) is here too, since it
 // reads the same tab: `runtimeViewOf` gives the `process` that
 // `terminal.inspectProcess` answers for it, for the fake runtime client in
@@ -481,6 +487,7 @@ function environmentOf(state, terminal, row, dir) {
 
 /** Run as `ps`: read the fake Orca's world and answer for one pid. */
 export function runPs() {
+  const asked = Date.now();
   const dir = process.env.OBK_FAKE_ORCA_DIR;
   if (dir === undefined) {
     process.stderr.write('fake ps: OBK_FAKE_ORCA_DIR is not set\n');
@@ -510,6 +517,9 @@ export function runPs() {
   }
 
   if (args.length === PS_TABLE.length && PS_TABLE.every((word, at) => args[at] === word)) {
+    if (killed() && Number.isFinite(state.psDelayAfterKillMs) && state.psDelayAfterKillMs > 0) {
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, state.psDelayAfterKillMs);
+    }
     // The processes whose time has come end before this read is answered.
     const reads = readFileSync(path.join(dir, 'ps.log'), 'utf8').split('\n')
       .filter((line) => line !== '' && JSON.stringify(JSON.parse(line).args) === JSON.stringify(PS_TABLE))
@@ -531,6 +541,7 @@ export function runPs() {
     process.stdout.write([...tableOf(state), itself]
       .map((row) => `${column(row.pid)} ${column(row.ppid)} ${column(row.pgid)} ${column(row.uid)} ${row.stat.padEnd(4)} ${lstartOf(row.startedAt)}     ${row.command}\n`)
       .join(''));
+    appendFileSync(path.join(dir, 'ps-table.log'), `${JSON.stringify({ at: asked, done: Date.now() })}\n`);
     process.exit(0);
   }
 

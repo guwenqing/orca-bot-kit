@@ -387,9 +387,14 @@ export async function createSandbox(t) {
       env: options.env ?? env,
       stdin: options.stdin,
     }),
-    /** The fake ps: what it is, and every argv the kit handed it, `{ args }` in order. */
+    /**
+     * The fake ps: what it is, every argv the kit handed it, `{ args }` in
+     * order, and `tableReads`, each read of the whole process table it
+     * answered, `{ at, done }` in order (helpers/fake-ps.js, #537).
+     */
     ps: {
       cli: fakePs,
+      tableReads: () => ttyLog('ps-table.log'),
       async calls() {
         try {
           return (await readFile(path.join(fakeDir, 'ps.log'), 'utf8'))
