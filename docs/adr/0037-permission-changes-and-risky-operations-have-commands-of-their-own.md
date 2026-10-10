@@ -69,7 +69,10 @@ The commands kept out of the default set, which keep the user's yes:
 | `pause` | It closes a long-lived session's tabs, and `up` leaves them closed. |
 | `init` | It is the user's own first step, which makes the bots folder. |
 
-Every other command is ordinary. `up`, `unpause` and `bot create` only add.
+Every other command the kit has today is ordinary, and on the list of
+default commands. A command added later is on neither list until someone puts
+it on one, and a command that runs whatever its arguments say is kept back
+([ADR 0036](0036-the-kit-writes-every-bots-default-permission-rules.md)). `up`, `unpause` and `bot create` only add.
 `restart` closes a session's tabs and opens them again, each on the
 conversation it was having. `health`, `roster` and `usage` only read.
 `session clear` and `session compact` keep the conversation in the book and in

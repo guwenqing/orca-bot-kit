@@ -1,7 +1,8 @@
-// The kit's commands, each with the flags it cannot do without. `obk` reads it
-// to parse a command line, and the default permission set is made from it
-// (#527, ADR 0036), so a new command is in that set unless it is named as one
-// the user's yes is kept for (ADR 0037).
+// The kit's commands, each with the flags it cannot do without, which `obk`
+// reads to parse a command line; and the two lists every command is on one of:
+// those every bot is allowed by default (#527, ADR 0036), and those kept back
+// for the user's yes (ADR 0037). A new command is on neither until someone
+// puts it on one, and a test holds every command to that choice.
 
 /** The commands, and the flags each one cannot do without. */
 export const COMMANDS = {
@@ -46,6 +47,21 @@ export const COMMANDS = {
   'temp trust-hooks': ['bots', 'name'],
   'temp answer': ['bots', 'name'],
 };
+
+/**
+ * The commands every bot is allowed by default, each narrowed to its bots
+ * folder (ADR 0036). Only a command named here is in the default set; one that
+ * runs whatever its arguments say never is.
+ */
+export const DEFAULT_COMMANDS = [
+  'up', 'restart', 'unpause', 'health', 'groom', 'roster', 'usage',
+  'bot create', 'bot change', 'rules build',
+  'skills add', 'skills remove', 'skills build', 'skills fetch', 'skills update', 'source add',
+  'session add', 'session change', 'session clear', 'session compact',
+  'message to', 'message send', 'message check',
+  'session record', 'session sent', 'session nudge', 'session mail', 'session name', 'session mailbox',
+  'temp make', 'temp roles', 'temp retire', 'temp trust-hooks', 'temp answer',
+];
 
 /**
  * The commands kept out of the default permission set, which keep the user's

@@ -24,7 +24,7 @@ import { accessSync, constants, existsSync, mkdirSync, readdirSync, readFileSync
 import path from 'node:path';
 
 import { allowRules, leadsOutside } from './bot.js';
-import { COMMANDS, KEPT_BACK } from './commands.js';
+import { DEFAULT_COMMANDS } from './commands.js';
 import { readSettings } from './hooks.js';
 import { harnessOf, ownCli, shellWord } from './launch.js';
 
@@ -36,8 +36,8 @@ const CODEX_RULES = '.codex/rules';
 const CODEX_FILE = `${CODEX_RULES}/obk.rules`;
 
 /**
- * The rules every bot is given (ADR 0036): each of the kit's commands but those
- * kept back for the user's yes (ADR 0037), narrowed to this bots folder and
+ * The rules every bot is given (ADR 0036): each of the kit's default commands,
+ * and none kept back for the user's yes (ADR 0037), narrowed to this bots folder and
  * spelled as the kit prints them, which is what a bot runs; reading a long
  * message; committing; and the check Orca's mail notice tells a session to
  * run. `//` is Claude's form for an absolute path.
@@ -46,8 +46,7 @@ export function defaultRules(bots, cli = ownCli()) {
   const kit = shellWord(cli);
   const folder = shellWord(bots);
   return [
-    ...Object.keys(COMMANDS).filter((command) => !KEPT_BACK.includes(command))
-      .map((command) => `Bash(${kit} ${command} --bots ${folder}:*)`),
+    ...DEFAULT_COMMANDS.map((command) => `Bash(${kit} ${command} --bots ${folder}:*)`),
     `Read(/${bots}.messages/**)`,
     'Bash(git add:*)',
     'Bash(git commit:*)',

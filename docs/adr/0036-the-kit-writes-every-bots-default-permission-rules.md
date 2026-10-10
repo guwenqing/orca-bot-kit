@@ -2,7 +2,7 @@
 
 Date: 2026-10-10.
 Status: accepted.
-Decided by: the owner, on 2026-09-26, for a default set every bot gets and the kit's code as the only writer (#344); the owner, on 2026-10-10, for the kit's own commands being in that set and written with nobody asked (#527: "for kit command I need you to be part of kit code!!! To set default for every session without the need to ask"); the architect, on 2026-09-26, for leaving an entry the kit did not write where it is and naming it in health, and for the rules build writing the kit's path and the bots folder's path into a bot's rules; the architect, on 2026-10-10, for adding Orca's `orca orchestration check --run` to the set (#527). The owner may overrule the architect's parts. Which commands are left out is [ADR 0037](0037-permission-changes-and-risky-operations-have-commands-of-their-own.md).
+Decided by: the owner, on 2026-09-26, for a default set every bot gets and the kit's code as the only writer (#344); the owner, on 2026-10-10, for the kit's own commands being in that set and written with nobody asked (#527: "for kit command I need you to be part of kit code!!! To set default for every session without the need to ask"); the architect, on 2026-09-26, for leaving an entry the kit did not write where it is and naming it in health, and for the rules build writing the kit's path and the bots folder's path into a bot's rules; the architect, on 2026-10-10, for adding Orca's `orca orchestration check --run` to the set, and for writing the set from an explicit list (#527, #532). The owner may overrule the architect's parts. Which commands are left out is [ADR 0037](0037-permission-changes-and-risky-operations-have-commands-of-their-own.md).
 Supersedes: [ADR 0026](0026-the-kit-writes-a-bots-permission-rules-after-the-users-yes.md).
 
 ## Context
@@ -39,16 +39,22 @@ path and the bots folder, so it can spell exact rules.
 Every bot gets a default set of rules, spelled with the kit's real CLI and the
 bots folder, with nobody asked:
 
-- `Bash(<kit> <command> --bots <folder>:*)` for each of the kit's commands,
-  except those [ADR 0037](0037-permission-changes-and-risky-operations-have-commands-of-their-own.md)
+- `Bash(<kit> <command> --bots <folder>:*)` for each command on the kit's
+  list of default commands, which holds none that
+  [ADR 0037](0037-permission-changes-and-risky-operations-have-commands-of-their-own.md)
   keeps for the user's yes;
 - `Read(/<folder>.messages/**)`, for a long message's body;
 - `Bash(git add:*)` and `Bash(git commit:*)`;
 - `Bash(orca orchestration check --run:*)`, which Orca's mail notice tells a
   session to run, and nothing else of `orca`'s.
 
-The set is the kit's command table less the commands kept back, so a new
-command is in it unless it is named as kept back.
+The set is written from an explicit list of commands, never as every command
+less some exceptions. Every command the kit has is on exactly one of two
+lists, the default commands or the commands kept back, and a test holds every
+command to that, so a new command joins the set only when someone puts it on
+the list. A command that runs whatever its arguments say, such as the
+`obk run` #532 proposes, never goes on it: allowed, it would allow any
+command (the architect, 2026-10-10).
 
 `bot create`, `init`, `rules build` and `up` (and so `restart`) add each
 default rule a bot's `bot.yaml` `allow` does not hold yet, after the entries
@@ -91,8 +97,10 @@ Rules beyond the set stay the user's yes to each exact rule
   later words: no question at all, the kit's code decides.
 - **Only the commands the kit's rules tell every bot to run** (the issue's
   first boundary). Not chosen: the owner asked for every kit command but those
-  that grant rights or are risky, and a list of exceptions keeps a new command
-  in the set without anyone remembering it.
+  that grant rights or are risky.
+- **Every command less a list of exceptions.** Not chosen: a new command, such
+  as one that runs other commands (#532), would be allowed by default without
+  anyone deciding it, and that would allow any command.
 - **The owner's broader `Bash(<cli>:*)`.** Not chosen: it would hold the
   permission commands and the risky ones, and the kit refuses a rule with one
   word before its wildcard as broad.
