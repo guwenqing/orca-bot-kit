@@ -182,10 +182,13 @@ function settingsFor(bot, maker, option, given) {
  */
 function refuseWiderApproval(bots, caller, bot, maker, asked) {
   if (asked === undefined) return;
-  const own = maker?.approval ?? DEFAULT_APPROVAL;
+  // A blank level is the kit's default at launch (ADR 0015), so it is judged as that.
+  const effective = (given) => (given === undefined || given === null || String(given).trim() === '' ? DEFAULT_APPROVAL : given);
+  const level = effective(asked);
+  const own = effective(maker?.approval);
   const widest = approvalRank(bot.temp_approval) > approvalRank(own) ? bot.temp_approval : own;
-  if (approvalRank(asked) <= approvalRank(widest)) return;
-  throw new Error(`--approval ${asked} is wider than ${caller.session}'s own approval, ${own}${widest === own ? '' : `, and than ${caller.bot}'s temp_approval, ${widest}`}, and a session does not widen another's approval. The user allows it for ${caller.bot}'s temporary sessions with  ${shellWord(ownCli())} permission approval --bots ${shellWord(bots)} --bot ${caller.bot} --temps --approval ${asked}. Nothing was made.`);
+  if (approvalRank(level) <= approvalRank(widest)) return;
+  throw new Error(`--approval ${level} is wider than ${caller.session}'s own approval, ${own}${widest === own ? '' : `, and than ${caller.bot}'s temp_approval, ${widest}`}, and a session does not widen another's approval. The user allows it for ${caller.bot}'s temporary sessions with  ${shellWord(ownCli())} permission approval --bots ${shellWord(bots)} --bot ${caller.bot} --temps --approval ${level}. Nothing was made.`);
 }
 
 /**

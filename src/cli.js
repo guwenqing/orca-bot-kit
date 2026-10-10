@@ -881,14 +881,14 @@ const commands = {
     // A new bot is given what the lists already name, so it is whole before
     // anybody opens a tab on it.
     const skills = [linkSkills(bots, made.home, readBot(made.home))];
-    // Nothing is allowed yet, so this writes nothing: it says which of the
-    // kit's rules wait for the user's yes (#344).
-    const permissions = writePermissions(bots, made.home, readBot(made.home));
-    const answer = { bots, bot: made.bot, home: made.home, created: made.created, rules, skills, permissions };
     // A bot whose rules would not build is made but not finished: it has no
     // instructions, so `up` will not start it, and saying "give it a session"
     // would send the caller past the thing that needs settling first.
     const trouble = rules[0].trouble !== undefined;
+    // The kit's default rules (ADR 0036), for a bot that is set up to run: one
+    // with no instructions gets them at the rules build that gives it some.
+    const permissions = trouble ? [] : writePermissions(bots, made.home, readBot(made.home));
+    const answer = { bots, bot: made.bot, home: made.home, created: made.created, rules, skills, permissions };
     return {
       answer,
       lines: [
@@ -910,9 +910,9 @@ const commands = {
     }
     // Permission changes have commands of their own, which keep the user's yes
     // (ADR 0037): the old spelling refuses, and changes nothing.
-    for (const [flag, now] of [['allow', 'permission allow'], ['disallow', 'permission disallow']]) {
-      if (values[flag] === undefined) continue;
-      throw new Error(`bot change no longer takes --${flag}: permission rules change through ${shellWord(ownCli())} ${now} --bots ${shellWord(bots)} --bot ${values.bot} --rule <rule>, after the user's yes. Nothing was changed.`);
+    const moved = [['allow', 'permission allow'], ['disallow', 'permission disallow']].filter(([flag]) => values[flag] !== undefined);
+    if (moved.length > 0) {
+      throw new Error(`bot change no longer takes ${moved.map(([flag]) => `--${flag}`).join(' or ')}: permission rules change through ${moved.map(([, now]) => `${shellWord(ownCli())} ${now} --bots ${shellWord(bots)} --bot ${values.bot} --rule <rule>`).join(' and ')}, after the user's yes. Nothing was changed.`);
     }
     if (values.charter === undefined && values['role-cap'] === undefined) {
       throw new Error('bot change needs --charter <text> or --role-cap <role>=<n>: what to change.');
