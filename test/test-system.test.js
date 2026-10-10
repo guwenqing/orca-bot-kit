@@ -136,8 +136,11 @@ const ALWAYS = 1e6;
  * and `_meta`, each setup as `setupNamed` makes it. `setupsFails` is a count of
  * calls refused with exit 1, `setupsGarbles` a count answered with text that is
  * not JSON, and `setupsEnvelope` spoils the envelope as `runListEnvelope` does:
- * `notOk`, `notOkWithSetups` or `noOk`. A system test file changes the world
- * while it runs, so a project can appear, or the listing break, mid-run.
+ * `notOk`, `notOkWithSetups` or `noOk`. `setupsBefore` breaks the listing in
+ * one of those ways (`fails`, `garbles`, or an envelope's name) only until the
+ * run's system test file has run, which sets `testsRan`: a listing taken before
+ * the tests is broken, and one after them is not. A system test file changes
+ * the world while it runs, so a project can appear, or the listing break, mid-run.
  * Nothing else about projects is answered: a delete gets the `status` answer,
  * and is in the log.
  */
@@ -192,6 +195,16 @@ async function fakeOrca(box, { stdout = '', stderr = '', exitCode = 0 }, world) 
     "if (words.join(' ') === 'project setups') {",
     "  const state = JSON.parse(readFileSync(WORLD, 'utf8'));",
     '  const spend = (name) => { state[name] -= 1; writeFileSync(WORLD, JSON.stringify(state)); };',
+    '  const before = state.testsRan === true ? undefined : state.setupsBefore;',
+    "  if (before === 'fails') {",
+    "    writeSync(2, 'runtime_unavailable: Could not connect to the running Orca app\\n');",
+    '    process.exit(1);',
+    '  }',
+    "  if (before === 'garbles') {",
+    "    writeSync(1, 'orca: this CLI cannot run for this user\\n');",
+    '    process.exit(0);',
+    '  }',
+    "  const envelope = before ?? state.setupsEnvelope;",
     '  if (state.setupsFails > 0) {',
     "    spend('setupsFails');",
     "    writeSync(2, 'runtime_unavailable: Could not connect to the running Orca app\\n');",
@@ -203,12 +216,12 @@ async function fakeOrca(box, { stdout = '', stderr = '', exitCode = 0 }, world) 
     '    process.exit(0);',
     '  }',
     "  const answer = { id: 'f3a9c2d1-7b4e-4c55-9e0a-5d6b7c8e9f01', ok: true, result: { setups: state.setups }, _meta: { runtimeId: '72e0c281-ca3f-448c-a9e5-0f31fff8de45' } };",
-    "  if (state.setupsEnvelope.startsWith('notOk')) {",
+    "  if (envelope.startsWith('notOk')) {",
     '    answer.ok = false;',
     "    answer.error = { code: 'runtime_unavailable', message: 'Could not connect to the running Orca app' };",
-    "    if (state.setupsEnvelope === 'notOk') delete answer.result;",
+    "    if (envelope === 'notOk') delete answer.result;",
     '  }',
-    "  if (state.setupsEnvelope === 'noOk') delete answer.ok;",
+    "  if (envelope === 'noOk') delete answer.ok;",
     "  writeSync(1, JSON.stringify(answer) + '\\n');",
     '  process.exit(0);',
     '}',
@@ -3073,7 +3086,7 @@ const changesProjects = (name, { makes = [], adds = [], world = {}, removes = []
   `  const file = process.env[${JSON.stringify(WORLD)}];`,
   "  const state = JSON.parse(readFileSync(file, 'utf8'));",
   `  state.setups.push(...${JSON.stringify(adds)});`,
-  `  Object.assign(state, ${JSON.stringify(world)});`,
+  `  Object.assign(state, ${JSON.stringify(world)}, { testsRan: true });`,
   '  writeFileSync(file, JSON.stringify(state));',
   `  for (const folder of ${JSON.stringify(removes)}) rmSync(folder, { recursive: true, force: true });`,
   `  process.stdout.write(${JSON.stringify(`${name}\n`)});`,
@@ -3085,16 +3098,17 @@ const changesProjects = (name, { makes = [], adds = [], world = {}, removes = []
 /**
  * A fixture repo whose one system test changes Orca's projects. `build` is
  * given the fixture's temp folder in both spellings (tempSpellings), and
- * answers `{ setups, makes, during }`: `setups` Orca has before the run,
- * `makes` folders already there when it starts, and `during` what its system
- * test does (changesProjects).
+ * answers `{ setups, makes, during, world }`: `setups` Orca has before the run,
+ * `makes` folders already there when it starts, `during` what its system
+ * test does (changesProjects), and `world` other keys of the fake's world
+ * before the run (`setupsBefore`).
  */
 async function withProjects(t, build) {
   const fixture = await createRepo(t);
   const temp = tempSpellings(fixture);
-  const { setups = [], makes = [], during = {} } = build(temp);
+  const { setups = [], makes = [], during = {}, world: keys = {} } = build(temp);
   const world = fixture.env[WORLD];
-  await writeFile(world, JSON.stringify({ ...JSON.parse(await readFile(world, 'utf8')), setups }));
+  await writeFile(world, JSON.stringify({ ...JSON.parse(await readFile(world, 'utf8')), ...keys, setups }));
   for (const folder of makes) await mkdir(folder, { recursive: true });
   await write(fixture.repo, 'test/system/alpha.test.js', changesProjects('ALPHA', during));
   return fixture;
@@ -3269,6 +3283,97 @@ describe('test-system: the Orca projects a run leaves behind (#536)', { concurre
       assertNoClaimNothingLeft(result);
       assertProjectNotNamed(result, left, 'an answer nobody vouched for');
       await assertDeletedNothing(fixture, [left]);
+    });
+  }
+
+  // The review of PR #546: an earlier run's teardown could not remove its
+  // project but did remove its bots folder. The next run finds no such folder
+  // before it starts, so a check by folder alone takes that old project for
+  // its own. A project counts as left only when Orca did not have it before the
+  // run (by setup id) and it is in an obk-system folder the run made.
+
+  test('a project an earlier run left, its obk-system folder gone before this run and after it, is not this run\'s: never named, and the run passes', async (t) => {
+    let earlier;
+    const fixture = await withProjects(t, ({ dir, real }) => {
+      earlier = setupNamed(setupIdOf(31), `${real}/obk-system-earlier-123/bots/bot-father`);
+      const folder = `${dir}/obk-system-alpha-Ea01`;
+      return { setups: [earlier], during: { makes: [folder], removes: [folder] } };
+    });
+
+    const result = await fixture.confirmed();
+
+    assert.equal(result.code, 0, `a project that was in Orca before the run does not fail it:\n${everything(result)}`);
+    assertProjectNotNamed(result, earlier, 'a project from an earlier run');
+    assert.ok(
+      sentencesOf(result).some((sentence) => NO_PROJECT_LEFT.test(sentence)),
+      `this run left nothing, and it should say so, got:\n${afterTheRun(result)}`,
+    );
+    await assertDeletedNothing(fixture, [earlier]);
+  });
+
+  test('beside a project an earlier run left, the one this run left is named, and only it', async (t) => {
+    let earlier;
+    let left;
+    const fixture = await withProjects(t, ({ dir, real }) => {
+      earlier = setupNamed(setupIdOf(32), `${real}/obk-system-earlier-456/bots/bot-father`);
+      left = setupNamed(setupIdOf(33), `${real}/obk-system-alpha-Ea02/bots/bots/bot-father`);
+      const folder = `${dir}/obk-system-alpha-Ea02`;
+      return { setups: [earlier], during: { makes: [folder], adds: [left], removes: [folder] } };
+    });
+
+    const result = await fixture.confirmed();
+
+    assert.equal(result.code, 1, `the run's own left project fails it:\n${everything(result)}`);
+    assertLeftNamed(result, left);
+    assertProjectNotNamed(result, earlier, 'a project from an earlier run');
+    await assertDeletedNothing(fixture, [earlier, left]);
+  });
+
+  test('a project that was in Orca before the run is not named even when the run makes a folder of the same name', async (t) => {
+    // Not likely with mkdtemp's random names, and the plainest case of the rule:
+    // what Orca had before the run is never the run's.
+    let earlier;
+    const fixture = await withProjects(t, ({ dir, real }) => {
+      earlier = setupNamed(setupIdOf(34), `${real}/obk-system-alpha-Same01/bots/bot-father`);
+      return { setups: [earlier], during: { makes: [`${dir}/obk-system-alpha-Same01`] } };
+    });
+
+    const result = await fixture.confirmed();
+
+    assert.equal(result.code, 0, everything(result));
+    assertProjectNotNamed(result, earlier, 'a project that was there before the run');
+  });
+
+  for (const [how, setupsBefore] of [
+    ['refuses the listing', 'fails'],
+    ['answers with text that is not JSON', 'garbles'],
+    ['answers ok: false', 'notOk'],
+    ['answers ok: false with a list in it', 'notOkWithSetups'],
+    ['answers with no ok at all', 'noOk'],
+  ]) {
+    test(`when Orca ${how} before the run, the runner cannot tell new projects from old: it says so, names none, does not say none was left, and the exit code stays the tests'`, async (t) => {
+      let earlier;
+      let left;
+      const fixture = await withProjects(t, ({ dir, real }) => {
+        earlier = setupNamed(setupIdOf(41), `${real}/obk-system-earlier-789/bots/bot-father`);
+        left = setupNamed(setupIdOf(42), `${real}/obk-system-alpha-Bf01/bots/bots/bot-father`);
+        const folder = `${dir}/obk-system-alpha-Bf01`;
+        return { setups: [earlier], world: { setupsBefore }, during: { makes: [folder], adds: [left], removes: [folder] } };
+      });
+
+      const result = await fixture.confirmed();
+
+      assert.equal(result.code, 0, `the listing alone does not change the exit code:\n${everything(result)}`);
+      assert.equal(result.signal, null, `it should exit, not die: ${result.signal}`);
+      assert.ok(!/^\s+at /m.test(everything(result)), `a report, not a crash:\n${everything(result)}`);
+      assert.ok(
+        sentencesOf(result).some((sentence) => /project/i.test(sentence) && COULD_NOT.test(sentence)),
+        `it should say it could not tell which projects the run left, got:\n${afterTheRun(result)}`,
+      );
+      assertNoClaimNothingLeft(result);
+      assertProjectNotNamed(result, left, 'with nothing to tell new from old');
+      assertProjectNotNamed(result, earlier, 'with nothing to tell new from old');
+      await assertDeletedNothing(fixture, [earlier, left]);
     });
   }
 });

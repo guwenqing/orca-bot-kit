@@ -393,21 +393,31 @@ function reportConfigsLeft(before, foldersBefore) {
     || after.codex.unparsed === true;
 }
 
+/** The projects Orca has, as `project setups` lists them, or undefined when it could not say. */
+function listSetups() {
+  const setups = askOrca(['project', 'setups'])?.setups;
+  return Array.isArray(setups) ? setups : undefined;
+}
+
 /**
  * The Orca projects the run left in its own throwaway folders (#536). A system
  * test removes the projects it made in its teardown; one it could not remove
  * stays in the owner's Orca. Each is named by its path and its setup id, and
  * fails the run. None is removed here: what removes a project is the test's
- * own teardown, and only a project in a folder the run made is named. Answers
- * whether the run failed on what it left.
+ * own teardown. A project is the run's only when Orca did not have it before
+ * the run (`before`, by setup id) and it is in a folder the run made: an
+ * earlier run's project whose folder is gone is not this run's (review of PR
+ * #546). With no listing from before, new cannot be told from old, and that is
+ * said. Answers whether the run failed on what it left.
  */
-function reportProjectsLeft(foldersBefore) {
-  const setups = askOrca(['project', 'setups'])?.setups;
-  if (!Array.isArray(setups)) {
+function reportProjectsLeft(before, foldersBefore) {
+  const setups = before === undefined ? undefined : listSetups();
+  if (setups === undefined) {
     process.stdout.write('\nOrca did not list its projects, so the kit cannot tell which projects the run left in its own folders.\n');
     return false;
   }
-  const left = setups.filter((setup) => typeof setup?.path === 'string' && runOwns(setup.path, foldersBefore));
+  const had = new Set(before.map((setup) => setup?.id));
+  const left = setups.filter((setup) => typeof setup?.path === 'string' && !had.has(setup.id) && runOwns(setup.path, foldersBefore));
   if (left.length === 0) {
     process.stdout.write('\nOrca has no project in the run\'s own folders.\n');
     return false;
@@ -762,6 +772,7 @@ function run() {
   const before = listRuns();
   const configsBefore = trustKeys();
   const foldersBefore = runFoldersNow();
+  const setupsBefore = listSetups();
 
   // OBK_SYSTEM_TESTS is how a system test knows this command started it: loaded
   // any other way, it skips (test/helpers/system.js, #328).
@@ -775,7 +786,7 @@ function run() {
   // as a passing one does, and the developer is owed the accounting either way.
   reportRunsLeft(before);
   const leftKeys = reportConfigsLeft(configsBefore, foldersBefore);
-  const leftProjects = reportProjectsLeft(foldersBefore);
+  const leftProjects = reportProjectsLeft(setupsBefore, foldersBefore);
 
   // The test runner answers 0 or 1, and a run killed by a signal answers
   // nothing at all. Anything but a clean 0 means the system tests did not pass.
