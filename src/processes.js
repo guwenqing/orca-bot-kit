@@ -116,13 +116,16 @@ export async function stopProcesses(dirs) {
   for (const [pid, one] of targets) if (!whole.has(table.get(pid).pgid)) note(first(pid, one), signal('TERM', pid), 'SIGTERM', begun);
 
   // Each process has TERM_WAIT_MS after its own SIGTERM to end, then SIGKILL,
-  // then TERM_WAIT_MS more to be gone. A process one of them starts
-  // meanwhile, or that joins a group signalled whole, is theirs as much as
-  // they are: it is tracked from the read that first sees it, even after its
-  // parent has gone, and is given the same; one is looked for until ADOPT_MS.
+  // then TERM_WAIT_MS more to be gone. A process a read shows one of them
+  // started meanwhile is theirs as much as they are (R1): it is tracked from
+  // that read, even after its parent has gone, and is given the same. One that
+  // only joined a group signalled whole is not shown to be theirs, and is
+  // named and never signalled (R2, review of PR #543). Both are looked for
+  // until ADOPT_MS.
   // All of it ends by STOP_MS, and what still runs then is named. Where the
   // table can no longer be read, nothing more is sent: the kit cannot see
   // which pid is still theirs.
+  const named = new Set(left.map((one) => one.pid));
   let lost;
   for (;;) {
     const read = processTable();
@@ -136,12 +139,21 @@ export async function stopProcesses(dirs) {
     for (const one of tracked.values()) if (!live(one)) ended.add(one.pid);
 
     if (at - begun < ADOPT_MS) {
-      for (const [pid, seen] of now) {
-        if (tracked.has(pid) || refused.has(pid) || mine.has(pid) || seen.uid !== uid) continue;
+      const found = [...now].flatMap(([pid, seen]) => {
+        if (tracked.has(pid) || refused.has(pid) || named.has(pid) || mine.has(pid) || seen.uid !== uid) return [];
         const parent = [...ancestorsOf(now, pid)].map((one) => tracked.get(one)).find((one) => one !== undefined && live(one));
-        const theirs = parent ?? (whole.has(seen.pgid) ? [...tracked.values()].find((one) => one.pgid === seen.pgid) : undefined);
-        if (theirs === undefined) continue;
-        note({ session: theirs.session, pid, cwd: null, command: seen.command, pgid: seen.pgid, started: seen.started }, signal('TERM', pid), 'SIGTERM', at);
+        const mate = parent === undefined && whole.has(seen.pgid) ? [...tracked.values()].find((one) => one.pgid === seen.pgid) : undefined;
+        return parent === undefined && mate === undefined ? [] : [{ pid, seen, parent, mate }];
+      });
+      // Their working folders, read once when there is someone new to name.
+      const folders = found.length === 0 ? new Map() : workingFolders().cwds ?? new Map();
+      for (const { pid, seen, parent, mate } of found) {
+        const one = { pid, cwd: folders.get(pid) ?? null, command: seen.command };
+        if (parent !== undefined) note({ session: parent.session, ...one, pgid: seen.pgid, started: seen.started }, signal('TERM', pid), 'SIGTERM', at);
+        else {
+          named.add(pid);
+          left.push({ session: mate.session, ...one, why: `it joined process group ${seen.pgid} of ${mate.session}'s processes, and the kit cannot show it is ${mate.session}'s own` });
+        }
       }
     }
 
@@ -197,6 +209,12 @@ export function processesIn(dirs) {
 function readProcesses() {
   const listed = processTable();
   if (listed.unreadable !== undefined) return listed;
+  const folders = workingFolders();
+  return folders.unreadable !== undefined ? folders : { table: listed.table, cwds: folders.cwds };
+}
+
+/** The working folder of each of the user's processes, `cwds`: pid to folder, as `lsof` gives it. Or `{ unreadable: <why> }`. */
+function workingFolders() {
   const asked = spawnSync(lsofCli(), ['-a', '-d', 'cwd', '-u', String(process.getuid()), '-Fpn'], { encoding: 'utf8', timeout: READ_MS, maxBuffer: 64 * 1024 * 1024 });
   if (asked.error?.code === 'ETIMEDOUT') return { unreadable: 'lsof did not answer in time' };
   if (asked.error || asked.status !== 0) return { unreadable: `lsof could not list the processes' working folders${because(asked)}` };
@@ -206,7 +224,7 @@ function readProcesses() {
     if (line.startsWith('p')) pid = Number(line.slice(1));
     else if (line.startsWith('n') && Number.isInteger(pid)) cwds.set(pid, line.slice(1));
   }
-  return { table: listed.table, cwds };
+  return { cwds };
 }
 
 /**
