@@ -18,17 +18,36 @@ import { fileURLToPath } from 'node:url';
 import { deleteProject } from '../../src/orca.js';
 
 /** The checkout's own `local-data/`, which .gitignore keeps out of git. */
-const localData = () => path.join(realpathSync(fileURLToPath(new URL('../..', import.meta.url))), 'local-data');
+const localData = () => path.join(fileURLToPath(new URL('../..', import.meta.url)), 'local-data');
+
+/**
+ * The real path of `target`: of the nearest part of it that is on disk, with
+ * the rest as written. A part that is not there cannot be a link, so a path
+ * gone from disk is read as safely as one that is there.
+ */
+function realOf(target) {
+  const rest = [];
+  for (let at = path.resolve(target); ; at = path.dirname(at)) {
+    try {
+      return path.join(realpathSync(at), ...rest);
+    } catch (error) {
+      if (error.code !== 'ENOENT' || path.dirname(at) === at) throw error;
+      rest.unshift(path.basename(at));
+    }
+  }
+}
 
 /**
  * Remove the Orca project `setup` (an entry of `orca project setups`), when it
  * lies inside `bots`, the test's own `<tmp>/obk-system-…` or
- * `<repo>/local-data/obk-system-…` folder, by its real path: a link there is
- * not the run's own. Anything else fails, before anything is sent to Orca. So
+ * `<repo>/local-data/obk-system-…` folder. Both are read by their real paths:
+ * a link that is the bots folder, or one inside it, leads to a folder that is
+ * not the run's own. A project path gone from disk is read by its nearest part
+ * that is there. Anything else fails, before anything is sent to Orca. So
  * does a delete Orca refuses.
  */
 export function deleteOwnProject(setup, bots) {
-  const places = [realpathSync(os.tmpdir()), localData()];
+  const places = [realOf(os.tmpdir()), realOf(localData())];
   // By its real path, not its name: a link called obk-system-… leads to a
   // folder that is not the run's own (the review of PR #552).
   let real;
@@ -42,10 +61,14 @@ export function deleteOwnProject(setup, bots) {
     places.includes(path.dirname(bots)) && path.basename(bots).startsWith('obk-system-'),
     `${bots} is not a system test's throwaway bots folder in ${places.join(' or ')}, so its projects were not removed`,
   );
-  const inside = path.relative(bots, setup.path);
+  // By the project's real path too: a link inside the bots folder leads out of
+  // it (the review of PR #552).
+  assert.ok(path.isAbsolute(setup.path), `the project at ${setup.path} is not an absolute path, so it is not this run's to remove`);
+  const project = realOf(setup.path);
+  const inside = path.relative(real, project);
   assert.ok(
-    path.isAbsolute(setup.path) && inside !== '' && inside !== '..' && !inside.startsWith(`..${path.sep}`) && !path.isAbsolute(inside),
-    `the project at ${setup.path} is not inside ${bots}, so it is not this run's to remove`,
+    inside !== '' && inside !== '..' && !inside.startsWith(`..${path.sep}`) && !path.isAbsolute(inside),
+    `the project at ${setup.path} (really ${project}) is not inside ${bots}, so it is not this run's to remove`,
   );
   return deleteProject(setup.id);
 }
