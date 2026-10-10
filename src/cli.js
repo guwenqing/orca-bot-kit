@@ -909,7 +909,7 @@ const commands = {
       throw new Error(`bot change does not change a bot's harness: its sessions' conversations belong to the harness they ran on. To move to ${values.harness}, give it a session on ${values.harness} with obk session add, or retire the bot with obk retire and create a new one.`);
     }
     // Permission changes have commands of their own, which keep the user's yes
-    // (ADR 0037): the old spelling refuses, and changes nothing.
+    // (ADR 0041): the old spelling refuses, and changes nothing.
     const moved = [['allow', 'permission allow'], ['disallow', 'permission disallow']].filter(([flag]) => values[flag] !== undefined);
     if (moved.length > 0) {
       throw new Error(`bot change no longer takes ${moved.map(([flag]) => `--${flag}`).join(' or ')}: permission rules change through ${moved.map(([, now]) => `${shellWord(ownCli())} ${now} --bots ${shellWord(bots)} --bot ${values.bot} --rule <rule>`).join(' and ')}, after the user's yes. Nothing was changed.`);
@@ -1116,7 +1116,7 @@ const commands = {
       ...(values.effort === undefined ? {} : { effort: values.effort }),
       ...(values['extra-arg'] === undefined ? {} : { extra_args: values['extra-arg'] }),
     };
-    // A run's launch may not widen its approval (ADR 0037).
+    // A run's launch may not widen its approval (ADR 0041).
     if (values['run-on'] === 'codex') refuseApprovalArgs('codex', values['extra-arg']);
     const groom = grooming(bots, { at: values.at, ask, run });
     return { answer: { bots, groom }, lines: groomLines(groom, bots) };
@@ -1407,7 +1407,7 @@ function workDirFound(values, bot, home, session) {
 
 /**
  * Refuse what would change a session's approval through `session add` or
- * `session change` (ADR 0037): `--approval`, and an extra argument that sets
+ * `session change` (ADR 0041): `--approval`, and an extra argument that sets
  * it on the session's harness. Only `permission approval` changes it.
  */
 function refuseApproval(bots, values, command) {
@@ -1787,17 +1787,22 @@ function charterRulesLines(bots, bot, rules) {
 
 /**
  * What became of each bot's permission rules: each of the kit's default rules
- * the run added to the bot, word for word (ADR 0036), and the file the allowed
- * ones were written into. Nothing for a bot with nothing added or written.
+ * the run added to the bot, word for word (ADR 0036), each rule of a command no
+ * longer in the set that the bot still holds, with the command that takes it
+ * back (ADR 0041), and the file the allowed ones were written into. Nothing for
+ * a bot with nothing added, held or written.
  */
 function permissionsLines(permissions, bots) {
   // A bot on both harnesses has an entry for each file, with the same
-  // defaults: they are listed once, with the first.
+  // defaults and held rules: they are listed once, with the first.
   const listed = new Set();
+  const disallow = (bot, rule) => `${shellWord(ownCli())} permission disallow --bots ${shellWord(bots)} --bot ${shellWord(bot)} --rule ${shellWord(rule)}`;
   return permissions.flatMap((entry) => [
     ...(entry.trouble === undefined ? [] : [`${'refused'.padEnd(9)}  ${entry.trouble}`]),
-    ...((entry.defaults ?? []).length === 0 || listed.has(entry.bot) || !listed.add(entry.bot) ? []
-      : entry.defaults.map((rule) => `${'allowed'.padEnd(9)}  ${entry.bot}  ${rule}`)),
+    ...(listed.has(entry.bot) || !listed.add(entry.bot) ? [] : [
+      ...(entry.defaults ?? []).map((rule) => `${'allowed'.padEnd(9)}  ${entry.bot}  ${rule}`),
+      ...(entry.held ?? []).map((rule) => `${'holds'.padEnd(9)}  ${entry.bot}  ${rule}, which is no longer one of the kit's defaults. To take it back:  ${disallow(entry.bot, rule)}`),
+    ]),
     ...(entry.written.length === 0
       ? []
       : [`${'wrote'.padEnd(9)}  ${path.relative(bots, entry.file)}  ${entry.written.length} permission rule${entry.written.length === 1 ? '' : 's'} from its allow list`]),

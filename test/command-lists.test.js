@@ -17,7 +17,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import * as commands from '../src/commands.js';
-import { KIT_COMMANDS, NOT_DEFAULT_COMMANDS } from './helpers/permissions.js';
+import { KIT_COMMANDS, NO_LONGER_DEFAULT_COMMANDS, NOT_DEFAULT_COMMANDS } from './helpers/permissions.js';
 
 /** The three exports, each checked for its shape first. */
 function lists() {
@@ -48,9 +48,27 @@ test('CL2 neither list names a command the CLI does not know, and neither names 
   assert.equal(new Set(KEPT_BACK).size, KEPT_BACK.length, 'KEPT_BACK names a command twice');
 });
 
-test('CL3 the two lists are the requirement\'s: the default set\'s 36 commands, and the six kept back', () => {
+// #548 R1 moved restart and bot create from the default set to the kept-back
+// list: 34 and eight now, where #527 had 36 and six.
+test('CL3 the two lists are the requirement\'s: the default set\'s 34 commands, and the eight kept back', () => {
   const { DEFAULT_COMMANDS, KEPT_BACK } = lists();
 
   assert.deepEqual(sorted(DEFAULT_COMMANDS), sorted(KIT_COMMANDS));
   assert.deepEqual(sorted(KEPT_BACK), sorted(NOT_DEFAULT_COMMANDS));
+});
+
+test('CL4 #548 R1: restart and bot create are kept back for the user\'s yes, and are not in the default set', () => {
+  const { DEFAULT_COMMANDS, KEPT_BACK } = lists();
+
+  for (const command of NO_LONGER_DEFAULT_COMMANDS) {
+    assert.ok(KEPT_BACK.includes(command), `${command} should be on KEPT_BACK, got: ${JSON.stringify(KEPT_BACK)}`);
+    assert.ok(!DEFAULT_COMMANDS.includes(command), `${command} should not be on DEFAULT_COMMANDS, got: ${JSON.stringify(DEFAULT_COMMANDS)}`);
+  }
+  // Nothing else moved: the commands next to them stay where they were.
+  for (const command of ['up', 'unpause', 'bot change', 'rules build', 'session add']) {
+    assert.ok(DEFAULT_COMMANDS.includes(command), `${command} stays on DEFAULT_COMMANDS`);
+  }
+  for (const command of ['init', 'retire', 'pause', 'permission allow', 'permission disallow', 'permission approval']) {
+    assert.ok(KEPT_BACK.includes(command), `${command} stays on KEPT_BACK`);
+  }
 });

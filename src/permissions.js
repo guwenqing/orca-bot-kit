@@ -24,7 +24,7 @@ import { accessSync, constants, existsSync, mkdirSync, readdirSync, readFileSync
 import path from 'node:path';
 
 import { allowRules, leadsOutside } from './bot.js';
-import { DEFAULT_COMMANDS } from './commands.js';
+import { DEFAULT_COMMANDS, NO_LONGER_DEFAULT } from './commands.js';
 import { readSettings } from './hooks.js';
 import { harnessOf, ownCli, shellWord } from './launch.js';
 
@@ -37,7 +37,7 @@ const CODEX_FILE = `${CODEX_RULES}/obk.rules`;
 
 /**
  * The rules every bot is given (ADR 0036): each of the kit's default commands,
- * and none kept back for the user's yes (ADR 0037), narrowed to this bots folder and
+ * and none kept back for the user's yes (ADR 0041), narrowed to this bots folder and
  * spelled as the kit prints them, which is what a bot runs; reading a long
  * message; committing; and the check Orca's mail notice tells a session to
  * run. `//` is Claude's form for an absolute path.
@@ -52,6 +52,18 @@ export function defaultRules(bots, cli = ownCli()) {
     'Bash(git commit:*)',
     'Bash(orca orchestration check --run:*)',
   ];
+}
+
+/**
+ * The rules of the commands that were defaults once and are kept back now
+ * (#548), spelled as `defaultRules` spelled them, that the bot's `allow`
+ * holds. The kit cannot tell its own old entry from a user's yes to the same
+ * rule, so it names them and leaves them (ADR 0041).
+ */
+export function heldRules(bots, home, bot, cli = ownCli()) {
+  const allowed = allowOf(home, bot);
+  return NO_LONGER_DEFAULT.map((command) => `Bash(${shellWord(cli)} ${command} --bots ${shellWord(bots)}:*)`)
+    .filter((rule) => allowed.includes(rule));
 }
 
 /** Command wrappers: programs that run the command their arguments name. */
@@ -261,26 +273,30 @@ export function refuseNoCodexForm(bot, rules) {
  * Add the default rules the bot is not allowed yet to its `allow` (ADR 0036),
  * then write what it is allowed into the files of the harnesses it runs on:
  * one entry per file, Claude's first, each with `defaults`, the rules this run
- * added. The harness files are written first and bot.yaml last, as
+ * added, and `held`, the rules of commands no longer in the set that the bot
+ * still holds (#548). The harness files are written first and bot.yaml last, as
  * `permission allow` writes them (#383). With `keepGoing`, a file the kit may
  * not write is an entry with its `trouble` rather than a throw.
  */
 export function writePermissions(bots, home, bot, { keepGoing = false } = {}) {
   const writers = [[runsOnClaude, FILE], [runsOnCodex, CODEX_FILE]].filter(([runs]) => runs(bot));
   let defaults = [];
+  // Read before anything is written, so a file's trouble still names them.
+  let held = [];
   try {
+    held = heldRules(bots, home, bot);
     defaults = writers.length === 0 ? [] : missingDefaults(bots, home, bot);
     if (defaults.length > 0) {
       const { allow } = allowRules(bots, bot.name, defaults, { write: false });
       const entries = allowIn(bots, home, { ...bot, allow })();
       allowRules(bots, bot.name, defaults);
-      return entries.map((entry) => ({ ...entry, defaults }));
+      return entries.map((entry) => ({ ...entry, defaults, held }));
     }
     return writers.map(([runs]) => (runs === runsOnClaude ? planClaude : planCodex)(bots, home, bot).write())
-      .map((entry) => ({ ...entry, defaults }));
+      .map((entry) => ({ ...entry, defaults, held }));
   } catch (error) {
     if (!keepGoing) throw error;
-    return writers.map(([, file]) => ({ bot: bot.name, file: path.join(home, file), written: [], defaults: [], trouble: error.message }));
+    return writers.map(([, file]) => ({ bot: bot.name, file: path.join(home, file), written: [], defaults: [], held, trouble: error.message }));
   }
 }
 
