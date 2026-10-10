@@ -42,6 +42,23 @@
 // one-key question, reads `-icanon -echo`, lnext ^V; bash `read -p` reads
 // `icanon echo`, lnext ^V.
 //
+// It answers one more question (#537): the working folder of every process of
+// the user's, which the kit reads when it retires a session, to find what the
+// session left running in its work dir. The kit asks, once,
+//
+//   <lsof> -a -d cwd -u <uid> -Fpn
+//
+// which prints one record per process, a field per line: `p<pid>`, `fcwd`,
+// `n<absolute path>`. The records are the entries of the fake ps's process
+// table (`processes` in state.json, helpers/fake-ps.js) that have a `cwd`, are
+// the given uid's, and are no zombie: a zombie has no working folder left to
+// name. A uid that is not the caller's own has no processes: nothing, exit 1.
+// An empty table prints nothing and exits 0, though a real machine always has
+// a process of the user's to list. `lsof` in state.json set to
+// 'not-permitted' is an lsof that cannot read the process table, as a sandbox
+// may forbid it: every call, of either shape, prints why and exits 1, and is
+// still logged.
+//
 // Any other call shape is refused with exit 70, as the fake `ps` refuses one.
 // Every call, refused or not, is written to lsof.log or stty.log in the fake
 // Orca's directory, `{ args, at }` per line, `at` in ms since the epoch.
@@ -91,7 +108,7 @@ function holdBack(ms) {
 }
 import path from 'node:path';
 
-import { panePid, processesOf, settingsFor } from './fake-ps.js';
+import { panePid, processesOf, settingsFor, tableOf } from './fake-ps.js';
 
 /** The argv the kit may hand `lsof`, with the uid in place of UID. */
 export const LSOF_READ = ['-a', '-R', '-d', '0', '-u', 'UID', '-FpRn'];
@@ -102,6 +119,9 @@ export const OTHER_PROCESSES = [
   { pid: 30001, ppid: 30000, name: '/dev/ttys900' },
   { pid: 30002, ppid: 30001, name: '/dev/ttys900' },
 ];
+
+/** The argv the kit may hand `lsof` for working folders (#537), with the uid in place of UID. */
+export const LSOF_CWD = ['-a', '-d', 'cwd', '-u', 'UID', '-Fpn'];
 
 /** The argv the kit may hand `stty`, with the tty in place of TTY. */
 export const STTY_READ = ['-a', '-f', 'TTY'];
@@ -187,11 +207,25 @@ function userProcessesOf(state, terminal, dir) {
 /** Run as `lsof`: name fd 0 of every process of the user's. */
 export function runLsof() {
   const { dir, args, state } = begin('lsof');
+  if (state.lsof === 'not-permitted') {
+    process.stderr.write('lsof: WARNING: can\'t stat() of the process table: Operation not permitted\n');
+    process.exit(1);
+  }
+  const cwds = args.length === LSOF_CWD.length
+    && LSOF_CWD.every((word, at) => word === 'UID' || args[at] === word)
+    && /^\d+$/.test(args[4]);
+  if (cwds) {
+    if (Number(args[4]) !== process.getuid()) process.exit(1);
+    holdBack(state.lsofDelayMs);
+    const records = tableOf(state).filter((row) => typeof row.cwd === 'string' && row.uid === Number(args[4]) && !row.stat.startsWith('Z'));
+    process.stdout.write(records.map((row) => `p${row.pid}\nfcwd\nn${row.cwd}\n`).join(''));
+    process.exit(0);
+  }
   const shaped = args.length === LSOF_READ.length
     && LSOF_READ.every((word, at) => word === 'UID' || args[at] === word)
     && /^\d+$/.test(args[5]);
   if (!shaped) {
-    process.stderr.write(`fake lsof: ${args.join(' ')} is not a read of the user's fd 0; the kit asks lsof nothing else\n`);
+    process.stderr.write(`fake lsof: ${args.join(' ')} is not a read of the user's fd 0 or working folders; the kit asks lsof nothing else\n`);
     process.exit(70);
   }
   // As macOS lsof does for a user with no processes: nothing, and exit 1.

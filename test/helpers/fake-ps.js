@@ -7,8 +7,8 @@
 //
 //   <ps> -o pid=,ppid=,tpgid=,comm= -p <pid>
 //
-// and nothing else but the environment read further down (#318). Any other
-// shape is refused here with exit 70, the way the
+// and nothing else but the environment and table reads further down (#318,
+// #537). Any other shape is refused here with exit 70, the way the
 // fake Orca falls over on a close it must never be asked for: `ps` is a reader
 // for the kit and never a road to a `kill` (AGENTS.md, 2026-09-20), and a call
 // with other flags is a call that was not thought through. Every call, refused
@@ -117,11 +117,38 @@
 // that long, after the call is written to ps.log. A delay longer than the test
 // is a `ps` that never answers.
 //
+// It answers a third question (#537): the whole process table, which the kit
+// reads when it retires a session, to find what the session left running. The
+// kit asks, once per look,
+//
+//   <ps> -A -ww -o pid=,ppid=,pgid=,uid=,stat=,command=
+//
+// and gets one line per process: pid, parent pid, process group, uid, state,
+// then the whole command line, spaces and all. A state that starts with `Z` is a
+// zombie: it has exited and only waits for its parent to read its status. The
+// table is `processes` in state.json, which a test sets, and after it the fake
+// ps's own process, as a real `ps -A` always lists itself, so the table is
+// never empty. The tabs' own processes above are not in it. Left unset, the
+// table holds the fake ps alone: nothing sits in a work dir, and a retire stops
+// nothing. The fake ps's own row is its real pid and its parent's, the kit's,
+// with a group of its own and no working folder from lsof; the kit's own group
+// is not known here, so that much is made up. Each entry is
+//
+//   { pid, ppid, pgid, uid, stat, command, cwd, ...how it takes a signal }
+//
+// with `uid` the user's own (`process.getuid()`) and `stat` 'S' when left out.
+// `cwd` is what the fake lsof gives as its working folder (helpers/fake-tty.js);
+// left out, lsof names none. How it takes a signal is the fake kill's
+// (helpers/fake-kill.js). `pid`, `ppid` or `pgid` may be the word 'kit': the
+// pid of the process that runs this fake, which is the kit's own run, since
+// the kit starts `ps`, `lsof` and `kill` as its own children. So a table can
+// list the retire itself, in a work dir, under the process that started it.
+//
 // And one way it answers nothing at all (#298): `ps` in state.json set to
 // 'not-permitted' is a `ps` that does not start, as inside Codex's
 // `workspace-write` sandbox, where /bin/ps gave `Operation not permitted` and
 // exit 126 on every pid, the caller's own included (seen live, codex-cli
-// 0.156.1). Every call, of either shape, fails that way, and is still logged.
+// 0.156.1). Every call, of every shape, fails that way, and is still logged.
 //
 // What Orca's runtime says is in front of a tab (#298) is here too, since it
 // reads the same tab: `runtimeViewOf` gives the `process` that
@@ -145,6 +172,31 @@ export const PS_READ = ['-o', 'pid=,ppid=,tpgid=,comm=', '-p'];
 
 /** The argv the kit may hand `ps` to read one process's environment (#318), but for the pid on the end. */
 export const PS_ENVIRONMENT = ['-E', '-ww', '-o', 'command=', '-p'];
+
+/** The argv the kit may hand `ps` to read the whole process table (#537). */
+export const PS_TABLE = ['-A', '-ww', '-o', 'pid=,ppid=,pgid=,uid=,stat=,command='];
+
+/** One of a table entry's ids as the fake answers it: 'kit' is the pid of whoever runs this fake. */
+const idOf = (value) => (value === 'kit' ? process.ppid : value);
+
+/**
+ * The process table a test set, as `ps` reads it: one `{ pid, ppid, pgid, uid,
+ * stat, command, cwd, entry }` per entry of `processes` in state.json, with
+ * 'kit' given as the kit's pid and the defaults filled in. `entry` is the
+ * entry itself, for the fake kill to change.
+ */
+export function tableOf(state) {
+  return (state.processes ?? []).map((entry) => ({
+    pid: idOf(entry.pid),
+    ppid: idOf(entry.ppid ?? 1),
+    pgid: idOf(entry.pgid ?? entry.pid),
+    uid: entry.uid ?? process.getuid(),
+    stat: entry.stat ?? 'S',
+    command: entry.command ?? 'sleep 600',
+    cwd: entry.cwd,
+    entry,
+  }));
+}
 
 /** The harness a tab was launched with: the first line typed into it names one, or none was. */
 export function launchedIn(terminal) {
@@ -396,6 +448,15 @@ export function runPs() {
   if (state.ps === 'not-permitted') {
     process.stderr.write(`${process.argv[1]}: Operation not permitted\n`);
     process.exit(126);
+  }
+
+  if (args.length === PS_TABLE.length && PS_TABLE.every((word, at) => args[at] === word)) {
+    const column = (value) => String(value).padStart(5);
+    const itself = { pid: process.pid, ppid: process.ppid, pgid: process.pid, uid: process.getuid(), stat: 'R+', command: `ps ${PS_TABLE.join(' ')}` };
+    process.stdout.write([...tableOf(state), itself]
+      .map((row) => `${column(row.pid)} ${column(row.ppid)} ${column(row.pgid)} ${column(row.uid)} ${row.stat.padEnd(4)} ${row.command}\n`)
+      .join(''));
+    process.exit(0);
   }
 
   const asks = (shape) => args.length === shape.length + 1
