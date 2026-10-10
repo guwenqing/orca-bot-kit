@@ -474,7 +474,9 @@ test('the kit types no nudge and no skills reload into a tab showing Claude Code
     'bot', 'create', '--bots', bots, '--name', BOT, '--harness', 'claude',
     '--charter', `${BOT} exists for one system test run and owns nothing.`,
   ]);
-  obkJson(['session', 'add', '--bots', bots, '--bot', BOT, '--name', TARGET, '--approval', 'ask', `--prompt=${TASK}`]);
+  obkJson(['session', 'add', '--bots', bots, '--bot', BOT, '--name', TARGET, `--prompt=${TASK}`]);
+  // #527: a session's approval is set by `obk permission approval`, not by session add.
+  obkJson(['permission', 'approval', '--bots', bots, '--bot', BOT, '--session', TARGET, '--approval', 'ask']);
   obkJson(['session', 'add', '--bots', bots, '--bot', BOT, '--name', SENDER, '--harness', 'codex', `--prompt=${SENDER_TASK}`, ...codexTrustArgs(bots)]);
 
   const targetTab = openedIn(obkJson(['up', '--bots', bots, '--bot', BOT, '--session', TARGET]), `up of ${TARGET}`);

@@ -227,7 +227,14 @@ test('the user\'s own claude settings survive, and the file is still JSON', asyn
   await up(box, 'api-bot');
 
   const now = await hooksIn(bots, 'api-bot', 'claude');
-  assert.deepEqual(now.permissions, theirs.permissions, 'the user\'s permissions are the user\'s');
+  // Since #527 up writes the kit's default rules into permissions.allow too,
+  // after what is there: the user's own entries stay first, in their order.
+  assert.deepEqual(
+    now.permissions.allow.slice(0, theirs.permissions.allow.length),
+    theirs.permissions.allow,
+    `the user's own allow entries are the user's, first and in their order, got: ${JSON.stringify(now.permissions)}`,
+  );
+  assert.deepEqual(Object.keys(now.permissions), Object.keys(theirs.permissions), 'and the kit adds no other permissions key');
   assert.deepEqual(now.env, theirs.env, 'and so is anything else they put in the file');
   assert.deepEqual(now.hooks.PreToolUse, theirs.hooks.PreToolUse, 'a hook of theirs on another event is untouched');
   assert.ok(

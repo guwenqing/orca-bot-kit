@@ -1,12 +1,11 @@
-// `obk bot change --allow` takes only narrow, exact rules (#353, slice B of
-// #344).
+// `obk permission allow` takes only narrow, exact rules (#353, slice B of
+// #344; the command moved out of `bot change --allow` by #527).
 //
 // A charter's grants become exact rules, and the kit records a yes to them
-// through `bot change --allow`. A broad rule is not one the kit records: when
-// any `--allow` value is broad, the whole command is refused (exit 1, the
+// through `permission allow`. A broad rule is not one the kit records: when
+// any `--rule` value is broad, the whole command is refused (exit 1, the
 // message on stderr, as slice A's refusals are) and nothing is written, not
-// bot.yaml (neither `allow` nor the charter when `--charter` comes too) and
-// not the settings file. The refusal names the rule and the bot's settings
+// bot.yaml and not the settings file. The refusal names the rule and the bot's settings
 // file, `<bot home>/.claude/settings.json`, where the user may add it
 // themselves. Why it is broad is said in plain words; that wording is the
 // implementer's and is not read here.
@@ -32,8 +31,9 @@
 // quotes only letters, digits, `-_./:=@%+,^`, a leading `~` and the `*`
 // wildcard; inside single quotes anything, the quote closed; inside double
 // quotes anything but `$`, a backtick and a backslash.
-// Everything else is accepted exactly as slice A accepts it, the kit's six
-// defaults first of all.
+// Everything else is accepted exactly as slice A accepts it, the kit's
+// default set first of all: since #527 the kit writes that set itself, with
+// no question, so none of it may be broad either.
 
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
@@ -52,9 +52,10 @@ import {
   allowCommand,
   allowedIn,
   allowOf,
+  assertSameRules,
   defaultRules,
-  offeredCommand,
   OWN_RULE,
+  permissionAllow,
   settingsOf,
 } from './helpers/permissions.js';
 import { botYamlOf } from './helpers/skills.js';
@@ -63,7 +64,7 @@ const BOT = 'api-bot';
 const CHARTER = 'Api Bot owns the API. Good is a green build. Ask before a release.';
 const NEW_CHARTER = 'Api Bot owns the API and its docs. It closes issues without asking.';
 
-/** A bots folder `init` made, with one Claude bot of its own and one session. */
+/** A bots folder `init` made, with one Claude bot of its own and one session: it holds the kit's defaults. */
 async function withBot(box) {
   assert.equal((await box.run(['init', '--bots', 'bots', '--harness', 'claude'])).code, 0);
   const made = await box.run(['bot', 'create', '--bots', 'bots', '--name', BOT, '--harness', 'claude', '--charter', CHARTER]);
@@ -79,16 +80,16 @@ async function withBot(box) {
  */
 async function withAllowedBot(box) {
   const bots = await withBot(box);
-  const first = await change(box, ...allowing(OWN_RULE));
+  const first = await allow(box, OWN_RULE);
   assert.equal(first.code, 0, first.stderr);
-  assert.deepEqual(await allowedIn(bots, BOT), [OWN_RULE], 'the premise: the settings file holds the rule allowed first');
+  assertSameRules(await allowedIn(bots, BOT), [...defaultRules(box, bots), OWN_RULE], 'the premise: the settings file holds the rule allowed first, beside the defaults');
   return bots;
 }
 
-const change = (box, ...rest) => box.run(['bot', 'change', '--bots', 'bots', '--bot', BOT, ...rest]);
+/** `obk permission allow` for the bot, one `--rule` per rule. */
+const allow = (box, ...rules) => permissionAllow(box, BOT, rules);
 
-/** `--allow <rule>` for each rule, in order. */
-const allowing = (...rules) => rules.flatMap((rule) => ['--allow', rule]);
+const change = (box, ...rest) => box.run(['bot', 'change', '--bots', 'bots', '--bot', BOT, ...rest]);
 
 /** Nothing under the bots folder changed: not bot.yaml, not AGENTS.md, not the settings file. */
 async function assertNothingWritten(bots, before) {
@@ -201,88 +202,81 @@ const NARROW = [
 // ----------------------------------------------------------------- a broad rule is refused
 
 for (const [rule, why] of BROAD) {
-  test(`N1 --allow ${rule} is refused as broad (${why}), naming the rule and the settings file, and nothing is written`, async (t) => {
+  test(`N1 permission allow ${rule} is refused as broad (${why}), naming the rule and the settings file, and nothing is written`, async (t) => {
     const box = await createSandbox(t);
     const bots = await withAllowedBot(box);
+    const kept = await allowOf(bots, BOT);
     const before = await snapshot(bots, skipGit);
 
-    const result = await change(box, ...allowing(rule));
+    const result = await allow(box, rule);
 
     assertCleanFailure(result);
     assertNamesRuleAndFile(result, rule, bots);
     await assertNothingWritten(bots, before);
-    assert.deepEqual(await allowOf(bots, BOT), [OWN_RULE], 'allow is as it was');
+    assert.deepEqual(await allowOf(bots, BOT), kept, 'allow is as it was');
   });
 }
 
 // ----------------------------------------------------------------- narrow rules still go through
 
 for (const [rule, why] of NARROW) {
-  test(`N2 --allow ${rule} is accepted (${why}): kept in allow and written into the settings`, async (t) => {
+  test(`N2 permission allow ${rule} is accepted (${why}): kept in allow and written into the settings`, async (t) => {
     const box = await createSandbox(t);
     const bots = await withBot(box);
+    const kept = await allowOf(bots, BOT);
 
-    const result = await change(box, ...allowing(rule));
+    const result = await allow(box, rule);
 
     assert.equal(result.code, 0, `${rule} is narrow and exact, and should be allowed, got:\n${result.stdout}${result.stderr}`);
-    assert.deepEqual(await allowOf(bots, BOT), [rule]);
-    assert.deepEqual(await allowedIn(bots, BOT), [rule], `${settingsOf(bots, BOT)} should allow it now`);
+    assert.deepEqual(await allowOf(bots, BOT), [...kept, rule]);
+    assertSameRules(await allowedIn(bots, BOT), [...defaultRules(box, bots), rule], `${settingsOf(bots, BOT)} should allow it now, beside the defaults`);
   });
 }
 
-test('N2 the kit\'s six default rules are accepted together, none taken for broad', async (t) => {
+test('N2 the kit\'s default rules are accepted together by permission allow, none taken for broad, and none added twice', async (t) => {
   const box = await createSandbox(t);
   const bots = await withBot(box);
   const defaults = defaultRules(box, bots);
+  const kept = await allowOf(bots, BOT);
 
-  const result = await change(box, ...allowing(...defaults));
+  const result = await allow(box, ...defaults);
 
   assert.equal(result.code, 0, `the defaults are the kit's own narrow rules, got:\n${result.stdout}${result.stderr}`);
-  assert.deepEqual(await allowOf(bots, BOT), defaults);
-  assert.deepEqual(await allowedIn(bots, BOT), defaults);
+  assert.deepEqual(await allowOf(bots, BOT), kept, 'the bot holds them all already, so nothing is added');
+  assertSameRules(await allowOf(bots, BOT), defaults);
+  assertSameRules(await allowedIn(bots, BOT), defaults);
 });
 
-test('N2 the six defaults in a bots folder with a space in its path, quoted by the kit, pass through the command it prints', async (t) => {
-  // The folder is a quoted word inside four of the rules: quotes are plain
-  // words, so the kit's own command must still go through as printed.
-  const box = await createSandbox(t);
-  assert.equal((await box.run(['init', '--bots', 'my bots', '--harness', 'claude'])).code, 0);
-  const made = await box.run(['bot', 'create', '--bots', 'my bots', '--name', BOT, '--harness', 'claude']);
-  assert.equal(made.code, 0, made.stderr);
-  const bots = box.path('my bots');
-  const defaults = defaultRules(box, bots);
-  assert.ok(defaults[0].includes(`--bots '${bots}':*)`), `the premise: the folder is quoted inside the rule, got: ${defaults[0]}`);
-  const command = offeredCommand(box, made.stdout, BOT);
-  assert.equal(command, allowCommand(box, bots, BOT, defaults), 'the premise: the kit prints the command for the six');
+for (const [label, folder] of [
+  ['a space', 'my bots'],
+  ['an apostrophe and a space', "bob's bots"],
+]) {
+  test(`N2 in a bots folder with ${label} in its path, the defaults the kit wrote at create are narrow, and the command that allows them, run as the kit spells it, goes through`, async (t) => {
+    // The folder is a quoted word inside the kit's Bash rules: quotes are
+    // plain words, so the rules the kit wrote by itself must pass the same
+    // check, and the kit's own spelling of the command must go through. The
+    // kit writes an apostrophe as '\'' inside a quoted word: a backslash
+    // outside quotes right before a single quote, which stands for that quote.
+    const box = await createSandbox(t);
+    assert.equal((await box.run(['init', '--bots', folder, '--harness', 'claude'])).code, 0);
+    const made = await box.run(['bot', 'create', '--bots', folder, '--name', BOT, '--harness', 'claude']);
+    assert.equal(made.code, 0, made.stderr);
+    const bots = box.path(folder);
+    const defaults = defaultRules(box, bots);
+    const message = defaults.find((rule) => rule.includes(' message check --bots '));
+    assert.ok(message.includes(`--bots ${shellWord(bots)}:*)`), `the premise: the folder is that word inside the rule, got: ${message}`);
+    assert.ok(shellWord(bots).startsWith("'"), `the premise: the folder needs quoting, got: ${shellWord(bots)}`);
+    assertSameRules(await allowOf(bots, BOT), defaults, 'bot create wrote the defaults, quoted, with no question');
+    assertSameRules(await allowedIn(bots, BOT), defaults, 'and into the bot\'s settings');
+    const command = allowCommand(box, bots, BOT, defaults);
 
-  const ran = await sh(command, { env: box.env, cwd: box.cwd });
+    const ran = await sh(command, { env: box.env, cwd: box.cwd });
 
-  assert.equal(ran.code, 0, `the kit's own command should go through: ${command}\n${ran.stdout}${ran.stderr}`);
-  assert.deepEqual(await allowOf(bots, BOT), defaults);
-  assert.deepEqual(await allowedIn(bots, BOT), defaults);
-});
-
-test('N2 the six defaults in a bots folder with an apostrophe and a space in its path pass through the command the kit prints', async (t) => {
-  // The kit writes the apostrophe as '\'' inside a quoted word: a backslash
-  // outside quotes right before a single quote, which stands for that quote.
-  const box = await createSandbox(t);
-  const folder = "bob's bots";
-  assert.equal((await box.run(['init', '--bots', folder, '--harness', 'claude'])).code, 0);
-  const made = await box.run(['bot', 'create', '--bots', folder, '--name', BOT, '--harness', 'claude']);
-  assert.equal(made.code, 0, made.stderr);
-  const bots = box.path(folder);
-  const defaults = defaultRules(box, bots);
-  assert.ok(shellWord(bots).includes(String.raw`'\''`), `the premise: the kit writes the apostrophe as '\\'', got: ${shellWord(bots)}`);
-  assert.ok(defaults[0].includes(`--bots ${shellWord(bots)}:*)`), `the premise: the folder is that word inside the rule, got: ${defaults[0]}`);
-  const command = offeredCommand(box, made.stdout, BOT);
-  assert.equal(command, allowCommand(box, bots, BOT, defaults), 'the premise: the kit prints the command for the six');
-
-  const ran = await sh(command, { env: box.env, cwd: box.cwd });
-
-  assert.equal(ran.code, 0, `the kit's own command should go through: ${command}\n${ran.stdout}${ran.stderr}`);
-  assert.deepEqual(await allowOf(bots, BOT), defaults);
-  assert.deepEqual(await allowedIn(bots, BOT), defaults);
-});
+    assert.equal(ran.code, 0, `the kit's own rules should go through as narrow: ${command}\n${ran.stdout}${ran.stderr}`);
+    assertSameRules(await allowOf(bots, BOT), defaults);
+    assertSameRules(await allowedIn(bots, BOT), defaults);
+  });
+}
 
 // ----------------------------------------------------------------- a character that is not plain
 
@@ -295,7 +289,7 @@ for (const [rule, character, name] of [
     const bots = await withAllowedBot(box);
     const before = await snapshot(bots, skipGit);
 
-    const result = await change(box, ...allowing(rule));
+    const result = await allow(box, rule);
 
     assertCleanFailure(result);
     assertNamesRuleAndFile(result, rule, bots);
@@ -313,17 +307,18 @@ for (const [rule, character, name] of [
 test('N3 good rules beside a broad one are refused with it: none of them is recorded or written', async (t) => {
   const box = await createSandbox(t);
   const bots = await withAllowedBot(box);
-  const [, , , , add] = defaultRules(box, bots);
+  const kept = await allowOf(bots, BOT);
+  const settings = await allowedIn(bots, BOT);
   const broad = 'Bash(gh:*)';
   const before = await snapshot(bots, skipGit);
 
-  const result = await change(box, ...allowing(add, broad, 'Bash(gh issue close:*)'));
+  const result = await allow(box, 'Bash(npm test)', broad, 'Bash(gh issue close:*)');
 
   assertCleanFailure(result);
   assertNamesRuleAndFile(result, broad, bots);
   await assertNothingWritten(bots, before);
-  assert.deepEqual(await allowOf(bots, BOT), [OWN_RULE], 'the good ones are not recorded either');
-  assert.deepEqual(await allowedIn(bots, BOT), [OWN_RULE], 'nor written into the settings');
+  assert.deepEqual(await allowOf(bots, BOT), kept, 'the good ones are not recorded either');
+  assert.deepEqual(await allowedIn(bots, BOT), settings, 'nor written into the settings');
 });
 
 test('N3 a broad rule as the last of several is refused all the same', async (t) => {
@@ -332,39 +327,31 @@ test('N3 a broad rule as the last of several is refused all the same', async (t)
   const broad = 'Bash(python3 -c:*)';
   const before = await snapshot(bots, skipGit);
 
-  const result = await change(box, ...allowing('Bash(gh issue close:*)', 'Bash(npm test)', broad));
+  const result = await allow(box, 'Bash(gh issue close:*)', 'Bash(npm test)', broad);
 
   assertCleanFailure(result);
   assertNamesRuleAndFile(result, broad, bots);
   await assertNothingWritten(bots, before);
 });
 
-test('N4 --charter with a broad --allow is refused, and the charter is not changed either', async (t) => {
-  const box = await createSandbox(t);
-  const bots = await withAllowedBot(box);
-  const broad = 'Edit(//**)';
-  const before = await snapshot(bots, skipGit);
+// #527: `bot change` holds no permission writes. With `--charter`, an
+// `--allow` of any kind, broad or narrow, is refused with a pointer at
+// `obk permission allow`, and the charter is not changed either.
+for (const [label, rule] of [
+  ['a broad --allow', 'Edit(//**)'],
+  ['a narrow --allow', 'Bash(gh issue close:*)'],
+]) {
+  test(`N4 bot change --charter with ${label} is refused, names obk permission allow, and the charter is not changed either`, async (t) => {
+    const box = await createSandbox(t);
+    const bots = await withAllowedBot(box);
+    const before = await snapshot(bots, skipGit);
 
-  const result = await change(box, '--charter', NEW_CHARTER, ...allowing('Bash(gh issue close:*)', broad));
+    const result = await change(box, '--charter', NEW_CHARTER, '--allow', rule);
 
-  assertCleanFailure(result);
-  assertNamesRuleAndFile(result, broad, bots);
-  await assertNothingWritten(bots, before);
-  const doc = parse(await readFile(botYamlOf(bots, BOT), 'utf8'));
-  assert.equal(doc.charter.trim(), CHARTER, 'the charter is the one it had');
-});
-
-test('N4 --charter with only narrow --allow values still does both', async (t) => {
-  // The contrast to the refusal above: the same command shape goes through
-  // when nothing in it is broad.
-  const box = await createSandbox(t);
-  const bots = await withAllowedBot(box);
-
-  const result = await change(box, '--charter', NEW_CHARTER, ...allowing('Bash(gh issue close:*)'));
-
-  assert.equal(result.code, 0, result.stderr);
-  const doc = parse(await readFile(botYamlOf(bots, BOT), 'utf8'));
-  assert.equal(doc.charter.trim(), NEW_CHARTER);
-  assert.deepEqual(doc.allow, [OWN_RULE, 'Bash(gh issue close:*)']);
-  assert.deepEqual(await allowedIn(bots, BOT), [OWN_RULE, 'Bash(gh issue close:*)']);
-});
+    assertCleanFailure(result);
+    assert.ok(result.stderr.includes('permission allow'), `the refusal should name obk permission allow, got: ${result.stderr}`);
+    await assertNothingWritten(bots, before);
+    const doc = parse(await readFile(botYamlOf(bots, BOT), 'utf8'));
+    assert.equal(doc.charter.trim(), CHARTER, 'the charter is the one it had');
+  });
+}

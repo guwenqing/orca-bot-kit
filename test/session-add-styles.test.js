@@ -29,6 +29,7 @@ import {
   skipGit,
   snapshot,
 } from './helpers/cli.js';
+import { addSession } from './helpers/permissions.js';
 
 /** Everything in a bot.yaml above its sessions. The styles below differ only below it. */
 const HEAD = '# my own notes about this bot\nname: api-bot\nharness: codex\ncharter: mine\nrules: []\nskills: []\n';
@@ -117,7 +118,8 @@ for (const [label, tail] of STYLES) {
     const were = parse(mine).sessions ?? [];
 
     assert.equal((await add(box, 'daily')).code, 0);
-    const second = await add(box, 'review', ['--approval', 'ask']);
+    // The approval is set by `obk permission approval` since #527: a second edit of the same styled file.
+    const second = await addSession(box, { bot: 'api-bot', name: 'review', settings: ['--approval', 'ask'] });
 
     assert.equal(second.code, 0, second.stderr);
     const { text, doc } = await parsed(bots);

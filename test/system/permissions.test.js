@@ -13,19 +13,21 @@
 // and a command no rule covers still goes to the check (Codex: its sandbox and
 // its reviewer). And for #353 and #354: a command the bot's charter grants
 // runs without a refusal once the user has said yes to its exact rule through
-// `obk bot change --allow`, as Bot Father runs it after showing the user the
+// `obk permission allow`, as Bot Father runs it after showing the user the
 // rule.
 //
-// The order the kit promises is followed as a user would follow it. `bot
-// create` shows the rules waiting for a yes and one command that allows them;
-// the bot's own rules file (Claude: `.claude/settings.json`; Codex:
-// `.codex/rules/obk.rules`) holds none of them until that command is run, and
-// the test runs exactly the line the kit printed. A Codex bot is offered five,
-// the six without the Read rule, since Codex's sandbox reads every file. The
-// bot's charter says it publishes releases without asking, which grants
-// `Bash(gh release create:*)`; the file does not hold it until the user's yes
-// to it is run too, `bot change --allow 'Bash(gh release create:*)'` through
-// the same CLI. Then `up` brings the bot up.
+// The order the kit promises is followed as a user would follow it. Since
+// #527, `bot create` writes the kit's default set itself, with nobody asked:
+// it answers with the rules it added (`defaults`) and offers nothing to wait
+// for, and the bot's `allow` and its own rules file (Claude:
+// `.claude/settings.json`; Codex: `.codex/rules/obk.rules`) hold the set at
+// once (test/helpers/permissions.js spells it). A Codex bot gets the set
+// without the Read rule, since Codex's sandbox reads every file. No order is
+// asserted among the defaults, and a SendMessage rule is neither required nor
+// forbidden. The bot's charter says it publishes releases without asking,
+// which grants `Bash(gh release create:*)`; the file does not hold it until
+// the user's yes to it is run, `obk permission allow --rule 'Bash(gh release
+// create:*)'` through the same CLI. Then `up` brings the bot up.
 //
 // The bot is given its whole part in its start prompt, with every command it
 // runs spelled as the kit spells it (the CLI and the bots folder taken from the
@@ -62,8 +64,8 @@
 //     reads every file; it is held to the same no-review line.
 //   - That it was the rule that let a default call through: the call as it was
 //     run matches a rule in the bot's own `.claude/settings.json`, which holds
-//     exactly the rules the kit offered and the user allowed, then the
-//     charter's rule the user allowed. Where a rule in
+//     exactly the kit's default set, then the charter's rule the user
+//     allowed. Where a rule in
 //     another settings file covers it too (the user settings on the machine
 //     this was written on allow `Bash(git:*)`), that is said as a diagnostic: the kit's rule was there,
 //     and it was not the only one. The charter's grant is #353's whole
@@ -203,6 +205,7 @@ import { parse } from 'yaml';
 
 import { cliEntry } from '../helpers/cli.js';
 import { codexTrustArgs } from '../helpers/codex-trust.js';
+import { assertSameRules, codexDefaultLines, codexDefaultRules, defaultRules, isSendMessage } from '../helpers/permissions.js';
 import { questionOn } from '../helpers/screens.js';
 import { tabGuard } from '../helpers/tab-guard.js';
 
@@ -315,13 +318,19 @@ function tabOf(answer, name) {
   return found[0];
 }
 
-/** The rules still waiting for a yes for `bot`, from an answer's `permissions`. */
-function waitingOf(answer, bot) {
+/**
+ * The default rules a run added to `bot`'s allow, from an answer's
+ * `permissions` (#527): its one entry (a bot on one harness has one), which
+ * offers no waiting list of the defaults.
+ */
+function addedTo(answer, bot) {
   assert.ok(Array.isArray(answer.permissions), `the answer should carry a permissions list, got: ${JSON.stringify(answer)}`);
   const found = answer.permissions.filter((entry) => entry.bot === bot);
   assert.equal(found.length, 1, `one permissions entry should be about ${bot}, got: ${JSON.stringify(answer.permissions)}`);
-  assert.ok(Array.isArray(found[0].waiting), `waiting should be a list, got: ${JSON.stringify(found[0])}`);
-  return found[0].waiting;
+  const [entry] = found;
+  assert.ok(entry.waiting === undefined || (Array.isArray(entry.waiting) && entry.waiting.length === 0), `nothing should wait for a yes, got: ${JSON.stringify(entry)}`);
+  assert.ok(Array.isArray(entry.defaults), `the entry should carry defaults, a list, got: ${JSON.stringify(entry)}`);
+  return entry.defaults;
 }
 
 /** What the book says about one session right now. */
@@ -621,8 +630,8 @@ function codexLineOf(rule) {
   return `prefix_rule(pattern=[${words.map((word) => JSON.stringify(word)).join(', ')}], decision="allow")`;
 }
 
-/** The lines a Codex bot's obk.rules should hold for the rules `allow` holds: no Read rule, and none twice. */
-const codexLinesFor = (rules) => [...new Set(rules.filter((rule) => !rule.startsWith('Read(')).map(codexLineOf))];
+/** The lines a Codex bot's obk.rules should hold for the rules `allow` holds: no Read rule, no SendMessage rule, and none twice. */
+const codexLinesFor = (rules) => [...new Set(rules.filter((rule) => !rule.startsWith('Read(') && !isSendMessage(rule)).map(codexLineOf))];
 
 /** The rule lines of a Codex rules file, in its order, without blank lines and `#` comments: an empty list for no file. */
 function codexLinesIn(file) {
@@ -877,10 +886,10 @@ function guardianReviews(id) {
   return reviews;
 }
 
-/** The kit's CLI and bots folder, as words, out of the rules the kit offered: the mail check rule is `Bash(<CLI> message check --bots <BOTS>:*)`. */
+/** The kit's CLI and bots folder, as words, out of the rules the kit wrote: the mail check rule is `Bash(<CLI> message check --bots <BOTS>:*)`. */
 function kitIn(rules) {
   const found = rules.map((rule) => /^Bash\((.+) message check --bots (.+):\*\)$/.exec(rule)).find((one) => one !== null);
-  assert.ok(found !== undefined, `the kit should offer a rule for its mail check, and offered: ${JSON.stringify(rules)}`);
+  assert.ok(found !== undefined, `the kit should write a rule for its mail check, and wrote: ${JSON.stringify(rules)}`);
   return { cli: found[1], bots: found[2] };
 }
 
@@ -909,15 +918,8 @@ const HARNESSES = [
 
     kitIn,
 
-    /** The six rules the requirement gives, in its order, with the kit's words in them. */
-    defaults: (kit, bots) => [
-      `Bash(${kit.cli} message check --bots ${kit.bots}:*)`,
-      `Bash(${kit.cli} message send --bots ${kit.bots}:*)`,
-      `Bash(${kit.cli} message to --bots ${kit.bots}:*)`,
-      `Read(/${bots}.messages/**)`,
-      'Bash(git add:*)',
-      'Bash(git commit:*)',
-    ],
+    /** The kit's default set (#527), spelled in test/helpers/permissions.js, with this checkout's CLI in it. */
+    defaults: (bots) => defaultRules({ cli: cliEntry }, bots),
 
     /**
      * The exact rules the bot's charter grants (CHARTER_GRANT), as Bot Father
@@ -929,9 +931,12 @@ const HARNESSES = [
     /** The bot's own settings file, the one the kit writes. */
     ownFile: (home) => path.join(home, '.claude', 'settings.json'),
 
-    /** What the file allows, and what it should allow for the rules the user allowed: the same rules. */
+    /** What the file allows, and what it should allow for the rules in allow: the same rules, SendMessage aside. */
     inFile: claudeAllowIn,
-    linesFor: (rules) => rules,
+    linesFor: (rules) => rules.filter((rule) => !isSendMessage(rule)),
+
+    /** What the file should hold for the default set alone. */
+    defaultLines: (bots) => defaultRules({ cli: cliEntry }, bots),
 
     /**
      * Every file Claude Code's docs say it takes permission rules from for a
@@ -997,14 +1002,8 @@ const HARNESSES = [
 
     kitIn,
 
-    /** The five rules a bot only on Codex is offered: the six without the Read rule, in their order. */
-    defaults: (kit) => [
-      `Bash(${kit.cli} message check --bots ${kit.bots}:*)`,
-      `Bash(${kit.cli} message send --bots ${kit.bots}:*)`,
-      `Bash(${kit.cli} message to --bots ${kit.bots}:*)`,
-      'Bash(git add:*)',
-      'Bash(git commit:*)',
-    ],
+    /** The set a bot only on Codex is given: the default set without the Read rule. */
+    defaults: (bots) => codexDefaultRules({ cli: cliEntry }, bots),
 
     /** The same grant, in the same Claude text: bot.yaml keeps the yes in that text for either harness. */
     granted: ['Bash(gh release create:*)'],
@@ -1012,9 +1011,12 @@ const HARNESSES = [
     /** The bot's own Codex rules file, which the kit owns whole. */
     ownFile: (home) => path.join(home, '.codex', 'rules', 'obk.rules'),
 
-    /** Its rule lines, and the lines it should hold for the rules the user allowed. */
+    /** Its rule lines, and the lines it should hold for the rules in allow. */
     inFile: codexLinesIn,
     linesFor: codexLinesFor,
+
+    /** What the file should hold for the default set alone, in Codex's form. */
+    defaultLines: (bots) => codexDefaultLines({ cli: cliEntry }, bots),
 
     /**
      * Every rules file Codex reads for a session started in `home`: each
@@ -1231,22 +1233,13 @@ const botPrompt = (kit, harness) => [
 const PEN_PAL_PROMPT = 'You are a system test\'s pen pal and you own nothing. Run no command, read no file, write nothing'
   + ' and use no tool. If a line says fleet mail is waiting, leave it unread and say nothing. Say nothing now and wait.';
 
-/** The allow command a plain report offers for `bot`: the line naming `bot change` and the bot, from the CLI on. */
-function offeredCommand(stdout, cli, bot) {
-  const lines = stdout.split('\n').filter((line) => line.includes(' bot change ') && line.includes(` --bot ${bot} `) && line.includes('--allow'));
-  assert.equal(lines.length, 1, `the kit should print one command that allows what waits for ${bot}, and printed:\n${stdout}`);
-  const at = lines[0].indexOf(cli);
-  assert.ok(at >= 0, `the command should start with the kit's own CLI (${cli}), got: ${lines[0]}`);
-  return lines[0].slice(at).trim().replace(/`$/, '');
-}
-
 /** One line per call, for a message: what it was and what it answered. */
 const callLines = (calls) => calls
   .map((call) => `\n    ${call.kind} ${call.text}${call.result === undefined ? '  (no result yet)' : call.result.error ? `  (error: ${call.result.output.slice(0, 300)})` : ''}`)
   .join('');
 
 for (const harness of HARNESSES) {
-  test(`a ${harness.name} bot in auto mode runs the kit's default commands with no prompt once the user said yes, and a command no rule covers still goes to the check`, async (t) => {
+  test(`a ${harness.name} bot in auto mode runs the kit's default commands with no prompt, its own granted rule once the user said yes, and a command no rule covers still goes to the check`, async (t) => {
     const before = {
       handles: new Set(allTerminals().map((terminal) => terminal.handle)),
       setups: new Set(allSetups().map((setup) => setup.id)),
@@ -1289,48 +1282,41 @@ for (const harness of HARNESSES) {
     ]);
     obkJson(['session', 'add', '--bots', bots, '--bot', PEN_PAL.name, '--name', 'daily', `--prompt=${PEN_PAL_PROMPT}`, ...codexTrustArgs(bots)]);
 
-    // 1. The bot is made, and the kit shows what waits for the user's yes. The
-    //    plain report is what a user reads: it holds the command to run.
-    const created = obk([
+    // 1. The bot is made, and the kit writes its default set itself, with
+    //    nobody asked (#527): it says which rules it added, and nothing waits.
+    const created = obkJson([
       'bot', 'create', '--bots', bots, '--name', harness.bot, '--harness', harness.name,
       '--charter', `${harness.display} exists for one system test run and owns nothing else. ${CHARTER_GRANT}`,
     ]);
-    assert.equal(created.status, 0, `obk bot create failed: ${created.stdout}${created.stderr}`);
+    const defaults = harness.defaults(bots);
+    assertSameRules(addedTo(created, harness.bot), defaults, 'bot create should say it added the default set, every rule of it once');
 
-    const waiting = waitingOf(obkJson(['rules', 'build', '--bots', bots, '--bot', harness.bot]), harness.bot);
-    const words = harness.kitIn(waiting);
+    const written = await allowedIn(home);
+    assertSameRules(written, defaults, 'bot.yaml\'s allow should hold the default set, and nothing else the kit chose');
+    const words = harness.kitIn(written);
     // The bot's commands will be spelled with these words, so they must name
     // this checkout's CLI and this throwaway folder, never the machine's `obk`.
     assert.ok([cliEntry, `'${cliEntry}'`].includes(words.cli), `the rules should name this checkout's CLI, ${cliEntry}, and name ${words.cli}`);
     assert.ok([bots, `'${bots}'`].includes(words.bots), `the rules should name this bots folder, ${bots}, and name ${words.bots}`);
     const kit = { ...words, folder: bots, bot: harness.bot };
-    assert.deepEqual(waiting, harness.defaults(kit, bots), 'the rules waiting should be the default set, word for word');
     const covered = coveredFor(harness);
 
-    // Nothing is written before the yes.
+    // Written at once into the bot's own file, before anything is brought up.
     const ownFile = harness.ownFile(home);
-    assert.deepEqual(harness.inFile(ownFile), [], `no rule should be in ${ownFile} before the user said yes`);
+    assertSameRules(harness.inFile(ownFile), harness.defaultLines(bots), `${ownFile} should hold the default set as soon as bot create returns`);
 
-    // 2. The yes: the exact command the kit printed, run as a user would paste it.
-    const command = offeredCommand(created.stdout, words.cli, harness.bot);
-    const allowed = spawnSync('/bin/sh', ['-c', command], { encoding: 'utf8', cwd: os.tmpdir() });
-    assert.equal(allowed.status, 0, `the command the kit printed should run: ${command}\n${allowed.stdout}${allowed.stderr}`);
-    assert.ok(!/worktree/i.test(allowed.stdout + allowed.stderr), `obk said "worktree": ${allowed.stdout}${allowed.stderr}`);
-    assert.deepEqual(await allowedIn(home), waiting, 'bot.yaml should keep the yes, every rule of it');
-    assert.deepEqual(harness.inFile(ownFile), harness.linesFor(waiting), `${ownFile} should hold exactly the rules the user allowed`);
-
-    // 2b. The yes to the charter's grant, as Bot Father runs it after showing
-    //     the user the exact rule. Not written before it; after it, the
-    //     defaults then the charter's rule, in bot.yaml and in the file.
+    // 2. The yes to the charter's grant, as Bot Father runs it after showing
+    //    the user the exact rule. Not written before it; after it, the rules
+    //    already there keep their place and the charter's rule comes after.
     for (const rule of harness.granted) {
       const lines = harness.linesFor([rule]);
       assert.ok(!harness.inFile(ownFile).some((line) => lines.includes(line)), `${rule} should not be in ${ownFile} before the user said yes to it`);
     }
-    const grantedYes = obk(['bot', 'change', '--bots', bots, '--bot', harness.bot, ...harness.granted.flatMap((rule) => ['--allow', rule])]);
+    const grantedYes = obk(['permission', 'allow', '--bots', bots, '--bot', harness.bot, ...harness.granted.flatMap((rule) => ['--rule', rule])]);
     assert.equal(grantedYes.status, 0, `the yes to the charter's rule should go through: ${grantedYes.stdout}${grantedYes.stderr}`);
-    const allowedNow = [...waiting, ...harness.granted];
-    assert.deepEqual(await allowedIn(home), allowedNow, 'bot.yaml should keep both yeses: the defaults, then the charter\'s rule');
-    assert.deepEqual(harness.inFile(ownFile), harness.linesFor(allowedNow), `${ownFile} should hold the defaults, then the charter's rule`);
+    const allowedNow = [...written, ...harness.granted];
+    assert.deepEqual(await allowedIn(home), allowedNow, 'bot.yaml should keep the defaults where they were, then the charter\'s rule');
+    assertSameRules(harness.inFile(ownFile), harness.linesFor(allowedNow), `${ownFile} should hold the defaults and the charter's rule`);
 
     // The bot's part, and the file it commits.
     await writeFile(path.join(home, COMMIT_FILE), 'A file for the permissions system test to commit.\n');
@@ -1340,7 +1326,7 @@ for (const harness of HARNESSES) {
     ]);
 
     // 3. Up: the pen pal first, whose mailbox the reply goes to, then the bot.
-    //    Nothing waits for a yes any more.
+    //    Nothing waits for a yes, and nothing is left to add.
     const mailboxOf = (bot) => until(
       `${bot}/daily to have its mailbox in the book`,
       MAILBOX_MS,
@@ -1353,7 +1339,7 @@ for (const harness of HARNESSES) {
     const penPalRun = await mailboxOf(PEN_PAL.name);
 
     const up = obkJson(['up', '--bots', bots, '--bot', harness.bot]);
-    assert.deepEqual(waitingOf(up, harness.bot), [], 'once allowed, nothing should wait for a yes at up');
+    assertSameRules(addedTo(up, harness.bot), [], 'the defaults are all there, so up should add none and nothing should wait');
     const entry = tabOf(up, 'daily');
     assert.equal(entry.created, true);
     assert.equal(
@@ -1539,7 +1525,7 @@ for (const harness of HARNESSES) {
           + ` ${harness.title} decides a call by a matching ${kind} rule before its own check, so this run cannot say the check decided it.`,
       );
     }
-    assert.deepEqual(harness.inFile(ownFile), harness.linesFor(allowedNow), `${ownFile} should still hold exactly the rules the user allowed`);
+    assertSameRules(harness.inFile(ownFile), harness.linesFor(allowedNow), `${ownFile} should still hold exactly the defaults and the rule the user allowed`);
 
     // Only the harness's own check decided it (on Codex: the sandbox or the
     // reviewer, not a sandbox that let it write, and not leaving it unreviewed).

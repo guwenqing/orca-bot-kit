@@ -1,9 +1,13 @@
-// A Codex bot's permission rules, in Codex's own form (#354, slice C of #344).
+// A Codex bot's permission rules, in Codex's own form (#354, slice C of #344),
+// as #527 changed how they come to be written.
 //
 // A bot that runs on Codex (its harness is `codex`, or any of its sessions
-// says `harness: codex`) gets the same yes as a Claude bot, written for Codex:
-// bot.yaml's `allow` stays the one record, in Claude Code's rule text, and the
-// kit makes `<bot home>/.codex/rules/obk.rules` from it. What is pinned:
+// says `harness: codex`) gets the same rules as a Claude bot, written for
+// Codex: bot.yaml's `allow` stays the one record, in Claude Code's rule text,
+// and the kit makes `<bot home>/.codex/rules/obk.rules` from it. Since #527 the
+// kit's default set is in `allow` from the moment the bot is made, with nobody
+// asked, and a rule outside it is allowed through `obk permission allow`. What
+// is pinned:
 //
 // - the file: `#` comment lines may come first, then one line per rule, in
 //   `allow`'s order, with no duplicates:
@@ -16,23 +20,27 @@
 // - anything else has no Codex form (Edit, Write, a Bash rule with no trailing
 //   wildcard, a wildcard anywhere but the end). It is not written, the JSON
 //   answer's Codex entry lists it in `unwritten` as `{ rule, why }`, and
-//   `bot change --allow` refuses it for a bot that runs only on Codex (not 0,
+//   `permission allow` refuses it for a bot that runs only on Codex (not 0,
 //   naming the rule, saying Codex has no rule for it, writing nothing), while
 //   for a bot on both harnesses it is recorded, written for Claude only, and
 //   reported as not written for Codex. Broad rules are refused as ADR 0027
 //   says;
 // - the kit owns obk.rules whole: a line added by hand does not survive a
 //   build, and no other file in `.codex/rules/` is ever written;
-// - with nothing Codex-able allowed and no obk.rules, no file is made; a run
-//   whose file would be unchanged does not write it; `written` in the Codex
-//   entry is every allowed rule now in the file when the run wrote it, `[]`
-//   when it did not;
-// - `bot change --allow` writes it at once, names the file, and says a Codex
+// - a run whose file would be unchanged does not write it; `written` in the
+//   Codex entry is every allowed rule now in the file when the run wrote it,
+//   `[]` when it did not;
+// - `permission allow` writes it at once, names the file, and says a Codex
 //   session already running gets the rule at its next start; `up` writes it
 //   before any tab opens, since Codex reads rules when a session starts;
 // - only inside the bot folder: a `.codex` or `.codex/rules` that links
 //   outside it is refused and nothing is written there, and the user's home
 //   (so `~/.codex`) is never touched.
+//
+// The default lines are in the file in no promised order, so a test reads the
+// file as "the default lines, plus these own lines in this order". A
+// SendMessage rule, and any line naming it, is neither required nor forbidden,
+// and is left out of every comparison.
 //
 // Expected lines are literals worked out by hand from that format, or spelled
 // by helpers/permissions.js from the same requirement. Plain text is read only
@@ -56,21 +64,23 @@ import {
   snapshot,
 } from './helpers/cli.js';
 import {
-  allowCommand,
   allowedIn,
   allowOf,
+  assertSameRules,
   codexAllowedIn,
   codexDefaultLines,
   codexDefaultRules,
   codexLinesIn,
   codexRulesOf,
+  defaultRules,
   entryAt,
   jsonOf,
   namesFile,
-  offeredCommand,
   OWN_RULE,
+  permissionAllow,
   readDefault,
   settingsOf,
+  withoutSendMessage,
   writeAllow,
 } from './helpers/permissions.js';
 import { botYamlOf } from './helpers/skills.js';
@@ -82,8 +92,11 @@ const PAST = new Date('2020-01-01T00:00:00Z');
 
 /** The line OWN_RULE (`Bash(gh pr merge:*)`) becomes, worked out by hand. */
 const OWN_LINE = 'prefix_rule(pattern=["gh", "pr", "merge"], decision="allow")';
-const ADD_LINE = 'prefix_rule(pattern=["git", "add"], decision="allow")';
-const COMMIT_LINE = 'prefix_rule(pattern=["git", "commit"], decision="allow")';
+/** Two more rules of the bot's own, outside the kit's default set, and their lines, worked out by hand. */
+const BUILD_RULE = 'Bash(npm run build:*)';
+const BUILD_LINE = 'prefix_rule(pattern=["npm", "run", "build"], decision="allow")';
+const VIEW_RULE = 'Bash(gh pr view:*)';
+const VIEW_LINE = 'prefix_rule(pattern=["gh", "pr", "view"], decision="allow")';
 
 /** Sessions that make a Codex bot run on Claude too. */
 const BOTH = [['daily'], ['review', '--harness', 'claude']];
@@ -103,10 +116,36 @@ async function withBot(box, harness = 'codex', sessions = [['daily']], folder = 
   return box.path(folder);
 }
 
-const change = (box, ...rest) => box.run(['bot', 'change', '--bots', 'bots', '--bot', BOT, ...rest]);
+/** `obk permission allow` for the bot, one `--rule` per rule. */
+const allow = (box, ...rules) => permissionAllow(box, BOT, rules);
 
-/** `--allow <rule>` for each rule, in order. */
-const allowing = (...rules) => rules.flatMap((rule) => ['--allow', rule]);
+/** What a list of rules holds beyond the kit's default set (and SendMessage), in its order. */
+const beyond = (box, bots, list) => {
+  const defaults = new Set(defaultRules(box, bots));
+  return withoutSendMessage(list).filter((rule) => !defaults.has(rule));
+};
+
+/** The bot's own rules in bot.yaml `allow`, in order: the defaults left out. */
+const ownAllow = async (box, bots, bot = BOT) => beyond(box, bots, await allowOf(bots, bot));
+
+/** The bot's own rules in its Claude settings, in order: the defaults left out. */
+const ownSettings = async (box, bots) => beyond(box, bots, await allowedIn(bots, BOT));
+
+/** The own lines of a list of obk.rules lines, in order: the defaults' lines and SendMessage left out. */
+const ownOf = (box, bots, lines) => {
+  const defaults = new Set(codexDefaultLines(box, bots));
+  return withoutSendMessage(lines).filter((line) => !defaults.has(line));
+};
+
+/** The bot's own lines in obk.rules, in order. */
+const ownLines = async (box, bots, bot = BOT) => ownOf(box, bots, await codexAllowedIn(bots, bot));
+
+/** obk.rules holds every default line, each once, beside whatever own lines. */
+async function assertDefaultLines(box, bots, bot = BOT) {
+  const lines = withoutSendMessage(await codexAllowedIn(bots, bot));
+  const defaults = codexDefaultLines(box, bots);
+  assertSameRules(lines.filter((line) => defaults.includes(line)), defaults, `${codexRulesOf(bots, bot)} should hold the kit's default lines, each once, got:\n${lines.join('\n')}`);
+}
 
 /** Run a command that has to go through for the test to mean anything. */
 async function ok(promise) {
@@ -171,8 +210,8 @@ async function assertNothingWritten(bots, before) {
 // ----------------------------------------------------------------- the Codex form of a rule
 
 for (const [rule, line, why] of [
-  ['Bash(git add:*)', ADD_LINE, 'the :* suffix'],
-  ['Bash(git add *)', ADD_LINE, 'a bare * as the last word is the same prefix'],
+  ['Bash(npm run build:*)', BUILD_LINE, 'the :* suffix'],
+  ['Bash(npm run build *)', BUILD_LINE, 'a bare * as the last word is the same prefix'],
   ['Bash(gh pr merge:*)', OWN_LINE, 'three words'],
   ['Bash(git log --format=%H:*)', 'prefix_rule(pattern=["git", "log", "--format=%H"], decision="allow")', '% and = are plain'],
   ['Bash(python3 /abs/tool.py:*)', 'prefix_rule(pattern=["python3", "/abs/tool.py"], decision="allow")', 'a fixed script by its absolute path'],
@@ -181,30 +220,30 @@ for (const [rule, line, why] of [
   [String.raw`Bash(gh pr merge --body 'it'\''s done':*)`, 'prefix_rule(pattern=["gh", "pr", "merge", "--body", "it\'s done"], decision="allow")', String.raw`\' is an apostrophe`],
   ["Bash(gh pr merge --body 'say \"hi\"':*)", String.raw`prefix_rule(pattern=["gh", "pr", "merge", "--body", "say \"hi\""], decision="allow")`, 'a double quote inside a word is escaped as JSON escapes it'],
 ]) {
-  test(`X1 --allow ${rule} for a Codex bot writes one line into obk.rules (${why})`, async (t) => {
+  test(`X1 permission allow ${rule} for a Codex bot writes one line into obk.rules (${why})`, async (t) => {
     const box = await createSandbox(t);
     const bots = await withBot(box);
 
-    const result = await change(box, ...allowing(rule));
+    const result = await allow(box, rule);
 
     assert.equal(result.code, 0, `${rule} has a Codex form and should be allowed, got:\n${result.stdout}${result.stderr}`);
-    assert.deepEqual(await allowOf(bots, BOT), [rule], 'the yes is kept in bot.yaml in Claude text');
-    assert.deepEqual(await codexAllowedIn(bots, BOT), [line]);
+    assert.deepEqual(await ownAllow(box, bots), [rule], 'the yes is kept in bot.yaml in Claude text');
+    assert.deepEqual(await ownLines(box, bots), [line]);
+    await assertDefaultLines(box, bots);
   });
 }
 
-test('X1 the five defaults go into obk.rules in allow\'s order, the CLI and the bots folder as plain words', async (t) => {
+test('X1 a Codex bot\'s obk.rules holds the default lines as soon as bot create returns, the CLI and the bots folder as plain words', async (t) => {
   const box = await createSandbox(t);
   const bots = await withBot(box);
-  const [check, send, to, add, commit] = codexDefaultRules(box, bots);
-  const lines = codexDefaultLines(box, bots);
 
-  await ok(change(box, ...allowing(commit, check)));
-  await ok(change(box, ...allowing(to, add, send)));
-
-  assert.deepEqual(await codexAllowedIn(bots, BOT), [lines[4], lines[0], lines[2], lines[3], lines[1]]);
-  // The premise, by hand, for the first of them: the kit's own path, then the words.
-  assert.equal(lines[0], `prefix_rule(pattern=["${box.cli}", "message", "check", "--bots", "${bots}"], decision="allow")`);
+  await assertDefaultLines(box, bots);
+  assert.deepEqual(await ownLines(box, bots), [], 'and nothing else');
+  // The premise, by hand, for one of them: the kit's own path, then the words.
+  assert.ok(
+    (await codexAllowedIn(bots, BOT)).includes(`prefix_rule(pattern=["${box.cli}", "message", "check", "--bots", "${bots}"], decision="allow")`),
+    `the message check line, spelled by hand, should be in obk.rules, got:\n${(await codexAllowedIn(bots, BOT)).join('\n')}`,
+  );
 });
 
 test('X1 a kit whose CLI path has a space: the Claude rule quotes it, the Codex pattern holds it plain', async (t) => {
@@ -216,54 +255,56 @@ test('X1 a kit whose CLI path has a space: the Claude rule quotes it, the Codex 
   await mkdir(path.dirname(spaced));
   await symlink(path.join(box.root, 'bin', 'obk'), spaced);
   const kit = { cli: spaced };
-  const five = codexDefaultRules(kit, bots);
-  assert.ok(five[0].startsWith(`Bash('${spaced}' message check`), `the premise: the rule quotes the CLI, got: ${five[0]}`);
+  const set = codexDefaultRules(kit, bots);
+  assert.ok(set.some((rule) => rule.startsWith(`Bash('${spaced}' message check`)), `the premise: the rule quotes the CLI, got: ${JSON.stringify(set)}`);
 
   const built = await sh(`${shellWord(spaced)} rules build --bots bots --bot ${BOT}`, { env: box.env, cwd: box.cwd });
-  assert.equal(built.code, 0, built.stderr);
-  const command = offeredCommand(kit, built.stdout, BOT);
-  assert.equal(command, allowCommand(kit, bots, BOT, five), 'the premise: the kit offers the five, spelled with the path it was started by');
-  const ran = await sh(command, { env: box.env, cwd: box.cwd });
 
-  assert.equal(ran.code, 0, `the offered command should run: ${command}\n${ran.stdout}${ran.stderr}`);
-  assert.deepEqual(await codexAllowedIn(bots, BOT), codexDefaultLines(kit, bots));
-  assert.ok((await codexAllowedIn(bots, BOT))[0].startsWith(`prefix_rule(pattern=["${spaced}", "message"`), 'the path, space and all, as one word');
+  assert.equal(built.code, 0, built.stderr);
+  for (const rule of set) {
+    assert.ok((await allowOf(bots, BOT)).includes(rule), `${rule}, spelled with the path the kit was started by, should be in allow`);
+  }
+  const lines = await codexAllowedIn(bots, BOT);
+  for (const line of codexDefaultLines(kit, bots)) {
+    assert.ok(lines.includes(line), `obk.rules should hold ${line}, got:\n${lines.join('\n')}`);
+  }
+  assert.ok(lines.includes(`prefix_rule(pattern=["${spaced}", "message", "check", "--bots", "${bots}"], decision="allow")`), 'the path, space and all, as one word');
 });
 
 test('X2 two allowed rules that give the same pattern make one line, in the place of the first', async (t) => {
   const box = await createSandbox(t);
   const bots = await withBot(box);
 
-  await ok(change(box, ...allowing('Bash(git add:*)', OWN_RULE, 'Bash(git add *)', 'Bash(git commit:*)')));
+  await ok(allow(box, BUILD_RULE, OWN_RULE, 'Bash(npm run build *)', VIEW_RULE));
 
-  assert.deepEqual(await allowOf(bots, BOT), ['Bash(git add:*)', OWN_RULE, 'Bash(git add *)', 'Bash(git commit:*)'], 'both are kept as the user allowed them');
-  assert.deepEqual(await codexAllowedIn(bots, BOT), [ADD_LINE, OWN_LINE, COMMIT_LINE]);
+  assert.deepEqual(await ownAllow(box, bots), [BUILD_RULE, OWN_RULE, 'Bash(npm run build *)', VIEW_RULE], 'both are kept as the user allowed them');
+  assert.deepEqual(await ownLines(box, bots), [BUILD_LINE, OWN_LINE, VIEW_LINE]);
 });
 
 // ----------------------------------------------------------------- Read needs nothing
 
-test('X3 an allowed Read rule gets no Codex line and is not reported as unwritten, and alone makes no file', async (t) => {
+test('X3 an allowed Read rule gets no Codex line and is not reported as unwritten', async (t) => {
   const box = await createSandbox(t);
   const bots = await withBot(box);
-  const read = readDefault(box, bots);
+  const read = 'Read(//Users/someone/project/**)';
 
-  await ok(change(box, ...allowing(read)));
+  await ok(allow(box, read));
 
-  assert.deepEqual(await allowOf(bots, BOT), [read], 'the yes is kept all the same');
-  assert.equal(await codexLinesIn(codexRulesOf(bots, BOT)), undefined, 'nothing Codex-able is allowed, so no obk.rules is made');
+  assert.deepEqual(await ownAllow(box, bots), [read], 'the yes is kept all the same');
+  assert.deepEqual(await ownLines(box, bots), [], 'no line for it in obk.rules');
   const alone = codexEntry(jsonOf(await box.run(['rules', 'build', '--bots', 'bots', '--bot', BOT, '--json'])), bots);
-  assert.deepEqual(alone.unwritten, [], `a Read rule is not missing from Codex, got: ${JSON.stringify(alone)}`);
+  assert.deepEqual(withoutSendMessage((alone.unwritten ?? []).map((one) => one.rule)), [], `a Read rule is not missing from Codex, got: ${JSON.stringify(alone)}`);
 
   // Beside a rule that has a Codex form: that one is written, the Read rule still not.
-  await ok(change(box, ...allowing('Bash(git add:*)')));
-  assert.deepEqual(await codexAllowedIn(bots, BOT), [ADD_LINE]);
+  await ok(allow(box, BUILD_RULE));
+  assert.deepEqual(await ownLines(box, bots), [BUILD_LINE]);
   const beside = codexEntry(jsonOf(await box.run(['rules', 'build', '--bots', 'bots', '--bot', BOT, '--json'])), bots);
-  assert.deepEqual(beside.unwritten, [], `got: ${JSON.stringify(beside)}`);
+  assert.deepEqual(withoutSendMessage((beside.unwritten ?? []).map((one) => one.rule)), [], `got: ${JSON.stringify(beside)}`);
 });
 
 // ----------------------------------------------------------------- no Codex form, a bot only on Codex
 
-/** Narrow rules --allow accepts for a Claude bot, which have no Codex form. */
+/** Narrow rules permission allow accepts for a Claude bot, which have no Codex form. */
 const NO_CODEX_FORM = [
   ['Edit(~/notes/**)', 'Edit'],
   ['Write(~/notes/**)', 'Write'],
@@ -273,49 +314,49 @@ const NO_CODEX_FORM = [
 ];
 
 for (const [rule, why] of NO_CODEX_FORM) {
-  test(`X4 --allow ${rule} for a bot only on Codex is refused (${why}), and nothing is written`, async (t) => {
+  test(`X4 permission allow ${rule} for a bot only on Codex is refused (${why}), and nothing is written`, async (t) => {
     const box = await createSandbox(t);
     const bots = await withBot(box);
-    await ok(change(box, ...allowing(OWN_RULE)));
-    assert.deepEqual(await codexAllowedIn(bots, BOT), [OWN_LINE], 'the premise: obk.rules holds the rule allowed first');
+    await ok(allow(box, OWN_RULE));
+    assert.deepEqual(await ownLines(box, bots), [OWN_LINE], 'the premise: obk.rules holds the rule allowed first');
     const before = await snapshot(bots, skipGit);
 
-    const result = await change(box, ...allowing(rule));
+    const result = await allow(box, rule);
 
     assertNoCodexForm(result, rule);
     await assertNothingWritten(bots, before);
-    assert.deepEqual(await allowOf(bots, BOT), [OWN_RULE], 'allow is as it was');
+    assert.deepEqual(await ownAllow(box, bots), [OWN_RULE], 'allow is as it was');
   });
 }
 
-test('X4 a rule with no Codex form beside good ones, with --charter, refuses the whole command: no rule and no charter written', async (t) => {
+test('X4 a rule with no Codex form beside good ones refuses the whole command: no rule written', async (t) => {
   const box = await createSandbox(t);
   const bots = await withBot(box);
-  await ok(change(box, ...allowing(OWN_RULE)));
+  await ok(allow(box, OWN_RULE));
   const before = await snapshot(bots, skipGit);
 
-  const result = await change(box, '--charter', NEW_CHARTER, ...allowing('Bash(git add:*)', 'Bash(npm test)', 'Bash(git commit:*)'));
+  const result = await allow(box, BUILD_RULE, 'Bash(npm test)', VIEW_RULE);
 
   assertNoCodexForm(result, 'Bash(npm test)');
   await assertNothingWritten(bots, before);
   const doc = parse(await readFile(botYamlOf(bots, BOT), 'utf8'));
   assert.equal(doc.charter.trim(), CHARTER, 'the charter is the one it had');
-  assert.deepEqual(doc.allow, [OWN_RULE], 'the good ones are not recorded either');
+  assert.deepEqual(beyond(box, bots, doc.allow), [OWN_RULE], 'the good ones are not recorded either');
 });
 
 // ----------------------------------------------------------------- no Codex form, a bot on both
 
 for (const [rule, why] of NO_CODEX_FORM) {
-  test(`X5 --allow ${rule} for a bot on both harnesses is recorded, written for Claude only, and reported as not written for Codex (${why})`, async (t) => {
+  test(`X5 permission allow ${rule} for a bot on both harnesses is recorded, written for Claude only, and reported as not written for Codex (${why})`, async (t) => {
     const box = await createSandbox(t);
     const bots = await withBot(box, 'codex', BOTH);
 
-    const result = await change(box, ...allowing('Bash(git add:*)', rule));
+    const result = await allow(box, BUILD_RULE, rule);
 
     assert.equal(result.code, 0, `the bot runs on Claude too, so ${rule} is allowed, got:\n${result.stdout}${result.stderr}`);
-    assert.deepEqual(await allowOf(bots, BOT), ['Bash(git add:*)', rule]);
-    assert.deepEqual(await allowedIn(bots, BOT), ['Bash(git add:*)', rule], 'written for Claude');
-    assert.deepEqual(await codexAllowedIn(bots, BOT), [ADD_LINE], 'and not for Codex');
+    assert.deepEqual(await ownAllow(box, bots), [BUILD_RULE, rule]);
+    assert.deepEqual(await ownSettings(box, bots), [BUILD_RULE, rule], 'written for Claude');
+    assert.deepEqual(await ownLines(box, bots), [BUILD_LINE], 'and not for Codex');
     assert.ok(
       reportsForCodex(result.stdout, rule),
       `the report should say ${rule} is not written for Codex, on its line or under a heading that says so, got:\n${result.stdout}`,
@@ -327,33 +368,34 @@ test('X5 the JSON answer\'s Codex entry lists what has no Codex form as unwritte
   const box = await createSandbox(t);
   const bots = await withBot(box, 'codex', BOTH);
   const read = readDefault(box, bots);
-  await writeAllow(bots, BOT, ['Bash(git add:*)', 'Edit(~/notes/**)', read, 'Bash(npm test)']);
+  await writeAllow(bots, BOT, [...withoutSendMessage(await allowOf(bots, BOT)), BUILD_RULE, 'Edit(~/notes/**)', 'Bash(npm test)']);
 
   const answer = jsonOf(await box.run(['rules', 'build', '--bots', 'bots', '--bot', BOT, '--json']));
 
   const { unwritten } = codexEntry(answer, bots);
   assert.ok(Array.isArray(unwritten), `unwritten should be a list, got: ${JSON.stringify(codexEntry(answer, bots))}`);
-  assert.deepEqual(unwritten.map((one) => one.rule).sort(), ['Bash(npm test)', 'Edit(~/notes/**)']);
+  assert.deepEqual(withoutSendMessage(unwritten.map((one) => one.rule)).sort(), ['Bash(npm test)', 'Edit(~/notes/**)']);
   for (const one of unwritten) {
     assert.equal(typeof one.why, 'string', `each says why, got: ${JSON.stringify(one)}`);
     assert.notEqual(one.why.trim(), '', `each says why, got: ${JSON.stringify(one)}`);
   }
-  assert.deepEqual(await codexAllowedIn(bots, BOT), [ADD_LINE]);
-  assert.deepEqual(await allowedIn(bots, BOT), ['Bash(git add:*)', 'Edit(~/notes/**)', read, 'Bash(npm test)'], 'Claude gets every one');
+  assert.deepEqual(await ownLines(box, bots), [BUILD_LINE]);
+  assert.deepEqual(await ownSettings(box, bots), [BUILD_RULE, 'Edit(~/notes/**)', 'Bash(npm test)'], 'Claude gets every one');
+  assert.ok((await allowedIn(bots, BOT)).includes(read), 'the Read rule included');
 });
 
 // ----------------------------------------------------------------- broad rules
 
 for (const rule of ['Bash(gh:*)', 'Bash(git *)', 'Bash(python3 -c:*)', 'Bash(sudo rm:*)', 'Bash(*)']) {
-  test(`X6 --allow ${rule} for a bot only on Codex is refused as broad, and nothing is written`, async (t) => {
+  test(`X6 permission allow ${rule} for a bot only on Codex is refused as broad, and nothing is written`, async (t) => {
     // All but the last have a prefix Codex could hold, so only the broad
     // line refuses them.
     const box = await createSandbox(t);
     const bots = await withBot(box);
-    await ok(change(box, ...allowing(OWN_RULE)));
+    await ok(allow(box, OWN_RULE));
     const before = await snapshot(bots, skipGit);
 
-    const result = await change(box, ...allowing(rule));
+    const result = await allow(box, rule);
 
     assert.equal(result.code, 1, `${rule} is broad, got:\n${result.stdout}${result.stderr}`);
     assert.ok(result.stderr.includes(rule), `the refusal should name ${rule}, got: ${result.stderr}`);
@@ -364,31 +406,31 @@ for (const rule of ['Bash(gh:*)', 'Bash(git *)', 'Bash(python3 -c:*)', 'Bash(sud
 test('X6 a broad rule for a bot on both harnesses is refused too, and nothing is written', async (t) => {
   const box = await createSandbox(t);
   const bots = await withBot(box, 'codex', BOTH);
-  await ok(change(box, ...allowing(OWN_RULE)));
+  await ok(allow(box, OWN_RULE));
   const before = await snapshot(bots, skipGit);
 
-  const result = await change(box, ...allowing('Bash(gh:*)'));
+  const result = await allow(box, 'Bash(gh:*)');
 
   assert.equal(result.code, 1, `got:\n${result.stdout}${result.stderr}`);
   assert.ok(result.stderr.includes('Bash(gh:*)'), `got: ${result.stderr}`);
   await assertNothingWritten(bots, before);
 });
 
-// ----------------------------------------------------------------- what --allow says
+// ----------------------------------------------------------------- what permission allow says
 
-test('X7 --allow for a Codex bot names obk.rules, and says a running Codex session gets the rule when it next starts', async (t) => {
+test('X7 permission allow for a Codex bot names obk.rules, and says a running Codex session gets the rule when it next starts', async (t) => {
   const box = await createSandbox(t);
   const bots = await withBot(box);
 
-  const result = await ok(change(box, ...allowing('Bash(git add:*)')));
+  const result = await ok(allow(box, BUILD_RULE));
 
   assert.ok(namesFile(result.stdout, box, codexRulesOf(bots, BOT)), `the report should name ${codexRulesOf(bots, BOT)}, got:\n${result.stdout}`);
   const words = wordsOf(result);
   assert.ok(/codex/i.test(words) && /\bstart/i.test(words), `the report should say a Codex session takes the rule at its next start, got:\n${result.stdout}`);
 
-  // Beside it, a Claude bot's --allow has no Codex session to speak of.
+  // Beside it, a Claude bot's permission allow has no Codex session to speak of.
   await ok(box.run(['bot', 'create', '--bots', 'bots', '--name', 'claude-bot', '--harness', 'claude']));
-  const other = await ok(box.run(['bot', 'change', '--bots', 'bots', '--bot', 'claude-bot', '--allow', 'Bash(git add:*)']));
+  const other = await ok(permissionAllow(box, 'claude-bot', [BUILD_RULE]));
   assert.doesNotMatch(wordsOf(other), /codex/i, `a Claude bot's report has no Codex in it, got:\n${other.stdout}`);
 });
 
@@ -397,93 +439,98 @@ test('X7 --allow for a Codex bot names obk.rules, and says a running Codex sessi
 test('X8 a line added to obk.rules by hand does not survive a build, and another .rules file is never written', async (t) => {
   const box = await createSandbox(t);
   const bots = await withBot(box);
-  await ok(change(box, ...allowing('Bash(git add:*)')));
-  assert.deepEqual(await codexAllowedIn(bots, BOT), [ADD_LINE], 'the premise: the kit wrote obk.rules');
+  await ok(allow(box, BUILD_RULE));
+  assert.deepEqual(await ownLines(box, bots), [BUILD_LINE], 'the premise: the kit wrote obk.rules');
   const rulesDir = path.dirname(codexRulesOf(bots, BOT));
   const theirs = '# my own\nprefix_rule(pattern=["npm", "test"], decision="allow")\n';
   await writeFile(path.join(rulesDir, 'default.rules'), theirs);
   await appendFile(codexRulesOf(bots, BOT), 'prefix_rule(pattern=["curl"], decision="allow")\n');
 
   await ok(box.run(['rules', 'build', '--bots', 'bots', '--bot', BOT]));
-  assert.deepEqual(await codexAllowedIn(bots, BOT), [ADD_LINE], 'obk.rules is what allow makes, and nothing else');
+  assert.deepEqual(await ownLines(box, bots), [BUILD_LINE], 'obk.rules is what allow makes, and nothing else');
+  await assertDefaultLines(box, bots);
 
-  await ok(change(box, ...allowing('Bash(git commit:*)')));
+  await ok(allow(box, VIEW_RULE));
   await ok(box.run(['up', '--bots', 'bots', '--bot', BOT]));
-  assert.deepEqual(await codexAllowedIn(bots, BOT), [ADD_LINE, COMMIT_LINE]);
+  assert.deepEqual(await ownLines(box, bots), [BUILD_LINE, VIEW_LINE]);
   assert.equal(await readFile(path.join(rulesDir, 'default.rules'), 'utf8'), theirs, 'default.rules is theirs, byte for byte');
   assert.deepEqual((await readdir(rulesDir)).sort(), ['default.rules', 'obk.rules'], 'and the kit made no other file there');
 });
 
 for (const [writer, run] of Object.entries(WRITERS)) {
-  test(`X9 ${writer} writes obk.rules from allow as the user set it by hand, with no --allow in between`, async (t) => {
+  test(`X9 ${writer} writes obk.rules from allow as the user set it by hand, with no permission allow in between`, async (t) => {
     const box = await createSandbox(t);
     const bots = await withBot(box);
-    await writeAllow(bots, BOT, ['Bash(git commit:*)', OWN_RULE]);
+    await writeAllow(bots, BOT, [...withoutSendMessage(await allowOf(bots, BOT)), VIEW_RULE, OWN_RULE]);
 
     await ok(run(box));
 
-    assert.deepEqual(await codexAllowedIn(bots, BOT), [COMMIT_LINE, OWN_LINE]);
+    assert.deepEqual(await ownLines(box, bots), [VIEW_LINE, OWN_LINE]);
+    await assertDefaultLines(box, bots);
   });
 }
 
 test('X9 the same for a bot whose harness is Claude and one session Codex\'s', async (t) => {
   const box = await createSandbox(t);
   const bots = await withBot(box, 'claude', [['daily'], ['review', '--harness', 'codex']]);
-  await writeAllow(bots, BOT, [OWN_RULE]);
+  await writeAllow(bots, BOT, [...withoutSendMessage(await allowOf(bots, BOT)), OWN_RULE]);
 
   await ok(box.run(['rules', 'build', '--bots', 'bots', '--bot', BOT]));
 
-  assert.deepEqual(await codexAllowedIn(bots, BOT), [OWN_LINE]);
-  assert.deepEqual(await allowedIn(bots, BOT), [OWN_RULE]);
+  assert.deepEqual(await ownLines(box, bots), [OWN_LINE]);
+  assert.deepEqual(await ownSettings(box, bots), [OWN_RULE]);
+  await assertDefaultLines(box, bots);
 });
 
 test('X9 a Claude bot with no Codex session gets no obk.rules, whatever its allow holds', async (t) => {
   const box = await createSandbox(t);
   const bots = await withBot(box, 'claude');
-  await writeAllow(bots, BOT, [OWN_RULE]);
+  await writeAllow(bots, BOT, [...withoutSendMessage(await allowOf(bots, BOT)), OWN_RULE]);
 
   await ok(box.run(['rules', 'build', '--bots', 'bots', '--bot', BOT]));
   await ok(box.run(['up', '--bots', 'bots', '--bot', BOT]));
 
-  assert.deepEqual(await allowedIn(bots, BOT), [OWN_RULE], 'the premise: the yes was written for Claude');
+  assert.deepEqual(await ownSettings(box, bots), [OWN_RULE], 'the premise: the yes was written for Claude');
   assert.equal(await codexLinesIn(codexRulesOf(bots, BOT)), undefined, 'and no Codex file was made');
 });
 
-// ----------------------------------------------------------------- when nothing is to be written
+// ----------------------------------------------------------------- when nothing more is to be written
 
-test('X10 with nothing Codex-able allowed and no obk.rules, building and bringing up make no file', async (t) => {
+test('X10 with no rule of its own allowed, building and bringing up leave obk.rules with the default lines alone', async (t) => {
   const box = await createSandbox(t);
   const bots = await withBot(box);
 
   for (const run of Object.values(WRITERS)) await ok(run(box));
 
-  assert.equal(await codexLinesIn(codexRulesOf(bots, BOT)), undefined, `${codexRulesOf(bots, BOT)} has no reason to exist`);
+  await assertDefaultLines(box, bots);
+  assert.deepEqual(await ownLines(box, bots), [], `${codexRulesOf(bots, BOT)} holds nothing beyond the defaults`);
 });
 
-test('X10 an obk.rules whose rules allow no longer holds is left with no rule line', async (t) => {
+test('X10 an own rule allow no longer holds leaves obk.rules', async (t) => {
   // The user took the rule out of bot.yaml by hand: the file the kit owns
-  // follows allow, whether it keeps a file with no rule in it or takes it away.
+  // follows allow.
   const box = await createSandbox(t);
   const bots = await withBot(box);
-  await ok(change(box, ...allowing('Bash(git add:*)')));
-  assert.deepEqual(await codexAllowedIn(bots, BOT), [ADD_LINE], 'the premise: the kit wrote obk.rules');
-  await writeAllow(bots, BOT, []);
+  await ok(allow(box, BUILD_RULE));
+  assert.deepEqual(await ownLines(box, bots), [BUILD_LINE], 'the premise: the kit wrote obk.rules');
+  await writeAllow(bots, BOT, (await allowOf(bots, BOT)).filter((rule) => rule !== BUILD_RULE));
 
   await ok(box.run(['rules', 'build', '--bots', 'bots', '--bot', BOT]));
 
-  assert.deepEqual(await codexAllowedIn(bots, BOT), []);
+  assert.deepEqual(await ownLines(box, bots), []);
+  await assertDefaultLines(box, bots);
 });
 
 for (const [writer, run] of Object.entries({
   ...WRITERS,
-  'bot change --allow of a rule already allowed': (box) => change(box, ...allowing(OWN_RULE)),
-  'bot change --allow of a Read rule': (box) => change(box, ...allowing('Read(//Users/someone/project/**)')),
+  'permission allow of a rule already allowed': (box) => allow(box, OWN_RULE),
+  'permission allow of a Read rule': (box) => allow(box, 'Read(//Users/someone/project/**)'),
 })) {
   test(`X11 ${writer} with nothing new for Codex leaves obk.rules untouched, content and mtime`, async (t) => {
     const box = await createSandbox(t);
     const bots = await withBot(box);
-    await ok(change(box, ...allowing(OWN_RULE, 'Bash(git add:*)')));
-    assert.deepEqual(await codexAllowedIn(bots, BOT), [OWN_LINE, ADD_LINE], 'the premise: the kit wrote obk.rules');
+    await ok(allow(box, OWN_RULE, BUILD_RULE));
+    assert.deepEqual(await ownLines(box, bots), [OWN_LINE, BUILD_LINE], 'the premise: the kit wrote obk.rules');
     const file = codexRulesOf(bots, BOT);
     const before = await readFile(file, 'utf8');
     await utimes(file, PAST, PAST);
@@ -499,11 +546,11 @@ test('X12 the Codex entry\'s written is every allowed rule now in the file when 
   const box = await createSandbox(t);
   const bots = await withBot(box);
   const read = readDefault(box, bots);
-  await writeAllow(bots, BOT, ['Bash(git add:*)', read, 'Bash(git commit:*)']);
+  await writeAllow(bots, BOT, [...withoutSendMessage(await allowOf(bots, BOT)), BUILD_RULE, read, VIEW_RULE]);
 
   const first = codexEntry(jsonOf(await box.run(['rules', 'build', '--bots', 'bots', '--bot', BOT, '--json'])), bots);
-  assert.deepEqual(first.written, ['Bash(git add:*)', 'Bash(git commit:*)'], `the Read rule is not in the file, got: ${JSON.stringify(first)}`);
-  assert.deepEqual(await codexAllowedIn(bots, BOT), [ADD_LINE, COMMIT_LINE]);
+  assertSameRules(first.written, [...codexDefaultRules(box, bots), BUILD_RULE, VIEW_RULE], `the Read rule is not in the file, got: ${JSON.stringify(first)}`);
+  assert.deepEqual(await ownLines(box, bots), [BUILD_LINE, VIEW_LINE]);
 
   const again = codexEntry(jsonOf(await box.run(['rules', 'build', '--bots', 'bots', '--bot', BOT, '--json'])), bots);
   assert.deepEqual(again.written, [], `nothing changed, so nothing was written, got: ${JSON.stringify(again)}`);
@@ -514,7 +561,7 @@ test('X12 the Codex entry\'s written is every allowed rule now in the file when 
 test('X13 up has written obk.rules before it opens the Codex bot\'s tab', async (t) => {
   const box = await createSandbox(t);
   const bots = await withBot(box);
-  await writeAllow(bots, BOT, ['Bash(git add:*)', OWN_RULE]);
+  await writeAllow(bots, BOT, [BUILD_RULE, OWN_RULE]);
   const kept = path.join(box.root, 'rules-at-tab.rules');
   const witness = path.join(box.root, 'witness.cjs');
   await writeFile(witness, "require('node:fs').copyFileSync(process.env.OBK_TEST_WATCH, process.env.OBK_TEST_WITNESS);\n");
@@ -534,20 +581,23 @@ test('X13 up has written obk.rules before it opens the Codex bot\'s tab', async 
   const ran = await box.orca.ranDuring();
   assert.equal(ran.length, 1, `the witness should have run as the tab was made, got: ${JSON.stringify(ran)}`);
   assert.equal(ran[0].status, 0, `obk.rules should have been there to copy: ${ran[0].stderr}`);
-  assert.deepEqual(await codexLinesIn(kept), [ADD_LINE, OWN_LINE]);
+  const atTab = await codexLinesIn(kept);
+  assert.deepEqual(ownOf(box, bots, atTab), [BUILD_LINE, OWN_LINE]);
+  const defaults = codexDefaultLines(box, bots);
+  assertSameRules(withoutSendMessage(atTab).filter((line) => defaults.includes(line)), defaults, 'the defaults the run added are in the file before the tab opens too');
 });
 
 // ----------------------------------------------------------------- never outside the bot folder
 
 for (const [writer, run] of Object.entries({
   ...WRITERS,
-  'bot change --allow': (box) => change(box, ...allowing(OWN_RULE)),
+  'permission allow': (box) => allow(box, OWN_RULE),
 })) {
   for (const linked of ['.codex', path.join('.codex', 'rules')]) {
     test(`X14 ${writer} refuses a ${linked} that links outside the bot folder, and writes nothing there`, async (t) => {
       const box = await createSandbox(t);
       const bots = await withBot(box);
-      await writeAllow(bots, BOT, ['Bash(git add:*)']);
+      await writeAllow(bots, BOT, [...withoutSendMessage(await allowOf(bots, BOT)), BUILD_RULE]);
       const home = botHomeOf(bots, BOT);
       // Somewhere of the user's own outside every bot, shaped like what the link stands for.
       const target = path.join(box.root, 'elsewhere', linked);
@@ -576,24 +626,24 @@ test('X15 allowing, building and bringing up a Codex bot write nothing in the us
   const box = await createSandbox(t);
   const bots = await withBot(box);
 
-  await ok(change(box, ...allowing(...codexDefaultRules(box, bots), OWN_RULE)));
+  await ok(allow(box, OWN_RULE));
   await ok(box.run(['rules', 'build', '--bots', 'bots']));
   await ok(box.run(['up', '--bots', 'bots']));
 
-  assert.deepEqual(await codexAllowedIn(bots, BOT), [...codexDefaultLines(box, bots), OWN_LINE], 'the rules went into the bot folder');
+  assert.deepEqual(await ownLines(box, bots), [OWN_LINE], 'the rules went into the bot folder');
+  await assertDefaultLines(box, bots);
   await assertHomeUntouched(box);
 });
 
 // ----------------------------------------------------------------- Bot Father on Codex
 
-test('X16 Bot Father on Codex: the five allowed go into its own obk.rules, and its Claude settings get nothing', async (t) => {
+test('X16 Bot Father on Codex: init writes the default lines into its own obk.rules, and its Claude settings get nothing', async (t) => {
   const box = await createSandbox(t);
   assert.equal((await box.run(['init', '--bots', 'bots', '--harness', 'codex'])).code, 0);
   const bots = box.path('bots');
 
-  await ok(box.run(['bot', 'change', '--bots', 'bots', '--bot', 'bot-father', ...allowing(...codexDefaultRules(box, bots))]));
-
-  assert.deepEqual(await codexAllowedIn(bots, 'bot-father'), codexDefaultLines(box, bots));
+  await assertDefaultLines(box, bots, 'bot-father');
+  assert.deepEqual(await ownLines(box, bots, 'bot-father'), []);
   assert.deepEqual(await allowedIn(bots, 'bot-father'), [], `${settingsOf(bots, 'bot-father')} is not Codex's`);
 });
 
@@ -603,19 +653,19 @@ test('X16 Bot Father on Codex: the five allowed go into its own obk.rules, and i
 // `*`); every fixed word stays in the pattern, an empty quoted one too. A
 // pattern that drops an empty word is looser than the rule the user allowed.
 
-test('X17 --allow Bash(git "" *) for a Codex bot never writes the pattern ["git"]: it keeps the empty word, or is refused', async (t) => {
+test('X17 permission allow Bash(git "" *) for a Codex bot never writes the pattern ["git"]: it keeps the empty word, or is refused', async (t) => {
   const box = await createSandbox(t);
   const bots = await withBot(box);
 
-  const result = await change(box, ...allowing('Bash(git "" *)'));
+  const result = await allow(box, 'Bash(git "" *)');
 
   const lines = await codexAllowedIn(bots, BOT);
   assert.ok(!lines.includes('prefix_rule(pattern=["git"], decision="allow")'), `["git"] lets every git command through, got:\n${lines.join('\n')}`);
   if (result.code === 0) {
-    assert.deepEqual(lines, ['prefix_rule(pattern=["git", ""], decision="allow")'], 'allowed, it keeps the empty word');
+    assert.deepEqual(await ownLines(box, bots), ['prefix_rule(pattern=["git", ""], decision="allow")'], 'allowed, it keeps the empty word');
   } else {
-    assert.deepEqual(lines, [], 'refused, nothing is written');
-    assert.deepEqual(await allowOf(bots, BOT), [], 'and nothing recorded');
+    assert.deepEqual(await ownLines(box, bots), [], 'refused, nothing is written');
+    assert.deepEqual(await ownAllow(box, bots), [], 'and nothing recorded');
   }
 });
 
@@ -625,13 +675,13 @@ for (const [rule, line] of [
   ["Bash(gh pr create --body '' *)", 'prefix_rule(pattern=["gh", "pr", "create", "--body", ""], decision="allow")'],
   ['Bash(gh pr create --body "" --title x:*)', 'prefix_rule(pattern=["gh", "pr", "create", "--body", "", "--title", "x"], decision="allow")'],
 ]) {
-  test(`X17 --allow ${rule} for a Codex bot keeps the empty word in the pattern`, async (t) => {
+  test(`X17 permission allow ${rule} for a Codex bot keeps the empty word in the pattern`, async (t) => {
     const box = await createSandbox(t);
     const bots = await withBot(box);
 
-    await ok(change(box, ...allowing(rule)));
+    await ok(allow(box, rule));
 
-    assert.deepEqual(await codexAllowedIn(bots, BOT), [line]);
+    assert.deepEqual(await ownLines(box, bots), [line]);
   });
 }
 
@@ -640,21 +690,21 @@ for (const [rule, line] of [
 for (const [writer, run] of Object.entries(WRITERS)) {
   test(`X18 plain ${writer} names an allowed rule with no Codex form on a line that says Codex, once Codex is added to a Claude bot`, async (t) => {
     // The reproduction: the yes was given while the bot ran only on Claude,
-    // so no --allow ever said it has no Codex form.
+    // so no permission allow ever said it has no Codex form.
     const box = await createSandbox(t);
     const bots = await withBot(box, 'claude');
-    await ok(change(box, ...allowing('Bash(npm test)', 'Bash(git add:*)')));
+    await ok(allow(box, 'Bash(npm test)', BUILD_RULE));
     await ok(box.run(['session', 'add', '--bots', 'bots', '--bot', BOT, '--name', 'review', '--harness', 'codex']));
 
     const result = await ok(run(box));
 
-    assert.deepEqual(await codexAllowedIn(bots, BOT), [ADD_LINE], 'the premise: the bot runs on Codex now, and only git add has a Codex form');
+    assert.deepEqual(await ownLines(box, bots), [BUILD_LINE], 'the premise: the bot runs on Codex now, and only npm run build has a Codex form');
     assert.equal(
       codexLinesNaming(result.stdout, 'Bash(npm test)'),
       1,
       `the report should say once, on a line that says Codex, that Bash(npm test) is not written for Codex, got:\n${result.stdout}`,
     );
-    assert.equal(codexLinesNaming(result.stdout, 'Bash(git add:*)'), 0, `a rule written for Codex is no such line, got:\n${result.stdout}`);
+    assert.equal(codexLinesNaming(result.stdout, BUILD_RULE), 0, `a rule written for Codex is no such line, got:\n${result.stdout}`);
   });
 }
 
@@ -662,7 +712,7 @@ test('X18 plain rules build names every allowed rule with no Codex form of a bot
   const box = await createSandbox(t);
   const bots = await withBot(box, 'codex', BOTH);
   const read = readDefault(box, bots);
-  await writeAllow(bots, BOT, ['Edit(~/notes/**)', read, 'Bash(git add:*)', 'Bash(git push * main)']);
+  await writeAllow(bots, BOT, ['Edit(~/notes/**)', read, BUILD_RULE, 'Bash(git push * main)']);
 
   const result = await ok(box.run(['rules', 'build', '--bots', 'bots', '--bot', BOT]));
 
@@ -672,11 +722,11 @@ test('X18 plain rules build names every allowed rule with no Codex form of a bot
   assert.equal(codexLinesNaming(result.stdout, read), 0, `a Read rule needs no Codex form, got:\n${result.stdout}`);
 });
 
-test('X18 bot change --allow of a rule with no Codex form, on a bot on both harnesses, says so once, not twice', async (t) => {
+test('X18 permission allow of a rule with no Codex form, on a bot on both harnesses, says so once, not twice', async (t) => {
   const box = await createSandbox(t);
   await withBot(box, 'codex', BOTH);
 
-  const result = await ok(change(box, ...allowing('Bash(npm test)')));
+  const result = await ok(allow(box, 'Bash(npm test)'));
 
   assert.equal(
     codexLinesNaming(result.stdout, 'Bash(npm test)'),

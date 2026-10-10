@@ -136,19 +136,23 @@ async function fleet(box) {
   await ok(['bot', 'create', '--bots', 'bots', '--name', BOT, '--harness', 'codex']);
   await ok([
     'session', 'add', '--bots', 'bots', '--bot', BOT, '--name', 'planner',
-    '--harness', 'claude', '--model', 'opus', '--effort', 'xhigh', '--context', '1m', '--approval', 'ask',
+    '--harness', 'claude', '--model', 'opus', '--effort', 'xhigh', '--context', '1m',
     '--prompt', PLANNER_PROMPT, '--work-dir', 'work/planner', '--extra-arg=--verbose',
   ]);
+  // #527: a session's approval is set by `obk permission approval`, not by session add.
+  await ok(['permission', 'approval', '--bots', 'bots', '--bot', BOT, '--session', 'planner', '--approval', 'ask']);
   await ok([
     'session', 'add', '--bots', 'bots', '--bot', BOT, '--name', 'nightly',
-    '--model', 'gpt-6-sol', '--effort', 'low', '--context', '200000', '--approval', 'auto',
+    '--model', 'gpt-6-sol', '--effort', 'low', '--context', '200000',
     '--prompt', 'You watch the nightly build.',
   ]);
+  await ok(['permission', 'approval', '--bots', 'bots', '--bot', BOT, '--session', 'nightly', '--approval', 'auto']);
   await ok(['bot', 'create', '--bots', 'bots', '--name', OTHER, '--harness', 'claude']);
   await ok([
     'session', 'add', '--bots', 'bots', '--bot', OTHER, '--name', 'planner',
-    '--model', 'sonnet', '--effort', 'medium', '--approval', 'auto', '--prompt', 'You plan the other bot\'s work.',
+    '--model', 'sonnet', '--effort', 'medium', '--prompt', 'You plan the other bot\'s work.',
   ]);
+  await ok(['permission', 'approval', '--bots', 'bots', '--bot', OTHER, '--session', 'planner', '--approval', 'auto']);
   await ok(['up', '--bots', 'bots', '--bot', BOT]);
   await ok(['up', '--bots', 'bots', '--bot', OTHER]);
   const bots = box.path('bots');
@@ -289,6 +293,10 @@ test('TM1 a maker that names no harness passes on its bot\'s', async (t) => {
 test('TM2 a flag given overrides the maker\'s setting, and only that one', async (t) => {
   const box = await createSandbox(t);
   const { bots, planner } = await fleet(box);
+  // #527: planner's own approval is ask, and a temporary session wider than its
+  // maker's needs the bot's temp_approval to be that wide.
+  const widened = await box.run(['permission', 'approval', '--bots', 'bots', '--bot', BOT, '--temps', '--approval', 'auto']);
+  assert.equal(widened.code, 0, `temp_approval should be set: ${widened.stdout}${widened.stderr}`);
 
   await made(box, planner, ['--name', 'scout', '--prompt', TASK, '--model', 'sonnet', '--approval', 'auto']);
 
@@ -301,6 +309,10 @@ test('TM2 a flag given overrides the maker\'s setting, and only that one', async
 test('TM2 every setting can be overridden, the harness included', async (t) => {
   const box = await createSandbox(t);
   const { bots, planner } = await fleet(box);
+  // #527: planner's own approval is ask, and a temporary session wider than its
+  // maker's needs the bot's temp_approval to be that wide.
+  const widened = await box.run(['permission', 'approval', '--bots', 'bots', '--bot', BOT, '--temps', '--approval', 'auto']);
+  assert.equal(widened.code, 0, `temp_approval should be set: ${widened.stdout}${widened.stderr}`);
 
   await made(box, planner, [
     '--name', 'scout', '--prompt', TASK,

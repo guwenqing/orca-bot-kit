@@ -1,6 +1,7 @@
-// `bot change --allow` changes nothing when it cannot finish (#383).
+// `permission allow` changes nothing when it cannot finish (#383; moved out
+// of `bot change --allow` by #527).
 //
-// `obk bot change --bots <B> --bot <X> --allow <rule> [--charter <text>]`
+// `obk permission allow --bots <B> --bot <X> --rule <rule>`
 // records the rule in bot.yaml `allow` and writes it at once into the files of
 // the harnesses the bot runs on: `.claude/settings.json` for Claude,
 // `.codex/rules/obk.rules` for Codex, both for a bot on both. It checks
@@ -9,8 +10,8 @@
 //
 // - refused (not 0, a message rather than a crash, naming the file or folder
 //   that stopped it), with the bots folder unchanged byte for byte: bot.yaml
-//   above all, the other harness's file too, and the charter and AGENTS.md
-//   when --charter comes along. The ways it can fail, each at a file it would
+//   above all, the other harness's file too, and the charter and AGENTS.md.
+//   The ways it can fail, each at a file it would
 //   write:
 //   - the Claude settings file: not JSON, `permissions` not a mapping,
 //     `permissions.allow` not a list, a file the kit cannot write, a folder it
@@ -29,7 +30,11 @@
 // implementer's. Repairing a broken file is not the kit's, so the fix is the
 // test's, done by hand as the user would.
 //
-// Not covered here: the refusals `--allow` already made before it wrote
+// Since #527 the bot's `allow` and harness files hold the kit's default set
+// from the start, so the rules here are ones outside it, and the sets are
+// compared in any order (helpers/permissions.js).
+//
+// Not covered here: the refusals `permission allow` already made before it wrote
 // anything (a broad rule, no Codex form, an empty rule, a bad `allow` list);
 // they live in permissions-allow, -broad and -codex.
 
@@ -48,23 +53,26 @@ import {
 import {
   allowedIn,
   allowOf,
+  assertSameRules,
   codexAllowedIn,
+  codexDefaultLines,
   codexRulesOf,
+  defaultRules,
   namesFile,
   OWN_RULE,
+  permissionAllow,
   settingsOf,
 } from './helpers/permissions.js';
 import { botYamlOf } from './helpers/skills.js';
 
 const BOT = 'api-bot';
 const CHARTER = 'Api Bot owns the API. It merges pull requests and closes issues without asking.';
-const NEW_CHARTER = 'Api Bot owns the API and its docs. It merges pull requests without asking.';
 
-/** The rule the bot was allowed before the test, through the kit. */
-const ADD_RULE = 'Bash(git add:*)';
+/** The rule the bot was allowed before the test, through the kit: one outside the kit's default set. */
+const ADD_RULE = 'Bash(gh issue close:*)';
 
 /** The lines ADD_RULE and OWN_RULE (`Bash(gh pr merge:*)`) become in obk.rules, worked out by hand. */
-const ADD_LINE = 'prefix_rule(pattern=["git", "add"], decision="allow")';
+const ADD_LINE = 'prefix_rule(pattern=["gh", "issue", "close"], decision="allow")';
 const OWN_LINE = 'prefix_rule(pattern=["gh", "pr", "merge"], decision="allow")';
 
 /** The bots a failure is tried on: the harness and the sessions (`[name, ...settings]` each). */
@@ -80,8 +88,8 @@ const NEEDS_A_USER = process.getuid?.() === 0
 
 /**
  * A bots folder `init` made on Claude, with one more bot as `on` says, brought
- * up, and ADD_RULE allowed through the kit, so its harness files hold it as the
- * kit writes them.
+ * up, and ADD_RULE allowed through the kit, so its harness files hold it, and
+ * the kit's defaults, as the kit writes them.
  */
 async function withBot(box, on) {
   assert.equal((await box.run(['init', '--bots', 'bots', '--harness', 'claude'])).code, 0);
@@ -94,14 +102,12 @@ async function withBot(box, on) {
   const up = await box.run(['up', '--bots', 'bots', '--bot', BOT]);
   assert.equal(up.code, 0, up.stderr);
   const bots = box.path('bots');
-  const allow = await change(box, '--allow', ADD_RULE);
+  const allow = await permissionAllow(box, BOT, [ADD_RULE]);
   assert.equal(allow.code, 0, `the premise: ${ADD_RULE} allowed through the kit\n${allow.stdout}${allow.stderr}`);
-  if (on.claude) assert.deepEqual(await allowedIn(bots, BOT), [ADD_RULE], `the premise: ${settingsOf(bots, BOT)} holds it`);
-  if (on.codex) assert.deepEqual(await codexAllowedIn(bots, BOT), [ADD_LINE], `the premise: ${codexRulesOf(bots, BOT)} holds it`);
+  if (on.claude) assertSameRules(await allowedIn(bots, BOT), [...defaultRules(box, bots), ADD_RULE], `the premise: ${settingsOf(bots, BOT)} holds it and the defaults`);
+  if (on.codex) assertSameRules(await codexAllowedIn(bots, BOT), [...codexDefaultLines(box, bots), ADD_LINE], `the premise: ${codexRulesOf(bots, BOT)} holds it and the defaults`);
   return bots;
 }
-
-const change = (box, ...rest) => box.run(['bot', 'change', '--bots', 'bots', '--bot', BOT, ...rest]);
 
 /** Move `at` aside and put a link to `target` in its place; what comes back puts it back. */
 async function linkInstead(box, at, target) {
@@ -298,52 +304,46 @@ const FAILURES = [
       await writeFile(file, String(doc));
       const text = await readFile(file, 'utf8');
       assert.ok(text.includes('&grants') && text.includes('*grants'), `the premise: an anchor and its alias, got:\n${text}`);
-      assert.deepEqual(parse(text).notes, [ADD_RULE], 'the premise: the file is valid and the alias reads as allow');
+      assert.deepEqual(parse(text).notes, parse(text).allow, 'the premise: the file is valid and the alias reads as allow');
       return { named: file, fix: () => writeFile(file, was) };
     },
   },
 ];
 
-// With --charter, on the first bot each failure is tried on: the charter is
-// written by the same run, so it is kept from being written the same way.
 for (const { label, on: where, skip, spoil } of FAILURES) {
-  for (const [at, name] of where.entries()) {
-    for (const [given, extra, charter] of [
-      ['--allow', [], CHARTER],
-      ...(at === 0 ? [['--allow with --charter', ['--charter', NEW_CHARTER], NEW_CHARTER]] : []),
-    ]) {
-      test(`N1 ${name}, ${label}: ${given} is refused naming it, and nothing changes; fixed, the same command goes through`, { skip }, async (t) => {
-        const on = ON[name];
-        const box = await createSandbox(t);
-        const bots = await withBot(box, on);
-        const { named, fix, lock, outside } = await spoil(box, bots);
-        const before = await snapshot(bots, skipGit);
-        const theirs = outside === undefined ? undefined : await snapshot(outside);
-        const unlock = await lock?.();
+  for (const name of where) {
+    test(`N1 ${name}, ${label}: permission allow is refused naming it, and nothing changes; fixed, the same command goes through`, { skip }, async (t) => {
+      const on = ON[name];
+      const box = await createSandbox(t);
+      const bots = await withBot(box, on);
+      const kept = await allowOf(bots, BOT);
+      const { named, fix, lock, outside } = await spoil(box, bots);
+      const before = await snapshot(bots, skipGit);
+      const theirs = outside === undefined ? undefined : await snapshot(outside);
+      const unlock = await lock?.();
 
-        const result = await change(box, ...extra, '--allow', OWN_RULE).finally(() => unlock?.());
+      const result = await permissionAllow(box, BOT, [OWN_RULE]).finally(() => unlock?.());
 
-        const said = `${result.stdout}${result.stderr}`;
-        assert.notEqual(result.code, 0, `this should have been refused, got:\n${said}`);
-        assert.ok(!/^\s+at /m.test(said), `expected a message, got a crash:\n${said}`);
-        assert.ok(namesFile(said, box, named), `the refusal should name ${named}, got:\n${said}`);
-        const yaml = parse(await readFile(botYamlOf(bots, BOT), 'utf8'));
-        assert.deepEqual(yaml.allow, [ADD_RULE], `bot.yaml records no yes the harness files did not get:\n${JSON.stringify(yaml, null, 2)}`);
-        assert.equal(yaml.charter.trim(), CHARTER, 'the charter is the one it had');
-        const now = await snapshot(bots, skipGit);
-        const changed = Object.keys({ ...before, ...now }).filter((rel) => before[rel] !== now[rel]);
-        assert.deepEqual(changed, [], 'a refusal changes nothing in the bots folder');
-        if (theirs !== undefined) assert.deepEqual(await snapshot(outside), theirs, 'nothing was written where the link leads');
+      const said = `${result.stdout}${result.stderr}`;
+      assert.notEqual(result.code, 0, `this should have been refused, got:\n${said}`);
+      assert.ok(!/^\s+at /m.test(said), `expected a message, got a crash:\n${said}`);
+      assert.ok(namesFile(said, box, named), `the refusal should name ${named}, got:\n${said}`);
+      const yaml = parse(await readFile(botYamlOf(bots, BOT), 'utf8'));
+      assert.deepEqual(yaml.allow, kept, `bot.yaml records no yes the harness files did not get:\n${JSON.stringify(yaml, null, 2)}`);
+      assert.equal(yaml.charter.trim(), CHARTER, 'the charter is the one it had');
+      const now = await snapshot(bots, skipGit);
+      const changed = Object.keys({ ...before, ...now }).filter((rel) => before[rel] !== now[rel]);
+      assert.deepEqual(changed, [], 'a refusal changes nothing in the bots folder');
+      if (theirs !== undefined) assert.deepEqual(await snapshot(outside), theirs, 'nothing was written where the link leads');
 
-        await fix?.();
-        const retry = await change(box, ...extra, '--allow', OWN_RULE);
+      await fix?.();
+      const retry = await permissionAllow(box, BOT, [OWN_RULE]);
 
-        assert.equal(retry.code, 0, `with the file fixed, the same command should go through, got:\n${retry.stdout}${retry.stderr}`);
-        assert.deepEqual(await allowOf(bots, BOT), [ADD_RULE, OWN_RULE]);
-        assert.equal(parse(await readFile(botYamlOf(bots, BOT), 'utf8')).charter.trim(), charter);
-        if (on.claude) assert.deepEqual(await allowedIn(bots, BOT), [ADD_RULE, OWN_RULE], `${settingsOf(bots, BOT)} agrees with bot.yaml`);
-        if (on.codex) assert.deepEqual(await codexAllowedIn(bots, BOT), [ADD_LINE, OWN_LINE], `${codexRulesOf(bots, BOT)} agrees with bot.yaml`);
-      });
-    }
+      assert.equal(retry.code, 0, `with the file fixed, the same command should go through, got:\n${retry.stdout}${retry.stderr}`);
+      assert.deepEqual(await allowOf(bots, BOT), [...kept, OWN_RULE]);
+      assert.equal(parse(await readFile(botYamlOf(bots, BOT), 'utf8')).charter.trim(), CHARTER);
+      if (on.claude) assertSameRules(await allowedIn(bots, BOT), [...defaultRules(box, bots), ADD_RULE, OWN_RULE], `${settingsOf(bots, BOT)} agrees with bot.yaml`);
+      if (on.codex) assertSameRules(await codexAllowedIn(bots, BOT), [...codexDefaultLines(box, bots), ADD_LINE, OWN_LINE], `${codexRulesOf(bots, BOT)} agrees with bot.yaml`);
+    });
   }
 }

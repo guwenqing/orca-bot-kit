@@ -30,6 +30,7 @@ import test from 'node:test';
 import { parse, stringify } from 'yaml';
 
 import { botHomeOf, createSandbox, sessionIn } from './helpers/cli.js';
+import { addSession } from './helpers/permissions.js';
 import { botYamlOf } from './helpers/skills.js';
 
 // ----------------------------------------------------------------- the fleet
@@ -170,12 +171,13 @@ test('AC2 every key the kit knows, at the top and in sessions, gives no config f
   const home = botHomeOf(bots, 'api-bot');
   await writeFile(path.join(home, 'duty.md'), 'Do the nightly run.\n');
   // Through the kit, so every value is one the kit takes.
-  for (const settings of [
-    ['--name', 'nightly', '--harness', 'claude', '--model', 'opus', '--effort', 'high', '--context', '1m',
+  // The approval through `obk permission approval`, since #527.
+  for (const [name, ...settings] of [
+    ['nightly', '--harness', 'claude', '--model', 'opus', '--effort', 'high', '--context', '1m',
       '--approval', 'ask', '--prompt-file', 'duty.md', '--work-dir', bots, '--extra-arg=--verbose'],
-    ['--name', 'brief', '--harness', 'claude', '--prompt', 'Say what changed.'],
+    ['brief', '--harness', 'claude', '--prompt', 'Say what changed.'],
   ]) {
-    const added = await box.run(['session', 'add', '--bots', 'bots', '--bot', 'api-bot', ...settings]);
+    const added = await addSession(box, { bot: 'api-bot', name, settings });
     assert.equal(added.code, 0, added.stderr);
   }
   // `paused` at both levels, the one known key the commands above do not write.
@@ -188,7 +190,8 @@ test('AC2 every key the kit knows, at the top and in sessions, gives no config f
   const written = parse(await readFile(botYamlOf(bots, 'api-bot'), 'utf8'));
   assert.deepEqual(
     Object.keys(written).sort(),
-    ['charter', 'harness', 'name', 'paused', 'rules', 'sessions', 'skills'],
+    // `allow` since #527: bot create writes the kit's default rules into it.
+    ['allow', 'charter', 'harness', 'name', 'paused', 'rules', 'sessions', 'skills'],
     'the file under test holds every top-level key the kit knows',
   );
   assert.deepEqual(
