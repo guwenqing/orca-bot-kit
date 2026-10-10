@@ -6,8 +6,9 @@
 // (helpers/permissions.js spells it from the requirement) is one rule per kit
 // command a bot runs, narrowed to this bots folder and to the kit's own CLI,
 // reading a long message's body beside the bots folder, the commit rule, and
-// Orca's orchestration check. `init`, `retire`, `pause` and the three
-// `permission` commands are never in it, and no broad rule is. A bot that runs
+// Orca's orchestration check. `init`, `retire`, `pause`, the three
+// `permission` commands, and since #548 `restart` and `bot create`, are never
+// in it, and no broad rule is. A bot that runs
 // only on Codex gets the set without the Read rule, in Codex's own form in
 // `.codex/rules/obk.rules`. A bot runs on Claude when its harness is `claude`
 // or any of its sessions says `harness: claude`, and on Codex the same way with
@@ -109,7 +110,8 @@ test('D0 the set as the tests spell it: every kit command but the kept-back ones
   const box = { cli: '/x/bin/obk' };
   const rules = defaultRules(box, '/x/bots');
   assert.equal(new Set(rules).size, rules.length, 'each rule once');
-  assert.equal(KIT_COMMANDS.length, 36);
+  // #548 R1: 34 commands, restart and bot create no longer among them (#527 had 36).
+  assert.equal(KIT_COMMANDS.length, 34);
   for (const command of NOT_DEFAULT_COMMANDS) {
     assert.ok(!rules.includes(kitRule(box, '/x/bots', command)), `${command} is not in the set`);
   }
@@ -231,7 +233,7 @@ test('D3 init --harness codex writes Bot Father the set without the Read rule, i
 // ----------------------------------------------------------------- what is never in it
 
 for (const [label, harness] of [['a Claude bot', 'claude'], ['a Codex bot', 'codex']]) {
-  test(`D4 ${label} is given no rule for init, retire, pause or the permission commands, and nothing broad`, async (t) => {
+  test(`D4 ${label} is given no rule for init, retire, pause, the permission commands, restart or bot create, and nothing broad`, async (t) => {
     const box = await createSandbox(t);
     const bots = await seeded(box);
     await makeBot(box, 'api-bot', harness, [['daily']]);
