@@ -141,15 +141,19 @@ words, `dangerously-skip`
 ([ADR 0015](docs/adr/0015-three-approval-levels-auto-by-default.md)). Only
 `obk permission approval` changes it, after your yes: `session add` and
 `session change` take no approval, and refuse an extra argument that sets one
-([ADR 0037](docs/adr/0037-permission-changes-and-risky-operations-have-commands-of-their-own.md)).
+([ADR 0041](docs/adr/0041-permission-changes-and-risky-operations-have-commands-of-their-own.md)).
 
 Every bot gets the kit's default permission rules, written by the kit with
 nobody asked: its own commands for this bots folder, reading a long message,
 `git add` and `git commit`, and Orca's `orca orchestration check --run`
 ([ADR 0036](docs/adr/0036-the-kit-writes-every-bots-default-permission-rules.md)).
-`obk permission`, `obk retire`, `obk pause` and `obk init` are not in the set,
-and keep your yes. A rule beyond the set is written by `obk permission allow`,
-after your yes to the exact rule.
+`obk permission`, `obk retire`, `obk pause`, `obk restart`, `obk bot create`
+and `obk init` are not in the set, and keep your yes
+([ADR 0041](docs/adr/0041-permission-changes-and-risky-operations-have-commands-of-their-own.md)).
+A rule beyond the set is written by `obk permission allow`, after your yes to
+the exact rule. A bot that still holds the `obk restart` or `obk bot create`
+rule, which kit 0.26.0 gave every bot, keeps it: `obk rules build` and `obk up`
+name it, with the `obk permission disallow` command that takes it back.
 
 Neither command touches Orca. `obk up` is what makes it all real there: an Orca
 project per bot, a tab per session, each started at the bot home with its own
