@@ -643,13 +643,14 @@ npm run mutate                # the mutation audit, on what your branch changed
 
 The tests come in two layers, and every test file belongs to one of them.
 
-`npm test` is `test/*.test.js`: unit tests and end-to-end runs of the CLI in a
-throwaway folder, with a fake `orca` on PATH. It needs nothing but Node, so
-[GitHub Actions](.github/workflows/ci.yml) runs it on every pull request, split
-into shards that run side by side, on Node 25.8.0, the current line. A release
-runs every shard on 25.8.0 and again on 24.21.0, the floor `engines.node`
-promises users, with only the kit's own dependencies installed, before anything
-is published.
+`npm test` is `test/*.test.js` and `test/dev/*.test.js`: unit tests and
+end-to-end runs of the CLI in a throwaway folder, with a fake `orca` on PATH. It
+needs nothing but Node, so [GitHub Actions](.github/workflows/ci.yml) runs it on
+every pull request, split into shards that run side by side, on Node 25.8.0, the
+current line. A release runs every shard on 25.8.0 and again on 24.21.0, the
+floor `engines.node` promises users, with only the kit's own dependencies
+installed, before anything is published. The floor leaves out `test/dev/`, the
+tests that need a development tool.
 
 `npm run test:system` is `test/system/*.test.js`: the real `obk` against the
 real Orca and the real harnesses on your own machine. No CI runner can do that,

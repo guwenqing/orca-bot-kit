@@ -24,6 +24,7 @@
 // codex-hooks-only-the-kits.test.js checks `trustedHash` against the one real
 // entry the brief gives.
 
+import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -110,6 +111,31 @@ export const escapedTomlString = (text) => tomlString(text)
 export const escapedTrustTablesFor = (entries) => entries
   .map(({ key, hash }) => `[hooks.state.${escapedTomlString(key)}]\ntrusted_hash = ${tomlString(hash)}\n`)
   .join('\n');
+
+/**
+ * The forms of one trust entry, `{ key, hash }`, other than the usual table,
+ * with the key written with TOML's Unicode escapes: each is trust to Codex,
+ * and none is a form the kit reads.
+ */
+export const ESCAPED_OTHER_FORMS = {
+  'an inline table, hooks.state = { "<key>" = { trusted_hash = … } }':
+    ({ key, hash }) => `hooks.state = { ${escapedTomlString(key)} = { trusted_hash = ${JSON.stringify(hash)} } }\n`,
+  'a key line under a [hooks.state] table':
+    ({ key, hash }) => `[hooks.state]\n${escapedTomlString(key)} = { trusted_hash = ${JSON.stringify(hash)} }\n`,
+  'a dotted key under a [hooks] table':
+    ({ key, hash }) => `[hooks]\nstate.${escapedTomlString(key)}.trusted_hash = ${JSON.stringify(hash)}\n`,
+};
+
+/** config.toml tables trusting each `{ key, hash }`, each key a TOML literal string, '<key>', which keeps backslashes as they are. */
+export const literalTrustTablesFor = (entries) => entries
+  .map(({ key, hash }) => {
+    assert.ok(!key.includes("'"), `a literal string cannot hold a ': ${key}`);
+    return `[hooks.state.'${key}']\ntrusted_hash = ${JSON.stringify(hash)}\n`;
+  })
+  .join('\n');
+
+/** A `-c` value that trusts one hook, `{ key, hash }`, as Codex reads its session flags. */
+export const hookStateFlag = ({ key, hash }) => `hooks.state={${JSON.stringify(key)}={trusted_hash=${JSON.stringify(hash)}}}`;
 
 /** Write `text` as the config.toml in Codex's folder `dir`: `<home>/.codex`, or what CODEX_HOME names. */
 export async function writeCodexConfig(dir, text) {

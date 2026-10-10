@@ -4,8 +4,9 @@
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { readFile, readdir } from 'node:fs/promises';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
+import { isBuiltin } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -102,10 +103,15 @@ const setupNodeOf = (job) => stepsOfJob(job).find((step) => String(step?.uses ??
 // keeps a second script, `test:shard`, that takes the shard from SHARD, and a
 // workflow sets SHARD and runs that. The workflows hold no list of files of
 // their own that could drift from package.json's.
+//
+// The floor (#533) installs only what a user installs, so it runs a third
+// script, `test:floor`: the shard SHARD names of the suite less test/dev/,
+// whose tests need the dev dependencies. Pull requests run test/dev/ too.
 
 /**
  * The ways a step runs the suite package.json defines, one entry each: `npm
- * test` is the whole suite, `npm run test:shard` the one shard SHARD names.
+ * test` is the whole suite, `npm run test:shard` the one shard SHARD names,
+ * and `npm run test:floor` the floor's shard SHARD names, marked `floor: true`.
  * `shard` is what SHARD is set to, in front of the command or in the step's,
  * job's or workflow's `env`, and undefined where nothing sets it. A command
  * counts only where it starts a line: `echo npm test` runs nothing.
@@ -122,9 +128,10 @@ function suiteCommandsIn(step, job = {}, doc = {}) {
     const at = words.indexOf('npm');
     if (at < 0 || !words.slice(0, at).every((word) => /^[A-Za-z_]\w*=/.test(word))) continue;
     if (words[at + 1] === 'test') found.push({ whole: true });
-    if (words[at + 1] === 'run' && words[at + 2] === 'test:shard') {
+    if (words[at + 1] === 'run' && (words[at + 2] === 'test:shard' || words[at + 2] === 'test:floor')) {
       const inline = words.slice(0, at).map((word) => /^SHARD=(.*)$/.exec(word)?.[1]).find((value) => value !== undefined);
-      found.push({ whole: false, shard: inline ?? step.env?.SHARD ?? job?.env?.SHARD ?? doc?.env?.SHARD });
+      const shard = inline ?? step.env?.SHARD ?? job?.env?.SHARD ?? doc?.env?.SHARD;
+      found.push(words[at + 2] === 'test:floor' ? { whole: false, shard, floor: true } : { whole: false, shard });
     }
   }
   return found;
@@ -427,7 +434,7 @@ function suiteRunsIn(doc) {
             id,
             leg,
             node,
-            problem: `${id} ${JSON.stringify(matrix)} runs \`npm run test:shard\` with SHARD`
+            problem: `${id} ${JSON.stringify(matrix)} runs \`npm run ${command.floor ? 'test:floor' : 'test:shard'}\` with SHARD`
               + ` ${command.shard === undefined ? 'unset' : `\`${command.shard}\``}, not <index>/<total>`,
           };
         }
@@ -667,6 +674,95 @@ test('package.json\'s test:shard runs the files its test script runs, as the sha
 
   assert.equal(shardScriptProblem(scripts.test, scripts['test:shard']), undefined,
     `test:shard should be \`node --test --test-shard=$SHARD\` over the test script's files: ${shardScriptProblem(scripts.test, scripts['test:shard'])}`);
+});
+
+test('the check for the suite sees npm run test:floor with its SHARD as the floor\'s shard, and nothing like it', () => {
+  const commands = (run, env) => suiteCommandsIn({ run, env });
+
+  assert.deepEqual(commands('npm run test:floor', { SHARD: '${{ matrix.shard }}/9' }), [{ whole: false, shard: '${{ matrix.shard }}/9', floor: true }], 'SHARD from env');
+  assert.deepEqual(commands('npm ci --omit=dev\nSHARD=2/3 npm run test:floor'), [{ whole: false, shard: '2/3', floor: true }], 'SHARD in front of the command, on a later line');
+  assert.deepEqual(suiteCommandsIn({ run: 'npm run test:floor' }, { env: { SHARD: '4/9' } }), [{ whole: false, shard: '4/9', floor: true }], 'SHARD from the job');
+  assert.deepEqual(commands('npm run test:floor'), [{ whole: false, shard: undefined, floor: true }], 'SHARD set nowhere');
+
+  for (const run of ['npm run test:floors', 'npm run test:flo', 'echo npm run test:floor', 'npm run floor']) {
+    assert.deepEqual(commands(run), [], `should not be seen: ${run}`);
+  }
+});
+
+/** Where the tests live that need the dev dependencies: the floor does not run them (#533). */
+const DEV_TESTS = 'test/dev/';
+
+/** The files a `node --test` script hands Node, as globs. */
+const globsOf = (script) => script.trim().split(/\s+/).slice(1).filter((word) => !word.startsWith('-'));
+
+/** The package.json script a suite command runs. */
+const scriptOf = (command) => {
+  if (command.whole) return 'test';
+  return command.floor ? 'test:floor' : 'test:shard';
+};
+
+/**
+ * Why a `test:floor` script does not run the shard SHARD names of exactly what
+ * the `test` script runs less test/dev/: undefined when it does. It is held to
+ * the test script as test:shard is, so the floor cannot drift from the suite.
+ */
+function floorScriptProblem(testScript, floorScript) {
+  if (typeof floorScript !== 'string') return 'there is no test:floor script';
+  const lessDev = testScript.trim().split(/\s+/).filter((word) => !word.startsWith(DEV_TESTS)).join(' ');
+  return shardScriptProblem(lessDev, floorScript);
+}
+
+test('the check for test:floor sees it run test/dev/, drift from the test script, or take its shard where Node ignores it', () => {
+  const script = 'node --test test/*.test.js test/dev/*.test.js';
+
+  assert.equal(floorScriptProblem(script, 'node --test --test-shard=$SHARD test/*.test.js'), undefined);
+  assert.equal(floorScriptProblem(script, 'node --test --test-shard="${SHARD}" test/*.test.js'), undefined, 'quoted and braced');
+
+  for (const floor of [
+    undefined,
+    'node --test --test-shard=$SHARD test/*.test.js test/dev/*.test.js',
+    'node --test --test-shard=$SHARD test/dev/*.test.js',
+    'node --test --test-shard=$SHARD',
+    'node --test test/*.test.js',
+    'node --test test/*.test.js --test-shard=$SHARD',
+    'node --test --test-shard=1/9 test/*.test.js',
+    'node --test --test-shard=$SHARD test/*.test.js test/system/*.test.js',
+    'node --test --test-shard=$SHARD --test-name-pattern=cli test/*.test.js',
+    'npm run test:shard',
+  ]) {
+    assert.notEqual(floorScriptProblem(script, floor), undefined, `should be seen: ${floor}`);
+  }
+});
+
+test('package.json\'s test:floor runs the files its test script runs less test/dev/, as the shard SHARD names', async () => {
+  // The floor installs what a user installs and nothing else (#533). Its
+  // script is the test script less the tests that need the dev dependencies,
+  // plus the shard flag, so no other file drops out of the floor's run.
+  const { scripts } = await readPackage();
+
+  assert.equal(floorScriptProblem(scripts.test, scripts['test:floor']), undefined,
+    `test:floor should be \`node --test --test-shard=$SHARD\` over the test script's files less ${DEV_TESTS}: ${floorScriptProblem(scripts.test, scripts['test:floor'])}`);
+});
+
+test('pull requests run test/dev/ too: every test file there is in what each CI job that runs the suite runs', async () => {
+  // test/dev/ holds tests the floor cannot run (#533). Pull requests are where
+  // they run, so a job there that ran only the floor's files would drop them.
+  const pkg = await readPackage();
+  const ci = await ciWorkflow();
+  const devFiles = (await repoFiles()).filter((rel) => rel.startsWith(DEV_TESTS) && rel.endsWith('.test.js'));
+  assert.ok(devFiles.length > 0, `there should be test files under ${DEV_TESTS} to check`);
+
+  const missed = [];
+  for (const [id, job] of Object.entries(ci.jobs).filter(([, entry]) => runsTheSuite(entry))) {
+    for (const command of stepsOfJob(job).flatMap((step) => suiteCommandsIn(step, job, ci))) {
+      const name = scriptOf(command);
+      const script = pkg.scripts[name];
+      assert.equal(typeof script, 'string', `${id} runs the ${name} script, and package.json has none`);
+      const globs = globsOf(script).map(globToRegExp);
+      for (const file of devFiles.filter((rel) => !globs.some((glob) => glob.test(rel)))) missed.push(`${id} (${name}) does not run ${file}`);
+    }
+  }
+  assert.deepEqual(missed, [], `pull requests should run every test under ${DEV_TESTS}:\n  ${missed.join('\n  ')}`);
 });
 
 test('pull requests run the suite, and no workflow runs it on a push', async () => {
@@ -948,6 +1044,65 @@ test('the floor engines.node promises is still checked before every release: pub
   await releaseRunsEveryShardOn(await engineFloor(), 'the floor');
 });
 
+/**
+ * The files a workflow runs on Node `floor`, out of `files` (paths relative to
+ * the repo): what the package.json scripts that its jobs on that Node run hand
+ * `node --test`. Read from the workflow, so no list kept here can drift from it.
+ */
+function floorTestFiles(doc, pkg, files, floor) {
+  const scripts = new Set();
+  for (const job of jobsOf(doc).filter((entry) => nodeVersionsOf(entry).map(String).includes(floor))) {
+    for (const command of stepsOfJob(job).flatMap((step) => suiteCommandsIn(step, job, doc))) scripts.add(scriptOf(command));
+  }
+  assert.ok(scripts.size > 0, `no job runs the suite on the floor ${floor}`);
+  const globs = [...scripts].flatMap((name) => {
+    const script = pkg.scripts?.[name];
+    assert.equal(typeof script, 'string', `a job on the floor ${floor} runs the ${name} script, and package.json has none`);
+    return globsOf(script).map(globToRegExp);
+  });
+  return files.filter((rel) => globs.some((glob) => glob.test(rel)));
+}
+
+test('the check for the floor\'s files reads them from the scripts the jobs on the floor Node run, and from no other job', () => {
+  const setup = (node) => ({ uses: 'actions/setup-node@x', with: { 'node-version': node } });
+  const legs = { matrix: { shard: [1, 2, 3] } };
+  const release = (floorRun) => ({
+    jobs: {
+      test: { strategy: legs, steps: [setup('25.8.0'), { run: 'npm ci' }, { run: 'npm run test:shard', env: { SHARD: '${{ matrix.shard }}/3' } }] },
+      floor: { strategy: legs, steps: [setup('24.21.0'), { run: 'npm ci --omit=dev' }, { run: floorRun, env: { SHARD: '${{ matrix.shard }}/3' } }] },
+      publish: { needs: ['test', 'floor'], steps: [{ run: 'npm publish' }] },
+    },
+  });
+  const pkg = {
+    scripts: {
+      test: 'node --test test/*.test.js test/dev/*.test.js',
+      'test:shard': 'node --test --test-shard=$SHARD test/*.test.js test/dev/*.test.js',
+      'test:floor': 'node --test --test-shard=$SHARD test/*.test.js',
+    },
+  };
+  const files = ['src/cli.js', 'test/a.test.js', 'test/b.test.js', 'test/dev/c.test.js', 'test/helpers/d.js', 'test/system/e.test.js'];
+
+  assert.deepEqual(floorTestFiles(release('npm run test:floor'), pkg, files, '24.21.0'), ['test/a.test.js', 'test/b.test.js'], 'the floor job runs test:floor');
+  assert.deepEqual(floorTestFiles(release('npm run test:shard'), pkg, files, '24.21.0'), ['test/a.test.js', 'test/b.test.js', 'test/dev/c.test.js'], 'the floor job runs test:shard');
+  assert.deepEqual(floorTestFiles(release('npm test'), pkg, files, '24.21.0'), ['test/a.test.js', 'test/b.test.js', 'test/dev/c.test.js'], 'the floor job runs npm test');
+  assert.throws(() => floorTestFiles(release('npm run test:floor'), { scripts: { test: pkg.scripts.test } }, files, '24.21.0'), /test:floor/, 'no test:floor script');
+  assert.throws(() => floorTestFiles(release('npm run test:floor'), pkg, files, '22.0.0'), /22\.0\.0/, 'no job on that Node');
+});
+
+test('on the floor, publish.yml runs every file of the suite but those under test/dev/', async () => {
+  // The floor still checks the whole promise to users (#364), less only the
+  // tests that need the dev dependencies a user does not install (#533).
+  const pkg = await readPackage();
+  const files = await repoFiles();
+  const suite = testGlobsOf(pkg).map(globToRegExp);
+  const want = files.filter((rel) => suite.some((glob) => glob.test(rel)) && !rel.startsWith(DEV_TESTS));
+  assert.ok(want.length > 0, 'the suite should have files the floor runs');
+  const floor = await engineFloor();
+
+  assert.deepEqual(floorTestFiles(await publishWorkflow(), pkg, files, floor), want,
+    `publish.yml should run on the floor ${floor} the files of package.json's test script, less those under ${DEV_TESTS}`);
+});
+
 test('a release also runs every shard of the suite on the Node pull requests run on, and the publish job needs them all', async () => {
   // The same Node a pull request was checked on, against the commit the release
   // points at: a merge into a main no pull request ran against is caught here.
@@ -1200,5 +1355,169 @@ test('every system test takes its `test` from test/helpers/system.js, and none l
     [],
     'these run against the real Orca however they are loaded, not only under `npm run test:system -- --yes`;'
     + ` import test from the helper instead:\n  ${found.join('\n  ')}`,
+  );
+});
+
+// What the floor needs (#533): the release's floor job installs only what a
+// user installs, `npm ci --omit=dev`, and runs the test files its script
+// names. A file there that imports a dev dependency fails to load, and only
+// the release finds out, since pull requests do not run the floor. So this
+// reads, in every pull request, each file the floor runs and every file it
+// reaches through a relative import, and finds each package one of them
+// imports statically that is neither Node's own nor in `dependencies`. An
+// `import()` at run time is left alone: a file can check that a package is
+// there before it loads it (test-system.test.js does, for smol-toml).
+
+// V8 reads the imports, not a pattern over the text (review of #533): a
+// child Node parses each file as a module, `vm.SourceTextModule`, and lists
+// its `moduleRequests`. Parsing runs none of the file. The class needs
+// --experimental-vm-modules, so it runs in a child, whose warning about the
+// flag stays in the child's stderr.
+const STATIC_IMPORTS = `
+const { readFileSync } = require('node:fs');
+const vm = require('node:vm');
+const found = {};
+for (const file of JSON.parse(readFileSync(0, 'utf8'))) {
+  const module = new vm.SourceTextModule(readFileSync(file, 'utf8'), { identifier: file });
+  found[file] = module.moduleRequests.map((request) => request.specifier);
+}
+process.stdout.write(JSON.stringify(found));
+`;
+
+/**
+ * Every specifier each of `files` (absolute paths) imports statically, as
+ * Node parses it: `import … from`, `import '…'` and `export … from`, and not
+ * `import(…)`, which runs only when the code does. A file that does not parse
+ * fails the check, naming the file.
+ */
+function staticImportsOf(files) {
+  if (files.length === 0) return {};
+  const done = spawnSync(process.execPath, ['--experimental-vm-modules', '-e', STATIC_IMPORTS], {
+    input: JSON.stringify(files),
+    encoding: 'utf8',
+    timeout: 60_000,
+  });
+  assert.equal(done.status, 0, `the files' imports could not be read:\n${done.stderr}`);
+  return JSON.parse(done.stdout);
+}
+
+/** The package a bare specifier names: `yaml/util` is yaml, `@scope/name/x` is @scope/name. */
+const packageOf = (specifier) => specifier.split('/').slice(0, specifier.startsWith('@') ? 2 : 1).join('/');
+
+/**
+ * Each `{ file, package }` where a file that `entries` reach (paths relative to
+ * `root`, followed through relative imports) imports a package that is neither
+ * one of Node's own modules nor one of `dependencies`. Only JavaScript files
+ * are read: a JSON file imports nothing. A relative import of a file that is
+ * not there is left to Node, which fails to load it anywhere.
+ */
+async function importsBeyond(root, entries, dependencies) {
+  const seen = new Set();
+  const found = [];
+  // One child Node for each step out from the entries, not one for each file.
+  for (let next = [...new Set(entries)]; next.length > 0;) {
+    for (const rel of next) seen.add(rel);
+    const read = next.filter((rel) => /\.m?js$/.test(rel) && existsSync(path.join(root, rel)));
+    const imports = staticImportsOf(read.map((rel) => path.join(root, rel)));
+    const reached = [];
+    for (const rel of read) {
+      for (const specifier of imports[path.join(root, rel)]) {
+        if (specifier.startsWith('./') || specifier.startsWith('../')) {
+          reached.push(path.relative(root, path.resolve(root, path.dirname(rel), specifier)).split(path.sep).join('/'));
+        } else if (!isBuiltin(specifier) && !dependencies.includes(packageOf(specifier))) {
+          found.push({ file: rel, package: packageOf(specifier) });
+        }
+      }
+    }
+    next = [...new Set(reached)].filter((rel) => !seen.has(rel));
+  }
+  return found;
+}
+
+test('the check for what the floor needs sees a dev dependency imported by a floor file, or by a file it reaches, and passes one that needs only what a user installs', async (t) => {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'obk-floor-imports-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const files = {
+    // Imports a dev dependency itself.
+    'test/direct.test.js': "import assert from 'node:assert/strict';\nimport { parse } from 'smol-toml';\n",
+    // Reaches one through a helper, which reaches another through src/.
+    'test/through.test.js': "import test from 'node:test';\n\nimport { parse } from './helpers/toml.js';\n",
+    'test/helpers/toml.js': "import fs from 'fs';\nimport {\n  parse,\n} from 'smol-toml';\n\nexport { lib } from '../../src/lib.js';\nexport { parse };\n",
+    'src/lib.js': "export * from '@scope/dev-thing/sub';\nexport const lib = 1;\n",
+    // Needs only Node and the dependencies; names smol-toml only where nothing loads it statically.
+    'test/clean.test.js': [
+      "import { readFile } from 'node:fs/promises';",
+      "import os from 'os';",
+      "import test from 'node:test';",
+      "import YAML, { parse } from 'yaml';",
+      "import { isMap } from 'yaml/util';",
+      "import './helpers/clean.js';",
+      "// import { parse } from 'smol-toml';",
+      '/*',
+      "import { parse } from 'smol-toml';",
+      '*/',
+      "const said = \"import { parse } from 'smol-toml'\";",
+      "const where = import.meta.resolve('smol-toml');",
+      "test('loads it at run time', async () => {",
+      "  await import('smol-toml');",
+      "import('smol-toml');",
+      '});',
+      '',
+    ].join('\n'),
+    'test/helpers/clean.js': "export { stringify } from 'yaml';\nexport const ok = 1;\n",
+    // Import dev dependencies, and are reached by no file the floor runs.
+    'test/dev/premises.test.js': "import { parse } from 'smol-toml';\n",
+    'test/helpers/unused.js': "import { parse } from 'smol-toml';\n",
+    // Read as Node reads them (review of #533): two imports on one line, an
+    // import between strings that hold comment marks, and import text that is
+    // only a template literal's.
+    'test/one-line.test.js': "import assert from 'node:assert/strict'; import { parse } from 'smol-toml';\n",
+    'test/marks-in-strings.test.js': "const open = '/*';\nimport { parse } from 'smol-toml';\nconst close = '*/';\n",
+    'test/in-template.test.js': "import test from 'node:test';\nconst fixture = `\nimport { parse } from 'smol-toml';\n`;\ntest('fixture text', () => {});\n",
+  };
+  for (const [rel, text] of Object.entries(files)) {
+    await mkdir(path.dirname(path.join(root, rel)), { recursive: true });
+    await writeFile(path.join(root, rel), text);
+  }
+  const byFile = (left, right) => (left.file < right.file ? -1 : 1);
+
+  assert.deepEqual(await importsBeyond(root, ['test/clean.test.js'], ['yaml']), [], 'the clean file');
+  assert.deepEqual(await importsBeyond(root, ['test/direct.test.js'], ['yaml']), [{ file: 'test/direct.test.js', package: 'smol-toml' }], 'a direct import');
+  assert.deepEqual((await importsBeyond(root, ['test/through.test.js'], ['yaml'])).sort(byFile), [
+    { file: 'src/lib.js', package: '@scope/dev-thing' },
+    { file: 'test/helpers/toml.js', package: 'smol-toml' },
+  ], 'through a helper, and through src/ after it');
+  assert.deepEqual((await importsBeyond(root, ['test/clean.test.js', 'test/direct.test.js', 'test/through.test.js'], ['yaml'])).sort(byFile), [
+    { file: 'src/lib.js', package: '@scope/dev-thing' },
+    { file: 'test/direct.test.js', package: 'smol-toml' },
+    { file: 'test/helpers/toml.js', package: 'smol-toml' },
+  ], 'all three together');
+  assert.deepEqual(await importsBeyond(root, ['test/direct.test.js', 'test/through.test.js'], ['yaml', 'smol-toml', '@scope/dev-thing']), [], 'the same packages, as dependencies');
+
+  const alone = (rel) => importsBeyond(root, [rel], ['yaml']);
+  assert.deepEqual({
+    'two imports on one line': await alone('test/one-line.test.js'),
+    'an import between strings that hold comment marks': await alone('test/marks-in-strings.test.js'),
+    'import text in a template literal': await alone('test/in-template.test.js'),
+  }, {
+    'two imports on one line': [{ file: 'test/one-line.test.js', package: 'smol-toml' }],
+    'an import between strings that hold comment marks': [{ file: 'test/marks-in-strings.test.js', package: 'smol-toml' }],
+    'import text in a template literal': [],
+  }, 'the static imports Node sees, and no others');
+});
+
+test('no test file the floor runs, nor any file it reaches by a relative import, statically imports a package a user does not install', async () => {
+  // The floor's files are read from publish.yml's jobs on the floor Node, and
+  // what a user installs from package.json's dependencies.
+  const pkg = await readPackage();
+  const floorFiles = floorTestFiles(await publishWorkflow(), pkg, await repoFiles(), await engineFloor());
+  assert.ok(floorFiles.length > 0, 'the floor should run test files');
+
+  const found = await importsBeyond(repoRoot, floorFiles, Object.keys(pkg.dependencies ?? {}));
+  assert.deepEqual(
+    found.map((one) => `${one.file} imports ${one.package}`),
+    [],
+    'the floor installs only package.json\'s dependencies (npm ci --omit=dev), so these fail to load there;'
+    + ` move what imports it to a test under ${DEV_TESTS}, which the floor does not run, or check for the package at run time:\n  ${found.map((one) => `${one.file} imports ${one.package}`).join('\n  ')}`,
   );
 });
