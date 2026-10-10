@@ -886,3 +886,39 @@ test('R2 a process that joins the group signalled whole during the wait, and des
   assert.deepEqual(left.map((one) => [one.session, one.cwd, one.command]), [['dev', elsewhere, 'node server.js']], `it is named once under left, with its folder and command, got: ${JSON.stringify(processes.left)}`);
   assert.match(left[0].why ?? '', /\b62001\b/, `why names the group it joined: ${left[0].why}`);
 });
+
+test('R1 a process that joins the group signalled whole during the wait with its working folder in the work dir is the session\'s own: TERM by pid, then KILL after its own wait', async (t) => {
+  const box = await createSandbox(t);
+  await devFleet(box);
+  // The review of df653f0: on TERM 62001 starts 62003 in its group, 62001,
+  // with its working folder in dev's work dir, and exits at once, so no read
+  // shows 62003 to descend from it (its parent pid is 1). Its folder makes it
+  // dev's by R1 all the same. 62003 ignores TERM.
+  await table(box, [{
+    pid: 62001,
+    ppid: 1,
+    pgid: 62001,
+    cwd: workOf(box, 'dev'),
+    command: 'node --test',
+    spawnsOnTerm: { pid: 62003, cwd: workOf(box, 'dev'), command: 'node test/worker.js', ignoresTerm: true },
+  }]);
+
+  const answer = answerIn(await retire(box, ['--session', 'dev', '--json']));
+
+  const calls = await box.kill.calls();
+  const argvs = JSON.stringify(calls.map((call) => call.args));
+  assert.deepEqual(calls[0]?.args, term(-62001), 'TERM to the group comes first');
+  const ownTerm = callOf(calls, term(62003));
+  const ownKill = callOf(calls, kill(62003));
+  assert.ok(ownTerm !== undefined, `62003 gets its own TERM, by pid, got: ${argvs}`);
+  assert.ok(ownKill !== undefined && ownKill.index > ownTerm.index, `and KILL by pid after it, got: ${argvs}`);
+  const waited = ownKill.at - ownTerm.at;
+  assert.ok(waited >= 2500, `KILL comes only after its own wait of 3 s from its own TERM; it came after ${waited} ms`);
+  const processes = processesIn(answer);
+  assert.deepEqual(
+    processes.stopped.filter((one) => one.pid === 62003).map((one) => [one.session, one.cwd, one.signal]),
+    [['dev', workOf(box, 'dev'), 'SIGKILL']],
+    `named as stopped, in the work dir, got: ${JSON.stringify(processes.stopped)}`,
+  );
+  assert.deepEqual(processes.left.filter((one) => one.pid === 62003), [], `and not under left, got: ${JSON.stringify(processes.left)}`);
+});
