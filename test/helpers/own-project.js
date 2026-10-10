@@ -23,11 +23,21 @@ const localData = () => path.join(realpathSync(fileURLToPath(new URL('../..', im
 /**
  * Remove the Orca project `setup` (an entry of `orca project setups`), when it
  * lies inside `bots`, the test's own `<tmp>/obk-system-…` or
- * `<repo>/local-data/obk-system-…` folder. Anything else fails, before
- * anything is sent to Orca. So does a delete Orca refuses.
+ * `<repo>/local-data/obk-system-…` folder, by its real path: a link there is
+ * not the run's own. Anything else fails, before anything is sent to Orca. So
+ * does a delete Orca refuses.
  */
 export function deleteOwnProject(setup, bots) {
   const places = [realpathSync(os.tmpdir()), localData()];
+  // By its real path, not its name: a link called obk-system-… leads to a
+  // folder that is not the run's own (the review of PR #552).
+  let real;
+  try {
+    real = realpathSync(bots);
+  } catch (error) {
+    assert.fail(`${bots} cannot be resolved (${error.code}), so its projects were not removed`);
+  }
+  assert.equal(real, bots, `${bots} is not its own real path (it leads to ${real}), so it is not a system test's throwaway bots folder and its projects were not removed`);
   assert.ok(
     places.includes(path.dirname(bots)) && path.basename(bots).startsWith('obk-system-'),
     `${bots} is not a system test's throwaway bots folder in ${places.join(' or ')}, so its projects were not removed`,

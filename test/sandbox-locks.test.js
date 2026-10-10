@@ -470,3 +470,85 @@ test('SK6 mail from a Codex session in its own tab, whose receiver\'s typing and
     if (tab !== developer) assert.deepEqual(sentLines, [], `nothing is typed into ${tab}`);
   }
 });
+
+// ------------------------------------------------------------- two turns of one process on one file
+
+// The review of PR #552: the lock a process holds on a file is the process's,
+// not a connection's, so closing any descriptor the process has to that file
+// lets go of every lock it holds there. A process that holds a turn on a file
+// and then takes another turn on the same file must still hold the first one:
+// another process is kept out until the first turn is let go.
+//
+// The pair: a line turn (`takeLineTurn`) is held shared on the session's
+// `lines` file, and any number can be held at once, a second one in the same
+// process included. The other process asks for the typing turn
+// (`takeTypingTurn`), which takes that same file exclusive: it waits the
+// kit's LINES_WAIT_MS (10 s) for the lines on their way, and is refused while
+// a line turn is still held.
+
+/**
+ * In a process of its own, ask for the typing turn of `home`'s daily session,
+ * wait as the kit waits, and say `got` or `refused`; a turn it got it lets go
+ * at once. It ends by itself.
+ */
+async function typingTurnElsewhere(box, home) {
+  const script = path.join(box.root, 'typing-elsewhere.mjs');
+  await writeFile(script, `${[
+    `import { takeTypingTurn } from ${JSON.stringify(bookModule)};`,
+    `const turn = takeTypingTurn(${JSON.stringify(home)}, 'daily', 0);`,
+    "process.stdout.write(turn === undefined ? 'refused' : 'got');",
+    'turn?.release();',
+  ].join('\n')}\n`);
+  const ran = await node([script], { cwd: box.cwd, env: box.env });
+  assert.equal(ran.code, 0, `the other process should have asked and ended: ${ran.stderr}`);
+  return ran.stdout;
+}
+
+for (const [label, letGo] of [
+  ['takes a second line turn and lets it go', true],
+  ['takes a second line turn and still holds it', false],
+]) {
+  test(`SK7 a process that holds a line turn and ${label} still keeps another process from the typing turn`, async (t) => {
+    const box = await createSandbox(t);
+    const bots = await fleetIn(box, [['api-bot', 'codex']], { up: false });
+    const home = botHomeOf(bots, 'api-bot');
+    assert.equal(await typingTurnElsewhere(box, home), 'got', 'the premise: with nothing held, the other process gets the typing turn');
+
+    const first = takeLineTurn(home, 'daily', 0);
+    assert.ok(first, 'the premise: the first line turn was free');
+    let other;
+    let turn;
+    try {
+      turn = takeLineTurn(home, 'daily', 0);
+      assert.ok(turn, 'the premise: a second line turn is held beside the first');
+      if (letGo) {
+        turn.release();
+        turn = undefined;
+      }
+      other = await typingTurnElsewhere(box, home);
+    } finally {
+      turn?.release();
+      first.release();
+    }
+
+    assert.equal(other, 'refused', 'while the first line turn is held, the other process does not get the typing turn: the second turn on the same file let go of the first one\'s lock');
+    assert.equal(await typingTurnElsewhere(box, home), 'got', 'and once both are let go, it does');
+  });
+}
+
+test('SK7 the control: a process that holds one line turn keeps another process from the typing turn', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await fleetIn(box, [['api-bot', 'codex']], { up: false });
+  const home = botHomeOf(bots, 'api-bot');
+
+  const first = takeLineTurn(home, 'daily', 0);
+  assert.ok(first, 'the premise: the line turn was free');
+  let other;
+  try {
+    other = await typingTurnElsewhere(box, home);
+  } finally {
+    first.release();
+  }
+
+  assert.equal(other, 'refused');
+});
