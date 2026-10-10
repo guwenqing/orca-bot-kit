@@ -29,6 +29,7 @@
 // SendMessage rule is neither required nor forbidden.
 
 import assert from 'node:assert/strict';
+import { writeFile } from 'node:fs/promises';
 import test from 'node:test';
 
 import { createSandbox, sh, shellWord, skipGit, snapshot } from './helpers/cli.js';
@@ -46,6 +47,7 @@ import {
   permissionDisallow,
   permissionBots,
   prefixRule,
+  settingsIn,
   settingsOf,
   writeAllow,
 } from './helpers/permissions.js';
@@ -334,6 +336,59 @@ test('H4 R4 in a bots folder with an apostrophe and a space, the line quotes the
   assert.equal(count(await allowOf(bots, BOT), rule), 0, 'the rule left allow');
   assert.equal(count(await allowedIn(bots, BOT), rule), 0, 'and the settings file');
 });
+
+// A harness file the kit cannot write as it expects does not hide what the
+// bot's allow holds: when allow can be read, the holds lines and `held` still
+// name both rules (the reviewer's finding on PR #549). The reproduction: the
+// settings file's `permissions.allow` set to `{}`, valid JSON of the wrong shape.
+
+/** The settings file kept as it is, but `permissions.allow` a mapping, as a hand edit might leave it. */
+async function breakSettings(bots, bot) {
+  const settings = (await settingsIn(bots, bot)) ?? {};
+  settings.permissions = { ...settings.permissions, allow: {} };
+  await writeFile(settingsOf(bots, bot), `${JSON.stringify(settings, null, 2)}\n`);
+}
+
+/** The answer of a `--json` run, parsed, whatever its exit code: the trouble may make it non-zero. */
+function answerOf(result) {
+  let answer;
+  try {
+    answer = JSON.parse(result.stdout);
+  } catch (error) {
+    return assert.fail(`--json should print JSON and nothing else, got: ${result.stdout}${result.stderr} (${error.message})`);
+  }
+  assert.ok(Array.isArray(answer.permissions), `the answer should carry a permissions list, got: ${result.stdout}`);
+  return answer;
+}
+
+// `up` is not run here: with this file it refuses the whole command, with
+// nothing on stdout and no permissions report, so it has no report to name them in.
+{
+  const args = ['rules', 'build', '--bots', 'bots', '--bot', BOT];
+  test('H4 R4 rules build of a bot whose settings file it refuses to write still names both rules its allow holds, in text and in held', async (t) => {
+    const box = await createSandbox(t);
+    const bots = await seeded(box);
+    await makeBot(box, BOT, 'claude', [['daily']]);
+    await hold(bots, BOT, heldRules(box, bots));
+    await ok(box.run(['rules', 'build', '--bots', 'bots', '--bot', BOT]));
+    await breakSettings(bots, BOT);
+
+    const plain = await box.run(args);
+    const answer = answerOf(await box.run([...args, '--json']));
+
+    // The premises: the file's trouble is reported, and allow still holds both rules.
+    assert.ok(plain.stdout.split('\n').some((line) => line.trim().startsWith(`${'refused'.padEnd(9)}  `)), `the premise: a refused line about the settings file, got:\n${plain.stdout}${plain.stderr}`);
+    const allow = await allowOf(bots, BOT);
+    for (const rule of heldRules(box, bots)) assert.equal(count(allow, rule), 1, `the premise: allow still holds ${rule}`);
+
+    // Both claims in one comparison, so a failure shows the text and the JSON together.
+    assert.deepEqual(
+      { holds: sorted(holdsLinesIn(plain.stdout)), held: sorted(heldOf(entryAt(answer, BOT, settingsOf(bots, BOT)))) },
+      { holds: sorted(heldRules(box, bots).map((rule) => heldLine(box, bots, BOT, rule))), held: sorted(heldRules(box, bots)) },
+      `one holds line for each rule allow holds, and held naming both, though the settings file was refused, got:\n${plain.stdout}${plain.stderr}`,
+    );
+  });
+}
 
 // ----------------------------------------------------------------- R5: permission disallow takes them back
 
