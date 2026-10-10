@@ -1,8 +1,8 @@
 // `obk retire` with a start-prompt file it cannot remove (#393): retire
 // finishes, and says what it left.
 //
-// The kit keeps a session's start prompt in `<bots>.prompts/<bot>.<session>.txt`,
-// beside the bots folder. Retiring a session or a whole bot removes those
+// The kit keeps a session's start prompt in `<bots>.prompts/<bot>/<session>.txt`
+// (#534), beside the bots folder. Retiring a session or a whole bot removes those
 // files, and nothing reads one of a retired session afterwards. So a file that
 // cannot be removed (seen live: EPERM under Codex's sandbox) does not stop the
 // retirement halfway: the session is retired, or the bot moved, as it would be
@@ -11,8 +11,8 @@
 // When nothing was left, there is no `promptsLeft` and no word about it. A
 // prompt file that is not there is nothing to remove, not a file left.
 //
-// A file cannot be removed when its folder cannot be written: here the prompts
-// folder is made read-only for the run and given its mode back after.
+// A file cannot be removed when its folder cannot be written: here the bot's
+// prompts folder is made read-only for the run and given its mode back after.
 
 import assert from 'node:assert/strict';
 import { chmod, readFile, stat } from 'node:fs/promises';
@@ -86,9 +86,9 @@ function stringsIn(value) {
   return [];
 }
 
-/** The folder the kit keeps start prompts in, and one session's file in it. */
-const promptsOf = (bots) => `${bots}.prompts`;
-const promptOf = (bots, session) => path.join(promptsOf(bots), `api-bot.${session}.txt`);
+/** The folder the kit keeps api-bot's start prompts in, its own beside the bots folder (#534), and one session's file in it. */
+const promptsOf = (bots) => path.join(`${bots}.prompts`, 'api-bot');
+const promptOf = (bots, session) => path.join(promptsOf(bots), `${session}.txt`);
 
 /** Why a file in a folder nobody may write cannot be removed: Node's EACCES. */
 const DENIED = /EACCES|permission denied/i;

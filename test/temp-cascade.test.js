@@ -63,9 +63,12 @@ const namesIn = async (bots, bot) => ((await readBotYaml(bots, bot)).sessions ??
 
 const exists = (file) => stat(file).then(() => true, () => false);
 
-/** Where the kit keeps start-prompt files, beside the bots folder, and one session's file there. */
-const promptsOf = (bots) => `${bots}.prompts`;
-const promptFileOf = (bots, bot, name) => path.join(promptsOf(bots), `${bot}.${name}.txt`);
+/**
+ * Where the kit keeps temp-bot's start-prompt files, its own folder beside the
+ * bots folder (#534), and one session's file there.
+ */
+const promptsOf = (bots) => path.join(`${bots}.prompts`, BOT);
+const promptFileOf = (bots, bot, name) => path.join(`${bots}.prompts`, bot, `${name}.txt`);
 
 /** Root removes a file whatever its folder's mode, so no prompt file can be left. */
 const NEEDS_A_USER = process.getuid?.() === 0

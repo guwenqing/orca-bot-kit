@@ -36,6 +36,7 @@ import {
   botHomeOf,
   createSandbox,
   fakeProgram,
+  kitAddDirs,
   orcaCallsOf,
   orcaCommand,
   orcaFlag,
@@ -149,7 +150,7 @@ test('the prompt reaches the harness byte for byte, whatever the user put in it'
 
   const { typed } = await up(box, bots);
 
-  assert.deepEqual(await argvOf(box, typed[0], fake), ['--approve-for-me', '--no-daemon', '-c', 'sandbox_workspace_write.network_access=true', '--', nasty]);
+  assert.deepEqual(await argvOf(box, typed[0], fake), ['--approve-for-me', '--no-daemon', '-c', 'sandbox_workspace_write.network_access=true', ...kitAddDirs(bots, 'prompt-bot'), '--', nasty]);
 });
 
 // A start prompt is a sentence the user wrote, and a sentence can begin with a
@@ -232,8 +233,8 @@ test('a prompt written over several lines keeps every one of them', async (t) =>
   const { typed } = await up(box, bots);
 
   const argv = await argvOf(box, typed[0], fake);
-  assert.deepEqual(argv.slice(0, 5), ['--approve-for-me', '--no-daemon', '-c', 'sandbox_workspace_write.network_access=true', '--']);
-  assert.equal(argv.length, 6, `the prompt is one argument, got: ${JSON.stringify(argv)}`);
+  assert.deepEqual(argv.slice(0, 11), ['--approve-for-me', '--no-daemon', '-c', 'sandbox_workspace_write.network_access=true', ...kitAddDirs(bots, 'prompt-bot'), '--']);
+  assert.equal(argv.length, 12, `the prompt is one argument, got: ${JSON.stringify(argv)}`);
   assert.deepEqual(
     argv.at(-1).split('\n'),
     [
@@ -262,7 +263,7 @@ test('two spaces in a prompt reach the harness as two spaces', async (t) => {
 
   const { typed } = await up(box, bots);
 
-  assert.deepEqual(await argvOf(box, typed[0], fake), ['--approve-for-me', '--no-daemon', '-c', 'sandbox_workspace_write.network_access=true', '--', spaced]);
+  assert.deepEqual(await argvOf(box, typed[0], fake), ['--approve-for-me', '--no-daemon', '-c', 'sandbox_workspace_write.network_access=true', ...kitAddDirs(bots, 'prompt-bot'), '--', spaced]);
 });
 
 test('a session with a work dir is told where it is, in a note carrying the absolute path', async (t) => {
@@ -275,8 +276,8 @@ test('a session with a work dir is told where it is, in a note carrying the abso
   const argv = await argvOf(box, typed[0], fake);
   // A work dir under the bot home brings no `--add-dir`, so the prompt is the
   // one argument after the separator, note and all in the one word.
-  assert.deepEqual(argv.slice(0, 5), ['--approve-for-me', '--no-daemon', '-c', 'sandbox_workspace_write.network_access=true', '--']);
-  assert.equal(argv.length, 6, `the prompt is one argument, got: ${JSON.stringify(argv)}`);
+  assert.deepEqual(argv.slice(0, 11), ['--approve-for-me', '--no-daemon', '-c', 'sandbox_workspace_write.network_access=true', ...kitAddDirs(bots, 'prompt-bot'), '--']);
+  assert.equal(argv.length, 12, `the prompt is one argument, got: ${JSON.stringify(argv)}`);
   const said = argv.at(-1);
   assert.ok(
     said.startsWith(`${PROMPT}\n\n`),
@@ -303,7 +304,7 @@ test('a work dir whose name has two spaces in it is named as it is', async (t) =
   const { typed } = await up(box, bots);
 
   const argv = await argvOf(box, typed[0], fake);
-  assert.equal(argv.length, 6, `the prompt is one argument, got: ${JSON.stringify(argv)}`);
+  assert.equal(argv.length, 12, `the prompt is one argument, got: ${JSON.stringify(argv)}`);
   assert.ok(
     argv.at(-1).includes(path.join(botHomeOf(bots, 'prompt-bot'), 'work', 'two  spaces')),
     `the note should name the folder that was made, got: ${JSON.stringify(argv.at(-1))}`,
@@ -346,7 +347,7 @@ test('a session with nothing to say gets a launch line with no prompt word', asy
   const { result, typed } = await up(box, bots, ['--json']);
 
   assert.deepEqual(typed, [bareLaunch(box, 'codex', 'prompt-bot', 'daily')], 'the launch line, and that is all there was to say');
-  assert.deepEqual(await argvOf(box, typed[0], fake), ['--approve-for-me', '--no-daemon', '-c', 'sandbox_workspace_write.network_access=true'], 'no empty word on the end either');
+  assert.deepEqual(await argvOf(box, typed[0], fake), ['--approve-for-me', '--no-daemon', '-c', 'sandbox_workspace_write.network_access=true', ...kitAddDirs(bots, 'prompt-bot')], 'no empty word on the end either');
   assert.equal(
     'promptReceived' in onlyTab(result),
     false,

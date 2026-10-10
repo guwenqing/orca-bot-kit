@@ -417,7 +417,7 @@ test('H5 a start-prompt file no session owns is a leftover, and a live one is no
   // than typing it into the tab.
   await botUp(box, 'api-bot', { sessions: [['daily', '--prompt', 'Watch the queue and say what you see. '.repeat(10)]] });
 
-  const live = path.join(`${bots}.prompts`, 'api-bot.daily.txt');
+  const live = path.join(`${bots}.prompts`, 'api-bot', 'daily.txt');
   assert.equal(
     (await readFile(live, 'utf8')).includes('Watch the queue'),
     true,

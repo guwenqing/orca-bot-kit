@@ -112,7 +112,7 @@ test('a start-prompt file written through the folder is the one retire through t
   await ok(box, ['session', 'add', '--bots', 'bots', '--bot', 'api-bot', '--name', 'daily',
     '--prompt', 'Watch the queue and say what you see. '.repeat(10)]);
   await ok(box, ['up', '--bots', 'bots', '--bot', 'api-bot']);
-  const prompt = path.join(box.path('bots.prompts'), 'api-bot.daily.txt');
+  const prompt = path.join(box.path('bots.prompts'), 'api-bot', 'daily.txt');
   assert.equal(await isThere(prompt), true, 'up left the duty in a file beside the folder');
 
   await ok(box, ['retire', '--bots', 'linked-bots', '--bot', 'api-bot', '--session', 'daily']);

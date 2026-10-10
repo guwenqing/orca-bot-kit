@@ -104,8 +104,8 @@ async function settingsOf(bots, bot, name) {
 
 const exists = (file) => stat(file).then(() => true, () => false);
 
-/** The start-prompt file the kit keeps for one session, beside the bots folder. */
-const promptFileOf = (bots, bot, name) => path.join(`${bots}.prompts`, `${bot}.${name}.txt`);
+/** The start-prompt file the kit keeps for one session, in its bot's folder beside the bots folder (#534). */
+const promptFileOf = (bots, bot, name) => path.join(`${bots}.prompts`, bot, `${name}.txt`);
 
 /** The environment of a command a session's harness runs in `terminal`. */
 const inTab = (box, terminal) => ({ ...box.env, ORCA_TERMINAL_HANDLE: terminal.handle, ORCA_TAB_ID: terminal.tabId, ...kitLaunchMark(box, terminal) });
@@ -438,10 +438,10 @@ const HOLD_MS = 8000;
 /**
  * Hold a bot's book lock, the way another writer of the book does, until
  * `release` is called: the file SQLite locks, beside the bots folder in
- * `<bots>.locks/<bot home's name>.lock`, taken with `BEGIN IMMEDIATE`.
+ * `<bots>.locks/<bot>/<bot home's name>.lock` (#534), taken with `BEGIN IMMEDIATE`.
  */
 async function holdBookLock(bots, bot) {
-  const file = path.join(`${bots}.locks`, `${encodeURIComponent(bot)}.lock`);
+  const file = path.join(`${bots}.locks`, bot, `${encodeURIComponent(bot)}.lock`);
   await mkdir(path.dirname(file), { recursive: true });
   const db = new DatabaseSync(file);
   db.exec('BEGIN IMMEDIATE');

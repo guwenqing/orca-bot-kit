@@ -38,7 +38,7 @@
 // What is pinned is the outcome: which tab the Run is bound to, how many Runs
 // there are, whose acks happened when, and how each command ends. The turn
 // itself is a lock the kernel holds for the process, in
-// `<bots>.locks/<bot>.<session>.mailbox.lock` beside the book's own. It is held
+// `<bots>.locks/<bot>/<bot>.<session>.mailbox.lock` beside the book's own (#534). It is held
 // directly only where holding it is the only way to make something wait.
 //
 // Each overlap is arranged through the fake Orca rather than hoped for. Nothing
@@ -65,6 +65,7 @@ import {
   sessionIn,
   sh,
   shellWord,
+  turnLockFile,
 } from './helpers/cli.js';
 
 // ---------------------------------------------------------------------------
@@ -540,8 +541,8 @@ test('#321 path 3 (check), two ups at once: A\'s message check acks nothing once
 // Who does not wait
 // ---------------------------------------------------------------------------
 
-/** The file a session's turn is taken on: beside the book's own lock, `<bots>.locks/<bot>.lock`. */
-const turnFile = (bots, bot, session) => path.join(`${bots}.locks`, `${bot}.${session}.mailbox.lock`);
+/** The file a session's turn is taken on: beside the book's own lock, in `<bots>.locks/<bot>/` (#534). */
+const turnFile = (bots, bot, session) => turnLockFile(bots, bot, session, 'mailbox');
 
 /**
  * Take one session's turn from this test process, run `body`, and let the turn

@@ -1,7 +1,7 @@
 // A session's typing turn (#480, the architect's ruling of 2026-10-04): one
 // lock per session that every kit path typing into the session's tab takes, so
 // two kit lines never land in one input line at once. It sits beside the
-// session's mailbox turn: `<bots>.locks/<bot>.<session>.typing.lock`, a SQLite
+// session's mailbox turn: `<bots>.locks/<bot>/<bot>.<session>.typing.lock` (#534), a SQLite
 // write transaction, as test/mailbox-turns.test.js holds the mailbox turn.
 // Beside it, the session's line turn, `<bot>.<session>.lines.lock`: a nudge
 // holds it shared while its line goes into the tab, so nudges do not wait on
@@ -14,8 +14,10 @@ import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
+import { turnLockFile } from './cli.js';
+
 /** The file a session's typing turn is taken on. */
-export const typingTurnFile = (bots, bot, session) => path.join(`${bots}.locks`, `${bot}.${session}.typing.lock`);
+export const typingTurnFile = (bots, bot, session) => turnLockFile(bots, bot, session, 'typing');
 
 /**
  * Take one session's typing turn from this test process, run `body`, and let
@@ -64,7 +66,7 @@ export function typingTurnHeld(bots, bot, session) {
 }
 
 /** The file a session's line turn is taken on: a nudge holds it shared while its line goes in, and the naming exclusive. */
-export const linesTurnFile = (bots, bot, session) => path.join(`${bots}.locks`, `${bot}.${session}.lines.lock`);
+export const linesTurnFile = (bots, bot, session) => turnLockFile(bots, bot, session, 'lines');
 
 /**
  * Hold one session's line turn shared from this test process, as a nudge holds
