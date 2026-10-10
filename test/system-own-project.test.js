@@ -1,0 +1,202 @@
+// The one way a system test removes its throwaway Orca projects (#536):
+// `deleteOwnProject(setup, bots)` in test/helpers/own-project.js.
+//
+// It removes a project through the kit's own `deleteProject` (src/orca.js,
+// #528), so it goes on both Orcas a system run can meet: the next release,
+// whose guard refuses a plain delete of a project with saved workspace details
+// unless `--force` is given (stablyai/orca#27172), and 1.4.223, which refuses
+// `--force` as an unknown flag. And it force-deletes only the run's own
+// projects: the project must sit strictly inside the test's throwaway bots
+// folder, `<real temp folder>/obk-system-<name>-…`, or it sends nothing and
+// fails with an AssertionError.
+//
+// Run here against the fake Orca only (test/helpers/fake-orca.js): OBK_ORCA
+// names the sandbox's fake while a test runs. The bots folders are real ones
+// under the real temp folder, because the run's-own check reads that folder.
+
+import assert, { AssertionError } from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { mkdtemp, realpath, rm } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import test from 'node:test';
+
+import { createSandbox, orcaCallsOf } from './helpers/cli.js';
+import { deleteOwnProject } from './helpers/own-project.js';
+
+/**
+ * A sandbox whose fake Orca is the one `deleteProject` talks to: OBK_ORCA names
+ * it until the test ends, and is put back as it was after.
+ */
+async function fakeOrcaFor(t) {
+  const box = await createSandbox(t);
+  const had = Object.hasOwn(process.env, 'OBK_ORCA');
+  const was = process.env.OBK_ORCA;
+  process.env.OBK_ORCA = box.orca.cli;
+  t.after(() => {
+    if (had) process.env.OBK_ORCA = was;
+    else delete process.env.OBK_ORCA;
+  });
+  return box;
+}
+
+/** A throwaway folder made the way a system test makes its bots folder, removed when the test ends. */
+async function folderIn(t, parent, prefix) {
+  const made = await realpath(await mkdtemp(path.join(parent, prefix)));
+  t.after(() => rm(made, { recursive: true, force: true }));
+  return made;
+}
+
+/** A system test's throwaway bots folder: `<real temp folder>/obk-system-<name>-…`. */
+const throwawayBots = (t) => folderIn(t, os.tmpdir(), 'obk-system-own-project-');
+
+/** Register `home` as an Orca project, as some other process would, and give back its setup as `project setups` lists it. */
+async function projectAt(box, home) {
+  const done = spawnSync(box.orca.cli, ['repo', 'add', '--path', home, '--json'], { cwd: box.cwd, env: box.env, encoding: 'utf8' });
+  assert.equal(done.error, undefined, `the fake Orca should be runnable: ${done.error?.message}`);
+  assert.equal(JSON.parse(done.stdout).ok, true, `the fake should have registered ${home}: ${done.stdout}`);
+  const setup = (await box.orca.setups()).find((one) => one.path === home);
+  assert.ok(setup !== undefined, `the fake should list a project at ${home}`);
+  return setup;
+}
+
+/** The ids of the projects Orca lists now. */
+const listedIds = async (box) => (await box.orca.setups()).map((one) => one.id);
+
+/** Every `project setup-delete` the fake was sent, as the arguments it got. */
+const deletesSent = async (box) => orcaCallsOf(await box.orca.calls(), 'project setup-delete').map((call) => call.args);
+
+// ------------------------------------------------------------- the run's own project goes, on both Orcas
+
+test('on the guarded Orca release, the run\'s own project goes, sent once with --force, and no other project is touched', async (t) => {
+  const box = await fakeOrcaFor(t);
+  const bots = await throwawayBots(t);
+  const owner = await projectAt(box, '/Users/owner/work/app');
+  const mine = await projectAt(box, path.join(bots, 'bots', 'bot-father'));
+  const other = await projectAt(box, path.join(bots, 'bots', 'coder'));
+  // The guard of stablyai/orca#27172: a plain delete of a project with saved
+  // workspace details is refused, as a throwaway project always has them.
+  await box.orca.set({ deleteGuard: {} });
+
+  await deleteOwnProject(mine, bots);
+
+  assert.deepEqual(await listedIds(box), [owner.id, other.id], 'only the project named goes');
+  assert.deepEqual(
+    await deletesSent(box),
+    [['project', 'setup-delete', '--setup', mine.id, '--force', '--json']],
+    'one delete, with --force, of that project alone',
+  );
+});
+
+test('on Orca 1.4.223, which does not know --force, the run\'s own project goes by the plain delete after the refusal', async (t) => {
+  const box = await fakeOrcaFor(t);
+  const bots = await throwawayBots(t);
+  const owner = await projectAt(box, '/Users/owner/work/app');
+  const mine = await projectAt(box, path.join(bots, 'bots', 'bot-father'));
+  await box.orca.set({ forceUnknown: true });
+
+  await deleteOwnProject(mine, bots);
+
+  assert.deepEqual(await listedIds(box), [owner.id], 'the project is gone, and the owner\'s is still there');
+  assert.deepEqual(await deletesSent(box), [
+    ['project', 'setup-delete', '--setup', mine.id, '--force', '--json'],
+    ['project', 'setup-delete', '--setup', mine.id, '--json'],
+  ], 'first with --force, refused as an unknown flag, then the plain delete');
+});
+
+test('a project directly in the bots folder is the run\'s own too', async (t) => {
+  const box = await fakeOrcaFor(t);
+  const bots = await throwawayBots(t);
+  const mine = await projectAt(box, path.join(bots, 'bots'));
+  await box.orca.set({ deleteGuard: {} });
+
+  await deleteOwnProject(mine, bots);
+
+  assert.deepEqual(await listedIds(box), []);
+});
+
+// ------------------------------------------------------------- any other refusal fails, and the project stays
+
+test('when Orca refuses the delete for any other reason, it throws with Orca\'s words, and the project stays', async (t) => {
+  const box = await fakeOrcaFor(t);
+  const bots = await throwawayBots(t);
+  const mine = await projectAt(box, path.join(bots, 'bots', 'bot-father'));
+  await box.orca.set({
+    deleteGuard: {},
+    fail: { 'project setup-delete': { code: 'runtime_error', message: 'Orca could not reach its project store' } },
+  });
+
+  await assert.rejects(
+    async () => deleteOwnProject(mine, bots),
+    /Orca could not reach its project store/,
+    'a refused delete is a failure the teardown sees, with why',
+  );
+
+  assert.deepEqual(await listedIds(box), [mine.id], 'the project is still there');
+  assert.ok((await deletesSent(box)).length > 0, 'the premise: the delete was sent and refused, not skipped');
+});
+
+test('a refusal on the guarded Orca with --force sent is not taken for 1.4.223\'s unknown flag: no plain delete follows, and it throws', async (t) => {
+  // Only "Unknown flag --force" means an Orca that does not know the flag. Any
+  // other invalid_argument is a refusal like the rest.
+  const box = await fakeOrcaFor(t);
+  const bots = await throwawayBots(t);
+  const mine = await projectAt(box, path.join(bots, 'bots', 'bot-father'));
+  await box.orca.set({
+    fail: { 'project setup-delete': { code: 'invalid_argument', message: 'The setup id is not valid', times: 1 } },
+  });
+
+  await assert.rejects(async () => deleteOwnProject(mine, bots), /The setup id is not valid/);
+
+  assert.deepEqual(await listedIds(box), [mine.id], 'the project is still there');
+  assert.deepEqual(await deletesSent(box), [['project', 'setup-delete', '--setup', mine.id, '--force', '--json']], 'one delete, and no plain one after it');
+});
+
+// ------------------------------------------------------------- a project that is not the run's own is never sent
+
+/**
+ * Each way a project is not the run's own, with the bots folder it is checked
+ * against: `bots` and the project's `home`, made by `build` from a throwaway
+ * bots folder of the run's own shape (`ours`) and the test.
+ */
+const NOT_OURS = [
+  ['the project is the bots folder itself', async (t, ours) => ({ bots: ours, home: ours })],
+  ['the project is in a sibling folder whose name starts with the bots folder\'s', async (t, ours) => ({ bots: ours, home: path.join(`${ours}-x`, 'bots', 'bot-father') })],
+  ['the project path leaves the bots folder through ..', async (t, ours) => ({ bots: ours, home: `${ours}/bots/../../owner-project` })],
+  ['the project path leaves the bots folder through .. and comes back beside it', async (t, ours) => ({ bots: ours, home: `${ours}/../${path.basename(ours)}-x/bots` })],
+  ['the project is the owner\'s, outside the temp folder', async (t, ours) => ({ bots: ours, home: '/Users/owner/work/app' })],
+  ['the project is the temp folder itself', async (t, ours) => ({ bots: ours, home: path.dirname(ours) })],
+  ['the bots folder\'s name does not start with obk-system-', async (t) => {
+    const bots = await folderIn(t, os.tmpdir(), 'obk-other-own-project-');
+    return { bots, home: path.join(bots, 'bots', 'bot-father') };
+  }],
+  ['the bots folder\'s name only contains obk-system-', async (t) => {
+    const bots = await folderIn(t, os.tmpdir(), 'x-obk-system-own-project-');
+    return { bots, home: path.join(bots, 'bots', 'bot-father') };
+  }],
+  ['the bots folder is not directly in the temp folder, though named like one', async (t, ours) => {
+    const bots = await folderIn(t, ours, 'obk-system-nested-');
+    return { bots, home: path.join(bots, 'bots', 'bot-father') };
+  }],
+  ['the bots folder is the temp folder itself', async (t) => {
+    const tmp = await realpath(os.tmpdir());
+    return { bots: tmp, home: path.join(tmp, 'obk-system-anything', 'bots') };
+  }],
+];
+
+for (const [why, build] of NOT_OURS) {
+  for (const orca of [{ deleteGuard: {} }, { forceUnknown: true }]) {
+    test(`not the run's own, so nothing is sent and it fails with an AssertionError: ${why} (${Object.keys(orca)[0]})`, async (t) => {
+      const box = await fakeOrcaFor(t);
+      const ours = await throwawayBots(t);
+      const { bots, home } = await build(t, ours);
+      const theirs = await projectAt(box, home);
+      await box.orca.set(orca);
+
+      await assert.rejects(async () => deleteOwnProject(theirs, bots), AssertionError);
+
+      assert.deepEqual(await deletesSent(box), [], 'no setup-delete at all, with --force or without');
+      assert.deepEqual(await listedIds(box), [theirs.id], 'the project is still there');
+    });
+  }
+}

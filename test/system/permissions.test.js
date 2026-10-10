@@ -208,6 +208,7 @@ import { codexTrustArgs } from '../helpers/codex-trust.js';
 import { assertSameRules, codexDefaultLines, codexDefaultRules, defaultRules, isSendMessage } from '../helpers/permissions.js';
 import { questionOn } from '../helpers/screens.js';
 import { tabGuard } from '../helpers/tab-guard.js';
+import { deleteOwnProject } from '../helpers/own-project.js';
 
 /**
  * Remove the throwaway bots folder and everything the kit or the bot made
@@ -1257,9 +1258,14 @@ for (const harness of HARNESSES) {
       // where they are, and the test fails naming the tab (#426).
       const { closed, foreign } = guard.closeOwnAt(homes);
       const held = new Set(foreign.map((one) => one.home));
+      const failedDeletes = [];
       for (const setup of allSetups()) {
         if (!homes.includes(setup.path) || before.setups.has(setup.id) || held.has(setup.path)) continue;
-        orca(['project', 'setup-delete', '--setup', setup.id]);
+        try {
+          await deleteOwnProject(setup, bots);
+        } catch (error) {
+          failedDeletes.push(`${setup.path}: ${error.message}`);
+        }
       }
       assert.deepEqual(foreign, [], `tabs this test did not create are open at its homes, so it closed only its own and left those projects and ${bots} in place`);
       await removeBotsFolderAndSiblings(bots);
@@ -1273,6 +1279,7 @@ for (const harness of HARNESSES) {
       for (const each of homes) {
         assert.deepEqual(await terminalsAfterClosing(each, closed), [], `this test left tabs behind in ${each}`);
       }
+      assert.deepEqual(failedDeletes, [], 'projects this test could not remove, left in Orca');
     });
 
     obkJson(['init', '--bots', bots, '--harness', 'claude']);
