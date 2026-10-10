@@ -1,7 +1,7 @@
 // The kit's commands, each with the flags it cannot do without, which `obk`
 // reads to parse a command line; and the two lists every command is on one of:
 // those every bot is allowed by default (#527, ADR 0036), and those kept back
-// for the user's yes (ADR 0037). A new command is on neither until someone
+// for the user's yes (ADR 0041). A new command is on neither until someone
 // puts it on one, and a test holds every command to that choice.
 
 /** The commands, and the flags each one cannot do without. */
@@ -56,8 +56,8 @@ export const COMMANDS = {
  * runs whatever its arguments say never is.
  */
 export const DEFAULT_COMMANDS = [
-  'up', 'restart', 'unpause', 'health', 'groom', 'roster', 'usage',
-  'bot create', 'bot change', 'rules build',
+  'up', 'unpause', 'health', 'groom', 'roster', 'usage',
+  'bot change', 'rules build',
   'skills add', 'skills remove', 'skills build', 'skills fetch', 'skills update', 'source add',
   'session add', 'session change', 'session clear', 'session compact',
   'message to', 'message send', 'message check',
@@ -68,7 +68,17 @@ export const DEFAULT_COMMANDS = [
 
 /**
  * The commands kept out of the default permission set, which keep the user's
- * yes (ADR 0037): the ones that change permissions, close a long-lived
- * session, or make the bots folder.
+ * yes (ADR 0041): the ones that change permissions, close a long-lived
+ * session, make the bots folder, or make a bot, which the owner leaves to Bot
+ * Father (#548).
  */
-export const KEPT_BACK = ['init', 'retire', 'pause', 'permission allow', 'permission disallow', 'permission approval'];
+export const KEPT_BACK = [
+  'init', 'retire', 'pause', 'restart', 'bot create',
+  'permission allow', 'permission disallow', 'permission approval',
+];
+
+/**
+ * The commands kit 0.26.0 gave every bot by default and that are kept back now
+ * (#548). A bot may still hold their rules, which the kit names and leaves.
+ */
+export const NO_LONGER_DEFAULT = ['restart', 'bot create'];
