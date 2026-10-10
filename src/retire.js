@@ -20,6 +20,9 @@
 // The mailbox Runs stay: Orca has no way to remove one (ADR 0035). What the
 // kit knows of mail sent to a session and not read with `obk message check`
 // is said, with who sent it, so it is not lost without a word (#509).
+//
+// What a session started in its work dir and left running is stopped once its
+// tab is closed, and named (#537): see processes.js.
 
 import { existsSync, mkdirSync, renameSync, rmSync } from 'node:fs';
 import path from 'node:path';
@@ -27,8 +30,9 @@ import path from 'node:path';
 import { readBook, tabIdsIn, updateBook } from './book.js';
 import { botDir, dropSession, readBot } from './bot.js';
 import { deleteProject, findProject, projects, reloadWindow, tabs } from './orca.js';
-import { shellWord } from './launch.js';
+import { shellWord, workDirOf } from './launch.js';
 import { fleetMember } from './pause.js';
+import { stopProcesses } from './processes.js';
 import { closeTabs, commandLine, tabsToClose } from './restart.js';
 import { unlinkSkills } from './skills.js';
 import { takeUnread } from './unread.js';
@@ -42,8 +46,11 @@ export const retiredDir = (bots) => path.join(bots, 'retired');
  * sessions it made, and theirs (#464, ADR 0033). Returns `{ bot, session,
  * closed, retiredWith }`, and `promptsLeft` when its prompt file could not be
  * removed, and `unread: { count, from }` when the kit knows of mail sent to it
- * that it did not read with `obk message check` (#509). `retiredWith` holds one `{ bot, session, maker, closed }` for each
- * session that went with it, deepest first, with its own `promptsLeft`.
+ * that it did not read with `obk message check` (#509), and `processes` when
+ * it has a work dir: what `stopProcesses` stopped and left of what it started
+ * there (#537). `retiredWith` holds one `{ bot, session, maker, closed }` for each
+ * session that went with it, deepest first, with its own `promptsLeft`,
+ * `unread` and `processes`.
  */
 export async function retireSession(bots, { bot, session }) {
   const home = fleetMember(bots, bot, 'retire', session);
@@ -54,6 +61,7 @@ export async function retireSession(bots, { bot, session }) {
   const book = readBook(home);
   const made = known.sessions.filter((one) => book.sessions[one.name]?.temporary?.maker === session);
   let closed;
+  let processes;
   try {
     for (const { name } of made) {
       const { retiredWith: theirs, ...gone } = await retireSession(bots, { bot, session: name });
@@ -61,6 +69,9 @@ export async function retireSession(bots, { bot, session }) {
     }
 
     closed = await closeTabs(home, tabsToClose(bots, bot, home, sessions, { keepless: true }), bots, bot, commandLine('retire', bots, bot, session));
+    // Only once its tab is closed: its harness starts nothing more.
+    const dir = workDirOf(sessions[0], home);
+    if (dir !== undefined) processes = await stopProcesses([{ session, dir }]);
     dropSession(bots, bot, session);
 
     const at = new Date().toISOString();
@@ -68,7 +79,8 @@ export async function retireSession(bots, { bot, session }) {
       const entry = book.sessions[session];
       if (entry === undefined) return;
       delete book.sessions[session];
-      book.retired = [...(Array.isArray(book.retired) ? book.retired : []), { name: session, ...entry, retired: at }];
+      // Its work dir, so that `obk health` can look there for what still runs (#537).
+      book.retired = [...(Array.isArray(book.retired) ? book.retired : []), { name: session, ...entry, ...(dir === undefined ? {} : { work_dir: sessions[0].work_dir }), retired: at }];
     });
   } catch (error) {
     // What already went stays gone, and is named: a retire run again finds
@@ -79,7 +91,7 @@ export async function retireSession(bots, { bot, session }) {
   const left = removePrompts([promptPath(bots, bot, session)]);
   const unread = takeUnread(home, session);
 
-  return { bot, session, closed, retiredWith, ...left, ...(unread === undefined ? {} : { unread }) };
+  return { bot, session, closed, retiredWith, ...left, ...(unread === undefined ? {} : { unread }), ...(processes === undefined ? {} : { processes }) };
 }
 
 /**
@@ -93,7 +105,13 @@ function goneBefore(session, retiredWith) {
   // Their hint of unread mail went with them, so this is the only place it is
   // said (#509 review).
   const unread = retiredWith.flatMap((gone) => (gone.unread === undefined ? [] : [` ${unreadWords(gone.unread, `${gone.bot}/${gone.session}`)}`]));
-  return `Retired along with ${session} before that, and still retired: ${names.join('; ')}.${unread.join('')}${left.join('')}`;
+  // What they left running is said here too, as the answer would have (#537).
+  const processes = retiredWith.flatMap((gone) => [
+    ...(gone.processes?.stopped ?? []).map((one) => ` Stopped pid ${one.pid} of ${gone.bot}/${gone.session} with ${one.signal}: ${one.command}.`),
+    ...(gone.processes?.left ?? []).map((one) => ` Not stopped, pid ${one.pid} in ${one.cwd ?? 'a folder lsof did not name'}: ${one.command} (${one.why}).`),
+    ...(gone.processes?.unreadable === undefined ? [] : [` The kit cannot tell what ${gone.bot}/${gone.session} left running, and stopped nothing: ${gone.processes.unreadable}.`]),
+  ]);
+  return `Retired along with ${session} before that, and still retired: ${names.join('; ')}.${unread.join('')}${processes.join('')}${left.join('')}`;
 }
 
 /**
@@ -112,9 +130,10 @@ const andList = (items) => (items.length <= 1 ? items.join('') : `${items.slice(
  * Orca's window was reloaded after that, and where the bot is now; and
  * `promptsLeft` when a prompt file could not be removed, and `unread: [{
  * session, count, from }]` for its sessions with mail the kit knows was not
- * read with `obk message check` (#509).
+ * read with `obk message check` (#509), and `processes` when one of its
+ * sessions has a work dir: what `stopProcesses` stopped and left there (#537).
  * When Orca does not confirm the project gone, it returns `{ bot, closed,
- * project, trouble }` instead, and the bot is left where it was.
+ * project, processes, trouble }` instead, and the bot is left where it was.
  */
 export async function retireBot(bots, { bot }) {
   const home = fleetMember(bots, bot, 'retire');
@@ -139,6 +158,12 @@ export async function retireBot(bots, { bot }) {
   // they are gone.
   const booked = Object.keys(readBook(home).sessions).map((name) => ({ name }));
   const closed = await closeTabs(home, tabsToClose(bots, bot, home, booked, { keepless: true }), bots, bot, commandLine('retire', bots, bot));
+  // Once their tabs are closed, and before the folder moves (#537).
+  const dirs = known.sessions.flatMap((session) => {
+    const dir = workDirOf(session, home);
+    return dir === undefined ? [] : [{ session: session.name, dir }];
+  });
+  const processes = dirs.length === 0 ? undefined : await stopProcesses(dirs);
   let windowReloaded;
   if (project !== undefined) {
     deleteProject(project.id);
@@ -150,10 +175,10 @@ export async function retireBot(bots, { bot }) {
     try {
       setups = projects();
     } catch (error) {
-      return { bot, closed, project: project.id, trouble: `Orca answered the delete of Orca project ${project.id}, and its project list could not be read afterwards, so the removal is not confirmed: ${error.message}. ${bot} was not moved. Once Orca is answering, retire ${bot} again with obk retire: it removes the project if it is still there, then finishes.` };
+      return { bot, closed, project: project.id, ...(processes === undefined ? {} : { processes }), trouble: `Orca answered the delete of Orca project ${project.id}, and its project list could not be read afterwards, so the removal is not confirmed: ${error.message}. ${bot} was not moved. Once Orca is answering, retire ${bot} again with obk retire: it removes the project if it is still there, then finishes.` };
     }
     if (setups.some((setup) => setup.id === project.id || setup.path === home)) {
-      return { bot, closed, project: project.id, trouble: `Orca answered the delete of Orca project ${project.id}, and still lists it. ${bot} was not moved. Retire ${bot} again with obk retire; if Orca still lists the project after that, remove it in Orca yourself, then retire ${bot} again.` };
+      return { bot, closed, project: project.id, ...(processes === undefined ? {} : { processes }), trouble: `Orca answered the delete of Orca project ${project.id}, and still lists it. ${bot} was not moved. Retire ${bot} again with obk retire; if Orca still lists the project after that, remove it in Orca yourself, then retire ${bot} again.` };
     }
     // Only now: Orca's window keeps a removed project in its sidebar until
     // it is rebuilt (#343).
@@ -171,7 +196,7 @@ export async function retireBot(bots, { bot }) {
   mkdirSync(retiredDir(bots), { recursive: true });
   renameSync(botDir(bots, bot), moved);
 
-  return { bot, closed, ...(project === undefined ? {} : { project: project.id, windowReloaded }), moved, ...left, ...(unread.length === 0 ? {} : { unread }) };
+  return { bot, closed, ...(project === undefined ? {} : { project: project.id, windowReloaded }), moved, ...left, ...(unread.length === 0 ? {} : { unread }), ...(processes === undefined ? {} : { processes }) };
 }
 
 /**

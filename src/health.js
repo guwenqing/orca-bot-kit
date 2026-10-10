@@ -25,9 +25,10 @@ import { bookFile, readBook, sessionIdsIn, tabIdsIn } from './book.js';
 import { botDir, botNames, botsDir, readBot, tempRoles, unknownKeys } from './bot.js';
 import { transcriptsIn } from './conversations.js';
 import { hookTrouble } from './hooks.js';
-import { bypassFlags, harnessOf, HARNESSES, isAddressOf, ownCli, sessionTrouble, SHELL_ENV, shellWord } from './launch.js';
+import { bypassFlags, harnessOf, HARNESSES, isAddressOf, ownCli, sessionTrouble, SHELL_ENV, shellWord, workDirOf } from './launch.js';
 import { frontOfTab, orcaDefaultArgs, projects, runMissing, tabs, wordsOfProcess } from './orca.js';
 import { permissionsTrouble } from './permissions.js';
+import { processesIn } from './processes.js';
 import { TAB_ENV } from './record.js';
 import { agentsTrouble, rulesStamp } from './rules.js';
 import { settingsInUse } from './settings.js';
@@ -196,7 +197,40 @@ function aboutBot(bots, name, setups, sessions) {
     ...permissionsTrouble(home, bot).map(said('config')),
     ...skillsTrouble(bots, home, bot).map(said('skill')),
     ...inOrca(bots, home, bot, setups, sessions),
+    ...leftRunning(home, bot),
   ];
+}
+
+/**
+ * What still runs in the work dir of a retired session (#537): a retire stops
+ * it, so this is one from before that, or one a retire could not stop. The
+ * book keeps a retired session's work dir; a temporary session retired before
+ * it did worked in `work/<name>`, where `obk temp make` puts it. A work dir a
+ * session in bot.yaml still uses is that session's, and not looked at.
+ */
+function leftRunning(home, bot) {
+  let book;
+  try {
+    book = readBook(home);
+  } catch {
+    // A book that cannot be read is said where the book is read.
+    return [];
+  }
+  const live = new Set(bot.sessions.map((session) => workDirOf(session, home)));
+  const dirs = [];
+  for (const entry of Array.isArray(book.retired) ? book.retired : []) {
+    const named = typeof entry?.work_dir === 'string' && entry.work_dir !== '' ? entry.work_dir : undefined;
+    const dir = workDirOf({ work_dir: named ?? (entry?.temporary === undefined ? undefined : `work/${entry.name}`) }, home);
+    if (dir === undefined || live.has(dir) || dirs.some((one) => one.dir === dir) || !existsSync(dir)) continue;
+    dirs.push({ session: entry.name, dir });
+  }
+  if (dirs.length === 0) return [];
+
+  const read = processesIn(dirs);
+  if (read.unreadable !== undefined) {
+    return [finding('process', bookFile(home), `The kit cannot tell whether anything still runs in the work dirs of ${bot.name}'s retired sessions: ${read.unreadable}.`, bot.name)];
+  }
+  return read.running.map((one) => finding('process', one.dir, `pid ${one.pid} still runs in the work dir of ${bot.name}/${one.session}, which was retired: ${one.command}. Nothing of the kit's stops it now. If it is not wanted, stop it yourself:  kill ${one.pid}`, bot.name));
 }
 
 /** A session the kit would refuse to start, in the words `up` refuses it with. */
