@@ -33,7 +33,22 @@
 //                      comes: No such process, and it leaves the table
 //   spawnsOnTerm       an entry `{ pid, cwd, command, ... }`: on its first TERM
 //                      it starts that child, whose parent and group are its
-//                      own, and the child joins the table
+//                      own unless the entry says otherwise, and the child
+//                      joins the table. The child's own marks are its own
+//   reusedAfterTerm    TERM ends it, and at once another process takes its
+//                      pid: the entry's fields (`pgid`, `uid`, `cwd`,
+//                      `command`, `startedAt`, ...) over the old process's,
+//                      parent pid 1, none of the old one's marks, and a start
+//                      time an hour after the old one's unless the entry
+//                      gives one. A pid the system gave out again, which the
+//                      kit must not take for the old one
+//   commandOnTerm      a command line: on TERM the process takes it, as a
+//                      program that renames itself, and keeps its pid and
+//                      start time. With `ignoresTerm` it runs on under it
+//
+// A process that leaves the table leaves its children to pid 1, as the
+// system does: their parent pid becomes 1. The fake ps can end a process too,
+// by `exitsAtRead` (helpers/fake-ps.js).
 //
 // A process of another uid is one the user may not signal: Operation not
 // permitted, as `refuses`. A group signal reaches every process in the group
@@ -95,7 +110,11 @@ export function runKill() {
   };
   const drop = (rows) => {
     const gone = new Set(rows.map((row) => row.entry));
+    const pids = new Set(rows.map((row) => row.pid));
     state.processes = (state.processes ?? []).filter((entry) => !gone.has(entry));
+    for (const entry of state.processes) {
+      if (pids.has(entry.ppid)) entry.ppid = 1;
+    }
   };
 
   if (ghosts.length > 0) drop(ghosts);
@@ -112,8 +131,10 @@ export function runKill() {
   }
 
   const exited = [];
+  const reused = [];
   for (const row of allowed) {
     const { entry } = row;
+    if (args[1] === 'TERM' && entry.commandOnTerm !== undefined) entry.command = entry.commandOnTerm;
     if (entry.unkillable === true || row.stat.startsWith('Z')) continue;
     if (args[1] === 'KILL') {
       exited.push(row);
@@ -127,9 +148,15 @@ export function runKill() {
       entry.spawned = true;
       state.processes.push({ ppid: entry.pid, pgid: entry.pgid ?? entry.pid, ...entry.spawnsOnTerm });
     }
+    if (entry.reusedAfterTerm !== undefined) {
+      exited.push(row);
+      reused.push({ pid: entry.pid, ppid: 1, startedAt: row.startedAt + 3600000, ...entry.reusedAfterTerm });
+      continue;
+    }
     if (entry.ignoresTerm !== true) exited.push(row);
   }
   drop(exited);
+  state.processes.push(...reused);
   save();
   process.exit(0);
 }

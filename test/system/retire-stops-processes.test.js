@@ -63,6 +63,7 @@
 
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
+import { once } from 'node:events';
 import { existsSync, readFileSync } from 'node:fs';
 import { mkdtemp, readdir, realpath, rm } from 'node:fs/promises';
 import os from 'node:os';
@@ -207,6 +208,20 @@ const alive = (one) => (one.child !== undefined
   ? one.child.exitCode === null && one.child.signalCode === null
   : running(one.pid)?.command === one.command);
 
+/**
+ * How long the teardown gives node to see a child of the test's end before it
+ * takes the child for one that still runs. A child the kit stopped has exited,
+ * and node sets its exit code only when its own event loop takes the exit; the
+ * test can reach its teardown before that (the review of PR #537).
+ */
+const EXIT_MS = 2000;
+
+/** Wait until node has seen `child` end, or `within` ms, whichever comes first. */
+function ended(child, within) {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
+  return Promise.race([once(child, 'exit'), setTimeout(within)]);
+}
+
 /** Keep asking until `look` gives something other than undefined, or the time runs out. */
 async function until(what, within, look) {
   const stop = Date.now() + within;
@@ -251,7 +266,10 @@ test('temp retire stops the real processes a temporary session left in its work 
   t.after(async () => {
     // First the test's own processes that still run: by the pid captured when
     // it started them, only while that pid still runs the command it started,
-    // and listed before anything is sent.
+    // and listed before anything is sent. Node is given the time to see each
+    // child that has already exited end, so that one is not taken for one
+    // that still runs.
+    await Promise.all(mine.filter((one) => one.child !== undefined).map((one) => ended(one.child, EXIT_MS)));
     const still = mine.filter(alive);
     if (still.length > 0) {
       t.diagnostic(`stopping this test's own processes that still run: ${still.map((one) => `${one.name} ${one.pid} (${one.command})`).join('; ')}`);

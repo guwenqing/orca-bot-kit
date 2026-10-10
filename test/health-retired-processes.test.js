@@ -33,7 +33,7 @@
 // harness, or anything outside the sandbox.
 
 import assert from 'node:assert/strict';
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 import { parse, stringify } from 'yaml';
@@ -193,3 +193,41 @@ test('R5 with no retired session\'s work dir left on disk, health gives no proce
   await mkdir(workOf(box, 'dev'));
   assert.equal((await processFindings(box)).length, 1, 'and with the folder back, the finding is there');
 });
+
+// Found in the review of 79ba541: a work dir is compared by its real path, so
+// a retired work dir and a live one that are the same folder through a link
+// are the same folder, whichever of the two is the link.
+for (const [what, retiredDir, liveDir, real] of [
+  ['a live session\'s work dir is a link to a retired one\'s', 'work/dev', 'work/dev-link', 'work/dev'],
+  ['a retired session\'s work dir is a link to a live one\'s', 'work/old-link', 'work/live', 'work/live'],
+]) {
+  test(`R5 health skips a retired work dir that is a live one through a link: ${what}`, async (t) => {
+    const box = await createSandbox(t);
+    await fleet(box, [['daily']]);
+    const home = homeOf(box);
+    const link = [retiredDir, liveDir].find((dir) => dir !== real);
+    await mkdir(path.join(home, real), { recursive: true });
+    await symlink(path.join(home, real), path.join(home, link));
+    await mkdir(path.join(home, 'work', 'gone'), { recursive: true });
+    const added = await box.run(['session', 'add', '--bots', 'bots', '--bot', BOT, '--name', 'live', '--work-dir', liveDir]);
+    assert.equal(added.code, 0, `${added.stdout}${added.stderr}`);
+    // The retired entries as retire writes them, with the work dir bot.yaml had.
+    const file = bookOf(box.path('bots'), BOT);
+    const book = parse(await readFile(file, 'utf8'));
+    book.retired = [
+      { name: 'old', work_dir: retiredDir, retired: '2026-10-10T09:00:00.000Z' },
+      { name: 'gone', work_dir: 'work/gone', retired: '2026-10-10T09:30:00.000Z' },
+    ];
+    await writeFile(file, stringify(book));
+    // lsof gives the real path.
+    await table(box, [
+      { pid: 54041, ppid: 1, pgid: 54041, cwd: path.join(home, real), command: 'node --test' },
+      { pid: 54042, ppid: 1, pgid: 54042, cwd: path.join(home, 'work', 'gone'), command: 'sleep 600' },
+    ]);
+
+    const found = await processFindings(box);
+
+    assert.deepEqual(found.map((one) => one.where), [path.join(home, 'work', 'gone')], `gone's alone, got: ${JSON.stringify(found)}`);
+    assert.ok(!found.some((one) => names(one, 54041)), 'nothing for the folder the live session uses');
+  });
+}

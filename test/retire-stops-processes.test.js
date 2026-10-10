@@ -672,3 +672,178 @@ test('R5 the book keeps a retired temporary session\'s work dir too', async (t) 
     assert.equal(entry?.work_dir, `work/${name}`, `${name}'s retired entry keeps its work dir, got: ${JSON.stringify(entry)}`);
   }
 });
+
+// ------------------------------------------------------------------ R3, found in review
+//
+// Four defects the review of 79ba541 found, each held here as the developer
+// gave the intended rule:
+//
+//   - A process is its pid and its start time, which the table gives as
+//     `lstart` (the interface as changed after the review). A pid that comes
+//     back during the wait with another start time is another process: the
+//     one signalled has ended. A process that renames itself is still the one
+//     signalled, and is named by what it is now.
+//   - When the table cannot be read again after TERM, nothing more is sent:
+//     what still might run is left, with why.
+//   - A process found during the wait, a new descendant of a tracked process
+//     or a new member of a group signalled whole, is tracked from the read
+//     that first sees it. It gets TERM by pid at once, and KILL only when it
+//     still runs 3 s after its own TERM, even when it is found at or after the
+//     first deadline. So no process gets KILL without its own TERM and its
+//     own wait. Its parent exiting meanwhile, which leaves it to pid 1, does
+//     not end that. (The whole stop is bounded to about 9 s; what still runs
+//     after that is left. That bound has no test of its own here.)
+
+/** The one call in `calls` with exactly the argv `args`, with its index, or undefined. */
+const callOf = (calls, args) => {
+  const at = calls.findIndex((call) => JSON.stringify(call.args) === JSON.stringify(args));
+  return at < 0 ? undefined : { ...calls[at], index: at };
+};
+
+for (const [what, becomes] of [
+  ['with the same command, group and folder and only another start time', { command: 'node --test', cwd: '<work>', startedAt: Date.UTC(2026, 9, 10, 12, 0, 0) }],
+  ['with the same command, in another group, in a folder elsewhere, and another start time', { command: 'node --test', pgid: 51200, cwd: '/Users/someone/elsewhere' }],
+]) {
+  test(`R3 a pid that comes back during the wait as another process, ${what}, gets no KILL, and is not named as stopped`, async (t) => {
+    const box = await createSandbox(t);
+    await devFleet(box);
+    const reused = { ...becomes, cwd: becomes.cwd === '<work>' ? workOf(box, 'dev') : becomes.cwd };
+    await table(box, [{ pid: 51201, ppid: 1, pgid: 51201, startedAt: Date.UTC(2026, 9, 10, 8, 0, 0), cwd: workOf(box, 'dev'), command: 'node --test', reusedAfterTerm: reused }]);
+
+    const answer = answerIn(await retire(box, ['--session', 'dev', '--json']));
+
+    assert.deepEqual(await kills(box), [term(-51201)], 'TERM, and nothing to the process that took the pid after');
+    const processes = processesIn(answer);
+    assert.deepEqual(processes.stopped.filter((one) => one.pid === 51201).map((one) => one.signal), ['SIGTERM'], `only the process that was signalled is named, ended by TERM; the new one is not, got: ${JSON.stringify(processes.stopped)}`);
+    assert.deepEqual(processes.left.filter((one) => one.pid === 51201), [], 'and the new process with its pid is not the session\'s to name');
+  });
+}
+
+test('R3 a process that renames itself on TERM and runs on is not named as stopped by TERM: it gets KILL after the wait, and is named by what it is now', async (t) => {
+  const box = await createSandbox(t);
+  await devFleet(box);
+  await table(box, [{ pid: 51251, ppid: 1, pgid: 51251, cwd: workOf(box, 'dev'), command: 'node worker.js', commandOnTerm: 'worker: ready', ignoresTerm: true }]);
+
+  const answer = answerIn(await retire(box, ['--session', 'dev', '--json']));
+
+  const calls = await box.kill.calls();
+  assert.deepEqual(calls.map((call) => call.args), [term(-51251), kill(51251)], 'TERM to the group, then KILL to the pid');
+  assert.ok(calls[1].at - calls[0].at >= 2000, `KILL after the wait, came after ${calls[1].at - calls[0].at} ms`);
+  const named = processesIn(answer).stopped.filter((one) => one.pid === 51251);
+  assert.deepEqual(named.map((one) => [one.signal, one.command]), [['SIGKILL', 'worker: ready']], `named once, as stopped by KILL, by its command now, got: ${JSON.stringify(named)}`);
+});
+
+test('R3 a process that renames itself on TERM and that KILL does not end is named under left, and not as stopped', async (t) => {
+  const box = await createSandbox(t);
+  await devFleet(box);
+  await table(box, [{ pid: 51261, ppid: 1, pgid: 51261, cwd: workOf(box, 'dev'), command: 'node worker.js', commandOnTerm: 'worker: ready', ignoresTerm: true, unkillable: true }]);
+
+  const answer = answerIn(await retire(box, ['--session', 'dev', '--json']));
+
+  assert.deepEqual(await kills(box), [term(-51261), kill(51261)]);
+  const processes = processesIn(answer);
+  assert.deepEqual(processes.stopped.filter((one) => one.pid === 51261), [], `it still runs, so it is not stopped, got: ${JSON.stringify(processes.stopped)}`);
+  assert.deepEqual(processes.left.map((one) => one.pid), [51261]);
+});
+
+test('R3 when the table cannot be read again after TERM, no KILL is sent, and the process is named under left with why', async (t) => {
+  const box = await createSandbox(t);
+  await devFleet(box);
+  await table(box, [{ pid: 51211, ppid: 1, pgid: 51211, cwd: workOf(box, 'dev'), command: 'node stubborn.js', ignoresTerm: true }]);
+  await box.orca.set({ ps: 'fails-after-kill' });
+
+  const answer = answerIn(await retire(box, ['--session', 'dev', '--json']));
+
+  assert.deepEqual(await kills(box), [term(-51211)], 'the first read worked and TERM went; nothing after it');
+  const processes = processesIn(answer);
+  assert.deepEqual(processes.stopped.filter((one) => one.pid === 51211), [], 'it is not known to have stopped');
+  const left = processes.left.filter((one) => one.pid === 51211);
+  assert.equal(left.length, 1, `it is named under left, got: ${JSON.stringify(processes.left)}`);
+  assert.match(left[0].why ?? '', /read/i, `why says the kit could not read the processes again: ${left[0].why}`);
+  await assertRetired(box, 'dev');
+});
+
+test('R3 a child started on TERM in the group signalled whole, whose parent then exits, is still stopped: TERM by pid, then KILL', async (t) => {
+  const box = await createSandbox(t);
+  await devFleet(box);
+  const outside = await throwaway(box);
+  // On TERM 51221 starts 51222 in its own group, 51221, and exits, so 51222
+  // is left to pid 1. 51222 ignores TERM.
+  await table(box, [{
+    pid: 51221,
+    ppid: 1,
+    pgid: 51221,
+    cwd: workOf(box, 'dev'),
+    command: 'node respawner.js',
+    spawnsOnTerm: { pid: 51222, cwd: outside, command: 'node worker.js', ignoresTerm: true },
+  }]);
+
+  const answer = answerIn(await retire(box, ['--session', 'dev', '--json']));
+
+  const calls = await kills(box);
+  assert.deepEqual(calls[0], term(-51221), 'TERM to the group comes first');
+  const termAt = calls.findIndex((args) => JSON.stringify(args) === JSON.stringify(term(51222)));
+  const killAt = calls.findIndex((args) => JSON.stringify(args) === JSON.stringify(kill(51222)));
+  const timed = await box.kill.calls();
+  assert.ok(termAt > 0, `the new member of the group gets TERM by pid, got: ${JSON.stringify(calls)}`);
+  assert.ok(killAt > termAt, `and KILL by pid after it, got: ${JSON.stringify(calls)}`);
+  const waited = timed[killAt].at - timed[termAt].at;
+  assert.ok(waited >= 2500, `KILL comes only after its own wait of 3 s from its own TERM; it came after ${waited} ms`);
+  assert.deepEqual(processesIn(answer).stopped.filter((one) => one.pid === 51222).map((one) => one.signal), ['SIGKILL']);
+});
+
+test('R3 a child started on TERM in a group of its own, whose parent exits later in the wait, is still stopped: TERM by pid, then KILL', async (t) => {
+  const box = await createSandbox(t);
+  await devFleet(box);
+  const outside = await throwaway(box);
+  // 51231 ignores TERM, starts 51232 in a new group when it gets it, and
+  // exits just before the third read of the table (the first is the one
+  // before TERM), which leaves 51232 to pid 1.
+  await table(box, [{
+    pid: 51231,
+    ppid: 1,
+    pgid: 51231,
+    cwd: workOf(box, 'dev'),
+    command: 'node respawner.js',
+    ignoresTerm: true,
+    exitsAtRead: 3,
+    spawnsOnTerm: { pid: 51232, pgid: 51232, cwd: outside, command: 'node worker.js', ignoresTerm: true },
+  }]);
+
+  const answer = answerIn(await retire(box, ['--session', 'dev', '--json']));
+
+  const calls = await kills(box);
+  assert.deepEqual(calls[0], term(-51231), 'TERM to the group comes first');
+  const termAt = calls.findIndex((args) => JSON.stringify(args) === JSON.stringify(term(51232)));
+  const killAt = calls.findIndex((args) => JSON.stringify(args) === JSON.stringify(kill(51232)));
+  const timed = await box.kill.calls();
+  assert.ok(termAt > 0, `the new child gets TERM by pid, got: ${JSON.stringify(calls)}`);
+  assert.ok(killAt > termAt, `and KILL by pid after it, got: ${JSON.stringify(calls)}`);
+  const waited = timed[killAt].at - timed[termAt].at;
+  assert.ok(waited >= 2500, `KILL comes only after its own wait of 3 s from its own TERM; it came after ${waited} ms`);
+  assert.deepEqual(processesIn(answer).stopped.filter((one) => one.pid === 51232).map((one) => one.signal), ['SIGKILL']);
+});
+
+test('R3 a child that first appears at the deadline gets its own TERM, and KILL only 3 s after it', async (t) => {
+  const box = await createSandbox(t);
+  await devFleet(box);
+  const outside = await throwaway(box);
+  // 51241 ignores TERM. Its child 51242, in its group, starts 2.9 s after the
+  // first signal: about when the first wait ends and 51241 gets its KILL.
+  await table(box, [
+    { pid: 51241, ppid: 1, pgid: 51241, cwd: workOf(box, 'dev'), command: 'node respawner.js', ignoresTerm: true },
+    { pid: 51242, ppid: 51241, pgid: 51241, cwd: outside, command: 'node late-worker.js', ignoresTerm: true, appearsAfterMs: 2900 },
+  ]);
+
+  const answer = answerIn(await retire(box, ['--session', 'dev', '--json']));
+
+  const calls = await box.kill.calls();
+  assert.deepEqual(calls[0]?.args, term(-51241), 'TERM to the group comes first');
+  const childTerm = callOf(calls, term(51242));
+  const childKill = callOf(calls, kill(51242));
+  assert.ok(childTerm !== undefined, `the late child gets its own TERM, by pid, got: ${JSON.stringify(calls.map((call) => call.args))}`);
+  assert.ok(childKill !== undefined && childKill.index > childTerm.index, `and KILL by pid after it, got: ${JSON.stringify(calls.map((call) => call.args))}`);
+  const waited = childKill.at - childTerm.at;
+  assert.ok(waited >= 2500, `KILL comes only after its own wait of 3 s from its own TERM; it came after ${waited} ms`);
+  assert.deepEqual(processesIn(answer).stopped.filter((one) => one.pid === 51242).map((one) => one.signal), ['SIGKILL']);
+});
