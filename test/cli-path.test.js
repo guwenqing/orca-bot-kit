@@ -601,6 +601,9 @@ function commandIn(said, cli, rest, has = []) {
   for (const line of said.split('\n')) {
     for (const word of spellingsOf(cli)) {
       const at = line.indexOf(`${word} ${rest}`);
+      // A permission rule the kit names (`allowed    <bot>  Bash(<kit> ... --bots <folder>:*)`, #527)
+      // holds the same words, but it is a rule, not a command to run.
+      if (at >= 0 && line.slice(0, at).endsWith('Bash(')) continue;
       const command = line.slice(at).trim();
       if (at >= 0 && has.every((part) => command.includes(part))) return command;
     }

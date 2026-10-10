@@ -29,8 +29,7 @@ import { botYamlOf } from './skills.js';
 
 /**
  * The kit's commands every bot is allowed, each narrowed to the bots folder
- * (#527): every command but `init`, `retire`, `pause` and the three
- * `permission` commands.
+ * (#527): every command but those in NOT_DEFAULT_COMMANDS.
  */
 export const KIT_COMMANDS = [
   'up', 'restart', 'unpause', 'health', 'groom', 'roster', 'usage',
@@ -40,6 +39,9 @@ export const KIT_COMMANDS = [
   'message to', 'message send', 'message check',
   'session record', 'session sent', 'session nudge', 'session mail', 'session name', 'session mailbox',
   'temp make', 'temp roles', 'temp retire', 'temp trust-hooks', 'temp answer',
+  // #506: they answer a long-lived session's first-run screens, narrow by
+  // construction (the architect's ruling on #527).
+  'session trust-hooks', 'session answer',
 ];
 
 /** The kit's commands that are never in the default set: they keep the user's yes (#527). */

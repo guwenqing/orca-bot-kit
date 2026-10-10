@@ -29,8 +29,8 @@ import path from 'node:path';
 import test from 'node:test';
 import { parse, stringify } from 'yaml';
 
-import { botHomeOf, createSandbox, sessionIn } from './helpers/cli.js';
-import { addSession } from './helpers/permissions.js';
+import { assertKeptWhatTheyWrote, botHomeOf, createSandbox, sessionIn } from './helpers/cli.js';
+import { addSession, assertSameRules, defaultRules } from './helpers/permissions.js';
 import { botYamlOf } from './helpers/skills.js';
 
 // ----------------------------------------------------------------- the fleet
@@ -344,19 +344,23 @@ test('health leaves a bot.yaml with an unknown key exactly as the user wrote it'
   await writeFile(botYamlOf(bots, 'api-bot'), HAND_WRITTEN);
   // Up after the edit, so AGENTS.md is built from this charter and the only
   // thing left to report about this file is the key.
+  // Since #527 up also adds the kit's default rules to `allow`, keeping what the user wrote.
   const up = await box.run(['up', '--bots', 'bots', '--bot', 'api-bot']);
   assert.equal(up.code, 0, up.stderr);
-  assert.equal(await readFile(botYamlOf(bots, 'api-bot'), 'utf8'), HAND_WRITTEN, 'the file is as written before health runs');
+  const written = await readFile(botYamlOf(bots, 'api-bot'), 'utf8');
+  assertKeptWhatTheyWrote(HAND_WRITTEN, written, { changed: ['allow'] });
+  assert.equal(parse(written).sessions[0].efort, 'high', 'the premise: the unknown key is still there for health to find');
 
   const answer = await found(box);
 
   theFinding(answer, bots, { bot: 'api-bot', key: 'efort', session: 'nightly' });
-  assert.equal(await readFile(botYamlOf(bots, 'api-bot'), 'utf8'), HAND_WRITTEN, 'health reports the key and does not touch the file');
+  assert.equal(await readFile(botYamlOf(bots, 'api-bot'), 'utf8'), written, 'health reports the key and does not touch the file');
 });
 
-// Describes existing behaviour: up already starts such a bot and leaves the file
-// alone, so this passes before the change. It guards the boundary (#273: do not
-// refuse, do not rewrite) against the change.
+// Describes existing behaviour: up already starts such a bot and leaves the
+// user's text alone. It guards the boundary (#273: do not refuse, do not
+// rewrite what the user wrote) against the change. Since #527 up adds the
+// kit's default rules to `allow`, and that is the one change to the file.
 test('up still starts a bot whose bot.yaml has an unknown key, and leaves the file as written', async (t) => {
   const box = await createSandbox(t);
   const bots = await seeded(box);
@@ -369,5 +373,9 @@ test('up still starts a bot whose bot.yaml has an unknown key, and leaves the fi
   assert.equal(up.code, 0, `up does not refuse a bot over an unknown key, got: ${up.stderr}`);
   const nightly = await sessionIn(bots, 'api-bot', 'nightly');
   assert.equal(typeof nightly?.tab, 'string', `the session is open in a tab, got: ${show(nightly)}`);
-  assert.equal(await readFile(botYamlOf(bots, 'api-bot'), 'utf8'), HAND_WRITTEN, 'up does not rewrite the user\'s file');
+  // #527: up adds the kit's default rules to `allow`, and keeps every key, value and comment the user wrote.
+  const after = await readFile(botYamlOf(bots, 'api-bot'), 'utf8');
+  assertKeptWhatTheyWrote(HAND_WRITTEN, after, { changed: ['allow'] });
+  assert.equal(parse(after).sessions[0].efort, 'high', 'the unknown key stays as the user wrote it');
+  assertSameRules(parse(after).allow ?? [], defaultRules(box, bots), 'and allow holds the kit\'s default set');
 });

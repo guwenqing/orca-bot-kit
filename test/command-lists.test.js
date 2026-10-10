@@ -48,7 +48,7 @@ test('CL2 neither list names a command the CLI does not know, and neither names 
   assert.equal(new Set(KEPT_BACK).size, KEPT_BACK.length, 'KEPT_BACK names a command twice');
 });
 
-test('CL3 the two lists are the requirement\'s: the default set\'s 34 commands, and the six kept back', () => {
+test('CL3 the two lists are the requirement\'s: the default set\'s 36 commands, and the six kept back', () => {
   const { DEFAULT_COMMANDS, KEPT_BACK } = lists();
 
   assert.deepEqual(sorted(DEFAULT_COMMANDS), sorted(KIT_COMMANDS));

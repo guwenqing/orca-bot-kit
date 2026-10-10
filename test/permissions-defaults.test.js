@@ -103,18 +103,19 @@ async function ok(promise) {
 
 // ----------------------------------------------------------------- the set itself
 
-test('D0 the set as the tests spell it: every kit command but init, retire, pause and permission, once each', (t) => {
+test('D0 the set as the tests spell it: every kit command but the kept-back ones, once each', (t) => {
   // A check of the helper against the requirement, so a slip in the one place
   // the set is spelled does not pass quietly.
   const box = { cli: '/x/bin/obk' };
   const rules = defaultRules(box, '/x/bots');
   assert.equal(new Set(rules).size, rules.length, 'each rule once');
-  assert.equal(KIT_COMMANDS.length, 34);
+  assert.equal(KIT_COMMANDS.length, 36);
   for (const command of NOT_DEFAULT_COMMANDS) {
     assert.ok(!rules.includes(kitRule(box, '/x/bots', command)), `${command} is not in the set`);
   }
   assert.ok(rules.includes('Bash(/x/bin/obk temp make --bots /x/bots:*)'));
   assert.ok(rules.includes('Bash(/x/bin/obk bot change --bots /x/bots:*)'));
+  assert.ok(rules.includes('Bash(/x/bin/obk session answer --bots /x/bots:*)'));
   assert.ok(rules.includes(ORCA_CHECK_RULE));
   assert.equal(readDefault(box, '/x/bots'), 'Read(//x/bots.messages/**)');
   assert.equal(codexDefaultRules(box, '/x/bots').length, rules.length - 1, 'Codex: the set without the Read rule');

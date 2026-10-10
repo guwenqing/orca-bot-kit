@@ -23,7 +23,7 @@
 //   `permission allow` refuses it for a bot that runs only on Codex (not 0,
 //   naming the rule, saying Codex has no rule for it, writing nothing), while
 //   for a bot on both harnesses it is recorded, written for Claude only, and
-//   reported as not written for Codex. Broad rules are refused as ADR 0027
+//   reported as not written for Codex. Broad rules are refused as ADR 0038
 //   says;
 // - the kit owns obk.rules whole: a line added by hand does not survive a
 //   build, and no other file in `.codex/rules/` is ever written;

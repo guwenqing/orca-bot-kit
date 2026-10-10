@@ -1578,7 +1578,7 @@ export async function assertSeededBotsFolder(bots, harness) {
   const botFather = await readYaml(path.join(bots, 'bots', 'bot-father', 'bot.yaml'));
   assert.deepEqual(
     Object.keys(botFather).sort(),
-    ['charter', 'harness', 'name', 'rules', 'sessions', 'skills'],
+    ['allow', 'charter', 'harness', 'name', 'rules', 'sessions', 'skills'],
   );
   assert.equal(botFather.name, 'bot-father');
   assert.equal(botFather.harness, harness);
@@ -1587,6 +1587,12 @@ export async function assertSeededBotsFolder(bots, harness) {
   assert.ok(Array.isArray(botFather.rules), 'bot.yaml rules should be a list');
   assert.ok(Array.isArray(botFather.skills), 'bot.yaml skills should be a list');
   assert.ok(Array.isArray(botFather.sessions), 'bot.yaml sessions should be a list');
+  // #527: init writes the kit's default rules into Bot Father's allow; which
+  // rules they are is test/permissions-defaults.test.js's to check.
+  assert.ok(
+    Array.isArray(botFather.allow) && botFather.allow.length > 0 && botFather.allow.every((rule) => typeof rule === 'string' && rule !== ''),
+    `bot.yaml allow should be a list of the kit's default rules, got: ${JSON.stringify(botFather.allow)}`,
+  );
 }
 
 /** Run `node <args>` in `cwd` and report the result without throwing. */
