@@ -239,7 +239,14 @@ shapes in the table exactly as the kit knows it: Esc for the 2.1.283 form, and
 screen again, and sends the return only with the selection on **2. Not now**.
 It refuses any other screen, types nothing then, and prints what it saw.
 Afterwards it checks that the screen has gone. The kit's default set allows
-both commands for every bot, so there is nothing to ask the user.
+both commands for every bot, so there is nothing to ask the user. The rules
+are these, with the kit's full CLI path for `<kit>`, as the command's own
+output prints it:
+
+```text
+Bash(<kit> temp answer --bots <their path>:*)
+Bash(<kit> temp trust-hooks --bots <their path>:*)
+```
 
 **Anything you do not recognise: type nothing.** Tell them what is on the
 screen and which tab it is in, and wait. A keypress into a menu you have not read

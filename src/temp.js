@@ -31,7 +31,7 @@ import { setTimeout as pause } from 'node:timers/promises';
 
 import { readBook, takeLineTurn, TYPING_HELD, TYPING_WAIT_MS, updateBook } from './book.js';
 import { addSession, dropSession, NAME, readBot, tempRoles } from './bot.js';
-import { DEFAULT_APPROVAL, harnessOf, isShortPrompt, ownCli, shellWord, startPrompt, workDirOf } from './launch.js';
+import { approvalRank, DEFAULT_APPROVAL, harnessOf, isShortPrompt, ownCli, refuseApprovalArgs, shellWord, startPrompt, workDirOf } from './launch.js';
 import { sessionInTab } from './message.js';
 import { orca, screenRows, tabs } from './orca.js';
 import { retireSession } from './retire.js';
@@ -72,6 +72,8 @@ export async function makeTemp(bots, { tab, ...given }) {
 
   const maker = bot.sessions.find((session) => session.name === caller.session);
   const { settings, chosen } = settingsFor(bot, maker, role?.option ?? {}, given);
+  refuseWiderApproval(bots, caller, bot, maker, given.approval);
+  refuseApprovalArgs(chosen.harness.value, given.extra_args);
   settings.name = name;
   if (given.extra_args !== undefined) settings.extra_args = given.extra_args;
   if (given.prompt !== undefined) settings.prompt = given.prompt;
@@ -168,6 +170,19 @@ function settingsFor(bot, maker, option, given) {
     );
   }
   return { settings, chosen };
+}
+
+/**
+ * Refuse an approval wider than the widest of the maker's own and the bot's
+ * `temp_approval`, which only the user's yes through `permission approval
+ * --temps` widens (ADR 0037).
+ */
+function refuseWiderApproval(bots, caller, bot, maker, asked) {
+  if (asked === undefined) return;
+  const own = maker?.approval ?? DEFAULT_APPROVAL;
+  const widest = approvalRank(bot.temp_approval) > approvalRank(own) ? bot.temp_approval : own;
+  if (approvalRank(asked) <= approvalRank(widest)) return;
+  throw new Error(`--approval ${asked} is wider than ${caller.session}'s own approval, ${own}${widest === own ? '' : `, and than ${caller.bot}'s temp_approval, ${widest}`}, and a session does not widen another's approval. The user allows it for ${caller.bot}'s temporary sessions with  ${shellWord(ownCli())} permission approval --bots ${shellWord(bots)} --bot ${caller.bot} --temps --approval ${asked}. Nothing was made.`);
 }
 
 /**

@@ -1,28 +1,30 @@
 // The permission rules a bot may run with, written into its own Claude
-// settings, and only the ones its user said yes to (#344).
+// settings: the kit's default set, and the rules its user said yes to (#344).
 //
 // A bot in auto mode is stopped by the harness's check for things the kit's own
-// rules tell every bot to do: read and send its mail, read a long message's
+// rules tell every bot to do: run the kit's commands, read a long message's
 // body beside the bots folder, commit. A matching allow rule is settled before
-// that check (Claude Code's permissions docs), so the kit offers every Claude
-// bot a small default set, spelled with its real CLI and bots folder. The user
-// sees the exact rules and says yes; `bot change --allow` keeps that yes in
-// bot.yaml's `allow`, and the kit's code writes what `allow` holds into
-// `.claude/settings.json` in the bot folder, beside its hook (ADR 0022). A model
-// editing the file by hand may get the format wrong; code does not.
+// that check (Claude Code's permissions docs), so the kit gives every bot a
+// default set, spelled with its real CLI and bots folder, with nobody asked
+// (#527, ADR 0036). A rule beyond it is the user's yes, which
+// `permission allow` keeps in bot.yaml's `allow`. The kit's code writes what
+// `allow` holds into `.claude/settings.json` in the bot folder, beside its hook
+// (ADR 0022). A model editing the file by hand may get the format wrong; code
+// does not.
 //
 // The kit owns only the entries `allow` holds. Any other entry in the file is
 // left where it is, and health names it. A rule the user says yes to taking
-// back leaves `allow` and the files through `bot change --disallow` (#360).
+// back leaves `allow` and the files through `permission disallow` (#360).
 //
-// A bot on Codex gets the same yes in Codex's own form (#354, ADR 0028): each
+// A bot on Codex gets the same rules in Codex's own form (#354, ADR 0039): each
 // `Bash(<words>:*)` becomes a `prefix_rule` of those words in
 // `.codex/rules/obk.rules`, a file the kit owns whole and rewrites from `allow`.
 
 import { accessSync, constants, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
-import { leadsOutside } from './bot.js';
+import { allowRules, leadsOutside } from './bot.js';
+import { COMMANDS, KEPT_BACK } from './commands.js';
 import { readSettings } from './hooks.js';
 import { harnessOf, ownCli, shellWord } from './launch.js';
 
@@ -34,21 +36,22 @@ const CODEX_RULES = '.codex/rules';
 const CODEX_FILE = `${CODEX_RULES}/obk.rules`;
 
 /**
- * The rules every Claude bot is offered, in this order. The mail commands are
- * narrowed to this bots folder and spelled as the kit prints them in its
- * nudge and in `message to`'s answer, which is what a bot runs. `//` is Claude's
- * form for an absolute path.
+ * The rules every bot is given (ADR 0036): each of the kit's commands but those
+ * kept back for the user's yes (ADR 0037), narrowed to this bots folder and
+ * spelled as the kit prints them, which is what a bot runs; reading a long
+ * message; committing; and the check Orca's mail notice tells a session to
+ * run. `//` is Claude's form for an absolute path.
  */
 export function defaultRules(bots, cli = ownCli()) {
   const kit = shellWord(cli);
   const folder = shellWord(bots);
   return [
-    `Bash(${kit} message check --bots ${folder}:*)`,
-    `Bash(${kit} message send --bots ${folder}:*)`,
-    `Bash(${kit} message to --bots ${folder}:*)`,
+    ...Object.keys(COMMANDS).filter((command) => !KEPT_BACK.includes(command))
+      .map((command) => `Bash(${kit} ${command} --bots ${folder}:*)`),
     `Read(/${bots}.messages/**)`,
     'Bash(git add:*)',
     'Bash(git commit:*)',
+    'Bash(orca orchestration check --run:*)',
   ];
 }
 
@@ -73,7 +76,7 @@ const ANY = 'it lets the bot run any command';
  * Why a rule is broad, as the end of a sentence, or undefined for a narrow one
  * (#353). A charter's grants are written as narrow, exact rules only; one that
  * lets the bot run any command, a program with any arguments, or any file on
- * the disk or in the home is the user's to add by hand (ADR 0027).
+ * the disk or in the home is the user's to add by hand (ADR 0038).
  */
 export function broadness(rule) {
   if (typeof rule !== 'string') return undefined;
@@ -163,14 +166,14 @@ function commandBroadness(all) {
 }
 
 /**
- * Refuse the rules `--allow` was given when any is broad, before anything is
+ * Refuse the rules `permission allow` was given when any is broad, before anything is
  * written, naming the file the user can add it to themselves.
  */
 export function refuseBroad(home, rules) {
   for (const rule of rules) {
     const why = broadness(rule);
     if (why === undefined) continue;
-    throw new Error(`--allow ${rule} is broad: ${why}. The kit writes only narrow, exact rules, such as Bash(gh pr merge:*), so nothing was written. If the user wants this rule for ${path.basename(home)}, they add it to ${path.join(home, FILE)} themselves.`);
+    throw new Error(`permission allow ${rule} is broad: ${why}. The kit writes only narrow, exact rules, such as Bash(gh pr merge:*), so nothing was written. If the user wants this rule for ${path.basename(home)}, they add it to ${path.join(home, FILE)} themselves.`);
   }
 }
 
@@ -200,14 +203,14 @@ export const runsOnCodex = (bot) => bot.harness === 'codex'
   || bot.sessions.some((session) => harnessOf(session, bot.harness) === 'codex');
 
 /**
- * The default rules this bot has not been allowed yet for one harness's file,
- * in the default order. Codex is not offered the Read rule: its sandbox reads
- * every file already.
+ * The default rules this bot is not allowed yet, in the default order. A bot
+ * only on Codex is not given the Read rule: its sandbox reads every file
+ * already.
  */
-function waitingFor(bots, home, bot, harness) {
+function missingDefaults(bots, home, bot) {
   const allowed = allowOf(home, bot);
   return defaultRules(bots)
-    .filter((rule) => harness === 'claude' || codexForm(rule).line !== undefined)
+    .filter((rule) => runsOnClaude(bot) || codexForm(rule).line !== undefined)
     .filter((rule) => !allowed.includes(rule));
 }
 
@@ -242,7 +245,7 @@ export function codexForm(rule) {
 }
 
 /**
- * Refuse the rules `--allow` was given for a bot that runs only on Codex when
+ * Refuse the rules `permission allow` was given for a bot that runs only on Codex when
  * Codex has no form for one, before anything is written: recorded, it would
  * let the bot do nothing.
  */
@@ -251,35 +254,39 @@ export function refuseNoCodexForm(bot, rules) {
   for (const rule of rules) {
     const { why } = codexForm(rule);
     if (why === undefined) continue;
-    throw new Error(`--allow ${rule} is not for ${bot.name}: ${why}, and ${bot.name} runs only on Codex, so nothing was written.`);
+    throw new Error(`permission allow ${rule} is not for ${bot.name}: ${why}, and ${bot.name} runs only on Codex, so nothing was written.`);
   }
 }
 
-/** The one command that allows `rules` for `bot`, as the user can run it. */
-export const allowCommand = (bots, bot, rules) => [
-  shellWord(ownCli()), 'bot', 'change', '--bots', shellWord(bots), '--bot', shellWord(bot),
-  ...rules.flatMap((rule) => ['--allow', shellWord(rule)]),
-].join(' ');
-
 /**
- * Write what the bot is allowed into the files of the harnesses it runs on, and
- * say what waits: one entry per file, Claude's first. With `keepGoing`, a file
- * the kit may not write is an entry with its `trouble` rather than a throw.
+ * Add the default rules the bot is not allowed yet to its `allow` (ADR 0036),
+ * then write what it is allowed into the files of the harnesses it runs on:
+ * one entry per file, Claude's first, each with `defaults`, the rules this run
+ * added. The harness files are written first and bot.yaml last, as
+ * `permission allow` writes them (#383). With `keepGoing`, a file the kit may
+ * not write is an entry with its `trouble` rather than a throw.
  */
 export function writePermissions(bots, home, bot, { keepGoing = false } = {}) {
-  const writers = [[runsOnClaude, FILE, planClaude], [runsOnCodex, CODEX_FILE, planCodex]];
-  return writers.filter(([runs]) => runs(bot)).map(([, file, plan]) => {
-    try {
-      return plan(bots, home, bot).write();
-    } catch (error) {
-      if (!keepGoing) throw error;
-      return { bot: bot.name, file: path.join(home, file), written: [], waiting: [], trouble: error.message };
+  const writers = [[runsOnClaude, FILE], [runsOnCodex, CODEX_FILE]].filter(([runs]) => runs(bot));
+  let defaults = [];
+  try {
+    defaults = writers.length === 0 ? [] : missingDefaults(bots, home, bot);
+    if (defaults.length > 0) {
+      const { allow } = allowRules(bots, bot.name, defaults, { write: false });
+      const entries = allowIn(bots, home, { ...bot, allow })();
+      allowRules(bots, bot.name, defaults);
+      return entries.map((entry) => ({ ...entry, defaults }));
     }
-  });
+    return writers.map(([runs]) => (runs === runsOnClaude ? planClaude : planCodex)(bots, home, bot).write())
+      .map((entry) => ({ ...entry, defaults }));
+  } catch (error) {
+    if (!keepGoing) throw error;
+    return writers.map(([, file]) => ({ bot: bot.name, file: path.join(home, file), written: [], defaults: [], trouble: error.message }));
+  }
 }
 
 /**
- * Check every file `bot change --allow` writes before any is written (#383):
+ * Check every file `permission allow` writes before any is written (#383):
  * bot.yaml, and the files of the harnesses the bot runs on, read and found
  * writable. `bot` is the bot as it will be, with the new rules in `allow`.
  * What comes back writes the harness files, one entry per file, Claude's
@@ -297,7 +304,7 @@ export function allowIn(bots, home, bot) {
 /**
  * What writing the bot's allowed rules into its Claude settings would do,
  * read and refused before anything is written: `{ answer, writes, write }`.
- * `write()` gives `{ bot, file, written, waiting }`, with `written` the rules
+ * `write()` gives `{ bot, file, written }`, with `written` the rules
  * it added.
  *
  * Only rules `allow` holds are written. Everything else in the file stays as it
@@ -307,8 +314,7 @@ export function allowIn(bots, home, bot) {
 function planClaude(bots, home, bot) {
   const file = path.join(home, FILE);
   const allowed = allowOf(home, bot);
-  const waiting = waitingFor(bots, home, bot, 'claude');
-  const answer = { bot: bot.name, file, written: [], waiting };
+  const answer = { bot: bot.name, file, written: [] };
   const none = { answer, writes: false, write: () => answer };
   if (allowed.length === 0) return none;
 
@@ -335,7 +341,7 @@ function planClaude(bots, home, bot) {
  * harnesses the bot runs on (#360): from its Claude settings every entry of
  * that exact text and nothing else, and its Codex rules rewritten from what
  * `allow` still holds. Only rules `allow` holds are taken back; one it does not
- * hold is refused, since the kit did not write it (ADR 0029).
+ * hold is refused, since the kit did not write it (ADR 0040).
  *
  * Everything is checked before anything is written, a file the kit could not
  * write included, bot.yaml too. What comes back writes the files: one entry per file,
@@ -347,6 +353,11 @@ export function takeBack(bots, home, bot, rules) {
   const allowed = allowOf(home, bot);
   const foreign = rules.find((rule) => !allowed.includes(rule));
   if (foreign !== undefined) throw new Error(notAllowed(home, bot, foreign));
+  // The next rules write would add it again (ADR 0040).
+  const kits = rules.find((rule) => defaultRules(bots).includes(rule));
+  if (kits !== undefined) {
+    throw new Error(`permission disallow ${kits} is one of the kit's default rules, which every bot has (#527). The kit writes it again at its next rules write, so it is not taken back, and nothing was changed.`);
+  }
   const after = { ...bot, allow: allowed.filter((rule) => !rules.includes(rule)) };
   const taken = [...new Set(rules)];
   // bot.yaml is written last, and a harness file taken out of step with it
@@ -380,7 +391,7 @@ export function takeBack(bots, home, bot, rules) {
         const allow = present.filter((rule) => !removed.includes(rule));
         writeFileSync(file, `${JSON.stringify({ ...settings, permissions: { ...settings.permissions, allow } }, null, 2)}\n`);
       }
-      entries.push({ bot: bot.name, file, written: [], removed, waiting: waitingFor(bots, home, after, 'claude') });
+      entries.push({ bot: bot.name, file, written: [], removed });
     }
     if (runsOnCodex(after)) {
       const entry = planCodex(bots, home, after).write();
@@ -413,7 +424,7 @@ function refuseUnwritable(file) {
   }
 }
 
-/** Why `--disallow` refuses a rule `allow` does not hold, and where one of that text is. */
+/** Why `permission disallow` refuses a rule `allow` does not hold, and where one of that text is. */
 function notAllowed(home, bot, rule) {
   const yaml = path.join(home, 'bot.yaml');
   const file = path.join(home, FILE);
@@ -427,7 +438,7 @@ function notAllowed(home, bot, rule) {
   const where = byHand
     ? ` ${file} allows it, which the user added by hand, not the kit: it stays theirs, to take out themselves.`
     : '';
-  return `--disallow ${rule} is not in the allow list in ${yaml}, so it is not the kit's to take back, and nothing was changed.${where} The kit takes back only rules that list holds, spelled exactly as they are there.`;
+  return `permission disallow ${rule} is not in the allow list in ${yaml}, so it is not the kit's to take back, and nothing was changed.${where} The kit takes back only rules that list holds, spelled exactly as they are there.`;
 }
 
 /**
@@ -452,14 +463,14 @@ const ruleLines = (text) => text.split('\n').map((line) => line.trim()).filter((
 /**
  * What writing the Codex form of what the bot is allowed into
  * `.codex/rules/obk.rules` would do, as `planClaude` gives it. `write()` gives
- * `{ bot, file, written, waiting, unwritten }`, with `written` every rule in
+ * `{ bot, file, written, unwritten }`, with `written` every rule in
  * the file when it wrote it. The kit owns the file whole and writes it only
  * when it would change; with nothing to write and no file, it makes none.
  */
 function planCodex(bots, home, bot) {
   const file = path.join(home, CODEX_FILE);
   const { lines, unwritten } = codexOf(home, bot);
-  const answer = { bot: bot.name, file, written: [], waiting: waitingFor(bots, home, bot, 'codex'), unwritten };
+  const answer = { bot: bot.name, file, written: [], unwritten };
   const none = { answer, writes: false, write: () => answer };
   if (lines.size === 0 && !existsSync(file)) return none;
 
@@ -519,10 +530,10 @@ function claudeTrouble(home, bot, allowed) {
   return [
     ...present.filter((rule) => !allowed.includes(rule)).map((rule) => ({
       where: file,
-      // One `--allow` would refuse was added by the user by hand, which the
+      // One `permission allow` would refuse was added by the user by hand, which the
       // boundary leaves to them: named, in neutral words, and left alone.
       says: broadness(rule) === undefined
-        ? `${file} allows ${rule}, and ${bot.name}'s bot.yaml does not: the kit did not write it. It stays where it is. If the user wants it, record their yes with obk bot change --allow; if not, take it out of the file.`
+        ? `${file} allows ${rule}, and ${bot.name}'s bot.yaml does not: the kit did not write it. It stays where it is. If the user wants it, record their yes with obk permission allow; if not, take it out of the file.`
         : `${file} allows ${rule}, which the user added by hand, not the kit. It stays where it is.`,
     })),
     ...allowed.filter((rule) => !present.includes(rule)).map((rule) => ({
