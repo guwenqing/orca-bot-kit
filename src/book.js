@@ -168,11 +168,16 @@ function lockOn(file, waitMs, how = 'IMMEDIATE') {
   // read-only connection's BEGIN passes while another process holds the lock:
   // seen in Codex's sandbox (#534). So the file is opened for writing first,
   // and a lock that cannot be held is an error, never a turn that is not one.
-  try {
-    mkdirSync(path.dirname(file), { recursive: true });
-    closeSync(openSync(file, 'a'));
-  } catch (error) {
-    throw new LockNotWritable(file, error);
+  // Only while this process holds no turn on it: closing any descriptor of a
+  // file lets go of every lock the process holds on that file, and SQLite's
+  // own are among them. A file a turn is held on was written already.
+  if (!heldHere.has(file)) {
+    try {
+      mkdirSync(path.dirname(file), { recursive: true });
+      closeSync(openSync(file, 'a'));
+    } catch (error) {
+      throw new LockNotWritable(file, error);
+    }
   }
 
   const db = new DatabaseSync(file);
@@ -192,16 +197,23 @@ function lockOn(file, waitMs, how = 'IMMEDIATE') {
     throw error;
   }
 
+  heldHere.set(file, (heldHere.get(file) ?? 0) + 1);
   return {
     release() {
       try {
         db.exec('COMMIT');
       } finally {
         db.close();
+        const left = heldHere.get(file) - 1;
+        if (left > 0) heldHere.set(file, left);
+        else heldHere.delete(file);
       }
     },
   };
 }
+
+/** How many turns this process holds on each lock file, by its path. */
+const heldHere = new Map();
 
 /**
  * Where a writer takes its turn: a folder of the kit's own beside the bots repo,
