@@ -922,3 +922,69 @@ test('R1 a process that joins the group signalled whole during the wait with its
   );
   assert.deepEqual(processes.left.filter((one) => one.pid === 62003), [], `and not under left, got: ${JSON.stringify(processes.left)}`);
 });
+
+test('R1 a process started on TERM in a group of its own, with its working folder in the work dir, whose parent exits before any read, is the session\'s own: TERM by pid, then KILL after its own wait', async (t) => {
+  const box = await createSandbox(t);
+  await devFleet(box);
+  // The review of 45da003: as the test above, but 62001 starts 62003 in a
+  // group of its own, 62003. 62001 exits at once, so 62003 has parent pid 1
+  // and shares no group with dev's processes; its folder alone makes it
+  // dev's, by R1. 62003 ignores TERM.
+  await table(box, [{
+    pid: 62001,
+    ppid: 1,
+    pgid: 62001,
+    cwd: workOf(box, 'dev'),
+    command: 'node --test',
+    spawnsOnTerm: { pid: 62003, pgid: 62003, cwd: workOf(box, 'dev'), command: 'node test/worker.js', ignoresTerm: true },
+  }]);
+
+  const answer = answerIn(await retire(box, ['--session', 'dev', '--json']));
+
+  const calls = await box.kill.calls();
+  const argvs = JSON.stringify(calls.map((call) => call.args));
+  assert.deepEqual(calls[0]?.args, term(-62001), 'TERM to the group comes first');
+  const ownTerm = callOf(calls, term(62003));
+  const ownKill = callOf(calls, kill(62003));
+  assert.ok(ownTerm !== undefined, `62003 gets its own TERM, by pid, got: ${argvs}`);
+  assert.ok(ownKill !== undefined && ownKill.index > ownTerm.index, `and KILL by pid after it, got: ${argvs}`);
+  const waited = ownKill.at - ownTerm.at;
+  assert.ok(waited >= 2500, `KILL comes only after its own wait of 3 s from its own TERM; it came after ${waited} ms`);
+  const processes = processesIn(answer);
+  assert.deepEqual(
+    processes.stopped.filter((one) => one.pid === 62003).map((one) => [one.session, one.cwd, one.signal]),
+    [['dev', workOf(box, 'dev'), 'SIGKILL']],
+    `named as stopped, in the work dir, got: ${JSON.stringify(processes.stopped)}`,
+  );
+  assert.deepEqual(processes.left.filter((one) => one.pid === 62003), [], `and not under left, got: ${JSON.stringify(processes.left)}`);
+});
+
+test('R2 a process the retire itself starts during the wait, in the work dir, is never signalled and never named as stopped', async (t) => {
+  const box = await createSandbox(t);
+  await devFleet(box);
+  const work = workOf(box, 'dev');
+  // The retire runs from dev's work dir, as a session retiring itself from
+  // its own tab would, under this test and a harness. 62021 is dev's and
+  // ignores TERM, so the kit goes on reading through the wait. Half a second
+  // after the first signal, a child of the kit's own appears in the work dir,
+  // in the kit's group: a ps or lsof it runs, say.
+  await table(box, [
+    { pid: 62020, ppid: 1, pgid: 62020, cwd: work, command: 'claude' },
+    { pid: process.pid, ppid: 62020, pgid: 62020, cwd: work, command: 'node --test' },
+    { pid: 'kit', ppid: process.pid, pgid: 'kit', cwd: work, command: `node ${box.cli} retire --bots ${botsOf(box)} --bot ${BOT} --session dev` },
+    { pid: 62021, ppid: 1, pgid: 62021, cwd: work, command: 'node --test test/slow.test.js', ignoresTerm: true },
+    { pid: 62022, ppid: 'kit', pgid: 'kit', cwd: work, command: '/usr/sbin/lsof -a -d cwd -Fpn', appearsAfterMs: 500 },
+  ]);
+
+  // Run from the work dir, so the bots folder is given by its full path.
+  const answer = answerIn(await box.run(['retire', '--bots', botsOf(box), '--bot', BOT, '--session', 'dev', '--json'], { cwd: work }));
+
+  const calls = await box.kill.calls();
+  const kit = calls[0]?.caller;
+  const argvs = JSON.stringify(calls.map((call) => call.args));
+  assert.deepEqual(calls[0]?.args, term(-62021), 'the premise: dev\'s process gets its TERM first');
+  assert.ok(callOf(calls, kill(62021)) !== undefined, `the premise: and its KILL after the wait, so the kit read the table through it, got: ${argvs}`);
+  assert.deepEqual(reaching(calls.map((call) => call.args), 62022), [], `nothing is sent to the kit's own child, got: ${argvs}`);
+  assert.deepEqual(reaching(calls.map((call) => call.args), kit, process.pid, 62020), [], `nor to the kit (${kit}) or what started it, got: ${argvs}`);
+  assert.deepEqual(processesIn(answer).stopped.filter((one) => one.pid === 62022), [], 'and the kit\'s own child is not named as stopped');
+});
