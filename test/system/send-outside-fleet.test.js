@@ -92,6 +92,7 @@ import { parse } from 'yaml';
 import { addressPattern, cliEntry } from '../helpers/cli.js';
 import { onlyPlainTrustOf, waitingOn } from '../helpers/screens.js';
 import { tabGuard } from '../helpers/tab-guard.js';
+import { deleteOwnProject } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
 
 /**
@@ -370,10 +371,15 @@ test('a Claude session\'s native message to a session of another bots folder is 
     const { closed, foreign } = guard.closeOwnAt(homes);
     const held = new Set(foreign.map((one) => one.home));
     let deleted = 0;
+    const failedDeletes = [];
     for (const setup of allSetups()) {
       if (!homes.includes(setup.path) || before.setups.has(setup.id) || held.has(setup.path)) continue;
-      orca(['project', 'setup-delete', '--setup', setup.id]);
-      deleted += 1;
+      try {
+        await deleteOwnProject(setup, setup.path.startsWith(`${botsA}/`) ? botsA : botsB);
+        deleted += 1;
+      } catch (error) {
+        failedDeletes.push(`${setup.path}: ${error.message}`);
+      }
     }
     if (deleted > 0 && !(await reloadWindow())) t.diagnostic(RELOAD_LINE);
     assert.deepEqual(foreign, [], `tabs this test did not create are open at its homes, so it closed only its own and left those projects, ${botsA} and ${botsB} in place`);
@@ -386,6 +392,7 @@ test('a Claude session\'s native message to a session of another bots folder is 
     for (const home of homes) {
       assert.deepEqual(await terminalsAfterClosing(home, closed), [], `this test left tabs behind in ${home}`);
     }
+    assert.deepEqual(failedDeletes, [], 'projects this test could not remove, left in Orca');
   });
 
   /** Bring one session up, wait until its harness has reported its conversation and its tab is past its screens, and give its address. */

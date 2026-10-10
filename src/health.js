@@ -25,7 +25,7 @@ import { bookFile, readBook, sessionIdsIn, tabIdsIn } from './book.js';
 import { botDir, botNames, botsDir, readBot, tempRoles, unknownKeys } from './bot.js';
 import { transcriptsIn } from './conversations.js';
 import { hookTrouble } from './hooks.js';
-import { bypassFlags, harnessOf, HARNESSES, isAddressOf, ownCli, sessionTrouble, SHELL_ENV, shellWord } from './launch.js';
+import { APPROVALS, bypassFlags, harnessOf, HARNESSES, isAddressOf, ownCli, sessionTrouble, SHELL_ENV, shellWord } from './launch.js';
 import { frontOfTab, orcaDefaultArgs, projects, runMissing, tabs, wordsOfProcess } from './orca.js';
 import { permissionsTrouble } from './permissions.js';
 import { TAB_ENV } from './record.js';
@@ -215,10 +215,16 @@ function sessionSettings(home, bot) {
 /** What is wrong with the roles the bot's temporary sessions are made in (#465). */
 function rolesTrouble(home, bot) {
   const where = path.join(home, 'bot.yaml');
+  // The widest approval they may be made at, the user's yes (ADR 0037).
+  const level = bot.temp_approval;
+  const approval = level === undefined || APPROVALS.includes(level) ? [] : [{
+    where,
+    says: `${where} has a temp_approval of ${JSON.stringify(level)}, and the levels are ${APPROVALS.join(', ')}, so obk temp make holds the bot's temporary sessions to their maker's own approval. Set it with obk permission approval --temps.`,
+  }];
   try {
-    return tempRoles(home, bot).flatMap((role) => role.trouble.map((says) => ({ where, says })));
+    return [...tempRoles(home, bot).flatMap((role) => role.trouble.map((says) => ({ where, says }))), ...approval];
   } catch (error) {
-    return [{ where, says: error.message }];
+    return [{ where, says: error.message }, ...approval];
   }
 }
 

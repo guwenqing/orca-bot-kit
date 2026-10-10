@@ -225,7 +225,8 @@ test('T1 a second up writes nothing new to the Claude Code settings', async (t) 
   const fleet = await fleetIn(box);
   const file = hookFileOf(fleet.bots, READER, 'claude');
   const before = await readFile(file, 'utf8');
-  assert.ok(before.includes('session mail'), `the premise: the first up wrote the hook: ${before}`);
+  // The hooks part only: since #527 permissions.allow names `session mail` as a default rule.
+  assert.ok(JSON.stringify(JSON.parse(before).hooks ?? {}).includes('session mail'), `the premise: the first up wrote the hook: ${before}`);
 
   const again = await box.run(['up', '--bots', 'bots', '--bot', READER]);
 
@@ -279,7 +280,7 @@ test('T2 a Codex bot\'s .codex/hooks.json is exactly as before #509: its three k
 
   assert.deepEqual(JSON.parse(await readFile(file, 'utf8')), expected, 'as before');
   const claude = await hooksIn(fleet.bots, READER, 'claude');
-  assert.ok(JSON.stringify(claude).includes('session mail'), `the contrast: the Claude Code bot beside it has the new hook: ${JSON.stringify(claude)}`);
+  assert.ok(JSON.stringify(claude.hooks ?? {}).includes('session mail'), `the contrast: the Claude Code bot beside it has the new hook: ${JSON.stringify(claude.hooks)}`);
   const before = await readFile(file, 'utf8');
   const again = await box.run(['up', '--bots', 'bots', '--bot', 'coder']);
   assert.equal(again.code, 0, again.stderr);

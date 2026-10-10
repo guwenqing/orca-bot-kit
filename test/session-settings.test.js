@@ -45,6 +45,7 @@ import {
   skipOrcaFake,
   snapshot,
 } from './helpers/cli.js';
+import { addSession } from './helpers/permissions.js';
 import { agentsOf, agentsIn } from './helpers/rules.js';
 import { botYamlOf, commonSkill } from './helpers/skills.js';
 
@@ -73,7 +74,8 @@ async function botWritten(box, name, { harness = 'claude', sessions = [['daily']
   const made = await box.run(['bot', 'create', '--bots', 'bots', '--name', name, '--harness', harness]);
   assert.equal(made.code, 0, made.stderr);
   for (const [session, ...settings] of sessions) {
-    const added = await box.run(['session', 'add', '--bots', 'bots', '--bot', name, '--name', session, ...settings]);
+    // An approval goes through `obk permission approval` since #527, the rest through `session add`.
+    const added = await addSession(box, { bot: name, name: session, settings });
     assert.equal(added.code, 0, added.stderr);
   }
   return botHomeOf(box.path('bots'), name);

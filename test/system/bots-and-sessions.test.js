@@ -46,6 +46,7 @@ import { parse } from 'yaml';
 import { assertMarkedName, cliEntry, HOOK_FILES, kitHooksIn, spellingsOf } from '../helpers/cli.js';
 import { codexTrustArgs } from '../helpers/codex-trust.js';
 import { tabGuard } from '../helpers/tab-guard.js';
+import { deleteOwnProject } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
 
 /**
@@ -219,10 +220,15 @@ test('two bots on the two harnesses come up in the real Orca, and nothing else i
     const { closed, foreign } = guard.closeOwnAt(homes);
     const held = new Set(foreign.map((one) => one.home));
     let deleted = 0;
+    const failedDeletes = [];
     for (const setup of allSetups()) {
       if (!homes.includes(setup.path) || before.setups.has(setup.id) || held.has(setup.path)) continue;
-      orca(['project', 'setup-delete', '--setup', setup.id]);
-      deleted += 1;
+      try {
+        await deleteOwnProject(setup, bots);
+        deleted += 1;
+      } catch (error) {
+        failedDeletes.push(`${setup.path}: ${error.message}`);
+      }
     }
     // Orca's sidebar keeps a deleted project's row until its window is
     // rebuilt (#343): the kit's own reload, as after a retire.
@@ -239,6 +245,7 @@ test('two bots on the two harnesses come up in the real Orca, and nothing else i
     for (const home of homes) {
       assert.deepEqual(await terminalsAfterClosing(home, closed), [], `this test left tabs behind in ${home}`);
     }
+    assert.deepEqual(failedDeletes, [], 'projects this test could not remove, left in Orca');
   });
 
   // 1. The bots folder, and Bot Father with it.

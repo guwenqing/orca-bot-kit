@@ -114,6 +114,7 @@ import { parse } from 'yaml';
 import { cliEntry } from '../helpers/cli.js';
 import { waitingOn } from '../helpers/screens.js';
 import { tabGuard } from '../helpers/tab-guard.js';
+import { deleteOwnProject } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
 
 /**
@@ -668,10 +669,15 @@ test('grooming runs on Claude Code\'s own schedule in the grooming session: off 
     const { closed, foreign } = guard.closeOwnAt([home]);
     const held = new Set(foreign.map((one) => one.home));
     let deleted = 0;
+    const failedDeletes = [];
     for (const setup of allSetups()) {
       if (setup.path !== home || before.setups.has(setup.id) || held.has(setup.path)) continue;
-      orca(['project', 'setup-delete', '--setup', setup.id]);
-      deleted += 1;
+      try {
+        await deleteOwnProject(setup, bots);
+        deleted += 1;
+      } catch (error) {
+        failedDeletes.push(`${setup.path}: ${error.message}`);
+      }
     }
     // Orca's sidebar keeps a deleted project's row until its window is
     // rebuilt (#343): the kit's own reload, as after a retire.
@@ -702,6 +708,7 @@ test('grooming runs on Claude Code\'s own schedule in the grooming session: off 
     );
     assert.deepEqual(newAutomationsAt(before.automations, bots), [], 'this test left an automation behind');
     assert.deepEqual(await terminalsAfterClosing(home, closed), [], 'this test left tabs behind');
+    assert.deepEqual(failedDeletes, [], 'projects this test could not remove, left in Orca');
   });
 
   // ---------------------------------------------------------------------------

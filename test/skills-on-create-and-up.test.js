@@ -117,8 +117,11 @@ test('a new bot that lists no skills is linked nothing, and the create says noth
   for (const harness of HARNESSES) {
     assert.deepEqual(await namesIn(bots, 'api-bot', harness), [], `${harness} should have been given nothing`);
   }
+  // #527: the `allowed    <bot>  <rule>` lines name the kit's default rules,
+  // `skills add` among them. They are rules, not a report about the bot's skills.
+  const report = `${result.stdout}${result.stderr}`.split('\n').filter((line) => !line.trim().startsWith('allowed ')).join('\n');
   assert.ok(
-    !/\bskills?\b/i.test(`${result.stdout}${result.stderr}`),
+    !/\bskills?\b/i.test(report),
     `a bot with no skills has nothing to report about them, got:\n${result.stdout}${result.stderr}`,
   );
 });

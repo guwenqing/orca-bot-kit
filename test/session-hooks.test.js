@@ -129,11 +129,15 @@ test('a bot with no sessions gets neither hook file', async (t) => {
 
   await up(box, 'quiet-bot');
 
+  // #527: bot create writes the kit's default rules into .claude/settings.json
+  // before the bot has a session, so the file may be there; what it must not
+  // hold is a hook of the kit's.
   for (const harness of ['claude', 'codex']) {
-    assert.equal(
-      await hasHook(bots, 'quiet-bot', harness),
-      false,
-      `nothing runs in ${'quiet-bot'}, so ${hookFileOf(bots, 'quiet-bot', harness)} has no reason to exist`,
+    const held = await hooksIn(bots, 'quiet-bot', harness);
+    const events = held === undefined ? {} : (eventsIn(held) ?? {});
+    assert.ok(
+      !/\bsession (record|sent|mail|nudge|name)\b/.test(JSON.stringify(events)),
+      `nothing runs in quiet-bot, so ${hookFileOf(bots, 'quiet-bot', harness)} holds none of the kit's hooks, got: ${JSON.stringify(held)}`,
     );
   }
 });
@@ -227,7 +231,14 @@ test('the user\'s own claude settings survive, and the file is still JSON', asyn
   await up(box, 'api-bot');
 
   const now = await hooksIn(bots, 'api-bot', 'claude');
-  assert.deepEqual(now.permissions, theirs.permissions, 'the user\'s permissions are the user\'s');
+  // Since #527 up writes the kit's default rules into permissions.allow too,
+  // after what is there: the user's own entries stay first, in their order.
+  assert.deepEqual(
+    now.permissions.allow.slice(0, theirs.permissions.allow.length),
+    theirs.permissions.allow,
+    `the user's own allow entries are the user's, first and in their order, got: ${JSON.stringify(now.permissions)}`,
+  );
+  assert.deepEqual(Object.keys(now.permissions), Object.keys(theirs.permissions), 'and the kit adds no other permissions key');
   assert.deepEqual(now.env, theirs.env, 'and so is anything else they put in the file');
   assert.deepEqual(now.hooks.PreToolUse, theirs.hooks.PreToolUse, 'a hook of theirs on another event is untouched');
   assert.ok(

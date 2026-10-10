@@ -94,6 +94,7 @@ import {
   waitingOn,
 } from '../helpers/screens.js';
 import { tabGuard } from '../helpers/tab-guard.js';
+import { deleteOwnProject } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
 
 /**
@@ -448,10 +449,15 @@ test('the kit types no nudge and no skills reload into a tab showing Claude Code
     const { closed, foreign } = guard.closeOwnAt(homes);
     const held = new Set(foreign.map((one) => one.home));
     let deleted = 0;
+    const failedDeletes = [];
     for (const setup of allSetups()) {
       if (!homes.includes(setup.path) || before.setups.has(setup.id) || held.has(setup.path)) continue;
-      orca(['project', 'setup-delete', '--setup', setup.id]);
-      deleted += 1;
+      try {
+        await deleteOwnProject(setup, bots);
+        deleted += 1;
+      } catch (error) {
+        failedDeletes.push(`${setup.path}: ${error.message}`);
+      }
     }
     // Orca's sidebar keeps a deleted project's row until its window is rebuilt (#343).
     if (deleted > 0 && !(await reloadWindow())) t.diagnostic(RELOAD_LINE);
@@ -464,6 +470,7 @@ test('the kit types no nudge and no skills reload into a tab showing Claude Code
     for (const each of homes) {
       assert.deepEqual(await terminalsAfterClosing(each, closed), [], `this test left tabs behind in ${each}`);
     }
+    assert.deepEqual(failedDeletes, [], 'projects this test could not remove, left in Orca');
   });
 
   // ---------------------------------------------------------------------------
@@ -474,7 +481,9 @@ test('the kit types no nudge and no skills reload into a tab showing Claude Code
     'bot', 'create', '--bots', bots, '--name', BOT, '--harness', 'claude',
     '--charter', `${BOT} exists for one system test run and owns nothing.`,
   ]);
-  obkJson(['session', 'add', '--bots', bots, '--bot', BOT, '--name', TARGET, '--approval', 'ask', `--prompt=${TASK}`]);
+  obkJson(['session', 'add', '--bots', bots, '--bot', BOT, '--name', TARGET, `--prompt=${TASK}`]);
+  // #527: a session's approval is set by `obk permission approval`, not by session add.
+  obkJson(['permission', 'approval', '--bots', bots, '--bot', BOT, '--session', TARGET, '--approval', 'ask']);
   obkJson(['session', 'add', '--bots', bots, '--bot', BOT, '--name', SENDER, '--harness', 'codex', `--prompt=${SENDER_TASK}`, ...codexTrustArgs(bots)]);
 
   const targetTab = openedIn(obkJson(['up', '--bots', bots, '--bot', BOT, '--session', TARGET]), `up of ${TARGET}`);

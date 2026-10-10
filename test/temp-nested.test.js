@@ -132,14 +132,17 @@ async function fleet(box) {
   await ok(['bot', 'create', '--bots', 'bots', '--name', BOT, '--harness', 'codex']);
   await ok([
     'session', 'add', '--bots', 'bots', '--bot', BOT, '--name', 'planner',
-    '--harness', 'claude', '--model', 'opus', '--effort', 'xhigh', '--context', '1m', '--approval', 'ask',
+    '--harness', 'claude', '--model', 'opus', '--effort', 'xhigh', '--context', '1m',
     '--prompt', PLANNER_PROMPT,
   ]);
+  // #527: a session's approval is set by `obk permission approval`, not by session add.
+  await ok(['permission', 'approval', '--bots', 'bots', '--bot', BOT, '--session', 'planner', '--approval', 'ask']);
   await ok([
     'session', 'add', '--bots', 'bots', '--bot', BOT, '--name', 'nightly',
-    '--model', 'gpt-6-sol', '--effort', 'low', '--context', '200000', '--approval', 'auto',
+    '--model', 'gpt-6-sol', '--effort', 'low', '--context', '200000',
     '--prompt', 'You watch the nightly build.',
   ]);
+  await ok(['permission', 'approval', '--bots', 'bots', '--bot', BOT, '--session', 'nightly', '--approval', 'auto']);
   await ok(['up', '--bots', 'bots', '--bot', BOT]);
   const bots = box.path('bots');
   return {
@@ -342,6 +345,10 @@ test('N4 on its maker\'s harness, it takes its temporary maker\'s harness, model
   // a model, effort, context and approval of its own.
   const box = await createSandbox(t);
   const { bots, planner, nightly } = await fleet(box);
+  // #527: planner's own approval is ask, and a temporary session wider than its
+  // maker's needs the bot's temp_approval to be that wide.
+  const widened = await box.run(['permission', 'approval', '--bots', 'bots', '--bot', BOT, '--temps', '--approval', 'auto']);
+  assert.equal(widened.code, 0, `temp_approval should be set: ${widened.stdout}${widened.stderr}`);
   await made(box, planner, ['--name', 'scout', '--prompt', TASK, '--model', 'sonnet', '--effort', 'high', '--approval', 'auto']);
   await made(box, nightly, ['--name', 'sweeper', '--prompt', TASK, '--model', 'gpt-6-luna', '--effort', 'medium', '--context', '300000', '--approval', 'ask']);
   assert.deepEqual(

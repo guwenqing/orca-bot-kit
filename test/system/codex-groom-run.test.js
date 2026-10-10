@@ -153,6 +153,7 @@ import { trustKeysIn } from '../helpers/codex-trust.js';
 import { rolloutFilesOf, turnSettingsIn } from '../helpers/codex-rollout.js';
 import { plainTrustOf, waitingOn } from '../helpers/screens.js';
 import { tabGuard } from '../helpers/tab-guard.js';
+import { deleteOwnProject } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
 
 /**
@@ -544,10 +545,15 @@ test('a grooming job with --run-on codex starts one Codex run at its fire, on th
     const { closed, foreign } = guard.closeOwnAt([home]);
     const held = new Set(foreign.map((one) => one.home));
     let deleted = 0;
+    const failedDeletes = [];
     for (const setup of allSetups()) {
       if (setup.path !== home || before.setups.has(setup.id) || held.has(setup.path)) continue;
-      orca(['project', 'setup-delete', '--setup', setup.id]);
-      deleted += 1;
+      try {
+        await deleteOwnProject(setup, bots);
+        deleted += 1;
+      } catch (error) {
+        failedDeletes.push(`${setup.path}: ${error.message}`);
+      }
     }
     if (deleted > 0 && !(await reloadWindow())) t.diagnostic(RELOAD_LINE);
     assert.deepEqual(foreign, [], `tabs this test did not create are open at its home, so it closed only its own and left that project and ${bots} in place`);
@@ -557,6 +563,7 @@ test('a grooming job with --run-on codex starts one Codex run at its fire, on th
     assert.deepEqual(closedNotOurs, [], 'this test closed tabs it did not create');
     if (goneElsewhere.length > 0) t.diagnostic(`tabs open before this test and closed elsewhere meanwhile: ${goneElsewhere.join(', ')}`);
     assert.deepEqual(await terminalsAfterClosing(home, closed), [], 'this test left tabs behind');
+    assert.deepEqual(failedDeletes, [], 'projects this test could not remove, left in Orca');
   });
 
   // ---------------------------------------------------------------------------
@@ -606,7 +613,8 @@ test('a grooming job with --run-on codex starts one Codex run at its fire, on th
   // The one permission the owner chose to allow (#238, (b)), in this fleet's
   // own Bot Father, before the grooming session starts and reads its settings.
   const trustRule = `Bash(${cliEntry} temp trust-hooks:*)`;
-  obkJson(['bot', 'change', '--bots', bots, '--bot', 'bot-father', '--allow', trustRule]);
+  // #527: permission rules are written by `obk permission allow`, not `bot change --allow`.
+  obkJson(['permission', 'allow', '--bots', bots, '--bot', 'bot-father', '--rule', trustRule]);
 
   obkJson(['session', 'add', '--bots', bots, '--bot', 'bot-father', '--name', 'grooming', '--model', MODEL, '--effort', EFFORT]);
   const opened = tabOf(openedBy(obkJson(['up', '--bots', bots, '--bot', 'bot-father'])), 'grooming');

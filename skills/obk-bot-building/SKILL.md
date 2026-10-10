@@ -194,7 +194,7 @@ The kit's command line does the writing, and the files belong to the user:
 source add` records where online skills come from and `obk skills fetch`
 clones them, `obk skills add` puts one on a bot, `obk skills build` links
 them, and `obk up` opens what is missing in Orca. `obk bot change` gives a
-bot a new charter, `obk session change` changes a session's settings, and
+bot a new charter or a role's cap, `obk session change` changes a session's settings, and
 `obk skills remove` takes a skill off a list (then `obk skills build`). `obk
 pause` stops a bot or a session for now and `obk unpause` brings it back;
 `obk retire` ends one. After `obk up`, `obk restart` or `obk unpause`, read
@@ -206,16 +206,15 @@ Run `obk --help` for the flags of the version actually installed rather than
 trusting a line you remember.
 
 A bot needs a few permission rules so that auto mode, or Codex's sandbox and
-reviewer, does not stop it for what the kit's own rules tell it to do: its
-mail through the kit, reading a long message kept beside the bots folder, and
-its commits. `obk bot create`, `obk up` and `obk rules build` list the rules
-still waiting for a bot and give one command that allows them. Show the user
-those rules word for word and say in a line what each lets the bot do. Run the
-command only after their yes: it records the yes in the bot's `bot.yaml` and
-writes the rules into its settings, or for Codex into its
-`.codex/rules/obk.rules`. On a no, run nothing, and nothing is written. When
-the kit lists new rules for a bot later, ask again. Never write a permission
-rule into a settings or rules file by hand.
+reviewer, does not stop it for what the kit's own rules tell it to do: the
+kit's own commands, reading a long message kept beside the bots folder, and
+its commits. The kit writes this default set itself, with nobody asked:
+`obk bot create`, `obk up` and `obk rules build` add each default rule a bot
+does not have yet to its `bot.yaml` and its settings, or for Codex its
+`.codex/rules/obk.rules`, and say which rules they wrote. The set leaves out
+the commands that keep the user's yes: `obk permission`, `obk retire`, `obk
+pause` and `obk init`. Never write a permission rule into a settings or rules
+file by hand.
 
 The charter decides what else the bot needs. What it lets the bot do without
 asking, such as merging pull requests, auto mode or Codex's sandbox can still
@@ -228,14 +227,14 @@ Spell them in Claude Code's form for a Codex bot too, `Bash(<command>:*)`: the
 kit writes Codex's own form of each, and says which ones Codex has none for,
 such as an `Edit` rule or one exact command.
 Show the user the list word for word, with a line on what each lets the bot do,
-and only after their yes run `obk bot change --allow`, once per rule they said
-yes to. On a no, run nothing. `obk bot change --charter` names the rules the
+and only after their yes run `obk permission allow --rule <rule>`, once per
+rule they said yes to. On a no, run nothing. `obk bot change --charter` names the rules the
 bot is allowed now; say which of them the new charter no longer grants, show
 each word for word, and ask whether to take it back. Only after their yes run
-`obk bot change --disallow`, once per rule, which takes it out of `bot.yaml`
+`obk permission disallow --rule <rule>`, once per rule, which takes it out of `bot.yaml`
 and the bot's settings or Codex rules; on a no, run nothing, and it stays
 allowed. A rule the user added to a settings file by hand is theirs to take
-out; the kit refuses it. Keep
+out; the kit refuses it, and it refuses a rule of its own default set too. Keep
 each rule narrow: a program and what it does. The kit refuses a rule that lets
 the bot run any command, a program with any arguments, or a shell or
 interpreter with any arguments; a user who wants one for a bot adds it to that
@@ -331,9 +330,8 @@ into any tab. The same goes for Claude Code's `Teach auto mode` screen on a
 temporary session you made: answer it with `obk temp answer --bots <bots>
 --name <session>`. It answers only a shape in the table exactly as the kit
 knows it (Esc on the 2.1.283 form, 2. Not now on the 2.1.289 list, the return
-only after a second look), refuses any other screen, and checks that it went. Its
-rule is `Bash(<kit> temp answer:*)`, `<kit>` the kit's CLI path as the
-command prints it; ask the user before `obk bot change --allow` adds it.
+only after a second look), refuses any other screen, and checks that it went. The kit's
+default set allows it, as it allows `obk temp trust-hooks`.
 
 A long-lived session's two screens go through the kit too: Codex's hooks
 review with `obk session trust-hooks --bots <bots> --bot <bot> --session

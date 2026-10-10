@@ -119,14 +119,17 @@ export async function fleet(box, { roles = true } = {}) {
   await ok(['bot', 'create', '--bots', 'bots', '--name', BOT, '--harness', 'codex']);
   await ok([
     'session', 'add', '--bots', 'bots', '--bot', BOT, '--name', 'planner',
-    '--harness', 'claude', '--model', 'opus', '--effort', 'xhigh', '--context', '1m', '--approval', 'ask',
+    '--harness', 'claude', '--model', 'opus', '--effort', 'xhigh', '--context', '1m',
     '--prompt', 'You plan the work on the API and hand it out.',
   ]);
+  // #527: a session's approval is set by `obk permission approval`, not by session add.
+  await ok(['permission', 'approval', '--bots', 'bots', '--bot', BOT, '--session', 'planner', '--approval', 'ask']);
   await ok([
     'session', 'add', '--bots', 'bots', '--bot', BOT, '--name', 'nightly',
-    '--model', 'gpt-6-sol', '--effort', 'low', '--context', '200000', '--approval', 'auto',
+    '--model', 'gpt-6-sol', '--effort', 'low', '--context', '200000',
     '--prompt', 'You watch the nightly build.',
   ]);
+  await ok(['permission', 'approval', '--bots', 'bots', '--bot', BOT, '--session', 'nightly', '--approval', 'auto']);
   await ok(['up', '--bots', 'bots', '--bot', BOT]);
   const bots = box.path('bots');
   await writeFile(path.join(botHomeOf(bots, BOT), 'reviewer.md'), `${REVIEW_DUTY}\n`);

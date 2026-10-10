@@ -40,6 +40,31 @@ export const bypassFlags = (harness) => APPROVAL[harness]['dangerously-skip'];
 
 export const HARNESSES = Object.keys(APPROVAL);
 
+/** How wide a level is: `ask` is narrower than `auto`, and `auto` than `dangerously-skip`. */
+export const approvalRank = (level) => ['ask', 'auto', 'dangerously-skip'].indexOf(level);
+
+/**
+ * The harness flags that set approval or permissions, which only
+ * `obk permission approval` may change, not an extra argument (ADR 0037).
+ * Codex's `-a` and `-s` take their value glued on too.
+ */
+const APPROVAL_FLAGS = {
+  claude: ['--permission-mode', '--dangerously-skip-permissions', '--allow-dangerously-skip-permissions', '--allowedTools', '--allowed-tools'],
+  codex: ['-a', '--ask-for-approval', '--approve-for-me', '--dangerously-bypass-approvals-and-sandbox', '-s', '--sandbox'],
+};
+
+/**
+ * Refuse extra arguments that set a session's approval or permissions on
+ * `harness`, before anything is written, naming the command that does it.
+ */
+export function refuseApprovalArgs(harness, args) {
+  const found = (args ?? []).find((arg) => (APPROVAL_FLAGS[harness] ?? []).some((flag) => arg === flag
+    || arg.startsWith(`${flag}=`)
+    || (/^-[as]$/.test(flag) && arg.startsWith(flag) && !arg.startsWith('--'))));
+  if (found === undefined) return;
+  throw new Error(`--extra-arg=${found} sets the session's approval or permissions on ${harness}, and only obk permission approval changes those, after the user's yes. Nothing was changed.`);
+}
+
 /** The level a session that names none runs at (ADR 0015). */
 export const DEFAULT_APPROVAL = 'auto';
 

@@ -42,6 +42,7 @@ import { createSandbox, fakeProgram, typedInto } from './helpers/cli.js';
 import {
   answerIn,
   argvOf,
+  BOT,
   chosenIn,
   editBotYaml,
   entryIn,
@@ -132,6 +133,10 @@ test('R3 a flag given wins over the option, and only for that setting', async (t
 test('R3 --approval wins over the maker\'s, with a role', async (t) => {
   const box = await createSandbox(t);
   const { bots, planner } = await fleet(box);
+  // #527: planner's own approval is ask, and a temporary session wider than its
+  // maker's needs the bot's temp_approval to be that wide.
+  const widened = await box.run(['permission', 'approval', '--bots', 'bots', '--bot', BOT, '--temps', '--approval', 'auto']);
+  assert.equal(widened.code, 0, `temp_approval should be set: ${widened.stdout}${widened.stderr}`);
 
   await made(box, planner, ['--role', 'reviewer:light', '--name', 'reviewer-1', '--prompt', TASK, '--approval', 'auto']);
 

@@ -1,7 +1,7 @@
 # ADR 0026: The kit writes a bot's permission rules, and only after the user's yes
 
 Date: 2026-09-26.
-Status: accepted.
+Status: superseded by [ADR 0036](0036-the-kit-writes-every-bots-default-permission-rules.md).
 Decided by: the owner, on 2026-09-26, for a default set every bot gets, the user's yes before anything is written, and the kit's code as the only writer (#344); the architect, on 2026-09-26, for leaving an entry the kit did not write where it is and naming it in health, which the owner may overrule; the architect, on 2026-09-26, for the rules build writing the kit's path and the bots folder's path into a bot's rules, which changes #220's choice and which the owner may overrule. The default set's exact rules and where the yes is kept are developer-1's, for #344.
 
 ## Context

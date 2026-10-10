@@ -77,7 +77,6 @@ test('every setting given is written down, and nothing else is', async (t) => {
     '--model', 'sonnet',
     '--effort', 'high',
     '--context', '1m',
-    '--approval', 'ask',
     '--prompt', 'You keep the API bot\'s day running.',
     '--work-dir', 'work/api',
     '--extra-arg=--verbose',
@@ -95,7 +94,7 @@ test('every setting given is written down, and nothing else is', async (t) => {
   assert.equal(session.model, 'sonnet');
   assert.equal(session.effort, 'high');
   assert.equal(String(session.context), '1m');
-  assert.equal(session.approval, 'ask');
+  assert.equal(session.approval, 'auto', 'no approval is given to session add since #527, so it writes the default');
   assert.equal(session.prompt.trim(), 'You keep the API bot\'s day running.');
   assert.equal(session.work_dir, 'work/api');
   assert.deepEqual(session.extra_args, ['--verbose', '--debug'], 'every --extra-arg, in the order they were given');
@@ -112,13 +111,16 @@ test('a context is written as it was given', async (t) => {
   assert.equal(String((await sessionOf(bots, 'daily')).context), '200000');
 });
 
+// #527: a session's approval is set by `obk permission approval`, not by
+// `session add` (whose --approval is refused; see the new refusal tests).
 for (const approval of ['auto', 'ask', 'dangerously-skip']) {
-  test(`--approval ${approval} is written down as it was asked for`, async (t) => {
+  test(`permission approval --approval ${approval} on an added session is written down as it was asked for`, async (t) => {
     const box = await createSandbox(t);
     const bots = await withBot(box);
+    assert.equal((await box.run(['session', 'add', '--bots', 'bots', '--bot', 'api-bot', '--name', 'daily'])).code, 0);
 
     const result = await box.run([
-      'session', 'add', '--bots', 'bots', '--bot', 'api-bot', '--name', 'daily', '--approval', approval,
+      'permission', 'approval', '--bots', 'bots', '--bot', 'api-bot', '--session', 'daily', '--approval', approval,
     ]);
 
     assert.equal(result.code, 0, result.stderr);
@@ -146,13 +148,14 @@ test('dangerously-skip is never reached by any other road', async (t) => {
   }
 });
 
-test('an approval level the kit does not know is refused, and the three are named', async (t) => {
+test('an approval level the kit does not know is refused by permission approval, and the three are named', async (t) => {
   const box = await createSandbox(t);
   const bots = await withBot(box);
+  assert.equal((await box.run(['session', 'add', '--bots', 'bots', '--bot', 'api-bot', '--name', 'daily'])).code, 0);
   const before = await snapshot(bots, skipGit);
 
   const result = await box.run([
-    'session', 'add', '--bots', 'bots', '--bot', 'api-bot', '--name', 'daily', '--approval', 'yolo',
+    'permission', 'approval', '--bots', 'bots', '--bot', 'api-bot', '--session', 'daily', '--approval', 'yolo',
   ]);
 
   assertCleanFailure(result);

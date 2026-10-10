@@ -84,6 +84,7 @@ import { parse } from 'yaml';
 import { cliEntry } from '../helpers/cli.js';
 import { waitingOn } from '../helpers/screens.js';
 import { tabGuard } from '../helpers/tab-guard.js';
+import { deleteOwnProject } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
 
 /**
@@ -422,10 +423,15 @@ test('#405: a kit tab whose harness quit, closed without --tab, leaves the listi
     const { closed, foreign } = guard.closeOwnAt(homes);
     const held = new Set(foreign.map((one) => one.home));
     let deleted = 0;
+    const failedDeletes = [];
     for (const setup of allSetups()) {
       if (!homes.includes(setup.path) || before.setups.has(setup.id) || held.has(setup.path)) continue;
-      orca(['project', 'setup-delete', '--setup', setup.id]);
-      deleted += 1;
+      try {
+        await deleteOwnProject(setup, bots);
+        deleted += 1;
+      } catch (error) {
+        failedDeletes.push(`${setup.path}: ${error.message}`);
+      }
     }
     // Orca's sidebar keeps a deleted project's row until its window is
     // rebuilt (#343): the kit's own reload, as after a retire.
@@ -442,6 +448,7 @@ test('#405: a kit tab whose harness quit, closed without --tab, leaves the listi
     for (const each of homes) {
       assert.deepEqual(await terminalsAfterClosing(each, closed), [], `this test left tabs behind in ${each}`);
     }
+    assert.deepEqual(failedDeletes, [], 'projects this test could not remove, left in Orca');
   });
 
   obkJson(['init', '--bots', bots, '--harness', 'claude']);
