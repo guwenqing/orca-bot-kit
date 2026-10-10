@@ -68,7 +68,6 @@ The commands kept out of the default set, which keep the user's yes:
 | `retire` | It closes a long-lived session and takes it off its bot, or closes a whole bot, removes its Orca project and moves its folder. |
 | `pause` | It closes a long-lived session's tabs, and `up` leaves them closed. |
 | `init` | It is the user's own first step, which makes the bots folder. |
-| `session trust-hooks`, `session answer` | They answer a long-lived session's first-run screens, which are Bot Father's and the user's (#506). |
 
 Every other command the kit has today is ordinary, and on the list of
 default commands. A command added later is on neither list until someone puts
@@ -78,7 +77,10 @@ it on one, and a command that runs whatever its arguments say is kept back
 conversation it was having. `health`, `roster` and `usage` only read.
 `session clear` and `session compact` keep the conversation in the book and in
 the harness's record. `temp retire` retires only a temporary session its
-caller made. The mail commands reach the fleet's own sessions, not people.
+caller made. `session trust-hooks`, `session answer`, `temp trust-hooks` and
+`temp answer` answer a first-run screen, and are narrow by construction: they
+accept only their own callers, screens, keys and the kit's own hooks (#506;
+the architect, 2026-10-10). The mail commands reach the fleet's own sessions, not people.
 `skills fetch` and `skills update` clone or move the sources the user listed,
 and reach no account. The hook commands are run by the kit's hooks.
 

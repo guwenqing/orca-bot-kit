@@ -23,6 +23,7 @@ Signed off: 2026-10-10 owner, origin/2026-10-10-signoff.md
 ## Decisions
 
 - D1, 2026-10-10. Source: developer-527, from Claude Code's docs (permission-modes, tools-reference, cross-session-messaging) and its 2.1.222 changelog, read 2026-10-10. No SendMessage rule is in the default set. The docs say the auto-mode classifier reviews every SendMessage before delivery and name no allow rule that settles it first, and SendMessage takes only the bare tool name, so a rule cannot be narrowed to the fleet's sessions and would be broad.
+- D2, 2026-10-10. Source: the architect, 2026-10-10, in the kit-dev architect's session. session trust-hooks and session answer (#506), with temp trust-hooks and temp answer, are in the default set, not kept back. This replaces the Out line that kept #506's commands a grant for Bot Father. #506 made them so that one narrow rule lets Bot Father or the user answer those screens with nobody asked, which is the owner's #527 words. They are narrow by construction: they accept only their own callers, screens and keys, and only the kit's own hooks. Answering a first-run screen is not in the owner's risky group.
 
 ## Outcome
 

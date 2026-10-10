@@ -62,16 +62,13 @@ export const DEFAULT_COMMANDS = [
   'session add', 'session change', 'session clear', 'session compact',
   'message to', 'message send', 'message check',
   'session record', 'session sent', 'session nudge', 'session mail', 'session name', 'session mailbox',
+  'session trust-hooks', 'session answer',
   'temp make', 'temp roles', 'temp retire', 'temp trust-hooks', 'temp answer',
 ];
 
 /**
  * The commands kept out of the default permission set, which keep the user's
  * yes (ADR 0037): the ones that change permissions, close a long-lived
- * session, or make the bots folder; and the answers to a long-lived session's
- * first-run screens, which are Bot Father's and the user's (#506).
+ * session, or make the bots folder.
  */
-export const KEPT_BACK = [
-  'init', 'retire', 'pause', 'permission allow', 'permission disallow', 'permission approval',
-  'session trust-hooks', 'session answer',
-];
+export const KEPT_BACK = ['init', 'retire', 'pause', 'permission allow', 'permission disallow', 'permission approval'];
