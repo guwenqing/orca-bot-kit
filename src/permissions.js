@@ -281,9 +281,11 @@ export function refuseNoCodexForm(bot, rules) {
 export function writePermissions(bots, home, bot, { keepGoing = false } = {}) {
   const writers = [[runsOnClaude, FILE], [runsOnCodex, CODEX_FILE]].filter(([runs]) => runs(bot));
   let defaults = [];
+  // Read before anything is written, so a file's trouble still names them.
+  let held = [];
   try {
+    held = heldRules(bots, home, bot);
     defaults = writers.length === 0 ? [] : missingDefaults(bots, home, bot);
-    const held = heldRules(bots, home, bot);
     if (defaults.length > 0) {
       const { allow } = allowRules(bots, bot.name, defaults, { write: false });
       const entries = allowIn(bots, home, { ...bot, allow })();
@@ -294,7 +296,7 @@ export function writePermissions(bots, home, bot, { keepGoing = false } = {}) {
       .map((entry) => ({ ...entry, defaults, held }));
   } catch (error) {
     if (!keepGoing) throw error;
-    return writers.map(([, file]) => ({ bot: bot.name, file: path.join(home, file), written: [], defaults: [], held: [], trouble: error.message }));
+    return writers.map(([, file]) => ({ bot: bot.name, file: path.join(home, file), written: [], defaults: [], held, trouble: error.message }));
   }
 }
 
