@@ -35,6 +35,18 @@ project → repo (`kind: "git" | "folder"`) → worktree (id = `<repoId>::<absPa
 - `orca project setup-delete --setup <id>` removes the setup, the project and the repo record in one
   call. `orca project setups --json` lists every setup with its `path` and `kind`, which is how the kit
   finds a workspace it made earlier. **verified** (live)
+- **Orca's next release guards `setup-delete` (stablyai/orca#27172, commit `cb69d52455`, on main
+  2026-10-10, in no tag yet).** Without `--force`, the CLI sends `force: false`, and the runtime refuses
+  a repo-backed project that has terminals not known to have exited, or saved metadata for any of its
+  workspaces. The refusal is `runtime_error`: "This project has saved details for 1 workspace. …
+  Re-run with --force to remove it anyway." A project with a workspace has that metadata after its
+  tabs close, so a plain delete of a bot's project is refused. `--force` skips the check. A client that
+  sends no `force` at all is not checked. Orca 1.4.223's CLI checks flags before it calls the runtime,
+  and refuses `--force` with `invalid_argument` "Unknown flag --force for command: project
+  setup-delete", with nothing changed (**verified** live on 1.4.223, 2026-10-10, against a setup id
+  that does not exist). `obk retire` sends `--force`, after its own checks, and sends the plain delete
+  when that refusal comes (#528). The guard itself is **read in code**, not seen live: a live check is
+  owed on the first release with the guard.
 - **A removed project stays in the window's sidebar until the window is rebuilt.** `setup-delete`
   sends the window nothing, so the row keeps its old name. The `project.update` call the kit makes
   after a change (ADR 0034) makes the window re-read, and the row stays, now under "Unknown": the
@@ -881,3 +893,4 @@ Agent Skills spec: `name` is 1–64 chars, lowercase letters, digits and hyphens
 9. ~~Whether Codex reads `AGENTS.md` again at `/new` (section 3, #271).~~ **done** (2026-10-03, #391): it does, on 0.157.1 and 0.160.0; see section 3.
 10. ~~That `claude --resume <id> -n <other name>` gives the conversation the new name.~~ **done** (2026-09-25, by the owner, #319): it does; see section 2.
 11. ~~Grooming on Claude Code's scheduler (#237), in `test/system/groom.test.js`.~~ **done** (2026-09-26, run 5 passed end to end): see section 2. Still owed: that Orca's own cold restore runs a bare `claude --resume <id>`.
+12. That `obk retire --bot` removes the bot's project on the first Orca release with the `setup-delete` guard (stablyai/orca#27172), before the fleet takes that release (section 1, #528).

@@ -1470,3 +1470,92 @@ test('the fake ends a receiver\'s turn after busyFor more looks: busy, then idle
 
   assert.deepEqual(answers, ['idle', 'timeout', 'timeout', 'idle', 'idle'], 'as before, the turn at the second look, one more busy look, then idle for good');
 });
+
+// #528: the two Orcas `project setup-delete` meets. Both are read in Orca's
+// code, not seen live: the guard in its next release (commit cb69d52455,
+// stablyai/orca#27172, in no tag yet), and the flag check of 1.4.223's CLI.
+
+/** A fake Orca with one project at `home`, a folder one, as the kit leaves it. */
+function oneProject(box, name) {
+  const home = box.path('bots', 'bots', name);
+  answer(ask(box, ['repo', 'add', '--path', home, '--json']));
+  const setup = answer(ask(box, ['project', 'setups', '--json'])).result.setups.find((one) => one.path === home);
+  answer(ask(box, ['project', 'setup-update', '--setup', setup.id, '--kind', 'folder', '--json']));
+  return { home, setup };
+}
+
+const GUARD_TAIL = 'Removing it detaches those terminals from Orca and deletes the saved workspace details. Re-run with --force to remove it anyway.';
+
+test('#528 the fake guards setup-delete as Orca\'s next release does: a plain delete refused in Orca\'s words and changing nothing, a forced one carried out', async (t) => {
+  const box = await createSandbox(t);
+  const saved = oneProject(box, 'saved-bot');
+  const open = oneProject(box, 'open-bot');
+  const bare = oneProject(box, 'bare-bot');
+  const forced = oneProject(box, 'forced-bot');
+  answer(ask(box, ['terminal', 'create', '--worktree', `path:${open.home}`, '--title', 'Daily', '--json']));
+  answer(ask(box, ['terminal', 'create', '--worktree', `path:${open.home}`, '--title', 'Review', '--json']));
+  const del = (setup, ...rest) => ask(box, ['project', 'setup-delete', '--setup', setup.id, ...rest, '--json']);
+  const listed = async () => (await box.orca.setups()).map((one) => one.id);
+
+  await box.orca.set({ deleteGuard: {} });
+  const before = await box.orca.state();
+  const refused = del(saved.setup);
+  assert.equal(refused.status, 1);
+  assert.deepEqual(JSON.parse(refused.stdout).error, {
+    code: 'runtime_error',
+    message: `This project has saved details for 1 workspace. ${GUARD_TAIL}`,
+    data: {},
+  }, 'a project with a workspace has saved details for it, unless the test says otherwise');
+  assert.deepEqual(await box.orca.state(), before, 'a refused delete changes nothing');
+
+  await box.orca.set({ deleteGuard: { workspaces: 2, terminals: 1 } });
+  assert.equal(
+    JSON.parse(del(open.setup).stdout).error.message,
+    `This project has 3 terminals still open and saved details for 2 workspaces. ${GUARD_TAIL}`,
+    'the two tabs in the fake\'s world at its path, and one more Orca counts open',
+  );
+  await box.orca.set({ deleteGuard: { workspaces: 0, terminals: 1 } });
+  assert.equal(
+    JSON.parse(del(saved.setup).stdout).error.message,
+    `This project has 1 terminal still open. ${GUARD_TAIL}`,
+    'live terminals alone are enough',
+  );
+  assert.deepEqual(await listed(), [saved.setup.id, open.setup.id, bare.setup.id, forced.setup.id], 'still nothing removed');
+
+  await box.orca.set({ deleteGuard: { workspaces: 0 } });
+  assert.equal(JSON.parse(del(bare.setup).stdout).ok, true, 'nothing open and nothing saved: the plain delete goes ahead');
+  await box.orca.set({ deleteGuard: { workspaces: 3, terminals: 2 } });
+  const went = JSON.parse(del(forced.setup, '--force').stdout);
+  assert.equal(went.ok, true, '--force checks nothing');
+  assert.equal(went.result.deleted.setupId, forced.setup.id);
+  assert.deepEqual(await listed(), [saved.setup.id, open.setup.id], 'and each delete that went ahead took its project off the list');
+});
+
+test('#528 the fake refuses --force on setup-delete as Orca 1.4.223\'s CLI does, before it looks for the setup, and deletes without it', async (t) => {
+  const box = await createSandbox(t);
+  const { setup } = oneProject(box, 'api-bot');
+  const del = (id, ...rest) => ask(box, ['project', 'setup-delete', '--setup', id, ...rest, '--json']);
+  const unknown = { code: 'invalid_argument', message: 'Unknown flag --force for command: project setup-delete', data: {} };
+
+  await box.orca.set({ forceUnknown: true });
+  const before = await box.orca.state();
+  const refused = del(setup.id, '--force');
+  assert.equal(refused.status, 1);
+  assert.deepEqual(JSON.parse(refused.stdout).error, unknown);
+  assert.deepEqual(await box.orca.state(), before, 'a refused delete changes nothing');
+  assert.deepEqual(JSON.parse(del('repo_nowhere', '--force').stdout).error, unknown, 'the flag is checked before any setup is looked for');
+
+  const went = JSON.parse(del(setup.id).stdout);
+  assert.equal(went.ok, true, 'the same delete without --force goes ahead');
+  assert.deepEqual(await box.orca.setups(), []);
+});
+
+test('#528 with neither key the fake takes setup-delete with --force and without it alike', async (t) => {
+  const box = await createSandbox(t);
+  const plain = oneProject(box, 'plain-bot');
+  const forced = oneProject(box, 'forced-bot');
+
+  assert.equal(JSON.parse(ask(box, ['project', 'setup-delete', '--setup', plain.setup.id, '--json']).stdout).ok, true);
+  assert.equal(JSON.parse(ask(box, ['project', 'setup-delete', '--setup', forced.setup.id, '--force', '--json']).stdout).ok, true);
+  assert.deepEqual(await box.orca.setups(), []);
+});

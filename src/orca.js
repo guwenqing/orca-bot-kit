@@ -284,8 +284,22 @@ export function asFolderProject(setupId, title) {
  * Take a bot's Orca project away: the setup, the project and the repo record,
  * in one call (tech notes, section 1). Only after its tabs are closed: a
  * project taken away first leaves tabs no command line can reach.
+ *
+ * With `--force`, because the caller has made those checks itself: Orca's next
+ * release refuses a plain delete of a project with saved workspace details,
+ * which a bot's project keeps after its tabs close (#528). Orca 1.4.223 does
+ * not know the flag and refuses it before it changes anything, so then the
+ * plain delete is sent, which it takes with no such guard.
  */
-export const deleteProject = (setupId) => orca(['project', 'setup-delete', '--setup', setupId]);
+export function deleteProject(setupId) {
+  const plain = ['project', 'setup-delete', '--setup', setupId];
+  try {
+    return orca([...plain, '--force']);
+  } catch (error) {
+    if (error.code !== 'invalid_argument' || !error.reason?.includes('Unknown flag --force')) throw error;
+    return orca(plain);
+  }
+}
 
 /** Said after a run that made or renamed a project, whatever `tellWindow` answered, and after a removal `reloadWindow` could not follow. */
 export const RELOAD_LINE = "If Orca's sidebar does not show it, reload the window with Cmd+Shift+R.";

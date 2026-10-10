@@ -248,7 +248,39 @@
 //               listing, but the folder is still one of Orca's projects. Not
 //               seen live either; it is the other half of "no longer listed"
 //               in #282, which a check by id alone would call gone.
-//   closeLag    a whole number: how many more `terminal list` answers still
+//   deleteGuard  { workspaces, terminals } — the guard Orca's next release puts
+//               on `project setup-delete` (commit cb69d52455, stablyai/orca#27172,
+//               in no tag yet; read in Orca's code, not seen live, #528). A
+//               delete without `--force` of a project that has live terminals or
+//               saved workspace details is refused, code `runtime_error`, in
+//               Orca's words: "This project has <parts>. Removing it detaches
+//               those terminals from Orca and deletes the saved workspace
+//               details. Re-run with --force to remove it anyway.", the parts
+//               "N terminal(s) still open" and "saved details for N
+//               workspace(s)", joined by " and ". A refused delete changes
+//               nothing. A delete with `--force` checks nothing and goes ahead
+//               as before. `workspaces` (1 if left out) is how many workspaces
+//               Orca keeps saved details for in the project: a project with a
+//               workspace normally has them, even with all its tabs closed, so
+//               in practice a plain delete is refused. The live terminals are
+//               the ones in the fake's world at the setup's path, a closed one
+//               still lagging under `closeLag` included, and `terminals` more
+//               (0 if left out): ones Orca still counts open after their
+//               closes and no listing shows. `true` is `{}`. Left out, there
+//               is no guard, as on Orca 1.4.223.
+//   forceUnknown  true: `project setup-delete` with `--force` is refused as
+//               Orca 1.4.223's CLI refuses a flag the command does not take,
+//               before it reaches the runtime, so before the setup is looked
+//               for: code `invalid_argument`, message "Unknown flag --force for
+//               command: project setup-delete", and nothing changes. The same
+//               delete without `--force` goes ahead, with no guard. Read in
+//               Orca's code, not seen live (#528). Orca's `data` for this
+//               refusal was not recorded, so the fake's is empty.
+//               With neither key the fake takes `--force` and a plain delete
+//               alike: on this point it is neither Orca, so every test written
+//               before #528 means what it meant, and a test about the flag
+//               names the Orca it means.
+//   closeLag   a whole number: how many more `terminal list` answers still
 //               carry a terminal after its own `terminal close` has answered
 //               ok. 0, the default, is a close the listing agrees with at once.
 //               Seen live and written down in both system tests: Orca answers
@@ -698,9 +730,27 @@ if (command === 'project setup-update') {
 // closes show up in a test. The shape of the answer was not recorded when the
 // call was measured, so this one is the fake's own.
 if (command === 'project setup-delete') {
+  const forced = args.includes('--force');
+  if (forced && state.forceUnknown === true) {
+    fail('invalid_argument', 'Unknown flag --force for command: project setup-delete');
+  }
   const wanted = flag('--setup');
   const setup = (state.setups ?? []).find((entry) => entry.id === wanted);
   if (!setup) fail('setup_not_found', `no setup with id ${wanted}`);
+
+  if (!forced && state.deleteGuard != null && state.deleteGuard !== false) {
+    const guard = state.deleteGuard === true ? {} : state.deleteGuard;
+    const workspaces = guard.workspaces ?? 1;
+    const terminals = (state.terminals ?? []).filter((terminal) => terminal.worktreePath === setup.path).length
+      + (guard.terminals ?? 0);
+    const parts = [
+      ...(terminals > 0 ? [`${terminals} terminal${terminals === 1 ? '' : 's'} still open`] : []),
+      ...(workspaces > 0 ? [`saved details for ${workspaces} workspace${workspaces === 1 ? '' : 's'}`] : []),
+    ];
+    if (parts.length > 0) {
+      fail('runtime_error', `This project has ${parts.join(' and ')}. Removing it detaches those terminals from Orca and deletes the saved workspace details. Re-run with --force to remove it anyway.`);
+    }
+  }
 
   if (state.keepOnDelete !== true) {
     state.setups = state.setups.filter((entry) => entry !== setup);
