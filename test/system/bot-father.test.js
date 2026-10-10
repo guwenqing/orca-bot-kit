@@ -27,6 +27,7 @@ import { setTimeout } from 'node:timers/promises';
 
 import { assertMarkedName, cliEntry, sessionTabIds } from '../helpers/cli.js';
 import { tabGuard } from '../helpers/tab-guard.js';
+import { deleteOwnProject } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
 
 /**
@@ -157,10 +158,15 @@ test('Bot Father comes up in the real Orca, and nothing else is touched', async 
     const { closed, foreign } = guard.closeOwnAt([home]);
     const held = new Set(foreign.map((one) => one.home));
     let deleted = 0;
+    const failedDeletes = [];
     for (const setup of allSetups()) {
       if (setup.path !== home || before.setups.has(setup.id) || held.has(setup.path)) continue;
-      orca(['project', 'setup-delete', '--setup', setup.id]);
-      deleted += 1;
+      try {
+        await deleteOwnProject(setup, bots);
+        deleted += 1;
+      } catch (error) {
+        failedDeletes.push(`${setup.path}: ${error.message}`);
+      }
     }
     // Orca's sidebar keeps a deleted project's row until its window is
     // rebuilt (#343): the kit's own reload, as after a retire.
@@ -175,6 +181,7 @@ test('Bot Father comes up in the real Orca, and nothing else is touched', async 
     assert.deepEqual(closedNotOurs, [], 'this test closed tabs it did not create');
     if (goneElsewhere.length > 0) t.diagnostic(`tabs open before this test and closed elsewhere meanwhile: ${goneElsewhere.join(', ')}`);
     assert.deepEqual(await terminalsAfterClosing(home, closed), [], 'this test left tabs behind');
+    assert.deepEqual(failedDeletes, [], 'projects this test could not remove, left in Orca');
   });
 
   // 1. init: the folder is seeded and Bot Father appears in Orca. This is also

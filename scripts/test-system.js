@@ -273,6 +273,12 @@ function runFolderOf(raw) {
   return undefined;
 }
 
+/** Whether `key` names a place in one of this run's own folders: one that was not there before it (#240). */
+function runOwns(key, foldersBefore) {
+  const folder = runFolderOf(key);
+  return folder !== undefined && !foldersBefore.has(folder);
+}
+
 /**
  * The obk-system-* folders under the temp folder right now, by name. Taken
  * before the tests run, so that a folder another session made earlier is not
@@ -319,10 +325,7 @@ const writerOf = (key) => KNOWN_WRITERS.find((one) => runFolderOf(key).startsWit
 function reportConfigsLeft(before, foldersBefore) {
   const after = trustKeys();
   const lines = [];
-  const ours = (key) => {
-    const folder = runFolderOf(key);
-    return folder !== undefined && !foldersBefore.has(folder);
-  };
+  const ours = (key) => runOwns(key, foldersBefore);
   const compared = (side) => before[side].keys !== undefined && after[side].keys !== undefined;
   const added = (side) => (compared(side) ? after[side].keys.filter((key) => !before[side].keys.includes(key) && ours(key)) : []);
 
@@ -388,6 +391,34 @@ function reportConfigsLeft(before, foldersBefore) {
   process.stdout.write(`\n${lines.join('\n')}\n`);
   return left.length > 0 || removed.codex.why !== undefined || removed.claude.why !== undefined
     || after.codex.unparsed === true;
+}
+
+/**
+ * The Orca projects the run left in its own throwaway folders (#536). A system
+ * test removes the projects it made in its teardown; one it could not remove
+ * stays in the owner's Orca. Each is named by its path and its setup id, and
+ * fails the run. None is removed here: what removes a project is the test's
+ * own teardown, and only a project in a folder the run made is named. Answers
+ * whether the run failed on what it left.
+ */
+function reportProjectsLeft(foldersBefore) {
+  const setups = askOrca(['project', 'setups'])?.setups;
+  if (!Array.isArray(setups)) {
+    process.stdout.write('\nOrca did not list its projects, so the kit cannot tell which projects the run left in its own folders.\n');
+    return false;
+  }
+  const left = setups.filter((setup) => typeof setup?.path === 'string' && runOwns(setup.path, foldersBefore));
+  if (left.length === 0) {
+    process.stdout.write('\nOrca has no project in the run\'s own folders.\n');
+    return false;
+  }
+  process.stdout.write(`${[
+    '',
+    `The run left ${left.length} Orca project${left.length === 1 ? '' : 's'} in its own folders, which a system test must not do (#536).`,
+    'They were not removed, so they are the owner\'s to remove:',
+    ...left.map((setup) => `  ${setup.path}  (setup ${setup.id})`),
+  ].join('\n')}\n`);
+  return true;
 }
 
 /**
@@ -744,12 +775,14 @@ function run() {
   // as a passing one does, and the developer is owed the accounting either way.
   reportRunsLeft(before);
   const leftKeys = reportConfigsLeft(configsBefore, foldersBefore);
+  const leftProjects = reportProjectsLeft(foldersBefore);
 
   // The test runner answers 0 or 1, and a run killed by a signal answers
   // nothing at all. Anything but a clean 0 means the system tests did not pass.
   // The Runs accounting never changes this: it is a report, not a check. A
   // trust key left in the owner's Codex config does: that is a check (#240).
-  return result.status === 0 && !leftKeys ? 0 : 1;
+  // So is a project left in the owner's Orca (#536).
+  return result.status === 0 && !leftKeys && !leftProjects ? 0 : 1;
 }
 
 process.exitCode = run();

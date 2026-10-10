@@ -115,6 +115,7 @@ import { cliEntry } from '../helpers/cli.js';
 import { codexTrustArgs } from '../helpers/codex-trust.js';
 import { onlyPlainTrustOf, onlyTeachFormOf, waitingOn } from '../helpers/screens.js';
 import { tabGuard } from '../helpers/tab-guard.js';
+import { deleteOwnProject } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
 
 /** The Orca CLI that works for a normal user (tech notes, section 1). */
@@ -433,10 +434,15 @@ for (const bot of BOTS) {
       const { closed, foreign } = guard.closeOwnAt(homes);
       const held = new Set(foreign.map((one) => one.home));
       let deleted = 0;
+      const failedDeletes = [];
       for (const setup of allSetups()) {
         if (!homes.includes(setup.path) || before.setups.has(setup.id) || held.has(setup.path)) continue;
-        orca(['project', 'setup-delete', '--setup', setup.id]);
-        deleted += 1;
+        try {
+          await deleteOwnProject(setup, bots);
+          deleted += 1;
+        } catch (error) {
+          failedDeletes.push(`${setup.path}: ${error.message}`);
+        }
       }
       if (deleted > 0 && !(await reloadWindow())) t.diagnostic(RELOAD_LINE);
       assert.deepEqual(foreign, [], `tabs this test did not create are open at its homes, so it closed only its own and left those projects and ${bots} in place`);
@@ -448,6 +454,7 @@ for (const bot of BOTS) {
       for (const one of homes) {
         assert.deepEqual(await terminalsAfterClosing(one, closed), [], `this test left tabs behind in ${one}`);
       }
+      assert.deepEqual(failedDeletes, [], 'projects this test could not remove, left in Orca');
     });
 
     obkJson(['init', '--bots', bots, '--harness', 'claude']);
