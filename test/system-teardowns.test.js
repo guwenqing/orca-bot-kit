@@ -45,36 +45,64 @@ import { repoRoot, snapshot } from './helpers/cli.js';
 const systemTestsDir = path.join(repoRoot, 'test', 'system');
 
 /**
- * Whether a `/` that follows `out` begins a regular expression literal rather
- * than a division: it does after an operator, an opening bracket, a comma, a
- * semicolon, or a keyword such as `return`, and at the start.
+ * The principle for a `/` (the third review of PR #546): without a parser the
+ * check cannot always tell a division from a regular expression, so a misread
+ * slash may make it keep more text as code, which fails loudly, but must never
+ * hide code. So a slash never takes text away:
+ *
+ *   - any `/` with another `/` after it on the same line, outside a string, is
+ *     read as a regular expression up to that slash, and its text is kept as
+ *     code. Only its quotes are made NEUTRAL, so that they open no string;
+ *   - the rest of a line after such a slash is code too, so a `//` or `/*` there
+ *     is not taken for a comment;
+ *   - a quote a misread slash took in can only open a false string, which ends
+ *     at the line's end, as a '- or "-string does in JavaScript;
+ *   - and a second reading with no regular expressions at all (`regex: false`)
+ *     is checked as well: a forbidden thing either reading shows as code is
+ *     named (teardownTrouble).
  */
-const regexMayStart = (out) => {
-  const before = out.trimEnd();
-  // A postfix `++` or `--` ends an operand, so a `/` after it divides.
-  if (/(?:\+\+|--)$/.test(before)) return false;
-  return before === '' || /[(,=:[!&|?{};+\-*%<>~^]$/.test(before)
-    // The keyword itself, not a property or a name that ends in it (`obj.in`,
-    // `obj . in`, `obj /* gap */ . in`, `$in`): a dot before it counts across
-    // whitespace, which is all a removed comment leaves.
-    || /(?<![\w$])(?<!\.\s*)(?:return|typeof|case|do|else|in|of|void|yield|await|throw|new|delete)$/.test(before);
-};
+const NEUTRAL = '\u0001';
+
+/** A quote around a word in code: a real one, or one a regular expression's text holds. */
+const Q = `['"\`${NEUTRAL}]`;
+
+/** Where the regular expression that would start at the `/` at `at` ends, its closing slash on the same line, or -1. */
+function regexEnd(source, at) {
+  let inClass = false;
+  for (let next = at + 1; next < source.length && source[next] !== '\n'; next += 1) {
+    const here = source[next];
+    if (here === '\\') {
+      if (source[next + 1] === '\n') return -1;
+      next += 1;
+    } else if (here === '[') inClass = true;
+    else if (here === ']') inClass = false;
+    else if (here === '/' && !inClass) return next;
+  }
+  return -1;
+}
 
 /**
  * The source with its comments taken out: block comments, and line comments
  * outside strings. Strings and template literals are kept as they are, so a
- * `//` inside a URL or a message is not taken for a comment. A regular
- * expression literal is kept as an empty one, `/(?:)/`, so a quote inside it
- * does not open a string (#536: `/"requestId"\s*:\s*"([^"]+)"/` in a system
- * test kept every comment after it, and ran a teardown past its end).
+ * `//` inside a URL or a message is not taken for a comment. A '- or "-string
+ * ends at the end of its line. With `regex` (the default), a `/` is read as the
+ * principle above says; without it, every `/` is a plain character.
  */
-function withoutComments(source) {
+function withoutComments(source, { regex = true } = {}) {
   let out = '';
   let at = 0;
   let quote = null;
+  let codeToLineEnd = false;
   while (at < source.length) {
     const here = source[at];
     const next = source[at + 1];
+    if (here === '\n') {
+      if (quote === '\'' || quote === '"') quote = null;
+      codeToLineEnd = false;
+      out += here;
+      at += 1;
+      continue;
+    }
     if (quote !== null) {
       out += here;
       if (here === '\\') {
@@ -86,28 +114,24 @@ function withoutComments(source) {
       at += 1;
       continue;
     }
-    if (here === '/' && next === '/') {
+    if (!codeToLineEnd && here === '/' && next === '/') {
       while (at < source.length && source[at] !== '\n') at += 1;
       continue;
     }
-    if (here === '/' && next === '*') {
+    if (!codeToLineEnd && here === '/' && next === '*') {
       const end = source.indexOf('*/', at + 2);
       at = end < 0 ? source.length : end + 2;
       continue;
     }
-    if (here === '/' && regexMayStart(out)) {
-      let inClass = false;
-      at += 1;
-      while (at < source.length && source[at] !== '\n') {
-        if (source[at] === '\\') at += 1;
-        else if (source[at] === '[') inClass = true;
-        else if (source[at] === ']') inClass = false;
-        else if (source[at] === '/' && !inClass) break;
-        at += 1;
+    if (regex && here === '/') {
+      const end = regexEnd(source, at);
+      // A backtick is left as it is: a template it opened could run on for lines.
+      if (end > at && !source.slice(at, end).includes('`')) {
+        out += source.slice(at, end + 1).replace(/['"]/g, NEUTRAL);
+        at = end + 1;
+        codeToLineEnd = true;
+        continue;
       }
-      out += '/(?:)/';
-      at += 1;
-      continue;
     }
     if (here === '\'' || here === '"' || here === '`') quote = here;
     out += here;
@@ -127,7 +151,7 @@ function teardownsIn(code) {
       const here = code[end];
       if (quote !== null) {
         if (here === '\\') end += 1;
-        else if (here === quote) quote = null;
+        else if (here === quote || (here === '\n' && quote !== '`')) quote = null;
         continue;
       }
       if (here === '\'' || here === '"' || here === '`') quote = here;
@@ -151,7 +175,7 @@ function closingOf(code, open) {
     const here = code[at];
     if (quote !== null) {
       if (here === '\\') at += 1;
-      else if (here === quote) quote = null;
+      else if (here === quote || (here === '\n' && quote !== '`')) quote = null;
       continue;
     }
     if (here === '\'' || here === '"' || here === '`') quote = here;
@@ -204,15 +228,24 @@ function assertsLastThatNoneFailed(body, lists) {
   return /^[\s;})]*$/.test(rest.slice(first));
 }
 
-/** What is wrong with one file's teardowns, and with how it removes its projects, as sentences, or none. */
-function teardownTrouble(source) {
+/** The forbidden things one reading of a file shows as code: a teardown that closes or sweeps tabs itself, and a delete of its own. */
+function forbiddenIn(code) {
   const trouble = [];
-  const code = withoutComments(source);
   for (const body of teardownsIn(code)) {
-    if (/['"]terminal['"],\s*['"]close['"]/.test(body)) trouble.push('its teardown closes a tab itself rather than through guard.closeOwnAt');
+    if (new RegExp(`${Q}terminal${Q},\\s*${Q}close${Q}`).test(body)) trouble.push('its teardown closes a tab itself rather than through guard.closeOwnAt');
     if (/\.handles\.has\(/.test(body)) trouble.push('its teardown picks tabs by whether they were open before the run');
+  }
+  if (/setup-delete/.test(code)) trouble.push('it sends setup-delete itself rather than through deleteOwnProject');
+  if (/\bdeleteProject\(/.test(code)) trouble.push('it calls deleteProject itself rather than deleteOwnProject');
+  return trouble;
+}
+
+/** What one reading of a file's teardowns lacks or has in the wrong order: the guard, the foreign assert, a kept failure, the assert that none failed. */
+function structureIn(code) {
+  const trouble = [];
+  for (const body of teardownsIn(code)) {
     const owned = [...body.matchAll(/\bdeleteOwnProject\(/g)].map((match) => match.index);
-    if (/['"]setup-delete['"]/.test(body) || owned.length > 0) {
+    if (new RegExp(`${Q}setup-delete${Q}`).test(body) || owned.length > 0) {
       if (!/\bguard\.closeOwnAt\(/.test(body)) trouble.push('its teardown deletes its projects without closing its tabs through guard.closeOwnAt');
       const asserted = body.search(/assert\.deepEqual\(\s*foreign\b/);
       const removed = body.search(/\bremoveBotsFolderAndSiblings\(/);
@@ -225,8 +258,28 @@ function teardownTrouble(source) {
       if (kept.length > 0 && !assertsLastThatNoneFailed(body, kept)) trouble.push('its teardown does not assert, last and after it removes the bots folder, that no delete failed');
     }
   }
-  if (/setup-delete/.test(code)) trouble.push('it sends setup-delete itself rather than through deleteOwnProject');
-  if (/\bdeleteProject\(/.test(code)) trouble.push('it calls deleteProject itself rather than deleteOwnProject');
+  return trouble;
+}
+
+/**
+ * What is wrong with one file's teardowns, and with how it removes its
+ * projects, as sentences, or none. A forbidden thing is named when either
+ * reading shows it as code: the one with regular expressions and the one with
+ * none (see NEUTRAL). The rest is read with regular expressions.
+ */
+function teardownTrouble(source) {
+  const code = withoutComments(source);
+  const plain = withoutComments(source, { regex: false });
+  const forbidden = [...forbiddenIn(code), ...forbiddenIn(plain)];
+  const order = [
+    'its teardown closes a tab itself rather than through guard.closeOwnAt',
+    'its teardown picks tabs by whether they were open before the run',
+  ];
+  const trouble = [
+    ...order.filter((one) => forbidden.includes(one)),
+    ...structureIn(code),
+    ...forbidden.filter((one) => !order.includes(one)),
+  ];
   return [...new Set(trouble)];
 }
 
@@ -380,6 +433,53 @@ test('the check takes a division after a postfix ++ or --, or after a property n
   }
   const keyword = 'const id = typeof /"requestId"/.exec(text); const back = () => { return /"x"/; };\n// orca([\'project\', \'setup-delete\', \'--setup\', id]);\n';
   assert.deepEqual(teardownTrouble(`${keyword}${GUARDED}`), [], 'after a keyword itself it is still a regular expression');
+});
+
+// The third review of PR #546: a slash the check cannot tell from a division
+// must never hide code. Each line below is valid JavaScript with a direct
+// delete after a division, and each was read as a regular expression.
+test('a misread slash never hides code: a delete after a division the check takes for a regular expression is still named, with or without a later slash on the line', () => {
+  for (const division of ['{} / 2', 'function () {} / 2', 'class {} / 2', 'of / 2', 'πin / 2', 'n / 2']) {
+    for (const after of ['', ' const rx = /x/;']) {
+      const line = `let n = 8; const half = ${division}; orca(["project", "setup-delete", "--setup", id]);${after}\n`;
+      assert.deepEqual(teardownTrouble(`${line}${GUARDED}`), [SENDS], `after \`${division}\`${after}`);
+    }
+  }
+});
+
+test('a misread slash that turns a template literal inside out lines further down is caught by the reading with no regular expressions', () => {
+  // The misread slash takes in the quote of 'a/b', so the template after it on
+  // the line looks like part of a string, and the next one's text looks like
+  // code: its `//` would hide the delete after it.
+  const turned = [
+    "const half = {} / 2; const s = 'a/b'; const t = `x",
+    'y`;',
+    "t.diagnostic(`see http://x`); orca(['project', 'setup-delete', '--setup', id]);",
+    '',
+  ].join('\n');
+  assert.deepEqual(teardownTrouble(`${turned}${GUARDED}`), [SENDS]);
+});
+
+test('a misread slash in a teardown never hides a tab closed there, or tabs picked by whether they were open before', () => {
+  const close = rewritten(
+    '    const failedDeletes = [];\n',
+    "    const failedDeletes = [];\n    const half = {} / 2; orca(['terminal', 'close', '--terminal', stray, '--tab']); const rx = /x/;\n",
+  );
+  assert.ok(teardownTrouble(close).includes('its teardown closes a tab itself rather than through guard.closeOwnAt'), `got: ${teardownTrouble(close)}`);
+
+  const sweep = rewritten(
+    '    const failedDeletes = [];\n',
+    '    const failedDeletes = [];\n    const half = of / 2; const old = before.handles.has(handle); const rx = /x/;\n',
+  );
+  assert.ok(teardownTrouble(sweep).includes('its teardown picks tabs by whether they were open before the run'), `got: ${teardownTrouble(sweep)}`);
+});
+
+test('after a slash on a line the rest of the line is code: a comment there counts, so the check fails loudly rather than hiding code, and the next line is read as before', () => {
+  const trailing = `const rx = /x/; // orca(['project', 'setup-delete', '--setup', id]);\n${GUARDED}`;
+  assert.deepEqual(teardownTrouble(trailing), [SENDS]);
+
+  const nextLine = `const rx = /x/;\n// orca(['project', 'setup-delete', '--setup', id]);\n${GUARDED}`;
+  assert.deepEqual(teardownTrouble(nextLine), [], 'a comment on its own line is still a comment');
 });
 
 test('the check names a guarded teardown that still sends its own setup-delete, and only for that', () => {
