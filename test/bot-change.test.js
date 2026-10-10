@@ -12,6 +12,11 @@
 // another, or adding a session with its own harness, is the road for that.
 //
 // It writes files and nothing else: no Orca, no commit.
+//
+// #527: permission writes moved out of it. `--allow` and `--disallow` are
+// refused, naming `obk permission allow` and `obk permission disallow`, and
+// nothing is written, the charter included when `--charter` comes with them.
+// It needs `--charter` or `--role-cap` (bot-change-role-cap.test.js).
 
 import assert from 'node:assert/strict';
 import { readFile, writeFile } from 'node:fs/promises';
@@ -21,6 +26,7 @@ import { parse } from 'yaml';
 import {
   assertCleanFailure,
   assertKeptWhatTheyWrote,
+  assertRefused,
   assertNoTrailingSpace,
   createSandbox,
   skipGit,
@@ -108,7 +114,8 @@ for (const [label, args, named] of [
   ['a bot that is not there', ['--bot', 'ghost-bot', '--charter', NEW], 'ghost-bot'],
   ['an empty charter', ['--bot', BOT, '--charter='], '--charter'],
   ['a charter of nothing but spaces', ['--bot', BOT, '--charter', '   \n  '], '--charter'],
-  ['nothing to change at all', ['--bot', BOT], '--charter'],
+  // #527: bot change needs --charter or --role-cap, and the refusal names both.
+  ['nothing to change at all', ['--bot', BOT], ['--charter', '--role-cap']],
 ]) {
   test(`BC2 ${label} is refused, and nothing is written`, async (t) => {
     const box = await createSandbox(t);
@@ -119,7 +126,9 @@ for (const [label, args, named] of [
     const result = await change(box, ...args);
 
     assertCleanFailure(result);
-    assert.ok(result.stderr.includes(named), `the refusal should name ${named}, got: ${result.stderr}`);
+    for (const word of [named].flat()) {
+      assert.ok(result.stderr.includes(word), `the refusal should name ${word}, got: ${result.stderr}`);
+    }
     assert.deepEqual(await snapshot(bots, skipGit), before, 'a refusal writes nothing, AGENTS.md included');
     assert.equal((await box.orca.calls()).length, calls);
   });
@@ -163,3 +172,26 @@ test('BC4 it says what it changed, and --json answers as JSON and nothing else',
   }
   assert.equal(answer.bot, BOT);
 });
+
+// ----------------------------------------------------------------- #527: permission writes moved out
+
+for (const [label, args, pointer] of [
+  ['--allow', ['--allow', 'Bash(gh pr merge:*)'], 'obk permission allow'],
+  ['--allow with --charter', ['--charter', NEW, '--allow', 'Bash(gh pr merge:*)'], 'obk permission allow'],
+  ['--disallow', ['--disallow', 'Bash(git add:*)'], 'obk permission disallow'],
+  ['--disallow with --charter', ['--charter', NEW, '--disallow', 'Bash(git add:*)'], 'obk permission disallow'],
+]) {
+  test(`BC5 ${label} is refused, names ${pointer}, and nothing is written`, async (t) => {
+    const box = await createSandbox(t);
+    const bots = await withBot(box);
+    const before = await snapshot(bots, skipGit);
+    const calls = (await box.orca.calls()).length;
+
+    const result = await change(box, '--bot', BOT, ...args);
+
+    assertRefused(result, pointer);
+    assert.deepEqual(await snapshot(bots, skipGit), before, 'a refusal writes nothing: not the charter, not allow, not AGENTS.md, not the settings');
+    assert.equal(parse(await botText(bots)).charter.trim(), OLD, 'the charter is the one it had');
+    assert.equal((await box.orca.calls()).length, calls);
+  });
+}

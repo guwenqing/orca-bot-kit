@@ -48,6 +48,7 @@ import {
   tabsOfBot,
   typedInto,
 } from './helpers/cli.js';
+import { addSession } from './helpers/permissions.js';
 
 /**
  * What a user writes to keep one Codex session's sandbox off the network. It
@@ -76,7 +77,8 @@ async function fleetIn(box, fleet = FLEET) {
     const made = await box.run(['bot', 'create', '--bots', 'bots', '--name', bot, '--harness', harness]);
     assert.equal(made.code, 0, made.stderr);
     for (const session of sessions) {
-      const added = await box.run(['session', 'add', '--bots', 'bots', '--bot', bot, '--name', session, ...settings]);
+      // An approval goes through `obk permission approval` since #527, the rest through `session add`.
+      const added = await addSession(box, { bot, name: session, settings });
       assert.equal(added.code, 0, added.stderr);
     }
   }

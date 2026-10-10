@@ -22,6 +22,7 @@ import test from 'node:test';
 import {
   botHomeOf,
   createSandbox,
+  eventsIn,
   hooksIn,
   orcaCallsOf,
   skipGit,
@@ -282,10 +283,13 @@ test('up does not start a bot the build left with no AGENTS.md', async (t) => {
   );
 
   assert.deepEqual(await tabsOfBot(box, bots, 'api-bot'), [], 'a bot with no instructions is not started');
-  assert.equal(
-    await hooksIn(bots, 'api-bot', 'claude'),
-    undefined,
-    'and it gets no hook either: nothing of it is set up to run',
+  // #527: bot create, while the rules still built, wrote .claude/settings.json
+  // with the kit's default rules, so the file may be there; what it must not
+  // hold is a hook of the kit's.
+  const held = await hooksIn(bots, 'api-bot', 'claude');
+  assert.ok(
+    !/\bsession (record|sent|mail|nudge|name)\b/.test(JSON.stringify(held === undefined ? {} : (eventsIn(held) ?? {}))),
+    `and it gets no hook either: nothing of it is set up to run, got: ${JSON.stringify(held)}`,
   );
   assert.deepEqual(
     answer.tabs.filter((tab) => tab.bot === 'api-bot'),

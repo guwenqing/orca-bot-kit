@@ -67,3 +67,36 @@ test('an unknown command does not fall through to init', async (t) => {
   assertCleanFailure(result);
   assert.deepEqual(await readdir(box.cwd), []);
 });
+
+/**
+ * The block of the usage that a command's line starts: from `  obk <command> `
+ * up to the next command's line. Undefined when the usage has no such line.
+ */
+function usageBlock(usage, command) {
+  const lines = usage.split('\n');
+  const at = lines.findIndex((line) => line.startsWith(`  obk ${command} `) || line === `  obk ${command}`);
+  if (at < 0) return undefined;
+  const next = lines.findIndex((line, index) => index > at && line.startsWith('  obk '));
+  return lines.slice(at, next < 0 ? undefined : next).join('\n');
+}
+
+test('--help lists the permission commands, --role-cap under bot change, and no permission flag under the ordinary commands (#527)', async (t) => {
+  const box = await createSandbox(t);
+
+  const { stdout: usage } = await box.run(['--help']);
+
+  for (const command of ['permission allow', 'permission disallow', 'permission approval']) {
+    assert.notEqual(usageBlock(usage, command), undefined, `usage should list obk ${command}, got:\n${usage}`);
+  }
+  const change = usageBlock(usage, 'bot change');
+  assert.notEqual(change, undefined, 'usage still lists obk bot change');
+  assert.ok(change.includes('--role-cap'), `bot change should list --role-cap, got:\n${change}`);
+  for (const flag of ['--allow', '--disallow']) {
+    assert.ok(!change.includes(flag), `bot change should no longer list ${flag}, got:\n${change}`);
+  }
+  for (const command of ['session add', 'session change']) {
+    const block = usageBlock(usage, command);
+    assert.notEqual(block, undefined, `usage still lists obk ${command}`);
+    assert.ok(!block.includes('--approval'), `${command} should no longer list --approval, got:\n${block}`);
+  }
+});

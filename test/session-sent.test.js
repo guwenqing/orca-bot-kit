@@ -301,7 +301,9 @@ test('I2 a second up writes nothing new, and the user\'s own PostToolUse entries
   const mine = { matcher: 'Bash', hooks: [{ type: 'command', command: 'echo my own after Bash' }] };
   const mineOnSend = { matcher: 'SendMessage', hooks: [{ type: 'command', command: 'echo my own after SendMessage' }] };
   settings.hooks.PostToolUse = [mine, ...(settings.hooks.PostToolUse ?? []), mineOnSend];
-  settings.permissions = { allow: ['Bash(echo:*)'] };
+  // The user's own rule after the ones the kit wrote: since #527 the kit's
+  // default rules are in the file already, and a second up has nothing to add.
+  settings.permissions = { ...settings.permissions, allow: [...(settings.permissions?.allow ?? []), 'Bash(echo:*)'] };
   await writeFile(file, `${JSON.stringify(settings, null, 2)}\n`);
   const before = await readFile(file, 'utf8');
 
@@ -380,7 +382,9 @@ async function classes(box) {
   await ok(['init', '--bots', 'bots', '--harness', 'claude']);
   for (const [bot, approval] of [['api-bot', 'auto'], ['peer-bot', 'auto'], ['skip-bot', 'dangerously-skip']]) {
     await ok(['bot', 'create', '--bots', 'bots', '--name', bot, '--harness', 'claude']);
-    await ok(['session', 'add', '--bots', 'bots', '--bot', bot, '--name', 'daily', '--approval', approval]);
+    // The approval is set by `obk permission approval` since #527.
+    await ok(['session', 'add', '--bots', 'bots', '--bot', bot, '--name', 'daily']);
+    await ok(['permission', 'approval', '--bots', 'bots', '--bot', bot, '--session', 'daily', '--approval', approval]);
     await ok(['up', '--bots', 'bots', '--bot', bot]);
   }
   const bots = box.path('bots');

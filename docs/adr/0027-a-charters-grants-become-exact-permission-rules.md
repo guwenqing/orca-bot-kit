@@ -1,7 +1,7 @@
 # ADR 0027: A charter's grants become exact permission rules, and broad rules stay the user's
 
 Date: 2026-09-26.
-Status: accepted.
+Status: superseded by [ADR 0038](0038-a-charters-grants-become-exact-permission-rules.md).
 Decided by: the owner, on 2026-09-26, for a bot's charter deciding which rules it needs and the user's yes before any is written (#344, #353); the architect, on 2026-09-26, for Bot Father listing the rules and slice A's `bot change --allow` recording them with no second list, for `--allow` refusing broad rules and leaving them to the user by hand, for health's neutral wording about those, and for a charter change naming the rules allowed now. The owner may overrule the architect's parts. The exact line between narrow and broad is developer-1's, for #353.
 
 ## Context

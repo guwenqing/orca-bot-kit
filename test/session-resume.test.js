@@ -69,6 +69,7 @@ import {
   tokenlessWord,
   typedInto,
 } from './helpers/cli.js';
+import { addSession } from './helpers/permissions.js';
 
 const PROMPT = 'Read your AGENTS.md and keep the queue moving.';
 
@@ -79,7 +80,8 @@ const LIST_LINE = 'obk: this session was resumed in a new tab, and this line is 
 async function started(box, harness, settings = ['--prompt', PROMPT]) {
   assert.equal((await box.run(['init', '--bots', 'bots', '--harness', 'claude'])).code, 0);
   assert.equal((await box.run(['bot', 'create', '--bots', 'bots', '--name', 'api-bot', '--harness', harness])).code, 0);
-  const added = await box.run(['session', 'add', '--bots', 'bots', '--bot', 'api-bot', '--name', 'daily', ...settings]);
+  // An approval goes through `obk permission approval` since #527, the rest through `session add`.
+  const added = await addSession(box, { bot: 'api-bot', name: 'daily', settings });
   assert.equal(added.code, 0, added.stderr);
 
   const bots = box.path('bots');

@@ -1,8 +1,9 @@
 // `obk health` on the permission rules in a bot's `.claude/settings.json`
 // (#344 slice A).
 //
-// Only the kit writes those rules, and only the ones the user said yes to. So
-// for a bot that runs on Claude, health names each entry in the file's
+// Only the kit writes those rules: the kit's own default set, which it writes
+// for every bot with nobody asked (#527), and the ones the user said yes to.
+// So for a bot that runs on Claude, health names each entry in the file's
 // `permissions.allow` that bot.yaml `allow` does not hold: a finding of kind
 // `config`, naming the file and the entry verbatim. It names an allowed rule
 // the file is missing too (`obk up` writes it). It says nothing when the file
@@ -16,15 +17,17 @@
 // neutrally: the kit did not write it, and it stays. It names an obk.rules that
 // is not what the kit would write from `allow`, a rule missing or a line
 // added, and says `obk up` rewrites it. A Read rule and a rule with no Codex
-// form are not missing from it. And a Codex bot with nothing allowed and no
-// rules files hears nothing. A `.rules` file that cannot be read (a link to
+// form are not missing from it. And a bot just made, which holds the kit's
+// default set and nothing else, hears nothing about its rules: since #527 no
+// default waits for anything. A `.rules` file that cannot be read (a link to
 // nothing) does not stop health: it is a finding naming the file, beside every
 // other finding, and the file is left as it is.
 //
 // A finding "names the file" when its `where` is the file or its `says`
 // carries the path; which of the two is the implementer's. Everything goes
 // through the CLI on a sandboxed fleet that is up in the fake Orca, the way
-// test/health-unknown-keys.test.js does.
+// test/health-unknown-keys.test.js does. A SendMessage rule may or may not be
+// in the default set, and is left out of every comparison.
 
 import assert from 'node:assert/strict';
 import { appendFile, lstat, mkdir, readFile, readlink, stat, symlink, utimes, writeFile } from 'node:fs/promises';
@@ -33,20 +36,30 @@ import test from 'node:test';
 
 import { createSandbox } from './helpers/cli.js';
 import {
+  allowedIn,
+  allowOf,
+  assertSameRules,
   codexAllowedIn,
+  codexDefaultLines,
   codexDefaultRules,
   codexRulesOf,
   defaultRules,
   FOREIGN_RULE,
   OWN_RULE,
+  permissionAllow,
   readDefault,
   settingsIn,
   settingsOf,
+  withoutSendMessage,
   writeAllow,
 } from './helpers/permissions.js';
 import { botYamlOf } from './helpers/skills.js';
 
 const BOT = 'api-bot';
+/** Rules of the bot's own, outside the kit's default set. */
+const CLOSE_RULE = 'Bash(gh issue close:*)';
+const BUILD_RULE = 'Bash(npm run build:*)';
+const VIEW_RULE = 'Bash(gh pr view:*)';
 const PAST = new Date('2020-01-01T00:00:00Z');
 
 /** A fleet up in Orca: Bot Father, and one more bot on `harness` with a daily session and any more given. */
@@ -129,17 +142,18 @@ test('H1 an entry in the settings that allow does not hold is a config finding n
 test('H1 an entry allow does not hold is named even beside allowed ones, and they are not', async (t) => {
   const box = await createSandbox(t);
   const bots = await fleet(box);
-  const [, , , , add] = defaultRules(box, bots);
-  const allowed = await box.run(['bot', 'change', '--bots', 'bots', '--bot', BOT, '--allow', add, '--allow', OWN_RULE]);
+  const add = 'Bash(git add:*)';
+  const allowed = await permissionAllow(box, BOT, [OWN_RULE]);
   assert.equal(allowed.code, 0, allowed.stderr);
-  await handAllow(bots, [add, FOREIGN_RULE, OWN_RULE]);
+  const kept = (await allowedIn(bots, BOT)).filter((rule) => rule !== add && rule !== OWN_RULE);
+  await handAllow(bots, [...kept, add, FOREIGN_RULE, OWN_RULE]);
   const was = await frozen(bots);
 
   const found = await health(box);
 
   assert.equal(saying(found, FOREIGN_RULE).length, 1, `the stray entry is named, got: ${show(found)}`);
-  assert.deepEqual(saying(found, add), [], 'an allowed entry is not a finding');
-  assert.deepEqual(saying(found, OWN_RULE), [], 'nor is any other allowed one');
+  assert.deepEqual(saying(found, add), [], 'an allowed entry, a default, is not a finding');
+  assert.deepEqual(saying(found, OWN_RULE), [], 'nor is one the user allowed');
   await assertUnchanged(bots, was);
 });
 
@@ -148,14 +162,14 @@ test('H1 an entry allow does not hold is named even beside allowed ones, and the
 test('H2 a rule allow holds and the file is missing is a finding naming the rule, and health does not write it', async (t) => {
   const box = await createSandbox(t);
   const bots = await fleet(box);
-  const [, , , , , commit] = defaultRules(box, bots);
-  await writeAllow(bots, BOT, [commit]);
+  // Added to allow by hand, after the kit wrote the settings file.
+  await writeAllow(bots, BOT, [...withoutSendMessage(await allowOf(bots, BOT)), CLOSE_RULE]);
   const was = await frozen(bots);
 
   const found = await health(box);
 
-  const said = saying(found, commit);
-  assert.equal(said.length, 1, `one finding should name ${commit}, got: ${show(found)}`);
+  const said = saying(found, CLOSE_RULE);
+  assert.equal(said.length, 1, `one finding should name ${CLOSE_RULE}, got: ${show(found)}`);
   assert.equal(said[0].bot, BOT, `got: ${show(said[0])}`);
   await assertUnchanged(bots, was);
 });
@@ -166,8 +180,9 @@ test('H3 when the file and allow agree, health says nothing about them, and does
   const box = await createSandbox(t);
   const bots = await fleet(box);
   const rules = [...defaultRules(box, bots), OWN_RULE];
-  const allowed = await box.run(['bot', 'change', '--bots', 'bots', '--bot', BOT, ...rules.flatMap((rule) => ['--allow', rule])]);
+  const allowed = await permissionAllow(box, BOT, [OWN_RULE]);
   assert.equal(allowed.code, 0, allowed.stderr);
+  assertSameRules(await allowedIn(bots, BOT), rules, 'the premise: the file holds the defaults and the rule the user allowed');
   const was = await frozen(bots);
 
   const found = await health(box);
@@ -180,10 +195,12 @@ test('H3 when the file and allow agree, health says nothing about them, and does
   await assertUnchanged(bots, was);
 });
 
-test('H3 a Claude bot with nothing allowed and nothing in the file has nothing to hear', async (t) => {
-  // The six defaults are waiting for a yes; that is not a disagreement.
+test('H3 a Claude bot just made holds the kit\'s defaults in allow and in its settings, and has nothing to hear about them', async (t) => {
+  // #527: nobody is asked for the defaults, so none waits; health has nothing to say.
   const box = await createSandbox(t);
   const bots = await fleet(box);
+  assertSameRules(await allowOf(bots, BOT), defaultRules(box, bots), 'the premise: bot create put the default set in allow');
+  assertSameRules(await allowedIn(bots, BOT), defaultRules(box, bots), 'the premise: and the kit wrote it into the settings');
 
   const found = await health(box);
 
@@ -255,16 +272,16 @@ test('H5 each rule line of another .rules file in a Codex bot\'s .codex/rules is
 });
 
 for (const [label, edit] of [
-  ['a rule missing', async (file) => writeFile(file, (await readFile(file, 'utf8')).split('\n').filter((line) => !line.includes('"commit"')).join('\n'))],
+  ['a rule missing', async (file) => writeFile(file, (await readFile(file, 'utf8')).split('\n').filter((line) => !line.includes('"view"')).join('\n'))],
   ['a line added by hand', async (file) => appendFile(file, 'prefix_rule(pattern=["curl"], decision="allow")\n')],
 ]) {
   test(`H6 an obk.rules with ${label} is named, with obk up to rewrite it, and health does not rewrite it`, async (t) => {
     const box = await createSandbox(t);
     const bots = await fleet(box, 'codex');
-    const allowed = await box.run(['bot', 'change', '--bots', 'bots', '--bot', BOT, '--allow', 'Bash(git add:*)', '--allow', 'Bash(git commit:*)']);
+    const allowed = await permissionAllow(box, BOT, [BUILD_RULE, VIEW_RULE]);
     assert.equal(allowed.code, 0, allowed.stderr);
     const file = codexRulesOf(bots, BOT);
-    assert.equal((await codexAllowedIn(bots, BOT)).length, 2, 'the premise: the kit wrote both rules');
+    assert.equal(withoutSendMessage(await codexAllowedIn(bots, BOT)).length, codexDefaultLines(box, bots).length + 2, 'the premise: the kit wrote the defaults and both rules');
     await edit(file);
     const was = await frozenFile(file);
 
@@ -284,7 +301,7 @@ test('H7 an obk.rules the kit wrote from allow is not named: a Read rule is not 
   await writeAllow(bots, BOT, [...codexDefaultRules(box, bots), readDefault(box, bots), OWN_RULE]);
   const up = await box.run(['up', '--bots', 'bots', '--bot', BOT]);
   assert.equal(up.code, 0, up.stderr);
-  assert.equal((await codexAllowedIn(bots, BOT)).length, 6, 'the premise: up wrote the five and the own rule');
+  assert.equal(withoutSendMessage(await codexAllowedIn(bots, BOT)).length, codexDefaultLines(box, bots).length + 1, 'the premise: up wrote the defaults and the own rule');
 
   const found = await health(box);
 
@@ -298,9 +315,9 @@ test('H7 an obk.rules the kit wrote from allow is not named: a Read rule is not 
 test('H7 on a bot on both harnesses, a rule with no Codex form is not missing from obk.rules', async (t) => {
   const box = await createSandbox(t);
   const bots = await fleet(box, 'codex', [['review', '--harness', 'claude']]);
-  const allowed = await box.run(['bot', 'change', '--bots', 'bots', '--bot', BOT, '--allow', 'Bash(git add:*)', '--allow', 'Bash(npm test)']);
+  const allowed = await permissionAllow(box, BOT, [BUILD_RULE, 'Bash(npm test)']);
   assert.equal(allowed.code, 0, allowed.stderr);
-  assert.equal((await codexAllowedIn(bots, BOT)).length, 1, 'the premise: only git add has a Codex form');
+  assert.equal(withoutSendMessage(await codexAllowedIn(bots, BOT)).length, codexDefaultLines(box, bots).length + 1, 'the premise: only npm run build has a Codex form');
 
   const found = await health(box);
 
@@ -308,10 +325,12 @@ test('H7 on a bot on both harnesses, a rule with no Codex form is not missing fr
   assert.deepEqual(saying(found, 'Bash(npm test)'), [], `got: ${show(found)}`);
 });
 
-test('H8 a Codex bot with nothing allowed and no rules files has nothing to hear about rules', async (t) => {
-  // The five defaults are waiting for a yes; that is not a disagreement.
+test('H8 a Codex bot just made holds the defaults in its obk.rules, and has nothing to hear about rules', async (t) => {
+  // #527: nobody is asked for the defaults, so none waits; health has nothing to say.
   const box = await createSandbox(t);
   const bots = await fleet(box, 'codex');
+  assertSameRules(await allowOf(bots, BOT), codexDefaultRules(box, bots), 'the premise: bot create put the Codex default set in allow');
+  assertSameRules(await codexAllowedIn(bots, BOT), codexDefaultLines(box, bots), 'the premise: and the kit wrote it into obk.rules');
 
   const found = await health(box);
 

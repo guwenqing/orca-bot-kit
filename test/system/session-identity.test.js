@@ -1007,9 +1007,12 @@ test('a harness the session starts for itself does not become the session\'s con
       `--prompt=You are a system test's bot and you own nothing. Your codeword is ${bot.codeword}.`
       + ' When anyone asks for your codeword, give it in exactly the form they ask for, and nothing else.'
       + ' Say nothing now and wait.',
-      ...(bot.approval === undefined ? [] : ['--approval', bot.approval]),
       ...(bot.harness === 'codex' ? codexTrustArgs(bots) : []),
     ]);
+    // #527: a session's approval is set by `obk permission approval`, not by session add.
+    if (bot.approval !== undefined) {
+      obkJson(['permission', 'approval', '--bots', bots, '--bot', bot.name, '--session', 'daily', '--approval', bot.approval]);
+    }
   }
 
   for (const bot of CHILDREN) {

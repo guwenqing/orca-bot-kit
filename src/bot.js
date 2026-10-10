@@ -11,7 +11,7 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSy
 import os from 'node:os';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
-import { parse, parseDocument, stringify } from 'yaml';
+import { isSeq, parse, parseDocument, stringify } from 'yaml';
 
 import { DEFAULT_APPROVAL, HARNESSES, harnessOf, sessionTrouble } from './launch.js';
 
@@ -161,6 +161,9 @@ export function readBot(home, name = path.basename(home)) {
     allow: bot.allow,
     // The roles its temporary sessions can be made in, judged by tempRoles.
     ...(bot.temp_roles === undefined ? {} : { temp_roles: bot.temp_roles }),
+    // The widest approval its temporary sessions may be made at, the user's yes
+    // kept by `permission approval --temps` (ADR 0037).
+    ...(bot.temp_approval === undefined ? {} : { temp_approval: bot.temp_approval }),
     // A paused bot is one `obk up` leaves closed; its sessions keep their book.
     ...(bot.paused === true ? { paused: true } : {}),
     sessions: sessions.map((session) => {
@@ -278,10 +281,10 @@ export function changeBot(bots, bot, { charter }) {
 /**
  * The bot's `allow` list as it is, after refusing what `allowRules` or
  * `disallowRules` would refuse: an empty rule, or a list already there that is
- * not a list of rules. Asked before anything is written, so a refused `bot
- * change` changes nothing, its charter included.
+ * not a list of rules. Asked before anything is written, so a refused
+ * `permission allow` or `permission disallow` changes nothing.
  */
-export function allowedNow(bots, bot, rules, flag = '--allow') {
+export function allowedNow(bots, bot, rules, flag = '--rule') {
   if (rules.some((rule) => rule.trim() === '')) {
     throw new Error(`${flag} is empty. Give it the exact permission rule the user said yes to, such as Bash(git add:*).`);
   }
@@ -320,7 +323,7 @@ export function allowRules(bots, bot, rules, { write = true } = {}) {
  * false it only refuses what the edit would refuse, and writes nothing.
  */
 export function disallowRules(bots, bot, rules, { write = true } = {}) {
-  const { home, was } = allowedNow(bots, bot, rules, '--disallow');
+  const { home, was } = allowedNow(bots, bot, rules);
   const disallowed = [...new Set(rules)];
   const allow = was.filter((rule) => !disallowed.includes(rule));
   editBot(bots, bot, `take back ${disallowed.join(', ')} for ${bot}`, (doc) => doc.set('allow', allow), (before) => ({ ...before, allow }), write);
@@ -355,6 +358,58 @@ export function changeSession(bots, bot, name, settings) {
 
   editSession(bots, bot, index, session, `change ${bot}'s session ${name}`);
   return { bot, home, session };
+}
+
+/**
+ * Record the widest approval the bot's temporary sessions may be made at,
+ * `level`, as `temp_approval` (ADR 0037). Returns { bot, home, level }.
+ */
+export function setTempApproval(bots, bot, level) {
+  editBot(bots, bot, `let ${bot}'s temporary sessions be made at ${level}`, (doc) => doc.set('temp_approval', level), (was) => ({ ...was, temp_approval: level }));
+  return { bot, home: botDir(bots, bot), level };
+}
+
+/**
+ * Set the caps of roles in the bot's `temp_roles`: `caps` is a list of
+ * `[role, cap]`, a cap of undefined taking it off. A role written as a list of
+ * options becomes a mapping that holds that list as `options` beside its cap.
+ * A role the bot does not have is refused before anything is written. Returns
+ * { bot, home, caps }. With `write` false it only refuses what the edit would
+ * refuse, and writes nothing.
+ */
+export function setRoleCaps(bots, bot, caps, { write = true } = {}) {
+  const home = existingBot(bots, bot);
+  const roles = readBot(home, bot).temp_roles;
+  const file = path.join(home, BOT_YAML);
+  for (const [role] of caps) {
+    if (roles === null || typeof roles !== 'object' || Array.isArray(roles) || !Object.hasOwn(roles, role)) {
+      const has = roles !== null && typeof roles === 'object' && !Array.isArray(roles) ? Object.keys(roles) : [];
+      throw new Error(`${bot} has no temporary-session role called ${role} in ${file}${has.length === 0 ? ', and no temp_roles at all' : `. It has: ${has.join(', ')}`}. Nothing was changed.`);
+    }
+  }
+  const capped = (written, cap) => {
+    const { cap: was, ...rest } = Array.isArray(written) ? { options: written } : written;
+    return cap === undefined ? rest : { ...rest, cap };
+  };
+  editBot(bots, bot, `set the caps of ${caps.map(([role]) => role).join(', ')}`, (doc) => {
+    for (const [role, cap] of caps) {
+      const node = doc.getIn(['temp_roles', role], true);
+      if (isSeq(node)) {
+        doc.setIn(['temp_roles', role], doc.createNode(capped(node.toJSON(), cap)));
+      } else if (cap === undefined) {
+        doc.deleteIn(['temp_roles', role, 'cap']);
+      } else {
+        doc.setIn(['temp_roles', role, 'cap'], cap);
+      }
+    }
+  }, (was) => ({
+    ...was,
+    temp_roles: Object.fromEntries(Object.entries(was.temp_roles).map(([role, written]) => {
+      const asked = caps.findLast(([one]) => one === role);
+      return [role, asked === undefined ? written : capped(written, asked[1])];
+    })),
+  }), write);
+  return { bot, home, caps };
 }
 
 /**
@@ -497,7 +552,7 @@ export const SESSION_FIELDS = [
 ];
 
 /** Everything the top of a bot's own file can hold. */
-const BOT_FIELDS = ['name', 'harness', 'charter', 'rules', 'skills', 'allow', 'sessions', 'paused', 'temp_roles'];
+const BOT_FIELDS = ['name', 'harness', 'charter', 'rules', 'skills', 'allow', 'sessions', 'paused', 'temp_roles', 'temp_approval'];
 
 /**
  * The keys in a bot's file that the kit does not know, and so that nothing

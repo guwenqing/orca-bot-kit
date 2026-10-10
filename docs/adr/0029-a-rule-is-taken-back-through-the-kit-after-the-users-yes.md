@@ -1,7 +1,7 @@
 # ADR 0029: A rule is taken back through the kit, after the user's yes, and only one the kit wrote
 
 Date: 2026-09-27.
-Status: accepted.
+Status: superseded by [ADR 0040](0040-a-rule-is-taken-back-through-the-kit-after-the-users-yes.md).
 Decided by: the owner, on 2026-09-26, for a bot keeping only the rules its charter grants ("charter decides what are needed"), for a rule being taken back only after the user's yes and by the kit's code, and for an entry the user added by hand staying theirs (#360); developer-2, on 2026-09-27, for the `--disallow` flag, for refusing a rule `allow` does not hold, and for not taking `--allow` and `--disallow` in one command. The architect or the owner may overrule developer-2's parts.
 
 ## Context

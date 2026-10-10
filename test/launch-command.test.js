@@ -51,6 +51,7 @@ import {
   tokenlessWord,
   typedInto,
 } from './helpers/cli.js';
+import { addSession } from './helpers/permissions.js';
 
 /** Whose mailbox step `launchOf`'s line starts with: its one bot and session. */
 const API_DAILY = { bot: 'api-bot', session: 'daily' };
@@ -62,7 +63,8 @@ const API_DAILY = { bot: 'api-bot', session: 'daily' };
 async function launchOf(box, harness, settings, { bot = 'api-bot' } = {}) {
   assert.equal((await box.run(['init', '--bots', 'bots', '--harness', 'claude'])).code, 0);
   assert.equal((await box.run(['bot', 'create', '--bots', 'bots', '--name', bot, '--harness', harness])).code, 0);
-  const added = await box.run(['session', 'add', '--bots', 'bots', '--bot', bot, '--name', 'daily', ...settings]);
+  // An approval goes through `obk permission approval` since #527, the rest through `session add`.
+  const added = await addSession(box, { bot, name: 'daily', settings });
   assert.equal(added.code, 0, added.stderr);
 
   const up = await box.run(['up', '--bots', 'bots', '--bot', bot]);

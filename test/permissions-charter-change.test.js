@@ -5,7 +5,7 @@
 // be listed and shown to the user again; until the user answers, nothing
 // changes. So `obk bot change --bots <B> --bot <X> --charter <text>`, for a
 // bot that runs on Claude Code, adds to its plain report each rule the bot is
-// allowed now beyond the kit's six defaults, word for word, and says none of
+// allowed now beyond the kit's defaults, word for word, and says none of
 // them is removed or added until the user answers. With nothing allowed beyond
 // the defaults, the report lists no rule. Its `--json` answer carries
 // `beyondDefaults`: the rules in bot.yaml `allow` that are not defaults, in
@@ -15,8 +15,14 @@
 // among the places the rules would be taken out of; the change writes nothing
 // into that file either.
 //
-// Plain text is read only for the exact rule strings; the sentence that
-// nothing changes until the user answers is the implementer's wording.
+// Since #527 the permission writes live in commands of their own: where the
+// report says how a rule is allowed or taken back, it names `obk permission
+// allow` and `obk permission disallow`, and no longer `bot change --allow` or
+// `--disallow`, which are refused now.
+//
+// Plain text is read only for the exact rule strings and those command names;
+// the sentence that nothing changes until the user answers is the
+// implementer's wording.
 
 import assert from 'node:assert/strict';
 import { mkdir, readFile, stat, utimes, writeFile } from 'node:fs/promises';
@@ -27,13 +33,17 @@ import { parse } from 'yaml';
 import { createSandbox } from './helpers/cli.js';
 import {
   allowOf,
+  assertSameRules,
   codexAllowedIn,
+  codexDefaultLines,
   codexDefaultRules,
   codexRulesOf,
   defaultRules,
   mentionsAny,
   namesFile,
   OWN_RULE,
+  permissionAllow,
+  prefixRule,
   settingsIn,
   settingsOf,
   writeAllow,
@@ -89,7 +99,8 @@ test('C1 a charter change names each rule the bot is allowed beyond the defaults
 test('C2 --json carries beyondDefaults: the allowed rules that are no default, in allow\'s order', async (t) => {
   const box = await createSandbox(t);
   const bots = await withBot(box);
-  const [check, , , read, add] = defaultRules(box, bots);
+  const defaults = defaultRules(box, bots);
+  const [check, read, add] = [defaults[0], `Read(/${bots}.messages/**)`, 'Bash(git add:*)'];
   await writeAllow(bots, BOT, [CLOSE_RULE, check, OWN_RULE, read, add]);
 
   const answer = jsonOf(await charterChange(box, '--json'));
@@ -98,14 +109,15 @@ test('C2 --json carries beyondDefaults: the allowed rules that are no default, i
 });
 
 for (const [label, allow] of [
-  ['nothing allowed at all', undefined],
-  ['only the six defaults allowed', 'defaults'],
+  ['nothing allowed at all', 'none'],
+  ['only the defaults allowed', 'defaults'],
   ['some of the defaults allowed', 'some'],
 ]) {
   test(`C3 with ${label}, a charter change lists no rule, and beyondDefaults is empty`, async (t) => {
     const box = await createSandbox(t);
     const bots = await withBot(box);
     const defaults = defaultRules(box, bots);
+    if (allow === 'none') await writeAllow(bots, BOT, []);
     if (allow === 'defaults') await writeAllow(bots, BOT, defaults);
     if (allow === 'some') await writeAllow(bots, BOT, [defaults[5], defaults[0]]);
 
@@ -133,9 +145,9 @@ test('C4 a Codex bot with a Claude session runs on Claude, and its charter chang
 test('C5 a charter change writes nothing into the settings file and leaves allow as it was, a hand-added entry included', async (t) => {
   const box = await createSandbox(t);
   const bots = await withBot(box);
-  const [, , , , add] = defaultRules(box, bots);
-  const allowed = await box.run(['bot', 'change', '--bots', 'bots', '--bot', BOT, '--allow', add, '--allow', OWN_RULE]);
+  const allowed = await permissionAllow(box, BOT, [CLOSE_RULE, OWN_RULE]);
   assert.equal(allowed.code, 0, allowed.stderr);
+  const kept = await allowOf(bots, BOT);
   // An entry of the user's own beside them, which the new charter may or may not grant.
   const file = settingsOf(bots, BOT);
   const settings = await settingsIn(bots, BOT);
@@ -149,7 +161,7 @@ test('C5 a charter change writes nothing into the settings file and leaves allow
 
   assert.equal(result.code, 0, result.stderr);
   assert.equal(parse(await readFile(botYamlOf(bots, BOT), 'utf8')).charter.trim(), NEW_CHARTER, 'the premise: the charter did change');
-  assert.deepEqual(await allowOf(bots, BOT), [add, OWN_RULE], 'allow is as it was');
+  assert.deepEqual(await allowOf(bots, BOT), kept, 'allow is as it was');
   assert.equal(await readFile(file, 'utf8'), text, 'the settings file is as it was');
   assert.equal((await stat(file)).mtime.getTime(), PAST.getTime(), 'not even written back the same');
 });
@@ -186,10 +198,11 @@ test('C6 a Codex bot with nothing allowed beyond the defaults hears of no rule',
 test('C7 a charter change writes nothing into a Codex bot\'s obk.rules and leaves allow as it was', async (t) => {
   const box = await createSandbox(t);
   const bots = await withBot(box, 'codex');
-  const allowed = await box.run(['bot', 'change', '--bots', 'bots', '--bot', BOT, '--allow', 'Bash(git add:*)', '--allow', OWN_RULE]);
+  const allowed = await permissionAllow(box, BOT, [CLOSE_RULE, OWN_RULE]);
   assert.equal(allowed.code, 0, allowed.stderr);
+  const kept = await allowOf(bots, BOT);
   const file = codexRulesOf(bots, BOT);
-  assert.equal((await codexAllowedIn(bots, BOT)).length, 2, 'the premise: obk.rules holds both');
+  assertSameRules(await codexAllowedIn(bots, BOT), [...codexDefaultLines(box, bots), prefixRule(['gh', 'issue', 'close']), prefixRule(['gh', 'pr', 'merge'])], 'the premise: obk.rules holds both, beside the defaults');
   await utimes(file, PAST, PAST);
   const text = await readFile(file, 'utf8');
 
@@ -197,7 +210,38 @@ test('C7 a charter change writes nothing into a Codex bot\'s obk.rules and leave
 
   assert.equal(result.code, 0, result.stderr);
   assert.equal(parse(await readFile(botYamlOf(bots, BOT), 'utf8')).charter.trim(), NEW_CHARTER, 'the premise: the charter did change');
-  assert.deepEqual(await allowOf(bots, BOT), ['Bash(git add:*)', OWN_RULE], 'allow is as it was');
+  assert.deepEqual(await allowOf(bots, BOT), kept, 'allow is as it was');
   assert.equal(await readFile(file, 'utf8'), text, 'obk.rules is as it was');
   assert.equal((await stat(file)).mtime.getTime(), PAST.getTime(), 'not even written back the same');
+});
+
+// ----------------------------------------------------------------- the commands it names (#527)
+
+for (const [label, harness, sessions] of [
+  ['a Claude bot', 'claude', [['daily']]],
+  ['a Codex bot', 'codex', [['daily']]],
+]) {
+  test(`C8 ${label}'s charter change, with rules beyond the defaults, names obk permission allow and obk permission disallow, and not bot change --allow or --disallow`, async (t) => {
+    const box = await createSandbox(t);
+    const bots = await withBot(box, harness, sessions);
+    await writeAllow(bots, BOT, [...await allowOf(bots, BOT), OWN_RULE]);
+
+    const result = await charterChange(box);
+
+    assert.equal(result.code, 0, result.stderr);
+    assert.ok(result.stdout.includes('permission allow'), `the report should say a new rule is allowed with obk permission allow, got:\n${result.stdout}`);
+    assert.ok(result.stdout.includes('permission disallow'), `and that a rule is taken back with obk permission disallow, got:\n${result.stdout}`);
+    assert.ok(!/--allow\b|--disallow\b/.test(result.stdout), `and no longer name bot change --allow or --disallow, got:\n${result.stdout}`);
+  });
+}
+
+test('C8 a charter change with nothing beyond the defaults names obk permission allow for a new rule, and not bot change --allow', async (t) => {
+  const box = await createSandbox(t);
+  await withBot(box);
+
+  const result = await charterChange(box);
+
+  assert.equal(result.code, 0, result.stderr);
+  assert.ok(result.stdout.includes('permission allow'), `the report should say a new rule is allowed with obk permission allow, got:\n${result.stdout}`);
+  assert.ok(!/--allow\b|--disallow\b/.test(result.stdout), `and no longer name bot change --allow, got:\n${result.stdout}`);
 });
