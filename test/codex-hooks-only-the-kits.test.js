@@ -53,15 +53,17 @@ import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { describe, it as test } from 'node:test';
 
-import { parse as parseToml } from 'smol-toml';
 import YAML from 'yaml';
 
 import { botHomeOf, conversationOnRecord, createSandbox, kitLaunchMark, recordSession, sentInto, sessionIn } from './helpers/cli.js';
 import {
   codexHooksFileOf,
   codexHooksOf,
+  ESCAPED_OTHER_FORMS,
   escapedTomlString,
   escapedTrustTablesFor,
+  hookStateFlag,
+  literalTrustTablesFor,
   stateKey,
   trustedHash,
   trustTablesFor,
@@ -229,20 +231,6 @@ const homeCodex = (box) => path.join(box.home, '.codex');
 /** A hash that is no hook's. */
 const WRONG_HASH = `sha256:${'0'.repeat(64)}`;
 
-/**
- * The forms of one trust entry, `{ key, hash }`, other than the usual table,
- * with the key written with TOML's Unicode escapes: each is trust to Codex,
- * and none is a form the kit reads.
- */
-const ESCAPED_OTHER_FORMS = {
-  'an inline table, hooks.state = { "<key>" = { trusted_hash = … } }':
-    ({ key, hash }) => `hooks.state = { ${escapedTomlString(key)} = { trusted_hash = ${JSON.stringify(hash)} } }\n`,
-  'a key line under a [hooks.state] table':
-    ({ key, hash }) => `[hooks.state]\n${escapedTomlString(key)} = { trusted_hash = ${JSON.stringify(hash)} }\n`,
-  'a dotted key under a [hooks] table':
-    ({ key, hash }) => `[hooks]\nstate.${escapedTomlString(key)}.trusted_hash = ${JSON.stringify(hash)}\n`,
-};
-
 /** How many of the tests below run at once: each brings up a fleet of its own in its own sandbox. */
 const AT_ONCE = { concurrency: 8 };
 
@@ -255,28 +243,10 @@ test('K0 the helper\'s hash agrees with the entry Codex wrote for a real kit hoo
   assert.equal(hash, 'sha256:2f8ef3e0ee8c9652b6838816fa5c2ea4998031c2e1378ea505b96ab31792dd77');
 });
 
-test('K0 the premise: a TOML reader reads a key written with Unicode escapes as the same key, in every form the tests write', () => {
-  const entry = {
-    key: stateKey('/private/var/folders/x/T/obk-506/bots/bots/coder/.codex/hooks.json', 'SessionStart', 0, 0),
-    hash: trustedHash({ event: 'SessionStart', command: 'obk session record', timeout: 10 }),
-  };
-  const plain = parseToml(trustTablesFor([entry]));
-  const escaped = escapedTomlString(entry.key);
-  assert.ok(escaped.includes('\\u002F') && escaped.includes('\\U0000003a'), `both kinds of escape are in it: ${escaped}`);
-  assert.ok(!escaped.includes('/') && !escaped.includes(entry.key), `the key's own text is not in it: ${escaped}`);
-
-  assert.deepEqual(parseToml(escapedTrustTablesFor([entry])), plain, 'the usual table form, escaped');
-  for (const [form, write] of Object.entries(ESCAPED_OTHER_FORMS)) assert.deepEqual(parseToml(write(entry)), plain, form);
-  assert.deepEqual(parseToml(`[hooks.state.${escaped}]\n`), parseToml(`[hooks.state.${JSON.stringify(entry.key)}]\n`), 'a header with no trusted_hash, escaped');
-});
-
-test('K0 the premise: the -c value the K7 tests give a session reads, as TOML, as the same trust as the usual table', () => {
-  const entry = {
-    key: stateKey('/private/var/folders/x/T/obk-506/bots/bots/coder/.codex/hooks.json', 'SessionStart', 0, 0),
-    hash: trustedHash({ event: 'SessionStart', command: 'obk session record', timeout: 10 }),
-  };
-  assert.deepEqual(parseToml(hookStateFlag(entry)), parseToml(trustTablesFor([entry])));
-});
+// The K0 premises that need a TOML reader are in
+// dev/codex-hooks-toml-premises.test.js. The reader, smol-toml, is a dev
+// dependency, and the floor runs this file where only the kit's own
+// dependencies are installed (#533).
 
 test('K0 the premise: a shell reads "-c \'h\'\'ooks.state={…}\'" as the same two words as "-c \'hooks.state={…}\'"', () => {
   const flag = hookStateFlag({ key: '/b/bots/coder/.codex/hooks.json:session_start:0:0', hash: WRONG_HASH });
@@ -284,15 +254,6 @@ test('K0 the premise: a shell reads "-c \'h\'\'ooks.state={…}\'" as the same t
   assert.deepEqual(words(`-c '${flag}'`), ['-c', flag]);
   assert.deepEqual(words(splitHooks(`-c '${flag}'`)), ['-c', flag]);
   assert.ok(!/hooks/i.test(splitHooks(`-c '${flag}'`)), 'the premise: the split string has no "hooks" in it');
-});
-
-test('K0 the premise: a literal-string table [hooks.state.\'<key>\'] gives the same key and hash as the basic-string one, a backslash in the key included', () => {
-  const entries = ['/b/bots\\trust/bots/coder/.codex/hooks.json', '/b/bots/bots/coder/.codex/hooks.json'].map((file) => ({
-    key: stateKey(file, 'PostToolUse', 0, 0),
-    hash: trustedHash({ event: 'PostToolUse', matcher: 'Bash', command: 'obk session nudge', timeout: 10 }),
-  }));
-  assert.ok(entries[0].key.includes('\\t'), `the premise: the key holds a backslash and a t: ${entries[0].key}`);
-  assert.deepEqual(parseToml(literalTrustTablesFor(entries)), parseToml(trustTablesFor(entries)));
 });
 
 for (const [name, target] of Object.entries(TARGETS)) {
@@ -839,17 +800,6 @@ const splitHooks = (text) => {
   assert.match(text, /^-c '[^']*'$/, 'the premise: one single-quoted word after -c');
   return text.replaceAll('hooks', "h''ooks");
 };
-
-/** config.toml tables trusting each `{ key, hash }`, each key a TOML literal string, '<key>', which keeps backslashes as they are. */
-const literalTrustTablesFor = (entries) => entries
-  .map(({ key, hash }) => {
-    assert.ok(!key.includes("'"), `a literal string cannot hold a ': ${key}`);
-    return `[hooks.state.'${key}']\ntrusted_hash = ${JSON.stringify(hash)}\n`;
-  })
-  .join('\n');
-
-/** A `-c` value that trusts one hook, `{ key, hash }`, as Codex reads its session flags. */
-const hookStateFlag = ({ key, hash }) => `hooks.state={${JSON.stringify(key)}={trusted_hash=${JSON.stringify(hash)}}}`;
 
 const readYaml = async (file) => YAML.parse(await readFile(file, 'utf8'));
 

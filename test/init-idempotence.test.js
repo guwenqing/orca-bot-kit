@@ -3,7 +3,10 @@ import { readFile, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 
-import { createSandbox, skipGit, snapshot } from './helpers/cli.js';
+import { parse, stringify } from 'yaml';
+
+import { assertKeptWhatTheyWrote, createSandbox, skipGit, snapshot } from './helpers/cli.js';
+import { assertSameRules, defaultRules } from './helpers/permissions.js';
 
 test('a second init changes nothing and adds nothing', async (t) => {
   const box = await createSandbox(t);
@@ -61,6 +64,29 @@ test("a second init keeps the user's edits", async (t) => {
 
   assert.equal(second.code, 0);
   for (const [rel, contents] of Object.entries(edits)) {
+    if (rel === 'bots/bot-father/bot.yaml') continue;
     assert.equal(await readFile(path.join(bots, rel), 'utf8'), contents, `${rel} was rewritten`);
   }
+  // #527: the user's edit left out `allow`, so init adds the kit's default
+  // rules back, and keeps every key, value and comment the user wrote.
+  const father = await readFile(path.join(bots, 'bots/bot-father/bot.yaml'), 'utf8');
+  assertKeptWhatTheyWrote(edits['bots/bot-father/bot.yaml'], father, { changed: ['allow'] });
+  assertSameRules(parse(father).allow ?? [], defaultRules(box, bots), 'Bot Father\'s allow holds the default set again');
+});
+
+test("a second init leaves alone a Bot Father bot.yaml the user edited that still holds the default rules", async (t) => {
+  // #527: with nothing missing from allow, there is nothing for init to add.
+  const box = await createSandbox(t);
+  const bots = box.path('bots');
+  assert.equal((await box.run(['init', '--bots', 'bots', '--harness', 'claude'])).code, 0);
+  const edited = '# my own Bot Father\n'
+    + 'name: bot-father\nharness: claude\ncharter: my own charter\nrules: [my-rule]\nskills: []\n'
+    + 'sessions:\n  - name: daily\n'
+    + stringify({ allow: defaultRules(box, bots) });
+  await writeFile(path.join(bots, 'bots/bot-father/bot.yaml'), edited);
+
+  const second = await box.run(['init', '--bots', 'bots', '--harness', 'claude']);
+
+  assert.equal(second.code, 0, `${second.stdout}${second.stderr}`);
+  assert.equal(await readFile(path.join(bots, 'bots/bot-father/bot.yaml'), 'utf8'), edited, 'bot.yaml was rewritten');
 });

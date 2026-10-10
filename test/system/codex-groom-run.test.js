@@ -606,7 +606,8 @@ test('a grooming job with --run-on codex starts one Codex run at its fire, on th
   // The one permission the owner chose to allow (#238, (b)), in this fleet's
   // own Bot Father, before the grooming session starts and reads its settings.
   const trustRule = `Bash(${cliEntry} temp trust-hooks:*)`;
-  obkJson(['bot', 'change', '--bots', bots, '--bot', 'bot-father', '--allow', trustRule]);
+  // #527: permission rules are written by `obk permission allow`, not `bot change --allow`.
+  obkJson(['permission', 'allow', '--bots', bots, '--bot', 'bot-father', '--rule', trustRule]);
 
   obkJson(['session', 'add', '--bots', bots, '--bot', 'bot-father', '--name', 'grooming', '--model', MODEL, '--effort', EFFORT]);
   const opened = tabOf(openedBy(obkJson(['up', '--bots', bots, '--bot', 'bot-father'])), 'grooming');

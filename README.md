@@ -128,8 +128,8 @@ obk up          --bots /path/to/my-bots
 that file and the rule units, `CLAUDE.md` as a symlink to it, and a `.gitignore`
 for `work/`.
 `session add` writes one session into `bot.yaml`: its harness (the bot's unless
-it says otherwise), model, effort, context window, approval level, start prompt,
-work dir and any extra arguments for the harness. A start prompt is either text
+it says otherwise), model, effort, context window, start prompt,
+work dir and any extra arguments for the harness, and the approval level. A start prompt is either text
 (`--prompt`) or, when it is long, a file in the bot home the session points at
 (`--prompt-file prompts/reviewer.md`), and it reaches the harness as written,
 apart from two things the kit does on purpose: blank space at either end is
@@ -138,7 +138,18 @@ note about it. Anything you leave out is the
 harness's own default; the kit names no model of its own. The approval level is
 `auto` — the harness's real auto mode — unless you ask for `ask` or, in those
 words, `dangerously-skip`
-([ADR 0015](docs/adr/0015-three-approval-levels-auto-by-default.md)).
+([ADR 0015](docs/adr/0015-three-approval-levels-auto-by-default.md)). Only
+`obk permission approval` changes it, after your yes: `session add` and
+`session change` take no approval, and refuse an extra argument that sets one
+([ADR 0037](docs/adr/0037-permission-changes-and-risky-operations-have-commands-of-their-own.md)).
+
+Every bot gets the kit's default permission rules, written by the kit with
+nobody asked: its own commands for this bots folder, reading a long message,
+`git add` and `git commit`, and Orca's `orca orchestration check --run`
+([ADR 0036](docs/adr/0036-the-kit-writes-every-bots-default-permission-rules.md)).
+`obk permission`, `obk retire`, `obk pause` and `obk init` are not in the set,
+and keep your yes. A rule beyond the set is written by `obk permission allow`,
+after your yes to the exact rule.
 
 Neither command touches Orca. `obk up` is what makes it all real there: an Orca
 project per bot, a tab per session, each started at the bot home with its own
@@ -443,6 +454,11 @@ Bot Father does these for you when you ask; these are the commands it runs.
 
 ```sh
 obk bot change --bots /path/to/my-bots --bot api-bot --charter "…"
+obk bot change --bots /path/to/my-bots --bot api-bot --role-cap reviewer=2
+obk permission allow --bots /path/to/my-bots --bot api-bot --rule 'Bash(gh pr merge:*)'
+obk permission disallow --bots /path/to/my-bots --bot api-bot --rule 'Bash(gh pr merge:*)'
+obk permission approval --bots /path/to/my-bots --bot api-bot --session daily --approval ask
+obk permission approval --bots /path/to/my-bots --bot api-bot --temps --approval dangerously-skip
 obk session change --bots /path/to/my-bots --bot api-bot --session daily --model opus
 obk skills remove --bots /path/to/my-bots --bot api-bot --skill kit:obk-tdd
 obk pause --bots /path/to/my-bots --bot api-bot [--session daily]
@@ -650,13 +666,14 @@ npm run mutate                # the mutation audit, on what your branch changed
 
 The tests come in two layers, and every test file belongs to one of them.
 
-`npm test` is `test/*.test.js`: unit tests and end-to-end runs of the CLI in a
-throwaway folder, with a fake `orca` on PATH. It needs nothing but Node, so
-[GitHub Actions](.github/workflows/ci.yml) runs it on every pull request, split
-into shards that run side by side, on Node 25.8.0, the current line. A release
-runs every shard on 25.8.0 and again on 24.21.0, the floor `engines.node`
-promises users, with only the kit's own dependencies installed, before anything
-is published.
+`npm test` is `test/*.test.js` and `test/dev/*.test.js`: unit tests and
+end-to-end runs of the CLI in a throwaway folder, with a fake `orca` on PATH. It
+needs nothing but Node, so [GitHub Actions](.github/workflows/ci.yml) runs it on
+every pull request, split into shards that run side by side, on Node 25.8.0, the
+current line. A release runs every shard on 25.8.0 and again on 24.21.0, the
+floor `engines.node` promises users, with only the kit's own dependencies
+installed, before anything is published. The floor leaves out `test/dev/`, the
+tests that need a development tool.
 
 `npm run test:system` is `test/system/*.test.js`: the real `obk` against the
 real Orca and the real harnesses on your own machine. No CI runner can do that,

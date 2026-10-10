@@ -1004,7 +1004,10 @@ test('A8 a Claude bot\'s settings get no session nudge hook', async (t) => {
 
   assert.ok(claude !== undefined, 'the premise: the Claude bot has its settings file');
   assert.equal(nudgeEntries(codex).length, 1, 'the premise: the Codex bot beside it has the nudge hook');
-  assert.ok(!JSON.stringify(claude).includes('session nudge'), `nothing of it in Claude's settings: ${JSON.stringify(claude)}`);
+  // #527: permissions.allow holds the default rule for `session nudge`, a rule
+  // and not a hook; the point here is that no hook entry runs it.
+  assert.deepEqual(nudgeEntries(claude), [], `no nudge hook under PostToolUse: ${JSON.stringify(claude.hooks)}`);
+  assert.ok(!JSON.stringify(claude.hooks ?? {}).includes('session nudge'), `nothing of it in Claude's hooks: ${JSON.stringify(claude.hooks)}`);
 });
 
 // ---------------------------------------------------------------------------

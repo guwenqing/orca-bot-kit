@@ -1,7 +1,7 @@
 # ADR 0028: A Codex bot's permission rules are written in Codex's own form, from the same yes
 
 Date: 2026-09-26.
-Status: accepted.
+Status: superseded by [ADR 0039](0039-a-codex-bots-rules-are-written-in-codexs-own-form.md).
 Decided by: the owner, on 2026-09-26, for a Codex bot getting the same default rules and charter grants as a Claude bot ("regardless if it is claude or codex … even if codex, we prepare it", #354); the architect, on 2026-09-26, for `allow` staying the one record in Claude Code's text with the Codex form made from it, for a file the kit owns whole, for saying so where a rule has no Codex form, and for the system test's own sandbox settings. The owner may overrule the architect's parts.
 
 ## Context

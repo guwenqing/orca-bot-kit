@@ -170,7 +170,7 @@ project → repo (`kind: "git" | "folder"`) → worktree (id = `<repoId>::<absPa
   2.1.281, Codex 0.156.1) It named itself by `OBK_CLI` in the rules a bot reads too, until #344: a
   Claude Code allow rule matches the command as written, not after the shell expands a variable, so
   the rules build now writes the building CLI's path and the bots folder's path where a rule unit
-  says `"${OBK_CLI:-obk}"` and `<bots>` (ADR 0026).
+  says `"${OBK_CLI:-obk}"` and `<bots>` (ADR 0036).
 - `orca terminal wait --for exit|tui-idle --timeout-ms <n>`. **`tui-idle` is about a TUI, not a shell.**
   All four answers seen live:
   - a tab running no TUI, sitting at a clean shell prompt: exit 1, `ok:false`,

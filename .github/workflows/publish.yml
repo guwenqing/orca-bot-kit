@@ -39,9 +39,11 @@ jobs:
 
   # The floor `engines.node` promises users, so the promise is checked before
   # every release. Pull requests do not run it (ci.yml says why). The kit is
-  # what a user installs — the dependencies, not the development tools — and
-  # the tests need nothing else, so this job installs exactly that, and leaves
-  # out StrykerJS, which it has no use for.
+  # what a user installs — the dependencies, not the development tools — so
+  # this job installs exactly that, and leaves out StrykerJS, which it has no
+  # use for. It runs `test:floor`: every test file but those under test/dev/,
+  # which need a development tool (#533). The test job above runs those, and
+  # pull requests check that no file the floor runs needs one.
   #
   # The floor is 24.21.0 because the book's lock is a SQLite write transaction
   # through Node's own `node:sqlite`, which is older than this line, and 24.21.0
@@ -66,7 +68,7 @@ jobs:
       # not as a notice from npm. Every package in the lock file accepts this
       # Node (its engines ranges checked against 24.21.0 on 2026-09-23).
       - run: npm ci --omit=dev --loglevel=error
-      - run: npm run test:shard
+      - run: npm run test:floor
         env:
           SHARD: ${{ matrix.shard }}/9
 

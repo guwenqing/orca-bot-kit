@@ -68,6 +68,7 @@ import {
   spellingsOf,
   typedInto,
 } from './helpers/cli.js';
+import { addSession } from './helpers/permissions.js';
 import { commandsIn, flagValue, withWord } from './helpers/typed-command.js';
 
 // ------------------------------------------------------------------ the job
@@ -103,7 +104,8 @@ const CONV = '0199b2c0-0001-4444-8888-cccccccccccc';
 async function fleet(box, settings = GROOMING_SETTINGS) {
   const init = await box.run(['init', '--bots', 'bots', '--harness', 'claude']);
   assert.equal(init.code, 0, init.stderr);
-  const added = await box.run(['session', 'add', '--bots', 'bots', '--bot', 'bot-father', '--name', 'grooming', ...settings]);
+  // #527: the approval in `settings` is set by `obk permission approval`, after session add.
+  const added = await addSession(box, { bot: 'bot-father', name: 'grooming', settings });
   assert.equal(added.code, 0, added.stderr);
   const brought = await box.run(['up', '--bots', 'bots']);
   assert.equal(brought.code, 0, brought.stderr);

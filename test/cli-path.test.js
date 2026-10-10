@@ -62,7 +62,7 @@ import {
   typedInto,
 } from './helpers/cli.js';
 import { addRules, agentsIn } from './helpers/rules.js';
-import { allowedIn, defaultRules } from './helpers/permissions.js';
+import { allowedIn, kitRule } from './helpers/permissions.js';
 import { addSkills, botYamlOf, defaultsOf } from './helpers/skills.js';
 import { commitIn, putSkills, repoAt, sourcesYaml, writeSources } from './helpers/sources.js';
 
@@ -601,6 +601,9 @@ function commandIn(said, cli, rest, has = []) {
   for (const line of said.split('\n')) {
     for (const word of spellingsOf(cli)) {
       const at = line.indexOf(`${word} ${rest}`);
+      // A permission rule the kit names (`allowed    <bot>  Bash(<kit> ... --bots <folder>:*)`, #527)
+      // holds the same words, but it is a rule, not a command to run.
+      if (at >= 0 && line.slice(0, at).endsWith('Bash(')) continue;
       const command = line.slice(at).trim();
       if (at >= 0 && has.every((part) => command.includes(part))) return command;
     }
@@ -1148,9 +1151,9 @@ test('the command a bot\'s AGENTS.md gives for mail is one its default `message 
   // only the session to reach filled in, has to start with the rule's prefix.
   const box = await createSandbox(t);
   const bots = await mailFleet(box, 'my bots');
-  const said = await box.run(['bot', 'change', '--bots', 'my bots', '--bot', 'writer', ...defaultRules(box, bots).flatMap((rule) => ['--allow', rule])]);
-  assert.equal(said.code, 0, said.stderr);
+  // Since #527 the kit writes its default rules when the bot is made: nobody runs anything for them.
   const allowed = await allowedIn(bots, 'writer');
+  assert.ok(allowed.includes(kitRule(box, bots, 'message to')), `the premise: the default \`message to\` rule is allowed already, got: ${JSON.stringify(allowed)}`);
   const rules = allowed.filter((rule) => rule.startsWith('Bash(') && rule.includes(' message to --bots '));
   assert.equal(rules.length, 1, `one \`message to\` rule should be allowed, got: ${JSON.stringify(allowed)}`);
   const [rule] = rules;

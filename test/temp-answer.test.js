@@ -29,8 +29,10 @@
 //   6. On success it says which session, that it sent Esc (Not now) to the
 //      Teach auto mode form, and that the form has gone. `--json` has at least
 //      bot, session and maker.
-//   7. Its output and SETUP.md section 5 name the one rule a maker's bot needs:
-//      `Bash(<kit> temp answer:*)`, <kit> the running kit's CLI path.
+//   7. Its output and SETUP.md section 5 name the one rule a maker's bot needs.
+//      Since #527 it is the default set's `Bash(<kit> temp answer --bots
+//      <folder>:*)`, <kit> the running kit's CLI path and <folder> the bots
+//      folder, each as `shellWord` spells it (`kitRule`, helpers/permissions.js).
 //   8. `obk --help` lists `obk temp answer --bots <path> --name <session>`.
 //
 // And Claude Code 2.1.289's Teach list (the architect's ruling on #489's live
@@ -69,8 +71,8 @@ import {
   repoRoot,
   sentInto,
   sessionIn,
-  spellingsOf,
 } from './helpers/cli.js';
+import { kitRule } from './helpers/permissions.js';
 import {
   CLAUDE_ANSWERED,
   CLAUDE_IDLE,
@@ -656,8 +658,8 @@ describe('obk temp answer', AT_ONCE, () => {
     assert.match(said, /Not now/, `which is Not now: ${said}`);
     assert.match(said, /Teach auto mode/, `to the Teach auto mode form: ${said}`);
     assert.match(said, /\bgone\b|\bclosed\b|no longer/i, `and that the form has gone: ${said}`);
-    const rules = spellingsOf(box.cli).map((kit) => `Bash(${kit} temp answer:*)`);
-    assert.ok(rules.some((rule) => said.includes(rule)), `it names the one rule a maker's bot needs, one of ${JSON.stringify(rules)}: ${said}`);
+    const rule = kitRule(box, bots, 'temp answer');
+    assert.ok(said.includes(rule), `it names the one rule a maker's bot needs, the default set's ${rule}: ${said}`);
   });
 
   test('TA6 --json answers with the bot, the session and its maker', async (t) => {
@@ -688,7 +690,7 @@ describe('obk temp answer', AT_ONCE, () => {
     const end = setup.indexOf('\n## ', start + 1);
     const section = setup.slice(start, end < 0 ? undefined : end);
     assert.match(section, /temp answer/, 'section 5 names temp answer');
-    assert.match(section, /Bash\([^)\n]* temp answer:\*\)/, 'section 5 names the rule, Bash(<kit> temp answer:*)');
+    assert.match(section, /Bash\([^)\n]* temp answer --bots [^)\n]*:\*\)/, 'section 5 names the rule, Bash(<kit> temp answer --bots <folder>:*)');
   });
 
   // ------------------------------------------------------------ 8. the usage

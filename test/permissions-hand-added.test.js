@@ -1,15 +1,19 @@
 // `obk health` on a rule the user put in a bot's settings file by hand, one
-// `bot change --allow` would refuse as broad (#353, slice B of #344).
+// `obk permission allow` would refuse as broad (#353, slice B of #344; the
+// command moved out of `bot change --allow` by #527).
 //
 // Slice A names every entry in the bot's `.claude/settings.json`
 // `permissions.allow` that bot.yaml `allow` does not hold, and points at
-// `obk bot change --allow` to record the user's yes. For an entry `--allow`
-// would refuse, that pointer would lead to a refusal. So such an entry is
-// still named, as a config finding naming the file and the entry, but in
-// neutral words: it was added by hand, by the user, not by the kit, and it
-// stays where it is. The finding does not point at `bot change --allow`, and
-// does not call the rule broad, unsafe, dangerous or risky. A foreign entry
-// `--allow` would accept keeps slice A's pointer.
+// `obk permission allow` to record the user's yes. For an entry it would
+// refuse, that pointer would lead to a refusal. So such an entry is still
+// named, as a config finding naming the file and the entry, but in neutral
+// words: it was added by hand, by the user, not by the kit, and it stays where
+// it is. The finding does not point at `permission allow` (nor at the old
+// `bot change --allow`), and does not call the rule broad, unsafe, dangerous
+// or risky. A foreign entry `permission allow` would accept keeps the pointer.
+//
+// The entries are added after what the kit wrote there (the kit's default set,
+// since #527), as a user adding a line by hand would.
 //
 // The words read here are only those: the entry, the file, the command and
 // the four judging words, and that it speaks of the hand or the user. The
@@ -26,7 +30,7 @@ import { settingsIn, settingsOf } from './helpers/permissions.js';
 const BOT = 'api-bot';
 const PAST = new Date('2020-01-01T00:00:00Z');
 
-/** An entry a user might add by hand that `--allow` accepts: exact, no wildcard. */
+/** An entry a user might add by hand that `permission allow` accepts: exact, no wildcard. */
 const NARROW_FOREIGN = 'Bash(curl -s https://example.com)';
 
 /** A fleet up in Orca: Bot Father, and one more Claude bot with a daily session. */
@@ -41,11 +45,11 @@ async function fleet(box) {
   return box.path('bots');
 }
 
-/** Put entries into the settings file's `permissions.allow` by hand, keeping what else is there. */
+/** Add entries to the settings file's `permissions.allow` by hand, after what is there, keeping everything else. */
 async function handAllow(bots, entries) {
   const file = settingsOf(bots, BOT);
   const settings = (await settingsIn(bots, BOT)) ?? {};
-  settings.permissions = { ...settings.permissions, allow: entries };
+  settings.permissions = { ...settings.permissions, allow: [...(settings.permissions?.allow ?? []), ...entries] };
   await mkdir(path.dirname(file), { recursive: true });
   await writeFile(file, `${JSON.stringify(settings, null, 2)}\n`);
 }
@@ -83,12 +87,12 @@ function findingOf(found, entry, bots) {
   return said[0];
 }
 
-/** The neutral finding: by hand or by the user, no pointer at --allow, and no judging word. */
+/** The neutral finding: by hand or by the user, no pointer at permission allow, and no judging word. */
 function assertNeutral(finding, entry) {
   const { says } = finding;
   assert.match(says, /\bhand\b|\buser\b/i, `it should say ${entry} was added by hand, by the user, got: ${says}`);
-  assert.ok(!says.includes('--allow'), `--allow would refuse ${entry}, so the finding should not point at it, got: ${says}`);
-  assert.ok(!says.includes('bot change'), `nor at bot change, got: ${says}`);
+  assert.ok(!says.includes('permission allow'), `permission allow would refuse ${entry}, so the finding should not point at it, got: ${says}`);
+  assert.ok(!says.includes('--allow') && !says.includes('bot change'), `nor at the old bot change --allow, got: ${says}`);
   assert.doesNotMatch(says, /broad|unsafe|dangerous|risky/i, `the finding should not judge the user's own rule, got: ${says}`);
 }
 
@@ -105,7 +109,7 @@ async function assertUnchanged(bots, was) {
   assert.equal((await stat(file)).mtime.getTime(), was.mtime, 'not even to write the same thing back');
 }
 
-// ----------------------------------------------------------------- an entry --allow would refuse
+// ----------------------------------------------------------------- an entry permission allow would refuse
 
 for (const entry of [
   'Bash(/Applications/Orca.app/Contents/Resources/bin/orca:*)',
@@ -114,7 +118,7 @@ for (const entry of [
   'Bash',
   'Read(//**)',
 ]) {
-  test(`K1 a hand-added ${entry} is named in neutral words, with no pointer at bot change --allow`, async (t) => {
+  test(`K1 a hand-added ${entry} is named in neutral words, with no pointer at permission allow`, async (t) => {
     const box = await createSandbox(t);
     const bots = await fleet(box);
     await handAllow(bots, [entry]);
@@ -127,9 +131,9 @@ for (const entry of [
   });
 }
 
-// ----------------------------------------------------------------- an entry --allow would accept
+// ----------------------------------------------------------------- an entry permission allow would accept
 
-test('K2 a hand-added entry --allow would accept keeps the pointer at obk bot change --allow', async (t) => {
+test('K2 a hand-added entry permission allow would accept keeps the pointer, at obk permission allow', async (t) => {
   const box = await createSandbox(t);
   const bots = await fleet(box);
   await handAllow(bots, [NARROW_FOREIGN]);
@@ -138,11 +142,12 @@ test('K2 a hand-added entry --allow would accept keeps the pointer at obk bot ch
   const found = await health(box);
 
   const { says } = findingOf(found, NARROW_FOREIGN, bots);
-  assert.ok(says.includes('bot change') && says.includes('--allow'), `the user can record a yes to it, so say how, got: ${says}`);
+  assert.ok(says.includes('permission allow'), `the user can record a yes to it, so say how: obk permission allow, got: ${says}`);
+  assert.ok(!says.includes('bot change'), `and not by the old bot change --allow, which is refused now, got: ${says}`);
   await assertUnchanged(bots, was);
 });
 
-test('K3 side by side, each entry gets its own wording: the pointer for the one --allow accepts, none for the one it refuses', async (t) => {
+test('K3 side by side, each entry gets its own wording: the pointer for the one permission allow accepts, none for the one it refuses', async (t) => {
   const box = await createSandbox(t);
   const bots = await fleet(box);
   const broad = 'Bash(gh:*)';
@@ -153,6 +158,6 @@ test('K3 side by side, each entry gets its own wording: the pointer for the one 
 
   assertNeutral(findingOf(found, broad, bots), broad);
   const narrow = findingOf(found, NARROW_FOREIGN, bots);
-  assert.ok(narrow.says.includes('--allow'), `the narrow one keeps its pointer, got: ${narrow.says}`);
+  assert.ok(narrow.says.includes('permission allow'), `the narrow one keeps its pointer, got: ${narrow.says}`);
   await assertUnchanged(bots, was);
 });

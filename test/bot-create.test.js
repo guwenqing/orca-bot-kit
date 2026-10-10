@@ -1,5 +1,7 @@
 // `obk bot create` writes one new bot into a bots folder `init` made: the
-// `bot.yaml` that holds its charter and its (empty) lists, the `AGENTS.md` the
+// `bot.yaml` that holds its charter, its (empty) lists and, since #527, the
+// kit's default permission rules in `allow`, with those rules written into the
+// bot's harness file (a Codex bot's `.codex/rules/obk.rules`), the `AGENTS.md` the
 // charter is written into, the `CLAUDE.md` symlink beside it (PRD 6.6), and a
 // `.gitignore` keeping `work/` out of the repo (PRD 6.3).
 //
@@ -21,6 +23,7 @@ import {
   skipGit,
   snapshot,
 } from './helpers/cli.js';
+import { assertSameRules, codexDefaultRules } from './helpers/permissions.js';
 
 /** A bots folder `init` made, and Bot Father already in Orca. */
 async function seeded(box, harness = 'claude') {
@@ -38,7 +41,7 @@ async function added(bots, before) {
   return Object.keys(after).filter((rel) => !(rel in before)).sort();
 }
 
-test('bot create writes the bot a home of four files, and touches nothing else', async (t) => {
+test('bot create writes the bot a home of four files and its Codex rules file, and touches nothing else', async (t) => {
   const box = await createSandbox(t);
   const bots = await seeded(box);
   const before = await snapshot(bots, skipGit);
@@ -49,13 +52,17 @@ test('bot create writes the bot a home of four files, and touches nothing else',
   assert.equal(result.code, 0, result.stderr);
   assert.equal(result.stderr, '');
   // The two skills directories come empty, and are there so that a skill given
-  // later reaches a session already running (tech notes, section 3).
+  // later reaches a session already running (tech notes, section 3). The
+  // Codex rules file holds the kit's default rules (#527).
   assert.deepEqual(await added(bots, before), [
     'bots/api-bot',
     'bots/api-bot/.agents',
     'bots/api-bot/.agents/skills',
     'bots/api-bot/.claude',
     'bots/api-bot/.claude/skills',
+    'bots/api-bot/.codex',
+    'bots/api-bot/.codex/rules',
+    'bots/api-bot/.codex/rules/obk.rules',
     'bots/api-bot/.gitignore',
     'bots/api-bot/AGENTS.md',
     'bots/api-bot/CLAUDE.md',
@@ -65,7 +72,7 @@ test('bot create writes the bot a home of four files, and touches nothing else',
   assert.equal((await box.orca.calls()).length, calls, 'bot create must not talk to Orca at all');
 });
 
-test('bot.yaml holds the bot, its harness, its charter and three empty lists', async (t) => {
+test('bot.yaml holds the bot, its harness, its charter, three empty lists and the kit\'s default rules', async (t) => {
   const box = await createSandbox(t);
   const bots = await seeded(box);
 
@@ -76,13 +83,14 @@ test('bot.yaml holds the bot, its harness, its charter and three empty lists', a
 
   assert.equal(result.code, 0, result.stderr);
   const bot = await botYaml(bots, 'api-bot');
-  assert.deepEqual(Object.keys(bot).sort(), ['charter', 'harness', 'name', 'rules', 'sessions', 'skills']);
+  assert.deepEqual(Object.keys(bot).sort(), ['allow', 'charter', 'harness', 'name', 'rules', 'sessions', 'skills']);
   assert.equal(bot.name, 'api-bot', 'the bot is named after the folder it lives in');
   assert.equal(bot.harness, 'codex');
   assert.equal(bot.charter.trim(), 'Api Bot owns the API. Good is a green build. Ask before a release.');
   assert.deepEqual(bot.rules, []);
   assert.deepEqual(bot.skills, []);
   assert.deepEqual(bot.sessions, [], 'a new bot has no sessions until one is added');
+  assertSameRules(bot.allow, codexDefaultRules(box, bots), 'allow holds the kit\'s default set for a Codex bot (#527)');
 });
 
 test('the harness is the one asked for, whichever it is', async (t) => {

@@ -30,6 +30,7 @@ import {
   skipGit,
   snapshot,
 } from './helpers/cli.js';
+import { addSession } from './helpers/permissions.js';
 import { botYamlOf } from './helpers/skills.js';
 
 const BOT = 'api-bot';
@@ -40,7 +41,8 @@ async function withSession(box, { harness = 'claude', settings = [] } = {}) {
   const made = await box.run(['bot', 'create', '--bots', 'bots', '--name', BOT, '--harness', harness]);
   assert.equal(made.code, 0, made.stderr);
   const bots = box.path('bots');
-  const added = await box.run(['session', 'add', '--bots', 'bots', '--bot', BOT, '--name', 'daily', ...settings]);
+  // #527: an approval in the settings goes through `permission approval`, not session add.
+  const added = await addSession(box, { bot: BOT, name: 'daily', settings });
   assert.equal(added.code, 0, added.stderr);
   return bots;
 }
@@ -90,13 +92,29 @@ test('SC1 several settings in one call are all written', async (t) => {
   const box = await createSandbox(t);
   const bots = await withSession(box, { settings: ['--model', 'sonnet'] });
 
-  const result = await change(box, '--effort', 'low', '--approval', 'dangerously-skip', '--work-dir', 'work/web');
+  const result = await change(box, '--effort', 'low', '--work-dir', 'work/web');
 
   assert.equal(result.code, 0, result.stderr);
   const session = await sessionOf(bots);
   assert.equal(session.model, 'sonnet', 'not given, so kept');
   assert.equal(session.effort, 'low');
+  assert.equal(session.work_dir, 'work/web');
+});
+
+test('SC1 permission approval sets the session\'s approval, and the settings session change wrote stay (#527)', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await withSession(box, { settings: ['--model', 'sonnet'] });
+  assert.equal((await change(box, '--effort', 'low', '--work-dir', 'work/web')).code, 0);
+
+  const result = await box.run([
+    'permission', 'approval', '--bots', 'bots', '--bot', BOT, '--session', 'daily', '--approval', 'dangerously-skip',
+  ]);
+
+  assert.equal(result.code, 0, result.stderr);
+  const session = await sessionOf(bots);
   assert.equal(session.approval, 'dangerously-skip', 'asked for in those words, so written');
+  assert.equal(session.model, 'sonnet');
+  assert.equal(session.effort, 'low');
   assert.equal(session.work_dir, 'work/web');
 });
 
@@ -197,7 +215,6 @@ sessions:
 });
 
 for (const [label, harness, settings, args, named] of [
-  ['an approval level the kit does not know', 'claude', [], ['--approval', 'sometimes'], 'sometimes'],
   ['a prompt file that is not there', 'claude', [], ['--prompt-file', 'no-such-duty.md'], 'no-such-duty.md'],
   // The change on its own is fine; what it leaves behind is not: on Claude a
   // context rides on the model, and this takes the model away from under it.
@@ -216,6 +233,20 @@ for (const [label, harness, settings, args, named] of [
     assert.deepEqual(await snapshot(bots, skipGit), before, 'a refusal writes nothing');
   });
 }
+
+test('SC7 an approval level the kit does not know is refused by permission approval, and nothing is written (#527)', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await withSession(box);
+  const before = await snapshot(bots, skipGit);
+
+  const result = await box.run([
+    'permission', 'approval', '--bots', 'bots', '--bot', BOT, '--session', 'daily', '--approval', 'sometimes',
+  ]);
+
+  assertCleanFailure(result);
+  assert.ok(result.stderr.includes('sometimes'), `the refusal should name sometimes, got: ${result.stderr}`);
+  assert.deepEqual(await snapshot(bots, skipGit), before, 'a refusal writes nothing');
+});
 
 for (const [label, args, named] of [
   ['a bot that is not there', ['session', 'change', '--bots', 'bots', '--bot', 'ghost-bot', '--session', 'daily', '--model', 'opus'], 'ghost-bot'],
