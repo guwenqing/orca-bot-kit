@@ -213,8 +213,11 @@ its commits. The kit writes this default set itself, with nobody asked:
 does not have yet to its `bot.yaml` and its settings, or for Codex its
 `.codex/rules/obk.rules`, and say which rules they wrote. The set leaves out
 the commands that keep the user's yes: `obk permission`, `obk retire`, `obk
-pause` and `obk init`. Never write a permission rule into a settings or rules
-file by hand.
+pause`, `obk restart`, `obk bot create` and `obk init`. A bot that still holds
+the `obk restart` or `obk bot create` rule from kit 0.26.0 keeps it, and `obk
+rules build` and `obk up` name it with the `obk permission disallow` command
+that takes it back; run that command only after the user's yes. Never write a
+permission rule into a settings or rules file by hand.
 
 The charter decides what else the bot needs. What it lets the bot do without
 asking, such as merging pull requests, auto mode or Codex's sandbox can still

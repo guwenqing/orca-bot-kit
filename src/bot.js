@@ -162,7 +162,7 @@ export function readBot(home, name = path.basename(home)) {
     // The roles its temporary sessions can be made in, judged by tempRoles.
     ...(bot.temp_roles === undefined ? {} : { temp_roles: bot.temp_roles }),
     // The widest approval its temporary sessions may be made at, the user's yes
-    // kept by `permission approval --temps` (ADR 0037).
+    // kept by `permission approval --temps` (ADR 0041).
     ...(bot.temp_approval === undefined ? {} : { temp_approval: bot.temp_approval }),
     // A paused bot is one `obk up` leaves closed; its sessions keep their book.
     ...(bot.paused === true ? { paused: true } : {}),
@@ -362,7 +362,7 @@ export function changeSession(bots, bot, name, settings) {
 
 /**
  * Record the widest approval the bot's temporary sessions may be made at,
- * `level`, as `temp_approval` (ADR 0037). Returns { bot, home, level }.
+ * `level`, as `temp_approval` (ADR 0041). Returns { bot, home, level }.
  */
 export function setTempApproval(bots, bot, level) {
   editBot(bots, bot, `let ${bot}'s temporary sessions be made at ${level}`, (doc) => doc.set('temp_approval', level), (was) => ({ ...was, temp_approval: level }));

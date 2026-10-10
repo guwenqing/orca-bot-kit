@@ -29,11 +29,12 @@ import { botYamlOf } from './skills.js';
 
 /**
  * The kit's commands every bot is allowed, each narrowed to the bots folder
- * (#527): every command but those in NOT_DEFAULT_COMMANDS.
+ * (#527): every command but those in NOT_DEFAULT_COMMANDS. #548 took
+ * `restart` and `bot create` out of it.
  */
 export const KIT_COMMANDS = [
-  'up', 'restart', 'unpause', 'health', 'groom', 'roster', 'usage',
-  'bot create', 'bot change', 'rules build',
+  'up', 'unpause', 'health', 'groom', 'roster', 'usage',
+  'bot change', 'rules build',
   'skills add', 'skills remove', 'skills build', 'skills fetch', 'skills update', 'source add',
   'session add', 'session change', 'session clear', 'session compact',
   'message to', 'message send', 'message check',
@@ -44,8 +45,14 @@ export const KIT_COMMANDS = [
   'session trust-hooks', 'session answer',
 ];
 
-/** The kit's commands that are never in the default set: they keep the user's yes (#527). */
-export const NOT_DEFAULT_COMMANDS = ['init', 'retire', 'pause', 'permission allow', 'permission disallow', 'permission approval'];
+/** The kit's commands that are never in the default set: they keep the user's yes (#527, and #548 for restart and bot create). */
+export const NOT_DEFAULT_COMMANDS = ['init', 'retire', 'pause', 'permission allow', 'permission disallow', 'permission approval', 'restart', 'bot create'];
+
+/**
+ * The two commands #548 took out of the default set (kit 0.26.0 had them in
+ * it). A bot's allow may still hold their rules; the kit keeps them there.
+ */
+export const NO_LONGER_DEFAULT_COMMANDS = ['restart', 'bot create'];
 
 /** The one Orca rule in the default set, exactly this text (#527). */
 export const ORCA_CHECK_RULE = 'Bash(orca orchestration check --run:*)';

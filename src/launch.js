@@ -45,7 +45,7 @@ export const approvalRank = (level) => ['ask', 'auto', 'dangerously-skip'].index
 
 /**
  * The harness flags that set approval or permissions, which only
- * `obk permission approval` may change, not an extra argument (ADR 0037).
+ * `obk permission approval` may change, not an extra argument (ADR 0041).
  * Codex's `-a` and `-s` take their value glued on too.
  */
 const APPROVAL_FLAGS = {
