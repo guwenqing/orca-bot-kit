@@ -21,8 +21,12 @@
 // `deleteOwnProject(` (test/helpers/own-project.js), which goes on both Orcas
 // and force-deletes only the run's own projects. So:
 //
-//   - no system test sends `setup-delete` itself, or calls `deleteProject(` of
-//     src/orca.js, anywhere in its code;
+//   - no system test file names `setup-delete` or `deleteProject(` (of
+//     src/orca.js) anywhere, comments and strings included. This rule reads the
+//     raw text, because a text rule cannot be fooled by a misread slash: without
+//     a parser, a `/` that is really a division can be taken for a regular
+//     expression, and the other way round, and either can make a reading take
+//     code for a comment or a string (the reviews of PR #546);
 //   - in a teardown, a failed delete fails the teardown, but the rest of the
 //     teardown still runs. Each `deleteOwnProject(` is awaited inside a `try`
 //     whose `catch (error)` keeps the failure: it uses the error and pushes onto
@@ -32,8 +36,8 @@
 //
 // A close in the body of a test, of one handle it knows is its own, is not a
 // teardown and goes through the guard's `orca`, which counts it for the verdict.
-// Comments are taken out before anything is matched, so neither a sweep left in
-// a comment nor a comment naming the guard counts.
+// For the teardown rules, comments are taken out before anything is matched, so
+// neither a sweep left in a comment nor a comment naming the guard counts.
 
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
@@ -228,15 +232,25 @@ function assertsLastThatNoneFailed(body, lists) {
   return /^[\s;})]*$/.test(rest.slice(first));
 }
 
-/** The forbidden things one reading of a file shows as code: a teardown that closes or sweeps tabs itself, and a delete of its own. */
+/** The forbidden things one reading of a file shows as code in a teardown: a tab it closes or sweeps itself. */
 function forbiddenIn(code) {
   const trouble = [];
   for (const body of teardownsIn(code)) {
     if (new RegExp(`${Q}terminal${Q},\\s*${Q}close${Q}`).test(body)) trouble.push('its teardown closes a tab itself rather than through guard.closeOwnAt');
     if (/\.handles\.has\(/.test(body)) trouble.push('its teardown picks tabs by whether they were open before the run');
   }
-  if (/setup-delete/.test(code)) trouble.push('it sends setup-delete itself rather than through deleteOwnProject');
-  if (/\bdeleteProject\(/.test(code)) trouble.push('it calls deleteProject itself rather than deleteOwnProject');
+  return trouble;
+}
+
+/**
+ * The #536 rule, on the raw text with nothing taken out (the owner's ruling on
+ * the fourth review of PR #546): a system test names neither `setup-delete` nor
+ * `deleteProject(` anywhere, comments and strings included.
+ */
+function namedIn(source) {
+  const trouble = [];
+  if (source.includes('setup-delete')) trouble.push('it names setup-delete: a project goes only through deleteOwnProject');
+  if (source.includes('deleteProject(')) trouble.push('it names deleteProject(: a project goes only through deleteOwnProject');
   return trouble;
 }
 
@@ -263,9 +277,10 @@ function structureIn(code) {
 
 /**
  * What is wrong with one file's teardowns, and with how it removes its
- * projects, as sentences, or none. A forbidden thing is named when either
- * reading shows it as code: the one with regular expressions and the one with
- * none (see NEUTRAL). The rest is read with regular expressions.
+ * projects, as sentences, or none. A tab a teardown closes or sweeps itself is
+ * named when either reading shows it as code: the one with regular expressions
+ * and the one with none (see NEUTRAL). The rest of the teardown rules are read
+ * with regular expressions. The #536 rule reads the raw text (namedIn).
  */
 function teardownTrouble(source) {
   const code = withoutComments(source);
@@ -278,7 +293,7 @@ function teardownTrouble(source) {
   const trouble = [
     ...order.filter((one) => forbidden.includes(one)),
     ...structureIn(code),
-    ...forbidden.filter((one) => !order.includes(one)),
+    ...namedIn(source),
   ];
   return [...new Set(trouble)];
 }
@@ -351,7 +366,7 @@ test('the check names a teardown that sweeps by "not open before", closes tabs i
     'its teardown picks tabs by whether they were open before the run',
     'its teardown deletes its projects without closing its tabs through guard.closeOwnAt',
     'its teardown does not assert foreign is empty before it removes the bots folder',
-    'it sends setup-delete itself rather than through deleteOwnProject',
+    'it names setup-delete: a project goes only through deleteOwnProject',
   ]);
 });
 
@@ -387,8 +402,8 @@ test('the check keeps strings whole: a // inside a string is not a comment, and 
 
 const KEPT = 'its teardown calls deleteOwnProject other than awaited in a try whose catch keeps the failure';
 const LAST = 'its teardown does not assert, last and after it removes the bots folder, that no delete failed';
-const SENDS = 'it sends setup-delete itself rather than through deleteOwnProject';
-const DIRECT = 'it calls deleteProject itself rather than deleteOwnProject';
+const SENDS = 'it names setup-delete: a project goes only through deleteOwnProject';
+const DIRECT = 'it names deleteProject(: a project goes only through deleteOwnProject';
 
 /** GUARDED with `from` rewritten as `to`, and the premise that it was. */
 function rewritten(from, to) {
@@ -408,41 +423,48 @@ const TRY = `      try {
 /** The assert that no delete failed in GUARDED, which ends its teardown. */
 const NONE_FAILED = "    assert.deepEqual(failedDeletes, [], 'projects this test could not remove');\n";
 
-test('the check is not fooled by a quote in a regular expression: comments after it are still comments, and a teardown still ends where it ends', () => {
-  const regex = 'const id = /"requestId"\\s*:\\s*"([^"]+)"/.exec(text);\n';
-  const before = `${regex}// orca(['project', 'setup-delete', '--setup', id]);\n${GUARDED}`;
-  assert.deepEqual(teardownTrouble(before), [], 'a setup-delete in a comment after the regex is still a comment');
+const CLOSE = 'its teardown closes a tab itself rather than through guard.closeOwnAt';
 
-  const inside = rewritten('    const failedDeletes = [];\n', `    const failedDeletes = [];\n    ${regex}`);
+/** GUARDED with `lines` put into its teardown, after `failedDeletes` is made. */
+const inTeardown = (lines) => rewritten('    const failedDeletes = [];\n', `    const failedDeletes = [];\n${lines}`);
+
+/** A tab closed by the teardown itself, in a comment: the teardown rules must not count it. */
+const CLOSE_IN_COMMENT = "    // orca(['terminal', 'close', '--terminal', stray, '--tab']);\n";
+
+test('the check is not fooled by a quote in a regular expression: comments after it are still comments, and a teardown still ends where it ends', () => {
+  const regex = '    const id = /"requestId"\\s*:\\s*"([^"]+)"/.exec(text);\n';
+  assert.deepEqual(teardownTrouble(inTeardown(`${regex}${CLOSE_IN_COMMENT}`)), [], 'a close in a comment after the regex is still a comment');
+
+  const inside = inTeardown(regex);
   assert.deepEqual(teardownTrouble(`${inside}${GUARDED_BEFORE_536.replace(/setup-delete/, 'setup-list')}`), [], 'the teardown ends at its own close, so its last assert is last');
 
-  const division = rewritten('    const failedDeletes = [];\n', '    const failedDeletes = [];\n    const half = total / 2; const rest = (total) / 2;\n');
+  const division = inTeardown('    const half = total / 2; const rest = (total) / 2;\n');
   assert.deepEqual(teardownTrouble(division), [], 'a division is not a regular expression');
 });
 
-test('the check takes a division after a postfix ++ or --, or after a property named like a keyword, for a division: a setup-delete after it on the line is still named', () => {
+test('the check takes a division after a postfix ++ or --, or after a property named like a keyword, for a division: a tab closed after it on the line is still named', () => {
   // Found in the review of PR #546: each of these was read as the start of a
-  // regular expression, which swallowed the rest of the line and hid the delete.
+  // regular expression, which swallowed the rest of the line and hid the close.
   for (const division of [
     'n++ / 2', 'n-- / 2', 'obj.in / 2', 'obj.return / 2', 'obj.of / 2', 'obj?.typeof / 2', '$in / 2',
     // The second review: space, a comment, or a line break between the dot and the property.
     'object . in / 2', 'object /* gap */ . in / 2', 'object .\n in / 2', 'object ?. return / 2',
   ]) {
-    const line = `let n = 8; const half = ${division}; orca(["project", "setup-delete", "--setup", id]);\n`;
-    assert.deepEqual(teardownTrouble(`${line}${GUARDED}`), [SENDS], `after \`${division}\``);
+    const line = `    let n = 8; const half = ${division}; orca(["terminal", "close", "--terminal", stray, "--tab"]);\n`;
+    assert.deepEqual(teardownTrouble(inTeardown(line)), [CLOSE], `after \`${division}\``);
   }
-  const keyword = 'const id = typeof /"requestId"/.exec(text); const back = () => { return /"x"/; };\n// orca([\'project\', \'setup-delete\', \'--setup\', id]);\n';
-  assert.deepEqual(teardownTrouble(`${keyword}${GUARDED}`), [], 'after a keyword itself it is still a regular expression');
+  const keyword = '    const id = typeof /"requestId"/.exec(text); const back = () => { return /"x"/; };\n';
+  assert.deepEqual(teardownTrouble(inTeardown(`${keyword}${CLOSE_IN_COMMENT}`)), [], 'after a keyword itself it is still a regular expression');
 });
 
 // The third review of PR #546: a slash the check cannot tell from a division
-// must never hide code. Each line below is valid JavaScript with a direct
-// delete after a division, and each was read as a regular expression.
-test('a misread slash never hides code: a delete after a division the check takes for a regular expression is still named, with or without a later slash on the line', () => {
+// must never hide code. Each line below is valid JavaScript with a tab closed
+// after a division, and each was read as a regular expression.
+test('a misread slash never hides code: a tab closed after a division the check takes for a regular expression is still named, with or without a later slash on the line', () => {
   for (const division of ['{} / 2', 'function () {} / 2', 'class {} / 2', 'of / 2', 'πin / 2', 'n / 2']) {
     for (const after of ['', ' const rx = /x/;']) {
-      const line = `let n = 8; const half = ${division}; orca(["project", "setup-delete", "--setup", id]);${after}\n`;
-      assert.deepEqual(teardownTrouble(`${line}${GUARDED}`), [SENDS], `after \`${division}\`${after}`);
+      const line = `    let n = 8; const half = ${division}; orca(["terminal", "close", "--terminal", stray, "--tab"]);${after}\n`;
+      assert.deepEqual(teardownTrouble(inTeardown(line)), [CLOSE], `after \`${division}\`${after}`);
     }
   }
 });
@@ -450,35 +472,29 @@ test('a misread slash never hides code: a delete after a division the check take
 test('a misread slash that turns a template literal inside out lines further down is caught by the reading with no regular expressions', () => {
   // The misread slash takes in the quote of 'a/b', so the template after it on
   // the line looks like part of a string, and the next one's text looks like
-  // code: its `//` would hide the delete after it.
+  // code: its `//` would hide the close after it.
   const turned = [
-    "const half = {} / 2; const s = 'a/b'; const t = `x",
+    "    const half = {} / 2; const s = 'a/b'; const t = `x",
     'y`;',
-    "t.diagnostic(`see http://x`); orca(['project', 'setup-delete', '--setup', id]);",
+    "    t.diagnostic(`see http://x`); orca(['terminal', 'close', '--terminal', stray, '--tab']);",
     '',
   ].join('\n');
-  assert.deepEqual(teardownTrouble(`${turned}${GUARDED}`), [SENDS]);
+  assert.deepEqual(teardownTrouble(inTeardown(turned)), [CLOSE]);
 });
 
 test('a misread slash in a teardown never hides a tab closed there, or tabs picked by whether they were open before', () => {
-  const close = rewritten(
-    '    const failedDeletes = [];\n',
-    "    const failedDeletes = [];\n    const half = {} / 2; orca(['terminal', 'close', '--terminal', stray, '--tab']); const rx = /x/;\n",
-  );
-  assert.ok(teardownTrouble(close).includes('its teardown closes a tab itself rather than through guard.closeOwnAt'), `got: ${teardownTrouble(close)}`);
+  const close = inTeardown("    const half = {} / 2; orca(['terminal', 'close', '--terminal', stray, '--tab']); const rx = /x/;\n");
+  assert.ok(teardownTrouble(close).includes(CLOSE), `got: ${teardownTrouble(close)}`);
 
-  const sweep = rewritten(
-    '    const failedDeletes = [];\n',
-    '    const failedDeletes = [];\n    const half = of / 2; const old = before.handles.has(handle); const rx = /x/;\n',
-  );
+  const sweep = inTeardown('    const half = of / 2; const old = before.handles.has(handle); const rx = /x/;\n');
   assert.ok(teardownTrouble(sweep).includes('its teardown picks tabs by whether they were open before the run'), `got: ${teardownTrouble(sweep)}`);
 });
 
 test('after a slash on a line the rest of the line is code: a comment there counts, so the check fails loudly rather than hiding code, and the next line is read as before', () => {
-  const trailing = `const rx = /x/; // orca(['project', 'setup-delete', '--setup', id]);\n${GUARDED}`;
-  assert.deepEqual(teardownTrouble(trailing), [SENDS]);
+  const trailing = inTeardown("    const rx = /x/; // orca(['terminal', 'close', '--terminal', stray, '--tab']);\n");
+  assert.deepEqual(teardownTrouble(trailing), [CLOSE]);
 
-  const nextLine = `const rx = /x/;\n// orca(['project', 'setup-delete', '--setup', id]);\n${GUARDED}`;
+  const nextLine = inTeardown(`    const rx = /x/;\n${CLOSE_IN_COMMENT}`);
   assert.deepEqual(teardownTrouble(nextLine), [], 'a comment on its own line is still a comment');
 });
 
@@ -486,7 +502,9 @@ test('the check names a guarded teardown that still sends its own setup-delete, 
   assert.deepEqual(teardownTrouble(GUARDED_BEFORE_536), [SENDS]);
 });
 
-test('the check names setup-delete sent anywhere in a system test, in a test body or a helper too, but not in a comment', () => {
+// The owner's ruling on the fourth review of PR #546: the #536 rule reads the
+// raw text, so no reading of slashes, strings or comments can hide it.
+test('the check names setup-delete anywhere in a system test: a test body, a helper, a string, or a comment', () => {
   const inBody = rewritten(
     "  orca(['terminal', 'close', '--terminal', mine, '--tab']);\n",
     "  orca(['terminal', 'close', '--terminal', mine, '--tab']);\n  orca(['project', 'setup-delete', '--setup', id, '--force']);\n",
@@ -496,18 +514,29 @@ test('the check names setup-delete sent anywhere in a system test, in a test bod
   const inHelper = `function removeIt(id) {\n  return orca(['project', "setup-delete", '--setup', id]);\n}\n${GUARDED}`;
   assert.deepEqual(teardownTrouble(inHelper), [SENDS]);
 
-  const commented = `// orca(['project', 'setup-delete', '--setup', id]);\n/* 'setup-delete' */\n${GUARDED}`;
-  assert.deepEqual(teardownTrouble(commented), [], 'a setup-delete in a comment is not code');
+  assert.deepEqual(teardownTrouble(`// orca(['project', 'setup-delete', '--setup', id]);\n${GUARDED}`), [SENDS], 'in a line comment');
+  assert.deepEqual(teardownTrouble(`/* 'setup-delete' */\n${GUARDED}`), [SENDS], 'in a block comment');
+  assert.deepEqual(teardownTrouble(`const why = 'no setup-delete here';\n${GUARDED}`), [SENDS], 'in a string');
 });
 
-test('the check names a system test that calls src/orca.js\'s deleteProject itself, in a teardown or anywhere else', () => {
-  const inTeardown = rewritten('        await deleteOwnProject(setup, bots);\n', '        await deleteOwnProject(setup, bots);\n        deleteProject(setup.id);\n');
-  assert.deepEqual(teardownTrouble(inTeardown), [DIRECT]);
+test('the reviewer\'s case that both readings hide: a backtick in a regular expression turns the templates after it inside out, and the delete is still named', () => {
+  const both = [
+    'const rx = /`/; const text = `x',
+    'y`;',
+    't.diagnostic(`see http://x`); orca(["project", "setup-delete", "--setup", id]);',
+    '',
+  ].join('\n');
+  assert.deepEqual(teardownTrouble(`${both}${GUARDED}`), [SENDS]);
+});
+
+test('the check names deleteProject( anywhere in a system test: in a teardown, a test body, or a comment', () => {
+  const inTeardownToo = rewritten('        await deleteOwnProject(setup, bots);\n', '        await deleteOwnProject(setup, bots);\n        deleteProject(setup.id);\n');
+  assert.deepEqual(teardownTrouble(inTeardownToo), [DIRECT]);
 
   const inBody = rewritten("  orca(['terminal', 'close', '--terminal', mine, '--tab']);\n", '  deleteProject(setupId);\n');
   assert.deepEqual(teardownTrouble(inBody), [DIRECT]);
 
-  assert.deepEqual(teardownTrouble(`// deleteProject(setup.id);\n${GUARDED}`), [], 'not in a comment');
+  assert.deepEqual(teardownTrouble(`// deleteProject(setup.id);\n${GUARDED}`), [DIRECT], 'in a comment');
 });
 
 test('a teardown that removes its projects through deleteOwnProject is held to the guard\'s rules as a setup-delete one is', () => {
