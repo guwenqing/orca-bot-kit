@@ -213,7 +213,7 @@ function sessionSettings(home, bot) {
 /** What is wrong with the roles the bot's temporary sessions are made in (#465). */
 function rolesTrouble(home, bot) {
   const where = path.join(home, 'bot.yaml');
-  // The widest approval they may be made at, the user's yes (ADR 0037).
+  // The widest approval they may be made at, the user's yes (ADR 0041).
   const level = bot.temp_approval;
   const approval = level === undefined || APPROVALS.includes(level) ? [] : [{
     where,
