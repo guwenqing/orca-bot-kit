@@ -17,9 +17,6 @@ publishing, releasing, spending money, anything another person receives.
 When something you were told to use is missing (a model, a tool, a file), say
 so and ask. Quietly using a different one hides the change.
 
-Permission rules in a harness's settings or rules files are the kit's to write.
-The kit writes its own default set itself. Any other rule needs the user's yes
-to the exact rule first: `"${OBK_CLI:-obk}" permission allow --rule <rule>` or
-`permission disallow --rule <rule>`. A session's approval changes only through
-`permission approval`, after the user's yes. Never edit one in or out yourself,
-Bot Father included.
+Permission rules and approvals are the kit's to write: its default set at once,
+anything else after the user's yes to it, by `"${OBK_CLI:-obk}" permission allow`,
+`disallow` or `approval`. Never edit one in or out yourself, Bot Father included.

@@ -512,11 +512,13 @@ export function permissionsTrouble(home, bot) {
 function claudeTrouble(home, bot, allowed) {
   if (!runsOnClaude(bot)) return [];
   const file = path.join(home, FILE);
-  if (!existsSync(file) && allowed.length === 0) return [];
-
-  // A link out of the bot folder is named by the hook's check already; here it
-  // matters only when there are rules the kit would write through it.
-  if (allowed.length === 0 && leadsOutside(home, file) !== undefined) return [];
+  // A file that is not there, or a link out of the bot folder, is named by the
+  // hook's check already, which reads this file for every bot with a Claude
+  // session, and `obk up` puts back the hook and the rules together. Here it
+  // matters only for a bot without one, when there are rules to write.
+  const hookNamesIt = bot.sessions.some((session) => harnessOf(session, bot.harness) === 'claude');
+  if (!existsSync(file) && (allowed.length === 0 || hookNamesIt)) return [];
+  if ((allowed.length === 0 || hookNamesIt) && leadsOutside(home, file) !== undefined) return [];
 
   let present;
   try {
@@ -535,9 +537,11 @@ function claudeTrouble(home, bot, allowed) {
         ? `${file} allows ${rule}, and ${bot.name}'s bot.yaml does not: the kit did not write it. It stays where it is. If the user wants it, record their yes with obk permission allow; if not, take it out of the file.`
         : `${file} allows ${rule}, which the user added by hand, not the kit. It stays where it is.`,
     })),
-    ...allowed.filter((rule) => !present.includes(rule)).map((rule) => ({
+    // One finding for all the rules it lacks: with the kit's default set, a
+    // file written by hand can lack forty.
+    ...missingIn(allowed.filter((rule) => !present.includes(rule)), (missing) => ({
       where: file,
-      says: `${file} does not hold ${rule}, which ${bot.name}'s bot.yaml allows, so ${bot.name}'s Claude sessions are asked about it. obk up writes it.`,
+      says: `${file} does not hold ${missing.length === 1 ? missing[0] : `these ${missing.length} rules`}, which ${bot.name}'s bot.yaml allows, so ${bot.name}'s Claude sessions are asked about ${missing.length === 1 ? 'it' : `them: ${missing.join(', ')}`}. obk up writes ${missing.length === 1 ? 'it' : 'them'}.`,
     })),
   ];
 }
@@ -606,6 +610,9 @@ function codexTrouble(home, bot) {
     says: `${file} is not what the kit writes from ${bot.name}'s bot.yaml: ${what}. The kit owns this file, and obk up rewrites it; a rule of the user's own goes in another file in ${folder}.`,
   }];
 }
+
+/** One finding about `missing`, made by `finding`, or none when nothing is missing. */
+const missingIn = (missing, finding) => (missing.length === 0 ? [] : [finding([...new Set(missing)])]);
 
 /** The file's `permissions.allow`, or a refusal when it is there and is not a list. */
 function presentIn(settings, file) {
