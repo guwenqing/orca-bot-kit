@@ -380,9 +380,10 @@ function version() {
 }
 
 async function run(argv) {
-  const { values, positionals } = parseArgs({
+  const { values, positionals, tokens } = parseArgs({
     args: argv,
     allowPositionals: true,
+    tokens: true,
     options: {
       bots: { type: 'string' },
       harness: { type: 'string' },
@@ -436,6 +437,13 @@ async function run(argv) {
   if (positionals.length === 0) {
     process.stderr.write(USAGE);
     return 1;
+  }
+
+  // A permission rule narrows a command to one bots folder by its first words,
+  // whatever comes after them (ADR 0036), and the last of two `--bots` would
+  // win: so a second one is refused before anything runs.
+  if (tokens.filter((token) => token.kind === 'option' && token.name === 'bots').length > 1) {
+    throw new Error('--bots is given more than once. Give it once: one command works on one bots folder. Nothing was done.');
   }
 
   // `bot`, `permission`, `rules`, `skills`, `session`, `source`, `message` and

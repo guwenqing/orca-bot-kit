@@ -120,6 +120,9 @@ Rules beyond the set stay the user's yes to each exact rule
 - A rule allows only the command spelled as the kit prints it: the kit's path,
   then the command, then `--bots` and the folder. A command spelled another
   way, such as a relative bots folder, goes to the harness's check as before.
+- A rule matches a command's first words, whatever comes after them, so every
+  command refuses `--bots` given twice: otherwise the last one would win, and
+  a rule for one folder would let a bot act on another (reviewer-527).
 - An allow rule only stops the harness from stopping a bot. It does not widen
   what a bot's charter lets it do.
 - `git add` and `git commit` are allowed wherever the bot runs them, not only
