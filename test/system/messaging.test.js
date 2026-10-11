@@ -6,14 +6,15 @@
 //
 //   1. A Claude bot and a Codex bot exchange a message and a reply. Every part
 //      of that is real: the Run mailbox each session was given at `up`, the
-//      message queued into it, the line typed into the receiver's tab — the
-//      only thing that reaches a harness, because the mailbox is pull-only —
-//      the harness reading its own mail with `obk message check`, and the
-//      reply coming back the other way under its own steam.
-//   2. A busy receiver is not interrupted (PRD 6.9). The nudge is typed into a
-//      tab that is in the middle of something; both harnesses take a typed
-//      line as the next turn rather than cutting into the one they are having,
-//      so the work that was running finishes first and the mail is read after.
+//      message queued into it, Orca's own notice in the receiver's tab — the
+//      only thing that reaches a harness, because the mailbox is pull-only,
+//      and since #555 the kit types no line of its own (ADR 0042) — the
+//      harness reading its own mail with `obk message check`, and the reply
+//      coming back the other way under its own steam.
+//   2. A busy receiver is not interrupted (PRD 6.9). The mail is sent, with
+//      no `--interrupt`, to a tab that is in the middle of something; the kit
+//      types nothing, and Orca holds its notice for a busy receiver, so the
+//      work that was running finishes first and the mail is read after.
 //   3. A long, oddly formatted message arrives unchanged. Above 4 KiB the body
 //      is written to a file beside the bots folder and the message names it,
 //      so what has to survive is the file's bytes and the naming of it,
@@ -65,18 +66,18 @@
 //
 // **Nothing here types at a bot.** Each one is given its whole part in its
 // start prompt, and the only lines that go into these tabs afterwards are the
-// launch line the kit types and the nudge the kit types. That is what the
+// launch line the kit types and Orca's own notice. That is what the
 // product does — a fleet nobody is sitting over — and it is also the only way
 // these cases can be relied on to run: Orca gates a line typed into an agent's
 // tab as `agent_prompt_blocked`, and on one run of four it refused the re-issue
 // it had itself asked for, answering that the prompt "may have reached its exact
-// terminal incarnation before restart" and would not be sent again. It has never
-// gated the kit's own nudge.
+// terminal incarnation before restart" and would not be sent again. It never
+// gated the kit's own mail line, which #555 took out.
 //
 // What the test does do to a tab is wait on it. A bot is not written to until
-// Orca says nothing of its own is waiting to be answered on it, because the kit
-// will not nudge a tab with a question on screen — the guard is right, and a
-// test that sends into that window is testing nothing but its own patience.
+// Orca says nothing of its own is waiting to be answered on it, because mail
+// sent into that window may never reach the bot (see `readyForMail`), and a
+// test that sends into it is testing nothing but its own patience.
 //
 // **What a receipt here may be made of.** Every word these tests wait for has
 // to be one the tab it is waited for in was never told. A word that is in the
@@ -139,7 +140,11 @@ const ORCA = process.env.OBK_ORCA || '/Applications/Orca.app/Contents/Resources/
 /** How long a real agent is given to do something before the test gives up on it. */
 const ANSWER_MS = 240000;
 
-/** And how long a round trip between two agents is given: two turns and a nudge in between. */
+/**
+ * And how long a round trip between two agents is given: two turns and Orca's
+ * notice in between, which reached an idle Claude Code session about 3.5 min
+ * after its turn ended (ADR 0042, the probe of 2026-10-11).
+ */
 const ROUND_TRIP_MS = 480000;
 
 /**
@@ -281,8 +286,9 @@ const showsUp = (handle, word, within = ANSWER_MS) => until(
  * harness was running, the Codex bot was still on its `Hooks need review`
  * screen, and the kit rightly typed nothing into a tab with a question on it —
  * so the mail sat in the mailbox and the receiver never learned it was there.
- * The nudge guard doing its job is what this wait exists to get out of the way
- * of, and the order the bots come up in is only half of it.
+ * Since #555 the kit types nothing and Orca's notice is the one signal; a
+ * receiver still on a screen of its own is not one to write to yet, and the
+ * order the bots come up in is only half of it.
  */
 async function readyForMail(handle, within = READY_MS) {
   await until(
@@ -343,8 +349,9 @@ async function partWayThrough(handle, steps, within = ANSWER_MS) {
  * test ever happened, and an assertion that looks for it passes on that echo.
  *
  *   PELICAN  is in the Claude bot's own start prompt, as part of the command it
- *            sends, and the Codex tab is never told it: the nudge says who
- *            wrote and what the subject is, and this is neither. So PELICAN on
+ *            sends, and the Codex tab is never told it: Orca's notice says
+ *            how many messages wait and the command to read them, and this is
+ *            neither. So PELICAN on
  *            the Codex screen is the message having been read.
  *   MARMOSET is in the Codex bot's own start prompt, and the Claude tab is
  *            never told it — not by the message, which asks for a reply without
@@ -404,9 +411,9 @@ const PART_WAY = 'STEP-03';
 const LAST_STEP = `STEP-${COUNT_TO}`;
 
 /**
- * The subjects of the busy case's two mails, which the kit's nudge line carries:
- * the one that starts the work, and the one that arrives while it runs. Neither
- * is a receipt: nothing here waits for either word on a screen.
+ * The subjects of the busy case's two mails: the one that starts the work, and
+ * the one that arrives while it runs. Neither is a receipt: nothing here waits
+ * for either word on a screen.
  */
 const START_WORK = 'start the work';
 const WHILE_BUSY = 'while you are busy';
@@ -417,6 +424,9 @@ const WHILE_BUSY = 'while you are busy';
  * first, so the read itself can only have been later.
  */
 const MAIL_FILE = 'mail-read.txt';
+
+/** Where the busy receiver reads the mail that starts its work to, the kit's check's answer. */
+const START_FILE = 'start-read.json';
 
 /**
  * What every bot here is told, whatever its part: who it is, where its bots
@@ -429,9 +439,15 @@ const aBotOf = (bots) => [
   'Do nothing that is not written here: read no file, write nothing, and run no command but the ones below.',
 ];
 
-/** Reading its own mail when the kit tells it there is some, which both bots in case 1 do. */
-const READS_ITS_MAIL = [
-  'When a line arrives saying fleet mail is waiting, run exactly the command that line names to read it,',
+/**
+ * Reading its own mail when Orca tells it there is some, which both bots in
+ * case 1 do: with the kit's check, which marks the mail read, and never with
+ * the bare `orca orchestration check` Orca's notice names, which leaves it
+ * open so Orca rings no more (ADR 0042, #555).
+ */
+const readsItsMail = (bots, bot) => [
+  'Whenever anything tells you that you have fleet mail or orchestration messages, new or not yet read,',
+  `do not run the command it names. Run exactly this command instead to read it: ${KIT} message check --bots ${bots} --bot ${bot.name} --session daily`,
   'and then print MAIL: followed by the text of the message.',
 ];
 
@@ -446,15 +462,15 @@ const KIT = '"$OBK_CLI"';
 
 /**
  * The start prompts for the exchange: each bot's whole part, so that the only
- * lines ever typed into either tab are the launch line the kit types and the
- * nudge the kit types. Nothing in this file drives a tab by hand.
+ * lines ever typed into either tab are the launch line the kit types and
+ * Orca's own notice. Nothing in this file drives a tab by hand.
  *
  * That is not only tidiness. Orca gates a line typed into an agent's tab —
  * `agent_prompt_blocked` — and on the third run of four it refused the re-issue
  * it had asked for as well, saying the prompt "may have reached its exact
  * terminal incarnation before restart" and would not be sent again. So a test
  * that types at a bot cannot be relied on to run at all, whatever it does about
- * it. It has never touched the kit's own nudge.
+ * it. It never touched the kit's own mail line, which #555 took out.
  *
  * It also makes the case a truer picture of the product: two bots that were
  * started, and then talked to each other, with nobody typing at either of them.
@@ -465,12 +481,12 @@ const exchangePrompts = (bots, bot) => (bot.harness === 'claude'
     'As soon as you are running, run exactly this command, once:',
     `${KIT} message send --bots ${bots} --to mail-codex/daily --from mail-claude/daily`,
     `--subject 'the system test' --text '${QUESTION}. Please reply to me.'`,
-    ...READS_ITS_MAIL,
+    ...readsItsMail(bots, bot),
     'Then wait, and say nothing else.',
   ]
   : [
     ...aBotOf(bots),
-    ...READS_ITS_MAIL,
+    ...readsItsMail(bots, bot),
     `When a message asks you to reply, reply to whoever wrote it with your passphrase, which is ${PASSPHRASE}:`,
     `ask the kit for the road with ${KIT} message to, and then send it with the command its answer names.`,
     'Say nothing now and wait.',
@@ -486,8 +502,10 @@ const exchangePrompts = (bots, bot) => (bot.harness === 'claude'
  * anybody can check.
  *
  * The work starts when the test says so, not when the session starts: a first
- * mail, subject START_WORK, whose nudge line carries that subject, and whose
- * body the bot never reads. It used to start from the start prompt, and the
+ * mail, subject START_WORK, whose notice the bot answers by reading it with the
+ * kit's check, which marks it read so Orca rings for the next one, and then
+ * running the loop. Orca's notice names no subject, so the bot tells the two
+ * mails apart by their order. It used to start from the start prompt, and the
  * case leaned on something it could not bound: the Codex tab's own first-run
  * screens, answered by a person, which kept the loop from starting until the
  * Claude bot was ready too. With Codex's trust given at launch (#240) the loop
@@ -508,13 +526,13 @@ const busyPrompts = (bots, bot) => {
     ? [
       ...aBotOf(bots),
       'Say nothing now and wait.',
-      `When a line arrives saying fleet mail is waiting with the subject ${START_WORK}, do not run the command that line names,`,
-      'and do not read that mail. Run exactly this command instead, once, and wait for it to finish:',
-      work(path.join(home, STEPS_FILE)),
-      `When a line arrives saying fleet mail is waiting with the subject ${WHILE_BUSY}, do not run the command that line names.`,
+      'The first time anything tells you that you have fleet mail or orchestration messages, do not run the command it names.',
+      'Run exactly this command instead, once, and wait for it to finish:',
+      `${check} > ${path.join(home, START_FILE)}; ${work(path.join(home, STEPS_FILE))}`,
+      'The second time anything tells you that you have fleet mail or orchestration messages, do not run the command it names.',
       'Run exactly this command instead, once, and then wait and say nothing else:',
       `{ date +%s; ${check}; } > ${path.join(home, MAIL_FILE)}`,
-      'The two files these commands write in your folder are the only thing you write.',
+      'The three files these commands write in your folder are the only thing you write.',
     ]
     : [...aBotOf(bots), 'Say nothing now and wait.']).join(' ');
 };
@@ -527,7 +545,7 @@ const READ_FILES = ['first-read.json', 'second-read.json'];
 
 /**
  * The start prompts for the long message. A session's mail is read only in its
- * own tab (#317), so the Codex bot reads it there when the kit's nudge arrives:
+ * own tab (#317), so the Codex bot reads it there when Orca's notice arrives:
  * the kit's own check, twice, with its shell writing each answer to a file for
  * the test to read. The model retypes nothing; what is in the files is the
  * kit's answer.
@@ -538,7 +556,7 @@ const longPrompts = (bots, bot) => {
   return (bot.harness === 'codex'
     ? [
       ...aBotOf(bots),
-      'When a line arrives saying fleet mail is waiting, do not run the command that line names.',
+      'When anything tells you that you have fleet mail or orchestration messages, do not run the command it names.',
       'Run exactly this command instead, once, and then wait and say nothing else.',
       'The two files it writes in your folder are the only thing you write:',
       `${check} > ${first}; ${check} > ${second}`,
@@ -635,8 +653,8 @@ async function aFleet(t, label, promptFor) {
 
     // And it is answerable before the next bot is started. A bot's part begins
     // the moment its own harness is running, and the bot before it may still be
-    // on a first-run screen of its own — in which case the kit will not type a
-    // nudge into it, rightly, and mail sent to it is mail nobody learns about.
+    // on a first-run screen of its own — in which case mail sent to it is mail
+    // nobody learns about.
     // The order these come up in is only half of what that needs.
     await readyForMail(entry.terminal);
 
@@ -647,20 +665,20 @@ async function aFleet(t, label, promptFor) {
 }
 
 test('a Claude bot and a Codex bot exchange a message and a reply', async (t) => {
-  // Every part of the road is real: the Run mailboxes, the queued message, the
-  // line typed into the receiver's tab — the only thing that reaches a harness
+  // Every part of the road is real: the Run mailboxes, the queued message,
+  // Orca's notice in the receiver's tab — the only thing that reaches a harness
   // — the harness reading its own mail, and the reply coming back the other
   // way.
   //
   // Two words carry the proof, and neither can be echoed from the tab it is
-  // waited for in. The Codex tab has never been told PELICAN: the nudge carries
-  // the sender and the subject, and PELICAN is in the body of the message. The
+  // waited for in. The Codex tab has never been told PELICAN: Orca's notice
+  // carries a count and a command, and PELICAN is in the body of the message. The
   // Claude tab has never been told MARMOSET: it is in the Codex bot's own start
   // prompt, and the message asks for a reply without saying what it must carry.
   //
   // Nothing here types at either bot. Each was given its part when it was
-  // started, and the only lines that go into these tabs afterwards are the
-  // kit's own nudges — which is both what the product does and the only way
+  // started, and the only lines that go into these tabs afterwards are
+  // Orca's own notices — which is both what the product does and the only way
   // this case can be relied on to run at all (see `exchangePrompts`).
   //
   // What is deliberately not checked here is the thread, and who a message says
@@ -672,23 +690,22 @@ test('a Claude bot and a Codex bot exchange a message and a reply', async (t) =>
   const { tabs } = await aFleet(t, 'mail', exchangePrompts);
 
   // 1. The Claude bot wrote to the Codex bot as soon as it was running, with
-  //    the kit's own command, and the Codex bot was nudged, read its own mail
-  //    and printed what was in it. Nobody asked it anything: the line the kit
-  //    typed is the whole wake-up, and the word it prints was only ever in the
-  //    body of the message.
+  //    the kit's own command, and the Codex bot got Orca's notice, read its own
+  //    mail and printed what was in it. Nobody asked it anything: Orca's notice
+  //    is the whole wake-up, and the word it prints was only ever in the body
+  //    of the message.
   await showsUp(tabs['mail-codex'].terminal, QUESTION, ROUND_TRIP_MS);
 
   // 2. And the reply came back the other way under its own steam: the Codex bot
-  //    looked the road up, sent it, the Claude bot was nudged in its turn, and
-  //    read it. The word is the Codex bot's own.
+  //    looked the road up, sent it, the Claude bot got Orca's notice in its
+  //    turn, and read it. The word is the Codex bot's own.
   await showsUp(tabs['mail-claude'].terminal, PASSPHRASE, ROUND_TRIP_MS);
 });
 
 test('a busy receiver finishes what it was doing before it reads its mail', async (t) => {
-  // PRD 6.9: queued, not interrupting. The nudge is a typed line, and both
-  // harnesses take one as the next turn rather than cutting into the turn they
-  // are having — which is the whole reason the kit types a line instead of
-  // interrupting the tab.
+  // PRD 6.9: queued, not interrupting. A send with no `--interrupt` puts the
+  // letter in the mailbox and types nothing, and Orca holds its notice for a
+  // busy receiver until it is idle (ADR 0042, #555).
   //
   // Three things have to hold for that to have been shown, rather than assumed.
   //
@@ -715,14 +732,15 @@ test('a busy receiver finishes what it was doing before it reads its mail', asyn
   const steps = path.join(homeOf('mail-codex'), STEPS_FILE);
   const mailRead = path.join(homeOf('mail-codex'), MAIL_FILE);
 
-  // The work starts now, with both bots ready, by the first mail's nudge (see
+  // The work starts now, with both bots ready, by the first mail's notice (see
   // `busyPrompts`): the loop has not run before this, so it cannot have ended.
   assert.equal(await readFile(steps, 'utf8').catch(() => ''), '', `the premise: the loop has not started before it is sent for: ${steps}`);
   const started = obkJson([
     'message', 'send', '--bots', bots, '--to', 'mail-codex/daily', '--from', 'mail-claude/daily',
-    '--subject', START_WORK, '--text', 'Start the work your instructions give you for this subject.',
+    '--subject', START_WORK, '--text', 'Start the work your instructions give you for this mail.',
   ]);
-  assert.equal(started.nudged, true, `the premise: the kit typed the nudge that starts the work into the receiver's tab: ${JSON.stringify(started)}`);
+  assert.equal(started.sent, true, `the premise: the mail that starts the work is in the receiver's mailbox: ${JSON.stringify(started)}`);
+  assert.equal(started.transport, 'orca', `the premise: through Orca, whose notice starts the work: ${JSON.stringify(started)}`);
 
   // It is part way through that work: some of the loop's lines are in its
   // file, and the last one is not. That is what says the mail below arrives at
@@ -730,27 +748,26 @@ test('a busy receiver finishes what it was doing before it reads its mail', asyn
   // still to run after it.
   await partWayThrough(receiver, steps);
 
-  // Mail arrives in the middle of it. The kit types the nudge in; nobody
-  // interrupts anybody. The send exits 0 whether or not the nudge went in —
-  // the mail is queued either way — so the kit's own answer is what says it
-  // did: a tab it found blocked, or could not be sure of, gets nothing typed.
+  // Mail arrives in the middle of it, with no `--interrupt`: the kit types
+  // nothing, and nobody interrupts anybody. The answer has no word of an
+  // interrupt, since none was asked for.
   const sent = obkJson([
     'message', 'send', '--bots', bots, '--to', 'mail-codex/daily', '--from', 'mail-claude/daily',
     '--subject', WHILE_BUSY, '--text', `${mail} — nothing to do, just read this.`,
   ]);
   assert.equal(sent.sent, true, `the send should have gone through: ${JSON.stringify(sent)}`);
-  assert.equal(sent.nudged, true, `the kit should have typed its nudge into the receiver's tab while it worked: ${JSON.stringify(sent)}`);
+  assert.equal(sent.interrupted, undefined, `a send with no --interrupt interrupts nothing and says nothing of it: ${JSON.stringify(sent)}`);
 
-  // The send types its nudge before it returns, so work not finished now was
-  // not finished when the nudge went in.
+  // The send queues the letter before it returns, so work not finished now was
+  // not finished when the letter was queued.
   const written = await readFile(steps, 'utf8');
   assert.ok(
     !written.includes(LAST_STEP),
-    `the work finished before the nudge went in, so this shows nothing about a busy receiver: ${steps} holds ${JSON.stringify(written)}`,
+    `the work finished before the letter was queued, so this shows nothing about a busy receiver: ${steps} holds ${JSON.stringify(written)}`,
   );
 
   // It read its mail with the kit's check, and the answer holds the mail. The
-  // tab was never told OTTER: the nudge carries the sender and the subject.
+  // tab was never told OTTER: Orca's notice carries a count and a command.
   const readIn = async () => {
     try {
       const [at, ...answer] = (await readFile(mailRead, 'utf8')).split('\n');
@@ -781,7 +798,7 @@ test('a busy receiver finishes what it was doing before it reads its mail', asyn
   assert.ok(
     read.at > Number(ended),
     `the mail should have been read after the work ended, not in the middle of it: the check ran at ${read.at}, and the loop wrote its last line at ${ended}. `
-    + `If the screen shows Codex stopped waiting on the loop, the model left its own work, which is not the nudge cutting in: ${screenOf(receiver).slice(0, 3000)}`,
+    + `If the screen shows Codex stopped waiting on the loop, the model left its own work, which is not the mail cutting in: ${screenOf(receiver).slice(0, 3000)}`,
   );
 });
 
@@ -796,8 +813,8 @@ test('a long, oddly formatted message arrives unchanged', async (t) => {
   // mail nowhere else (#317), and this test runs in a tab of its own. The bot
   // runs the kit's check and its shell writes the kit's answer to a file, so
   // nothing read below went through the model: a model retyping 5 KB of
-  // punctuation would be checking the model. The subject and the sender are in
-  // the nudge that tab was told, but not in anything the model wrote.
+  // punctuation would be checking the model. Orca's notice tells that tab a
+  // count and a command, and nothing the model wrote.
   const { bots, homeOf, tabs } = await aFleet(t, 'long', longPrompts);
   const odd = [
     'Line one, with "double quotes", \'single ones\' and a `backtick`.',
@@ -823,8 +840,8 @@ test('a long, oddly formatted message arrives unchanged', async (t) => {
   assert.ok(sent.file.startsWith(`${bots}.`), `and beside the bots folder, not inside it: ${sent.file}`);
   assert.equal(await readFile(sent.file, 'utf8'), odd, 'the file holds what was sent, character for character');
 
-  // And it reads back out of Orca's own store the same way. The kit nudged the
-  // receiver, and it read its mail twice in its own tab, binding to its own Run
+  // And it reads back out of Orca's own store the same way. Orca's notice told
+  // the receiver, and it read its mail twice in its own tab, binding to its own Run
   // first, as any session does.
   const home = homeOf('mail-codex');
   const [firstFile, secondFile] = READ_FILES.map((file) => path.join(home, file));

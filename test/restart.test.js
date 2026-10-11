@@ -117,7 +117,7 @@ const creates = (calls) => orcaCallsOf(calls, 'terminal create');
 /**
  * The line a claude session is started with when it resumes `id` and nothing
  * else is set. A session's own name is on that line — `-n <bot>.<session>.<token>`,
- * which is the address another Claude session writes to (ADR 0035) — and it
+ * which is the address another Claude session writes to (ADR 0042) — and it
  * goes on a resume as much as on a first start, so the session that comes back
  * answers to the name it had. The token is compared through `tokenless`;
  * session-resume checks that it is the one the book held.

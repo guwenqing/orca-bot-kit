@@ -438,7 +438,7 @@ const LOOK_MS = 2000;
  * `blocked`) or `unknown` (with `trouble`).
  *
  * Claude Code gets `/reload-skills` typed into its tab, through the same gate
- * as the mail nudge. A busy session queues it and runs it as a command when
+ * as the mail interrupt. A busy session queues it and runs it as a command when
  * its turn ends, so it never reaches the model as text. Codex has no reload
  * command and takes the change at the start of its next turn by itself, so
  * nothing is typed, and the caller is given the SKILL.md of each skill linked

@@ -654,25 +654,25 @@ for (const harness of ['claude', 'codex']) {
       .flatMap((group) => (group.hooks ?? []).map((one) => one.command))
       .filter((command) => /\bsession sent\b/.test(String(command)));
     assert.equal(sends.length, harness === 'claude' ? 1 : 0, `the kit's SendMessage hook, on Claude only, got:\n${await readFile(file, 'utf8')}`);
-    // On Codex the kit also writes its nudge hook, under PostToolUse with the
-    // matcher Bash (#350); Claude gets none.
+    // Neither harness gets a nudge hook under PostToolUse with the matcher Bash
+    // any more (#555): fleet mail types nothing.
     const nudges = (held.hooks?.PostToolUse ?? [])
       .filter((group) => group?.matcher === 'Bash')
       .flatMap((group) => (group.hooks ?? []).map((one) => one.command))
       .filter((command) => /\bsession nudge\b/.test(String(command)));
-    assert.equal(nudges.length, harness === 'codex' ? 1 : 0, `the kit's nudge hook, on Codex only, got:\n${await readFile(file, 'utf8')}`);
+    assert.equal(nudges.length, 0, `no nudge hook of the kit's (#555), got:\n${await readFile(file, 'utf8')}`);
     // On Codex the kit also writes its naming hook, under Stop (#480); Claude
     // gets none.
     const names = (held.hooks?.Stop ?? [])
       .flatMap((group) => (group.hooks ?? []).map((one) => one.command))
       .filter((command) => /\bsession name\b/.test(String(command)));
     assert.equal(names.length, harness === 'codex' ? 1 : 0, `the kit's naming hook, on Codex only, got:\n${await readFile(file, 'utf8')}`);
-    // On Claude the kit also writes its unread-mail hook, under Stop (#509);
-    // Codex gets none.
+    // Neither harness gets an unread-mail hook under Stop any more (#555):
+    // Orca's own doorbell is the one signal.
     const mails = (held.hooks?.Stop ?? [])
       .flatMap((group) => (group.hooks ?? []).map((one) => one.command))
       .filter((command) => /\bsession mail\b/.test(String(command)));
-    assert.equal(mails.length, harness === 'claude' ? 1 : 0, `the kit's unread-mail hook, on Claude only, got:\n${await readFile(file, 'utf8')}`);
+    assert.equal(mails.length, 0, `no unread-mail hook of the kit's (#555), got:\n${await readFile(file, 'utf8')}`);
     assert.equal(
       allCommands(held).length,
       Object.keys(alikes).length + 1 + sends.length + nudges.length + names.length + mails.length,

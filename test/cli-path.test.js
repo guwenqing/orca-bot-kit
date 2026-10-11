@@ -357,7 +357,7 @@ for (const harness of ['claude', 'codex']) {
 }
 
 // ---------------------------------------------------------------------------
-// Mail: the nudge and the "Send it:" line
+// Mail: the "Send it:" line
 // ---------------------------------------------------------------------------
 
 /**
@@ -379,21 +379,6 @@ async function mailFleet(box, folder = 'bots') {
 /** The tab one session sits in, which is where a command it runs gets `ORCA_TAB_ID` from. */
 const tabOf = async (bots, bot) => (await sessionIn(bots, bot, 'daily')).tab;
 
-/** What the kit typed into the reader's tab after its launch line: the nudge. */
-async function nudgeIn(box, bots) {
-  const reader = await tabOf(bots, 'coder');
-  const lines = typedInto((await box.orca.terminals()).find((terminal) => terminal.tabId === reader)).slice(1);
-  assert.equal(lines.length, 1, `one nudge in the reader's tab, got: ${JSON.stringify(lines)}`);
-  return lines[0];
-}
-
-/** The command a nudge tells the session to run: everything after "Read it with". */
-function readCommandIn(nudge) {
-  const at = nudge.indexOf('Read it with  ');
-  assert.ok(at >= 0, `the nudge should say how to read the mail, got: ${nudge}`);
-  return nudge.slice(at + 'Read it with  '.length);
-}
-
 /** The command `obk message to` hands back: the rest of its "Send it:" line. */
 function sendCommandIn(said) {
   const line = said.split('\n').find((one) => one.includes('Send it:  '));
@@ -411,36 +396,6 @@ function filledIn(command, subject, text) {
   assert.deepEqual(words, [], `the command should take a subject and a text, got: ${command}`);
   return filled;
 }
-
-test('the nudge names the CLI that sent the message', async (t) => {
-  const box = await createSandbox(t);
-  const bots = await mailFleet(box);
-
-  const sent = await box.run(['message', 'send', '--bots', 'bots', '--to', 'coder', '--from', 'writer/daily', '--subject', 'the staging host', '--text', 'It is down again.']);
-
-  assert.equal(sent.code, 0, sent.stderr);
-  assert.ok(
-    startsWithCli(readCommandIn(await nudgeIn(box, bots)), box.cli, 'message check --bots '),
-    `the command should start with the kit's own path, got: ${await nudgeIn(box, bots)}`,
-  );
-});
-
-test('the command in the nudge, run as written in the reader\'s tab, reads the mail with the same CLI', async (t) => {
-  const box = await createSandbox(t);
-  const bots = await mailFleet(box);
-  const sent = await box.run(['message', 'send', '--bots', 'bots', '--to', 'coder', '--from', 'writer/daily', '--subject', 'the staging host', '--text', 'It is down again.']);
-  assert.equal(sent.code, 0, sent.stderr);
-  const other = await decoy(box);
-
-  const read = await sh(readCommandIn(await nudgeIn(box, bots)), {
-    cwd: box.cwd,
-    env: { ...other.env, ORCA_TAB_ID: await tabOf(bots, 'coder') },
-  });
-
-  assert.equal(read.code, 0, read.stderr);
-  assert.deepEqual(await other.runs(), [], 'the obk on PATH should never have been run');
-  assert.ok(read.stdout.includes('It is down again.'), `the reader should have its mail, got: ${read.stdout}`);
-});
 
 test('the "Send it:" line names the CLI that answered, and runs as written from the sender\'s tab', async (t) => {
   const box = await createSandbox(t);
@@ -502,23 +457,6 @@ test('a CLI with a space in its path types a launch line that hands it over whol
   assert.equal(calls[0].env.OBK_CLI, cli, `got line: ${typed}`);
 });
 
-test('a CLI with a space in its path gives a nudge whose command reads the mail as written', async (t) => {
-  const box = await createSandbox(t);
-  const bots = await mailFleet(box);
-  const cli = await linkedAt(box, 'the kit');
-  const sent = await runBy(box, cli, ['message', 'send', '--bots', 'bots', '--to', 'coder', '--from', 'writer/daily', '--subject', 'the staging host', '--text', 'It is down again.']);
-  assert.equal(sent.code, 0, sent.stderr);
-  const other = await decoy(box);
-
-  const command = readCommandIn(await nudgeIn(box, bots));
-  const read = await sh(command, { cwd: box.cwd, env: { ...other.env, ORCA_TAB_ID: await tabOf(bots, 'coder') } });
-
-  assert.ok(startsWithCli(command, cli, 'message check '), `got: ${command}`);
-  assert.equal(read.code, 0, `${command}\n${read.stderr}`);
-  assert.deepEqual(await other.runs(), []);
-  assert.ok(read.stdout.includes('It is down again.'), `got: ${read.stdout}`);
-});
-
 test('a CLI with a space in its path gives a "Send it:" line that sends as written', async (t) => {
   const box = await createSandbox(t);
   const bots = await mailFleet(box);
@@ -546,21 +484,6 @@ test('a CLI with a space in its path gives a "Send it:" line that sends as writt
 // The mail commands carry the bots folder as well as the CLI, and a folder
 // with a space in it is a path with a space in it: quoted, or the command the
 // session copies does not run.
-
-test('a bots folder with a space in its path gives a nudge whose command reads the mail as written', async (t) => {
-  const box = await createSandbox(t);
-  const bots = await mailFleet(box, 'my bots');
-  const sent = await box.run(['message', 'send', '--bots', 'my bots', '--to', 'coder', '--from', 'writer/daily', '--subject', 'the staging host', '--text', 'It is down again.']);
-  assert.equal(sent.code, 0, sent.stderr);
-  const other = await decoy(box);
-
-  const command = readCommandIn(await nudgeIn(box, bots));
-  const read = await sh(command, { cwd: box.root, env: { ...other.env, ORCA_TAB_ID: await tabOf(bots, 'coder') } });
-
-  assert.equal(read.code, 0, `${command}\n${read.stdout}${read.stderr}`);
-  assert.deepEqual(await other.runs(), []);
-  assert.ok(read.stdout.includes('It is down again.'), `the reader should have its mail, got: ${read.stdout}`);
-});
 
 test('a bots folder with a space in its path gives a "Send it:" line that sends as written', async (t) => {
   const box = await createSandbox(t);

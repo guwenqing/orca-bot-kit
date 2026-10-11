@@ -2,9 +2,11 @@
 // type into a tab (#422).
 //
 // Every line the kit types into a running session goes through one gate first:
-// the mail notice after `obk message send`, `/reload-skills` after `obk skills
-// build`, grooming's lines and the line a resumed Codex session is given
-// (#226). Seen in the review of PR #421: with one Orca screen read made to hang
+// the Escape of `obk message send --interrupt`, `/reload-skills` after `obk
+// skills build`, grooming's lines and the line a resumed Codex session is
+// given (#226). Since #555 fleet mail types nothing else. Its one key is the
+// Escape of --interrupt into a busy receiver whose tab passes the gate, so
+// the mail tests here send with --interrupt to a busy receiver. Seen in the review of PR #421: with one Orca screen read made to hang
 // for 35 s, the command waited the whole 35 s out, because the gate's own
 // Orca calls had no time bound.
 //
@@ -23,9 +25,9 @@
 // Orca calls each caller below makes into a running session's tab were read
 // off the fake's call log for a plain run, and every one of them is the gate's:
 //
-//   message send   status, orchestration send, then terminal list, terminal
-//                  wait, terminal show, diagnostics memory, terminal read (the
-//                  gate) and terminal send (the notice itself)
+//   message send   with --interrupt: terminal list, terminal wait, terminal
+//                  show, diagnostics memory, terminal read (the gate), then
+//                  terminal send (the Escape) and the post
 //   skills build   status, then the same five of the gate's, and terminal send
 //
 // So each of those five is made to hang in turn, for each caller, and nothing
@@ -94,9 +96,9 @@ function assertWithin(ms, what) {
   assert.ok(ms < WITHIN_MS, `${what}: the command returns in under ${WITHIN_MS} ms with one Orca call hung for ${HANG_MS} ms, took ${ms} ms`);
 }
 
-// ------------------------------------------------------------- the mail notice
+// ------------------------------------------------------------- the mail interrupt
 
-/** A Claude bot that writes and a Codex bot that reads, both up, nothing typed since. */
+/** A Claude bot that writes and a Codex bot that reads, both up and busy by Orca's tui-idle wait, nothing typed since. */
 async function mailFleetIn(box) {
   assert.equal((await box.run(['init', '--bots', 'bots', '--harness', 'claude'])).code, 0);
   for (const [bot, harness] of [['writer', 'claude'], ['coder', 'codex']]) {
@@ -105,34 +107,31 @@ async function mailFleetIn(box) {
   }
   const up = await box.run(['up', '--bots', 'bots']);
   assert.equal(up.code, 0, up.stderr);
+  await box.orca.set({ waitIdle: 'busy' });
 }
 
 const sendArgs = [
   'message', 'send', '--bots', 'bots', '--to', 'coder/daily', '--from', 'writer/daily',
-  '--subject', 'the staging host', '--text', 'It is down again.',
+  '--subject', 'the staging host', '--text', 'It is down again.', '--interrupt',
 ];
 
 for (const hung of GATE_CALLS) {
-  test(`message send: with \`${hung}\` hung, the notice gives up in bounded time, types nothing, and says Orca did not answer in time`, async (t) => {
+  test(`message send --interrupt: with \`${hung}\` hung, the look gives up in bounded time, sends no Escape, and says Orca did not answer in time`, async (t) => {
     const box = await createSandbox(t);
     await mailFleetIn(box);
     await box.orca.set({ hang: { command: hung, ms: HANG_MS } });
 
-    const { result, ms } = await timed(box, [...sendArgs, '--json']);
+    const { result, ms } = await timed(box, sendArgs);
 
     assertWithin(ms, hung);
-    assert.equal(result.code, 0, `${hung}: the message went whatever became of the notice: ${result.stdout}${result.stderr}`);
-    const answer = JSON.parse(result.stdout);
-    assert.equal(answer.sent, true, `${hung}: the message is in the mailbox, got: ${result.stdout}`);
+    assert.equal(result.code, 0, `${hung}: the letter went whatever became of the interrupt: ${result.stdout}${result.stderr}`);
     assert.equal((await box.orca.messages()).length, 1, `${hung}: and Orca holds it`);
-    assert.equal(answer.nudged, false, `${hung}: no notice was typed, got: ${result.stdout}`);
-    assert.equal(typeof answer.nudgeTrouble, 'string', `${hung}: the answer says why, got: ${result.stdout}`);
-    assert.match(answer.nudgeTrouble, NOT_IN_TIME, `${hung}: that Orca did not answer in time, got: ${answer.nudgeTrouble}`);
+    assert.match(result.stdout + result.stderr, NOT_IN_TIME, `${hung}: the output says Orca did not answer in time, got:\n${result.stdout}${result.stderr}`);
     await assertNothingTyped(box, hung);
   });
 }
 
-test('message send, plain: with the screen read hung, the report says the tab could not be told because Orca did not answer in time', async (t) => {
+test('message send --interrupt, plain: with the screen read hung, a line of the report says Orca did not answer in time', async (t) => {
   const box = await createSandbox(t);
   await mailFleetIn(box);
   await box.orca.set({ hang: { command: 'terminal read', ms: HANG_MS } });
@@ -179,22 +178,20 @@ for (const hung of GATE_CALLS) {
 
 // ------------------------------------------------------------- with Orca's runtime there
 
-test('message send: with `diagnostics memory` hung and Orca\'s runtime answering, the notice still gives up, types nothing, and says Orca did not answer in time', async (t) => {
+test('message send --interrupt: with `diagnostics memory` hung and Orca\'s runtime answering, the look still gives up, sends no Escape, and says Orca did not answer in time', async (t) => {
   const box = await createSandbox(t);
   await mailFleetIn(box);
   // The runtime answers from the fake's world: Codex in front of the reader's
-  // tab. A gate that asked it after the timeout would type.
+  // tab. A gate that asked it after the timeout would send the Escape.
   await orcaApp(box);
   await box.orca.set({ hang: { command: 'diagnostics memory', ms: HANG_MS } });
 
-  const { result, ms } = await timed(box, [...sendArgs, '--json']);
+  const { result, ms } = await timed(box, sendArgs);
 
   assertWithin(ms, 'runtime there');
-  assert.equal(result.code, 0, `the message went whatever became of the notice: ${result.stdout}${result.stderr}`);
-  const answer = JSON.parse(result.stdout);
-  assert.equal(answer.sent, true, `the message is in the mailbox, got: ${result.stdout}`);
-  assert.equal(answer.nudged, false, `no notice was typed, got: ${result.stdout}`);
-  assert.match(String(answer.nudgeTrouble), NOT_IN_TIME, `because Orca did not answer in time, got: ${answer.nudgeTrouble}`);
+  assert.equal(result.code, 0, `the letter went whatever became of the interrupt: ${result.stdout}${result.stderr}`);
+  assert.equal((await box.orca.messages()).length, 1, 'the letter is in the mailbox');
+  assert.match(result.stdout + result.stderr, NOT_IN_TIME, `the output says Orca did not answer in time, got:\n${result.stdout}${result.stderr}`);
   await assertNothingTyped(box, 'runtime there');
 });
 

@@ -17,7 +17,7 @@
 //   2. Every kit path that types a line into a running session refuses while
 //      such a question is up, and types nothing, as it already refuses a
 //      question at the bottom of the screen (`question-on-screen`). This file
-//      holds the mail nudge and the skills reload; the session naming, the
+//      holds the mail Escape and the skills reload; the session naming, the
 //      list line, session clear and compact, and the grooming line are held
 //      in their own files, beside the tests of those paths.
 //   3. Claude Code 2.1.283's "Teach auto mode" form (CLAUDE_TEACH_FORM) stays
@@ -28,14 +28,18 @@
 //      the pointer, and a question's words that are history (quoted in the
 //      conversation, other conversation rows after them, the input line back
 //      below). A guard that took those for questions would swallow every
-//      nudge.
+//      key.
 //   5. The system tests' own look, `questionOn` and `waitingOn` in
 //      helpers/screens.js, sees the list too, and still not the history.
 //
 // Every absence here has its presence beside it: the same path, on the same
 // capture with the list taken out (CLAUDE_TEACH_LIST_GONE), types its line.
 // Expected values are the requirement's: true and false, the kit's word
-// `question-on-screen`, and the lines the paths type.
+// `question-on-screen`, and the keys the paths type.
+//
+// Since #555 fleet mail types nothing else. Its one key is the Escape of
+// `obk message send --interrupt`, into a busy receiver whose tab passes the
+// gate. So the mail tests below send with --interrupt to a busy receiver.
 
 import assert from 'node:assert/strict';
 import path from 'node:path';
@@ -47,7 +51,6 @@ import {
   createSandbox,
   sentInto,
   sessionIn,
-  typedInto,
 } from './helpers/cli.js';
 import {
   CLAUDE_ANSWERED,
@@ -296,7 +299,7 @@ test('waitingOn: a tab whose screen holds the list\'s words as history has nothi
   assert.equal(waitingOn(orcaShowing(LIST_IN_HISTORY).ask, 'term_history'), undefined);
 });
 
-// ------------------------------------------------------------ the mail nudge
+// ---------------------------------------------------- the mail Escape of --interrupt
 
 /** Give one tab a screen of its own; every other tab keeps the screen it had. */
 async function showIn(box, tab, shown) {
@@ -305,13 +308,16 @@ async function showIn(box, tab, shown) {
   });
 }
 
+/** Give one tab what `showIn` gives it, and make it busy by Orca's tui-idle wait. */
+const busyIn = (box, tab, shown = {}) => showIn(box, tab, { tuiIdle: 'busy', ...shown });
+
 /** The tab one session lives in, as the book has it. */
 const tabOf = async (bots, bot, session = 'daily') => (await sessionIn(bots, bot, session)).tab;
 
-/** What was typed into every tab of the whole fleet, after the launch line each one got. */
-async function typedSinceLaunch(box) {
+/** Each `terminal send` into every tab since its launch line, by tab id. */
+async function sentSinceLaunch(box) {
   const after = {};
-  for (const terminal of await box.orca.terminals()) after[terminal.tabId] = typedInto(terminal).slice(1);
+  for (const terminal of await box.orca.terminals()) after[terminal.tabId] = sentInto(terminal).slice(1);
   return after;
 }
 
@@ -327,100 +333,76 @@ async function fleetIn(box) {
   return box.path('bots');
 }
 
-/**
- * The arguments of one message to the Claude bot `writer`, from the Codex bot,
- * so it goes through Orca and the kit types the nudge (PRD 6.9).
- */
-const sendArgs = [
-  'message', 'send', '--bots', 'bots', '--to', 'writer', '--from', 'coder/daily',
-  '--subject', 'the staging host', '--text', 'It is down again.',
-];
-
-/** Send the message, `--json`, and read the answer. The message goes whatever became of the nudge. */
+/** Send one urgent letter to the Claude bot `writer`, from the Codex bot, with --interrupt, plain, and answer what it printed. */
 async function send(box) {
-  const result = await box.run([...sendArgs, '--json']);
-  assert.equal(result.code, 0, `the message went whatever became of the nudge: ${result.stdout}${result.stderr}`);
-  return JSON.parse(result.stdout);
+  const result = await box.run([
+    'message', 'send', '--bots', 'bots', '--to', 'writer', '--from', 'coder/daily',
+    '--subject', 'the staging host', '--text', 'It is down again.', '--interrupt',
+  ]);
+  assert.equal(result.code, 0, `the letter went whatever became of the interrupt: ${result.stdout}${result.stderr}`);
+  return result.stdout + result.stderr;
 }
 
-/** The message is in the mailbox, and nothing at all was typed into any tab after its launch line. */
+/** The letter is in the mailbox, and nothing at all went into any tab after its launch line. */
 async function assertQueuedUntyped(box, what) {
-  assert.equal((await box.orca.messages()).length, 1, `${what}: the message is in the mailbox`);
-  assert.deepEqual(Object.values(await typedSinceLaunch(box)).flat(), [], `${what}: and nothing was typed into any tab`);
+  assert.equal((await box.orca.messages()).length, 1, `${what}: the letter is in the mailbox`);
+  assert.deepEqual(Object.values(await sentSinceLaunch(box)).flat(), [], `${what}: and nothing went into any tab`);
 }
 
-// Covers criteria 1 and 2 for the mail nudge, and criterion 3 beside them. The
-// first three fail before the change; the 2.1.283 form passes before it too.
+// Covers criteria 1 and 2 for the mail Escape, and criterion 3 beside them.
 for (const [label, screen] of [
   ['Claude Code 2.1.289\'s Teach list above its input box, as captured', CLAUDE_TEACH_LIST],
   ['the Teach list with its pointer on "2. Not now"', LIST_ON_NOT_NOW],
   ['the Teach list with its pointer on "3. Don\'t show again"', LIST_ON_THREE],
   ['Claude Code 2.1.283\'s Teach form, as captured', CLAUDE_TEACH_FORM],
 ]) {
-  test(`a Claude tab showing ${label}, Orca calling it idle, gets no nudge, and the answer says a question is waiting`, async (t) => {
+  test(`a busy Claude tab showing ${label} gets no Escape, and the output says a question is waiting`, async (t) => {
     const box = await createSandbox(t);
     const bots = await fleetIn(box);
-    await showIn(box, await tabOf(bots, 'writer'), { screen });
+    await busyIn(box, await tabOf(bots, 'writer'), { screen });
 
-    const answer = await send(box);
+    const said = await send(box);
 
-    assert.equal(answer.sent, true, `${label}: the message is in the mailbox, got ${JSON.stringify(answer)}`);
-    assert.equal(answer.nudged, false, `${label}: got ${JSON.stringify(answer)}`);
-    assert.equal(answer.blocked, QUESTION, `${label}: the answer says the tab is waiting on a question, got ${JSON.stringify(answer)}`);
+    assert.ok(said.includes(QUESTION), `${label}: the output says the tab is waiting on a question, got:\n${said}`);
     await assertQueuedUntyped(box, label);
   });
 }
 
-// Covers criterion 2 where Orca's wait times out: a busy harness is nudged
-// (#232), but not while the list is on its screen.
-test('a Claude tab Orca finds busy is not nudged while its screen shows the Teach list', async (t) => {
-  const box = await createSandbox(t);
-  const bots = await fleetIn(box);
-  await box.orca.set({ waitIdle: 'busy' });
-  await showIn(box, await tabOf(bots, 'writer'), { screen: CLAUDE_TEACH_LIST });
-
-  const answer = await send(box);
-
-  assert.equal(answer.nudged, false, `got: ${JSON.stringify(answer)}`);
-  assert.equal(answer.blocked, QUESTION, `got: ${JSON.stringify(answer)}`);
-  await assertQueuedUntyped(box, 'busy, with the Teach list');
-});
-
 // Covers criterion 2, "says": the plain report for the list, as for any question.
-test('the plain report for a Claude tab on the Teach list names question-on-screen and says nothing was typed', async (t) => {
+test('the plain report for a busy Claude tab on the Teach list names question-on-screen', async (t) => {
   const box = await createSandbox(t);
   const bots = await fleetIn(box);
-  await showIn(box, await tabOf(bots, 'writer'), { screen: CLAUDE_TEACH_LIST });
+  await busyIn(box, await tabOf(bots, 'writer'), { screen: CLAUDE_TEACH_LIST });
 
-  const result = await box.run(sendArgs);
+  const said = await send(box);
 
-  assert.equal(result.code, 0, result.stderr);
-  assert.ok(result.stdout.includes(`(${QUESTION})`), `the report names what the tab is waiting on, got:\n${result.stdout}`);
-  assert.match(result.stdout, /nothing was typed/, `and says nothing was typed, got:\n${result.stdout}`);
+  assert.ok(said.includes(`(${QUESTION})`), `the report names what the tab is waiting on, got:\n${said}`);
   await assertQueuedUntyped(box, 'the plain report, Teach list');
 });
 
-// The presence beside the four above: the same capture with the list taken
-// out, and the history screens of criterion 4, get the nudge as ever, one
-// line into the receiver's tab. These pass before the change.
+// The presence beside the tests above: the same capture with the list taken
+// out, and the history screens of criterion 4, get the Escape as ever, one
+// key into the receiver's tab.
 for (const [label, screen] of [
   ['the 2.1.289 capture with the list taken out', CLAUDE_TEACH_LIST_GONE],
   ['the Teach list\'s words quoted in history, the input line back below', LIST_IN_HISTORY],
   ['a numbered past turn echoed with the pointer, an answer after it', NUMBERED_TURN_ECHOED],
 ]) {
-  test(`a Claude tab showing ${label}: no question, and it is nudged as ever`, async (t) => {
+  test(`a busy Claude tab showing ${label}: no question, and it gets its one Escape`, async (t) => {
     const box = await createSandbox(t);
     const bots = await fleetIn(box);
     const reader = await tabOf(bots, 'writer');
-    await showIn(box, reader, { screen });
+    await busyIn(box, reader, { screen });
 
-    const answer = await send(box);
+    const said = await send(box);
 
-    assert.equal(answer.nudged, true, `${label}: the tab is told, got ${JSON.stringify(answer)}`);
-    assert.equal('blocked' in answer, false, `${label}: nothing is waiting, got ${JSON.stringify(answer)}`);
-    const typed = await typedSinceLaunch(box);
-    assert.equal(typed[reader].length, 1, `${label}: one line into the receiver's tab, got ${JSON.stringify(typed[reader])}`);
-    assert.match(typed[reader][0], /message check/, `${label}: the nudge, got ${typed[reader][0]}`);
+    assert.ok(!said.includes(QUESTION), `${label}: nothing is waiting, got:\n${said}`);
+    assert.equal((await box.orca.messages()).length, 1, `${label}: the letter is in the mailbox`);
+    const sent = await sentSinceLaunch(box);
+    assert.deepEqual(sent[reader].map(({ text, enter }) => ({ text, enter })), [{ text: '\x1b', enter: false }], `${label}: one Escape into the receiver's tab, got ${JSON.stringify(sent[reader])}`);
+    for (const [tab, sends] of Object.entries(sent)) {
+      if (tab !== reader) assert.deepEqual(sends, [], `${label}: nothing into ${tab}`);
+    }
   });
 }
 
@@ -459,13 +441,6 @@ async function build(box, bots) {
 
 /** What the Codex session is told to read meanwhile: the SKILL.md through the bot's own link. */
 const codexSkillMd = (bots) => path.join(botHomeOf(bots, BOT), SKILL_DIRS.codex, KIT_SKILL, 'SKILL.md');
-
-/** Each `terminal send` into every tab since its launch line, by tab id. */
-async function sentSinceLaunch(box) {
-  const after = {};
-  for (const terminal of await box.orca.terminals()) after[terminal.tabId] = sentInto(terminal).slice(1);
-  return after;
-}
 
 // Covers criteria 1 and 2 for the skills reload, and criterion 3 beside them.
 // The list fails before the change; the 2.1.283 form passes before it too.

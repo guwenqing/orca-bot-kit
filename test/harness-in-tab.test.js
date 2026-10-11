@@ -1,9 +1,9 @@
 // Is a harness running in this tab? (#232)
 //
-// Two commands ask it. `message send` asks before it types the one line that
-// tells a session its mail is there, and `up` asks after it types a launch
-// line, to report whether the harness came up. `restart` and `unpause` ask it
-// through `up`.
+// Two commands ask it. `message send --interrupt` asks before it sends the one
+// Escape into a busy receiver's tab. `up` asks after it types a launch line, to
+// report whether the harness came up. `restart` and `unpause` ask it through
+// `up`.
 //
 // What Orca says is not the answer, and was measured not to be on Orca 1.4.209
 // with Claude Code 2.1.281 and Codex 0.156.1. A `tui-idle` wait times out for
@@ -15,11 +15,13 @@
 // tab's terminal: the shell, or a program. The kit reads that from the pane's
 // pid in `orca diagnostics memory` and `ps`, both faked here.
 //
-// So a busy session is told its mail is there, which is PRD 6.9's "queued, not
-// interrupting": a busy harness takes a typed line as its next turn. A tab with
-// its shell in front is not up. A tab whose front cannot be read is neither:
-// the kit cannot tell, it types nothing, and it does not say "not up". And in
-// every case the message is in the mailbox and the send succeeded.
+// Since #555 fleet mail types nothing into a tab but that Escape. So the mail
+// tests here send with --interrupt to a receiver that is busy by Orca's wait,
+// unless a test sets its own wait. A busy harness in front gets one Escape. A
+// tab with its shell in front is not up, and gets nothing. A tab whose front
+// cannot be read is neither: the kit cannot tell, it sends nothing, and it does
+// not say "not up". In every case the letter is in the mailbox and the send
+// succeeded.
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -30,6 +32,7 @@ import {
   orcaCallsOf,
   orcaCommand,
   recordSession,
+  sentInto,
   sessionIn,
   tabsOfBot,
   typedInto,
@@ -37,7 +40,7 @@ import {
 
 // ------------------------------------------------------------ message send
 
-/** A Claude bot that writes and a Codex bot that reads, both up, nothing typed since. */
+/** A Claude bot that writes and a Codex bot that reads, both up, nothing typed since, every tab busy by Orca's wait. */
 async function fleetIn(box) {
   assert.equal((await box.run(['init', '--bots', 'bots', '--harness', 'claude'])).code, 0);
   for (const [bot, harness] of [['writer', 'claude'], ['coder', 'codex']]) {
@@ -46,21 +49,24 @@ async function fleetIn(box) {
   }
   const up = await box.run(['up', '--bots', 'bots']);
   assert.equal(up.code, 0, up.stderr);
+  await box.orca.set({ waitIdle: 'busy' });
   return box.path('bots');
 }
 
-/** Send one message from the writer to the reader. */
-const send = (box) => box.run([
-  'message', 'send', '--bots', 'bots', '--to', 'coder', '--from', 'writer/daily',
-  '--subject', 'the staging host', '--text', 'It is down again.',
-]);
+/** Send one message from the writer to the reader, with --interrupt, and give back the plain output. */
+async function send(box) {
+  const result = await box.run([
+    'message', 'send', '--bots', 'bots', '--to', 'coder', '--from', 'writer/daily',
+    '--subject', 'the staging host', '--text', 'It is down again.', '--interrupt',
+  ]);
+  assert.equal(result.code, 0, `the letter went whatever became of the interrupt: ${result.stdout}${result.stderr}`);
+  return `${result.stdout}${result.stderr}`;
+}
 
-/** What was typed into every tab of the whole fleet, after the launch line each one got. */
-async function typedSinceLaunch(box) {
+/** Each `terminal send` into every tab since its launch line, by tab id. */
+async function sentSinceLaunch(box) {
   const after = {};
-  for (const terminal of await box.orca.terminals()) {
-    after[terminal.tabId] = typedInto(terminal).slice(1);
-  }
+  for (const terminal of await box.orca.terminals()) after[terminal.tabId] = sentInto(terminal).slice(1);
   return after;
 }
 
@@ -70,201 +76,149 @@ async function readerTab(box, bots) {
   return (await box.orca.terminals()).find((terminal) => terminal.tabId === tab);
 }
 
-/** The line a send prints about the receiver's tab: what the kit told it, or why it did not. */
-const TOLD = /its tab was told to look/;
-const NOT_UP = /not up/;
-const COULD_NOT_TELL = /it is queued, and its tab could not be told to look: .*harness/i;
+const NOT_UP = /not up/i;
+const COULD_NOT_TELL = /tell/i;
+/** What a plain answer says of a tab with only a shell in front. */
+const NO_HARNESS = /shell|not up|harness/i;
 
-/** The message went, and nothing at all was typed into any tab after its launch line. */
-async function assertWaitsUntyped(box, result) {
-  assert.equal(result.code, 0, `the message went; only the nudge did not: ${result.stdout}${result.stderr}`);
-  assert.equal((await box.orca.messages()).length, 1, 'the message is in the mailbox');
-  assert.deepEqual(Object.values(await typedSinceLaunch(box)).flat(), [], 'and nothing was typed anywhere');
+/** One Escape, with no Enter, into the reader's tab and no other tab. */
+async function assertEscapedOnly(box, bots, said) {
+  const sent = await sentSinceLaunch(box);
+  const reader = (await readerTab(box, bots)).tabId;
+  assert.deepEqual(
+    sent[reader].map((one) => ({ text: one.text, enter: one.enter })),
+    [{ text: '\x1b', enter: false }],
+    `one Escape into the receiver's tab, got: ${JSON.stringify(sent[reader])}`,
+  );
+  for (const [tab, keys] of Object.entries(sent)) {
+    if (tab !== reader) assert.deepEqual(keys, [], `nothing may go into ${tab}: it is not the receiver's`);
+  }
+  assert.doesNotMatch(said, NOT_UP, `the harness is up, got: ${said}`);
 }
 
-/** The start of Orca's warning when it saw no turn start, as 1.4.214 wrote it live. */
-const ORCA_UNSEEN = 'input was accepted but no turn start was observed, so the Enter may have been swallowed';
+/** The letter is in the mailbox, and nothing went into any tab after its launch line. */
+async function assertUntyped(box) {
+  assert.equal((await box.orca.messages()).length, 1, 'the letter is in the mailbox');
+  assert.deepEqual(Object.values(await sentSinceLaunch(box)).flat(), [], 'and nothing went into any tab');
+}
 
-test('a busy harness is typed its mail line, and the run says the line was typed and not seen, and the mail waits', async (t) => {
-  // The case the issue is about. Orca's wait runs out of time on a harness
-  // that is working, just as it does on a shell; the harness is in front of
-  // its tab all the same, and a line typed now is its next turn.
-  //
-  // But Orca does not see that turn start (#402). Seen live (Orca 1.4.214,
-  // Claude Code 2.1.283, Codex 0.157.1, 2026-09-27): a line typed into a
-  // harness busy mid-turn is queued, and Orca's receipt, even after a 60 s
-  // wait, is input_accepted alone with its warning, never turn_started. So
-  // the run may not say the tab was told to look (#394).
+/** Nothing sent because the kit could not tell, said so, and nobody called not up. */
+async function assertCouldNotTell(box, said) {
+  await assertUntyped(box);
+  assert.match(said, COULD_NOT_TELL, `the output says the kit could not tell, got: ${said}`);
+  assert.doesNotMatch(said, NOT_UP, `the kit does not know that, got: ${said}`);
+}
+
+test('a busy harness gets the one Escape of --interrupt, and the letter is in the mailbox', async (t) => {
+  // The case #232 is about. Orca's wait runs out of time on a harness that is
+  // working, just as it does on a shell; the harness is in front of its tab
+  // all the same, so the Escape goes in.
   const box = await createSandbox(t);
   const bots = await fleetIn(box);
-  await box.orca.set({ waitIdle: 'busy' });
 
-  const result = await send(box);
+  const said = await send(box);
 
-  assert.equal(result.code, 0, result.stderr);
-  assert.equal((await box.orca.messages()).length, 1, 'the message is in the mailbox');
-  const typed = await typedSinceLaunch(box);
-  const reader = (await readerTab(box, bots)).tabId;
-  assert.equal(typed[reader].length, 1, `one line into the receiver's tab, got: ${JSON.stringify(typed[reader])}`);
-  assert.match(typed[reader][0], /message check/, `the nudge, got: ${typed[reader][0]}`);
-  for (const [tab, lines] of Object.entries(typed)) {
-    if (tab !== reader) assert.deepEqual(lines, [], `nothing may be typed into ${tab}: it is not the receiver's`);
-  }
-  assert.doesNotMatch(result.stdout, TOLD, `Orca saw no turn start in a busy harness, so it was not told to look, got: ${result.stdout}`);
-  for (const [said, pattern] of [
-    ['the line was typed', /its tab was typed into/],
-    ['Orca did not see it start a turn', /did not see/],
-    ['the mail waits for the next check', /waits/],
-  ]) {
-    assert.match(result.stdout, pattern, `the run should say ${said}, got:\n${result.stdout}`);
-  }
-  assert.doesNotMatch(result.stdout, NOT_UP);
+  assert.equal((await box.orca.messages()).length, 1, 'the letter is in the mailbox');
+  await assertEscapedOnly(box, bots, said);
 });
 
-test('a busy harness\'s send reports it nudged, with Orca\'s warning in nudgeUnseen', async (t) => {
-  // The same live receipt as above, as `--json` gives it: the kit typed the
-  // line, and Orca's own words say it saw no turn start.
-  const box = await createSandbox(t);
-  const bots = await fleetIn(box);
-  await box.orca.set({ waitIdle: 'busy' });
-
-  const result = await box.run([
-    'message', 'send', '--bots', 'bots', '--to', 'coder', '--from', 'writer/daily',
-    '--subject', 'the staging host', '--text', 'It is down again.', '--json',
-  ]);
-
-  assert.equal(result.code, 0, result.stderr);
-  assert.equal((await box.orca.messages()).length, 1, 'the message is in the mailbox');
-  const answer = JSON.parse(result.stdout);
-  assert.equal(answer.nudged, true, `the kit typed the line, got: ${JSON.stringify(answer)}`);
-  assert.equal(typeof answer.nudgeUnseen, 'string', `why it was not seen, got: ${JSON.stringify(answer)}`);
-  assert.ok(answer.nudgeUnseen.includes(ORCA_UNSEEN), `in Orca's own words, got: ${answer.nudgeUnseen}`);
-  const typed = await typedSinceLaunch(box);
-  const reader = (await readerTab(box, bots)).tabId;
-  assert.equal(typed[reader].length, 1, `one line into the receiver's tab, got: ${JSON.stringify(typed[reader])}`);
-  for (const [tab, lines] of Object.entries(typed)) {
-    if (tab !== reader) assert.deepEqual(lines, [], `nothing may be typed into ${tab}: it is not the receiver's`);
-  }
-});
-
-test('a harness under a shell with no login above it is a harness, and is typed its mail line', async (t) => {
+test('a harness under a shell with no login above it is a harness, and gets the Escape', async (t) => {
   // Only a `login` pane makes its child the shell. Where the pane is the shell
   // itself, its child in front is the harness it started.
-  //
-  // The harness here is busy, and live Orca never sees a busy harness's line
-  // start a turn (#402), so the run says the line was typed and not seen,
-  // never "told to look" (#394).
   const box = await createSandbox(t);
   const bots = await fleetIn(box);
   await box.orca.set({ waitIdle: 'busy', foreground: 'bare-harness' });
 
-  const result = await send(box);
+  const said = await send(box);
 
-  assert.equal(result.code, 0, result.stderr);
-  assert.equal(typedInto(await readerTab(box, bots)).slice(1).length, 1, 'the receiver was told');
-  assert.match(result.stdout, /its tab was typed into/, `got: ${result.stdout}`);
-  assert.match(result.stdout, /did not see/, `got: ${result.stdout}`);
-  assert.doesNotMatch(result.stdout, NOT_UP);
+  await assertEscapedOnly(box, bots, said);
 });
 
 for (const [label, state] of [
   ['a shell at its prompt, which Orca times out on', { waitIdle: false }],
-  ['a shell Orca calls idle', { waitIdle: true, foreground: 'shell' }],
-  ['a pane that is its own shell, at its prompt', { waitIdle: true, foreground: 'bare-shell' }],
+  ['a shell in front, where Orca\'s wait times out as on a busy harness', { waitIdle: 'busy', foreground: 'shell' }],
+  ['a pane that is its own shell, at its prompt', { waitIdle: 'busy', foreground: 'bare-shell' }],
 ]) {
-  test(`${label} is not up: nothing is typed, and the run says so`, async (t) => {
+  test(`${label} is not up: nothing is sent, and the run says so`, async (t) => {
     // Whatever Orca's wait said, the shell is in front of the tab and there is
-    // nobody there to read a line.
+    // nobody there to read a key. Only a busy wait makes the kit look at all
+    // (an idle receiver gets no Escape), so the wait times out here.
     const box = await createSandbox(t);
     await fleetIn(box);
     await box.orca.set(state);
 
-    const result = await send(box);
+    const said = await send(box);
 
-    await assertWaitsUntyped(box, result);
-    assert.match(result.stdout, NOT_UP, `the run should say the session is not up, got: ${result.stdout}`);
+    await assertUntyped(box);
+    assert.match(said, NO_HARNESS, `the run should say no harness is there, got: ${said}`);
   });
 }
 
 test('a Codex tab whose Codex quit is not up, though Orca still calls it codex', async (t) => {
   // Seen live: after Codex quit to the shell, the tab's `agentIdentity` still
   // said `codex` more than 70 s later, and Orca's wait found the shell ok and
-  // idle. Only the shell in front says what is there. A line typed here goes
-  // to zsh as a command.
+  // idle. Only the shell in front says what is there. A key sent here goes
+  // to zsh. The wait times out here, so the kit looks.
   const box = await createSandbox(t);
   const bots = await fleetIn(box);
-  await box.orca.set({ waitIdle: 'quit' });
+  await box.orca.set({ waitIdle: 'busy', foreground: 'shell' });
   assert.equal((await readerTab(box, bots)).agentIdentity, 'codex', 'the fake should still name the agent that quit');
 
-  const result = await send(box);
+  const said = await send(box);
 
-  await assertWaitsUntyped(box, result);
-  assert.match(result.stdout, NOT_UP, `got: ${result.stdout}`);
+  await assertUntyped(box);
+  assert.match(said, NO_HARNESS, `got: ${said}`);
 });
 
 // A program in front that is not the agent Orca names. Seen live on Orca
 // 1.4.209 with Codex 0.156.1 (PR #260): Codex quit with /quit, then `less
 // /etc/hosts` in the same tab; for 20 s `agentIdentity` still said `codex`,
-// `less` led the foreground group and `tui-idle` was ok and satisfied. A nudge
-// typed there goes into `less`. The harness the kit launched is its own group
+// `less` led the foreground group and `tui-idle` was ok and satisfied. A key
+// sent there goes into `less`. The harness the kit launched is its own group
 // leader and its comm is the agent's name, so only a front process whose comm
-// is the agent Orca names is told; anything else, the kit cannot tell.
+// is the agent Orca names gets the key; anything else, the kit cannot tell.
 for (const [label, foreground] of [
   ['`less` in front of a tab where Orca still names the Codex that quit', 'program'],
   ['`claude` in front of a tab Orca names codex', 'other-harness'],
 ]) {
-  test(`${label}: nothing is typed, and the kit cannot tell whether it is up`, async (t) => {
+  test(`${label}: nothing is sent, and the kit cannot tell whether it is up`, async (t) => {
     const box = await createSandbox(t);
     const bots = await fleetIn(box);
-    await box.orca.set({ waitIdle: true, foreground });
+    await box.orca.set({ waitIdle: 'busy', foreground });
     assert.equal((await readerTab(box, bots)).agentIdentity, 'codex', 'Orca should still name codex in the reader\'s tab');
 
-    const result = await send(box);
+    const said = await send(box);
 
-    await assertWaitsUntyped(box, result);
-    assert.doesNotMatch(result.stdout + result.stderr, NOT_UP, `the kit does not know that, got: ${result.stdout}`);
-    assert.match(
-      result.stdout,
-      COULD_NOT_TELL,
-      `the run should say the mail is queued and the kit could not tell whether a harness is running, got: ${result.stdout}`,
-    );
+    await assertCouldNotTell(box, said);
   });
 }
 
 // A program in front and no `agentIdentity`: the kit cannot tell whether it is
-// a harness. It may be an editor, a pager, a build, and a line typed there goes
+// a harness. It may be an editor, a pager, a build, and a key sent there goes
 // into that program; or it may be a harness Orca has not named yet, since the
 // identity comes 0.5–6 s after a launch and a Codex session just resumed may
-// carry none until its first prompt. So nothing is typed, and nobody is called
+// carry none until its first prompt. So nothing is sent, and nobody is called
 // "not up": only a tab with no harness in it is that (architect, PR #260).
-for (const [label, waitIdle] of [
-  ['a program Orca calls idle', true],
-  ['a busy program, as a harness just started is before Orca names it', 'busy'],
+for (const label of [
+  'a busy program, as a harness just started is before Orca names it',
 ]) {
-  test(`${label}, with no agentIdentity, is not typed into, and the kit cannot tell whether it is up`, async (t) => {
+  test(`${label}, with no agentIdentity, gets nothing, and the kit cannot tell whether it is up`, async (t) => {
     const box = await createSandbox(t);
     const bots = await fleetIn(box);
     const reader = (await readerTab(box, bots)).tabId;
     await box.orca.set({
-      waitIdle,
       terminals: (await box.orca.terminals()).map((terminal) => (terminal.tabId === reader ? { ...terminal, agentIdentity: null } : terminal)),
     });
 
-    const result = await send(box);
+    const said = await send(box);
 
-    await assertWaitsUntyped(box, result);
-    assert.doesNotMatch(result.stdout + result.stderr, NOT_UP, `the kit does not know that, got: ${result.stdout}`);
-    assert.match(
-      result.stdout,
-      COULD_NOT_TELL,
-      `the run should say the mail is queued and the kit could not tell whether a harness is running, got: ${result.stdout}`,
-    );
+    await assertCouldNotTell(box, said);
   });
 }
 
-// Every road on which who is in front cannot be read. Orca says the tab is idle
-// and names its agent on each of them, so a kit that fell back on Orca's word
-// would type; the architect's rule is that it does not.
+// Every road on which who is in front cannot be read. Orca names the tab's
+// agent and its wait times out on each of them, so a kit that fell back on
+// Orca's word would send the key; the architect's rule is that it does not.
 for (const [label, state] of [
   ['Orca\'s diagnostics give no pid for the tab', { foreground: 'no-pid' }],
   ['ps cannot read the pane\'s pid', { foreground: 'ps-fails' }],
@@ -274,20 +228,14 @@ for (const [label, state] of [
   ['Orca refuses its diagnostics', { fail: { 'diagnostics memory': { code: 'runtime_error', message: 'diagnostics unavailable' } } }],
   ['Orca\'s diagnostics are not JSON', { garbage: { command: 'diagnostics memory', text: 'memory: lots\n' } }],
 ]) {
-  test(`when ${label}, the kit cannot tell: nothing is typed, the mail waits, and nobody is called not up`, async (t) => {
+  test(`when ${label}, the kit cannot tell: nothing is sent, the letter is in the mailbox, and nobody is called not up`, async (t) => {
     const box = await createSandbox(t);
     await fleetIn(box);
-    await box.orca.set({ waitIdle: true, ...state });
+    await box.orca.set(state);
 
-    const result = await send(box);
+    const said = await send(box);
 
-    await assertWaitsUntyped(box, result);
-    assert.doesNotMatch(result.stdout + result.stderr, NOT_UP, `the kit does not know that, got: ${result.stdout}`);
-    assert.match(
-      result.stdout,
-      COULD_NOT_TELL,
-      `the run should say the mail is queued and the kit could not tell whether a harness is running, got: ${result.stdout}`,
-    );
+    await assertCouldNotTell(box, said);
   });
 }
 
@@ -474,12 +422,10 @@ test('the kit only reads ps, one pid at a time, and reads the receiver\'s own pa
   // does nothing else with it: one argv shape, a positive pid on the end.
   const box = await createSandbox(t);
   const bots = await fleetIn(box);
-  await box.orca.set({ waitIdle: 'busy' });
   const reader = await readerTab(box, bots);
   const before = (await box.ps.calls()).length;
 
-  const result = await send(box);
-  assert.equal(result.code, 0, result.stderr);
+  await send(box);
 
   // Every read the kit made, `up`'s included.
   const calls = await box.ps.calls();

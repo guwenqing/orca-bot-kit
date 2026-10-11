@@ -37,8 +37,6 @@ export const COMMANDS = {
   'message check': ['bots'],
   'session record': ['bots', 'bot'],
   'session sent': ['bots', 'bot'],
-  'session nudge': ['bots', 'bot'],
-  'session mail': ['bots', 'bot'],
   'session name': ['bots', 'bot'],
   'session mailbox': ['bots', 'bot', 'session'],
   'session trust-hooks': ['bots', 'bot', 'session'],
@@ -61,7 +59,7 @@ export const DEFAULT_COMMANDS = [
   'skills add', 'skills remove', 'skills build', 'skills fetch', 'skills update', 'source add',
   'session add', 'session change', 'session clear', 'session compact',
   'message to', 'message send', 'message check',
-  'session record', 'session sent', 'session nudge', 'session mail', 'session name', 'session mailbox',
+  'session record', 'session sent', 'session name', 'session mailbox',
   'session trust-hooks', 'session answer',
   'temp make', 'temp roles', 'temp retire', 'temp trust-hooks', 'temp answer',
 ];

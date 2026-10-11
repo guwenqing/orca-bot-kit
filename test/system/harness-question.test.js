@@ -1,4 +1,4 @@
-// A system test: the mail nudge and a harness's own question, against the real
+// A system test: the mail interrupt and a harness's own question, against the real
 // Codex in the real Orca on this machine (#329). Run it alone with
 // `npm run test:system -- --yes test/system/harness-question.test.js`;
 // `npm test` cannot, and no CI machine could.
@@ -9,15 +9,18 @@
 // `terminal wait --for tui-idle` answered ok and satisfied, with no
 // `blockedReason`, and the kit's nudge trusted only that. So the kit now reads
 // the screen itself before it types, and a harness's own question on it stops
-// the nudge.
+// the nudge. Since #555 the kit types no mail line; the one key mail types is
+// the Escape of `obk message send --interrupt`, through the same gate, and an
+// Escape into the menu is expected to close it (not seen live). So the send
+// here asks for the interrupt.
 //
 // An update offer cannot be brought up on demand, so this uses a harness
 // question the test can bring up in its own tab: Codex's `/new` menu, "Where
 // should the new conversation run?", which Orca reports the same way, no reason
 // and the tab idle (seen on a screen recording, session-identity.test.js).
-// With the menu up, `obk message send` to that session must answer that
-// nothing was typed and why, and afterwards the menu must still be on screen
-// with no trace of the nudge in it: nothing answered it. Then the test answers
+// With the menu up, `obk message send --interrupt` to that session must answer
+// that nothing was typed and why, and afterwards the menu must still be on
+// screen with no trace of the message in it: nothing answered it. Then the test answers
 // its own menu, and cleans up.
 //
 // Two things about today's Orca (1.4.212) shape how the test gets there, both
@@ -319,13 +322,12 @@ const BOT = { name: 'question-codex', display: 'Question Codex' };
 const QUESTION = 'question-on-screen';
 
 /**
- * A word only the message's subject carries, and so only the nudge: the kit
- * types the subject into the receiver's tab when it nudges. Seen anywhere on
- * the screen after the send, it means a line went in.
+ * A word only the message's subject carries. Seen anywhere on the screen after
+ * the send, it means a line of the kit's went in.
  */
 const SUBJECT_WORD = 'KESTREL-5150';
 
-test('a nudge types nothing into a tab whose harness is asking its own question, and says so', async (t) => {
+test('a mail interrupt types nothing into a tab whose harness is asking its own question, and says so', async (t) => {
   const before = {
     handles: new Set(allTerminals().map((terminal) => terminal.handle)),
     setups: new Set(allSetups().map((setup) => setup.id)),
@@ -398,7 +400,7 @@ test('a nudge types nothing into a tab whose harness is asking its own question,
 
   // The premise: Orca names no reason for this menu, as it named none for the
   // update offer. With a reason from Orca, the kit's old guard would have held
-  // the nudge back too, and this run would show nothing about the new one.
+  // the interrupt back too, and this run would show nothing about the new one.
   const look = orca(['terminal', 'wait', '--terminal', handle, '--for', 'tui-idle', '--timeout-ms', '5000']);
   assert.equal(
     look.result?.wait?.blockedReason,
@@ -406,18 +408,22 @@ test('a nudge types nothing into a tab whose harness is asking its own question,
     `the premise: Orca should name no reason for the menu, and named ${look.result?.wait?.blockedReason}.${whatIsUp(handle)}`,
   );
 
-  // 2. Mail for the session while its menu is up. It is queued, and the tab is
-  //    told nothing, and the answer says why.
+  // 2. Mail for the session while its menu is up, with --interrupt. It is
+  //    queued, no Escape goes into the tab, and the answer says why.
   const sent = obkJson([
     'message', 'send', '--bots', bots, '--to', `${BOT.name}/daily`, '--from', 'bot-father/daily',
-    '--subject', `the question guard ${SUBJECT_WORD}`, '--text', 'Nothing to do; this only checks the nudge.',
+    '--subject', `the question guard ${SUBJECT_WORD}`, '--text', 'Nothing to do; this only checks the interrupt.', '--interrupt',
   ]);
   assert.equal(sent.sent, true, `the message should be in the mailbox: ${JSON.stringify(sent)}`);
-  assert.equal(sent.nudged, false, `nothing should have been typed into a tab with a menu up: ${JSON.stringify(sent)}`);
-  assert.equal(sent.blocked, QUESTION, `the answer should say the tab is waiting on a question: ${JSON.stringify(sent)}`);
+  assert.equal(sent.interrupted, false, `no Escape should have been typed into a tab with a menu up: ${JSON.stringify(sent)}`);
+  assert.ok(
+    typeof sent.interruptTrouble === 'string' && sent.interruptTrouble.includes(QUESTION),
+    `the answer should say the tab is waiting on a question: ${JSON.stringify(sent)}`,
+  );
 
-  // 3. Nothing answered the menu: it is still up, and the nudge is nowhere on
-  //    the screen. A return typed in would have picked option 1 and closed it.
+  // 3. Nothing answered the menu: it is still up, and the message is nowhere on
+  //    the screen. An Escape typed in is expected to close the menu (not seen
+  //    live), and a return would have picked option 1 and closed it.
   await setTimeout(SETTLE_MS);
   const screen = screenOf(handle);
   assert.ok(screen.includes(WHERE_TO_RUN), `the menu should still be up, nothing having answered it: ${screen.slice(0, 3000)}`);

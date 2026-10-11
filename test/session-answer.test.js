@@ -42,7 +42,7 @@ import {
   CLAUDE_TEACH_LIST_ON_NOT_NOW,
   CLAUDE_TEACH_LIST_ON_THREE,
   CLAUDE_TRUST,
-  CODEX_HOOKS_REVIEW_THREE,
+  CODEX_HOOKS_REVIEW_TWO,
   FORM_IN_HISTORY,
 } from './helpers/screens.js';
 
@@ -353,7 +353,7 @@ describe('obk session answer', AT_ONCE, () => {
   test('SA4 a Codex session on its hooks review is refused, says what it saw, and nothing is typed', async (t) => {
     const box = await createSandbox(t);
     const ours = await fleet(box);
-    await showIn(box, ours.bots, 'coder', 'daily', { screen: CODEX_HOOKS_REVIEW_THREE });
+    await showIn(box, ours.bots, 'coder', 'daily', { screen: CODEX_HOOKS_REVIEW_TWO });
     const before = await sendsByTab(box);
 
     const said = await assertRefusedUntyped(box, await answer(box, 'coder', 'daily'), before, 'Codex\'s hooks review');

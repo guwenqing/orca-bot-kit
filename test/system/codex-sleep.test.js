@@ -15,7 +15,8 @@
 // turn it off.
 //
 // Two Codex bots, each with one session told what messaging.test.js's Codex bot
-// is told: to read its mail when a line says it is waiting, and then print
+// is told: to read its mail with the kit's check when anything says it has
+// some (since #555 that is Orca's own notice; ADR 0042), and then print
 // MAIL: and the message, and to "Say nothing now and wait." Both sessions are
 // given their folder's trust at launch (#240, test/helpers/codex-trust.js).
 // `awake-codex` also has `-c features.sleep_tool=false`, as every other system
@@ -36,9 +37,10 @@
 // What is OBSERVED, NOT JUDGED:
 //
 //   2. THE NOTICE. While `sleep-codex` sleeps, mail is sent to it the kit's own
-//      way, `obk message send`, so the kit gates and types its notice into the
-//      tab. Printed as diagnostics: what the send said (typed and seen, typed
-//      but not seen, held back and why); whether the sleep ended, and how long
+//      way, `obk message send`, with no `--interrupt`: the kit types nothing,
+//      and Orca's own notice is the one signal, which Orca holds for a busy
+//      tab (#555). Printed as diagnostics: what the send said (its road, and
+//      any interrupt); whether the sleep ended, and how long
 //      after the send; whether the bot read the mail; and whether its tab went
 //      idle. They are watched until both bots have read their mail, READ_MS at
 //      most, and a fact not seen by then is printed as not seen in the time
@@ -67,7 +69,7 @@
 //   - runs this checkout's `src/cli.js` by its full path, never the machine's
 //     `obk`;
 //   - types into no tab: the only lines that go in are the kit's launch lines
-//     and its notices;
+//     and Orca's own notices;
 //   - closes only its own tabs, through the tab guard, then deletes its own
 //     workspaces, whatever happened;
 //   - signals no process; `ps` is read one pid at a time.
@@ -268,12 +270,17 @@ const AWAKE = { name: 'awake-codex', title: 'Awake Codex daily', word: 'STOAT-88
 /** How a bot here starts the kit: by the variable its launch line set, this checkout's CLI (#220). */
 const KIT = '"$OBK_CLI"';
 
-/** What each bot is told: messaging.test.js's Codex bot's part, the mail and the wait. */
-const promptOf = (bots) => [
+/**
+ * What each bot is told: messaging.test.js's Codex bot's part, the mail and the
+ * wait. Its mail is read with the kit's check, never the bare `orca
+ * orchestration check` Orca's notice names, which leaves it unread (#555).
+ */
+const promptOf = (bots, bot) => [
   'You are a system test\'s bot and you own nothing.',
   `Your bots folder is ${bots}.`,
   'Do nothing that is not written here: read no file, write nothing, and run no command but the ones below.',
-  'When a line arrives saying fleet mail is waiting, run exactly the command that line names to read it,',
+  'Whenever anything tells you that you have fleet mail or orchestration messages, new or not yet read,',
+  `do not run the command it names. Run exactly this command instead to read it: ${KIT} message check --bots ${bots} --bot ${bot.name} --session daily`,
   'and then print MAIL: followed by the text of the message.',
   `If you ever need the kit, it is ${KIT}.`,
   'Say nothing now and wait.',
@@ -329,8 +336,8 @@ test('a GPT-6 Codex bot told to wait sleeps in its turn; a notice to it is obser
     ]);
   }
   // The sleep tool left on for sleep-codex alone; taken away for awake-codex, as for every system test's Codex (#432).
-  obkJson(['session', 'add', '--bots', bots, '--bot', SLEEPER.name, '--name', 'daily', `--prompt=${promptOf(bots)}`, ...codexTrustArgs(bots, { sleep: true })]);
-  obkJson(['session', 'add', '--bots', bots, '--bot', AWAKE.name, '--name', 'daily', `--prompt=${promptOf(bots)}`, ...codexTrustArgs(bots)]);
+  obkJson(['session', 'add', '--bots', bots, '--bot', SLEEPER.name, '--name', 'daily', `--prompt=${promptOf(bots, SLEEPER)}`, ...codexTrustArgs(bots, { sleep: true })]);
+  obkJson(['session', 'add', '--bots', bots, '--bot', AWAKE.name, '--name', 'daily', `--prompt=${promptOf(bots, AWAKE)}`, ...codexTrustArgs(bots)]);
 
   // Both up, then the premises: each tab's codex, on the right command line,
   // and the book holding each conversation (the kit's hook ran).
@@ -381,8 +388,8 @@ test('a GPT-6 Codex bot told to wait sleeps in its turn; a notice to it is obser
   const sentAt = Date.now();
   const toSleeper = send(SLEEPER);
   assert.equal(toSleeper.sent, true, `the premise: the mail to ${SLEEPER.title} is queued: ${JSON.stringify(toSleeper)}`);
-  const { nudged, nudgeUnseen, nudgeTrouble, blocked } = toSleeper;
-  t.diagnostic(`${SLEEPER.title}: the send said ${JSON.stringify({ nudged, nudgeUnseen, nudgeTrouble, blocked })}`);
+  const { transport, interrupted, interruptTrouble } = toSleeper;
+  t.diagnostic(`${SLEEPER.title}: the send said ${JSON.stringify({ transport, interrupted, interruptTrouble })}`);
 
   // Watched together, up to READ_MS: the awake bot reading its mail, and what
   // becomes of the sleeper. The watch stops as soon as both have read their
@@ -406,7 +413,7 @@ test('a GPT-6 Codex bot told to wait sleeps in its turn; a notice to it is obser
   t.diagnostic(`${SLEEPER.title}: it read its mail ${after(seen.sleeperRead)}`);
   t.diagnostic(`${SLEEPER.title}: its tab went idle ${after(seen.sleeperIdle)}`);
   t.diagnostic(`${SLEEPER.title}: sleep calls now: ${JSON.stringify(sleepsOf(ids[SLEEPER.name]).map(({ at, durationMs, endedAt }) => ({ at: new Date(at).toISOString(), durationMs, ended: endedAt === null ? null : new Date(endedAt).toISOString() })))}`);
-  t.diagnostic(`${AWAKE.title}: the send said ${JSON.stringify({ nudged: toAwake.nudged, nudgeUnseen: toAwake.nudgeUnseen, nudgeTrouble: toAwake.nudgeTrouble, blocked: toAwake.blocked })}; it read its mail ${after(seen.awakeRead)}`);
+  t.diagnostic(`${AWAKE.title}: the send said ${JSON.stringify({ transport: toAwake.transport, interrupted: toAwake.interrupted, interruptTrouble: toAwake.interruptTrouble })}; it read its mail ${after(seen.awakeRead)}`);
 
   // 3, asserted: the awake bot read its mail, and never slept.
   assert.notEqual(seen.awakeRead, null, `${AWAKE.title}, with sleep_tool off, should read its mail within ${READ_MS / 1000}s and print its text after MAIL:.${whatIsUp(awake.terminal)}`);
