@@ -504,9 +504,11 @@ test('a long-lived session\'s first-run screens answered through the kit: Codex\
     '--charter', `${CLAUDE_BOT} exists for one system test run and owns nothing.`,
   ]);
   obkJson([
-    'session', 'add', '--bots', bots, '--bot', CLAUDE_BOT, '--name', CLAUDE_SESSION, '--approval', 'ask',
+    'session', 'add', '--bots', bots, '--bot', CLAUDE_BOT, '--name', CLAUDE_SESSION,
     '--prompt', `You are a system test's session and you own nothing. Do not run any command, read or write any file, or use any tool. Reply now with ${READY_WORD} and nothing else, then wait.`,
   ]);
+  // session add no longer takes --approval: the kit sets it through permission approval.
+  obkJson(['permission', 'approval', '--bots', bots, '--bot', CLAUDE_BOT, '--session', CLAUDE_SESSION, '--approval', 'ask']);
 
   const lead = { handle: openedFor(obkJson(['up', '--bots', bots, '--bot', CLAUDE_BOT]), CLAUDE_SESSION).terminal };
   lead.tabId = sessionIn(claudeHome, CLAUDE_SESSION).tab;
