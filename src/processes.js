@@ -115,7 +115,8 @@ export async function stopProcesses(dirs) {
     else if (sent.refused !== undefined) refused.set(one.pid, { ...one, why: `kill refused ${name}: ${sent.refused}` });
     else {
       refused.delete(one.pid);
-      tracked.set(one.pid, { ...one, signal: name, at: Date.now() });
+      // `late`: its `kill` was cut off, so whether it went is not known.
+      tracked.set(one.pid, { ...one, signal: name, at: Date.now(), late: sent.late === true });
     }
   };
   const first = (pid, one) => ({ ...one, pgid: table.get(pid).pgid, started: table.get(pid).started });
@@ -130,9 +131,10 @@ export async function stopProcesses(dirs) {
   // started meanwhile is theirs as much as they are (R1): it is tracked from
   // that read, even after its parent has gone, and is given the same, and so
   // is any new process whose working folder is in the work dir, so each read
-  // until ADOPT_MS reads the working folders too. One that only joined a group
-  // signalled whole, and works elsewhere, is not shown to be theirs, and is
-  // named and never signalled (R2, review of PR #543).
+  // reads the working folders too; one found after ADOPT_MS, or run by another
+  // user, is named and sent nothing. One that only joined a group signalled
+  // whole, and works elsewhere, is not shown to be theirs, and is named and
+  // never signalled, whoever runs it (R2, review of PR #543).
   // All of it ends by STOP_MS: each read is given only what is left of it, and
   // the clock is asked again after each read and before each signal. Where
   // the table or the working folders can no longer be read, nothing more is
@@ -155,39 +157,39 @@ export async function stopProcesses(dirs) {
     const live = (one) => !ended.has(one.pid) && now.get(one.pid)?.started === one.started;
     for (const one of tracked.values()) if (!live(one)) ended.add(one.pid);
 
-    if (Date.now() - begun < ADOPT_MS) {
-      // The retire's own run as it is now: the `ps` and `lsof` it starts for
-      // each read work where it works, which can be the work dir.
-      const ours = ownRun(now);
-      const fresh = [...now].filter(([pid, seen]) => !tracked.has(pid) && !refused.has(pid) && !named.has(pid) && !mine.has(pid) && !ours.has(pid) && seen.uid === uid);
-      // A process whose working folder is in a work dir is that session's
-      // own by R1, whatever its group and its parent (review of PR #543).
-      let folders = new Map();
-      if (fresh.length > 0) {
-        const folderRead = workingFolders(budget());
-        if (folderRead.unreadable !== undefined) {
-          lost = folderRead.unreadable;
-          break;
-        }
-        folders = folderRead.cwds;
+    // Every read looks at what is new, whatever the time: what it may still
+    // signal waits on the deadline, what it has to name does not.
+    // The retire's own run as it is now: the `ps` and `lsof` it starts for
+    // each read work where it works, which can be the work dir.
+    const ours = ownRun(now);
+    const fresh = [...now].filter(([pid]) => !tracked.has(pid) && !refused.has(pid) && !named.has(pid) && !mine.has(pid) && !ours.has(pid));
+    // A process whose working folder is in a work dir is that session's
+    // own by R1, whatever its group and its parent (review of PR #543).
+    let folders = new Map();
+    if (fresh.length > 0) {
+      const folderRead = workingFolders(budget());
+      if (folderRead.unreadable !== undefined) {
+        lost = folderRead.unreadable;
+        break;
       }
-      for (const [pid, seen] of fresh) {
-        const one = { pid, cwd: folders.get(pid) ?? null, command: seen.command };
-        const parent = [...ancestorsOf(now, pid)].map((it) => tracked.get(it)).find((it) => it !== undefined && live(it));
-        const home = one.cwd === null ? undefined : where.find(({ real }) => inside(one.cwd, real));
-        const theirs = parent ?? home;
-        if (theirs !== undefined) {
-          // The read may have used up the time for looking: then it is
-          // named, and the others this read found are still looked at.
-          if (Date.now() - begun >= ADOPT_MS) {
-            named.add(pid);
-            left.push({ session: theirs.session, ...one, why: 'it was found after the time for new processes ran out, so the kit sent it nothing' });
-          } else note({ session: theirs.session, ...one, pgid: seen.pgid, started: seen.started }, send('TERM', pid), 'SIGTERM');
-        } else if (whole.has(seen.pgid)) {
-          const mate = [...tracked.values()].find((it) => it.pgid === seen.pgid);
-          named.add(pid);
-          left.push({ session: mate.session, ...one, why: `it joined process group ${seen.pgid} of ${mate.session}'s processes, and the kit cannot show it is ${mate.session}'s own` });
-        }
+      folders = folderRead.cwds;
+    }
+    const name = (session, one, why) => {
+      named.add(one.pid);
+      left.push({ session, ...one, why });
+    };
+    for (const [pid, seen] of fresh) {
+      const one = { pid, cwd: folders.get(pid) ?? null, command: seen.command };
+      const parent = [...ancestorsOf(now, pid)].map((it) => tracked.get(it)).find((it) => it !== undefined && live(it));
+      const home = one.cwd === null ? undefined : where.find(({ real }) => inside(one.cwd, real));
+      const theirs = parent ?? home;
+      if (theirs !== undefined) {
+        if (seen.uid !== uid) name(theirs.session, one, 'it runs as another user, so the kit sends it nothing');
+        else if (Date.now() - begun >= ADOPT_MS) name(theirs.session, one, 'it was found after the time for new processes ran out, so the kit sent it nothing');
+        else note({ session: theirs.session, ...one, pgid: seen.pgid, started: seen.started }, send('TERM', pid), 'SIGTERM');
+      } else if (whole.has(seen.pgid)) {
+        const mate = [...tracked.values()].find((it) => it.pgid === seen.pgid);
+        name(mate.session, one, `it joined process group ${seen.pgid} of ${mate.session}'s processes, and the kit cannot show it is ${mate.session}'s own`);
       }
     }
 
@@ -211,6 +213,8 @@ export async function stopProcesses(dirs) {
       let why = `it still runs after ${one.signal}`;
       if (lost !== undefined) why = `the kit could not read the processes again after ${one.signal}, so it sent nothing more: ${lost}`;
       else if (lastRead === undefined || lastRead < one.at) why = `the kit could not confirm that its ${one.signal} went and that it ended: the stop's time ran out before a read after it`;
+      // A cut-off kill is said whatever else is: both are true (review of PR #543).
+      if (one.late) why = `the kit could not confirm that its ${one.signal} went, since kill did not answer in time; ${why}`;
       left.push(shown({ ...one, why }));
     }
   }
@@ -218,7 +222,7 @@ export async function stopProcesses(dirs) {
 }
 
 /** A process as the answer gives it, without what the kit kept to know it again. */
-const shown = ({ pgid: _, started: __, at: ___, signal, why, ...one }) => (why === undefined ? { ...one, signal } : { ...one, why });
+const shown = ({ pgid: _, started: __, at: ___, late: ____, signal, why, ...one }) => (why === undefined ? { ...one, signal } : { ...one, why });
 
 /**
  * The processes that run in the work dirs in `dirs`, a list of `{ session, dir
