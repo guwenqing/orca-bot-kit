@@ -658,6 +658,7 @@ test('the kit types no mail interrupt and no skills reload into a tab showing Cl
   assert.equal(idleSent.transport, 'orca', `through Orca, where the kit carries the letter and its --interrupt: ${JSON.stringify(idleSent)}`);
   assert.equal(idleSent.interruptTrouble, undefined, `the premise: with no question on the staged screen the kit's gate lets the interrupt through, got: ${JSON.stringify(idleSent)}`);
   if (idleSent.interrupted === true) {
+    // Exactly '\x1b' now relies on Orca giving no notice to this orphaned tab in a throwaway project (tech notes): the list-up stage's mail is still in target's mailbox.
     await until('the Escape to reach the staging program', MOVE_MS, async () => (
       (keysRead() ?? '') === '\x1b' ? true : undefined
     ), () => ` It read: ${JSON.stringify(keysRead())}.`);
