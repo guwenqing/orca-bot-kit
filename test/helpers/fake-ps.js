@@ -7,12 +7,13 @@
 //
 //   <ps> -o pid=,ppid=,tpgid=,comm= -p <pid>
 //
-// and nothing else but the environment read further down (#318). Any other
-// shape is refused here with exit 70, the way the
+// and nothing else but the environment and table reads further down (#318,
+// #537). Any other shape is refused here with exit 70, the way the
 // fake Orca falls over on a close it must never be asked for: `ps` is a reader
 // for the kit and never a road to a `kill` (AGENTS.md, 2026-09-20), and a call
 // with other flags is a call that was not thought through. Every call, refused
-// or not, is written to ps.log in the fake Orca's directory for a test to read.
+// or not, is written to ps.log in the fake Orca's directory for a test to read,
+// `{ args, at }` per line, `at` in ms since the epoch when it was asked.
 //
 // What a tab holds, measured live on Orca 1.4.209, Claude Code 2.1.281, Codex
 // 0.156.1 (#232):
@@ -117,11 +118,67 @@
 // that long, after the call is written to ps.log. A delay longer than the test
 // is a `ps` that never answers.
 //
+// It answers a third question (#537): the whole process table, which the kit
+// reads when it retires a session, to find what the session left running. The
+// kit asks, once per look,
+//
+//   <ps> -A -ww -o pid=,ppid=,pgid=,uid=,stat=,lstart=,command=
+//
+// and gets one line per process: pid, parent pid, process group, uid, state,
+// the time it started, then the whole command line, spaces and all. The start
+// time is in `ps`'s own form, `Www Mmm d HH:MM:SS YYYY`, with a space before a
+// one-digit day. One real line, on this machine (#537):
+//
+//       1     0     1     0 Rs   Fri Oct  9 14:26:20 2026     /sbin/launchd
+//
+// A pid with its start time is one process: the system can give a pid out
+// again, never with the same start time. A state that starts with `Z` is a
+// zombie: it has exited and only waits for its parent to read its status. The
+// table is `processes` in state.json, which a test sets, and after it the fake
+// ps's own process, as a real `ps -A` always lists itself, so the table is
+// never empty. The tabs' own processes above are not in it. Left unset, the
+// table holds the fake ps alone: nothing sits in a work dir, and a retire stops
+// nothing. The fake ps's own row is its real pid and its parent's, the kit's,
+// with a group of its own and no working folder from lsof; the kit's own group
+// is not known here, so that much is made up. Each entry is
+//
+//   { pid, ppid, pgid, uid, stat, startedAt, command, cwd, ...how it takes a signal }
+//
+// with `uid` the user's own (`process.getuid()`) and `stat` 'S' when left out.
+// `startedAt` is the start time in ms since the epoch, printed in UTC; left
+// out, it is a time on 2026-10-10 that the pid gives, the same at every read.
+// `appearsAfterMs: n` on an entry keeps the process out of the table, out of
+// lsof's records and out of the fake kill's reach until n ms after the first
+// signal the fake kill was asked for: a process started during the wait.
+// `appearsAfterReads: n` does the same until the nth read of the table after
+// the first signal (1 is the first read after it), and `exitsAfterReads: n`
+// ends the process just before that read, as `exitsAtRead` does, counting
+// from the first signal: steps of the wait tied to the kit's own reads.
+// `exitsAtRead: n` on an entry ends that process just before the nth read of
+// the table (1 is the first, the reads counted from ps.log): from that read on
+// it is not in the table, and its children's parent pid is 1, as the system
+// gives an orphan to launchd.
+// `cwd` is what the fake lsof gives as its working folder (helpers/fake-tty.js);
+// left out, lsof names none. How it takes a signal is the fake kill's
+// (helpers/fake-kill.js). `pid`, `ppid` or `pgid` may be the word 'kit': the
+// pid of the process that runs this fake, which is the kit's own run, since
+// the kit starts `ps`, `lsof` and `kill` as its own children. So a table can
+// list the retire itself, in a work dir, under the process that started it.
+//
 // And one way it answers nothing at all (#298): `ps` in state.json set to
 // 'not-permitted' is a `ps` that does not start, as inside Codex's
 // `workspace-write` sandbox, where /bin/ps gave `Operation not permitted` and
 // exit 126 on every pid, the caller's own included (seen live, codex-cli
-// 0.156.1). Every call, of either shape, fails that way, and is still logged.
+// 0.156.1). Every call, of every shape, fails that way, and is still logged.
+// 'fails-after-kill' answers as usual until the fake kill (helpers/fake-kill.js)
+// has been called once, and from then on fails every call that same way: a
+// table that could be read before a signal and not after it.
+//
+// `psDelayAfterKillMs` holds each read of the table back that long, but only
+// once the fake kill has been called: a read made slow during the wait. Each
+// read of the table that is answered is also written to ps-table.log, `{ at,
+// done }` per line, ms since the epoch: when it was asked and when it was
+// answered. A read the kit gave up on and killed is not there.
 //
 // What Orca's runtime says is in front of a tab (#298) is here too, since it
 // reads the same tab: `runtimeViewOf` gives the `process` that
@@ -137,7 +194,7 @@
 // 'no-pid') is a tab holding the harness it was launched with, which the
 // runtime sees.
 
-import { appendFileSync, readFileSync } from 'node:fs';
+import { appendFileSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 /** The argv the kit may hand `ps` to ask who is in front, but for the pid on the end. */
@@ -145,6 +202,80 @@ export const PS_READ = ['-o', 'pid=,ppid=,tpgid=,comm=', '-p'];
 
 /** The argv the kit may hand `ps` to read one process's environment (#318), but for the pid on the end. */
 export const PS_ENVIRONMENT = ['-E', '-ww', '-o', 'command=', '-p'];
+
+/** The argv the kit may hand `ps` to read the whole process table (#537). */
+export const PS_TABLE = ['-A', '-ww', '-o', 'pid=,ppid=,pgid=,uid=,stat=,lstart=,command='];
+
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** A start time as `ps -o lstart=` prints it, `Sat Oct 10 08:00:00 2026`, from ms since the epoch, in UTC. */
+export function lstartOf(ms) {
+  const at = new Date(ms);
+  const two = (n) => String(n).padStart(2, '0');
+  return `${DAYS[at.getUTCDay()]} ${MONTHS[at.getUTCMonth()]} ${String(at.getUTCDate()).padStart(2, ' ')} `
+    + `${two(at.getUTCHours())}:${two(at.getUTCMinutes())}:${two(at.getUTCSeconds())} ${at.getUTCFullYear()}`;
+}
+
+/** The start time of an entry that gives none: 2026-10-10 08:00:00 UTC, plus one second for each pid mod 3600. */
+const defaultStart = (pid) => Date.UTC(2026, 9, 10, 8, 0, 0) + (Number(pid) % 3600) * 1000;
+
+/** When the fake kill was first called, in ms since the epoch, or undefined before that. */
+function firstSignalAt() {
+  const dir = process.env.OBK_FAKE_ORCA_DIR;
+  try {
+    const first = readFileSync(path.join(dir, 'kill.log'), 'utf8').split('\n').find((line) => line !== '');
+    return first === undefined ? undefined : JSON.parse(first).at;
+  } catch {
+    return undefined;
+  }
+}
+
+/** How many reads of the table were made since the first signal, ps.log's `at` against kill.log's. */
+function readsSinceSignal() {
+  const at = firstSignalAt();
+  if (at === undefined) return 0;
+  try {
+    return readFileSync(path.join(process.env.OBK_FAKE_ORCA_DIR, 'ps.log'), 'utf8').split('\n')
+      .filter((line) => line !== '')
+      .map((line) => JSON.parse(line))
+      .filter((call) => JSON.stringify(call.args) === JSON.stringify(PS_TABLE) && call.at >= at)
+      .length;
+  } catch {
+    return 0;
+  }
+}
+
+/** Whether an entry's process has started yet: see `appearsAfterMs` and `appearsAfterReads` above. */
+function started(entry) {
+  if (Number.isFinite(entry.appearsAfterReads) && readsSinceSignal() < entry.appearsAfterReads) return false;
+  if (!Number.isFinite(entry.appearsAfterMs)) return true;
+  const at = firstSignalAt();
+  return at !== undefined && Date.now() >= at + entry.appearsAfterMs;
+}
+
+/** One of a table entry's ids as the fake answers it: 'kit' is the pid of whoever runs this fake. */
+const idOf = (value) => (value === 'kit' ? process.ppid : value);
+
+/**
+ * The process table a test set, as `ps` reads it: one `{ pid, ppid, pgid, uid,
+ * stat, startedAt, command, cwd, entry }` per entry of `processes` in
+ * state.json that has started, with 'kit' given as the kit's pid and the
+ * defaults filled in. `entry` is the entry itself, for the fake kill to change.
+ */
+export function tableOf(state) {
+  return (state.processes ?? []).filter(started).map((entry) => ({
+    pid: idOf(entry.pid),
+    ppid: idOf(entry.ppid ?? 1),
+    pgid: idOf(entry.pgid ?? entry.pid),
+    uid: entry.uid ?? process.getuid(),
+    stat: entry.stat ?? 'S',
+    startedAt: entry.startedAt ?? defaultStart(idOf(entry.pid)),
+    command: entry.command ?? 'sleep 600',
+    cwd: entry.cwd,
+    entry,
+  }));
+}
 
 /** The harness a tab was launched with: the first line typed into it names one, or none was. */
 export function launchedIn(terminal) {
@@ -377,6 +508,7 @@ function environmentOf(state, terminal, row, dir) {
 
 /** Run as `ps`: read the fake Orca's world and answer for one pid. */
 export function runPs() {
+  const asked = Date.now();
   const dir = process.env.OBK_FAKE_ORCA_DIR;
   if (dir === undefined) {
     process.stderr.write('fake ps: OBK_FAKE_ORCA_DIR is not set\n');
@@ -384,7 +516,7 @@ export function runPs() {
   }
 
   const args = process.argv.slice(2);
-  appendFileSync(path.join(dir, 'ps.log'), `${JSON.stringify({ args })}\n`);
+  appendFileSync(path.join(dir, 'ps.log'), `${JSON.stringify({ args, at: asked })}\n`);
 
   const state = JSON.parse(readFileSync(path.join(dir, 'state.json'), 'utf8'));
   // A `ps` slow to answer, or one that never does (#498, the review of PR
@@ -393,9 +525,47 @@ export function runPs() {
   if (Number.isFinite(state.psDelayMs) && state.psDelayMs > 0) {
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, state.psDelayMs);
   }
-  if (state.ps === 'not-permitted') {
+  const killed = () => {
+    try {
+      return readFileSync(path.join(dir, 'kill.log'), 'utf8').trim() !== '';
+    } catch {
+      return false;
+    }
+  };
+  if (state.ps === 'not-permitted' || (state.ps === 'fails-after-kill' && killed())) {
     process.stderr.write(`${process.argv[1]}: Operation not permitted\n`);
     process.exit(126);
+  }
+
+  if (args.length === PS_TABLE.length && PS_TABLE.every((word, at) => args[at] === word)) {
+    if (killed() && Number.isFinite(state.psDelayAfterKillMs) && state.psDelayAfterKillMs > 0) {
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, state.psDelayAfterKillMs);
+    }
+    // The processes whose time has come end before this read is answered.
+    const reads = readFileSync(path.join(dir, 'ps.log'), 'utf8').split('\n')
+      .filter((line) => line !== '' && JSON.stringify(JSON.parse(line).args) === JSON.stringify(PS_TABLE))
+      .length;
+    const sinceSignal = readsSinceSignal();
+    const ending = (state.processes ?? []).filter((entry) => (Number.isInteger(entry.exitsAtRead) && entry.exitsAtRead <= reads)
+      || (Number.isInteger(entry.exitsAfterReads) && sinceSignal > 0 && entry.exitsAfterReads <= sinceSignal));
+    if (ending.length > 0) {
+      const pids = new Set(ending.map((entry) => idOf(entry.pid)));
+      state.processes = state.processes.filter((entry) => !ending.includes(entry));
+      for (const entry of state.processes) {
+        if (pids.has(idOf(entry.ppid))) entry.ppid = 1;
+      }
+      const stateFile = path.join(dir, 'state.json');
+      const next = `${stateFile}.ps.${process.pid}.tmp`;
+      writeFileSync(next, `${JSON.stringify(state, null, 2)}\n`);
+      renameSync(next, stateFile);
+    }
+    const column = (value) => String(value).padStart(5);
+    const itself = { pid: process.pid, ppid: process.ppid, pgid: process.pid, uid: process.getuid(), stat: 'R+', startedAt: Date.now(), command: `ps ${PS_TABLE.join(' ')}` };
+    process.stdout.write([...tableOf(state), itself]
+      .map((row) => `${column(row.pid)} ${column(row.ppid)} ${column(row.pgid)} ${column(row.uid)} ${row.stat.padEnd(4)} ${lstartOf(row.startedAt)}     ${row.command}\n`)
+      .join(''));
+    appendFileSync(path.join(dir, 'ps-table.log'), `${JSON.stringify({ at: asked, done: Date.now() })}\n`);
+    process.exit(0);
   }
 
   const asks = (shape) => args.length === shape.length + 1

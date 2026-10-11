@@ -561,6 +561,22 @@ The kit's own code does not change user-level settings on its own initiative.
 Codex started in a brand-new folder on this machine showed no trust question at all (the owner's global
 config puts it in "YOLO mode"), only the update offer.
 
+### What a session leaves running when its tab closes (#537)
+
+Seen twice on 2026-10-09 and 2026-10-10 (#537): after `obk temp retire` closed a temporary session's tab,
+the test runs it had started in its work dir ran on with launchd (pid 1) as their parent, one for 17 h 45 m
+at 80% CPU, and one full suite of 11 processes in one process group, some of them working in the run's
+throwaway `obk-*` folders. Closing the tab ends the harness, not what its commands started. **seen** (live,
+by the owner and the architect)
+
+macOS has no working folder in `ps`. `lsof -a -d cwd -u <uid> -Fpn` lists each of the user's processes
+with its working folder (`p<pid>`, `fcwd`, `n<path>`), as a real path, and exits 0; `ps -A -ww -o
+pid=,ppid=,pgid=,uid=,stat=,lstart=,command=` gives the tree, the groups, and when each process started,
+as five words (`Fri Oct  9 14:26:20 2026`, a space before a one-digit day). A pid can be taken again and
+a process can change its own command line, so the kit knows a process again by its pid and start time. `/bin/kill -s TERM -- -<pgid>`
+signals a group and `/bin/kill -s TERM -- <pid>` one process; a pid that is not there gives `kill: <pid>:
+No such process` and exit 1. **verified** (live, 2026-10-10, macOS 27.0.1, by developer-537)
+
 ### Session resume inside Orca (verified)
 
 Orca stores a resume record per pane key (`sleepingAgentSessionsByPaneKey`) and relaunches with `claude --resume <id>` / `codex resume <id>`. Closing a tab drops the record. Orca's Session History can find old transcripts but does not know which bot and session they belonged to. This is why the kit keeps its own book (ADR 0012).

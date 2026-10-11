@@ -11,6 +11,9 @@
 //   <root>/bin/fake-lsof, <root>/bin/fake-stty
 //                        fake lsof and stty (helpers/fake-tty.js), what
 //                        OBK_LSOF and OBK_STTY name
+//   <root>/bin/fake-kill fake kill (helpers/fake-kill.js), what OBK_KILL names:
+//                        it writes down each signal and changes the fake ps's
+//                        process table, and sends nothing (#537)
 //   <root>/orca-fake/    the fake Orca's world: state.json and calls.log
 //   <root>/cwd           the working directory the CLI is spawned from
 //   <root>/home          HOME, so a stray write to the home dir shows up here
@@ -66,6 +69,7 @@ export const cliEntry = path.join(repoRoot, 'src', 'cli.js');
 const fakeOrcaEntry = fileURLToPath(new URL('./fake-orca.js', import.meta.url));
 const fakePsEntry = fileURLToPath(new URL('./fake-ps.js', import.meta.url));
 const fakeTtyEntry = fileURLToPath(new URL('./fake-tty.js', import.meta.url));
+const fakeKillEntry = fileURLToPath(new URL('./fake-kill.js', import.meta.url));
 const asPlatformEntry = fileURLToPath(new URL('./as-platform.js', import.meta.url));
 
 /** Where the fake Orca keeps its world, inside a sandbox. */
@@ -249,6 +253,21 @@ export async function createSandbox(t) {
     await chmod(fakeTty[tool], 0o755);
   }
 
+  // The fake kill (#537), changing the same world: a retire stops what its
+  // session left running, and the suite must never send a real signal. Not
+  // called `kill`, for the same reason as the fake ps; only OBK_KILL names it.
+  const fakeKill = path.join(bin, 'fake-kill');
+  await writeFile(fakeKill, [
+    '#!/usr/bin/env node',
+    `process.env.OBK_FAKE_ORCA_DIR = ${JSON.stringify(fakeDir)};`,
+    `import(${JSON.stringify(pathToFileURL(fakeKillEntry).href)}).then((kill) => kill.runKill()).catch((error) => {`,
+    "  process.stderr.write(`fake kill: ${error && error.stack || error}\\n`);",
+    '  process.exit(70);',
+    '});',
+    '',
+  ].join('\n'));
+  await chmod(fakeKill, 0o755);
+
   // The fake osascript (#343): the kit reloads Orca's window through it, and
   // the real one would reach System Events and the real Orca's menu. Not called
   // `osascript`, for the same reason as the fake ps; only OBK_OSASCRIPT names it.
@@ -279,6 +298,7 @@ export async function createSandbox(t) {
     OBK_OSASCRIPT: fakeOsascript,
     OBK_LSOF: fakeTty.lsof,
     OBK_STTY: fakeTty.stty,
+    OBK_KILL: fakeKill,
   };
 
   const readState = async () => JSON.parse(await readFile(stateFile, 'utf8'));
@@ -292,7 +312,7 @@ export async function createSandbox(t) {
     await rename(next, stateFile);
   };
 
-  /** One of the fake lsof's or stty's logs, `{ args, at }` per call, oldest first. */
+  /** One of the fake lsof's, stty's or kill's logs, one object per call, oldest first. */
   const ttyLog = async (name) => {
     try {
       return (await readFile(path.join(fakeDir, name), 'utf8'))
@@ -367,9 +387,14 @@ export async function createSandbox(t) {
       env: options.env ?? env,
       stdin: options.stdin,
     }),
-    /** The fake ps: what it is, and every argv the kit handed it, `{ args }` in order. */
+    /**
+     * The fake ps: what it is, every argv the kit handed it, `{ args, at }` in
+     * order, and `tableReads`, each read of the whole process table it
+     * answered, `{ at, done }` in order (helpers/fake-ps.js, #537).
+     */
     ps: {
       cli: fakePs,
+      tableReads: () => ttyLog('ps-table.log'),
       async calls() {
         try {
           return (await readFile(path.join(fakeDir, 'ps.log'), 'utf8'))
@@ -389,6 +414,12 @@ export async function createSandbox(t) {
      */
     lsof: { cli: fakeTty.lsof, calls: () => ttyLog('lsof.log') },
     stty: { cli: fakeTty.stty, calls: () => ttyLog('stty.log') },
+    /**
+     * The fake kill (helpers/fake-kill.js): what it is, and every call the kit
+     * made to it, `{ args, at, caller, tabs }` in order. It signals nothing.
+     * The process table it changes is `processes`, set through `orca.set`.
+     */
+    kill: { cli: fakeKill, calls: () => ttyLog('kill.log') },
     /**
      * The fake osascript (helpers/fake-osascript.js): what it is, every argv the
      * kit handed it, `{ args }` in order, and `answer`, which tells it what to
