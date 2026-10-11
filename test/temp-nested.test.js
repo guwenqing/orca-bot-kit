@@ -63,7 +63,7 @@ import {
   typedInto,
 } from './helpers/cli.js';
 import { agentsIn, blockIn, headingsIn, sectionsIn } from './helpers/rules.js';
-import { CODEX_AFTER_TRUST, CODEX_HOOKS_REVIEW_THREE } from './helpers/screens.js';
+import { CODEX_AFTER_TRUST, CODEX_HOOKS_REVIEW_TWO } from './helpers/screens.js';
 
 const BOT = 'temp-bot';
 
@@ -410,7 +410,7 @@ test('N4 temp trust-hooks run in a temporary maker\'s tab answers its Codex sess
   const reviewer = await liveTab(box, bots, BOT, 'reviewer');
   await box.orca.set({
     terminals: (await box.orca.terminals()).map((one) => (one.tabId === reviewer.tabId
-      ? { ...one, screen: CODEX_HOOKS_REVIEW_THREE, screenAfterSend: CODEX_AFTER_TRUST }
+      ? { ...one, screen: CODEX_HOOKS_REVIEW_TWO, screenAfterSend: CODEX_AFTER_TRUST }
       : one)),
   });
   const before = Object.fromEntries((await box.orca.terminals()).map((one) => [one.tabId, sentInto(one).length]));

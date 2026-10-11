@@ -49,8 +49,9 @@ test('CL2 neither list names a command the CLI does not know, and neither names 
 });
 
 // #548 R1 moved restart and bot create from the default set to the kept-back
-// list: 34 and eight now, where #527 had 36 and six.
-test('CL3 the two lists are the requirement\'s: the default set\'s 34 commands, and the eight kept back', () => {
+// list. #555 removed `session nudge` and `session mail` from the kit: 32 and
+// eight now, where #548 had 34 and eight, and #527 had 36 and six.
+test('CL3 the two lists are the requirement\'s: the default set\'s 32 commands, and the eight kept back', () => {
   const { DEFAULT_COMMANDS, KEPT_BACK } = lists();
 
   assert.deepEqual(sorted(DEFAULT_COMMANDS), sorted(KIT_COMMANDS));

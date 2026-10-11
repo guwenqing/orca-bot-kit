@@ -17,9 +17,7 @@
 //
 // Closing a tab here ends the conversation in it on purpose, so unlike a
 // restart or a pause it does not wait for the book to know which one it was.
-// The mailbox Runs stay: Orca has no way to remove one (ADR 0035). What the
-// kit knows of mail sent to a session and not read with `obk message check`
-// is said, with who sent it, so it is not lost without a word (#509).
+// The mailbox Runs stay: Orca has no way to remove one (ADR 0042).
 //
 // What a session started in its work dir and left running is stopped once its
 // tab is closed, and named (#537): see processes.js.
@@ -35,7 +33,6 @@ import { fleetMember } from './pause.js';
 import { stopProcesses } from './processes.js';
 import { closeTabs, commandLine, tabsToClose } from './restart.js';
 import { unlinkSkills } from './skills.js';
-import { takeUnread } from './unread.js';
 import { oldPromptPath, promptPath, sessionsOf } from './up.js';
 
 /** Where retired bots go: beside `bots/`, where nothing the kit runs looks. */
@@ -45,12 +42,10 @@ export const retiredDir = (bots) => path.join(bots, 'retired');
  * Retire the session `session` of the bot `bot`, and first the temporary
  * sessions it made, and theirs (#464, ADR 0033). Returns `{ bot, session,
  * closed, retiredWith }`, and `promptsLeft` when its prompt file could not be
- * removed, and `unread: { count, from }` when the kit knows of mail sent to it
- * that it did not read with `obk message check` (#509), and `processes` when
- * it has a work dir: what `stopProcesses` stopped and left of what it started
- * there (#537). `retiredWith` holds one `{ bot, session, maker, closed }` for each
- * session that went with it, deepest first, with its own `promptsLeft`,
- * `unread` and `processes`.
+ * removed, and `processes` when it has a work dir: what `stopProcesses`
+ * stopped and left of what it started there (#537). `retiredWith` holds one
+ * `{ bot, session, maker, closed }` for each session that went with it,
+ * deepest first, with its own `promptsLeft` and `processes`.
  */
 export async function retireSession(bots, { bot, session }) {
   const home = fleetMember(bots, bot, 'retire', session);
@@ -89,9 +84,8 @@ export async function retireSession(bots, { bot, session }) {
     throw error;
   }
   const left = removePrompts(promptFiles(bots, bot, session));
-  const unread = takeUnread(home, session);
 
-  return { bot, session, closed, retiredWith, ...left, ...(unread === undefined ? {} : { unread }), ...(processes === undefined ? {} : { processes }) };
+  return { bot, session, closed, retiredWith, ...left, ...(processes === undefined ? {} : { processes }) };
 }
 
 /**
@@ -102,36 +96,22 @@ function goneBefore(session, retiredWith) {
   const names = retiredWith.map((gone) => `${gone.bot}/${gone.session}, a temporary session of ${gone.maker}'s`);
   const left = retiredWith.flatMap((gone) => gone.promptsLeft ?? [])
     .map(({ file, reason }) => ` ${file} could not be removed (${reason}), and nothing reads it. Remove it with  rm ${shellWord(file)}`);
-  // Their hint of unread mail went with them, so this is the only place it is
-  // said (#509 review).
-  const unread = retiredWith.flatMap((gone) => (gone.unread === undefined ? [] : [` ${unreadWords(gone.unread, `${gone.bot}/${gone.session}`)}`]));
   // What they left running is said here too, as the answer would have (#537).
   const processes = retiredWith.flatMap((gone) => [
     ...(gone.processes?.stopped ?? []).map((one) => ` Stopped pid ${one.pid} of ${gone.bot}/${gone.session} with ${one.signal}: ${one.command}.`),
     ...(gone.processes?.left ?? []).map((one) => ` Not stopped, pid ${one.pid} in ${one.cwd ?? 'a folder lsof did not name'}: ${one.command} (${one.why}).`),
     ...(gone.processes?.unreadable === undefined ? [] : [` The kit cannot tell what ${gone.bot}/${gone.session} left running, and stopped nothing: ${gone.processes.unreadable}.`]),
   ]);
-  return `Retired along with ${session} before that, and still retired: ${names.join('; ')}.${unread.join('')}${processes.join('')}${left.join('')}`;
+  return `Retired along with ${session} before that, and still retired: ${names.join('; ')}.${processes.join('')}${left.join('')}`;
 }
-
-/**
- * The mail a retired session did not read, as far as the kit knows (#509): the
- * kit cannot see a read made with Orca's own check, so it says only this.
- */
-export const unreadWords = (unread, who) =>
-  `${unread.count} ${unread.count === 1 ? 'message' : 'messages'} sent to ${who} ${unread.count === 1 ? 'was' : 'were'} not read with obk message check, from ${andList(unread.from)}.`;
-
-/** `a`, `a and b`, `a, b and c`. */
-const andList = (items) => (items.length <= 1 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`);
 
 /**
  * Retire the bot `bot`. Returns `{ bot, closed, project, windowReloaded, moved }`:
  * the tabs it closed, the Orca project it took away (if it had one), whether
  * Orca's window was reloaded after that, and where the bot is now; and
- * `promptsLeft` when a prompt file could not be removed, and `unread: [{
- * session, count, from }]` for its sessions with mail the kit knows was not
- * read with `obk message check` (#509), and `processes` when one of its
- * sessions has a work dir: what `stopProcesses` stopped and left there (#537).
+ * `promptsLeft` when a prompt file could not be removed, and `processes` when
+ * one of its sessions has a work dir: what `stopProcesses` stopped and left
+ * there (#537).
  * When Orca does not confirm the project gone, it returns `{ bot, closed,
  * project, processes, trouble }` instead, and the bot is left where it was.
  */
@@ -187,16 +167,11 @@ export async function retireBot(bots, { bot }) {
 
   const names = new Set([...known.sessions, ...booked].map((session) => session.name));
   const left = removePrompts([...names].flatMap((name) => promptFiles(bots, bot, name)));
-  // Before the folder moves: the hint is filed under the bot home's real path.
-  const unread = [...names].flatMap((name) => {
-    const taken = takeUnread(home, name);
-    return taken === undefined ? [] : [{ session: name, ...taken }];
-  });
   unlinkSkills(home);
   mkdirSync(retiredDir(bots), { recursive: true });
   renameSync(botDir(bots, bot), moved);
 
-  return { bot, closed, ...(project === undefined ? {} : { project: project.id, windowReloaded }), moved, ...left, ...(unread.length === 0 ? {} : { unread }), ...(processes === undefined ? {} : { processes }) };
+  return { bot, closed, ...(project === undefined ? {} : { project: project.id, windowReloaded }), moved, ...left, ...(processes === undefined ? {} : { processes }) };
 }
 
 /** A session's start-prompt files: where the kit writes it, and where it did before #534. */

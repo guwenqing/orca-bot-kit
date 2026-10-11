@@ -326,11 +326,11 @@ export function takeTypingTurn(home, session, waitMs) {
 
 /**
  * A session's turn for one whole line, sent with its return in one go, as the
- * mail nudge is: through the typing turn's gate, waited for `waitMs` at most,
+ * mail interrupt is: through the typing turn's gate, waited for `waitMs` at most,
  * and then held beside any other line, so whole lines never wait on each
  * other, only on typing one key at a time. Returns `{ release }`, or undefined
  * when the gate did not come within `waitMs`. Every whole line the kit types
- * takes it: the nudge, the list line, the skills reload and the grooming line (#482).
+ * takes it: the mail interrupt, the list line, the skills reload and the grooming line (#482).
  */
 export function takeLineTurn(home, session, waitMs) {
   const gate = turnOn(home, session, 'typing', waitMs);
@@ -352,8 +352,9 @@ export const TYPING_WAIT_MS = 5000;
 export const TYPING_HELD = `the kit is typing into it, and it was still at it after ${TYPING_WAIT_MS / 1000} s, so nothing was typed`;
 
 /**
- * How long a typing turn waits for the lines already on their way: a nudge
- * holds its line's turn while Orca waits up to 5 s to see it start a turn.
+ * How long a typing turn waits for the lines already on their way: a line
+ * re-issued to Orca holds its turn while Orca waits up to 5 s to see it start
+ * a turn.
  */
 const LINES_WAIT_MS = 10_000;
 

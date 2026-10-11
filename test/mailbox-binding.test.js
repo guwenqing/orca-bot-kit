@@ -15,8 +15,8 @@
 // The kit used to make each Run from whatever terminal ran `obk up`, so the
 // Run's coordinator was that terminal, often Bot Father's tab, and the notices
 // for a whole fleet's mail landed there. Only the addressed session should be
-// told about its mail. The kit's own nudge line, typed into the session's tab,
-// goes on as it did.
+// told about its mail. Since #555 Orca's notice is the one signal, and the kit
+// types nothing into the session's tab.
 //
 // Orca 1.4.210 narrowed the rules (#317): a process in a tab may bind a Run to
 // its own terminal and no other, so `--from <the session's tab>` from tab A is
@@ -160,9 +160,7 @@ test('#228 check 1: a session brought up from tab A is told about its mail, and 
   const told = await noticesIn(box, coder.handle);
   assert.equal(told.length, 1, `Orca's notice belongs in the session's own tab, got: ${JSON.stringify(told)}`);
   assert.ok(told[0].includes(mailbox), `and it names the session's own mailbox ${mailbox}, got: ${told[0]}`);
-  const nudged = typedSinceLaunch(coder);
-  assert.equal(nudged.length, 1, `and the kit's own line goes on as it did, got: ${JSON.stringify(nudged)}`);
-  assert.ok(nudged[0].includes('obk message check'), `the kit's line, not Orca's, got: ${nudged[0]}`);
+  assert.deepEqual(typedSinceLaunch(coder), [], 'and the kit types nothing of its own (#555): Orca\'s notice is the one signal');
 });
 
 test('#228 check 2: two sessions brought up in one run from tab A are each told about their own mail only', async (t) => {
@@ -185,7 +183,7 @@ test('#228 check 2: two sessions brought up in one run from tab A are each told 
     const told = await noticesIn(box, own.handle);
     assert.equal(told.length, 1, `coder/${session} gets one notice, for its own mail only, got: ${JSON.stringify(told)}`);
     assert.ok(told[0].includes(mailbox), `naming its own mailbox ${mailbox}, got: ${told[0]}`);
-    assert.equal(typedSinceLaunch(own).length, 1, `and one line from the kit, got: ${JSON.stringify(typedSinceLaunch(own))}`);
+    assert.deepEqual(typedSinceLaunch(own), [], 'and nothing typed by the kit (#555)');
   }
 });
 
