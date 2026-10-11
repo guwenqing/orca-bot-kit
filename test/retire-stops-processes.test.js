@@ -1292,3 +1292,122 @@ test('R2 R3 after the adoption deadline, a late newcomer that is the session\'s 
   assert.deepEqual(mate.map((one) => [one.session, one.cwd, one.command]), [['dev', elsewhere, 'node server.js']], `the group-mate after it is still named under left, got: ${JSON.stringify(processes.left)}`);
   assert.match(mate[0].why ?? '', /group|\b62201\b/i, `with why naming the group it joined: ${mate[0].why}`);
 });
+
+// ------------------------------------------------------------------ R2 R3, found in the review of 5fae4f2
+//
+//   - At every read during the wait the kit looks at the new processes, after
+//     the 6 s deadline too: one shown to be the session's own gets TERM only
+//     before the deadline, and after it is named under left because the time
+//     for new processes ran out; a new group-mate that is not its own is
+//     always named under left with its group why.
+//   - The uid check guards signals, not names: a new process of another uid
+//     in a group signalled whole is named with its group why and no folder
+//     (the user's lsof cannot name it); one that descends from the session's
+//     processes is named as running as another user. Neither is signalled.
+//   - A kill call cut off by its own time limit (10 s), not only by the
+//     stop's, leaves the kit not knowing whether the signal went: a process
+//     that then does not end is left as not confirmed, even when later reads
+//     show it running.
+
+test('R2 R3 a table read that ends after the 6 s deadline still names what it shows: a child of the session\'s process because the time ran out, and a new group-mate with its group why', async (t) => {
+  const box = await createSandbox(t);
+  await devFleet(box);
+  const outside = await throwaway(box);
+  const elsewhere = path.join(box.home, 'elsewhere');
+  // 62001 ignores TERM and stays alive and tracked. Just after its TERM,
+  // 62003 starts as its child, in a group of its own, and 62004, no process
+  // of dev's, joins group 62001 and works elsewhere. The next read of the
+  // table takes 6.5 s, so the read that shows both ends after the deadline;
+  // the working folders are read fast.
+  await table(box, [
+    { pid: 62001, ppid: 1, pgid: 62001, cwd: workOf(box, 'dev'), command: 'node respawner.js', ignoresTerm: true },
+    { pid: 62003, ppid: 62001, pgid: 62003, cwd: outside, command: 'node worker.js', ignoresTerm: true, appearsAfterMs: 100 },
+    { pid: 62004, ppid: 1, pgid: 62001, cwd: elsewhere, command: 'node server.js', ignoresTerm: true, appearsAfterMs: 100 },
+  ]);
+  await box.orca.set({ psDelayAfterKillMs: 6500 });
+
+  const answer = answerIn(await retire(box, ['--session', 'dev', '--json']));
+
+  const calls = await kills(box);
+  assert.deepEqual(calls[0], term(-62001), 'the premise: TERM to the group comes first');
+  assert.deepEqual(reaching(calls, 62003, 62004), [], `neither newcomer is signalled by its pid, got: ${JSON.stringify(calls)}`);
+  assert.deepEqual(calls.filter((args) => args[3] === '-62001'), [term(-62001)], `nor the group again, which now holds 62004, got: ${JSON.stringify(calls)}`);
+  const processes = processesIn(answer);
+  assert.deepEqual(processes.stopped.filter((one) => [62003, 62004].includes(one.pid)), [], 'neither is named as stopped');
+  const child = processes.left.filter((one) => one.pid === 62003);
+  assert.equal(child.length, 1, `the child of dev's process is named under left, got: ${JSON.stringify(processes.left)}`);
+  assert.match(child[0].why ?? '', /time/i, `with why saying the time for new processes ran out: ${child[0].why}`);
+  const mate = processes.left.filter((one) => one.pid === 62004);
+  assert.deepEqual(mate.map((one) => [one.session, one.cwd, one.command]), [['dev', elsewhere, 'node server.js']], `the new group-mate is named under left, got: ${JSON.stringify(processes.left)}`);
+  assert.match(mate[0].why ?? '', /group|\b62001\b/i, `with why naming the group it joined: ${mate[0].why}`);
+});
+
+test('R2 a new process of another uid in the group signalled whole is never signalled, and is named under left with its group why and no folder', async (t) => {
+  const box = await createSandbox(t);
+  await devFleet(box);
+  // 62001 ignores TERM, so the kit reads on through the wait. Once its TERM
+  // has gone, 62004, another user's and no process of dev's, is in group
+  // 62001. lsof, asked for the user's own processes, names no folder for it.
+  await table(box, [
+    { pid: 62001, ppid: 1, pgid: 62001, cwd: workOf(box, 'dev'), command: 'node --test', ignoresTerm: true },
+    { pid: 62004, ppid: 1, pgid: 62001, uid: OTHER_UID, cwd: '/Users/someone/elsewhere', command: 'node server.js', appearsAfterMs: 0 },
+  ]);
+
+  const answer = answerIn(await retire(box, ['--session', 'dev', '--json']));
+
+  const calls = await kills(box);
+  assert.deepEqual(calls[0], term(-62001), 'the premise: TERM to the group comes first');
+  assert.deepEqual(reaching(calls, 62004), [], `nothing is sent to 62004 by its pid, got: ${JSON.stringify(calls)}`);
+  assert.deepEqual(calls.filter((args) => args[3] === '-62001'), [term(-62001)], `nor the group again, which now holds 62004, got: ${JSON.stringify(calls)}`);
+  const processes = processesIn(answer);
+  assert.deepEqual(processes.stopped.filter((one) => one.pid === 62004), [], 'it is not named as stopped');
+  const mate = processes.left.filter((one) => one.pid === 62004);
+  assert.deepEqual(mate.map((one) => [one.session, one.cwd, one.command]), [['dev', null, 'node server.js']], `it is named under left, with no folder, got: ${JSON.stringify(processes.left)}`);
+  assert.match(mate[0].why ?? '', /group|\b62001\b/i, `with why naming the group it is in: ${mate[0].why}`);
+});
+
+test('R2 R3 a new child of another uid of the session\'s process is never signalled, and is named under left as running as another user', async (t) => {
+  const box = await createSandbox(t);
+  await devFleet(box);
+  // 62001 ignores TERM. Once its TERM has gone, its child 62005 runs as
+  // another user, in a group of its own, in the work dir.
+  await table(box, [
+    { pid: 62001, ppid: 1, pgid: 62001, cwd: workOf(box, 'dev'), command: 'node --test', ignoresTerm: true },
+    { pid: 62005, ppid: 62001, pgid: 62005, uid: OTHER_UID, cwd: workOf(box, 'dev'), command: 'sudo -n node helper.js', appearsAfterMs: 0 },
+  ]);
+
+  const answer = answerIn(await retire(box, ['--session', 'dev', '--json']));
+
+  const calls = await kills(box);
+  assert.deepEqual(calls[0], term(-62001), 'the premise: TERM to the group comes first');
+  assert.deepEqual(reaching(calls, 62005), [], `nothing is sent to 62005, got: ${JSON.stringify(calls)}`);
+  const processes = processesIn(answer);
+  assert.deepEqual(processes.stopped.filter((one) => one.pid === 62005), [], 'it is not named as stopped');
+  const left = processes.left.filter((one) => one.pid === 62005);
+  assert.equal(left.length, 1, `it is named under left, got: ${JSON.stringify(processes.left)}`);
+  assert.match(left[0].why ?? '', /another user/i, `with why saying it runs as another user: ${left[0].why}`);
+});
+
+test('R3 a TERM call cut off by its own 10 s limit leaves the process not confirmed, though later reads show it running', async (t) => {
+  const box = await createSandbox(t);
+  await devFleet(box);
+  // The first kill call, the TERM, blocks for 11 s: the kit cuts it off at
+  // its own 10 s limit, inside the stop's 12 s, and a call cut off sends
+  // nothing (helpers/fake-kill.js). 62401 ignores every signal, so a KILL in
+  // the time left, if one goes, does not end it either, and the reads after
+  // the cut show it still there.
+  await table(box, [{ pid: 62401, ppid: 1, pgid: 62401, cwd: workOf(box, 'dev'), command: 'node stuck.js', ignoresTerm: true, unkillable: true }]);
+  await box.orca.set({ killDelaysMs: [11000] });
+
+  const answer = answerIn(await retire(box, ['--session', 'dev', '--json']));
+
+  const reads = await box.ps.tableReads();
+  assert.ok(reads.some((read) => read.at - reads[0].at > 9500), `the premise: a read of the table after the cut was answered, got: ${JSON.stringify(reads.map((read) => read.at - reads[0].at))}`);
+  const calls = await kills(box);
+  assert.deepEqual(calls.filter((args) => args[1] === 'TERM'), [], `the premise: the TERM was cut off and never went, got: ${JSON.stringify(calls)}`);
+  const processes = processesIn(answer);
+  assert.deepEqual(processes.stopped.filter((one) => one.pid === 62401), [], `it still runs, so it is not stopped: ${JSON.stringify(processes.stopped)}`);
+  const left = processes.left.filter((one) => one.pid === 62401);
+  assert.equal(left.length, 1, `it is named under left, got: ${JSON.stringify(processes.left)}`);
+  assert.match(left[0].why ?? '', /confirm/i, `why says the kit cannot confirm the signal went: ${left[0].why}`);
+});
