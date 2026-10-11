@@ -71,8 +71,10 @@
 // itself, in its own throwaway Claude tabs, by the suite's allowlists:
 //
 //   - Claude Code's folder trust, once, for `mail-claude`'s folder, only when
-//     it is the plain one for that folder (helpers/screens.js
-//     `onlyPlainTrustOf`): down and return.
+//     it is the plain one for that folder, or, since #539, the one that
+//     pre-approves exactly the kit's default rules for this throwaway bots
+//     folder, as the folder's own .claude/settings.json allows them
+//     (helpers/claude-trust.js `claudeTrustAt`, #558): down and return.
 //   - "Teach auto mode about your environment?", at most once in a tab, only
 //     when it is the captured form (`onlyTeachFormOf`): Esc, then the form
 //     gone and ~/.claude.json's autoModeEnvSetup as it was.
@@ -93,10 +95,11 @@ import test from '../helpers/system.js';
 import { setTimeout } from 'node:timers/promises';
 import { parse } from 'yaml';
 
+import { claudeTrustAt, trustScreenMet } from '../helpers/claude-trust.js';
 import { cliEntry } from '../helpers/cli.js';
 import { codexTrustArgs } from '../helpers/codex-trust.js';
 import { rolloutFilesOf } from '../helpers/codex-rollout.js';
-import { onlyPlainTrustOf, onlyTeachFormOf, questionOn, waitingOn } from '../helpers/screens.js';
+import { onlyTeachFormOf, questionOn, waitingOn } from '../helpers/screens.js';
 import { tabGuard } from '../helpers/tab-guard.js';
 import { deleteOwnProject } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
@@ -252,23 +255,24 @@ const answered = { trust: new Set(), teach: new Set() };
 /**
  * One look at a tab's own first-run screens: this test answers two of them
  * itself, in its own throwaway tabs, and only when the suite's allowlist
- * matches (helpers/screens.js `onlyPlainTrustOf`, `onlyTeachFormOf`). Any
+ * matches (helpers/claude-trust.js `claudeTrustAt`, helpers/screens.js
+ * `onlyTeachFormOf`). `bots` is the throwaway bots folder. Any
  * other question on screen (`questionOn`) stops the run at once, with the
  * screen in the failure message; it is never answered.
  */
-async function answerScreens(t, title, handle, home) {
+async function answerScreens(t, title, handle, home, bots) {
   const rows = rowsOf(handle);
   if (rows === undefined) return;
 
   if (rows.some((row) => row.includes('Yes, I trust this folder'))) {
     assert.ok(!answered.trust.has(home), `${title} asked Claude Code's folder trust for ${home} again, which this test answered once and answers no more:\n    ${rows.join('\n    ')}`);
-    const wrong = onlyPlainTrustOf(rows, home);
-    assert.equal(wrong, undefined, `${title}'s folder trust is not one this test may answer, so it answered nothing: ${wrong}.\n  what it showed:\n    ${rows.join('\n    ')}`);
+    const wrong = claudeTrustAt(rows, home, bots, cliEntry);
+    assert.equal(wrong, undefined, `${title}'s folder trust (${trustScreenMet(rows)}) is not one this test may answer, so it answered nothing: ${wrong}.\n  what it showed:\n    ${rows.join('\n    ')}`);
     const sent = orca(['terminal', 'send', '--terminal', handle, '--text', '\x1b[B\r']);
     assert.equal(sent.ok, true, `answering ${title}'s folder trust failed: ${JSON.stringify(sent.error)}`);
     answered.trust.add(home);
     await until(`${title}'s folder trust to go after it was answered`, 15000, async () => ((rowsOf(handle) ?? []).some((row) => row.includes('Yes, I trust this folder')) ? undefined : true), () => whatIsUp(handle));
-    t.diagnostic(`answered ${title}'s plain folder trust`);
+    t.diagnostic(`answered ${title}'s ${trustScreenMet(rows)}`);
     return;
   }
 
@@ -556,7 +560,7 @@ test('one road and one signal: a busy receiver gets nothing typed without --inte
     const entry = tabOf(obkJson(['up', '--bots', bots, '--bot', bot, '--session', session]), session);
     assert.equal(entry.created, true, `the premise: up opened ${entry.title}`);
     const title = entry.title;
-    const screen = () => answerScreens(t, title, entry.terminal, homeOf(bot));
+    const screen = () => answerScreens(t, title, entry.terminal, homeOf(bot), bots);
     if (wait) await readyAndIdle(title, entry.terminal, screen);
     const held = await until(`the book to hold ${title}'s conversation`, READY_MS, async () => {
       const found = await sessionIn(homeOf(bot), session);

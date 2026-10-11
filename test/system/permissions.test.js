@@ -1152,7 +1152,7 @@ const coveredFor = (harness) => [
     what: 'its mail check',
     step: (kit) => `As soon as you are running, read your mail with exactly this command: ${kit.cli} message check --bots ${kit.bots} --bot ${kit.bot} --session daily`
       + ' . If it has not shown you both messages, run the same command again a few seconds later, until it has.'
-      + ' If a line arrives saying fleet mail is waiting, run exactly the command that line names.',
+      + ' If anything tells you that you have fleet mail or orchestration messages, do not run the command it names; run that same message check command again.',
     kind: 'command',
     starts: (kit) => `${kit.cli} message check --bots ${kit.bots}`,
   },
@@ -1232,7 +1232,7 @@ const botPrompt = (kit, harness) => [
 
 /** The pen pal's part: nothing at all. The reply only has to reach its mailbox. */
 const PEN_PAL_PROMPT = 'You are a system test\'s pen pal and you own nothing. Run no command, read no file, write nothing'
-  + ' and use no tool. If a line says fleet mail is waiting, leave it unread and say nothing. Say nothing now and wait.';
+  + ' and use no tool. If anything says you have fleet mail or orchestration messages, leave it unread and say nothing. Say nothing now and wait.';
 
 /** One line per call, for a message: what it was and what it answered. */
 const callLines = (calls) => calls
@@ -1358,8 +1358,8 @@ for (const harness of HARNESSES) {
     const botRun = await mailboxOf(harness.bot);
 
     // 4. The mail, sent while the tab is still on its first-run screen, so both
-    //    are waiting when the bot first checks. The kit types nothing into a tab
-    //    on that screen, and says so; the bot's start prompt is its wake-up.
+    //    are waiting when the bot first checks. The kit types nothing into the
+    //    tab (#555); the bot's start prompt is its wake-up.
     const send = (message) => obkJson([
       'message', 'send', '--bots', bots, '--to', `${harness.bot}/daily`, '--from', `${PEN_PAL.name}/daily`,
       '--subject', message.subject, '--text', message.text,
@@ -1368,7 +1368,7 @@ for (const harness of HARNESSES) {
     const sentShort = send(SHORT);
     for (const [which, sent] of [['long', sentLong], ['short', sentShort]]) {
       assert.equal(sent.sent, true, `the ${which} message should be in the mailbox: ${JSON.stringify(sent)}`);
-      t.diagnostic(`the ${which} message: nudged ${JSON.stringify(sent.nudged)}${sent.blocked === undefined ? '' : `, blocked ${sent.blocked}`}`);
+      t.diagnostic(`the ${which} message: sent by ${sent.transport}`);
     }
     assert.equal(typeof sentLong.file, 'string', `the long message should have gone as a file: ${JSON.stringify(sentLong)}`);
     assert.ok(sentLong.file.startsWith(`${bots}.messages${path.sep}`), `and into ${bots}.messages, which the Read rule names: ${sentLong.file}`);

@@ -17,8 +17,8 @@
 //      because Claude Code puts the Teach list up in auto mode (worked out from
 //      #489's run, not proven for 2.1.289); its start prompt asks for one short
 //      reply. `sender` is Codex, so mail from it to `target` goes through Orca,
-//      where the kit types the nudge, and not by Claude Code's own messaging
-//      (PRD 6.9). Its trust comes at launch (#240, helpers/codex-trust.js);
+//      where the kit carries the letter and the Escape of `--interrupt`, and
+//      not by Claude Code's own messaging (PRD 6.9, ADR 0042). Its trust comes at launch (#240, helpers/codex-trust.js);
 //      only its mailbox, which its launch line makes, is used.
 //   2. `target`'s folder trust is answered by this test, down and return, only
 //      when it is the plain one for the bot home, or the one that pre-approves
@@ -41,18 +41,22 @@
 //      things, the process in front (tech notes, section 1); whether it names
 //      `claude` for this program is checked, not assumed.
 //   6. The presence: staged, the capture with the list taken out
-//      (CLAUDE_TEACH_LIST_GONE). A mail nudge and a skills reload both go in:
-//      the program reads the nudge's subject and `/reload-skills`.
-//   7. The check: staged, the captured list (CLAUDE_TEACH_LIST). A mail nudge
-//      is refused with `question-on-screen` and a skills reload is reported
-//      blocked on `question-on-screen`; the program read not one byte, and the
-//      list is still drawn. The system tests' own look, `waitingOn`, sees the
-//      live list too.
+//      (CLAUDE_TEACH_LIST_GONE). Since #555 the kit types no mail line; the
+//      one key mail types is the Escape of `message send --interrupt`, through
+//      the same gate as the skills reload. Both pass the gate: the send reports
+//      no trouble, and either it pressed Escape (the program reads it) or Orca
+//      called the program idle and nothing was typed, as `--interrupt` wants.
+//      The program reads `/reload-skills`.
+//   7. The check: staged, the captured list (CLAUDE_TEACH_LIST). The send
+//      with `--interrupt` is not interrupted and names `question-on-screen`,
+//      and a skills reload is reported blocked on `question-on-screen`; the
+//      program read not one byte, and the list is still drawn. The system
+//      tests' own look, `waitingOn`, sees the live list too.
 //
 // What it cannot show: what Claude Code's own list does with a key; this test
 // sends a real one none. What it does show: the kit reads the live screen as
 // Orca renders it, sees the list above the input box there, and types nothing,
-// in a tab where it typed both lines a moment before.
+// in a tab where its gate let both through a moment before.
 //
 // The machine it runs on is someone's working machine. So this test, like the
 // ones beside it: works in a throwaway bots folder under the system temp
@@ -153,7 +157,7 @@ const TASK = 'You are a system test\'s session and you own nothing. Do not run a
 const SENDER_TASK = 'You are a system test\'s session and you own nothing. Do not run any command, read or write any file,'
   + ' or use any tool. Say nothing and wait.';
 
-/** The words only each message's subject carries, and so only its nudge. */
+/** The words only each message's subject carries. */
 const SUBJECT_IDLE = 'OSPREY-4917';
 const SUBJECT_LIST = 'HERON-4917';
 
@@ -419,7 +423,7 @@ function buildFor(bots) {
   return said;
 }
 
-test('the kit types no nudge and no skills reload into a tab showing Claude Code 2.1.289\'s Teach list above its input box, and types both into the same tab with the list gone', async (t) => {
+test('the kit types no mail interrupt and no skills reload into a tab showing Claude Code 2.1.289\'s Teach list above its input box, and its gate lets both through in the same tab with the list gone', async (t) => {
   const before = {
     handles: new Set(allTerminals().map((terminal) => terminal.handle)),
     setups: new Set(allSetups().map((setup) => setup.id)),
@@ -604,21 +608,28 @@ test('the kit types no nudge and no skills reload into a tab showing Claude Code
   };
 
   // ---------------------------------------------------------------------------
-  // 6. The presence: the capture with the list taken out. Both lines go in.
+  // 6. The presence: the capture with the list taken out. The gate lets the
+  // interrupt and the skills reload through.
   await startStage(CLAUDE_TEACH_LIST_GONE, 'the staged capture with the list taken out');
   assert.equal(waitingOn(orca, handle), undefined, 'the premise: the system tests\' own look sees nothing in the way on the staged screen with the list gone');
 
   const idleSent = obkJson([
     'message', 'send', '--bots', bots, '--to', `${BOT}/${TARGET}`, '--from', `${BOT}/${SENDER}`,
-    '--subject', `the typing gate ${SUBJECT_IDLE}`, '--text', 'Nothing to do; this only checks the nudge.',
+    '--subject', `the typing gate ${SUBJECT_IDLE}`, '--text', 'Nothing to do; this only checks the typing gate.', '--interrupt',
   ]);
-  t.diagnostic(`the send on the screen with the list gone: ${JSON.stringify({ transport: idleSent.transport, nudged: idleSent.nudged, nudgeTrouble: idleSent.nudgeTrouble, blocked: idleSent.blocked })}`);
+  t.diagnostic(`the send --interrupt on the screen with the list gone: ${JSON.stringify({ transport: idleSent.transport, interrupted: idleSent.interrupted, idle: idleSent.idle, interruptTrouble: idleSent.interruptTrouble })}`);
   assert.equal(idleSent.sent, true, `the message is in the mailbox: ${JSON.stringify(idleSent)}`);
-  assert.equal(idleSent.transport, 'orca', `through Orca, where the kit types the nudge: ${JSON.stringify(idleSent)}`);
-  assert.equal(idleSent.nudged, true, `the premise: with no question on the staged screen the kit types the nudge into it, got: ${JSON.stringify(idleSent)}`);
-  await until('the nudge to reach the staging program', MOVE_MS, async () => (
-    (keysRead() ?? '').includes(SUBJECT_IDLE) && (keysRead() ?? '').includes('\r') ? true : undefined
-  ), () => ` It read: ${JSON.stringify(keysRead())}.`);
+  assert.equal(idleSent.transport, 'orca', `through Orca, where the kit carries the letter and its --interrupt: ${JSON.stringify(idleSent)}`);
+  assert.equal(idleSent.interruptTrouble, undefined, `the premise: with no question on the staged screen the kit's gate lets the interrupt through, got: ${JSON.stringify(idleSent)}`);
+  if (idleSent.interrupted === true) {
+    await until('the Escape to reach the staging program', MOVE_MS, async () => (
+      (keysRead() ?? '') === '\x1b' ? true : undefined
+    ), () => ` It read: ${JSON.stringify(keysRead())}.`);
+  } else {
+    assert.equal(idleSent.idle, true, `not interrupted with no trouble only when Orca called the staged program idle, got: ${JSON.stringify(idleSent)}`);
+    assert.equal(keysRead(), '', `nothing typed into a receiver Orca calls idle, got: ${JSON.stringify(keysRead())}`);
+    t.diagnostic('Orca called the staged program idle, so the interrupt passed the gate and typed nothing; the skills reload below shows the gate typing into this tab');
+  }
 
   obkJson(['skills', 'add', '--bots', bots, '--bot', BOT, '--skill', 'kit:obk-tdd']);
   const idleBuild = buildFor(bots);
@@ -636,12 +647,12 @@ test('the kit types no nudge and no skills reload into a tab showing Claude Code
 
   const listSent = obkJson([
     'message', 'send', '--bots', bots, '--to', `${BOT}/${TARGET}`, '--from', `${BOT}/${SENDER}`,
-    '--subject', `the typing gate ${SUBJECT_LIST}`, '--text', 'Nothing to do; this only checks the nudge.',
+    '--subject', `the typing gate ${SUBJECT_LIST}`, '--text', 'Nothing to do; this only checks the typing gate.', '--interrupt',
   ]);
-  t.diagnostic(`the send on the staged list: ${JSON.stringify({ transport: listSent.transport, nudged: listSent.nudged, nudgeTrouble: listSent.nudgeTrouble, blocked: listSent.blocked })}`);
+  t.diagnostic(`the send --interrupt on the staged list: ${JSON.stringify({ transport: listSent.transport, interrupted: listSent.interrupted, idle: listSent.idle, interruptTrouble: listSent.interruptTrouble })}`);
   assert.equal(listSent.sent, true, `the message is in the mailbox: ${JSON.stringify(listSent)}`);
-  assert.equal(listSent.nudged, false, `nothing is typed into a tab with the Teach list up: ${JSON.stringify(listSent)}`);
-  assert.equal(listSent.blocked, QUESTION, `the answer says the tab is waiting on a question: ${JSON.stringify(listSent)}`);
+  assert.equal(listSent.interrupted, false, `no Escape into a tab with the Teach list up: ${JSON.stringify(listSent)}`);
+  assert.ok(typeof listSent.interruptTrouble === 'string' && listSent.interruptTrouble.includes(QUESTION), `the answer says the tab is waiting on a question: ${JSON.stringify(listSent)}`);
 
   obkJson(['skills', 'add', '--bots', bots, '--bot', BOT, '--skill', 'kit:obk-debugging']);
   const listBuild = buildFor(bots);

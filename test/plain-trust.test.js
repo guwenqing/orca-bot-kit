@@ -181,8 +181,9 @@ const WARN = ` ⚠ This folder pre-approves ${DEFAULTS.length} tool permissions 
 /**
  * The pinned screen as this kit brings it up: its count row for the default
  * set as it is now, every other row as captured. The #555 run's clone gave 36
- * rules; #539 added 'session nudge' and 'session mail' to the default commands
- * after that clone was cut, and the rules Claude Code lists here are the same.
+ * rules, and the set is 36 again: #539 added 'session nudge' and 'session mail'
+ * to the default commands (38), and #555 takes both out. The rules Claude Code
+ * lists here are the same throughout.
  */
 const KIT_NOW = KIT_SCREEN.map((row) => (row === WARN_CAPTURED ? WARN : row));
 const LIST_1 = '   Bash(/Volumes/DevData/projects/ai/mybots/bots/kit-dev/work/d…, Bash(git add:*), Bash(git commit:*), Bash(orca';
@@ -211,16 +212,23 @@ const refused = (said, ...seen) => {
   for (const what of seen) assert.ok(said.includes(what), `the refusal names ${what}: ${said}`);
 };
 
-test('kit trust: the kit\'s default set for the captured paths had 36 rules at the capture, all different (a change to the defaults shows here first)', () => {
-  const added = ['session nudge', 'session mail'].map((command) => `Bash(${KIT_CLI} ${command} --bots ${KIT_BOTS}:*)`);
-  for (const rule of added) assert.ok(DEFAULTS.includes(rule), `${rule} is a default now`);
-  assert.equal(DEFAULTS.filter((rule) => !added.includes(rule)).length, 36, 'the 36 the screen counted, without the two added since');
+test('kit trust: the kit\'s default set for the captured paths has the 36 rules the screen counted, all different (a change to the defaults shows here first)', () => {
+  const removed = ['session nudge', 'session mail'].map((command) => `Bash(${KIT_CLI} ${command} --bots ${KIT_BOTS}:*)`);
+  for (const rule of removed) assert.ok(!DEFAULTS.includes(rule), `${rule} is no longer a default (#555)`);
+  assert.equal(DEFAULTS.length, 36, 'the 36 the screen counted');
   assert.equal(new Set(DEFAULTS).size, DEFAULTS.length);
   assert.ok(DEFAULTS.includes('Bash(git add:*)') && DEFAULTS.includes('Bash(orca orchestration check --run:*)'), 'the whole rules the screen lists are in the set');
 });
 
-test('kit trust: the pinned screen as captured, its count 36, is refused for the default set as it is now', () => {
-  refused(claudeTrustOf(KIT_SCREEN, KIT_FOLDER, KIT), '36');
+test('kit trust: the pinned screen as captured, its count 36, is the screen for the default set as it is now', () => {
+  assert.deepEqual(KIT_NOW, KIT_SCREEN, 'the count row needs no change');
+  assert.equal(claudeTrustOf(KIT_SCREEN, KIT_FOLDER, KIT), undefined);
+});
+
+test('kit trust: the pinned screen with the count of the set before #555, 38, is refused for the default set as it is now', () => {
+  const stale = KIT_SCREEN.map((row) => (row === WARN_CAPTURED ? ' ⚠ This folder pre-approves 38 tool permissions in .claude/settings.json:' : row));
+  assert.notDeepEqual(stale, KIT_SCREEN, 'the count row changed');
+  refused(claudeTrustOf(stale, KIT_FOLDER, KIT), '38');
 });
 
 test('kit trust: the pinned screen is answered when the tab allows exactly the defaults, in any order', () => {
