@@ -10,7 +10,7 @@
 // tells the receiver when it is idle. With `--interrupt`, the kit first sends
 // one Escape into a busy receiver's tab, and the doorbell then comes at once
 // (the probe of 2026-10-11: about 1 s after the Escape on Claude Code, about
-// 2 s on Codex).
+// 2 s on Codex). This test judges the doorbell on Codex only; see below.
 //
 // Two busy receivers, one on each harness, side by side: `mail-claude/busy`
 // and `mail-codex/busy`. Each runs a shell loop of LOOP_STEPS seconds, which
@@ -21,13 +21,31 @@
 //      receiver's record (no kit line, and no Orca notice, since it is busy),
 //      the letter is not read, and the loop goes on. So the letter waits in
 //      the mailbox, and nothing was typed.
-//   2. WITH --interrupt. The send says it went. On Codex its output names
-//      the background terminal Codex keeps a running command as. Within
-//      NOTICE_MS of the send, Orca's notice for the receiver's mailbox lands
-//      in its record as a user turn, well before the loop would have ended by
-//      itself: the busy turn was ended. On Codex the rollout also shows a turn
-//      end between the send and the notice. Then the receiver reads both
-//      letters with `obk message check`.
+//   2. WITH --interrupt. The send says it went, and that the receiver was
+//      busy, so the kit pressed Escape once in its tab. On Codex its output
+//      also names the background terminal Codex keeps a running command as.
+//      Then, within NOTICE_MS of the send, and well before the loop would
+//      have ended by itself, the busy turn is shown ended in the record:
+//        - Claude: Claude Code's own interrupt line, a user turn that starts
+//          "[Request interrupted by user" (e.g. "… for tool use]").
+//        - Codex: Orca's notice for the receiver's mailbox lands as a user
+//          turn, and the rollout shows a turn end between the send and the
+//          notice. Then the receiver reads both letters with
+//          `obk message check`.
+//
+// Why the Claude receiver is not asked for Orca's notice here: this test
+// opens its bots in a throwaway Orca project that the Orca window never
+// loads, so Orca lists their Claude tabs as orphaned (`tabId`
+// "pty:<ptyId>"; docs/tech-notes.md, line 477: a Claude Code tab in a
+// project the window has not loaded turns orphaned within 2 s). Live, Orca
+// delivered no notice at all to such a Claude tab: not after the Escape,
+// and not to a calm idle Claude receiver with no Escape either. The notice
+// to a busy Claude receiver after --interrupt was proven on a tab in the
+// window's graph instead: Orca's notice came 3 s after the send (the plan A
+// receipt, bots/kit-dev/work/developer-555/live-555-A-receipt.txt, 2026-10-11).
+// So for Claude this test judges what the kit does (nothing typed without
+// --interrupt; one Escape that ends the busy turn with it), and not Orca's
+// notice, its timing, or the reading of the letters that follows it.
 //
 // What is ASSERTED is judged from the receiver's own record of its turns (the
 // Claude transcript `~/.claude/projects/<slug>/<id>.jsonl`, the Codex rollout
@@ -36,8 +54,8 @@
 // in its bot folder: its loop's steps and its mail checks.
 //
 // What is OBSERVED, NOT JUDGED (printed as diagnostics): every send's output;
-// how long after the Escape the notice came; whether Codex's loop went on in
-// a background terminal after the Escape.
+// how long after the send Claude's interrupt line and Codex's notice came;
+// whether Codex's loop went on in a background terminal after the Escape.
 //
 // The senders: `mail-codex/idle` writes to the Claude receiver and
 // `mail-claude/idle` to the Codex one, so every letter takes the Orca road:
@@ -116,7 +134,7 @@ const ANSWER_MS = 240000;
 /** How long after a letter without --interrupt the busy receiver is watched for anything typed. */
 const QUIET_MS = 30000;
 
-/** How long after a letter with --interrupt Orca's notice is given to land in the record. */
+/** How long after a letter with --interrupt the busy turn's end (Claude's interrupt line, Codex's notice) is given to land in the record. */
 const NOTICE_MS = 90000;
 
 /**
@@ -133,6 +151,15 @@ const CODEX_SESSIONS = path.join(os.homedir(), '.codex', 'sessions');
 
 /** The start of the kit's old typed line (#509), which #555 removed. */
 const KIT_LINE = /Fleet mail from [^\s:]+: /;
+
+/**
+ * Claude Code's own line for a turn ended by Escape, a user turn in its
+ * transcript, a text block of a non-meta `type: "user"` line: "[Request
+ * interrupted by user for tool use]" when a tool was running (seen in the
+ * plan A probe's transcript, 2026-10-11). The match is on the start of the
+ * line, so another ending of it counts too.
+ */
+const CLAUDE_INTERRUPTED = /^\[Request interrupted by user/;
 
 const guard = tabGuard(ORCA);
 const { orca } = guard;
@@ -454,8 +481,9 @@ async function together(t, cases) {
 
 /**
  * One busy receiver: a letter without --interrupt, which waits and types
- * nothing; then one with --interrupt, which ends the busy turn so that Orca's
- * notice comes at once; then both are read.
+ * nothing; then one with --interrupt, which ends the busy turn. On Codex,
+ * Orca's notice then comes at once, and both letters are read; on Claude the
+ * case ends at the interrupt (the header says why).
  */
 async function busyCase(t, { bots, title, harness, handle, recordOf, mailbox, stepsFile, mailFile, screen, from, to }) {
   await until(`${title} to be part way through its loop`, READY_MS, async () => ((await readFile(stepsFile, 'utf8').catch(() => '')).includes(PART_WAY) ? true : undefined), () => whatIsUp(handle), screen);
@@ -482,25 +510,34 @@ async function busyCase(t, { bots, title, harness, handle, recordOf, mailbox, st
   assert.ok(stepsAfter > stepsBefore, `${title}: the loop went on through the send without --interrupt (${stepsBefore} steps, then ${stepsAfter})`);
   assert.ok(stepsAfter < LOOP_STEPS, `${title}: the loop is still running, so the receiver was busy all along (${stepsAfter} of ${LOOP_STEPS} steps)`);
 
-  // 2. With --interrupt: the turn ends, and Orca's notice comes.
+  // 2. With --interrupt: the turn ends; on Codex, Orca's notice comes.
   const urgent = { subject: `the ${harness} urgent report`, word: harness === 'claude' ? 'PETREL-7382' : 'SHRIKE-8493' };
   const sinceUrgent = Date.now() - 1000;
   const urgentSaid = send(bots, { to, from, ...urgent, interrupt: true });
   t.diagnostic(`${title}: the send with --interrupt said:\n  ${urgentSaid.trim().replaceAll('\n', '\n  ')}`);
+  assert.match(urgentSaid, /was busy, so the kit pressed Escape once/i, `${title}: the send says the receiver was busy, so the kit pressed Escape once in its tab, got:\n${urgentSaid}`);
   if (harness === 'codex') {
     assert.match(urgentSaid, /background terminal/i, `${title}: the send names the background terminal Codex keeps a running command as, got:\n${urgentSaid}`);
   }
+  const naturalEnd = loopStarted + LOOP_STEPS * 1000;
+  if (harness === 'claude') {
+    // The busy turn was interrupted: Claude Code's own interrupt line, after
+    // the send. Orca's notice is not asked for here: the tab is orphaned in
+    // this throwaway project, and Orca gives such a Claude tab no notice at
+    // all (tech notes, line 477; the header says where the notice was proven).
+    const interrupted = await until(`${title}'s record to show its busy turn interrupted after the send with --interrupt`, NOTICE_MS, async () => userTurnsOf(harness, record()).find((turn) => turn.at >= sinceUrgent && CLAUDE_INTERRUPTED.test(turn.text)), () => `\n  the record's tail:\n  ${tailOf(record())}${whatIsUp(handle)}`, screen);
+    t.diagnostic(`${title}: Claude Code's interrupt line ("${interrupted.text}") came ${Math.round((interrupted.at - sinceUrgent) / 1000)} s after the send with --interrupt`);
+    assert.ok(interrupted.at < naturalEnd - 30000, `${title}: the busy turn was interrupted well before the loop would have ended by itself (interrupt at ${new Date(interrupted.at).toISOString()}, the loop's own end about ${new Date(naturalEnd).toISOString()})`);
+    return;
+  }
   const notice = await until(`${title}'s record to show Orca's notice after the interrupt`, NOTICE_MS, async () => noticesIn(harness, record(), { since: sinceUrgent, mailbox })[0], () => `\n  the record's tail:\n  ${tailOf(record())}${whatIsUp(handle)}`, screen);
   t.diagnostic(`${title}: Orca's notice came ${Math.round((notice.at - sinceUrgent) / 1000)} s after the send with --interrupt`);
-  const naturalEnd = loopStarted + LOOP_STEPS * 1000;
   assert.ok(notice.at < naturalEnd - 30000, `${title}: the notice came well before the loop would have ended by itself, so the busy turn was ended (notice at ${new Date(notice.at).toISOString()}, the loop's own end about ${new Date(naturalEnd).toISOString()})`);
-  if (harness === 'codex') {
-    const entries = record();
-    const ended = entries.slice(0, notice.index).filter((entry) => isTurnEnd(entry) && atOf(entry) >= sinceUrgent);
-    assert.ok(ended.length > 0, `${title}: the rollout shows the busy turn's end between the send with --interrupt and the notice.\n  ${tailOf(entries)}`);
-  }
+  const entries = record();
+  const ended = entries.slice(0, notice.index).filter((entry) => isTurnEnd(entry) && atOf(entry) >= sinceUrgent);
+  assert.ok(ended.length > 0, `${title}: the rollout shows the busy turn's end between the send with --interrupt and the notice.\n  ${tailOf(entries)}`);
 
-  // 3. Both letters are read, with obk message check.
+  // 3. Both letters are read, with obk message check (Codex only; see above).
   await until(`${title} to read both letters`, ANSWER_MS, async () => {
     const text = await mailReadIn(mailFile);
     return text.includes(quiet.word) && text.includes(urgent.word) ? true : undefined;
@@ -511,7 +548,7 @@ async function busyCase(t, { bots, title, harness, handle, recordOf, mailbox, st
 
 // ------------------------------------------------------------- the test
 
-test('one road and one signal: a busy receiver gets nothing typed without --interrupt, and --interrupt ends its turn so Orca\'s notice comes', async (t) => {
+test('one road and one signal: a busy receiver gets nothing typed without --interrupt, and --interrupt ends its turn (and, on Codex, Orca\'s notice comes)', async (t) => {
   const before = {
     handles: new Set(allTerminals().map((terminal) => terminal.handle)),
     setups: new Set(allSetups().map((setup) => setup.id)),
