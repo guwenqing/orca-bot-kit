@@ -63,7 +63,9 @@ send` and no line of the kit's, showed that Orca parks its notice for a busy
 receiver and offers it again once the receiver is idle. A busy Codex got it
 about 75 s after its turn ended, an idle one at once, and a Claude Code
 session about 3.5 min after its turn ended. After one Escape into a busy tab,
-the notice came about 1 s (Claude Code) or 2 s (Codex) later. Orca rings no
+the notice came about 1 s (Claude Code) or 2 s (Codex) later. A live run
+for #555 saw the same for a Claude Code session in a tool call: the notice
+came 3 s after the send with `--interrupt` (tech notes). Orca rings no
 more for a mailbox while a delivery is open: its notice text names `orca
 orchestration check`, which does not acknowledge, and `obk message check`
 does. The owner judged the kit's line, its watch and its hook too much for a
@@ -179,6 +181,12 @@ for slice 08, 2026-09-21; the owner was told and may overrule.)
   `.codex/hooks.json`. A hook of the user's after it in the same event then
   moves to another place, and Codex asks once to review it again. A bot with
   only the kit's hooks keeps its trust.
+- Bad: a system test cannot see Orca's notice reach a Claude Code tab in a
+  throwaway project that Orca's window has not loaded: the tab is orphaned,
+  and Orca delivers it no notice at all (tech notes). So
+  `test/system/mail-interrupt.test.js` checks the Claude interrupt there, and
+  not the notice that follows it. The notice was seen live on a tab the
+  window had loaded (2026-10-11).
 - Good: nobody's approval rule is widened or gone around to deliver a message.
 - Revisit if: `codex queue` proves reliable, Orca delivers into a harness by
   itself, Orca's notice stops reaching a receiver once it is idle, or Claude
