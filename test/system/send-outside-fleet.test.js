@@ -66,7 +66,10 @@
 // permission (helpers/screens.js `plainTrustOf`, the check codex-groom-run
 // runs), and only when every row from "Accessing workspace:" down is a row of
 // the captured plain screen, its own folder in the folder's place, and nothing
-// else (`onlyPlainTrustOf`). Then down and return, once for that tab, with no
+// else (`onlyPlainTrustOf`). Since #539 the screen may also pre-approve the
+// kit's default rules; it is then answered only when the tab's own
+// .claude/settings.json allows exactly those rules, and the screen lists them
+// (helpers/claude-trust.js `claudeTrustAt`, #558). Then down and return, once for that tab, with no
 // `--enter`. Any other screen gets no answer, and the test fails printing
 // every row it saw; a hooks line, if one shows, goes to the architect before
 // any rerun.
@@ -90,7 +93,8 @@ import { setTimeout } from 'node:timers/promises';
 import { parse } from 'yaml';
 
 import { addressPattern, cliEntry } from '../helpers/cli.js';
-import { onlyPlainTrustOf, waitingOn } from '../helpers/screens.js';
+import { waitingOn } from '../helpers/screens.js';
+import { claudeTrustAt } from '../helpers/claude-trust.js';
 import { tabGuard } from '../helpers/tab-guard.js';
 import { deleteOwnProject } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
@@ -413,7 +417,7 @@ test('a Claude session\'s native message to a session of another bots folder is 
       () => whatIsUp(entry.terminal),
     );
     if (asked.rows !== null) {
-      const wrong = onlyPlainTrustOf(asked.rows, home);
+      const wrong = claudeTrustAt(asked.rows, home, bots, cliEntry);
       assert.equal(
         wrong,
         undefined,

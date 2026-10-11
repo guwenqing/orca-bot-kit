@@ -110,9 +110,11 @@
 // name is from before #286 (#450). A test reached outside its space (#220). The
 // architect's ruling on #238: the test answers "Yes, I trust this folder" in
 // its own throwaway daily tab only, only when the screen is the plain folder
-// trust for this test's `bots/bot-father` folder (no pre-approved permission,
-// since daily comes up before the rule is set; the pointer on "No, exit"; the
-// "Yes" choice there), and at most once. Any other screen gets no answer, and
+// trust for this test's `bots/bot-father` folder (since #539, pre-approving
+// exactly the kit's default rules, read from the folder's own
+// .claude/settings.json, as daily comes up before the test's rule is set:
+// helpers/claude-trust.js `claudeTrustAt`, #558; the pointer on "No, exit";
+// the "Yes" choice there), and at most once. Any other screen gets no answer, and
 // the test fails saying what it saw. Then daily has to report its conversation
 // and hold an address the kit made for it before the job is scheduled, and at
 // the end every message the grooming session sent by Claude Code's own
@@ -125,9 +127,13 @@
 // run 4 stopped there). The architect's ruling (a) on #238: the test answers
 // "Yes, I trust this folder" in its own throwaway grooming tab only, only
 // when the screen's pre-approved permissions are exactly the test's rule, and
-// at most once. The screen cuts the rule short, so what it shows has to be the
-// start of the rule, and Bot Father's `.claude/settings.json` has to allow that
-// rule and nothing else, read before answering. The pointer has to be on "No,
+// at most once. Since #539 Bot Father's folder also holds the kit's default
+// rules, so the architect's ruling on #558 widens that: Bot Father's
+// `.claude/settings.json`, read before answering, has to allow exactly the
+// kit's default rules for this bots folder and the test's rule; the screen's
+// count has to be their number; and each rule it lists has to be one of them,
+// whole, or the start of one where the screen cuts it short with "…"
+// (helpers/claude-trust.js `claudeTrustAt`). The pointer has to be on "No,
 // exit", where it starts, for the table's down-and-return to mean "Yes". Any
 // other screen gets no answer, and the test fails saying what it saw.
 //
@@ -151,7 +157,8 @@ import { parse } from 'yaml';
 import { cliEntry } from '../helpers/cli.js';
 import { trustKeysIn } from '../helpers/codex-trust.js';
 import { rolloutFilesOf, turnSettingsIn } from '../helpers/codex-rollout.js';
-import { plainTrustOf, waitingOn } from '../helpers/screens.js';
+import { waitingOn } from '../helpers/screens.js';
+import { claudeTrustAt } from '../helpers/claude-trust.js';
 import { tabGuard } from '../helpers/tab-guard.js';
 import { deleteOwnProject } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
@@ -323,31 +330,6 @@ function rowsOf(handle) {
   const answer = orca(['terminal', 'read', '--terminal', handle, '--screen']);
   const tail = answer.ok === true && answer.result?.terminal?.source === 'screen' ? answer.result.terminal.tail : undefined;
   return Array.isArray(tail) ? tail : undefined;
-}
-
-/**
- * Whether Claude Code's folder trust in the tab asks only about this test's
- * own rule, and may be answered (ruling (a) on #238): undefined when it may, or
- * what makes it a screen this test leaves alone. `settingsFile` is the bot
- * folder's `.claude/settings.json`, read now.
- */
-function trustAsksOnly(rows, rule, settingsFile) {
-  const said = rows.join('\n');
-  if (!/\bpre-approves 1 tool permission\b/.test(said)) return 'it does not say it pre-approves exactly 1 tool permission';
-  const shownRow = rows.slice(rows.findIndex((row) => /\bpre-approves\b/.test(row)) + 1).find((row) => row.includes('Bash('));
-  if (shownRow === undefined) return 'it shows no Bash( permission';
-  const shown = shownRow.slice(shownRow.indexOf('Bash(')).trim().split('…')[0];
-  if (shown.length <= 'Bash('.length || !rule.startsWith(shown)) return `the permission it shows, ${shown}, is not the start of ${rule}`;
-  if (!rows.some((row) => /^\s*❯\s*No, exit\s*$/.test(row))) return 'its pointer is not on "No, exit", where down-and-return would mean "Yes, I trust this folder"';
-  if (!rows.some((row) => /^\s*Yes, I trust this folder\s*$/.test(row))) return 'it has no "Yes, I trust this folder" choice';
-  let allow;
-  try {
-    allow = JSON.parse(readFileSync(settingsFile, 'utf8'))?.permissions?.allow;
-  } catch (error) {
-    return `${settingsFile} could not be read: ${error.message}`;
-  }
-  if (!Array.isArray(allow) || allow.length !== 1 || allow[0] !== rule) return `${settingsFile} allows ${JSON.stringify(allow)}, not exactly [${rule}]`;
-  return undefined;
 }
 
 /** What the tab is showing, for the message of a wait that ran out. */
@@ -587,16 +569,16 @@ test('a grooming job with --run-on codex starts one Codex run at its fire, on th
     () => whatIsUp(daily.terminal),
   );
   if (dailyAsked.rows !== null) {
-    const wrong = plainTrustOf(dailyAsked.rows, home);
+    const wrong = claudeTrustAt(dailyAsked.rows, home, bots, cliEntry);
     assert.equal(
       wrong,
       undefined,
-      `Bot Father daily's folder trust is not the plain one this test may answer, so it answered nothing: ${wrong}.`
+      `Bot Father daily's folder trust is not one this test may answer, so it answered nothing: ${wrong}.`
       + `\n  what it showed:\n    ${dailyAsked.rows.join('\n    ')}`,
     );
     const sent = orca(['terminal', 'send', '--terminal', daily.terminal, '--text', '\x1b[B\r']);
     assert.equal(sent.ok, true, `answering Bot Father daily's folder trust failed: ${JSON.stringify(sent.error)}`);
-    t.diagnostic('answered Bot Father daily\'s plain folder trust (the ruling on #238 after #450)');
+    t.diagnostic('answered Bot Father daily\'s folder trust (the ruling on #238 after #450, and #558)');
   }
   const dailyEntry = await until(
     'Bot Father daily to report its conversation and hold an address the kit made for it',
@@ -623,9 +605,9 @@ test('a grooming job with --run-on codex starts one Codex run at its fire, on th
   const handle = opened.terminal;
 
   // The one screen this test answers itself (see the header): the grooming
-  // tab's folder trust, asking only about the test's own rule. Until either it
-  // shows or the session reports its id, nothing is typed.
-  const settingsFile = path.join(home, '.claude', 'settings.json');
+  // tab's folder trust, asking only about the kit's default rules and the
+  // test's own rule. Until either it shows or the session reports its id,
+  // nothing is typed.
   const trustAsked = await until(
     'the grooming tab to show Claude Code\'s folder trust, or its session to report its id',
     READY_MS,
@@ -637,7 +619,7 @@ test('a grooming job with --run-on codex starts one Codex run at its fire, on th
     () => whatIsUp(handle),
   );
   if (trustAsked.rows !== null) {
-    const wrong = trustAsksOnly(trustAsked.rows, trustRule, settingsFile);
+    const wrong = claudeTrustAt(trustAsked.rows, home, bots, cliEntry, [trustRule]);
     assert.equal(
       wrong,
       undefined,
@@ -646,7 +628,7 @@ test('a grooming job with --run-on codex starts one Codex run at its fire, on th
     );
     const sent = orca(['terminal', 'send', '--terminal', handle, '--text', '\x1b[B\r']);
     assert.equal(sent.ok, true, `answering the grooming tab's folder trust failed: ${JSON.stringify(sent.error)}`);
-    t.diagnostic(`answered the grooming tab's folder trust, which pre-approved only ${trustRule} (ruling (a) on #238)`);
+    t.diagnostic(`answered the grooming tab's folder trust, which pre-approved only the kit's default rules and ${trustRule} (ruling (a) on #238, and #558)`);
   }
 
   await until(

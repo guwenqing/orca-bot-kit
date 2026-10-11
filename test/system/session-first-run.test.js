@@ -26,8 +26,9 @@
 //      "Trust all and continue", the review goes, and the kit's hooks run: the
 //      book holds daily's conversation.
 //   5. lead's folder trust is answered by this test, down and return, only when
-//      it is the plain one for the bot home (helpers/screens.js
-//      `onlyPlainTrustOf`, the ruling on #451), as temp-answer.test.js does.
+//      it is the plain one for the bot home, or the one that pre-approves
+//      exactly the kit's default rules (helpers/claude-trust.js
+//      `claudeTrustAt`, the rulings on #451 and #558), as temp-answer.test.js does.
 //      lead replies to its start prompt. If a real Teach form comes up after
 //      it, the test types nothing into it, records it, and ends as skipped.
 //   6. A real screen that is not the form: lead at its plain input line. `obk
@@ -93,11 +94,11 @@ import { codexTrustArgs } from '../helpers/codex-trust.js';
 import {
   CLAUDE_TEACH_FORM,
   CLAUDE_TEACH_LIST,
-  onlyPlainTrustOf,
   onlyTeachFormOf,
   onlyTeachListOf,
   questionOn,
 } from '../helpers/screens.js';
+import { claudeTrustAt } from '../helpers/claude-trust.js';
 import { tabGuard } from '../helpers/tab-guard.js';
 import { deleteOwnProject } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
@@ -578,7 +579,7 @@ test('a long-lived session\'s first-run screens answered through the kit: Codex\
     () => whatIsUp(lead.handle),
   );
   if (asked.rows !== null) {
-    const wrong = onlyPlainTrustOf(asked.rows, claudeHome);
+    const wrong = claudeTrustAt(asked.rows, claudeHome, bots, cliEntry);
     assert.equal(
       wrong,
       undefined,

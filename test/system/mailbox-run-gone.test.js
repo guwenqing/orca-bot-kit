@@ -38,7 +38,9 @@
 // does (`answerScreens`):
 //
 //   - Claude Code's folder trust, once for this bot's folder, only when it is
-//     the plain one for that folder (`onlyPlainTrustOf`): down and return, with
+//     the plain one for that folder, or the one the kit's default rules in
+//     its .claude/settings.json bring up (helpers/claude-trust.js
+//     `claudeTrustAt`, #558): down and return, with
 //     no `--enter`; then the trust rows go, or the test fails.
 //   - Claude Code's "Teach auto mode about your environment?" form, at most
 //     once, only when it is the captured form (`onlyTeachFormOf`): Esc; then
@@ -63,7 +65,8 @@ import { setTimeout } from 'node:timers/promises';
 import { parse, parseDocument } from 'yaml';
 
 import { cliEntry, spellingsOf } from '../helpers/cli.js';
-import { onlyPlainTrustOf, onlyTeachFormOf, questionOn } from '../helpers/screens.js';
+import { onlyTeachFormOf, questionOn } from '../helpers/screens.js';
+import { claudeTrustAt } from '../helpers/claude-trust.js';
 import { tabGuard } from '../helpers/tab-guard.js';
 import { deleteOwnProject } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
@@ -193,7 +196,7 @@ async function answerScreens(t, title, handle, home) {
 
   if (rows.some((row) => row.includes('Yes, I trust this folder'))) {
     assert.ok(!answered.trust.has(home), `${title} asked Claude Code's folder trust for ${home} again, which this test answered once and answers no more:\n    ${rows.join('\n    ')}`);
-    const wrong = onlyPlainTrustOf(rows, home);
+    const wrong = claudeTrustAt(rows, home, path.dirname(path.dirname(home)), cliEntry);
     assert.equal(wrong, undefined, `${title}'s folder trust is not one this test may answer, so it answered nothing: ${wrong}.\n  what it showed:\n    ${rows.join('\n    ')}`);
     const sent = orca(['terminal', 'send', '--terminal', handle, '--text', '\x1b[B\r']);
     assert.equal(sent.ok, true, `answering ${title}'s folder trust failed: ${JSON.stringify(sent.error)}`);
