@@ -70,10 +70,16 @@ export async function stopProcesses(dirs) {
 
   const left = [];
   const targets = new Map();
+  // The session's own that the kit names and does not signal, by pid with
+  // when it started: what they start is the session's own too (R1, review
+  // of PR #543).
+  const kept = new Map();
   for (const pid of owner.keys()) {
     if (mine.has(pid)) left.push({ ...about(pid), why: 'it is this retire\'s own run, or one that started it' });
-    else if (table.get(pid).uid !== uid) left.push({ ...about(pid), why: 'it runs as another user' });
-    else targets.set(pid, about(pid));
+    else if (table.get(pid).uid !== uid) {
+      left.push({ ...about(pid), why: 'it runs as another user' });
+      kept.set(pid, { session: owner.get(pid), pid, started: table.get(pid).started });
+    } else targets.set(pid, about(pid));
   }
 
   // A group is signalled whole only where every process in it is the
@@ -178,14 +184,19 @@ export async function stopProcesses(dirs) {
       named.add(one.pid);
       left.push({ session, ...one, why });
     };
+    // One the session owns but the kit does not signal stays a parent for what it starts.
+    const keep = (session, one, why, started) => {
+      name(session, one, why);
+      kept.set(one.pid, { session, pid: one.pid, started });
+    };
     for (const [pid, seen] of fresh) {
       const one = { pid, cwd: folders.get(pid) ?? null, command: seen.command };
-      const parent = [...ancestorsOf(now, pid)].map((it) => tracked.get(it)).find((it) => it !== undefined && live(it));
+      const parent = [...ancestorsOf(now, pid)].map((it) => tracked.get(it) ?? kept.get(it)).find((it) => it !== undefined && live(it));
       const home = one.cwd === null ? undefined : where.find(({ real }) => inside(one.cwd, real));
       const theirs = parent ?? home;
       if (theirs !== undefined) {
-        if (seen.uid !== uid) name(theirs.session, one, 'it runs as another user, so the kit sends it nothing');
-        else if (Date.now() - begun >= ADOPT_MS) name(theirs.session, one, 'it was found after the time for new processes ran out, so the kit sent it nothing');
+        if (seen.uid !== uid) keep(theirs.session, one, 'it runs as another user, so the kit sends it nothing', seen.started);
+        else if (Date.now() - begun >= ADOPT_MS) keep(theirs.session, one, 'it was found after the time for new processes ran out, so the kit sent it nothing', seen.started);
         else note({ session: theirs.session, ...one, pgid: seen.pgid, started: seen.started }, send('TERM', pid), 'SIGTERM');
       } else if (whole.has(seen.pgid)) {
         const mate = [...tracked.values()].find((it) => it.pgid === seen.pgid);
