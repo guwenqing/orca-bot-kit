@@ -175,6 +175,10 @@ for slice 08, 2026-09-21; the owner was told and may overrule.)
   message check`.
 - Bad: an Escape can meet a turn that ends between the kit's look and the key;
   it then falls on an idle harness.
+- Bad: `obk up` takes the kit's old Codex nudge entry out of a bot's
+  `.codex/hooks.json`. A hook of the user's after it in the same event then
+  moves to another place, and Codex asks once to review it again. A bot with
+  only the kit's hooks keeps its trust.
 - Good: nobody's approval rule is widened or gone around to deliver a message.
 - Revisit if: `codex queue` proves reliable, Orca delivers into a harness by
   itself, Orca's notice stops reaching a receiver once it is idle, or Claude
