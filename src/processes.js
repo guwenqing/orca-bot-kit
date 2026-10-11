@@ -101,24 +101,29 @@ export async function stopProcesses(dirs) {
   const tracked = new Map();
   const refused = new Map();
   const ended = new Set();
+  const begun = Date.now();
+  /** What is left of the stop, for a read or a signal to take. */
+  const budget = () => begun + STOP_MS - Date.now();
+  // Every signal is given only what is left of the stop: none once it is
+  // spent, and a `kill` that does not return within it leaves the kit unable
+  // to say whether that signal went, which the answer says (review of PR #543).
+  const send = (name, target) => (budget() <= 0 ? { timeUp: true } : signal(name, target, budget()));
   // Each signal is timed once its `kill` has returned, so a slow one does not
-  // eat into the wait it starts (review of PR #543).
+  // eat into the wait it starts.
   const note = (one, sent, name) => {
-    if (sent.refused !== undefined) refused.set(one.pid, { ...one, why: `kill refused ${name}: ${sent.refused}` });
+    if (sent.timeUp) refused.set(one.pid, { ...one, why: `the stop's time ran out before its ${name}, so the kit sent it nothing more` });
+    else if (sent.refused !== undefined) refused.set(one.pid, { ...one, why: `kill refused ${name}: ${sent.refused}` });
     else {
       refused.delete(one.pid);
       tracked.set(one.pid, { ...one, signal: name, at: Date.now() });
     }
   };
-  const begun = Date.now();
-  /** What is left of the stop, for a read or a signal to take. */
-  const budget = () => begun + STOP_MS - Date.now();
   const first = (pid, one) => ({ ...one, pgid: table.get(pid).pgid, started: table.get(pid).started });
   for (const pgid of whole) {
-    const sent = signal('TERM', -pgid);
+    const sent = send('TERM', -pgid);
     for (const [pid, one] of targets) if (table.get(pid).pgid === pgid) note(first(pid, one), sent, 'SIGTERM');
   }
-  for (const [pid, one] of targets) if (!whole.has(table.get(pid).pgid)) note(first(pid, one), signal('TERM', pid), 'SIGTERM');
+  for (const [pid, one] of targets) if (!whole.has(table.get(pid).pgid)) note(first(pid, one), send('TERM', pid), 'SIGTERM');
 
   // Each process has TERM_WAIT_MS after its own SIGTERM to end, then SIGKILL,
   // then TERM_WAIT_MS more to be gone. A process a read shows one of them
@@ -172,9 +177,12 @@ export async function stopProcesses(dirs) {
         const home = one.cwd === null ? undefined : where.find(({ real }) => inside(one.cwd, real));
         const theirs = parent ?? home;
         if (theirs !== undefined) {
-          // The read may have used up the time for looking.
-          if (Date.now() - begun >= ADOPT_MS) break;
-          note({ session: theirs.session, ...one, pgid: seen.pgid, started: seen.started }, signal('TERM', pid), 'SIGTERM');
+          // The read may have used up the time for looking: then it is
+          // named, and the others this read found are still looked at.
+          if (Date.now() - begun >= ADOPT_MS) {
+            named.add(pid);
+            left.push({ session: theirs.session, ...one, why: 'it was found after the time for new processes ran out, so the kit sent it nothing' });
+          } else note({ session: theirs.session, ...one, pgid: seen.pgid, started: seen.started }, send('TERM', pid), 'SIGTERM');
         } else if (whole.has(seen.pgid)) {
           const mate = [...tracked.values()].find((it) => it.pgid === seen.pgid);
           named.add(pid);
@@ -186,10 +194,9 @@ export async function stopProcesses(dirs) {
     const running = [...tracked.values()].filter((one) => !refused.has(one.pid) && live(one));
     for (const one of running) {
       if (one.signal !== 'SIGTERM' || Date.now() - one.at < TERM_WAIT_MS) continue;
-      if (budget() <= 0) break;
       const seen = now.get(one.pid);
       if (seen.uid !== uid) refused.set(one.pid, { ...one, why: 'it runs as another user now, so the kit sends it no SIGKILL' });
-      else note({ ...one, command: seen.command }, signal('KILL', one.pid), 'SIGKILL');
+      else note({ ...one, command: seen.command }, send('KILL', one.pid), 'SIGKILL');
     }
     const waiting = running.filter((one) => !refused.has(one.pid) && Date.now() - tracked.get(one.pid).at < TERM_WAIT_MS);
     if (running.length === 0 || waiting.length === 0 || budget() <= 0) break;
@@ -203,7 +210,7 @@ export async function stopProcesses(dirs) {
     else {
       let why = `it still runs after ${one.signal}`;
       if (lost !== undefined) why = `the kit could not read the processes again after ${one.signal}, so it sent nothing more: ${lost}`;
-      else if (lastRead === undefined || lastRead < one.at) why = `the kit could not confirm that it ended after ${one.signal}: the stop's time ran out before a read after it`;
+      else if (lastRead === undefined || lastRead < one.at) why = `the kit could not confirm that its ${one.signal} went and that it ended: the stop's time ran out before a read after it`;
       left.push(shown({ ...one, why }));
     }
   }
@@ -353,14 +360,17 @@ function realDirs(dirs) {
 const inside = (cwd, dir) => cwd === dir || cwd.startsWith(`${dir}${path.sep}`);
 
 /**
- * Send `SIG<name>` to `target`, a pid, or a process group as its negative.
- * `{}` when it was sent or the process was already gone, `{ refused: <why> }`
+ * Send `SIG<name>` to `target`, a pid, or a process group as its negative,
+ * within `ms`. `{}` when it was sent or the process was already gone, `{
+ * late: true }` when `kill` did not return in time, and `{ refused: <why> }`
  * otherwise. Never to pid 1 or below, or to group 1 or 0: those are every
  * process of the user's (AGENTS.md, 2026-09-20).
  */
-function signal(name, target) {
+function signal(name, target, ms = READ_MS) {
   if (!Number.isInteger(target) || Math.abs(target) <= 1) return { refused: `the kit does not signal ${target}` };
-  const sent = spawnSync(killCli(), ['-s', name, '--', String(target)], { encoding: 'utf8', timeout: READ_MS });
+  const sent = spawnSync(killCli(), ['-s', name, '--', String(target)], { encoding: 'utf8', timeout: bound(ms) });
+  // Cut off at its time: whether the signal went is not known.
+  if (sent.error?.code === 'ETIMEDOUT') return { late: true };
   if (!sent.error && sent.status === 0) return {};
   if (/No such process/i.test(sent.stderr ?? '')) return {};
   return { refused: (sent.error?.message ?? sent.stderr ?? '').trim() || `kill exited ${sent.status}` };
