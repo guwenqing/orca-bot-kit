@@ -40,31 +40,23 @@
 //      question is on it. Orca names an agent in a tab from, among other
 //      things, the process in front (tech notes, section 1); whether it names
 //      `claude` for this program is checked, not assumed.
-//   6. The check: staged, the captured list (CLAUDE_TEACH_LIST). Since #555
-//      the kit types no mail line; the one key mail types is the Escape of
-//      `message send --interrupt`, through the same gate as the skills reload.
-//      The send with `--interrupt` is not interrupted and names
-//      `question-on-screen`, and a skills reload is reported blocked on
-//      `question-on-screen`; the program read not one byte, and the list is
-//      still drawn. The system tests' own look, `waitingOn`, sees the live
-//      list too.
-//   7. The presence: staged, the capture with the list taken out
-//      (CLAUDE_TEACH_LIST_GONE). Both pass the gate: the send reports no
-//      trouble, and either it pressed Escape (the program reads it) or Orca
+//   6. The presence: staged, the capture with the list taken out
+//      (CLAUDE_TEACH_LIST_GONE). Since #555 the kit types no mail line; the
+//      one key mail types is the Escape of `message send --interrupt`, through
+//      the same gate as the skills reload. Both pass the gate: the send reports
+//      no trouble, and either it pressed Escape (the program reads it) or Orca
 //      called the program idle and nothing was typed, as `--interrupt` wants.
 //      The program reads `/reload-skills`.
-//
-// The list-up stage comes first (#555). In the live runs at 4e96db3, after a
-// staged program read the Escape of the list-gone stage, Orca named no agent
-// for the next staged program in that tab within 30 s; a probe with no Escape
-// passed whole. Why is unknown (tech notes, the #555 line on a staged
-// Escape). The list-up stage types nothing, so in this order neither stage
-// meets a tab whose program read an Escape before it.
+//   7. The check: staged, the captured list (CLAUDE_TEACH_LIST). The send
+//      with `--interrupt` is not interrupted and names `question-on-screen`,
+//      and a skills reload is reported blocked on `question-on-screen`; the
+//      program read not one byte, and the list is still drawn. The system
+//      tests' own look, `waitingOn`, sees the live list too.
 //
 // What it cannot show: what Claude Code's own list does with a key; this test
 // sends a real one none. What it does show: the kit reads the live screen as
 // Orca renders it, sees the list above the input box there, and types nothing,
-// in a tab where its gate lets both through a moment later.
+// in a tab where its gate let both through a moment before.
 //
 // The machine it runs on is someone's working machine. So this test, like the
 // ones beside it: works in a throwaway bots folder under the system temp
@@ -616,11 +608,39 @@ test('the kit types no mail interrupt and no skills reload into a tab showing Cl
   };
 
   // ---------------------------------------------------------------------------
-  // 6. The check: the captured list. Neither line goes in, and not one byte.
-  // It runs before the list-gone stage: after a staged program read that
-  // stage's Escape, Orca named no agent for the next staged program in this
-  // tab (#555, the live runs at 4e96db3; why is unknown, see the tech notes).
-  // This stage types nothing, so the list-gone stage after it meets no such tab.
+  // 6. The presence: the capture with the list taken out. The gate lets the
+  // interrupt and the skills reload through.
+  await startStage(CLAUDE_TEACH_LIST_GONE, 'the staged capture with the list taken out');
+  assert.equal(waitingOn(orca, handle), undefined, 'the premise: the system tests\' own look sees nothing in the way on the staged screen with the list gone');
+
+  const idleSent = obkJson([
+    'message', 'send', '--bots', bots, '--to', `${BOT}/${TARGET}`, '--from', `${BOT}/${SENDER}`,
+    '--subject', `the typing gate ${SUBJECT_IDLE}`, '--text', 'Nothing to do; this only checks the typing gate.', '--interrupt',
+  ]);
+  t.diagnostic(`the send --interrupt on the screen with the list gone: ${JSON.stringify({ transport: idleSent.transport, interrupted: idleSent.interrupted, idle: idleSent.idle, interruptTrouble: idleSent.interruptTrouble })}`);
+  assert.equal(idleSent.sent, true, `the message is in the mailbox: ${JSON.stringify(idleSent)}`);
+  assert.equal(idleSent.transport, 'orca', `through Orca, where the kit carries the letter and its --interrupt: ${JSON.stringify(idleSent)}`);
+  assert.equal(idleSent.interruptTrouble, undefined, `the premise: with no question on the staged screen the kit's gate lets the interrupt through, got: ${JSON.stringify(idleSent)}`);
+  if (idleSent.interrupted === true) {
+    await until('the Escape to reach the staging program', MOVE_MS, async () => (
+      (keysRead() ?? '') === '\x1b' ? true : undefined
+    ), () => ` It read: ${JSON.stringify(keysRead())}.`);
+  } else {
+    assert.equal(idleSent.idle, true, `not interrupted with no trouble only when Orca called the staged program idle, got: ${JSON.stringify(idleSent)}`);
+    assert.equal(keysRead(), '', `nothing typed into a receiver Orca calls idle, got: ${JSON.stringify(keysRead())}`);
+    t.diagnostic('Orca called the staged program idle, so the interrupt passed the gate and typed nothing; the skills reload below shows the gate typing into this tab');
+  }
+
+  obkJson(['skills', 'add', '--bots', bots, '--bot', BOT, '--skill', 'kit:obk-tdd']);
+  const idleBuild = buildFor(bots);
+  assert.deepEqual(idleBuild, { session: TARGET, harness: 'claude', state: 'reloaded' }, `the premise: with no question on the staged screen the kit types /reload-skills into it, got: ${JSON.stringify(idleBuild)}`);
+  await until('/reload-skills to reach the staging program', MOVE_MS, async () => (
+    (keysRead() ?? '').includes('/reload-skills') ? true : undefined
+  ), () => ` It read: ${JSON.stringify(keysRead())}.`);
+  await stopStage();
+
+  // ---------------------------------------------------------------------------
+  // 7. The check: the captured list. Neither line goes in, and not one byte.
   await startStage(CLAUDE_TEACH_LIST, 'the staged Teach list');
   const look = waitingOn(orca, handle);
   assert.ok(look !== undefined && look.includes(TEACH_TITLE), `the system tests' own look sees the live list in the way, with its title, got: ${look}`);
@@ -641,38 +661,5 @@ test('the kit types no mail interrupt and no skills reload into a tab showing Cl
   await setTimeout(SETTLE_MS);
   assert.equal(keysRead(), '', `the staging program read not one byte while the list was up, got: ${JSON.stringify(keysRead())}`);
   assert.ok(drawnAsStaged(rowsOf(handle), CLAUDE_TEACH_LIST), `and the staged list is still drawn as it was.${whatIsUp(handle)}`);
-  await stopStage();
-
-  // ---------------------------------------------------------------------------
-  // 7. The presence: the capture with the list taken out. The gate lets the
-  // interrupt and the skills reload through.
-  await startStage(CLAUDE_TEACH_LIST_GONE, 'the staged capture with the list taken out');
-  assert.equal(waitingOn(orca, handle), undefined, 'the premise: the system tests\' own look sees nothing in the way on the staged screen with the list gone');
-
-  const idleSent = obkJson([
-    'message', 'send', '--bots', bots, '--to', `${BOT}/${TARGET}`, '--from', `${BOT}/${SENDER}`,
-    '--subject', `the typing gate ${SUBJECT_IDLE}`, '--text', 'Nothing to do; this only checks the typing gate.', '--interrupt',
-  ]);
-  t.diagnostic(`the send --interrupt on the screen with the list gone: ${JSON.stringify({ transport: idleSent.transport, interrupted: idleSent.interrupted, idle: idleSent.idle, interruptTrouble: idleSent.interruptTrouble })}`);
-  assert.equal(idleSent.sent, true, `the message is in the mailbox: ${JSON.stringify(idleSent)}`);
-  assert.equal(idleSent.transport, 'orca', `through Orca, where the kit carries the letter and its --interrupt: ${JSON.stringify(idleSent)}`);
-  assert.equal(idleSent.interruptTrouble, undefined, `the premise: with no question on the staged screen the kit's gate lets the interrupt through, got: ${JSON.stringify(idleSent)}`);
-  if (idleSent.interrupted === true) {
-    // Exactly '\x1b' now relies on Orca giving no notice to this orphaned tab in a throwaway project (tech notes): the list-up stage's mail is still in target's mailbox.
-    await until('the Escape to reach the staging program', MOVE_MS, async () => (
-      (keysRead() ?? '') === '\x1b' ? true : undefined
-    ), () => ` It read: ${JSON.stringify(keysRead())}.`);
-  } else {
-    assert.equal(idleSent.idle, true, `not interrupted with no trouble only when Orca called the staged program idle, got: ${JSON.stringify(idleSent)}`);
-    assert.equal(keysRead(), '', `nothing typed into a receiver Orca calls idle, got: ${JSON.stringify(keysRead())}`);
-    t.diagnostic('Orca called the staged program idle, so the interrupt passed the gate and typed nothing; the skills reload below shows the gate typing into this tab');
-  }
-
-  obkJson(['skills', 'add', '--bots', bots, '--bot', BOT, '--skill', 'kit:obk-tdd']);
-  const idleBuild = buildFor(bots);
-  assert.deepEqual(idleBuild, { session: TARGET, harness: 'claude', state: 'reloaded' }, `the premise: with no question on the staged screen the kit types /reload-skills into it, got: ${JSON.stringify(idleBuild)}`);
-  await until('/reload-skills to reach the staging program', MOVE_MS, async () => (
-    (keysRead() ?? '').includes('/reload-skills') ? true : undefined
-  ), () => ` It read: ${JSON.stringify(keysRead())}.`);
   await stopStage();
 });
