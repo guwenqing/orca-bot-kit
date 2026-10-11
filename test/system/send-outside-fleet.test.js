@@ -94,7 +94,7 @@ import { parse } from 'yaml';
 
 import { addressPattern, cliEntry } from '../helpers/cli.js';
 import { waitingOn } from '../helpers/screens.js';
-import { claudeTrustAt } from '../helpers/claude-trust.js';
+import { claudeTrustAt, trustScreenMet } from '../helpers/claude-trust.js';
 import { tabGuard } from '../helpers/tab-guard.js';
 import { deleteOwnProject } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
@@ -426,7 +426,7 @@ test('a Claude session\'s native message to a session of another bots folder is 
       );
       const sent = orca(['terminal', 'send', '--terminal', entry.terminal, '--text', '\x1b[B\r']);
       assert.equal(sent.ok, true, `answering ${entry.title}'s folder trust failed: ${JSON.stringify(sent.error)}`);
-      t.diagnostic(`answered ${entry.title}'s plain folder trust (the ruling on #451)`);
+      t.diagnostic(`answered ${entry.title}'s ${trustScreenMet(asked.rows)} (the ruling on #451)`);
     }
     await until(
       `${bot} ${session} to report its conversation`,

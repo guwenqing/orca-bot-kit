@@ -88,7 +88,7 @@ import { cliEntry } from '../helpers/cli.js';
 import { codexTrustArgs } from '../helpers/codex-trust.js';
 import { rolloutFilesOf, turnSettingsIn } from '../helpers/codex-rollout.js';
 import { questionOn } from '../helpers/screens.js';
-import { claudeTrustAt } from '../helpers/claude-trust.js';
+import { claudeTrustAt, trustScreenMet } from '../helpers/claude-trust.js';
 import { tabGuard } from '../helpers/tab-guard.js';
 import { deleteOwnProject } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
@@ -398,7 +398,7 @@ test('temporary sessions made from a Claude role and a Codex role run on the mod
       + `\n  what it showed:\n    ${asked.rows.join('\n    ')}`,
     );
     sendKeys(developer.handle, '\x1b[B\r');
-    t.diagnostic(`answered ${DEVELOPER}'s plain folder trust (the ruling on #451)`);
+    t.diagnostic(`answered ${DEVELOPER}'s ${trustScreenMet(asked.rows)} (the ruling on #451)`);
   }
 
   // 3a. Its own record: every call of its own on the option's model and effort.

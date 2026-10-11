@@ -158,7 +158,7 @@ import { cliEntry } from '../helpers/cli.js';
 import { trustKeysIn } from '../helpers/codex-trust.js';
 import { rolloutFilesOf, turnSettingsIn } from '../helpers/codex-rollout.js';
 import { waitingOn } from '../helpers/screens.js';
-import { claudeTrustAt } from '../helpers/claude-trust.js';
+import { claudeTrustAt, trustScreenMet } from '../helpers/claude-trust.js';
 import { tabGuard } from '../helpers/tab-guard.js';
 import { deleteOwnProject } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
@@ -578,7 +578,7 @@ test('a grooming job with --run-on codex starts one Codex run at its fire, on th
     );
     const sent = orca(['terminal', 'send', '--terminal', daily.terminal, '--text', '\x1b[B\r']);
     assert.equal(sent.ok, true, `answering Bot Father daily's folder trust failed: ${JSON.stringify(sent.error)}`);
-    t.diagnostic('answered Bot Father daily\'s folder trust (the ruling on #238 after #450, and #558)');
+    t.diagnostic(`answered Bot Father daily's ${trustScreenMet(dailyAsked.rows)} (the ruling on #238 after #450, and #558)`);
   }
   const dailyEntry = await until(
     'Bot Father daily to report its conversation and hold an address the kit made for it',
@@ -628,7 +628,7 @@ test('a grooming job with --run-on codex starts one Codex run at its fire, on th
     );
     const sent = orca(['terminal', 'send', '--terminal', handle, '--text', '\x1b[B\r']);
     assert.equal(sent.ok, true, `answering the grooming tab's folder trust failed: ${JSON.stringify(sent.error)}`);
-    t.diagnostic(`answered the grooming tab's folder trust, which pre-approved only the kit's default rules and ${trustRule} (ruling (a) on #238, and #558)`);
+    t.diagnostic(`answered the grooming tab's ${trustScreenMet(trustAsked.rows)}, which pre-approved only the kit's default rules and ${trustRule} (ruling (a) on #238, and #558)`);
   }
 
   await until(

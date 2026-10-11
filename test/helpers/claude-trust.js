@@ -38,3 +38,13 @@ export const claudeTrustAt = (rows, home, bots, cli, extra = []) => claudeTrustO
   allow: claudeAllowIn(home),
   defaults: [...defaultRules(bots, cli), ...extra],
 });
+
+/**
+ * Which folder trust `rows` show, for a live test's diagnostic line: "the
+ * kit's folder trust that pre-approves N rules", N as its "pre-approves N" row
+ * says, or "the plain folder trust" when no such row is there.
+ */
+export function trustScreenMet(rows) {
+  const count = rows.map((row) => /\bpre-approves (\d+) tool permissions?\b/.exec(row)).find((found) => found !== null);
+  return count === undefined ? 'the plain folder trust' : `the kit's folder trust that pre-approves ${count[1]} rules`;
+}

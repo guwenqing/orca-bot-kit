@@ -98,7 +98,7 @@ import {
   onlyTeachListOf,
   questionOn,
 } from '../helpers/screens.js';
-import { claudeTrustAt } from '../helpers/claude-trust.js';
+import { claudeTrustAt, trustScreenMet } from '../helpers/claude-trust.js';
 import { tabGuard } from '../helpers/tab-guard.js';
 import { deleteOwnProject } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
@@ -587,7 +587,7 @@ test('a long-lived session\'s first-run screens answered through the kit: Codex\
       + `\n  what it showed:\n    ${asked.rows.join('\n    ')}`,
     );
     sendKeys(lead.handle, '\x1b[B\r');
-    t.diagnostic(`answered ${CLAUDE_SESSION}'s plain folder trust (the ruling on #451)`);
+    t.diagnostic(`answered ${CLAUDE_SESSION}'s ${trustScreenMet(asked.rows)} (the ruling on #451)`);
   }
   await until(
     `${CLAUDE_SESSION} to reply ${READY_WORD} and report its conversation`,

@@ -66,7 +66,7 @@ import { parse, parseDocument } from 'yaml';
 
 import { cliEntry, spellingsOf } from '../helpers/cli.js';
 import { onlyTeachFormOf, questionOn } from '../helpers/screens.js';
-import { claudeTrustAt } from '../helpers/claude-trust.js';
+import { claudeTrustAt, trustScreenMet } from '../helpers/claude-trust.js';
 import { tabGuard } from '../helpers/tab-guard.js';
 import { deleteOwnProject } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
@@ -202,7 +202,7 @@ async function answerScreens(t, title, handle, home) {
     assert.equal(sent.ok, true, `answering ${title}'s folder trust failed: ${JSON.stringify(sent.error)}`);
     answered.trust.add(home);
     await until(`${title}'s folder trust to go after it was answered`, 15000, async () => ((rowsOf(handle) ?? []).some((row) => row.includes('Yes, I trust this folder')) ? undefined : true), () => whatIsUp(handle));
-    t.diagnostic(`answered ${title}'s plain folder trust`);
+    t.diagnostic(`answered ${title}'s ${trustScreenMet(rows)}`);
     return;
   }
 

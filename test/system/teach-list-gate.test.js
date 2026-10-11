@@ -93,7 +93,7 @@ import {
   questionOn,
   waitingOn,
 } from '../helpers/screens.js';
-import { claudeTrustAt } from '../helpers/claude-trust.js';
+import { claudeTrustAt, trustScreenMet } from '../helpers/claude-trust.js';
 import { tabGuard } from '../helpers/tab-guard.js';
 import { deleteOwnProject } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
@@ -512,7 +512,7 @@ test('the kit types no nudge and no skills reload into a tab showing Claude Code
       + `\n  what it showed:\n    ${asked.rows.join('\n    ')}`,
     );
     sendKeys(handle, '\x1b[B\r');
-    t.diagnostic(`answered ${TARGET}'s plain folder trust (the ruling on #451)`);
+    t.diagnostic(`answered ${TARGET}'s ${trustScreenMet(asked.rows)} (the ruling on #451)`);
   }
 
   // Its reply to the start prompt: the first turn done.
