@@ -737,7 +737,7 @@ export function frontOfTab(handle) {
 }
 
 /** The `ps` this run reads. OBK_PS overrides it, as OBK_ORCA does Orca. */
-const psCli = () => process.env.OBK_PS || '/bin/ps';
+export const psCli = () => process.env.OBK_PS || '/bin/ps';
 
 /**
  * Who holds the terminal of the tab `handle`, whose pane is `ptyId`:
@@ -834,7 +834,7 @@ function panePid(ptyId, readMs) {
 }
 
 /** The `lsof` and `stty` this run asks. OBK_LSOF and OBK_STTY override them, as OBK_PS does `ps`. */
-const lsofCli = () => process.env.OBK_LSOF || '/usr/sbin/lsof';
+export const lsofCli = () => process.env.OBK_LSOF || '/usr/sbin/lsof';
 const sttyCli = () => process.env.OBK_STTY || '/bin/stty';
 
 /**

@@ -477,7 +477,12 @@ same refusals, and one more: it also refuses a tab with only its shell in front
 whose conversation the book does not name. `obk up` leaves what is paused
 closed until `obk unpause` brings it back with its conversations. Retiring a
 session takes it off the bot and keeps its conversations in the book under
-`retired`. Retiring a bot closes
+`retired`. Once its tab is closed, it stops what the session left running in
+its work dir: each of your processes whose working folder is there, and what
+they started, with SIGTERM and, after up to 3 seconds, SIGKILL. It names each
+process it stopped, and each it left: one that only shares a process group with
+them, or one it could not stop. Where it cannot read the processes, as inside
+Codex's sandbox, it says so and stops nothing. Retiring a bot closes
 its tabs, removes its Orca project and moves its folder to `retired/`; it will
 not touch a bot whose Orca project holds a tab your book does not name. The
 folder moves only once Orca no longer lists the project; if Orca still lists it,
@@ -557,6 +562,8 @@ What it looks for:
   `<bot>.<session>` every fleet's sessions had before 0.10.0, which a session of
   another fleet can write to. Its next start through the kit gives it one of its
   own, so the finding names the `obk restart … --session` that does it;
+- **a process still running in a retired session's work dir**: one from before
+  retire stopped them, or one it could not stop, with its pid and command;
 - **leftovers no book owns**: an Orca project inside your bots folder with no
   bot in it, a tab in a bot's project that the book does not name, a start
   prompt written for a session that has gone, a clone of a skills source you no

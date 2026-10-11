@@ -109,7 +109,9 @@ Usage:
                             End a session: close its tab and take it off the
                             bot, keeping its conversations in the book, and
                             first do the same for the temporary sessions it
-                            made, and theirs. Or end a bot: close its tabs,
+                            made, and theirs. It stops what the session left
+                            running in its work dir, and names each process.
+                            Or end a bot: close its tabs,
                             remove its Orca project and move its folder to
                             retired/. It will not retire a bot whose Orca
                             project holds a tab your book does not name, and
@@ -738,6 +740,7 @@ const commands = {
           ...closedLines(retired.closed),
           `retired    ${retired.bot} ${retired.session}: off ${path.join('bots', retired.bot, 'bot.yaml')}, and its conversations kept in the book under retired`,
           ...unreadLines(retired.unread),
+          ...processLines(retired.processes),
           ...leftLines(retired.promptsLeft),
         ],
       };
@@ -749,6 +752,7 @@ const commands = {
         answer: { bots, ...retired },
         lines: [
           ...closedLines(retired.closed),
+          ...processLines(retired.processes),
           `${'trouble'.padEnd(9)}  Orca project ${retired.project}`,
           `             ${retired.trouble}`,
           `Retire it again:  ${shellWord(ownCli())} retire --bots ${shellWord(bots)} --bot ${retired.bot}`,
@@ -768,6 +772,7 @@ const commands = {
         ]),
         `retired    ${retired.bot}: moved to ${path.relative(bots, retired.moved)}, with its book, charter and memory`,
         ...(retired.unread ?? []).flatMap((one) => unreadLines(one, `${retired.bot}/${one.session}`)),
+        ...processLines(retired.processes),
         ...leftLines(retired.promptsLeft),
       ],
     };
@@ -825,6 +830,7 @@ const commands = {
         ...closedLines(retired.closed),
         `retired    ${retired.bot} ${retired.session}, a temporary session of ${retired.maker}'s: off ${path.join('bots', retired.bot, 'bot.yaml')}, and its conversations kept in the book under retired`,
         ...unreadLines(retired.unread),
+        ...processLines(retired.processes),
         ...leftLines(retired.promptsLeft),
       ],
     };
@@ -1460,11 +1466,22 @@ const withLines = (retiredWith, session) => retiredWith.flatMap((gone) => [
   ...closedLines(gone.closed),
   `retired    ${gone.bot} ${gone.session}, a temporary session of ${gone.maker}'s, along with ${session}: off ${path.join('bots', gone.bot, 'bot.yaml')}, and its conversations kept in the book under retired`,
   ...unreadLines(gone.unread),
+  ...processLines(gone.processes),
   ...leftLines(gone.promptsLeft),
 ]);
 
 /** The mail a retired session did not read, as far as the kit knows (#509). */
 const unreadLines = (unread, who = 'it') => (unread === undefined ? [] : [`unread     ${unreadWords(unread, who)}`]);
+
+/** What a retire stopped of what its sessions left running, and what it named and left (#537). */
+function processLines(processes) {
+  if (processes === undefined) return [];
+  if (processes.unreadable !== undefined) return [`processes  the kit cannot tell which processes were left running in the work dir, so it stopped none: ${processes.unreadable}`];
+  return [
+    ...processes.stopped.map((one) => `stopped    pid ${one.pid} of ${one.session}, with ${one.signal}: ${one.command}${one.cwd === null ? '' : `  in ${one.cwd}`}`),
+    ...processes.left.map((one) => `left       pid ${one.pid} in ${one.cwd ?? 'a folder lsof did not name'}: ${one.command}. Not stopped: ${one.why}.`),
+  ];
+}
 
 /** What a retire could not remove, and how to: nothing reads these files now (#393). */
 const leftLines = (left = []) => left.flatMap(({ file, reason }) => [
