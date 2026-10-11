@@ -18,9 +18,9 @@
 // harnesses start their input line with the same pointer, and Codex puts a
 // status row right under it. Neither is a draft in the input line, a numbered
 // list in the conversation, a past turn echoed with the pointer (wrapped onto
-// more rows when it is long, as a nudge is), or a question that is history with
+// more rows when it is long), or a question that is history with
 // the input line back below it. A guard that took those for questions would
-// swallow every nudge. The screens are in helpers/screens.js, most of them
+// swallow every key. The screens are in helpers/screens.js, most of them
 // captured live, and it says which are captures and which are reconstructions.
 //
 // Claude Code's folder-trust list is unnumbered and is not asked of the kit's
@@ -31,10 +31,13 @@
 // read (Orca refuses, or answers with a `source` other than `screen`), the kit
 // cannot tell: it types nothing and says so.
 //
-// The lines the kit types into a running session are all here: the mail
-// nudge, and `/reload-skills` from a skills build. So is what `up` and
-// `restart` report about a tab they just started, where the kit types nothing
-// after the launch line but says plainly that a question is waiting.
+// The keys the kit types into a running session are all here: the Escape of
+// `obk message send --interrupt`, and `/reload-skills` from a skills build.
+// Since #555 fleet mail types nothing else. Its one key is the Escape, into a
+// busy receiver whose tab passes the gate, so the mail tests below send with
+// --interrupt to a busy receiver. What `up` and `restart` report about a tab
+// they just started is here too: the kit types nothing after the launch line,
+// but says plainly that a question is waiting.
 //
 // The fake Orca shows every tab its harness's idle screen, as captured, unless
 // a test gives it one: `screen` for every tab, a terminal's own `screen` for
@@ -97,22 +100,7 @@ async function showIn(box, tab, shown) {
   });
 }
 
-/** What was typed into every tab of the whole fleet, after the launch line each one got. */
-async function typedSinceLaunch(box) {
-  const after = {};
-  for (const terminal of await box.orca.terminals()) {
-    after[terminal.tabId] = typedInto(terminal).slice(1);
-  }
-  return after;
-}
-
-/** The message is in the mailbox, and nothing at all was typed into any tab after its launch line. */
-async function assertQueuedUntyped(box, what) {
-  assert.equal((await box.orca.messages()).length, 1, `${what}: the message is in the mailbox`);
-  assert.deepEqual(Object.values(await typedSinceLaunch(box)).flat(), [], `${what}: and nothing was typed into any tab`);
-}
-
-// ------------------------------------------------------------ message send
+// ------------------------------------------------------------ message send --interrupt
 
 /** A Claude bot and a Codex bot, each with one session, both up, nothing typed since. */
 async function fleetIn(box) {
@@ -126,48 +114,65 @@ async function fleetIn(box) {
   return box.path('bots');
 }
 
+/** Give one tab what `showIn` gives it, and make it busy by Orca's tui-idle wait. */
+const busyIn = (box, tab, shown = {}) => showIn(box, tab, { tuiIdle: 'busy', ...shown });
+
 /** Each bot is written to by the other: the Codex bot by the Claude bot, and the other way round. */
 const SENDER = { coder: 'writer/daily', writer: 'coder/daily' };
 
-/** The arguments of one message to `to`, from the other bot. */
-const sendArgs = (to) => [
-  'message', 'send', '--bots', 'bots', '--to', to, '--from', SENDER[to],
-  '--subject', 'the staging host', '--text', 'It is down again.',
-];
-
-/** Send one message to `to`, `--json`, and read the answer. The message goes whatever became of the nudge. */
+/** Send one urgent letter to `to`, from the other bot, with --interrupt, plain, and answer what it printed. */
 async function send(box, to) {
-  const result = await box.run([...sendArgs(to), '--json']);
-  assert.equal(result.code, 0, `the message went whatever became of the nudge: ${result.stdout}${result.stderr}`);
-  return JSON.parse(result.stdout);
+  const result = await box.run([
+    'message', 'send', '--bots', 'bots', '--to', to, '--from', SENDER[to],
+    '--subject', 'the staging host', '--text', 'It is down again.', '--interrupt',
+  ]);
+  assert.equal(result.code, 0, `the letter went whatever became of the interrupt: ${result.stdout}${result.stderr}`);
+  return result.stdout + result.stderr;
 }
 
-// Covers acceptance 1, the screen of the issue: a Codex tab on its update
-// offer, Orca calling it idle with no reason, gets nothing typed, and the
-// answer says the tab is waiting on a question.
-test('a Codex tab on its update offer, which Orca calls idle, gets no nudge, and the answer says a question is waiting', async (t) => {
-  // Orca's answer is the one the issue saw: ok and satisfied, no reason, which
-  // is what the fake gives unless told otherwise. A line typed here with a
-  // return updates the machine.
+/** Each `terminal send` into every tab since its launch line, by tab id. */
+async function sentSinceLaunch(box) {
+  const after = {};
+  for (const terminal of await box.orca.terminals()) {
+    after[terminal.tabId] = sentInto(terminal).slice(1);
+  }
+  return after;
+}
+
+/** The letter is in the mailbox, and nothing at all went into any tab after its launch line. */
+async function assertQueuedUntyped(box, what) {
+  assert.equal((await box.orca.messages()).length, 1, `${what}: the letter is in the mailbox`);
+  assert.deepEqual(Object.values(await sentSinceLaunch(box)).flat(), [], `${what}: and nothing went into any tab`);
+}
+
+/** One Escape, with no Enter, into `tab`, and nothing into any other tab. */
+async function assertEscapedOnly(box, tab, what) {
+  assert.equal((await box.orca.messages()).length, 1, `${what}: the letter is in the mailbox`);
+  const sent = await sentSinceLaunch(box);
+  assert.deepEqual(sent[tab].map((one) => ({ text: one.text, enter: one.enter })), [{ text: '\x1b', enter: false }], `${what}: one Escape into the receiver's tab, got ${JSON.stringify(sent[tab])}`);
+  for (const [other, keys] of Object.entries(sent)) {
+    if (other !== tab) assert.deepEqual(keys, [], `${what}: nothing into ${other}`);
+  }
+}
+
+// Covers acceptance 1, the screen of the issue: a busy Codex tab on its update
+// offer gets no Escape, and the output says the tab is waiting on a question.
+// An Escape on that screen is a key the offer reads.
+test('a busy Codex tab on its update offer gets no Escape, and the output says a question is waiting', async (t) => {
   const box = await createSandbox(t);
   const bots = await fleetIn(box);
-  await showIn(box, await tabOf(bots, 'coder'), { screen: CODEX_UPDATE_OFFER });
+  await busyIn(box, await tabOf(bots, 'coder'), { screen: CODEX_UPDATE_OFFER });
 
-  const answer = await send(box, 'coder');
+  const said = await send(box, 'coder');
 
-  assert.equal(answer.sent, true, `the message is in the mailbox, got: ${JSON.stringify(answer)}`);
-  assert.equal(answer.nudged, false, `got: ${JSON.stringify(answer)}`);
-  assert.equal(answer.blocked, QUESTION, `the answer should say the tab is waiting on a question, got: ${JSON.stringify(answer)}`);
+  assert.ok(said.includes(QUESTION), `the output should name what the tab is waiting on, got:\n${said}`);
   await assertQueuedUntyped(box, 'the update offer');
 });
 
 // Covers acceptance 1 for the other harness questions the issue names: Codex's
 // trust, hooks and `/new` screens, and Claude Code's numbered menus, the
-// selection on whichever choice. Orca names no reason in any of them here, so
-// each is about the screen alone; live, it named none for the hooks review and
-// the `/new` menu either. Claude Code 2.1.283's form to teach auto mode is here
-// too (#416): no numbers, and a return on it presses Continue, which starts a
-// scan of the project, recent sessions and the shell history.
+// selection on whichever choice. Claude Code 2.1.283's form to teach auto mode
+// is here too (#416): no numbers, and an Escape on it cancels it.
 for (const [label, bot, screen] of [
   ['Codex 0.157.1\'s /new menu, as captured, the answered turn above it', 'coder', CODEX_NEW_MENU],
   ['Codex 0.157.1\'s folder-trust question, as captured', 'coder', CODEX_TRUST],
@@ -177,116 +182,48 @@ for (const [label, bot, screen] of [
   ['Claude Code 2.1.283\'s form to teach auto mode, as captured', 'writer', CLAUDE_TEACH_FORM],
   ['Claude Code 2.1.283\'s form to teach auto mode, its selection moved to Continue', 'writer', CLAUDE_TEACH_FORM_ON_CONTINUE],
 ]) {
-  test(`a tab showing ${label} gets no nudge, and the answer says a question is waiting`, async (t) => {
+  test(`a busy tab showing ${label} gets no Escape, and the output says a question is waiting`, async (t) => {
     const box = await createSandbox(t);
     const bots = await fleetIn(box);
-    await showIn(box, await tabOf(bots, bot), { screen });
+    await busyIn(box, await tabOf(bots, bot), { screen });
 
-    const answer = await send(box, bot);
+    const said = await send(box, bot);
 
-    assert.equal(answer.nudged, false, `${label}: got ${JSON.stringify(answer)}`);
-    assert.equal(answer.blocked, QUESTION, `${label}: the answer should say the tab is waiting on a question, got ${JSON.stringify(answer)}`);
+    assert.ok(said.includes(QUESTION), `${label}: the output should say the tab is waiting on a question, got:\n${said}`);
     await assertQueuedUntyped(box, label);
   });
 }
 
 // Covers the intent on Claude Code's unnumbered trust list, as it really came:
 // Orca's wait timed out with no reason and Orca named no agent in the tab. The
-// kit's gate types nothing into a tab it cannot tell about, and this holds it
-// there whatever the new look makes of the screen. Which reason the answer
-// gives is not asked. Passes before the change too.
-test('Claude Code\'s trust list, with Orca timing out and naming no agent as it did live, gets nothing typed', async (t) => {
+// kit's gate sends nothing into a tab it cannot tell about.
+test('Claude Code\'s trust list, with Orca timing out and naming no agent as it did live, gets no Escape', async (t) => {
   const box = await createSandbox(t);
   const bots = await fleetIn(box);
   await box.orca.set(CLAUDE_TRUST_AS_ORCA_SAW_IT);
   await showIn(box, await tabOf(bots, 'writer'), { screen: CLAUDE_TRUST });
 
-  const answer = await send(box, 'writer');
+  await send(box, 'writer');
 
-  assert.equal(answer.nudged, false, `got: ${JSON.stringify(answer)}`);
   await assertQueuedUntyped(box, 'Claude Code\'s trust list as Orca saw it');
 });
 
-// Covers acceptance 1 where Orca's wait times out: a busy harness is nudged
-// (#232), but not while its screen shows a question.
-test('a harness Orca finds busy is not typed into while its screen shows a question', async (t) => {
-  // A busy harness takes a typed line as its next turn, which is why it is
-  // nudged at all (harness-in-tab.test.js). One with a question on its screen
-  // takes the line as the answer, whatever Orca's wait made of the tab.
-  const box = await createSandbox(t);
-  const bots = await fleetIn(box);
-  await box.orca.set({ waitIdle: 'busy' });
-  await showIn(box, await tabOf(bots, 'coder'), { screen: CODEX_UPDATE_OFFER });
-
-  const answer = await send(box, 'coder');
-
-  assert.equal(answer.nudged, false, `got: ${JSON.stringify(answer)}`);
-  assert.equal(answer.blocked, QUESTION, `got: ${JSON.stringify(answer)}`);
-  await assertQueuedUntyped(box, 'busy, with the update offer');
-});
-
-// Covers #416 where Orca's wait times out: what Orca says of a tab showing the
-// teach form was not seen, so the busy answer is asked too.
-test('a Claude tab Orca finds busy is not typed into while its screen shows the form to teach auto mode', async (t) => {
-  const box = await createSandbox(t);
-  const bots = await fleetIn(box);
-  await box.orca.set({ waitIdle: 'busy' });
-  await showIn(box, await tabOf(bots, 'writer'), { screen: CLAUDE_TEACH_FORM });
-
-  const answer = await send(box, 'writer');
-
-  assert.equal(answer.nudged, false, `got: ${JSON.stringify(answer)}`);
-  assert.equal(answer.blocked, QUESTION, `got: ${JSON.stringify(answer)}`);
-  await assertQueuedUntyped(box, 'busy, with the teach form');
-});
-
-// Covers the interface: where Orca names a reason, that reason stays the
-// `blocked` value. It describes what the kit does today and passes before the
-// change; it holds the new look to leaving Orca's word in place.
-test('where Orca names a reason, that reason is the answer\'s, question on screen or not', async (t) => {
+// Covers the interface: where Orca names a reason, that reason is what the
+// output gives, question on screen or not.
+test('where Orca names a reason, that reason is in the output, question on screen or not, and no Escape goes', async (t) => {
   const box = await createSandbox(t);
   const bots = await fleetIn(box);
   await box.orca.set({ waitIdle: 'blocked' });
   await showIn(box, await tabOf(bots, 'coder'), { screen: CODEX_UPDATE_OFFER });
 
-  const answer = await send(box, 'coder');
+  const said = await send(box, 'coder');
 
-  assert.equal(answer.nudged, false, `got: ${JSON.stringify(answer)}`);
-  assert.equal(answer.blocked, 'agent-interactive-prompt', `Orca's own word, got: ${JSON.stringify(answer)}`);
+  assert.ok(said.includes('agent-interactive-prompt'), `Orca's own word, got:\n${said}`);
   await assertQueuedUntyped(box, 'Orca\'s reason and the update offer');
 });
 
-// Covers acceptance 1, "says": the plain report of the blocked case.
-test('the plain report says the tab has something waiting to be answered, names it, and says nothing was typed', async (t) => {
-  const box = await createSandbox(t);
-  const bots = await fleetIn(box);
-  await showIn(box, await tabOf(bots, 'coder'), { screen: CODEX_UPDATE_OFFER });
-
-  const result = await box.run(sendArgs('coder'));
-
-  assert.equal(result.code, 0, result.stderr);
-  assert.ok(result.stdout.includes(`(${QUESTION})`), `the report should name what the tab is waiting on, got:\n${result.stdout}`);
-  assert.match(result.stdout, /nothing was typed/, `and say nothing was typed, got:\n${result.stdout}`);
-  await assertQueuedUntyped(box, 'the plain report');
-});
-
-// Covers #416, "says": the plain report for a tab on the teach form, as for
-// any question.
-test('the plain report for a tab on the form to teach auto mode says it is waiting on a question, and nothing was typed', async (t) => {
-  const box = await createSandbox(t);
-  const bots = await fleetIn(box);
-  await showIn(box, await tabOf(bots, 'writer'), { screen: CLAUDE_TEACH_FORM });
-
-  const result = await box.run(sendArgs('writer'));
-
-  assert.equal(result.code, 0, result.stderr);
-  assert.ok(result.stdout.includes(`(${QUESTION})`), `the report should name what the tab is waiting on, got:\n${result.stdout}`);
-  assert.match(result.stdout, /nothing was typed/, `and say nothing was typed, got:\n${result.stdout}`);
-  await assertQueuedUntyped(box, 'the plain report, teach form');
-});
-
-// Covers the boundary: screens that ask nothing are nudged as ever. These pass
-// before the change too; they hold the new guard to not swallowing every nudge.
+// Covers the boundary: screens that ask nothing get the Escape of a busy
+// receiver as ever. They hold the guard to not swallowing every key.
 for (const [label, bot, screen] of [
   ['Claude Code 2.1.283\'s idle input line with its placeholder, as captured', 'writer', CLAUDE_IDLE],
   ['Claude Code 2.1.283 after an answered turn, a numbered pair in its wrapped echo, as captured', 'writer', CLAUDE_ANSWERED],
@@ -298,57 +235,53 @@ for (const [label, bot, screen] of [
   // #416: the form's own words are old text here, not a form that is up.
   ['the teach form\'s words quoted in history, the input line back below them', 'writer', FORM_IN_HISTORY],
 ]) {
-  test(`${label}: no question, and the tab is nudged as ever`, async (t) => {
+  test(`${label}: no question, and the busy tab gets its one Escape`, async (t) => {
     const box = await createSandbox(t);
     const bots = await fleetIn(box);
     const reader = await tabOf(bots, bot);
-    await showIn(box, reader, { screen });
+    await busyIn(box, reader, { screen });
 
-    const answer = await send(box, bot);
+    const said = await send(box, bot);
 
-    assert.equal(answer.nudged, true, `${label}: the tab should have been told, got ${JSON.stringify(answer)}`);
-    assert.equal('blocked' in answer, false, `${label}: nothing is waiting, got ${JSON.stringify(answer)}`);
-    const typed = await typedSinceLaunch(box);
-    assert.equal(typed[reader].length, 1, `${label}: one line into the receiver's tab, got ${JSON.stringify(typed[reader])}`);
-    assert.match(typed[reader][0], /message check/, `${label}: the nudge, got ${typed[reader][0]}`);
+    assert.ok(!said.includes(QUESTION), `${label}: nothing is waiting, got:\n${said}`);
+    await assertEscapedOnly(box, reader, label);
   });
 }
 
 // Covers the boundary: the screen read is the receiver's own. A question in
-// another tab of the fleet stops nothing. Passes before the change too.
-test('a question on another tab of the fleet does not stop the receiver\'s nudge', async (t) => {
+// another tab of the fleet stops nothing.
+test('a question on another tab of the fleet does not stop the receiver\'s Escape', async (t) => {
   const box = await createSandbox(t);
   const bots = await fleetIn(box);
   const reader = await tabOf(bots, 'coder');
+  await busyIn(box, reader);
   await showIn(box, await tabOf(bots, 'writer'), { screen: CLAUDE_TEACH_AUTO });
 
-  const answer = await send(box, 'coder');
+  await send(box, 'coder');
 
-  assert.equal(answer.nudged, true, `the receiver's own screen asks nothing, got: ${JSON.stringify(answer)}`);
-  const typed = await typedSinceLaunch(box);
-  assert.equal(typed[reader].length, 1, `one line into the receiver's tab, got: ${JSON.stringify(typed[reader])}`);
-  assert.deepEqual(typed[await tabOf(bots, 'writer')], [], 'and nothing into the tab with the question');
+  await assertEscapedOnly(box, reader, 'a question on another tab');
 });
 
 // Covers the interface: a screen that cannot be read. The rows that come back
 // with a `source` other than `screen` look idle here, so a kit that did not
-// look at `source` would type.
+// look at `source` would send its key.
 for (const [label, steer] of [
   ['Orca refuses to read the screen', (box) => box.orca.set(READ_REFUSED)],
   ['Orca could render no screen and answers with accumulated output instead', (box, tab) => showIn(box, tab, { screenSource: 'screen-unavailable' })],
   ['Orca answers with the stream rather than the screen', (box, tab) => showIn(box, tab, { screenSource: 'stream' })],
 ]) {
-  test(`when ${label}, the kit cannot tell: no nudge, and the answer says so`, async (t) => {
+  test(`when ${label}, the kit cannot tell: no Escape, and the output says so`, async (t) => {
     const box = await createSandbox(t);
     const bots = await fleetIn(box);
-    await steer(box, await tabOf(bots, 'coder'));
+    const reader = await tabOf(bots, 'coder');
+    await busyIn(box, reader);
+    await steer(box, reader);
 
-    const answer = await send(box, 'coder');
+    const said = await send(box, 'coder');
 
-    assert.equal(answer.nudged, false, `${label}: got ${JSON.stringify(answer)}`);
-    assert.equal('blocked' in answer, false, `${label}: nothing was seen waiting; the kit does not know, got ${JSON.stringify(answer)}`);
-    assert.equal(typeof answer.nudgeTrouble, 'string', `${label}: a sentence saying the kit could not tell, got ${JSON.stringify(answer)}`);
-    assert.match(answer.nudgeTrouble, /screen|question/i, `${label}: about the screen, got ${JSON.stringify(answer)}`);
+    assert.ok(!said.includes(QUESTION), `${label}: nothing was seen waiting; the kit does not know, got:\n${said}`);
+    assert.match(said, /tell/i, `${label}: the output says the kit could not tell, got:\n${said}`);
+    assert.match(said, /screen|question/i, `${label}: about the screen, got:\n${said}`);
     await assertQueuedUntyped(box, label);
   });
 }
@@ -388,15 +321,6 @@ async function build(box, bots) {
 
 /** What the Codex session is told to read meanwhile: the SKILL.md through the bot's own link. */
 const codexSkillMd = (bots) => path.join(botHomeOf(bots, BOT), SKILL_DIRS.codex, KIT_SKILL, 'SKILL.md');
-
-/** Each `terminal send` into every tab since its launch line, by tab id. */
-async function sentSinceLaunch(box) {
-  const after = {};
-  for (const terminal of await box.orca.terminals()) {
-    after[terminal.tabId] = sentInto(terminal).slice(1);
-  }
-  return after;
-}
 
 // Covers acceptance 3, `/reload-skills`: a running Claude session whose screen
 // shows a question, Orca naming no reason, is reported blocked on

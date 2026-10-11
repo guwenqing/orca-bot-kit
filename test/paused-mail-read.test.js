@@ -3,7 +3,7 @@
 //
 // A session's mailbox is an Orca Run, bound to one coordinator terminal, and
 // that terminal is the only place Orca writes its own notice when mail arrives
-// (ADR 0035, tech notes section 1). #228 bound each Run to its session's own
+// (ADR 0042, tech notes section 1). #228 bound each Run to its session's own
 // tab, and made a check of a session whose tab is live read as that tab. A
 // session whose tab is down (paused with `obk pause`, or its tab closed) was
 // still read the old way: the check bound the Run to whatever terminal typed

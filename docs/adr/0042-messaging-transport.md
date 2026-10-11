@@ -1,9 +1,9 @@
-# ADR 0035: Native messaging Claude to Claude; the Orca mailbox for everything else
+# ADR 0042: Native messaging Claude to Claude; the Orca mailbox for everything else
 
-Date: 2026-10-09.
-Status: superseded by [ADR 0042](0042-messaging-transport.md).
-Decided by: the owner, in his design session of 2026-09-19 and on 2026-09-19 in #51; the coordinator, for the sentences marked as the coordinator's, where the owner was told and may overrule; the architect, for #394, for the sentences marked so, where the owner may overrule; the owner on 2026-10-09 for one signal for each fleet mail (#509), with the architect's rulings on how, for the sentences marked so, where the owner may overrule. Consulted: the slice 08 developer and reviewer, whose runs the Orca road rests on. A sentence marked (proposed) is not decided yet.
-Supersedes: [ADR 0030](0030-messaging-transport.md).
+Date: 2026-10-11.
+Status: accepted.
+Decided by: the owner, in his design session of 2026-09-19 and on 2026-09-19 in #51; the coordinator, for the sentences marked as the coordinator's, where the owner was told and may overrule; the architect, for #394, for the sentences marked so, where the owner may overrule; the owner on 2026-10-11 for one road and one signal for each fleet mail, Orca's own notice, and an interrupt for urgent mail (#555). Consulted: the slice 08 developer and reviewer, whose runs the Orca road rests on. A sentence marked (proposed) is not decided yet.
+Supersedes: [ADR 0035](0035-messaging-transport.md).
 
 ## Context
 
@@ -58,6 +58,18 @@ source, #509). Whether a tab
 holds a harness at all is read from its foreground process
 ([ADR 0034](0034-orca-is-the-host.md)).
 
+A probe on Orca 1.4.224 (2026-10-11, #555), with the raw `orca orchestration
+send` and no line of the kit's, showed that Orca parks its notice for a busy
+receiver and offers it again once the receiver is idle. A busy Codex got it
+about 75 s after its turn ended, an idle one at once, and a Claude Code
+session about 3.5 min after its turn ended. After one Escape into a busy tab,
+the notice came about 1 s (Claude Code) or 2 s (Codex) later. Orca rings no
+more for a mailbox while a delivery is open: its notice text names `orca
+orchestration check`, which does not acknowledge, and `obk message check`
+does. The owner judged the kit's line, its watch and its hook too much for a
+simple thing, and asked to rely on Orca's own notice, with one interrupt for
+urgent mail (#555).
+
 ## Decision
 
 Claude to Claude in the same approval class uses native messaging; sessions
@@ -78,50 +90,26 @@ advance" and the last sentence are the coordinator's, after a peer audit,
 #109.)
 
 On the Orca road a send is the message queued in the receiver's mailbox, and
-one signal that tells the receiver to look. Orca's own notice is the first
-signal; the kit's typed line is a fallback only (the owner, #509). A tab with
-something on screen waiting to be answered is not typed into at all, and a
-session that is not up is not nudged; the message waits in the mailbox. (The
-coordinator, for slice 08, 2026-09-21; the owner was told and may overrule.)
-"Not up" means the tab's shell is in front. Where the kit cannot tell whether
-the program in front is the session's harness, it types nothing either and
-says the mail waits (the architect, #232; the owner may overrule; how a tab
-is read is in [ADR 0034](0034-orca-is-the-host.md)).
+nothing else: Orca's own notice tells the receiver to look once it is idle,
+which the probe saw about 1 to 4 min after its turn ended; that delay is
+accepted. The kit types nothing into the receiver's tab, and the send says
+which road it took (the owner, #555).
 
-Which signal goes (the architect's rulings for #509):
+For urgent mail the sender asks for an interrupt: `obk message send
+--interrupt`. Where the receiver's harness is in its tab and busy, the kit
+presses Escape once there, to end its turn, and then queues the letter; Orca's
+notice then comes at once. Never by default. The Escape goes through the gate
+every key the kit types goes through: a tab with something on screen waiting
+to be answered, a tab with its shell in front, or one the kit cannot tell
+about gets no Escape, and the letter still goes, with the send saying why
+(the owner, #555; the gate as [ADR 0034](0034-orca-is-the-host.md) reads a
+tab). After an Escape, Codex keeps a command it was running as a background
+terminal, and the send says so for a Codex receiver.
 
-- A receiver that is idle is watched for up to 8 s. Orca's notice is known to
-  have arrived when the receiver's own record of its turns, the Claude
-  transcript or the Codex rollout, holds a turn written after the send that
-  names `orchestration check --run <its mailbox>`. Then nothing is typed, and
-  the send returns at once. A record that cannot be found or read counts as
-  no notice. When no turn starts in the 8 s, the kit types its line, which an
-  idle harness takes as a turn at once. When a turn of other work starts, a
-  Claude session gets nothing typed and a Codex session gets the line.
-- A receiver that is busy: its record is read for Orca's notice for up to
-  1.5 s, since the notice can start the turn before the kit looks (seen live on
-  Codex, #509); with the notice there, nothing is typed. Otherwise a Claude
-  session gets nothing typed, and a Codex session gets the line, which it
-  takes as a steer. That read is the most a send to a receiver busy with other
-  work waits.
-- A Claude session's own `Stop` hook, at each turn end, tells it once about
-  each message the kit sent it that Orca still lists as unread, and says
-  "still unread" and when it came. It types nothing. It tells as the Stop
-  event's additional context, which Claude Code draws as "Stop hook feedback",
-  and not as a block, which it draws as "Stop hook error". It says nothing when it
-  cannot read Orca or the kit's record, never tells twice about one message,
-  and lets the stop go when Claude Code says a stop hook is already active.
-  Codex gets this reminder in #511, after #506, since it needs a new Codex hook
-  entry.
-- The kit keeps a hint of the mail it sent and that is not yet read, sender
-  and subject only, in a private folder in the system temp folder. The hook
-  reads it, so a session with no mail asks Orca nothing; `obk message check`
-  takes out what it read; a retire says how many messages sent to the session
-  were not read with `obk message check`, and from whom. The mailbox stays the
-  record.
-- The send says which signal went. The send says a line was taken only when
-  Orca saw it start a turn; otherwise it says the line was typed but not seen
-  to start a turn (the architect, #394).
+A receiver answers Orca's notice with `obk message check`, which
+acknowledges, and never with a bare `orca orchestration check`, which leaves
+the delivery open, so Orca rings no more. The kit's rules say so to every bot
+(#555).
 
 A session's address on the Orca road is a Run (`run:<id>`), made once when the
 session is first brought up and kept in the book. A terminal handle is not an
@@ -155,35 +143,17 @@ for slice 08, 2026-09-21; the owner was told and may overrule.)
 - **Orca's own `reply`.** Not used: the recipient's check does not look under
   the replier's Run, where Orca files it.
 - **Relying on Orca to deliver into the tab.** Not possible: the mailbox is
-  pull-only. Orca's notice is the first signal, and the kit's line stays for
-  a receiver the notice does not reach.
+  pull-only. Orca's notice is the signal.
 - **The kit's line on every receiver beside Orca's notice** (#402).
   Replaced: a Claude receiver got two signals for one message, and a line
-  typed into a busy Claude tab waited in its input box and was sent after the
-  mail was read, or never, when the tab was closed (#509).
-- **The kit's line first, and no Orca notice.** Not possible: nothing turns
-  Orca's notice off for a Run, a terminal or a message (1.4.223, #509).
-- **Taking any turn start during the watch as Orca's notice.** Not chosen:
-  a turn of other work would then leave a Codex session, which has no
-  turn-end hook yet, with no signal. The receiver's own record of its turns
-  says whether the notice came.
-- **Deciding from the clock alone**, such as typing the line after a fixed
-  wait. Not chosen: the issue rules it out, and it cannot tell a notice that
-  came from one that did not.
-- **A Codex `Stop` hook in #509.** Deferred to #511: a new Codex hook entry
-  puts every Codex session on "Hooks need review" at its next start, and only
-  #506 answers that screen through the kit. The existing Codex `Stop` entry is
-  `async`, and Codex drops a stop answer from it.
-- **Telling a busy receiver after each tool call** (Codex's `PostToolUse`).
-  Not chosen: it is not a turn end, and it reads as an interruption.
-- **No line into a busy Codex tab either.** Not chosen: Codex takes the line
-  into its running turn at once, nothing stays in its input box, and it is
-  what wakes a Codex waiting in its sleep tool, which no hook reaches.
-- **Asking Orca whether the notice went.** Not possible: a tab may not read
-  another tab's mailbox, so the sender cannot see Orca's `delivered_at`.
-- **Deciding whether to nudge from Orca's `tui-idle` alone.** Not chosen: a
-  busy harness answers like a shell, and a busy session was told it was not up
-  (#232).
+  typed into a busy Claude tab waited in its input box (#509).
+- **The kit's line as a fallback after an 8 s watch, a Claude turn-end hook
+  for mail still unread, and a hint of unread mail in the temp folder**
+  ([ADR 0035](0035-messaging-transport.md), #509). Replaced: too much for a
+  simple thing, the owner said; Orca's notice reaches a busy receiver once it
+  is idle by itself, as the probe showed (#555).
+- **An Escape on every send to a busy receiver.** Not chosen: mail is queued
+  and not an interruption by default (PRD 6.9).
 - **Broadcast groups.** Not used, to avoid over-broadcasting.
 - One transport for every pair, Orca's mailbox included: not recorded as
   considered.
@@ -196,35 +166,29 @@ for slice 08, 2026-09-21; the owner was told and may overrule.)
   traffic.
 - Bad: Runs cannot be deleted, so a retired session leaves an inert Run
   behind, which is the price of an address that survives a closed tab.
-- Good: one signal for each message in the usual case: Orca's notice, or
-  the kit's line where the notice did not come, or the receiver's own hook.
-- Bad: a send to an idle receiver whose notice does not come waits the whole
-  8 s before the kit types its line. A send whose notice comes returns as soon
-  as the record shows it.
-- Bad: a line typed into an idle tab can still meet a turn that starts in the
-  moment between the kit's last look and its keystroke; it then waits for
-  that turn to end.
-- Bad: Orca itself presses Enter on a tab that reads working, so its own
-  notice can wait in an input box. That is Orca's, and outside the kit.
-- Bad: until #511, a Codex session that does not read its mail after its
-  signal is not told again.
-- Bad: the kit's hint of unread mail lives in the system temp folder and is
-  lost when that is cleaned; the hook and a retire then say nothing of that
-  mail, which still waits in the mailbox. The hint cannot see a read made with
-  Orca's own `check`, so a retire says only what it knows.
-- Bad: a typed line is best effort, and a session the kit cannot tell about,
-  a harness started through a wrapper among them, gets no nudge until #261;
-  its mail waits.
+- Good: one signal for each message, Orca's own, and nothing the kit types
+  into a tab unless the sender asks for an interrupt.
+- Bad: a busy receiver learns of its mail 1 to 4 min after its turn ends, and
+  not before, unless the sender interrupts it.
+- Bad: a receiver that reads its mail with a bare `orca orchestration check`
+  gets no further notice for that mailbox until the mail is read with `obk
+  message check`.
+- Bad: an Escape can meet a turn that ends between the kit's look and the key;
+  it then falls on an idle harness.
+- Bad: `obk up` takes the kit's old Codex nudge entry out of a bot's
+  `.codex/hooks.json`. A hook of the user's after it in the same event then
+  moves to another place, and Codex asks once to review it again. A bot with
+  only the kit's hooks keeps its trust.
 - Good: nobody's approval rule is widened or gone around to deliver a message.
 - Revisit if: `codex queue` proves reliable, Orca delivers into a harness by
-  itself, Orca's notice can be turned off for a mailbox, Orca lets a sender see
-  whether its notice went, or Claude Code's classes change. Confidence: high for the Orca road,
+  itself, Orca's notice stops reaching a receiver once it is idle, or Claude
+  Code's classes change. Confidence: high for the Orca road,
   proven live; low for `codex queue`, which is untested since 2026-09-19.
   (Proposed in #262; not recorded when it was decided.)
-- Checked by: `test/message-send.test.js`, `test/message-nudge.test.js`,
-  `test/message-nudge-seen.test.js`, `test/harness-in-tab.test.js`,
-  `test/message-to.test.js`, and the tests #509 adds for the watch, the hook
-  and the retire, with `test/system/messaging.test.js` live.
+- Checked by: `test/message-send.test.js`, `test/harness-in-tab.test.js`,
+  `test/message-to.test.js`, and the tests #555 adds for the interrupt and
+  what it removes, with `test/system/messaging.test.js` and
+  `test/system/mail-interrupt.test.js` live.
 
 ## History
 
@@ -256,7 +220,11 @@ for slice 08, 2026-09-21; the owner was told and may overrule.)
   on both harnesses beside Orca's own notice, the architect's decision for
   #402 on its finding, and #394's rule is recorded; the record replaces ADR
   0018.
-- 2026-10-09, this record: one signal for each fleet mail, Orca's notice
+- 2026-10-09, [ADR 0035](0035-messaging-transport.md): one signal for each fleet mail, Orca's notice
   first and the kit's line a fallback, the owner's decision for #509, with the
-  architect's rulings on the watch, the Claude hook, Codex and the retire; the
-  record replaces ADR 0030.
+  architect's rulings on the watch, the Claude hook, Codex and the retire;
+  [ADR 0035](0035-messaging-transport.md) replaces ADR 0030.
+- 2026-10-11, this record: one road and one signal, Orca's own notice, and an
+  interrupt for urgent mail, the owner's decision for #555; the kit's line,
+  its watch, the Claude hook and the hint of unread mail are gone; the record
+  replaces ADR 0035.

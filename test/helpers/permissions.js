@@ -30,7 +30,8 @@ import { botYamlOf } from './skills.js';
 /**
  * The kit's commands every bot is allowed, each narrowed to the bots folder
  * (#527): every command but those in NOT_DEFAULT_COMMANDS. #548 took
- * `restart` and `bot create` out of it.
+ * `restart` and `bot create` out of it, and #555 took out `session nudge` and
+ * `session mail`, which are no longer commands of the kit.
  */
 export const KIT_COMMANDS = [
   'up', 'unpause', 'health', 'groom', 'roster', 'usage',
@@ -38,7 +39,7 @@ export const KIT_COMMANDS = [
   'skills add', 'skills remove', 'skills build', 'skills fetch', 'skills update', 'source add',
   'session add', 'session change', 'session clear', 'session compact',
   'message to', 'message send', 'message check',
-  'session record', 'session sent', 'session nudge', 'session mail', 'session name', 'session mailbox',
+  'session record', 'session sent', 'session name', 'session mailbox',
   'temp make', 'temp roles', 'temp retire', 'temp trust-hooks', 'temp answer',
   // #506: they answer a long-lived session's first-run screens, narrow by
   // construction (the architect's ruling on #527).

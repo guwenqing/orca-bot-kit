@@ -42,8 +42,6 @@ import {
   repoRoot,
   sentInto,
   sessionIn,
-  shellWord,
-  spellingsOf,
 } from './helpers/cli.js';
 
 /** The module under test, as the writers in processes of their own import it. */
@@ -376,18 +374,15 @@ test('SK5 a mail check whose mailbox turn cannot be written fails, says to resta
 });
 
 // A Codex session sends from its own tab, in its sandbox: it can write its own
-// bot's locks and not the receiver's. The receiver's line turn cannot be
-// taken, so the send cannot type its line; it is not let past the lock
-// either. The message is queued, nothing is typed, and the nudge is left for
-// the sending session's PostToolUse hook, which Codex runs outside the sandbox
-// (src/message.js, leftForHook; test/nudge-left-for-hook.test.js). That hook,
-// where the lock can be written, then types the line.
+// bot's locks and not the receiver's. Since #555 a send types nothing and takes
+// none of the receiver's turns, so the letter is posted all the same, nothing
+// is typed, and nothing is left for a hook.
 
 /** The subject every send here carries. */
 const SUBJECT = 'the review of PR 12';
 
 /** The environment of a command run in reviewer/daily's tab, with what a Codex tool command carries. */
-async function inReviewerTab(box, bots, { codexCommand }) {
+async function inReviewerTab(box, bots) {
   const { tab } = await sessionIn(bots, 'reviewer', 'daily');
   const terminal = (await box.orca.terminals()).find((one) => one.tabId === tab);
   assert.ok(terminal, 'the premise: Orca has reviewer/daily\'s tab');
@@ -399,24 +394,11 @@ async function inReviewerTab(box, bots, { codexCommand }) {
     ORCA_TAB_ID: terminal.tabId,
     ORCA_TERMINAL_HANDLE: terminal.handle,
     ...mark,
-    ...(codexCommand ? { CODEX_THREAD_ID: thread, CODEX_SESSION_ID: thread, CODEX_SANDBOX: 'seatbelt' } : {}),
+    CODEX_THREAD_ID: thread,
+    CODEX_SESSION_ID: thread,
+    CODEX_SANDBOX: 'seatbelt',
   };
 }
-
-/** Codex's PostToolUse payload after its shell tool ran the send. */
-const afterBash = (bots) => `${JSON.stringify({
-  session_id: '0199b2c0-0408-4444-8888-cccccccccccc',
-  turn_id: 'turn-3',
-  transcript_path: '/nowhere/rollout.jsonl',
-  cwd: botHomeOf(bots, 'reviewer'),
-  hook_event_name: 'PostToolUse',
-  model: 'gpt-5.5',
-  permission_mode: 'default',
-  tool_name: 'Bash',
-  tool_input: { command: `"$OBK_CLI" message send --bots bots --to developer --subject '${SUBJECT}' --text 'Approved.' --json` },
-  tool_response: '{"sent": true}',
-  tool_use_id: 'call_7',
-})}\n`;
 
 /** What was typed into each tab after its launch line. */
 async function typedSinceLaunch(box) {
@@ -425,50 +407,25 @@ async function typedSinceLaunch(box) {
   return after;
 }
 
-test('SK6 mail from a Codex session in its own tab, whose receiver\'s typing and line turns it cannot write, is queued, types nothing, and leaves the nudge for its hook, which types it', { skip: NEEDS_A_USER }, async (t) => {
+test('SK6 mail from a Codex session in its own tab, whose receiver\'s turns it cannot write, is queued and types nothing (#555)', { skip: NEEDS_A_USER }, async (t) => {
   const box = await createSandbox(t);
   const bots = await fleetIn(box, [['developer', 'claude'], ['reviewer', 'codex']]);
-  // Orca's runtime names the idle Claude Code in the developer's tab, so with
-  // its lock writable the send would type the line itself
-  // (nudge-left-for-hook.test.js, A7). `ps` does not start, as in the sandbox.
   await orcaApp(box);
   await box.orca.set({ ps: 'not-permitted' });
-  const developer = (await sessionIn(bots, 'developer', 'daily')).tab;
-  const env = await inReviewerTab(box, bots, { codexCommand: true });
+  const env = await inReviewerTab(box, bots);
 
   let sent;
   const restore = await unwritable(`${bots}.locks`, { except: path.join(`${bots}.locks`, 'reviewer') });
   try {
-    sent = await box.run(['message', 'send', '--bots', 'bots', '--to', 'developer', '--subject', SUBJECT, '--text', 'Approved.', '--json'], { env });
+    sent = await box.run(['message', 'send', '--bots', 'bots', '--to', 'developer', '--subject', SUBJECT, '--text', 'Approved.'], { env });
   } finally {
     await restore();
   }
 
-  assert.equal(sent.code, 0, `the message goes whatever became of the nudge:\n${sent.stdout}${sent.stderr}`);
-  const answer = JSON.parse(sent.stdout);
-  assert.equal(answer.sent, true, `it is sent, got: ${sent.stdout}`);
-  assert.equal(answer.nudged, false, `the send types nothing, got: ${sent.stdout}`);
-  assert.equal(answer.nudgeLeft, true, `and leaves the nudge for the sending session's hook, got: ${sent.stdout}`);
-  assert.equal((await box.orca.messages()).length, 1, 'the message is in the mailbox');
+  assert.equal(sent.code, 0, `the letter goes:\n${sent.stdout}${sent.stderr}`);
+  assert.equal((await box.orca.messages()).length, 1, 'the letter is in the mailbox');
   assert.deepEqual(Object.values(await typedSinceLaunch(box)).flat(), [], 'and nothing was typed into any tab');
-
-  // The hook, outside the sandbox, where `ps` runs and the lock can be written.
-  await box.orca.set({ ps: undefined });
-  const hook = await box.run(['session', 'nudge', '--bots', 'bots', '--bot', 'reviewer'], {
-    env: await inReviewerTab(box, bots, { codexCommand: false }),
-    stdin: afterBash(bots),
-  });
-
-  assert.equal(hook.code, 0, `a hook never fails the session: ${hook.stderr}`);
-  const typed = await typedSinceLaunch(box);
-  const lines = spellingsOf(box.cli).map(
-    (cli) => `Fleet mail from reviewer/daily: ${SUBJECT}. Read it with  ${cli} message check --bots ${shellWord(bots)} --bot developer --session daily`,
-  );
-  assert.equal(typed[developer].length, 1, `the hook types one line into the receiver's tab, got: ${JSON.stringify(typed[developer])}`);
-  assert.ok(lines.includes(typed[developer][0].text), `the line the send would have typed, got: ${typed[developer][0].text}`);
-  for (const [tab, sentLines] of Object.entries(typed)) {
-    if (tab !== developer) assert.deepEqual(sentLines, [], `nothing is typed into ${tab}`);
-  }
+  assert.ok(!(await readdir(box.tmp)).includes('obk-nudges'), 'and nothing is left for a hook');
 });
 
 // ------------------------------------------------------------- two turns of one process on one file

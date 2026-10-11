@@ -1,4 +1,4 @@
-// `obk message`: one session writing to another (PRD 6.9, ADR 0035).
+// `obk message`: one session writing to another (PRD 6.9, ADR 0042).
 //
 // Two roads, and the bot never picks. Claude to Claude in the same approval
 // class is the harness's own messaging, which no command line can send for it —
@@ -10,24 +10,18 @@
 // refuses a send once the pane is gone. A Run survives the tab, the relaunch
 // and the restart, so a session's address is its Run (tech notes, section 1).
 //
-// Nothing in a mailbox wakes the session it belongs to — a message addressed to
-// a tab leaves the harness in it untouched, proved live — so each message gets
-// one signal that tells the receiver to look: Orca's own notice first, and the
-// kit's typed line only where that did not come (#509, ADR 0035). A busy
-// Claude session gets nothing typed, since Claude Code holds a line typed into
-// it until its turn ends; its own turn-end hook tells it instead.
+// One road and one signal (#555, ADR 0042): the letter goes into the
+// receiver's mailbox, and Orca's own notice tells the receiver to look once it
+// is idle. The kit types nothing into the receiver's tab, except the one
+// Escape a sender asks for with --interrupt.
 
-import { mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import os from 'node:os';
+import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { setTimeout as pause } from 'node:timers/promises';
 
 import { MAILBOX_WAIT_MS, readBook, takeLineTurn, takeMailboxTurn, TYPING_HELD, TYPING_WAIT_MS } from './book.js';
 import { botDir, botNames, readBot } from './bot.js';
-import { recordMark, userTurnSince } from './conversations.js';
 import { harnessOf, isAddressOf, kitFolders, ownCli, reachesMail, SHELL_ENV, shellWord } from './launch.js';
-import { ackMailbox, coordinatorOf, idleNow, postMessage, readMailbox, tabs, tabToTypeInto, TERMINAL_ENV, TIMED_OUT, typeIntoTab, useMailbox } from './orca.js';
-import { forgetUnread, markTold, noteUnread, unreadOf } from './unread.js';
+import { ackMailbox, coordinatorOf, postMessage, pressEscape, readMailbox, tabs, tabToTypeInto, TERMINAL_ENV, TIMED_OUT, useMailbox } from './orca.js';
 
 /**
  * How much of a message travels as itself. Above this it is written to a file
@@ -41,7 +35,7 @@ import { forgetUnread, markTold, noteUnread, unreadOf } from './unread.js';
  */
 export const INLINE_LIMIT = 4 * 1024;
 
-/** How long Orca is given to say whether a tab has a TUI in it to nudge. */
+/** How long Orca is given to say whether a tab has a busy harness in it to interrupt. */
 const LOOK_MS = 2000;
 
 /**
@@ -79,9 +73,6 @@ export function findSession(bots, target) {
     address: isAddressOf(bot.name, session.name, held.address) ? held.address : undefined,
     mailbox: typeof held.mailbox === 'string' ? held.mailbox : undefined,
     tab: typeof held.tab === 'string' ? held.tab : undefined,
-    // The conversation the book holds for it, whose record says whether Orca's
-    // notice reached it (#509).
-    conversation: typeof held.session === 'string' ? held.session : undefined,
     trouble: whyNotReachable(bot.name, session, harness, held),
   };
 }
@@ -127,13 +118,14 @@ export function lookUp(bots, { to: target, from: sender, tab }) {
 }
 
 /**
- * Send one message down the Orca road, and tell the receiver's tab to look.
+ * Send one message down the Orca road; with `interrupt`, end a busy
+ * receiver's turn first.
  *
  * A native pair is not carried here: no command line can send a Claude session's
  * own message. The kit says which address to write to instead, and sends
  * nothing, which is the whole of "the bot never picks the transport".
  */
-export async function sendMessage(bots, { to: target, from: sender, tab, subject, text, textFile, thread }) {
+export async function sendMessage(bots, { to: target, from: sender, tab, subject, text, textFile, thread, interrupt = false }) {
   const from = whoIsWriting(bots, sender, tab);
   const to = findSession(bots, target);
   const road = roadBetween(from, to);
@@ -141,7 +133,7 @@ export async function sendMessage(bots, { to: target, from: sender, tab, subject
   const answer = {
     bots,
     from: { bot: from.bot, session: from.session },
-    to: { bot: to.bot, session: to.session },
+    to: { bot: to.bot, session: to.session, harness: to.harness },
     subject,
     ...road,
   };
@@ -167,9 +159,8 @@ export async function sendMessage(bots, { to: target, from: sender, tab, subject
   }
 
   const written = bodyOf(bots, { from, to, subject, text, textFile });
-  // The receiver's record as it stands before the mail: Orca can type its
-  // notice the moment the mail is in.
-  const mark = recordMark(to.harness, to.home, to.conversation);
+  // The Escape goes first, so the turn has ended when the letter is in.
+  const interrupted = interrupt ? interruptBusy(to) : {};
   const message = postMessage({
     to: road.address,
     from: `run:${from.mailbox}`,
@@ -177,7 +168,6 @@ export async function sendMessage(bots, { to: target, from: sender, tab, subject
     body: written.body,
     thread,
   });
-  noteUnread(to.home, to.session, { id: message.id, from: `${from.bot}/${from.session}`, subject, at: message.created_at ?? new Date().toISOString() });
 
   return {
     ...answer,
@@ -185,7 +175,7 @@ export async function sendMessage(bots, { to: target, from: sender, tab, subject
     id: message.id,
     thread: message.thread_id ?? thread,
     file: written.file,
-    ...(await nudge(to, from, subject, tab, mark)),
+    ...interrupted,
   };
 }
 
@@ -220,10 +210,7 @@ export function checkMail(bots, { bot: botName, session: sessionName, tab, peek 
   }
   try {
     const who = findSession(bots, `${asked.bot}/${asked.session}`);
-    const read = mailOf(bots, who, peek, Date.now() + HOLD_MS);
-    // What was read is out of the kit's hint of unread mail (#509); a peek reads nothing.
-    if (!peek && read.messages.length > 0) forgetUnread(who.home, who.session, read.messages.map((message) => message.id));
-    return read;
+    return mailOf(bots, who, peek, Date.now() + HOLD_MS);
   } finally {
     turn.release();
   }
@@ -448,326 +435,42 @@ function readText(file) {
 const stamp = () => new Date().toISOString().replaceAll(':', '-').replace('.', '-');
 
 /**
- * Tell the receiver that mail is waiting, with one signal (#509, ADR 0035).
- *
- * Orca's own notice is the first signal: it types it into the receiver's tab
- * once the tab is at rest. The kit's line is the fallback, for a receiver the
- * notice did not reach. So an idle receiver is watched for up to WATCH_MS, and
- * its own record of its turns says whether the notice came: a turn of the
- * user's, written after the send, that names its mailbox. Then nothing is
- * typed. When no turn started, the kit types its line, which an idle harness
- * takes at once. A Claude session busy with a turn, from the first look or
- * from a turn of other work in the watch, gets nothing typed: Claude Code
- * holds a line typed during a turn in its input box until the turn ends,
- * which can be after the mail was read, or never, and the session's own
- * turn-end hook tells it about mail still unread. A busy Codex session gets the
- * line: Codex takes it into the running turn at once, and it is what ends
- * Codex's sleep tool (#432). A record that cannot be found or read is a notice
- * not seen.
- *
- * Nothing is typed into a tab with no harness in it — there is nobody there to
- * read it, and the message waits in the mailbox until the session is up. Nor
- * into one the kit cannot tell about. A tab the book does not hold is never
- * typed into on any road.
- *
- * Nor into a tab with something on screen waiting to be answered. A line typed
- * into one of those is not a message: it is an answer to whatever question is
- * up. That is not a worry, it is a thing that happened — in slice 03 a second
- * line went into a tab on Claude Code's folder-trust list, confirmed its
- * default, `No, exit`, and the harness quit (tech notes, section 1). And in
- * #329 a return took Codex's "Update now". So where Orca says a tab is
- * blocked, or the kit sees a numbered choice list of the harness's own on its
- * screen, nothing is typed and the mail waits. The gate is passed again right
- * before the line, after the watch.
- *
- * That narrows the case rather than closing it: a question drawn any other way,
- * such as Claude Code's unnumbered trust list, is seen by neither. What closes
- * it is nobody sending to a session before its first screens are answered,
- * which is the caller's work either way.
- *
- * What is left open: a turn that starts between the gate's last look and the
- * line meets the line, which then waits for that turn to end.
+ * Interrupt a busy receiver before an urgent letter (#555): one Escape into its
+ * tab ends the turn it is having, and Orca's notice then comes at once rather
+ * than when that turn ends. Never by default. Only where the gate every key
+ * the kit types goes through finds the receiver's harness there and busy: an
+ * idle one gets Orca's notice at once anyway, and an Escape into a question on
+ * its screen would answer it. Codex keeps a command it was running as a
+ * background terminal after an Escape.
  */
-async function nudge(to, from, subject, tab, mark = recordMark(to.harness, to.home, to.conversation)) {
-  if (to.tab === undefined) return { nudged: false };
-  const notice = `orchestration check --run ${to.mailbox}`;
-
-  const first = atTheGate(to, from, subject, tab, mark, (found) => (found.idle ? { watch: found.handle } : { busy: true }));
-  if (first.busy) {
-    // Busy at the first look may be Orca's notice, typed the moment the mail
-    // was in: an idle Codex took it as a turn before the kit looked, live.
-    if (await noticeShows(mark, notice)) return { nudged: false, signal: 'orca' };
-    if (to.harness === 'claude') return { nudged: false, signal: 'hook', because: 'busy' };
-    return atTheGate(to, from, subject, tab, mark, (found) => (userTurnSince(mark, notice)
-      ? { nudged: false, signal: 'orca' }
-      : line(found.handle, to, from, subject, 'busy')));
-  }
-  if (first.watch === undefined) return first;
-
-  const watched = await watch(first.watch, mark, notice);
-  const watchedMs = watched.ms;
-  if (watched.notice) return { nudged: false, signal: 'orca', watchedMs };
-  if (watched.turn && to.harness === 'claude') return { nudged: false, signal: 'hook', because: 'other-turn', watchedMs };
-
-  const last = atTheGate(to, from, subject, tab, mark, (found) => {
-    // What came while the gate looked, said as it was.
-    if (userTurnSince(mark, notice)) return { nudged: false, signal: 'orca' };
-    const because = watched.turn || !found.idle ? 'other-turn' : 'no-turn';
-    if (!found.idle && to.harness === 'claude') return { nudged: false, signal: 'hook', because };
-    return line(found.handle, to, from, subject, because);
-  });
-  return { ...last, watchedMs };
-}
-
-/**
- * How long an idle receiver is watched for Orca's notice before the kit types
- * its line, the architect's ruling for #509. The send returns as soon as the
- * notice shows, so only a notice that did not come costs the whole of it.
- */
-export const WATCH_MS = 8000;
-
-/** How long one look in the watch asks Orca to wait for an idle tab, and the pause after an idle one. */
-const WATCH_LOOK_MS = 500;
-
-/**
- * How long the record is read once a turn has started, for the notice that
- * started it: the harness writes the turn as it takes it, and a look can see
- * the turn a moment before the record does.
- */
-const RECORD_GRACE_MS = 1500;
-
-/** How often the record is read in that time. */
-const RECORD_ASK_MS = 250;
-
-/**
- * Whether the receiver's record shows Orca's notice within RECORD_GRACE_MS, for
- * a tab seen busy: the most a send to a receiver busy with other work waits.
- */
-async function noticeShows(mark, notice) {
-  for (const end = Date.now() + RECORD_GRACE_MS; ; await pause(RECORD_ASK_MS)) {
-    if (userTurnSince(mark, notice)) return true;
-    if (Date.now() >= end) return false;
-  }
-}
-
-/**
- * Watch an idle receiver for up to WATCH_MS: `{ notice: true }` once its record
- * shows Orca's notice, `{ turn: true }` once a turn started that the record
- * does not show as the notice, or `{}` when it stayed at rest; with `ms`, how
- * long it watched. A look Orca does not answer says nothing, and the watch
- * goes on to its end.
- */
-async function watch(handle, mark, notice) {
-  const started = Date.now();
-  const until = started + WATCH_MS;
-  const ms = () => Date.now() - started;
-  for (;;) {
-    if (userTurnSince(mark, notice)) return { notice: true, ms: ms() };
-    const left = until - Date.now();
-    if (left <= 0) return { ms: ms() };
-    const seen = idleNow(handle, Math.min(WATCH_LOOK_MS, left));
-    if (seen === 'busy') return (await noticeShows(mark, notice)) ? { notice: true, ms: ms() } : { turn: true, ms: ms() };
-    if (seen === 'idle') await pause(Math.min(WATCH_LOOK_MS, Math.max(until - Date.now(), 0)));
-  }
-}
-
-/**
- * Look at the receiver's tab through the gate every typed line goes through,
- * holding its turn for a line, and answer what `then` makes of a tab that
- * passed; a tab that did not pass is answered as it was before #509.
- */
-function atTheGate(to, from, subject, tab, mark, then) {
-  // A line typed while the kit types a command one key at a time would land
-  // in it and send it with its own return (#480): so the receiver's turn for
-  // a line first, for a bounded time, and the mail waits in its mailbox if not.
+function interruptBusy(to) {
+  if (to.tab === undefined) return { interrupted: false, interruptTrouble: 'it is not up' };
+  // A key typed while the kit types a command one key at a time would land in
+  // that command (#480), so the receiver's turn for a line first.
   let turn;
   try {
     turn = takeLineTurn(to.home, to.session, TYPING_WAIT_MS);
   } catch (error) {
-    // A Codex sender's sandbox cannot write another bot's turns (#534); its
-    // hook, which runs outside the sandbox, can.
-    return { nudged: false, nudgeTrouble: error.message, ...leftForHook(to, from, subject, tab, mark) };
+    return { interrupted: false, interruptTrouble: error.message };
   }
-  if (turn === undefined) {
-    return { nudged: false, nudgeTrouble: TYPING_HELD };
-  }
+  if (turn === undefined) return { interrupted: false, interruptTrouble: TYPING_HELD };
   try {
     const found = lookAt(to);
-    if (found.blocked !== undefined) return { nudged: false, blocked: found.blocked };
-    // A line that lands in a shell is run there, with the sender's subject in it.
-    if (found.unsure !== undefined) return { nudged: false, nudgeTrouble: found.unsure, ...(found.psUnread ? leftForHook(to, from, subject, tab, mark) : {}) };
-    if (found.handle === undefined) return { nudged: false };
-    return then(found);
+    if (found.blocked !== undefined) return { interrupted: false, interruptTrouble: `its tab has something waiting to be answered (${found.blocked}), so nothing was typed` };
+    if (found.unsure !== undefined) return { interrupted: false, interruptTrouble: found.unsure };
+    if (found.handle === undefined) return { interrupted: false, interruptTrouble: found.gone ? 'it is not up' : 'no harness is running in its tab' };
+    if (found.idle) return { interrupted: false, idle: true };
+    pressEscape(found.handle);
+    return { interrupted: true };
   } catch (error) {
-    // The message is already queued, and it is waiting whatever Orca says
-    // about the tab. So this is reported rather than thrown: a send that ends
-    // in an error the caller reads as "it did not go" would be a lie, and a
-    // silent `false` would read as "the session is not up", which is a
-    // different thing from "Orca would not say".
-    return { nudged: false, nudgeTrouble: error.message };
+    return { interrupted: false, interruptTrouble: error.message };
   } finally {
     turn.release();
   }
 }
 
-/** Type the kit's line into the receiver's tab, and say what Orca saw of it. */
-function line(handle, to, from, subject, because) {
-  const sent = typeIntoTab(
-    handle,
-    `Fleet mail from ${from.bot}/${from.session}: ${subject}. Read it with  ${shellWord(ownCli())} message check --bots ${shellWord(to.bots)} --bot ${shellWord(to.bot)} --session ${shellWord(to.session)}`,
-    { watch: true },
-  );
-  const said = { nudged: true, signal: 'line', because };
-  // Typed is not taken. A harness busy with a turn queues the line and gives
-  // it no turn of its own, and a line can be lost, and Orca's receipt looks
-  // the same for both: only a turn start it saw says the line landed (#394).
-  if (sent?.send?.prompt?.stages?.includes('turn_started')) return said;
-  // Where Orca did not watch the line at all, as when its own notice has
-  // just started a turn in the tab, it saw nothing either way, and says so.
-  if (sent?.send?.prompt?.observation === 'unsupported') return { ...said, nudgeUnseen: unseen(sent), nudgeWatched: false };
-  return { ...said, nudgeUnseen: unseen(sent) };
-}
-
 /**
- * The nudge a Codex sender could not decide, left for its own hook (#350, ADR
- * 0034): `{ nudgeLeft: true }`, or nothing when it is not left.
- *
- * Inside Codex's sandbox `ps` does not start, and for a Claude receiver busy
- * with a command Orca's runtime cannot see past it either. Codex runs its
- * hooks outside the sandbox, and the kit's `PostToolUse` hook runs right after
- * the command that made this send, in the same tab, where `ps` runs. So the
- * send leaves the nudge where that hook looks, the system temp folder under the
- * tab's id, which the sandbox lets it write and the hook reads. Only for a
- * Codex session sending from its own tab, and only where `ps` could not read
- * the receiver's tab, or where the sandbox would not let it take the
- * receiver's turn for a line, which is another bot's to write (#534):
- * anywhere else no hook would see it, or would see no more than the send did.
- */
-function leftForHook(to, from, subject, tab, mark) {
-  if (tab === undefined || from.tab !== tab || from.harness !== 'codex') return {};
-  try {
-    const dir = leftDir(tab);
-    mkdirSync(dir, { recursive: true });
-    // The receiver's record as it stood before the post, so the hook reads
-    // what came after the post and not after itself (#509 review): Orca's
-    // notice can land before the hook runs. None stays none.
-    const left = { bots: to.bots, to: `${to.bot}/${to.session}`, from: `${from.bot}/${from.session}`, subject, mark: mark ?? null };
-    // Written under a name the hook does not take, then put in place whole: a
-    // hook running beside this send never takes a file still being written.
-    const name = path.join(dir, `${stamp()}.${process.pid}`);
-    writeFileSync(`${name}.writing`, `${JSON.stringify(left)}\n`);
-    renameSync(`${name}.writing`, `${name}.json`);
-    return { nudgeLeft: true };
-  } catch {
-    return {};
-  }
-}
-
-/** Where the nudges left from one tab wait for its hook. */
-const leftDir = (tab) => path.join(os.tmpdir(), 'obk-nudges', encodeURIComponent(tab));
-
-/**
- * What the kit's Codex hook does after each shell command (#350): decide every
- * nudge a send in this tab left, oldest first, with the gate the send uses, and
- * type it or not. Each is taken out before it is looked at, so it is decided
- * once, by one hook. Returns `{ to, subject, ...what the nudge came to }` for
- * each, as the send's own answer says it.
- */
-export async function decideLeftNudges(tab) {
-  if (tab === undefined) return [];
-  const dir = leftDir(tab);
-  let names;
-  try {
-    names = readdirSync(dir).filter((name) => name.endsWith('.json')).sort();
-  } catch {
-    return [];
-  }
-  const decided = [];
-  for (const name of names) {
-    const taking = path.join(dir, `${name}.taking`);
-    // Another hook took it first: it is that hook's to decide, and to remove.
-    try {
-      renameSync(path.join(dir, name), taking);
-    } catch {
-      continue;
-    }
-    let left;
-    try {
-      left = JSON.parse(readFileSync(taking, 'utf8'));
-    } catch {
-      continue;
-    } finally {
-      rmSync(taking, { force: true });
-    }
-    try {
-      const to = findSession(left.bots, left.to);
-      const from = findSession(left.bots, left.from);
-      decided.push({ to: left.to, subject: left.subject, ...(await nudge(to, from, left.subject, undefined, left.mark ?? null)) });
-    } catch (error) {
-      decided.push({ to: left.to, subject: left.subject, nudged: false, nudgeTrouble: error.message });
-    }
-  }
-  return decided;
-}
-
-/**
- * What the kit's Claude Code hook says at the end of a session's turn (#509,
- * ADR 0035): the reason the turn goes on with, naming each message the kit sent
- * this session that Orca still lists as unread, once for each; or undefined,
- * and the turn ends as it would have.
- *
- * It must never hold a session. So it says nothing when Claude Code says a stop
- * hook is already active, when the kit's hint holds nothing new for the
- * session (and then it asks Orca nothing), when it cannot ask Orca or read the
- * hint, and when it cannot first mark what it tells as told: a message is told
- * once, or not at all. It reads the mailbox only by a peek, as the session's
- * own tab, so nothing is taken as read.
- */
-export function stillUnread(bots, bot, said, tab, handle) {
-  if (said?.hook_event_name !== 'Stop' || said.stop_hook_active === true) return undefined;
-  if (tab === undefined || handle === undefined) return undefined;
-  const who = sessionInTab(bots, tab);
-  if (who === undefined || who.bot !== bot || who.mailbox === undefined) return undefined;
-  // Only the conversation the book holds for this tab: a harness started
-  // inside the session runs the same hook in the same tab, and would take the
-  // session's one telling (#509 review), as the naming hook guards (#480).
-  if (typeof said.session_id !== 'string' || said.session_id !== who.conversation) return undefined;
-  const untold = unreadOf(who.home, who.session).filter((entry) => !entry.told);
-  if (untold.length === 0) return undefined;
-
-  const found = readMailbox(who.mailbox, { peek: true, handle }, { timeoutMs: HOOK_ASK_MS });
-  const waiting = new Map((found.messages ?? []).map((message) => [message.id, message]));
-  const tell = untold.filter((entry) => waiting.has(entry.id));
-  if (tell.length === 0) return undefined;
-  markTold(who.home, who.session, tell.map((entry) => entry.id));
-
-  const lines = tell.map((entry) => `- from ${entry.from}: "${entry.subject}", which came at ${clockOf(waiting.get(entry.id).created_at ?? entry.at)}`);
-  return [
-    `${tell.length === 1 ? 'A fleet mail sent to you is' : `${tell.length} fleet mails sent to you are`} still unread. This is not new mail; it is told once:`,
-    ...lines,
-    `Read it with  ${shellWord(ownCli())} message check --bots ${shellWord(who.bots)} --bot ${shellWord(who.bot)} --session ${shellWord(who.session)}`,
-  ].join('\n');
-}
-
-/** How long the turn-end hook gives Orca, well inside the 30 s the harness gives the hook. */
-const HOOK_ASK_MS = 10_000;
-
-/** A time as a clock reads it, in UTC; what cannot be read is said as it is. */
-function clockOf(at) {
-  const when = new Date(typeof at === 'string' && /^\d{4}-\d\d-\d\d \d/.test(at) ? `${at.replace(' ', 'T')}Z` : at);
-  return Number.isNaN(when.getTime()) ? String(at) : `${when.toISOString().slice(11, 16)} UTC`;
-}
-
-/** Orca's words about a line it did not see start a turn, or what its receipt says when it gives none. */
-function unseen(sent) {
-  const warnings = Array.isArray(sent?.warnings) ? sent.warnings.filter((warning) => typeof warning === 'string') : [];
-  if (warnings.length > 0) return warnings.join(' ');
-  const stages = sent?.send?.prompt?.stages;
-  return `Orca's receipt shows ${Array.isArray(stages) ? stages.join(', ') : 'no stages'} and no turn start`;
-}
-
-/**
- * The look before the nudge. Orca now and then refuses a handle it has just
+ * The look before the interrupt. Orca now and then refuses a handle it has just
  * listed as stale, and a fresh listing hands out one that works (tech notes,
  * section 1), so that refusal earns one more listing and one more look. Only
  * one: a second refusal is reported as it is (#294).

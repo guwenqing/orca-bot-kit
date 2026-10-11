@@ -26,8 +26,8 @@
 // The typing turn is typing-turn-session-first-run.test.js. The check that a
 // review covers only the kit's own hooks (6) is
 // codex-hooks-only-the-kits.test.js. Here the target is coder/daily, whose bot
-// holds the kit's three Codex hooks, none trusted yet (the sandbox has no
-// config.toml), so its review says "3 hooks are new or changed."
+// holds the kit's two Codex hooks, none trusted yet (the sandbox has no
+// config.toml), so its review says "2 hooks are new or changed."
 //
 // Every run is in the sandbox (helpers/cli.js): the fake Orca shows each tab
 // the screen a test gives it, and moves it on at the next key when told to
@@ -41,8 +41,8 @@ import { createSandbox, kitLaunchMark, sentInto, sessionIn } from './helpers/cli
 import { withoutCodexHome } from './helpers/codex-hooks.js';
 import {
   CODEX_AFTER_TRUST,
-  CODEX_HOOKS_REVIEW_THREE,
-  CODEX_HOOKS_REVIEW_THREE_ON_TWO,
+  CODEX_HOOKS_REVIEW_TWO,
+  CODEX_HOOKS_REVIEW_TWO_ON_TWO,
   CODEX_IDLE,
   CODEX_TRUST,
 } from './helpers/screens.js';
@@ -132,7 +132,7 @@ async function showIn(box, bots, bot, name, shown) {
 }
 
 /** The review a fresh coder brings up, which goes at the next key. */
-const REVIEW_THAT_GOES = { screen: CODEX_HOOKS_REVIEW_THREE, screenAfterSend: CODEX_AFTER_TRUST };
+const REVIEW_THAT_GOES = { screen: CODEX_HOOKS_REVIEW_TWO, screenAfterSend: CODEX_AFTER_TRUST };
 
 /** Every `terminal send` so far into every tab, by tab id. */
 async function sendsByTab(box) {
@@ -300,9 +300,9 @@ describe('obk session trust-hooks', AT_ONCE, () => {
     test(`ST3 a Codex session whose screen cannot be read (${label}) is refused, says so, and nothing is typed`, async (t) => {
       const box = await createSandbox(t);
       const ours = await fleet(box);
-      if (change === null) await showIn(box, ours.bots, 'coder', 'daily', { screen: CODEX_HOOKS_REVIEW_THREE, screenSource: 'screen-unavailable' });
+      if (change === null) await showIn(box, ours.bots, 'coder', 'daily', { screen: CODEX_HOOKS_REVIEW_TWO, screenSource: 'screen-unavailable' });
       else {
-        await showIn(box, ours.bots, 'coder', 'daily', { screen: CODEX_HOOKS_REVIEW_THREE });
+        await showIn(box, ours.bots, 'coder', 'daily', { screen: CODEX_HOOKS_REVIEW_TWO });
         await box.orca.set(change);
       }
       const before = await sendsByTab(box);
@@ -331,7 +331,7 @@ describe('obk session trust-hooks', AT_ONCE, () => {
   test('ST3 with the pointer already on "2. Trust all and continue": return alone', async (t) => {
     const box = await createSandbox(t);
     const ours = await fleet(box);
-    await showIn(box, ours.bots, 'coder', 'daily', { screen: CODEX_HOOKS_REVIEW_THREE_ON_TWO, screenAfterSend: CODEX_AFTER_TRUST });
+    await showIn(box, ours.bots, 'coder', 'daily', { screen: CODEX_HOOKS_REVIEW_TWO_ON_TWO, screenAfterSend: CODEX_AFTER_TRUST });
     const before = await sendsByTab(box);
 
     const result = await trustHooks(box, 'coder', 'daily');
@@ -343,7 +343,7 @@ describe('obk session trust-hooks', AT_ONCE, () => {
   test('ST3 a review still on screen after the answer is a failure, and it says so', async (t) => {
     const box = await createSandbox(t);
     const ours = await fleet(box);
-    await showIn(box, ours.bots, 'coder', 'daily', { screen: CODEX_HOOKS_REVIEW_THREE });
+    await showIn(box, ours.bots, 'coder', 'daily', { screen: CODEX_HOOKS_REVIEW_TWO });
     const before = await sendsByTab(box);
 
     const result = await trustHooks(box, 'coder', 'daily');

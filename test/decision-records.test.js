@@ -39,6 +39,15 @@ const RECORD_LINK = /\[ADR (\d{4})\]\(((\d{4})-[^)\s]+\.md)\)/g;
 const lineAt = (text, index) => text.slice(0, index).split('\n').length;
 
 /** Every file under the repo, as paths relative to it. */
+/**
+ * A signed request record: a request's `request.md` or a file in its `origin/`
+ * folder, under requests/ or requests/archive/ (#555). Its text is what the
+ * owner signed when it was signed, held by its SHA-256, so a citation in it
+ * stays as written when a record is replaced later. The citation checks leave
+ * it out, and stay strict for every other file.
+ */
+const isSignedRequestRecord = (rel) => /^requests\/(?:archive\/)?[^/]+\/(?:request\.md$|origin\/)/.test(rel);
+
 async function repoFiles() {
   const tree = await snapshot(repoRoot, (rel) => IGNORED.has(path.basename(rel)));
   return Object.keys(tree).filter((rel) => tree[rel].startsWith('file:'));
@@ -174,7 +183,7 @@ async function liveCitations() {
   const all = await records();
   const files = [];
   for (const rel of await repoFiles()) {
-    if (rel === THIS_FILE) continue;
+    if (rel === THIS_FILE || isSignedRequestRecord(rel)) continue;
     files.push({ rel, text: await readFile(path.join(repoRoot, rel), 'utf8') });
   }
   return { all, citations: citationsOf(all, files) };
@@ -466,7 +475,7 @@ test('every ADR cited in the repo exists and is the record in force', async () =
   const all = await records();
   const files = [];
   for (const rel of await repoFiles()) {
-    if (rel !== THIS_FILE) files.push({ rel, text: await readFile(path.join(repoRoot, rel), 'utf8') });
+    if (rel !== THIS_FILE && !isSignedRequestRecord(rel)) files.push({ rel, text: await readFile(path.join(repoRoot, rel), 'utf8') });
   }
   assert.ok(citationsOf(all, files).length > 0, 'no citation of a record was found anywhere, so the check sees nothing');
 

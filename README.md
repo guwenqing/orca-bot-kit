@@ -365,19 +365,6 @@ address that is none of your bots folder's sessions, the hook tells it so, and
 names the address `obk message to` would have given. The message goes either
 way ([ADR 0032](docs/adr/0032-a-native-message-outside-the-fleet-is-warned-about.md)).
 
-And a third: at the end of each turn, it tells the session once about fleet
-mail the kit sent it that is still unread, without typing into its tab
-([ADR 0035](docs/adr/0035-messaging-transport.md)). It asks Orca only when the kit
-knows of mail for that session.
-
-A Codex bot gets one more hook too. Inside Codex's sandbox the kit cannot always
-tell whether the receiver of a message has its harness in front, as for a Claude
-session busy running a command, so `obk message send` leaves that nudge, and the
-hook, which Codex runs outside its sandbox right after the command, decides it and
-types it, or says why not ([ADR 0034](docs/adr/0034-orca-is-the-host.md)). Codex
-asks you to trust a hook it has not seen before, so a Codex bot made before this
-hook asks again once.
-
 So: kill a tab, or reboot, and `obk up` brings the session back with the
 conversation it was having, rather than starting a new one. Clear a session —
 `/clear` on Claude Code, `/new` on Codex — and the kit writes down the new id,
@@ -580,7 +567,7 @@ verdict: which of these matter, and in what order, is for you or for Bot Father.
 ## Sessions and bots that talk
 
 Ask the kit how to reach a session, and it answers with the road and the
-address ([ADR 0035](docs/adr/0035-messaging-transport.md)):
+address ([ADR 0042](docs/adr/0042-messaging-transport.md)):
 
 ```sh
 obk message to    --bots /path/to/my-bots --to api-bot/daily
@@ -623,17 +610,17 @@ mailbox where it was and says so, and the harness starts all the same. A check
 holds its turn for 40 seconds at most: with more mail than it reads in that
 time, it shows what it read and says the rest is still waiting.
 
-Nothing in a mailbox wakes anybody, so each message gets one signal that tells
-the receiver to look. Orca's own notice comes first: Orca types it into an idle
-tab. The kit watches an idle receiver for up to 8 seconds, and reads the
-receiver's own record of its turns. When Orca's notice is there, the kit types
-nothing. When no turn started, the kit types its own line. A Claude session busy
-with a turn gets nothing typed: its hook tells it at the end of the turn. A busy
-Codex session gets the kit's line, which Codex takes into the turn it is having.
-The send says which signal went. A session that is not up is not typed into at
-all; its message waits. When a session is retired, the kit says how many
-messages sent to it were not read with `obk message check`, and who sent them
-([ADR 0035](docs/adr/0035-messaging-transport.md)).
+Nothing in a mailbox wakes anybody, so each message gets one signal: Orca's
+own notice, which Orca types into the receiver's tab once it is idle. A busy
+receiver gets it a minute or a few after its turn ends. The kit types nothing
+into the receiver's tab, and the send says which road it took. For urgent mail,
+`obk message send --interrupt` presses Escape once in a busy receiver's tab to
+end its turn, and then sends the message, so the notice comes at once. Codex
+keeps a command it was running as a background terminal after an Escape. A
+receiver reads its mail with `obk message check`, which marks it read: a bare
+`orca orchestration check` leaves it unread, and Orca then gives no more
+notices for that mailbox
+([ADR 0042](docs/adr/0042-messaging-transport.md)).
 
 A message longer than 4 KiB is written to a file beside your bots folder and
 named in the message, so a long one arrives whole without landing a document in

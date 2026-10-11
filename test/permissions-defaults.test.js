@@ -110,8 +110,9 @@ test('D0 the set as the tests spell it: every kit command but the kept-back ones
   const box = { cli: '/x/bin/obk' };
   const rules = defaultRules(box, '/x/bots');
   assert.equal(new Set(rules).size, rules.length, 'each rule once');
-  // #548 R1: 34 commands, restart and bot create no longer among them (#527 had 36).
-  assert.equal(KIT_COMMANDS.length, 34);
+  // #548 R1: restart and bot create no longer among them (#527 had 36, #548
+  // 34). #555 removed session nudge and session mail from the kit: 32.
+  assert.equal(KIT_COMMANDS.length, 32);
   for (const command of NOT_DEFAULT_COMMANDS) {
     assert.ok(!rules.includes(kitRule(box, '/x/bots', command)), `${command} is not in the set`);
   }

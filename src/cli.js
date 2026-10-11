@@ -19,14 +19,14 @@ import { checkHealth, orcaSettingFindings } from './health.js';
 import { initBots } from './init.js';
 import { nameSession } from './name.js';
 import { APPROVALS, harnessOf, HARNESSES, ownCli, refuseApprovalArgs, shellWord, workDirOf } from './launch.js';
-import { checkMail, decideLeftNudges, lookUp, noMailboxYet, sendMessage, sessionInTab, stillUnread, WATCH_MS } from './message.js';
+import { checkMail, lookUp, noMailboxYet, sendMessage, sessionInTab } from './message.js';
 import { orcaCli, orcaTrouble, RELOAD_LINE, TERMINAL_ENV } from './orca.js';
 import { allowIn, beyondDefaults, refuseBroad, refuseNoCodexForm, runsOnClaude, runsOnCodex, takeBack, writePermissions } from './permissions.js';
 import { pauseSessions, unpauseSessions } from './pause.js';
 import { recordSession, SHELL_ENV, TAB_ENV } from './record.js';
 import { restartSessions } from './restart.js';
 import { clearSession, compactSession } from './clear.js';
-import { retireBot, retireSession, unreadWords } from './retire.js';
+import { retireBot, retireSession } from './retire.js';
 import { sentWarning } from './sent.js';
 import { readRoster } from './roster.js';
 import { buildAgents, buildRules, CODEX_CAP } from './rules.js';
@@ -207,9 +207,12 @@ Usage:
                             the Orca mailbox. Nothing is sent.
   obk message send --bots <path> --to <bot>[/<session>] [--from <bot>/<session>]
                    --subject <text> [--text <text> | --text-file <path>]
-                   [--thread <id>]
-                            Put a message in that session's Orca mailbox and
-                            tell its tab to look. A message too long to travel
+                   [--thread <id>] [--interrupt]
+                            Put a message in that session's Orca mailbox. Orca
+                            tells it to look once it is idle. --interrupt is
+                            for urgent mail: when the session is busy, the kit
+                            presses Escape once in its tab first, to end its
+                            turn, so it looks now. A message too long to travel
                             as itself is written to a file beside your bots
                             folder and named in the message. A pair the
                             harness's own messaging reaches is not carried:
@@ -305,17 +308,6 @@ Usage:
                             Claude session's native message, it warns the
                             session when the address was none of this bots
                             folder's own. It never stops a message.
-  obk session nudge --bots <path> --bot <bot>
-                            For the kit's own hook, not for typing: after a
-                            Codex session's shell command, it decides the mail
-                            nudges a send there left because it could not
-                            tell from inside Codex's sandbox, and types each
-                            one or says why not.
-  obk session mail --bots <path> --bot <bot>
-                            For the kit's own hook, not for typing: at the end
-                            of a Claude session's turn, it tells the session
-                            once about each fleet mail the kit sent it that is
-                            still unread. It types nothing into the tab.
   obk session name --bots <path> --bot <bot>
                             For the kit's own hook, not for typing: after a
                             Codex session's turn, it names the session's thread
@@ -409,6 +401,7 @@ async function run(argv) {
       'text-file': { type: 'string' },
       thread: { type: 'string' },
       peek: { type: 'boolean' },
+      interrupt: { type: 'boolean' },
       charter: { type: 'string' },
       allow: { type: 'string', multiple: true },
       disallow: { type: 'string', multiple: true },
@@ -476,8 +469,6 @@ async function run(argv) {
   // The send hook is quiet whatever it is given, a bots folder that is not
   // there included, so it goes before anything that can complain (ADR 0032).
   if (command === SENT) return sent(path.resolve(values.bots));
-  if (command === NUDGE) return nudgeLeft();
-  if (command === MAIL) return mailHook(path.resolve(values.bots), values.bot);
   if (command === NAME) return nameThread(path.resolve(values.bots), values.bot);
 
   // One fleet, one identity, whatever spelling of its path was given (#164).
@@ -548,8 +539,6 @@ const ANSWER_IT = [
 /** The commands a harness runs rather than a person: the kit's hooks. */
 const RECORD = 'session record';
 const SENT = 'session sent';
-const NUDGE = 'session nudge';
-const MAIL = 'session mail';
 const NAME = 'session name';
 
 /**
@@ -563,45 +552,6 @@ function sent(bots) {
     if (warning !== undefined) {
       process.stdout.write(`${JSON.stringify({ hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: warning } })}\n`);
     }
-  } catch {
-    // Nothing: a hook does not disturb the session it runs in.
-  }
-  return 0;
-}
-
-/**
- * What the kit's Codex hook does after a shell command: decide the nudges a
- * send in this tab left for it, outside Codex's sandbox, and say to the session
- * what became of each, as Codex's `additionalContext` (#350, ADR 0034). Silent
- * when nothing was left, never a decision, and never anything but exit 0.
- */
-async function nudgeLeft() {
-  try {
-    const said = JSON.parse(readFileSync(0, 'utf8'));
-    if (said?.hook_event_name !== 'PostToolUse') return 0;
-    const decided = await decideLeftNudges(process.env[TAB_ENV]);
-    if (decided.length > 0) {
-      const words = decided.map((one) => `Your mail "${one.subject}" to ${one.to}: ${one.nudged ? "the kit's hook nudged its tab, from outside Codex's sandbox:" : "the kit's hook looked at its tab from outside Codex's sandbox, and"} ${nudgeLine(one, one.to).trim()}`);
-      process.stdout.write(`${JSON.stringify({ hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: words.join('\n') } })}\n`);
-    }
-  } catch {
-    // Nothing: a hook does not disturb the session it runs in.
-  }
-  return 0;
-}
-
-/**
- * What the kit's Claude Code Stop hook does at a turn end (#509, ADR 0035): tell
- * the session once about fleet mail still unread, as the Stop event's
- * additional context, which the session goes on with. Not a block: Claude Code
- * 2.1.296 draws a block's reason in red as "Stop hook error", and its additional
- * context as "Stop hook feedback". Nothing typed into the tab; never anything
- * but exit 0; silent whenever it cannot be sure.
- */
-function mailHook(bots, bot) {
-  try {
-    const reason = stillUnread(sameFleet(bots), bot, JSON.parse(readFileSync(0, 'utf8')), process.env[TAB_ENV], process.env[TERMINAL_ENV]);
-    if (reason !== undefined) process.stdout.write(`${JSON.stringify({ hookSpecificOutput: { hookEventName: 'Stop', additionalContext: reason } })}\n`);
   } catch {
     // Nothing: a hook does not disturb the session it runs in.
   }
@@ -737,7 +687,6 @@ const commands = {
           ...withLines(retired.retiredWith, retired.session),
           ...closedLines(retired.closed),
           `retired    ${retired.bot} ${retired.session}: off ${path.join('bots', retired.bot, 'bot.yaml')}, and its conversations kept in the book under retired`,
-          ...unreadLines(retired.unread),
           ...leftLines(retired.promptsLeft),
         ],
       };
@@ -767,7 +716,6 @@ const commands = {
           retired.windowReloaded ? "reloaded   Orca's window, so its sidebar no longer shows the project" : RELOAD_LINE,
         ]),
         `retired    ${retired.bot}: moved to ${path.relative(bots, retired.moved)}, with its book, charter and memory`,
-        ...(retired.unread ?? []).flatMap((one) => unreadLines(one, `${retired.bot}/${one.session}`)),
         ...leftLines(retired.promptsLeft),
       ],
     };
@@ -824,7 +772,6 @@ const commands = {
         ...withLines(retired.retiredWith, retired.session),
         ...closedLines(retired.closed),
         `retired    ${retired.bot} ${retired.session}, a temporary session of ${retired.maker}'s: off ${path.join('bots', retired.bot, 'bot.yaml')}, and its conversations kept in the book under retired`,
-        ...unreadLines(retired.unread),
         ...leftLines(retired.promptsLeft),
       ],
     };
@@ -1189,6 +1136,7 @@ const commands = {
       text: values.text,
       textFile: values['text-file'],
       thread: values.thread,
+      interrupt: values.interrupt === true,
     });
     const where = `${answer.to.bot}/${answer.to.session}`;
 
@@ -1207,7 +1155,7 @@ const commands = {
         ...(answer.file === undefined
           ? []
           : [`             it was too long to travel as itself, so it went as a file:  ${answer.file}`]),
-        ...[nudgeLine(answer, where)],
+        ...sentLines(answer, where),
       ],
     };
   },
@@ -1348,45 +1296,22 @@ function toLines(answer, bots, where) {
 }
 
 /**
- * What became of the line that tells the receiver to look. The message is in
- * its mailbox whatever this says, so each of these is about the tab and not
- * about the message.
+ * What the send says after `sent`: the road it took, and what the interrupt
+ * came to when one was asked for (#555).
  */
-function nudgeLine(answer, where) {
-  const seconds = answer.watchedMs === undefined ? '' : ` in ${Math.max(Math.round(answer.watchedMs / 1000), 1)} s`;
-  if (answer.signal === 'orca') return `             Orca's notice reached it${seconds}, so no line was typed: it reads the mail from there.`;
-  if (answer.signal === 'hook') {
-    return answer.because === 'busy'
-      ? "             it is busy with a turn, so nothing was typed into its tab: its own hook tells it about the mail when that turn ends."
-      : `             a turn of other work started in its tab${seconds}, not Orca's notice, so nothing was typed: its own hook tells it about the mail when that turn ends.`;
+function sentLines(answer, where) {
+  const road = "             it is in its Orca mailbox, and Orca's own notice tells it to look once it is idle.";
+  if (answer.interrupted === true) {
+    return [
+      `${road.replace('once it is idle', 'now')}`,
+      `             it was busy, so the kit pressed Escape once in its tab to end its turn.${answer.to.harness === 'codex' ? ' Codex keeps a command it was running as a background terminal after an Escape.' : ''}`,
+    ];
   }
-  const why = {
-    'no-turn': `no turn started in its tab in ${WATCH_SECONDS} s, so the kit's line was typed`,
-    busy: "it is busy with a turn, and Codex takes a line into the turn it is having, so the kit's line was typed",
-    'other-turn': "a turn of other work started in its tab, not Orca's notice, so the kit's line was typed",
-  }[answer.because];
-  const head = why === undefined ? '             ' : `             ${why}: `;
-  if (answer.nudged && answer.nudgeWatched === false) {
-    return `${head}its tab was typed into, and Orca could not say whether it was taken: ${answer.nudgeUnseen} The message waits in its mailbox for its next check either way.`;
+  if (answer.interrupted === false) {
+    return [road, answer.idle ? `             it is idle, so it was not interrupted.` : `             it was not interrupted: ${answer.interruptTrouble}.`];
   }
-  if (answer.nudged && answer.nudgeUnseen !== undefined) {
-    return `${head}its tab was typed into, but Orca did not see the line start a turn: it may be queued behind the work in hand, or lost. The message waits in its mailbox for its next check either way.`;
-  }
-  if (answer.nudged) return `${head}its tab was told to look; it will read it when it is done with what it is doing.`;
-  if (answer.blocked !== undefined) {
-    return `             its tab has something waiting to be answered (${answer.blocked}), so nothing was typed into it. Settle that, and the mail is there.`;
-  }
-  if (answer.nudgeLeft) {
-    return `             it is queued, and its tab could not be told to look from here: ${answer.nudgeTrouble}. So the nudge is left for this session's hook, which looks at the tab from outside Codex's sandbox when this command is done, and says what it did.`;
-  }
-  if (answer.nudgeTrouble !== undefined) {
-    return `             it is queued, and its tab could not be told to look: ${answer.nudgeTrouble}`;
-  }
-  return `             ${where} is not up, so nothing was typed anywhere: the message waits in its mailbox.`;
+  return [road];
 }
-
-/** The watch before the kit's line, as the send says it (#509, ADR 0035). */
-const WATCH_SECONDS = WATCH_MS / 1000;
 
 /**
  * What there is to say about the work dir this command was given: one finding
@@ -1459,12 +1384,10 @@ const closedLines = (closed) => closed.map((tab) => `closed     ${tab.bot} ${tab
 const withLines = (retiredWith, session) => retiredWith.flatMap((gone) => [
   ...closedLines(gone.closed),
   `retired    ${gone.bot} ${gone.session}, a temporary session of ${gone.maker}'s, along with ${session}: off ${path.join('bots', gone.bot, 'bot.yaml')}, and its conversations kept in the book under retired`,
-  ...unreadLines(gone.unread),
   ...leftLines(gone.promptsLeft),
 ]);
 
 /** The mail a retired session did not read, as far as the kit knows (#509). */
-const unreadLines = (unread, who = 'it') => (unread === undefined ? [] : [`unread     ${unreadWords(unread, who)}`]);
 
 /** What a retire could not remove, and how to: nothing reads these files now (#393). */
 const leftLines = (left = []) => left.flatMap(({ file, reason }) => [

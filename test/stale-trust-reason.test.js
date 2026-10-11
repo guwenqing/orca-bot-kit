@@ -15,9 +15,8 @@
 // and the tab's screen shows no question. That is the kit being unable to
 // tell, not the tab being blocked:
 //
-//   - `message send` answers `nudged: false`, no `blocked`, and a
-//     `nudgeTrouble` sentence; its plain line is "it is queued, and its tab
-//     could not be told to look: <sentence>".
+//   - `message send --interrupt` sends no Escape, and its plain output says
+//     the kit could not tell, with the sentence.
 //   - `skills build` reports the session `unknown`, the sentence its trouble,
 //     "not told" in the plain report.
 //   - grooming's typed line refuses with an error carrying the sentence.
@@ -27,6 +26,11 @@
 // screen that looks idle; a Claude Code tab with the trust reason, whose trust
 // list is unnumbered and so invisible to the kit's look; a screen Orca will
 // not read. Nothing is typed in any of them.
+//
+// Since #555 fleet mail types nothing else. Its one key is the Escape of
+// --interrupt, into a busy receiver whose tab passes the gate. The mail tests
+// below send with --interrupt. They keep Orca's own blocked wait, since Orca's
+// reason is what they are about.
 //
 // The tests assert the facts of the sentence (it names the reason, it says the
 // screen shows no question, it does not ask the user to settle or answer
@@ -48,7 +52,6 @@ import {
   recordSession,
   sentInto,
   sessionIn,
-  typedInto,
 } from './helpers/cli.js';
 import {
   CLAUDE_IDLE,
@@ -85,19 +88,15 @@ async function giveTab(box, tab, fields) {
   });
 }
 
-/** What was typed into every tab of the whole fleet, after the launch line each one got. */
-async function typedSinceLaunch(box) {
-  const after = {};
-  for (const terminal of await box.orca.terminals()) {
-    after[terminal.tabId] = typedInto(terminal).slice(1);
-  }
-  return after;
+/** Each `terminal send` into every tab since its launch line. */
+async function sentSinceLaunch(box) {
+  return (await box.orca.terminals()).flatMap((terminal) => sentInto(terminal).slice(1));
 }
 
-/** The message is in the mailbox, and nothing at all was typed into any tab after its launch line. */
+/** The letter is in the mailbox, and nothing at all went into any tab after its launch line. */
 async function assertQueuedUntyped(box, what) {
-  assert.equal((await box.orca.messages()).length, 1, `${what}: the message is in the mailbox`);
-  assert.deepEqual(Object.values(await typedSinceLaunch(box)).flat(), [], `${what}: and nothing was typed into any tab`);
+  assert.equal((await box.orca.messages()).length, 1, `${what}: the letter is in the mailbox`);
+  assert.deepEqual(await sentSinceLaunch(box), [], `${what}: and nothing went into any tab`);
 }
 
 /** The sentence says what the kit saw: Orca's trust reason, by name, and a screen with no question on it. */
@@ -109,7 +108,7 @@ function assertSaysWhatItSaw(sentence, what) {
   assert.doesNotMatch(sentence, SETTLE, `${what}: it does not tell the user to settle or answer anything, got: ${sentence}`);
 }
 
-// ------------------------------------------------------------ message send
+// ------------------------------------------------------------ message send --interrupt
 
 /** A Claude bot and a Codex bot, each with one session, both up, nothing typed since. */
 async function fleetIn(box) {
@@ -126,81 +125,71 @@ async function fleetIn(box) {
 /** Each bot is written to by the other. */
 const SENDER = { coder: 'writer/daily', writer: 'coder/daily' };
 
-/** The arguments of one message to `to`, from the other bot. */
-const sendArgs = (to) => [
-  'message', 'send', '--bots', 'bots', '--to', to, '--from', SENDER[to],
-  '--subject', 'the staging host', '--text', 'It is down again.',
-];
-
-/** Send one message to `to`, `--json`, and read the answer. The message goes whatever became of the nudge. */
+/** Send one urgent letter to `to`, from the other bot, with --interrupt, plain, and answer what it printed. */
 async function send(box, to) {
-  const result = await box.run([...sendArgs(to), '--json']);
-  assert.equal(result.code, 0, `the message went whatever became of the nudge: ${result.stdout}${result.stderr}`);
-  return JSON.parse(result.stdout);
+  const result = await box.run([
+    'message', 'send', '--bots', 'bots', '--to', to, '--from', SENDER[to],
+    '--subject', 'the staging host', '--text', 'It is down again.', '--interrupt',
+  ]);
+  assert.equal(result.code, 0, `the letter went whatever became of the interrupt: ${result.stdout}${result.stderr}`);
+  return (result.stdout + result.stderr).replace(/\s+/g, ' ');
 }
 
 // Covers the new behaviour, message send: Orca names agent-trust-workspace,
 // Orca names codex in the tab, and the screen shows Codex's idle input line or
-// Codex after a turn. Nothing typed; reported as unable to tell, not blocked;
-// the sentence names the reason and says the screen shows no question.
+// Codex after a turn. No Escape; the output names the reason and says the
+// screen shows no question.
 for (const [label, screen] of [
   ['Codex 0.157.1 idle right after its trust and hooks screens were answered, as captured in #342', CODEX_AFTER_TRUST],
   ['Codex 0.157.1\'s idle input line, as captured', CODEX_IDLE],
   ['Codex 0.157.1 after an answered turn, as captured', CODEX_ANSWERED],
 ]) {
-  test(`${label}, with Orca still naming ${TRUST}: no nudge, not blocked, and the answer says what the kit saw`, async (t) => {
+  test(`${label}, with Orca still naming ${TRUST}: no Escape, and the output says what the kit saw`, async (t) => {
     const box = await createSandbox(t);
     const bots = await fleetIn(box);
     await box.orca.set(ORCA_NAMES(TRUST));
     await giveTab(box, await tabOf(bots, 'coder'), { screen });
 
-    const answer = await send(box, 'coder');
+    const said = await send(box, 'coder');
 
-    assert.equal(answer.sent, true, `${label}: the message is in the mailbox, got ${JSON.stringify(answer)}`);
-    assert.equal(answer.nudged, false, `${label}: got ${JSON.stringify(answer)}`);
-    assert.equal('blocked' in answer, false, `${label}: the kit cannot tell, it is not reported as blocked, got ${JSON.stringify(answer)}`);
-    assertSaysWhatItSaw(answer.nudgeTrouble, label);
+    assertSaysWhatItSaw(said, label);
     await assertQueuedUntyped(box, label);
   });
 }
 
-// Covers the new behaviour, message send's plain line: "it is queued, and its
-// tab could not be told to look: <sentence>", and nothing to settle.
-test(`the plain report on a Codex tab with a stale ${TRUST} says it could not be told to look, and asks nothing to be settled`, async (t) => {
+// Covers the new behaviour, message send's plain output: the kit could not
+// tell, with the sentence, and nothing to settle.
+test(`the plain report on a Codex tab with a stale ${TRUST} says the kit could not tell, and asks nothing to be settled`, async (t) => {
   const box = await createSandbox(t);
   const bots = await fleetIn(box);
   await box.orca.set(ORCA_NAMES(TRUST));
   await giveTab(box, await tabOf(bots, 'coder'), { screen: CODEX_AFTER_TRUST });
 
-  const result = await box.run(sendArgs('coder'));
+  const said = await send(box, 'coder');
 
-  assert.equal(result.code, 0, result.stderr);
-  const said = result.stdout.replace(/\s+/g, ' ');
-  assert.ok(said.includes('its tab could not be told to look:'), `the queued-and-not-told line, got:\n${result.stdout}`);
-  assert.ok(said.includes(TRUST), `it names Orca's reason, got:\n${result.stdout}`);
-  assert.match(said, NO_QUESTION, `it says the screen shows no question, got:\n${result.stdout}`);
-  assert.doesNotMatch(said, SETTLE, `it tells the user to settle nothing, got:\n${result.stdout}`);
+  assert.match(said, /tell/i, `the kit could not tell, got:\n${said}`);
+  assert.ok(said.includes(TRUST), `it names Orca's reason, got:\n${said}`);
+  assert.match(said, NO_QUESTION, `it says the screen shows no question, got:\n${said}`);
+  assert.doesNotMatch(said, SETTLE, `it tells the user to settle nothing, got:\n${said}`);
   await assertQueuedUntyped(box, 'the plain report');
 });
 
 // Unchanged: the same reason with Codex's trust question really on screen is
-// blocked with the reason. Passes before the change.
+// blocked with the reason.
 test(`a Codex tab showing its trust question, Orca naming ${TRUST}, is still reported blocked with that reason`, async (t) => {
   const box = await createSandbox(t);
   const bots = await fleetIn(box);
   await box.orca.set(ORCA_NAMES(TRUST));
   await giveTab(box, await tabOf(bots, 'coder'), { screen: CODEX_TRUST });
 
-  const answer = await send(box, 'coder');
+  const said = await send(box, 'coder');
 
-  assert.equal(answer.nudged, false, `got: ${JSON.stringify(answer)}`);
-  assert.equal(answer.blocked, TRUST, `Orca's reason stands, got: ${JSON.stringify(answer)}`);
+  assert.ok(said.includes(TRUST), `Orca's reason stands, got:\n${said}`);
   await assertQueuedUntyped(box, 'the trust question on screen');
 });
 
 // Unchanged: any other reason Orca names on a Codex screen that looks idle is
-// blocked as today. Only the trust reason is known to go stale. Passes before
-// the change.
+// blocked as today. Only the trust reason is known to go stale.
 for (const reason of ['agent-interactive-prompt', 'agent-update-prompt', 'agent-hooks-review-prompt']) {
   test(`a Codex tab on its idle input line, Orca naming ${reason}, is still reported blocked with that reason`, async (t) => {
     const box = await createSandbox(t);
@@ -208,10 +197,9 @@ for (const reason of ['agent-interactive-prompt', 'agent-update-prompt', 'agent-
     await box.orca.set(ORCA_NAMES(reason));
     await giveTab(box, await tabOf(bots, 'coder'), { screen: CODEX_AFTER_TRUST });
 
-    const answer = await send(box, 'coder');
+    const said = await send(box, 'coder');
 
-    assert.equal(answer.nudged, false, `${reason}: got ${JSON.stringify(answer)}`);
-    assert.equal(answer.blocked, reason, `${reason}: Orca's reason stands, got ${JSON.stringify(answer)}`);
+    assert.ok(said.includes(reason), `${reason}: Orca's reason stands, got:\n${said}`);
     await assertQueuedUntyped(box, reason);
   });
 }
@@ -219,7 +207,7 @@ for (const reason of ['agent-interactive-prompt', 'agent-update-prompt', 'agent-
 // Unchanged: a Claude Code tab with the trust reason stays blocked. Its trust
 // list is unnumbered, so the kit's look sees no question on it, and "no
 // question on screen" would be wrong. Its idle screen too: the rule is for a
-// tab where Orca names codex. Passes before the change.
+// tab where Orca names codex.
 for (const [label, screen] of [
   ['its unnumbered trust list, as captured', CLAUDE_TRUST],
   ['its idle input line, as captured', CLAUDE_IDLE],
@@ -230,59 +218,49 @@ for (const [label, screen] of [
     await box.orca.set(ORCA_NAMES(TRUST));
     await giveTab(box, await tabOf(bots, 'writer'), { screen });
 
-    const answer = await send(box, 'writer');
+    const said = await send(box, 'writer');
 
-    assert.equal(answer.nudged, false, `${label}: got ${JSON.stringify(answer)}`);
-    assert.equal(answer.blocked, TRUST, `${label}: Orca's reason stands, got ${JSON.stringify(answer)}`);
+    assert.ok(said.includes(TRUST), `${label}: Orca's reason stands, got:\n${said}`);
     await assertQueuedUntyped(box, label);
   });
 }
 
 // Unchanged: where Orca names no agent in the tab, the rule does not apply
 // (it is for a tab where Orca names codex; tech notes: Orca named no agent in a
-// Claude Code tab on its trust list). Nothing typed, and the answer does not
-// say the screen shows no question. Which of blocked or unsure it gives is not
-// asked. Passes before the change.
-test(`a Codex tab where Orca names no agent, Orca naming ${TRUST}, gets nothing typed and is not said to show no question`, async (t) => {
+// Claude Code tab on its trust list). No Escape, and the output does not say
+// the screen shows no question. Which of blocked or unsure it gives is not
+// asked.
+test(`a Codex tab where Orca names no agent, Orca naming ${TRUST}, gets no Escape and is not said to show no question`, async (t) => {
   const box = await createSandbox(t);
   const bots = await fleetIn(box);
   await box.orca.set({ ...ORCA_NAMES(TRUST), agentIdentity: null });
   await giveTab(box, await tabOf(bots, 'coder'), { screen: CODEX_AFTER_TRUST });
 
-  const answer = await send(box, 'coder');
+  const said = await send(box, 'coder');
 
-  assert.equal(answer.nudged, false, `got: ${JSON.stringify(answer)}`);
-  assert.ok(
-    answer.blocked !== undefined || typeof answer.nudgeTrouble === 'string',
-    `the answer says why nothing was typed, got: ${JSON.stringify(answer)}`,
-  );
-  assert.doesNotMatch(answer.nudgeTrouble ?? '', NO_QUESTION, `Orca names no codex here, got: ${JSON.stringify(answer)}`);
+  assert.ok(said.includes(TRUST) || /tell/i.test(said), `the output says why no Escape went, got:\n${said}`);
+  assert.doesNotMatch(said, NO_QUESTION, `Orca names no codex here, got:\n${said}`);
   await assertQueuedUntyped(box, 'no agent named');
 });
 
 // Unchanged: a screen Orca will not read, or reads only as something other
-// than the rendered screen, is no evidence that no question is up. Nothing
-// typed, and the answer does not say the screen shows no question. Whether it
-// gives Orca's reason as blocked, as the kit did before, or says it cannot
-// tell, is not asked (see the hand-back). Passes before the change.
+// than the rendered screen, is no evidence that no question is up. No Escape,
+// and the output does not say the screen shows no question. Whether it gives
+// Orca's reason as blocked or says it cannot tell is not asked.
 for (const [label, steer] of [
   ['Orca refuses to read the screen', (box) => box.orca.set(READ_REFUSED)],
   ['Orca could render no screen and answers with accumulated output instead', (box, tab) => giveTab(box, tab, { screen: CODEX_AFTER_TRUST, screenSource: 'screen-unavailable' })],
 ]) {
-  test(`when ${label}, a Codex tab with Orca naming ${TRUST} gets nothing typed and is not said to show no question`, async (t) => {
+  test(`when ${label}, a Codex tab with Orca naming ${TRUST} gets no Escape and is not said to show no question`, async (t) => {
     const box = await createSandbox(t);
     const bots = await fleetIn(box);
     await box.orca.set(ORCA_NAMES(TRUST));
     await steer(box, await tabOf(bots, 'coder'));
 
-    const answer = await send(box, 'coder');
+    const said = await send(box, 'coder');
 
-    assert.equal(answer.nudged, false, `${label}: got ${JSON.stringify(answer)}`);
-    assert.ok(
-      answer.blocked !== undefined || typeof answer.nudgeTrouble === 'string',
-      `${label}: the answer says why nothing was typed, got ${JSON.stringify(answer)}`,
-    );
-    assert.doesNotMatch(answer.nudgeTrouble ?? '', NO_QUESTION, `${label}: the kit did not see the screen, got ${JSON.stringify(answer)}`);
+    assert.ok(said.includes(TRUST) || /tell/i.test(said), `${label}: the output says why no Escape went, got:\n${said}`);
+    assert.doesNotMatch(said, NO_QUESTION, `${label}: the kit did not see the screen, got:\n${said}`);
     await assertQueuedUntyped(box, label);
   });
 }
@@ -304,11 +282,6 @@ async function skillsFleetIn(box) {
   const up = await box.run(['up', '--bots', 'bots']);
   assert.equal(up.code, 0, up.stderr);
   return box.path('bots');
-}
-
-/** Each `terminal send` into every tab since its launch line. */
-async function sentSinceLaunch(box) {
-  return (await box.orca.terminals()).flatMap((terminal) => sentInto(terminal).slice(1));
 }
 
 // Covers the new behaviour, skills build: the Codex session, Orca naming the

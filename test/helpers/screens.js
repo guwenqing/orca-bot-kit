@@ -350,13 +350,14 @@ export const codexHooksReview = (count, rows = CODEX_HOOKS_REVIEW) => rows.map((
   : row));
 
 /**
- * The review a fresh Codex bot's three kit hooks bring up (SessionStart,
- * PostToolUse for Bash, Stop), none of them trusted yet: a reconstruction.
+ * The review a fresh Codex bot's two kit hooks bring up (SessionStart, Stop;
+ * the PostToolUse Bash nudge hook went with #555), none of them trusted yet:
+ * a reconstruction.
  */
-export const CODEX_HOOKS_REVIEW_THREE = codexHooksReview(3);
+export const CODEX_HOOKS_REVIEW_TWO = codexHooksReview(2);
 
 /** The same, its selection moved down to `2`, no return pressed yet: a reconstruction. */
-export const CODEX_HOOKS_REVIEW_THREE_ON_TWO = codexHooksReview(3, CODEX_HOOKS_REVIEW_ON_TWO);
+export const CODEX_HOOKS_REVIEW_TWO_ON_TWO = codexHooksReview(2, CODEX_HOOKS_REVIEW_ON_TWO);
 
 /** The captured hooks review with its count row taken out: a reconstruction (#506). */
 export const CODEX_HOOKS_REVIEW_NO_COUNT = CODEX_HOOKS_REVIEW.filter((row) => row !== HOOKS_COUNT_ROW);

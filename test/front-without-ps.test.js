@@ -1,10 +1,9 @@
 // When `ps` cannot read a tab, the kit asks Orca's runtime who is in front of
 // it (#298).
 //
-// Mail sent from a Codex session never told the receiver. Before it types the
-// one line that says mail is waiting, the kit asks who holds the tab's
-// terminal (ADR 0034): the pane pid from `orca diagnostics memory`, then
-// `ps`. Inside Codex's `workspace-write` sandbox, the kit's `auto` level,
+// Mail sent from a Codex session never told the receiver. Before it types
+// into a session's tab, the kit asks who holds the tab's terminal (ADR 0034):
+// the pane pid from `orca diagnostics memory`, then `ps`. Inside Codex's `workspace-write` sandbox, the kit's `auto` level,
 // /bin/ps does not start at all: `Operation not permitted`, exit 126, on every
 // pid, the caller's own included (seen live, codex-cli 0.156.1). So the gate
 // said it could not tell, and typed nothing, for every receiver. The skills
@@ -33,6 +32,13 @@
 // question on it, and the shell in front is no harness, plainly. Where `ps`
 // reads the tab nothing changes, and Orca's runtime is not asked at all.
 //
+// Since #555 fleet mail types nothing into a tab. The one key it may send is
+// the Escape of `obk message send --interrupt`, into a busy receiver whose tab
+// passes the gate. So the mail tests here send with --interrupt to receivers
+// that are busy by Orca's tui-idle wait. Where the gate passes the tab, one
+// Escape goes in. Where it does not, nothing goes in, and the letter is still
+// posted.
+//
 // The fake `ps` (helpers/fake-ps.js) is made to not start with `ps:
 // 'not-permitted'`; the fake app's runtime client (`orcaApp` in
 // helpers/cli.js) answers `terminal.inspectProcess` from the same world, or
@@ -52,7 +58,6 @@ import {
   sentInto,
   sessionIn,
   spellingsOf,
-  typedInto,
 } from './helpers/cli.js';
 import { CODEX_UPDATE_OFFER } from './helpers/screens.js';
 import { addSkills, answerOf, assertLinked, botYamlOf, entryOf, kitSkill } from './helpers/skills.js';
@@ -82,12 +87,18 @@ const CLAUDE = live('claude', 'claude', true);
 /** The envelope every runtime call answers with, around one `process`. */
 const envelope = (front, extra = {}) => ({ id: 'rpc_9', ok: true, result: { process: front }, _meta: { durationMs: 1 }, ...extra });
 
-/** The words of the sentence the kit gives when it cannot tell (#232). */
-const COULD_NOT_TELL = /could not tell whether a harness is running in it/;
+/** The kit could not tell whether a harness is in the tab (#232). */
+const COULD_NOT_TELL = /tell/i;
+
+/** What a plain answer says of a tab with only a shell in front. */
+const NO_HARNESS = /shell|not up|harness/i;
 
 // ------------------------------------------------------------- the fleet
 
-/** A Claude bot that writes and a Codex bot that reads, both up, nothing typed since. */
+/**
+ * A Claude bot that writes and a Codex bot that reads, both up, nothing typed
+ * since, and every tab busy by Orca's tui-idle wait.
+ */
 async function fleetIn(box) {
   assert.equal((await box.run(['init', '--bots', 'bots', '--harness', 'claude'])).code, 0);
   for (const [bot, harness] of [['writer', 'claude'], ['coder', 'codex']]) {
@@ -96,6 +107,7 @@ async function fleetIn(box) {
   }
   const up = await box.run(['up', '--bots', 'bots']);
   assert.equal(up.code, 0, up.stderr);
+  await box.orca.set({ waitIdle: 'busy' });
   return box.path('bots');
 }
 
@@ -135,106 +147,103 @@ async function runtimeSaysForReader(box, bots, inspect) {
   await changeTab(box, (await tabOf(box, bots, 'coder')).tabId, { inspect });
 }
 
-/** Send one message to `to`, `--json`, and read the answer. The message goes whatever became of the nudge. */
+/**
+ * Send one urgent letter to `to` with --interrupt, plain, and answer what it
+ * printed. The letter goes whatever became of the interrupt.
+ */
 async function send(box, { to = 'coder', from = 'writer/daily', env } = {}) {
   const result = await box.run([
     'message', 'send', '--bots', 'bots', '--to', to, '--from', from,
-    '--subject', 'the staging host', '--text', 'It is down again.', '--json',
+    '--subject', 'the staging host', '--text', 'It is down again.', '--interrupt',
   ], env === undefined ? {} : { env });
-  assert.equal(result.code, 0, `the message went whatever became of the nudge: ${result.stdout}${result.stderr}`);
-  let answer;
-  try {
-    answer = JSON.parse(result.stdout);
-  } catch (error) {
-    return assert.fail(`--json should print JSON and nothing else, got: ${result.stdout} (${error.message})`);
-  }
-  assert.equal(answer.sent, true, `the message is sent whatever became of the nudge, got: ${result.stdout}`);
-  return answer;
+  assert.equal(result.code, 0, `the letter went whatever became of the interrupt: ${result.stdout}${result.stderr}`);
+  return `${result.stdout}${result.stderr}`;
 }
 
-/** What was typed into every tab of the whole fleet, after the launch line each one got. */
-async function typedSinceLaunch(box) {
+/** Each `terminal send` into every tab since its launch line, by tab id. */
+async function sentSinceLaunch(box) {
   const after = {};
-  for (const terminal of await box.orca.terminals()) {
-    after[terminal.tabId] = typedInto(terminal).slice(1);
-  }
+  for (const terminal of await box.orca.terminals()) after[terminal.tabId] = sentInto(terminal).slice(1);
   return after;
 }
 
-/** One nudge, into `tabId` and no other tab: the line that says how to read the mail. */
-async function assertNudgedOnly(box, tabId, answer) {
-  assert.equal(answer.nudged, true, `the tab should have been told, got: ${JSON.stringify(answer)}`);
-  assert.equal('nudgeTrouble' in answer, false, `nothing went wrong with the nudge, got: ${JSON.stringify(answer)}`);
-  const typed = await typedSinceLaunch(box);
-  assert.equal(typed[tabId].length, 1, `one line into the receiver's tab, got: ${JSON.stringify(typed[tabId])}`);
-  assert.ok(
-    spellingsOf(box.cli).some((cli) => typed[tabId][0].includes(`${cli} message check --bots `)),
-    `the nudge, which says how to read the mail, got: ${typed[tabId][0]}`,
+/** One Escape, with no Enter, into `tabId` and no other tab; and the kit could tell. */
+async function assertEscapedOnly(box, tabId, said) {
+  const sent = await sentSinceLaunch(box);
+  assert.deepEqual(
+    sent[tabId].map((one) => ({ text: one.text, enter: one.enter })),
+    [{ text: '\x1b', enter: false }],
+    `one Escape into the receiver's tab, got: ${JSON.stringify(sent[tabId])}`,
   );
-  for (const [tab, lines] of Object.entries(typed)) {
-    if (tab !== tabId) assert.deepEqual(lines, [], `nothing may be typed into ${tab}: it is not the receiver's`);
+  for (const [tab, keys] of Object.entries(sent)) {
+    if (tab !== tabId) assert.deepEqual(keys, [], `nothing may go into ${tab}: it is not the receiver's`);
   }
+  assert.doesNotMatch(said, /could not tell|cannot tell/i, `the kit could tell, got: ${said}`);
 }
 
-/** Nothing at all was typed into any tab after its launch line, and the message is in the mailbox. */
+/** Nothing at all went into any tab after its launch line, and the letter is in the mailbox. */
 async function assertUntyped(box, what) {
-  assert.equal((await box.orca.messages()).length, 1, `${what}: the message is in the mailbox`);
-  assert.deepEqual(Object.values(await typedSinceLaunch(box)).flat(), [], `${what}: and nothing was typed into any tab`);
+  assert.equal((await box.orca.messages()).length, 1, `${what}: the letter is in the mailbox`);
+  assert.deepEqual(Object.values(await sentSinceLaunch(box)).flat(), [], `${what}: and nothing went into any tab`);
 }
 
-/** Not nudged because the kit could not tell: nothing typed, and the sentence that says so. */
-async function assertCouldNotTell(box, answer, what) {
-  assert.equal(answer.nudged, false, `${what}: got ${JSON.stringify(answer)}`);
-  assert.equal(typeof answer.nudgeTrouble, 'string', `${what}: a sentence saying the kit could not tell, got ${JSON.stringify(answer)}`);
-  assert.match(answer.nudgeTrouble, COULD_NOT_TELL, `${what}: got ${JSON.stringify(answer)}`);
+/** No Escape because the kit could not tell: nothing sent, and the output says so. */
+async function assertCouldNotTell(box, said, what) {
+  assert.match(said, COULD_NOT_TELL, `${what}: the output says the kit could not tell, got: ${said}`);
+  await assertUntyped(box, what);
+}
+
+/** No Escape because only a shell is in front: nothing sent, said plainly, and not "cannot tell". */
+async function assertNoHarness(box, said, what) {
+  assert.match(said, NO_HARNESS, `${what}: the output says no harness is there, got: ${said}`);
+  assert.doesNotMatch(said, /could not tell|cannot tell/i, `${what}: the kit knows there is no harness there, got: ${said}`);
   await assertUntyped(box, what);
 }
 
 // ---------------------------------------------------------------------------
-// F1 — ps does not start; the runtime names the harness Orca names: nudged.
+// F1 — ps does not start; the runtime names the harness Orca names: the Escape goes.
 // ---------------------------------------------------------------------------
 
-test('F1 from Codex\'s sandbox, where ps does not start, a Codex receiver the runtime finds in front of its tab is told its mail is there', async (t) => {
+test('F1 from Codex\'s sandbox, where ps does not start, a busy Codex receiver the runtime finds in front of its tab gets the Escape of --interrupt', async (t) => {
   // The issue itself: a Codex session writes to another, and the receiver's
-  // Codex is idle in its tab.
+  // Codex is at work in its tab.
   const { box, bots } = await sandboxedFleet(t);
   const reader = await tabOf(box, bots, 'coder');
   assert.equal(reader.agentIdentity, 'codex', 'the premise: Orca names codex in the receiver\'s tab');
 
-  const answer = await send(box);
+  const said = await send(box);
 
-  await assertNudgedOnly(box, reader.tabId, answer);
+  await assertEscapedOnly(box, reader.tabId, said);
 });
 
-test('F1 from Codex\'s sandbox, a Claude receiver the runtime finds in front of its tab is told too', async (t) => {
+test('F1 from Codex\'s sandbox, a busy Claude receiver the runtime finds in front of its tab gets it too', async (t) => {
   const { box, bots } = await sandboxedFleet(t);
   const writer = await tabOf(box, bots, 'writer');
 
-  const answer = await send(box, { to: 'writer', from: 'coder/daily' });
+  const said = await send(box, { to: 'writer', from: 'coder/daily' });
 
-  await assertNudgedOnly(box, writer.tabId, answer);
+  await assertEscapedOnly(box, writer.tabId, said);
 });
 
-test('F1 a harness the runtime gives only as the foreground process, with no processName, is told when it is the one Orca names', async (t) => {
+test('F1 a harness the runtime gives only as the foreground process, with no processName, gets the Escape when it is the one Orca names', async (t) => {
   // The second road: verdict live, processName null, foregroundProcess the
-  // program. The program is the agent Orca names, so it is typed into.
+  // program. The program is the agent Orca names, so the Escape goes in.
   const { box, bots } = await sandboxedFleet(t);
   await runtimeSaysForReader(box, bots, { process: CODEX_UNNAMED });
 
-  const answer = await send(box);
+  const said = await send(box);
 
-  await assertNudgedOnly(box, (await tabOf(box, bots, 'coder')).tabId, answer);
+  await assertEscapedOnly(box, (await tabOf(box, bots, 'coder')).tabId, said);
 });
 
-test('F1 a busy harness the runtime finds in front is told, as one ps finds is (#232)', async (t) => {
-  // Orca's wait times out on a harness at work just as on a shell; a busy
-  // harness takes a typed line as its next turn.
+test('F1 a busy harness the runtime finds in front gets the Escape, as one ps finds does (#232)', async (t) => {
+  // Orca's wait times out on a harness at work just as on a shell: the runtime
+  // tells them apart.
   const { box, bots } = await sandboxedFleet(t);
-  await box.orca.set({ waitIdle: 'busy' });
 
-  const answer = await send(box);
+  const said = await send(box);
 
-  await assertNudgedOnly(box, (await tabOf(box, bots, 'coder')).tabId, answer);
+  await assertEscapedOnly(box, (await tabOf(box, bots, 'coder')).tabId, said);
 });
 
 test('F1 a ps that cannot be started at all, not only one that exits 126, is a ps that cannot read the tab', async (t) => {
@@ -247,9 +256,9 @@ test('F1 a ps that cannot be started at all, not only one that exits 126, is a p
   await writeFile(noExec, '#!/bin/sh\necho "this ps must never run" >&2\nexit 70\n');
   await chmod(noExec, 0o644);
 
-  const answer = await send(box, { env: { ...box.env, OBK_PS: noExec } });
+  const said = await send(box, { env: { ...box.env, OBK_PS: noExec } });
 
-  await assertNudgedOnly(box, (await tabOf(box, bots, 'coder')).tabId, answer);
+  await assertEscapedOnly(box, (await tabOf(box, bots, 'coder')).tabId, said);
 });
 
 // ---------------------------------------------------------------------------
@@ -284,49 +293,30 @@ test('F2 the client runs as plain Node, without the NODE_OPTIONS or NODE_REPL_EX
   const { box, bots, app } = await sandboxedFleet(t);
   const loaded = (await app.loads()).length;
 
-  const answer = await send(box, {
+  const said = await send(box, {
     env: { ...box.env, NODE_OPTIONS: '--no-deprecation', NODE_REPL_EXTERNAL_MODULE: box.path('no-such-repl.js') },
   });
 
   const loads = (await app.loads()).slice(loaded);
   assert.notEqual(loads.length, 0, 'the client was loaded');
   for (const load of loads) assert.deepEqual(load.env, { ELECTRON_RUN_AS_NODE: '1' });
-  await assertNudgedOnly(box, (await tabOf(box, bots, 'coder')).tabId, answer);
+  await assertEscapedOnly(box, (await tabOf(box, bots, 'coder')).tabId, said);
 });
 
 // ---------------------------------------------------------------------------
 // F3 — the runtime says the shell is in front: no harness, plainly.
 // ---------------------------------------------------------------------------
 
-test('F3 a receiver whose shell the runtime finds in front is not up: nothing is typed, and it is not a trouble', async (t) => {
-  // The harness quit; `agentIdentity` still names it. A line typed here goes
-  // to zsh as a command. It is the plain "not nudged" of a tab with no
-  // harness, not "cannot tell".
+test('F3 a receiver whose shell the runtime finds in front gets no Escape, and the output says no harness is there, not that the kit could not tell', async (t) => {
+  // The harness quit; `agentIdentity` still names it. A key sent here goes
+  // to zsh. It is the plain case of a tab with no harness, not "cannot tell".
   const { box, bots } = await sandboxedFleet(t);
   await runtimeSaysForReader(box, bots, { process: SHELL });
   assert.equal((await tabOf(box, bots, 'coder')).agentIdentity, 'codex', 'the premise: Orca still names codex');
 
-  const answer = await send(box);
+  const said = await send(box);
 
-  assert.equal(answer.nudged, false, `got: ${JSON.stringify(answer)}`);
-  assert.equal('nudgeTrouble' in answer, false, `the kit knows there is no harness there, got: ${JSON.stringify(answer)}`);
-  assert.equal('blocked' in answer, false, `and nothing is waiting to be answered, got: ${JSON.stringify(answer)}`);
-  await assertUntyped(box, 'the shell in front');
-});
-
-test('F3 the plain run says the receiver is not up, as it does when ps finds the shell', async (t) => {
-  const { box, bots } = await sandboxedFleet(t);
-  await runtimeSaysForReader(box, bots, { process: SHELL });
-
-  const result = await box.run([
-    'message', 'send', '--bots', 'bots', '--to', 'coder', '--from', 'writer/daily',
-    '--subject', 'the staging host', '--text', 'It is down again.',
-  ]);
-
-  assert.equal(result.code, 0, result.stderr);
-  assert.match(result.stdout, /not up/, `got: ${result.stdout}`);
-  assert.doesNotMatch(result.stdout, COULD_NOT_TELL, `got: ${result.stdout}`);
-  await assertUntyped(box, 'the shell in front');
+  await assertNoHarness(box, said, 'the shell in front');
 });
 
 // ---------------------------------------------------------------------------
@@ -338,32 +328,32 @@ for (const [label, front] of [
   ['a `node` program', NODE],
   ['Claude Code, in a tab Orca names codex', CLAUDE],
 ]) {
-  test(`F4 ${label} in front, as the runtime says, is not typed into, and the kit cannot tell whether a harness is up`, async (t) => {
+  test(`F4 ${label} in front, as the runtime says, gets no Escape, and the kit cannot tell whether a harness is up`, async (t) => {
     const { box, bots } = await sandboxedFleet(t);
     await runtimeSaysForReader(box, bots, { process: front });
 
-    const answer = await send(box);
+    const said = await send(box);
 
-    await assertCouldNotTell(box, answer, label);
+    await assertCouldNotTell(box, said, label);
   });
 }
 
-test('F4 Codex in front as the runtime says, in a tab where Orca names no agent, is not typed into', async (t) => {
-  // Only the harness Orca names is typed into (ADR 0034). With no name the kit
+test('F4 Codex in front as the runtime says, in a tab where Orca names no agent, gets no Escape', async (t) => {
+  // Only the harness Orca names gets a key (ADR 0034). With no name the kit
   // cannot tell a harness a few seconds into its launch from anything else.
   const { box, bots } = await sandboxedFleet(t);
   await changeTab(box, (await tabOf(box, bots, 'coder')).tabId, { agentIdentity: null, inspect: { process: CODEX } });
 
-  const answer = await send(box);
+  const said = await send(box);
 
-  await assertCouldNotTell(box, answer, 'no agentIdentity');
+  await assertCouldNotTell(box, said, 'no agentIdentity');
 });
 
 // ---------------------------------------------------------------------------
 // F5 — answers the kit cannot read as a front: cannot tell.
 // ---------------------------------------------------------------------------
 
-// Each of these carries, where it can, a name that would be typed into were
+// Each of these carries, where it can, a name that would get the Escape were
 // the rest of the answer ignored.
 const UNREADABLE_ANSWERS = [
   ['verdict unverifiable, with a reason', {
@@ -404,13 +394,13 @@ const UNREADABLE_ANSWERS = [
 ];
 
 for (const [label, inspect] of UNREADABLE_ANSWERS) {
-  test(`F5 when the runtime answers ${label}, the kit cannot tell: nothing is typed, and it says so`, async (t) => {
+  test(`F5 when the runtime answers ${label}, the kit cannot tell: no Escape, and it says so`, async (t) => {
     const { box, bots } = await sandboxedFleet(t);
     await runtimeSaysForReader(box, bots, inspect);
 
-    const answer = await send(box);
+    const said = await send(box);
 
-    await assertCouldNotTell(box, answer, label);
+    await assertCouldNotTell(box, said, label);
   });
 }
 
@@ -424,34 +414,34 @@ for (const [label, client] of [
   ['every call rejects with method_not_found', 'method-not-found'],
   ['the call never settles, and nothing holds the client process', 'never-settles'],
 ]) {
-  test(`F6 when ${label}, the kit cannot tell: nothing is typed, and it says so`, async (t) => {
+  test(`F6 when ${label}, the kit cannot tell: no Escape, and it says so`, async (t) => {
     const { box } = await sandboxedFleet(t, { client });
 
-    const answer = await send(box);
+    const said = await send(box);
 
-    await assertCouldNotTell(box, answer, label);
+    await assertCouldNotTell(box, said, label);
   });
 }
 
-test('F6 with no Orca app at all, only a CLI, the kit cannot tell: nothing is typed, and it says so', async (t) => {
+test('F6 with no Orca app at all, only a CLI, the kit cannot tell: no Escape, and it says so', async (t) => {
   const box = await createSandbox(t);
   await fleetIn(box);
   await sandboxPs(box);
 
-  const answer = await send(box);
+  const said = await send(box);
 
-  await assertCouldNotTell(box, answer, 'no app');
+  await assertCouldNotTell(box, said, 'no app');
 });
 
-test('F6 with the Orca executable missing from the app, the kit cannot tell: nothing is typed, and it says so', async (t) => {
+test('F6 with the Orca executable missing from the app, the kit cannot tell: no Escape, and it says so', async (t) => {
   const box = await createSandbox(t);
   await fleetIn(box);
   await orcaApp(box, { executable: false });
   await sandboxPs(box);
 
-  const answer = await send(box);
+  const said = await send(box);
 
-  await assertCouldNotTell(box, answer, 'no executable');
+  await assertCouldNotTell(box, said, 'no executable');
 });
 
 test('F6 a client that hangs holds the send up a few seconds at most, and the kit cannot tell', async (t) => {
@@ -462,12 +452,12 @@ test('F6 a client that hangs holds the send up a few seconds at most, and the ki
   // load can only start the client later, and so end its hang later still.
   const works = await sandboxedFleet(t);
   const worked = await send(works.box);
-  assert.equal(worked.nudged, true, `the premise: a working client gets the nudge through, got: ${JSON.stringify(worked)}`);
+  await assertEscapedOnly(works.box, (await tabOf(works.box, works.bots, 'coder')).tabId, worked);
 
   const hung = await sandboxedFleet(t, { client: 'hangs', hangMs: 8000 });
-  const answer = await send(hung.box);
+  const said = await send(hung.box);
 
-  await assertCouldNotTell(hung.box, answer, 'a hung client');
+  await assertCouldNotTell(hung.box, said, 'a hung client');
   assert.deepEqual(await hung.app.ended(), [], 'the kit stopped waiting on the client before its 8 s were up');
 });
 
@@ -475,41 +465,39 @@ test('F6 a client that hangs holds the send up a few seconds at most, and the ki
 // F7 — where ps reads the tab, nothing changes and the runtime is not asked.
 // ---------------------------------------------------------------------------
 
-test('F7 where ps finds the harness in front, the receiver is told and Orca\'s runtime is neither loaded nor called, whatever it would say', async (t) => {
+test('F7 where ps finds the harness in front, the receiver gets the Escape and Orca\'s runtime is neither loaded nor called, whatever it would say', async (t) => {
   const box = await createSandbox(t);
   const bots = await fleetIn(box);
   const app = await orcaApp(box);
-  // The runtime would say the shell: a kit that asked it would not type.
+  // The runtime would say the shell: a kit that asked it would send nothing.
   await runtimeSaysForReader(box, bots, { process: SHELL });
   const loaded = (await app.loads()).length;
   const called = (await app.calls()).length;
 
-  const answer = await send(box);
+  const said = await send(box);
 
-  await assertNudgedOnly(box, (await tabOf(box, bots, 'coder')).tabId, answer);
+  await assertEscapedOnly(box, (await tabOf(box, bots, 'coder')).tabId, said);
   assert.deepEqual((await app.loads()).slice(loaded), [], 'the runtime client was not loaded');
   assert.deepEqual((await app.calls()).slice(called), [], 'and not called');
 });
 
-test('F7 where ps finds the shell in front, nothing is typed and Orca\'s runtime is neither loaded nor called, whatever it would say', async (t) => {
+test('F7 where ps finds the shell in front, no Escape goes and Orca\'s runtime is neither loaded nor called, whatever it would say', async (t) => {
   const box = await createSandbox(t);
   const bots = await fleetIn(box);
   const app = await orcaApp(box);
-  // The runtime would say Codex: a kit that asked it would type.
+  // The runtime would say Codex: a kit that asked it would send the Escape.
   await changeTab(box, (await tabOf(box, bots, 'coder')).tabId, { foreground: 'shell', inspect: { process: CODEX } });
   const loaded = (await app.loads()).length;
   const called = (await app.calls()).length;
 
-  const answer = await send(box);
+  const said = await send(box);
 
-  assert.equal(answer.nudged, false, `got: ${JSON.stringify(answer)}`);
-  assert.equal('nudgeTrouble' in answer, false, `the shell in front is no harness, plainly, got: ${JSON.stringify(answer)}`);
-  await assertUntyped(box, 'ps finds the shell');
+  await assertNoHarness(box, said, 'ps finds the shell');
   assert.deepEqual((await app.loads()).slice(loaded), [], 'the runtime client was not loaded');
   assert.deepEqual((await app.calls()).slice(called), [], 'and not called');
 });
 
-test('F7 where ps finds `less` in front of a Codex tab, nothing is typed and Orca\'s runtime is not asked, whatever it would say', async (t) => {
+test('F7 where ps finds `less` in front of a Codex tab, no Escape goes and Orca\'s runtime is not asked, whatever it would say', async (t) => {
   // ps read the tab: what it found stands, though it is "cannot tell".
   const box = await createSandbox(t);
   const bots = await fleetIn(box);
@@ -518,9 +506,9 @@ test('F7 where ps finds `less` in front of a Codex tab, nothing is typed and Orc
   const loaded = (await app.loads()).length;
   const called = (await app.calls()).length;
 
-  const answer = await send(box);
+  const said = await send(box);
 
-  await assertCouldNotTell(box, answer, 'ps finds less');
+  await assertCouldNotTell(box, said, 'ps finds less');
   assert.deepEqual((await app.loads()).slice(loaded), [], 'the runtime client was not loaded');
   assert.deepEqual((await app.calls()).slice(called), [], 'and not called');
 });
@@ -533,7 +521,7 @@ for (const [label, foreground] of [
   ['ps cannot read the pane\'s pid', 'ps-fails'],
   ['the process in front is gone before ps can read it', 'gone'],
 ]) {
-  test(`F8 when ${label}, outside any sandbox, the runtime is asked, and a harness it finds is told`, async (t) => {
+  test(`F8 when ${label}, outside any sandbox, the runtime is asked, and a harness it finds gets the Escape`, async (t) => {
     const box = await createSandbox(t);
     const bots = await fleetIn(box);
     const app = await orcaApp(box);
@@ -541,54 +529,50 @@ for (const [label, foreground] of [
     await changeTab(box, reader.tabId, { foreground, inspect: { process: CODEX } });
     const called = (await app.calls()).length;
 
-    const answer = await send(box);
+    const said = await send(box);
 
-    await assertNudgedOnly(box, reader.tabId, answer);
+    await assertEscapedOnly(box, reader.tabId, said);
     assert.ok(
       (await app.calls()).slice(called).some((call) => call.method === 'terminal.inspectProcess' && call.params?.terminal === reader.handle),
       `the runtime was asked about the receiver's tab, got: ${JSON.stringify(await app.calls())}`,
     );
   });
 
-  test(`F8 when ${label}, and the runtime finds the shell, nothing is typed, plainly`, async (t) => {
+  test(`F8 when ${label}, and the runtime finds the shell, no Escape goes, plainly`, async (t) => {
     const box = await createSandbox(t);
     const bots = await fleetIn(box);
     await orcaApp(box);
     await changeTab(box, (await tabOf(box, bots, 'coder')).tabId, { foreground, inspect: { process: SHELL } });
 
-    const answer = await send(box);
+    const said = await send(box);
 
-    assert.equal(answer.nudged, false, `got: ${JSON.stringify(answer)}`);
-    assert.equal('nudgeTrouble' in answer, false, `the runtime says there is no harness, got: ${JSON.stringify(answer)}`);
-    await assertUntyped(box, label);
+    await assertNoHarness(box, said, label);
   });
 }
 
 // ---------------------------------------------------------------------------
-// F9 — a question on the tab still stops the nudge.
+// F9 — a question on the tab still stops the Escape.
 // ---------------------------------------------------------------------------
 
-test('F9 a harness the runtime finds, with Orca\'s blockedReason on its tab, is not typed into, and the answer says it is blocked', async (t) => {
+test('F9 a harness the runtime finds, with Orca\'s blockedReason on its tab, gets no Escape, and the output names Orca\'s reason', async (t) => {
   const { box } = await sandboxedFleet(t);
   await box.orca.set({ waitIdle: 'blocked' });
 
-  const answer = await send(box);
+  const said = await send(box);
 
-  assert.equal(answer.nudged, false, `got: ${JSON.stringify(answer)}`);
-  assert.equal(answer.blocked, 'agent-interactive-prompt', `Orca's reason, got: ${JSON.stringify(answer)}`);
+  assert.ok(said.includes('agent-interactive-prompt'), `Orca's reason, got: ${said}`);
   await assertUntyped(box, 'blocked');
 });
 
-test('F9 a Codex the runtime finds, on its update offer, is not typed into: the kit\'s own screen reading still stands', async (t) => {
-  // Orca calls that screen idle with no reason, and a return typed into it
-  // took "Update now" (#329).
+test('F9 a Codex the runtime finds, on its update offer, gets no Escape: the kit\'s own screen reading still stands', async (t) => {
+  // A return typed into that screen took "Update now" (#329), and an Escape
+  // answers it too.
   const { box, bots } = await sandboxedFleet(t);
   await changeTab(box, (await tabOf(box, bots, 'coder')).tabId, { screen: CODEX_UPDATE_OFFER });
 
-  const answer = await send(box);
+  const said = await send(box);
 
-  assert.equal(answer.nudged, false, `got: ${JSON.stringify(answer)}`);
-  assert.equal(answer.blocked, 'question-on-screen', `the question on its screen, got: ${JSON.stringify(answer)}`);
+  assert.ok(said.includes('question-on-screen'), `the question on its screen, got: ${said}`);
   await assertUntyped(box, 'the update offer');
 });
 
@@ -627,13 +611,6 @@ async function built(box) {
   const entry = entryOf(answerOf(result), 'api-bot');
   assert.ok(Array.isArray(entry.sessions), `api-bot's links changed, so its entry lists its sessions, got: ${JSON.stringify(entry)}`);
   return entry.sessions;
-}
-
-/** Each `terminal send` into every tab since its launch line, by tab id. */
-async function sentSinceLaunch(box) {
-  const after = {};
-  for (const terminal of await box.orca.terminals()) after[terminal.tabId] = sentInto(terminal).slice(1);
-  return after;
 }
 
 test('F10 from Codex\'s sandbox, a skills build reloads the Claude session the runtime finds in front, and the Codex one takes it next turn', async (t) => {
@@ -854,29 +831,23 @@ async function assertAnsweredSlowly(app, from) {
   }
 }
 
-test('F14 with Orca 1 s slow to start, from Codex\'s sandbox a Codex receiver the runtime finds in front is still told its mail is there', async (t) => {
+test('F14 with Orca 1 s slow to start, from Codex\'s sandbox a busy Codex receiver the runtime finds in front still gets the Escape', async (t) => {
   const { box, bots, app } = await sandboxedFleet(t, { startDelayMs: SLOW_START_MS });
   const from = (await app.exits()).length;
 
-  const answer = await send(box);
+  const said = await send(box);
 
-  await assertNudgedOnly(box, (await tabOf(box, bots, 'coder')).tabId, answer);
+  await assertEscapedOnly(box, (await tabOf(box, bots, 'coder')).tabId, said);
   await assertAnsweredSlowly(app, from);
 });
 
-test('F14 with Orca 1 s slow to start, a receiver whose shell the runtime finds in front is still reported not up, and nothing is typed', async (t) => {
+test('F14 with Orca 1 s slow to start, a receiver whose shell the runtime finds in front is still found to have no harness, and gets no Escape', async (t) => {
   const { box, bots, app } = await sandboxedFleet(t, { startDelayMs: SLOW_START_MS });
   await runtimeSaysForReader(box, bots, { process: SHELL });
   const from = (await app.exits()).length;
 
-  const result = await box.run([
-    'message', 'send', '--bots', 'bots', '--to', 'coder', '--from', 'writer/daily',
-    '--subject', 'the staging host', '--text', 'It is down again.',
-  ]);
+  const said = await send(box);
 
-  assert.equal(result.code, 0, result.stderr);
-  assert.match(result.stdout, /not up/, `got: ${result.stdout}`);
-  assert.doesNotMatch(result.stdout, COULD_NOT_TELL, `got: ${result.stdout}`);
-  await assertUntyped(box, 'the shell in front');
+  await assertNoHarness(box, said, 'the shell in front');
   await assertAnsweredSlowly(app, from);
 });

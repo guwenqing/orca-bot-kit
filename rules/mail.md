@@ -12,12 +12,12 @@ If your harness refuses a message, do not send it again by another road. Tell
 your maker or your user, with the harness's reason. A refusal can mean a missing
 permission rule, which they can add through the kit after the user's yes.
 
-Mail is queued, not an interruption. Read it when you finish what you are on.
+Mail is queued, not an interruption. When Orca says you have mail, read it
+with `"${OBK_CLI:-obk}" message check --bots <bots>`, never a bare `orca
+orchestration check`: that leaves it unread, and Orca stops telling you of mail.
 
 Ask for a reply when you need one, and send one when you were asked for one.
 
-A message sent is queued, not read or acted on: the reply, or the work done,
-is what shows it arrived. Look for one before you send it again.
+A sent message is only queued. Look for the reply or the work before you resend.
 
-Write to the session that needs it, not to several in the hope that one of
-them is right.
+Write only to the session that needs it, not to several at once.

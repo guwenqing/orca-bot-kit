@@ -159,43 +159,6 @@ export function heldAsUserTurn(harness, file, text) {
   return held;
 }
 
-/**
- * Where the harness keeps the conversation `id` of this bot home, and how long
- * that record is now: `{ harness, file, size }`, so a later look reads only
- * what was written after this moment. Undefined when there is no id, no
- * record, or it cannot be read (#509).
- */
-export function recordMark(harness, home, id) {
-  if (typeof id !== 'string' || id === '') return undefined;
-  try {
-    const file = harness === 'codex' ? codexRollout(id) : claudeTranscript(home, id);
-    if (file === undefined) return undefined;
-    const found = statSync(file);
-    return found.isFile() ? { harness, file, size: found.size } : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-/**
- * Whether a turn of the user's written after `mark` holds `text` anywhere in
- * it (#509). A record that cannot be read says no: not seeing a thing is not
- * seeing it.
- */
-export function userTurnSince(mark, text) {
-  if (mark === undefined || mark === null) return false;
-  let held = false;
-  try {
-    eachLine(mark.file, (line) => {
-      held = line !== undefined && userTexts(mark.harness, line).some((said) => said.includes(text));
-      return held;
-    }, { from: mark.size });
-  } catch {
-    return false;
-  }
-  return held;
-}
-
 /** The texts of one record line, when it is a turn of the user's. */
 function userTexts(harness, line) {
   let parsed;

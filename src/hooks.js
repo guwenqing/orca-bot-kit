@@ -58,36 +58,7 @@ export const sentCommand = (bots, bot, cli = ownCli()) =>
   `${shellWord(cli)} session sent --bots ${shellWord(bots)} --bot ${shellWord(bot)} 2>/dev/null || true`;
 
 /**
- * Claude Code's third kit hook: at each turn end, it tells the session once
- * about fleet mail the kit sent it that is still unread (#509, ADR 0035).
- * Claude Code only: on Codex a new hook entry puts every session on "Hooks
- * need review", and that waits for #511. It asks Orca only when the kit's hint
- * holds mail for the session, and gives Orca at most ten seconds of its thirty.
- */
-const MAIL_EVENT = 'Stop';
-const MAIL_TIMEOUT = 30;
-
-/** What the mail hook runs, by the kit's own path, as `hookCommand` does. */
-export const mailCommand = (bots, bot, cli = ownCli()) =>
-  `${shellWord(cli)} session mail --bots ${shellWord(bots)} --bot ${shellWord(bot)} 2>/dev/null || true`;
-
-/**
- * Codex's second kit hook: after each command its shell tool ran, outside
- * Codex's sandbox, it decides the mail nudges a send in that command could not
- * (#350, ADR 0034). Codex only, since only Codex runs its commands where `ps`
- * does not start. It types into another session's tab, which takes Orca a few
- * seconds a nudge, so it is given longer than the others.
- */
-const NUDGE_EVENT = 'PostToolUse';
-const NUDGE_MATCHER = 'Bash';
-const NUDGE_TIMEOUT = 30;
-
-/** What the nudge hook runs, by the kit's own path, as `hookCommand` does. */
-export const nudgeCommand = (bots, bot, cli = ownCli()) =>
-  `${shellWord(cli)} session nudge --bots ${shellWord(bots)} --bot ${shellWord(bot)} 2>/dev/null || true`;
-
-/**
- * Codex's third kit hook: at each turn end, the session's thread is named after
+ * Codex's second kit hook: at each turn end, the session's thread is named after
  * its bot and session, so its tab says which it is (#480). Async, so the turn
  * ends without waiting on it: it waits for the session to be idle, up to 30 s,
  * then types and confirms. A naming took 73 s live, each character waiting on
@@ -123,7 +94,9 @@ export function installHook(home, harness, { bots, bot }) {
   // longer asks about is taken out, and a hook of the user's beside the kit's
   // stays where they put it.
   const started = withKitHook(settings.hooks, file, mine);
-  const wanted = { ...settings, hooks: toolHooksOf(harness, bots, bot).reduce(withToolHook, started) };
+  // The Claude Code mail hook and the Codex nudge hook went with the kit's
+  // typed line (#555), so an entry of either is taken out.
+  const wanted = { ...settings, hooks: toolHooksOf(harness, bots, bot).reduce(withToolHook, withoutHooks(started, [KIT_MAIL, KIT_NUDGE])) };
 
   // Compared as documents, not as text: how the user laid their file out is
   // theirs, and a run that changes nothing writes nothing.
@@ -171,9 +144,8 @@ export function hookTrouble(home, harness, { bots, bot }) {
     const program = running ?? ownCli();
     wanted = { ...settings, hooks: withKitHook(settings.hooks, file, { type: 'command', command: hookCommand(bots, bot, program), timeout: TIMEOUT }) };
     // The harness's other hooks are each judged on their own: the session hook
-    // may be right while the warning after a native message (ADR 0032), the
-    // nudge a Codex sender left (ADR 0034), or the naming of a Codex thread
-    // (#480) is missing.
+    // may be right while the warning after a native message (ADR 0032) or the
+    // naming of a Codex thread (#480) is missing.
     if (isDeepStrictEqual(settings, wanted)) {
       for (const tool of toolHooksOf(harness, bots, bot)) {
         const toolRunning = programIn(settings, tool.pattern);
@@ -267,24 +239,15 @@ function withKitHook(hooks, file, mine) {
 
 /** Each harness's kit hooks beside its session hook, as `toolHookOf` gives each. */
 const toolHooksOf = (harness, bots, bot, cli = ownCli()) =>
-  (harness === 'claude' ? ['sent', 'mail'] : ['nudge', 'name']).map((kind) => toolHookOf(kind, bots, bot, cli));
+  (harness === 'claude' ? ['sent'] : ['name']).map((kind) => toolHookOf(kind, bots, bot, cli));
 
 /**
  * One of the kit's hooks beside its session hook: Claude Code's after a native
- * `SendMessage` (`sent`, ADR 0032), Codex's after its shell tool (`nudge`,
- * ADR 0034), and Codex's at a turn end (`name`, #480). The entry, where it
- * goes, how the kit knows its own, and what is lost without it.
+ * `SendMessage` (`sent`, ADR 0032), and Codex's at a turn end (`name`, #480).
+ * The entry, where it goes, how the kit knows its own, and what is lost
+ * without it.
  */
 function toolHookOf(kind, bots, bot, cli = ownCli()) {
-  if (kind === 'mail') {
-    return {
-      kind,
-      event: MAIL_EVENT,
-      pattern: KIT_MAIL,
-      mine: { type: 'command', command: mailCommand(bots, bot, cli), timeout: MAIL_TIMEOUT },
-      missing: 'a Claude session busy when fleet mail came is never told about it at the end of its turn, and nothing is typed into its tab either (#509)',
-    };
-  }
   if (kind === 'name') {
     return {
       kind,
@@ -294,24 +257,32 @@ function toolHookOf(kind, bots, bot, cli = ownCli()) {
       missing: "a Codex session's thread is never named after its bot and session, and its tab shows a topic Codex made up instead (#480)",
     };
   }
-  if (kind === 'sent') {
-    return {
-      kind,
-      event: SENT_EVENT,
-      matcher: SENT_MATCHER,
-      pattern: KIT_SENT,
-      mine: { type: 'command', command: sentCommand(bots, bot, cli), timeout: TIMEOUT },
-      missing: 'a session is never warned when its native message goes outside this bots folder (ADR 0032)',
-    };
-  }
   return {
     kind,
-    event: NUDGE_EVENT,
-    matcher: NUDGE_MATCHER,
-    pattern: KIT_NUDGE,
-    mine: { type: 'command', command: nudgeCommand(bots, bot, cli), timeout: NUDGE_TIMEOUT },
-    missing: "mail a session sends from inside Codex's sandbox never tells a receiver the kit could not see from there, such as a Claude session busy with a command (ADR 0034)",
+    event: SENT_EVENT,
+    matcher: SENT_MATCHER,
+    pattern: KIT_SENT,
+    mine: { type: 'command', command: sentCommand(bots, bot, cli), timeout: TIMEOUT },
+    missing: 'a session is never warned when its native message goes outside this bots folder (ADR 0032)',
   };
+}
+
+/**
+ * The hooks without the kit's entries of these patterns, the hooks it no
+ * longer writes, and everything else as the user left it. A group the kit
+ * empties goes, and an event left with no groups goes with it.
+ */
+function withoutHooks(hooks, patterns) {
+  return Object.fromEntries(Object.entries(hooks).flatMap(([event, groups]) => {
+    if (!Array.isArray(groups)) return [[event, groups]];
+    const kept = groups.flatMap((group) => {
+      if (!Array.isArray(group?.hooks)) return [group];
+      const entries = group.hooks.filter((hook) => patterns.every((pattern) => programOf(hook?.command, pattern) === undefined));
+      if (entries.length === group.hooks.length) return [group];
+      return entries.length === 0 ? [] : [{ ...group, hooks: entries }];
+    });
+    return kept.length === 0 ? [] : [[event, kept]];
+  }));
 }
 
 /**
@@ -380,6 +351,7 @@ const isKitHook = (hook) => kitProgramOf(hook?.command) !== undefined;
 const WORD = String.raw`(?:[A-Za-z0-9,._+:@%/=-]+|'(?:[^']|'\\'')*')`;
 const KIT_HOOK = new RegExp(String.raw`^(${WORD}) session record --bots ${WORD} --bot ${WORD} 2>/dev/null \|\| true$`);
 const KIT_SENT = new RegExp(String.raw`^(${WORD}) session sent --bots ${WORD} --bot ${WORD} 2>/dev/null \|\| true$`);
+/** The hooks the kit wrote before #555, and takes out. */
 const KIT_NUDGE = new RegExp(String.raw`^(${WORD}) session nudge --bots ${WORD} --bot ${WORD} 2>/dev/null \|\| true$`);
 const KIT_MAIL = new RegExp(String.raw`^(${WORD}) session mail --bots ${WORD} --bot ${WORD} 2>/dev/null \|\| true$`);
 const KIT_NAME = new RegExp(String.raw`^(${WORD}) session name --bots ${WORD} --bot ${WORD} 2>/dev/null \|\| true$`);
@@ -390,7 +362,7 @@ const KIT_NAME = new RegExp(String.raw`^(${WORD}) session name --bots ${WORD} --
  * (#506). One that runs some other program, even another `obk`, is not.
  */
 export const runsThisKit = (hook, cli = ownCli()) =>
-  hook?.type === 'command' && [KIT_HOOK, KIT_SENT, KIT_NUDGE, KIT_NAME].some((pattern) => programOf(hook.command, pattern) === cli);
+  hook?.type === 'command' && [KIT_HOOK, KIT_SENT, KIT_NAME].some((pattern) => programOf(hook.command, pattern) === cli);
 
 /** The program a bot made before the kit named itself by path runs. */
 const BARE = 'obk';

@@ -1,0 +1,37 @@
+# fleet-mail-one-road
+Tier: 1 · Status: concluded
+
+## Owner's words and dialog
+
+- 2026-10-11 the owner's words, snapshot origin/2026-10-11-owner-words.md
+
+## Organized requirement
+
+R1: Each fleet mail through Orca MUST take one road and one signal. The letter goes into the receiver's Orca mailbox, and Orca's own notice tells the receiver to look once it is idle. The kit MUST NOT type anything else into the receiver's tab. This replaces the kit's typed line, its 8-second watch and its busy checks (#509). Amends: [PRD-16]
+R2: `obk message send` MUST stop once the letter is in the mailbox, and MUST say which road it took. Amends: [PRD-16]
+R3: For urgent mail, the sender MAY ask for an interrupt: `obk message send --interrupt`. The kit then presses Escape once in the receiver's tab, only when the receiver is busy, and then sends the letter. The kit MUST NOT interrupt by default. When the receiver is a Codex session, the send MUST say that Codex keeps a running command as a background terminal after an Escape. Amends: [PRD-16]
+R4: The kit's rules MUST tell every bot to answer Orca's notice with `obk message check`, which marks the mail read in Orca, and never with a bare `orca orchestration check`. Orca rings no more for a mailbox while a delivery is not marked read. Amends: [PRD-16]
+R5: The kit MUST NOT remind a Claude Code session at its turn end about mail still unread, and MUST keep no record of unread mail. A retire MUST NOT count unread mail. Amends: [PRD-16], [PRD-11]
+
+Assumed: Claude Code to Claude Code keeps the native road (PRD-16, ADR 0035); it is the harness's own delivery, and the kit types nothing for it. The notice comes about 1 to 4 minutes after the receiver goes idle, by the probe of 2026-10-11 on Orca 1.4.224, and this delay is accepted. The Escape goes through the same check as every other key the kit types: no Escape into a tab with a question on its screen, a tab with only a shell, or a tab the kit cannot tell about; the letter still goes, and the send says why there was no interrupt. The Codex hook that typed the line for a sender inside Codex's sandbox (ADR 0034) goes with the line. #511 (the Codex reminder) and #550 (typing into a busy tab) are closed as no longer needed.
+Out: a change to Orca itself; the PRD-16 transport choice; #542.
+Signed off: 2026-10-11 owner, origin/2026-10-11-signoff.md
+
+## Outcome
+
+- R1 Each fleet mail through Orca MUST take one road and one signal. The letter goes into the receiver's Orca mailbox, and Orca's own notice tells the receiver to look once it is idle. The kit MUST NOT type anything else into the receiver's tab. This replaces the kit's typed line, its 8-second watch and its busy checks (#509).: in [PRD-16]
+- R2 `obk message send` MUST stop once the letter is in the mailbox, and MUST say which road it took.: in [PRD-16]
+- R3 For urgent mail, the sender MAY ask for an interrupt: `obk message send --interrupt`. The kit then presses Escape once in the receiver's tab, only when the receiver is busy, and then sends the letter. The kit MUST NOT interrupt by default. When the receiver is a Codex session, the send MUST say that Codex keeps a running command as a background terminal after an Escape.: in [PRD-16]
+- R4 The kit's rules MUST tell every bot to answer Orca's notice with `obk message check`, which marks the mail read in Orca, and never with a bare `orca orchestration check`. Orca rings no more for a mailbox while a delivery is not marked read.: in [PRD-16]
+- R5 The kit MUST NOT remind a Claude Code session at its turn end about mail still unread, and MUST keep no record of unread mail. A retire MUST NOT count unread mail.: in [PRD-16], [PRD-11]
+- Added: none
+- Modified: [PRD-11], [PRD-16]
+- Removed: none
+- Dropped: none
+- Kept: none
+- Decisions: none
+- Agent rulings: none
+- ADRs added: none
+- ADRs superseded: none
+
+Notes:
