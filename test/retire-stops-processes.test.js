@@ -1146,8 +1146,15 @@ test('R3 a process that turns into another user\'s after TERM gets no KILL, and 
 // stop. In its scenario each covers for another. Each test here holds one of
 // those rules alone. The stop's budget is 12 s from its start, and newcomers
 // are adopted for 6 s of it (6.75 s with the margin above).
+//
+// From the review of a150ca1: every signal keeps to the budget too. Each kill
+// call is bounded by the time left; one cut off at the end may or may not
+// have gone, so its process is left as not confirmed, and a target the time
+// never reached is left because the time ran out. A newcomer of the session's
+// that a read shows after the 6 s is not signalled but named, and the other
+// newcomers in that read are still named as their rules say.
 
-test('R3 a newcomer first seen by a read that ends after 6 s is not adopted: no TERM to it later than 6 s after the first TERM', async (t) => {
+test('R3 a newcomer first seen by a read that ends after 6 s is not adopted: no TERM to it later than 6 s after the first TERM, and it is named under left', async (t) => {
   const box = await createSandbox(t);
   await devFleet(box);
   // 62201 ignores TERM until its KILL. 62203 starts 1.5 s after the first
@@ -1170,25 +1177,31 @@ test('R3 a newcomer first seen by a read that ends after 6 s is not adopted: no 
   assert.ok(callOf(calls, kill(62201)) !== undefined, `the premise: 62201 gets its KILL, so the kit read on after it, got: ${argvs}`);
   const late = calls.filter((call) => call.args[1] === 'TERM' && reaching([call.args], 62203).length > 0 && call.at - calls[0].at > 6750);
   assert.deepEqual(late.map((call) => call.args), [], `no TERM to the newcomer later than 6 s after the first TERM, got: ${argvs}`);
-  assert.deepEqual(processesIn(answer).stopped.filter((one) => one.pid === 62203), [], 'and it is not named as stopped');
+  const processes = processesIn(answer);
+  assert.deepEqual(processes.stopped.filter((one) => one.pid === 62203), [], 'and it is not named as stopped');
+  // It is dev's by its folder, and it runs on: R3 names it, with why.
+  const left = processes.left.filter((one) => one.pid === 62203);
+  assert.deepEqual(left.map((one) => [one.session, one.cwd, one.command]), [['dev', workOf(box, 'dev'), 'node worker.js']], `it is named under left, got: ${JSON.stringify(processes.left)}`);
+  assert.match(left[0].why ?? '', /time/i, `why says the time for new processes ran out: ${left[0].why}`);
 });
 
-test('R3 a last signal that no read follows, because the KILL call returned after the stop\'s time, is left as not confirmed, never as still running', async (t) => {
+test('R3 a KILL call cut off at the end of the stop\'s time is left as not confirmed, never as still running, and nothing is signalled after the 12 s', async (t) => {
   const box = await createSandbox(t);
   await devFleet(box);
-  // 62211 ignores TERM. Its KILL, the second kill call, blocks for 9.5 s, so
-  // it goes at about 12.5 s, past the 12 s budget, and no read can follow it.
+  // 62211 ignores TERM. The first read of the table after TERM takes 6 s, so
+  // its KILL is due at about 6 s, and that KILL call blocks for 9 s: the kit
+  // bounds it by what is left of the 12 s and cuts it off, and a call cut off
+  // never writes its signal down (helpers/fake-kill.js). Whether the KILL
+  // went, the kit cannot tell.
   await table(box, [{ pid: 62211, ppid: 1, pgid: 62211, cwd: workOf(box, 'dev'), command: 'node stubborn.js', ignoresTerm: true }]);
-  await box.orca.set({ killDelaysMs: [0, 9500] });
+  await box.orca.set({ psDelayAfterKillMs: 6000, killDelaysMs: [0, 9000] });
 
   const answer = answerIn(await retire(box, ['--session', 'dev', '--json']));
 
   const calls = await box.kill.calls();
   const argvs = JSON.stringify(calls.map((call) => [call.args, call.at - calls[0].at]));
-  assert.deepEqual(calls.map((call) => call.args), [term(-62211), kill(62211)], 'the premise: TERM, then the slow KILL');
-  const reads = await box.ps.tableReads();
-  const checked = reads.filter((read) => read.at > calls[1].at);
-  assert.deepEqual(checked, [], `the premise: no read of the table followed the KILL, so the set of signals not confirmed is not empty, got reads: ${JSON.stringify(reads.map((read) => read.at - calls[0].at))}, calls: ${argvs}`);
+  assert.deepEqual(calls[0]?.args, term(-62211), 'the premise: the TERM went');
+  assert.deepEqual(calls.filter((call) => call.at - calls[0].at > 12750).map((call) => call.args), [], `nothing is signalled later than 12 s after the first TERM, got: ${argvs}`);
   const processes = processesIn(answer);
   assert.deepEqual(processes.stopped.filter((one) => one.pid === 62211), [], `nothing checked that it ended, so it is not stopped: ${JSON.stringify(processes.stopped)}`);
   const left = processes.left.filter((one) => one.pid === 62211);
@@ -1218,4 +1231,64 @@ test('R3 a read that would run past the stop\'s end is cut at the end: no read i
   const left = processes.left.filter((one) => one.pid === 62221);
   assert.equal(left.length, 1, `it is named under left, got: ${JSON.stringify(processes.left)}`);
   assert.match(left[0].why ?? '', /read/i, `why says the kit could not read again: ${left[0].why}`);
+});
+
+test('R3 the first round of TERMs keeps to the stop\'s time: a TERM call cut off at the end is not confirmed, a target never reached is left because the time ran out, and nothing is signalled after 12 s', async (t) => {
+  const box = await createSandbox(t);
+  await devFleet(box);
+  // Four of dev's, each in a group of its own, each ending on TERM, so no
+  // KILL is ever due. The second and third kill calls block for 7 s each: the
+  // second goes at about 7 s, the third is cut off when the 12 s are up and
+  // writes nothing down, and no time is left for the fourth.
+  const pids = [62301, 62302, 62303, 62304];
+  await table(box, pids.map((pid) => ({ pid, ppid: 1, pgid: pid, cwd: workOf(box, 'dev'), command: `node w${pid}.js` })));
+  await box.orca.set({ killDelaysMs: [0, 7000, 7000] });
+
+  const answer = answerIn(await retire(box, ['--session', 'dev', '--json']));
+
+  const calls = await box.kill.calls();
+  const argvs = JSON.stringify(calls.map((call) => [call.args, call.at - calls[0].at]));
+  assert.deepEqual(calls.filter((call) => call.at - calls[0].at > 12750).map((call) => call.args), [], `nothing is signalled later than 12 s after the first TERM, got: ${argvs}`);
+  assert.equal(calls.length, 2, `the premise: two TERMs went, the first and the 7 s one, got: ${argvs}`);
+  const reached = calls.map((call) => Number(call.args[3].replace(/^-/, '')));
+  const unreached = pids.filter((pid) => !reached.includes(pid));
+  assert.equal(unreached.length, 2, `the premise: two targets have no signal written down, got: ${argvs}`);
+  const processes = processesIn(answer);
+  assert.deepEqual(processes.stopped.filter((one) => unreached.includes(one.pid)), [], `neither is named as stopped, got: ${JSON.stringify(processes.stopped)}`);
+  const left = processes.left.filter((one) => unreached.includes(one.pid));
+  assert.deepEqual(left.map((one) => one.pid).sort(), unreached, `both are named under left, got: ${JSON.stringify(processes.left)}`);
+  const whys = left.map((one) => one.why ?? '');
+  assert.equal(whys.filter((why) => /confirm/i.test(why)).length, 1, `the one whose TERM call was cut off is not confirmed: ${JSON.stringify(whys)}`);
+  assert.equal(whys.filter((why) => !/confirm/i.test(why) && /time/i.test(why)).length, 1, `and the one never signalled is left because the stop's time ran out: ${JSON.stringify(whys)}`);
+});
+
+test('R2 R3 after the adoption deadline, a late newcomer that is the session\'s own and a later group-mate in the same read are both named under left, and neither is signalled', async (t) => {
+  const box = await createSandbox(t);
+  await devFleet(box);
+  const elsewhere = path.join(box.home, 'elsewhere');
+  // As the test above for 62203, which the read that first sees it shows to
+  // be dev's by its folder after the 6 s deadline. After it in the table,
+  // 62204 starts at the same time in the group signalled whole, 62201, works
+  // elsewhere, and descends from nothing of dev's.
+  await table(box, [
+    { pid: 62201, ppid: 1, pgid: 62201, cwd: workOf(box, 'dev'), command: 'node respawner.js', ignoresTerm: true },
+    { pid: 62203, ppid: 62201, pgid: 62203, cwd: workOf(box, 'dev'), command: 'node worker.js', ignoresTerm: true, appearsAfterMs: 1500 },
+    { pid: 62204, ppid: 1, pgid: 62201, cwd: elsewhere, command: 'node server.js', ignoresTerm: true, appearsAfterMs: 1500 },
+  ]);
+  await box.orca.set({ lsofDelayAfterKillMs: 7000 });
+
+  const answer = answerIn(await retire(box, ['--session', 'dev', '--json']));
+
+  const calls = await kills(box);
+  assert.deepEqual(calls[0], term(-62201), 'the premise: TERM to the group comes first');
+  assert.deepEqual(reaching(calls, 62203, 62204), [], `neither newcomer is signalled by its pid, got: ${JSON.stringify(calls)}`);
+  assert.deepEqual(calls.filter((args) => args[3] === '-62201'), [term(-62201)], `nor the group again, which now holds 62204, got: ${JSON.stringify(calls)}`);
+  const processes = processesIn(answer);
+  assert.deepEqual(processes.stopped.filter((one) => [62203, 62204].includes(one.pid)), [], 'neither is named as stopped');
+  const own = processes.left.filter((one) => one.pid === 62203);
+  assert.equal(own.length, 1, `the late newcomer of dev's is named under left, got: ${JSON.stringify(processes.left)}`);
+  assert.match(own[0].why ?? '', /time/i, `with why saying the time for new processes ran out: ${own[0].why}`);
+  const mate = processes.left.filter((one) => one.pid === 62204);
+  assert.deepEqual(mate.map((one) => [one.session, one.cwd, one.command]), [['dev', elsewhere, 'node server.js']], `the group-mate after it is still named under left, got: ${JSON.stringify(processes.left)}`);
+  assert.match(mate[0].why ?? '', /group|\b62201\b/i, `with why naming the group it joined: ${mate[0].why}`);
 });
