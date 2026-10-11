@@ -79,7 +79,7 @@ export async function nameSession(bots, bot, said, tabId) {
     const it = { ...sessionToType(bots, bot, session), conversation: thread };
     if (it.tabId !== tabId) return undefined;
     // The session's typing turn, taken once it is idle and not before, so a
-    // mail nudge waits seconds for it and not the whole wait for idle. Held by
+    // mail interrupt waits seconds for it and not the whole wait for idle. Held by
     // anything else: nothing is typed, and the next turn end tries again.
     const before = () => {
       typing = takeTypingTurn(home, session, 0);

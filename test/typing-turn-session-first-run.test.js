@@ -18,8 +18,8 @@
 // The turn is held from the test process, as typing-turn.test.js holds it.
 // Every run is in the sandbox, with a fake Orca that shows the session's tab
 // the screen and moves on at the next key (`screenAfterSend`). coder/daily is
-// a fresh Codex bot's session, its three kit hooks not trusted yet, so its
-// review says "3 hooks are new or changed."
+// a fresh Codex bot's session, its two kit hooks not trusted yet, so its
+// review says "2 hooks are new or changed."
 
 import assert from 'node:assert/strict';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -27,7 +27,7 @@ import { describe, it } from 'node:test';
 
 import { createSandbox, kitLaunchMark, sentInto, sessionIn } from './helpers/cli.js';
 import { withoutCodexHome } from './helpers/codex-hooks.js';
-import { CLAUDE_ANSWERED, CLAUDE_TEACH_FORM, CODEX_AFTER_TRUST, CODEX_HOOKS_REVIEW_THREE } from './helpers/screens.js';
+import { CLAUDE_ANSWERED, CLAUDE_TEACH_FORM, CODEX_AFTER_TRUST, CODEX_HOOKS_REVIEW_TWO } from './helpers/screens.js';
 import { withTypingTurnHeld } from './helpers/typing-turn.js';
 
 /** The words the refusal gives for keys the turn kept out. */
@@ -58,7 +58,7 @@ async function tabOf(box, bots, bot, name) {
  * the captured Teach form. The keys are the answer each gets.
  */
 const COMMANDS = {
-  'session trust-hooks': { bot: 'coder', session: 'daily', screen: CODEX_HOOKS_REVIEW_THREE, after: CODEX_AFTER_TRUST, keys: '\x1b[B\r' },
+  'session trust-hooks': { bot: 'coder', session: 'daily', screen: CODEX_HOOKS_REVIEW_TWO, after: CODEX_AFTER_TRUST, keys: '\x1b[B\r' },
   'session answer': { bot: 'writer', session: 'lead', screen: CLAUDE_TEACH_FORM, after: CLAUDE_ANSWERED, keys: '\x1b' },
 };
 

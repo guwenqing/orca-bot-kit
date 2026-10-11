@@ -22,8 +22,8 @@
 //      drafts off count.
 //   2. `tabToTypeInto` answers `{ blocked: 'feedback-drafts-panel' }` for a
 //      Claude Code tab whose screen shows the panel. The tests see that value
-//      where the paths pass it on unchanged: the mail nudge's answer and the
-//      skills reload's report, both held in this file. Session clear and
+//      where the paths pass it on unchanged: the output of `message send
+//      --interrupt` (#555) and the skills reload's report, both held in this file. Session clear and
 //      compact, the session naming, the list line and the grooming line are
 //      held in their own files, beside the tests of those paths.
 //   3. Nothing at all goes into a tab that shows the panel: no character, no
@@ -31,7 +31,7 @@
 //   4. What stays no panel: the same screen with the panel taken out, a plain
 //      Claude Code screen, Codex's screens, a question that is not the panel,
 //      and the panel's words in the history, with a turn after them. A guard
-//      that took those for the panel would swallow every nudge.
+//      that took those for the panel would swallow every typed line.
 //
 // Every absence here has its presence beside it: the same path, on the same
 // screen with the panel taken out (CLAUDE_FEEDBACK_PANEL_GONE), types its line.
@@ -48,7 +48,6 @@ import {
   createSandbox,
   sentInto,
   sessionIn,
-  typedInto,
 } from './helpers/cli.js';
 import {
   CLAUDE_ANSWERED,
@@ -366,24 +365,23 @@ for (const [label, screen] of [
   });
 }
 
-// ------------------------------------------------------------ the mail nudge
+// ------------------------------------------------------------ the mail interrupt
+//
+// Since #555 fleet mail types nothing into a tab. The one key it may send is
+// the Escape of `obk message send --interrupt`, into a busy receiver whose tab
+// passes the gate: an Escape into the panel would answer it. So each test
+// below sends with --interrupt to a busy receiver (Orca's tui-idle wait times
+// out) that shows the screen.
 
-/** Give one tab a screen of its own; every other tab keeps the screen it had. */
+/** Give one tab a screen of its own, busy by Orca's tui-idle wait; every other tab keeps what it had. */
 async function showIn(box, tab, shown) {
   await box.orca.set({
-    terminals: (await box.orca.terminals()).map((terminal) => (terminal.tabId === tab ? { ...terminal, ...shown } : terminal)),
+    terminals: (await box.orca.terminals()).map((terminal) => (terminal.tabId === tab ? { ...terminal, tuiIdle: 'busy', ...shown } : terminal)),
   });
 }
 
 /** The tab one session lives in, as the book has it. */
 const tabOf = async (bots, bot, session = 'daily') => (await sessionIn(bots, bot, session)).tab;
-
-/** What was typed into every tab of the whole fleet, after the launch line each one got. */
-async function typedSinceLaunch(box) {
-  const after = {};
-  for (const terminal of await box.orca.terminals()) after[terminal.tabId] = typedInto(terminal).slice(1);
-  return after;
-}
 
 /** A Claude bot `writer` and a Codex bot `coder`, each with one session, both up, nothing typed since. */
 async function fleetIn(box) {
@@ -398,65 +396,44 @@ async function fleetIn(box) {
 }
 
 /**
- * The arguments of one message to the Claude bot `writer`, from the Codex bot,
- * so it goes through Orca and the kit types the nudge (PRD 6.9).
+ * The arguments of one urgent letter to the Claude bot `writer`, from the
+ * Codex bot, so it goes through Orca (PRD 6.9), with --interrupt.
  */
 const sendArgs = [
   'message', 'send', '--bots', 'bots', '--to', 'writer', '--from', 'coder/daily',
-  '--subject', 'the staging host', '--text', 'It is down again.',
+  '--subject', 'the staging host', '--text', 'It is down again.', '--interrupt',
 ];
 
-/** Send the message, `--json`, and read the answer. The message goes whatever became of the nudge. */
+/** Send the letter, plain, and answer what it printed. The letter goes whatever became of the interrupt. */
 async function send(box) {
-  const result = await box.run([...sendArgs, '--json']);
-  assert.equal(result.code, 0, `the message went whatever became of the nudge: ${result.stdout}${result.stderr}`);
-  return JSON.parse(result.stdout);
+  const result = await box.run(sendArgs);
+  assert.equal(result.code, 0, `the letter went whatever became of the interrupt: ${result.stdout}${result.stderr}`);
+  assert.equal((await box.orca.messages()).length, 1, 'the letter is in the mailbox');
+  return result.stdout + result.stderr;
 }
 
-/** The message is in the mailbox, and nothing at all was typed into any tab after its launch line. */
-async function assertQueuedUntyped(box, what) {
-  assert.equal((await box.orca.messages()).length, 1, `${what}: the message is in the mailbox`);
-  assert.deepEqual(Object.values(await typedSinceLaunch(box)).flat(), [], `${what}: and nothing was typed into any tab`);
-}
-
-// Covers requirements 2 and 3 for the mail nudge.
+// Covers requirements 2 and 3 for the mail interrupt.
 for (const [label, screen] of [
   ['the panel above its empty input line', CLAUDE_FEEDBACK_PANEL],
   ['the panel asking to confirm a send', PANEL_CONFIRM_SEND],
   ['the question to turn the drafts off', CLAUDE_FEEDBACK_TURN_OFF],
   ['the question to turn the drafts off, wrapped onto two rows', TURN_OFF_TWO_ROWS],
 ]) {
-  test(`a Claude tab showing ${label}, Orca calling it idle, gets no nudge, and the answer says blocked: feedback-drafts-panel`, async (t) => {
+  test(`a busy Claude tab showing ${label} gets no Escape from --interrupt, and the output names feedback-drafts-panel`, async (t) => {
     const box = await createSandbox(t);
     const bots = await fleetIn(box);
     await showIn(box, await tabOf(bots, 'writer'), { screen });
 
-    const answer = await send(box);
+    const said = await send(box);
 
-    assert.equal(answer.sent, true, `${label}: the message is in the mailbox, got ${JSON.stringify(answer)}`);
-    assert.equal(answer.nudged, false, `${label}: got ${JSON.stringify(answer)}`);
-    assert.equal(answer.blocked, PANEL, `${label}: the answer names the panel, got ${JSON.stringify(answer)}`);
-    await assertQueuedUntyped(box, label);
+    assert.deepEqual(Object.values(await sentSinceLaunch(box)).flat(), [], `${label}: nothing at all went into any tab`);
+    assert.ok(said.includes(PANEL), `${label}: the output names the panel as why there was no interrupt, got:\n${said}`);
   });
 }
 
-// Covers requirement 2, "says": the plain report names the panel.
-test('the plain report for a Claude tab showing the panel names feedback-drafts-panel and says nothing was typed', async (t) => {
-  const box = await createSandbox(t);
-  const bots = await fleetIn(box);
-  await showIn(box, await tabOf(bots, 'writer'), { screen: CLAUDE_FEEDBACK_PANEL });
-
-  const result = await box.run(sendArgs);
-
-  assert.equal(result.code, 0, result.stderr);
-  assert.ok(result.stdout.includes(`(${PANEL})`), `the report names what the tab is waiting on, got:\n${result.stdout}`);
-  assert.match(result.stdout, /nothing was typed/, `and says nothing was typed, got:\n${result.stdout}`);
-  await assertQueuedUntyped(box, 'the plain report, the panel');
-});
-
 // The presence beside the tests above: the same screen with the panel taken
-// out, and the panel's words in the history, get the nudge as ever, one line
-// into the receiver's tab. These pass before the change.
+// out, and the panel's words in the history, get the Escape, one key into the
+// receiver's tab.
 for (const [label, screen] of [
   ['the panel screen with the panel taken out', CLAUDE_FEEDBACK_PANEL_GONE],
   ['the captured panel\'s box in the history, a turn after it', FEEDBACK_PANEL_IN_HISTORY],
@@ -464,19 +441,17 @@ for (const [label, screen] of [
   ['the question to turn the drafts off quoted in the history as a paragraph of its own, a row of the answer after it', TURN_OFF_PARAGRAPH_IN_HISTORY],
   ['the question to turn the drafts off quoted in the history as a paragraph of its own, then "Press Esc to keep"', TURN_OFF_PRESS_ESC_IN_HISTORY],
 ]) {
-  test(`a Claude tab showing ${label}: no panel, and it is nudged as ever`, async (t) => {
+  test(`a busy Claude tab showing ${label}: no panel, and --interrupt sends its one Escape`, async (t) => {
     const box = await createSandbox(t);
     const bots = await fleetIn(box);
     const reader = await tabOf(bots, 'writer');
     await showIn(box, reader, { screen });
 
-    const answer = await send(box);
+    const said = await send(box);
 
-    assert.equal(answer.nudged, true, `${label}: the tab is told, got ${JSON.stringify(answer)}`);
-    assert.equal('blocked' in answer, false, `${label}: nothing is waiting, got ${JSON.stringify(answer)}`);
-    const typed = await typedSinceLaunch(box);
-    assert.equal(typed[reader].length, 1, `${label}: one line into the receiver's tab, got ${JSON.stringify(typed[reader])}`);
-    assert.match(typed[reader][0], /message check/, `${label}: the nudge, got ${typed[reader][0]}`);
+    const sent = await sentSinceLaunch(box);
+    assert.deepEqual(sent[reader].map((one) => ({ text: one.text, enter: one.enter })), [{ text: '\x1b', enter: false }], `${label}: one Escape into the receiver's tab, got ${JSON.stringify(sent[reader])}`);
+    assert.ok(!said.includes(PANEL), `${label}: no panel is named, got:\n${said}`);
   });
 }
 

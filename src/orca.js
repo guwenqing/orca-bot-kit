@@ -427,23 +427,6 @@ export const retitleTab = (handle, title) =>
   orca(['terminal', 'rename', '--terminal', handle, '--title', title]).rename;
 
 /**
- * One quick look at whether the harness in a tab is at rest, for a caller that
- * already knows a harness is there and is watching for a turn to start (#509):
- * `idle` when Orca's tui-idle answers ok, `busy` when it times out, and
- * `unknown` when Orca refuses or does not answer within `waitMs` and a second
- * more. Never throws.
- */
-export function idleNow(handle, waitMs) {
-  try {
-    const answer = ask(['terminal', 'wait', '--terminal', handle, '--for', 'tui-idle', '--timeout-ms', String(waitMs)], waitMs + 1000);
-    if (answer.ok === true) return answer.result?.wait?.blockedReason === undefined ? 'idle' : 'unknown';
-    return answer.error?.code === 'timeout' ? 'busy' : 'unknown';
-  } catch {
-    return 'unknown';
-  }
-}
-
-/**
  * What can be learned about the harness in a tab: what Orca says, and who is
  * in front of the tab's terminal.
  *
@@ -637,14 +620,14 @@ function pointedChoiceAt(rows, at) {
  * is typed, and the answer says why. `idle` says whether Orca's `tui-idle` wait
  * answered ok, and `rows` is the screen the gate read, for a caller that must
  * not type into a busy harness (#391), with the `draft` Orca gave beside it (#510):
- * `{}` for a tab with no harness in it (none in the book, none Orca lists, or
- * the shell in front), `{ blocked }` for one with something on screen waiting
+ * `{}` for a tab with no harness in it (none in the book, or the shell in
+ * front), `{ gone: true }` for one Orca does not list, `{ blocked }` for one with something on screen waiting
  * to be answered, and `{ unsure }`, a sentence, for one the kit cannot tell
  * about, with `psUnread` where `ps` could not read the tab (#350). Orca
  * refusing throws, for the caller to report.
  *
  * The one gate for every line the kit types into a running session: the mail
- * nudge and the skills reload. A busy harness passes it, since both harnesses
+ * interrupt and the skills reload. A busy harness passes it, since both harnesses
  * take a typed line as their next turn.
  */
 export function tabToTypeInto(home, tabId, timeoutMs) {
@@ -655,7 +638,7 @@ export function tabToTypeInto(home, tabId, timeoutMs) {
   let seen;
   try {
     live = tabs(home, { timeoutMs: GATE_READ_MS }).find((tab) => tab.tabId === tabId);
-    if (live === undefined) return {};
+    if (live === undefined) return { gone: true };
     seen = harnessInTab(live.handle, timeoutMs, GATE_READ_MS);
   } catch (error) {
     if (error.code !== TIMED_OUT) throw error;
@@ -968,18 +951,12 @@ export const closeTerminal = (handle) =>
  * Seen live on 2026-09-21 in a system test run; not reproduced since, including
  * from a plain shell, long lines and lines sent while the agent was working.
  *
- * The wait is short because the caller is telling a session it has mail, not
- * handing it work: mail that has to wait for the next check is a smaller cost
- * than a command that hangs for half a minute.
- *
- * With `watch`, the line is sent with that wait from the start, and Orca's
- * receipt says whether it saw the line start a turn (#394). It gives back
- * Orca's `result`: the receipt is in its `send.prompt`, and Orca's words about
- * a turn it did not see in its `warnings`.
+ * The wait is short: a line that has to wait is a smaller cost than a
+ * command that hangs for half a minute.
  */
-export function typeIntoTab(handle, text, { watch = false } = {}) {
+export function typeIntoTab(handle, text) {
   const args = ['terminal', 'send', '--terminal', handle, '--text', text, '--enter'];
-  const answer = ask(watch ? [...args, '--wait-submit', String(SUBMIT_WAIT_S)] : args);
+  const answer = ask(args);
   if (answer.ok === true) return answer.result;
 
   const again = answer.error?.data?.orchestrationRequestId;
@@ -990,10 +967,17 @@ export function typeIntoTab(handle, text, { watch = false } = {}) {
 }
 
 /**
- * How long a watched or re-issued line is given to be submitted before Orca
- * gives up on it. An idle harness started its turn in about 2 s, live (#394).
+ * How long a re-issued line is given to be submitted before Orca gives up on
+ * it. An idle harness started its turn in about 2 s, live (#394).
  */
 const SUBMIT_WAIT_S = 5;
+
+/**
+ * Press Escape once in a tab, with no return after it: what `obk message send
+ * --interrupt` sends to a busy receiver (#555).
+ */
+export const pressEscape = (handle) =>
+  orca(['terminal', 'send', '--terminal', handle, '--text', '\x1b']);
 
 /** Where Orca names the terminal a process runs in, in every pane it opens. */
 export const TERMINAL_ENV = 'ORCA_TERMINAL_HANDLE';

@@ -33,6 +33,7 @@ import {
   orcaCallsOf,
   orcaFlag,
   recordSession,
+  sentInto,
   sessionIn,
   sh,
   tabsOfBot,
@@ -305,7 +306,9 @@ test('OT5 restart waits for an orphaned tab to leave the listing, and never open
 
 // -------------------------------------------------------------------- message
 
-test('OT6 message send still tells an orphaned tab to look, by its handle', async (t) => {
+test('OT6 message send --interrupt still sends its Escape into an orphaned tab, by its handle', async (t) => {
+  // Since #555 mail types nothing but the Escape of --interrupt, into a busy
+  // receiver. An orphaned tab is still the session's tab, so it gets it.
   const box = await createSandbox(t);
   assert.equal((await box.run(['init', '--bots', 'bots', '--harness', 'claude'])).code, 0);
   for (const [bot, harness] of [['writer', 'claude'], ['coder', 'codex']]) {
@@ -313,6 +316,7 @@ test('OT6 message send still tells an orphaned tab to look, by its handle', asyn
     assert.equal((await box.run(['session', 'add', '--bots', 'bots', '--bot', bot, '--name', 'daily'])).code, 0);
   }
   assert.equal((await box.run(['up', '--bots', 'bots'])).code, 0);
+  await box.orca.set({ waitIdle: 'busy' });
   const bots = box.path('bots');
   const reader = await tabOf(box, bots, 'coder');
   await box.orca.orphan(reader.handle);
@@ -320,15 +324,18 @@ test('OT6 message send still tells an orphaned tab to look, by its handle', asyn
 
   const result = await box.run([
     'message', 'send', '--bots', 'bots', '--to', 'coder', '--from', 'writer/daily',
-    '--subject', 'the staging host', '--text', 'It is down again.',
+    '--subject', 'the staging host', '--text', 'It is down again.', '--interrupt',
   ]);
 
-  assert.equal(result.code, 0, result.stderr);
-  const typed = sends(await since(box, from));
-  assert.deepEqual(typed.map((call) => orcaFlag(call, '--terminal')), [reader.handle], 'one line, into the reader\'s tab');
-  const after = (await box.orca.terminals()).find((one) => one.handle === reader.handle);
-  assert.equal(typedInto(after).length, typedInto(reader.terminal).length + 1);
-  assert.ok(typedInto(after).at(-1).includes('obk message check'), `the nudge, got: ${typedInto(after).at(-1)}`);
+  assert.equal(result.code, 0, `${result.stdout}${result.stderr}`);
+  assert.equal((await box.orca.messages()).length, 1, 'the letter is in the mailbox');
+  const keys = sends(await since(box, from));
+  assert.deepEqual(keys.map((call) => orcaFlag(call, '--terminal')), [reader.handle], 'one send, into the reader\'s tab by its handle');
+  for (const terminal of await box.orca.terminals()) {
+    const sent = sentInto(terminal).slice(1).map((one) => ({ text: one.text, enter: one.enter }));
+    const want = terminal.handle === reader.handle ? [{ text: '\x1b', enter: false }] : [];
+    assert.deepEqual(sent, want, `since its launch line, into ${terminal.handle}`);
+  }
 });
 
 // Sanity for the fake itself: the orphaned state is how Orca lists the tab, not
