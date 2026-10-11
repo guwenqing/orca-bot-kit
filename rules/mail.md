@@ -13,8 +13,8 @@ your maker or your user, with the harness's reason. A refusal can mean a missing
 permission rule, which they can add through the kit after the user's yes.
 
 Mail is queued, not an interruption. When Orca says you have mail, read it
-with `"${OBK_CLI:-obk}" message check`, never a bare `orca orchestration
-check`: that leaves it unread, and Orca then stops telling you of mail.
+with `"${OBK_CLI:-obk}" message check --bots <bots>`, never a bare `orca
+orchestration check`: that leaves it unread, and Orca stops telling you of mail.
 
 Ask for a reply when you need one, and send one when you were asked for one.
 
