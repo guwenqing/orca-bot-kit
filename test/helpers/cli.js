@@ -388,7 +388,7 @@ export async function createSandbox(t) {
       stdin: options.stdin,
     }),
     /**
-     * The fake ps: what it is, every argv the kit handed it, `{ args }` in
+     * The fake ps: what it is, every argv the kit handed it, `{ args, at }` in
      * order, and `tableReads`, each read of the whole process table it
      * answered, `{ at, done }` in order (helpers/fake-ps.js, #537).
      */

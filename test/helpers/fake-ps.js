@@ -12,7 +12,8 @@
 // fake Orca falls over on a close it must never be asked for: `ps` is a reader
 // for the kit and never a road to a `kill` (AGENTS.md, 2026-09-20), and a call
 // with other flags is a call that was not thought through. Every call, refused
-// or not, is written to ps.log in the fake Orca's directory for a test to read.
+// or not, is written to ps.log in the fake Orca's directory for a test to read,
+// `{ args, at }` per line, `at` in ms since the epoch when it was asked.
 //
 // What a tab holds, measured live on Orca 1.4.209, Claude Code 2.1.281, Codex
 // 0.156.1 (#232):
@@ -149,6 +150,10 @@
 // `appearsAfterMs: n` on an entry keeps the process out of the table, out of
 // lsof's records and out of the fake kill's reach until n ms after the first
 // signal the fake kill was asked for: a process started during the wait.
+// `appearsAfterReads: n` does the same until the nth read of the table after
+// the first signal (1 is the first read after it), and `exitsAfterReads: n`
+// ends the process just before that read, as `exitsAtRead` does, counting
+// from the first signal: steps of the wait tied to the kit's own reads.
 // `exitsAtRead: n` on an entry ends that process just before the nth read of
 // the table (1 is the first, the reads counted from ps.log): from that read on
 // it is not in the table, and its children's parent pid is 1, as the system
@@ -226,8 +231,24 @@ function firstSignalAt() {
   }
 }
 
-/** Whether an entry's process has started yet: see `appearsAfterMs` above. */
+/** How many reads of the table were made since the first signal, ps.log's `at` against kill.log's. */
+function readsSinceSignal() {
+  const at = firstSignalAt();
+  if (at === undefined) return 0;
+  try {
+    return readFileSync(path.join(process.env.OBK_FAKE_ORCA_DIR, 'ps.log'), 'utf8').split('\n')
+      .filter((line) => line !== '')
+      .map((line) => JSON.parse(line))
+      .filter((call) => JSON.stringify(call.args) === JSON.stringify(PS_TABLE) && call.at >= at)
+      .length;
+  } catch {
+    return 0;
+  }
+}
+
+/** Whether an entry's process has started yet: see `appearsAfterMs` and `appearsAfterReads` above. */
 function started(entry) {
+  if (Number.isFinite(entry.appearsAfterReads) && readsSinceSignal() < entry.appearsAfterReads) return false;
   if (!Number.isFinite(entry.appearsAfterMs)) return true;
   const at = firstSignalAt();
   return at !== undefined && Date.now() >= at + entry.appearsAfterMs;
@@ -495,7 +516,7 @@ export function runPs() {
   }
 
   const args = process.argv.slice(2);
-  appendFileSync(path.join(dir, 'ps.log'), `${JSON.stringify({ args })}\n`);
+  appendFileSync(path.join(dir, 'ps.log'), `${JSON.stringify({ args, at: asked })}\n`);
 
   const state = JSON.parse(readFileSync(path.join(dir, 'state.json'), 'utf8'));
   // A `ps` slow to answer, or one that never does (#498, the review of PR
@@ -524,7 +545,9 @@ export function runPs() {
     const reads = readFileSync(path.join(dir, 'ps.log'), 'utf8').split('\n')
       .filter((line) => line !== '' && JSON.stringify(JSON.parse(line).args) === JSON.stringify(PS_TABLE))
       .length;
-    const ending = (state.processes ?? []).filter((entry) => Number.isInteger(entry.exitsAtRead) && entry.exitsAtRead <= reads);
+    const sinceSignal = readsSinceSignal();
+    const ending = (state.processes ?? []).filter((entry) => (Number.isInteger(entry.exitsAtRead) && entry.exitsAtRead <= reads)
+      || (Number.isInteger(entry.exitsAfterReads) && sinceSignal > 0 && entry.exitsAfterReads <= sinceSignal));
     if (ending.length > 0) {
       const pids = new Set(ending.map((entry) => idOf(entry.pid)));
       state.processes = state.processes.filter((entry) => !ending.includes(entry));

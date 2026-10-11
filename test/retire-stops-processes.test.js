@@ -1411,3 +1411,39 @@ test('R3 a TERM call cut off by its own 10 s limit leaves the process not confir
   assert.equal(left.length, 1, `it is named under left, got: ${JSON.stringify(processes.left)}`);
   assert.match(left[0].why ?? '', /confirm/i, `why says the kit cannot confirm the signal went: ${left[0].why}`);
 });
+
+// ------------------------------------------------------------------ R1, found in the review of 2c0c8cf
+
+test('R1 a descent the reads showed through a process of another uid holds after the session\'s process exits: its child that runs as the user is stopped, and the other uid\'s process is never signalled', async (t) => {
+  const box = await createSandbox(t);
+  await devFleet(box);
+  const outside = await throwaway(box);
+  // 62001 is dev's and ignores TERM. The first read after its TERM shows it
+  // with a new child, 62002, which runs as another user. Just before the
+  // second read 62001 exits, so that read shows 62002, the same process, with
+  // parent pid 1, and its new child 62003, which runs as the user, outside
+  // the work dir, and ignores TERM. The reads showed 62001 → 62002 → 62003.
+  await table(box, [
+    { pid: 62001, ppid: 1, pgid: 62001, cwd: workOf(box, 'dev'), command: 'node --test', ignoresTerm: true, exitsAfterReads: 2 },
+    { pid: 62002, ppid: 62001, pgid: 62002, uid: OTHER_UID, cwd: workOf(box, 'dev'), command: 'sudo -n node helper.js', appearsAfterReads: 1 },
+    { pid: 62003, ppid: 62002, pgid: 62003, cwd: outside, command: 'node worker.js', ignoresTerm: true, appearsAfterReads: 2 },
+  ]);
+
+  const answer = answerIn(await retire(box, ['--session', 'dev', '--json']));
+
+  const calls = await box.kill.calls();
+  const argvs = JSON.stringify(calls.map((call) => [call.args, call.at - calls[0].at]));
+  assert.deepEqual(calls[0]?.args, term(-62001), 'the premise: TERM to the group comes first');
+  assert.deepEqual(reaching(calls.map((call) => call.args), 62002), [], `nothing is sent to the process of another uid, got: ${argvs}`);
+  const sent = callOf(calls, term(62003));
+  const killed = callOf(calls, kill(62003));
+  assert.ok(sent !== undefined, `62003 gets its own TERM, by pid, got: ${argvs}`);
+  assert.ok(killed !== undefined && killed.index > sent.index, `and KILL by pid after it, got: ${argvs}`);
+  assert.ok(killed.at - sent.at >= 2500, `its KILL comes only after its own wait of 3 s from its own TERM; it came after ${killed.at - sent.at} ms`);
+  const processes = processesIn(answer);
+  assert.deepEqual(processes.stopped.filter((one) => one.pid === 62003).map((one) => [one.session, one.cwd, one.signal]), [['dev', outside, 'SIGKILL']], `62003 is named as stopped, got: ${JSON.stringify(processes)}`);
+  const other = processes.left.filter((one) => one.pid === 62002);
+  assert.equal(other.length, 1, `62002 is named under left, got: ${JSON.stringify(processes.left)}`);
+  assert.match(other[0].why ?? '', /another user/i, `with why saying it runs as another user: ${other[0].why}`);
+  assert.deepEqual(processes.stopped.filter((one) => one.pid === 62002), [], 'and not as stopped');
+});
