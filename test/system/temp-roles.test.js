@@ -45,8 +45,9 @@
 //
 // The screens. developer-1's tab shows Claude Code's folder trust for the bot
 // home; this test answers it itself, `\x1b[B\r` as one payload, and only when
-// it is the plain one for that folder (helpers/screens.js `onlyPlainTrustOf`,
-// the ruling on #451), as send-outside-fleet does. Claude Code then records the
+// it is the plain one for that folder, or the one that pre-approves exactly
+// the kit's default rules (helpers/claude-trust.js `claudeTrustAt`, the
+// rulings on #451 and #558), as send-outside-fleet does. Claude Code then records the
 // folder in ~/.claude.json, and the runner takes that key out again (#240).
 // reviewer-1's Codex is given its folder's trust and the hooks bypass at launch,
 // tooltips off and its sleep tool off (helpers/codex-trust.js), through
@@ -86,7 +87,8 @@ import { parse, stringify } from 'yaml';
 import { cliEntry } from '../helpers/cli.js';
 import { codexTrustArgs } from '../helpers/codex-trust.js';
 import { rolloutFilesOf, turnSettingsIn } from '../helpers/codex-rollout.js';
-import { onlyPlainTrustOf, questionOn } from '../helpers/screens.js';
+import { questionOn } from '../helpers/screens.js';
+import { claudeTrustAt } from '../helpers/claude-trust.js';
 import { tabGuard } from '../helpers/tab-guard.js';
 import { deleteOwnProject } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
@@ -388,7 +390,7 @@ test('temporary sessions made from a Claude role and a Codex role run on the mod
     () => whatIsUp(developer.handle),
   );
   if (asked.rows !== null) {
-    const wrong = onlyPlainTrustOf(asked.rows, home);
+    const wrong = claudeTrustAt(asked.rows, home, bots, cliEntry);
     assert.equal(
       wrong,
       undefined,

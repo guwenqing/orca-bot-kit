@@ -82,7 +82,9 @@
 // captured plain screen with the tab's own throwaway folder in the folder's
 // place, the pointer is on "No, exit", "Yes, I trust this folder" is there,
 // and no line pre-approves a permission (helpers/screens.js
-// `onlyPlainTrustOf`). Then down and return, once, with no `--enter`. Any
+// `onlyPlainTrustOf`), or, since #539, the screen that pre-approves exactly
+// the kit's default rules in the tab's own .claude/settings.json
+// (helpers/claude-trust.js `claudeTrustAt`, #558). Then down and return, once, with no `--enter`. Any
 // other screen gets no answer, and the test fails printing every row it saw.
 // The Codex session is given its folder's trust at launch (#240,
 // test/helpers/codex-trust.js), so Codex asks neither its folder trust nor its
@@ -113,7 +115,8 @@ import { parse } from 'yaml';
 
 import { cliEntry } from '../helpers/cli.js';
 import { codexTrustArgs } from '../helpers/codex-trust.js';
-import { onlyPlainTrustOf, onlyTeachFormOf, waitingOn } from '../helpers/screens.js';
+import { onlyTeachFormOf, waitingOn } from '../helpers/screens.js';
+import { claudeTrustAt } from '../helpers/claude-trust.js';
 import { tabGuard } from '../helpers/tab-guard.js';
 import { deleteOwnProject } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
@@ -501,7 +504,7 @@ for (const bot of BOTS) {
         () => whatIsUp(handle),
       );
       if (asked.rows !== null) {
-        const wrong = onlyPlainTrustOf(asked.rows, home);
+        const wrong = claudeTrustAt(asked.rows, home, bots, cliEntry);
         assert.equal(
           wrong,
           undefined,

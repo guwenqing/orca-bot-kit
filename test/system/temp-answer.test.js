@@ -27,8 +27,9 @@
 //      test's own with no real form in it: a Codex helper would need its first-
 //      run screens answered and a harness the kit may not take a Teach form
 //      from. Its folder trust is answered by this test, down and return, only
-//      when it is the plain one for the bot home (helpers/screens.js
-//      `onlyPlainTrustOf`, the ruling on #451), as temp-roles does.
+//      when it is the plain one for the bot home, or the one that pre-approves
+//      exactly the kit's default rules (helpers/claude-trust.js
+//      `claudeTrustAt`, the rulings on #451 and #558), as temp-roles does.
 //   3. Should a real form come up all the same: for TEACH_WATCH_MS after
 //      helper's reply, the test looks for the title. If it comes, the test
 //      types nothing into it. It records whether `onlyTeachFormOf` or
@@ -102,11 +103,11 @@ import { cliEntry, shellWord } from '../helpers/cli.js';
 import {
   CLAUDE_TEACH_FORM,
   CLAUDE_TEACH_LIST,
-  onlyPlainTrustOf,
   onlyTeachFormOf,
   onlyTeachListOf,
   questionOn,
 } from '../helpers/screens.js';
+import { claudeTrustAt } from '../helpers/claude-trust.js';
 import { tabGuard } from '../helpers/tab-guard.js';
 import { deleteOwnProject } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
@@ -599,7 +600,7 @@ test('a maker answers its Claude temporary session\'s Teach auto mode form with 
     () => whatIsUp(handle),
   );
   if (asked.rows !== null) {
-    const wrong = onlyPlainTrustOf(asked.rows, home);
+    const wrong = claudeTrustAt(asked.rows, home, bots, cliEntry);
     assert.equal(
       wrong,
       undefined,

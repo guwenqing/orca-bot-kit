@@ -1761,3 +1761,80 @@ export function onlyPlainTrustOf(rows, folder) {
   if (odd !== undefined) return `it carries a row the plain folder trust does not, which this test has no ruling for: ${odd.trim()}`;
   return plainTrustOf(rows, folder);
 }
+
+/** The row Claude Code puts above the rules a folder pre-approves (Claude Code, seen live on #555). */
+const PRE_APPROVES = /^⚠ This folder pre-approves (\d+) tool permissions? in \.claude\/settings\.json:$/;
+
+/** The two rows pinned below the rules, as exact text (the architect's ruling on #555, corrected). */
+const PRE_APPROVED_FOOT = ['These will apply without asking. Only proceed if you trust this configuration.', 'Security guide'];
+
+/**
+ * Whether Claude Code's folder trust on a tab's rendered `rows` is the one a
+ * new bot of the kit's brings up for `folder` and nothing else, the one the
+ * #555 system test may answer in its own throwaway tab (the architect's ruling
+ * on #555, comment 6104732453, with its correction): undefined when it may, or
+ * what makes it a screen left alone.
+ *
+ * `allow` is the allow list read from the tab's own `.claude/settings.json`,
+ * and `defaults` the kit's default rules for the throwaway bots folder. It
+ * holds when:
+ *   - `allow` and `defaults` are the same set, nothing more and nothing less:
+ *     the proof of what is pre-approved;
+ *   - the screen says "⚠ This folder pre-approves N tool permissions in
+ *     .claude/settings.json:", N the size of that set;
+ *   - the rule rows under it, joined with one space and split on ", " and the
+ *     last ", and ", are each a rule of the set, whole, or, where Claude Code
+ *     cut one short with "…" at its end, the start of at least one rule of the
+ *     set: the screen only shows it describes that same file;
+ *   - the two rows after them are PRE_APPROVED_FOOT, as exact text;
+ *   - every other row is as `onlyPlainTrustOf` takes it for `folder`.
+ * `onlyPlainTrustOf` itself is unchanged for its other callers.
+ */
+export function onlyKitTrustOf(rows, folder, { allow, defaults }) {
+  if (!Array.isArray(allow) || !allow.every((rule) => typeof rule === 'string')) return `the folder's .claude/settings.json allow list is not a list of rules: ${JSON.stringify(allow)}`;
+  const set = new Set(defaults);
+  if (set.size !== defaults.length) return 'the kit\'s default rules name a rule twice';
+  if (new Set(allow).size !== allow.length) return 'the folder\'s .claude/settings.json allow list names a rule twice';
+  const extra = allow.filter((rule) => !set.has(rule));
+  if (extra.length > 0) return `the folder's .claude/settings.json allows rules that are not the kit's defaults for this bots folder: ${extra.join(', ')}`;
+  const missing = defaults.filter((rule) => !allow.includes(rule));
+  if (missing.length > 0) return `the folder's .claude/settings.json lacks the kit's default rules: ${missing.join(', ')}`;
+
+  const warnAt = rows.findIndex((row) => PRE_APPROVES.test(row.trim()));
+  if (warnAt < 0) return 'it has no "⚠ This folder pre-approves N tool permissions in .claude/settings.json:" row, where the folder\'s settings pre-approve the kit\'s default rules';
+  if (rows.filter((row) => PRE_APPROVES.test(row.trim())).length !== 1) return 'it has more than one "pre-approves" row';
+  const workspaceAt = rows.findIndex((row) => /Accessing workspace:/.test(row));
+  if (workspaceAt < 0 || warnAt < workspaceAt) return 'its "pre-approves" row is not under its "Accessing workspace:" row';
+  const count = Number(PRE_APPROVES.exec(rows[warnAt].trim())[1]);
+  if (count !== set.size) return `it says it pre-approves ${count} tool permissions, where the kit's default rules for this bots folder are ${set.size}`;
+
+  const footAt = rows.findIndex((row, at) => at > warnAt && row.trim() === PRE_APPROVED_FOOT[0]);
+  if (footAt < 0) return `it has no "${PRE_APPROVED_FOOT[0]}" row under the pre-approved rules`;
+  if (rows[footAt + 1]?.trim() !== PRE_APPROVED_FOOT[1]) return `the row after "${PRE_APPROVED_FOOT[0]}" is not "${PRE_APPROVED_FOOT[1]}": ${rows[footAt + 1]?.trim() ?? '(none)'}`;
+  const listed = rows.slice(warnAt + 1, footAt).map((row) => row.trim()).filter((row) => row !== '');
+  if (listed.length === 0) return 'it lists no rule under its "pre-approves" row';
+  const items = listed.join(' ').split(/, and |, /);
+  for (const item of items) {
+    const cut = item.endsWith('…');
+    const known = cut ? item.length > 1 && defaults.some((rule) => rule.startsWith(item.slice(0, -1))) : set.has(item);
+    if (!known) return `it lists a rule that is not one of the kit's defaults for this bots folder: ${item}`;
+  }
+
+  // What is left is the plain screen, its "Security guide" row kept.
+  const rest = rows.filter((row, at) => at < warnAt || at > footAt);
+  return onlyPlainTrustOf(rest, folder);
+}
+
+/**
+ * The one check every system test uses to answer Claude Code's folder trust in
+ * its own throwaway tab (#558): undefined when it may answer, or what makes it
+ * a screen left alone. A screen that pre-approves nothing is the plain one, for
+ * a folder whose `.claude/settings.json` allows nothing (`onlyPlainTrustOf`);
+ * one that pre-approves rules is answered only as `onlyKitTrustOf` takes it.
+ * `allow` is the tab's own allow list, `[]` where there is none.
+ */
+export function claudeTrustOf(rows, folder, { allow, defaults }) {
+  if (rows.some((row) => /\bpre-approves\b/.test(row))) return onlyKitTrustOf(rows, folder, { allow, defaults });
+  if (!Array.isArray(allow) || allow.length > 0) return `it pre-approves nothing, where the folder's .claude/settings.json allows ${JSON.stringify(allow)}`;
+  return onlyPlainTrustOf(rows, folder);
+}
