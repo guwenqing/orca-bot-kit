@@ -27,6 +27,7 @@ import {
   botHomeOf,
   createSandbox,
   fakeProgram,
+  kitAddDirs,
   orcaCallsOf,
   sh,
   skipGit,
@@ -110,7 +111,7 @@ test('a prompt kept in a file is what the session is told, word for word', async
   // The end of a text file carries a newline the user did not type; everything
   // inside it — the blank lines, the indent under the list, the two spaces —
   // is theirs.
-  assert.deepEqual(await argvOf(box, typed[0], fake), ['--approve-for-me', '--no-daemon', '-c', 'sandbox_workspace_write.network_access=true', '--', DUTY.trimEnd()]);
+  assert.deepEqual(await argvOf(box, typed[0], fake), ['--approve-for-me', '--no-daemon', '-c', 'sandbox_workspace_write.network_access=true', ...kitAddDirs(bots, 'doc-bot'), '--', DUTY.trimEnd()]);
 });
 
 test('a prompt file is read where the user keeps it: in the bot home', async (t) => {
@@ -125,7 +126,7 @@ test('a prompt file is read where the user keeps it: in the bot home', async (t)
   assert.equal((await add(box, ['--prompt-file', 'daily.md'])).code, 0);
   const { typed } = await up(box, bots);
 
-  assert.deepEqual(await argvOf(box, typed[0], fake), ['--approve-for-me', '--no-daemon', '-c', 'sandbox_workspace_write.network_access=true', '--', 'The one in the bot home.']);
+  assert.deepEqual(await argvOf(box, typed[0], fake), ['--approve-for-me', '--no-daemon', '-c', 'sandbox_workspace_write.network_access=true', ...kitAddDirs(bots, 'doc-bot'), '--', 'The one in the bot home.']);
 });
 
 test('the file is read when the session starts, not when it was added', async (t) => {
@@ -140,7 +141,7 @@ test('the file is read when the session starts, not when it was added', async (t
   await inBotHome(bots, 'prompts/daily.md', 'What it says now.');
   const { typed } = await up(box, bots);
 
-  assert.deepEqual(await argvOf(box, typed[0], fake), ['--approve-for-me', '--no-daemon', '-c', 'sandbox_workspace_write.network_access=true', '--', 'What it says now.']);
+  assert.deepEqual(await argvOf(box, typed[0], fake), ['--approve-for-me', '--no-daemon', '-c', 'sandbox_workspace_write.network_access=true', ...kitAddDirs(bots, 'doc-bot'), '--', 'What it says now.']);
 });
 
 test('a session with a prompt file and a work dir gets the note under it', async (t) => {
@@ -153,7 +154,7 @@ test('a session with a prompt file and a work dir gets the note under it', async
   const { typed } = await up(box, bots);
 
   const argv = await argvOf(box, typed[0], fake);
-  assert.equal(argv.length, 6, `the prompt is one argument, got: ${JSON.stringify(argv)}`);
+  assert.equal(argv.length, 12, `the prompt is one argument, after the kit's three --add-dir (#534), got: ${JSON.stringify(argv)}`);
   assert.ok(
     argv.at(-1).startsWith(`${DUTY.trimEnd()}\n\n`),
     `the file's text comes first and whole, the note a blank line below it, got: ${JSON.stringify(argv.at(-1))}`,
@@ -281,6 +282,6 @@ test('a session whose prompt file was fixed comes up on the next run', async (t)
   assert.equal(result.code, 0, result.stderr);
   assert.deepEqual(
     await argvOf(box, typed[0], fake),
-    ['--approve-for-me', '--no-daemon', '-c', 'sandbox_workspace_write.network_access=true', '--', 'Written after the first run failed.'],
+    ['--approve-for-me', '--no-daemon', '-c', 'sandbox_workspace_write.network_access=true', ...kitAddDirs(bots, 'doc-bot'), '--', 'Written after the first run failed.'],
   );
 });

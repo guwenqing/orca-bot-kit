@@ -16,12 +16,12 @@
 
 import assert, { AssertionError } from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, realpath, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rm, rmdir, symlink } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { createSandbox, orcaCallsOf } from './helpers/cli.js';
+import { createSandbox, orcaCallsOf, repoRoot } from './helpers/cli.js';
 import { deleteOwnProject } from './helpers/own-project.js';
 
 /**
@@ -199,4 +199,208 @@ for (const [why, build] of NOT_OURS) {
       assert.deepEqual(await listedIds(box), [theirs.id], 'the project is still there');
     });
   }
+}
+
+// ------------------------------------------------------------- a throwaway bots folder in <repo>/local-data
+
+// A system test whose sessions run in Codex's sandbox cannot keep its bots
+// folder in the temp folder: the sandbox lets every session write /tmp and
+// $TMPDIR, so a test of what the sandbox refuses would show nothing there
+// (test/system/codex-sandbox-writes.test.js, #534). Its bots folder is
+// `<repo>/local-data/obk-system-<name>-…` instead, which .gitignore keeps out
+// of git, and its projects go through the same helper, with the same rule:
+// strictly inside a folder named obk-system-, directly in that folder.
+
+/**
+ * A folder made in the checkout's own `local-data/`, which is made for it when
+ * it is not there; both removed when the test ends, `local-data/` only when
+ * this made it and it is empty.
+ */
+async function localDataFolder(t, prefix) {
+  const parent = path.join(await realpath(repoRoot), 'local-data');
+  const made = await mkdir(parent, { recursive: true });
+  const folder = await realpath(await mkdtemp(path.join(parent, prefix)));
+  t.after(async () => {
+    await rm(folder, { recursive: true, force: true });
+    if (made !== undefined) await rmdir(parent).catch(() => {});
+  });
+  return folder;
+}
+
+test('a project inside the run\'s own bots folder in <repo>/local-data goes, sent with --force, and no other project is touched', async (t) => {
+  const box = await fakeOrcaFor(t);
+  const bots = await localDataFolder(t, 'obk-system-own-project-');
+  const owner = await projectAt(box, '/Users/owner/work/app');
+  const mine = await projectAt(box, path.join(bots, 'bots', 'bot-father'));
+  await box.orca.set({ deleteGuard: {} });
+
+  await deleteOwnProject(mine, bots);
+
+  assert.deepEqual(await listedIds(box), [owner.id], 'only the project named goes');
+  assert.deepEqual(await deletesSent(box), [['project', 'setup-delete', '--setup', mine.id, '--force', '--json']]);
+});
+
+for (const [why, build] of [
+  ['a bots folder in <repo>/local-data whose name does not start with obk-system-', async (t) => {
+    const bots = await localDataFolder(t, 'obk-other-own-project-');
+    return { bots, home: path.join(bots, 'bots', 'bot-father') };
+  }],
+  ['a bots folder named like one but not directly in <repo>/local-data', async (t) => {
+    const outer = await localDataFolder(t, 'obk-system-outer-');
+    const bots = await folderIn(t, outer, 'obk-system-nested-');
+    return { bots, home: path.join(bots, 'bots', 'bot-father') };
+  }],
+  ['the project is in <repo>/local-data beside the bots folder, not inside it', async (t) => {
+    const bots = await localDataFolder(t, 'obk-system-own-project-');
+    return { bots, home: path.join(path.dirname(bots), 'owner-project') };
+  }],
+]) {
+  test(`not the run's own, so nothing is sent and it fails with an AssertionError: ${why}`, async (t) => {
+    const box = await fakeOrcaFor(t);
+    const { bots, home } = await build(t);
+    const theirs = await projectAt(box, home);
+    await box.orca.set({ deleteGuard: {} });
+
+    await assert.rejects(async () => deleteOwnProject(theirs, bots), AssertionError);
+
+    assert.deepEqual(await deletesSent(box), [], 'no setup-delete at all');
+    assert.deepEqual(await listedIds(box), [theirs.id], 'the project is still there');
+  });
+}
+
+// ------------------------------------------------------------- a bots folder that is a link to somewhere else
+
+// The review of PR #552: the bots folder is checked by its name, so a link
+// called `obk-system-…` in the temp folder or in `<repo>/local-data`, leading
+// to a folder anywhere else, passed the check, and a project in the folder it
+// leads to was force-deleted. A bots folder is the run's own only when it is
+// its own real path.
+
+/** A link at `<parent>/<prefix>…` to a throwaway folder elsewhere, removed when the test ends. */
+async function linkIn(t, parent, prefix) {
+  const target = await folderIn(t, os.tmpdir(), 'obk-elsewhere-');
+  const link = path.join(parent, `${prefix}${process.pid}-${Date.now()}`);
+  await symlink(target, link);
+  t.after(() => rm(link, { force: true }));
+  return link;
+}
+
+/**
+ * The checkout's `local-data/`, made when it is not there, and what removes it
+ * again when this made it and it is empty: for the test to register after
+ * whatever it puts in there.
+ */
+async function localDataParent() {
+  const parent = path.join(await realpath(repoRoot), 'local-data');
+  const made = await mkdir(parent, { recursive: true });
+  return { parent, tidy: () => (made === undefined ? undefined : rmdir(parent).catch(() => {})) };
+}
+
+for (const [where, parentOf] of [
+  ['the temp folder', async () => ({ parent: await realpath(os.tmpdir()), tidy: () => {} })],
+  ['<repo>/local-data', localDataParent],
+]) {
+  test(`not the run's own, so nothing is sent and it fails with an AssertionError: a bots folder in ${where} that is a link to a folder elsewhere`, async (t) => {
+    const box = await fakeOrcaFor(t);
+    const { parent, tidy } = await parentOf();
+    const bots = await linkIn(t, parent, 'obk-system-link-');
+    t.after(tidy);
+    const theirs = await projectAt(box, path.join(bots, 'bots', 'bot-father'));
+    await box.orca.set({ deleteGuard: {} });
+
+    await assert.rejects(async () => deleteOwnProject(theirs, bots), AssertionError);
+
+    assert.deepEqual(await deletesSent(box), [], 'no setup-delete at all');
+    assert.deepEqual(await listedIds(box), [theirs.id], 'the project is still there');
+  });
+}
+
+// ------------------------------------------------------------- a project path that leads out through a link
+
+// The review of PR #552, again: the project's path was checked as text, so a
+// link inside the bots folder (`<bots>/linked` to a folder elsewhere) made a
+// project beneath it look like the run's own. The project is the run's only
+// when its real path lies strictly inside the bots folder's real path.
+//
+// A project path that is not on disk any more (its folder removed) is read by
+// its nearest part that is: that part's real path, with the rest as written.
+// A part that is not there cannot be a link, so this lets nothing out, and a
+// teardown whose folder went first still removes its own project.
+
+for (const [where, parentOf] of [
+  ['the temp folder', async () => ({ parent: await realpath(os.tmpdir()), tidy: () => {} })],
+  ['<repo>/local-data', localDataParent],
+]) {
+  test(`not the run's own, so nothing is sent and it fails with an AssertionError: a project in a bots folder in ${where} beneath a link to a folder elsewhere`, async (t) => {
+    const box = await fakeOrcaFor(t);
+    const { parent, tidy } = await parentOf();
+    const bots = await folderIn(t, parent, 'obk-system-own-project-');
+    t.after(tidy);
+    const elsewhere = await folderIn(t, os.tmpdir(), 'obk-elsewhere-');
+    await mkdir(path.join(elsewhere, 'app'));
+    await symlink(elsewhere, path.join(bots, 'linked'));
+    const theirs = await projectAt(box, path.join(bots, 'linked', 'app'));
+    await box.orca.set({ deleteGuard: {} });
+
+    await assert.rejects(async () => deleteOwnProject(theirs, bots), AssertionError);
+
+    assert.deepEqual(await deletesSent(box), [], 'no setup-delete at all');
+    assert.deepEqual(await listedIds(box), [theirs.id], 'the project is still there');
+  });
+
+  test(`not the run's own, so nothing is sent and it fails with an AssertionError: a project in a bots folder in ${where}, gone from disk, beneath a link to a folder elsewhere`, async (t) => {
+    const box = await fakeOrcaFor(t);
+    const { parent, tidy } = await parentOf();
+    const bots = await folderIn(t, parent, 'obk-system-own-project-');
+    t.after(tidy);
+    const elsewhere = await folderIn(t, os.tmpdir(), 'obk-elsewhere-');
+    await symlink(elsewhere, path.join(bots, 'linked'));
+    const theirs = await projectAt(box, path.join(bots, 'linked', 'gone', 'app'));
+    await box.orca.set({ deleteGuard: {} });
+
+    await assert.rejects(async () => deleteOwnProject(theirs, bots), AssertionError);
+
+    assert.deepEqual(await deletesSent(box), [], 'no setup-delete at all');
+  });
+
+  test(`a project in a bots folder in ${where} whose own folder is gone from disk is still the run's own, and goes`, async (t) => {
+    const box = await fakeOrcaFor(t);
+    const { parent, tidy } = await parentOf();
+    const bots = await folderIn(t, parent, 'obk-system-own-project-');
+    t.after(tidy);
+    await mkdir(path.join(bots, 'bots'));
+    const mine = await projectAt(box, path.join(bots, 'bots', 'gone-bot'));
+    await box.orca.set({ deleteGuard: {} });
+
+    await deleteOwnProject(mine, bots);
+
+    assert.deepEqual(await listedIds(box), [], 'the project is gone from Orca');
+  });
+}
+
+// The review of PR #552, a third time: a dangling link is not on disk to
+// realpath, which answers ENOENT for it as for a part that is not there. So
+// `<bots>/linked`, a link to a folder that does not exist elsewhere, was read
+// as a missing part and the project beneath it passed. A part that is there
+// as a link, whatever it leads to, is never taken for a missing one.
+
+for (const [where, parentOf] of [
+  ['the temp folder', async () => ({ parent: await realpath(os.tmpdir()), tidy: () => {} })],
+  ['<repo>/local-data', localDataParent],
+]) {
+  test(`not the run's own, so nothing is sent and it fails with an AssertionError: a project in a bots folder in ${where} beneath a dangling link to a folder elsewhere`, async (t) => {
+    const box = await fakeOrcaFor(t);
+    const { parent, tidy } = await parentOf();
+    const bots = await folderIn(t, parent, 'obk-system-own-project-');
+    t.after(tidy);
+    const elsewhere = await folderIn(t, os.tmpdir(), 'obk-elsewhere-');
+    await symlink(path.join(elsewhere, 'not-there'), path.join(bots, 'linked'));
+    const theirs = await projectAt(box, path.join(bots, 'linked', 'app'));
+    await box.orca.set({ deleteGuard: {} });
+
+    await assert.rejects(async () => deleteOwnProject(theirs, bots), AssertionError);
+
+    assert.deepEqual(await deletesSent(box), [], 'no setup-delete at all');
+    assert.deepEqual(await listedIds(box), [theirs.id], 'the project is still there');
+  });
 }

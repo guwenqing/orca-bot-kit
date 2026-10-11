@@ -43,6 +43,7 @@ import {
   CODEX_NETWORK,
   createSandbox,
   fakeProgram,
+  kitAddDirs,
   kitLaunchMark,
   orcaCallsOf,
   orcaFlag,
@@ -237,7 +238,7 @@ test('#317: the line typed into a new tab, run by that tab\'s shell, gives the s
   await assertBoundToItsOwnTab(box, bots, 'coder');
   assert.equal((await box.orca.runs()).length, runs + 1, 'one Run, for this session');
   assert.equal(harness.length, 1, 'and then the harness is started, once');
-  assert.deepEqual(harness[0].args, ['--approve-for-me', '--no-daemon', ...CODEX_NETWORK.split(' ')], 'with the arguments it always had');
+  assert.deepEqual(harness[0].args, ['--approve-for-me', '--no-daemon', ...CODEX_NETWORK.split(' '), ...kitAddDirs(bots, 'coder')], 'with the arguments it always had, and its own bot\'s folders of the kit\'s (#534)');
 });
 
 test('#317: when Orca refuses the mailbox, the line still starts the harness, and the tab shows Orca\'s words', async (t) => {

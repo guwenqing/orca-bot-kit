@@ -31,6 +31,7 @@ import {
   botHomeOf,
   createSandbox,
   fakeProgram,
+  kitAddDirs,
   launchLine,
   sh,
   tabsOfBot,
@@ -82,7 +83,7 @@ async function argvOf(box, text, fake) {
 function assertReadsBack(typed, file) {
   assert.match(
     typed,
-    /^\S+ session mailbox --bots \S+ --bot \S+ --session daily; OBK_TAB_SHELL=\$\$ OBK_CLI=\S+ codex --approve-for-me --no-daemon -c sandbox_workspace_write.network_access=true -- "\$\(cat .+\)"$/,
+    /^\S+ session mailbox --bots \S+ --bot \S+ --session daily; OBK_TAB_SHELL=\$\$ OBK_CLI=\S+ codex --approve-for-me --no-daemon -c sandbox_workspace_write.network_access=true(?: --add-dir \S+){3} -- "\$\(cat .+\)"$/,
     `the line should read the prompt back inside one double-quoted word, got: ${typed}`,
   );
   assert.ok(typed.includes(file), `and read it from ${file}, got: ${typed}`);
@@ -93,10 +94,11 @@ const isThere = (target) => stat(target).then(() => true, () => false);
 
 /**
  * Where the kit would leave a prompt for this bot's session, if it left one:
- * beside the bots folder it belongs to, one file per bot and session.
+ * beside the bots folder it belongs to, in the bot's own folder there (#534),
+ * one file per session.
  */
 const promptPathOf = (bots, bot, session = 'daily') =>
-  path.join(`${bots}.prompts`, `${bot}.${session}.txt`);
+  path.join(`${bots}.prompts`, bot, `${session}.txt`);
 
 test('a short prompt of one line is typed into the launch line as it stands', async (t) => {
   const box = await createSandbox(t);
@@ -106,11 +108,11 @@ test('a short prompt of one line is typed into the launch line as it stands', as
 
   const { typed, tab } = await up(box, bots, 'short-bot');
 
-  assert.equal(typed, launchLine(box, `codex --approve-for-me --no-daemon -c sandbox_workspace_write.network_access=true -- '${short}'`, { bot: 'short-bot', session: 'daily' }), 'the text itself, quoted, after the separator');
+  assert.equal(typed, launchLine(box, `codex --approve-for-me --no-daemon -c sandbox_workspace_write.network_access=true ${kitAddDirs(bots, 'short-bot').join(' ')} -- '${short}'`, { bot: 'short-bot', session: 'daily' }), 'the text itself, quoted, after the separator');
   assert.ok(!typed.includes('cat '), `nothing to read back, got: ${typed}`);
   assert.equal('promptFile' in tab, false, 'a prompt that went in on the line was not handed over in a file');
   assert.equal(await isThere(promptPathOf(bots, 'short-bot')), false, 'and no file was written for it');
-  assert.deepEqual(await argvOf(box, typed, fake), ['--approve-for-me', '--no-daemon', '-c', 'sandbox_workspace_write.network_access=true', '--', short]);
+  assert.deepEqual(await argvOf(box, typed, fake), ['--approve-for-me', '--no-daemon', '-c', 'sandbox_workspace_write.network_access=true', ...kitAddDirs(bots, 'short-bot'), '--', short]);
 });
 
 test('a prompt too long for a line is handed over in a file the kit writes', async (t) => {
@@ -126,7 +128,7 @@ test('a prompt too long for a line is handed over in a file the kit writes', asy
   assert.equal(await readFile(tab.promptFile, 'utf8'), long, 'the file holds what the session is to be told, and only that');
   // The line is the contract: what the harness gets has to be the same either
   // way, so the shell reading the file back must hand it the one argument.
-  assert.deepEqual(await argvOf(box, typed, fake), ['--approve-for-me', '--no-daemon', '-c', 'sandbox_workspace_write.network_access=true', '--', long]);
+  assert.deepEqual(await argvOf(box, typed, fake), ['--approve-for-me', '--no-daemon', '-c', 'sandbox_workspace_write.network_access=true', ...kitAddDirs(bots, 'long-bot'), '--', long]);
 });
 
 test('a prompt of more than one line goes by file however short it is', async (t) => {
@@ -140,7 +142,7 @@ test('a prompt of more than one line goes by file however short it is', async (t
 
   assert.equal(tab.promptFile, promptPathOf(bots, 'two-line-bot'));
   assertReadsBack(typed, tab.promptFile);
-  assert.deepEqual(await argvOf(box, typed, fake), ['--approve-for-me', '--no-daemon', '-c', 'sandbox_workspace_write.network_access=true', '--', 'Read.\nThen wait.']);
+  assert.deepEqual(await argvOf(box, typed, fake), ['--approve-for-me', '--no-daemon', '-c', 'sandbox_workspace_write.network_access=true', ...kitAddDirs(bots, 'two-line-bot'), '--', 'Read.\nThen wait.']);
 });
 
 for (const [label, length, byFile] of [
@@ -176,7 +178,7 @@ test('the work-dir note goes into the file with the prompt', async (t) => {
   const work = path.join(botHomeOf(bots, 'note-bot'), 'work', 'api');
   assert.ok(held.startsWith(`${long}\n\n`), `the user's prompt first, the note a blank line below it, got: ${held}`);
   assert.ok(held.includes(work), `the note should name the work dir, got: ${held}`);
-  assert.deepEqual(await argvOf(box, typed, fake), ['--approve-for-me', '--no-daemon', '-c', 'sandbox_workspace_write.network_access=true', '--', held]);
+  assert.deepEqual(await argvOf(box, typed, fake), ['--approve-for-me', '--no-daemon', '-c', 'sandbox_workspace_write.network_access=true', ...kitAddDirs(bots, 'note-bot'), '--', held]);
 });
 
 test('whatever is in the file reaches the harness as one argument, unread by the shell', async (t) => {
@@ -194,7 +196,7 @@ ${line(FITS)}`;
   const { typed, tab } = await up(box, bots, 'nasty-bot');
 
   assert.equal(await readFile(tab.promptFile, 'utf8'), nasty, 'the file holds the user\'s text, byte for byte');
-  assert.deepEqual(await argvOf(box, typed, fake), ['--approve-for-me', '--no-daemon', '-c', 'sandbox_workspace_write.network_access=true', '--', nasty]);
+  assert.deepEqual(await argvOf(box, typed, fake), ['--approve-for-me', '--no-daemon', '-c', 'sandbox_workspace_write.network_access=true', ...kitAddDirs(bots, 'nasty-bot'), '--', nasty]);
 });
 
 test('a prompt file of the user\'s own is left where they put it', async (t) => {
@@ -226,9 +228,9 @@ test('a prompt file of the user\'s own is left where they put it', async (t) => 
     !tab.promptFile.startsWith(bots + path.sep),
     `the kit's file belongs outside the bots folder, got: ${tab.promptFile}`,
   );
-  assert.equal(path.dirname(tab.promptFile), `${bots}.prompts`, `got: ${tab.promptFile}`);
-  assert.equal(path.dirname(path.dirname(tab.promptFile)), path.dirname(bots), 'and it sits beside the bots folder');
-  assert.deepEqual(await argvOf(box, typed, fake), ['--approve-for-me', '--no-daemon', '-c', 'sandbox_workspace_write.network_access=true', '--', duty.trimEnd()]);
+  assert.equal(path.dirname(tab.promptFile), path.join(`${bots}.prompts`, 'own-bot'), `got: ${tab.promptFile}`);
+  assert.equal(path.dirname(path.dirname(path.dirname(tab.promptFile))), path.dirname(bots), 'and it sits beside the bots folder');
+  assert.deepEqual(await argvOf(box, typed, fake), ['--approve-for-me', '--no-daemon', '-c', 'sandbox_workspace_write.network_access=true', ...kitAddDirs(bots, 'own-bot'), '--', duty.trimEnd()]);
 });
 
 test('two bots folders holding the same bot and session are handed two files', async (t) => {
@@ -291,7 +293,7 @@ test('the blank lines a format leaves at the ends are taken off, and nothing els
     duty.trim(),
     'the ends are the format\'s and go; the blank lines inside are the user\'s and stay',
   );
-  assert.deepEqual(await argvOf(box, typed, fake), ['--approve-for-me', '--no-daemon', '-c', 'sandbox_workspace_write.network_access=true', '--', duty.trim()]);
+  assert.deepEqual(await argvOf(box, typed, fake), ['--approve-for-me', '--no-daemon', '-c', 'sandbox_workspace_write.network_access=true', ...kitAddDirs(bots, 'ends-bot'), '--', duty.trim()]);
 });
 
 test('the prompt is in its file before the tab is opened', async (t) => {

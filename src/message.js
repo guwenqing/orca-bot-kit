@@ -25,7 +25,7 @@ import { setTimeout as pause } from 'node:timers/promises';
 import { MAILBOX_WAIT_MS, readBook, takeLineTurn, takeMailboxTurn, TYPING_HELD, TYPING_WAIT_MS } from './book.js';
 import { botDir, botNames, readBot } from './bot.js';
 import { recordMark, userTurnSince } from './conversations.js';
-import { harnessOf, isAddressOf, ownCli, reachesMail, SHELL_ENV, shellWord } from './launch.js';
+import { harnessOf, isAddressOf, kitFolders, ownCli, reachesMail, SHELL_ENV, shellWord } from './launch.js';
 import { ackMailbox, coordinatorOf, idleNow, postMessage, readMailbox, tabs, tabToTypeInto, TERMINAL_ENV, TIMED_OUT, typeIntoTab, useMailbox } from './orca.js';
 import { forgetUnread, markTold, noteUnread, unreadOf } from './unread.js';
 
@@ -411,6 +411,8 @@ const notTheCodexInTab = (found, tab) =>
 /**
  * The message as it will travel: the text itself when it is short enough, and
  * otherwise a file beside the bots folder with a body that names it.
+ * The file is in the sender's bot's own folder there, the one a Codex session
+ * of that bot may write from inside its sandbox (#534).
  *
  * The file is the kit's own, next to the bots repo the way start prompts are,
  * so a long message is not written into the user's git status and does not
@@ -424,7 +426,7 @@ function bodyOf(bots, { from, to, subject, text, textFile }) {
   if (Buffer.byteLength(said, 'utf8') <= INLINE_LIMIT) return { body: said };
 
   const file = path.join(
-    `${bots}.messages`,
+    kitFolders(bots, from.bot).messages,
     `${encodeURIComponent(`${from.bot}.${from.session}`)}.${encodeURIComponent(`${to.bot}.${to.session}`)}.${stamp()}.md`,
   );
   mkdirSync(path.dirname(file), { recursive: true });
@@ -582,7 +584,9 @@ function atTheGate(to, from, subject, tab, mark, then) {
   try {
     turn = takeLineTurn(to.home, to.session, TYPING_WAIT_MS);
   } catch (error) {
-    return { nudged: false, nudgeTrouble: error.message };
+    // A Codex sender's sandbox cannot write another bot's turns (#534); its
+    // hook, which runs outside the sandbox, can.
+    return { nudged: false, nudgeTrouble: error.message, ...leftForHook(to, from, subject, tab, mark) };
   }
   if (turn === undefined) {
     return { nudged: false, nudgeTrouble: TYPING_HELD };
@@ -635,8 +639,9 @@ function line(handle, to, from, subject, because) {
  * send leaves the nudge where that hook looks, the system temp folder under the
  * tab's id, which the sandbox lets it write and the hook reads. Only for a
  * Codex session sending from its own tab, and only where `ps` could not read
- * the receiver's tab: anywhere else no hook would see it, or would see no more
- * than the send did.
+ * the receiver's tab, or where the sandbox would not let it take the
+ * receiver's turn for a line, which is another bot's to write (#534):
+ * anywhere else no hook would see it, or would see no more than the send did.
  */
 function leftForHook(to, from, subject, tab, mark) {
   if (tab === undefined || from.tab !== tab || from.harness !== 'codex') return {};

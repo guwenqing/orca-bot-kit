@@ -1982,7 +1982,7 @@ const claudeConfig = (projects) => `${JSON.stringify({
 async function withConfigs(t, build = () => ({})) {
   const probe = await createRepo(t);
   const temp = tempSpellings(probe);
-  const { before = {}, during = {}, codexHome = false, claudeDir = false, thenFails = false } = build(temp);
+  const { before = {}, during = {}, codexHome = false, claudeDir = false, thenFails = false } = build({ ...temp, repo: probe.repo });
   const box = path.dirname(probe.repo);
   const home = probe.env.HOME;
   const codexDir = codexHome ? path.join(box, 'codex-home') : path.join(home, '.codex');
@@ -2441,6 +2441,20 @@ describe('test-system: what a run leaves in the harness configs (#240)', { concu
 
     assert.equal(result.code, 1, `the run's own folder, made mid-run, fails it:\n${everything(result)}`);
     assertNamed(result, key, 'a key under a folder made mid-run');
+  });
+
+  test('a Codex key under an obk-system folder the run makes in <repo>/local-data is the run\'s (#534), and fails the run', async (t) => {
+    let key;
+    const { fixture, env } = await withConfigs(t, ({ repo }) => {
+      const mine = `${repo}/local-data/obk-system-alpha-Ld04`;
+      key = `${mine}/bots`;
+      return { during: { makes: [mine], codex: codexConfig({ projects: [key] }) } };
+    });
+
+    const result = await fixture.confirmed({ env });
+
+    assert.equal(result.code, 1, `the run's own folder in local-data, made mid-run, fails it:\n${everything(result)}`);
+    assertNamed(result, key, 'a key under a folder the run made in local-data');
   });
 
   test('keys under a folder that was there before and under a new one: only the new one is named, and it fails the run', async (t) => {
@@ -3097,8 +3111,8 @@ const changesProjects = (name, { makes = [], adds = [], world = {}, removes = []
 
 /**
  * A fixture repo whose one system test changes Orca's projects. `build` is
- * given the fixture's temp folder in both spellings (tempSpellings), and
- * answers `{ setups, makes, during, world }`: `setups` Orca has before the run,
+ * given the fixture's temp folder in both spellings (tempSpellings) and its
+ * `repo`, and answers `{ setups, makes, during, world }`: `setups` Orca has before the run,
  * `makes` folders already there when it starts, `during` what its system
  * test does (changesProjects), and `world` other keys of the fake's world
  * before the run (`setupsBefore`).
@@ -3106,7 +3120,7 @@ const changesProjects = (name, { makes = [], adds = [], world = {}, removes = []
 async function withProjects(t, build) {
   const fixture = await createRepo(t);
   const temp = tempSpellings(fixture);
-  const { setups = [], makes = [], during = {}, world: keys = {} } = build(temp);
+  const { setups = [], makes = [], during = {}, world: keys = {} } = build({ ...temp, repo: fixture.repo });
   const world = fixture.env[WORLD];
   await writeFile(world, JSON.stringify({ ...JSON.parse(await readFile(world, 'utf8')), ...keys, setups }));
   for (const folder of makes) await mkdir(folder, { recursive: true });
@@ -3327,6 +3341,44 @@ describe('test-system: the Orca projects a run leaves behind (#536)', { concurre
     assertLeftNamed(result, left);
     assertProjectNotNamed(result, earlier, 'a project from an earlier run');
     await assertDeletedNothing(fixture, [earlier, left]);
+  });
+
+  // #534: a system test whose sessions run in Codex's sandbox keeps its bots
+  // folder in `<repo>/local-data/obk-system-…`, outside the temp folder the
+  // sandbox lets every session write. A folder the run makes there is the
+  // run's, by the same rule as one under the temp folder.
+  test('a project the run left in an obk-system folder it made in <repo>/local-data fails the run, is named by path and setup id, and is not deleted', async (t) => {
+    let left;
+    const fixture = await withProjects(t, ({ repo }) => {
+      const folder = `${repo}/local-data/obk-system-alpha-Ld01`;
+      left = setupNamed(setupIdOf(51), `${folder}/bots/bots/sandbox-codex`);
+      return { during: { makes: [folder], adds: [left], removes: [folder] } };
+    });
+
+    const result = await fixture.confirmed();
+
+    assert.equal(result.code, 1, `a left project fails the run though its tests passed:\n${everything(result)}`);
+    assertLeftNamed(result, left);
+    assertNoClaimNothingLeft(result);
+    await assertDeletedNothing(fixture, [left]);
+  });
+
+  test('a project in an obk-system folder of <repo>/local-data that was there before the run, or in a folder there not named obk-system-, is not the run\'s', async (t) => {
+    let quiet;
+    const fixture = await withProjects(t, ({ repo }) => {
+      const earlier = `${repo}/local-data/obk-system-alpha-Ld02`;
+      const other = `${repo}/local-data/obk-other-Ld03`;
+      quiet = [
+        setupNamed(setupIdOf(52), `${earlier}/bots/bots/coder`),
+        setupNamed(setupIdOf(53), `${other}/bots`),
+      ];
+      return { makes: [earlier], during: { makes: [other], adds: quiet } };
+    });
+
+    const result = await fixture.confirmed();
+
+    assert.equal(result.code, 0, `projects that are not the run's do not fail it:\n${everything(result)}`);
+    for (const setup of quiet) assertProjectNotNamed(result, setup, 'a project that is not the run\'s');
   });
 
   test('a project that was in Orca before the run is not named even when the run makes a folder of the same name', async (t) => {

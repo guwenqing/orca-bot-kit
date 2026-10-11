@@ -56,6 +56,7 @@ import {
   conversationOnRecord,
   createSandbox,
   fakeProgram,
+  kitAddDirs,
   harnessPartOf,
   launchLine,
   nameOnLine,
@@ -224,12 +225,12 @@ for (const [harness, settings, fresh] of [
   [
     'claude',
     ['--approval', 'ask', '--model', 'opus', '--context', '1m', '--effort', 'xhigh', '--extra-arg=--verbose'],
-    ['--permission-mode', 'manual', '-n', `api-bot.daily.${TOKEN}`, '--model', 'opus[1m]', '--effort', 'xhigh', '--verbose'],
+    () => ['--permission-mode', 'manual', '-n', `api-bot.daily.${TOKEN}`, '--model', 'opus[1m]', '--effort', 'xhigh', '--verbose'],
   ],
   [
     'codex',
     ['--approval', 'ask', '--model', 'gpt-5.4', '--effort', 'high', '--context', '200000', '--extra-arg=--search'],
-    ['-a', 'on-request', '--no-daemon', '-c', 'sandbox_workspace_write.network_access=true', '-m', 'gpt-5.4', '-c', 'model_reasoning_effort=high', '-c', 'model_context_window=200000', '--search'],
+    (bots) => ['-a', 'on-request', '--no-daemon', '-c', 'sandbox_workspace_write.network_access=true', '-m', 'gpt-5.4', '-c', 'model_reasoning_effort=high', '-c', 'model_context_window=200000', ...kitAddDirs(bots, 'api-bot'), '--search'],
   ],
 ]) {
   test(`a resumed ${harness} session keeps every setting, in the same order`, async (t) => {
@@ -247,7 +248,7 @@ for (const [harness, settings, fresh] of [
     const again = await up(box);
 
     const argv = await argvOf(box, again.typed[0], fake);
-    assert.deepEqual(tokenlessArgv(withoutResume(argv, 'sess-1')), fresh);
+    assert.deepEqual(tokenlessArgv(withoutResume(argv, 'sess-1')), fresh(bots));
   });
 }
 
@@ -266,7 +267,7 @@ test('a resumed Codex session keeps its --add-dir for a work dir outside the bot
 
   assert.deepEqual(
     withoutResume(await argvOf(box, again.typed[0], fake), 'sess-1'),
-    ['--approve-for-me', '--no-daemon', '-c', 'sandbox_workspace_write.network_access=true', '--add-dir', outside],
+    ['--approve-for-me', '--no-daemon', '-c', 'sandbox_workspace_write.network_access=true', '--add-dir', outside, ...kitAddDirs(bots, 'api-bot')],
   );
 });
 
@@ -294,6 +295,7 @@ for (const [approval, codexFlags, claudeFlags] of [
       ...codexFlags,
       '--no-daemon',
       '-c', 'sandbox_workspace_write.network_access=true',
+      ...kitAddDirs(bots, 'api-bot'),
       'sess-1',
     ]);
   });
@@ -339,6 +341,7 @@ test('#330: a resumed Codex session with every setting keeps --no-daemon once, s
     '-c', 'model_reasoning_effort=high',
     '-c', 'model_context_window=200000',
     '--add-dir', outside,
+    ...kitAddDirs(bots, 'api-bot'),
     '--search',
     'sess-1',
   ]);
@@ -361,6 +364,7 @@ test('#330: a resumed Codex session whose extra args carry --no-daemon gets it o
     'resume',
     '--approve-for-me',
     '-c', 'sandbox_workspace_write.network_access=true',
+    ...kitAddDirs(bots, 'api-bot'),
     '--search',
     '--no-daemon',
     'sess-1',
@@ -389,6 +393,7 @@ test('#330: a resumed Codex session whose extra_args string carries --no-daemon 
     'resume',
     '--approve-for-me',
     '-c', 'sandbox_workspace_write.network_access=true',
+    ...kitAddDirs(bots, 'api-bot'),
     '--search',
     '--no-daemon',
     '--profile', 'mine',
@@ -425,6 +430,7 @@ for (const [quoting, scalar] of [
       'resume',
       '--approve-for-me',
       '-c', 'sandbox_workspace_write.network_access=true',
+      ...kitAddDirs(bots, 'api-bot'),
       '--search',
       '--no-daemon',
       'sess-1',
@@ -470,6 +476,7 @@ for (const [spelled, scalar] of [
       'resume',
       '--approve-for-me',
       '-c', 'sandbox_workspace_write.network_access=true',
+      ...kitAddDirs(box.path('bots'), 'api-bot'),
       '--search',
       '--no-daemon',
       'sess-1',
@@ -493,6 +500,7 @@ for (const [quoting, scalar] of [
       '--approve-for-me',
       '--no-daemon',
       '-c', 'sandbox_workspace_write.network_access=true',
+      ...kitAddDirs(box.path('bots'), 'api-bot'),
       '--add-dir', '/tmp/foo --no-daemon bar',
       'sess-1',
     ]);

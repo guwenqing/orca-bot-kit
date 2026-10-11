@@ -167,7 +167,7 @@ async function twoSessionsRunning(box) {
   await recordSession(box, { bots, bot: 'api-bot', tab: daily.tabId, session: 'sess-old', source: 'startup' });
   await recordSession(box, { bots, bot: 'api-bot', tab: daily.tabId, session: 'sess-now', source: 'clear' });
   await recordSession(box, { bots, bot: 'api-bot', tab: review.tabId, session: 'sess-review' });
-  return { bots, daily, review, prompt: path.join(`${bots}.prompts`, 'api-bot.daily.txt') };
+  return { bots, daily, review, prompt: path.join(`${bots}.prompts`, 'api-bot', 'daily.txt') };
 }
 
 test('RS1 a retired session\'s tab is closed by its own handle, and only that tab', async (t) => {
@@ -497,7 +497,7 @@ async function botWithLeftovers(box) {
   await recordSession(box, { bots, bot: 'api-bot', tab: daily.tabId, session: 'sess-1' });
   const [setup] = (await box.orca.setups()).filter((one) => one.path === botHomeOf(bots, 'api-bot'));
   assert.ok(setup, 'up should have made the bot an Orca project');
-  const prompt = path.join(`${bots}.prompts`, 'api-bot.daily.txt');
+  const prompt = path.join(`${bots}.prompts`, 'api-bot', 'daily.txt');
   assert.ok(await exists(prompt), `bringing daily up should have left its start prompt at ${prompt}`);
   const skills = await treeIn(bots, 'api-bot');
   assert.ok(skills.claude['note-taking'] && skills.codex['note-taking'], `up should have linked note-taking, got: ${JSON.stringify(skills)}`);

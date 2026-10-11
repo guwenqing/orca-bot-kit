@@ -652,11 +652,11 @@ const NEEDS_A_USER = process.getuid?.() === 0
 /** A task long enough that its start prompt goes to the harness from a file. */
 const LONG_TASK = 'Read the open pull request and write down what it changes. '.repeat(10).trim();
 
-/** Where the kit keeps start-prompt files, beside the bots folder. */
-const promptsOf = (bots) => `${bots}.prompts`;
+/** Where the kit keeps temp-bot's start-prompt files: its own folder beside the bots folder (#534). */
+const promptsOf = (bots) => path.join(`${bots}.prompts`, BOT);
 
 /** The start-prompt file the kit keeps for one session. */
-const promptFileOf = (bots, bot, name) => path.join(promptsOf(bots), `${bot}.${name}.txt`);
+const promptFileOf = (bots, bot, name) => path.join(`${bots}.prompts`, bot, `${name}.txt`);
 
 /** A make run with the prompts folder read-only, its mode given back whatever happens. */
 async function makeLocked(box, bots, terminal, args) {
@@ -777,10 +777,10 @@ const everything = (box) => snapshot(box.cwd, (rel) => rel === 'bots/.git' || re
 /**
  * Hold a bot's book lock, the way another writer of the book does, until
  * `release` is called: the file SQLite locks, beside the bots folder in
- * `<bots>.locks/<bot home's name>.lock`, taken with `BEGIN IMMEDIATE`.
+ * `<bots>.locks/<bot>/<bot home's name>.lock` (#534), taken with `BEGIN IMMEDIATE`.
  */
 async function holdBookLock(bots, bot) {
-  const file = path.join(`${bots}.locks`, `${encodeURIComponent(bot)}.lock`);
+  const file = path.join(`${bots}.locks`, bot, `${encodeURIComponent(bot)}.lock`);
   await mkdir(path.dirname(file), { recursive: true });
   const db = new DatabaseSync(file);
   db.exec('BEGIN IMMEDIATE');
@@ -836,6 +836,7 @@ test('TQ4 a make whose book write fails and whose prompt file cannot be removed 
   const box = await createSandbox(t);
   const { bots, planner } = await fleet(box);
   const file = promptFileOf(bots, BOT, 'scout');
+  await mkdir(path.dirname(file), { recursive: true });
   await writeFile(file, 'left over from an earlier run\n');
   const folder = promptsOf(bots);
   const mode = (await stat(folder)).mode & 0o7777;

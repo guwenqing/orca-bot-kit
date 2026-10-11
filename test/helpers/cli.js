@@ -959,8 +959,38 @@ export function bareLaunch(box, harness, bot, session, { bots } = {}) {
   }
   return launchLine(box, harness === 'claude'
     ? `claude --permission-mode auto -n ${bot}.${session}.${TOKEN}`
-    : `codex --approve-for-me --no-daemon ${CODEX_NETWORK}`, { bots, bot, session });
+    : `codex --approve-for-me --no-daemon ${CODEX_NETWORK} ${kitAddDirs(bots ?? box.path('bots'), bot).map(shellWord).join(' ')}`, { bots, bot, session });
 }
+
+/**
+ * The folders of the kit's own beside the bots folder that a Codex session of
+ * `bot` writes in, and no other bot's session may (#534): its long message
+ * bodies, its start prompts and its locks. Codex's sandbox lets a session
+ * write only its bot home and the folders its launch line names, so every
+ * Codex launch line names these three.
+ */
+export const kitDirsOf = (bots, bot) => [`${bots}.messages/${bot}`, `${bots}.prompts/${bot}`, `${bots}.locks/${bot}`];
+
+/**
+ * The words that name `kitDirsOf` on a Codex launch line, one `--add-dir`
+ * each. Where they go is the place the line gives `--add-dir` (the order in
+ * test/launch-command.test.js): after the context, after a work dir's own
+ * `--add-dir`, and before the user's extra arguments.
+ */
+export const kitAddDirs = (bots, bot) => kitDirsOf(bots, bot).flatMap((dir) => ['--add-dir', dir]);
+
+/** One session's start-prompt file, in its bot's folder of `<bots>.prompts` (#534). */
+export const promptFileOf = (bots, bot, session) => path.join(`${bots}.prompts`, bot, `${session}.txt`);
+
+/**
+ * Where one bot's locks are (#534): its own folder of `<bots>.locks`, with
+ * each file named as it was before #534. The book's lock is `<bot>.lock` and
+ * a session's turns are `<bot>.<session>.<kind>.lock`, kind `mailbox`,
+ * `typing`, `lines` or `name`. A test that holds a lock from outside the kit
+ * takes it on this file.
+ */
+export const bookLockFile = (bots, bot) => path.join(`${bots}.locks`, bot, `${encodeURIComponent(bot)}.lock`);
+export const turnLockFile = (bots, bot, session, kind) => path.join(`${bots}.locks`, bot, `${bot}.${session}.${kind}.lock`);
 
 /** Where a bot lives inside a bots folder. */
 export const botHomeOf = (bots, bot = 'bot-father') => path.join(bots, 'bots', bot);

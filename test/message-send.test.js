@@ -74,7 +74,8 @@ const addressOfMailbox = async (bots, bot, session = 'daily') => `run:${(await s
  * Every file the kit has beside the bots folder right now: PRD 6.3 keeps what
  * the kit writes for itself out of the user's repo, so everything it writes is
  * in some `<bots>.<something>` next to it — start prompts already are, and
- * the book's locks live there too. A test asks what one send added by reading
+ * the book's locks live there too — at any depth, each bot in a folder of its
+ * own there (#534). A test asks what one send added by reading
  * this before and after. Lock files are left out: they are the kit's own
  * bookkeeping, and a send that nudges takes the receiver's typing turn (#480),
  * whose lock files are made the first time it is taken. Nothing of a message
@@ -88,9 +89,18 @@ async function besideTheBotsFolder(bots) {
     if (!name.startsWith(`${mine}.`)) continue;
     const dir = path.join(parent, name);
     if (!(await stat(dir)).isDirectory()) continue;
-    for (const entry of await readdir(dir)) {
-      if (!/\.lock(?:-journal|-wal|-shm)?$/.test(entry)) found.push(path.join(dir, entry));
-    }
+    found.push(...(await filesUnder(dir)).filter((file) => !/\.lock(?:-journal|-wal|-shm)?$/.test(file)));
+  }
+  return found;
+}
+
+/** Every file under `dir`, at any depth: each bot has its own folder there (#534). */
+async function filesUnder(dir) {
+  const found = [];
+  for (const entry of await readdir(dir)) {
+    const at = path.join(dir, entry);
+    if ((await stat(at)).isDirectory()) found.push(...await filesUnder(at));
+    else found.push(at);
   }
   return found;
 }

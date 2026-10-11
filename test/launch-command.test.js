@@ -43,6 +43,7 @@ import {
   botHomeOf,
   createSandbox,
   fakeProgram,
+  kitAddDirs,
   launchLine,
   sh,
   tabsOfBot,
@@ -52,6 +53,14 @@ import {
   typedInto,
 } from './helpers/cli.js';
 import { addSession } from './helpers/permissions.js';
+
+/**
+ * Where a Codex line's own `--add-dir` for the kit's folders go (#534), in the
+ * pinned lines below: `withKit` writes them in for the sandbox's api-bot.
+ */
+const KIT = '<kit dirs>';
+const withKit = (box, text) => text.replace(KIT, kitAddDirs(box.path('bots'), 'api-bot').join(' '));
+const kitArgs = (box) => kitAddDirs(box.path('bots'), 'api-bot');
 
 /** Whose mailbox step `launchOf`'s line starts with: its one bot and session. */
 const API_DAILY = { bot: 'api-bot', session: 'daily' };
@@ -111,31 +120,31 @@ const CLAUDE = [
 ];
 
 const CODEX = [
-  ['nothing set at all', [], 'codex --approve-for-me --no-daemon -c sandbox_workspace_write.network_access=true'],
-  ['approval auto', ['--approval', 'auto'], 'codex --approve-for-me --no-daemon -c sandbox_workspace_write.network_access=true'],
-  ['approval ask', ['--approval', 'ask'], 'codex -a on-request --no-daemon -c sandbox_workspace_write.network_access=true'],
+  ['nothing set at all', [], 'codex --approve-for-me --no-daemon -c sandbox_workspace_write.network_access=true <kit dirs>'],
+  ['approval auto', ['--approval', 'auto'], 'codex --approve-for-me --no-daemon -c sandbox_workspace_write.network_access=true <kit dirs>'],
+  ['approval ask', ['--approval', 'ask'], 'codex -a on-request --no-daemon -c sandbox_workspace_write.network_access=true <kit dirs>'],
   [
     'approval dangerously-skip',
     ['--approval', 'dangerously-skip'],
-    'codex --dangerously-bypass-approvals-and-sandbox --no-daemon -c sandbox_workspace_write.network_access=true',
+    'codex --dangerously-bypass-approvals-and-sandbox --no-daemon -c sandbox_workspace_write.network_access=true <kit dirs>',
   ],
-  ['a model', ['--model', 'gpt-5.4'], 'codex --approve-for-me --no-daemon -c sandbox_workspace_write.network_access=true -m gpt-5.4'],
-  ['an effort', ['--effort', 'high'], 'codex --approve-for-me --no-daemon -c sandbox_workspace_write.network_access=true -c model_reasoning_effort=high'],
+  ['a model', ['--model', 'gpt-5.4'], 'codex --approve-for-me --no-daemon -c sandbox_workspace_write.network_access=true -m gpt-5.4 <kit dirs>'],
+  ['an effort', ['--effort', 'high'], 'codex --approve-for-me --no-daemon -c sandbox_workspace_write.network_access=true -c model_reasoning_effort=high <kit dirs>'],
   [
     'a context window, with no model to hang it on',
     ['--context', '200000'],
-    'codex --approve-for-me --no-daemon -c sandbox_workspace_write.network_access=true -c model_context_window=200000',
+    'codex --approve-for-me --no-daemon -c sandbox_workspace_write.network_access=true -c model_context_window=200000 <kit dirs>',
   ],
   [
     'a model and a context window',
     ['--model', 'gpt-5.4', '--context', '200000'],
-    'codex --approve-for-me --no-daemon -c sandbox_workspace_write.network_access=true -m gpt-5.4 -c model_context_window=200000',
+    'codex --approve-for-me --no-daemon -c sandbox_workspace_write.network_access=true -m gpt-5.4 -c model_context_window=200000 <kit dirs>',
   ],
-  ['extra args', ['--extra-arg=--search'], 'codex --approve-for-me --no-daemon -c sandbox_workspace_write.network_access=true --search'],
+  ['extra args', ['--extra-arg=--search'], 'codex --approve-for-me --no-daemon -c sandbox_workspace_write.network_access=true <kit dirs> --search'],
   [
     'a start prompt, last of all',
     ['--prompt', 'Read your AGENTS.md.'],
-    "codex --approve-for-me --no-daemon -c sandbox_workspace_write.network_access=true -- 'Read your AGENTS.md.'",
+    "codex --approve-for-me --no-daemon -c sandbox_workspace_write.network_access=true <kit dirs> -- 'Read your AGENTS.md.'",
   ],
   [
     'everything at once',
@@ -143,7 +152,7 @@ const CODEX = [
       '--approval', 'ask', '--model', 'gpt-5.4', '--effort', 'high', '--context', '200000',
       '--extra-arg=--search', '--prompt', 'Read your AGENTS.md.',
     ],
-    'codex -a on-request --no-daemon -c sandbox_workspace_write.network_access=true -m gpt-5.4 -c model_reasoning_effort=high -c model_context_window=200000 '
+    'codex -a on-request --no-daemon -c sandbox_workspace_write.network_access=true -m gpt-5.4 -c model_reasoning_effort=high -c model_context_window=200000 <kit dirs> '
     + "--search -- 'Read your AGENTS.md.'",
   ],
 ];
@@ -153,7 +162,7 @@ for (const [harness, cases] of [['claude', CLAUDE], ['codex', CODEX]]) {
     test(`${harness}, ${label}: ${expected}`, async (t) => {
       const box = await createSandbox(t);
 
-      assert.equal(tokenless(await launchOf(box, harness, settings)), launchLine(box, expected, API_DAILY));
+      assert.equal(tokenless(await launchOf(box, harness, settings)), launchLine(box, withKit(box, expected), API_DAILY));
     });
   }
 }
@@ -182,7 +191,7 @@ test('Codex gets --add-dir for a work dir outside the bot home, and nothing for 
   const near = await launchOf(inside, 'codex', ['--work-dir', 'work/api']);
 
   assert.ok(
-    far.startsWith(launchLine(box, `codex --approve-for-me --no-daemon -c sandbox_workspace_write.network_access=true --add-dir ${outside} -- '`, API_DAILY)),
+    far.startsWith(launchLine(box, withKit(box, `codex --approve-for-me --no-daemon -c sandbox_workspace_write.network_access=true --add-dir ${outside} <kit dirs> -- '`), API_DAILY)),
     `--add-dir should come after the settings and before the prompt, got: ${far}`,
   );
   assert.ok(
@@ -200,7 +209,7 @@ test('a work dir that is the bot home itself brings no --add-dir', async (t) => 
 
   const typed = await launchOf(box, 'codex', ['--work-dir', '.']);
 
-  assert.ok(!typed.includes('--add-dir'), `the bot home is already inside the sandbox, got: ${typed}`);
+  assert.equal(typed.split(' --add-dir ').length - 1, 3, `the bot home is already inside the sandbox: only the kit's own three folders (#534), got: ${typed}`);
   assert.ok(typed.startsWith(bareLaunch(box, 'codex', 'api-bot', 'daily')), `got: ${typed}`);
 });
 
@@ -213,7 +222,7 @@ test('--add-dir is given the absolute path, even when the work dir was written r
 
   const home = botHomeOf(box.path('bots'), 'api-bot');
   assert.ok(
-    typed.startsWith(launchLine(box, `codex --approve-for-me --no-daemon -c sandbox_workspace_write.network_access=true --add-dir ${path.resolve(home, '../shared-clones')} -- '`, API_DAILY)),
+    typed.startsWith(launchLine(box, withKit(box, `codex --approve-for-me --no-daemon -c sandbox_workspace_write.network_access=true --add-dir ${path.resolve(home, '../shared-clones')} <kit dirs> -- '`), API_DAILY)),
     `got: ${typed}`,
   );
 });
@@ -246,7 +255,7 @@ test('an extra_args written by hand as one string is typed as it stands', async 
   assert.equal((await box.run(['up', '--bots', 'bots', '--bot', 'api-bot'])).code, 0);
 
   const tabs = await tabsOfBot(box, box.path('bots'), 'api-bot');
-  assert.deepEqual(typedInto(tabs[0]), [launchLine(box, 'codex --approve-for-me --no-daemon -c sandbox_workspace_write.network_access=true --search --profile mine', API_DAILY)]);
+  assert.deepEqual(typedInto(tabs[0]), [launchLine(box, withKit(box, 'codex --approve-for-me --no-daemon -c sandbox_workspace_write.network_access=true <kit dirs> --search --profile mine'), API_DAILY)]);
 });
 
 for (const harness of ['claude', 'codex']) {
@@ -267,7 +276,11 @@ for (const harness of ['claude', 'codex']) {
     assert.equal(ran.code, 0, `the line should run: ${typed}\n${ran.stderr}`);
     const calls = await fake.calls();
     assert.equal(calls.length, 1, `the line should start ${harness} once, got: ${typed}`);
-    assert.deepEqual(calls[0].args.slice(-3), ['my model', '--note', 'it\'s a "quoted" one']);
+    // On Codex the kit's own three --add-dir (#534) sit between the model and
+    // the extra arguments; they are taken out here, as they are pinned elsewhere.
+    const kit = harness === 'codex' ? kitArgs(box) : [];
+    const args = calls[0].args.filter((word, at, all) => !(kit.includes(word) && (word === '--add-dir' ? kit.includes(all[at + 1]) : all[at - 1] === '--add-dir')));
+    assert.deepEqual(args.slice(-3), ['my model', '--note', 'it\'s a "quoted" one']);
   });
 }
 
@@ -306,6 +319,7 @@ test('Codex\'s -c settings reach codex as one argument each', async (t) => {
     '-c', 'sandbox_workspace_write.network_access=true',
     '-c', 'model_reasoning_effort=high',
     '-c', 'model_context_window=200000',
+    ...kitArgs(box),
   ]);
 });
 
@@ -345,6 +359,7 @@ for (const [approval, codexFlags, claudeFlags] of LEVELS) {
       '-c', 'sandbox_workspace_write.network_access=true',
       '-m', 'gpt-5.4',
       '-c', 'model_reasoning_effort=high',
+      ...kitArgs(box),
       '--search',
       '--', 'Read your AGENTS.md.',
     ]);
@@ -383,6 +398,7 @@ test('#330: a Codex session whose extra args carry --no-daemon gets it once, whe
   assert.deepEqual(await argvOf(box, typed, fake), [
     '--approve-for-me',
     '-c', 'sandbox_workspace_write.network_access=true',
+    ...kitArgs(box),
     '--search',
     '--no-daemon',
     '--', 'Read your AGENTS.md.',
@@ -413,7 +429,7 @@ test('#330: a Codex session whose extra_args string carries --no-daemon as a wor
 
   assert.equal(
     typed,
-    launchLine(box, 'codex --approve-for-me -c sandbox_workspace_write.network_access=true --search --no-daemon --profile mine', API_DAILY),
+    launchLine(box, withKit(box, 'codex --approve-for-me -c sandbox_workspace_write.network_access=true <kit dirs> --search --no-daemon --profile mine'), API_DAILY),
   );
 });
 
@@ -426,7 +442,7 @@ test('#330: a word in the extra_args string that only begins with --no-daemon is
 
   assert.equal(
     typed,
-    launchLine(box, 'codex --approve-for-me --no-daemon -c sandbox_workspace_write.network_access=true --search --no-daemonize', API_DAILY),
+    launchLine(box, withKit(box, 'codex --approve-for-me --no-daemon -c sandbox_workspace_write.network_access=true <kit dirs> --search --no-daemonize'), API_DAILY),
   );
 });
 
@@ -447,6 +463,7 @@ for (const [quoting, scalar] of [
     assert.deepEqual(await argvOf(box, typed, fake), [
       '--approve-for-me',
       '-c', 'sandbox_workspace_write.network_access=true',
+      ...kitArgs(box),
       '--search',
       '--no-daemon',
     ]);
@@ -469,6 +486,7 @@ for (const [spelled, scalar] of [
     assert.deepEqual(await argvOf(box, typed, fake), [
       '--approve-for-me',
       '-c', 'sandbox_workspace_write.network_access=true',
+      ...kitArgs(box),
       '--search',
       '--no-daemon',
     ]);
@@ -492,6 +510,7 @@ for (const [quoting, scalar] of [
       '--approve-for-me',
       '--no-daemon',
       '-c', 'sandbox_workspace_write.network_access=true',
+      ...kitArgs(box),
       '--add-dir', '/tmp/foo --no-daemon bar',
     ]);
   });
