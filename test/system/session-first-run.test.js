@@ -26,8 +26,9 @@
 //      "Trust all and continue", the review goes, and the kit's hooks run: the
 //      book holds daily's conversation.
 //   5. lead's folder trust is answered by this test, down and return, only when
-//      it is the plain one for the bot home (helpers/screens.js
-//      `onlyPlainTrustOf`, the ruling on #451), as temp-answer.test.js does.
+//      it is the plain one for the bot home, or the one that pre-approves
+//      exactly the kit's default rules (helpers/claude-trust.js
+//      `claudeTrustAt`, the rulings on #451 and #558), as temp-answer.test.js does.
 //      lead replies to its start prompt. If a real Teach form comes up after
 //      it, the test types nothing into it, records it, and ends as skipped.
 //   6. A real screen that is not the form: lead at its plain input line. `obk
@@ -93,11 +94,11 @@ import { codexTrustArgs } from '../helpers/codex-trust.js';
 import {
   CLAUDE_TEACH_FORM,
   CLAUDE_TEACH_LIST,
-  onlyPlainTrustOf,
   onlyTeachFormOf,
   onlyTeachListOf,
   questionOn,
 } from '../helpers/screens.js';
+import { claudeTrustAt, trustScreenMet } from '../helpers/claude-trust.js';
 import { tabGuard } from '../helpers/tab-guard.js';
 import { deleteOwnProject } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
@@ -503,9 +504,11 @@ test('a long-lived session\'s first-run screens answered through the kit: Codex\
     '--charter', `${CLAUDE_BOT} exists for one system test run and owns nothing.`,
   ]);
   obkJson([
-    'session', 'add', '--bots', bots, '--bot', CLAUDE_BOT, '--name', CLAUDE_SESSION, '--approval', 'ask',
+    'session', 'add', '--bots', bots, '--bot', CLAUDE_BOT, '--name', CLAUDE_SESSION,
     '--prompt', `You are a system test's session and you own nothing. Do not run any command, read or write any file, or use any tool. Reply now with ${READY_WORD} and nothing else, then wait.`,
   ]);
+  // session add no longer takes --approval: the kit sets it through permission approval.
+  obkJson(['permission', 'approval', '--bots', bots, '--bot', CLAUDE_BOT, '--session', CLAUDE_SESSION, '--approval', 'ask']);
 
   const lead = { handle: openedFor(obkJson(['up', '--bots', bots, '--bot', CLAUDE_BOT]), CLAUDE_SESSION).terminal };
   lead.tabId = sessionIn(claudeHome, CLAUDE_SESSION).tab;
@@ -578,7 +581,7 @@ test('a long-lived session\'s first-run screens answered through the kit: Codex\
     () => whatIsUp(lead.handle),
   );
   if (asked.rows !== null) {
-    const wrong = onlyPlainTrustOf(asked.rows, claudeHome);
+    const wrong = claudeTrustAt(asked.rows, claudeHome, bots, cliEntry);
     assert.equal(
       wrong,
       undefined,
@@ -586,7 +589,7 @@ test('a long-lived session\'s first-run screens answered through the kit: Codex\
       + `\n  what it showed:\n    ${asked.rows.join('\n    ')}`,
     );
     sendKeys(lead.handle, '\x1b[B\r');
-    t.diagnostic(`answered ${CLAUDE_SESSION}'s plain folder trust (the ruling on #451)`);
+    t.diagnostic(`answered ${CLAUDE_SESSION}'s ${trustScreenMet(asked.rows)} (the ruling on #451)`);
   }
   await until(
     `${CLAUDE_SESSION} to reply ${READY_WORD} and report its conversation`,
