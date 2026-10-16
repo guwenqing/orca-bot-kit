@@ -632,122 +632,136 @@ for (const [from, to, args, named] of [
 }
 
 // An extra_args written by hand as one string is shell text, typed as it
-// stands (test/launch-command.test.js). A move reads it as its shell words,
-// split on white space, and keeps it as written.
+// stands (test/launch-command.test.js). On `session change --harness`, the
+// approval check of the extra args a session keeps fails closed on a string
+// (the architect's ruling on #565). It takes the string only when the kit
+// reads it exactly as a shell will, and then judges its words as it judges a
+// list:
+//
+//   - plain words separated by spaces, each made of letters, digits and
+//     , . _ + : @ % / = -, with no = as a word's first character;
+//   - text in single quotes, with no control character in it;
+//   - text in double quotes, with none of $ ` \ ! and no control character.
+//
+// Words and quotes may join, as --x='a b'. Anything else is shell syntax the
+// kit cannot be sure of: the move is refused with a sentence that says to
+// write extra_args as a list, one --extra-arg for each argument, and nothing
+// is written. A list is read item by item, as before.
 
 /** A Claude bot's daily, its extra_args set by hand in bot.yaml to `extra`. */
 async function withExtraArgs(box, extra) {
   const bots = await withSession(box);
   await editEntry(bots, 'daily', { extra_args: extra });
+  assert.deepEqual((await entryOf(bots)).extra_args, extra, 'the premise: bot.yaml holds extra_args as written');
   return bots;
 }
 
-test('HC8a a kept extra_args written as one harmless string moves with the session, and stays as written', async (t) => {
+/** The move to Codex goes through, and the kept extra_args read as written. */
+async function assertMovesAsWritten(box, bots, extra, to = 'codex') {
+  const result = await change(box, ['--harness', to]);
+  assert.equal(result.code, 0, result.stderr);
+  const entry = await entryOf(bots);
+  assert.equal(entry.harness, to);
+  assert.deepEqual(entry.extra_args, extra, `extra_args are kept as they were written, got: ${JSON.stringify(entry.extra_args)}`);
+}
+
+/** Codex's flag that bypasses its approvals and its sandbox. */
+const BYPASS = '--dangerously-bypass-approvals-and-sandbox';
+
+// ------------------------------------------------ strings the kit reads for sure
+
+test('HC8a a kept extra_args written as one harmless plain string moves with the session, and stays as written', async (t) => {
   const box = await createSandbox(t);
   const bots = await withExtraArgs(box, '--verbose');
 
-  const result = await change(box, ['--harness', 'codex']);
-
-  assert.equal(result.code, 0, result.stderr);
-  const entry = await entryOf(bots);
-  assert.equal(entry.harness, 'codex');
-  assert.equal(entry.extra_args, '--verbose', `the string is kept as it was written, got: ${JSON.stringify(entry.extra_args)}`);
-});
-
-test('HC8b a kept extra_args string that sets approval on the new harness refuses the move, and nothing is written', async (t) => {
-  const box = await createSandbox(t);
-  const bots = await withExtraArgs(box, '--sandbox workspace-write');
-  const before = await snapshot(bots, skipGit);
-
-  const result = await change(box, ['--harness', 'codex']);
-
-  assertCleanFailure(result);
-  assert.ok(result.stderr.includes('--sandbox'), `the refusal should name --sandbox, got: ${result.stderr}`);
-  assert.ok(result.stderr.includes('permission approval'), `and name obk permission approval, got: ${result.stderr}`);
-  assert.deepEqual(await snapshot(bots, skipGit), before, 'a refusal writes nothing');
-});
-
-test('HC8c a kept extra_args list with a number in it does not crash the move', async (t) => {
-  const box = await createSandbox(t);
-  const bots = await withExtraArgs(box, ['--max-turns', 5]);
-
-  const result = await change(box, ['--harness', 'codex']);
-
-  assert.equal(result.code, 0, result.stderr);
-  const entry = await entryOf(bots);
-  assert.equal(entry.harness, 'codex');
-  assert.deepEqual(entry.extra_args, ['--max-turns', 5], 'the list is kept as written');
+  await assertMovesAsWritten(box, bots, '--verbose');
 });
 
 test('HC8d --harness the same as now, with a kept extra_args string, goes through', async (t) => {
   const box = await createSandbox(t);
   const bots = await withExtraArgs(box, '--verbose');
 
-  const result = await change(box, ['--harness', 'claude']);
-
-  assert.equal(result.code, 0, result.stderr);
-  const entry = await entryOf(bots);
-  assert.equal(entry.harness, 'claude');
-  assert.equal(entry.extra_args, '--verbose');
+  await assertMovesAsWritten(box, bots, '--verbose', 'claude');
 });
 
-// The string is shell text, and the shell is what reads it: blanks outside
-// quotes split it, quotes come off, a backslash keeps the next character.
-// So the check reads the words the shell makes of it, not the string split on
-// blanks.
-
-/** Codex's flag that bypasses its approvals and its sandbox, as the shell hands it to Codex. */
-const BYPASS = '--dangerously-bypass-approvals-and-sandbox';
-
 for (const [id, form, extra] of [
-  ['HC8e', 'in single quotes', `'${BYPASS}'`],
-  ['HC8f', 'in double quotes', `"${BYPASS}"`],
-  ['HC8g', 'with a backslash escape', `${BYPASS.slice(0, -1)}\\${BYPASS.at(-1)}`],
-  // A backslash and a newline outside single quotes are a line continuation:
-  // the shell takes both out and joins the word across them.
-  ['HC8i', 'split by a line continuation', `${BYPASS.slice(0, -1)}\\\n${BYPASS.at(-1)}`],
-  ['HC8j', 'split by a line continuation inside double quotes', `"${BYPASS.slice(0, -1)}\\\n${BYPASS.at(-1)}"`],
+  ['HC8h', 'a single-quoted path that holds the text --sandbox', "--add-dir '/tmp/a --sandbox b'"],
+  ['HC8m', 'a double-quoted value', '--profile "my profile"'],
+  ['HC8n', 'a word joined to a quoted value', "--profile='my profile'"],
 ]) {
-  test(`${id} a kept extra_args string with Codex's bypass flag ${form} refuses the move to Codex, and nothing is written`, async (t) => {
+  test(`${id} a kept extra_args string with ${form} moves to Codex, and stays as written`, async (t) => {
     const box = await createSandbox(t);
     const bots = await withExtraArgs(box, extra);
-    assert.equal((await entryOf(bots)).extra_args, extra, 'the premise: bot.yaml holds the string as written');
+
+    await assertMovesAsWritten(box, bots, extra);
+  });
+}
+
+for (const [id, form, extra, flag] of [
+  ['HC8b', 'in plain words', '--sandbox workspace-write', '--sandbox'],
+  ['HC8e', 'in single quotes', `'${BYPASS}'`, BYPASS],
+  ['HC8f', 'in double quotes', `"${BYPASS}"`, BYPASS],
+  ['HC8l', 'joined to a quoted value', "--ask-for-approval='never'", '--ask-for-approval'],
+]) {
+  test(`${id} a kept extra_args string with a Codex approval flag ${form} refuses the move by the flag's name, and nothing is written`, async (t) => {
+    const box = await createSandbox(t);
+    const bots = await withExtraArgs(box, extra);
     const before = await snapshot(bots, skipGit);
 
     const result = await change(box, ['--harness', 'codex']);
 
     assertCleanFailure(result);
-    assert.ok(result.stderr.includes(BYPASS), `the refusal should name the flag as the shell reads it, ${BYPASS}, got: ${result.stderr}`);
+    assert.ok(result.stderr.includes(flag), `the refusal should name ${flag}, got: ${result.stderr}`);
     assert.ok(result.stderr.includes('permission approval'), `and name obk permission approval, got: ${result.stderr}`);
     assert.deepEqual(await snapshot(bots, skipGit), before, 'a refusal writes nothing');
   });
 }
 
-test('HC8k a backslash and a newline inside single quotes stay as they are, so the word is not the bypass flag: the move goes through', async (t) => {
+// ------------------------------------------------ shell syntax the kit cannot be sure of
+
+// One sample of each kind. Those marked "flag" are the bypass flag once a
+// shell has read them; the others look harmless. All are refused alike.
+for (const [id, kind, extra] of [
+  ['HC8g', 'a backslash outside quotes (flag)', `${BYPASS.slice(0, -1)}\\${BYPASS.at(-1)}`],
+  ['HC8i', 'a line continuation (flag)', `${BYPASS.slice(0, -1)}\\\n${BYPASS.at(-1)}`],
+  ['HC8j', 'a backslash inside double quotes (flag)', `"${BYPASS.slice(0, -1)}\\\n${BYPASS.at(-1)}"`],
+  ['HC8k', 'a control character inside single quotes', `'${BYPASS.slice(0, -1)}\\\n${BYPASS.at(-1)}'`],
+  ['HC8s1', 'ANSI-C quoting (flag)', `$'${BYPASS.slice(0, -1)}\\x78'`],
+  ['HC8s2', 'brace expansion (flag)', '--{dangerously-bypass-approvals-and-sandbox,verbose}'],
+  ['HC8s3', 'a command separator (flag)', `--verbose; codex ${BYPASS}`],
+  ['HC8s4', 'a variable', '--profile $USER'],
+  ['HC8s5', 'a variable inside double quotes', '--profile "$USER"'],
+  ['HC8s6', 'a command substitution', '--profile $(whoami)'],
+  ['HC8s7', 'backticks', '--profile `whoami`'],
+  ['HC8s8', 'a glob', '--add-dir /tmp/*'],
+  ['HC8s9', 'a tilde', '--add-dir ~/notes'],
+  ['HC8s10', 'a word that starts with =', '--verbose =notes'],
+  ['HC8s11', 'a ! inside double quotes', '--profile "mine!"'],
+  ['HC8s12', 'a comment', '--verbose # mine'],
+  ['HC8s13', 'a tab between words', '--verbose\t--search'],
+  ['HC8s14', 'a quote left open', "--profile 'mine"],
+]) {
+  test(`${id} a kept extra_args string with ${kind} refuses the move, says to write a list of --extra-arg, and writes nothing`, async (t) => {
+    const box = await createSandbox(t);
+    const bots = await withExtraArgs(box, extra);
+    const before = await snapshot(bots, skipGit);
+
+    const result = await change(box, ['--harness', 'codex']);
+
+    assertCleanFailure(result);
+    assert.match(result.stderr, /\blist\b/, `the refusal should say to write extra_args as a list, got: ${result.stderr}`);
+    assert.ok(result.stderr.includes('--extra-arg'), `and name --extra-arg, got: ${result.stderr}`);
+    assert.deepEqual(await snapshot(bots, skipGit), before, 'a refusal writes nothing');
+  });
+}
+
+// ------------------------------------------------ a list
+
+test('HC8c a kept extra_args list with a number in it does not crash the move', async (t) => {
   const box = await createSandbox(t);
-  const extra = `'${BYPASS.slice(0, -1)}\\\n${BYPASS.at(-1)}'`;
-  const bots = await withExtraArgs(box, extra);
-  assert.equal((await entryOf(bots)).extra_args, extra, 'the premise: bot.yaml holds the string, its newline included');
+  const bots = await withExtraArgs(box, ['--max-turns', 5]);
 
-  const result = await change(box, ['--harness', 'codex']);
-
-  assert.equal(result.code, 0, `inside single quotes the backslash and the newline are part of the word: ${result.stderr}`);
-  const entry = await entryOf(bots);
-  assert.equal(entry.harness, 'codex');
-  assert.equal(entry.extra_args, extra, `the string is kept as it was written, got: ${JSON.stringify(entry.extra_args)}`);
-});
-
-test('HC8h a kept extra_args string whose one quoted path holds the text --sandbox moves to Codex, and stays as written', async (t) => {
-  const box = await createSandbox(t);
-  const extra = "--add-dir '/tmp/a --sandbox b'";
-  const bots = await withExtraArgs(box, extra);
-
-  const result = await change(box, ['--harness', 'codex']);
-
-  assert.equal(result.code, 0, `one path argument is no flag: ${result.stderr}`);
-  const entry = await entryOf(bots);
-  assert.equal(entry.harness, 'codex');
-  assert.equal(entry.extra_args, extra, `the string is kept as it was written, got: ${JSON.stringify(entry.extra_args)}`);
+  await assertMovesAsWritten(box, bots, ['--max-turns', 5]);
 });
 
 // ================================================ point 9: no Claude address on another harness
