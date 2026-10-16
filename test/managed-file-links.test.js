@@ -26,7 +26,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { parse } from 'yaml';
 
-import { botHomeOf, bookOf, createSandbox } from './helpers/cli.js';
+import { botHomeOf, bookOf, createSandbox, hookFileOf } from './helpers/cli.js';
 import { agentsIn, agentsOf, hasBlock } from './helpers/rules.js';
 import { botYamlOf } from './helpers/skills.js';
 
@@ -87,6 +87,9 @@ async function moveBotYamlBehindLink(bots, bot, target, linkText) {
   await symlink(linkText ?? target, file);
   return bytes;
 }
+
+/** The bot's own Claude settings file, as the messages here name it. */
+const HOOK_FILE = '.claude/settings.json';
 
 const exists = (file) => lstat(file).then(() => true, () => false);
 
@@ -300,6 +303,46 @@ for (const row of WRITERS) {
     assertNamesTheLink(refused, spellingsOf(box, outFile), target);
   });
 }
+
+test('C4 permission allow refused for a bot.yaml that links outside writes nothing first: the bot\'s Claude settings stay as they were', async (t) => {
+  // A refusal refuses the whole command, not only its bot.yaml write.
+  // `permission allow` also writes the rule into the bot's own
+  // `.claude/settings.json`; a refusal that came only at the bot.yaml write
+  // would leave that half of the change behind.
+  const box = await createSandbox(t);
+  const bots = await withBots(box, ['in-bot', 'out-bot']);
+  for (const bot of ['in-bot', 'out-bot']) {
+    const session = await box.run(['session', 'add', '--bots', 'bots', '--bot', bot, '--name', 'daily']);
+    assert.equal(session.code, 0, session.stderr);
+  }
+  const rule = 'Bash(npm test)';
+  const settingsState = (bot) => readFile(hookFileOf(bots, bot, 'claude'), 'utf8').catch((error) => {
+    if (error.code === 'ENOENT') return 'absent';
+    throw error;
+  });
+  const allowedBy = async (bot) => {
+    const state = await settingsState(bot);
+    return state === 'absent' ? [] : JSON.parse(state)?.permissions?.allow ?? [];
+  };
+  await moveBotYamlBehindLink(bots, 'in-bot', path.join(botHomeOf(bots, 'in-bot'), 'config', 'bot.yaml'), path.join('config', 'bot.yaml'));
+  const target = path.join(box.home, 'fleet-config', 'out-bot.yaml');
+  const bytes = await moveBotYamlBehindLink(bots, 'out-bot', target);
+  assert.equal((await allowedBy('in-bot')).includes(rule), false, 'the premise: in-bot\'s settings do not allow the rule yet');
+  const settingsBefore = await settingsState('out-bot');
+  assert.equal((await allowedBy('out-bot')).includes(rule), false, 'the premise: out-bot\'s settings do not allow the rule yet');
+
+  const followed = await box.run(['permission', 'allow', '--bots', 'bots', '--bot', 'in-bot', '--rule', rule]);
+  const refused = await box.run(['permission', 'allow', '--bots', 'bots', '--bot', 'out-bot', '--rule', rule]);
+
+  // The contrast: through a link that stays inside, the rule reaches the settings.
+  assert.equal(followed.code, 0, followed.stdout + followed.stderr);
+  assert.ok((await allowedBy('in-bot')).includes(rule), `in-bot's ${HOOK_FILE} should allow ${rule} now`);
+
+  // The refusal: out-bot's settings are as they were, byte for byte (or still absent).
+  assertRefusedWrite(refused);
+  assert.equal(await settingsState('out-bot'), settingsBefore, `out-bot's ${HOOK_FILE} is left as it was`);
+  assert.equal(await readFile(target, 'utf8'), bytes, 'and the user\'s own bot.yaml, byte for byte');
+});
 
 // ----------------------------------------------------------------- a bots folder reached through a link
 
