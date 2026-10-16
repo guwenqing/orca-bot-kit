@@ -10,7 +10,7 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, statSync,
 import path from 'node:path';
 import { parseDocument } from 'yaml';
 
-import { BOT_GITIGNORE, changesExactly, YAML_OUT } from './bot.js';
+import { BOT_GITIGNORE, changesExactly, refuseOutside, YAML_OUT } from './bot.js';
 import { RECORD, SKILL_DIRS } from './skills.js';
 
 /**
@@ -310,6 +310,7 @@ function completeBotFather(file, harness) {
     throw new Error(`${file} cannot be completed without changing something else in it, so nothing was written. Give it a harness and a session by hand, then run init again.`);
   }
 
+  refuseOutside(path.dirname(file), file);
   writeFileSync(file, text);
   return [BOT_FATHER_YAML];
 }

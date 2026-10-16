@@ -20,7 +20,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse } from 'yaml';
 
-import { botDir, botNames, displayName, readBot } from './bot.js';
+import { botDir, botNames, displayName, readBot, refuseOutside } from './bot.js';
 import { ownCli, shellWord } from './launch.js';
 
 /** The kit's own units, inside the installed package. */
@@ -85,6 +85,7 @@ export function buildAgents(bots, home, bot) {
 
   let state;
   try {
+    refuseOutside(home, file);
     state = writeBlock(file, built.body);
   } catch (error) {
     return { bot: bot.name, file, state: 'conflict', trouble: error.message };

@@ -79,6 +79,17 @@ export function leadsOutside(home, target) {
   return real === root || real.startsWith(root + path.sep) ? undefined : real;
 }
 
+/**
+ * Refuse to write a bot's own file — its `bot.yaml`, its `AGENTS.md` — through a
+ * link that takes it out of the bot folder at `home`: what is there is the
+ * user's own file, not the bot's (#569).
+ */
+export function refuseOutside(home, file) {
+  const real = leadsOutside(home, file);
+  if (real === undefined) return;
+  throw new Error(`${file} leads outside the bot folder, to ${real}, through a link, and the kit writes a bot's files only inside the bot folder, so nothing was written. Replace the link with a file of the bot's own, then run the command again.`);
+}
+
 /** How many links deep a path is followed before it is taken to lead nowhere. */
 const HOPS = 40;
 
@@ -232,6 +243,7 @@ export function addSession(bots, bot, settings) {
   if (!existsSync(file)) {
     throw new Error(`there is no bot called ${bot} in ${bots}: ${file} is not there. Create it with obk bot create.`);
   }
+  refuseOutside(home, file);
 
   const known = readBot(home, bot);
   if (known.sessions.some((session) => session.name === settings.name)) {
@@ -497,7 +509,11 @@ function editSession(bots, bot, index, session, what) {
  * `write` is not false.
  */
 function editBot(bots, bot, what, edit, expected, write = true) {
-  const file = path.join(existingBot(bots, bot), BOT_YAML);
+  const home = existingBot(bots, bot);
+  const file = path.join(home, BOT_YAML);
+  // Before the dry run too, so a command that writes elsewhere first is
+  // refused before it writes anything.
+  refuseOutside(home, file);
   const source = readFileSync(file, 'utf8');
   const doc = parseDocument(source);
   edit(doc);
