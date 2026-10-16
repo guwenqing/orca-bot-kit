@@ -688,6 +688,8 @@ for (const [id, form, extra] of [
   ['HC8h', 'a single-quoted path that holds the text --sandbox', "--add-dir '/tmp/a --sandbox b'"],
   ['HC8m', 'a double-quoted value', '--profile "my profile"'],
   ['HC8n', 'a word joined to a quoted value', "--profile='my profile'"],
+  // The = is quoted, so zsh does not expand it.
+  ['HC8o', 'a quoted = at the start of a word', "--profile '=sh'"],
 ]) {
   test(`${id} a kept extra_args string with ${form} moves to Codex, and stays as written`, async (t) => {
     const box = await createSandbox(t);
@@ -740,6 +742,10 @@ for (const [id, kind, extra] of [
   ['HC8s12', 'a comment', '--verbose # mine'],
   ['HC8s13', 'a tab between words', '--verbose\t--search'],
   ['HC8s14', 'a quote left open', "--profile 'mine"],
+  // zsh expands an unquoted = with no character of its word before it, empty
+  // quotes included: ''=sh and ""=sh both become /bin/sh.
+  ['HC8s15', 'an unquoted = after empty single quotes', "--profile ''=sh"],
+  ['HC8s16', 'an unquoted = after empty double quotes', '--profile ""=sh'],
 ]) {
   test(`${id} a kept extra_args string with ${kind} refuses the move, says to write a list of --extra-arg, and writes nothing`, async (t) => {
     const box = await createSandbox(t);
