@@ -141,7 +141,11 @@ words, `dangerously-skip`
 ([ADR 0015](docs/adr/0015-three-approval-levels-auto-by-default.md)). Only
 `obk permission approval` changes it, after your yes: `session add` and
 `session change` take no approval, and refuse an extra argument that sets one
-([ADR 0041](docs/adr/0041-permission-changes-and-risky-operations-have-commands-of-their-own.md)).
+([ADR 0041](docs/adr/0041-permission-changes-and-risky-operations-have-commands-of-their-own.md))
+or that widens what the session may write or run, such as `--add-dir`, Claude
+Code's `--settings` or Codex's `--profile`. On Codex, `-c` passes only for a
+short list of keys known to be safe, such as `model_reasoning_effort`
+([ADR 0044](docs/adr/0044-extra-arguments-that-widen-a-session-are-refused.md)).
 
 A bot or a session can also run on [Pi](https://pi.dev) (`--harness pi`, tested
 with Pi 1.1.0). Pi asks before no tool call, so a Pi session is always

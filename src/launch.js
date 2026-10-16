@@ -49,21 +49,89 @@ export const HARNESSES = Object.keys(APPROVAL);
 export const approvalRank = (level) => ['ask', 'auto', 'dangerously-skip'].indexOf(level);
 
 /**
- * The harness flags that set approval or permissions, which only
- * `obk permission approval` may change, not an extra argument (ADR 0041).
- * Codex's `-a` and `-s` take their value glued on too. Pi's `--approve` and
- * `-a` make it trust the folder's own files, which the kit's `--no-approve`
- * keeps it from (#578).
+ * The harness flags that set approval or permissions, or widen what a session
+ * may write or run, which only `obk permission approval` may change, not an
+ * extra argument (ADR 0041, ADR 0044). Codex's short flags take their value
+ * glued on too. Pi's `--approve` and `-a` make it trust the folder's own
+ * files, which the kit's `--no-approve` keeps it from (#578).
  */
 const APPROVAL_FLAGS = {
-  claude: ['--permission-mode', '--dangerously-skip-permissions', '--allow-dangerously-skip-permissions', '--allowedTools', '--allowed-tools'],
-  codex: ['-a', '--ask-for-approval', '--approve-for-me', '--dangerously-bypass-approvals-and-sandbox', '-s', '--sandbox'],
+  claude: [
+    '--permission-mode', '--dangerously-skip-permissions', '--allow-dangerously-skip-permissions', '--allowedTools', '--allowed-tools',
+    '--add-dir', '--settings', '--setting-sources', '--plugin-dir', '--plugin-url', '--mcp-config', '--agents', '--agent', '--debug-file', '--bare', '--restricted',
+  ],
+  codex: [
+    '-a', '--ask-for-approval', '--approve-for-me', '--dangerously-bypass-approvals-and-sandbox', '-s', '--sandbox',
+    '--add-dir', '-C', '--cd', '-p', '--profile', '--enable', '--disable', '--remote', '--remote-auth-token-env',
+  ],
   pi: ['--approve', '-a'],
 };
 
 /**
+ * The Codex `-c` keys an extra argument may set, with any value or with only
+ * the values named. Every other key is refused: Codex 0.163.0's config has
+ * dozens that widen a session, and more in each release (ADR 0044).
+ */
+const CONFIG_KEYS = {
+  model: true,
+  model_reasoning_effort: true,
+  model_reasoning_summary: true,
+  model_verbosity: true,
+  model_context_window: true,
+  model_auto_compact_token_limit: true,
+  plan_mode_reasoning_effort: true,
+  service_tier: true,
+  hide_agent_reasoning: true,
+  show_raw_agent_reasoning: true,
+  tool_output_token_limit: true,
+  'tui.animations': true,
+  'tui.show_tooltips': true,
+  'tui.notifications': true,
+  'tui.notification_method': true,
+  'tui.notification_condition': true,
+  'tui.alternate_screen': true,
+  'tui.theme': true,
+  'tui.vim_mode_default': true,
+  'tui.status_line': true,
+  'tui.terminal_title': true,
+  'tui.raw_output_mode': true,
+  'tui.disable_paste_burst': true,
+  'tui.fullscreen_transcript': true,
+  'tui.mouse_scroll_speed': true,
+  'tui.show_server_version_notice': true,
+  // The network the kit turns on, which a user may turn off (NETWORK_ACCESS).
+  'sandbox_workspace_write.network_access': ['true', 'false'],
+  // These only narrow: `false` is Codex's default.
+  'sandbox_workspace_write.exclude_tmpdir_env_var': ['true', 'false'],
+  'sandbox_workspace_write.exclude_slash_tmp': ['true', 'false'],
+  'features.sleep_tool': ['false'],
+};
+
+/**
+ * The one trust a `-c` may give: one folder, an absolute path in a TOML basic
+ * string, trusted. It is what the kit's own answer to Codex's trust screen
+ * gives, for that run only and with nothing written to config.toml (ADR 0044).
+ */
+const TRUST = /^\{[ \t]*"([^"\\\x00-\x1f\x7f]*)"[ \t]*=[ \t]*\{[ \t]*trust_level[ \t]*=[ \t]*"trusted"[ \t]*\}[ \t]*\}$/;
+
+/** Whether a Codex `-c` value, `key=value`, sets only what an extra argument may. */
+function allowedConfig(setting) {
+  const at = setting.indexOf('=');
+  if (at === -1) return false;
+  const key = setting.slice(0, at).trim();
+  const value = setting.slice(at + 1).trim();
+  if (key === 'projects') {
+    const folder = TRUST.exec(value)?.[1];
+    return folder !== undefined && folder.startsWith('/') && !folder.split('/').includes('..');
+  }
+  if (!/^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)*$/.test(key) || !Object.hasOwn(CONFIG_KEYS, key)) return false;
+  return CONFIG_KEYS[key] === true || CONFIG_KEYS[key].includes(value);
+}
+
+/**
  * Refuse extra arguments that set a session's approval or permissions on
- * `harness`, before anything is written, naming the command that does it.
+ * `harness`, or widen what it may write or run, before anything is written,
+ * naming the command that does it (ADR 0041, ADR 0044).
  * `args` is a list, or, as a user may write `extra_args` by hand, one string
  * of shell text. The kit types such a string into the tab's shell as it
  * stands, so the guard takes it only when it can be sure of the words the
@@ -74,11 +142,23 @@ export function refuseApprovalArgs(harness, args) {
   if (words === undefined) {
     throw new Error(`extra_args is written as one string, ${quoted(String(args))}, with shell syntax the kit cannot be sure of the words of, so it cannot tell whether it sets the session's approval or permissions. Write extra_args as a list, one --extra-arg for each argument. Nothing was changed.`);
   }
-  const found = words.find((arg) => (APPROVAL_FLAGS[harness] ?? []).some((flag) => arg === flag
-    || arg.startsWith(`${flag}=`)
-    || (/^-[as]$/.test(flag) && arg.startsWith(flag) && !arg.startsWith('--'))));
-  if (found === undefined) return;
-  throw new Error(`--extra-arg=${found} sets the session's approval or permissions on ${harness}, and only obk permission approval changes those, after the user's yes. Nothing was changed.`);
+  for (let at = 0; at < words.length; at += 1) {
+    const arg = words[at];
+    if ((APPROVAL_FLAGS[harness] ?? []).some((flag) => arg === flag
+      || arg.startsWith(`${flag}=`)
+      || (/^-[asCp]$/.test(flag) && arg.startsWith(flag) && !arg.startsWith('--')))) {
+      throw new Error(`--extra-arg=${arg} sets the session's approval or permissions on ${harness}, or widens what it may write or run, and only obk permission approval changes those, after the user's yes. Nothing was changed.`);
+    }
+    // Codex's config override: the value is the next word, or after `=`, or glued on.
+    const setting = harness !== 'codex' ? undefined
+      : arg === '-c' || arg === '--config' ? (at += 1, words[at] ?? '')
+        : arg.startsWith('--config=') ? arg.slice('--config='.length)
+          : arg.startsWith('-c') && !arg.startsWith('--') ? arg.slice(2).replace(/^=/, '')
+            : undefined;
+    if (setting !== undefined && !allowedConfig(setting)) {
+      throw new Error(`--extra-arg=-c ${setting} sets a Codex setting that an extra argument may not set: the kit takes -c only for the model, the display, the network switch and a few settings that narrow (ADR 0044). Set the others in your own ~/.codex/config.toml; the session's approval and sandbox change only through obk permission approval, after the user's yes. Nothing was changed.`);
+    }
+  }
 }
 
 /**
