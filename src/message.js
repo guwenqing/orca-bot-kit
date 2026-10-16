@@ -13,7 +13,8 @@
 // One road and one signal (#555, ADR 0042): the letter goes into the
 // receiver's mailbox, and Orca's own notice tells the receiver to look once it
 // is idle. The kit types nothing into the receiver's tab, except the one
-// Escape a sender asks for with --interrupt.
+// Escape a sender asks for with --interrupt. Orca gives no notice to a tab its
+// window has not loaded, so the send says when the receiver's is one (#579).
 
 import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -159,6 +160,8 @@ export async function sendMessage(bots, { to: target, from: sender, tab, subject
   }
 
   const written = bodyOf(bots, { from, to, subject, text, textFile });
+  // Looked at before the post, which is the send's last call to Orca (PRD 6.9).
+  const shown = loaded(to);
   // The Escape goes first, so the turn has ended when the letter is in.
   const interrupted = interrupt ? interruptBusy(to) : {};
   const message = postMessage({
@@ -176,7 +179,28 @@ export async function sendMessage(bots, { to: target, from: sender, tab, subject
     thread: message.thread_id ?? thread,
     file: written.file,
     ...interrupted,
+    ...shown,
   };
+}
+
+/**
+ * Whether Orca's window has loaded the receiver's tab, looked at just before
+ * the letter goes in. Orca gives its notice only to a pane the window has loaded,
+ * and lists one it has not as orphaned, as after a window restart (#579; tech
+ * notes, section 1). So an orphaned tab is said, with its handle, and a
+ * listing that cannot be read is said too, rather than taken for a loaded tab.
+ * The look is made once: a tab orphaned after the send is not seen here.
+ */
+function loaded(to) {
+  if (to.tab === undefined) return {};
+  let listed;
+  try {
+    listed = tabs(to.home, { timeoutMs: LOOK_MS });
+  } catch (error) {
+    return { loadTrouble: error.message };
+  }
+  const tab = listed.find((one) => one.tabId === to.tab);
+  return tab?.orphaned === true ? { orphaned: true, handle: tab.handle } : {};
 }
 
 /**
