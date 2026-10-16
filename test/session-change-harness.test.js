@@ -691,11 +691,18 @@ for (const [id, form, extra] of [
   // The = is quoted, so zsh does not expand it.
   ['HC8o', 'a quoted = at the start of a word', "--profile '=sh'"],
 ]) {
-  test(`${id} a kept extra_args string with ${form} moves to Codex, and stays as written`, async (t) => {
+  // #567: --add-dir and --profile widen a Codex session's scope, so the kit,
+  // once it has read the string, refuses the move.
+  test(`${id} a kept extra_args string with ${form} is read, and its --add-dir or --profile refuses the move to Codex, naming obk permission approval, and nothing is written`, async (t) => {
     const box = await createSandbox(t);
     const bots = await withExtraArgs(box, extra);
+    const before = await snapshot(bots, skipGit);
 
-    await assertMovesAsWritten(box, bots, extra);
+    const result = await change(box, ['--harness', 'codex']);
+
+    assertCleanFailure(result);
+    assert.ok(result.stderr.includes('permission approval'), `the refusal should name obk permission approval, got: ${result.stderr}`);
+    assert.deepEqual(await snapshot(bots, skipGit), before, 'a refusal writes nothing');
   });
 }
 
