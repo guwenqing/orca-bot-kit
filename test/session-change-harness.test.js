@@ -691,6 +691,47 @@ test('HC8d --harness the same as now, with a kept extra_args string, goes throug
   assert.equal(entry.extra_args, '--verbose');
 });
 
+// The string is shell text, and the shell is what reads it: blanks outside
+// quotes split it, quotes come off, a backslash keeps the next character.
+// So the check reads the words the shell makes of it, not the string split on
+// blanks.
+
+/** Codex's flag that bypasses its approvals and its sandbox, as the shell hands it to Codex. */
+const BYPASS = '--dangerously-bypass-approvals-and-sandbox';
+
+for (const [id, form, extra] of [
+  ['HC8e', 'in single quotes', `'${BYPASS}'`],
+  ['HC8f', 'in double quotes', `"${BYPASS}"`],
+  ['HC8g', 'with a backslash escape', `${BYPASS.slice(0, -1)}\\${BYPASS.at(-1)}`],
+]) {
+  test(`${id} a kept extra_args string with Codex's bypass flag ${form} refuses the move to Codex, and nothing is written`, async (t) => {
+    const box = await createSandbox(t);
+    const bots = await withExtraArgs(box, extra);
+    assert.equal((await entryOf(bots)).extra_args, extra, 'the premise: bot.yaml holds the string as written');
+    const before = await snapshot(bots, skipGit);
+
+    const result = await change(box, ['--harness', 'codex']);
+
+    assertCleanFailure(result);
+    assert.ok(result.stderr.includes(BYPASS), `the refusal should name the flag as the shell reads it, ${BYPASS}, got: ${result.stderr}`);
+    assert.ok(result.stderr.includes('permission approval'), `and name obk permission approval, got: ${result.stderr}`);
+    assert.deepEqual(await snapshot(bots, skipGit), before, 'a refusal writes nothing');
+  });
+}
+
+test('HC8h a kept extra_args string whose one quoted path holds the text --sandbox moves to Codex, and stays as written', async (t) => {
+  const box = await createSandbox(t);
+  const extra = "--add-dir '/tmp/a --sandbox b'";
+  const bots = await withExtraArgs(box, extra);
+
+  const result = await change(box, ['--harness', 'codex']);
+
+  assert.equal(result.code, 0, `one path argument is no flag: ${result.stderr}`);
+  const entry = await entryOf(bots);
+  assert.equal(entry.harness, 'codex');
+  assert.equal(entry.extra_args, extra, `the string is kept as it was written, got: ${JSON.stringify(entry.extra_args)}`);
+});
+
 // ================================================ point 9: no Claude address on another harness
 
 // A Claude session's address (`<bot>.<session>.<token>`, ADR 0042) is the name
