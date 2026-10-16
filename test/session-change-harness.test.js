@@ -628,3 +628,63 @@ for (const [from, to, args, named] of [
     assert.deepEqual(await snapshot(bots, skipGit), before, 'a refusal writes nothing');
   });
 }
+
+// An extra_args written by hand as one string is shell text, typed as it
+// stands (test/launch-command.test.js). A move reads it as its shell words,
+// split on white space, and keeps it as written.
+
+/** A Claude bot's daily, its extra_args set by hand in bot.yaml to `extra`. */
+async function withExtraArgs(box, extra) {
+  const bots = await withSession(box);
+  await editEntry(bots, 'daily', { extra_args: extra });
+  return bots;
+}
+
+test('HC8a a kept extra_args written as one harmless string moves with the session, and stays as written', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await withExtraArgs(box, '--verbose');
+
+  const result = await change(box, ['--harness', 'codex']);
+
+  assert.equal(result.code, 0, result.stderr);
+  const entry = await entryOf(bots);
+  assert.equal(entry.harness, 'codex');
+  assert.equal(entry.extra_args, '--verbose', `the string is kept as it was written, got: ${JSON.stringify(entry.extra_args)}`);
+});
+
+test('HC8b a kept extra_args string that sets approval on the new harness refuses the move, and nothing is written', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await withExtraArgs(box, '--sandbox workspace-write');
+  const before = await snapshot(bots, skipGit);
+
+  const result = await change(box, ['--harness', 'codex']);
+
+  assertCleanFailure(result);
+  assert.ok(result.stderr.includes('--sandbox'), `the refusal should name --sandbox, got: ${result.stderr}`);
+  assert.ok(result.stderr.includes('permission approval'), `and name obk permission approval, got: ${result.stderr}`);
+  assert.deepEqual(await snapshot(bots, skipGit), before, 'a refusal writes nothing');
+});
+
+test('HC8c a kept extra_args list with a number in it does not crash the move', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await withExtraArgs(box, ['--max-turns', 5]);
+
+  const result = await change(box, ['--harness', 'codex']);
+
+  assert.equal(result.code, 0, result.stderr);
+  const entry = await entryOf(bots);
+  assert.equal(entry.harness, 'codex');
+  assert.deepEqual(entry.extra_args, ['--max-turns', 5], 'the list is kept as written');
+});
+
+test('HC8d --harness the same as now, with a kept extra_args string, goes through', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await withExtraArgs(box, '--verbose');
+
+  const result = await change(box, ['--harness', 'claude']);
+
+  assert.equal(result.code, 0, result.stderr);
+  const entry = await entryOf(bots);
+  assert.equal(entry.harness, 'claude');
+  assert.equal(entry.extra_args, '--verbose');
+});
