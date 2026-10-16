@@ -33,7 +33,11 @@ export function piTrouble(models) {
 
   for (const model of new Set(models)) {
     const found = ask(['--list-models', withoutThinking(model)]);
-    if (found.error === undefined && found.status === 0 && /^No models matching\b/m.test(found.stdout ?? '')) {
+    if (found.error !== undefined || found.status !== 0) {
+      const why = found.error?.message ?? ((found.stderr ?? '').trim() || `it exited with ${found.status ?? found.signal}`);
+      return `Pi cannot say whether it can use the model ${model}: pi --list-models ${withoutThinking(model)} failed (${why}), so no Pi session was started. Run that command yourself to see why, then run this again.`;
+    }
+    if (/^No models matching\b/m.test(found.stdout ?? '')) {
       return `Pi cannot use the model ${model}: pi --list-models lists none matching it. Sign in to its provider in Pi yourself, or give the session a model Pi lists.`;
     }
   }

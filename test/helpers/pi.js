@@ -13,6 +13,10 @@
 //                             `No models matching "<search>"`, exit 0
 //   anything else             a launch: it writes down its argv and exits 0
 //
+// A test can also make `--list-models` fail, the plain form and the search
+// form each on its own: exit 1 with a message, or die by a signal (the kit
+// then has no exit code at all to read).
+//
 // The table's layout is this fake's own: the kit decides only on the two
 // lines above, never on the rows. Which rows match a search is a plain
 // case-insensitive substring of `<provider>/<model>`, which is narrower than
@@ -64,11 +68,18 @@ if (args[0] === '--version') {
 }
 const at = args.indexOf('--list-models');
 if (at >= 0) {
+  const searching = args[at + 1] !== undefined && !args[at + 1].startsWith('-');
+  const how = searching ? told.search : told.listModels;
+  if (how === 'fails') {
+    process.stderr.write('pi: could not reach the model registry\\n');
+    process.exit(1);
+  }
+  if (how === 'killed') process.kill(process.pid, 'SIGKILL');
   if (!told.signedIn) {
     out('No models available. Use /login, or set an API key, to sign in to a provider.\\n');
     process.exit(0);
   }
-  const search = args[at + 1] !== undefined && !args[at + 1].startsWith('-') ? args[at + 1] : undefined;
+  const search = searching ? args[at + 1] : undefined;
   const rows = told.models.filter((id) => search === undefined || id.toLowerCase().includes(search.toLowerCase()));
   if (rows.length === 0) {
     out('No models matching "' + search + '"\\n');
@@ -86,7 +97,9 @@ process.exit(0);
 
 /**
  * Put a fake `pi` first on `box`'s PATH. `told` says how it behaves:
- * `{ version: 'ok' | 'fails', signedIn: true | false, models: [...] }`.
+ * `{ version: 'ok' | 'fails', signedIn: true | false, models: [...],
+ * listModels: 'ok' | 'fails' | 'killed', search: 'ok' | 'fails' | 'killed' }`,
+ * `listModels` for a plain `--list-models` and `search` for one with a search.
  *
  * Gives back `calls()`, every argv it was run with, `{ args, cwd }` in order;
  * `launches()`, only the calls that start a session (not `--version` or
@@ -98,7 +111,7 @@ export async function fakePi(box, told = {}) {
   const file = path.join(box.root, 'bin', 'pi');
   const log = path.join(box.root, 'pi.log');
   const config = path.join(box.root, 'pi-fake.json');
-  const state = { version: 'ok', signedIn: true, models: PI_MODELS, ...told };
+  const state = { version: 'ok', signedIn: true, models: PI_MODELS, listModels: 'ok', search: 'ok', ...told };
   await writeFile(config, `${JSON.stringify(state)}\n`);
   await writeFile(file, `#!/usr/bin/env node\n${FAKE.trim()
     .replace('__LOG__', JSON.stringify(log))

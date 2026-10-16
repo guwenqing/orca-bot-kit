@@ -10,7 +10,9 @@
 //     the sentence tells the user to sign in to Pi themselves;
 //   - the session names a model and `pi --list-models <model>` says
 //     `No models matching`. A model written with a trailing `:<thinking
-//     level>` (one of Pi's levels) is looked up without that suffix.
+//     level>` (one of Pi's levels) is looked up without that suffix;
+//   - `pi --list-models`, plain or with the model, fails: it exits non-zero
+//     or cannot be run (the review of PR #583).
 //
 // A fleet with no Pi session never runs `pi` at all.
 //
@@ -198,6 +200,76 @@ test('R10 unpause refuses as up does when nobody is signed in to Pi, and opens n
   const said = await assertRefusedBeforeOrca(box, await box.run(['unpause', '--bots', 'bots', '--bot', BOT]), before);
 
   assert.match(said, /sign in/i, `the refusal should tell the user to sign in to Pi, got:\n${said}`);
+});
+
+// ----------------------------------------------------------------- pi --list-models fails (#583 review, item 13)
+
+// A `pi --list-models` that fails says nothing about the models: it is not a
+// yes. So it is refused as a model with no match is: a plain sentence, naming
+// the session's model when it has one, a non-zero exit, and nothing in Orca.
+// 'fails' is an exit of 1; 'killed' is a pi that dies by a signal, which
+// leaves the kit no exit code at all.
+for (const how of ['fails', 'killed']) {
+  test(`R13 up refuses when pi --list-models <model> ${how === 'fails' ? 'exits non-zero' : 'dies by a signal'}, naming the model`, async (t) => {
+    const box = await createSandbox(t);
+    const pi = await fakePi(box, { search: how });
+    await withPiSession(box, ['--model', 'anthropic/claude-opus-5-5']);
+    const before = await orcaNow(box);
+
+    const said = await assertRefusedBeforeOrca(box, await up(box), before);
+
+    assert.ok(said.includes('anthropic/claude-opus-5-5'), `the refusal should name the model, got:\n${said}`);
+    assert.ok((await pi.searches()).includes('anthropic/claude-opus-5-5'), `it asked Pi for that model, got: ${JSON.stringify(await pi.searches())}`);
+    assert.equal((await pi.launches()).length, 0, 'and started no Pi session');
+  });
+
+  test(`R13 up refuses when the plain pi --list-models ${how === 'fails' ? 'exits non-zero' : 'dies by a signal'}`, async (t) => {
+    const box = await createSandbox(t);
+    const pi = await fakePi(box, { listModels: how });
+    await withPiSession(box);
+    const before = await orcaNow(box);
+
+    const said = await assertRefusedBeforeOrca(box, await up(box), before);
+
+    assert.match(said, /\bPi\b/, `the refusal should name Pi, got:\n${said}`);
+    assert.ok((await pi.searches()).includes(undefined), `it asked Pi which models it has, got: ${JSON.stringify(await pi.calls())}`);
+  });
+}
+
+test('R13 a session whose model Pi lists goes up, with the same fake that fails when told', async (t) => {
+  // The control for R13: the fake answers, so the refusals above are the failing call's.
+  const box = await createSandbox(t);
+  await fakePi(box, { search: 'ok', listModels: 'ok' });
+  await withPiSession(box, ['--model', 'anthropic/claude-opus-5-5']);
+
+  const result = await up(box);
+
+  assert.equal(result.code, 0, `${result.stdout}${result.stderr}`);
+});
+
+test('R13 restart refuses as up does when pi --list-models <model> fails, naming the model', async (t) => {
+  const box = await createSandbox(t);
+  await fakePi(box, { search: 'fails' });
+  await withPiSession(box, ['--model', 'anthropic/claude-opus-5-5']);
+  const before = await orcaNow(box);
+
+  const said = await assertRefusedBeforeOrca(box, await box.run(['restart', '--bots', 'bots', '--bot', BOT]), before);
+
+  assert.ok(said.includes('anthropic/claude-opus-5-5'), `the refusal should name the model, got:\n${said}`);
+});
+
+test('R13 unpause refuses as up does when pi --list-models <model> fails, naming the model', async (t) => {
+  const box = await createSandbox(t);
+  const pi = await fakePi(box);
+  await withPiSession(box, ['--model', 'anthropic/claude-opus-5-5']);
+  const paused = await box.run(['pause', '--bots', 'bots', '--bot', BOT]);
+  assert.equal(paused.code, 0, `the pause this test stands on did not happen: ${paused.stdout}${paused.stderr}`);
+  await pi.set({ search: 'fails' });
+  const before = await orcaNow(box);
+
+  const said = await assertRefusedBeforeOrca(box, await box.run(['unpause', '--bots', 'bots', '--bot', BOT]), before);
+
+  assert.ok(said.includes('anthropic/claude-opus-5-5'), `the refusal should name the model, got:\n${said}`);
 });
 
 // ----------------------------------------------------------------- no Pi session, no pi

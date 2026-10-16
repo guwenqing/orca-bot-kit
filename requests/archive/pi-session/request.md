@@ -28,7 +28,7 @@ Signed off: 2026-10-16 owner, origin/2026-10-16-signoff.md
 - Dropped: none
 - Kept: none
 - Decisions: none
-- Agent rulings: none
+- Agent rulings: the architect, #578, in review: the kit refuses a Pi session whose trimmed start prompt begins with `@`, since Pi 1.1.0 reads such a word after `--` as a file to attach and has no escape for it; it follows from a Pi limit under R1 and is no new decision for the owner. The question to Pi that checks the session's model refuses when it fails, under R4.
 - ADRs added: none
 - ADRs superseded: none
 

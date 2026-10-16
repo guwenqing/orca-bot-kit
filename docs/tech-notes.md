@@ -929,6 +929,12 @@ docs, or Orca's 1.4.225 bundle. The kit was tested with Pi 1.1.0.
   `--exclude-tools`) and extensions. There is no context-window flag; a model's own name carries it
   (`cursor/claude-opus-5-5@1m`). Pi's docs say it "does not ask for approval before every tool call"
   (`docs/security.md`). So every Pi session counts as `dangerously-skip`, with no flag for it (#547).
+- **A message after `--` that starts with `@` is a file to attach**, not text: `parseArgs` sends it to
+  `fileArgs`, and Pi exits with `File not found` when there is no such file, or sends the file in `<file>`
+  tags when there is. Pi 1.1.0 has no escape for it, reads piped stdin only when stdin is not a TTY, and
+  does not trim its first message. **read in code** (`dist/cli/args.js`, `dist/cli/file-processor.js`,
+  `dist/cli/initial-message.js`). So the kit refuses a Pi session whose trimmed start prompt begins with
+  `@` (#578). A later Pi with an escape can lift this.
 - **`--session-id <id>` opens the session with that id in the working folder's session folder, and makes
   one with that id when there is none**, printing `Warning: No project session found with id '<id>';
   creating a new session with that id.` The id must match `^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$`.

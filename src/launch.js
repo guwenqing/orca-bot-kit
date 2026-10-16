@@ -229,6 +229,13 @@ export function sessionTrouble(session, harness, home) {
     if (set(session.context)) {
       return `${where(session)} sets a context of ${session.context} on Pi, and Pi has no context setting: the model's name carries it, as in cursor/claude-opus-5-5@1m. Name such a model, or leave the context out.`;
     }
+    // Pi 1.1.0 reads a word after `--` that starts with `@` as a file to
+    // attach, and has no escape for it, so such a prompt cannot arrive as
+    // written (tech notes, section 6). It is checked trimmed, as it is sent.
+    const said = set(session.prompt_file) ? readFileSync(promptFile(session, home), 'utf8') : session.prompt;
+    if (set(said) && String(said).trim().startsWith('@')) {
+      return `${where(session)} runs on Pi, and its prompt begins with @. Pi would read the prompt as a file to attach, not as text. Give it a prompt that does not begin with @.`;
+    }
   }
   // Codex is given the context window as a number of tokens. `1m` is what a
   // Claude session would say, and copying it here does not fail at the kit but
