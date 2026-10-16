@@ -87,15 +87,18 @@ Usage:
                             the bot's temporary sessions may be made at. A
                             running session takes it when it next starts.
   obk session change --bots <path> --bot <bot> --session <session>
+                  [--harness claude|codex]
                   [--model <m>] [--effort <e>] [--context <c>]
                   [--prompt <text> | --prompt-file <path>] [--work-dir <path>]
                   [--extra-arg=<arg>]
                             Change a session's settings. What you leave out
                             stays as it is; a setting given empty, --model=,
                             goes back to the harness's own default. A running
-                            session takes the change when it next starts. A
-                            session keeps its harness: to move it, retire it
-                            and add another.
+                            session takes the change when it next starts. On
+                            another harness it starts a new conversation, the
+                            book keeps the old one in its history, and model,
+                            effort and context go back to the new harness's
+                            defaults unless given too.
   obk pause --bots <path> --bot <bot> [--session <name>]
                             Stop a bot, or one of its sessions, for now: close
                             its tabs and have obk up leave it closed. The book
@@ -1233,21 +1236,23 @@ const commands = {
   },
 
   'session change'(bots, values) {
-    if (values.harness !== undefined) {
-      throw new Error(`session change does not change a session's harness: its conversations belong to the harness they ran on. To move it, retire it with obk retire and add one on ${values.harness} with obk session add.`);
-    }
     refuseApproval(bots, values, 'session change');
     const { name, ...settings } = settingsOf(values);
     const changed = changeSession(bots, values.bot, values.session, settings);
     const restart = `${shellWord(ownCli())} restart --bots ${shellWord(bots)} --bot ${changed.bot} --session ${values.session}`;
     const found = workDirFound(values, changed.bot, changed.home, values.session);
+    const { moved } = changed;
     return {
-      answer: { bots, bot: changed.bot, home: changed.home, session: changed.session, restart, found },
+      answer: { bots, bot: changed.bot, home: changed.home, session: changed.session, ...(moved === undefined ? {} : { moved }), restart, found },
       lines: [
         `changed    session ${values.session} in ${path.join('bots', changed.bot, 'bot.yaml')}`,
         ...Object.entries(changed.session)
           .filter(([key]) => key !== 'name')
           .map(([key, value]) => `           ${key}  ${oneLine(value)}`),
+        ...(moved === undefined ? [] : [
+          `moved      from ${moved.from} to ${moved.to}: when it next starts, it starts a new conversation on ${moved.to}, and the book keeps its old one in the session's history.`,
+          ...(moved.defaults.length === 0 ? [] : [`           ${moved.defaults.join(', ')} went back to ${moved.to}'s own default${moved.defaults.length === 1 ? '' : 's'}.`]),
+        ]),
         ...foundLines(found),
         `A running session takes this when it next starts:  ${restart}`,
       ],
@@ -1364,7 +1369,9 @@ function refuseApproval(bots, values, command) {
   if (values.approval !== undefined) {
     throw new Error(`${command} no longer takes --approval: a session's approval changes through ${shellWord(ownCli())} permission approval --bots ${shellWord(bots)} --bot ${values.bot} --session ${values.session ?? values.name} --approval <level>, after the user's yes. Nothing was changed.`);
   }
-  if (values['extra-arg'] === undefined) return;
+  // A move to another harness keeps the extra arguments the session has, and
+  // one of them can set approval on the new harness (#565).
+  if (values['extra-arg'] === undefined && values.harness === undefined) return;
   let bot;
   try {
     bot = readBot(botDir(bots, values.bot), values.bot);
@@ -1373,7 +1380,7 @@ function refuseApproval(bots, values, command) {
     return;
   }
   const session = bot.sessions.find((one) => one.name === (values.session ?? values.name)) ?? {};
-  refuseApprovalArgs(harnessOf({ ...session, ...(values.harness === undefined ? {} : { harness: values.harness }) }, bot.harness), values['extra-arg']);
+  refuseApprovalArgs(harnessOf({ ...session, ...(values.harness === undefined ? {} : { harness: values.harness }) }, bot.harness), values['extra-arg'] ?? (command === 'session change' ? session.extra_args : undefined));
 }
 
 /**
@@ -1456,6 +1463,12 @@ function refuseWhenOrcaIsDown() {
 /** The one line that says which conversation this tab was given, and from where. */
 const howLines = (tab) => {
   if (tab.resumed === true) return ['             it was told to resume the session the book holds, with its conversation.'];
+  if (tab.harnessChanged !== undefined) {
+    return [
+      `             it was told to start a new session: the book's conversation ${tab.harnessChanged} ran on ${tab.ranOn},`,
+      "             and the session has moved from it, so it went into the session's history.",
+    ];
+  }
   if (tab.noConversation === undefined) return ['             it was told to start a new session: the book holds none for this one yet.'];
   return [
     `             it was told to start a new session: the book's conversation ${tab.noConversation} had nothing on record`,
