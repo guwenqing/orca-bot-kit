@@ -76,8 +76,9 @@ export function refuseApprovalArgs(harness, args) {
 /**
  * The words of the shell text `text`, when the kit can be sure they are the
  * ones the tab's shell makes of it, and undefined when it cannot (#565). Sure
- * means plain words of the characters `quoted` leaves bare, none starting with
- * `=` (zsh's equals expansion), separated by spaces; single quotes with no
+ * means plain words of the characters `quoted` leaves bare, separated by
+ * spaces, with no unquoted `=` before any other character of its word, empty
+ * quotes included (zsh's equals expansion makes `''=sh` into /bin/sh); single quotes with no
  * backslash (fish reads `\'` and `\\` there) and no control character; and
  * double quotes with none of `$`, backquote, backslash or `!`, and no control
  * character. Read so, it is the same words in zsh, bash and fish. Everything
@@ -103,7 +104,7 @@ function sureWords(text) {
     } else if (char === "'" || char === '"') {
       word ??= '';
       quote = char;
-    } else if (/^[A-Za-z0-9,._+:@%/=-]$/.test(char) && !(char === '=' && word === undefined)) {
+    } else if (/^[A-Za-z0-9,._+:@%/=-]$/.test(char) && !(char === '=' && !word)) {
       word = (word ?? '') + char;
     } else {
       return undefined;
