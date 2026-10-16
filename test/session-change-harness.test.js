@@ -373,12 +373,15 @@ test('HC3 session change --harness leaves the book and the running tab alone, an
 test('HC4 --json: the session as it now reads, and moved with the settings that went back to the default, in order', async (t) => {
   const box = await createSandbox(t);
   // Given out of order, so the order of the answer is the kit's own.
-  await withSession(box, { settings: ['--context', '1m', '--effort', 'high', '--model', 'sonnet', '--prompt', PROMPT] });
+  const bots = await withSession(box, { settings: ['--context', '1m', '--effort', 'high', '--model', 'sonnet', '--prompt', PROMPT] });
+  // What session add wrote (its default approval included), less the three that go back to the default.
+  const { model, effort, context, ...kept } = await entryOf(bots);
+  assert.deepEqual([model, effort, context], ['sonnet', 'high', '1m'], 'the premise: the session had all three');
 
   const result = await change(box, ['--harness', 'codex', '--json']);
 
   const answer = jsonOf(result);
-  assert.deepEqual(answer.session, { name: 'daily', harness: 'codex', prompt: PROMPT });
+  assert.deepEqual(answer.session, { ...kept, harness: 'codex' });
   assert.deepEqual(answer.moved, { from: 'claude', to: 'codex', defaults: ['model', 'effort', 'context'] });
 });
 
