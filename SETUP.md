@@ -38,6 +38,7 @@ git --version
 /Applications/Orca.app/Contents/Resources/bin/orca status --json
 claude --version                                        # at least one of these
 codex --version                                         # 0.156.1 or newer
+pi --version                                            # 1.1.0, for a bot on Pi
 ```
 
 The Orca line must come back with `ok: true` and `result.runtime.reachable:

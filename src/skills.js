@@ -474,6 +474,9 @@ function tellSessions(home, bot, linked) {
     const told = { session: session.name, harness };
     const tab = typeof book[session.name]?.tab === 'string' ? book[session.name].tab : undefined;
     if (tab === undefined) return { ...told, state: 'not-up' };
+    // Skills reach a Pi session in a later slice (#547), and nothing is typed
+    // into its tab before then.
+    if (harness === 'pi') return { ...told, state: 'unknown', trouble: 'it runs on Pi, and the kit does not give a Pi session skills yet, so nothing was typed' };
     if (down !== undefined) return { ...told, state: 'unknown', trouble: `Orca is not answering at ${orcaCli()}, so the kit could not look at its tab, and nothing was typed` };
     let turn;
     try {
