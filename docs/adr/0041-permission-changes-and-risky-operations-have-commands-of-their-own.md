@@ -1,7 +1,7 @@
 # ADR 0041: Permission changes and risky operations have commands of their own
 
 Date: 2026-10-10.
-Status: superseded by [ADR 0043](0043-permission-changes-and-risky-operations-have-commands-of-their-own.md).
+Status: accepted.
 Decided by: the owner, on 2026-10-10, for permission changes and risky operations in commands of their own, kept out of the default set (#527: "Change permission and risky operation; you need to make dedicate sub command"), and for a bot never granting itself rules or approval (the fleet's rules, 2026-10-10); Bot Father, on 2026-10-10, for moving the approval out of `session add` and `session change` and for `init` staying out of the set; the architect, on 2026-10-10, for `temp make` taking no approval wider than its maker's without the user's yes for the bot's temporary sessions, for refusing extra arguments that set approval, and for `bot change --role-cap`; developer-527, for the name `obk permission` and for the list of risky commands; the owner, on 2026-10-10, for `restart` and `bot create` being Bot Father's only (the owner's fleet rules, bots commit 6bc6835, rules/kit-commands.md), so kept out of the default set (#548); the architect, on 2026-10-10, for naming a bot that still holds one of those two rules rather than taking it back (#548, ruling D). The architect or the owner may overrule the parts that are not the owner's.
 Supersedes: [ADR 0037](0037-permission-changes-and-risky-operations-have-commands-of-their-own.md).
 

@@ -46,7 +46,7 @@ export const approvalRank = (level) => ['ask', 'auto', 'dangerously-skip'].index
 /**
  * The harness flags that set approval or permissions, or widen what a session
  * may write or run, which only `obk permission approval` may change, not an
- * extra argument (ADR 0043). Codex's short flags take their value glued on too.
+ * extra argument (ADR 0041, ADR 0044). Codex's short flags take their value glued on too.
  */
 const APPROVAL_FLAGS = {
   claude: [
@@ -62,7 +62,7 @@ const APPROVAL_FLAGS = {
 /**
  * The Codex `-c` keys an extra argument may set, with any value or with only
  * the values named. Every other key is refused: Codex 0.163.0's config has
- * dozens that widen a session, and more in each release (ADR 0043).
+ * dozens that widen a session, and more in each release (ADR 0044).
  */
 const CONFIG_KEYS = {
   model: true,
@@ -102,7 +102,7 @@ const CONFIG_KEYS = {
 /**
  * The one trust a `-c` may give: one folder, an absolute path in a TOML basic
  * string, trusted. It is what the kit's own answer to Codex's trust screen
- * gives, for that run only and with nothing written to config.toml (ADR 0043).
+ * gives, for that run only and with nothing written to config.toml (ADR 0044).
  */
 const TRUST = /^\{[ \t]*"([^"\\\x00-\x1f\x7f]*)"[ \t]*=[ \t]*\{[ \t]*trust_level[ \t]*=[ \t]*"trusted"[ \t]*\}[ \t]*\}$/;
 
@@ -123,7 +123,7 @@ function allowedConfig(setting) {
 /**
  * Refuse extra arguments that set a session's approval or permissions on
  * `harness`, or widen what it may write or run, before anything is written,
- * naming the command that does it (ADR 0043).
+ * naming the command that does it (ADR 0041, ADR 0044).
  * `args` is a list, or, as a user may write `extra_args` by hand, one string
  * of shell text. The kit types such a string into the tab's shell as it
  * stands, so the guard takes it only when it can be sure of the words the
@@ -148,7 +148,7 @@ export function refuseApprovalArgs(harness, args) {
           : arg.startsWith('-c') && !arg.startsWith('--') ? arg.slice(2).replace(/^=/, '')
             : undefined;
     if (setting !== undefined && !allowedConfig(setting)) {
-      throw new Error(`--extra-arg=-c ${setting} sets a Codex setting that an extra argument may not set: the kit takes -c only for the model, the display, the network switch and a few settings that narrow (ADR 0043). Set the others in your own ~/.codex/config.toml; the session's approval and sandbox change only through obk permission approval, after the user's yes. Nothing was changed.`);
+      throw new Error(`--extra-arg=-c ${setting} sets a Codex setting that an extra argument may not set: the kit takes -c only for the model, the display, the network switch and a few settings that narrow (ADR 0044). Set the others in your own ~/.codex/config.toml; the session's approval and sandbox change only through obk permission approval, after the user's yes. Nothing was changed.`);
     }
   }
 }
