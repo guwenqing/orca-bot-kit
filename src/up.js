@@ -15,7 +15,7 @@ import { conversationsIn, hasConversation, heldAsUserTurn, transcriptsIn } from 
 import { installHook } from './hooks.js';
 import { writePermissions } from './permissions.js';
 import { piTrouble } from './pi.js';
-import { addressOf, harnessOf, isAddressOf, isShortPrompt, kitFolders, launchCommand, mailboxStep, reachesMail, sessionTrouble, startPrompt, workDirOf } from './launch.js';
+import { addressOf, HARNESSES, harnessOf, isAddressOf, isShortPrompt, kitFolders, launchCommand, mailboxStep, reachesMail, sessionTrouble, startPrompt, workDirOf } from './launch.js';
 import { asFolderProject, coordinatorOf, findProject, harnessInTab, makeMailbox, makeProject, openTab, QUESTION_ON_SCREEN, retitleTab, runMissing, screenRows, shellInTab, tabs, tabToTypeInto, TERMINAL_ENV, TIMED_OUT, tellWindow, typeIntoTab, useMailbox } from './orca.js';
 import { TAB_ENV } from './record.js';
 import { buildAgents, rulesStamp } from './rules.js';
@@ -340,10 +340,13 @@ async function bringUpSession(bots, home, live, session, bot, title) {
       // gets, and trust-hooks asks what this one got (#506).
       let entry = { ...current.sessions[session.name], tab: made.tabId, launched, launched_with: session.extra_args ?? [], rules };
       if (rules === undefined) delete entry.rules;
+      // Only Claude Code answers to an address. One left from a Claude run
+      // before a move to another harness would draw mail to nobody (#565).
+      if (harness !== 'claude') delete entry.address;
       held = entry.session;
       // Before the line is typed, so the hook finds no id here and takes the one
       // it reports for a start rather than a clear, which would tell the duty twice.
-      if (which.noConversation !== undefined && held === which.noConversation) entry = forgetSession(entry, 'no conversation');
+      if (which.noConversation !== undefined && held === which.noConversation) entry = setAside(entry, which);
       // The id a new Pi conversation is started under, written before the line
       // that starts it, as a hook writes Claude Code's and Codex's.
       if (fresh !== undefined && launch.resume === undefined) entry = rememberSession(entry, fresh);
@@ -360,11 +363,12 @@ async function bringUpSession(bots, home, live, session, bot, title) {
   // same way (review of PR #310). A Pi session has no hook, and the id this run
   // named for it is the one the book now holds.
   if (fresh === undefined && which.noConversation !== undefined && typeof held === 'string' && held !== which.noConversation) {
-    which = hasConversation(harness, home, held) ? { resume: held } : { noConversation: held };
+    which = hasConversation(harness, home, held) ? { resume: held } : notHere(harness, home, held);
     if (which.noConversation !== undefined) {
+      const chosen = which;
       await updateBook(home, (current) => {
         const entry = current.sessions[session.name];
-        if (entry?.session === held) current.sessions[session.name] = forgetSession(entry, 'no conversation');
+        if (entry?.session === held) current.sessions[session.name] = setAside(entry, chosen);
       });
     }
     launch = launchOf(which);
@@ -429,7 +433,9 @@ async function bringUpSession(bots, home, live, session, bot, title) {
     promptReceived,
     promptFile: launch.promptFile,
     resumed: launch.resume !== undefined,
-    noConversation: which.noConversation,
+    noConversation: which.ranOn === undefined ? which.noConversation : undefined,
+    harnessChanged: which.ranOn === undefined ? undefined : which.noConversation,
+    ranOn: which.ranOn,
     unclaimed: which.unclaimed,
     listLine: list?.typed,
     listLineTrouble: list?.why,
@@ -861,7 +867,7 @@ function whichConversation(book, home, bot, session, was, harness) {
     // it: a session paused before its first turn is one. There is nothing to
     // resume, so it starts again with its duty, and the book keeps the id in the
     // history with the reason (#295).
-    return { noConversation: was.session };
+    return notHere(harness, home, was.session);
   }
   // No tab: nothing has ever run for this session, so there is nothing to find.
   if (typeof was?.tab !== 'string') return {};
@@ -880,6 +886,22 @@ function whichConversation(book, home, bot, session, was, harness) {
     : [];
   return { unclaimed: known.map((one) => one.id) };
 }
+
+/**
+ * An id the book holds that this harness has no conversation behind, so the
+ * session starts fresh: `{ noConversation: id }`, and `ranOn`, the harness that
+ * does have it, when the session has moved to another harness since it ran
+ * (#565). That conversation is not lost, only not this harness's to resume.
+ */
+function notHere(harness, home, id) {
+  const ranOn = HARNESSES.find((other) => other !== harness && hasConversation(other, home, id));
+  return ranOn === undefined ? { noConversation: id } : { noConversation: id, ranOn };
+}
+
+/** The entry with the id `which` set aside moved into its history, with why. */
+const setAside = (entry, which) => (which.ranOn === undefined
+  ? forgetSession(entry, 'no conversation')
+  : forgetSession(entry, 'harness changed', { harness: which.ranOn }));
 
 /**
  * A bot's Orca project, made if it is not there yet, with `change` saying
@@ -916,7 +938,7 @@ export const promptPath = (bots, bot, session) =>
 export const oldPromptPath = (bots, bot, session) =>
   path.join(`${bots}.prompts`, `${encodeURIComponent(bot)}.${encodeURIComponent(session)}.txt`);
 
-function entry(tab, { bot, name, created, running = false, blockedReason, promptReceived, promptFile, resumed, noConversation, unclaimed, noMailbox = false, listLine, listLineTrouble, notLaunched }) {
+function entry(tab, { bot, name, created, running = false, blockedReason, promptReceived, promptFile, resumed, noConversation, harnessChanged, ranOn, unclaimed, noMailbox = false, listLine, listLineTrouble, notLaunched }) {
   const made = { bot, name, title: tab.title, tabId: tab.tabId, terminal: tab.handle, created, harnessStarted: running };
   // A tab whose shell was not ready for the launch line, and why: nothing was
   // typed into it (#498).
@@ -930,6 +952,9 @@ function entry(tab, { bot, name, created, running = false, blockedReason, prompt
   if (listLineTrouble !== undefined) made.listLineTrouble = listLineTrouble;
   // The id the book held that had no conversation behind it, now in the history.
   if (noConversation !== undefined) made.noConversation = noConversation;
+  // The id the book held that ran on another harness, the one this session
+  // has since moved from, now in the history (#565).
+  if (harnessChanged !== undefined) Object.assign(made, { harnessChanged, ranOn });
   // Orca's own words for what is on screen waiting to be answered, when it
   // gave any: the caller acts on it, the kit only passes it on.
   if (blockedReason !== undefined) made.blockedReason = blockedReason;

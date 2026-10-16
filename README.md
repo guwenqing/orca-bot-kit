@@ -461,6 +461,7 @@ obk permission disallow --bots /path/to/my-bots --bot api-bot --rule 'Bash(gh pr
 obk permission approval --bots /path/to/my-bots --bot api-bot --session daily --approval ask
 obk permission approval --bots /path/to/my-bots --bot api-bot --temps --approval dangerously-skip
 obk session change --bots /path/to/my-bots --bot api-bot --session daily --model opus
+obk session change --bots /path/to/my-bots --bot bot-father --session daily --harness codex
 obk skills remove --bots /path/to/my-bots --bot api-bot --skill kit:obk-tdd
 obk pause --bots /path/to/my-bots --bot api-bot [--session daily]
 obk unpause --bots /path/to/my-bots --bot api-bot [--session daily]
@@ -468,8 +469,11 @@ obk retire --bots /path/to/my-bots --bot api-bot [--session daily]
 ```
 
 A change to a charter or a setting is written at once, and a running session
-takes it when it next starts. A session keeps its harness: to move one, retire
-it and add another. A pause closes the tabs the way a restart does, with the
+takes it when it next starts. A session can move to the other harness with
+`--harness`, Bot Father's management session too: it then starts a new
+conversation there, the book keeps the old one in its history, and its model,
+effort and context go back to the new harness's defaults unless you give them
+too. A pause closes the tabs the way a restart does, with the
 same refusals, and one more: it also refuses a tab with only its shell in front
 whose conversation the book does not name. `obk up` leaves what is paused
 closed until `obk unpause` brings it back with its conversations. Retiring a

@@ -333,12 +333,18 @@ export function disallowRules(bots, bot, rules, { write = true } = {}) {
 
 /**
  * Change the settings of the session `name` of the bot `bot`. Returns
- * { bot, home, session } — the session as it now reads.
+ * { bot, home, session, moved } — the session as it now reads, and, when it
+ * moved to another harness, `{ from, to, defaults }`.
  *
  * A setting given replaces the one there, and one given empty is taken out,
  * which leaves it to the harness's own default. A start prompt is written one
  * way or the other, so giving one takes the other away. The result is held to
  * the rules `session add` holds a new session to.
+ *
+ * A move to another harness takes out the model, effort and context the
+ * session had, which belong to the harness it is leaving, unless the same call
+ * gives them (#565). The book is not touched: the session's conversation is
+ * set aside when it next starts on the new harness.
  */
 export function changeSession(bots, bot, name, settings) {
   const changes = { ...settings };
@@ -350,6 +356,13 @@ export function changeSession(bots, bot, name, settings) {
 
   const { home, known, index } = sessionAt(bots, bot, name);
   const was = known.sessions[index];
+  const from = harnessOf(was, known.harness);
+  let moved;
+  if (changes.harness !== undefined && changes.harness !== from) {
+    const defaults = ['model', 'effort', 'context'].filter((key) => changes[key] === undefined && ![undefined, null, ''].includes(was[key]));
+    for (const key of defaults) changes[key] = '';
+    moved = { from, to: changes.harness, defaults };
+  }
   // Every key the entry had stays, a pause mark or one of the user's own among
   // them; only the settings given change.
   const session = Object.fromEntries(Object.entries({ ...was, ...changes })
@@ -358,7 +371,7 @@ export function changeSession(bots, bot, name, settings) {
   if (trouble !== undefined) throw new Error(trouble);
 
   editSession(bots, bot, index, session, `change ${bot}'s session ${name}`);
-  return { bot, home, session };
+  return { bot, home, session, ...(moved === undefined ? {} : { moved }) };
 }
 
 /**
