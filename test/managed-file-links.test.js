@@ -26,7 +26,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { parse } from 'yaml';
 
-import { botHomeOf, bookOf, createSandbox, hookFileOf } from './helpers/cli.js';
+import { botHomeOf, bookOf, createSandbox, hookFileOf, skipGit, snapshot } from './helpers/cli.js';
 import { agentsIn, agentsOf, hasBlock } from './helpers/rules.js';
 import { botYamlOf } from './helpers/skills.js';
 
@@ -455,4 +455,83 @@ test('C7 init completes a Bot Father bot.yaml that links to a file inside the bo
   assert.equal(parse(after).harness, 'claude', `the harness is written into the file the link points at, got:\n${after}`);
   assert.deepEqual(sessionNames(after), ['daily']);
   assert.equal(await readlink(file), path.join('config', 'bot.yaml'), 'and the link is still a link');
+});
+
+test('C7 init that refuses an outside-linked Bot Father bot.yaml writes nothing at all: not even a missing defaults.yaml', async (t) => {
+  // A refusal refuses the whole run, not only the bot.yaml write: the seed
+  // files init would put back are not put back either.
+  const box = await createSandbox(t);
+  const target = path.join(box.home, 'fleet-config', 'bot-father.yaml');
+  await previousSliceBehindLink(box, target);
+  const bots = box.path('bots');
+  await rm(path.join(bots, 'defaults.yaml'));
+  const before = await snapshot(bots, skipGit);
+
+  const result = await box.run(['init', '--bots', 'bots', '--harness', 'claude']);
+
+  assertRefusedWrite(result);
+  assert.equal(await exists(path.join(bots, 'defaults.yaml')), false, 'no defaults.yaml comes back from a refused init');
+  assert.deepEqual(await snapshot(bots, skipGit), before, 'and nothing else in the bots folder changes');
+  assert.equal(await readFile(target, 'utf8'), PREVIOUS_SLICE, 'the user\'s own file, byte for byte');
+});
+
+test('C7 init that completes an inside-linked Bot Father bot.yaml also puts a missing defaults.yaml back', async (t) => {
+  const box = await createSandbox(t);
+  const inside = box.path('bots', 'bots', 'bot-father', 'config', 'bot.yaml');
+  await previousSliceBehindLink(box, inside, path.join('config', 'bot.yaml'));
+  const bots = box.path('bots');
+  await rm(path.join(bots, 'defaults.yaml'));
+
+  const result = await box.run(['init', '--bots', 'bots', '--harness', 'claude']);
+
+  assert.equal(result.code, 0, result.stdout + result.stderr);
+  assert.equal(parse(await readFile(inside, 'utf8')).harness, 'claude', 'the bot.yaml the link points at is completed');
+  assert.equal(await exists(path.join(bots, 'defaults.yaml')), true, 'and defaults.yaml is back');
+});
+
+// ----------------------------------------------------------------- where the write really lands
+
+test('C2 a link whose text reads as inside but goes through a linked folder with .. lands outside, and is refused', async (t) => {
+  // `hop` leads to <home>/notes/child. `AGENTS.md` -> `hop/../new-agents.md`
+  // reads as <bot>/new-agents.md, but the file system takes `hop/..` to the
+  // parent of where hop really points: <home>/notes/new-agents.md.
+  const box = await createSandbox(t);
+  const bots = await withBots(box, ['api-bot']);
+  const home = botHomeOf(bots, 'api-bot');
+  const child = path.join(box.home, 'notes', 'child');
+  await mkdir(child, { recursive: true });
+  await symlink(child, path.join(home, 'hop'));
+  const file = agentsOf(bots, 'api-bot');
+  await linkTo(file, undefined, path.join('hop', '..', 'new-agents.md'));
+  const lands = path.join(box.home, 'notes', 'new-agents.md');
+
+  const result = await box.run(['rules', 'build', '--bots', 'bots', '--bot', 'api-bot']);
+
+  assert.equal(await exists(lands), false, `no file comes into being at ${lands}`);
+  assert.equal(await readlink(file), path.join('hop', '..', 'new-agents.md'), 'the link is left as it was made');
+  assertRefusedWrite(result);
+  assertNamesTheLink(result, spellingsOf(box, file), lands);
+});
+
+test('C3 a link with .. through a linked folder that stays inside the bot is built where the file system takes it', async (t) => {
+  // `hop` leads to <bot>/sub/child, so `hop/../agents-here.md` lands in
+  // <bot>/sub/agents-here.md, not <bot>/agents-here.md as the text reads.
+  const box = await createSandbox(t);
+  const bots = await withBots(box, ['api-bot']);
+  const home = botHomeOf(bots, 'api-bot');
+  await mkdir(path.join(home, 'sub', 'child'), { recursive: true });
+  await symlink(path.join('sub', 'child'), path.join(home, 'hop'));
+  const lands = path.join(home, 'sub', 'agents-here.md');
+  await writeFile(lands, USERS_NOTES);
+  const file = agentsOf(bots, 'api-bot');
+  await linkTo(file, undefined, path.join('hop', '..', 'agents-here.md'));
+
+  const result = await box.run(['rules', 'build', '--bots', 'bots', '--bot', 'api-bot']);
+
+  assert.equal(result.code, 0, result.stdout + result.stderr);
+  const written = await readFile(lands, 'utf8');
+  assert.ok(hasBlock(written), `the rules block lands in ${lands}, got:\n${written}`);
+  assert.ok(written.includes('Nothing of the kit\'s belongs in here.'), 'beside what the user wrote');
+  assert.equal(await exists(path.join(home, 'agents-here.md')), false, 'nothing at the place the text only reads as');
+  assert.equal(await readlink(file), path.join('hop', '..', 'agents-here.md'), 'the link is still a link');
 });
