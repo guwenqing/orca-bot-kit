@@ -317,6 +317,9 @@ async function bringUpSession(bots, home, live, session, bot, title) {
       // gets, and trust-hooks asks what this one got (#506).
       let entry = { ...current.sessions[session.name], tab: made.tabId, launched, launched_with: session.extra_args ?? [], rules };
       if (rules === undefined) delete entry.rules;
+      // Only Claude Code answers to an address. One left from a Claude run
+      // before a move to another harness would draw mail to nobody (#565).
+      if (harness !== 'claude') delete entry.address;
       held = entry.session;
       // Before the line is typed, so the hook finds no id here and takes the one
       // it reports for a start rather than a clear, which would tell the duty twice.
