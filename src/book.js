@@ -468,10 +468,11 @@ export function rememberSession(entry = {}, id, ended) {
 
 /**
  * The session entry once the id it held has turned out to have no conversation
- * behind it: the id goes into the history with that reason, and the entry holds
- * none until the harness names the new one.
+ * behind it on the session's harness: the id goes into the history with that
+ * reason, and anything else worth knowing about it, such as the harness it ran
+ * on, and the entry holds none until the harness names the new one.
  */
-export function forgetSession(entry, ended) {
+export function forgetSession(entry, ended, more = {}) {
   const { session, ...rest } = entry;
-  return { ...rest, history: [...(entry.history ?? []), { session, ended, at: new Date().toISOString() }] };
+  return { ...rest, history: [...(entry.history ?? []), { session, ended, ...more, at: new Date().toISOString() }] };
 }
