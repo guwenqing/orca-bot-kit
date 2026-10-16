@@ -26,8 +26,10 @@
 //   value (the last extra arg) included.
 // Claude Code, refused (alone with the value as the next extra arg, or with
 // `=value`): --add-dir, --settings, --setting-sources, --plugin-dir,
-// --plugin-url, --mcp-config, --agents, --agent, --debug-file; and --bare,
-// which takes no value, alone and as --bare=<anything>.
+// --plugin-url, --mcp-config, --agents, --agent, --debug-file; and --bare
+// and --restricted, which take no value, alone and as --bare=<anything> or
+// --restricted=<anything>. (--restricted drops a project's deny rules: the
+// review of #567 saw it on Claude Code 2.1.302.)
 //
 // Both shapes of extra_args count: a list is read word by word, a value word
 // after -c belongs to it; a hand-written string is read by the kit's strict
@@ -222,6 +224,7 @@ const CODEX_ACCEPTED = [
   ['--settings', '/srv/settings.json'],
   ['--plugin-dir', '/srv/plugins'],
   ['--bare'],
+  ['--restricted'],
 ];
 
 /** Claude Code's flags that widen what a session may reach. */
@@ -235,6 +238,9 @@ const CLAUDE_REFUSED = [
   ...CLAUDE_VALUE_FLAGS.flatMap((flag) => [[flag, '/srv/wide'], [`${flag}=/srv/wide`]]),
   ['--bare'],
   ['--bare=1'],
+  ['--restricted'],
+  ['--restricted=1'],
+  ['--restricted', '--tools', 'Bash'],
 ];
 
 /** Claude extra args that stay accepted: other flags, near misses, and Codex's flags. */
@@ -245,7 +251,6 @@ const CLAUDE_ACCEPTED = [
   ['--append-system-prompt', 'Be brief.'],
   ['-w'],
   ['--safe-mode'],
-  ['--restricted'],
   ['--agentsx'],
   ['--settings-file'],
   ['-c', 'sandbox_mode=danger-full-access'],
@@ -278,7 +283,7 @@ const STRINGS = {
     ],
   },
   claude: {
-    refused: ['--add-dir /srv/wide', '--settings /srv/settings.json', '--verbose --bare'],
+    refused: ['--add-dir /srv/wide', '--settings /srv/settings.json', '--verbose --bare', '--restricted --tools Bash'],
     accepted: ['--verbose --model sonnet', '-c sandbox_mode=danger-full-access'],
   },
 };
@@ -329,7 +334,7 @@ test('XS7 Codex: the value word after -c belongs to it: an allowed one passes, a
   assert.throws(() => refuseApprovalArgs('codex', ['-c', 'model=o3', '--add-dir', '/srv/wide']), Error);
 });
 
-test('XS8 Claude: each flag that widens what a session reaches is refused, alone with its value and with =; --bare alone and with =', () => {
+test('XS8 Claude: each flag that widens what a session reaches is refused, alone with its value and with =; --bare and --restricted alone and with =', () => {
   for (const args of CLAUDE_REFUSED) {
     assert.throws(() => refuseApprovalArgs('claude', args), Error, `claude should refuse ${show(args)}`);
   }
@@ -496,6 +501,7 @@ for (const [to, extra] of [
   ['claude', '--settings /srv/settings.json'],
   ['claude', ['--plugin-dir', '/srv/plugins']],
   ['claude', ['--bare']],
+  ['claude', ['--restricted', '--tools', 'Bash']],
 ]) {
   const from = OTHER[to];
   test(`XS16 session change --harness ${to} of a ${from} session whose bot.yaml holds ${show(extra)} as extra_args is refused, and writes nothing`, async (t) => {
@@ -574,6 +580,8 @@ const TEMP_REFUSED = [
   ['a Claude temp, --add-dir=/srv/wide', ['--extra-arg=--add-dir=/srv/wide']],
   ['a Claude temp, --settings /srv/settings.json', ['--extra-arg=--settings', '--extra-arg=/srv/settings.json']],
   ['a Claude temp, --bare', ['--extra-arg=--bare']],
+  ['a Claude temp, --restricted', ['--extra-arg=--restricted']],
+  ['a Claude temp, --restricted=1', ['--extra-arg=--restricted=1']],
 ];
 
 test('XS18 temp make refuses an extra arg that widens the temp\'s scope, judged by the temp\'s harness, names obk permission approval, and makes nothing', async (t) => {
