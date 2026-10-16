@@ -37,7 +37,9 @@ export function piTrouble(models) {
       const why = found.error?.message ?? ((found.stderr ?? '').trim() || `it exited with ${found.status ?? found.signal}`);
       return `Pi cannot say whether it can use the model ${model}: pi --list-models ${withoutThinking(model)} failed (${why}), so no Pi session was started. Run that command yourself to see why, then run this again.`;
     }
-    if (/^No models matching\b/m.test(found.stdout ?? '')) {
+    // Pi says it has no model at all before it searches, so the answer may be
+    // that one too, when a provider dropped out since the question above.
+    if (/^No models (matching|available)\b/m.test(found.stdout ?? '')) {
       return `Pi cannot use the model ${model}: pi --list-models lists none matching it. Sign in to its provider in Pi yourself, or give the session a model Pi lists.`;
     }
   }

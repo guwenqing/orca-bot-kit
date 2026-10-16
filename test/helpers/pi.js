@@ -15,7 +15,9 @@
 //
 // A test can also make `--list-models` fail, the plain form and the search
 // form each on its own: exit 1 with a message, or die by a signal (the kit
-// then has no exit code at all to read).
+// then has no exit code at all to read). And the search form can answer
+// `No models available.` with exit 0 while the plain form lists models: Pi
+// 1.1.0 prints that line before it applies the search (the review of #583).
 //
 // The table's layout is this fake's own: the kit decides only on the two
 // lines above, never on the rows. Which rows match a search is a plain
@@ -75,7 +77,7 @@ if (at >= 0) {
     process.exit(1);
   }
   if (how === 'killed') process.kill(process.pid, 'SIGKILL');
-  if (!told.signedIn) {
+  if (!told.signedIn || how === 'no-models') {
     out('No models available. Use /login, or set an API key, to sign in to a provider.\\n');
     process.exit(0);
   }
@@ -98,7 +100,7 @@ process.exit(0);
 /**
  * Put a fake `pi` first on `box`'s PATH. `told` says how it behaves:
  * `{ version: 'ok' | 'fails', signedIn: true | false, models: [...],
- * listModels: 'ok' | 'fails' | 'killed', search: 'ok' | 'fails' | 'killed' }`,
+ * listModels: 'ok' | 'fails' | 'killed', search: 'ok' | 'fails' | 'killed' | 'no-models' }`,
  * `listModels` for a plain `--list-models` and `search` for one with a search.
  *
  * Gives back `calls()`, every argv it was run with, `{ args, cwd }` in order;

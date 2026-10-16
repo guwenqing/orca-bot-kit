@@ -12,7 +12,9 @@
 //     `No models matching`. A model written with a trailing `:<thinking
 //     level>` (one of Pi's levels) is looked up without that suffix;
 //   - `pi --list-models`, plain or with the model, fails: it exits non-zero
-//     or cannot be run (the review of PR #583).
+//     or cannot be run (the review of PR #583);
+//   - `pi --list-models <model>` says `No models available.` while the plain
+//     call lists models (the review of PR #583).
 //
 // A fleet with no Pi session never runs `pi` at all.
 //
@@ -271,6 +273,30 @@ test('R13 unpause refuses as up does when pi --list-models <model> fails, naming
 
   assert.ok(said.includes('anthropic/claude-opus-5-5'), `the refusal should name the model, got:\n${said}`);
 });
+
+// ----------------------------------------------------------------- No models available for the model (#583 review, item 15)
+
+// Pi 1.1.0 prints `No models available.` before it applies a search, so
+// `pi --list-models <model>` can answer it with exit 0 while the plain
+// `pi --list-models` lists models. For the session's model that is no match:
+// refused as "No models matching" is, naming the model.
+for (const command of ['up', 'restart']) {
+  test(`R15 ${command} refuses when pi --list-models <model> says No models available while the plain call lists models, naming the model`, async (t) => {
+    const box = await createSandbox(t);
+    const pi = await fakePi(box, { search: 'no-models' });
+    await withPiSession(box, ['--model', 'anthropic/claude-opus-5-5']);
+    const before = await orcaNow(box);
+
+    const said = await assertRefusedBeforeOrca(box, await box.run([command, '--bots', 'bots', '--bot', BOT]), before);
+
+    assert.ok(said.includes('anthropic/claude-opus-5-5'), `the refusal should name the model, got:\n${said}`);
+    assert.ok((await pi.searches()).includes('anthropic/claude-opus-5-5'), `it asked Pi for that model, got: ${JSON.stringify(await pi.searches())}`);
+    assert.equal((await pi.launches()).length, 0, 'and started no Pi session');
+    // The fleet stood on this: the plain call does list a model.
+    const plain = await sh('pi --list-models', { env: box.env });
+    assert.ok(plain.code === 0 && plain.stdout.includes('claude-opus-5-5') && !plain.stdout.includes('No models available'), `the plain call should list models, got:\n${plain.stdout}`);
+  });
+}
 
 // ----------------------------------------------------------------- no Pi session, no pi
 
