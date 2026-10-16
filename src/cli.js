@@ -219,6 +219,8 @@ Usage:
                             folder and named in the message. A pair the
                             harness's own messaging reaches is not carried:
                             the address to write to is answered instead.
+                            In a session's own tab it sends as that session,
+                            and --from may name only that one.
   obk message check --bots <path> [--bot <bot>] [--session <name>] [--peek]
                             Read what is waiting for a session and mark it
                             read. --peek leaves it unread. Run in a session's
@@ -1132,7 +1134,8 @@ const commands = {
   },
 
   async 'message send'(bots, values) {
-    const tab = callerTab(bots, values.from === undefined);
+    // With --from too: in one of the fleet's tabs, the tab says who sends (#570).
+    const tab = callerTab(bots, true);
     refuseWhenOrcaIsDown();
     const answer = await sendMessage(bots, {
       to: values.to,

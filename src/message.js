@@ -127,7 +127,7 @@ export function lookUp(bots, { to: target, from: sender, tab }) {
  * nothing, which is the whole of "the bot never picks the transport".
  */
 export async function sendMessage(bots, { to: target, from: sender, tab, subject, text, textFile, thread, interrupt = false }) {
-  const from = whoIsWriting(bots, sender, tab);
+  const from = whoIsSending(bots, sender, tab);
   const to = findSession(bots, target);
   const road = roadBetween(from, to);
 
@@ -386,6 +386,22 @@ function whoIsWriting(bots, sender, tab, asked = '--from <bot>/<session>: which 
     throw new Error(`${asked}. The kit reads it from the tab when it runs in one, and this is not one of the fleet's tabs.`);
   }
   return found;
+}
+
+/**
+ * The session that is sending. In one of this fleet's tabs it is the tab's own
+ * session, and `--from` may name only that one: otherwise a bot could send as
+ * another, and the reply and the receiver's check would take it for that one
+ * (#570). Outside the fleet's tabs `--from` says who is writing, as before.
+ */
+function whoIsSending(bots, sender, tab) {
+  const caller = tab === undefined ? undefined : sessionInTab(bots, tab);
+  if (caller === undefined) return whoIsWriting(bots, sender, tab);
+  if (sender === undefined) return caller;
+
+  const named = findSession(bots, sender);
+  if (named.bot === caller.bot && named.session === caller.session) return caller;
+  throw new Error(`this command runs in ${caller.bot}/${caller.session}'s Orca tab, ${tab}, so it sends as ${caller.bot}/${caller.session} and not as ${named.bot}/${named.session}. Nothing was sent. Leave out --from, or name ${caller.bot}/${caller.session}.`);
 }
 
 /**
