@@ -51,6 +51,7 @@ import {
   tokenless,
   tokenlessWord,
   typedInto,
+  workDirByHand,
 } from './helpers/cli.js';
 import { addSession } from './helpers/permissions.js';
 
@@ -68,13 +69,16 @@ const API_DAILY = { bot: 'api-bot', session: 'daily' };
 /**
  * A bot with one session, brought up, and the line that was typed into its tab.
  * `--bot` keeps the run to this bot, so Bot Father's tabs stay out of the way.
+ * `workDir` is a work dir written into bot.yaml by hand: `session add` refuses
+ * a Codex session one outside the bot home (#585), and `up` still takes it.
  */
-async function launchOf(box, harness, settings, { bot = 'api-bot' } = {}) {
+async function launchOf(box, harness, settings, { bot = 'api-bot', workDir } = {}) {
   assert.equal((await box.run(['init', '--bots', 'bots', '--harness', 'claude'])).code, 0);
   assert.equal((await box.run(['bot', 'create', '--bots', 'bots', '--name', bot, '--harness', harness])).code, 0);
   // An approval goes through `obk permission approval` since #527, the rest through `session add`.
   const added = await addSession(box, { bot, name: 'daily', settings });
   assert.equal(added.code, 0, added.stderr);
+  if (workDir !== undefined) await workDirByHand(box.path('bots'), bot, 'daily', workDir);
 
   const up = await box.run(['up', '--bots', 'bots', '--bot', bot]);
   assert.equal(up.code, 0, up.stderr);
@@ -187,7 +191,7 @@ test('Codex gets --add-dir for a work dir outside the bot home, and nothing for 
   const outside = path.join(box.root, 'clones', 'api');
   const inside = await createSandbox(t);
 
-  const far = await launchOf(box, 'codex', ['--work-dir', outside]);
+  const far = await launchOf(box, 'codex', [], { workDir: outside });
   const near = await launchOf(inside, 'codex', ['--work-dir', 'work/api']);
 
   assert.ok(
@@ -218,7 +222,7 @@ test('--add-dir is given the absolute path, even when the work dir was written r
   // it. What Codex is given is a path, not the user's shorthand.
   const box = await createSandbox(t);
 
-  const typed = await launchOf(box, 'codex', ['--work-dir', '../shared-clones']);
+  const typed = await launchOf(box, 'codex', [], { workDir: '../shared-clones' });
 
   const home = botHomeOf(box.path('bots'), 'api-bot');
   assert.ok(
@@ -521,7 +525,7 @@ test('#330: a Codex session with a work dir outside the bot home still runs with
   const fake = await fakeProgram(box, 'codex', {});
   const outside = path.join(box.root, 'clones', 'api');
 
-  const typed = await launchOf(box, 'codex', ['--work-dir', outside]);
+  const typed = await launchOf(box, 'codex', [], { workDir: outside });
 
   const argv = await argvOf(box, typed, fake);
   assert.deepEqual(argv.slice(0, 6), [

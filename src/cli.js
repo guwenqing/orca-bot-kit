@@ -1213,6 +1213,7 @@ const commands = {
 
   'session add'(bots, values) {
     refuseApproval(bots, values, 'session add');
+    refuseOutsideWorkDir(bots, values, 'session add');
     const added = addSession(bots, values.bot, settingsOf(values));
     const found = workDirFound(values, added.bot, added.home, added.session.name);
     const answer = { bots, bot: added.bot, home: added.home, session: added.session, found };
@@ -1243,6 +1244,7 @@ const commands = {
 
   'session change'(bots, values) {
     refuseApproval(bots, values, 'session change');
+    refuseOutsideWorkDir(bots, values, 'session change');
     const { name, ...settings } = settingsOf(values);
     const changed = changeSession(bots, values.bot, values.session, settings);
     const restart = `${shellWord(ownCli())} restart --bots ${shellWord(bots)} --bot ${changed.bot} --session ${values.session}`;
@@ -1353,8 +1355,9 @@ function noticeLines(answer) {
  * What there is to say about the work dir this command was given: one finding
  * when it leads out of the bot home, through `..` or a link or as a path
  * elsewhere, and nothing otherwise (#222). A bot's work and its clones belong
- * under its own `work/`. It is said, not refused: the user may ask for a folder
- * anywhere (PRD 6.3), and it is written as they gave it.
+ * under its own `work/`. For a Claude or Pi session it is said, not refused: a
+ * work dir is an instruction there (PRD 6.4), and it is written as given. A
+ * Codex session's is refused before this (refuseOutsideWorkDir).
  */
 function workDirFound(values, bot, home, session) {
   const workDir = workDirOf({ work_dir: values['work-dir'] }, home);
@@ -1364,6 +1367,41 @@ function workDirFound(values, bot, home, session) {
     where: workDir,
     says: `${workDir} is outside ${bot}'s folder, ${home}. A session's work and every clone it needs go under the bot's work/, as work/${session}, unless you asked for this place in plain words. It is written as given, and nothing was moved.`,
   }];
+}
+
+/**
+ * Refuse a change that gives a Codex session a work dir outside its bot home,
+ * by `--work-dir` or by `--harness codex` (ADR 0045): Codex is launched with
+ * `--add-dir` for it, which lets the session write there, and these commands
+ * are in every bot's default set (#585). Outside is by the spelling, which the
+ * launch line names, or by where links really lead. A change that leaves a
+ * Codex session's harness and work dir as they were widens nothing.
+ */
+function refuseOutsideWorkDir(bots, values, command) {
+  if (values['work-dir'] === undefined && values.harness === undefined) return;
+  let bot;
+  try {
+    bot = readBot(botDir(bots, values.bot), values.bot);
+  } catch {
+    // A bot that is not there is the command's own to refuse.
+    return;
+  }
+  const name = values.session ?? values.name;
+  const was = command === 'session change' ? bot.sessions.find((one) => one.name === name) : undefined;
+  if (command === 'session change' && was === undefined) return;
+  const now = {
+    ...was,
+    ...(values.harness === undefined ? {} : { harness: values.harness }),
+    ...(values['work-dir'] === undefined ? {} : { work_dir: values['work-dir'] }),
+  };
+  if (harnessOf(now, bot.harness) !== 'codex') return;
+  const home = botDir(bots, values.bot);
+  const workDir = workDirOf(now, home);
+  if (workDir === undefined) return;
+  const spelledIn = workDir === home || workDir.startsWith(home + path.sep);
+  if (spelledIn && leadsOutside(home, workDir) === undefined) return;
+  if (was !== undefined && harnessOf(was, bot.harness) === 'codex' && workDirOf(was, home) === workDir) return;
+  throw new Error(`${command} would give ${values.bot}/${name}, a Codex session, the work dir ${workDir}, which is outside ${values.bot}'s folder, ${home}. Codex would then be allowed to write that folder. A Codex session's work dir stays in its bot folder, such as work/${name}. Nothing was changed.`);
 }
 
 /**

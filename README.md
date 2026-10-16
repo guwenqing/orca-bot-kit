@@ -142,6 +142,10 @@ words, `dangerously-skip`
 `obk permission approval` changes it, after your yes: `session add` and
 `session change` take no approval, and refuse an extra argument that sets one
 ([ADR 0041](docs/adr/0041-permission-changes-and-risky-operations-have-commands-of-their-own.md)).
+A Codex session's work dir stays in its bot folder: Codex may write in its work
+dir, so `session add` and `session change` refuse one outside the bot folder for
+a Codex session
+([ADR 0045](docs/adr/0045-a-codex-sessions-work-dir-stays-in-its-bot-folder.md)).
 
 A bot or a session can also run on [Pi](https://pi.dev) (`--harness pi`, tested
 with Pi 1.1.0). Pi asks before no tool call, so a Pi session is always

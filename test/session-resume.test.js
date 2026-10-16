@@ -69,6 +69,7 @@ import {
   tokenless,
   tokenlessWord,
   typedInto,
+  workDirByHand,
 } from './helpers/cli.js';
 import { addSession } from './helpers/permissions.js';
 
@@ -77,13 +78,18 @@ const PROMPT = 'Read your AGENTS.md and keep the queue moving.';
 /** The one line the kit types after a Codex resume, so Orca lists the session (#226), as ruled. */
 const LIST_LINE = 'obk: this session was resumed in a new tab, and this line is only so Orca lists it. Reply "ok"; nothing else is asked.';
 
-/** A bots folder with one bot on `harness`, one session with `settings`, brought up once. */
-async function started(box, harness, settings = ['--prompt', PROMPT]) {
+/**
+ * A bots folder with one bot on `harness`, one session with `settings`, brought up once.
+ * `workDir` is a work dir written into bot.yaml by hand: `session add` refuses
+ * a Codex session one outside the bot home (#585), and `up` still takes it.
+ */
+async function started(box, harness, settings = ['--prompt', PROMPT], { workDir } = {}) {
   assert.equal((await box.run(['init', '--bots', 'bots', '--harness', 'claude'])).code, 0);
   assert.equal((await box.run(['bot', 'create', '--bots', 'bots', '--name', 'api-bot', '--harness', harness])).code, 0);
   // An approval goes through `obk permission approval` since #527, the rest through `session add`.
   const added = await addSession(box, { bot: 'api-bot', name: 'daily', settings });
   assert.equal(added.code, 0, added.stderr);
+  if (workDir !== undefined) await workDirByHand(box.path('bots'), 'api-bot', 'daily', workDir);
 
   const bots = box.path('bots');
   const first = await up(box);
@@ -258,7 +264,7 @@ test('a resumed Codex session keeps its --add-dir for a work dir outside the bot
   const box = await createSandbox(t);
   const fake = await fakeProgram(box, 'codex', {});
   const outside = path.join(box.root, 'clones', 'api');
-  const { bots, first } = await started(box, 'codex', ['--work-dir', outside]);
+  const { bots, first } = await started(box, 'codex', [], { workDir: outside });
   await reported(box, bots, first.entry.tabId, 'sess-1');
   await onRecord(box, 'codex', bots, 'sess-1');
   await closeTab(box, first.entry.tabId);
@@ -324,8 +330,8 @@ test('#330: a resumed Codex session with every setting keeps --no-daemon once, s
   const outside = path.join(box.root, 'clones', 'api');
   const { bots, first } = await started(box, 'codex', [
     '--approval', 'ask', '--model', 'gpt-5.4', '--effort', 'high', '--context', '200000',
-    '--work-dir', outside, '--extra-arg=--search', '--prompt', PROMPT,
-  ]);
+    '--extra-arg=--search', '--prompt', PROMPT,
+  ], { workDir: outside });
   await reported(box, bots, first.entry.tabId, 'sess-1');
   await onRecord(box, 'codex', bots, 'sess-1');
   await closeTab(box, first.entry.tabId);
