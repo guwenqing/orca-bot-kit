@@ -75,7 +75,7 @@ export function leadsOutside(home, target) {
   }
   // Links that never settle lead nowhere the kit can vouch for.
   if (real === undefined) return `${target}, through links that never settle`;
-  const root = realpathSync(home);
+  const root = realpathSync.native(home);
   return real === root || real.startsWith(root + path.sep) ? undefined : real;
 }
 
@@ -110,10 +110,16 @@ function whereItLeads(target) {
       at = path.dirname(at);
     }
     try {
-      return path.join(realpathSync(at), ...rest);
+      // The native call, which asks the file system: the JS one runs
+      // path.resolve first, which takes `hop/..` away before `hop` is followed.
+      return path.join(realpathSync.native(at), ...rest);
     } catch (error) {
       if (!lstatSync(at).isSymbolicLink()) throw error;
-      next = path.join(path.resolve(path.dirname(at), readlinkSync(at)), ...rest);
+      // Joined as text, not with path.join or path.resolve: they take `hop/..`
+      // away before `hop` is followed, and the file system follows it first
+      // (#569 review).
+      const text = readlinkSync(at);
+      next = [path.isAbsolute(text) ? text : `${path.dirname(at)}${path.sep}${text}`, ...rest].join(path.sep);
     }
   }
   return undefined;

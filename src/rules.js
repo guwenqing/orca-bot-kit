@@ -417,7 +417,9 @@ export function agentsTrouble(bots, home, bot) {
 /** Whether two paths are the same file in the end. One that leads nowhere is not. */
 function sameFile(one, other) {
   try {
-    return realpathSync(one) === realpathSync(other);
+    // Native, as in leadsOutside: the JS one takes `hop/..` away before `hop`
+    // is followed.
+    return realpathSync.native(one) === realpathSync.native(other);
   } catch {
     return false;
   }
