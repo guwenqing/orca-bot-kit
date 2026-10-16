@@ -43,9 +43,16 @@
 // asks to leave the sandbox, and a write so granted would show nothing about
 // the arguments. The start prompt forbids asking. The test reads each
 // session's rollout (found by the conversation id the kit's hook wrote into
-// the book) for a tool call that asked `require_escalated`: one in `wide` that
-// names A or B makes the run fail as inconclusive; any other is said as a
-// diagnostic, and the files decide.
+// the book) for its own shell commands that asked `sandbox_permissions:
+// "require_escalated"`, read as test/system/codex-sandbox-writes.test.js
+// reads them (step 4 there): a `response_item` that is a `custom_tool_call`
+// whose `exec` script calls `exec_command({ cmd: …, sandbox_permissions: … })`,
+// or a `function_call` whose JSON arguments carry `sandbox_permissions`.
+// Messages are not read: Codex's own instructions at the start of a rollout
+// name `require_escalated` and the writable roots, and are no ask. A command
+// in `wide` that asked and names A or B makes the run fail as inconclusive;
+// any other is said as a diagnostic, and the files decide. What was written is
+// said as a diagnostic before that, so an inconclusive run still shows it.
 //
 // Where the fleet lives, and why not in the temp folder: the sandbox lets a
 // session write anywhere under /tmp and $TMPDIR, so A, B and C there would be
@@ -206,9 +213,35 @@ const promptOf = (files) => [
   `The command: ${commandOf(files)}`,
 ].join(' ');
 
-/** The tool calls in a rollout that asked to leave the sandbox, as their JSON text; nothing else of the rollout is kept. */
+/** A JavaScript string literal in a Codex `exec` script, as its value: double, single or backtick quoted. */
+function jsStringAt(text) {
+  const quote = text[0];
+  if (!['"', "'", '`'].includes(quote)) return undefined;
+  let value = '';
+  for (let at = 1; at < text.length; at += 1) {
+    const char = text[at];
+    if (char === quote) return value;
+    if (char === '\\') {
+      const next = text[at + 1];
+      value += { n: '\n', t: '\t', r: '\r' }[next] ?? next;
+      at += 1;
+    } else {
+      value += char;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * The shell commands of a session's own that asked to leave the sandbox, as
+ * their text, oldest first. Only tool calls are read (see the header): a
+ * `custom_tool_call` script's `exec_command(` calls that carry
+ * `sandbox_permissions: "require_escalated"`, and a `function_call` whose
+ * arguments have `sandbox_permissions` `require_escalated`. Nothing else of
+ * the rollout is kept.
+ */
 function escalationsIn(file) {
-  const found = [];
+  const asked = [];
   for (const line of readFileSync(file, 'utf8').split('\n')) {
     let entry;
     try {
@@ -217,10 +250,26 @@ function escalationsIn(file) {
       continue;
     }
     if (entry?.type !== 'response_item') continue;
-    const text = JSON.stringify(entry.payload ?? {});
-    if (text.includes('require_escalated')) found.push(text);
+    const item = entry.payload ?? {};
+    if (item.type === 'custom_tool_call') {
+      for (const call of String(item.input ?? '').split('exec_command(').slice(1)) {
+        if (!/sandbox_permissions\s*:\s*["'`]require_escalated/.test(call)) continue;
+        const found = /\bcmd\s*:\s*/.exec(call);
+        asked.push((found === null ? undefined : jsStringAt(call.slice(found.index + found[0].length))) ?? call.slice(0, 500));
+      }
+    } else if (item.type === 'function_call') {
+      let args = {};
+      try {
+        args = JSON.parse(item.arguments);
+      } catch {
+        // an argument list still being written
+      }
+      if (args?.sandbox_permissions !== 'require_escalated') continue;
+      const command = args.cmd ?? args.command ?? '';
+      asked.push(Array.isArray(command) ? command.join(' ') : String(command));
+    }
   }
-  return found;
+  return asked;
 }
 
 test('#567 obk session add refuses --add-dir and -c sandbox_workspace_write.writable_roots on a Codex session, and a Codex session started with them writes where they say, where the control writes nowhere', async (t) => {
@@ -327,10 +376,25 @@ test('#567 obk session add refuses --add-dir and -c sandbox_workspace_write.writ
     await setTimeout(2000);
   }
 
+  // What was written, and what the sandbox refused, said first, so that a run
+  // that ends on a premise or on the escalation check still shows it.
+  const written = Object.fromEntries([WIDE, NARROW].map((name) => [
+    name,
+    Object.fromEntries(Object.keys(folders).map((key) => [key, existsSync(files[name].tried[key])])),
+  ]));
+  const statuses = Object.fromEntries([WIDE, NARROW].map((name) => [
+    name,
+    Object.fromEntries(Object.keys(folders).map((key) => [key, textIn(files[name].status[key])])),
+  ]));
+  for (const name of [WIDE, NARROW]) {
+    t.diagnostic(`${name} wrote: ${Object.keys(folders).map((key) => `${key.toUpperCase()} ${written[name][key] ? 'yes' : 'no'} (exit ${statuses[name][key]})`).join(', ')}`);
+  }
+
   // The premises: each ran in its sandbox, and its $TMPDIR holds none of A, B, C.
   for (const name of [WIDE, NARROW]) {
     const ps = textIn(files[name].ps);
     t.diagnostic(`/bin/ps in ${name}'s sandbox exited ${ps}`);
+    assert.ok(ps !== undefined, `the premise: ${name} wrote the exit status of /bin/ps to ${files[name].ps}`);
     assert.notEqual(ps, '0', `the premise: /bin/ps does not start in the Codex sandbox; ${name} ran outside one and shows nothing`);
     const sessionTmp = textIn(files[name].tmpdir);
     assert.ok(sessionTmp !== undefined, `the premise: ${name} wrote its $TMPDIR to ${files[name].tmpdir}`);
@@ -355,17 +419,7 @@ test('#567 obk session add refuses --add-dir and -c sandbox_workspace_write.writ
   const wideAskedFor = escalations[WIDE].filter((text) => text.includes(folders.a) || text.includes(folders.b));
   assert.deepEqual(wideAskedFor.map((text) => text.slice(0, 500)), [], `${WIDE} asked to leave its sandbox for a write into A or B, against its prompt, so its files cannot tell whether the arguments or the reviewer let it write: inconclusive, run it again`);
 
-  // What was written, and what the sandbox refused.
-  const written = Object.fromEntries([WIDE, NARROW].map((name) => [
-    name,
-    Object.fromEntries(Object.keys(folders).map((key) => [key, existsSync(files[name].tried[key])])),
-  ]));
-  const statuses = Object.fromEntries([WIDE, NARROW].map((name) => [
-    name,
-    Object.fromEntries(Object.keys(folders).map((key) => [key, textIn(files[name].status[key])])),
-  ]));
-  t.diagnostic(`written: ${JSON.stringify(written)}; exit statuses: ${JSON.stringify(statuses)}`);
-
+  // What was written decides.
   const asked = (name) => (escalations[name].length > 0 ? ` (${name} asked to leave its sandbox ${escalations[name].length} time(s); a granted ask may have written it)` : '');
   assert.equal(written[WIDE].a, true, `Codex no longer honours --add-dir: ${WIDE}, started with --add-dir ${folders.a}, could not write ${files[WIDE].tried.a} (exit ${statuses[WIDE].a})`);
   assert.equal(written[WIDE].b, true, `Codex no longer honours -c sandbox_workspace_write.writable_roots: ${WIDE}, started with -c ${writableRoots}, could not write ${files[WIDE].tried.b} (exit ${statuses[WIDE].b})`);
