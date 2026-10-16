@@ -252,8 +252,7 @@ for (const [label, args, named] of [
   ['a bot that is not there', ['session', 'change', '--bots', 'bots', '--bot', 'ghost-bot', '--session', 'daily', '--model', 'opus'], 'ghost-bot'],
   ['a session the bot does not have', ['session', 'change', '--bots', 'bots', '--bot', BOT, '--session', 'ghost', '--model', 'opus'], 'ghost'],
   ['nothing to change', ['session', 'change', '--bots', 'bots', '--bot', BOT, '--session', 'daily'], null],
-  // A session keeps its harness: its book and its conversations belong to it.
-  ['a new harness', ['session', 'change', '--bots', 'bots', '--bot', BOT, '--session', 'daily', '--harness', 'codex'], 'harness'],
+  // A new harness is accepted since #565: test/session-change-harness.test.js.
 ]) {
   test(`SC8 ${label} is refused, and nothing is written`, async (t) => {
     const box = await createSandbox(t);
