@@ -105,7 +105,7 @@ const AT_WORK = [/esc to interrupt/i, /^\s*\S\s+\S+…\s+\(\d/];
  * (or null) and the one it holds now.
  */
 export async function clearSession(bots, { bot, session }) {
-  const it = sessionToType(bots, bot, session);
+  const it = sessionToType(bots, bot, session, 'clear');
   const was = readBook(it.home).sessions[session]?.session ?? null;
   const { command, handle, typing } = await enter(it, 'clear');
 
@@ -141,7 +141,7 @@ export async function clearSession(bots, { bot, session }) {
  * command began, and not yet when COMPACT_MS passed without one.
  */
 export async function compactSession(bots, { bot, session }) {
-  const it = sessionToType(bots, bot, session);
+  const it = sessionToType(bots, bot, session, 'compact');
   // What the record holds when /compact is typed is not this compact's: one
   // that ends while the kit waits for the session to be idle is the one
   // before it (review of PR #466). So only what is written after counts.
@@ -168,13 +168,17 @@ export async function compactSession(bots, { bot, session }) {
 /**
  * The session as something to type into, once everything that refuses before
  * Orca is asked to type has been asked: `{ name, home, session, harness, tabId }`.
+ * A `verb`, clear or compact, is refused on Pi until a later slice of #547.
  */
-export function sessionToType(bots, bot, session) {
+export function sessionToType(bots, bot, session, verb) {
   botsNamed(bots, bot);
   const home = realpathSync(botDir(bots, bot));
   const known = readBot(home, bot);
   const [settings] = sessionsOf(known, session);
   const name = `${bot} ${session}`;
+  if (verb !== undefined && harnessOf(settings, known.harness) === 'pi') {
+    throw new Error(`${name} runs on Pi, and obk session ${verb} does not work on a Pi session yet: a later slice of #547 adds it. Nothing was typed.`);
+  }
   const unpause = `${shellWord(ownCli())} unpause --bots ${shellWord(bots)} --bot ${bot}`;
   if (known.paused === true) throw new Error(`${bot} is paused, so ${name} is not running and nothing was typed. Bring it back with ${unpause}.`);
   if (settings.paused === true) throw new Error(`${name} is paused, so it is not running and nothing was typed. Bring it back with ${unpause} --session ${session}.`);
