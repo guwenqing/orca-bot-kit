@@ -56,9 +56,12 @@ const APPROVAL_FLAGS = {
 /**
  * Refuse extra arguments that set a session's approval or permissions on
  * `harness`, before anything is written, naming the command that does it.
+ * `args` is a list, or, as a user may write `extra_args` by hand, one string
+ * of shell text, read here as its words (#565).
  */
 export function refuseApprovalArgs(harness, args) {
-  const found = (args ?? []).find((arg) => (APPROVAL_FLAGS[harness] ?? []).some((flag) => arg === flag
+  const words = Array.isArray(args) ? args.map(String) : set(args) ? String(args).trim().split(/\s+/) : [];
+  const found = words.find((arg) => (APPROVAL_FLAGS[harness] ?? []).some((flag) => arg === flag
     || arg.startsWith(`${flag}=`)
     || (/^-[as]$/.test(flag) && arg.startsWith(flag) && !arg.startsWith('--'))));
   if (found === undefined) return;
