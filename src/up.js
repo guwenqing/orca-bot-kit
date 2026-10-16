@@ -4,15 +4,17 @@
 // conversation and Orca's resume record with it. Run it twice and the second
 // run does nothing.
 
+import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { setTimeout as pause } from 'node:timers/promises';
 
-import { forgetClaimed, forgetSession, MAILBOX_WAIT_MS, readBook, sessionIdsIn, tabIdsIn, takeLineTurn, takeMailboxTurn, TYPING_HELD, TYPING_WAIT_MS, updateBook, withUnclaimed } from './book.js';
+import { forgetClaimed, forgetSession, MAILBOX_WAIT_MS, readBook, rememberSession, sessionIdsIn, tabIdsIn, takeLineTurn, takeMailboxTurn, TYPING_HELD, TYPING_WAIT_MS, updateBook, withUnclaimed } from './book.js';
 import { botDir, botNames, displayName, projectName, readBot } from './bot.js';
 import { conversationsIn, hasConversation, heldAsUserTurn, transcriptsIn } from './conversations.js';
 import { installHook } from './hooks.js';
 import { writePermissions } from './permissions.js';
+import { piTrouble } from './pi.js';
 import { addressOf, harnessOf, isAddressOf, isShortPrompt, kitFolders, launchCommand, mailboxStep, reachesMail, sessionTrouble, startPrompt, workDirOf } from './launch.js';
 import { asFolderProject, coordinatorOf, findProject, harnessInTab, makeMailbox, makeProject, openTab, QUESTION_ON_SCREEN, retitleTab, runMissing, screenRows, shellInTab, tabs, tabToTypeInto, TERMINAL_ENV, TIMED_OUT, tellWindow, typeIntoTab, useMailbox } from './orca.js';
 import { TAB_ENV } from './record.js';
@@ -110,6 +112,7 @@ export function prepareBots(bots, names, onlySession) {
     return { home, bot: readBot(home, name) };
   });
   for (const { bot, home } of chosen) refuseWhatCannotStart(bot, home, onlySession);
+  refuseWhenPiIsNotReady(chosen, onlySession);
 
   // Every bot's AGENTS.md is built before Orca is asked for anything, because a
   // session reads that file as it starts: a build landing after the tab was
@@ -170,7 +173,7 @@ export function prepareBots(bots, names, onlySession) {
 export function botsNamed(bots, onlyBot) {
   const names = botNames(bots);
   if (names.length === 0) {
-    throw new Error(`there are no bots in ${bots} yet: make one with obk bot create --bots <path> --name <name> --harness claude|codex.`);
+    throw new Error(`there are no bots in ${bots} yet: make one with obk bot create --bots <path> --name <name> --harness claude|codex|pi.`);
   }
   if (onlyBot !== undefined && !names.includes(onlyBot)) {
     throw new Error(`there is no bot called ${onlyBot} in ${bots}. The bots there are: ${names.join(', ')}.`);
@@ -182,6 +185,23 @@ function refuseWhatCannotStart(bot, home, onlySession) {
   for (const session of awake(sessionsOf(bot, onlySession))) {
     const trouble = sessionTrouble(session, harnessOf(session, bot.harness), home);
     if (trouble !== undefined) throw new Error(`${bot.name}: ${trouble}`);
+  }
+}
+
+/**
+ * Refuse the run before Orca is asked for anything when it would start a Pi
+ * session and Pi cannot start one: Pi does not run, can use no model, or
+ * cannot use the one a session names (#578). The user signs in to Pi on their
+ * own. A run with no Pi session does not ask Pi anything.
+ */
+function refuseWhenPiIsNotReady(chosen, onlySession) {
+  const onPi = chosen.flatMap(({ bot }) => awake(sessionsOf(bot, onlySession))
+    .filter((session) => harnessOf(session, bot.harness) === 'pi')
+    .map((session) => ({ bot, session })));
+  if (onPi.length === 0) return;
+  const trouble = piTrouble(onPi.map(({ session }) => session.model).filter((model) => typeof model === 'string' && model.trim() !== ''));
+  if (trouble !== undefined) {
+    throw new Error(`${trouble} It would start ${onPi.map(({ bot, session }) => `${bot.name} ${session.name}`).join(', ')}.`);
   }
 }
 
@@ -273,7 +293,10 @@ async function bringUpSession(bots, home, live, session, bot, title) {
   // Asked before the book is held, because it reads a folder of the harness's
   // own files: nothing slow happens under the lock.
   let which = whichConversation(book, home, bot, session, was, harness);
-  const launchOf = (chosen) => launchFor(bots, bot, session, harness, home, workDir, chosen.resume, was?.address);
+  // A Pi session is told which conversation to be, and a new one is named here:
+  // the book is where that name is kept (ADR 0012, tech notes, section 6).
+  const fresh = harness === 'pi' ? randomUUID() : undefined;
+  const launchOf = (chosen) => launchFor(bots, bot, session, harness, home, workDir, chosen.resume, was?.address, fresh);
   let launch = launchOf(which);
 
   // A work dir is a plain folder, made for the session before it is told about
@@ -321,6 +344,9 @@ async function bringUpSession(bots, home, live, session, bot, title) {
       // Before the line is typed, so the hook finds no id here and takes the one
       // it reports for a start rather than a clear, which would tell the duty twice.
       if (which.noConversation !== undefined && held === which.noConversation) entry = forgetSession(entry, 'no conversation');
+      // The id a new Pi conversation is started under, written before the line
+      // that starts it, as a hook writes Claude Code's and Codex's.
+      if (fresh !== undefined && launch.resume === undefined) entry = rememberSession(entry, fresh);
       current.sessions[session.name] = withUnclaimed(entry, which.unclaimed ?? []);
       forgetClaimed(current);
     });
@@ -331,8 +357,9 @@ async function bringUpSession(bots, home, live, session, bot, title) {
   // The old tab's hook can name another conversation while the tab is being
   // opened. A fresh start chosen before that is chosen again from the id the
   // book holds now: resumed if the harness has it, and otherwise set aside the
-  // same way (review of PR #310).
-  if (which.noConversation !== undefined && typeof held === 'string' && held !== which.noConversation) {
+  // same way (review of PR #310). A Pi session has no hook, and the id this run
+  // named for it is the one the book now holds.
+  if (fresh === undefined && which.noConversation !== undefined && typeof held === 'string' && held !== which.noConversation) {
     which = hasConversation(harness, home, held) ? { resume: held } : { noConversation: held };
     if (which.noConversation !== undefined) {
       await updateBook(home, (current) => {
@@ -532,7 +559,7 @@ function lookAndType(home, tabId, line, until) {
  * The line that starts this session: resuming `resume`, or, with none, a fresh
  * start carrying its duty. Returns `{ resume, prompt, promptFile, command, address }`.
  */
-function launchFor(bots, bot, session, harness, home, workDir, resume, held) {
+function launchFor(bots, bot, session, harness, home, workDir, resume, held, fresh) {
   const prompt = resume === undefined ? startPrompt(session, { home, workDir }) : undefined;
   // Anything longer than a line goes to the harness out of a file, rather than
   // through the tab's shell a character at a time.
@@ -554,6 +581,9 @@ function launchFor(bots, bot, session, harness, home, workDir, resume, held) {
     resume,
     address,
     kit: kitFolders(bots, bot.name),
+    // A new Pi conversation's id, and the name its tab and session list show,
+    // `<bot>.<session>` as a Codex thread is named (#480).
+    ...(harness === 'pi' ? { sessionId: resume === undefined ? fresh : undefined, name: `${bot.name}.${session.name}` } : {}),
   });
   // The session's mailbox first, from inside its own tab (#317), and the
   // harness whatever became of it.

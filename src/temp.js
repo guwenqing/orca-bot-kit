@@ -75,6 +75,9 @@ export async function makeTemp(bots, { tab, ...given }) {
 
   const maker = bot.sessions.find((session) => session.name === caller.session);
   const { settings, chosen } = settingsFor(bot, maker, role?.option ?? {}, given);
+  if (chosen.harness.value === 'pi') {
+    throw new Error(`${name} would run on Pi, and a temporary session on Pi comes in a later slice of #547. Make it on claude or codex. Nothing was made.`);
+  }
   refuseWiderApproval(bots, caller, bot, maker, given.approval);
   refuseApprovalArgs(chosen.harness.value, given.extra_args);
   settings.name = name;

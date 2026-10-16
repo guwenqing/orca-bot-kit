@@ -17,7 +17,11 @@ import { isDeepStrictEqual } from 'node:util';
 import { leadsOutside } from './bot.js';
 import { ownCli, shellWord } from './launch.js';
 
-/** Where each harness reads a project's hooks, inside the bot home. */
+/**
+ * Where each harness reads a project's hooks, inside the bot home. Pi has no
+ * hook of the kit's: the kit names a Pi session's id itself, on its launch
+ * line (#578).
+ */
 const HOOK_FILE = { claude: '.claude/settings.json', codex: '.codex/hooks.json' };
 
 /** The hooks file `harness` reads in the bot at `home`. */
@@ -82,6 +86,7 @@ export const nameCommand = (bots, bot, cli = ownCli()) =>
  * the kit's own entry is written (PRD 6.3).
  */
 export function installHook(home, harness, { bots, bot }) {
+  if (HOOK_FILE[harness] === undefined) return;
   const file = path.join(home, HOOK_FILE[harness]);
   const away = outside(home, file);
   if (away !== undefined) throw new Error(away);
@@ -117,6 +122,7 @@ export function installHook(home, harness, { bots, bot }) {
  * nothing else says so — the book simply stops being true.
  */
 export function hookTrouble(home, harness, { bots, bot }) {
+  if (HOOK_FILE[harness] === undefined) return undefined;
   const file = path.join(home, HOOK_FILE[harness]);
   const stale = `Until it is there, nothing tells the book which conversation this bot's ${harness} sessions are running as, and the book goes stale.`;
 

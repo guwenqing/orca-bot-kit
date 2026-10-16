@@ -2,7 +2,7 @@
 // the harness up and carries the session's start prompt with it.
 //
 // The flag mapping is PRD 6.4 and ADR 0015, re-checked against the installed
-// CLIs (Claude Code 2.1.278, Codex 0.155.1). Every session is given its
+// CLIs (Claude Code 2.1.278, Codex 0.155.1, Pi 1.1.0). Every session is given its
 // approval level explicitly, so a user's own global harness defaults cannot
 // leak into a bot. The kit names no model: a session that sets none gets the
 // harness's own.
@@ -27,6 +27,11 @@ const APPROVAL = {
     ask: ['-a', 'on-request'],
     'dangerously-skip': ['--dangerously-bypass-approvals-and-sandbox'],
   },
+  // Pi asks before no tool call and has no rule for each command, so it has
+  // one level, and no flag for it (the owner, #547).
+  pi: {
+    'dangerously-skip': [],
+  },
 };
 
 export const APPROVALS = Object.keys(APPROVAL.claude);
@@ -46,11 +51,14 @@ export const approvalRank = (level) => ['ask', 'auto', 'dangerously-skip'].index
 /**
  * The harness flags that set approval or permissions, which only
  * `obk permission approval` may change, not an extra argument (ADR 0041).
- * Codex's `-a` and `-s` take their value glued on too.
+ * Codex's `-a` and `-s` take their value glued on too. Pi's `--approve` and
+ * `-a` make it trust the folder's own files, which the kit's `--no-approve`
+ * keeps it from (#578).
  */
 const APPROVAL_FLAGS = {
   claude: ['--permission-mode', '--dangerously-skip-permissions', '--allow-dangerously-skip-permissions', '--allowedTools', '--allowed-tools'],
   codex: ['-a', '--ask-for-approval', '--approve-for-me', '--dangerously-bypass-approvals-and-sandbox', '-s', '--sandbox'],
+  pi: ['--approve', '-a'],
 };
 
 /**
@@ -67,6 +75,18 @@ export function refuseApprovalArgs(harness, args) {
 
 /** The level a session that names none runs at (ADR 0015). */
 export const DEFAULT_APPROVAL = 'auto';
+
+/** The level a session on `harness` is written with when it names none: Pi has only one (#547). */
+export const defaultApproval = (harness) => (harness === 'pi' ? 'dangerously-skip' : DEFAULT_APPROVAL);
+
+/**
+ * Why a level is refused on Pi, or undefined when it is taken there. The
+ * owner's decision (#547): every Pi session counts as dangerously-skip.
+ */
+export function piApprovalTrouble(level, who = 'this session') {
+  if (!set(level) || level === 'dangerously-skip') return undefined;
+  return `${who} runs on Pi and is set to approval ${level}. Pi has no approval prompt and no permission rules, so every Pi session runs as dangerously-skip (the owner's decision, #547); auto and ask are refused on Pi. Set it to dangerously-skip, or run the session on claude or codex.`;
+}
 
 /** A setting the user left out. An empty string is one too: it means the harness's own. */
 const set = (value) => value !== undefined && value !== null && String(value).trim() !== '';
@@ -201,6 +221,15 @@ export function sessionTrouble(session, harness, home) {
   if (set(session.approval) && !APPROVALS.includes(session.approval)) {
     return `${where(session)} is set to approval ${session.approval}, and the levels are ${APPROVALS.join(', ')}.`;
   }
+  if (harness === 'pi') {
+    const trouble = piApprovalTrouble(session.approval, where(session));
+    if (trouble !== undefined) return trouble;
+    // Pi has no context setting: a model's own name carries it, as in
+    // cursor/claude-opus-5-5@1m (tech notes, section 6).
+    if (set(session.context)) {
+      return `${where(session)} sets a context of ${session.context} on Pi, and Pi has no context setting: the model's name carries it, as in cursor/claude-opus-5-5@1m. Name such a model, or leave the context out.`;
+    }
+  }
   // Codex is given the context window as a number of tokens. `1m` is what a
   // Claude session would say, and copying it here does not fail at the kit but
   // in Codex, which exits with a type error the moment it starts.
@@ -231,16 +260,21 @@ const where = (session) => (set(session.name) ? `session ${session.name}` : 'thi
  * send would land on that list and answer it. A prompt given as an argument is
  * held by the harness until it is ready for it (tech notes, section 1).
  */
-export function launchCommand(session, { harness, home, workDir, prompt, promptFile: fromFile, resume, address, kit }) {
+export function launchCommand(session, { harness, home, workDir, prompt, promptFile: fromFile, resume, address, kit, sessionId, name }) {
   const trouble = sessionTrouble(session, harness, home);
   if (trouble !== undefined) throw new Error(trouble);
+  // Pi is told which conversation it is, a new one too: the kit names it, and
+  // that is how the book knows it (tech notes, section 6).
+  if (harness === 'pi' && resume === undefined && sessionId === undefined) {
+    throw new Error(`${where(session)} runs on Pi, and a Pi session is started with the id the book gives it, so the kit names one before it launches. None was given.`);
+  }
 
   const words = [harness];
   // Codex resumes through a subcommand, which has to come first; Claude Code
   // resumes through a flag, which goes with the session id at the end. Both
   // take every other flag exactly as a fresh session does.
   if (resume !== undefined && harness === 'codex') words.push('resume');
-  words.push(...APPROVAL[harness][set(session.approval) ? session.approval : DEFAULT_APPROVAL]);
+  words.push(...APPROVAL[harness][set(session.approval) ? session.approval : defaultApproval(harness)]);
   // Codex 0.157 shares one background server between sessions by default, and
   // a resume through it was seen to fail; without it Codex runs as 0.156 did
   // (tech notes, section 3, #330). Codex refuses the flag twice, so the user's
@@ -254,6 +288,16 @@ export function launchCommand(session, { harness, home, workDir, prompt, promptF
     // The context window rides on the model name: `sonnet[1m]`.
     if (set(session.model)) words.push('--model', set(session.context) ? `${session.model}[${session.context}]` : session.model);
     if (set(session.effort)) words.push('--effort', String(session.effort));
+  } else if (harness === 'pi') {
+    // Pi trusts none of the folder's own files (`.pi/`, `.agents/skills`), so it
+    // shows no trust screen and runs nothing the kit has not looked at (#578).
+    words.push('--no-approve');
+    // The id the book holds, resumed or new: Pi opens the conversation with it,
+    // and makes it when there is none (tech notes, section 6).
+    words.push('--session-id', resume ?? sessionId);
+    if (name !== undefined) words.push('--name', name);
+    if (set(session.model)) words.push('--model', session.model);
+    if (set(session.effort)) words.push('--thinking', String(session.effort));
   } else {
     // Without this the Orca CLI cannot reach Orca from inside the sandbox, so
     // the session is in no fleet at all. The user's own setting of it wins.
@@ -336,10 +380,11 @@ function promptWords(prompt, fromFile) {
 
 /**
  * The session the harness is told to pick up again, when there is one: a flag
- * on Claude Code, the argument of the `resume` subcommand on Codex.
+ * on Claude Code, the argument of the `resume` subcommand on Codex. Pi's is
+ * its `--session-id`, which goes with its other flags.
  */
 const resumeWords = (harness, resume) => {
-  if (resume === undefined) return [];
+  if (resume === undefined || harness === 'pi') return [];
   return harness === 'claude' ? ['--resume', quoted(resume)] : [quoted(resume)];
 };
 

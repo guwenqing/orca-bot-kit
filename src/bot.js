@@ -13,7 +13,7 @@ import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { isSeq, parse, parseDocument, stringify } from 'yaml';
 
-import { DEFAULT_APPROVAL, HARNESSES, harnessOf, sessionTrouble } from './launch.js';
+import { defaultApproval, HARNESSES, harnessOf, sessionTrouble } from './launch.js';
 
 /** Where the bots live inside the user's bots folder. */
 export const botsDir = (bots) => path.join(bots, 'bots');
@@ -238,7 +238,8 @@ export function addSession(bots, bot, settings) {
     throw new Error(`${bot} already has a session called ${settings.name}, and session add never writes over one.`);
   }
 
-  const session = ordered({ ...settings, approval: settings.approval ?? DEFAULT_APPROVAL });
+  // Pi has one level, and the session says so in bot.yaml (#547).
+  const session = ordered({ ...settings, approval: settings.approval ?? defaultApproval(harnessOf(settings, known.harness)) });
   const trouble = sessionTrouble(session, harnessOf(session, known.harness), home);
   if (trouble !== undefined) throw new Error(trouble);
 

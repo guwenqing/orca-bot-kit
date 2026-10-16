@@ -1,4 +1,4 @@
-# Technical notes: Orca and the two harnesses
+# Technical notes: Orca and the harnesses
 
 Facts gathered on 2026-09-19 on the owner's Mac: Orca 1.4.205, Claude Code 2.1.278, Codex CLI 0.153.4
 (Codex has since moved to 0.155.1; the Codex facts below were taken on 0.153.4 unless they say otherwise).
@@ -914,3 +914,76 @@ Agent Skills spec: `name` is 1–64 chars, lowercase letters, digits and hyphens
 10. ~~That `claude --resume <id> -n <other name>` gives the conversation the new name.~~ **done** (2026-09-25, by the owner, #319): it does; see section 2.
 11. ~~Grooming on Claude Code's scheduler (#237), in `test/system/groom.test.js`.~~ **done** (2026-09-26, run 5 passed end to end): see section 2. Still owed: that Orca's own cold restore runs a bare `claude --resume <id>`.
 12. That `obk retire --bot` removes the bot's project on the first Orca release with the `setup-delete` guard (stablyai/orca#27172), before the fleet takes that release (section 1, #528).
+
+## 6. Pi
+
+Pi is `@earendil-works/pi-coding-agent`; `/opt/homebrew/bin/pi` links to its `dist/bundle/cli.js`. Facts
+gathered on 2026-10-16 for #578 on the owner's Mac: Pi 1.1.0, Orca 1.4.225. "Seen live" is one probe in a
+throwaway folder project, `openai/gpt-6-luna` at thinking `low`; "read in code" is Pi 1.1.0's `dist/` and
+docs, or Orca's 1.4.225 bundle. The kit was tested with Pi 1.1.0.
+
+- **Flags** (from `pi --help`, **verified**): `--model <pattern>` (a trailing `:<thinking>` is allowed),
+  `--thinking off|minimal|low|medium|high|xhigh|max`, `--name <name>` (the session's display name),
+  `--session-id <id>`, `--session <path|id>`, `--approve`/`-a` and `--no-approve`/`-na`, `--` before
+  messages. There is no approval mode and no rule for each command, only tool lists (`--tools`,
+  `--exclude-tools`) and extensions. There is no context-window flag; a model's own name carries it
+  (`cursor/claude-opus-5-5@1m`). Pi's docs say it "does not ask for approval before every tool call"
+  (`docs/security.md`). So every Pi session counts as `dangerously-skip`, with no flag for it (#547).
+- **`--session-id <id>` opens the session with that id in the working folder's session folder, and makes
+  one with that id when there is none**, printing `Warning: No project session found with id '<id>';
+  creating a new session with that id.` The id must match `^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$`.
+  It cannot be combined with `--session`, `--continue` or `--resume`. **read in code** (`main.js`,
+  `createSessionManager`; `session-manager.js`, `assertValidSessionId`) and **seen live**: a kit-chosen
+  UUID started a new session; quitting with ctrl+d and starting again with the same `--session-id` showed
+  the old turns, printed no warning, and the next turn went into the same file, the model recalling the
+  first turn. So the kit names a Pi session's id itself, writes it into the book before the line is typed,
+  and resumes with the same flag (ADR 0012).
+- **The session store.** `~/.pi/agent/sessions/--<folder>--/<timestamp>_<id>.jsonl`, where `<folder>` is
+  the working folder's resolved path without its leading `/`, with `/`, `\` and `:` turned into `-`
+  (`getDefaultSessionDirPath`); `PI_CODING_AGENT_DIR`, `PI_CODING_AGENT_SESSION_DIR`, `--session-dir` or a
+  `sessionDir` setting move it, and the kit reads only the default place. The first line is
+  `{"type":"session","version":3,"id","timestamp","cwd"}`; a `--name` adds `{"type":"session_info","name"}`;
+  then `model_change`, `thinking_level_change`, and `message` lines whose `message.role` is `system`,
+  `user`, `assistant` or `toolResult`. A user turn's `content` is a list of `{type:"text",text}` (or a
+  string). The folder was made at launch and the file only after the first turn. **seen live** and
+  **read in code** (`docs/session-format.md`).
+- **`/new` in a Pi tab starts another session file**, which the book does not learn in slice 1: the kit
+  has no Pi hook, so a restart resumes the conversation the book holds. A later slice of #547 adds it.
+  **read in docs** (`docs/sessions.md`), not tried live.
+- **Project trust.** When the working folder or a folder above it has `.pi/settings.json`, `.pi/mcp.json`,
+  `.pi/extensions|skills|prompts|themes`, `.pi/SYSTEM.md`, `.pi/APPEND_SYSTEM.md` or a project
+  `.agents/skills`, Pi asks first, unless `--approve`/`--no-approve`, an extension, or a saved answer in
+  `~/.pi/agent/trust.json` decides (`docs/security.md`). The last of the two flags on a line wins
+  (`cli/args.js`). Context files (`AGENTS.md`, `CLAUDE.md`) load whatever the trust is. **Seen live**, in a
+  folder with an empty `.agents/skills`: `Trust project folder?`, the folder, then `→ Trust`, `Trust parent
+  folder`, `Trust (this session only)`, `Do not trust`, `Do not trust (this session only)`, and the foot
+  `↑↓ navigate  enter select  escape/ctrl+c cancel`. The selection starts on `Trust`, which saves to
+  `trust.json`. Two arrows down and a return took `Trust (this session only)`, and `trust.json` was
+  unchanged. The kit's screen check does not see this screen (its pointer is `→` and its foot has no
+  "Enter to"), and Orca gave it no `blockedReason`: `terminal wait --for tui-idle` was satisfied. So the
+  kit puts `--no-approve` on every Pi launch line: Pi then loads none of the folder's own files and asks
+  nothing, and the kit refuses `--approve` and `-a` as extra arguments (#578). A start with `--approve`
+  showed no screen either.
+- **Context files.** Pi loads one context file per folder, the first of `AGENTS.override.md`, `AGENTS.md`,
+  `AGENTS.MD`, `CLAUDE.md`, `CLAUDE.MD`, from the working folder and the folders above it, and the one in
+  `~/.pi/agent`. So the kit's `CLAUDE.md` link beside `AGENTS.md` is not read twice. **read in code**
+  (`core/resource-loader.js`, `loadContextFileFromDir`).
+- **Readiness.** `pi --list-models [search]` lists the models Pi can use, those of an extension's provider
+  included (the owner's `cursor/…`), and exits 0. With no provider signed in it prints `No models
+  available. Use /login …`; with no match, `No models matching "<search>"`. The search is fuzzy:
+  `openai/gpt-6-luna` matched it, and `openai/gpt-6-luna:high` matched nothing. About 0.3 s each.
+  `pi auth check --provider <p>|--model <m> --json --no-refresh` knows only Pi's own providers: it answered
+  `provider_not_found` for `cursor` and `invalid_state` for `cursor/composer-2.5`, models the owner uses.
+  So the kit asks `--list-models`, never `auth check`, and never asks for a credential. **verified**
+  (local commands, 2026-10-16; the empty case with `PI_CODING_AGENT_DIR` set to an empty folder).
+- **What Orca shows in a Pi tab** (**seen live**, Orca 1.4.225): `terminal show` gave `agentIdentity: pi`
+  from the trust screen on; the title became `π - <name> - <folder>`; `worktree ps` listed the pane as
+  `agentType: pi`, state `done` after the turn; Orca's `agent-hooks/last-status.json` held
+  `providerSession { key: session_id, id: <the kit's id>, transcriptPath }` for the pane. Orca writes its
+  Pi extensions into `~/.pi/agent/extensions` (`orca-agent-status.ts`, `orca-prefill.ts`,
+  `orca-titlebar-spinner.ts`), and they load in a kit-made tab. Pi renames its process: `ps` shows command
+  `pi` with no arguments.
+- **Orca's own restore of a Pi tab** runs `pi --session <transcriptPath>`, with none of the kit's flags.
+  **read in code** (the 1.4.225 bundle's resume command table). Not seen live.
+- **Pi's update notice** (`Update Available … New version 1.3.0 is available. Run pi update`) is a line
+  in the conversation, not a question; nothing answers it. **seen live**.
