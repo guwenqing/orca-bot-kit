@@ -416,12 +416,12 @@ test('C6 through a linked bots folder, links that lead outside a bot are still r
  * A bots folder as the slice before init completed it left it (see init-completes-bot-yaml):
  * Bot Father's bot.yaml has no harness and no sessions, there is no book, and
  * nothing of it is in Orca. Here that bot.yaml is a link to `target`, made
- * with `linkText`.
+ * with `linkText`, and holds `contents`.
  */
-async function previousSliceBehindLink(box, target, linkText) {
+async function previousSliceBehindLink(box, target, linkText, contents = PREVIOUS_SLICE) {
   const bots = await withBots(box, []);
   await mkdir(path.dirname(target), { recursive: true });
-  await writeFile(target, PREVIOUS_SLICE);
+  await writeFile(target, contents);
   const file = botYamlOf(bots, 'bot-father');
   await rm(file);
   await symlink(linkText ?? target, file);
@@ -534,4 +534,49 @@ test('C3 a link with .. through a linked folder that stays inside the bot is bui
   assert.ok(written.includes('Nothing of the kit\'s belongs in here.'), 'beside what the user wrote');
   assert.equal(await exists(path.join(home, 'agents-here.md')), false, 'nothing at the place the text only reads as');
   assert.equal(await readlink(file), 'hop/../agents-here.md', 'the link is still a link');
+});
+
+// ----------------------------------------------------------------- init refuses only what it would write
+
+test('C7 init refuses an outside-linked Bot Father bot.yaml that has its sessions but no harness', async (t) => {
+  // Sessions are there, so init has only the harness to add; that is still a write.
+  const box = await createSandbox(t);
+  const target = path.join(box.home, 'fleet-config', 'bot-father.yaml');
+  const noHarness = `name: bot-father
+charter: |
+  Bot Father owns the fleet.
+rules: []
+skills: []
+sessions:
+  - name: daily
+`;
+  const file = await previousSliceBehindLink(box, target, undefined, noHarness);
+
+  const result = await box.run(['init', '--bots', 'bots', '--harness', 'claude']);
+
+  assert.equal(await readFile(target, 'utf8'), noHarness, 'the user\'s own file, byte for byte');
+  assert.equal(await readlink(file), target, 'the link is left as it was made');
+  assertRefusedWrite(result);
+  assertNamesTheLink(result, spellingsOf(box, file), target);
+});
+
+test('C7 init over an outside-linked Bot Father bot.yaml that needs nothing written goes through, and leaves it alone', async (t) => {
+  // No requirement stricter than the intent: the refusal is of the write, and
+  // a bot.yaml init has nothing to add to is not written. "Complete" here is
+  // the file exactly as a first init leaves it (harness claude, a daily
+  // session, the kit's default allow), moved outside behind a link.
+  const box = await createSandbox(t);
+  const bots = await withBots(box, []);
+  const file = botYamlOf(bots, 'bot-father');
+  const target = path.join(box.home, 'fleet-config', 'bot-father.yaml');
+  const bytes = await moveBotYamlBehindLink(bots, 'bot-father', target);
+  const parsed = parse(bytes);
+  assert.equal(parsed.harness, 'claude', `the premise: the file is complete, got:\n${bytes}`);
+  assert.deepEqual(sessionNames(bytes), ['daily'], 'the premise: it has its daily session');
+
+  const result = await box.run(['init', '--bots', 'bots', '--harness', 'claude']);
+
+  assert.equal(result.code, 0, result.stdout + result.stderr);
+  assert.equal(await readFile(target, 'utf8'), bytes, 'the user\'s own file, byte for byte');
+  assert.equal(await readlink(file), target, 'and the link is still a link');
 });
