@@ -15,7 +15,7 @@
 // kit's report.
 
 import assert from 'node:assert/strict';
-import { readdir, readFile, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 
@@ -167,6 +167,55 @@ test('a successful update to a new repository leaves only that source\'s clone b
     [SOURCE],
     'the source\'s own clone is the one thing beside the bots folder: the old one is not kept in a second folder',
   );
+});
+
+/**
+ * Give every folder called `name` anywhere under `dir` its write bit back, so
+ * the sandbox can be removed wherever the kit moved it.
+ */
+async function writableAgain(dir, name) {
+  for (const entry of await readdir(dir, { withFileTypes: true }).catch(() => [])) {
+    if (!entry.isDirectory()) continue;
+    const at = path.join(dir, entry.name);
+    if (entry.name === name) await chmod(at, 0o755).catch(() => {});
+    await writableAgain(at, name);
+  }
+}
+
+test('an update whose new clone is in place has succeeded, even when the old copy cannot be removed', async (t) => {
+  // The old clone holds a folder of the user's that nobody may write in, so
+  // nothing can delete what is inside it. The replacement still clones and
+  // checks out, and once it is in place the update is done: what becomes of
+  // the old copy is not pinned here either way, and it does not turn a
+  // finished update into a failed one.
+  const box = await createSandbox(t);
+  const start = await clonedWithALocalFile(box);
+  const locked = path.join(start.clone, 'local-notes');
+  await mkdir(locked);
+  await writeFile(path.join(locked, 'notes.txt'), 'Notes in a folder I keep read-only.\n');
+  await chmod(locked, 0o555);
+  const other = await repoAt(path.join(box.root, 'other-repo'));
+  await putSkills(other, { [SKILL]: 'The fork, which tagged its own release.' });
+  const forked = await commitIn(other, 'the fork\'s release');
+  await tagIn(other, REF);
+  assert.notEqual(forked, start.first, 'the two repositories must not share a commit, or this proves nothing');
+  await writeSources(start.bots, sourcesYaml({ name: SOURCE, repo: other, ref: REF }));
+
+  try {
+    const result = await update(box, '--json');
+
+    assert.equal(result.code, 0, `the replacement is in place, so the run succeeded, got: ${result.stderr}${result.stdout}`);
+    const entry = sourceIn(answerOf(result), SOURCE);
+    assert.ok(!('trouble' in entry), `a finished replacement is not trouble, got: ${JSON.stringify(entry)}`);
+    assert.equal(entry.sha, forked, 'the source is reported at the new repository\'s commit');
+    assert.equal(await originUrlOf(start.clone), other, 'the clone is taken from the new repository');
+    assert.equal(await shaIn(start.clone), forked, 'and is at its commit');
+    const written = await sourceEntryIn(start.bots, SOURCE);
+    assert.equal(written.repo, other);
+    assert.equal(written.sha, forked, 'the sha beside the new repository is the new repository\'s');
+  } finally {
+    await writableAgain(box.root, 'local-notes');
+  }
 });
 
 test('after a failed update, putting the old repository back finds the old clone there as it was', async (t) => {

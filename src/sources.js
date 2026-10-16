@@ -199,7 +199,13 @@ function clone(bots, source, rev, recorded) {
         renameSync(replaced, dir);
         throw error;
       }
-      rmSync(replaced, { recursive: true, force: true });
+      // The new clone is in place, so the update has worked. An old copy that
+      // will not go stays beside it, where health names it as a leftover.
+      try {
+        rmSync(replaced, { recursive: true, force: true });
+      } catch {
+        // Nothing to undo.
+      }
     } else {
       renameSync(fetching, dir);
     }
