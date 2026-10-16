@@ -140,7 +140,9 @@ const setsNoDaemon = (session) => {
 
 /**
  * The words a shell makes of `text`: split on blanks outside quotes, quotes
- * removed, a backslash keeping the next character. Nothing is expanded.
+ * removed, a backslash keeping the next character, and a backslash-newline
+ * outside single quotes taken out, joining what is either side of it (#565).
+ * Nothing is expanded.
  */
 function shellWords(text) {
   const words = [];
@@ -148,13 +150,17 @@ function shellWords(text) {
   let quote;
   for (let at = 0; at < text.length; at += 1) {
     const char = text[at];
+    const continued = char === '\\' && text[at + 1] === '\n';
     if (quote === "'") {
       if (char === "'") quote = undefined;
       else word += char;
     } else if (quote === '"') {
       if (char === '"') quote = undefined;
+      else if (continued) at += 1;
       else if (char === '\\' && '"\\$`'.includes(text[at + 1] ?? ' ')) word += text[(at += 1)];
       else word += char;
+    } else if (continued) {
+      at += 1;
     } else if (/\s/.test(char)) {
       if (word !== undefined) words.push(word);
       word = undefined;
