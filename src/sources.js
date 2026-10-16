@@ -151,7 +151,6 @@ function bring(bots, source, moving) {
     const wrong = wrongClone(bots, source);
     if (wrong !== undefined) {
       if (!moving) throw new Error(wrong);
-      rmSync(dir, { recursive: true, force: true });
       return clone(bots, source, source.ref, false);
     }
 
@@ -174,11 +173,16 @@ function bring(bots, source, moving) {
  * Clone a source and check it out out of the way, and put it in place only once
  * both have worked. `<name>.fetching` is where it happens; a run that cannot
  * finish leaves that behind and not a source.
+ *
+ * A clone already there, from a repository the file no longer names, stays
+ * where it is until the new one is ready (#568). It may hold the user's own
+ * files, and a replacement that fails must not cost them.
  */
 function clone(bots, source, rev, recorded) {
   mkdirSync(sourcesDir(bots), { recursive: true });
   const dir = cloneDir(bots, source.name);
   const fetching = `${dir}.fetching`;
+  const replaced = `${dir}.replaced`;
 
   try {
     rmSync(fetching, { recursive: true, force: true });
@@ -186,7 +190,25 @@ function clone(bots, source, rev, recorded) {
     // repository and never one of git's own options, whatever it begins with.
     git(['clone', '--quiet', '--', source.repo, fetching], undefined, `${source.name}: ${source.repo} could not be cloned`);
     checkout(fetching, source, rev, recorded);
-    renameSync(fetching, dir);
+    if (existsSync(dir)) {
+      rmSync(replaced, { recursive: true, force: true });
+      renameSync(dir, replaced);
+      try {
+        renameSync(fetching, dir);
+      } catch (error) {
+        renameSync(replaced, dir);
+        throw error;
+      }
+      // The new clone is in place, so the update has worked. An old copy that
+      // will not go stays beside it, where health names it as a leftover.
+      try {
+        rmSync(replaced, { recursive: true, force: true });
+      } catch {
+        // Nothing to undo.
+      }
+    } else {
+      renameSync(fetching, dir);
+    }
   } finally {
     rmSync(fetching, { recursive: true, force: true });
   }
