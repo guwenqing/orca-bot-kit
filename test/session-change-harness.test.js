@@ -703,6 +703,10 @@ for (const [id, form, extra] of [
   ['HC8e', 'in single quotes', `'${BYPASS}'`],
   ['HC8f', 'in double quotes', `"${BYPASS}"`],
   ['HC8g', 'with a backslash escape', `${BYPASS.slice(0, -1)}\\${BYPASS.at(-1)}`],
+  // A backslash and a newline outside single quotes are a line continuation:
+  // the shell takes both out and joins the word across them.
+  ['HC8i', 'split by a line continuation', `${BYPASS.slice(0, -1)}\\\n${BYPASS.at(-1)}`],
+  ['HC8j', 'split by a line continuation inside double quotes', `"${BYPASS.slice(0, -1)}\\\n${BYPASS.at(-1)}"`],
 ]) {
   test(`${id} a kept extra_args string with Codex's bypass flag ${form} refuses the move to Codex, and nothing is written`, async (t) => {
     const box = await createSandbox(t);
@@ -718,6 +722,20 @@ for (const [id, form, extra] of [
     assert.deepEqual(await snapshot(bots, skipGit), before, 'a refusal writes nothing');
   });
 }
+
+test('HC8k a backslash and a newline inside single quotes stay as they are, so the word is not the bypass flag: the move goes through', async (t) => {
+  const box = await createSandbox(t);
+  const extra = `'${BYPASS.slice(0, -1)}\\\n${BYPASS.at(-1)}'`;
+  const bots = await withExtraArgs(box, extra);
+  assert.equal((await entryOf(bots)).extra_args, extra, 'the premise: bot.yaml holds the string, its newline included');
+
+  const result = await change(box, ['--harness', 'codex']);
+
+  assert.equal(result.code, 0, `inside single quotes the backslash and the newline are part of the word: ${result.stderr}`);
+  const entry = await entryOf(bots);
+  assert.equal(entry.harness, 'codex');
+  assert.equal(entry.extra_args, extra, `the string is kept as it was written, got: ${JSON.stringify(entry.extra_args)}`);
+});
 
 test('HC8h a kept extra_args string whose one quoted path holds the text --sandbox moves to Codex, and stays as written', async (t) => {
   const box = await createSandbox(t);
