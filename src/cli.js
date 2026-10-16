@@ -1306,17 +1306,36 @@ function toLines(answer, bots, where) {
  * came to when one was asked for (#555).
  */
 function sentLines(answer, where) {
-  const road = "             it is in its Orca mailbox, and Orca's own notice tells it to look once it is idle.";
+  const road = noticeLines(answer);
   if (answer.interrupted === true) {
     return [
-      `${road.replace('once it is idle', 'now')}`,
+      ...(road.length === 1 ? [road[0].replace('once it is idle', 'now')] : road),
       `             it was busy, so the kit pressed Escape once in its tab to end its turn.${answer.to.harness === 'codex' ? ' Codex keeps a command it was running as a background terminal after an Escape.' : ''}`,
     ];
   }
   if (answer.interrupted === false) {
-    return [road, answer.idle ? `             it is idle, so it was not interrupted.` : `             it was not interrupted: ${answer.interruptTrouble}.`];
+    return [...road, answer.idle ? `             it is idle, so it was not interrupted.` : `             it was not interrupted: ${answer.interruptTrouble}.`];
   }
-  return [road];
+  return road;
+}
+
+/**
+ * Whether Orca's notice will tell the receiver of its letter. It will not while
+ * Orca lists the receiver's tab as orphaned, as after a window restart: the
+ * window has not loaded the tab (#579). A switch to the tab loads it, and is
+ * named as a fact with its cost, not run and not urged: it moves the user's view.
+ */
+function noticeLines(answer) {
+  if (answer.orphaned === true) {
+    return [
+      "             it is in its Orca mailbox, and it waits there: Orca lists its tab as orphaned, because the Orca window has not loaded that tab, and Orca will not tell it of the letter until the window loads it.",
+      `             ${shellWord(orcaCli())} terminal switch --terminal ${shellWord(answer.handle)} loads the tab. It also moves the user's view to that tab, so what the user types can land in it.`,
+    ];
+  }
+  if (answer.loadTrouble !== undefined) {
+    return [`             it is in its Orca mailbox. The kit could not tell whether the Orca window has loaded its tab (${answer.loadTrouble}), and Orca tells it of the letter only once the window has loaded the tab.`];
+  }
+  return ["             it is in its Orca mailbox, and Orca's own notice tells it to look once it is idle."];
 }
 
 /**
