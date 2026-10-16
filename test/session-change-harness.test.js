@@ -31,6 +31,7 @@ import test from 'node:test';
 import { parse, stringify } from 'yaml';
 
 import {
+  addressPattern,
   assertCleanFailure,
   assertKeptWhatTheyWrote,
   bareLaunch,
@@ -39,6 +40,7 @@ import {
   botHomeOf,
   conversationOnRecord,
   createSandbox,
+  nameOnLine,
   orcaCallsOf,
   orcaFlag,
   recordSession,
@@ -687,4 +689,83 @@ test('HC8d --harness the same as now, with a kept extra_args string, goes throug
   const entry = await entryOf(bots);
   assert.equal(entry.harness, 'claude');
   assert.equal(entry.extra_args, '--verbose');
+});
+
+// ================================================ point 9: no Claude address on another harness
+
+// A Claude session's address (`<bot>.<session>.<token>`, ADR 0042) is the name
+// its Claude Code runs under. Once a tab opens the session on another harness,
+// nothing answers to that name, so the book holds no address for it, and a
+// Claude sender is told the Orca road to its mailbox. Back on Claude, the
+// session gets an address of its own again.
+
+/**
+ * api-bot's daily brought up on Claude, with a Claude sender beside it in the
+ * same approval class, then moved to Codex with `session change` and
+ * restarted. Returns the Claude address the book held before the move.
+ */
+async function movedToCodex(box) {
+  const { bots, home, tab } = await started(box, 'claude');
+  assert.equal((await box.run(['bot', 'create', '--bots', 'bots', '--name', 'sender-bot', '--harness', 'claude'])).code, 0);
+  assert.equal((await box.run(['session', 'add', '--bots', 'bots', '--bot', 'sender-bot', '--name', 'daily'])).code, 0);
+  assert.equal((await box.run(['up', '--bots', 'bots', '--bot', 'sender-bot'])).code, 0);
+  await reported(box, bots, tab.tabId, conv(1));
+  await conversationOnRecord(box, { harness: 'claude', cwd: home, id: conv(1) });
+  const address = (await sessionIn(bots, BOT, 'daily')).address;
+  assert.match(String(address), addressPattern(BOT, 'daily'), 'the premise: on Claude the book holds an address');
+
+  const changed = await change(box, ['--harness', 'codex']);
+  assert.equal(changed.code, 0, `session change --harness codex should go through: ${changed.stderr}`);
+  await ran(box, 'restart', ['--session', 'daily']);
+  return { bots, home, address };
+}
+
+/** `obk message to --to api-bot/daily --from sender-bot/daily`, as JSON. */
+async function roadToDaily(box) {
+  const result = await box.run(['message', 'to', '--bots', 'bots', '--to', `${BOT}/daily`, '--from', 'sender-bot/daily', '--json']);
+  assert.equal(result.code, 0, result.stderr);
+  return JSON.parse(result.stdout);
+}
+
+test('HC9a after the move to Codex and the restart, the book holds no address for the session', async (t) => {
+  const box = await createSandbox(t);
+  const { bots } = await movedToCodex(box);
+
+  const entry = await sessionIn(bots, BOT, 'daily');
+
+  assert.equal('address' in entry, false, `Codex runs in the tab, so no Claude name answers for it, got: ${JSON.stringify(entry)}`);
+});
+
+test('HC9b moved to Codex, restarted, then changed back to Claude with no restart: message to answers the Orca road', async (t) => {
+  const box = await createSandbox(t);
+  const { bots, address } = await movedToCodex(box);
+  const back = await change(box, ['--harness', 'claude']);
+  assert.equal(back.code, 0, back.stderr);
+
+  const answer = await roadToDaily(box);
+
+  const entry = await sessionIn(bots, BOT, 'daily');
+  assert.deepEqual(
+    { transport: answer.transport, address: answer.address },
+    { transport: 'orca', address: `run:${entry.mailbox}` },
+    `Codex still runs in the tab, so mail to ${address} would reach nobody, got: ${JSON.stringify(answer)}`,
+  );
+});
+
+test('HC9c a session that then restarts on Claude gets an address of its own again', async (t) => {
+  const box = await createSandbox(t);
+  const { bots, home } = await movedToCodex(box);
+  // Codex reports its own conversation, so the book names one and restart may close the tab.
+  await reported(box, bots, (await sessionIn(bots, BOT, 'daily')).tab, conv(2));
+  await conversationOnRecord(box, { harness: 'codex', cwd: home, id: conv(2) });
+  assert.equal((await change(box, ['--harness', 'claude'])).code, 0);
+
+  await ran(box, 'restart', ['--session', 'daily']);
+
+  const entry = await sessionIn(bots, BOT, 'daily');
+  assert.match(String(entry.address), addressPattern(BOT, 'daily'), `back on Claude the session has an address, got: ${JSON.stringify(entry)}`);
+  const terminal = (await tabsOfBot(box, bots, BOT)).find((one) => one.tabId === entry.tab);
+  assert.equal(entry.address, nameOnLine(typedInto(terminal)[0]), 'and it is the name its launch line carried');
+  const answer = await roadToDaily(box);
+  assert.deepEqual({ transport: answer.transport, address: answer.address }, { transport: 'native', address: entry.address });
 });
