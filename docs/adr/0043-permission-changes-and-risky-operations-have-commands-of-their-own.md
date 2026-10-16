@@ -93,7 +93,8 @@ No other command grants a right:
   write or run, on its harness (#567):
   - On Claude Code: `--add-dir`, `--settings`, `--setting-sources`,
     `--plugin-dir`, `--plugin-url`, `--mcp-config`, `--agents`, `--agent`,
-    `--debug-file` and `--bare`, each alone or with `=` and a value. Claude
+    `--debug-file`, `--bare` and `--restricted`, each alone or with `=` and a
+    value. Claude
     Code 2.1.302 refuses a shortened long option (`--sett`, `--add-di`: "unknown
     option"), so no shorter spelling is matched.
   - On Codex: `--add-dir`, `-C` and `--cd`, `-p` and `--profile`, `--enable`
@@ -214,9 +215,7 @@ allowed, since neither is a default rule any more.
   0.163.0 and Codex 0.163.0's config schema.
 - Left out on purpose, as they do not let a session write or run more without
   asking: on Claude Code `--safe-mode` (its help: "Admin-managed (policy)
-  settings still apply ... and permissions work normally"), `--restricted`
-  (it drops settings files, but also removes Bash, keeps the file tools in the
-  working folders and refuses bypassPermissions), `--tools` and
+  settings still apply ... and permissions work normally"), `--tools` and
   `--disallowedTools` (they narrow), `--chrome`, `--remote-control`, `--cloud`,
   `--desktop`, `--bg`, `-w` and `--worktree`, and `--system-prompt` and
   `--append-system-prompt` (text only); on Codex `--worktree` (a new worktree
@@ -225,6 +224,13 @@ allowed, since neither is a default rule any more.
   answers), and `--no-alt-screen` and `--no-daemon`. `--bare` is refused, not
   left out: its help does not say whether settings files and their permission
   rules still load, and that cannot be checked without a model call.
+  `--restricted` is refused too. Its help says that it removes Bash and keeps
+  the file tools in the working folders. But it ignores the user, project and
+  local settings files, and their deny rules go with them. reviewer-567 showed
+  this on 2026-10-16 with Claude Code 2.1.302 at `--permission-mode auto`. With
+  a project `permissions.deny` of `Write`, the session refused Write. With
+  `--restricted` added, Write was available, and the file was written with no
+  prompt. `--tools` can also give Bash back.
 - The one trust shape lets a session start trusted in a folder whose trust
   the user declined. It grants no more than the kit grants already: the kit
   answers Codex's trust screen with "trust" for a bot folder

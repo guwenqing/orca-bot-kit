@@ -51,7 +51,7 @@ export const approvalRank = (level) => ['ask', 'auto', 'dangerously-skip'].index
 const APPROVAL_FLAGS = {
   claude: [
     '--permission-mode', '--dangerously-skip-permissions', '--allow-dangerously-skip-permissions', '--allowedTools', '--allowed-tools',
-    '--add-dir', '--settings', '--setting-sources', '--plugin-dir', '--plugin-url', '--mcp-config', '--agents', '--agent', '--debug-file', '--bare',
+    '--add-dir', '--settings', '--setting-sources', '--plugin-dir', '--plugin-url', '--mcp-config', '--agents', '--agent', '--debug-file', '--bare', '--restricted',
   ],
   codex: [
     '-a', '--ask-for-approval', '--approve-for-me', '--dangerously-bypass-approvals-and-sandbox', '-s', '--sandbox',
