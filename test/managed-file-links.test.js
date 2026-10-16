@@ -502,13 +502,13 @@ test('C2 a link whose text reads as inside but goes through a linked folder with
   await mkdir(child, { recursive: true });
   await symlink(child, path.join(home, 'hop'));
   const file = agentsOf(bots, 'api-bot');
-  await linkTo(file, undefined, path.join('hop', '..', 'new-agents.md'));
+  await linkTo(file, undefined, 'hop/../new-agents.md');
   const lands = path.join(box.home, 'notes', 'new-agents.md');
 
   const result = await box.run(['rules', 'build', '--bots', 'bots', '--bot', 'api-bot']);
 
   assert.equal(await exists(lands), false, `no file comes into being at ${lands}`);
-  assert.equal(await readlink(file), path.join('hop', '..', 'new-agents.md'), 'the link is left as it was made');
+  assert.equal(await readlink(file), 'hop/../new-agents.md', 'the link is left as it was made');
   assertRefusedWrite(result);
   assertNamesTheLink(result, spellingsOf(box, file), lands);
 });
@@ -524,7 +524,7 @@ test('C3 a link with .. through a linked folder that stays inside the bot is bui
   const lands = path.join(home, 'sub', 'agents-here.md');
   await writeFile(lands, USERS_NOTES);
   const file = agentsOf(bots, 'api-bot');
-  await linkTo(file, undefined, path.join('hop', '..', 'agents-here.md'));
+  await linkTo(file, undefined, 'hop/../agents-here.md');
 
   const result = await box.run(['rules', 'build', '--bots', 'bots', '--bot', 'api-bot']);
 
@@ -533,5 +533,5 @@ test('C3 a link with .. through a linked folder that stays inside the bot is bui
   assert.ok(hasBlock(written), `the rules block lands in ${lands}, got:\n${written}`);
   assert.ok(written.includes('Nothing of the kit\'s belongs in here.'), 'beside what the user wrote');
   assert.equal(await exists(path.join(home, 'agents-here.md')), false, 'nothing at the place the text only reads as');
-  assert.equal(await readlink(file), path.join('hop', '..', 'agents-here.md'), 'the link is still a link');
+  assert.equal(await readlink(file), 'hop/../agents-here.md', 'the link is still a link');
 });
