@@ -147,6 +147,16 @@ Code's `--settings` or Codex's `--profile`. On Codex, `-c` passes only for a
 short list of keys known to be safe, such as `model_reasoning_effort`
 ([ADR 0044](docs/adr/0044-extra-arguments-that-widen-a-session-are-refused.md)).
 
+A bot or a session can also run on [Pi](https://pi.dev) (`--harness pi`, tested
+with Pi 1.1.0). Pi asks before no tool call, so a Pi session is always
+`dangerously-skip`, and the kit refuses `auto` and `ask` for it. Sign in to Pi
+yourself first: `obk up` asks Pi which models it can use, and starts nothing
+when Pi has none, or not the one the session names. The kit gives a Pi session
+its id, so `obk up` resumes it after its tab is closed. Pi has no context
+setting: name a model that carries it. Mail, temporary sessions, skills and
+health for a Pi session come later, and so do `obk init --harness pi` and
+`obk session clear` and `compact` on Pi.
+
 Every bot gets the kit's default permission rules, written by the kit with
 nobody asked: its own commands for this bots folder, reading a long message,
 `git add` and `git commit`, and Orca's `orca orchestration check --run`

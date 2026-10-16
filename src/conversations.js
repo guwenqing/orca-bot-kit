@@ -6,11 +6,11 @@
 // the kit never recorded must not be mistaken for a session that never had one,
 // so when the book cannot say, the harness is asked instead.
 //
-// Both harnesses keep their own record of every conversation, per working
+// Every harness keeps its own record of every conversation, per working
 // directory, and every session starts at its bot home. Read only, never
 // written: these are the harness's files (tech notes, sections 2 and 3).
 
-import { existsSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 
@@ -21,6 +21,38 @@ const claudeDir = (home) => path.join(homedir(), '.claude', 'projects', slug(hom
 
 /** The folder's name is the working directory with everything else turned into a dash. */
 const slug = (home) => home.replaceAll(/[^A-Za-z0-9]/g, '-');
+
+/**
+ * Pi's sessions: one folder per working directory, named from its real path
+ * with the leading `/` taken off and `/`, `\` and `:` turned into dashes,
+ * between `--`; one `<time>_<id>.jsonl` per conversation (Pi 1.1.0,
+ * `getDefaultSessionDirPath`, tech notes, section 6).
+ */
+const piDir = (home) => path.join(homedir(), '.pi', 'agent', 'sessions', `--${realHome(home).replace(/^[/\\]/, '').replaceAll(/[/\\:]/g, '-')}--`);
+
+/** The folder as Pi sees it from inside: the real path, when there is one. */
+function realHome(home) {
+  try {
+    return realpathSync(home);
+  } catch {
+    return home;
+  }
+}
+
+/**
+ * A Pi session file's name, `<time>_<id>.jsonl`: the time is Pi's ISO time
+ * with `:` and `.` turned into dashes, and the id may hold a `_` of its own.
+ */
+const PI_FILE = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z_(.+)\.jsonl$/;
+
+/** The id a Pi session file's name carries, or undefined for a file that is not one. */
+const piIdOf = (name) => PI_FILE.exec(name)?.[1];
+
+/** Where Pi keeps the conversation `id` of this bot home, or undefined when it has none yet. */
+const piSession = (home, id) => {
+  const name = files(piDir(home)).find((one) => piIdOf(one) === id);
+  return name === undefined ? undefined : path.join(piDir(home), name);
+};
 
 /** Codex's rollouts: a file per conversation, filed by the day it started. */
 const codexDir = () => path.join(homedir(), '.codex', 'sessions');
@@ -52,6 +84,7 @@ export function conversationsIn(harness, home, since) {
  */
 export function hasConversation(harness, home, id) {
   if (harness === 'claude') return existsSync(claudeTranscript(home, id));
+  if (harness === 'pi') return piSession(home, id) !== undefined;
   return codexRollout(id) !== undefined;
 }
 
@@ -120,7 +153,9 @@ export function claudeSubagentTranscripts(file) {
  */
 export function transcriptsIn(harness, home, since) {
   const from = since === undefined ? 0 : Date.parse(since);
-  const found = harness === 'claude' ? claudeConversations(home) : codexConversations(home, from);
+  const found = harness === 'claude' ? claudeConversations(home)
+    : harness === 'pi' ? piConversations(home)
+      : codexConversations(home, from);
   return found
     .filter((one) => Number.isNaN(from) || one.at >= from)
     .sort((left, right) => left.at - right.at)
@@ -173,6 +208,14 @@ function userTexts(harness, line) {
     if (typeof content === 'string') return [content];
     return Array.isArray(content) ? content.filter((block) => block?.type === 'text').map((block) => String(block.text)) : [];
   }
+  if (harness === 'pi') {
+    // A turn is a `message` line, and the user's are role `user` (Pi 1.1.0,
+    // docs/session-format.md).
+    const message = parsed?.type === 'message' ? parsed.message : undefined;
+    if (message?.role !== 'user') return [];
+    if (typeof message.content === 'string') return [message.content];
+    return Array.isArray(message.content) ? message.content.filter((block) => block?.type === 'text').map((block) => String(block.text)) : [];
+  }
   const item = parsed?.type === 'response_item' ? parsed.payload : undefined;
   if (item?.type !== 'message' || item.role !== 'user' || !Array.isArray(item.content)) return [];
   return item.content.filter((block) => block?.type === 'input_text').map((block) => String(block.text));
@@ -189,6 +232,33 @@ function claudeConversations(home) {
       const at = said(file) ?? startedAt(file);
       return at === undefined ? [] : [{ id: name.slice(0, -'.jsonl'.length), at, file }];
     });
+}
+
+/**
+ * Pi's conversations in this bot home. The first line of each is its header,
+ * `{ type: 'session', id, timestamp, cwd }`, and says which conversation it is
+ * and when it began; the file's name says the id too.
+ */
+function piConversations(home) {
+  return files(piDir(home))
+    .filter((name) => name.endsWith('.jsonl'))
+    .flatMap((name) => {
+      const file = path.join(piDir(home), name);
+      const header = piHeader(file);
+      const id = typeof header?.id === 'string' ? header.id : piIdOf(name);
+      const at = Date.parse(header?.timestamp ?? '') || startedAt(file);
+      return at === undefined || id === undefined || id === '' ? [] : [{ id, at, file }];
+    });
+}
+
+/** A Pi session's first line, when it is the header. */
+function piHeader(file) {
+  try {
+    const parsed = JSON.parse(firstLine(file) ?? '');
+    return parsed?.type === 'session' ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** When a transcript's first line says the conversation was, if it says at all. */

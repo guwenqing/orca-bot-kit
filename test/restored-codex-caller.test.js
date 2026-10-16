@@ -16,8 +16,9 @@
 // from the caller's environment alone.
 //
 // The rule, at the CLI: when a command would take the calling session from
-// the caller's tab (`message send` and `message to` without `--from`,
-// `message check` without `--bot`, `temp make`, `temp retire`), or would read
+// the caller's tab (`message send` with or without `--from`, since #570 holds
+// a send from a session's tab to that session; `message to` without `--from`;
+// `message check` without `--bot`; `temp make`; `temp retire`), or would read
 // mail as the caller's terminal (`message check` with ORCA_TERMINAL_HANDLE set,
 // `--bot/--session` given or not), and the book gives that tab to a Codex
 // session, and the caller carries no OBK_TAB_SHELL, it refuses. The refusal
@@ -34,7 +35,8 @@
 // were.
 //
 // Unchanged: the same commands with OBK_TAB_SHELL; a Claude tab without it; an
-// explicit `--from`; a tab that is no session's (Bot Father's ops tab).
+// explicit `--from` on `message to`; a tab that is no session's (Bot Father's
+// ops tab).
 //
 // The words are the implementer's. What is read is the content, loosely: the
 // reason (Codex, its shared background server), the restart, the other-app
@@ -263,17 +265,26 @@ test('R1 the second Codex session\'s tab is refused the same way: the rule is th
   await refusedWithNothingDone(box, bots, SEND, fromRestoredCodex(box, review));
 });
 
-test('R1 message send with --from, from a Codex tab without the mark, is sent as the session named', async (t) => {
-  // It does not decide who is calling from the tab, so nothing is in doubt.
+test('R1 message send with --from, from a Codex tab without the mark, is refused with the reason and sends nothing, even naming the tab\'s own session; with the mark, its own session is sent', async (t) => {
+  // Since #570 a send from a session's tab may only be from that session, so
+  // the kit has to know who is calling. From a Codex tab without the mark it
+  // cannot (#408), whichever session --from names. Before #570 this send went,
+  // from the session --from named.
   const box = await createSandbox(t);
   const { bots, daily } = await fleet(box);
 
-  const result = await box.run([...SEND, '--from', 'coder/review'], { env: fromRestoredCodex(box, daily) });
+  // Each pair has a Codex end, so none is a native Claude pair, refused for a
+  // reason of its own.
+  for (const [from, to] of [['coder/review', 'writer'], ['coder/daily', 'writer'], ['writer/daily', 'coder/review']]) {
+    const args = ['message', 'send', '--bots', 'bots', '--to', to, '--from', from, '--subject', 'the build', '--text', 'It is green.'];
+    await refusedWithNothingDone(box, bots, args, fromRestoredCodex(box, daily));
+  }
 
-  assert.equal(result.code, 0, `${result.stderr}${result.stdout}`);
+  const marked = await box.run([...SEND, '--from', 'coder/daily'], { env: fromKitCodex(box, daily) });
+  assert.equal(marked.code, 0, `from the Codex the kit started, its own session sends: ${marked.stderr}${marked.stdout}`);
   const queued = await box.orca.messages();
   assert.equal(queued.length, 1, `one message, got: ${JSON.stringify(queued)}`);
-  assert.equal(queued[0].from, await mailboxOf(bots, 'coder', 'review'), 'from the session --from names');
+  assert.equal(queued[0].from, await mailboxOf(bots, 'coder', 'daily'), 'from the session whose tab it is');
 });
 
 test('R1 message send with no --from, from a Claude tab without the mark, is sent as that session, as before', async (t) => {

@@ -43,18 +43,19 @@ Usage:
                             Create your bots folder: a git repo holding your
                             bots' configuration, with Bot Father in it, and
                             open Bot Father in Orca.
-  obk bot create --bots <path> --name <bot> --harness claude|codex
+  obk bot create --bots <path> --name <bot> --harness claude|codex|pi
                  [--charter <text>]
                             Write a new bot in your bots folder. Nothing is
                             opened in Orca until you run obk up.
   obk session add --bots <path> --bot <bot> --name <session>
-                  [--harness claude|codex] [--model <m>] [--effort <e>]
+                  [--harness claude|codex|pi] [--model <m>] [--effort <e>]
                   [--context <c>]
                   [--prompt <text> | --prompt-file <path>] [--work-dir <path>]
                   [--extra-arg=<arg>]
                             Add a session to a bot. Anything left out is the
                             harness's own default; approval is auto, and only
-                            obk permission approval changes it. A long
+                            obk permission approval changes it. A session on
+                            Pi is dangerously-skip, the one level Pi has. A long
                             start prompt lives in a file in the bot home, and
                             --prompt-file names it.
                             A value of your own that starts with a dash is
@@ -222,6 +223,8 @@ Usage:
                             folder and named in the message. A pair the
                             harness's own messaging reaches is not carried:
                             the address to write to is answered instead.
+                            In a session's own tab it sends as that session,
+                            and --from may name only that one.
   obk message check --bots <path> [--bot <bot>] [--session <name>] [--peek]
                             Read what is waiting for a session and mark it
                             read. --peek leaves it unread. Run in a session's
@@ -598,6 +601,8 @@ async function record(bots, bot) {
 
 const commands = {
   async init(bots, values) {
+    // Bot Father on Pi is not in the first slice of #547.
+    if (values.harness === 'pi') throw new Error('init does not take --harness pi yet: Bot Father runs on claude or codex, and its other bots may run on Pi. Nothing was written.');
     // Asked before anything is written, so an Orca that is down leaves the disk
     // exactly as it was and the caller can simply run the command again.
     refuseWhenOrcaIsDown();
@@ -1135,7 +1140,8 @@ const commands = {
   },
 
   async 'message send'(bots, values) {
-    const tab = callerTab(bots, values.from === undefined);
+    // With --from too: in one of the fleet's tabs, the tab says who sends (#570).
+    const tab = callerTab(bots, true);
     refuseWhenOrcaIsDown();
     const answer = await sendMessage(bots, {
       to: values.to,
@@ -1690,7 +1696,7 @@ function rosterLines(roster, bots) {
   }
 
   lines.push(roster.length === 0
-    ? `No bots yet. Make one:  ${shellWord(ownCli())} bot create --bots ${shellWord(bots)} --name <name> --harness claude|codex`
+    ? `No bots yet. Make one:  ${shellWord(ownCli())} bot create --bots ${shellWord(bots)} --name <name> --harness claude|codex|pi`
     : `${roster.length} bot${roster.length === 1 ? '' : 's'}. Your bots folder: ${bots}`);
   return lines;
 }

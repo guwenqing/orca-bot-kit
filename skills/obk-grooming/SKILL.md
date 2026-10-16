@@ -171,9 +171,10 @@ For a bot with its own memory, the report gets a short section:
 - **A proposed cut**, when it is near or over the limit: which entries could go
   or be merged, and why.
 
-A contradiction is not yours to fix. Send it to that bot's own session, as Bot
-Father's management session, whose pass this is: `obk message to --from
-bot-father/<its session> --to <bot>/<session>` gives the road. Where the road
+A contradiction is not yours to fix. Send it to that bot's own session, from
+your own session, for Bot Father's pass: `obk message to --to <bot>/<session>`,
+run in your own tab, gives the road. In a session's tab the kit sends only as
+that session (#570), so name no other with `--from`. Where the road
 is the mailbox, `obk message send` carries it, whatever you run on. Where it is
 an address, that road is Claude Code's own messaging, and it is yours only if
 you run on Claude Code yourself; if you do not, put the finding in your report
