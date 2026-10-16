@@ -57,15 +57,61 @@ const APPROVAL_FLAGS = {
  * Refuse extra arguments that set a session's approval or permissions on
  * `harness`, before anything is written, naming the command that does it.
  * `args` is a list, or, as a user may write `extra_args` by hand, one string
- * of shell text, read here as the words the shell makes of it (#565).
+ * of shell text. The kit types such a string into the tab's shell as it
+ * stands, so the guard takes it only when it can be sure of the words the
+ * shell makes of it, and refuses it otherwise (#565).
  */
 export function refuseApprovalArgs(harness, args) {
-  const words = Array.isArray(args) ? args.map(String) : set(args) ? shellWords(String(args)) : [];
+  const words = Array.isArray(args) ? args.map(String) : set(args) ? sureWords(String(args)) : [];
+  if (words === undefined) {
+    throw new Error(`extra_args is written as one string, ${quoted(String(args))}, with shell syntax the kit cannot be sure of the words of, so it cannot tell whether it sets the session's approval or permissions. Write extra_args as a list, one --extra-arg for each argument. Nothing was changed.`);
+  }
   const found = words.find((arg) => (APPROVAL_FLAGS[harness] ?? []).some((flag) => arg === flag
     || arg.startsWith(`${flag}=`)
     || (/^-[as]$/.test(flag) && arg.startsWith(flag) && !arg.startsWith('--'))));
   if (found === undefined) return;
   throw new Error(`--extra-arg=${found} sets the session's approval or permissions on ${harness}, and only obk permission approval changes those, after the user's yes. Nothing was changed.`);
+}
+
+/**
+ * The words of the shell text `text`, when the kit can be sure they are the
+ * ones the tab's shell makes of it, and undefined when it cannot (#565). Sure
+ * means plain words of the characters `quoted` leaves bare, none starting with
+ * `=` (zsh's equals expansion), separated by spaces; single quotes with no
+ * backslash (fish reads `\'` and `\\` there) and no control character; and
+ * double quotes with none of `$`, backquote, backslash or `!`, and no control
+ * character. Read so, it is the same words in zsh, bash and fish. Everything
+ * else, a newline or a tab included, is shell syntax this does not read.
+ */
+function sureWords(text) {
+  const words = [];
+  let word;
+  let quote;
+  for (const char of text) {
+    if (/[\x00-\x1f\x7f]/.test(char)) return undefined;
+    if (quote === "'") {
+      if (char === '\\') return undefined;
+      if (char === "'") quote = undefined;
+      else word += char;
+    } else if (quote === '"') {
+      if ('$`\\!'.includes(char)) return undefined;
+      if (char === '"') quote = undefined;
+      else word += char;
+    } else if (char === ' ') {
+      if (word !== undefined) words.push(word);
+      word = undefined;
+    } else if (char === "'" || char === '"') {
+      word ??= '';
+      quote = char;
+    } else if (/^[A-Za-z0-9,._+:@%/=-]$/.test(char) && !(char === '=' && word === undefined)) {
+      word = (word ?? '') + char;
+    } else {
+      return undefined;
+    }
+  }
+  if (quote !== undefined) return undefined;
+  if (word !== undefined) words.push(word);
+  return words;
 }
 
 /** The level a session that names none runs at (ADR 0015). */
@@ -140,9 +186,7 @@ const setsNoDaemon = (session) => {
 
 /**
  * The words a shell makes of `text`: split on blanks outside quotes, quotes
- * removed, a backslash keeping the next character, and a backslash-newline
- * outside single quotes taken out, joining what is either side of it (#565).
- * Nothing is expanded.
+ * removed, a backslash keeping the next character. Nothing is expanded.
  */
 function shellWords(text) {
   const words = [];
@@ -150,17 +194,13 @@ function shellWords(text) {
   let quote;
   for (let at = 0; at < text.length; at += 1) {
     const char = text[at];
-    const continued = char === '\\' && text[at + 1] === '\n';
     if (quote === "'") {
       if (char === "'") quote = undefined;
       else word += char;
     } else if (quote === '"') {
       if (char === '"') quote = undefined;
-      else if (continued) at += 1;
       else if (char === '\\' && '"\\$`'.includes(text[at + 1] ?? ' ')) word += text[(at += 1)];
       else word += char;
-    } else if (continued) {
-      at += 1;
     } else if (/\s/.test(char)) {
       if (word !== undefined) words.push(word);
       word = undefined;
