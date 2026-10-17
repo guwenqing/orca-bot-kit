@@ -15,6 +15,14 @@
 //   still runs after up to 3 seconds. It writes a plain line on stderr that
 //   says so and names the number of seconds, and exits 124. A command that
 //   ignores SIGTERM is still stopped, and obk run still exits 124.
+// - The time limit bounds everything in the group, not only the first
+//   process (review of PR #626): when the first process ends and a child of
+//   its group runs on, obk run waits for the group, up to the time limit. It
+//   then exits with the first process's code, or with 124 when the time ran
+//   out and it stopped the group.
+// - When obk run gets SIGTERM from its caller, the group gets it, then
+//   SIGKILL if anything still runs after up to 3 seconds. obk run exits 143
+//   (128 + 15), and only once nothing of the group runs.
 // - A command that is not found: it says so on stderr, and exits 127.
 // - Usage errors are refused with exit 1 and a message on stderr that starts
 //   `obk: `: no `--timeout`; a timeout that is not a whole number more than
@@ -38,6 +46,7 @@
 
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
@@ -59,8 +68,13 @@ const NODE = process.execPath;
  * spawn, and resolves with `guarded: true`. Once the kit has exited, the
  * streams get 3 seconds to close, in case something it left behind still
  * holds them; then they are given up on.
+ *
+ * With `signal: { name, when }`, the test sends the signal `name` to the
+ * kit's own pid (captured at spawn) as soon as the file `when` exists, as a
+ * caller stopping the run would. `signalledAt` is then the ms from the start
+ * to the signal, undefined when it was never sent.
  */
-function runKit(box, args, { stdin } = {}) {
+function runKit(box, args, { stdin, signal } = {}) {
   return new Promise((resolve, reject) => {
     const started = Date.now();
     const child = spawn(box.cli, args, {
@@ -72,6 +86,7 @@ function runKit(box, args, { stdin } = {}) {
     let stderr = '';
     let guarded = false;
     let exited;
+    let signalledAt;
     child.stdout.setEncoding('utf8');
     child.stderr.setEncoding('utf8');
     child.stdout.on('data', (chunk) => { stdout += chunk; });
@@ -85,7 +100,7 @@ function runKit(box, args, { stdin } = {}) {
       if (done) return;
       done = true;
       clearTimeout(guard);
-      resolve({ ...exited, stdout, stderr, guarded });
+      resolve({ ...exited, stdout, stderr, guarded, signalledAt });
     };
     child.on('error', (error) => { clearTimeout(guard); reject(error); });
     child.on('exit', (code, signal) => {
@@ -97,6 +112,17 @@ function runKit(box, args, { stdin } = {}) {
       }, 3000).unref();
     });
     child.on('close', () => finish());
+    if (signal !== undefined) {
+      const poll = setInterval(() => {
+        if (exited !== undefined) {
+          clearInterval(poll);
+        } else if (existsSync(signal.when)) {
+          clearInterval(poll);
+          signalledAt = Date.now() - started;
+          child.kill(signal.name);
+        }
+      }, 20);
+    }
     if (stdin !== undefined) {
       child.stdin.on('error', () => {});
       child.stdin.end(stdin);
@@ -165,15 +191,35 @@ setInterval(() => {}, 1000);
 setTimeout(() => process.exit(99), 20000);
 `;
 
-/** Write the fixtures into the sandbox: `{ hang, tree }`, each a .cjs file's full path. */
+/**
+ * A fixture that starts a child in its own process group and exits at once
+ * with `code`, leaving the child behind. The child's stdio is none. It ends
+ * by itself after `childMs`, and first writes `done` into `marker` when one
+ * is given. The child's pid goes into `pidFile` before the fixture exits.
+ */
+const FORK = String.raw`
+const fs = require('node:fs');
+const { spawn } = require('node:child_process');
+const [pidFile, childMs, code, marker = ''] = process.argv.slice(2);
+const childCode = "setTimeout(() => { if (process.argv[2]) require('node:fs').writeFileSync(process.argv[2], 'done'); process.exit(0); }, Number(process.argv[1]));";
+const child = spawn(process.execPath, ['-e', childCode, childMs, marker], { stdio: 'ignore' });
+child.unref();
+fs.writeFileSync(pidFile + '.tmp', String(child.pid));
+fs.renameSync(pidFile + '.tmp', pidFile);
+process.exit(Number(code));
+`;
+
+/** Write the fixtures into the sandbox: `{ hang, tree, fork }`, each a .cjs file's full path. */
 async function fixtures(box) {
   const dir = path.join(box.root, 'fixtures');
   await mkdir(dir, { recursive: true });
   const hang = path.join(dir, 'hang.cjs');
   const tree = path.join(dir, 'tree.cjs');
+  const fork = path.join(dir, 'fork.cjs');
   await writeFile(hang, HANG);
   await writeFile(tree, TREE);
-  return { hang, tree };
+  await writeFile(fork, FORK);
+  return { hang, tree, fork };
 }
 
 /** Whether a process by this pid is still there: only ESRCH counts as gone. */
@@ -451,6 +497,74 @@ for (const [mode, why] of [
     assert.ok(await goneWithin(written.grandchild), `the grandchild ${written.grandchild} is in the command's process group and should be stopped too`);
   });
 }
+
+// ----------------------------------------------------------------- the time limit bounds the whole group
+
+test('R10 a command that exits 0 at once but leaves a child in its group running: the time limit still stops the child, and obk run exits 124', async (t) => {
+  const box = await createSandbox(t);
+  const { fork } = await fixtures(box);
+  const pidFile = path.join(box.root, 'left.pid');
+  const pids = [];
+  cleanUp(t, pids);
+
+  const result = await runKit(box, ['run', '--timeout', '1', '--', NODE, fork, pidFile, '30000', '0']);
+  const pid = await pidIn(pidFile);
+  pids.push(pid);
+
+  assertNotGuarded(result);
+  assert.ok(pid !== undefined, `the premise: the fixture started its child and wrote its pid, got:\n${result.stdout}${result.stderr}`);
+  assert.equal(result.code, 124, `the child was still running when the time ran out, so obk run should exit 124, got ${result.code} after ${result.elapsed} ms:\n${result.stdout}${result.stderr}`);
+  assert.ok(result.elapsed >= 900, `it should wait the 1 second for the group, not end with the first process, it took ${result.elapsed} ms`);
+  const lines = result.stderr.split('\n').filter((line) => line.trim() !== '');
+  assert.ok(lines.some((line) => /(^|\D)1(\D|$)/.test(line)), `a line on stderr should name the 1 second, got:\n${result.stderr}`);
+  assert.ok(result.elapsed < 1000 + 3000 + 4000, `it should stop the group soon after the 1 second, it took ${result.elapsed} ms`);
+  assert.ok(await goneWithin(pid, 1000), `the child ${pid} is in the command's process group and should be stopped`);
+});
+
+test('R10 a command that exits 3 at once while a child in its group runs on for 0.5 s: obk run waits for the child, then exits 3, well before the 5 s', async (t) => {
+  const box = await createSandbox(t);
+  const { fork } = await fixtures(box);
+  const pidFile = path.join(box.root, 'short.pid');
+  const marker = path.join(box.root, 'child.done');
+  const pids = [];
+  cleanUp(t, pids);
+
+  const result = await runKit(box, ['run', '--timeout', '5', '--', NODE, fork, pidFile, '500', '3', marker]);
+  const doneWhenKitExited = await exists(marker);
+  pids.push(await pidIn(pidFile));
+
+  assertNotGuarded(result);
+  assert.equal(result.code, 3, `the command's own exit code, got ${result.code} after ${result.elapsed} ms:\n${result.stdout}${result.stderr}`);
+  assert.ok(doneWhenKitExited, `obk run should exit only after the child in the group has ended (it took ${result.elapsed} ms)`);
+  assert.ok(result.elapsed >= 400, `the child runs about 0.5 s, so obk run should not end before it, it took ${result.elapsed} ms`);
+  assert.ok(result.elapsed < 4000, `nothing runs after the child ends, so obk run should not wait the 5 s, it took ${result.elapsed} ms`);
+  assert.equal(result.stderr, '', 'nothing is said about a time limit the group kept to');
+});
+
+test('R11 obk run stopped by its caller with SIGTERM: the group gets it, a grandchild that ignores it is killed within about 3 s, and obk run exits 143 only once nothing of the group runs', async (t) => {
+  const box = await createSandbox(t);
+  const { tree } = await fixtures(box);
+  const pidFile = path.join(box.root, 'caller-term.pid');
+  const pids = [];
+  cleanUp(t, pids);
+
+  const result = await runKit(box, ['run', '--timeout', '30', '--', NODE, tree, pidFile, 'orphan-ignores-term'], {
+    signal: { name: 'SIGTERM', when: pidFile },
+  });
+  const written = await pidsIn(pidFile);
+  pids.push(written?.child, written?.grandchild, await pidIn(`${pidFile}.grandchild`));
+  // Read at once: obk run should have exited only after the group was gone.
+  // A short grace lets the system reap a killed orphan.
+  const childGone = await goneWithin(written?.child, 500);
+  const grandchildGone = await goneWithin(written?.grandchild, 500);
+
+  assertNotGuarded(result);
+  assert.ok(written !== undefined && result.signalledAt !== undefined, `the premise: the fixture got going and the test sent obk run SIGTERM, got:\n${result.stdout}${result.stderr}`);
+  assert.equal(result.code, 143, `obk run should exit 128 + 15, got code ${result.code}, signal ${result.signal}:\n${result.stdout}${result.stderr}`);
+  assert.ok(result.elapsed - result.signalledAt < 3000 + 3000, `the grandchild should be killed within about 3 s of the SIGTERM, obk run took ${result.elapsed - result.signalledAt} ms after it`);
+  assert.ok(childGone, `the command ${written.child} should have had the SIGTERM`);
+  assert.ok(grandchildGone, `the grandchild ${written.grandchild} ignores SIGTERM, and should have been killed before obk run exited`);
+});
 
 // ----------------------------------------------------------------- usage errors
 

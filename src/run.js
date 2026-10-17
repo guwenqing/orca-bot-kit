@@ -65,30 +65,70 @@ export function parseRun(args) {
 
 /**
  * Run the command with its time limit, its input and output the caller's, and
- * give back the exit code `obk run` exits with.
+ * give back the exit code `obk run` exits with. The run ends when nothing of
+ * the command's group runs any more: a process the command started and left
+ * running is held to the same limit, and to a signal the kit passes on.
  */
 export function runBounded({ seconds, command }) {
   return new Promise((resolve) => {
     // `detached` makes the command the leader of a group of its own, so its
     // pid, taken here at spawn, is the group's id.
     const child = spawn(command[0], command.slice(1), { stdio: 'inherit', detached: true });
-    const group = (signal) => {
+    // The leader's exit code, once it has exited.
+    let exitCode;
+    let stopping = false;
+    let result;
+    let killAt;
+    let deadline;
+    let look;
+    const signal = (pid, name) => {
       try {
-        process.kill(-child.pid, signal);
+        process.kill(pid, name);
         return true;
       } catch {
         return false;
       }
     };
-    const passOn = (signal) => group(signal);
-    let timer;
-    let timedOut = false;
+    // The leader by its own pid as well, in case it left the group, but only
+    // while it has not exited, since its pid is free again after that.
+    const group = (name) => {
+      if (exitCode === undefined && name !== 0) signal(child.pid, name);
+      return signal(-child.pid, name);
+    };
 
     const finish = (code) => {
-      clearTimeout(timer);
-      for (const signal of PASSED_ON) process.off(signal, passOn);
+      clearTimeout(deadline);
+      clearTimeout(look);
+      for (const name of PASSED_ON) process.off(name, passOn);
       resolve(code);
     };
+
+    // Once the leader has exited or the group is being stopped: look until
+    // nothing of the group runs, and send SIGKILL when the grace is over.
+    const watch = () => {
+      if (exitCode !== undefined && !group(0)) return finish(result ?? exitCode);
+      if (killAt !== undefined && Date.now() >= killAt) {
+        group('SIGKILL');
+        killAt = undefined;
+      }
+      look = setTimeout(watch, LOOK_MS);
+      return undefined;
+    };
+
+    // Stop the group: `name` first, then SIGKILL to what still runs after the
+    // grace. obk run exits with `code`, or with the leader's own when it is
+    // undefined.
+    const stop = (name, code) => {
+      if (stopping) return;
+      stopping = true;
+      result = code;
+      clearTimeout(deadline);
+      group(name);
+      killAt = Date.now() + GRACE_MS;
+      clearTimeout(look);
+      watch();
+    };
+    const passOn = (name) => stop(name, undefined);
 
     child.on('error', (error) => {
       const missing = error.code === 'ENOENT';
@@ -96,29 +136,17 @@ export function runBounded({ seconds, command }) {
       finish(missing ? NOT_FOUND : CANNOT_RUN);
     });
     if (child.pid === undefined) return;
-    for (const signal of PASSED_ON) process.on(signal, passOn);
+    for (const name of PASSED_ON) process.on(name, passOn);
 
-    child.on('exit', (code, signal) => {
-      if (timedOut) return;
-      finish(code ?? 128 + constants.signals[signal]);
+    child.on('exit', (code, name) => {
+      exitCode = code ?? 128 + constants.signals[name];
+      clearTimeout(look);
+      watch();
     });
 
-    timer = setTimeout(() => {
-      timedOut = true;
+    deadline = setTimeout(() => {
       process.stderr.write(`obk: run stopped ${command.join(' ')}: it ran past its time limit of ${seconds} seconds, and its whole process group was stopped.\n`);
-      group('SIGTERM');
-      // The group is gone once a signal of 0 finds nobody in it.
-      const started = Date.now();
-      const look = () => {
-        if (!group(0)) return finish(TIMED_OUT);
-        if (Date.now() - started >= GRACE_MS) {
-          group('SIGKILL');
-          return finish(TIMED_OUT);
-        }
-        timer = setTimeout(look, LOOK_MS);
-        return undefined;
-      };
-      timer = setTimeout(look, LOOK_MS);
+      stop('SIGTERM', TIMED_OUT);
     }, seconds * 1000);
   });
 }

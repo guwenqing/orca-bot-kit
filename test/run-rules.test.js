@@ -20,6 +20,10 @@
 //   part, a timeout that is no plain number, and every rule whose <rest> is
 //   broad on its own (a shell, interpreter or wrapper after `--`, a program
 //   with any arguments, nothing after `--` but a wildcard).
+// - Claude Code's `*` matches any characters, spaces included, and `:*` only
+//   at a word boundary: a kit rule whose wildcard can match the word `run`
+//   (`obk ru*`, `obk r*`, `obk run*`) is broad; one whose wildcard cannot
+//   (`obk ru:*`, `obk he*`) is judged as before.
 // - Other kit commands keep today's judgment, and a program that is not the
 //   kit with a word `run` in it is judged as today. Those cases, and the raw
 //   `perl -e 'alarm …'` form, which stays broad (out of scope), are judged
@@ -208,6 +212,57 @@ test('RR6 the kit\'s CLI behind node or env, by its absolute path: a broad run r
       const result = await allow(box, rule);
 
       assert.equal(result.code, 0, `${rule} is narrow, and should be allowed, got:\n${result.stdout}${result.stderr}`);
+      assert.deepEqual(await allowOf(bots, BOT), [...kept, rule]);
+      assert.ok((await allowedIn(bots, BOT)).includes(rule), `${settingsOf(bots, BOT)} should allow ${rule} now`);
+    });
+  }
+});
+
+// Claude Code's `*` in a Bash rule matches any characters, spaces included,
+// and `:*` matches only at a word boundary (review of PR #626). So a kit rule
+// whose wildcard can match the word `run` allows `obk run` with anything after
+// it, and is broad. A kit rule whose wildcard cannot match `run` is judged as
+// before #532: by the header of test/permissions-broad.test.js, `obk ru:*` and
+// `obk he*` each have two words before the first `*`, and `obk` is no shell,
+// interpreter or wrapper, so both are narrow (and the code before #532,
+// a0d3a8c, accepts both).
+test('RR7 a kit rule whose wildcard can match the word run is broad and writes nothing; one whose wildcard cannot is judged as before', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await withBot(box);
+  const cli = shellWord(box.cli);
+
+  for (const [rule, why] of [
+    ['Bash(obk ru*)', 'ru* matches run and anything after it'],
+    ['Bash(obk r*)', 'r* matches run and anything after it'],
+    ['Bash(obk run*)', 'run* matches run and anything after it'],
+    ['Bash(obk ru* --timeout 300 -- go test:*)', 'ru* matches run with any timeout and any command, before the rest'],
+    [`Bash(${cli} ru*)`, 'the kit\'s own CLI path, ru*'],
+    [`Bash(node ${cli} ru*)`, 'the kit\'s CLI behind an interpreter, ru*'],
+    [`Bash(env ${cli} r*)`, 'the kit\'s CLI behind a wrapper, r*'],
+  ]) {
+    await t.test(`RR7 permission allow ${rule} is refused as broad (${why}), naming the rule and the settings file, and nothing is written`, async () => {
+      const kept = await allowOf(bots, BOT);
+      const before = await snapshot(bots, skipGit);
+
+      const result = await allow(box, rule);
+
+      assertCleanFailure(result);
+      assertNamesRuleAndFile(result, rule, bots);
+      await assertNothingWritten(bots, before);
+      assert.deepEqual(await allowOf(bots, BOT), kept, 'allow is as it was');
+    });
+  }
+
+  for (const [rule, why] of [
+    ['Bash(obk ru:*)', ':* matches only after a space or at the end, so obk ru and its arguments, never obk run'],
+    ['Bash(obk he*)', 'he* cannot match run'],
+  ]) {
+    await t.test(`RR7 permission allow ${rule} is judged as before #532: narrow, recorded (${why})`, async () => {
+      const kept = await allowOf(bots, BOT);
+
+      const result = await allow(box, rule);
+
+      assert.equal(result.code, 0, `${rule} should be allowed, got:\n${result.stdout}${result.stderr}`);
       assert.deepEqual(await allowOf(bots, BOT), [...kept, rule]);
       assert.ok((await allowedIn(bots, BOT)).includes(rule), `${settingsOf(bots, BOT)} should allow ${rule} now`);
     });
