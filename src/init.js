@@ -10,7 +10,7 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, statSync,
 import path from 'node:path';
 import { parseDocument } from 'yaml';
 
-import { BOT_GITIGNORE, changesExactly, YAML_OUT } from './bot.js';
+import { BOT_GITIGNORE, changesExactly, refuseOutside, YAML_OUT } from './bot.js';
 import { RECORD, SKILL_DIRS } from './skills.js';
 
 /**
@@ -265,6 +265,11 @@ function checkBotFather(file, harness) {
   }
   if (bot.sessions !== undefined && bot.sessions !== null && !Array.isArray(bot.sessions)) {
     throw new Error(`${file} has a sessions entry that is not a list, so init cannot add Bot Father's daily session to it. Fix it, then run init again.`);
+  }
+  // One init would complete is refused here, before init writes anything, when a
+  // link takes it out of the bot folder (#569).
+  if (bot.harness === undefined || !Array.isArray(bot.sessions) || bot.sessions.length === 0) {
+    refuseOutside(path.dirname(file), file);
   }
 }
 

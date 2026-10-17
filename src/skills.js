@@ -24,7 +24,7 @@ import { fileURLToPath } from 'node:url';
 import { parse, parseDocument, stringify } from 'yaml';
 
 import { bookFile, readBook, takeLineTurn, TYPING_HELD, TYPING_WAIT_MS } from './book.js';
-import { botDir, botNames, changesExactly, leadsOutside, readBot, YAML_OUT } from './bot.js';
+import { botDir, botNames, changesExactly, leadsOutside, readBot, refuseOutside, YAML_OUT } from './bot.js';
 import { harnessOf, ownCli, shellWord } from './launch.js';
 import { orcaCli, orcaTrouble, tabToTypeInto, typeIntoTab } from './orca.js';
 import { listIn } from './rules.js';
@@ -85,6 +85,7 @@ export function addSkill(bots, bot, ref) {
   }
 
   if (listIn(file, 'skills').includes(ref)) return { bot, home, skill: ref, state: 'there' };
+  refuseOutside(home, file);
 
   const was = readFileSync(file, 'utf8');
   const doc = parseDocument(was);
@@ -120,6 +121,7 @@ export function removeSkill(bots, bot, ref) {
 
   const index = listIn(file, 'skills').indexOf(ref);
   if (index === -1) return { bot, home, skill: ref, state: 'absent' };
+  refuseOutside(home, file);
 
   const was = readFileSync(file, 'utf8');
   const doc = parseDocument(was);
