@@ -184,6 +184,28 @@ for (const name of Object.keys(COMMANDS)) {
   });
 }
 
+/**
+ * The status call answers JSON that says `ok: false`, and exits 1. That is
+ * valid JSON, so the CLI did start and did answer: it is the app that says its
+ * runtime is out, and starting Orca is the right thing to tell the user.
+ */
+const STATUS_NOT_OK = {
+  status: { id: 'x', ok: false, error: { code: 'runtime_unavailable', message: 'the runtime is not running' } },
+};
+
+for (const name of Object.keys(COMMANDS)) {
+  test(`#556 C7 ${name}: a status that answers ok: false passes on Orca's own message, and the user is told to start Orca`, async (t) => {
+    const { result } = await runAgainst(t, name, STATUS_NOT_OK);
+
+    assertCleanFailure(result);
+    assert.ok(
+      result.stderr.includes('the runtime is not running'),
+      `should pass Orca's own message on, got: ${result.stderr}`,
+    );
+    assert.match(result.stderr, START_ORCA, `Orca answered that its runtime is out, so say to start it, got: ${result.stderr}`);
+  });
+}
+
 // ---------------------------------------------------------------------------
 // C6: skills build carries on, and says why it told nobody
 // ---------------------------------------------------------------------------
