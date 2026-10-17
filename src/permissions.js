@@ -6,7 +6,7 @@
 // body beside the bots folder, commit. A matching allow rule is settled before
 // that check (Claude Code's permissions docs), so the kit gives every bot a
 // default set, spelled with its real CLI and bots folder, with nobody asked
-// (#527, ADR 0047). A rule beyond it is the user's yes, which
+// (#527, ADR 0048). A rule beyond it is the user's yes, which
 // `permission allow` keeps in bot.yaml's `allow`. The kit's code writes what
 // `allow` holds into `.claude/settings.json` in the bot folder, beside its hook
 // (ADR 0022). A model editing the file by hand may get the format wrong; code
@@ -24,7 +24,7 @@ import { accessSync, constants, existsSync, mkdirSync, readdirSync, readFileSync
 import path from 'node:path';
 
 import { allowRules, leadsOutside } from './bot.js';
-import { DEFAULT_COMMANDS, NO_LONGER_DEFAULT } from './commands.js';
+import { DEFAULT_COMMANDS, NO_LONGER_DEFAULT, REMOVED } from './commands.js';
 import { readSettings } from './hooks.js';
 import { harnessOf, ownCli, shellWord } from './launch.js';
 
@@ -36,11 +36,10 @@ const CODEX_RULES = '.codex/rules';
 const CODEX_FILE = `${CODEX_RULES}/obk.rules`;
 
 /**
- * The rules every bot is given (ADR 0047): each of the kit's default commands,
+ * The rules every bot is given (ADR 0048): each of the kit's default commands,
  * and none kept back for the user's yes (ADR 0041), narrowed to this bots folder and
  * spelled as the kit prints them, which is what a bot runs; reading a long
- * message; committing; and the check Orca's mail notice tells a session to
- * run. `//` is Claude's form for an absolute path.
+ * message; and committing. `//` is Claude's form for an absolute path.
  */
 export function defaultRules(bots, cli = ownCli()) {
   const kit = shellWord(cli);
@@ -50,19 +49,27 @@ export function defaultRules(bots, cli = ownCli()) {
     `Read(/${bots}.messages/**)`,
     'Bash(git add:*)',
     'Bash(git commit:*)',
-    'Bash(orca orchestration check --run:*)',
   ];
 }
 
 /**
- * The rules of the commands that were defaults once and are kept back now
- * (#548), spelled as `defaultRules` spelled them, that the bot's `allow`
- * holds. The kit cannot tell its own old entry from a user's yes to the same
- * rule, so it names them and leaves them (ADR 0041).
+ * Orca's check, which the set held until #564: the kit's rules tell a bot to
+ * read its mail with `obk message check`, never with the bare check, which
+ * leaves it unread (ADR 0042).
+ */
+const ORCA_CHECK = 'Bash(orca orchestration check --run:*)';
+
+/**
+ * The rules that were defaults once and are not now, that the bot's `allow`
+ * holds: those of the commands kept back (#548) or gone from the kit (#555),
+ * spelled as `defaultRules` spelled them, and Orca's check (#564). The kit
+ * cannot tell its own old entry from a user's yes to the same rule, so it
+ * names them and leaves them (ADR 0041, ADR 0048).
  */
 export function heldRules(bots, home, bot, cli = ownCli()) {
   const allowed = allowOf(home, bot);
-  return NO_LONGER_DEFAULT.map((command) => `Bash(${shellWord(cli)} ${command} --bots ${shellWord(bots)}:*)`)
+  return [...NO_LONGER_DEFAULT, ...REMOVED].map((command) => `Bash(${shellWord(cli)} ${command} --bots ${shellWord(bots)}:*)`)
+    .concat(ORCA_CHECK)
     .filter((rule) => allowed.includes(rule));
 }
 
@@ -277,7 +284,7 @@ export function refuseNoCodexForm(bot, rules) {
 }
 
 /**
- * Add the default rules the bot is not allowed yet to its `allow` (ADR 0047),
+ * Add the default rules the bot is not allowed yet to its `allow` (ADR 0048),
  * then write what it is allowed into the files of the harnesses it runs on:
  * one entry per file, Claude's first, each with `defaults`, the rules this run
  * added, and `held`, the rules of commands no longer in the set that the bot

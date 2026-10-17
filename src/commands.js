@@ -1,6 +1,6 @@
 // The kit's commands, each with the flags it cannot do without, which `obk`
 // reads to parse a command line; and the two lists every command is on one of:
-// those every bot is allowed by default (#527, ADR 0047), and those kept back
+// those every bot is allowed by default (#527, ADR 0048), and those kept back
 // for the user's yes (ADR 0041). A new command is on neither until someone
 // puts it on one, and a test holds every command to that choice.
 
@@ -50,7 +50,7 @@ export const COMMANDS = {
 
 /**
  * The commands every bot is allowed by default, each narrowed to its bots
- * folder (ADR 0047). Only a command named here is in the default set; one that
+ * folder (ADR 0048). Only a command named here is in the default set; one that
  * runs whatever its arguments say never is.
  */
 export const DEFAULT_COMMANDS = [
@@ -80,3 +80,10 @@ export const KEPT_BACK = [
  * (#548). A bot may still hold their rules, which the kit names and leaves.
  */
 export const NO_LONGER_DEFAULT = ['restart', 'bot create'];
+
+/**
+ * The commands kit 0.26.0 gave every bot by default and that the kit no longer
+ * has (#555). A bot may still hold their rules, which the kit names and leaves
+ * (#564).
+ */
+export const REMOVED = ['session mail', 'session nudge'];
