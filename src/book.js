@@ -185,7 +185,10 @@ function lockOn(file, waitMs, how = 'IMMEDIATE') {
   // make or write a file anywhere the kit may write (#605). So the kit opens
   // the file itself without following a link, SQLite opens it only if it is
   // there and makes nothing, and once the lock is held the name must still be
-  // that same plain file.
+  // that same plain file, unmoved: a file moved aside and back keeps its inode
+  // but not its ctime. SQLite follows a link at the name as it opens it, so a
+  // swap too quick for the ctime could still hand it a file outside; the turn
+  // therefore ends with ROLLBACK, and SQLite never writes the file it locks.
   let held = heldHere.get(file);
   if (held === undefined) {
     try {
@@ -213,8 +216,8 @@ function lockOn(file, waitMs, how = 'IMMEDIATE') {
     } else {
       db.exec(`BEGIN ${how}`);
     }
-    const now = lstatSync(file, { throwIfNoEntry: false });
-    if (!(now?.isFile() && now.dev === held.stat.dev && now.ino === held.stat.ino)) {
+    const now = lstatSync(file, { bigint: true, throwIfNoEntry: false });
+    if (!(now?.isFile() && now.dev === held.stat.dev && now.ino === held.stat.ino && now.ctimeNs === held.stat.ctimeNs)) {
       db.exec('ROLLBACK');
       throw new LockNotWritable(file, notPlain('something else took its name while the kit opened it'));
     }
@@ -228,7 +231,7 @@ function lockOn(file, waitMs, how = 'IMMEDIATE') {
   return {
     release() {
       try {
-        db.exec('COMMIT');
+        db.exec('ROLLBACK');
       } finally {
         db.close();
         held.turns -= 1;
@@ -254,7 +257,7 @@ function plainFile(file) {
     throw error;
   }
   try {
-    const stat = fstatSync(fd);
+    const stat = fstatSync(fd, { bigint: true });
     if (!stat.isFile()) throw notPlain('not a plain file');
     return stat;
   } finally {
