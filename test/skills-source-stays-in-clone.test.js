@@ -18,7 +18,7 @@
 
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 import { parse, stringify } from 'yaml';
@@ -571,5 +571,33 @@ test('#571 c10a a skill holding links back to its own folder (a -> ., b -> .) is
       (await readThrough(bots, BOT, harness, SKILL)).includes(INSIDE),
       `${harness} should read the skill out of the pinned clone`,
     );
+  }
+});
+
+// --- Criterion 11: a folder in the skill the kit cannot read is refused ------
+
+test('#571 c11a a skill folder the kit cannot list is refused, since what is in it cannot be checked', {
+  skip: process.getuid?.() === 0 ? 'root can list any folder, so the folder cannot be made unreadable' : false,
+}, async (t) => {
+  // Behind the unreadable folder sits a SKILL.md that leads out of the clone,
+  // as in c9a: a build that skipped what it could not read would link it.
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  const outside = await realSkillAt(path.join(box.root, 'outside-shelf', SKILL));
+  const repo = await sourceRepo(box, SOURCE, async (dir) => {
+    await mkdir(path.join(dir, 'skills', SKILL), { recursive: true });
+    await symlink(path.join(outside, 'SKILL.md'), path.join(dir, 'skills', SKILL, 'SKILL.md'));
+  });
+  await listedAndFetched(box, bots, repo);
+  const folder = skillInClone(bots);
+  const there = existsSync(folder);
+
+  // Execute only: an entry can be reached by its name, but the folder cannot
+  // be listed. Put back before the sandbox is removed, whatever happens.
+  if (there) await chmod(folder, 0o111);
+  try {
+    await assertBuildRefused(box, bots, 'a folder in the skill that cannot be read cannot be checked');
+  } finally {
+    if (there) await chmod(folder, 0o755);
   }
 });
