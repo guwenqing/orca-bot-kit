@@ -1075,8 +1075,8 @@ export const readMailbox = (id, { peek = false, handle } = {}, options) =>
  * Orca keeps for them: `read` and `delivered_at` among them, which `check`
  * leaves out. Orca asks no reader for this, so any tab can read any mailbox,
  * and nothing is marked read or delivered (tech notes, section 1; #630). The
- * answer carries each letter's text, up to 64 KiB of it, so it is taken
- * whatever its size.
+ * answer carries each letter's whole text, and a local letter's text has no
+ * cap in Orca, so the answer is taken whatever its size.
  */
 export const mailIn = (id, limit) =>
   orca(['orchestration', 'inbox', '--terminal', `run:${id}`, '--limit', String(limit)], { whole: true }).messages ?? [];
