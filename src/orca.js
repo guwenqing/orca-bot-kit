@@ -106,6 +106,15 @@ export function orcaTrouble() {
   if (asked.error) return `could not run Orca at ${orcaCli()}: ${asked.error.message}. ${where}`;
 
   const answer = parse(asked.stdout);
+  // A CLI that dies with no answer has not reached the app at all: it can fail
+  // on its own, as on a current folder macOS will not let it read, while Orca
+  // runs (#556). So what it said is passed on, and nobody is sent to start Orca.
+  if (answer === undefined && asked.status !== 0) {
+    const exit = asked.status ?? `signal ${asked.signal}`;
+    return `the Orca CLI at ${orcaCli()} failed before it answered status (exit ${exit}; `
+      + `stdout ${said(asked.stdout)}; stderr ${said(asked.stderr)}). `
+      + 'Fix what it says and run the command again, or point OBK_ORCA at another Orca CLI.';
+  }
   // Orca knowing what is wrong beats the kit guessing, so its own words go
   // first when it gave any.
   if (answer !== null && typeof answer === 'object' && answer.ok !== true && answer.error?.message) {

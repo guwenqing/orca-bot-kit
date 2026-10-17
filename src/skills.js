@@ -26,7 +26,7 @@ import { parse, parseDocument, stringify } from 'yaml';
 import { bookFile, readBook, takeLineTurn, TYPING_HELD, TYPING_WAIT_MS } from './book.js';
 import { botDir, botNames, changesExactly, leadsOutside, readBot, refuseOutside, withBotTurn, writeWhole, YAML_OUT } from './bot.js';
 import { harnessOf, ownCli, shellWord } from './launch.js';
-import { orcaCli, orcaTrouble, tabToTypeInto, typeIntoTab } from './orca.js';
+import { orcaTrouble, tabToTypeInto, typeIntoTab } from './orca.js';
 import { listIn } from './rules.js';
 import { cloneDir, isCloned, leavesClone, readSources, skillsIn, wrongClone } from './sources.js';
 
@@ -481,7 +481,7 @@ function tellSessions(home, bot, linked) {
     // Skills reach a Pi session in a later slice (#547), and nothing is typed
     // into its tab before then.
     if (harness === 'pi') return { ...told, state: 'unknown', trouble: 'it runs on Pi, and the kit does not give a Pi session skills yet, so nothing was typed' };
-    if (down !== undefined) return { ...told, state: 'unknown', trouble: `Orca is not answering at ${orcaCli()}, so the kit could not look at its tab, and nothing was typed` };
+    if (down !== undefined) return { ...told, state: 'unknown', trouble: `the kit could not look at its tab, and nothing was typed: ${down}` };
     let turn;
     try {
       // The session's turn for a line (#482), for the look and its line. Codex
