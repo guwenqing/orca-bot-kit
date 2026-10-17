@@ -14,7 +14,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { isSeq, parse, parseDocument, stringify } from 'yaml';
 
 import { takeBotTurn } from './book.js';
-import { defaultApproval, HARNESSES, harnessOf, ownCli, sessionTrouble, set, shellWord, workDirOf } from './launch.js';
+import { defaultApproval, HARNESSES, harnessOf, ownCli, refuseApprovalArgs, sessionTrouble, set, shellWord, workDirOf } from './launch.js';
 
 /** Where the bots live inside the user's bots folder. */
 export const botsDir = (bots) => path.join(bots, 'bots');
@@ -408,6 +408,11 @@ export function changeSession(bots, bot, name, settings) {
     // Judged on the session as it is written, which is the whole session, so a
     // change another command made in between cannot be combined with this one.
     refuseCodexOutside(bot, session, was, known.harness, home, 'session change');
+    // The same for an extra argument that sets approval on the session's
+    // harness: the caller's check read bot.yaml before this turn (#589).
+    if (changes.harness !== undefined || changes.extra_args !== undefined) {
+      refuseApprovalArgs(harnessOf(session, known.harness), session.extra_args);
+    }
 
     editSession(bots, bot, index, session, `change ${bot}'s session ${name}`);
     return { bot, home, session, ...(moved === undefined ? {} : { moved }) };
