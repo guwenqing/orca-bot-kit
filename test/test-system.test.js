@@ -20,7 +20,7 @@
 
 import assert from 'node:assert/strict';
 import { lstatSync, realpathSync } from 'node:fs';
-import { chmod, copyFile, mkdir, readdir, readFile, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { chmod, copyFile, mkdir, readdir, readFile, readlink, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, test as nodeTest } from 'node:test';
@@ -3636,14 +3636,15 @@ async function assertStoppedAtTheBackup(result, fixture, { names, code = ERROR_C
  * A fixture for a backup that cannot be made: both configs under HOME, each
  * holding a secret, one system test (ALPHA) that would change one config if it
  * ran, the one that is not `broken`, so that it would pass, and a second (BETA)
- * that writes in ran.log if it ran.
+ * that writes in ran.log if it ran. `codexHome` and `claudeDir` put the
+ * configs where CODEX_HOME and CLAUDE_CONFIG_DIR say, as withConfigs does.
  */
-async function withBothConfigs(t, { broken = 'codex' } = {}) {
+async function withBothConfigs(t, { broken = 'codex', codexHome = false, claudeDir = false } = {}) {
   const before = { codex: codexConfig({ projects: ['/Users/owner/work/app'] }), claude: claudeConfig(['/Users/owner/work/app']) };
   const during = broken === 'claude'
     ? { codex: codexConfig({ projects: ['/Users/owner/work/app', '/Users/owner/work/changed'] }) }
     : { claude: claudeConfig(['/Users/owner/work/app', '/Users/owner/work/changed']) };
-  const built = await withConfigs(t, () => ({ before, during }));
+  const built = await withConfigs(t, () => ({ before, during, codexHome, claudeDir }));
   await write(built.fixture.repo, 'test/system/beta.test.js', tallies('BETA'));
   return built;
 }
@@ -3664,6 +3665,32 @@ async function withConfigsAndOrca(t, options) {
 async function assertNoBackup(result, tmp, what) {
   assert.ok(!result.stdout.includes('Config backup:'), `${what}: no backup should be said, got:\n${everything(result)}`);
   assert.deepEqual(await backupsIn(tmp), [], `${what}: no backup folder should be made in ${tmp}`);
+}
+
+/**
+ * A system test file that makes the configs impossible to look up while it
+ * runs: each of `loops` is replaced by a symlink to itself (ELOOP), and each
+ * of `locks`, a folder, is made mode 000 (EACCES). It prints its marker.
+ */
+const breaksConfigs = (name, { loops = [], locks = [] } = {}) => [
+  "import { chmodSync, rmSync, symlinkSync } from 'node:fs';",
+  "import test from 'node:test';",
+  '',
+  `test(${JSON.stringify(name)}, () => {`,
+  `  for (const file of ${JSON.stringify(loops)}) {`,
+  '    rmSync(file, { force: true, recursive: true });',
+  '    symlinkSync(file, file);',
+  '  }',
+  `  for (const folder of ${JSON.stringify(locks)}) chmodSync(folder, 0o000);`,
+  `  process.stdout.write(${JSON.stringify(`${name}\n`)});`,
+  '});',
+  '',
+].join('\n');
+
+/** Replace a config with a symlink to itself: there, and never found (ELOOP). */
+async function loopAt(file) {
+  await rm(file, { force: true });
+  await symlink(file, file);
 }
 
 describe('test-system: a backup of both harness configs before every live run (#619)', { concurrency: true }, () => {
@@ -3991,6 +4018,124 @@ describe('test-system: a backup of both harness configs before every live run (#
     assertCompared(result, dir, files.codex, 'notCompared', [ERROR_CODE]);
     assertCompared(result, dir, files.claude, 'same');
     assert.ok((await stat(files.codex)).isDirectory(), 'the folder the run left at config.toml is left there: nothing copied back');
+    assertNoSecrets(result);
+  });
+
+  // The review of PR #620: only a file that does not exist is not there. A
+  // config that is there but cannot be looked up, because its folder cannot be
+  // searched (EACCES) or its path is a symlink loop (ELOOP), cannot be backed
+  // up, and that stops the run like any other copy that failed.
+  for (const codexHome of [true, false]) {
+    test(`a config.toml whose folder cannot be searched (mode 000, ${codexHome ? 'CODEX_HOME' : 'HOME/.codex'}) is not "not there": the run stops before any test, EACCES named, nothing changed`, { skip: AS_ROOT }, async (t) => {
+      const { fixture, env, files } = await withBothConfigs(t, { codexHome });
+      const folder = path.dirname(files.codex);
+      const was = { codex: await snapshot(files.codex), claude: await snapshot(files.claude), mode: (await stat(folder)).mode & 0o777 };
+      await chmod(folder, 0o000);
+      let result;
+      let modeAfter;
+      try {
+        result = await fixture.confirmed({ env });
+        modeAfter = (await stat(folder)).mode & 0o777;
+      } finally {
+        await chmod(folder, was.mode);
+      }
+
+      await assertStoppedAtTheBackup(result, fixture, { names: [files.codex], code: /\bEACCES\b/, tmp: env.TMPDIR });
+      assert.equal(modeAfter, 0o000, 'the folder\'s mode is left as it was');
+      assert.deepEqual(await snapshot(files.codex), was.codex, 'config.toml is as it was');
+      assert.deepEqual(await snapshot(files.claude), was.claude, '.claude.json is as it was');
+    });
+  }
+
+  test('a .claude.json whose folder cannot be searched (mode 000, CLAUDE_CONFIG_DIR) is not "not there": the run stops before any test, EACCES named, nothing changed', { skip: AS_ROOT }, async (t) => {
+    const { fixture, env, files } = await withBothConfigs(t, { broken: 'claude', claudeDir: true });
+    const folder = path.dirname(files.claude);
+    const was = { codex: await snapshot(files.codex), claude: await snapshot(files.claude), mode: (await stat(folder)).mode & 0o777 };
+    await chmod(folder, 0o000);
+    let result;
+    let modeAfter;
+    try {
+      result = await fixture.confirmed({ env });
+      modeAfter = (await stat(folder)).mode & 0o777;
+    } finally {
+      await chmod(folder, was.mode);
+    }
+
+    await assertStoppedAtTheBackup(result, fixture, { names: [files.claude], code: /\bEACCES\b/, tmp: env.TMPDIR });
+    assert.equal(modeAfter, 0o000, 'the folder\'s mode is left as it was');
+    assert.deepEqual(await snapshot(files.claude), was.claude, '.claude.json is as it was');
+    assert.deepEqual(await snapshot(files.codex), was.codex, 'config.toml is as it was');
+  });
+
+  for (const [which, broken] of [['config.toml', 'codex'], ['.claude.json', 'claude']]) {
+    test(`a ${which} that is a symlink loop is not "not there": the run stops before any test, ELOOP named, nothing changed`, async (t) => {
+      const { fixture, env, files } = await withBothConfigs(t, { broken });
+      const other = broken === 'codex' ? 'claude' : 'codex';
+      await loopAt(files[broken]);
+      const was = await snapshot(files[other]);
+
+      const result = await fixture.confirmed({ env });
+
+      await assertStoppedAtTheBackup(result, fixture, { names: [files[broken]], code: /\bELOOP\b/, tmp: env.TMPDIR });
+      assert.equal(await readlink(files[broken]), files[broken], `the loop at ${which} is left as it was`);
+      assert.deepEqual(await snapshot(files[other]), was, 'the other config is as it was');
+    });
+  }
+
+  // The other side of the same rule: a dangling symlink is a file that does
+  // not exist, and stays "not there", so a fix does not turn absence into a stop.
+  test('a dangling symlink where config.toml should be is "not there": no copy, and the run goes on', async (t) => {
+    const claude = claudeConfig([]);
+    const { fixture, env, files } = await withConfigs(t, () => ({ before: { claude } }));
+    const nowhere = path.join(path.dirname(fixture.repo), 'no-such-config.toml');
+    await mkdir(path.dirname(files.codex), { recursive: true });
+    await symlink(nowhere, files.codex);
+
+    const result = await fixture.confirmed({ env });
+
+    assert.equal(result.code, 0, everything(result));
+    assert.match(result.stdout, /ALPHA/, `the tests should run, got:\n${everything(result)}`);
+    const dir = await assertBackupFolder(result, env.TMPDIR);
+    await assertCopy(dir, 'claude.json', claude);
+    await assertCopiesAre(dir, ['claude.json']);
+    assertListed(result, files.codex, null);
+    assertCompared(result, dir, files.codex, 'neither');
+    assert.equal(await readlink(files.codex), nowhere, 'the dangling symlink is left as it was');
+  });
+
+  // The review of PR #620: after the run, a config that was backed up and can
+  // no longer be looked up is not gone. Only one that does not exist is.
+  for (const [which, side, options] of [['config.toml', 'codex', { codexHome: true }], ['.claude.json', 'claude', { claudeDir: true }]]) {
+    test(`a ${which} whose folder becomes mode 000 during the run is said not to be compared, with EACCES, not gone, and the exit code stays the tests'`, { skip: AS_ROOT }, async (t) => {
+      const built = await withConfigs(t, () => ({ ...options, before: { codex: codexConfig({}), claude: claudeConfig([]) } }));
+      const folder = path.dirname(built.files[side]);
+      await write(built.fixture.repo, 'test/system/alpha.test.js', breaksConfigs('ALPHA', { locks: [folder] }));
+      let result;
+      try {
+        result = await built.fixture.confirmed({ env: built.env });
+      } finally {
+        await chmod(folder, 0o755);
+      }
+
+      assert.equal(result.code, 0, `the comparison is a report, not a check:\n${everything(result)}`);
+      const dir = backupSaid(result).dir;
+      assertCompared(result, dir, built.files[side], 'notCompared', [/\bEACCES\b/]);
+      assert.equal(await readFile(built.files[side], 'utf8'), side === 'codex' ? codexConfig({}) : claudeConfig([]), 'the file is still there as it was, and nothing was copied over it');
+      assertNoSecrets(result);
+    });
+  }
+
+  test('a config.toml that becomes a symlink loop during the run is said not to be compared, with ELOOP, not gone, and the exit code stays the tests\'', async (t) => {
+    const built = await withConfigs(t, () => ({ before: { codex: codexConfig({}), claude: claudeConfig([]) } }));
+    await write(built.fixture.repo, 'test/system/alpha.test.js', breaksConfigs('ALPHA', { loops: [built.files.codex] }));
+
+    const result = await built.fixture.confirmed({ env: built.env });
+
+    assert.equal(result.code, 0, `the comparison is a report, not a check:\n${everything(result)}`);
+    const dir = backupSaid(result).dir;
+    assertCompared(result, dir, built.files.codex, 'notCompared', [/\bELOOP\b/]);
+    assertCompared(result, dir, built.files.claude, 'same');
+    assert.equal(await readlink(built.files.codex), built.files.codex, 'the loop is left as the run made it: nothing copied back');
     assertNoSecrets(result);
   });
 });
