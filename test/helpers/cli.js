@@ -286,8 +286,13 @@ export async function createSandbox(t) {
   // A tab the kit launched also has OBK_CLI and OBK_TAB_SHELL from its launch
   // line (#220, #318). A sandbox starts without those too; a test that is
   // about them sets them.
+  //
+  // OBK_ORCA_DATA names the folder another build of Orca keeps its data in,
+  // and the kit reads Orca's profiles there (#551). A shell that has it set
+  // would have every run read that real folder, not the sandbox's home. A
+  // sandbox starts without it too; a test that is about it sets it.
   const outsideOrca = Object.fromEntries(Object.entries(process.env)
-    .filter(([name]) => !name.startsWith('ORCA_') && name !== 'OBK_CLI' && name !== 'OBK_TAB_SHELL'));
+    .filter(([name]) => !name.startsWith('ORCA_') && name !== 'OBK_CLI' && name !== 'OBK_TAB_SHELL' && name !== 'OBK_ORCA_DATA'));
   const env = {
     ...outsideOrca,
     PATH: `${bin}${path.delimiter}${process.env.PATH}`,

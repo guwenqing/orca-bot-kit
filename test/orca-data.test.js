@@ -12,7 +12,8 @@
 //   1. OBK_ORCA_DATA set and not empty: `profilesDir()` is
 //      `<OBK_ORCA_DATA>/profiles`, `orcaDefaultArgs()` reads both stores there
 //      (`profile-state.db` and the older `orca-data.json`), and the profiles in
-//      the default folder are not read.                               D1, D2
+//      the default folder are not read, whether OBK_ORCA is set or not.
+//                                                                 D1, D2, D10
 //   2. `obk health` reports on the files under OBK_ORCA_DATA: a bypass finding
 //      names the file there, and a folder with no profiles gives the "could
 //      not read" finding, naming that folder.                         D3, D4
@@ -20,6 +21,8 @@
 //      come from `<home>/Library/Application Support/orca/profiles`, also when
 //      OBK_ORCA names another app.                                    D5, D6
 //   4. `obk --help` and SETUP.md name OBK_ORCA_DATA.                  D7, D8
+//   5. A sandbox starts without the OBK_ORCA_DATA of the shell that runs
+//      the suite, so no run reads a real folder outside it.               D9
 //
 // Out of scope, and so not pinned: the wording of the findings and of the
 // help text, and how the kit spells the folder beyond its path.
@@ -28,7 +31,8 @@
 // fake Orca. Nothing here reads the real Orca profiles on this machine.
 
 import assert from 'node:assert/strict';
-import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { pathToFileURL } from 'node:url';
@@ -68,12 +72,8 @@ async function profilesIn(box) {
   return JSON.parse(ran.stdout);
 }
 
-/** A sandbox whose OBK_ORCA_DATA is unset, whatever the shell that runs the suite has. */
-async function aSandbox(t) {
-  const box = await createSandbox(t);
-  delete box.env.OBK_ORCA_DATA;
-  return box;
-}
+/** A sandbox: it starts with OBK_ORCA_DATA unset, whatever the shell that runs the suite has (D9). */
+const aSandbox = (t) => createSandbox(t);
 
 /** Default launch arguments in the default folder that no test expects from the fork's folder. */
 const IN_DEFAULT = { claude: '--from-the-default-folder', codex: '' };
@@ -114,6 +114,25 @@ test('D2 with OBK_ORCA_DATA set, orcaDefaultArgs() reads both stores of the prof
     [],
     'the profiles in the default folder are not read',
   );
+});
+
+test('D10 OBK_ORCA_DATA decides the folder whatever OBK_ORCA is: with OBK_ORCA unset, profilesDir() and orcaDefaultArgs() are <OBK_ORCA_DATA>/profiles', async (t) => {
+  const box = await aSandbox(t);
+  await box.orca.settings.set({ agentDefaultArgs: IN_DEFAULT });
+  const data = leanDataOf(box);
+  const fromJson = { claude: '--model opus', codex: BYPASS.codex };
+  await orcaDataJson(path.join(data, 'profiles', 'local-default'), fromJson);
+  box.env.OBK_ORCA_DATA = data;
+  // The built-in Orca CLI path, then. Neither call runs Orca.
+  delete box.env.OBK_ORCA;
+
+  const { dir, read } = await profilesIn(box);
+
+  assert.equal(dir, path.join(data, 'profiles'));
+  assert.equal(read.dir, path.join(data, 'profiles'));
+  assert.deepEqual(read.profiles, [
+    { file: path.join(data, 'profiles', 'local-default', 'orca-data.json'), args: fromJson },
+  ], 'the profile under OBK_ORCA_DATA alone, and nothing from the default folder');
 });
 
 // ------------------------------------------------------------------ obk health
@@ -249,6 +268,30 @@ for (const [label, set] of [
     assert.ok(wordsOf(orca[0]).includes(BYPASS.claude), `it is claude's bypass, got: ${show(orca[0])}`);
   });
 }
+
+test('D9 a sandbox starts without the OBK_ORCA_DATA of the shell that runs the suite, so obk health reads the sandbox\'s own profiles alone', async (t) => {
+  // The shell that runs the suite names a folder full of bypasses, as the
+  // owner's orca-lean bot might. A sandbox that let it through would have
+  // every run read that folder, outside the sandbox.
+  const outside = await mkdtemp(path.join(os.tmpdir(), 'obk-outside-data-'));
+  t.after(() => rm(outside, { recursive: true, force: true }));
+  const everyBypass = { claude: BYPASS.claude, codex: BYPASS.codex };
+  await orcaProfileDb(t, path.join(outside, 'profiles', 'local-default'), { settledSettings: everyBypass });
+  await orcaDataJson(path.join(outside, 'profiles', 'older'), everyBypass);
+  const before = process.env.OBK_ORCA_DATA;
+  process.env.OBK_ORCA_DATA = outside;
+  let box;
+  try {
+    box = await createSandbox(t);
+  } finally {
+    if (before === undefined) delete process.env.OBK_ORCA_DATA;
+    else process.env.OBK_ORCA_DATA = before;
+  }
+
+  assert.equal(box.env.OBK_ORCA_DATA, undefined, 'the sandbox\'s environment carries no OBK_ORCA_DATA');
+  await seeded(box);
+  assert.deepEqual(await orcaFindings(box), [], 'the sandbox seeds settings with no bypass, and nothing from the folder outside is read');
+});
 
 // ------------------------------------------------------------- --help, SETUP.md
 
