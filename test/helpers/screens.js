@@ -501,6 +501,44 @@ export const CLAUDE_TEACH_LIST_ON_NOT_NOW = teachListOn('2. Not now');
 export const CLAUDE_TEACH_LIST_ON_THREE = teachListOn('3. Don\'t show again');
 
 /**
+ * Claude Code 2.1.302's "Teach auto mode about your environment?", a form
+ * again, its selection on "Also scan shell history", drawn above the input
+ * box right after the session's first turn. Its eight rows from the title to
+ * the foot are as `orca terminal read` gave them from a real tab (Claude Code
+ * 2.1.302, Orca 1.4.225), word for word from issue #604: the 2.1.283 form's
+ * rows with "Also scan shell history" on `false` and the foot
+ * `←/→ to change · Enter to continue · Esc to cancel`. Enter on it is
+ * Continue, which starts the scan; its answer is Esc (#604). Everything
+ * around those rows is a reconstruction: the issue does not record the frame.
+ * The kit refused this screen on its shape, a check it makes only after the
+ * frame passes, so the real screen had a full-width rule right above the
+ * title and, below the foot, nothing or the input box's top rule. Here it is
+ * the rule `─` and the input box, as Claude Code 2.1.289 draws its list; the
+ * header, the turn and the box are laid out as CLAUDE_TEACH_LIST's.
+ */
+export const CLAUDE_TEACH_FORM_302 = [
+  ' ▐▛███▛█   Claude Code v2.1.302',
+  '▝▜██████▀  Opus 5.5 with xhigh effort · Claude Max',
+  ' ▝▝   ▝▝   <tmp>/obk-dev2-capture-5CkZDQ/bots/temp-bot · /rc',
+  '❯ Read the open pull request and write down what it changes.',
+  '⏺ The pull request changes one file.',
+  '✻ Baked for 1s · done 6:21 AM',
+  '─'.repeat(120),
+  '   Teach auto mode about your environment?',
+  '   Claude Code reads this project, your recent Claude sessions, and optionally your shell history and other',
+  '   repositories. Claude analyzes this data and customizes auto mode to make better decisions.',
+  '     How you use Claude here     Mixed',
+  '   ❯ Also scan shell history     false',
+  '     Also scan your other repos  false',
+  '     Continue',
+  '   ←/→ to change · Enter to continue · Esc to cancel',
+  `${'─'.repeat(92)} temp-bot.drafter.abcd1234 ─`,
+  '❯',
+  '─'.repeat(120),
+  '  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents',
+];
+
+/**
  * Not a question: the model's answer holds an ordinary numbered list, with no
  * pointer on it, and the empty input line is below. A reconstruction on the
  * captured input line.
