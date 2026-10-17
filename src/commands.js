@@ -80,3 +80,10 @@ export const KEPT_BACK = [
  * (#548). A bot may still hold their rules, which the kit names and leaves.
  */
 export const NO_LONGER_DEFAULT = ['restart', 'bot create'];
+
+/**
+ * The commands kit 0.26.0 gave every bot by default and that the kit no longer
+ * has (#555). A bot may still hold their rules, which the kit names and leaves
+ * (#564).
+ */
+export const REMOVED = ['session mail', 'session nudge'];

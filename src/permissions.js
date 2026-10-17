@@ -24,7 +24,7 @@ import { accessSync, constants, existsSync, mkdirSync, readdirSync, readFileSync
 import path from 'node:path';
 
 import { allowRules, leadsOutside } from './bot.js';
-import { DEFAULT_COMMANDS, NO_LONGER_DEFAULT } from './commands.js';
+import { DEFAULT_COMMANDS, NO_LONGER_DEFAULT, REMOVED } from './commands.js';
 import { readSettings } from './hooks.js';
 import { harnessOf, ownCli, shellWord } from './launch.js';
 
@@ -39,8 +39,7 @@ const CODEX_FILE = `${CODEX_RULES}/obk.rules`;
  * The rules every bot is given (ADR 0048): each of the kit's default commands,
  * and none kept back for the user's yes (ADR 0041), narrowed to this bots folder and
  * spelled as the kit prints them, which is what a bot runs; reading a long
- * message; committing; and the check Orca's mail notice tells a session to
- * run. `//` is Claude's form for an absolute path.
+ * message; and committing. `//` is Claude's form for an absolute path.
  */
 export function defaultRules(bots, cli = ownCli()) {
   const kit = shellWord(cli);
@@ -50,19 +49,27 @@ export function defaultRules(bots, cli = ownCli()) {
     `Read(/${bots}.messages/**)`,
     'Bash(git add:*)',
     'Bash(git commit:*)',
-    'Bash(orca orchestration check --run:*)',
   ];
 }
 
 /**
- * The rules of the commands that were defaults once and are kept back now
- * (#548), spelled as `defaultRules` spelled them, that the bot's `allow`
- * holds. The kit cannot tell its own old entry from a user's yes to the same
- * rule, so it names them and leaves them (ADR 0041).
+ * Orca's check, which the set held until #564: the kit's rules tell a bot to
+ * read its mail with `obk message check`, never with the bare check, which
+ * leaves it unread (ADR 0042).
+ */
+const ORCA_CHECK = 'Bash(orca orchestration check --run:*)';
+
+/**
+ * The rules that were defaults once and are not now, that the bot's `allow`
+ * holds: those of the commands kept back (#548) or gone from the kit (#555),
+ * spelled as `defaultRules` spelled them, and Orca's check (#564). The kit
+ * cannot tell its own old entry from a user's yes to the same rule, so it
+ * names them and leaves them (ADR 0041, ADR 0048).
  */
 export function heldRules(bots, home, bot, cli = ownCli()) {
   const allowed = allowOf(home, bot);
-  return NO_LONGER_DEFAULT.map((command) => `Bash(${shellWord(cli)} ${command} --bots ${shellWord(bots)}:*)`)
+  return [...NO_LONGER_DEFAULT, ...REMOVED].map((command) => `Bash(${shellWord(cli)} ${command} --bots ${shellWord(bots)}:*)`)
+    .concat(ORCA_CHECK)
     .filter((rule) => allowed.includes(rule));
 }
 
