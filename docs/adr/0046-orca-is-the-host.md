@@ -26,7 +26,9 @@ Since 2026-10-11 the kit types no mail nudge (#555,
 own notice tells the receiver once it is idle. What the kit still types into a
 running session is the Escape of `obk message send --interrupt`,
 `/reload-skills` after `obk skills build`, grooming's lines, the line a
-resumed Codex session is given, and the typing of `obk session clear`.
+resumed Codex session is given, and the typing of `obk session clear`. A few
+commands also answer one known question of a harness on purpose, such as
+Codex's hooks review.
 
 The kit has to know whether a harness is running in a tab, to report a
 session as up and to decide whether to type into it. Orca's own
@@ -148,10 +150,15 @@ are left to Orca. The kit drives Orca through its CLI (proposed).
 To learn whether a harness is running in a tab, the kit also reads that tab's
 foreground process group from the operating system, with `ps`, using the pane
 pid Orca gives in `orca diagnostics memory`. It only reads, and it never
-kills. The shell in front means no harness is in the tab. The kit types a
-line or a key into a tab only when the process leading the foreground group is the
-harness Orca names in `agentIdentity`, and Orca sees nothing on screen waiting
-to be answered. (The architect, #232 and PR #260; the owner may overrule.) A
+kills. The shell in front means no harness is in the tab. The kit types its
+input into a session's tab, a line or the mail interrupt's Escape, only when
+the process leading the foreground group is the harness Orca names in
+`agentIdentity`, and Orca sees nothing on screen waiting to be answered. (The
+architect, #232 and PR #260; the owner may overrule.) A command made to
+answer one known question of a harness does not go through this rule, and
+reads that screen with checks of its own: `obk temp trust-hooks` and `obk
+session trust-hooks` on Codex's hooks review, and `obk session clear` on
+Codex's "Where should the new conversation run?". A
 process under another name, such as `node` for a harness installed through
 npm, counts as that harness when `ps` shows it carrying this tab's
 `ORCA_TAB_ID` and an `OBK_TAB_SHELL` equal to its own parent's pid: the tab's
