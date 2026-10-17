@@ -44,7 +44,7 @@ import path from 'node:path';
 import { botDir, readBot, requireBotsFolder } from './bot.js';
 import { readBook, takeLineTurn, TYPING_HELD, TYPING_WAIT_MS } from './book.js';
 import { claudeTranscript } from './conversations.js';
-import { harnessOf, ownCli, shellWord } from './launch.js';
+import { harnessOf, ownCli, promptFile, shellWord, startPrompt } from './launch.js';
 import { tabs, tabToTypeInto, typeIntoTab } from './orca.js';
 import { BOT_FATHER, promptPath } from './up.js';
 import { lines } from './usage.js';
@@ -123,7 +123,7 @@ export function grooming(bots, { at, ask, run } = {}) {
     ? groomingJobs(ofThisProcess(home, entry), markerOf(bots), Date.now())
     : [];
 
-  const line = ask === undefined ? undefined : lineFor(ask, { bots, session, jobs, at, run });
+  const line = ask === undefined ? undefined : lineFor(ask, { bots, home, found, session, jobs, at, run });
   if (line !== undefined) typeInto(bots, home, session, tab, line);
 
   // A move is turning it on at another time, and is typed as one.
@@ -135,7 +135,7 @@ export function grooming(bots, { at, ask, run } = {}) {
  * nothing to ask. Everything that makes the ask impossible refuses here, before
  * Orca is asked for anything.
  */
-function lineFor(ask, { bots, session, jobs, at, run }) {
+function lineFor(ask, { bots, home, found, session, jobs, at, run }) {
   // Nothing to turn off is an answer, unless a session is there to be told: an
   // `--on` typed a moment ago may still be waiting in its tab.
   if (ask === 'off' && jobs.length === 0 && !(session?.harness === 'claude' && session.up)) return undefined;
@@ -165,7 +165,8 @@ function lineFor(ask, { bots, session, jobs, at, run }) {
   // A move keeps what the runs are on, when every job there says the same.
   const runs = [...new Set(jobs.map((job) => JSON.stringify(job.run ?? null)))];
   const keep = ask === 'move' && runs.length === 1 ? JSON.parse(runs[0]) ?? undefined : undefined;
-  return onLine(bots, cronOf(when), jobs, run ?? keep);
+  const onRun = run ?? keep;
+  return onLine(bots, cronOf(when), jobs, onRun === undefined ? undefined : { ...onRun, task: writeRunTask(bots, ownPrompt(home, found)) });
 }
 
 /**
@@ -367,7 +368,7 @@ function runElsewhere(bots, onRun) {
     ...(onRun.model === undefined ? [] : [`--model ${shellWord(onRun.model)}`]),
     ...(onRun.effort === undefined ? [] : [`--effort ${shellWord(onRun.effort)}`]),
     ...(onRun.extra_args ?? []).map((arg) => `--extra-arg=${shellWord(arg)}`),
-    `--prompt-file ${shellWord(writeRunTask(bots))}`,
+    `--prompt-file ${shellWord(onRun.task)}`,
   ].join(' ');
   return `${markerOf(bots)}: the daily grooming for this fleet, run on ${onRun.harness} as a temporary session of yours `
     + `that does the work and reports back to you. First, if any of your temporary sessions whose names start with groom- `
@@ -391,12 +392,28 @@ function readReport(bots) {
 }
 
 /**
- * Write the task a Codex run is started with, and answer where: do the daily
- * grooming with the obk-grooming skill, send the report to the grooming session
- * by the kit's mail, and stop. It schedules nothing: the schedule is the
- * grooming session's.
+ * The grooming session's own prompt, as the user wrote it, or undefined when it
+ * has none: the standing duties a run on Codex carries too (#566). Without the
+ * work-dir note the session is launched with, since a run has a work dir of its
+ * own. Read when the line is typed, so a prompt changed since reaches the runs
+ * at the next `--on`.
  */
-function writeRunTask(bots) {
+function ownPrompt(home, session) {
+  try {
+    return startPrompt(session, { home });
+  } catch (error) {
+    throw new Error(`${BOT_FATHER}'s ${GROOMING} session's prompt file ${promptFile(session, home)} cannot be read (${error.code ?? error.message}), and each grooming run on Codex carries that prompt. Nothing was typed. Put the file back, or change the session's prompt, then run this again.`);
+  }
+}
+
+/**
+ * Write the task a Codex run is started with, and answer where: do the daily
+ * grooming with the obk-grooming skill, and the grooming session's own duties
+ * when its prompt has any, send the report to the grooming session by the
+ * kit's mail, and stop. It schedules nothing: the schedule is the grooming
+ * session's.
+ */
+function writeRunTask(bots, own) {
   const real = realHome(bots);
   const kit = shellWord(ownCli());
   const file = path.resolve(promptPath(real, BOT_FATHER, `${GROOMING}-run`));
@@ -405,6 +422,7 @@ function writeRunTask(bots) {
     + `since the last run's end up to it, counting with ${kit} usage --since <last end> --until <this end>, and write this end down for the next run. `
     + 'Work out what it cost with obk-finops, and keep each bot\'s profile notes. '
     + `The kit here is ${kit}: run it wherever a skill says obk. The bots folder is ${real}. `
+    + (own === undefined ? '' : `The ${GROOMING} session's own prompt is this run's too. It follows, word for word as the user wrote it:\n\n${own}\n\n`)
     + `When the grooming is done, send one short report to ${BOT_FATHER}/${GROOMING} by the kit's mail: `
     + `ask for the road with ${kit} message to --bots ${shellWord(real)} --to ${BOT_FATHER}/${GROOMING}, then send it with the message send command its answer names. `
     + 'Then stop: schedule nothing, make no session, and say nothing more.\n';

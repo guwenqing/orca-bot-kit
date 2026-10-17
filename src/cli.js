@@ -280,7 +280,8 @@ Usage:
                             only while its tab is up in Orca. --run-on codex
                             makes each run a temporary Codex session of the
                             grooming session's, launched with --model, --effort
-                            and --extra-arg, which reports back by the kit's
+                            and --extra-arg, which carries the grooming
+                            session's own prompt, reports back by the kit's
                             mail and is retired.
   obk usage --bots <path> [--bot <bot>] [--session <name>] [--since <time>] [--until <time>]
                             Say what your sessions have used: the conversations
