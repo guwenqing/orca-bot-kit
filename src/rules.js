@@ -110,16 +110,23 @@ export function buildRules(bots, { bot: onlyBot } = {}) {
 
   return (onlyBot === undefined ? names : [onlyBot]).map((name) => {
     const home = botDir(bots, name);
-    // Every bot, a paused one too, so this is the command that reaches each
-    // hooks file the kit wrote, whatever the bot's sessions run on now (#613).
-    dropRemovedHooks(home);
+    let built;
     try {
-      return buildAgents(bots, home, readBot(home, name));
+      built = buildAgents(bots, home, readBot(home, name));
     } catch (error) {
       // A `bot.yaml` the kit cannot read at all. Same answer as a list it
       // cannot follow: this bot is not built, and nothing else changes.
-      return { bot: name, file: path.join(home, AGENTS), state: 'failed', trouble: error.message };
+      built = { bot: name, file: path.join(home, AGENTS), state: 'failed', trouble: error.message };
     }
+    // Every bot, a paused one too, so this is the command that reaches each
+    // hooks file the kit wrote, whatever the bot's sessions run on now (#613).
+    // A file it cannot write is this bot's trouble, as above.
+    try {
+      dropRemovedHooks(home);
+    } catch (error) {
+      return { ...built, trouble: [built.trouble, error.message].filter((one) => one !== undefined).join(' ') };
+    }
+    return built;
   });
 }
 

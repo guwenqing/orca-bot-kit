@@ -138,7 +138,11 @@ export function dropRemovedHooks(home) {
     if (hooks === null || typeof hooks !== 'object' || Array.isArray(hooks)) return [];
     const kept = withoutHooks(hooks, REMOVED_HOOKS);
     if (isDeepStrictEqual(hooks, kept)) return [];
-    writeFileSync(file, `${JSON.stringify({ ...settings, hooks: kept }, null, 2)}\n`);
+    try {
+      writeFileSync(file, `${JSON.stringify({ ...settings, hooks: kept }, null, 2)}\n`);
+    } catch (error) {
+      throw new Error(`${file} cannot be written (${error.code ?? error.message}), and it holds the kit's hook of a command the kit no longer has, which the kit takes out. Let the kit write it, then run the command again.`);
+    }
     return [relative];
   });
 }

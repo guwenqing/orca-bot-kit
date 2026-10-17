@@ -33,17 +33,23 @@
 //       run).
 //   R8  A hooks file that is a link leading outside the bot folder is not
 //       written through: the file it leads to stays byte for byte (ADR 0022).
+//   R9  A hooks file that holds the old entry and that the kit cannot write
+//       (mode 0444) is that bot's trouble only. `rules build --bots` still
+//       builds every other bot, a bot that sorts after it included, ends with
+//       a code that is not 0, and names the file. `up --bot` on that bot ends
+//       with a code that is not 0, names the file, and opens no tab for it.
+//       The file stays byte for byte in both.
 //
 // The old entry is built from the kit's current `session record` command in
 // the same file, the way #555's test builds it. Every run is in the sandbox
 // (helpers/cli.js). Nothing here reaches the real Orca or a real harness.
 
 import assert from 'node:assert/strict';
-import { mkdir, readFile, readlink, rm, symlink, writeFile } from 'node:fs/promises';
+import { access, chmod, mkdir, readFile, readlink, rm, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 
-import { botHomeOf, createSandbox, eventsIn, hookFileOf, hooksIn } from './helpers/cli.js';
+import { botHomeOf, createSandbox, eventsIn, hookFileOf, hooksIn, tabsOfBot } from './helpers/cli.js';
 
 const BOT = 'mix-bot';
 
@@ -130,8 +136,8 @@ async function pausedWithBoth(box) {
  * group of its own (`withUser` undefined) or with the user's hook after it,
  * then any more groups. Returns the file as it was before, and the old command.
  */
-async function withOld(bots, harness, { withUser, more = [] } = {}) {
-  const file = hookFileOf(bots, BOT, harness);
+async function withOld(bots, harness, { withUser, more = [], bot = BOT } = {}) {
+  const file = hookFileOf(bots, bot, harness);
   const text = await readFile(file, 'utf8');
   const before = JSON.parse(text);
   const held = JSON.parse(text);
@@ -374,4 +380,59 @@ test('R8 rules build does not write through a codex hooks file that links outsid
 
   assert.equal(await readFile(target, 'utf8'), held, 'the file outside the bot folder, byte for byte');
   assert.equal(await readlink(file), target, 'and the link is left as it was');
+});
+
+// ------------------------------------------------------------- R9
+
+/**
+ * Two Claude bots, a-bot and z-bot, each with a `daily` session, brought up.
+ * a-bot's Claude hooks file then holds the old Stop session mail entry and is
+ * made read-only (mode 0444); its mode comes back when the test ends, so the
+ * sandbox can go. Returns the file and its text.
+ */
+async function lockedOldIn(t, box) {
+  await run(box, ['init', '--bots', 'bots', '--harness', 'claude']);
+  for (const bot of ['a-bot', 'z-bot']) {
+    await run(box, ['bot', 'create', '--bots', 'bots', '--name', bot, '--harness', 'claude']);
+    await run(box, ['session', 'add', '--bots', 'bots', '--bot', bot, '--name', 'daily']);
+    await run(box, ['up', '--bots', 'bots', '--bot', bot]);
+  }
+  const bots = box.path('bots');
+  const { file } = await withOld(bots, 'claude', { bot: 'a-bot' });
+  const held = await readFile(file, 'utf8');
+  await chmod(file, 0o444);
+  t.after(() => chmod(file, 0o644).catch(() => {}));
+  return { bots, file, held };
+}
+
+/** Whether the output names `file`, by its full path or its path from the folder the command ran in. */
+const namesFile = (said, box, file) => said.includes(file) || said.includes(path.relative(box.cwd, file));
+
+test('R9 rules build --bots still builds the bot after a bot whose hooks file with the old entry it cannot write, ends not 0, and names the file', async (t) => {
+  const box = await createSandbox(t);
+  const { bots, file, held } = await lockedOldIn(t, box);
+  const agents = path.join(botHomeOf(bots, 'z-bot'), 'AGENTS.md');
+  await rm(agents);
+
+  const result = await box.run(['rules', 'build', '--bots', 'bots']);
+
+  const said = `${result.stdout}${result.stderr}`;
+  assert.equal(await readFile(file, 'utf8'), held, 'the file the kit cannot write stays byte for byte');
+  await assert.doesNotReject(access(agents), `z-bot, after a-bot, should still get its AGENTS.md, got:\n${said}`);
+  assert.notEqual(result.code, 0, `rules build should end with a code that is not 0, got:\n${said}`);
+  assert.ok(namesFile(said, box, file), `the output should name ${file}, got:\n${said}`);
+});
+
+test('R9 up --bot on a bot whose hooks file with the old entry it cannot write ends not 0, names the file, and opens no tab for it', async (t) => {
+  const box = await createSandbox(t);
+  const { bots, file, held } = await lockedOldIn(t, box);
+  await closeTabs(box, bots, 'a-bot');
+
+  const result = await box.run(['up', '--bots', 'bots', '--bot', 'a-bot']);
+
+  const said = `${result.stdout}${result.stderr}`;
+  assert.equal(await readFile(file, 'utf8'), held, 'the file the kit cannot write stays byte for byte');
+  assert.notEqual(result.code, 0, `up should end with a code that is not 0, got:\n${said}`);
+  assert.ok(namesFile(said, box, file), `the output should name ${file}, got:\n${said}`);
+  assert.deepEqual(await tabsOfBot(box, bots, 'a-bot'), [], 'no tab for the bot whose file the kit cannot write');
 });
