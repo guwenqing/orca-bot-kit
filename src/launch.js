@@ -219,7 +219,7 @@ export function piApprovalTrouble(level, who = 'this session') {
 }
 
 /** A setting the user left out. An empty string is one too: it means the harness's own. */
-const set = (value) => value !== undefined && value !== null && String(value).trim() !== '';
+export const set = (value) => value !== undefined && value !== null && String(value).trim() !== '';
 
 /** Which harness a session runs on: its own, or the bot's. */
 export const harnessOf = (session, botHarness) => (set(session.harness) ? session.harness : botHarness);
