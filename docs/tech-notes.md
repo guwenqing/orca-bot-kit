@@ -554,6 +554,14 @@ Nothing in the kit's code, tests or skills stands in his way.
   Nothing answered it (the architect's ruling on #489: no key to a real Teach screen in a test, since
   a Not now is recorded for the whole machine); the teardown closed the tab. **verified** (live, the
   list, its words and where it sits; what `2. Not now` and Esc do on 2.1.289, not seen)
+  **On 2.1.302 it is the form again (#604).** Seen live (2026-10-17, about 06:21Z, Claude Code
+  2.1.302, Orca 1.4.225, kit-dev developer-595's tab), right after a turn: the 2.1.283
+  form's rows, but with `❯ Also scan shell history  false` and the foot `←/→ to change · Enter to
+  continue · Esc to cancel`. The kit refused it on its shape, a check it makes only after the frame
+  passes, so the screen had the frame the kit asks for; the frame's own rows were not recorded. The
+  session stayed stopped until about 08:40Z; what answered it then is not recorded here. The kit now
+  answers this shape with Esc, as the 2.1.283 form. **verified** (live, the form and its words; Esc
+  on 2.1.302, not seen)
 - Anything else: type nothing and raise it with the user, naming the bot, the tab and what is on screen.
 
 The kit's own code does not change user-level settings on its own initiative.

@@ -318,7 +318,9 @@ live, though the form was seen live twice on 2.1.283. On 2.1.278 it was a
 numbered list, answered with `2. Not now`, and on 2.1.289 it is one again:
 `1. Yes`, `2. Not now`, `3. Don't show again`, above the input box, its
 selection on 1. Yes (seen live, not answered, in #489). The kit goes down to
-2. Not now, reads the screen, and only then returns. Codex's hooks
+2. Not now, reads the screen, and only then returns. On 2.1.302 it is the
+form again, with `Also scan shell history` on `false` and a foot that starts
+`←/→ to change` (seen live in #604); the kit sends it Esc too. Codex's hooks
 question matters most. The kit's hook is how the book learns which
 conversation the session is running, and until it is answered the
 conversation has not started. Codex's trust applies to the repository root,
@@ -335,7 +337,7 @@ permission rule can allow that one command, where it cannot allow keys sent
 into any tab. The same goes for Claude Code's `Teach auto mode` screen on a
 temporary session you made: answer it with `obk temp answer --bots <bots>
 --name <session>`. It answers only a shape in the table exactly as the kit
-knows it (Esc on the 2.1.283 form, 2. Not now on the 2.1.289 list, the return
+knows it (Esc on the 2.1.283 and 2.1.302 forms, 2. Not now on the 2.1.289 list, the return
 only after a second look), refuses any other screen, and checks that it went. The kit's
 default set allows it, as it allows `obk temp trust-hooks`.
 
