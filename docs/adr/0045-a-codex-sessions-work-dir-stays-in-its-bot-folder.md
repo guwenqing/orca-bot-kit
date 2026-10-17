@@ -48,7 +48,9 @@ out of the bot folder. A path whose spelling is outside the bot folder is
 outside too, even when a link takes it back in: the launch line names the
 spelled path, and the link can be changed later (developer-585). A refusal says that Codex would be allowed to write
 that folder, and changes nothing. A change that leaves a Codex session's
-harness and work dir as they were is not refused.
+harness and work dir as they were is not refused. `session change` judges the
+whole session that it writes, so a change that another command made in the
+meantime is not combined with it unchecked (reviewer-585).
 
 The approval level does not matter. A Codex session at `dangerously-skip`
 has no sandbox, but a later `obk permission approval` to `auto` would then

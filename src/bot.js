@@ -13,7 +13,7 @@ import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { isSeq, parse, parseDocument, stringify } from 'yaml';
 
-import { defaultApproval, HARNESSES, harnessOf, sessionTrouble } from './launch.js';
+import { defaultApproval, HARNESSES, harnessOf, sessionTrouble, workDirOf } from './launch.js';
 
 /** Where the bots live inside the user's bots folder. */
 export const botsDir = (bots) => path.join(bots, 'bots');
@@ -387,9 +387,30 @@ export function changeSession(bots, bot, name, settings) {
     .filter(([, value]) => value !== '' && !(Array.isArray(value) && value.every((one) => one === ''))));
   const trouble = sessionTrouble(session, harnessOf(session, known.harness), home);
   if (trouble !== undefined) throw new Error(trouble);
+  // Judged on the session as it is written, which is the whole session, so a
+  // change another command made in between cannot be combined with this one.
+  refuseCodexOutside(bot, session, was, known.harness, home, 'session change');
 
   editSession(bots, bot, index, session, `change ${bot}'s session ${name}`);
   return { bot, home, session, ...(moved === undefined ? {} : { moved }) };
+}
+
+/**
+ * Refuse a session that would run on Codex with a work dir outside its bot
+ * home (ADR 0045): Codex is launched with `--add-dir` for it, which lets the
+ * session write there, and `session add` and `session change` are in every
+ * bot's default set (#585). Outside is by the spelling, which the launch line
+ * names, or by where links really lead. `was` is the session before the
+ * change: one already on Codex with the same work dir widens nothing.
+ */
+export function refuseCodexOutside(bot, session, was, botHarness, home, command) {
+  if (harnessOf(session, botHarness) !== 'codex') return;
+  const workDir = workDirOf(session, home);
+  if (workDir === undefined) return;
+  const spelledIn = workDir === home || workDir.startsWith(home + path.sep);
+  if (spelledIn && leadsOutside(home, workDir) === undefined) return;
+  if (was !== undefined && harnessOf(was, botHarness) === 'codex' && workDirOf(was, home) === workDir) return;
+  throw new Error(`${command} would give ${bot}/${session.name}, a Codex session, the work dir ${workDir}, which is outside ${bot}'s folder, ${home}. Codex would then be allowed to write that folder. A Codex session's work dir stays in its bot folder, such as work/${session.name}. Nothing was changed.`);
 }
 
 /**
