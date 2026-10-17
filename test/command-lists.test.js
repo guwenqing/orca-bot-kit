@@ -17,7 +17,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import * as commands from '../src/commands.js';
-import { KIT_COMMANDS, NO_LONGER_DEFAULT_COMMANDS, NOT_DEFAULT_COMMANDS } from './helpers/permissions.js';
+import { BOT_FATHER_COMMANDS, KIT_COMMANDS, NO_LONGER_DEFAULT_COMMANDS, NOT_DEFAULT_COMMANDS } from './helpers/permissions.js';
 
 /** The three exports, each checked for its shape first. */
 function lists() {
@@ -49,11 +49,15 @@ test('CL2 neither list names a command the CLI does not know, and neither names 
 });
 
 // #548 R1 moved restart and bot create from the default set to the kept-back
-// list. #555 removed `session nudge` and `session mail` from the kit: 32 and
-// eight now, where #548 had 34 and eight, and #527 had 36 and six.
-test('CL3 the two lists are the requirement\'s: the default set\'s 32 commands, and the eight kept back', () => {
+// list. #555 removed `session nudge` and `session mail` from the kit. #615 R1
+// moved bot change, session add and session change to the kept-back list: 29
+// and eleven now, where #555 had 32 and eight, #548 34 and eight, and #527 36
+// and six.
+test('CL3 the two lists are the requirement\'s: the default set\'s 29 commands, and the eleven kept back', () => {
   const { DEFAULT_COMMANDS, KEPT_BACK } = lists();
 
+  assert.equal(KIT_COMMANDS.length, 29, 'the premise: the helper spells 29');
+  assert.equal(NOT_DEFAULT_COMMANDS.length, 11, 'the premise: the helper spells eleven');
   assert.deepEqual(sorted(DEFAULT_COMMANDS), sorted(KIT_COMMANDS));
   assert.deepEqual(sorted(KEPT_BACK), sorted(NOT_DEFAULT_COMMANDS));
 });
@@ -61,15 +65,32 @@ test('CL3 the two lists are the requirement\'s: the default set\'s 32 commands, 
 test('CL4 #548 R1: restart and bot create are kept back for the user\'s yes, and are not in the default set', () => {
   const { DEFAULT_COMMANDS, KEPT_BACK } = lists();
 
-  for (const command of NO_LONGER_DEFAULT_COMMANDS) {
+  for (const command of ['restart', 'bot create']) {
     assert.ok(KEPT_BACK.includes(command), `${command} should be on KEPT_BACK, got: ${JSON.stringify(KEPT_BACK)}`);
     assert.ok(!DEFAULT_COMMANDS.includes(command), `${command} should not be on DEFAULT_COMMANDS, got: ${JSON.stringify(DEFAULT_COMMANDS)}`);
   }
   // Nothing else moved: the commands next to them stay where they were.
-  for (const command of ['up', 'unpause', 'bot change', 'rules build', 'session add']) {
+  for (const command of ['up', 'unpause', 'rules build', 'session clear']) {
     assert.ok(DEFAULT_COMMANDS.includes(command), `${command} stays on DEFAULT_COMMANDS`);
   }
   for (const command of ['init', 'retire', 'pause', 'permission allow', 'permission disallow', 'permission approval']) {
     assert.ok(KEPT_BACK.includes(command), `${command} stays on KEPT_BACK`);
+  }
+});
+
+// #615 R1: bot change, session add and session change keep the user's yes, as
+// restart and bot create do. No other command moves: the temp commands, and
+// the session commands beside them, stay in the default set (#615, Out).
+test('CL5 #615 R1: bot change, session add and session change are kept back for the user\'s yes, and are not in the default set; nothing else moves', () => {
+  const { DEFAULT_COMMANDS, KEPT_BACK } = lists();
+
+  assert.deepEqual(sorted(BOT_FATHER_COMMANDS), ['bot change', 'session add', 'session change'], 'the premise: the three of R1');
+  for (const command of BOT_FATHER_COMMANDS) {
+    assert.ok(KEPT_BACK.includes(command), `${command} should be on KEPT_BACK, got: ${JSON.stringify(KEPT_BACK)}`);
+    assert.ok(!DEFAULT_COMMANDS.includes(command), `${command} should not be on DEFAULT_COMMANDS, got: ${JSON.stringify(DEFAULT_COMMANDS)}`);
+    assert.ok(NO_LONGER_DEFAULT_COMMANDS.includes(command), `the premise: the helper counts ${command} as no longer a default`);
+  }
+  for (const command of ['temp make', 'temp roles', 'temp retire', 'temp trust-hooks', 'temp answer', 'session clear', 'session compact', 'session record', 'session answer', 'skills add']) {
+    assert.ok(DEFAULT_COMMANDS.includes(command), `${command} stays on DEFAULT_COMMANDS, got: ${JSON.stringify(DEFAULT_COMMANDS)}`);
   }
 });
