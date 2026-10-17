@@ -301,9 +301,11 @@ export function leavesClone(bots, name, dir) {
       if (seen.has(where) || !statSync(where).isDirectory()) return undefined;
       seen.add(where);
       entries = readdirSync(where);
-    } catch {
-      // Nothing there, or nothing the kit may read: whatever links it says so.
-      return undefined;
+    } catch (error) {
+      // Nothing there: whatever links it says so.
+      if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return undefined;
+      // A folder the kit may not read can hold a link out, and nothing shows it.
+      throw new Error(`${name}: the kit could not read ${at} (${error.code ?? error.message}), so it cannot tell whether anything in the skill leads out of the source's clone, and it links nothing from there.`);
     }
     for (const entry of entries) {
       const found = walk(path.join(at, entry));
