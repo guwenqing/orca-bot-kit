@@ -19,7 +19,8 @@
 //   exactly as named (blanks around it trimmed):
 //   sandbox_workspace_write.network_access, .exclude_tmpdir_env_var and
 //   .exclude_slash_tmp with `true` or `false`; features.sleep_tool with
-//   `false` only; and `projects=` in one TOML shape only: an inline table with
+//   `false` only; check_for_update_on_startup with `false` only (#581); and
+//   `projects=` in one TOML shape only: an inline table with
 //   one key, an absolute path as a TOML basic string with no backslash and no
 //   `..` segment, whose value is exactly `{trust_level="trusted"}`, blanks
 //   around `=`, `{` and `}` allowed. Every other -c is refused, a -c with no
@@ -47,12 +48,16 @@ import { parse, stringify } from 'yaml';
 import {
   assertRefused,
   createSandbox,
+  fakeProgram,
   orcaCallsOf,
   recordSession,
   sentInto,
   sessionIn,
+  sh,
   skipGit,
   snapshot,
+  tabsOfBot,
+  typedInto,
 } from './helpers/cli.js';
 import { botYamlOf } from './helpers/skills.js';
 import { codexTrustArgs } from './helpers/codex-trust.js';
@@ -159,6 +164,18 @@ const CODEX_CONFIG_VALUES_REFUSED = [
   'features.sleep_tool=',
   'features.sleep_tool={}',
   'features.sleep_tool.x=false',
+  // check_for_update_on_startup with anything but false (#581)
+  'check_for_update_on_startup=true',
+  'check_for_update_on_startup="false"',
+  'check_for_update_on_startup=FALSE',
+  'check_for_update_on_startup=False',
+  'check_for_update_on_startup=0',
+  'check_for_update_on_startup=',
+  'check_for_update_on_startup={}',
+  'check_for_update_on_startup=false false',
+  'check_for_update_on_startup.x=false',
+  'check_for_update_on_startupx=false',
+  'tui.check_for_update_on_startup=false',
   // projects in any shape but the one trust table
   'projects."/x".trust_level=trusted',
   'projects.x=1',
@@ -205,6 +222,13 @@ const CODEX_ACCEPTED = [
   ['-c', 'sandbox_workspace_write.exclude_slash_tmp=true'],
   ['-c', ' sandbox_workspace_write.exclude_slash_tmp = false '],
   ['-c', 'features.sleep_tool=false'],
+  // the update check off, in every way a -c carries its value (#581)
+  ['-c', 'check_for_update_on_startup=false'],
+  ['-c', ' check_for_update_on_startup = false '],
+  ['--config', 'check_for_update_on_startup=false'],
+  ['--config=check_for_update_on_startup=false'],
+  ['-c=check_for_update_on_startup=false'],
+  ['-ccheck_for_update_on_startup=false'],
   ['-c', 'projects={"/srv/bots"={trust_level="trusted"}}'],
   ['-c', 'projects = { "/srv/bots" = { trust_level = "trusted" } }'],
   ['-c', 'projects={\t"/srv/bots"\t=\t{trust_level="trusted"}}'],
@@ -275,9 +299,11 @@ const STRINGS = {
       '--search -c approval_policy=never',
       "-c '\"model\"=o3'",
       '--search -c',
+      '-c check_for_update_on_startup=true',
     ],
     accepted: [
       '-c sandbox_workspace_write.network_access=false',
+      '-c check_for_update_on_startup=false',
       '--search -c model_reasoning_effort=high',
       "-c ' model = o3 '",
     ],
@@ -304,7 +330,7 @@ test('XS2 Codex: a -c or --config with a key off the list is refused, however it
   }
 });
 
-test('XS3 Codex: -c fails closed: a key off the list, a near miss, a quoted or spaced key, no key, no =, a value other than the one named for network_access, the exclude keys and features.sleep_tool, and projects in any shape but the one trust table are refused', () => {
+test('XS3 Codex: -c fails closed: a key off the list, a near miss, a quoted or spaced key, no key, no =, a value other than the one named for network_access, the exclude keys, features.sleep_tool and check_for_update_on_startup, and projects in any shape but the one trust table are refused', () => {
   for (const value of CODEX_CONFIG_VALUES_REFUSED) {
     assert.throws(() => refuseApprovalArgs('codex', ['-c', value]), Error, `codex should refuse -c ${JSON.stringify(value)}`);
   }
@@ -577,6 +603,7 @@ const TEMP_REFUSED = [
   ['a Codex temp, -c sandbox_workspace_write.writable_roots', ['--harness', 'codex', '--extra-arg=-c', '--extra-arg=sandbox_workspace_write.writable_roots=["/srv/wide"]']],
   ['a Codex temp, --config=approval_policy=never', ['--harness', 'codex', '--extra-arg=--config=approval_policy=never']],
   ['a Codex temp, -c with no value', ['--harness', 'codex', '--extra-arg=-c']],
+  ['a Codex temp, -c check_for_update_on_startup=true', ['--harness', 'codex', '--extra-arg=-c', '--extra-arg=check_for_update_on_startup=true']],
   ['a Claude temp, --add-dir=/srv/wide', ['--extra-arg=--add-dir=/srv/wide']],
   ['a Claude temp, --settings /srv/settings.json', ['--extra-arg=--settings', '--extra-arg=/srv/settings.json']],
   ['a Claude temp, --bare', ['--extra-arg=--bare']],
@@ -644,6 +671,8 @@ test('XS20 groom --on --run-on codex refuses an extra arg that widens the run\'s
     ['--config=approval_policy=never'],
     ['-c', 'sandbox_workspace_write.writable_roots=["/srv/wide"]'],
     ['-c', 'projects./srv.trust_level=trusted'],
+    ['-c', 'check_for_update_on_startup=true'],
+    ['-c', 'check_for_update_on_startup.x=false'],
     ['-c'],
   ]) {
     await t.test(args.join(' '), async () => {
@@ -665,4 +694,80 @@ test('XS21 groom --on --run-on codex takes -c sandbox_workspace_write.network_ac
 
   assert.equal(result.code, 0, `${result.stdout}${result.stderr}`);
   assert.notDeepEqual(await sends(box), typed, 'the --on line was typed');
+});
+
+// ------------------------------------------------------------- the update check off (#581)
+
+// Every Codex session a system test makes is launched with
+// `-c check_for_update_on_startup=false`, so a new Codex release shows no
+// update offer in its tab. The key is taken with `false` only; the tables above
+// hold the refused values, for session add and session change. These are the
+// other two commands, and the line the kit types.
+
+const UPDATE_OFF = ['-c', 'check_for_update_on_startup=false'];
+
+test('XS23 session change of a Codex session takes -c check_for_update_on_startup=false and writes it (#581)', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await fleet(box);
+
+  const result = await sessionChange(box, 'codex-bot', ...asExtraArgs(UPDATE_OFF));
+
+  assert.equal(result.code, 0, `${result.stdout}${result.stderr}`);
+  assert.deepEqual((await entryOf(bots, 'codex-bot', 'daily')).extra_args, UPDATE_OFF);
+});
+
+test('XS24 temp make of a Codex temp takes -c check_for_update_on_startup=false (#581)', async (t) => {
+  const box = await createSandbox(t);
+  const { bots, lead } = await tempFleet(box);
+
+  await made(box, lead, ['--name', 'scout', '--prompt', TASK, '--harness', 'codex', ...asExtraArgs(UPDATE_OFF)]);
+
+  assert.deepEqual((await entryOf(bots, 'temp-bot', 'scout')).extra_args, UPDATE_OFF);
+});
+
+test('XS25 groom --on --run-on codex takes -c check_for_update_on_startup=false, and the --on line carries it (#581)', async (t) => {
+  const box = await createSandbox(t);
+  await groomFleet(box);
+  const typed = await sends(box);
+
+  const result = await box.run(['groom', '--bots', 'bots', '--on', '--at', '04:00', '--run-on', 'codex', ...asExtraArgs(UPDATE_OFF), '--json']);
+
+  assert.equal(result.code, 0, `${result.stdout}${result.stderr}`);
+  assert.notDeepEqual(await sends(box), typed, 'the --on line was typed');
+  const lines = (await box.orca.terminals()).flatMap((terminal) => sentInto(terminal).map((entry) => entry.text));
+  assert.ok(
+    lines.some((line) => line.includes('check_for_update_on_startup=false')),
+    `a typed line carries the key for the run: ${JSON.stringify(lines)}`,
+  );
+});
+
+test('XS26 a Codex session added with a system test\'s launch words passes session add, and its launch line ends with the update check off (#581)', async (t) => {
+  const box = await createSandbox(t);
+  const fake = await fakeProgram(box, 'codex', {});
+  assert.equal((await box.run(['init', '--bots', 'bots', '--harness', 'claude'])).code, 0);
+  assert.equal((await box.run(['bot', 'create', '--bots', 'bots', '--name', 'codex-bot', '--harness', 'codex'])).code, 0);
+  const bots = box.path('bots');
+
+  const added = await sessionAdd(box, 'codex-bot', 'daily', ...codexTrustArgs(bots));
+  assert.equal(added.code, 0, `${added.stdout}${added.stderr}`);
+  assert.deepEqual(
+    (await entryOf(bots, 'codex-bot', 'daily')).extra_args.slice(-2),
+    UPDATE_OFF,
+    'bot.yaml holds the key last, as given',
+  );
+
+  const up = await box.run(['up', '--bots', 'bots', '--bot', 'codex-bot']);
+  assert.equal(up.code, 0, `${up.stdout}${up.stderr}`);
+  const tabs = await tabsOfBot(box, bots, 'codex-bot');
+  assert.equal(tabs.length, 1, `the bot should have the one session tab, got ${JSON.stringify(tabs)}`);
+  const lines = typedInto(tabs[0]);
+  assert.equal(lines.length, 1, `one send into the new tab, got ${JSON.stringify(lines)}`);
+  assert.ok(lines[0].includes(' -c check_for_update_on_startup=false'), `the typed line carries the key: ${lines[0]}`);
+
+  // The line, run by a real shell, starts Codex with the key as its last two words.
+  const ran = await sh(lines[0], { cwd: box.cwd, env: box.env });
+  assert.equal(ran.code, 0, `the line should run: ${lines[0]}\n${ran.stderr}`);
+  const calls = await fake.calls();
+  assert.equal(calls.length, 1, `the line should start Codex once, got: ${lines[0]}`);
+  assert.deepEqual(calls[0].args.slice(-2), UPDATE_OFF, `codex was started with: ${JSON.stringify(calls[0].args)}`);
 });

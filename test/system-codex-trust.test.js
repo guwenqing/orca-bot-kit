@@ -33,6 +33,16 @@
 // `--harness` is or could be Codex. One that names no harness takes its maker's,
 // which the call does not show, and is not read.
 //
+// And Codex's update offer is off in every Codex run a system test starts
+// (#581): a new Codex release shows the offer at start, and no allowlist in
+// test/helpers/screens.js answers it. A session gets the key through
+// `codexTrustArgs`, which carries it in every form (test/codex-trust.test.js),
+// so the check above covers sessions and temps. A `'groom', '--bots'` call with
+// `'--run-on'` followed by `'codex'`, or by anything but a literal `'claude'`,
+// makes its Codex runs with only the extra args the call names. So that call
+// has to name `'--extra-arg=check_for_update_on_startup=false'` itself, after
+// an `'--extra-arg=-c'`.
+//
 // Comments are taken out before anything is read, so a call left in a comment
 // is not a call.
 
@@ -212,6 +222,22 @@ function formsAgainst(text, file, key, who, what) {
   return trouble;
 }
 
+/**
+ * Each `groom` call in a file that makes, or could make, Codex runs without the
+ * update check off, as sentences (#581).
+ */
+function groomWithoutUpdateOffIn(source) {
+  const trouble = [];
+  for (const { elements } of callsOf(withoutComments(source), 'groom', '--bots')) {
+    const runOn = after(elements, '--run-on');
+    if (runOn === undefined || runOn === "'claude'") continue;
+    const at = elements.indexOf("'--extra-arg=check_for_update_on_startup=false'");
+    if (at > 0 && elements[at - 1] === "'--extra-arg=-c'") continue;
+    trouble.push(`a groom --run-on ${runOn} at ${after(elements, '--at')} does not pass --extra-arg=-c --extra-arg=check_for_update_on_startup=false`);
+  }
+  return trouble;
+}
+
 // ------------------------------------------------------------- the check's own cases
 
 const CASES = `
@@ -308,6 +334,26 @@ test('a session add on Codex: hooks: false is taken for session-first-run\'s COD
   ], 'session-first-run\'s leave covers its session add, not a temp make in it');
 });
 
+test('the check names each groom call on Codex without the update check off, and passes the others (#581)', () => {
+  const grooms = [
+    "obkJson(['groom', '--bots', bots]);",
+    "obkJson(['groom', '--bots', bots, '--on', '--at', early]);",
+    "obkJson(['groom', '--bots', bots, '--on', '--at', claude, '--run-on', 'claude']);",
+    "obkJson([\n  'groom', '--bots', bots, '--on', '--at', bare,\n  '--run-on', 'codex', '--model', CODEX_MODEL,\n]);",
+    "obkJson(['groom', '--bots', bots, '--on', '--at', some, '--run-on', HARNESS, '--extra-arg=-c', '--extra-arg=model=o3']);",
+    "obkJson(['groom', '--bots', bots, '--on', '--at', loose, '--run-on', 'codex', '--extra-arg=check_for_update_on_startup=false']);",
+    "obkJson(['groom', '--bots', bots, '--on', '--at', wrong, '--run-on', 'codex', '--extra-arg=-c', '--extra-arg=check_for_update_on_startup=true']);",
+    "obkJson([\n  'groom', '--bots', bots, '--on', '--at', at,\n  '--run-on', 'codex', '--model', CODEX_MODEL,\n  '--extra-arg=-c', '--extra-arg=check_for_update_on_startup=false',\n]);",
+    "// obkJson(['groom', '--bots', bots, '--on', '--at', commented, '--run-on', 'codex']);",
+  ].join('\n');
+  assert.deepEqual(groomWithoutUpdateOffIn(grooms), [
+    'a groom --run-on \'codex\' at bare does not pass --extra-arg=-c --extra-arg=check_for_update_on_startup=false',
+    'a groom --run-on HARNESS at some does not pass --extra-arg=-c --extra-arg=check_for_update_on_startup=false',
+    'a groom --run-on \'codex\' at loose does not pass --extra-arg=-c --extra-arg=check_for_update_on_startup=false',
+    'a groom --run-on \'codex\' at wrong does not pass --extra-arg=-c --extra-arg=check_for_update_on_startup=false',
+  ]);
+});
+
 // ------------------------------------------------------------- the system tests
 
 test('every Codex session a system test makes passes codexTrustArgs, but in the two files left out on purpose', async () => {
@@ -325,4 +371,19 @@ test('every Codex session a system test makes passes codexTrustArgs, but in the 
   }
   assert.ok(sessions > 0, 'no session add was found in the system tests, so the check sees nothing');
   assert.deepEqual(found, [], `Codex sessions made without the launch-time trust (#240):\n  ${found.join('\n  ')}`);
+});
+
+test('every groom call in a system test that makes Codex runs turns the update check off (#581)', async () => {
+  const tree = await snapshot(systemTestsDir);
+  const files = Object.keys(tree).filter((rel) => tree[rel].startsWith('file:') && rel.endsWith('.test.js')).sort();
+
+  const found = [];
+  let codexGrooms = 0;
+  for (const rel of files) {
+    const source = await readFile(path.join(systemTestsDir, rel), 'utf8');
+    codexGrooms += callsOf(withoutComments(source), 'groom', '--bots').filter(({ elements }) => after(elements, '--run-on') === "'codex'").length;
+    for (const why of groomWithoutUpdateOffIn(source)) found.push(`test/system/${rel}: ${why}`);
+  }
+  assert.ok(codexGrooms > 0, 'no groom --run-on codex was found in the system tests, so the check sees nothing');
+  assert.deepEqual(found, [], `Codex runs made with the update offer on (#581):\n  ${found.join('\n  ')}`);
 });
