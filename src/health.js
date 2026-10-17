@@ -25,7 +25,7 @@ import { bookFile, readBook, sessionIdsIn, tabIdsIn } from './book.js';
 import { botDir, botNames, botsDir, readBot, tempRoles, unknownKeys } from './bot.js';
 import { transcriptsIn } from './conversations.js';
 import { hookTrouble } from './hooks.js';
-import { APPROVALS, bypassFlags, harnessOf, HARNESSES, isAddressOf, ownCli, sessionTrouble, SHELL_ENV, shellWord, workDirOf } from './launch.js';
+import { APPROVALS, bypassFlags, harnessOf, HARNESSES, isAddressOf, ownCli, promptFile, sessionTrouble, set, SHELL_ENV, shellWord, workDirOf } from './launch.js';
 import { frontOfTab, orcaDefaultArgs, projects, runMissing, tabs, wordsOfProcess } from './orca.js';
 import { permissionsTrouble } from './permissions.js';
 import { processesIn } from './processes.js';
@@ -140,8 +140,17 @@ function leftBeside(bots) {
   let known = true;
   for (const name of botNames(bots)) {
     try {
-      for (const session of readBot(botDir(bots, name), name).sessions) {
+      const home = botDir(bots, name);
+      for (const session of readBot(home, name).sessions) {
         owned.add(promptPath(bots, name, session.name));
+        // The file a session names as its own prompt, which the kit reads to
+        // start it, and the file a link there leads to (#577).
+        if (set(session.prompt_file)) {
+          const file = promptFile(session, home);
+          owned.add(file);
+          const real = realpathOf(file);
+          if (real !== undefined) owned.add(real);
+        }
         // Where a live session's prompt was before #534: nothing reads it once
         // the session starts again, and its retire removes it.
         owned.add(oldPromptPath(bots, name, session.name));
@@ -153,7 +162,7 @@ function leftBeside(bots) {
 
   if (known) {
     for (const at of promptFilesIn(`${bots}.prompts`)) {
-      if (owned.has(at)) continue;
+      if (owned.has(at) || owned.has(realpathOf(at))) continue;
       found.push(finding('leftover', at, `${at} is a start prompt the kit wrote beside your bots folder, and no session of any bot answers to it now. Nothing reads it.`));
     }
   }
@@ -424,7 +433,7 @@ function inOrca(bots, home, bot, setups, sessions) {
 
   // What the harness has on record in this bot's folder, read once: it is a walk
   // through every conversation on the machine.
-  const onRecord = recordIn(real ?? home, bot);
+  const onRecord = recordIn(real ?? home, bot, book);
   // A conversation the harness marks as a subagent's was never a session's, so a
   // note that holds one is not a loose end for it (#287). The note stays as it is.
   const helpers = new Set(onRecord.filter((one) => one.subagent).map((one) => one.id));
@@ -493,10 +502,12 @@ function offTheBook(home, bot, book, onRecord) {
   return [finding('session', bookFile(home), `The harness has conversations on record in ${bot.name}'s folder that the book does not name: ${listed}. The kit's hook may have missed them: a clear it did not record, or a Codex hooks file trusted late. To give one to a session, write it into ${bookFile(home)} under that session as  session: <id>  and run obk up again.`, bot.name)];
 }
 
-/** Every conversation on record in the bot's folder, from every harness any of its sessions runs on, as `obk usage` reads them. */
-function recordIn(home, bot) {
+/** Every conversation on record in the bot's folder, from every harness any of its sessions runs on or a retired one may have, as `obk usage` reads them. */
+function recordIn(home, bot, book) {
   const harnesses = new Set(bot.sessions.map((session) => harnessOf(session, bot.harness)));
   if (harnesses.size === 0) harnesses.add(bot.harness);
+  // The book does not say which harness a retired session ran on, so any is (#573).
+  if (Array.isArray(book.retired) && book.retired.length > 0) for (const harness of HARNESSES) harnesses.add(harness);
   return [...harnesses]
     .filter((harness) => HARNESSES.includes(harness))
     .flatMap((harness) => transcriptsIn(harness, home));

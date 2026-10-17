@@ -86,27 +86,42 @@ export async function makeTemp(bots, { tab, ...given }) {
   else settings.prompt_file = given.prompt_file ?? role.prompt_file;
   settings.work_dir = `work/${name}`;
 
-  const written = bot.sessions.some((session) => session.name === name) ? undefined : writePromptFirst(bots, caller, settings);
   // bot.yaml and the book are written under the book's lock, so that a second
   // make from the same maker waits, and then sees this one (#464). addSession
   // refuses a name the bot already has, and a setting that will not work,
   // before it writes anything.
   const made = new Date().toISOString();
   let locked = false;
+  let written;
   let added;
   try {
     await updateBook(caller.home, (book) => {
       locked = true;
       refuseNested(bots, caller, book);
       if (role !== undefined) refuseCap(caller, role, book);
-      added = addSession(bots, caller.bot, settings);
+      // The prompt file is written under the lock too, and only for a name the
+      // bot does not have yet: a make of the same name that waited on this one
+      // writes nothing, so it has nothing of this one's to remove (#572).
+      written = readBot(caller.home, caller.bot).sessions.some((session) => session.name === name) ? undefined : writePromptFirst(bots, caller, settings);
+      try {
+        added = addSession(bots, caller.bot, settings);
+      } catch (error) {
+        // Taken back while the lock is held: once it is let go, another make
+        // of this name may write the same file.
+        const left = removeWritten(written);
+        if (left !== undefined) throw promptLeft(error.message.replace(/ ?Nothing was made\.$/, ''), written, left);
+        throw error;
+      }
       const kind = role === undefined ? {} : { role: role.name, option: role.option.name };
       book.sessions[name] = { ...book.sessions[name], temporary: { maker: caller.session, made, ...kind } };
     });
   } catch (error) {
-    // A refusal under the lock has written nothing but the prompt file.
-    const refused = locked && added === undefined;
+    // A refusal under the lock has written nothing, or taken its prompt file back.
+    if (locked && added === undefined) throw error;
     const failed = `${caller.bot}/${name} could not be recorded in the book as temporary (${error.message})`;
+    // The prompt file goes while the session is still in bot.yaml, where it
+    // keeps any other make of its name from writing that file.
+    const left = removeWritten(written);
     // A session in bot.yaml that the book does not call temporary would be a
     // long-lived one to everything that reads it, its maker's retire included,
     // so it is taken back off rather than left that way.
@@ -117,15 +132,8 @@ export async function makeTemp(bots, { tab, ...given }) {
         throw new Error(`${failed}, and taking it back off bot.yaml failed too (${undo.message}). It is in bot.yaml as a session the book does not call temporary. Take it off with  ${shellWord(ownCli())} retire --bots ${shellWord(bots)} --bot ${caller.bot} --session ${name}`);
       }
     }
-    // Off bot.yaml, nothing is made; a prompt file that stays is only a file,
-    // and nothing reads it (#393).
-    const why = refused ? error.message.replace(/ ?Nothing was made\.$/, '') : `${failed}${added === undefined ? '.' : ', so it was taken back off bot.yaml.'}`;
-    try {
-      if (written !== undefined) rmSync(written, { force: true });
-    } catch (left) {
-      throw new Error(`${why} Nothing was made. Its start prompt ${written} could not be removed (${left.message}), and nothing reads it. Remove it with  rm ${shellWord(written)}`);
-    }
-    if (refused) throw error;
+    const why = `${failed}${added === undefined ? '.' : ', so it was taken back off bot.yaml.'}`;
+    if (left !== undefined) throw promptLeft(why, written, left);
     throw new Error(`${why} Nothing was made. Run this again once the book can be written.`);
   }
 
@@ -318,6 +326,24 @@ function writePromptFirst(bots, caller, settings) {
   }
   return file;
 }
+
+/** Remove the start prompt's file `written`, when there is one, and answer why it could not be. */
+function removeWritten(written) {
+  try {
+    if (written !== undefined) rmSync(written, { force: true });
+  } catch (error) {
+    return error;
+  }
+  return undefined;
+}
+
+/**
+ * The refusal `why` for a make whose start prompt's file `written` could not
+ * be removed (`left`). Off bot.yaml, nothing is made; a prompt file that stays
+ * is only a file, and nothing reads it (#393).
+ */
+const promptLeft = (why, written, left) =>
+  new Error(`${why} Nothing was made. Its start prompt ${written} could not be removed (${left.message}), and nothing reads it. Remove it with  rm ${shellWord(written)}`);
 
 /**
  * Retire a temporary session the caller made. Returns what `retireSession`

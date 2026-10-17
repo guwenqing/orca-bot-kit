@@ -831,25 +831,30 @@ test('TQ4 a make whose book write fails and whose prompt file cannot be removed 
   // From round 2 of the review of PR 404: bot.yaml was put back as it was, the
   // prompt file could not be removed, and the message said the session was
   // still in bot.yaml and to retire it, which then refused a session that was
-  // not there. A leftover prompt file of the same name can be written over but
-  // not removed, in a prompts folder that is read-only for the run.
+  // not there.
+  //
+  // The make must take the book's lock and write its prompt file, and only then
+  // fail on the book (#572: a make that cannot take the lock writes no prompt
+  // file, so holding the lock no longer reaches this case). For the run, the
+  // bot's folder is read-only: bot.yaml in it can still be written over, but
+  // no new file can be made there, and the book is written through a new file
+  // beside it. The prompts folder is read-only too. A file of the same name
+  // already in it can be written over by the make, but not removed.
   const box = await createSandbox(t);
   const { bots, planner } = await fleet(box);
   const file = promptFileOf(bots, BOT, 'scout');
   await mkdir(path.dirname(file), { recursive: true });
   await writeFile(file, 'left over from an earlier run\n');
-  const folder = promptsOf(bots);
-  const mode = (await stat(folder)).mode & 0o7777;
+  const folders = [promptsOf(bots), botHomeOf(bots, BOT)];
+  const modes = await Promise.all(folders.map(async (folder) => (await stat(folder)).mode & 0o7777));
   const from = await callCount(box);
 
-  await chmod(folder, 0o555);
-  const lock = await holdBookLock(bots, BOT);
   let result;
   try {
+    for (const folder of folders) await chmod(folder, 0o555);
     result = await make(box, planner, SCOUT);
   } finally {
-    lock.release();
-    await chmod(folder, mode);
+    for (const [at, folder] of folders.entries()) await chmod(folder, modes[at]);
   }
 
   const said = `${result.stdout}${result.stderr}`;
@@ -871,6 +876,46 @@ test('TQ4 a make whose book write fails and whose prompt file cannot be removed 
     [],
     `it does not send the user to retire a session that is not there, got:\n${said}`,
   );
+});
+
+test('TQ5 a make whose book write fails takes the session back off bot.yaml, removes its prompt file, says nothing was made, and works once the book can be written', { skip: NEEDS_A_USER }, async (t) => {
+  // TQ4's case with a prompts folder that can be written: the make takes the
+  // book's lock, writes its prompt file and bot.yaml, and then fails on the
+  // book. Before #572, TQ1 covered the removal here, since its make wrote the
+  // prompt file before it waited on the lock; now that make writes none. The
+  // bot's folder is read-only for the run: bot.yaml in it can still be written
+  // over, but the book is written through a new file beside it.
+  const box = await createSandbox(t);
+  const { bots, planner } = await fleet(box);
+  const file = promptFileOf(bots, BOT, 'scout');
+  const folder = botHomeOf(bots, BOT);
+  const mode = (await stat(folder)).mode & 0o7777;
+  const before = await world(box, bots);
+  const from = await callCount(box);
+
+  let result;
+  try {
+    await chmod(folder, 0o555);
+    result = await make(box, planner, SCOUT);
+  } finally {
+    await chmod(folder, mode);
+  }
+
+  const said = `${result.stdout}${result.stderr}`;
+  assert.notEqual(result.code, 0, `the make failed, and says so in its exit code, got:\n${said}`);
+  assert.ok(!/^\s+at /m.test(said), `expected a message, got a crash:\n${said}`);
+  assert.match(said, /taken back|taken off|off bot\.yaml/i, `it says the session was taken back off bot.yaml, or this is not the case at hand, got:\n${said}`);
+  assert.match(said, /nothing/i, `it says nothing was made, got:\n${said}`);
+  assert.match(said, /book|sessions\.yaml/i, `and that the book could not be written, got:\n${said}`);
+  assert.equal(await entryIn(bots, BOT, 'scout'), undefined, 'scout is not left in bot.yaml');
+  assert.equal(await sessionIn(bots, BOT, 'scout'), undefined, 'nor in the book');
+  assert.equal(await exists(file), false, `nor is its prompt file, ${file}`);
+  assert.deepEqual(orcaCallsOf(await since(box, from), 'terminal create'), [], 'and no tab was opened');
+  assert.deepEqual(await world(box, bots), before, 'bot.yaml, the book and Orca are as they were');
+
+  await made(box, planner, SCOUT);
+  assert.equal((await sessionIn(bots, BOT, 'scout'))?.temporary?.maker, 'planner', 'with the folder writable again, the same make works');
+  assert.ok(await exists(file), `and its prompt file is there, ${file}`);
 });
 
 /** Names that are not one plain name: not a single folder under work/, or not a name the kit gives anything. */
