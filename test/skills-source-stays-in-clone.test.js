@@ -545,3 +545,31 @@ test('#571 c9e a skill whose nested file is a symlink to another file in the sam
     );
   }
 });
+
+// --- Criterion 10: a link loop inside a skill does not hang build ------------
+
+test('#571 c10a a skill holding links back to its own folder (a -> ., b -> .) is linked, and build finishes', { timeout: 60_000 }, async (t) => {
+  // a/b/a/b/... never ends: build follows links inside a source skill, so it
+  // has to stop on a loop rather than walk it for ever.
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  const repo = await sourceRepo(box, SOURCE, async (dir) => {
+    await putSkills(dir, { [SKILL]: INSIDE }, 'skills');
+    await symlink('.', path.join(dir, 'skills', SKILL, 'a'));
+    await symlink('.', path.join(dir, 'skills', SKILL, 'b'));
+  });
+  await writeSources(bots, sourcesYaml({ name: SOURCE, repo, path: 'skills', ref: 'v1.0.0' }));
+  await fetched(box);
+  await addSkills(botYamlOf(bots, BOT), `${SOURCE}:${SKILL}`);
+
+  const result = await build(box);
+
+  assert.equal(result.code, 0, `${result.stderr}${result.stdout}`);
+  await assertLinked(bots, BOT, SKILL, skillInClone(bots));
+  for (const harness of HARNESSES) {
+    assert.ok(
+      (await readThrough(bots, BOT, harness, SKILL)).includes(INSIDE),
+      `${harness} should read the skill out of the pinned clone`,
+    );
+  }
+});
