@@ -62,8 +62,9 @@
 //
 // Why a fresh tab for each stage (#560): on Orca 1.4.224 the stage that ran
 // second in the same tab got no agent name from Orca in 3 of 4 runs, so no kit
-// check ran in it. Each stage got the name in 4 of 4 runs when it ran first,
-// right after a real Claude Code had its first turn in that tab and quit.
+// check ran in it. The stage that ran first got the name in 4 of 4 runs: the
+// presence stage three times and the list stage once. Each time it ran right
+// after a real Claude Code had its first turn in that tab and quit.
 // Worked out from Orca 1.4.225's bundle, not proven live: Orca's pty daemon
 // checks that a process named `claude` really is Claude Code, and keeps for
 // each tab the last agent it verified. The first staged program seems to get
