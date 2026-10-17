@@ -6,7 +6,7 @@
 // body beside the bots folder, commit. A matching allow rule is settled before
 // that check (Claude Code's permissions docs), so the kit gives every bot a
 // default set, spelled with its real CLI and bots folder, with nobody asked
-// (#527, ADR 0036). A rule beyond it is the user's yes, which
+// (#527, ADR 0047). A rule beyond it is the user's yes, which
 // `permission allow` keeps in bot.yaml's `allow`. The kit's code writes what
 // `allow` holds into `.claude/settings.json` in the bot folder, beside its hook
 // (ADR 0022). A model editing the file by hand may get the format wrong; code
@@ -36,7 +36,7 @@ const CODEX_RULES = '.codex/rules';
 const CODEX_FILE = `${CODEX_RULES}/obk.rules`;
 
 /**
- * The rules every bot is given (ADR 0036): each of the kit's default commands,
+ * The rules every bot is given (ADR 0047): each of the kit's default commands,
  * and none kept back for the user's yes (ADR 0041), narrowed to this bots folder and
  * spelled as the kit prints them, which is what a bot runs; reading a long
  * message; committing; and the check Orca's mail notice tells a session to
@@ -277,7 +277,7 @@ export function refuseNoCodexForm(bot, rules) {
 }
 
 /**
- * Add the default rules the bot is not allowed yet to its `allow` (ADR 0036),
+ * Add the default rules the bot is not allowed yet to its `allow` (ADR 0047),
  * then write what it is allowed into the files of the harnesses it runs on:
  * one entry per file, Claude's first, each with `defaults`, the rules this run
  * added, and `held`, the rules of commands no longer in the set that the bot
