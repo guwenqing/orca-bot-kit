@@ -22,6 +22,14 @@
 // changes the file outside just the same. The fix the issue suggests (take away
 // whatever is at the name, then make the file new) answers it too.
 //
+// And one case that is not a link, which holds on main already and must keep
+// holding: a writer that dies between its write and its rename leaves a plain
+// file at its `.part` name. A later writer that gets the same pid goes through
+// and the book holds its change. A fix that refused there would stop every
+// later write from that pid until someone deleted the file by hand, which is
+// not what "a writer that dies leaves the old file in place" (src/book.js)
+// promises.
+//
 // The seam is `updateBook`, in this process: every write of the book goes
 // through it, the hook's and `up`'s alike, and in this process the writer's pid
 // is `process.pid`, so the name is hit without changing anything about the
@@ -148,4 +156,21 @@ test('B599 a book write with a hard link at sessions.yaml.<pid>.part to a file o
   assert.equal(await readFile(outside, 'utf8'), OUTSIDE_TEXT, `the file outside keeps its text, ${told(ended)}`);
   await bookStaysAFile(book, ended, { wasThere: true });
   changeKept(home, ended, 'nightly', 'tab-new');
+});
+
+test('B599 a book write with a plain file at sessions.yaml.<pid>.part, left by a writer that died, goes through, and the book holds the change', async (t) => {
+  const box = await createSandbox(t);
+  const { home, book } = await aBot(box);
+  await updateBook(home, addSession('daily', 'tab-before'));
+
+  // What a writer of this pid left when it died after its write and before its rename.
+  const half = path.join(home, `sessions.yaml.${process.pid}.part`);
+  await writeFile(half, 'half a book, from a writer that died\n');
+
+  await updateBook(home, addSession('nightly', 'tab-new'));
+
+  assert.deepEqual(readBook(home).sessions, { daily: { tab: 'tab-before' }, nightly: { tab: 'tab-new' } }, 'the book holds the change, and what it held before');
+  const after = await lstat(book);
+  assert.equal(after.isSymbolicLink(), false, 'sessions.yaml is not a link');
+  assert.equal(after.isFile(), true, 'sessions.yaml is a file');
 });
