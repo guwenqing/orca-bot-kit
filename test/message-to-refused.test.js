@@ -1,4 +1,4 @@
-// What a session does when its harness refuses a native message (#521).
+// What a session does when its harness refuses a native message (#521, #542).
 //
 // `obk message to` answers `native` for a Claude session that writes to a
 // Claude session in the same approval class: the sender writes with its own
@@ -10,11 +10,20 @@
 //   - do not send it again by another road;
 //   - tell your maker, or your user, that it was refused, with the harness's
 //     reason;
-//   - a refusal can mean a permission rule is missing, and whoever reads it can
-//     fix that rule through the kit, after the user's yes.
+//   - a refusal can mean a permission rule is missing;
+//   - send the refusal to whoever adds the bot's rules: its maker, its user or
+//     its fleet's manager (#542).
+//
+// Who gives the yes for a rule is not the bot's business (#542). In a fleet the
+// owner can give the fleet's manager that yes ahead of time, so a text that
+// tells the bot the rule waits for the user's yes is wrong there. The guidance
+// says where the refusal goes, and it says nothing of a yes, an approval or a
+// consent.
 //
 // The same guidance is in the kit's rule unit `mail` ("Writing to another
-// session", every bot's AGENTS.md), so a bot reads it before it needs it.
+// session", every bot's AGENTS.md), so a bot reads it before it needs it. The
+// two places carry the same words about the permission rule and where the
+// refusal goes, so a bot that reads both reads one instruction.
 //
 // The boundary is words only. The road and the address stay as they are, the
 // native answer offers no `message send` command (that would be the second road
@@ -23,8 +32,9 @@
 //
 // The sentences are the implementer's to word and the reviewer's to read.
 // These tests look for the meaning: a sentence about a refusal, a sentence that
-// says no to another road, a sentence that tells the maker or user, and a
-// sentence that ties a permission rule to the kit and the user's yes.
+// says no to another road, a sentence that tells the maker or user, a sentence
+// that ties a refusal to a permission rule, a sentence that sends the refusal to
+// whoever adds the rules, and no sentence about the user's yes.
 
 import assert from 'node:assert/strict';
 import { writeFile } from 'node:fs/promises';
@@ -115,11 +125,25 @@ const MAKER_OR_USER = /\b(maker|user|owner)\b|\bwho(ever)? (made|started) you\b|
 /** The harness's own reason for the refusal. */
 const REASON = /\b(reason|why)\b/i;
 
-/** The kit's way to a permission rule. */
-const THROUGH_THE_KIT = /\bkit\b|\bobk\b|--allow|bot change/i;
+/** A yes for the rule: the user's or anyone's. The guidance names none (#542). */
+const YES = /\byes\b|\bapprov\w*|\bconsent\w*|\bagree\w*|\bsign-?off\b/i;
 
-/** The user's yes. */
-const YES = /\byes\b|\bapprov\w*|\bconsent\w*|\bagree\w*/i;
+/** Words that pass the refusal on to someone. */
+const SEND = /\b(send|pass|forward|give|take|report|bring|hand|tell|mail)\w*\b/i;
+
+/** Who adds the bot's rules: named by what they do with the rules, or as the fleet's manager. */
+const WHO_ADDS_RULES = /\b(who|whoever|whom|that)\b[^.]*?\b(add|write|make|set|grant|give|keep|change|fix|own|manage)\w*\b[^.]*?\b(rules?|permissions?)\b|\bmanager\b/i;
+
+/** A sentence that says where the refusal goes: to whoever adds the bot's rules. */
+const sendsToWhoAddsRules = (sentence) => SEND.test(sentence) && WHO_ADDS_RULES.test(sentence);
+
+/**
+ * The guidance's sentences about the permission rule and where the refusal
+ * goes, white space made single, in their order: the part that is the same
+ * in the rule unit and in the native answer (#542).
+ */
+const ruleGuidanceOf = (text) => sentencesOf(text)
+  .filter((sentence) => /\b(rules?|permissions?)\b/i.test(sentence) || sendsToWhoAddsRules(sentence));
 
 /**
  * What the guidance has to mean, in any words: each part is checked on its own,
@@ -149,10 +173,14 @@ function assertRefusalGuidance(text, where) {
     `${where} should say that a refusal can mean a permission rule is missing${shown}`,
   );
   assert.ok(
-    THROUGH_THE_KIT.test(aboutRules),
-    `${where} should say that the rule is fixed through the kit${shown}`,
+    sentences.some(sendsToWhoAddsRules),
+    `${where} should say where the refusal goes: to whoever adds the bot's rules (its maker, its user or its fleet's manager) (#542)${shown}`,
   );
-  assert.ok(YES.test(text), `${where} should say that the rule is fixed only after the user's yes${shown}`);
+  assert.deepEqual(
+    sentences.filter((sentence) => YES.test(sentence)),
+    [],
+    `${where} should not say that the rule waits for the user's yes: who gives the yes is not the bot's business (#542)${shown}`,
+  );
 }
 
 /** The three ways two Claude sessions share an approval class, so the road is native. */
@@ -252,6 +280,27 @@ test('the kit\'s mail rule unit carries the refusal guidance (#521)', async () =
   assert.equal(unit.title, 'Writing to another session');
   assert.equal(unit.applies, 'all');
   assertRefusalGuidance(unit.body, 'rules/mail.md');
+});
+
+test('the rule unit and the native answer use the same words about the permission rule and where the refusal goes (#542)', async (t) => {
+  // A bot reads both texts. When they say different things about the rule, the
+  // bot has two instructions for one refusal.
+  const box = await createSandbox(t);
+  await fleetIn(box, [['one-bot', 'claude'], ['two-bot', 'claude']]);
+  const unit = await kitUnit(MAIL);
+
+  const stdout = await plainTo(box, 'two-bot', 'one-bot/daily');
+
+  assert.equal(roadLine(stdout).transport, 'native', `got:\n${stdout}`);
+  const inUnit = ruleGuidanceOf(unit.body);
+  const inAnswer = ruleGuidanceOf(stdout);
+  assert.ok(inUnit.length > 0, `rules/mail.md should carry the guidance about the permission rule:\n${unit.body}`);
+  assert.ok(inUnit.some(sendsToWhoAddsRules), `rules/mail.md should say where the refusal goes:\n${unit.body}`);
+  assert.deepEqual(
+    inAnswer,
+    inUnit,
+    `the native answer should use the same words as rules/mail.md about the permission rule and where the refusal goes\n--- the native answer ---\n${stdout}\n--- rules/mail.md ---\n${unit.body}`,
+  );
 });
 
 for (const harness of ['claude', 'codex']) {
