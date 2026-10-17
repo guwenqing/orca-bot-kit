@@ -493,23 +493,8 @@ const WAITING_MS = 60 * 60 * 1000;
 /** How long the look at a session's tab waits for its harness to be idle. */
 const IDLE_LOOK_MS = 2000;
 
-/** How many letters the first read of a mailbox takes, and how much wider each read after it is. */
-const MAIL_WINDOW = 100;
-const WIDER = 10;
-
-/**
- * Every letter in `mailbox` that can still be waiting, newest first. Orca gives
- * the newest letters, and hands mail to its reader oldest first, so a read
- * whose oldest letter is read holds every unread one. A full read that ends on
- * an unread letter may have more behind it, and is made again wider (review of
- * PR #632).
- */
-function mayWait(mailbox) {
-  for (let limit = MAIL_WINDOW; ; limit *= WIDER) {
-    const mail = mailIn(mailbox, limit);
-    if (mail.length < limit || mail.at(-1).read !== 0) return mail;
-  }
-}
+/** How many of a mailbox's newest letters health reads: one read, whatever the mailbox holds. */
+const MAIL_READ = 100;
 
 /**
  * The session `name`'s mail that Orca has not told it of, while its harness is
@@ -519,11 +504,18 @@ function mayWait(mailbox) {
  * is told when its turn ends, so it is not named. Only flags and times are
  * read: a letter's subject and text are the session's own. A mailbox or a tab
  * Orca will not answer about leaves it unsaid.
+ *
+ * One read of the newest letters (review of PR #632). Orca hands mail to its
+ * reader oldest first, so a full read whose oldest letter is read is taken to
+ * hold every unread one. That misses an older letter left unread below a letter
+ * `orca orchestration reply` marked read out of order; the kit never runs it.
+ * A full read whose oldest letter is unread may have more below it, and the
+ * finding says so rather than count what it did not read.
  */
 function unannounced(bots, home, bot, name, entry) {
   let mail;
   try {
-    mail = mayWait(entry.mailbox);
+    mail = mailIn(entry.mailbox, MAIL_READ);
   } catch {
     return [];
   }
@@ -531,7 +523,11 @@ function unannounced(bots, home, bot, name, entry) {
   const waiting = mail
     .filter((one) => one.read === 0 && one.delivered_at == null && Date.parse(one.created_at) < before)
     .sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at));
-  if (waiting.length === 0) return [];
+  const last = mail.at(-1);
+  const more = mail.length >= MAIL_READ && last.read === 0;
+  // Unread and never rung for, with more of the mailbox below it.
+  const below = more && last.delivered_at == null;
+  if (waiting.length === 0 && !below) return [];
 
   // The gate the kit's own keys go through tells an idle harness from a busy
   // one, a question on its screen or a shell; only its answer is kept.
@@ -543,9 +539,16 @@ function unannounced(bots, home, bot, name, entry) {
   }
   if (look.handle === undefined || look.idle !== true) return [];
 
-  const letters = waiting.length === 1 ? '1 letter' : `${waiting.length} letters`;
+  const count = `${more ? 'at least ' : ''}${waiting.length}`;
+  const letters = waiting.length === 1 && !more ? '1 letter' : `${count} letters`;
+  const read = `Health reads the newest ${MAIL_READ} letters of a mailbox, and the oldest of those is unread too, so older letters may wait as well.`;
+  const what = waiting.length === 0
+    ? `has mail in its mailbox ${entry.mailbox} that Orca has not told it of: the oldest of the newest ${MAIL_READ} letters, from ${last.created_at}, is unread, and Orca has not rung for it. Older letters may wait below it, which health does not read.`
+    : more
+      ? `has ${letters} in its mailbox ${entry.mailbox} that it has not read and that Orca has not told it of, each more than an hour old; the oldest of them that health read is from ${waiting[0].created_at}. ${read}`
+      : `has ${letters} in its mailbox ${entry.mailbox} that it has not read and that Orca has not told it of, the oldest from ${waiting[0].created_at}, more than an hour ago.`;
   const restart = `${shellWord(ownCli())} restart --bots ${shellWord(bots)} --bot ${bot.name} --session ${name}`;
-  return [finding('mail', entry.mailbox, `${bot.name}'s session ${name} has ${letters} in its mailbox ${entry.mailbox} that it has not read and that Orca has not told it of, the oldest from ${waiting[0].created_at}, more than an hour ago. Its harness is idle now, and Orca tells an idle session of its mail within minutes, unless the session sat idle through an Orca restart or update: then Orca does not tell it until it takes a turn. ${restart} opens a new tab for it, which Orca tells. A restart drops what lives only in the old tab, such as Claude Code schedules, so the session makes them again.`, bot.name)];
+  return [finding('mail', entry.mailbox, `${bot.name}'s session ${name} ${what} Its harness is idle now, and Orca tells an idle session of its mail within minutes, unless the session sat idle through an Orca restart or update: then Orca does not tell it until it takes a turn. ${restart} opens a new tab for it, which Orca tells. A restart drops what lives only in the old tab, such as Claude Code schedules, so the session makes them again.`, bot.name)];
 }
 
 /**

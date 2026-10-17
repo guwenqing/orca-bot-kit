@@ -19,11 +19,19 @@
 //      and `says` naming the session, the number of waiting letters, the
 //      `created_at` of the oldest waiting letter as Orca gave it, the fix
 //      `<cli> restart --bots <bots> --bot <bot> --session <name>`, and that the
-//      harness is idle now (a loose match on "idle"). That holds for a
-//      mailbox longer than one read of Orca's: a waiting letter behind 150
-//      newer ones is found, and 150 waiting letters are counted as 150; and
-//      a mailbox whose newest letters were read is read once, for at most 100
-//      (review of PR #632).
+//      harness is idle now (a loose match on "idle").
+//  11. One bounded read (review of PR #632): health reads each mailbox once,
+//      for at most 100 letters, newest first. A read of fewer than 100 is the
+//      whole mailbox, and its count and oldest time are exact (3 above). A
+//      full read whose oldest letter is unread may have older mail below it:
+//      with waiting letters in the read, the count is "at least <n>" and the
+//      time the oldest of the letters read; with none, but the oldest letter
+//      unread and never rung, the session is still named, as one whose older
+//      letters may wait, with no count of them. A full read whose oldest letter
+//      was rung gives no such finding. A full read whose oldest letter was read
+//      is whole (a letter marked read out of order, by `orchestration reply`,
+//      is a known gap and not pinned). Letters too large for one megabyte of
+//      answer do not silence health.
 //   4. Nothing when the only unread letters are newer than an hour, when old
 //      letters have `read` 1 (a session read them with `obk message check`
 //      and had no notice), or when old unread letters have `delivered_at` set.
@@ -70,6 +78,7 @@ import {
   orcaCommand,
   orcaFlag,
   sessionIn,
+  sh,
   shellWord,
   skipOrcaFake,
   snapshot,
@@ -311,6 +320,7 @@ for (const harness of ['claude', 'codex']) {
     const finding = assertNamedMail(answer, box, bots, 'api-bot', 'daily', daily);
     assert.ok(hasWord(finding.says, '3'), `it says 3 letters wait, got: ${finding.says}`);
     assert.ok(!hasWord(finding.says, '4') && !hasWord(finding.says, '6'), `not 4 (every unread one) nor 6 (every one), got: ${finding.says}`);
+    assert.doesNotMatch(finding.says, /at least/i, `the read held the whole mailbox, so the count is exact, got: ${finding.says}`);
     assert.ok(
       finding.says.includes(oldestWaiting.created_at),
       `it gives the oldest waiting letter's created_at as Orca gave it, ${oldestWaiting.created_at}, got: ${finding.says}`,
@@ -394,58 +404,104 @@ for (const [label, letters] of Object.entries(NOT_WAITING)) {
 }
 
 // ---------------------------------------------------------------------------
-// 2, 3. A mailbox longer than one read (review of PR #632)
+// 11. One bounded read (review of PR #632)
 // ---------------------------------------------------------------------------
 //
 // `orchestration inbox` answers the newest letters first, at most `--limit`
-// of them, and Orca's schema puts no cap on the limit. A read of the newest
-// 100 alone misses a waiting letter behind 100 newer ones, and miscounts more
-// than 100 waiting letters. Orca hands mail to a reader oldest first, so the
-// mailboxes here are in that shape: no older letter is unread while a newer
-// one is read. So once a read reaches letters that were read, nothing older
-// waits, and health need read no further.
+// of them. Health reads each mailbox once, for at most 100. Orca hands mail to
+// a reader oldest first, so the mailboxes here are in that shape: no older
+// letter is unread while a newer one is read.
+
+/** How many letters one read of health's holds at most. */
+const READ = 100;
 
 /** `count` letters, oldest first, the oldest `age` old and each next one `step` newer. */
-const run = (mailbox, count, { age, step = MINUTE, read = 0 }) => Array.from(
+const run = (mailbox, count, { age, step = MINUTE, read = 0, delivered = false, body }) => Array.from(
   { length: count },
-  (_, n) => letter(mailbox, { age: age - n * step, read }),
+  (_, n) => letter(mailbox, { age: age - n * step, read, delivered, ...(body === undefined ? {} : { body }) }),
 );
 
-test('#630 2: one waiting letter behind 150 newer unread ones is named, with the count 1 and its time', async (t) => {
-  const box = await createSandbox(t);
-  const bots = await seeded(box);
-  await botUp(box, 'api-bot');
-  const daily = await mailboxOf(bots, 'api-bot', 'daily');
-  const [old] = await mailTo(box, daily, letter(daily, { age: 2 * HOUR }));
-  // 150 newer unread letters, ten minutes old down to seven and a half: none of them waits yet.
-  await mailTo(box, daily, ...run(daily, 150, { age: 10 * MINUTE, step: 1000 }));
+/** The letters one read of `READ` gives, oldest first: the newest of `letters`, which are oldest first. */
+const readOf = (letters) => letters.slice(-READ);
 
-  const answer = await found(box);
-
-  const finding = assertNamedMail(answer, box, bots, 'api-bot', 'daily', daily);
-  assert.ok(hasWord(finding.says, '1'), `it says 1 letter waits, got: ${finding.says}`);
-  for (const wrong of ['100', '150', '151']) assert.ok(!hasWord(finding.says, wrong), `not ${wrong}: only the one old letter waits, got: ${finding.says}`);
-  assert.ok(finding.says.includes(old.created_at), `it gives the waiting letter's created_at as Orca gave it, ${old.created_at}, got: ${finding.says}`);
-});
-
-test('#630 2: 150 waiting letters are named with the count 150 and the oldest one\'s time', async (t) => {
+test('#630 11: 150 waiting letters are named as at least 100, with the oldest time among the 100 read', async (t) => {
   const box = await createSandbox(t);
   const bots = await seeded(box);
   await botUp(box, 'api-bot');
   const daily = await mailboxOf(bots, 'api-bot', 'daily');
   const letters = await mailTo(box, daily, ...run(daily, 150, { age: 2 * HOUR + 150 * MINUTE }));
-  const [oldest] = letters;
   assert.ok(letters.every((one) => Date.parse(one.created_at) < Date.now() - HOUR), 'the premise: every letter is older than an hour');
+  const [oldestRead] = readOf(letters);
+  const [oldestOfAll] = letters;
 
   const answer = await found(box);
 
   const finding = assertNamedMail(answer, box, bots, 'api-bot', 'daily', daily);
-  assert.ok(hasWord(finding.says, '150'), `it says 150 letters wait, got: ${finding.says}`);
-  assert.ok(!hasWord(finding.says, '100'), `not 100, one read's worth, got: ${finding.says}`);
-  assert.ok(finding.says.includes(oldest.created_at), `it gives the oldest waiting letter's created_at as Orca gave it, ${oldest.created_at}, got: ${finding.says}`);
+  assert.match(finding.says, /\bat least 100\b/i, `the read was full and its oldest letter unread, so it says at least 100 wait, got: ${finding.says}`);
+  assert.ok(!hasWord(finding.says, '150'), `not 150: one read does not see them all, got: ${finding.says}`);
+  assert.ok(finding.says.includes(oldestRead.created_at), `it gives the oldest created_at among the letters read, ${oldestRead.created_at}, got: ${finding.says}`);
+  assert.ok(!finding.says.includes(oldestOfAll.created_at), `not the oldest of all 150, which one read does not see, got: ${finding.says}`);
 });
 
-test('#630 2: a mailbox of 250 letters the session read itself is read once, for at most 100 letters', async (t) => {
+test('#630 11: a full read of unread letters, none of them waiting yet, names the session as one whose older letters may wait', async (t) => {
+  // One waiting letter, 2 hours old, behind 150 unread ones ten minutes old:
+  // the read gives the newest 100, the last of them unread and never rung.
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  await botUp(box, 'api-bot');
+  const daily = await mailboxOf(bots, 'api-bot', 'daily');
+  const [old] = await mailTo(box, daily, letter(daily, { age: 2 * HOUR }));
+  await mailTo(box, daily, ...run(daily, 150, { age: 10 * MINUTE, step: 1000 }));
+
+  const answer = await found(box);
+
+  const finding = assertNamedMail(answer, box, bots, 'api-bot', 'daily', daily);
+  // A word of its own: the bots folder's path may hold "folders".
+  assert.match(finding.says, /\bolder\b/i, `it says older letters may wait, got: ${finding.says}`);
+  for (const count of ['1', '50', '51', '150', '151']) {
+    assert.ok(!new RegExp(`(^|[^A-Za-z0-9_-])${count} (older )?(letter|message)`, 'i').test(finding.says), `it claims no count of the older letters, got: ${finding.says}`);
+  }
+  assert.ok(!finding.says.includes(old.created_at), `nor the time of a letter one read does not see, ${old.created_at}, got: ${finding.says}`);
+});
+
+test('#630 11: a full read whose oldest letter was rung, with none waiting, gives no mail finding; a sibling\'s waiting letter does', async (t) => {
+  // Orca rang for them (delivered_at set) and the session did not read them
+  // yet: Orca's notice works for this session. A waiting letter below them
+  // is not seen by one read.
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  await botUp(box, 'api-bot', { sessions: ['daily', 'review'] });
+  const daily = await mailboxOf(bots, 'api-bot', 'daily');
+  const review = await mailboxOf(bots, 'api-bot', 'review');
+  await mailTo(box, daily, letter(daily, { age: 2 * HOUR }));
+  await mailTo(box, daily, ...run(daily, 150, { age: 10 * MINUTE, step: 1000, delivered: true }));
+  await mailTo(box, review, waiting(review));
+
+  const answer = await found(box);
+
+  assertNamedMail(answer, box, bots, 'api-bot', 'review', review);
+  assertNoMailFor(answer, daily, 'the oldest letter daily\'s read gives was rung');
+});
+
+test('#630 11: a full read whose oldest letter was read is the whole of what waits: its count is exact', async (t) => {
+  // 120 letters the session read, then 80 that wait: the read of the newest
+  // 100 ends in 20 read ones, so nothing older waits.
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  await botUp(box, 'api-bot');
+  const daily = await mailboxOf(bots, 'api-bot', 'daily');
+  await mailTo(box, daily, ...run(daily, 120, { age: 40 * HOUR, read: 1 }));
+  const [oldestWaiting] = await mailTo(box, daily, ...run(daily, 80, { age: 3 * HOUR }));
+
+  const answer = await found(box);
+
+  const finding = assertNamedMail(answer, box, bots, 'api-bot', 'daily', daily);
+  assert.ok(hasWord(finding.says, '80'), `it says 80 letters wait, got: ${finding.says}`);
+  assert.doesNotMatch(finding.says, /at least/i, `the read reached letters that were read, so the count is exact, got: ${finding.says}`);
+  assert.ok(finding.says.includes(oldestWaiting.created_at), `it gives the oldest waiting letter's created_at, ${oldestWaiting.created_at}, got: ${finding.says}`);
+});
+
+test('#630 11: a mailbox of 250 letters the session read itself is read once, for at most 100 letters', async (t) => {
   // The newest letters were read, so no older one waits: one read is enough,
   // and reading the whole mailbox every time health runs is cost for nothing.
   const box = await createSandbox(t);
@@ -466,6 +522,32 @@ test('#630 2: a mailbox of 250 letters the session read itself is read once, for
   assert.equal(reads.length, 1, `daily's mailbox is read once, got: ${JSON.stringify(reads.map((call) => call.args))}`);
   const limit = Number(orcaFlag(reads[0], '--limit'));
   assert.ok(Number.isFinite(limit) && limit <= 100, `and that read asks for at most 100 letters, got: ${reads[0].args.join(' ')}`);
+});
+
+test('#630 11: 100 waiting letters of 20 KiB each, over a megabyte of Orca\'s answer, are named, and no body shows', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  await botUp(box, 'api-bot');
+  const daily = await mailboxOf(bots, 'api-bot', 'daily');
+  const big = `zq-big-body-${'medlar-'.repeat(Math.ceil((20 * 1024) / 7))}`.slice(0, 20 * 1024);
+  await mailTo(box, daily, ...run(daily, READ, { age: 2 * HOUR + READ * MINUTE, body: big }));
+  // The premise: Orca's answer to that read is over 1 MiB, and the fake gives it whole.
+  const told = await sh(`${shellWord(box.orca.cli)} orchestration inbox --terminal run:${daily} --limit ${READ} --json`, { env: box.env });
+  assert.ok(told.stdout.length > 1024 * 1024, `the premise: the answer is over 1 MiB, got ${told.stdout.length} bytes`);
+  assert.equal(JSON.parse(told.stdout).result.messages.length, READ, 'the premise: and it is whole');
+
+  const json = await health(box, '--json');
+  const plain = await health(box);
+
+  const answer = JSON.parse(json.stdout);
+  const finding = assertNamedMail(answer, box, bots, 'api-bot', 'daily', daily);
+  assert.ok(hasWord(finding.says, '100'), `it counts the 100 letters it read, got: ${finding.says}`);
+  for (const [name, result] of [['--json', json], ['plain', plain]]) {
+    const all = `${result.stdout}${result.stderr}`;
+    for (const secret of ['zq-big-body', 'medlar-medlar', SUBJECT]) {
+      assert.ok(!all.includes(secret), `the ${name} report reads flags and times only, and shows ${secret}`);
+    }
+  }
 });
 
 // ---------------------------------------------------------------------------

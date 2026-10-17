@@ -496,7 +496,7 @@
 
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync, writeSync } from 'node:fs';
 import path from 'node:path';
 
 import { foregroundOf, launchedIn, panePid, settingsFor } from './fake-ps.js';
@@ -545,7 +545,27 @@ function flag(name) {
 let answered = 0;
 function write(answer) {
   answered += 1;
-  process.stdout.write(`${JSON.stringify(answer)}\n`);
+  writeAll(`${JSON.stringify(answer)}\n`);
+}
+
+/**
+ * Write the whole answer before the process exits. On macOS a write to a pipe
+ * through `process.stdout` is asynchronous, and `process.exit` right after it
+ * cut an answer off at 64 KiB: an inbox of large letters came out as broken
+ * JSON (#630). A pipe that is full answers EAGAIN, and the write waits a
+ * moment and goes on.
+ */
+function writeAll(text) {
+  const buffer = Buffer.from(text);
+  let at = 0;
+  while (at < buffer.length) {
+    try {
+      at += writeSync(1, buffer, at);
+    } catch (error) {
+      if (error.code !== 'EAGAIN') throw error;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5);
+    }
+  }
 }
 
 function ok(result) {
