@@ -6,8 +6,9 @@
 // theirs. Beside each session's tab it holds the harness session id that
 // session is running under, and every id it ran under before.
 
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { isDeepStrictEqual } from 'node:util';
 import { parse, stringify } from 'yaml';
@@ -178,16 +179,29 @@ function lockOn(file, waitMs, how = 'IMMEDIATE') {
   // Only while this process holds no turn on it: closing any descriptor of a
   // file lets go of every lock the process holds on that file, and SQLite's
   // own are among them. A file a turn is held on was written already.
-  if (!heldHere.has(file)) {
+  //
+  // A session can write its bot's folder of locks, so a link, a FIFO or a
+  // folder may sit at the lock's name, and a lock taken through a link would
+  // make or write a file anywhere the kit may write (#605). So the kit opens
+  // the file itself without following a link, SQLite opens it only if it is
+  // there and makes nothing, and once the lock is held the name must still be
+  // that same plain file.
+  let held = heldHere.get(file);
+  if (held === undefined) {
     try {
       mkdirSync(path.dirname(file), { recursive: true });
-      closeSync(openSync(file, 'a'));
+      held = { turns: 0, stat: plainFile(file) };
     } catch (error) {
       throw new LockNotWritable(file, error);
     }
   }
 
-  const db = new DatabaseSync(file);
+  let db;
+  try {
+    db = new DatabaseSync(new URL(`${pathToFileURL(file).href}?mode=rw`));
+  } catch (error) {
+    throw new LockNotWritable(file, error);
+  }
   try {
     // A writer that arrives while another is working waits for it rather than
     // failing at once, and gives up saying so rather than waiting for ever.
@@ -199,27 +213,59 @@ function lockOn(file, waitMs, how = 'IMMEDIATE') {
     } else {
       db.exec(`BEGIN ${how}`);
     }
+    const now = lstatSync(file, { throwIfNoEntry: false });
+    if (!(now?.isFile() && now.dev === held.stat.dev && now.ino === held.stat.ino)) {
+      db.exec('ROLLBACK');
+      throw new LockNotWritable(file, notPlain('something else took its name while the kit opened it'));
+    }
   } catch (error) {
     db.close();
     throw error;
   }
 
-  heldHere.set(file, (heldHere.get(file) ?? 0) + 1);
+  held.turns += 1;
+  heldHere.set(file, held);
   return {
     release() {
       try {
         db.exec('COMMIT');
       } finally {
         db.close();
-        const left = heldHere.get(file) - 1;
-        if (left > 0) heldHere.set(file, left);
-        else heldHere.delete(file);
+        held.turns -= 1;
+        if (held.turns === 0) heldHere.delete(file);
       }
     },
   };
 }
 
-/** How many turns this process holds on each lock file, by its path. */
+/**
+ * The lock file at `file`, made if it is not there, and opened for writing
+ * without following a link or waiting on a FIFO. Anything at the name but a
+ * plain file is refused. Answers its stat, to tell it later from anything put
+ * in its place.
+ */
+function plainFile(file) {
+  let fd;
+  try {
+    fd = openSync(file, constants.O_WRONLY | constants.O_CREAT | constants.O_APPEND | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  } catch (error) {
+    // A link, a folder and a FIFO with no reader, in that order.
+    if (['ELOOP', 'EISDIR', 'ENXIO'].includes(error.code)) throw notPlain(error.code);
+    throw error;
+  }
+  try {
+    const stat = fstatSync(fd);
+    if (!stat.isFile()) throw notPlain('not a plain file');
+    return stat;
+  } finally {
+    closeSync(fd);
+  }
+}
+
+const NOT_PLAIN = 'ENOTPLAIN';
+const notPlain = (message) => Object.assign(new Error(message), { code: NOT_PLAIN });
+
+/** The turns this process holds on each lock file, by its path, and the file they are held on. */
 const heldHere = new Map();
 
 /**
@@ -263,7 +309,9 @@ const botLocks = (home) => {
  */
 class LockNotWritable extends Error {
   constructor(file, why) {
-    super(`the kit cannot write its lock ${file} (${why.code ?? why.message}), so it did not take the turn, and nothing was done. A Codex session started before this version of the kit cannot write its bot's folder of locks: restart this session with the kit. Elsewhere, make ${path.dirname(file)} writable.`);
+    super(why.code === NOT_PLAIN
+      ? `something other than a plain file is at the name of the kit's lock ${file} (${why.message}), so the kit did not take the turn, and nothing was done. Remove ${file}; the kit makes it again.`
+      : `the kit cannot write its lock ${file} (${why.code ?? why.message}), so it did not take the turn, and nothing was done. A Codex session started before this version of the kit cannot write its bot's folder of locks: restart this session with the kit. Elsewhere, make ${path.dirname(file)} writable.`);
     this.code = why.code;
   }
 }
