@@ -13,3 +13,4 @@ R3: `obk permission disallow` MUST take back each rule of R2, after the user's y
 
 Assumed: the notice in R2 is the one #548 prints ("<bot> holds <rule>, which is no longer one of the kit's defaults. To take it back: …"). The kit spells each rule with its own path and the bots folder, as the default set spelled it. A bot that still holds the rule of R1 is allowed the bare check until the user takes it back; the kit's rules still tell it not to run it.
 Out: the kit taking any of these rules back by itself; a rule that forbids the bare check; any change to rules/mail.md or to how `obk message check` reads mail.
+Signed off: 2026-10-17 owner, origin/2026-10-17-signoff.md
