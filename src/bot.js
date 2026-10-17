@@ -13,7 +13,8 @@ import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { isSeq, parse, parseDocument, stringify } from 'yaml';
 
-import { defaultApproval, HARNESSES, harnessOf, sessionTrouble, workDirOf } from './launch.js';
+import { takeBotTurn } from './book.js';
+import { defaultApproval, HARNESSES, harnessOf, ownCli, refuseApprovalArgs, sessionTrouble, set, shellWord, workDirOf } from './launch.js';
 
 /** Where the bots live inside the user's bots folder. */
 export const botsDir = (bots) => path.join(bots, 'bots');
@@ -199,9 +200,11 @@ export function readBot(home, name = path.basename(home)) {
  *
  * The bot's own files, and no more: its `AGENTS.md` is built from this
  * `bot.yaml` and the rule units, which is the rules build's job and is reported
- * as one (PRD 6.6).
+ * as one (PRD 6.6). `allow` is the kit's default rules for it, written in the
+ * same first write, so that no later read and write of the file can lose a
+ * change another command makes at the same time (#595).
  */
-export function createBot(bots, { name, harness, charter }) {
+export function createBot(bots, { name, harness, charter, allow = [] }) {
   if (!NAME.test(name)) {
     throw new Error(`${name} cannot be a bot's name: a name is lower-case letters, digits and single hyphens, such as api-bot.`);
   }
@@ -218,7 +221,7 @@ export function createBot(bots, { name, harness, charter }) {
 
   const text = charter?.trim() ? `${charter.trim()}\n` : PLACEHOLDER_CHARTER(name);
   const files = [
-    [BOT_YAML, botYaml(name, harness, text)],
+    [BOT_YAML, botYaml(name, harness, text, allow)],
     ['.gitignore', BOT_GITIGNORE],
   ];
 
@@ -251,35 +254,37 @@ export function addSession(bots, bot, settings) {
   }
   refuseOutside(home, file);
 
-  const known = readBot(home, bot);
-  if (known.sessions.some((session) => session.name === settings.name)) {
-    throw new Error(`${bot} already has a session called ${settings.name}, and session add never writes over one.`);
-  }
+  return withBotTurn(home, () => {
+    const known = readBot(home, bot);
+    if (known.sessions.some((session) => session.name === settings.name)) {
+      throw new Error(`${bot} already has a session called ${settings.name}, and session add never writes over one.`);
+    }
 
-  // Pi has one level, and the session says so in bot.yaml (#547).
-  const session = ordered({ ...settings, approval: settings.approval ?? defaultApproval(harnessOf(settings, known.harness)) });
-  const trouble = sessionTrouble(session, harnessOf(session, known.harness), home);
-  if (trouble !== undefined) throw new Error(trouble);
+    // Pi has one level, and the session says so in bot.yaml (#547).
+    const session = ordered({ ...settings, approval: settings.approval ?? defaultApproval(harnessOf(settings, known.harness)) });
+    const trouble = sessionTrouble(session, harnessOf(session, known.harness), home);
+    if (trouble !== undefined) throw new Error(trouble);
 
-  const source = readFileSync(file, 'utf8');
-  const doc = parseDocument(source);
-  const sessions = doc.get('sessions', true);
-  if (sessions?.items === undefined) {
-    // No list to add to: an empty `sessions:`, or no sessions key at all.
-    doc.set('sessions', [session]);
-  } else {
-    // A list written inline is written out as a block list from here on, which
-    // is the one shape a session with a prompt in it reads well in.
-    sessions.flow = false;
-    doc.addIn(['sessions'], session);
-  }
+    const source = readFileSync(file, 'utf8');
+    const doc = parseDocument(source);
+    const sessions = doc.get('sessions', true);
+    if (sessions?.items === undefined) {
+      // No list to add to: an empty `sessions:`, or no sessions key at all.
+      doc.set('sessions', [session]);
+    } else {
+      // A list written inline is written out as a block list from here on, which
+      // is the one shape a session with a prompt in it reads well in.
+      sessions.flow = false;
+      doc.addIn(['sessions'], session);
+    }
 
-  const text = doc.toString(YAML_OUT);
-  if (!changesExactly(source, text, (was) => ({ ...was, sessions: [...(was.sessions ?? []), session] }))) {
-    throw new Error(`${file} cannot have a session added to it without changing something else in it, so nothing was written. Add ${settings.name} to its sessions list by hand.`);
-  }
-  writeWhole(file, text);
-  return { bot, home, session };
+    const text = doc.toString(YAML_OUT);
+    if (!changesExactly(source, text, (was) => ({ ...was, sessions: [...(was.sessions ?? []), session] }))) {
+      throw new Error(`${file} cannot have a session added to it without changing something else in it, so nothing was written. Add ${settings.name} to its sessions list by hand.`);
+    }
+    writeWhole(file, text);
+    return { bot, home, session };
+  });
 }
 
 /**
@@ -293,8 +298,10 @@ export function changeBot(bots, bot, { charter }) {
   if (charter.trim() === '') throw new Error('--charter is empty, and a bot with no charter has no boundary to act inside. Give it one.');
 
   const text = `${charter.trim()}\n`;
-  editBot(bots, bot, `give ${bot} a new charter`, (doc) => doc.set('charter', text), (was) => ({ ...was, charter: text }));
-  return { bot, home: botDir(bots, bot), charter: text };
+  return withBotTurn(existingBot(bots, bot), () => {
+    editBot(bots, bot, `give ${bot} a new charter`, (doc) => doc.set('charter', text), (was) => ({ ...was, charter: text }));
+    return { bot, home: botDir(bots, bot), charter: text };
+  });
 }
 
 /**
@@ -325,13 +332,15 @@ export function allowedNow(bots, bot, rules, flag = '--rule') {
  * false it only refuses what the edit would refuse, and writes nothing.
  */
 export function allowRules(bots, bot, rules, { write = true } = {}) {
-  const { home, was } = allowedNow(bots, bot, rules);
-  const added = [...new Set(rules)].filter((rule) => !was.includes(rule));
-  const allow = [...was, ...added];
-  if (added.length > 0) {
-    editBot(bots, bot, `allow ${added.join(', ')} for ${bot}`, (doc) => doc.set('allow', allow), (before) => ({ ...before, allow }), write);
-  }
-  return { bot, home, allow, added };
+  return withBotTurn(existingBot(bots, bot), () => {
+    const { home, was } = allowedNow(bots, bot, rules);
+    const added = [...new Set(rules)].filter((rule) => !was.includes(rule));
+    const allow = [...was, ...added];
+    if (added.length > 0) {
+      editBot(bots, bot, `allow ${added.join(', ')} for ${bot}`, (doc) => doc.set('allow', allow), (before) => ({ ...before, allow }), write);
+    }
+    return { bot, home, allow, added };
+  });
 }
 
 /**
@@ -342,11 +351,13 @@ export function allowRules(bots, bot, rules, { write = true } = {}) {
  * false it only refuses what the edit would refuse, and writes nothing.
  */
 export function disallowRules(bots, bot, rules, { write = true } = {}) {
-  const { home, was } = allowedNow(bots, bot, rules);
-  const disallowed = [...new Set(rules)];
-  const allow = was.filter((rule) => !disallowed.includes(rule));
-  editBot(bots, bot, `take back ${disallowed.join(', ')} for ${bot}`, (doc) => doc.set('allow', allow), (before) => ({ ...before, allow }), write);
-  return { bot, home, allow, disallowed };
+  return withBotTurn(existingBot(bots, bot), () => {
+    const { home, was } = allowedNow(bots, bot, rules);
+    const disallowed = [...new Set(rules)];
+    const allow = was.filter((rule) => !disallowed.includes(rule));
+    editBot(bots, bot, `take back ${disallowed.join(', ')} for ${bot}`, (doc) => doc.set('allow', allow), (before) => ({ ...before, allow }), write);
+    return { bot, home, allow, disallowed };
+  });
 }
 
 /**
@@ -372,27 +383,40 @@ export function changeSession(bots, bot, name, settings) {
   if (changes.prompt !== undefined && changes.prompt_file === undefined) changes.prompt_file = '';
   if (changes.prompt_file !== undefined && changes.prompt === undefined) changes.prompt = '';
 
-  const { home, known, index } = sessionAt(bots, bot, name);
-  const was = known.sessions[index];
-  const from = harnessOf(was, known.harness);
-  let moved;
-  if (changes.harness !== undefined && changes.harness !== from) {
-    const defaults = ['model', 'effort', 'context'].filter((key) => changes[key] === undefined && ![undefined, null, ''].includes(was[key]));
-    for (const key of defaults) changes[key] = '';
-    moved = { from, to: changes.harness, defaults };
-  }
-  // Every key the entry had stays, a pause mark or one of the user's own among
-  // them; only the settings given change.
-  const session = Object.fromEntries(Object.entries({ ...was, ...changes })
-    .filter(([, value]) => value !== '' && !(Array.isArray(value) && value.every((one) => one === ''))));
-  const trouble = sessionTrouble(session, harnessOf(session, known.harness), home);
-  if (trouble !== undefined) throw new Error(trouble);
-  // Judged on the session as it is written, which is the whole session, so a
-  // change another command made in between cannot be combined with this one.
-  refuseCodexOutside(bot, session, was, known.harness, home, 'session change');
+  return withBotTurn(existingBot(bots, bot), () => {
+    const { home, known, index } = sessionAt(bots, bot, name);
+    const was = known.sessions[index];
+    const from = harnessOf(was, known.harness);
+    let moved;
+    if (changes.harness !== undefined && changes.harness !== from) {
+      const defaults = ['model', 'effort', 'context'].filter((key) => changes[key] === undefined && ![undefined, null, ''].includes(was[key]));
+      for (const key of defaults) changes[key] = '';
+      moved = { from, to: changes.harness, defaults };
+    }
+    // Every key the entry had stays, a pause mark or one of the user's own among
+    // them; only the settings given change.
+    const session = Object.fromEntries(Object.entries({ ...was, ...changes })
+      .filter(([, value]) => value !== '' && !(Array.isArray(value) && value.every((one) => one === ''))));
+    const trouble = sessionTrouble(session, harnessOf(session, known.harness), home);
+    if (trouble !== undefined) throw new Error(trouble);
+    // A session with no approval runs at its harness's default, auto on claude
+    // and codex, and dangerously-skip on Pi: a move to Pi would widen it with
+    // nobody asked (ADR 0041, #589).
+    if (moved?.to === 'pi' && !set(session.approval) && defaultApproval(from) !== 'dangerously-skip') {
+      throw new Error(`${bot}'s session ${name} has no approval in bot.yaml, so on ${from} it runs at ${defaultApproval(from)}. Every Pi session runs as dangerously-skip, and session change widens no approval. After the user's yes, Bot Father sets it with ${shellWord(ownCli())} permission approval --bots ${shellWord(bots)} --bot ${bot} --session ${name} --approval dangerously-skip; then the session can move to Pi. Nothing was changed.`);
+    }
+    // Judged on the session as it is written, which is the whole session, so a
+    // change another command made in between cannot be combined with this one.
+    refuseCodexOutside(bot, session, was, known.harness, home, 'session change');
+    // The same for an extra argument that sets approval on the session's
+    // harness: the caller's check read bot.yaml before this turn (#589).
+    if (changes.harness !== undefined || changes.extra_args !== undefined) {
+      refuseApprovalArgs(harnessOf(session, known.harness), session.extra_args);
+    }
 
-  editSession(bots, bot, index, session, `change ${bot}'s session ${name}`);
-  return { bot, home, session, ...(moved === undefined ? {} : { moved }) };
+    editSession(bots, bot, index, session, `change ${bot}'s session ${name}`);
+    return { bot, home, session, ...(moved === undefined ? {} : { moved }) };
+  });
 }
 
 /**
@@ -418,8 +442,10 @@ export function refuseCodexOutside(bot, session, was, botHarness, home, command)
  * `level`, as `temp_approval` (ADR 0041). Returns { bot, home, level }.
  */
 export function setTempApproval(bots, bot, level) {
-  editBot(bots, bot, `let ${bot}'s temporary sessions be made at ${level}`, (doc) => doc.set('temp_approval', level), (was) => ({ ...was, temp_approval: level }));
-  return { bot, home: botDir(bots, bot), level };
+  return withBotTurn(existingBot(bots, bot), () => {
+    editBot(bots, bot, `let ${bot}'s temporary sessions be made at ${level}`, (doc) => doc.set('temp_approval', level), (was) => ({ ...was, temp_approval: level }));
+    return { bot, home: botDir(bots, bot), level };
+  });
 }
 
 /**
@@ -432,37 +458,39 @@ export function setTempApproval(bots, bot, level) {
  */
 export function setRoleCaps(bots, bot, caps, { write = true } = {}) {
   const home = existingBot(bots, bot);
-  const roles = readBot(home, bot).temp_roles;
-  const file = path.join(home, BOT_YAML);
-  for (const [role] of caps) {
-    if (roles === null || typeof roles !== 'object' || Array.isArray(roles) || !Object.hasOwn(roles, role)) {
-      const has = roles !== null && typeof roles === 'object' && !Array.isArray(roles) ? Object.keys(roles) : [];
-      throw new Error(`${bot} has no temporary-session role called ${role} in ${file}${has.length === 0 ? ', and no temp_roles at all' : `. It has: ${has.join(', ')}`}. Nothing was changed.`);
-    }
-  }
-  const capped = (written, cap) => {
-    const { cap: was, ...rest } = Array.isArray(written) ? { options: written } : written;
-    return cap === undefined ? rest : { ...rest, cap };
-  };
-  editBot(bots, bot, `set the caps of ${caps.map(([role]) => role).join(', ')}`, (doc) => {
-    for (const [role, cap] of caps) {
-      const node = doc.getIn(['temp_roles', role], true);
-      if (isSeq(node)) {
-        doc.setIn(['temp_roles', role], doc.createNode(capped(node.toJSON(), cap)));
-      } else if (cap === undefined) {
-        doc.deleteIn(['temp_roles', role, 'cap']);
-      } else {
-        doc.setIn(['temp_roles', role, 'cap'], cap);
+  return withBotTurn(home, () => {
+    const roles = readBot(home, bot).temp_roles;
+    const file = path.join(home, BOT_YAML);
+    for (const [role] of caps) {
+      if (roles === null || typeof roles !== 'object' || Array.isArray(roles) || !Object.hasOwn(roles, role)) {
+        const has = roles !== null && typeof roles === 'object' && !Array.isArray(roles) ? Object.keys(roles) : [];
+        throw new Error(`${bot} has no temporary-session role called ${role} in ${file}${has.length === 0 ? ', and no temp_roles at all' : `. It has: ${has.join(', ')}`}. Nothing was changed.`);
       }
     }
-  }, (was) => ({
-    ...was,
-    temp_roles: Object.fromEntries(Object.entries(was.temp_roles).map(([role, written]) => {
-      const asked = caps.findLast(([one]) => one === role);
-      return [role, asked === undefined ? written : capped(written, asked[1])];
-    })),
-  }), write);
-  return { bot, home, caps };
+    const capped = (written, cap) => {
+      const { cap: was, ...rest } = Array.isArray(written) ? { options: written } : written;
+      return cap === undefined ? rest : { ...rest, cap };
+    };
+    editBot(bots, bot, `set the caps of ${caps.map(([role]) => role).join(', ')}`, (doc) => {
+      for (const [role, cap] of caps) {
+        const node = doc.getIn(['temp_roles', role], true);
+        if (isSeq(node)) {
+          doc.setIn(['temp_roles', role], doc.createNode(capped(node.toJSON(), cap)));
+        } else if (cap === undefined) {
+          doc.deleteIn(['temp_roles', role, 'cap']);
+        } else {
+          doc.setIn(['temp_roles', role, 'cap'], cap);
+        }
+      }
+    }, (was) => ({
+      ...was,
+      temp_roles: Object.fromEntries(Object.entries(was.temp_roles).map(([role, written]) => {
+        const asked = caps.findLast(([one]) => one === role);
+        return [role, asked === undefined ? written : capped(written, asked[1])];
+      })),
+    }), write);
+    return { bot, home, caps };
+  });
 }
 
 /**
@@ -470,33 +498,37 @@ export function setRoleCaps(bots, bot, caps, { write = true } = {}) {
  * the file changed. A paused bot or session is one `obk up` leaves closed.
  */
 export function markPaused(bots, bot, name, paused) {
-  if (name === undefined) {
-    const known = readBot(botDir(bots, bot), bot);
-    if ((known.paused === true) === paused) return false;
-    editBot(
-      bots, bot, `${paused ? 'pause' : 'unpause'} ${bot}`,
-      (doc) => (paused ? doc.set('paused', true) : doc.delete('paused')),
-      ({ paused: none, ...was }) => (paused ? { ...was, paused: true } : was),
-    );
-    return true;
-  }
+  return withBotTurn(existingBot(bots, bot), () => {
+    if (name === undefined) {
+      const known = readBot(botDir(bots, bot), bot);
+      if ((known.paused === true) === paused) return false;
+      editBot(
+        bots, bot, `${paused ? 'pause' : 'unpause'} ${bot}`,
+        (doc) => (paused ? doc.set('paused', true) : doc.delete('paused')),
+        ({ paused: none, ...was }) => (paused ? { ...was, paused: true } : was),
+      );
+      return true;
+    }
 
-  const { known, index } = sessionAt(bots, bot, name);
-  const was = known.sessions[index];
-  if ((was.paused === true) === paused) return false;
-  const { paused: none, ...rest } = was;
-  editSession(bots, bot, index, paused ? { ...rest, paused: true } : rest, `${paused ? 'pause' : 'unpause'} ${bot}'s session ${name}`);
-  return true;
+    const { known, index } = sessionAt(bots, bot, name);
+    const was = known.sessions[index];
+    if ((was.paused === true) === paused) return false;
+    const { paused: none, ...rest } = was;
+    editSession(bots, bot, index, paused ? { ...rest, paused: true } : rest, `${paused ? 'pause' : 'unpause'} ${bot}'s session ${name}`);
+    return true;
+  });
 }
 
 /** Take the session `name` off the bot `bot`'s list. */
 export function dropSession(bots, bot, name) {
-  const { index } = sessionAt(bots, bot, name);
-  editBot(
-    bots, bot, `take the session ${name} off ${bot}`,
-    (doc) => doc.deleteIn(['sessions', index]),
-    (was) => ({ ...was, sessions: was.sessions.filter((one, at) => at !== index) }),
-  );
+  withBotTurn(existingBot(bots, bot), () => {
+    const { index } = sessionAt(bots, bot, name);
+    editBot(
+      bots, bot, `take the session ${name} off ${bot}`,
+      (doc) => doc.deleteIn(['sessions', index]),
+      (was) => ({ ...was, sessions: was.sessions.filter((one, at) => at !== index) }),
+    );
+  });
 }
 
 /** Where a session sits in its bot's list, refusing a bot or a session that is not there. */
@@ -578,6 +610,23 @@ export function writeWhole(file, text) {
   renameSync(half, real);
 }
 
+/**
+ * Run `change`, which reads the bot's bot.yaml and writes it, while this
+ * command holds the bot's turn (#595): the read and the write are then of the
+ * same file, and another command's change cannot fall between them and be
+ * written over. Every kit change of a bot.yaml that is there is made in here;
+ * `bot create` writes its first whole, with no read before. Not taken twice:
+ * the commands that take it call only what does not.
+ */
+export function withBotTurn(home, change) {
+  const turn = takeBotTurn(home);
+  try {
+    return change();
+  } finally {
+    turn.release();
+  }
+}
+
 /** A bot that is there, by its home, or the refusal a caller who named another is owed. */
 export function existingBot(bots, bot) {
   requireBotsFolder(bots);
@@ -615,9 +664,10 @@ export function changesExactly(source, text, expected) {
 }
 
 /** The bot.yaml of a bot nobody has edited yet. */
-function botYaml(name, harness, charter) {
+function botYaml(name, harness, charter, allow) {
   const header = `# ${displayName(name)}. Ask Bot Father for changes rather than editing this file.\n\n`;
-  return header + stringify({ name, harness, charter, rules: [], skills: [], sessions: [] }, YAML_OUT);
+  const bot = { name, harness, charter, rules: [], skills: [], sessions: [] };
+  return header + stringify(allow.length === 0 ? bot : { ...bot, allow }, YAML_OUT);
 }
 
 /**

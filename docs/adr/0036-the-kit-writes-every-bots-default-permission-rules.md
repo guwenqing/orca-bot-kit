@@ -1,7 +1,7 @@
 # ADR 0036: The kit writes every bot's default permission rules, with nobody asked
 
 Date: 2026-10-10.
-Status: accepted.
+Status: superseded by [ADR 0047](0047-the-kit-writes-every-bots-default-permission-rules.md).
 Decided by: the owner, on 2026-09-26, for a default set every bot gets and the kit's code as the only writer (#344); the owner, on 2026-10-10, for the kit's own commands being in that set and written with nobody asked (#527: "for kit command I need you to be part of kit code!!! To set default for every session without the need to ask"); the architect, on 2026-09-26, for leaving an entry the kit did not write where it is and naming it in health, and for the rules build writing the kit's path and the bots folder's path into a bot's rules; the architect, on 2026-10-10, for adding Orca's `orca orchestration check --run` to the set, and for writing the set from an explicit list (#527, #532). The owner may overrule the architect's parts. Which commands are left out is [ADR 0037](0037-permission-changes-and-risky-operations-have-commands-of-their-own.md).
 Supersedes: [ADR 0026](0026-the-kit-writes-a-bots-permission-rules-after-the-users-yes.md).
 

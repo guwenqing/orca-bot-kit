@@ -21,7 +21,7 @@ import { nameSession } from './name.js';
 import { APPROVALS, harnessOf, HARNESSES, ownCli, refuseApprovalArgs, shellWord, workDirOf } from './launch.js';
 import { checkMail, lookUp, noMailboxYet, sendMessage, sessionInTab } from './message.js';
 import { orcaCli, orcaTrouble, RELOAD_LINE, TERMINAL_ENV } from './orca.js';
-import { allowIn, beyondDefaults, refuseBroad, refuseNoCodexForm, runsOnClaude, runsOnCodex, takeBack, writePermissions } from './permissions.js';
+import { allowIn, beyondDefaults, botDefaults, refuseBroad, refuseNoCodexForm, runsOnClaude, runsOnCodex, takeBack, writePermissions } from './permissions.js';
 import { pauseSessions, unpauseSessions } from './pause.js';
 import { recordSession, SHELL_ENV, TAB_ENV } from './record.js';
 import { restartSessions } from './restart.js';
@@ -88,7 +88,7 @@ Usage:
                             the bot's temporary sessions may be made at. A
                             running session takes it when it next starts.
   obk session change --bots <path> --bot <bot> --session <session>
-                  [--harness claude|codex]
+                  [--harness claude|codex|pi]
                   [--model <m>] [--effort <e>] [--context <c>]
                   [--prompt <text> | --prompt-file <path>] [--work-dir <path>]
                   [--extra-arg=<arg>]
@@ -280,7 +280,8 @@ Usage:
                             only while its tab is up in Orca. --run-on codex
                             makes each run a temporary Codex session of the
                             grooming session's, launched with --model, --effort
-                            and --extra-arg, which reports back by the kit's
+                            and --extra-arg, which carries the grooming
+                            session's own prompt, reports back by the kit's
                             mail and is retired.
   obk usage --bots <path> [--bot <bot>] [--session <name>] [--since <time>] [--until <time>]
                             Say what your sessions have used: the conversations
@@ -441,7 +442,7 @@ async function run(argv) {
   }
 
   // A permission rule narrows a command to one bots folder by its first words,
-  // whatever comes after them (ADR 0036), and the last of two `--bots` would
+  // whatever comes after them (ADR 0047), and the last of two `--bots` would
   // win: so a second one is refused before anything runs.
   if (tokens.filter((token) => token.kind === 'option' && token.name === 'bots').length > 1) {
     throw new Error('--bots is given more than once. Give it once: one command works on one bots folder. Nothing was done.');
@@ -835,7 +836,9 @@ const commands = {
   },
 
   'bot create'(bots, values) {
-    const made = createBot(bots, { name: values.name, harness: values.harness, charter: values.charter });
+    // The kit's default rules (ADR 0047) are in the bot's first bot.yaml.
+    const allow = botDefaults(bots, { harness: values.harness, sessions: [] });
+    const made = createBot(bots, { name: values.name, harness: values.harness, charter: values.charter, allow });
     // The bot's AGENTS.md is the rules build's, here as everywhere else, so
     // that a new bot's file and a rebuilt one are written by the same code.
     const rules = [buildAgents(bots, made.home, readBot(made.home))];
@@ -846,9 +849,10 @@ const commands = {
     // instructions, so `up` will not start it, and saying "give it a session"
     // would send the caller past the thing that needs settling first.
     const trouble = rules[0].trouble !== undefined;
-    // The kit's default rules (ADR 0036), for a bot that is set up to run: one
-    // with no instructions gets them at the rules build that gives it some.
-    const permissions = trouble ? [] : writePermissions(bots, made.home, readBot(made.home));
+    // The default rules go into the harness's files for a bot that is set up
+    // to run: one with no instructions gets them at the rules build that gives
+    // it some. They were added by this command, so its report names them.
+    const permissions = trouble ? [] : writePermissions(bots, made.home, readBot(made.home)).map((entry) => ({ ...entry, defaults: allow }));
     const answer = { bots, bot: made.bot, home: made.home, created: made.created, rules, skills, permissions };
     return {
       answer,
@@ -1782,7 +1786,7 @@ function charterRulesLines(bots, bot, rules) {
 
 /**
  * What became of each bot's permission rules: each of the kit's default rules
- * the run added to the bot, word for word (ADR 0036), each rule of a command no
+ * the run added to the bot, word for word (ADR 0047), each rule of a command no
  * longer in the set that the bot still holds, with the command that takes it
  * back (ADR 0041), and the file the allowed ones were written into. Nothing for
  * a bot with nothing added, held or written.

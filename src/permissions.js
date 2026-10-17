@@ -6,7 +6,7 @@
 // body beside the bots folder, commit. A matching allow rule is settled before
 // that check (Claude Code's permissions docs), so the kit gives every bot a
 // default set, spelled with its real CLI and bots folder, with nobody asked
-// (#527, ADR 0036). A rule beyond it is the user's yes, which
+// (#527, ADR 0047). A rule beyond it is the user's yes, which
 // `permission allow` keeps in bot.yaml's `allow`. The kit's code writes what
 // `allow` holds into `.claude/settings.json` in the bot folder, beside its hook
 // (ADR 0022). A model editing the file by hand may get the format wrong; code
@@ -36,7 +36,7 @@ const CODEX_RULES = '.codex/rules';
 const CODEX_FILE = `${CODEX_RULES}/obk.rules`;
 
 /**
- * The rules every bot is given (ADR 0036): each of the kit's default commands,
+ * The rules every bot is given (ADR 0047): each of the kit's default commands,
  * and none kept back for the user's yes (ADR 0041), narrowed to this bots folder and
  * spelled as the kit prints them, which is what a bot runs; reading a long
  * message; committing; and the check Orca's mail notice tells a session to
@@ -220,9 +220,16 @@ export const runsOnCodex = (bot) => bot.harness === 'codex'
  */
 function missingDefaults(bots, home, bot) {
   const allowed = allowOf(home, bot);
-  return defaultRules(bots)
-    .filter((rule) => runsOnClaude(bot) || codexForm(rule).line !== undefined)
-    .filter((rule) => !allowed.includes(rule));
+  return botDefaults(bots, bot).filter((rule) => !allowed.includes(rule));
+}
+
+/**
+ * The default rules a bot on Claude or Codex is given, in the default order:
+ * what `bot create` writes into a new bot's bot.yaml (#595).
+ */
+export function botDefaults(bots, bot) {
+  if (!runsOnClaude(bot) && !runsOnCodex(bot)) return [];
+  return defaultRules(bots).filter((rule) => runsOnClaude(bot) || codexForm(rule).line !== undefined);
 }
 
 /**
@@ -270,7 +277,7 @@ export function refuseNoCodexForm(bot, rules) {
 }
 
 /**
- * Add the default rules the bot is not allowed yet to its `allow` (ADR 0036),
+ * Add the default rules the bot is not allowed yet to its `allow` (ADR 0047),
  * then write what it is allowed into the files of the harnesses it runs on:
  * one entry per file, Claude's first, each with `defaults`, the rules this run
  * added, and `held`, the rules of commands no longer in the set that the bot

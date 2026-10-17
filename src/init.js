@@ -10,7 +10,7 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, statSync,
 import path from 'node:path';
 import { parseDocument } from 'yaml';
 
-import { BOT_GITIGNORE, changesExactly, refuseOutside, writeWhole, YAML_OUT } from './bot.js';
+import { BOT_GITIGNORE, changesExactly, refuseOutside, withBotTurn, writeWhole, YAML_OUT } from './bot.js';
 import { RECORD, SKILL_DIRS } from './skills.js';
 
 /**
@@ -286,35 +286,37 @@ function checkBotFather(file, harness) {
  * are theirs, and `up` brings up what it finds.
  */
 function completeBotFather(file, harness) {
-  const source = readFileSync(file, 'utf8');
-  const doc = parseDocument(source);
+  return withBotTurn(path.dirname(file), () => {
+    const source = readFileSync(file, 'utf8');
+    const doc = parseDocument(source);
 
-  // What is missing is settled from the document, not from the text it is
-  // written back as: a file that needs nothing is not rewritten, however the
-  // library would have laid it out.
-  const sessions = doc.get('sessions', true);
-  const needsSession = sessions?.items === undefined || sessions.items.length === 0;
-  const needsHarness = doc.get('harness') === undefined;
-  if (!needsSession && !needsHarness) return [];
+    // What is missing is settled from the document, not from the text it is
+    // written back as: a file that needs nothing is not rewritten, however the
+    // library would have laid it out.
+    const sessions = doc.get('sessions', true);
+    const needsSession = sessions?.items === undefined || sessions.items.length === 0;
+    const needsHarness = doc.get('harness') === undefined;
+    if (!needsSession && !needsHarness) return [];
 
-  if (sessions?.items === undefined) {
-    doc.set('sessions', [{ name: DAILY_SESSION }]);
-  } else if (needsSession) {
-    sessions.flow = false;
-    doc.addIn(['sessions'], { name: DAILY_SESSION });
-  }
-  if (needsHarness) doc.set('harness', harness);
+    if (sessions?.items === undefined) {
+      doc.set('sessions', [{ name: DAILY_SESSION }]);
+    } else if (needsSession) {
+      sessions.flow = false;
+      doc.addIn(['sessions'], { name: DAILY_SESSION });
+    }
+    if (needsHarness) doc.set('harness', harness);
 
-  const text = doc.toString(YAML_OUT);
+    const text = doc.toString(YAML_OUT);
 
-  if (!changesExactly(source, text, (was) => ({
-    ...was,
-    harness: was.harness ?? harness,
-    sessions: was.sessions?.length > 0 ? was.sessions : [{ name: DAILY_SESSION }],
-  }))) {
-    throw new Error(`${file} cannot be completed without changing something else in it, so nothing was written. Give it a harness and a session by hand, then run init again.`);
-  }
+    if (!changesExactly(source, text, (was) => ({
+      ...was,
+      harness: was.harness ?? harness,
+      sessions: was.sessions?.length > 0 ? was.sessions : [{ name: DAILY_SESSION }],
+    }))) {
+      throw new Error(`${file} cannot be completed without changing something else in it, so nothing was written. Give it a harness and a session by hand, then run init again.`);
+    }
 
-  writeWhole(file, text);
-  return [BOT_FATHER_YAML];
+    writeWhole(file, text);
+    return [BOT_FATHER_YAML];
+  });
 }

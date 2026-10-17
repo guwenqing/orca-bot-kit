@@ -1,5 +1,5 @@
 -- Run by the kit as `osascript orca-reload.applescript <Orca.app path>`, after
--- a project was removed (#343, ADR 0034).
+-- a project was removed (#343, ADR 0046).
 --
 -- Orca's window keeps a removed project in its sidebar until the window is
 -- rebuilt (stablyai/orca#23224; once a release fixes it, this can go behind a

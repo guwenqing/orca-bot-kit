@@ -164,7 +164,7 @@ health for a Pi session come later, and so do `obk init --harness pi` and
 Every bot gets the kit's default permission rules, written by the kit with
 nobody asked: its own commands for this bots folder, reading a long message,
 `git add` and `git commit`, and Orca's `orca orchestration check --run`
-([ADR 0036](docs/adr/0036-the-kit-writes-every-bots-default-permission-rules.md)).
+([ADR 0047](docs/adr/0047-the-kit-writes-every-bots-default-permission-rules.md)).
 `obk permission`, `obk retire`, `obk pause`, `obk restart`, `obk bot create`
 and `obk init` are not in the set, and keep your yes
 ([ADR 0041](docs/adr/0041-permission-changes-and-risky-operations-have-commands-of-their-own.md)).
@@ -536,7 +536,9 @@ obk groom --bots /path/to/my-bots --on --at 04:00 --run-on codex --model gpt-6-s
 Each fire then makes a temporary Codex session of the grooming session's, named
 `groom-<date and time>`, which does the grooming, mails its report back, and is
 retired; the grooming session sends the report on to the management session. A
-run an earlier fire left behind is retired at the next one.
+run an earlier fire left behind is retired at the next one. Each run also
+carries the grooming session's own prompt, as `--on` finds it: after you change
+that prompt, run `obk groom --at <HH:MM>` alone, which keeps the runs on Codex.
 
 ## When something is wrong
 

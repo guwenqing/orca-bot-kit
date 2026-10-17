@@ -42,7 +42,7 @@
 //
 // A timed-out call is a "could not tell" even where the gate has another way
 // to learn the same thing (the review of PR #424). When `ps` cannot read a tab,
-// the gate asks Orca's runtime who is in front instead (ADR 0034); a
+// the gate asks Orca's runtime who is in front instead (ADR 0046); a
 // `diagnostics memory` that ran out is no reason to ask it, and an answer from
 // it is no reason to type. So the last tests have the fake app's runtime
 // client there and answering (`orcaApp`, as in test/front-without-ps.test.js),
