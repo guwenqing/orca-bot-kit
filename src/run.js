@@ -89,11 +89,14 @@ export function runBounded({ seconds, command }) {
         return false;
       }
     };
-    // The leader by its own pid as well, in case it left the group, but only
+    // Each process of the group gets a signal once. The leader gets it by its
+    // own pid as well only when it may have left the group: when nothing is
+    // left in the group, or for SIGKILL, which no handler sees. And only
     // while it has not exited, since its pid is free again after that.
     const group = (name) => {
-      if (exitCode === undefined && name !== 0) signal(child.pid, name);
-      return signal(-child.pid, name);
+      const sent = signal(-child.pid, name);
+      if (exitCode === undefined && name !== 0 && (!sent || name === 'SIGKILL')) signal(child.pid, name);
+      return sent;
     };
 
     const finish = (code) => {

@@ -23,6 +23,9 @@
 // - When obk run gets SIGTERM from its caller, the group gets it, then
 //   SIGKILL if anything still runs after up to 3 seconds. obk run exits 143
 //   (128 + 15), and only once nothing of the group runs.
+// - A signal that obk run passes on, or sends at the time limit, reaches each
+//   process of the group once (review of PR #626): a cleanup handler that
+//   runs on SIGTERM runs once. The race is rare, so each case runs many times.
 // - A command that is not found: it says so on stderr, and exits 127.
 // - Usage errors are refused with exit 1 and a message on stderr that starts
 //   `obk: `: no `--timeout`; a timeout that is not a whole number more than
@@ -209,17 +212,42 @@ fs.renameSync(pidFile + '.tmp', pidFile);
 process.exit(Number(code));
 `;
 
-/** Write the fixtures into the sandbox: `{ hang, tree, fork }`, each a .cjs file's full path. */
+/**
+ * A fixture that counts the SIGTERMs it gets: one line in `countFile` per
+ * SIGTERM, written in the handler. On the first one it waits 200 ms, so a
+ * second delivery has time to land, then exits 0. It writes its pid to
+ * `pidFile` once the handler is in place, and ends by itself after 20 s.
+ */
+const COUNT = String.raw`
+const fs = require('node:fs');
+const [pidFile, countFile] = process.argv.slice(2);
+let first = true;
+process.on('SIGTERM', () => {
+  fs.appendFileSync(countFile, 'SIGTERM\n');
+  if (first) {
+    first = false;
+    setTimeout(() => process.exit(0), 200);
+  }
+});
+fs.writeFileSync(pidFile + '.tmp', String(process.pid));
+fs.renameSync(pidFile + '.tmp', pidFile);
+setInterval(() => {}, 1000);
+setTimeout(() => process.exit(99), 20000);
+`;
+
+/** Write the fixtures into the sandbox: `{ hang, tree, fork, count }`, each a .cjs file's full path. */
 async function fixtures(box) {
   const dir = path.join(box.root, 'fixtures');
   await mkdir(dir, { recursive: true });
   const hang = path.join(dir, 'hang.cjs');
   const tree = path.join(dir, 'tree.cjs');
   const fork = path.join(dir, 'fork.cjs');
+  const count = path.join(dir, 'count.cjs');
   await writeFile(hang, HANG);
   await writeFile(tree, TREE);
   await writeFile(fork, FORK);
-  return { hang, tree, fork };
+  await writeFile(count, COUNT);
+  return { hang, tree, fork, count };
 }
 
 /** Whether a process by this pid is still there: only ESRCH counts as gone. */
@@ -564,6 +592,82 @@ test('R11 obk run stopped by its caller with SIGTERM: the group gets it, a grand
   assert.ok(result.elapsed - result.signalledAt < 3000 + 3000, `the grandchild should be killed within about 3 s of the SIGTERM, obk run took ${result.elapsed - result.signalledAt} ms after it`);
   assert.ok(childGone, `the command ${written.child} should have had the SIGTERM`);
   assert.ok(grandchildGone, `the grandchild ${written.grandchild} ignores SIGTERM, and should have been killed before obk run exited`);
+});
+
+// ----------------------------------------------------------------- one SIGTERM, not two
+
+/**
+ * How many runs each case makes, and how many of them run at once. The race
+ * showed in about 1 to 2 runs in 100 against a0c3cc2, so each case makes
+ * enough runs for a red test to be likely, and the two stay under about 20 s.
+ */
+const SIGNALLED_RUNS = 100;
+const TIMED_OUT_RUNS = 60;
+const AT_ONCE = 10;
+
+/**
+ * Run the count fixture under obk run `runs` times, `AT_ONCE` at a time, in
+ * one sandbox, with `--timeout <timeout>`; with `signalled`, the test sends
+ * SIGTERM to obk run's own pid once the fixture is ready. Answers one `{ run, count, code }` per run, where `count` is
+ * how many SIGTERMs the fixture got. Every pid a fixture wrote is killed at
+ * the test's end if it is still alive.
+ */
+async function countedRuns(t, box, { runs, timeout, signalled }) {
+  const { count } = await fixtures(box);
+  const pids = [];
+  cleanUp(t, pids);
+  const one = async (run) => {
+    const dir = path.join(box.root, `run-${run}`);
+    await mkdir(dir);
+    const pidFile = path.join(dir, 'leader.pid');
+    const countFile = path.join(dir, 'sigterms');
+    const result = await runKit(box, ['run', '--timeout', String(timeout), '--', NODE, count, pidFile, countFile], signalled ? { signal: { name: 'SIGTERM', when: pidFile } } : {});
+    pids.push(await pidIn(pidFile));
+    let got = 0;
+    try {
+      got = (await readFile(countFile, 'utf8')).split('\n').filter((line) => line === 'SIGTERM').length;
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+    }
+    return { run, count: got, code: result.code, guarded: result.guarded };
+  };
+  const answers = [];
+  for (let from = 0; from < runs; from += AT_ONCE) {
+    const batch = [];
+    for (let run = from; run < Math.min(from + AT_ONCE, runs); run += 1) batch.push(one(run));
+    answers.push(...await Promise.all(batch));
+  }
+  return answers;
+}
+
+/** Every run's leader got exactly one SIGTERM; the message says how many runs did not. */
+function assertOneSigtermEach(answers, what) {
+  const guarded = answers.filter((answer) => answer.guarded);
+  assert.deepEqual(guarded, [], `every obk run should end by itself, got: ${JSON.stringify(guarded)}`);
+  const wrong = answers.filter((answer) => answer.count !== 1);
+  assert.deepEqual(
+    wrong,
+    [],
+    `${what}: the leader should get exactly one SIGTERM in each run; ${wrong.length} of ${answers.length} runs did not: ${JSON.stringify(wrong)}`,
+  );
+}
+
+test(`R12 a SIGTERM sent to obk run's own pid reaches the leader once, not twice (${SIGNALLED_RUNS} runs)`, async (t) => {
+  const box = await createSandbox(t);
+
+  const answers = await countedRuns(t, box, { runs: SIGNALLED_RUNS, timeout: 30, signalled: true });
+
+  assertOneSigtermEach(answers, 'SIGTERM to obk run');
+});
+
+test(`R12 the SIGTERM obk run sends when the time runs out reaches the leader once, not twice (${TIMED_OUT_RUNS} runs)`, async (t) => {
+  const box = await createSandbox(t);
+
+  const answers = await countedRuns(t, box, { runs: TIMED_OUT_RUNS, timeout: 1, signalled: false });
+
+  assertOneSigtermEach(answers, 'the time limit');
+  const codes = answers.filter((answer) => answer.code !== 124);
+  assert.deepEqual(codes, [], 'the time ran out in each run, so obk run exits 124 each time');
 });
 
 // ----------------------------------------------------------------- usage errors
