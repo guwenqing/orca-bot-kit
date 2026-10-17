@@ -20,7 +20,7 @@
 // `prompt_file`).
 
 import assert from 'node:assert/strict';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, realpath, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 import { parse, stringify } from 'yaml';
@@ -51,13 +51,14 @@ async function botUp(box, name) {
 /**
  * Add a session to one bot's `bot.yaml` by hand, the way a grooming run writes
  * one: its start prompt is the file `promptFile` names, spelled as given.
+ * `extra` adds more settings to the entry, such as a `prompt` beside it.
  */
-async function sessionWithPromptFile(bots, bot, name, promptFile) {
+async function sessionWithPromptFile(bots, bot, name, promptFile, extra = {}) {
   const file = botYamlOf(bots, bot);
   const doc = parse(await readFile(file, 'utf8')) ?? {};
   doc.sessions = [
     ...(doc.sessions ?? []),
-    { name, harness: 'codex', prompt_file: promptFile, work_dir: `work/${name}` },
+    { name, harness: 'codex', prompt_file: promptFile, work_dir: `work/${name}`, ...extra },
   ];
   await writeFile(file, stringify(doc));
 }
@@ -72,8 +73,8 @@ async function promptAt(file, text) {
 // ---------------------------------------------------------------- the health check
 
 /** Run the health check for JSON: findings, and exit 1 when there are any, 0 when none. */
-async function found(box) {
-  const result = await box.run(['health', '--bots', 'bots', '--json']);
+async function found(box, ...rest) {
+  const result = await box.run(['health', '--bots', 'bots', ...rest, '--json']);
   assert.equal(result.stderr, '', `a health run reports on stdout, and put this on stderr: ${result.stderr}`);
   let answer;
   try {
@@ -178,3 +179,106 @@ test('#577 a relative prompt_file is resolved against the bot\'s folder, not the
 
   oneNaming(leftovers(answer), file, 'the kit would read the prompt from another path, so nothing reads this file');
 });
+
+// ---------------------------------------------------------------------------
+// A prompt_file that is not a string path does not make health lose the other
+// prompt leftovers (review of PR #593). What health says about the session
+// itself is not pinned here; what is pinned is that an unowned prompt file is
+// still a leftover in the same run, in a run for the whole fleet and in a run
+// for another bot.
+// ---------------------------------------------------------------------------
+
+const NOT_A_PATH = [
+  {
+    label: 'a prompt_file of 42, in a run for the whole fleet',
+    extra: {},
+    unownedIn: 'duty-bot',
+    run: [],
+  },
+  {
+    label: 'a prompt_file of 42 beside a prompt, in a run for the whole fleet',
+    extra: { prompt: 'Groom the fleet.' },
+    unownedIn: 'duty-bot',
+    run: [],
+  },
+  {
+    label: 'a prompt_file of 42 in another bot, in a run for Bot Father only',
+    extra: {},
+    unownedIn: 'bot-father',
+    run: ['--bot', 'bot-father'],
+  },
+];
+
+for (const { label, extra, unownedIn, run } of NOT_A_PATH) {
+  test(`#577 ${label} does not hide an unowned prompt file`, async (t) => {
+    const box = await createSandbox(t);
+    const bots = await seeded(box);
+    await botUp(box, 'duty-bot');
+    const unowned = await promptAt(
+      path.join(`${bots}.prompts`, unownedIn, 'old-run.txt'),
+      'What a session I deleted was told to do.\n',
+    );
+    // The same run before the session is written: the unowned file is a
+    // leftover there, so a run that loses it below lost it to the session.
+    oneNaming(leftovers(await found(box, ...run)), unowned, 'before the session with a prompt_file of 42 is written');
+
+    await sessionWithPromptFile(bots, 'duty-bot', SESSION, 42, extra);
+
+    const answer = await found(box, ...run);
+
+    oneNaming(leftovers(answer), unowned, 'no session is called old-run, and no prompt_file points at it');
+  });
+}
+
+// ---------------------------------------------------------------------------
+// A prompt_file reached through a symlink: the kit reads the file the link
+// leads to, so that file is not a leftover (review of PR #593).
+// ---------------------------------------------------------------------------
+
+const THROUGH_A_LINK = [
+  {
+    label: 'a file in the bot\'s folder that links to the prompt file',
+    async lay(home, target) {
+      await mkdir(path.join(home, 'prompts'), { recursive: true });
+      await symlink(target, path.join(home, 'prompts', 'groom.txt'));
+      return path.join('prompts', 'groom.txt');
+    },
+  },
+  {
+    label: 'a folder in the bot\'s folder that links to the folder the prompt file is in',
+    async lay(home, target) {
+      await symlink(path.dirname(target), path.join(home, 'prompts'));
+      return path.join('prompts', path.basename(target));
+    },
+  },
+];
+
+for (const { label, lay } of THROUGH_A_LINK) {
+  test(`#577 a prompt_file through ${label} keeps that prompt file off the leftovers`, async (t) => {
+    const box = await createSandbox(t);
+    const bots = await seeded(box);
+    const home = await botUp(box, 'duty-bot');
+
+    const target = await promptAt(path.join(`${bots}.prompts`, 'grooming-run.txt'), 'Groom the fleet.\n');
+    const unowned = await promptAt(
+      path.join(`${bots}.prompts`, 'duty-bot', 'old-run.txt'),
+      'What a session I deleted was told to do.\n',
+    );
+    const spelled = await lay(home, target);
+    assert.equal(
+      await realpath(path.resolve(home, spelled)),
+      await realpath(target),
+      'from the bot folder, the path leads through the link to the prompt file',
+    );
+    await sessionWithPromptFile(bots, 'duty-bot', SESSION, spelled);
+
+    const answer = await found(box);
+
+    oneNaming(leftovers(answer), unowned, 'no session is called old-run, and no prompt_file points at it');
+    noneNaming(
+      leftovers(answer),
+      target,
+      `the session ${SESSION} reads this file through the link its prompt_file names`,
+    );
+  });
+}
