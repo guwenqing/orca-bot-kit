@@ -85,6 +85,8 @@ No other command grants a right:
   `--allowed-tools`; on Codex `-a`, `--ask-for-approval`, `--approve-for-me`,
   `--dangerously-bypass-approvals-and-sandbox`, `-s` and `--sandbox`, each alone, with `=` and a value, or, for
   `-a` and `-s`, with the value glued on.
+  [ADR 0049](0049-extra-arguments-that-widen-a-session-are-refused.md) adds the extra arguments that widen what a session may write
+  or run.
 
 The commands kept out of the default set, which keep the user's yes:
 
@@ -161,9 +163,10 @@ the user allowed, since none is a default rule any more (#548, #615).
 
 - Good: no command in the default set can grant a bot a rule or widen a
   session's approval through any flag the kit knows.
-- Bad: an extra argument the kit does not know can still change permissions,
-  such as Claude Code's `--settings` or Codex's `-c` and `--profile`. It is a
-  known gap.
+- An extra argument the kit did not know could still change permissions,
+  such as Claude Code's `--settings` or Codex's `-c` and `--profile`. That
+  known gap is closed by [ADR 0049](0049-extra-arguments-that-widen-a-session-are-refused.md): it refuses `--settings` and
+  `--profile`, and takes `-c` only for a short list of keys.
 - Codex's `--dangerously-bypass-hook-trust` is not refused: it skips the
   review of the hooks in the bot folder, the kit's own, and does not widen
   what a session may run. The kit's system tests pass it to their throwaway
