@@ -101,7 +101,8 @@
 //      fails with the screen.
 //   4. `Reader Bot daily`: if Claude Code asks before it runs the command the
 //      skill names, allow it. Whichever CLI it names, the answer is the finding.
-//   5. Any tab, if its harness offers an update: accept it (PRD 6.5).
+//   5. Any tab, if its harness offers an update: do not take it. It updates
+//      that harness for the whole machine (#581, #618).
 //
 // It takes a few minutes: one harness, one start turn and one asked turn.
 

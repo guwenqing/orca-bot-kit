@@ -60,7 +60,8 @@
 //      trust at launch (#240, test/helpers/codex-trust.js), so Codex asks
 //      neither its folder trust nor its hooks review, and still runs the kit's
 //      hooks.
-//   3. Any tab, if its harness offers an update: accept it (PRD 6.5).
+//   3. Any tab, if its harness offers an update: do not take it. It updates
+//      that harness for the whole machine (#581, #618).
 //
 // It takes a few minutes: one start and one restart, each with a turn.
 

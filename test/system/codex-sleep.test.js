@@ -83,7 +83,8 @@
 // mail is sent from, is made before its harness starts). `Sleep Codex daily`
 // and `Awake Codex daily` should ask no folder trust and no hooks review (see
 // above); if one does, leave it. If Codex asks before it runs the command the
-// notice names, allow it. If Codex offers an update, accept it (PRD 6.5).
+// notice names, allow it. Codex should show no update offer: its update check
+// is off for the run (#581). If one shows, do not take it.
 //
 // It takes about five minutes, ten at the most: two sessions, a watched
 // sleep and two mails.

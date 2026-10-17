@@ -104,7 +104,8 @@
 //      about your environment?" may come up. Esc cancels it. The test types
 //      into that tab only after a restart, before any turn, so it should not
 //      stand in the way; if it does, the test fails with the screen.
-//   5. Any tab, if its harness offers an update: accept it (PRD 6.5).
+//   5. Any tab, if its harness offers an update: do not take it. It updates
+//      that harness for the whole machine (#581, #618).
 //
 // Each restart opens a new tab with the same title. Every wait says what the
 // tab is showing when it runs out of patience.

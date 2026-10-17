@@ -83,7 +83,8 @@
 //      ~/.codex/config.toml. Each resume carries the same arguments, which the
 //      kit keeps in bot.yaml and puts on every launch line (worked out from
 //      src/launch.js, not proven live).
-//   3. Any tab, if its harness offers an update: accept it (PRD 6.5).
+//   3. Any tab, if its harness offers an update: do not take it. It updates
+//      that harness for the whole machine (#581, #618).
 //
 // Each resume opens a new tab with the same title, `List Codex main`. A
 // resumed tab should ask nothing; if one does, the kit types nothing into it,

@@ -64,7 +64,8 @@
 //   1. `Rename Claude daily` and `Rename Claude sender`: Claude Code's
 //      folder-trust list, once for the folder. Its selection starts on
 //      `No, exit`, so it takes a down-arrow and then return.
-//   2. Either tab, if Claude Code offers an update: accept it (PRD 6.5).
+//   2. Either tab, if Claude Code offers an update: do not take it. It
+//      updates Claude Code for the whole machine (#618).
 //   3. The sender may ask before it uses its messaging tool: allow it.
 //   4. `Bot Father daily` will be sitting on its own trust question. Leave it.
 

@@ -88,7 +88,7 @@
 // other screen gets no answer, and the test fails printing every row it saw.
 // The Codex session is given its folder's trust at launch (#240,
 // test/helpers/codex-trust.js), so Codex asks neither its folder trust nor its
-// hooks review; it may still offer an update, which is the person's. Bot
+// hooks review, and its update offer is off for the run (#581). Bot
 // Father's tab shows the same folder trust, which nothing here waits on, and it
 // can be left. After a turn Claude Code may offer "Teach auto mode about your
 // environment?" (#416). The test answers that too, in its own Claude bot's tab

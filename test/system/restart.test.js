@@ -75,7 +75,8 @@
 //      starts on `No, exit`, so it takes a down-arrow and then return, not a
 //      bare return. Nothing can be asked of the tab until it is answered, and
 //      every wait below says which screen stopped it.
-//   2. The same tab, if Claude Code offers an update: accept it (PRD 6.5).
+//   2. The same tab, if Claude Code offers an update: do not take it. It
+//      updates Claude Code for the whole machine (#618).
 //   3. After the restart, the new `Restart Claude daily` tab. It is the same
 //      folder, which Claude Code has just been told to trust, so it should come
 //      straight up; if it asks again, answer it the same way.

@@ -79,8 +79,9 @@
 // `<tmp>/obk-system-codex-trust-*`. `Bot Father daily` shows Claude Code's
 // folder trust; nothing here waits on it, so leave it. `Trust Codex daily`
 // should ask nothing: leave it alone, and if it shows a trust or hooks screen,
-// do not answer it (the test fails, which is the finding). If Codex offers an
-// update, accept it (PRD 6.5).
+// do not answer it (the test fails, which is the finding). Codex should show
+// no update offer: its update check is off for the run (#581). If one shows,
+// do not take it.
 //
 // It takes a minute or two: one harness and one start turn.
 
