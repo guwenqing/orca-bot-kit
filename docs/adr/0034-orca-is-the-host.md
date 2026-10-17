@@ -1,7 +1,7 @@
 # ADR 0034: Orca is the host
 
 Date: 2026-10-03.
-Status: accepted.
+Status: superseded by [ADR 0046](0046-orca-is-the-host.md).
 Decided by: the owner, in his design session of 2026-09-19, and on 2026-09-20 for the plain folder; the architect, for #232 and PR #260, for the sentences marked so; the owner on 2026-09-24 for calling Orca's runtime through Orca's own client (#224), with the architect deciding how the user is told, for the sentences marked so; the architect, for #329, for the kit's own reading of a tab's screen before it types into it, for the sentences marked so; the architect, for #298, for asking Orca's runtime who is in front of a tab where `ps` cannot read it, for the sentences marked so; the owner on 2026-09-26 for Orca's own Force Reload after a removal (#343), with the architect deciding how the menu item is found, for the sentences marked so; the architect, for #261, for recognising the harness the kit launched by its launch mark, for the sentences marked so; the architect, for #350, for handing the nudge a Codex sender could not decide to that sender's own hook, for the sentences marked so. The owner may overrule the architect's sentences. Consulted: the coordinator, who researched Orca. A sentence marked (proposed) is not decided yet.
 Supersedes: [ADR 0031](0031-orca-is-the-host.md).
 

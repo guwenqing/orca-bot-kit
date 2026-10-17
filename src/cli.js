@@ -441,7 +441,7 @@ async function run(argv) {
   }
 
   // A permission rule narrows a command to one bots folder by its first words,
-  // whatever comes after them (ADR 0036), and the last of two `--bots` would
+  // whatever comes after them (ADR 0047), and the last of two `--bots` would
   // win: so a second one is refused before anything runs.
   if (tokens.filter((token) => token.kind === 'option' && token.name === 'bots').length > 1) {
     throw new Error('--bots is given more than once. Give it once: one command works on one bots folder. Nothing was done.');
@@ -846,7 +846,7 @@ const commands = {
     // instructions, so `up` will not start it, and saying "give it a session"
     // would send the caller past the thing that needs settling first.
     const trouble = rules[0].trouble !== undefined;
-    // The kit's default rules (ADR 0036), for a bot that is set up to run: one
+    // The kit's default rules (ADR 0047), for a bot that is set up to run: one
     // with no instructions gets them at the rules build that gives it some.
     const permissions = trouble ? [] : writePermissions(bots, made.home, readBot(made.home));
     const answer = { bots, bot: made.bot, home: made.home, created: made.created, rules, skills, permissions };
@@ -1763,7 +1763,7 @@ function charterRulesLines(bots, bot, rules) {
 
 /**
  * What became of each bot's permission rules: each of the kit's default rules
- * the run added to the bot, word for word (ADR 0036), each rule of a command no
+ * the run added to the bot, word for word (ADR 0047), each rule of a command no
  * longer in the set that the bot still holds, with the command that takes it
  * back (ADR 0041), and the file the allowed ones were written into. Nothing for
  * a bot with nothing added, held or written.

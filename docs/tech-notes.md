@@ -49,7 +49,7 @@ project → repo (`kind: "git" | "folder"`) → worktree (id = `<repoId>::<absPa
   owed on the first release with the guard.
 - **A removed project stays in the window's sidebar until the window is rebuilt.** `setup-delete`
   sends the window nothing, so the row keeps its old name. The `project.update` call the kit makes
-  after a change (ADR 0034) makes the window re-read, and the row stays, now under "Unknown": the
+  after a change (ADR 0046) makes the window re-read, and the row stays, now under "Unknown": the
   sidebar builds its rows from the window's own list of workspaces, which a re-read does not prune
   (read in the bundle). Orca's menu item View › Force Reload (`Force Reload\t⌘⇧R` as the menu draws
   it; the name is localized, the shortcut is `app.forceReload` and the user may change it) rebuilds
@@ -170,7 +170,7 @@ project → repo (`kind: "git" | "folder"`) → worktree (id = `<repoId>::<absPa
   2.1.281, Codex 0.156.1) It named itself by `OBK_CLI` in the rules a bot reads too, until #344: a
   Claude Code allow rule matches the command as written, not after the shell expands a variable, so
   the rules build now writes the building CLI's path and the bots folder's path where a rule unit
-  says `"${OBK_CLI:-obk}"` and `<bots>` (ADR 0036).
+  says `"${OBK_CLI:-obk}"` and `<bots>` (ADR 0047).
 - `orca terminal wait --for exit|tui-idle --timeout-ms <n>`. **`tui-idle` is about a TUI, not a shell.**
   All four answers seen live:
   - a tab running no TUI, sitting at a clean shell prompt: exit 1, `ok:false`,
@@ -257,7 +257,7 @@ project → repo (`kind: "git" | "folder"`) → worktree (id = `<repoId>::<absPa
   under it and lined up with it (`  GPT-6-Luna medium · <path>`), and a wrapped draft or echo goes on
   in rows lined up the same way. So the kit takes the lowest pointer row on the screen, which is the
   input line whenever that is up, and counts a question only when that row is a numbered choice with
-  another numbered choice lined up beside it (ADR 0034). Claude Code's trust list does not count; what
+  another numbered choice lined up beside it (ADR 0046). Claude Code's trust list does not count; what
   keeps the nudge out of it is Orca naming no agent in that tab. **verified** (live, 2026-09-26)
   **A slash command typed, and a harness at work (#391).** Seen live on 2026-10-03 in
   `test/system/session-clear.test.js`, runs 2 to 5 (Claude Code 2.1.288, Codex 0.160.0):
@@ -358,7 +358,7 @@ project → repo (`kind: "git" | "folder"`) → worktree (id = `<repoId>::<absPa
   `satisfied:true` for 20 s. So the kit takes a harness to be in a tab when the foreground is not its
   shell (a busy one included), and the mail nudge types only when the process in front is the one
   Orca names. When the pid or the group cannot be read it says it cannot tell and
-  types nothing (ADR 0034). `diagnostics memory` is a diagnostics command and may change.
+  types nothing (ADR 0046). `diagnostics memory` is a diagnostics command and may change.
   **verified** (live, 2026-09-24, Orca 1.4.209, macOS 26.6.2, Claude Code 2.1.281, Codex 0.156.1, #232)
 - **Orca's runtime says who is in front of a tab, from outside any sandbox: `terminal.inspectProcess`.**
   Its CLI does not offer it; Orca's own runtime client does (`call('terminal.inspectProcess', {
@@ -373,7 +373,7 @@ project → repo (`kind: "git" | "folder"`) → worktree (id = `<repoId>::<absPa
   null`, `hasChildProcesses: false`; `less` gave `foregroundProcess: "less"`, `hasChildProcesses:
   true`; a `node` program gave `"node"`. `terminal.isRunningAgent` took more than 5 s on that `node`
   program and timed out, and it guesses from titles and output as well. The kit asks
-  `inspectProcess` where `ps` cannot read a tab (ADR 0034, #298). **verified** (live, 2026-09-26, Orca
+  `inspectProcess` where `ps` cannot read a tab (ADR 0046, #298). **verified** (live, 2026-09-26, Orca
   1.4.212, for the shell, `less` and `node`, and in #298's attended system test for an idle Claude Code,
   which was named in front).
   **On macOS it cannot see a harness that is running a command.** `ps` prints `??` for a process with
@@ -386,11 +386,12 @@ project → repo (`kind: "git" | "folder"`) → worktree (id = `<repoId>::<absPa
   and a direct call); read in Orca's source at `agent-foreground-process-remote-evidence.ts:74-78` and
   `process-table-snapshot.ts:156`, whose own pty code does treat `??` as no terminal. An Orca bug,
   reported as stablyai/orca#23245; its proposed fix, stablyai/orca#23251, was still open on 2026-10-03
-  and is not in Orca 1.4.219. The kit's answer is a Codex sender's own hook, which reads the tab with
-  `ps` outside the sandbox (#350, ADR 0034; section 3). **verified** (live)
+  and is not in Orca 1.4.219. From #350 until #555 the kit's answer was a Codex sender's own hook,
+  which read the tab with `ps` outside the sandbox (section 3). Since #555 the kit types no mail
+  nudge, and a Codex sender's `--interrupt` presses nothing into such a tab (ADR 0046). **verified** (live)
 - **Orca's runtime client answers in well under a second, even on a loaded machine.** The kit runs it
   as Orca's binary with `ELECTRON_RUN_AS_NODE=1` and `src/orca-runtime.cjs`, gives the client 2 s
-  (`CLIENT_WAIT_MS`) and ends it at 3 s (`CLIENT_KILL_MS`) (ADR 0034). On 2026-09-27 (#384; Orca
+  (`CLIENT_WAIT_MS`) and ends it at 3 s (`CLIENT_KILL_MS`) (ADR 0046). On 2026-09-27 (#384; Orca
   1.4.214, macOS, 10 cores) a throwaway probe run through `scripts/test-system.js` made its own folder
   project and one plain shell tab. It ran the client exactly as the kit does, with its own bounds
   raised to 30 s so that slow calls showed rather than being cut off, and timed each call to the end
@@ -422,7 +423,7 @@ project → repo (`kind: "git" | "folder"`) → worktree (id = `<repoId>::<absPa
   variable, so a reader should look for one whole word it knows. That answers the reading half of
   #261's open question on macOS. #318 uses the marker only to report in `obk health` which sessions
   the kit's launch line did not start, never to decide what is typed into a tab. Whether the mail
-  nudge may rest on it was #261's to settle, as below, and ADR 0034 records it. **verified** (live)
+  nudge may rest on it was #261's to settle, as below, and ADR 0046 records it. **verified** (live)
   **#261 settles it: the kit types into a harness under another name when it carries the launch
   mark.** When the program in front of a tab is not named as the agent Orca names, the kit reads
   its environment and parent with `ps`. It types only when that process carries this tab's
