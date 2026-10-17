@@ -12,7 +12,7 @@ import { setTimeout as pause } from 'node:timers/promises';
 import { forgetClaimed, forgetSession, MAILBOX_WAIT_MS, readBook, rememberSession, sessionIdsIn, tabIdsIn, takeLineTurn, takeMailboxTurn, TYPING_HELD, TYPING_WAIT_MS, updateBook, withUnclaimed } from './book.js';
 import { botDir, botNames, displayName, projectName, readBot } from './bot.js';
 import { conversationsIn, hasConversation, heldAsUserTurn, transcriptsIn } from './conversations.js';
-import { installHook } from './hooks.js';
+import { dropRemovedHooks, installHook } from './hooks.js';
 import { writePermissions } from './permissions.js';
 import { piTrouble } from './pi.js';
 import { addressOf, HARNESSES, harnessOf, isAddressOf, isShortPrompt, kitFolders, launchCommand, mailboxStep, reachesMail, sessionTrouble, startPrompt, workDirOf } from './launch.js';
@@ -148,8 +148,10 @@ export function prepareBots(bots, names, onlySession) {
   // so one written later would miss the session it was written for (ADR 0022),
   // and a bot folder the kit cannot write it into stops the run with nothing
   // opened anywhere. Only the harnesses a bot actually runs on; a bot with no
-  // sessions gets none.
+  // sessions gets none. The hooks of commands the kit no longer has go from
+  // every hooks file the bot has, of a harness it has left too (#613).
   for (const { bot, home } of running) {
+    dropRemovedHooks(home);
     for (const harness of new Set(awake(sessionsOf(bot, onlySession)).map((session) => harnessOf(session, bot.harness)))) {
       installHook(home, harness, { bots, bot: bot.name });
     }

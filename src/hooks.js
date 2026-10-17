@@ -101,7 +101,7 @@ export function installHook(home, harness, { bots, bot }) {
   const started = withKitHook(settings.hooks, file, mine);
   // The Claude Code mail hook and the Codex nudge hook went with the kit's
   // typed line (#555), so an entry of either is taken out.
-  const wanted = { ...settings, hooks: toolHooksOf(harness, bots, bot).reduce(withToolHook, withoutHooks(started, [KIT_MAIL, KIT_NUDGE])) };
+  const wanted = { ...settings, hooks: toolHooksOf(harness, bots, bot).reduce(withToolHook, withoutHooks(started, REMOVED_HOOKS)) };
 
   // Compared as documents, not as text: how the user laid their file out is
   // theirs, and a run that changes nothing writes nothing.
@@ -110,6 +110,37 @@ export function installHook(home, harness, { bots, bot }) {
   mkdirSync(path.dirname(file), { recursive: true });
   writeFileSync(file, `${JSON.stringify(wanted, null, 2)}\n`);
   return HOOK_FILE[harness];
+}
+
+/**
+ * Take the kit's hooks of commands it no longer has out of every hooks file the
+ * bot at `home` has, whatever its sessions run on now and whether or not it is
+ * paused (#613). `installHook` does this only for a harness a session runs on,
+ * so a file the kit wrote for a harness the bot has since left kept them.
+ * Returns the files it wrote, relative to the bot home.
+ *
+ * It adds nothing and changes no other entry. A file it cannot read, a hooks
+ * entry that is not a mapping of events, or a link out of the bot folder is
+ * left as it is: the kit cannot tell its entries there, and health and
+ * `installHook` speak for a harness that runs.
+ */
+export function dropRemovedHooks(home) {
+  return Object.values(HOOK_FILE).flatMap((relative) => {
+    const file = path.join(home, relative);
+    if (!existsSync(file) || outside(home, file) !== undefined) return [];
+    let settings;
+    try {
+      settings = readSettings(file);
+    } catch {
+      return [];
+    }
+    const { hooks } = settings;
+    if (hooks === null || typeof hooks !== 'object' || Array.isArray(hooks)) return [];
+    const kept = withoutHooks(hooks, REMOVED_HOOKS);
+    if (isDeepStrictEqual(hooks, kept)) return [];
+    writeFileSync(file, `${JSON.stringify({ ...settings, hooks: kept }, null, 2)}\n`);
+    return [relative];
+  });
 }
 
 /**
@@ -361,6 +392,7 @@ const KIT_SENT = new RegExp(String.raw`^(${WORD}) session sent --bots ${WORD} --
 const KIT_NUDGE = new RegExp(String.raw`^(${WORD}) session nudge --bots ${WORD} --bot ${WORD} 2>/dev/null \|\| true$`);
 const KIT_MAIL = new RegExp(String.raw`^(${WORD}) session mail --bots ${WORD} --bot ${WORD} 2>/dev/null \|\| true$`);
 const KIT_NAME = new RegExp(String.raw`^(${WORD}) session name --bots ${WORD} --bot ${WORD} 2>/dev/null \|\| true$`);
+const REMOVED_HOOKS = [KIT_MAIL, KIT_NUDGE];
 
 /**
  * Whether a hook entry is one of the kit's own as this kit writes it: a

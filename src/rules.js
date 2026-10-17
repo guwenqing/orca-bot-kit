@@ -21,6 +21,7 @@ import { fileURLToPath } from 'node:url';
 import { parse } from 'yaml';
 
 import { botDir, botNames, displayName, readBot, refuseOutside } from './bot.js';
+import { dropRemovedHooks } from './hooks.js';
 import { ownCli, shellWord } from './launch.js';
 
 /** The kit's own units, inside the installed package. */
@@ -109,6 +110,9 @@ export function buildRules(bots, { bot: onlyBot } = {}) {
 
   return (onlyBot === undefined ? names : [onlyBot]).map((name) => {
     const home = botDir(bots, name);
+    // Every bot, a paused one too, so this is the command that reaches each
+    // hooks file the kit wrote, whatever the bot's sessions run on now (#613).
+    dropRemovedHooks(home);
     try {
       return buildAgents(bots, home, readBot(home, name));
     } catch (error) {
