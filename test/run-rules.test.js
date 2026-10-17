@@ -24,6 +24,9 @@
 //   at a word boundary: a kit rule whose wildcard can match the word `run`
 //   (`obk ru*`, `obk r*`, `obk run*`) is broad; one whose wildcard cannot
 //   (`obk ru:*`, `obk he*`) is judged as before.
+// - Nested: when the command after `--` is the kit's run again, it is judged
+//   as any kit run rule is (`-- obk run:*` broad, `-- obk run --timeout 5 --
+//   go test:*` narrow).
 // - Other kit commands keep today's judgment, and a program that is not the
 //   kit with a word `run` in it is judged as today. Those cases, and the raw
 //   `perl -e 'alarm …'` form, which stays broad (out of scope), are judged
@@ -267,6 +270,45 @@ test('RR7 a kit rule whose wildcard can match the word run is broad and writes n
       assert.ok((await allowedIn(bots, BOT)).includes(rule), `${settingsOf(bots, BOT)} should allow ${rule} now`);
     });
   }
+});
+
+// Nested forms (review of PR #626): the command after `--` is judged as a
+// rule of its own, so when it is the kit's run again, it is judged as any
+// kit run rule is.
+test('RR8 a kit run rule after -- is judged as a rule of its own: broad inside is refused and writes nothing; narrow inside is recorded', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await withBot(box);
+  const cli = shellWord(box.cli);
+
+  for (const [rule, why] of [
+    ['Bash(obk run --timeout 300 -- obk ru*)', 'obk ru* after --: its wildcard can match run'],
+    ['Bash(obk run --timeout 300 -- obk run:*)', 'obk run:* after --: run with any arguments'],
+    ['Bash(obk run --timeout 300 -- obk run --timeout 5 -- sh:*)', 'a shell after the inner --'],
+    [`Bash(obk run --timeout 300 -- ${cli} r*)`, 'the kit\'s own CLI path, r*, after --'],
+  ]) {
+    await t.test(`RR8 permission allow ${rule} is refused as broad (${why}), naming the rule and the settings file, and nothing is written`, async () => {
+      const kept = await allowOf(bots, BOT);
+      const before = await snapshot(bots, skipGit);
+
+      const result = await allow(box, rule);
+
+      assertCleanFailure(result);
+      assertNamesRuleAndFile(result, rule, bots);
+      await assertNothingWritten(bots, before);
+      assert.deepEqual(await allowOf(bots, BOT), kept, 'allow is as it was');
+    });
+  }
+
+  const rule = 'Bash(obk run --timeout 300 -- obk run --timeout 5 -- go test:*)';
+  await t.test(`RR8 permission allow ${rule} is narrow (go test after the inner --): kept in allow and written into the settings`, async () => {
+    const kept = await allowOf(bots, BOT);
+
+    const result = await allow(box, rule);
+
+    assert.equal(result.code, 0, `${rule} is narrow, and should be allowed, got:\n${result.stdout}${result.stderr}`);
+    assert.deepEqual(await allowOf(bots, BOT), [...kept, rule]);
+    assert.ok((await allowedIn(bots, BOT)).includes(rule), `${settingsOf(bots, BOT)} should allow ${rule} now`);
+  });
 });
 
 test('RR2 a narrow run rule beside a broad one is refused with it: neither is recorded or written', async (t) => {
