@@ -416,6 +416,20 @@ function reportConfigsLeft(before, foldersBefore) {
 }
 
 /**
+ * A file's bytes, or undefined when it is not there: ENOENT only, a dangling
+ * link included. Any other error is thrown, because a folder that cannot be
+ * searched or a link loop can hide a file that is there (review of PR #620).
+ */
+function bytesIfThere(file) {
+  try {
+    return readFileSync(file);
+  } catch (error) {
+    if (error.code === 'ENOENT') return undefined;
+    throw error;
+  }
+}
+
+/**
  * A copy of both harness configs, made before any test is loaded (#619): a run
  * that went wrong in them, with no copy to go back to, is a one-way door. The
  * copies go into a fresh folder of their own in the user's temp folder, which
@@ -435,13 +449,14 @@ function backUpConfigs() {
   }
   const files = [];
   for (const [live, name] of [[claudeConfigFile(), 'claude.json'], [codexConfigFile(), 'config.toml']]) {
-    if (!existsSync(live)) {
-      files.push({ live });
-      continue;
-    }
     const copy = path.join(dir, name);
     try {
-      writeFileSync(copy, readFileSync(live), { mode: 0o600, flag: 'wx' });
+      const bytes = bytesIfThere(live);
+      if (bytes === undefined) {
+        files.push({ live });
+        continue;
+      }
+      writeFileSync(copy, bytes, { mode: 0o600, flag: 'wx' });
     } catch (error) {
       rmSync(dir, { recursive: true, force: true });
       return { why: `could not copy ${live} (${error.code ?? 'it could not be copied'})` };
@@ -464,7 +479,7 @@ function reportBackupCompared(backup) {
     let now;
     try {
       was = copy === undefined ? undefined : readFileSync(copy);
-      now = existsSync(live) ? readFileSync(live) : undefined;
+      now = bytesIfThere(live);
     } catch (error) {
       lines.push(`  ${live} could not be compared (${error.code ?? 'it could not be read'}).`);
       continue;
