@@ -15,7 +15,7 @@
 // tests, and does not answer as though it had.
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -415,6 +415,73 @@ function reportConfigsLeft(before, foldersBefore) {
     || after.codex.unparsed === true;
 }
 
+/**
+ * A copy of both harness configs, made before any test is loaded (#619): a run
+ * that went wrong in them, with no copy to go back to, is a one-way door. The
+ * copies go into a fresh folder of their own in the user's temp folder, which
+ * on macOS is the user's alone, is outside any bots folder and outside the
+ * repo, and outlives a clone that is removed with its session. The folder is
+ * mode 0700 and each copy 0600: ~/.claude.json can hold account data. A file
+ * that is not there has no copy. Answers `{ dir, files }`, each file as
+ * `{ live, copy }` with no `copy` when it was not there, or `{ why }`, which
+ * never quotes a file, when any copy could not be made; then no folder is left.
+ */
+function backUpConfigs() {
+  let dir;
+  try {
+    dir = mkdtempSync(path.join(os.tmpdir(), 'obk-config-backup-'));
+  } catch (error) {
+    return { why: `could not make a folder for it in ${os.tmpdir()} (${error.code ?? 'it could not be made'})` };
+  }
+  const files = [];
+  for (const [live, name] of [[claudeConfigFile(), 'claude.json'], [codexConfigFile(), 'config.toml']]) {
+    if (!existsSync(live)) {
+      files.push({ live });
+      continue;
+    }
+    const copy = path.join(dir, name);
+    try {
+      writeFileSync(copy, readFileSync(live), { mode: 0o600, flag: 'wx' });
+    } catch (error) {
+      rmSync(dir, { recursive: true, force: true });
+      return { why: `could not copy ${live} (${error.code ?? 'it could not be copied'})` };
+    }
+    files.push({ live, copy });
+  }
+  return { dir, files };
+}
+
+/**
+ * Each live config against its copy, after the key check has taken the run's
+ * own keys out again (#619). A report, not a check: the owner's own sessions
+ * write ~/.claude.json while the tests run. Nothing is copied back; whether to
+ * is a person's call. Never prints a value from either file.
+ */
+function reportBackupCompared(backup) {
+  const lines = [`Compared with the backup in ${backup.dir}:`];
+  for (const { live, copy } of backup.files) {
+    let was;
+    let now;
+    try {
+      was = copy === undefined ? undefined : readFileSync(copy);
+      now = existsSync(live) ? readFileSync(live) : undefined;
+    } catch (error) {
+      lines.push(`  ${live} could not be compared (${error.code ?? 'it could not be read'}).`);
+      continue;
+    }
+    if (was === undefined) {
+      lines.push(`  ${live} was not there before the run, and ${now === undefined ? 'is not there now' : 'is there now'}.`);
+    } else if (now === undefined) {
+      lines.push(`  ${live} was there before the run, and is gone now (${copy}). Nothing was copied back.`);
+    } else if (now.equals(was)) {
+      lines.push(`  ${live} is the same as its backup.`);
+    } else {
+      lines.push(`  ${live} changed since its backup (${copy}). Nothing was copied back.`);
+    }
+  }
+  process.stdout.write(`\n${lines.join('\n')}\n`);
+}
+
 /** The projects Orca has, as `project setups` lists them, or undefined when it could not say. */
 function listSetups() {
   const setups = askOrca(['project', 'setups'])?.setups;
@@ -789,6 +856,23 @@ function run() {
     return 2;
   }
 
+  // No copy, no test loaded (#619): before anything else is asked or run.
+  const backup = backUpConfigs();
+  if (backup.why !== undefined) {
+    process.stderr.write(
+      `The config backup failed: it ${backup.why}.\n`
+      + 'No system test was run, and nothing was changed. A live run waits until both\n'
+      + 'harness configs can be backed up.\n',
+    );
+    return 1;
+  }
+  process.stdout.write(`${[
+    `Config backup: ${backup.dir}`,
+    ...backup.files.map(({ live, copy }) => (copy === undefined ? `  ${live}  (not there, so nothing to back up)` : `  ${live}  ->  ${copy}`)),
+    'The runner never copies it back over a live file; a person decides that.',
+    '',
+  ].join('\n')}\n`);
+
   // Asked before the tests, so that what they add can be told from what the
   // machine already had.
   const before = listRuns();
@@ -808,6 +892,7 @@ function run() {
   // as a passing one does, and the developer is owed the accounting either way.
   reportRunsLeft(before);
   const leftKeys = reportConfigsLeft(configsBefore, foldersBefore);
+  reportBackupCompared(backup);
   const leftProjects = reportProjectsLeft(setupsBefore, foldersBefore);
 
   // The test runner answers 0 or 1, and a run killed by a signal answers

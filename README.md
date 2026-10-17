@@ -697,9 +697,14 @@ real Orca and the real harnesses on your own machine. No CI runner can do that,
 so these are run by hand before a change that touches Orca or a harness is
 merged. A system test touches only what it creates and removes it afterwards,
 except the mailbox Runs Orca gives no way to delete, which the run names; it
-never closes a tab it did not open. The trust its harnesses write into your
-`~/.codex/config.toml` and `~/.claude.json` for the run's own throwaway folders
-is taken out again after the run, and named; nothing else in them is changed.
+never closes a tab it did not open. Before any test loads, the command copies
+your `~/.claude.json` and `~/.codex/config.toml` into a new
+`obk-config-backup-*` folder in your temp folder, readable by you alone, and
+says where; if a copy fails, no test runs. After the run it says whether each
+file still matches its copy, and never copies one back: that is yours to
+decide. The trust its harnesses write into your `~/.codex/config.toml` and
+`~/.claude.json` for the run's own throwaway folders is taken out again after
+the run, and named; nothing else in them is changed.
 An Orca project the run leaves in one of its own throwaway folders is named,
 with its setup id, and fails the run; the command removes none itself.
 
