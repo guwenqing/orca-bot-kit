@@ -1,7 +1,7 @@
 # ADR 0044: Extra arguments that widen a session are refused
 
 Date: 2026-10-16.
-Status: accepted.
+Status: superseded by [ADR 0049](0049-extra-arguments-that-widen-a-session-are-refused.md).
 Decided by: the architect, on 2026-10-16, for refusing the extra arguments that widen what a session may write or run, for failing closed on Codex's `-c` with a list of keys known to be safe, for refusing Claude Code's `--settings`, for the one trust shape, and for keeping this a record beside [ADR 0041](0041-permission-changes-and-risky-operations-have-commands-of-their-own.md) (#567); reviewer-567, for refusing `--restricted`; developer-567, for the lists of flags and keys. The architect or the owner may overrule.
 
 ## Context

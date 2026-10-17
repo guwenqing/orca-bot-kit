@@ -10,6 +10,9 @@
 // backslashes stays one key. What the helper gives is passed through `session
 // add --extra-arg=…`, one argument each, which the kit quotes as one word.
 //
+// The same list turns Codex's update check off, last, so a new Codex release
+// shows no update offer in a test's tab (#581).
+//
 // The reader returns only the keys of `[projects."…"]` and `[hooks.state."…"]`
 // table headers. The file may hold secrets; nothing else in it is returned.
 
@@ -18,7 +21,7 @@ import test from 'node:test';
 
 import { addedUnder, codexTrustArgs, projectTrust, trustKeysIn } from './helpers/codex-trust.js';
 
-test('the extra args trust the bots folder by a whole projects table, bypass the hooks review, turn tooltips off, and take the sleep tool away', () => {
+test('the extra args trust the bots folder by a whole projects table, bypass the hooks review, turn tooltips off, take the sleep tool away, and turn the update offer off', () => {
   assert.deepEqual(codexTrustArgs('/private/var/folders/x/obk-system-trust-Ab1.c/bots'), [
     '--extra-arg=-c',
     '--extra-arg=projects={"/private/var/folders/x/obk-system-trust-Ab1.c/bots"={trust_level="trusted"}}',
@@ -27,7 +30,27 @@ test('the extra args trust the bots folder by a whole projects table, bypass the
     '--extra-arg=tui.show_tooltips=false',
     '--extra-arg=-c',
     '--extra-arg=features.sleep_tool=false',
+    '--extra-arg=-c',
+    '--extra-arg=check_for_update_on_startup=false',
   ]);
+});
+
+// #581: a Codex that sees a newer release shows its update offer at start, and
+// no allowlist in test/helpers/screens.js answers it, so the run stops. So every
+// Codex session a system test makes is launched with the update check off, for
+// that run only: it takes no update and writes no dismissal into ~/.codex. It
+// comes last, in every form of the list.
+test('every form of the extra args ends with the update check turned off, once (#581)', () => {
+  const forms = [
+    ['the default', codexTrustArgs('/tmp/b')],
+    ['hooks: false', codexTrustArgs('/tmp/b', { hooks: false })],
+    ['sleep: true', codexTrustArgs('/tmp/b', { sleep: true })],
+    ['hooks: false and sleep: true', codexTrustArgs('/tmp/b', { hooks: false, sleep: true })],
+  ];
+  for (const [form, args] of forms) {
+    assert.deepEqual(args.slice(-2), ['--extra-arg=-c', '--extra-arg=check_for_update_on_startup=false'], `${form}: ${JSON.stringify(args)}`);
+    assert.equal(args.filter((arg) => arg.includes('check_for_update_on_startup')).length, 1, `${form}: the key once only`);
+  }
 });
 
 // #432: a GPT-6 Codex told to wait calls its built-in `sleep` in its turn, and
@@ -35,13 +58,15 @@ test('the extra args trust the bots folder by a whole projects table, bypass the
 // tool away, a test-only launch argument; the kit's own launch line keeps it.
 // The one session that must keep it, codex-sleep.test.js's sleep-codex, asks
 // with `sleep: true`.
-test('with sleep: true the sleep tool is left on, and everything else is as before', () => {
+test('with sleep: true the sleep tool is left on, and everything else is as before, the update check off last', () => {
   assert.deepEqual(codexTrustArgs('/tmp/b', { sleep: true }), [
     '--extra-arg=-c',
     '--extra-arg=projects={"/tmp/b"={trust_level="trusted"}}',
     '--extra-arg=--dangerously-bypass-hook-trust',
     '--extra-arg=-c',
     '--extra-arg=tui.show_tooltips=false',
+    '--extra-arg=-c',
+    '--extra-arg=check_for_update_on_startup=false',
   ]);
   assert.deepEqual(codexTrustArgs('/tmp/b', { sleep: false }), codexTrustArgs('/tmp/b'), 'sleep: false is the default: the tool taken away');
 });
@@ -134,7 +159,9 @@ test('with hooks: false, the folder is trusted and tooltips are off, and the hoo
     '--extra-arg=tui.show_tooltips=false',
     '--extra-arg=-c',
     '--extra-arg=features.sleep_tool=false',
-  ], 'the sleep tool is taken away all the same');
+    '--extra-arg=-c',
+    '--extra-arg=check_for_update_on_startup=false',
+  ], 'the sleep tool is taken away and the update check is off all the same');
   assert.deepEqual(
     codexTrustArgs('/tmp/b', { hooks: true }),
     codexTrustArgs('/tmp/b'),
