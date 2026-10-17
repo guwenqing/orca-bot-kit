@@ -12,7 +12,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 
-import { addSession, allowedNow, allowRules, botDir, changeBot, changeSession, createBot, disallowRules, leadsOutside, readBot, SESSION_FIELDS, setRoleCaps, setTempApproval } from './bot.js';
+import { addSession, allowedNow, allowRules, botDir, changeBot, changeSession, createBot, disallowRules, leadsOutside, readBot, refuseCodexOutside, SESSION_FIELDS, setRoleCaps, setTempApproval } from './bot.js';
 import { COMMANDS } from './commands.js';
 import { addCommand, groomCommand, grooming, upCommand } from './groom.js';
 import { checkHealth, orcaSettingFindings } from './health.js';
@@ -1213,6 +1213,7 @@ const commands = {
 
   'session add'(bots, values) {
     refuseApproval(bots, values, 'session add');
+    refuseOutsideWorkDir(bots, values);
     const added = addSession(bots, values.bot, settingsOf(values));
     const found = workDirFound(values, added.bot, added.home, added.session.name);
     const answer = { bots, bot: added.bot, home: added.home, session: added.session, found };
@@ -1353,8 +1354,9 @@ function noticeLines(answer) {
  * What there is to say about the work dir this command was given: one finding
  * when it leads out of the bot home, through `..` or a link or as a path
  * elsewhere, and nothing otherwise (#222). A bot's work and its clones belong
- * under its own `work/`. It is said, not refused: the user may ask for a folder
- * anywhere (PRD 6.3), and it is written as they gave it.
+ * under its own `work/`. For a Claude or Pi session it is said, not refused: a
+ * work dir is an instruction there (PRD 6.4), and it is written as given. A
+ * Codex session's is refused before this (refuseCodexOutside).
  */
 function workDirFound(values, bot, home, session) {
   const workDir = workDirOf({ work_dir: values['work-dir'] }, home);
@@ -1364,6 +1366,23 @@ function workDirFound(values, bot, home, session) {
     where: workDir,
     says: `${workDir} is outside ${bot}'s folder, ${home}. A session's work and every clone it needs go under the bot's work/, as work/${session}, unless you asked for this place in plain words. It is written as given, and nothing was moved.`,
   }];
+}
+
+/**
+ * Refuse a new Codex session a work dir outside its bot home (ADR 0045). A
+ * changed session is judged in changeSession, on what it writes (#585).
+ */
+function refuseOutsideWorkDir(bots, values) {
+  if (values['work-dir'] === undefined) return;
+  let bot;
+  try {
+    bot = readBot(botDir(bots, values.bot), values.bot);
+  } catch {
+    // A bot that is not there is the command's own to refuse.
+    return;
+  }
+  const session = { name: values.name, harness: values.harness, work_dir: values['work-dir'] };
+  refuseCodexOutside(values.bot, session, undefined, bot.harness, botDir(bots, values.bot), 'session add');
 }
 
 /**

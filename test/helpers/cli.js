@@ -59,7 +59,7 @@ import { access, chmod, constants, lstat, mkdir, mkdtemp, readFile, readdir, rea
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { parse } from 'yaml';
+import { parse, stringify } from 'yaml';
 
 import { answerScript, osascriptCalls, osascriptScript } from './fake-osascript.js';
 
@@ -1025,6 +1025,22 @@ export const turnLockFile = (bots, bot, session, kind) => path.join(`${bots}.loc
 
 /** Where a bot lives inside a bots folder. */
 export const botHomeOf = (bots, bot = 'bot-father') => path.join(bots, 'bots', bot);
+
+/**
+ * Give one session of a bot a work dir by writing it into its bot.yaml, the
+ * way a user edits the file by hand. Since #585 `session add` and `session
+ * change` refuse a Codex session a work dir outside the bot home, and `up`
+ * still takes one the user wrote there: a test of what `up` does with such a
+ * work dir writes it this way.
+ */
+export async function workDirByHand(bots, bot, session, workDir) {
+  const file = path.join(botHomeOf(bots, bot), 'bot.yaml');
+  const doc = parse(await readFile(file, 'utf8'));
+  const entry = (doc.sessions ?? []).find((one) => one?.name === session);
+  assert.ok(entry, `${bot} should have a session called ${session} to give a work dir, got: ${JSON.stringify(doc.sessions)}`);
+  entry.work_dir = workDir;
+  await writeFile(file, stringify(doc));
+}
 
 /** The tabs Orca holds for one bot's Orca project, in the order it made them. */
 export async function tabsOfBot(box, bots, bot) {

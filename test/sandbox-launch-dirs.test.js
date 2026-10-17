@@ -40,6 +40,7 @@ import {
   sh,
   tabsOfBot,
   typedInto,
+  workDirByHand,
 } from './helpers/cli.js';
 
 /** The three whole folders, which no launch line may name. */
@@ -124,7 +125,9 @@ test('SL2 a Codex session with a work dir outside the bot home gets that --add-d
   const box = await createSandbox(t);
   const codex = await fakeProgram(box, 'codex', {});
   const outside = path.join(box.root, 'clones', 'api');
-  const bots = await written(box, [['api-bot', 'codex', [['daily', '--work-dir', outside]]]]);
+  const bots = await written(box, [['api-bot', 'codex']]);
+  // By hand: session add refuses a Codex session a work dir outside (#585), and up still takes it.
+  await workDirByHand(bots, 'api-bot', 'daily', outside);
 
   const argv = await argvOf(box, await launchOf(box, bots, 'api-bot'), codex);
 

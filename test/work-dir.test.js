@@ -17,6 +17,7 @@ import {
   createSandbox,
   HOOK_FILES,
   tabsOfBot,
+  workDirByHand,
 } from './helpers/cli.js';
 
 /** A bots folder holding one Codex bot with one session, not yet brought up. */
@@ -62,7 +63,9 @@ test('the parents of a work dir are made with it', async (t) => {
 test('an absolute work dir is made where it says, parents and all', async (t) => {
   const box = await createSandbox(t);
   const elsewhere = path.join(box.root, 'clones', 'api');
-  await withSession(box, ['--work-dir', elsewhere]);
+  const bots = await withSession(box, []);
+  // By hand: session add refuses a Codex session a work dir outside (#585), and up still takes it.
+  await workDirByHand(bots, 'api-bot', 'daily', elsewhere);
 
   assert.equal((await box.run(['up', '--bots', 'bots', '--bot', 'api-bot'])).code, 0);
 

@@ -146,6 +146,10 @@ or that widens what the session may write or run, such as `--add-dir`, Claude
 Code's `--settings` or Codex's `--profile`. On Codex, `-c` passes only for a
 short list of keys known to be safe, such as `model_reasoning_effort`
 ([ADR 0044](docs/adr/0044-extra-arguments-that-widen-a-session-are-refused.md)).
+A Codex session's work dir stays in its bot folder: Codex may write in its work
+dir, so `session add` and `session change` refuse one outside the bot folder for
+a Codex session
+([ADR 0045](docs/adr/0045-a-codex-sessions-work-dir-stays-in-its-bot-folder.md)).
 
 A bot or a session can also run on [Pi](https://pi.dev) (`--harness pi`, tested
 with Pi 1.1.0). Pi asks before no tool call, so a Pi session is always
