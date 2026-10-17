@@ -14,6 +14,10 @@
 // `prefix_rule(pattern=[...], decision="allow")` line per rule, each word a
 // JSON string. The Codex lines are spelled here from that requirement too.
 //
+// #564: Orca's bare mail check, `Bash(orca orchestration check --run:*)`, is no
+// longer in the set: the kit's rules tell every bot to read its mail with
+// `obk message check`, and nothing of the kit needs a bot to run the bare one.
+//
 // #527: the set holds no order the tests may rely on, except that rules
 // already in a bot's `allow` keep their place. A SendMessage rule may or may
 // not be in it (still being settled), so every reading here leaves SendMessage
@@ -55,8 +59,22 @@ export const NOT_DEFAULT_COMMANDS = ['init', 'retire', 'pause', 'permission allo
  */
 export const NO_LONGER_DEFAULT_COMMANDS = ['restart', 'bot create'];
 
-/** The one Orca rule in the default set, exactly this text (#527). */
+/**
+ * The two commands #555 removed from the kit. Kit 0.26 gave every bot a rule
+ * for each, spelled as the other kit command rules (`kitRule`). A bot's allow
+ * may still hold them; the kit keeps them there (#564 R2).
+ */
+export const GONE_COMMANDS = ['session mail', 'session nudge'];
+
+/**
+ * The Orca rule kit 0.26 gave every bot, exactly this text (#527). #564 R1
+ * took it out of the default set; a bot's allow may still hold it, and the kit
+ * keeps it there (#564 R2).
+ */
 export const ORCA_CHECK_RULE = 'Bash(orca orchestration check --run:*)';
+
+/** The Codex line for ORCA_CHECK_RULE, as kit 0.26 wrote it into obk.rules. */
+export const ORCA_CHECK_LINE = 'prefix_rule(pattern=["orca", "orchestration", "check", "--run"], decision="allow")';
 
 /** The Claude rule that allows one kit command for this bots folder: `Bash(<CLI> <command> --bots <folder>:*)`. */
 export const kitRule = (box, bots, command) => `Bash(${shellWord(box.cli)} ${command} --bots ${shellWord(bots)}:*)`;
@@ -65,7 +83,8 @@ export const kitRule = (box, bots, command) => `Bash(${shellWord(box.cli)} ${com
  * The rules every Claude bot is given (#527): one per kit command in
  * KIT_COMMANDS, reading long message bodies beside the bots folder (`//` is
  * Claude's absolute-path form, and the path there is plain, not shell-quoted),
- * the commit rule, and Orca's orchestration check. No order is promised.
+ * and the commit rule. Not Orca's orchestration check, since #564. No order
+ * is promised.
  */
 export function defaultRules(box, bots) {
   return [
@@ -73,7 +92,6 @@ export function defaultRules(box, bots) {
     `Read(/${bots}.messages/**)`,
     'Bash(git add:*)',
     'Bash(git commit:*)',
-    ORCA_CHECK_RULE,
   ];
 }
 
@@ -105,7 +123,17 @@ export const codexDefaultLines = (box, bots) => [
   ...KIT_COMMANDS.map((command) => prefixRule([box.cli, ...command.split(' '), '--bots', bots])),
   prefixRule(['git', 'add']),
   prefixRule(['git', 'commit']),
-  prefixRule(['orca', 'orchestration', 'check', '--run']),
+];
+
+/**
+ * Every rule kit 0.26 gave every bot that is no longer in the set (#548 and
+ * #564 R2): the rules of `restart` and `bot create`, of the two commands #555
+ * removed, and Orca's bare check. A bot that still holds one keeps it, and
+ * `rules build` and `up` name it.
+ */
+export const noLongerDefaultRules = (box, bots) => [
+  ...[...NO_LONGER_DEFAULT_COMMANDS, ...GONE_COMMANDS].map((command) => kitRule(box, bots, command)),
+  ORCA_CHECK_RULE,
 ];
 
 /** Whether a rule, or a Codex line, is about SendMessage: the one the tests neither require nor forbid. */

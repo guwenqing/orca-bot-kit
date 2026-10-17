@@ -5,8 +5,9 @@
 // The kit's own commands are allowed by the kit's code. The default set
 // (helpers/permissions.js spells it from the requirement) is one rule per kit
 // command a bot runs, narrowed to this bots folder and to the kit's own CLI,
-// reading a long message's body beside the bots folder, the commit rule, and
-// Orca's orchestration check. `init`, `retire`, `pause`, the three
+// reading a long message's body beside the bots folder, and the commit rule.
+// Since #564 (R1) Orca's bare orchestration check is not in it: the kit's rules
+// tell a bot to read its mail with `obk message check`. `init`, `retire`, `pause`, the three
 // `permission` commands, and since #548 `restart` and `bot create`, are never
 // in it, and no broad rule is. A bot that runs
 // only on Codex gets the set without the Read rule, in Codex's own form in
@@ -60,6 +61,7 @@ import {
   kitRule,
   NOT_DEFAULT_COMMANDS,
   notDefaultRules,
+  ORCA_CHECK_LINE,
   ORCA_CHECK_RULE,
   OWN_RULE,
   permissionBots,
@@ -119,10 +121,17 @@ test('D0 the set as the tests spell it: every kit command but the kept-back ones
   assert.ok(rules.includes('Bash(/x/bin/obk temp make --bots /x/bots:*)'));
   assert.ok(rules.includes('Bash(/x/bin/obk bot change --bots /x/bots:*)'));
   assert.ok(rules.includes('Bash(/x/bin/obk session answer --bots /x/bots:*)'));
-  assert.ok(rules.includes(ORCA_CHECK_RULE));
+  assert.ok(rules.includes('Bash(git add:*)') && rules.includes('Bash(git commit:*)'));
+  // #564 R1: the bare orca check left the set, and nothing else joined or left
+  // it: the 32 kit commands, the Read rule and the two git rules.
+  assert.ok(!rules.includes('Bash(orca orchestration check --run:*)'), 'the bare orca check is not in the set');
+  assert.equal(ORCA_CHECK_RULE, 'Bash(orca orchestration check --run:*)');
+  assert.equal(rules.length, 35);
   assert.equal(readDefault(box, '/x/bots'), 'Read(//x/bots.messages/**)');
   assert.equal(codexDefaultRules(box, '/x/bots').length, rules.length - 1, 'Codex: the set without the Read rule');
-  assert.ok(codexDefaultLines(box, '/x/bots').includes('prefix_rule(pattern=["orca", "orchestration", "check", "--run"], decision="allow")'));
+  assert.equal(ORCA_CHECK_LINE, 'prefix_rule(pattern=["orca", "orchestration", "check", "--run"], decision="allow")');
+  assert.ok(!codexDefaultLines(box, '/x/bots').includes(ORCA_CHECK_LINE), 'nor its Codex line');
+  assert.equal(codexDefaultLines(box, '/x/bots').length, 34, 'Codex: one line per Bash rule of the set');
   assert.ok(codexDefaultLines(box, '/x/bots').includes('prefix_rule(pattern=["/x/bin/obk", "temp", "trust-hooks", "--bots", "/x/bots"], decision="allow")'));
 });
 

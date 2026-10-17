@@ -178,16 +178,35 @@ const WARN_CAPTURED = ' ⚠ This folder pre-approves 36 tool permissions in .cla
 /** The same row for the kit's default set as it is now. */
 const WARN = ` ⚠ This folder pre-approves ${DEFAULTS.length} tool permissions in .claude/settings.json:`;
 
+/** The two rule rows of the pinned screen, as captured: the fourth item is the bare orca check. */
+const LIST_1_CAPTURED = '   Bash(/Volumes/DevData/projects/ai/mybots/bots/kit-dev/work/d…, Bash(git add:*), Bash(git commit:*), Bash(orca';
+const LIST_2_CAPTURED = ' orchestration check --run:*), and Read(//private/var/folders/9c/kh9z1_yd1gq9y0x3pm7h79cm0000gn…';
+
+/** The rule the pinned screen lists that #564 R1 took out of the default set. */
+const ORCA_CHECK = 'Bash(orca orchestration check --run:*)';
+
 /**
- * The pinned screen as this kit brings it up: its count row for the default
- * set as it is now, every other row as captured. The #555 run's clone gave 36
- * rules, and the set is 36 again: #539 added 'session nudge' and 'session mail'
- * to the default commands (38), and #555 takes both out. The rules Claude Code
- * lists here are the same throughout.
+ * The pinned screen is a capture of the set the #555 run's kit gave: 36 rules,
+ * among them the bare orca check, which the screen lists. #564 R1 takes that
+ * rule out of the set (35 rules), so the capture as it stands is now a screen
+ * for a set the kit no longer writes, and the check must refuse it (the tests
+ * below hold that).
+ *
+ * KIT_NOW is not a capture. It is derived from the capture by hand, to test the
+ * check's other rules on a screen for the set as it is now: the count row for
+ * the set now, the bare orca check taken out of the rule rows (the ", and"
+ * before the last item kept), every other row as captured. How Claude Code
+ * lists and wraps the rules of a 35-rule set has not been seen live; a live
+ * run that brings the screen up is what shows that.
  */
-const KIT_NOW = KIT_SCREEN.map((row) => (row === WARN_CAPTURED ? WARN : row));
-const LIST_1 = '   Bash(/Volumes/DevData/projects/ai/mybots/bots/kit-dev/work/d…, Bash(git add:*), Bash(git commit:*), Bash(orca';
-const LIST_2 = ' orchestration check --run:*), and Read(//private/var/folders/9c/kh9z1_yd1gq9y0x3pm7h79cm0000gn…';
+const LIST_1 = '   Bash(/Volumes/DevData/projects/ai/mybots/bots/kit-dev/work/d…, Bash(git add:*), Bash(git commit:*), and';
+const LIST_2 = ' Read(//private/var/folders/9c/kh9z1_yd1gq9y0x3pm7h79cm0000gn…';
+const KIT_NOW = KIT_SCREEN.map((row) => {
+  if (row === WARN_CAPTURED) return WARN;
+  if (row === LIST_1_CAPTURED) return LIST_1;
+  if (row === LIST_2_CAPTURED) return LIST_2;
+  return row;
+});
 const APPLY = ' These will apply without asking. Only proceed if you trust this configuration.';
 const GUIDE = ' Security guide';
 
@@ -212,23 +231,29 @@ const refused = (said, ...seen) => {
   for (const what of seen) assert.ok(said.includes(what), `the refusal names ${what}: ${said}`);
 };
 
-test('kit trust: the kit\'s default set for the captured paths has the 36 rules the screen counted, all different (a change to the defaults shows here first)', () => {
+test('kit trust: the kit\'s default set for the captured paths has 35 rules, the 36 the screen counted less the bare orca check (#564 R1), all different (a change to the defaults shows here first)', () => {
   const removed = ['session nudge', 'session mail'].map((command) => `Bash(${KIT_CLI} ${command} --bots ${KIT_BOTS}:*)`);
   for (const rule of removed) assert.ok(!DEFAULTS.includes(rule), `${rule} is no longer a default (#555)`);
-  assert.equal(DEFAULTS.length, 36, 'the 36 the screen counted');
+  assert.ok(!DEFAULTS.includes(ORCA_CHECK), `${ORCA_CHECK} is no longer a default (#564 R1)`);
+  assert.equal(DEFAULTS.length, 35, 'the 36 the screen counted, less one');
   assert.equal(new Set(DEFAULTS).size, DEFAULTS.length);
-  assert.ok(DEFAULTS.includes('Bash(git add:*)') && DEFAULTS.includes('Bash(orca orchestration check --run:*)'), 'the whole rules the screen lists are in the set');
+  assert.ok(DEFAULTS.includes('Bash(git add:*)') && DEFAULTS.includes('Bash(git commit:*)'), 'the other whole rules the screen lists are in the set');
 });
 
-test('kit trust: the pinned screen as captured, its count 36, is the screen for the default set as it is now', () => {
-  assert.deepEqual(KIT_NOW, KIT_SCREEN, 'the count row needs no change');
-  assert.equal(claudeTrustOf(KIT_SCREEN, KIT_FOLDER, KIT), undefined);
+test('kit trust (#564 R1): the pinned screen as captured, its count 36, is refused for the default set as it is now, naming the count', () => {
+  refused(claudeTrustOf(KIT_SCREEN, KIT_FOLDER, KIT), '36');
 });
 
-test('kit trust: the pinned screen with the count of the set before #555, 38, is refused for the default set as it is now', () => {
-  const stale = KIT_SCREEN.map((row) => (row === WARN_CAPTURED ? ' ⚠ This folder pre-approves 38 tool permissions in .claude/settings.json:' : row));
-  assert.notDeepEqual(stale, KIT_SCREEN, 'the count row changed');
-  refused(claudeTrustOf(stale, KIT_FOLDER, KIT), '38');
+test('kit trust (#564 R1): the pinned screen with only its count row made the set\'s, which still lists the bare orca check, is refused, naming that rule', () => {
+  const counted = KIT_SCREEN.map((row) => (row === WARN_CAPTURED ? WARN : row));
+  assert.notDeepEqual(counted, KIT_SCREEN, 'the premise: the count row changed');
+  refused(claudeTrustOf(counted, KIT_FOLDER, KIT), ORCA_CHECK);
+});
+
+test('kit trust: the screen derived for the set as it is now differs from the capture only in its count row and its two rule rows, and is answered', () => {
+  const changedRows = KIT_SCREEN.map((row, at) => [row, KIT_NOW[at]]).filter(([was, now]) => was !== now);
+  assert.deepEqual(changedRows, [[WARN_CAPTURED, WARN], [LIST_1_CAPTURED, LIST_1], [LIST_2_CAPTURED, LIST_2]]);
+  assert.equal(claudeTrustOf(KIT_NOW, KIT_FOLDER, KIT), undefined);
 });
 
 test('kit trust: the pinned screen is answered when the tab allows exactly the defaults, in any order', () => {
@@ -315,7 +340,7 @@ test('kit trust: the defaults for another bots folder are not this tab\'s allow 
 test('kit trust: a missing or changed pinned row is refused', () => {
   const cases = [
     ['no warning row', swap(WARN, undefined)],
-    ['the warning for another file', swap(WARN, ' ⚠ This folder pre-approves 36 tool permissions in .claude/settings.local.json:')],
+    ['the warning for another file', swap(WARN, ` ⚠ This folder pre-approves ${DEFAULTS.length} tool permissions in .claude/settings.local.json:`)],
     ['no "These will apply" row', swap(APPLY, undefined)],
     ['a changed "These will apply" row', swap(APPLY, ' These will apply without asking.')],
     ['no "Security guide" row', swap(GUIDE, undefined)],

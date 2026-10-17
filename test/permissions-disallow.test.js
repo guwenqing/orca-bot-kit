@@ -77,7 +77,6 @@ import {
   defaultRules,
   FOREIGN_RULE,
   jsonOf,
-  ORCA_CHECK_RULE,
   OWN_RULE,
   permissionAllow,
   permissionDisallow,
@@ -500,7 +499,11 @@ for (const [label, args] of [
 
 // ----------------------------------------------------------------- a rule of the kit's default set
 
-/** Some rules of the default set, one of each kind: a kit command, the Read rule, git, Orca. */
+/**
+ * Some rules of the default set, one of each kind: a kit command, the Read
+ * rule, git. Orca's bare check is no longer one (#564 R1); test/permissions-held
+ * holds that permission disallow takes it back.
+ */
 const someDefaults = (box, bots) => {
   const all = defaultRules(box, bots);
   return [
@@ -508,7 +511,6 @@ const someDefaults = (box, bots) => {
     all.find((rule) => rule.includes(' temp make --bots ')),
     readDefault(box, bots),
     'Bash(git commit:*)',
-    ORCA_CHECK_RULE,
   ];
 };
 
