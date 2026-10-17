@@ -7,7 +7,7 @@
 // The files are the user's. A command that cannot do what was asked refuses and
 // writes nothing, rather than leave a bot half made or a bot.yaml half edited.
 
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { accessSync, constants, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
@@ -563,10 +563,12 @@ function editBot(bots, bot, what, edit, expected, write = true) {
  * that write it at once leave one whole text or the other, never the one with
  * the end of the other after it, which can read as a session neither command
  * wrote (#585). A link to it is written through, to the file it names, and the
- * file keeps its mode.
+ * file keeps its mode. A file the user made read-only is refused, as a write in
+ * place would be, though a move over it would go through.
  */
 export function writeWhole(file, text) {
   const real = realpathSync(file);
+  accessSync(real, constants.W_OK);
   const half = `${real}.${process.pid}.part`;
   writeFileSync(half, text, { mode: statSync(real).mode & 0o777 });
   renameSync(half, real);
