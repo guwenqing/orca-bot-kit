@@ -186,8 +186,14 @@ function lockOn(file, waitMs, how = 'IMMEDIATE') {
   // the file itself without following a link, and SQLite opens it only if it
   // is there and makes nothing. A link put at the name only while SQLite
   // opens it is followed, and SQLite names the file it opened, so a file of
-  // any other name is closed before it is read or locked. And the turn ends
-  // with ROLLBACK, so SQLite never writes the file it locks.
+  // any other name is closed before it is locked or written. And the turn
+  // ends with ROLLBACK, so SQLite never writes the file it locks.
+  //
+  // What is left, accepted by the architect on #605: SQLite reads the first
+  // 100 bytes of the file it opens before the kit can ask its name, so such a
+  // link can have a file outside read into SQLite's memory and dropped; and a
+  // FIFO put there that instant can hang the command. A lock taken by name
+  // cannot close that without a lock Node does not have.
   if (!heldHere.has(file)) {
     try {
       mkdirSync(path.dirname(file), { recursive: true });
