@@ -141,7 +141,7 @@ words, `dangerously-skip`
 ([ADR 0015](docs/adr/0015-three-approval-levels-auto-by-default.md)). Only
 `obk permission approval` changes it, after your yes: `session add` and
 `session change` take no approval, and refuse an extra argument that sets one
-([ADR 0041](docs/adr/0041-permission-changes-and-risky-operations-have-commands-of-their-own.md))
+([ADR 0051](docs/adr/0051-permission-changes-and-risky-operations-have-commands-of-their-own.md))
 or that widens what the session may write or run, such as `--add-dir`, Claude
 Code's `--settings` or Codex's `--profile`. On Codex, `-c` passes only for a
 short list of keys known to be safe, such as `model_reasoning_effort`
@@ -164,14 +164,16 @@ health for a Pi session come later, and so do `obk init --harness pi` and
 Every bot gets the kit's default permission rules, written by the kit with
 nobody asked: its own commands for this bots folder, reading a long message,
 `git add` and `git commit`
-([ADR 0048](docs/adr/0048-the-kit-writes-every-bots-default-permission-rules.md)).
-`obk permission`, `obk retire`, `obk pause`, `obk restart`, `obk bot create`
-and `obk init` are not in the set, and keep your yes
-([ADR 0041](docs/adr/0041-permission-changes-and-risky-operations-have-commands-of-their-own.md)).
+([ADR 0050](docs/adr/0050-the-kit-writes-every-bots-default-permission-rules.md)).
+`obk permission`, `obk retire`, `obk pause`, `obk restart`, `obk bot create`,
+`obk bot change`, `obk session add`, `obk session change` and `obk init` are
+not in the set, and keep your yes
+([ADR 0051](docs/adr/0051-permission-changes-and-risky-operations-have-commands-of-their-own.md)).
 A rule beyond the set is written by `obk permission allow`, after your yes to
-the exact rule. A bot that still holds a rule that kit 0.26 gave every bot
-and that is no longer in the set keeps it: the rule of `obk restart`,
-`obk bot create`, `obk session mail` or `obk session nudge`, or of Orca's
+the exact rule. A bot that still holds a rule that the kit gave every bot
+before and that is no longer in the set keeps it: the rule of `obk restart`,
+`obk bot create`, `obk bot change`, `obk session add`, `obk session change`,
+`obk session mail` or `obk session nudge`, or of Orca's
 `orca orchestration check --run`. `obk rules build` and `obk up` name it, with
 the `obk permission disallow` command that takes it back.
 
