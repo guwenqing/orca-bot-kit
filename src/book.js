@@ -6,7 +6,7 @@
 // theirs. Beside each session's tab it holds the harness session id that
 // session is running under, and every id it ran under before.
 
-import { closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, constants, existsSync, fstatSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
@@ -183,17 +183,15 @@ function lockOn(file, waitMs, how = 'IMMEDIATE') {
   // A session can write its bot's folder of locks, so a link, a FIFO or a
   // folder may sit at the lock's name, and a lock taken through a link would
   // make or write a file anywhere the kit may write (#605). So the kit opens
-  // the file itself without following a link, SQLite opens it only if it is
-  // there and makes nothing, and once the lock is held the name must still be
-  // that same plain file, unmoved: a file moved aside and back keeps its inode
-  // but not its ctime. SQLite follows a link at the name as it opens it, so a
-  // swap too quick for the ctime could still hand it a file outside; the turn
-  // therefore ends with ROLLBACK, and SQLite never writes the file it locks.
-  let held = heldHere.get(file);
-  if (held === undefined) {
+  // the file itself without following a link, and SQLite opens it only if it
+  // is there and makes nothing. A link put at the name only while SQLite
+  // opens it is followed, and SQLite names the file it opened, so a file of
+  // any other name is closed before it is read or locked. And the turn ends
+  // with ROLLBACK, so SQLite never writes the file it locks.
+  if (!heldHere.has(file)) {
     try {
       mkdirSync(path.dirname(file), { recursive: true });
-      held = { turns: 0, stat: plainFile(file) };
+      plainFile(file);
     } catch (error) {
       throw new LockNotWritable(file, error);
     }
@@ -206,6 +204,9 @@ function lockOn(file, waitMs, how = 'IMMEDIATE') {
     throw new LockNotWritable(file, error);
   }
   try {
+    if (db.location() !== path.join(realpathSync(path.dirname(file)), path.basename(file))) {
+      throw new LockNotWritable(file, notPlain(`a link at it led SQLite to ${db.location()}`));
+    }
     // A writer that arrives while another is working waits for it rather than
     // failing at once, and gives up saying so rather than waiting for ever.
     db.exec(`PRAGMA busy_timeout = ${waitMs}`);
@@ -216,36 +217,30 @@ function lockOn(file, waitMs, how = 'IMMEDIATE') {
     } else {
       db.exec(`BEGIN ${how}`);
     }
-    const now = lstatSync(file, { bigint: true, throwIfNoEntry: false });
-    if (!(now?.isFile() && now.dev === held.stat.dev && now.ino === held.stat.ino && now.ctimeNs === held.stat.ctimeNs)) {
-      db.exec('ROLLBACK');
-      throw new LockNotWritable(file, notPlain('something else took its name while the kit opened it'));
-    }
   } catch (error) {
     db.close();
     throw error;
   }
 
-  held.turns += 1;
-  heldHere.set(file, held);
+  heldHere.set(file, (heldHere.get(file) ?? 0) + 1);
   return {
     release() {
       try {
         db.exec('ROLLBACK');
       } finally {
         db.close();
-        held.turns -= 1;
-        if (held.turns === 0) heldHere.delete(file);
+        const left = heldHere.get(file) - 1;
+        if (left > 0) heldHere.set(file, left);
+        else heldHere.delete(file);
       }
     },
   };
 }
 
 /**
- * The lock file at `file`, made if it is not there, and opened for writing
+ * Make the lock file at `file` if it is not there, and open it for writing
  * without following a link or waiting on a FIFO. Anything at the name but a
- * plain file is refused. Answers its stat, to tell it later from anything put
- * in its place.
+ * plain file is refused.
  */
 function plainFile(file) {
   let fd;
@@ -257,9 +252,7 @@ function plainFile(file) {
     throw error;
   }
   try {
-    const stat = fstatSync(fd, { bigint: true });
-    if (!stat.isFile()) throw notPlain('not a plain file');
-    return stat;
+    if (!fstatSync(fd).isFile()) throw notPlain('not a plain file');
   } finally {
     closeSync(fd);
   }
@@ -268,7 +261,7 @@ function plainFile(file) {
 const NOT_PLAIN = 'ENOTPLAIN';
 const notPlain = (message) => Object.assign(new Error(message), { code: NOT_PLAIN });
 
-/** The turns this process holds on each lock file, by its path, and the file they are held on. */
+/** How many turns this process holds on each lock file, by its path. */
 const heldHere = new Map();
 
 /**
