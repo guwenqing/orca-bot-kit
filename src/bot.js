@@ -200,9 +200,11 @@ export function readBot(home, name = path.basename(home)) {
  *
  * The bot's own files, and no more: its `AGENTS.md` is built from this
  * `bot.yaml` and the rule units, which is the rules build's job and is reported
- * as one (PRD 6.6).
+ * as one (PRD 6.6). `allow` is the kit's default rules for it, written in the
+ * same first write, so that no later read and write of the file can lose a
+ * change another command makes at the same time (#595).
  */
-export function createBot(bots, { name, harness, charter }) {
+export function createBot(bots, { name, harness, charter, allow = [] }) {
   if (!NAME.test(name)) {
     throw new Error(`${name} cannot be a bot's name: a name is lower-case letters, digits and single hyphens, such as api-bot.`);
   }
@@ -219,7 +221,7 @@ export function createBot(bots, { name, harness, charter }) {
 
   const text = charter?.trim() ? `${charter.trim()}\n` : PLACEHOLDER_CHARTER(name);
   const files = [
-    [BOT_YAML, botYaml(name, harness, text)],
+    [BOT_YAML, botYaml(name, harness, text, allow)],
     ['.gitignore', BOT_GITIGNORE],
   ];
 
@@ -601,7 +603,8 @@ export function writeWhole(file, text) {
  * Run `change`, which reads the bot's bot.yaml and writes it, while this
  * command holds the bot's turn (#595): the read and the write are then of the
  * same file, and another command's change cannot fall between them and be
- * written over. Every kit write of bot.yaml is made in here. Not taken twice:
+ * written over. Every kit change of a bot.yaml that is there is made in here;
+ * `bot create` writes its first whole, with no read before. Not taken twice:
  * the commands that take it call only what does not.
  */
 export function withBotTurn(home, change) {
@@ -650,9 +653,10 @@ export function changesExactly(source, text, expected) {
 }
 
 /** The bot.yaml of a bot nobody has edited yet. */
-function botYaml(name, harness, charter) {
+function botYaml(name, harness, charter, allow) {
   const header = `# ${displayName(name)}. Ask Bot Father for changes rather than editing this file.\n\n`;
-  return header + stringify({ name, harness, charter, rules: [], skills: [], sessions: [] }, YAML_OUT);
+  const bot = { name, harness, charter, rules: [], skills: [], sessions: [] };
+  return header + stringify(allow.length === 0 ? bot : { ...bot, allow }, YAML_OUT);
 }
 
 /**
