@@ -334,6 +334,11 @@ that close a tab or take something away say so above. Every bot is allowed
 the kit's commands by default, except obk permission, retire, pause and init,
 which keep the user's yes.
 Add --json to any of them for the same answer as JSON.
+
+For another build of Orca, OBK_ORCA names its CLI, and OBK_ORCA_DATA the full
+path of the folder it keeps its data in, such as
+$HOME/Library/Application Support/orca-lean.
+The kit reads Orca's launch arguments from the profiles folder there.
 `;
 
 
