@@ -535,10 +535,11 @@ const TEACH_FOOT = /Enter to .*· Esc to cancel/;
  * captured live, with what answers it. Rows are compared trimmed, the pointer
  * `❯` taken out, so the pointer may sit on any one of them.
  *
- * Claude Code 2.1.283's form (#261's live test, #416) is answered with Esc,
- * which cancels it (Not now), never a return, which is Continue. Claude Code
- * 2.1.289's numbered list (#489's live run 1) is answered with "2. Not now",
- * never "1. Yes" or "3. Don't show again" (the architect's ruling on #489).
+ * Claude Code 2.1.283's form (#261's live test, #416) and 2.1.302's (#604) are
+ * answered with Esc, which cancels them (Not now), never a return, which is
+ * Continue. Claude Code 2.1.289's numbered list (#489's live run 1) is
+ * answered with "2. Not now", never "1. Yes" or "3. Don't show again" (the
+ * architect's ruling on #489).
  */
 const TEACH_SHAPES = [
   {
@@ -553,6 +554,21 @@ const TEACH_SHAPES = [
       'Continue',
       '←/→ to change usage · Enter to continue · Esc to cancel',
     ],
+    escape: true,
+  },
+  {
+    name: 'the 2.1.302 form',
+    rows: [
+      TEACH_TITLE,
+      'Claude Code reads this project, your recent Claude sessions, and optionally your shell history and other',
+      'repositories. Claude analyzes this data and customizes auto mode to make better decisions.',
+      'How you use Claude here     Mixed',
+      'Also scan shell history     false',
+      'Also scan your other repos  false',
+      'Continue',
+      '←/→ to change · Enter to continue · Esc to cancel',
+    ],
+    escape: true,
   },
   {
     name: 'the 2.1.289 list',
@@ -626,7 +642,7 @@ const wholeScreen = (rows) => rows.filter((row) => row.trim() !== '').map((row) 
 /**
  * Answer the first-run screen of a temporary session the caller made (#489):
  * Claude Code's Teach auto mode screen, in one of the shapes the kit knows,
- * matched exactly. The 2.1.283 form gets Esc. The 2.1.289 list gets arrows to
+ * matched exactly. The 2.1.283 and 2.1.302 forms get Esc. The 2.1.289 list gets arrows to
  * "2. Not now" where needed, a second look that the pointer is there and the
  * list is otherwise as it was, and only then a return. Anything else is refused with
  * nothing typed. Like `trustHooks`, it is one command a permission rule of its
@@ -657,7 +673,7 @@ function answerTeach(target, kind) {
         const hooks = rows.some((row) => row.includes(HOOKS_REVIEW)) ? ` A Codex session's "${HOOKS_REVIEW}" is answered with ${kind} trust-hooks.` : '';
         throw new Error(`${run}'s screen is not one ${kind} answer answers: ${seen.misfit}.${hooks} ${nothing} It shows:\n${wholeScreen(rows)}`);
       }
-      if (seen.shape === TEACH_SHAPES[0]) {
+      if (seen.shape.escape) {
         send('\x1b');
         return 'Esc (Not now)';
       }

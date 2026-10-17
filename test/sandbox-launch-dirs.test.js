@@ -23,7 +23,7 @@
 // fake `codex` on its own PATH.
 
 import assert from 'node:assert/strict';
-import { stat } from 'node:fs/promises';
+import { rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 
@@ -186,6 +186,9 @@ test('SL6 the three folders of a Codex session\'s bot are on disk before its lau
   // session would have started (as test/work-dir.test.js does for a work dir).
   const box = await createSandbox(t);
   const bots = await written(box, [['api-bot', 'codex']]);
+  // session add and the other bot.yaml commands take the bot's turn in
+  // <bots>.locks/<bot>/ (#595), so start from a bot without the three folders.
+  for (const dir of kitDirsOf(bots, 'api-bot')) await rm(dir, { recursive: true, force: true });
   for (const dir of kitDirsOf(bots, 'api-bot')) {
     assert.equal(await isDirectory(dir), false, `the premise: ${dir} is not there before up`);
   }

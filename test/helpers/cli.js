@@ -1022,6 +1022,8 @@ export const promptFileOf = (bots, bot, session) => path.join(`${bots}.prompts`,
  */
 export const bookLockFile = (bots, bot) => path.join(`${bots}.locks`, bot, `${encodeURIComponent(bot)}.lock`);
 export const turnLockFile = (bots, bot, session, kind) => path.join(`${bots}.locks`, bot, `${bot}.${session}.${kind}.lock`);
+/** The bot lock (#595), beside the book's: taken while a command changes the bot's bot.yaml. */
+export const botLockFile = (bots, bot) => path.join(`${bots}.locks`, bot, `${encodeURIComponent(bot)}.bot.lock`);
 
 /** Where a bot lives inside a bots folder. */
 export const botHomeOf = (bots, bot = 'bot-father') => path.join(bots, 'bots', bot);

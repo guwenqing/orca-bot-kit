@@ -6,8 +6,9 @@
 // theirs. Beside each session's tab it holds the harness session id that
 // session is running under, and every id it ran under before.
 
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, constants, existsSync, fstatSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { isDeepStrictEqual } from 'node:util';
 import { parse, stringify } from 'yaml';
@@ -178,17 +179,40 @@ function lockOn(file, waitMs, how = 'IMMEDIATE') {
   // Only while this process holds no turn on it: closing any descriptor of a
   // file lets go of every lock the process holds on that file, and SQLite's
   // own are among them. A file a turn is held on was written already.
+  //
+  // A session can write its bot's folder of locks, so a link, a FIFO or a
+  // folder may sit at the lock's name, and a lock taken through a link would
+  // make or write a file anywhere the kit may write (#605). So the kit opens
+  // the file itself without following a link, and SQLite opens it only if it
+  // is there and makes nothing. A link put at the name only while SQLite
+  // opens it is followed, and SQLite names the file it opened, so a file of
+  // any other name is closed before it is locked or written. And the turn
+  // ends with ROLLBACK, so SQLite never writes the file it locks.
+  //
+  // What is left, accepted by the architect on #605: SQLite reads the first
+  // 100 bytes of the file it opens before the kit can ask its name, so such a
+  // link can have a file outside read into SQLite's memory and dropped; and a
+  // FIFO put there that instant can hang the command. A lock taken by name
+  // cannot close that without a lock Node does not have.
   if (!heldHere.has(file)) {
     try {
       mkdirSync(path.dirname(file), { recursive: true });
-      closeSync(openSync(file, 'a'));
+      plainFile(file);
     } catch (error) {
       throw new LockNotWritable(file, error);
     }
   }
 
-  const db = new DatabaseSync(file);
+  let db;
   try {
+    db = new DatabaseSync(new URL(`${pathToFileURL(file).href}?mode=rw`));
+  } catch (error) {
+    throw new LockNotWritable(file, error);
+  }
+  try {
+    if (db.location() !== path.join(realpathSync(path.dirname(file)), path.basename(file))) {
+      throw new LockNotWritable(file, notPlain(`a link at it led SQLite to ${db.location()}`));
+    }
     // A writer that arrives while another is working waits for it rather than
     // failing at once, and gives up saying so rather than waiting for ever.
     db.exec(`PRAGMA busy_timeout = ${waitMs}`);
@@ -208,7 +232,7 @@ function lockOn(file, waitMs, how = 'IMMEDIATE') {
   return {
     release() {
       try {
-        db.exec('COMMIT');
+        db.exec('ROLLBACK');
       } finally {
         db.close();
         const left = heldHere.get(file) - 1;
@@ -218,6 +242,30 @@ function lockOn(file, waitMs, how = 'IMMEDIATE') {
     },
   };
 }
+
+/**
+ * Make the lock file at `file` if it is not there, and open it for writing
+ * without following a link or waiting on a FIFO. Anything at the name but a
+ * plain file is refused.
+ */
+function plainFile(file) {
+  let fd;
+  try {
+    fd = openSync(file, constants.O_WRONLY | constants.O_CREAT | constants.O_APPEND | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  } catch (error) {
+    // A link, a folder and a FIFO with no reader, in that order.
+    if (['ELOOP', 'EISDIR', 'ENXIO'].includes(error.code)) throw notPlain(error.code);
+    throw error;
+  }
+  try {
+    if (!fstatSync(fd).isFile()) throw notPlain('not a plain file');
+  } finally {
+    closeSync(fd);
+  }
+}
+
+const NOT_PLAIN = 'ENOTPLAIN';
+const notPlain = (message) => Object.assign(new Error(message), { code: NOT_PLAIN });
 
 /** How many turns this process holds on each lock file, by its path. */
 const heldHere = new Map();
@@ -263,10 +311,35 @@ const botLocks = (home) => {
  */
 class LockNotWritable extends Error {
   constructor(file, why) {
-    super(`the kit cannot write its lock ${file} (${why.code ?? why.message}), so it did not take the turn, and nothing was done. A Codex session started before this version of the kit cannot write its bot's folder of locks: restart this session with the kit. Elsewhere, make ${path.dirname(file)} writable.`);
+    super(why.code === NOT_PLAIN
+      ? `something other than a plain file is at the name of the kit's lock ${file} (${why.message}), so the kit did not take the turn, and nothing was done. Remove ${file}; the kit makes it again.`
+      : `the kit cannot write its lock ${file} (${why.code ?? why.message}), so it did not take the turn, and nothing was done. A Codex session started before this version of the kit cannot write its bot's folder of locks: restart this session with the kit. Elsewhere, make ${path.dirname(file)} writable.`);
     this.code = why.code;
   }
 }
+
+/**
+ * The right to change the bot's `bot.yaml` (#595), held from the read a command
+ * makes its change on until that change is written. Two commands that change
+ * one bot at the same time then each change what the other left, and neither
+ * change is lost.
+ *
+ * The book's kind of lock, on a file of its own beside the book's: `temp make`
+ * writes bot.yaml while it holds the book's, and nothing takes the book's while
+ * it holds this one, so neither waits on the other.
+ */
+export function takeBotTurn(home) {
+  const file = botLockFile(home);
+  try {
+    return lockOn(file, WAIT_MS);
+  } catch (error) {
+    if (error instanceof LockNotWritable) throw error;
+    throw new Error(`waited ${WAIT_MS / 1000} seconds for something else to finish writing ${path.join(home, 'bot.yaml')} and it did not (${error.message}). bot.yaml was not changed. Try again; if nothing is running, remove ${file}, which is where writers take their turn.`);
+  }
+}
+
+/** Beside the book's lock, with the bot's name: the lock files of its sessions carry one more part. */
+const botLockFile = (home) => path.join(botLocks(home), `${encodeURIComponent(path.basename(realpathSync(home)))}.bot.lock`);
 
 /**
  * One session's turn at its mailbox (#321): held by `session mailbox` for its

@@ -220,9 +220,16 @@ export const runsOnCodex = (bot) => bot.harness === 'codex'
  */
 function missingDefaults(bots, home, bot) {
   const allowed = allowOf(home, bot);
-  return defaultRules(bots)
-    .filter((rule) => runsOnClaude(bot) || codexForm(rule).line !== undefined)
-    .filter((rule) => !allowed.includes(rule));
+  return botDefaults(bots, bot).filter((rule) => !allowed.includes(rule));
+}
+
+/**
+ * The default rules a bot on Claude or Codex is given, in the default order:
+ * what `bot create` writes into a new bot's bot.yaml (#595).
+ */
+export function botDefaults(bots, bot) {
+  if (!runsOnClaude(bot) && !runsOnCodex(bot)) return [];
+  return defaultRules(bots).filter((rule) => runsOnClaude(bot) || codexForm(rule).line !== undefined);
 }
 
 /**
