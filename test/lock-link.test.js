@@ -50,6 +50,7 @@ import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import { access, mkdir, readdir, readFile, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
@@ -557,5 +558,174 @@ for (const lock of LOCKS) {
     }
     await assertKeeps(target, '');
     assert.deepEqual(await readdir(outside), ['empty.lock'], 'nothing is made beside the file outside');
+  });
+}
+
+// ------------------------------------------------- a swap while the lock is taken: no lock held outside
+
+// R1 holds that nothing is written outside during the swap race. The issue
+// asks for more: a kit lock never opens a file through a link. A kit that
+// opens the file outside through the link and locks it, writing nothing, still
+// does what the issue forbids, and it holds out anyone else who uses that file.
+//
+// A SQLite lock is a POSIX file lock, so another process can see it. A prober
+// opens the file outside with node:sqlite, sets `PRAGMA busy_timeout = 0`, and
+// runs `BEGIN EXCLUSIVE` then `ROLLBACK` in a tight loop. `BEGIN EXCLUSIVE`
+// answers SQLITE_BUSY (errcode 5) while any other process holds any SQLite
+// lock on the file, shared or more; `BEGIN IMMEDIATE` would not see a shared
+// one. It writes nothing to the file.
+//
+// R2  For each of the two locks: the swapper of R1 swaps the name (move aside,
+//     link to an empty file outside, put back) while this process takes the
+//     lock, holds it HOLD_MS, and lets it go, many times. The prober never sees
+//     the file outside busy. Whether a take goes through or refuses is left
+//     open, as in R1.
+//
+// Before the race, the same prober is shown to see a lock: this process holds
+// `BEGIN EXCLUSIVE` on a file of its own outside, and the prober must see it
+// busy. Without that, a prober that never sees anything would pass R2.
+//
+// The prober and the swapper are two children, not one: each loop then runs
+// as fast as it can, and neither waits for the other. Both stop at a stop file
+// or at their own deadline, and are killed by the pid captured at spawn if
+// they have not ended soon after.
+
+/** How long this process holds each lock it takes in R2, so the prober has a moment to look. */
+const HOLD_MS = 2;
+
+/** How many takes R2 makes at most, still bounded by RACE_MS. Most takes refuse at once, so R1's count runs out in a second. */
+const R2_TAKES = 10_000;
+
+/** The prober, as a script: argv is file, ready, stop, ms. Says `{ probes, busy, other }` as JSON at the end. */
+const PROBER = `${[
+  "import { existsSync, writeFileSync } from 'node:fs';",
+  "import { DatabaseSync } from 'node:sqlite';",
+  'const [file, ready, stop, ms] = process.argv.slice(2);',
+  'const until = Date.now() + Number(ms);',
+  'const db = new DatabaseSync(file);',
+  "db.exec('PRAGMA busy_timeout = 0');",
+  'let probes = 0;',
+  'let busy = 0;',
+  'const other = [];',
+  'writeFileSync(ready, "");',
+  'for (; Date.now() < until; probes += 1) {',
+  '  if (probes % 256 === 0 && existsSync(stop)) break;',
+  '  try {',
+  "    db.exec('BEGIN EXCLUSIVE');",
+  "    db.exec('ROLLBACK');",
+  '  } catch (error) {',
+  '    if (error.errcode === 5) busy += 1;',
+  '    else if (other.length < 5) other.push(`${error.errcode}: ${error.message}`);',
+  '  }',
+  '}',
+  'db.close();',
+  'process.stdout.write(JSON.stringify({ probes, busy, other }));',
+].join('\n')}\n`;
+
+/** Start the prober on `file`, and answer `stop()`, which ends it and answers `{ probes, busy, other }`. */
+async function startProber(box, file, name) {
+  const dir = path.join(box.root, `prober-${name}`);
+  await mkdir(dir, { recursive: true });
+  const script = path.join(dir, 'probe.mjs');
+  await writeFile(script, PROBER);
+  const ready = path.join(dir, 'ready');
+  const stopFile = path.join(dir, 'stop');
+  const child = spawn(process.execPath, [script, file, ready, stopFile, String(RACE_MS + 5_000)], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  const { pid } = child;
+  let out = '';
+  let err = '';
+  child.stdout.setEncoding('utf8');
+  child.stderr.setEncoding('utf8');
+  child.stdout.on('data', (chunk) => { out += chunk; });
+  child.stderr.on('data', (chunk) => { err += chunk; });
+  const ended = new Promise((resolve) => child.on('close', resolve));
+  const until = Date.now() + 5_000;
+  while (!(await isThere(ready)) && Date.now() < until) await delay(10);
+  assert.equal(await isThere(ready), true, `the premise: the prober started: ${err}`);
+  return {
+    async stop() {
+      await writeFile(stopFile, '');
+      const done = await Promise.race([ended.then(() => true), delay(3_000).then(() => false)]);
+      if (!done) {
+        process.kill(pid, 'SIGKILL');
+        await ended;
+      }
+      try {
+        return JSON.parse(out);
+      } catch {
+        assert.fail(`the prober said nothing that can be read: ${out}${err}`);
+      }
+    },
+  };
+}
+
+/** Take a lock, hold it HOLD_MS, and let it go: `{ went: true }`, or `{ went: false, error }`. */
+async function holdOnce(lock, home) {
+  try {
+    if (lock.key === 'book') {
+      await updateBook(home, async (book) => {
+        await delay(HOLD_MS);
+        return book;
+      });
+    } else {
+      const turn = takeBotTurn(home);
+      await delay(HOLD_MS);
+      turn.release();
+    }
+    return { went: true };
+  } catch (error) {
+    return { went: false, error };
+  }
+}
+
+for (const lock of LOCKS) {
+  test(`#605 R2 ${lock.label}, taken again and again while its name is swapped for a link to an empty file outside and back: the file outside is never locked`, async (t) => {
+    const box = await createSandbox(t);
+    const { bots, home } = await aBot(box);
+    const outside = await outsideFolder(box);
+
+    // The premise: the prober sees a lock that another process holds.
+    const own = path.join(outside, 'own.db');
+    await writeFile(own, '');
+    const holder = new DatabaseSync(own);
+    let calibration;
+    try {
+      holder.exec('BEGIN EXCLUSIVE');
+      const prober = await startProber(box, own, 'premise');
+      await delay(200);
+      calibration = await prober.stop();
+      holder.exec('ROLLBACK');
+    } finally {
+      holder.close();
+    }
+    assert.ok(calibration.busy > 0, `the premise: the prober sees a lock this process holds, and it said ${JSON.stringify(calibration)}`);
+
+    const target = path.join(outside, 'empty.lock');
+    await writeFile(target, '');
+    const lockFile = lock.lockFile(bots, BOT);
+    await clearName(lockFile);
+    assert.equal((await holdOnce(lock, home)).went, true, 'the premise: the lock is taken once before the race, which leaves its file at the name');
+
+    const prober = await startProber(box, target, 'race');
+    const swapper = await startSwapper(box, lockFile, target);
+    let takes = 0;
+    let went = 0;
+    const until = Date.now() + RACE_MS;
+    let probed;
+    try {
+      while (takes < R2_TAKES && Date.now() < until) {
+        takes += 1;
+        if ((await holdOnce(lock, home)).went) went += 1;
+      }
+    } finally {
+      const swaps = await swapper.stop();
+      probed = await prober.stop();
+      t.diagnostic(`${takes} takes (${went} went through); the swapper: ${swaps}; the prober: ${JSON.stringify(probed)}`);
+    }
+
+    assert.ok(probed.probes > 0, 'the premise: the prober looked at the file outside during the race');
+    assert.equal(probed.busy, 0, `the file outside is never locked: the prober found it locked ${probed.busy} times in ${probed.probes} probes, during ${takes} takes`);
   });
 }
