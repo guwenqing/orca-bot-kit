@@ -88,7 +88,7 @@ Usage:
                             the bot's temporary sessions may be made at. A
                             running session takes it when it next starts.
   obk session change --bots <path> --bot <bot> --session <session>
-                  [--harness claude|codex]
+                  [--harness claude|codex|pi]
                   [--model <m>] [--effort <e>] [--context <c>]
                   [--prompt <text> | --prompt-file <path>] [--work-dir <path>]
                   [--extra-arg=<arg>]
