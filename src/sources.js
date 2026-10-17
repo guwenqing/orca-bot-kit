@@ -14,11 +14,11 @@
 // file, so the difference is theirs to see.
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { parseDocument } from 'yaml';
 
-import { changesExactly, requireBotsFolder, YAML_OUT } from './bot.js';
+import { changesExactly, leadsOutside, requireBotsFolder, YAML_OUT } from './bot.js';
 import { ownCli, shellWord } from './launch.js';
 
 /** The user's file that lists where skills come from. */
@@ -281,6 +281,38 @@ function git(args, cwd, trouble) {
  * clone can still lead out; `skills build` follows it before linking.
  */
 const staysInRepo = (inside) => !path.isAbsolute(inside) && path.normalize(inside).split(path.sep)[0] !== '..';
+
+/**
+ * Where a source's skill at `dir` really leads when a link takes it, or anything
+ * in it, out of the source's clone; undefined when all of it stays inside (#571).
+ * A harness reads any file in a skill, so the whole folder is walked, through
+ * the links that stay inside as well.
+ */
+export function leavesClone(bots, name, dir) {
+  const clone = cloneDir(bots, name);
+  const seen = new Set();
+  const walk = (at) => {
+    const real = leadsOutside(clone, at);
+    if (real !== undefined) return real;
+    let entries;
+    try {
+      const where = realpathSync.native(at);
+      // A folder reached twice, through a link back into the skill, is walked once.
+      if (seen.has(where) || !statSync(where).isDirectory()) return undefined;
+      seen.add(where);
+      entries = readdirSync(where);
+    } catch {
+      // Nothing there, or nothing the kit may read: whatever links it says so.
+      return undefined;
+    }
+    for (const entry of entries) {
+      const found = walk(path.join(at, entry));
+      if (found !== undefined) return found;
+    }
+    return undefined;
+  };
+  return walk(dir);
+}
 
 /** Where a source's skills sit inside its clone: its root, or the subfolder it names. */
 export const skillsIn = (bots, source) => path.join(cloneDir(bots, source.name), source.path ?? '');

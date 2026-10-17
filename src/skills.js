@@ -28,7 +28,7 @@ import { botDir, botNames, changesExactly, leadsOutside, readBot, refuseOutside,
 import { harnessOf, ownCli, shellWord } from './launch.js';
 import { orcaCli, orcaTrouble, tabToTypeInto, typeIntoTab } from './orca.js';
 import { listIn } from './rules.js';
-import { cloneDir, isCloned, readSources, skillsIn, wrongClone } from './sources.js';
+import { cloneDir, isCloned, leavesClone, readSources, skillsIn, wrongClone } from './sources.js';
 
 /** The kit's own skills, inside the installed package. */
 const KIT_SKILLS = fileURLToPath(new URL('../skills', import.meta.url));
@@ -572,9 +572,9 @@ function follow(bots, ref, sources) {
       // The pinned clone is the only place a source's skill comes from. A path,
       // a skill name or a link the repo committed can lead out of it (#571).
       const inClone = path.join(skillsIn(bots, source), after);
-      const real = leadsOutside(cloneDir(bots, named), inClone);
+      const real = leavesClone(bots, named, inClone);
       if (real !== undefined) {
-        throw new Error(`${ref} leads outside the clone of the source ${named}, to ${real}, and a skill from a source comes only from the version skills.yaml pins for it. Name a skill inside ${cloneDir(bots, named)}.`);
+        throw new Error(`${ref} leads outside the clone of the source ${named}, to ${real}, and a skill from a source comes only from the version skills.yaml pins for it. Name a skill inside ${cloneDir(bots, named)} with no link out of it.`);
       }
       return inClone;
     },
