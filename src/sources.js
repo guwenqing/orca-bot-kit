@@ -65,6 +65,9 @@ export function addSource(bots, { name, repo, ref, path: inside }) {
   if (TAKEN.includes(name)) {
     throw new Error(`${name} is the kit's own shelf, which a bot names kit:<name>, so a source cannot be called that. Call it something else.`);
   }
+  if (inside !== undefined && !staysInRepo(inside)) {
+    throw new Error(`${inside} cannot be the path of the source ${name}: it leads out of the repo, and a path is a subfolder inside it, such as skills.`);
+  }
 
   const file = path.join(bots, SKILLS_YAML);
   // Read through the same reader every other command uses, so a file this one
@@ -272,6 +275,13 @@ function git(args, cwd, trouble) {
   return result.stdout.trim();
 }
 
+/**
+ * Whether a source's path, as written, names a folder inside its repo: not an
+ * absolute path, and no `..` that climbs above the top (#571). A link inside the
+ * clone can still lead out; `skills build` follows it before linking.
+ */
+const staysInRepo = (inside) => !path.isAbsolute(inside) && path.normalize(inside).split(path.sep)[0] !== '..';
+
 /** Where a source's skills sit inside its clone: its root, or the subfolder it names. */
 export const skillsIn = (bots, source) => path.join(cloneDir(bots, source.name), source.path ?? '');
 
@@ -352,6 +362,9 @@ export function readSources(file) {
     }
     if (source.path !== undefined && typeof source.path !== 'string') {
       throw new Error(`${file}: the source ${name} has a path that is not a subfolder inside the repo.`);
+    }
+    if (source.path !== undefined && !staysInRepo(source.path)) {
+      throw new Error(`${file}: the source ${name} has the path ${source.path}, which leads out of the repo, and a path is a subfolder inside it, such as skills.`);
     }
     return source;
   });
