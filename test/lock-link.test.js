@@ -47,10 +47,11 @@
 // its own HOME, a fake Orca and fake harnesses.
 
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { access, mkdir, readdir, readFile, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
+import { setTimeout as delay } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
 import { parse } from 'yaml';
 
@@ -440,3 +441,121 @@ test('#605 N3 two line turns held at once, with nothing swapped: both are taken,
   assert.equal(typeof third.turn?.release, 'function', `a line turn is taken again after both were let go; ${toldLine(third)}`);
   third.turn.release();
 });
+
+// ------------------------------------------------- a swap while the lock is taken: a real race
+
+// The tests above put something at the lock's name and leave it there. A
+// session that can write in the bot's folder of locks can also change the name
+// while the kit takes the lock: move the kit's file aside, put a link at the
+// name to a file outside, and put the kit's file back, over and over. Then the
+// kit may meet the plain file when it looks at the name, open the link, and
+// meet the plain file again when it looks once more. The requirement is the
+// same: no file outside is opened, made or written. So an empty file outside
+// keeps its 0 bytes, and nothing is made beside it (a SQLite journal).
+//
+// R1  For each of the two locks: a child process of this test swaps the name
+//     in a tight loop (move aside, link to an empty file outside, put back),
+//     while this process takes the lock and lets it go many times. After each
+//     take the file outside is looked at. Whether a take goes through or
+//     refuses is left open; both are allowed.
+//
+// The seam is a real race, not a hook in node:fs: a hook would pin which call
+// the kit makes and when, and the requirement says nothing of that. The cost
+// is that a red is likely, not certain: a race is bounded by RACE_TAKES and
+// RACE_MS, and the test says in a diagnostic how many takes and swaps it saw.
+// The child stops itself at a stop file or its own deadline; if it has not
+// ended soon after, it is killed by the pid captured when it was spawned.
+
+const RACE_TAKES = 2_000;
+const RACE_MS = 15_000;
+
+/** The child that swaps the name, as a script: argv is lock, aside, target, ready, stop, ms. */
+const SWAPPER = `${[
+  "import { existsSync, renameSync, symlinkSync, writeFileSync } from 'node:fs';",
+  'const [lock, aside, target, ready, stop, ms] = process.argv.slice(2);',
+  'const until = Date.now() + Number(ms);',
+  'let swaps = 0;',
+  'let rounds = 0;',
+  'writeFileSync(ready, "");',
+  'for (; Date.now() < until; rounds += 1) {',
+  '  if (rounds % 256 === 0 && existsSync(stop)) break;',
+  '  try { renameSync(lock, aside); } catch { continue; }',
+  '  try { symlinkSync(target, lock); } catch { /* the kit made a file at the name meanwhile */ }',
+  '  try { renameSync(aside, lock); swaps += 1; } catch { /* put back next round */ }',
+  '}',
+  'process.stdout.write(`${swaps} swaps in ${rounds} rounds`);',
+].join('\n')}\n`;
+
+/** Start the swapper on `lock`, and answer `stop()`, which ends it and answers what it said of its swaps. */
+async function startSwapper(box, lock, target) {
+  const dir = path.join(box.root, 'swapper');
+  await mkdir(dir, { recursive: true });
+  const script = path.join(dir, 'swap.mjs');
+  await writeFile(script, SWAPPER);
+  const ready = path.join(dir, 'ready');
+  const stopFile = path.join(dir, 'stop');
+  const child = spawn(process.execPath, [script, lock, `${lock}.aside`, target, ready, stopFile, String(RACE_MS + 5_000)], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  const { pid } = child;
+  let out = '';
+  child.stdout.setEncoding('utf8');
+  child.stdout.on('data', (chunk) => { out += chunk; });
+  const ended = new Promise((resolve) => child.on('close', resolve));
+  const until = Date.now() + 5_000;
+  while (!(await isThere(ready)) && Date.now() < until) await delay(10);
+  assert.equal(await isThere(ready), true, 'the premise: the swapper started');
+  return {
+    async stop() {
+      await writeFile(stopFile, '');
+      const done = await Promise.race([ended.then(() => true), delay(3_000).then(() => false)]);
+      if (!done) {
+        process.kill(pid, 'SIGKILL');
+        await ended;
+      }
+      return out || 'nothing said';
+    },
+  };
+}
+
+for (const lock of LOCKS) {
+  test(`#605 R1 ${lock.label}, taken again and again while its name is swapped for a link to an empty file outside and back: that file keeps its 0 bytes, and nothing is made beside it`, async (t) => {
+    const box = await createSandbox(t);
+    const { bots, home } = await aBot(box);
+    const outside = await outsideFolder(box);
+    const target = path.join(outside, 'empty.lock');
+    await writeFile(target, '');
+    const lockFile = lock.lockFile(bots, BOT);
+    await clearName(lockFile);
+    assert.equal((await attempt(lock, home)).went, true, 'the premise: the lock is taken once before the race, which leaves its file at the name');
+    assert.equal(await isThere(lockFile), true, 'the premise: the lock\'s file is at its name');
+
+    const swapper = await startSwapper(box, lockFile, target);
+    let takes = 0;
+    let went = 0;
+    let damage;
+    const until = Date.now() + RACE_MS;
+    try {
+      while (takes < RACE_TAKES && Date.now() < until) {
+        takes += 1;
+        if ((await attempt(lock, home)).went) went += 1;
+        const bytes = await readFile(target);
+        const listed = await readdir(outside);
+        if (bytes.length !== 0 || listed.length !== 1) {
+          damage = { bytes, listed };
+          break;
+        }
+      }
+    } finally {
+      const swaps = await swapper.stop();
+      t.diagnostic(`${takes} takes (${went} went through); the swapper: ${swaps}`);
+    }
+
+    if (damage !== undefined) {
+      assert.fail(`after take ${takes}, the file outside holds ${damage.bytes.length} bytes, starting `
+        + `${JSON.stringify(damage.bytes.subarray(0, 16).toString('latin1'))}, and the folder outside holds ${JSON.stringify(damage.listed)}`);
+    }
+    await assertKeeps(target, '');
+    assert.deepEqual(await readdir(outside), ['empty.lock'], 'nothing is made beside the file outside');
+  });
+}
