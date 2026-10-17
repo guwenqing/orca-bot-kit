@@ -50,7 +50,11 @@ spelled path, and the link can be changed later (developer-585). A refusal says 
 that folder, and changes nothing. A change that leaves a Codex session's
 harness and work dir as they were is not refused. `session change` judges the
 whole session that it writes, so a change that another command made in the
-meantime is not combined with it unchecked (reviewer-585).
+meantime is not combined with it unchecked (reviewer-585). Every kit write
+over `bot.yaml` is made in one step, as the book is written: to a file of the
+command's own beside it, then moved over it. Two writes at once then leave one
+whole text that a command checked, never one text with the end of the other
+after it (reviewer-585).
 
 The approval level does not matter. A Codex session at `dangerously-skip`
 has no sandbox, but a later `obk permission approval` to `auto` would then
@@ -93,6 +97,10 @@ a user needs one later, that is a new requirement.
   do that.
 - Bad: a path spelled outside the bot folder that a link takes back into it
   is refused, though it widens nothing today. Its user can spell it inside.
+- Bad: nothing locks the read, the check and the write of `bot.yaml`, so two
+  commands at the same time can still lose one of the two changes. Each
+  `bot.yaml` that results is one that a command checked, so this is a
+  correctness gap, not a wider write: #595.
 - Revisit if: a user asks for a Codex work dir outside the bot folder, or a
   harness gets another flag that the kit sets from a work dir. Confidence:
   high.

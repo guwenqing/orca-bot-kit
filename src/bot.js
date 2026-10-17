@@ -7,7 +7,7 @@
 // The files are the user's. A command that cannot do what was asked refuses and
 // writes nothing, rather than leave a bot half made or a bot.yaml half edited.
 
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
@@ -278,7 +278,7 @@ export function addSession(bots, bot, settings) {
   if (!changesExactly(source, text, (was) => ({ ...was, sessions: [...(was.sessions ?? []), session] }))) {
     throw new Error(`${file} cannot have a session added to it without changing something else in it, so nothing was written. Add ${settings.name} to its sessions list by hand.`);
   }
-  writeFileSync(file, text);
+  writeWhole(file, text);
   return { bot, home, session };
 }
 
@@ -554,7 +554,22 @@ function editBot(bots, bot, what, edit, expected, write = true) {
     throw refusal;
   }
   if (!changesExactly(source, text, expected)) throw refusal;
-  if (write && text !== source) writeFileSync(file, text);
+  if (write && text !== source) writeWhole(file, text);
+}
+
+/**
+ * Write `text` over the bot.yaml `file` in one step, as the book is written:
+ * to a file of this process's own beside it, then moved over it. Two commands
+ * that write it at once leave one whole text or the other, never the one with
+ * the end of the other after it, which can read as a session neither command
+ * wrote (#585). A link to it is written through, to the file it names, and the
+ * file keeps its mode.
+ */
+export function writeWhole(file, text) {
+  const real = realpathSync(file);
+  const half = `${real}.${process.pid}.part`;
+  writeFileSync(half, text, { mode: statSync(real).mode & 0o777 });
+  renameSync(half, real);
 }
 
 /** A bot that is there, by its home, or the refusal a caller who named another is owed. */

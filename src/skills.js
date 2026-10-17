@@ -24,7 +24,7 @@ import { fileURLToPath } from 'node:url';
 import { parse, parseDocument, stringify } from 'yaml';
 
 import { bookFile, readBook, takeLineTurn, TYPING_HELD, TYPING_WAIT_MS } from './book.js';
-import { botDir, botNames, changesExactly, leadsOutside, readBot, refuseOutside, YAML_OUT } from './bot.js';
+import { botDir, botNames, changesExactly, leadsOutside, readBot, refuseOutside, writeWhole, YAML_OUT } from './bot.js';
 import { harnessOf, ownCli, shellWord } from './launch.js';
 import { orcaCli, orcaTrouble, tabToTypeInto, typeIntoTab } from './orca.js';
 import { listIn } from './rules.js';
@@ -102,7 +102,7 @@ export function addSkill(bots, bot, ref) {
   if (!changesExactly(was, text, (had) => ({ ...had, skills: [...(had.skills ?? []), ref] }))) {
     throw new Error(`${file} cannot have a skill added to it without changing something else in it, so nothing was written. Add ${ref} to its skills list by hand.`);
   }
-  writeFileSync(file, text);
+  writeWhole(file, text);
   return { bot, home, skill: ref, state: 'added' };
 }
 
@@ -131,7 +131,7 @@ export function removeSkill(bots, bot, ref) {
   if (!changesExactly(was, text, (had) => ({ ...had, skills: had.skills.filter((one, at) => at !== index) }))) {
     throw new Error(`${file} cannot have a skill taken off it without changing something else in it, so nothing was written. Take ${ref} off its skills list by hand.`);
   }
-  writeFileSync(file, text);
+  writeWhole(file, text);
   return { bot, home, skill: ref, state: 'removed' };
 }
 

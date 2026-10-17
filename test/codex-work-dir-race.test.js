@@ -27,6 +27,18 @@
 // gate. After OTHER_WAIT_MS the gate is opened anyway, and both are let finish.
 // Without a lock the other command ends long before that.
 //
+// R11, from review round 2: a kit write of bot.yaml is whole. Two commands
+// that write bot.yaml at the same time leave it as one of their whole texts,
+// never a mix of the two. A plain write opens the file, which empties it, and
+// then writes into it. helpers/write-gate.js holds each command at those two
+// steps, and the test puts them in this order: B opens, A opens, A writes its
+// longer text and ends, then B writes its shorter text through the file it
+// opened first. A mix of the two is B's text with the end of A's after it. The
+// session is put last in the file first (valid YAML a user may write), so that
+// end is A's session with `harness: codex`. A kit that writes another file
+// and renames it over bot.yaml is never held: then both commands are let run
+// to their end, and only the end state is judged, with both exit codes taken.
+//
 // Every run is in the sandbox (helpers/cli.js): its own HOME, a fake Orca, and
 // fake harnesses on its own PATH.
 
@@ -36,12 +48,13 @@ import path from 'node:path';
 import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
-import { parse } from 'yaml';
+import { parse, stringify } from 'yaml';
 
 import { botHomeOf, createSandbox, repoRoot } from './helpers/cli.js';
 
 const BOT = 'api-bot';
 const GATE_ENTRY = path.join(repoRoot, 'test', 'helpers', 'read-gate.js');
+const WRITE_GATE_ENTRY = path.join(repoRoot, 'test', 'helpers', 'write-gate.js');
 
 /** How long the other command may take while one is stopped, before the gate is opened anyway. */
 const OTHER_WAIT_MS = 30_000;
@@ -148,3 +161,74 @@ for (const [stoppedOne, otherOne] of [['A', 'B'], ['B', 'A']]) {
     }
   });
 }
+
+// ------------------------------------------------------- R11 a write is whole
+
+/** The environment that loads the write gate on bot.yaml, with `gate` as its gate. */
+const writeGated = (box, bots, gate) => ({
+  ...box.env,
+  NODE_OPTIONS: [box.env.NODE_OPTIONS, `--import=${pathToFileURL(WRITE_GATE_ENTRY).href}`].filter(Boolean).join(' '),
+  OBK_TEST_WRITE_GATE_FILE: botYamlOf(bots),
+  OBK_TEST_WRITE_GATE: gate,
+});
+
+/**
+ * Wait until `marker` is there: true. False when the run ended first, or when
+ * OTHER_WAIT_MS passed (a kit that takes a lock may hold the run back).
+ */
+async function reached(marker, run) {
+  const limit = Date.now() + OTHER_WAIT_MS;
+  for (;;) {
+    if (await isThere(marker)) return true;
+    if (run.ended || Date.now() > limit) return false;
+    await delay(20);
+  }
+}
+
+/** Start `obk session change` of daily with `rest`, held at the write gate `gate`. */
+function started(box, bots, rest, gate) {
+  const run = { ended: false };
+  run.result = change(box, rest, writeGated(box, bots, gate)).then((result) => { run.ended = true; return result; });
+  return run;
+}
+
+/** Open every step of a gate, so a held run goes on to its end. */
+const openAll = (gate) => Promise.all(['open', 'write'].map((step) => writeFile(`${gate}.${step}`, '')));
+
+test('R11 two session change writes at once: B opens, A opens and writes, B writes last: never Codex with a work dir outside', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await withSession(box);
+  // The session list last, after the bot's other keys: valid YAML a user may write.
+  const { sessions, ...rest } = parse(await readFile(botYamlOf(bots), 'utf8'));
+  await writeFile(botYamlOf(bots), stringify({ ...rest, sessions }));
+  const gateA = box.path('gate-a');
+  const gateB = box.path('gate-b');
+
+  const a = started(box, bots, COMMANDS.A, gateA);
+  const b = started(box, bots, COMMANDS.B, gateB);
+  const bothHeld = (await reached(`${gateA}.ready`, a)) && (await reached(`${gateB}.ready`, b));
+  if (bothHeld) {
+    await writeFile(`${gateB}.open`, '');
+    if (await reached(`${gateB}.opened`, b)) {
+      await writeFile(`${gateA}.open`, '');
+      if (await reached(`${gateA}.opened`, a)) {
+        await writeFile(`${gateA}.write`, '');
+        await a.result;
+      }
+    }
+  }
+  // B writes last; and whatever was not held is let go.
+  await openAll(gateA);
+  await openAll(gateB);
+  const first = await a.result;
+  const second = await b.result;
+
+  const text = await readFile(botYamlOf(bots), 'utf8');
+  const { session, harness, inside } = await dailyOf(bots);
+  assert.ok(
+    !(harness === 'codex' && !inside),
+    `A (${COMMANDS.A.join(' ')}) and B (${COMMANDS.B.join(' ')}) wrote at once${bothHeld ? '' : ' (not held)'}: `
+    + `exit ${first.code} and ${second.code}, and bot.yaml now holds a Codex session with a work dir outside: `
+    + `${JSON.stringify(session)}\n${text.slice(text.indexOf('sessions:'))}`,
+  );
+});
