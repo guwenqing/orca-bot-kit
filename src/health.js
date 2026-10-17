@@ -25,7 +25,7 @@ import { bookFile, readBook, sessionIdsIn, tabIdsIn } from './book.js';
 import { botDir, botNames, botsDir, readBot, tempRoles, unknownKeys } from './bot.js';
 import { transcriptsIn } from './conversations.js';
 import { hookTrouble } from './hooks.js';
-import { APPROVALS, bypassFlags, harnessOf, HARNESSES, isAddressOf, ownCli, sessionTrouble, SHELL_ENV, shellWord, workDirOf } from './launch.js';
+import { APPROVALS, bypassFlags, harnessOf, HARNESSES, isAddressOf, ownCli, promptFile, sessionTrouble, set, SHELL_ENV, shellWord, workDirOf } from './launch.js';
 import { frontOfTab, orcaDefaultArgs, projects, runMissing, tabs, wordsOfProcess } from './orca.js';
 import { permissionsTrouble } from './permissions.js';
 import { processesIn } from './processes.js';
@@ -140,8 +140,17 @@ function leftBeside(bots) {
   let known = true;
   for (const name of botNames(bots)) {
     try {
-      for (const session of readBot(botDir(bots, name), name).sessions) {
+      const home = botDir(bots, name);
+      for (const session of readBot(home, name).sessions) {
         owned.add(promptPath(bots, name, session.name));
+        // The file a session names as its own prompt, which the kit reads to
+        // start it, and the file a link there leads to (#577).
+        if (set(session.prompt_file)) {
+          const file = promptFile(session, home);
+          owned.add(file);
+          const real = realpathOf(file);
+          if (real !== undefined) owned.add(real);
+        }
         // Where a live session's prompt was before #534: nothing reads it once
         // the session starts again, and its retire removes it.
         owned.add(oldPromptPath(bots, name, session.name));
@@ -153,7 +162,7 @@ function leftBeside(bots) {
 
   if (known) {
     for (const at of promptFilesIn(`${bots}.prompts`)) {
-      if (owned.has(at)) continue;
+      if (owned.has(at) || owned.has(realpathOf(at))) continue;
       found.push(finding('leftover', at, `${at} is a start prompt the kit wrote beside your bots folder, and no session of any bot answers to it now. Nothing reads it.`));
     }
   }

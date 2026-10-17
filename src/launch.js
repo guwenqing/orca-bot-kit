@@ -219,7 +219,7 @@ export function piApprovalTrouble(level, who = 'this session') {
 }
 
 /** A setting the user left out. An empty string is one too: it means the harness's own. */
-const set = (value) => value !== undefined && value !== null && String(value).trim() !== '';
+export const set = (value) => value !== undefined && value !== null && String(value).trim() !== '';
 
 /** Which harness a session runs on: its own, or the bot's. */
 export const harnessOf = (session, botHarness) => (set(session.harness) ? session.harness : botHarness);
@@ -494,7 +494,7 @@ export function startPrompt(session, { home, workDir }) {
 }
 
 /** Where a session's prompt file is: in the bot home, where the user put it. */
-export const promptFile = (session, home) => path.resolve(home, session.prompt_file);
+export const promptFile = (session, home) => path.resolve(home, String(session.prompt_file));
 
 /**
  * A prompt short and simple enough to type into the launch line as it is: one
