@@ -18,7 +18,7 @@
 
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 import { parse, stringify } from 'yaml';
@@ -33,6 +33,7 @@ import {
   namesIn,
   readThrough,
   SKILL_DIRS,
+  skillsDirOf,
   writeSkill,
 } from './helpers/skills.js';
 import {
@@ -421,3 +422,126 @@ for (const [label, given, lay] of [
     }
   });
 }
+
+// --- Criterion 9: everything inside the skill comes from the clone -----------
+//
+// The skill directory is a real folder inside the clone in each case below. A
+// committed symlink somewhere inside it decides where part of the skill comes
+// from: out of the clone, the skill is refused; within the clone, it is linked.
+
+/** Where the skill directory lies inside the clone, for working out a relative link. */
+const skillInClone = (bots) => path.join(cloneOf(bots, SOURCE), 'skills', SKILL);
+
+/** A source listed with `path: skills`, fetched without asserting, and on the bot's list. */
+async function listedAndFetched(box, bots, repo) {
+  await writeSources(bots, sourcesYaml({ name: SOURCE, repo, path: 'skills', ref: 'v1.0.0' }));
+  // Not asserted: fetch may refuse a source like this already, which is fine.
+  // Build must refuse it either way.
+  const result = await fetch(box);
+  await addSkills(botYamlOf(bots, BOT), `${SOURCE}:${SKILL}`);
+  return result;
+}
+
+test('#571 c9a build refuses a skill whose SKILL.md is a committed symlink to a file outside the clone', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  const outside = await realSkillAt(path.join(box.root, 'outside-shelf', SKILL));
+  const repo = await sourceRepo(box, SOURCE, async (dir) => {
+    await mkdir(path.join(dir, 'skills', SKILL), { recursive: true });
+    await symlink(path.join(outside, 'SKILL.md'), path.join(dir, 'skills', SKILL, 'SKILL.md'));
+  });
+  await listedAndFetched(box, bots, repo);
+
+  await assertBuildRefused(box, bots, 'the SKILL.md the bot would read comes from outside the clone');
+});
+
+test('#571 c9b build refuses a skill whose nested file is a committed symlink to a file outside the clone', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  const outsideNotes = await putFile(box.root, path.join('cwd', 'outside-notes.md'), `${OUTSIDE}\n`);
+  // A relative link, worked out from where it lies in the clone, so a check
+  // that only looks at absolute link targets does not pass it.
+  const target = path.relative(path.join(skillInClone(bots), 'references'), outsideNotes);
+  assert.ok(target.startsWith('..'), `the link should be relative and walk up, got: ${target}`);
+  const repo = await sourceRepo(box, SOURCE, async (dir) => {
+    await putSkills(dir, { [SKILL]: INSIDE }, 'skills');
+    await mkdir(path.join(dir, 'skills', SKILL, 'references'), { recursive: true });
+    await symlink(target, path.join(dir, 'skills', SKILL, 'references', 'notes.md'));
+  });
+  await listedAndFetched(box, bots, repo);
+  assert.equal(
+    await realpath(path.join(skillInClone(bots), 'references', 'notes.md')).catch(() => null),
+    await realpath(outsideNotes),
+    'the fixture: if the clone is there, its notes.md lands on the file outside it',
+  );
+
+  await assertBuildRefused(box, bots, 'a file deep inside the skill comes from outside the clone');
+});
+
+test('#571 c9c build refuses a skill whose nested folder is a committed symlink to a folder outside the clone', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  const outsideScripts = path.join(box.root, 'outside-scripts');
+  await putFile(outsideScripts, 'run.sh', 'echo "from outside the clone"\n');
+  const repo = await sourceRepo(box, SOURCE, async (dir) => {
+    await putSkills(dir, { [SKILL]: INSIDE }, 'skills');
+    await symlink(outsideScripts, path.join(dir, 'skills', SKILL, 'scripts'));
+  });
+  await listedAndFetched(box, bots, repo);
+
+  await assertBuildRefused(box, bots, 'a folder inside the skill comes from outside the clone');
+});
+
+test('#571 c9d a skill whose SKILL.md is a symlink to a SKILL.md elsewhere in the same clone is still linked', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  const repo = await sourceRepo(box, SOURCE, async (dir) => {
+    await putFile(dir, path.join('shared', 'SKILL.md'),
+      `---\nname: ${SKILL}\ndescription: What ${SKILL} is for.\n---\n\n${INSIDE}\n`);
+    await mkdir(path.join(dir, 'skills', SKILL), { recursive: true });
+    await symlink(path.join('..', '..', 'shared', 'SKILL.md'), path.join(dir, 'skills', SKILL, 'SKILL.md'));
+  });
+  await writeSources(bots, sourcesYaml({ name: SOURCE, repo, path: 'skills', ref: 'v1.0.0' }));
+  await fetched(box);
+  await addSkills(botYamlOf(bots, BOT), `${SOURCE}:${SKILL}`);
+
+  const result = await build(box);
+
+  assert.equal(result.code, 0, `${result.stderr}${result.stdout}`);
+  await assertLinked(bots, BOT, SKILL, skillInClone(bots));
+  for (const harness of HARNESSES) {
+    assert.ok(
+      (await readThrough(bots, BOT, harness, SKILL)).includes(INSIDE),
+      `${harness} should read the SKILL.md the clone shares, through the link`,
+    );
+  }
+});
+
+test('#571 c9e a skill whose nested file is a symlink to another file in the same clone is still linked', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  const NOTES = 'Notes the clone keeps in one place.';
+  const repo = await sourceRepo(box, SOURCE, async (dir) => {
+    await putSkills(dir, { [SKILL]: INSIDE }, 'skills');
+    await putFile(dir, path.join('shared', 'notes.md'), `${NOTES}\n`);
+    await mkdir(path.join(dir, 'skills', SKILL, 'references'), { recursive: true });
+    await symlink(
+      path.join('..', '..', '..', 'shared', 'notes.md'),
+      path.join(dir, 'skills', SKILL, 'references', 'notes.md'),
+    );
+  });
+  await writeSources(bots, sourcesYaml({ name: SOURCE, repo, path: 'skills', ref: 'v1.0.0' }));
+  await fetched(box);
+  await addSkills(botYamlOf(bots, BOT), `${SOURCE}:${SKILL}`);
+
+  const result = await build(box);
+
+  assert.equal(result.code, 0, `${result.stderr}${result.stdout}`);
+  await assertLinked(bots, BOT, SKILL, skillInClone(bots));
+  for (const harness of HARNESSES) {
+    assert.ok(
+      (await readFile(path.join(skillsDirOf(bots, BOT, harness), SKILL, 'references', 'notes.md'), 'utf8')).includes(NOTES),
+      `${harness} should read the notes the clone shares, through the link`,
+    );
+  }
+});
