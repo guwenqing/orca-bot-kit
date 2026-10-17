@@ -9,26 +9,31 @@
 // row on the screen. A return typed into it confirms "1. Yes" and starts auto
 // mode's teach scan. Any key into a real one writes a choice into the owner's
 // ~/.claude.json for the whole machine, which a system test may not do (#240).
-// So this test sends a real list no key. It stages a copy instead, in a tab of
-// its own that never shows a real one, and checks what the kit does there:
+// So this test sends a real list no key. It stages a copy instead, in tabs of
+// its own that never show a real one, and checks what the kit does there. It
+// has two stages, each in a fresh tab of its own Claude Code session:
 //
-//   1. A throwaway fleet: a bot on Claude Code with two sessions. `target` is
-//      Claude Code at `ask` (`--permission-mode manual`), not in auto mode,
-//      because Claude Code puts the Teach list up in auto mode (worked out from
-//      #489's run, not proven for 2.1.289); its start prompt asks for one short
-//      reply. `sender` is Codex, so mail from it to `target` goes through Orca,
-//      where the kit carries the letter and the Escape of `--interrupt`, and
-//      not by Claude Code's own messaging (PRD 6.9, ADR 0042). Its trust comes at launch (#240, helpers/codex-trust.js);
+//   1. A throwaway fleet: a bot on Claude Code with three sessions. `target`
+//      and `listed` are Claude Code at `ask` (`--permission-mode manual`), not
+//      in auto mode, because Claude Code puts the Teach list up in auto mode
+//      (worked out from #489's run, not proven for 2.1.289); the start prompt
+//      of each asks for one short reply. `target` holds the presence stage
+//      (step 6) and `listed` the list stage (step 7). `sender` is Codex, so
+//      mail from it goes through Orca, where the kit carries the letter and the
+//      Escape of `--interrupt`, and not by Claude Code's own messaging (PRD
+//      6.9, ADR 0042). Its trust comes at launch (#240, helpers/codex-trust.js);
 //      only its mailbox, which its launch line makes, is used.
-//   2. `target`'s folder trust is answered by this test, down and return, only
-//      when it is the plain one for the bot home, or the one that pre-approves
-//      exactly the kit's default rules (helpers/claude-trust.js
-//      `claudeTrustAt`, the rulings on #451 and #558), as temp-answer does.
+//   2. Each Claude session comes up in its own tab, and its folder trust is
+//      answered by this test, down and return, only when it is the plain one
+//      for the bot home, or the one that pre-approves exactly the kit's
+//      default rules (helpers/claude-trust.js `claudeTrustAt`, the rulings on
+//      #451 and #558), as temp-answer does. The second session in the same
+//      bot home can get no trust screen at all; then nothing is answered.
 //   3. Should a real Teach list or form come up all the same, the test types
 //      nothing into it, records its rows and ends there as skipped. The
 //      teardown closes the tab.
-//   4. `target` quits with /exit, typed only at its plain input line, and the
-//      shell comes to the front.
+//   4. The session quits with /exit, typed only at its plain input line, and
+//      the shell comes to the front.
 //   5. The test runs a small node program of its own in that tab, on the tab's
 //      terminal: it clears the screen, draws the rows it is given, writes
 //      every byte it reads to a file, and ends only when a stop file the test
@@ -40,40 +45,59 @@
 //      question is on it. Orca names an agent in a tab from, among other
 //      things, the process in front (tech notes, section 1); whether it names
 //      `claude` for this program is checked, not assumed.
-//   6. The presence: staged, the capture with the list taken out
-//      (CLAUDE_TEACH_LIST_GONE). Since #555 the kit types no mail line; the
-//      one key mail types is the Escape of `message send --interrupt`, through
-//      the same gate as the skills reload. Both pass the gate: the send reports
-//      no trouble, and either it pressed Escape (the program reads it) or Orca
-//      called the program idle and nothing was typed, as `--interrupt` wants.
-//      The program reads `/reload-skills`.
-//   7. The check: staged, the captured list (CLAUDE_TEACH_LIST). The send
+//   6. The presence, in `target`'s tab: staged, the capture with the list
+//      taken out (CLAUDE_TEACH_LIST_GONE). Since #555 the kit types no mail
+//      line; the one key mail types is the Escape of `message send
+//      --interrupt`, through the same gate as the skills reload. Both pass the
+//      gate: the send reports no trouble, and either it pressed Escape (the
+//      program reads it) or Orca called the program idle and nothing was
+//      typed, as `--interrupt` wants. The program reads `/reload-skills`.
+//      Then the program stops, and the shell is in front of `target`'s tab.
+//   7. The check, in `listed`'s tab, which steps 2 to 5 bring up only now:
+//      staged, the captured list (CLAUDE_TEACH_LIST). The send to `listed`
 //      with `--interrupt` is not interrupted and names `question-on-screen`,
-//      and a skills reload is reported blocked on `question-on-screen`; the
-//      program read not one byte, and the list is still drawn. The system
-//      tests' own look, `waitingOn`, sees the live list too.
+//      and a skills reload is reported blocked on `question-on-screen` for
+//      `listed`; the program read not one byte, and the list is still drawn.
+//      The system tests' own look, `waitingOn`, sees the live list too.
+//
+// Why a fresh tab for each stage (#560): on Orca 1.4.224 the stage that ran
+// second in the same tab got no agent name from Orca in 3 of 4 runs, so no kit
+// check ran in it. The stage that ran first got the name in 4 of 4 runs: the
+// presence stage three times and the list stage once. Each time it ran right
+// after a real Claude Code had its first turn in that tab and quit.
+// Worked out from Orca 1.4.225's bundle, not proven live: Orca's pty daemon
+// checks that a process named `claude` really is Claude Code, and keeps for
+// each tab the last agent it verified. The first staged program seems to get
+// the record the real Claude Code left; a second one in the same tab does not,
+// and Orca names no agent. So each stage gets the condition that passes.
+//
+// The order keeps the kit from typing into a real harness. `skills build`
+// types `/reload-skills` into each of the bot's sessions that its gate lets
+// through. During step 6's build `listed` is not up, so no real Claude Code
+// runs in a second tab. During step 7's build the shell is in front of
+// `target`'s tab, and the gate types into no shell.
 //
 // What it cannot show: what Claude Code's own list does with a key; this test
 // sends a real one none. What it does show: the kit reads the live screen as
 // Orca renders it, sees the list above the input box there, and types nothing,
-// in a tab where its gate let both through a moment before.
+// where its gate let both through in the same kind of tab a moment before.
 //
 // The machine it runs on is someone's working machine. So this test, like the
 // ones beside it: works in a throwaway bots folder under the system temp
 // directory, its staging program, its link and its files beside it; writes
 // down every terminal and workspace Orca already had; runs this checkout's
 // `src/cli.js` by its full path, never the machine's `obk` (#220); types only
-// into `target`'s tab, its own: the folder trust's answer, /exit, and the lines
-// that start the staging program; closes only its own tabs, through the tab
-// guard, and deletes its own workspaces, whatever happened; signals no
-// process, and reads `ps` for one pid at a time. `orca terminal close
-// --worktree … --all` is never run, and the guard refuses it. This test does
-// not read or write ~/.claude.json; Claude Code records the folder's trust in
-// it, and the runner takes that key out again (#240).
+// into the tabs of `target` and `listed`, its own: the folder trust's answer,
+// /exit, and the lines that start the staging program; closes only its own
+// tabs, through the tab guard, and deletes its own workspaces, whatever
+// happened; signals no process, and reads `ps` for one pid at a time. `orca
+// terminal close --worktree … --all` is never run, and the guard refuses it.
+// This test does not read or write ~/.claude.json; Claude Code records the
+// folder's trust in it, and the runner takes that key out again (#240).
 //
 // One thing it cannot clean up, as messaging.test.js says of itself: the Run
 // mailboxes. Orca has no `run-delete`, so each run leaves the Runs `up` made
-// behind, holding the two messages this test sent.
+// behind, holding the two messages this test sent, one to each Claude session.
 //
 // **It is attended, lightly.** Bot Father's tab shows Claude Code's folder
 // trust; nothing here waits on it, so leave it. `sender`'s Codex may offer an
@@ -127,7 +151,7 @@ const READY_MS = 180000;
 /** How long a real harness is given for its turn. */
 const ANSWER_MS = 240000;
 
-/** How long after target's reply the test looks for a real Teach list or form. */
+/** How long after a Claude session's reply the test looks for a real Teach list or form. */
 const TEACH_WATCH_MS = 30000;
 
 /** How long a screen is given to move on, a program to come to the front, or a line to reach the staging program. */
@@ -141,15 +165,16 @@ const SETTLE_MS = 5000;
 
 const BOT = 'gate-bot';
 const TARGET = 'target';
+const LISTED = 'listed';
 const SENDER = 'sender';
 
 /** The kit's word for a tab whose screen shows a harness's own question. */
 const QUESTION = 'question-on-screen';
 
-/** In target's start prompt only: its first turn prints it. */
+/** In the start prompt of target and listed only: the first turn prints it. */
 const READY_WORD = 'READY-4917';
 
-/** target's start prompt: one short reply, so it has a first turn, and nothing else. */
+/** The start prompt of target and listed: one short reply, so each has a first turn, and nothing else. */
 const TASK = 'You are a system test\'s session and you own nothing. Do not run any command, read or write any file,'
   + ` or use any tool. Reply now with ${READY_WORD} and nothing else, then wait.`;
 
@@ -413,17 +438,17 @@ function drawnAsStaged(rendered, staged) {
   return true;
 }
 
-/** `obk skills build` for the bot, `--json`: what it says of `target`. */
-function buildFor(bots) {
+/** `obk skills build` for the bot, `--json`: what it says of the session `name`. */
+function buildFor(bots, name) {
   const answer = obkJson(['skills', 'build', '--bots', bots, '--bot', BOT]);
   const entry = (answer.skills ?? []).find((one) => one.bot === BOT);
   assert.ok(Array.isArray(entry?.sessions), `${BOT}'s links changed, so its sessions are reported, got: ${JSON.stringify(answer)}`);
-  const said = entry.sessions.find((one) => one.session === TARGET);
-  assert.ok(said !== undefined, `the build says something of ${TARGET}, got: ${JSON.stringify(entry.sessions)}`);
+  const said = entry.sessions.find((one) => one.session === name);
+  assert.ok(said !== undefined, `the build says something of ${name}, got: ${JSON.stringify(entry.sessions)}`);
   return said;
 }
 
-test('the kit types no mail interrupt and no skills reload into a tab showing Claude Code 2.1.289\'s Teach list above its input box, and its gate lets both through in the same tab with the list gone', async (t) => {
+test('the kit types no mail interrupt and no skills reload into a tab showing Claude Code 2.1.289\'s Teach list above its input box, and its gate lets both through in a tab like it with the list gone', async (t) => {
   const before = {
     handles: new Set(allTerminals().map((terminal) => terminal.handle)),
     setups: new Set(allSetups().map((setup) => setup.id)),
@@ -479,8 +504,8 @@ test('the kit types no mail interrupt and no skills reload into a tab showing Cl
   });
 
   // ---------------------------------------------------------------------------
-  // 1. The fleet: Bot Father, and gate-bot on Claude Code with target at `ask`
-  // and sender on Codex.
+  // 1. The fleet: Bot Father, and gate-bot on Claude Code with target and
+  // listed at `ask` and sender on Codex.
   obkJson(['init', '--bots', bots, '--harness', 'claude']);
   obkJson([
     'bot', 'create', '--bots', bots, '--name', BOT, '--harness', 'claude',
@@ -489,60 +514,101 @@ test('the kit types no mail interrupt and no skills reload into a tab showing Cl
   obkJson(['session', 'add', '--bots', bots, '--bot', BOT, '--name', TARGET, `--prompt=${TASK}`]);
   // #527: a session's approval is set by `obk permission approval`, not by session add.
   obkJson(['permission', 'approval', '--bots', bots, '--bot', BOT, '--session', TARGET, '--approval', 'ask']);
+  obkJson(['session', 'add', '--bots', bots, '--bot', BOT, '--name', LISTED, `--prompt=${TASK}`]);
+  obkJson(['permission', 'approval', '--bots', bots, '--bot', BOT, '--session', LISTED, '--approval', 'ask']);
   obkJson(['session', 'add', '--bots', bots, '--bot', BOT, '--name', SENDER, '--harness', 'codex', `--prompt=${SENDER_TASK}`, ...codexTrustArgs(bots)]);
 
-  const targetTab = openedIn(obkJson(['up', '--bots', bots, '--bot', BOT, '--session', TARGET]), `up of ${TARGET}`);
-  const handle = targetTab.terminal;
-
   // ---------------------------------------------------------------------------
-  // 2. target's folder trust, which this test answers itself, once, and only
-  // when it is the plain one for the bot home (the ruling on #451).
-  const asked = await until(
-    `${TARGET} to show Claude Code's folder trust, or its reply`,
-    READY_MS,
-    async () => {
-      const rows = rowsOf(handle) ?? [];
-      if (rows.some((row) => row.trimStart().startsWith('⏺') && row.includes(READY_WORD))) return { rows: null };
-      return rows.some((row) => row.includes('Yes, I trust this folder')) ? { rows } : undefined;
-    },
-    () => whatIsUp(handle),
-  );
-  if (asked.rows !== null) {
-    const wrong = claudeTrustAt(asked.rows, home, bots, cliEntry);
-    assert.equal(
-      wrong,
-      undefined,
-      `${TARGET}'s folder trust is not one this test may answer, so it answered nothing: ${wrong}.`
-      + `\n  what it showed:\n    ${asked.rows.join('\n    ')}`,
+  // 2 and 3. A Claude session up in a fresh tab of its own, to its first turn.
+  // It gives the tab's handle, or undefined when a real Teach list or form
+  // came up: then the test is skipped.
+  const firstTurn = async (name) => {
+    const handle = openedIn(obkJson(['up', '--bots', bots, '--bot', BOT, '--session', name]), `up of ${name}`).terminal;
+
+    // Its folder trust, which this test answers itself, once, and only when it
+    // is the plain one for the bot home (the ruling on #451). The second
+    // session in the same bot home can get none.
+    const asked = await until(
+      `${name} to show Claude Code's folder trust, or its reply`,
+      READY_MS,
+      async () => {
+        const rows = rowsOf(handle) ?? [];
+        if (rows.some((row) => row.trimStart().startsWith('⏺') && row.includes(READY_WORD))) return { rows: null };
+        return rows.some((row) => row.includes('Yes, I trust this folder')) ? { rows } : undefined;
+      },
+      () => whatIsUp(handle),
     );
-    sendKeys(handle, '\x1b[B\r');
-    t.diagnostic(`answered ${TARGET}'s ${trustScreenMet(asked.rows)} (the ruling on #451)`);
-  }
+    if (asked.rows !== null) {
+      const wrong = claudeTrustAt(asked.rows, home, bots, cliEntry);
+      assert.equal(
+        wrong,
+        undefined,
+        `${name}'s folder trust is not one this test may answer, so it answered nothing: ${wrong}.`
+        + `\n  what it showed:\n    ${asked.rows.join('\n    ')}`,
+      );
+      sendKeys(handle, '\x1b[B\r');
+      t.diagnostic(`answered ${name}'s ${trustScreenMet(asked.rows)} (the ruling on #451)`);
+    } else {
+      t.diagnostic(`${name} showed no folder trust before its reply, so nothing was answered`);
+    }
 
-  // Its reply to the start prompt: the first turn done.
-  await until(
-    `${TARGET} to reply ${READY_WORD}`,
-    ANSWER_MS,
-    async () => ((rowsOf(handle) ?? []).some((row) => row.trimStart().startsWith('⏺') && row.includes(READY_WORD)) ? true : undefined),
-    () => whatIsUp(handle),
-  );
+    // Its reply to the start prompt: the first turn done.
+    await until(
+      `${name} to reply ${READY_WORD}`,
+      ANSWER_MS,
+      async () => ((rowsOf(handle) ?? []).some((row) => row.trimStart().startsWith('⏺') && row.includes(READY_WORD)) ? true : undefined),
+      () => whatIsUp(handle),
+    );
+
+    // A real Teach list or form, should Claude Code put one up all the same:
+    // no key into it. Recorded, and left to the teardown.
+    const watchUntil = Date.now() + TEACH_WATCH_MS;
+    let real;
+    while (real === undefined && Date.now() < watchUntil) {
+      const rows = rowsOf(handle);
+      if (showsTeach(rows)) real = rows;
+      else await setTimeout(1000);
+    }
+    if (real !== undefined) {
+      t.diagnostic(`a real Teach list or form came up in ${name}'s tab at approval ask, left unanswered; what it showed:\n    ${real.join('\n    ')}`);
+      t.skip(`a real Teach list or form is up in ${name}'s tab and this test sends it no key, so the staged check in that tab cannot run: this run proves nothing about #491. Run it again once Claude Code no longer puts it up at ask.`);
+      return undefined;
+    }
+    t.diagnostic(`Claude Code put up no Teach list or form in ${name}'s tab at approval ask within ${TEACH_WATCH_MS} ms of its first turn`);
+    return handle;
+  };
+
+  // 4. The session quits, typed only at its plain input line; a Teach screen
+  // that came up late is left alone as in step 3. It gives false when one did:
+  // then the test is skipped.
+  const quit = async (name, handle) => {
+    const atPrompt = await until(
+      `${name} to be at its plain input line`,
+      MOVE_MS,
+      async () => {
+        const at = promptOf(handle);
+        if (at.why === undefined) return at;
+        return showsTeach(rowsOf(handle)) ? { teach: rowsOf(handle) } : undefined;
+      },
+      () => ` ${promptOf(handle).why ?? ''}`,
+    );
+    if (atPrompt.teach !== undefined) {
+      t.diagnostic(`a real Teach list or form came up late in ${name}'s tab, left unanswered; what it showed:\n    ${atPrompt.teach.join('\n    ')}`);
+      t.skip(`a real Teach list or form is up in ${name}'s tab and this test sends it no key: this run proves nothing about #491.`);
+      return false;
+    }
+    const still = promptOf(handle);
+    assert.equal(still.why, undefined, `this test would type /exit into ${handle}, but ${still.why}\n  Nothing was typed.`);
+    sendLine(handle, '/exit');
+    await shellInFront(handle);
+    return true;
+  };
 
   // ---------------------------------------------------------------------------
-  // 3. A real Teach list or form, should Claude Code put one up all the same:
-  // no key into it. Recorded, and left to the teardown.
-  const watchUntil = Date.now() + TEACH_WATCH_MS;
-  let real;
-  while (real === undefined && Date.now() < watchUntil) {
-    const rows = rowsOf(handle);
-    if (showsTeach(rows)) real = rows;
-    else await setTimeout(1000);
-  }
-  if (real !== undefined) {
-    t.diagnostic(`a real Teach list or form came up in ${TARGET}'s tab at approval ask, left unanswered; what it showed:\n    ${real.join('\n    ')}`);
-    t.skip(`a real Teach list or form is up in ${TARGET}'s tab and this test sends it no key, so the staged check cannot run: this run proves nothing about #491. Run it again once Claude Code no longer puts it up at ask.`);
-    return;
-  }
-  t.diagnostic(`Claude Code put up no Teach list or form in ${TARGET}'s tab at approval ask within ${TEACH_WATCH_MS} ms of its first turn`);
+  // target's tab, for the presence. listed stays down until the presence is
+  // done (see the header).
+  const handle = await firstTurn(TARGET);
+  if (handle === undefined) return;
 
   // sender's mailbox, which its launch line makes before its Codex starts.
   // Nothing here waits on its Codex or types into it.
@@ -554,28 +620,7 @@ test('the kit types no mail interrupt and no skills reload into a tab showing Cl
     () => ` The book's entry: ${JSON.stringify(sessionIn(home, SENDER))}.`,
   );
 
-  // ---------------------------------------------------------------------------
-  // 4. target quits, typed only at its plain input line; a Teach screen that
-  // came up late is left alone as in step 3.
-  const atPrompt = await until(
-    `${TARGET} to be at its plain input line`,
-    MOVE_MS,
-    async () => {
-      const at = promptOf(handle);
-      if (at.why === undefined) return at;
-      return showsTeach(rowsOf(handle)) ? { teach: rowsOf(handle) } : undefined;
-    },
-    () => ` ${promptOf(handle).why ?? ''}`,
-  );
-  if (atPrompt.teach !== undefined) {
-    t.diagnostic(`a real Teach list or form came up late in ${TARGET}'s tab, left unanswered; what it showed:\n    ${atPrompt.teach.join('\n    ')}`);
-    t.skip(`a real Teach list or form is up in ${TARGET}'s tab and this test sends it no key: this run proves nothing about #491.`);
-    return;
-  }
-  const still = promptOf(handle);
-  assert.equal(still.why, undefined, `this test would type /exit into ${handle}, but ${still.why}\n  Nothing was typed.`);
-  sendLine(handle, '/exit');
-  await shellInFront(handle);
+  if (!(await quit(TARGET, handle))) return;
 
   // ---------------------------------------------------------------------------
   // 5. The staging program, through a link named `claude`, with the kit's mark.
@@ -583,34 +628,34 @@ test('the kit types no mail interrupt and no skills reload into a tab showing Cl
   await mkdir(linkDir, { recursive: true });
   await symlink(process.execPath, link);
   const keysRead = () => (existsSync(keysFile) ? readFileSync(keysFile, 'latin1') : undefined);
-  const startStage = async (rows, what) => {
+  const startStage = async (tab, name, rows, what) => {
     await rm(stopFile, { force: true });
     await rm(keysFile, { force: true });
     await writeFile(rowsFile, JSON.stringify(rows));
-    sendLine(handle, `OBK_TAB_SHELL=$$ ${shellWord(link)} ${shellWord(stage)} ${shellWord(rowsFile)} ${shellWord(keysFile)} ${shellWord(stopFile)}`);
-    await until(`${what} to be drawn in ${TARGET}'s tab, every row as staged`, MOVE_MS, async () => (
-      keysRead() !== undefined && drawnAsStaged(rowsOf(handle), rows) ? true : undefined
-    ), () => ` A tab narrower than the capture's 120 columns wraps its rows.${whatIsUp(handle)}`);
-    const front = await until(`the staging program to be in front of ${TARGET}'s tab`, MOVE_MS, async () => {
-      const now = inFront(handle);
+    sendLine(tab, `OBK_TAB_SHELL=$$ ${shellWord(link)} ${shellWord(stage)} ${shellWord(rowsFile)} ${shellWord(keysFile)} ${shellWord(stopFile)}`);
+    await until(`${what} to be drawn in ${name}'s tab, every row as staged`, MOVE_MS, async () => (
+      keysRead() !== undefined && drawnAsStaged(rowsOf(tab), rows) ? true : undefined
+    ), () => ` A tab narrower than the capture's 120 columns wraps its rows.${whatIsUp(tab)}`);
+    const front = await until(`the staging program to be in front of ${name}'s tab`, MOVE_MS, async () => {
+      const now = inFront(tab);
       return now !== undefined && !isShell(now.name) ? now : undefined;
-    }, () => whatIsUp(handle));
+    }, () => whatIsUp(tab));
     // The premise of every check here: Orca names an agent in the staged tab.
     // Without one the kit's gate types nothing anywhere, list or no list.
-    const agent = await until(`Orca to name an agent in ${TARGET}'s staged tab`, MOVE_MS, async () => agentIn(handle), () => (
-      ` The kit's gate types into no tab where Orca names no agent, so this run cannot show what the list does.${whatIsUp(handle)}`
+    const agent = await until(`Orca to name an agent in ${name}'s staged tab`, MOVE_MS, async () => agentIn(tab), () => (
+      ` The kit's gate types into no tab where Orca names no agent, so this run cannot show what the list does.${whatIsUp(tab)}`
     ));
-    t.diagnostic(`${what}: ${front.name} (pid ${front.pid}) in front, Orca names ${agent}`);
+    t.diagnostic(`${what}: ${front.name} (pid ${front.pid}) in front of ${name}'s tab, Orca names ${agent}`);
   };
-  const stopStage = async () => {
+  const stopStage = async (tab) => {
     await writeFile(stopFile, '');
-    await shellInFront(handle);
+    await shellInFront(tab);
   };
 
   // ---------------------------------------------------------------------------
-  // 6. The presence: the capture with the list taken out. The gate lets the
-  // interrupt and the skills reload through.
-  await startStage(CLAUDE_TEACH_LIST_GONE, 'the staged capture with the list taken out');
+  // 6. The presence, in target's tab: the capture with the list taken out. The
+  // gate lets the interrupt and the skills reload through.
+  await startStage(handle, TARGET, CLAUDE_TEACH_LIST_GONE, 'the staged capture with the list taken out');
   assert.equal(waitingOn(orca, handle), undefined, 'the premise: the system tests\' own look sees nothing in the way on the staged screen with the list gone');
 
   const idleSent = obkJson([
@@ -632,21 +677,26 @@ test('the kit types no mail interrupt and no skills reload into a tab showing Cl
   }
 
   obkJson(['skills', 'add', '--bots', bots, '--bot', BOT, '--skill', 'kit:obk-tdd']);
-  const idleBuild = buildFor(bots);
+  const idleBuild = buildFor(bots, TARGET);
   assert.deepEqual(idleBuild, { session: TARGET, harness: 'claude', state: 'reloaded' }, `the premise: with no question on the staged screen the kit types /reload-skills into it, got: ${JSON.stringify(idleBuild)}`);
   await until('/reload-skills to reach the staging program', MOVE_MS, async () => (
     (keysRead() ?? '').includes('/reload-skills') ? true : undefined
   ), () => ` It read: ${JSON.stringify(keysRead())}.`);
-  await stopStage();
+  await stopStage(handle);
 
   // ---------------------------------------------------------------------------
-  // 7. The check: the captured list. Neither line goes in, and not one byte.
-  await startStage(CLAUDE_TEACH_LIST, 'the staged Teach list');
-  const look = waitingOn(orca, handle);
+  // 7. The check, in listed's fresh tab, brought up only now through steps 2
+  // to 4: the captured list. Neither line goes in, and not one byte.
+  const listHandle = await firstTurn(LISTED);
+  if (listHandle === undefined) return;
+  if (!(await quit(LISTED, listHandle))) return;
+
+  await startStage(listHandle, LISTED, CLAUDE_TEACH_LIST, 'the staged Teach list');
+  const look = waitingOn(orca, listHandle);
   assert.ok(look !== undefined && look.includes(TEACH_TITLE), `the system tests' own look sees the live list in the way, with its title, got: ${look}`);
 
   const listSent = obkJson([
-    'message', 'send', '--bots', bots, '--to', `${BOT}/${TARGET}`, '--from', `${BOT}/${SENDER}`,
+    'message', 'send', '--bots', bots, '--to', `${BOT}/${LISTED}`, '--from', `${BOT}/${SENDER}`,
     '--subject', `the typing gate ${SUBJECT_LIST}`, '--text', 'Nothing to do; this only checks the typing gate.', '--interrupt',
   ]);
   t.diagnostic(`the send --interrupt on the staged list: ${JSON.stringify({ transport: listSent.transport, interrupted: listSent.interrupted, idle: listSent.idle, interruptTrouble: listSent.interruptTrouble })}`);
@@ -655,11 +705,11 @@ test('the kit types no mail interrupt and no skills reload into a tab showing Cl
   assert.ok(typeof listSent.interruptTrouble === 'string' && listSent.interruptTrouble.includes(QUESTION), `the answer says the tab is waiting on a question: ${JSON.stringify(listSent)}`);
 
   obkJson(['skills', 'add', '--bots', bots, '--bot', BOT, '--skill', 'kit:obk-debugging']);
-  const listBuild = buildFor(bots);
-  assert.deepEqual(listBuild, { session: TARGET, harness: 'claude', state: 'blocked', blocked: QUESTION }, `no /reload-skills into a tab with the Teach list up, got: ${JSON.stringify(listBuild)}`);
+  const listBuild = buildFor(bots, LISTED);
+  assert.deepEqual(listBuild, { session: LISTED, harness: 'claude', state: 'blocked', blocked: QUESTION }, `no /reload-skills into a tab with the Teach list up, got: ${JSON.stringify(listBuild)}`);
 
   await setTimeout(SETTLE_MS);
   assert.equal(keysRead(), '', `the staging program read not one byte while the list was up, got: ${JSON.stringify(keysRead())}`);
-  assert.ok(drawnAsStaged(rowsOf(handle), CLAUDE_TEACH_LIST), `and the staged list is still drawn as it was.${whatIsUp(handle)}`);
-  await stopStage();
+  assert.ok(drawnAsStaged(rowsOf(listHandle), CLAUDE_TEACH_LIST), `and the staged list is still drawn as it was.${whatIsUp(listHandle)}`);
+  await stopStage(listHandle);
 });
