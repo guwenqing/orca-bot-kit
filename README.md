@@ -538,7 +538,7 @@ Each fire then makes a temporary Codex session of the grooming session's, named
 retired; the grooming session sends the report on to the management session. A
 run an earlier fire left behind is retired at the next one. Each run also
 carries the grooming session's own prompt, as `--on` finds it: after you change
-that prompt, run `--on --at` again.
+that prompt, run `obk groom --at <HH:MM>` alone, which keeps the runs on Codex.
 
 ## When something is wrong
 
