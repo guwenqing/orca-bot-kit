@@ -14,7 +14,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { isSeq, parse, parseDocument, stringify } from 'yaml';
 
 import { takeBotTurn } from './book.js';
-import { defaultApproval, HARNESSES, harnessOf, sessionTrouble, workDirOf } from './launch.js';
+import { defaultApproval, HARNESSES, harnessOf, ownCli, sessionTrouble, set, shellWord, workDirOf } from './launch.js';
 
 /** Where the bots live inside the user's bots folder. */
 export const botsDir = (bots) => path.join(bots, 'bots');
@@ -399,6 +399,12 @@ export function changeSession(bots, bot, name, settings) {
       .filter(([, value]) => value !== '' && !(Array.isArray(value) && value.every((one) => one === ''))));
     const trouble = sessionTrouble(session, harnessOf(session, known.harness), home);
     if (trouble !== undefined) throw new Error(trouble);
+    // A session with no approval runs at its harness's default, auto on claude
+    // and codex, and dangerously-skip on Pi: a move to Pi would widen it with
+    // nobody asked (ADR 0041, #589).
+    if (moved?.to === 'pi' && !set(session.approval) && defaultApproval(from) !== 'dangerously-skip') {
+      throw new Error(`${bot}'s session ${name} has no approval in bot.yaml, so on ${from} it runs at ${defaultApproval(from)}. Every Pi session runs as dangerously-skip, and session change widens no approval. After the user's yes, Bot Father sets it with ${shellWord(ownCli())} permission approval --bots ${shellWord(bots)} --bot ${bot} --session ${name} --approval dangerously-skip; then the session can move to Pi. Nothing was changed.`);
+    }
     // Judged on the session as it is written, which is the whole session, so a
     // change another command made in between cannot be combined with this one.
     refuseCodexOutside(bot, session, was, known.harness, home, 'session change');
