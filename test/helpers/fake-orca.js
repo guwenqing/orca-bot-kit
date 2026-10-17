@@ -433,7 +433,9 @@
 //               pointer_pty_id, priority, read, run_id, sender_pane_key,
 //               sequence, subject, thread_id, to_handle, type. `read` is 0 or
 //               1, `delivered_at` null or a time like "2026-10-17T21:28:19Z",
-//               newest first by `sequence`, at most `--limit` of them. The
+//               newest first by `sequence`, at most `--limit` of them, and
+//               Orca's schema puts no cap on `--limit` (any finite number;
+//               review of PR #632). The
 //               fake sorts and cuts the list it is given the same way, and
 //               keeps it apart from `messages`: `orchestration send` and
 //               `check` neither add to it nor change it. A Run with no entry

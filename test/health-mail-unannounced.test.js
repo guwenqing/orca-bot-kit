@@ -19,7 +19,11 @@
 //      and `says` naming the session, the number of waiting letters, the
 //      `created_at` of the oldest waiting letter as Orca gave it, the fix
 //      `<cli> restart --bots <bots> --bot <bot> --session <name>`, and that the
-//      harness is idle now (a loose match on "idle").
+//      harness is idle now (a loose match on "idle"). That holds for a
+//      mailbox longer than one read of Orca's: a waiting letter behind 150
+//      newer ones is found, and 150 waiting letters are counted as 150; and
+//      a mailbox whose newest letters were read is read once, for at most 100
+//      (review of PR #632).
 //   4. Nothing when the only unread letters are newer than an hour, when old
 //      letters have `read` 1 (a session read them with `obk message check`
 //      and had no notice), or when old unread letters have `delivered_at` set.
@@ -388,6 +392,81 @@ for (const [label, letters] of Object.entries(NOT_WAITING)) {
     assertNoMailFor(answer, daily, `daily has ${label}: none waits`);
   });
 }
+
+// ---------------------------------------------------------------------------
+// 2, 3. A mailbox longer than one read (review of PR #632)
+// ---------------------------------------------------------------------------
+//
+// `orchestration inbox` answers the newest letters first, at most `--limit`
+// of them, and Orca's schema puts no cap on the limit. A read of the newest
+// 100 alone misses a waiting letter behind 100 newer ones, and miscounts more
+// than 100 waiting letters. Orca hands mail to a reader oldest first, so the
+// mailboxes here are in that shape: no older letter is unread while a newer
+// one is read. So once a read reaches letters that were read, nothing older
+// waits, and health need read no further.
+
+/** `count` letters, oldest first, the oldest `age` old and each next one `step` newer. */
+const run = (mailbox, count, { age, step = MINUTE, read = 0 }) => Array.from(
+  { length: count },
+  (_, n) => letter(mailbox, { age: age - n * step, read }),
+);
+
+test('#630 2: one waiting letter behind 150 newer unread ones is named, with the count 1 and its time', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  await botUp(box, 'api-bot');
+  const daily = await mailboxOf(bots, 'api-bot', 'daily');
+  const [old] = await mailTo(box, daily, letter(daily, { age: 2 * HOUR }));
+  // 150 newer unread letters, ten minutes old down to seven and a half: none of them waits yet.
+  await mailTo(box, daily, ...run(daily, 150, { age: 10 * MINUTE, step: 1000 }));
+
+  const answer = await found(box);
+
+  const finding = assertNamedMail(answer, box, bots, 'api-bot', 'daily', daily);
+  assert.ok(hasWord(finding.says, '1'), `it says 1 letter waits, got: ${finding.says}`);
+  for (const wrong of ['100', '150', '151']) assert.ok(!hasWord(finding.says, wrong), `not ${wrong}: only the one old letter waits, got: ${finding.says}`);
+  assert.ok(finding.says.includes(old.created_at), `it gives the waiting letter's created_at as Orca gave it, ${old.created_at}, got: ${finding.says}`);
+});
+
+test('#630 2: 150 waiting letters are named with the count 150 and the oldest one\'s time', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  await botUp(box, 'api-bot');
+  const daily = await mailboxOf(bots, 'api-bot', 'daily');
+  const letters = await mailTo(box, daily, ...run(daily, 150, { age: 2 * HOUR + 150 * MINUTE }));
+  const [oldest] = letters;
+  assert.ok(letters.every((one) => Date.parse(one.created_at) < Date.now() - HOUR), 'the premise: every letter is older than an hour');
+
+  const answer = await found(box);
+
+  const finding = assertNamedMail(answer, box, bots, 'api-bot', 'daily', daily);
+  assert.ok(hasWord(finding.says, '150'), `it says 150 letters wait, got: ${finding.says}`);
+  assert.ok(!hasWord(finding.says, '100'), `not 100, one read's worth, got: ${finding.says}`);
+  assert.ok(finding.says.includes(oldest.created_at), `it gives the oldest waiting letter's created_at as Orca gave it, ${oldest.created_at}, got: ${finding.says}`);
+});
+
+test('#630 2: a mailbox of 250 letters the session read itself is read once, for at most 100 letters', async (t) => {
+  // The newest letters were read, so no older one waits: one read is enough,
+  // and reading the whole mailbox every time health runs is cost for nothing.
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  await botUp(box, 'api-bot', { sessions: ['daily', 'review'] });
+  const daily = await mailboxOf(bots, 'api-bot', 'daily');
+  const review = await mailboxOf(bots, 'api-bot', 'review');
+  await mailTo(box, daily, ...run(daily, 250, { age: 300 * HOUR, read: 1 }));
+  await mailTo(box, review, waiting(review));
+  const asked = (await box.orca.calls()).length;
+
+  const answer = await found(box);
+
+  assertNamedMail(answer, box, bots, 'api-bot', 'review', review);
+  assertNoMailFor(answer, daily, 'every letter of daily\'s was read');
+  const reads = orcaCallsOf((await box.orca.calls()).slice(asked), 'orchestration inbox')
+    .filter((call) => orcaFlag(call, '--terminal') === `run:${daily}`);
+  assert.equal(reads.length, 1, `daily's mailbox is read once, got: ${JSON.stringify(reads.map((call) => call.args))}`);
+  const limit = Number(orcaFlag(reads[0], '--limit'));
+  assert.ok(Number.isFinite(limit) && limit <= 100, `and that read asks for at most 100 letters, got: ${reads[0].args.join(' ')}`);
+});
 
 // ---------------------------------------------------------------------------
 // 1, 5. Whose mailbox counts

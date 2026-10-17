@@ -493,6 +493,24 @@ const WAITING_MS = 60 * 60 * 1000;
 /** How long the look at a session's tab waits for its harness to be idle. */
 const IDLE_LOOK_MS = 2000;
 
+/** How many letters the first read of a mailbox takes, and how much wider each read after it is. */
+const MAIL_WINDOW = 100;
+const WIDER = 10;
+
+/**
+ * Every letter in `mailbox` that can still be waiting, newest first. Orca gives
+ * the newest letters, and hands mail to its reader oldest first, so a read
+ * whose oldest letter is read holds every unread one. A full read that ends on
+ * an unread letter may have more behind it, and is made again wider (review of
+ * PR #632).
+ */
+function mayWait(mailbox) {
+  for (let limit = MAIL_WINDOW; ; limit *= WIDER) {
+    const mail = mailIn(mailbox, limit);
+    if (mail.length < limit || mail.at(-1).read !== 0) return mail;
+  }
+}
+
 /**
  * The session `name`'s mail that Orca has not told it of, while its harness is
  * idle now: one finding, or none (#630). Orca rings only a tab whose harness it
@@ -505,7 +523,7 @@ const IDLE_LOOK_MS = 2000;
 function unannounced(bots, home, bot, name, entry) {
   let mail;
   try {
-    mail = mailIn(entry.mailbox);
+    mail = mayWait(entry.mailbox);
   } catch {
     return [];
   }

@@ -1066,13 +1066,13 @@ export const readMailbox = (id, { peek = false, handle } = {}, options) =>
   orca(['orchestration', 'check', '--run', id, ...as(handle), ...(peek ? ['--peek'] : [])], options);
 
 /**
- * The newest messages in a mailbox, at most a hundred, with every column Orca
- * keeps for them: `read` and `delivered_at` among them, which `check` leaves
- * out. Orca asks no reader for this, so any tab can read any mailbox, and
- * nothing is marked read or delivered (tech notes, section 1; #630).
+ * The newest `limit` messages in a mailbox, newest first, with every column
+ * Orca keeps for them: `read` and `delivered_at` among them, which `check`
+ * leaves out. Orca asks no reader for this, so any tab can read any mailbox,
+ * and nothing is marked read or delivered (tech notes, section 1; #630).
  */
-export const mailIn = (id, options) =>
-  orca(['orchestration', 'inbox', '--terminal', `run:${id}`, '--limit', '100'], options).messages ?? [];
+export const mailIn = (id, limit, options) =>
+  orca(['orchestration', 'inbox', '--terminal', `run:${id}`, '--limit', String(limit)], options).messages ?? [];
 
 /** Say a batch has been read. Orca answers with the batch after it. */
 export const ackMailbox = (id, delivery, handle, options) =>
