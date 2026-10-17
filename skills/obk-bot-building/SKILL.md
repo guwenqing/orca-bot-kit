@@ -284,26 +284,28 @@ sometimes. Read each screen with `<orca> terminal read --terminal <handle>
 --screen`, where `<handle>` is the terminal the kit named for the tab and
 `<orca>` is the Orca CLI the kit uses: `$OBK_ORCA` when that is set, and
 otherwise `/Applications/Orca.app/Contents/Resources/bin/orca`. A bare
-`orca` can fail. Send each answer as one `<orca> terminal send --terminal
-<handle> --text …`, with the return inside the text and no `--enter`:
+`orca` can fail. Send each key as one `<orca> terminal send --terminal
+<handle> --text …`, with the return inside the text and no `--enter`. Where
+the Send cell names `obk` commands, send no keys: the kit answers that
+screen, by the commands below.
 
 | On screen | Send | Which is | Proven on |
 |---|---|---|---|
 | Claude Code's trust list | `\x1b[B\r` | down, return: off **No, exit** | Claude Code 2.1.283 |
 | Codex's `Trust this folder?` | `\r` | return: it starts on yes | Codex 0.160.0 |
-| Codex's `Hooks need review` | `\x1b[B\r` | **Trust all and continue** | Codex 0.160.0 |
+| Codex's `Hooks need review` | `obk session trust-hooks`, or `obk temp trust-hooks` for a temporary session | the kit: **Trust all and continue** | Codex 0.160.0 |
 | Codex's `Where should the new conversation run?` | `\r` | **Current checkout** | Codex 0.160.0 |
 | Codex's update offer, `1. Update now` | `\r` | **Update now**, where it starts | Codex 0.156.1 |
 | `[oh-my-zsh] Would you like to update?` | `n` | no: the user updates it | oh-my-zsh bf77e35 |
-| Claude Code's `Teach auto mode…` | `\x1b` | Esc: Not now; no return | Not yet proven, below |
-| The same, 2.1.289's list | `\x1b[B\r` | down, return: **2. Not now** | Not yet proven, below |
+| Claude Code's `Teach auto mode…` | `obk session answer`, or `obk temp answer` for a temporary session | the kit: Esc, Not now; no return | Not yet proven, below |
+| The same, 2.1.289's list | `obk session answer`, or `obk temp answer` for a temporary session | the kit: down, return, **2. Not now** | Not yet proven, below |
 
 Each key counts on where the selection starts on the version named. Read the
 screen before you send: if the selection is elsewhere or the options have
 moved, go to the answer with the arrows, then return. Never a digit and then
 return: on Codex's update offer that took the highlighted **Update now**,
 whatever the digit was. Codex's trust said `1. Yes, continue` on older
-versions. Its hooks review sometimes starts on `2` already: then return alone.
+versions.
 Its update offer was proven on 0.156.1; 0.157.1 showed it with the selection on
 Update now, not pressed, and 0.158.0 offered 0.160.0, taken on 2026-10-02 by
 Bot Father's restarts.
@@ -314,8 +316,8 @@ shell history. Esc cancels it (Not now) in its code; that is not yet proven
 live, though the form was seen live twice on 2.1.283. On 2.1.278 it was a
 numbered list, answered with `2. Not now`, and on 2.1.289 it is one again:
 `1. Yes`, `2. Not now`, `3. Don't show again`, above the input box, its
-selection on 1. Yes (seen live, not answered, in #489). Go down to 2. Not now,
-read the screen, and only then return. Codex's hooks
+selection on 1. Yes (seen live, not answered, in #489). The kit goes down to
+2. Not now, reads the screen, and only then returns. Codex's hooks
 question matters most. The kit's hook is how the book learns which
 conversation the session is running, and until it is answered the
 conversation has not started. Codex's trust applies to the repository root,
@@ -324,8 +326,8 @@ conversation runs (0.156.1, 0.157.1, 0.158.0 and 0.160.0 all did); the answer is
 always the current checkout, the bot home, and never `2. New worktree`:
 the kit never makes a git worktree.
 
-The hooks review of a Codex temporary session you made yourself is the one
-exception: answer it with `obk temp trust-hooks --bots <bots> --name
+The hooks review of a Codex temporary session you made yourself is answered
+through the kit: answer it with `obk temp trust-hooks --bots <bots> --name
 <session>`, not with the keys. It reads the screen, chooses **Trust all and
 continue** only if the review is there, and checks that the review went. A
 permission rule can allow that one command, where it cannot allow keys sent
