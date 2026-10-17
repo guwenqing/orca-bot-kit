@@ -24,7 +24,7 @@ import { fileURLToPath } from 'node:url';
 import { parse, parseDocument, stringify } from 'yaml';
 
 import { bookFile, readBook, takeLineTurn, TYPING_HELD, TYPING_WAIT_MS } from './book.js';
-import { botDir, botNames, changesExactly, leadsOutside, readBot, refuseOutside, writeWhole, YAML_OUT } from './bot.js';
+import { botDir, botNames, changesExactly, leadsOutside, readBot, refuseOutside, withBotTurn, writeWhole, YAML_OUT } from './bot.js';
 import { harnessOf, ownCli, shellWord } from './launch.js';
 import { orcaCli, orcaTrouble, tabToTypeInto, typeIntoTab } from './orca.js';
 import { listIn } from './rules.js';
@@ -84,26 +84,28 @@ export function addSkill(bots, bot, ref) {
     throw new Error(`there is no bot called ${bot} in ${bots}: ${file} is not there. Create it with obk bot create.`);
   }
 
-  if (listIn(file, 'skills').includes(ref)) return { bot, home, skill: ref, state: 'there' };
-  refuseOutside(home, file);
+  return withBotTurn(home, () => {
+    if (listIn(file, 'skills').includes(ref)) return { bot, home, skill: ref, state: 'there' };
+    refuseOutside(home, file);
 
-  const was = readFileSync(file, 'utf8');
-  const doc = parseDocument(was);
-  const listed = doc.get('skills', true);
-  if (listed?.items === undefined) {
-    // No list to add to: an empty `skills:`, or no skills key at all.
-    doc.set('skills', [ref]);
-  } else {
-    listed.flow = false;
-    doc.addIn(['skills'], ref);
-  }
+    const was = readFileSync(file, 'utf8');
+    const doc = parseDocument(was);
+    const listed = doc.get('skills', true);
+    if (listed?.items === undefined) {
+      // No list to add to: an empty `skills:`, or no skills key at all.
+      doc.set('skills', [ref]);
+    } else {
+      listed.flow = false;
+      doc.addIn(['skills'], ref);
+    }
 
-  const text = doc.toString(YAML_OUT);
-  if (!changesExactly(was, text, (had) => ({ ...had, skills: [...(had.skills ?? []), ref] }))) {
-    throw new Error(`${file} cannot have a skill added to it without changing something else in it, so nothing was written. Add ${ref} to its skills list by hand.`);
-  }
-  writeWhole(file, text);
-  return { bot, home, skill: ref, state: 'added' };
+    const text = doc.toString(YAML_OUT);
+    if (!changesExactly(was, text, (had) => ({ ...had, skills: [...(had.skills ?? []), ref] }))) {
+      throw new Error(`${file} cannot have a skill added to it without changing something else in it, so nothing was written. Add ${ref} to its skills list by hand.`);
+    }
+    writeWhole(file, text);
+    return { bot, home, skill: ref, state: 'added' };
+  });
 }
 
 /**
@@ -119,20 +121,22 @@ export function removeSkill(bots, bot, ref) {
     throw new Error(`there is no bot called ${bot} in ${bots}: ${file} is not there.`);
   }
 
-  const index = listIn(file, 'skills').indexOf(ref);
-  if (index === -1) return { bot, home, skill: ref, state: 'absent' };
-  refuseOutside(home, file);
+  return withBotTurn(home, () => {
+    const index = listIn(file, 'skills').indexOf(ref);
+    if (index === -1) return { bot, home, skill: ref, state: 'absent' };
+    refuseOutside(home, file);
 
-  const was = readFileSync(file, 'utf8');
-  const doc = parseDocument(was);
-  doc.deleteIn(['skills', index]);
+    const was = readFileSync(file, 'utf8');
+    const doc = parseDocument(was);
+    doc.deleteIn(['skills', index]);
 
-  const text = doc.toString(YAML_OUT);
-  if (!changesExactly(was, text, (had) => ({ ...had, skills: had.skills.filter((one, at) => at !== index) }))) {
-    throw new Error(`${file} cannot have a skill taken off it without changing something else in it, so nothing was written. Take ${ref} off its skills list by hand.`);
-  }
-  writeWhole(file, text);
-  return { bot, home, skill: ref, state: 'removed' };
+    const text = doc.toString(YAML_OUT);
+    if (!changesExactly(was, text, (had) => ({ ...had, skills: had.skills.filter((one, at) => at !== index) }))) {
+      throw new Error(`${file} cannot have a skill taken off it without changing something else in it, so nothing was written. Take ${ref} off its skills list by hand.`);
+    }
+    writeWhole(file, text);
+    return { bot, home, skill: ref, state: 'removed' };
+  });
 }
 
 /**

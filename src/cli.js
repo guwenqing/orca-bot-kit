@@ -21,7 +21,7 @@ import { nameSession } from './name.js';
 import { APPROVALS, harnessOf, HARNESSES, ownCli, refuseApprovalArgs, shellWord, workDirOf } from './launch.js';
 import { checkMail, lookUp, noMailboxYet, sendMessage, sessionInTab } from './message.js';
 import { orcaCli, orcaTrouble, RELOAD_LINE, TERMINAL_ENV } from './orca.js';
-import { allowIn, beyondDefaults, refuseBroad, refuseNoCodexForm, runsOnClaude, runsOnCodex, takeBack, writePermissions } from './permissions.js';
+import { allowIn, beyondDefaults, botDefaults, refuseBroad, refuseNoCodexForm, runsOnClaude, runsOnCodex, takeBack, writePermissions } from './permissions.js';
 import { pauseSessions, unpauseSessions } from './pause.js';
 import { recordSession, SHELL_ENV, TAB_ENV } from './record.js';
 import { restartSessions } from './restart.js';
@@ -836,7 +836,9 @@ const commands = {
   },
 
   'bot create'(bots, values) {
-    const made = createBot(bots, { name: values.name, harness: values.harness, charter: values.charter });
+    // The kit's default rules (ADR 0036) are in the bot's first bot.yaml.
+    const allow = botDefaults(bots, { harness: values.harness, sessions: [] });
+    const made = createBot(bots, { name: values.name, harness: values.harness, charter: values.charter, allow });
     // The bot's AGENTS.md is the rules build's, here as everywhere else, so
     // that a new bot's file and a rebuilt one are written by the same code.
     const rules = [buildAgents(bots, made.home, readBot(made.home))];
@@ -847,9 +849,10 @@ const commands = {
     // instructions, so `up` will not start it, and saying "give it a session"
     // would send the caller past the thing that needs settling first.
     const trouble = rules[0].trouble !== undefined;
-    // The kit's default rules (ADR 0036), for a bot that is set up to run: one
-    // with no instructions gets them at the rules build that gives it some.
-    const permissions = trouble ? [] : writePermissions(bots, made.home, readBot(made.home));
+    // The default rules go into the harness's files for a bot that is set up
+    // to run: one with no instructions gets them at the rules build that gives
+    // it some. They were added by this command, so its report names them.
+    const permissions = trouble ? [] : writePermissions(bots, made.home, readBot(made.home)).map((entry) => ({ ...entry, defaults: allow }));
     const answer = { bots, bot: made.bot, home: made.home, created: made.created, rules, skills, permissions };
     return {
       answer,
