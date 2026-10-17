@@ -423,7 +423,24 @@
 //               only when there is none does a read make a new one, of the
 //               oldest unread messages, at most 50. Written by the fake; a test
 //               may leave one outstanding to put a Run in that state.
-//   runDuring   { command, argv, env, on } — run `argv` to completion once,
+//   inbox       { "<run id>": [message, ...] } — what `orchestration inbox
+//               --terminal run:<id>` answers for that Run, each message in
+//               Orca's own words, as a test gives it (#630). Orca 1.4.225
+//               answered every column of a message there (seen live,
+//               2026-10-17): body, created_at, delivered_at,
+//               delivery_contract, from_handle, id, payload,
+//               pointer_enter_pending, pointer_process_incarnation,
+//               pointer_pty_id, priority, read, run_id, sender_pane_key,
+//               sequence, subject, thread_id, to_handle, type. `read` is 0 or
+//               1, `delivered_at` null or a time like "2026-10-17T21:28:19Z",
+//               newest first by `sequence`, at most `--limit` of them. The
+//               fake sorts and cuts the list it is given the same way, and
+//               keeps it apart from `messages`: `orchestration send` and
+//               `check` neither add to it nor change it. A Run with no entry
+//               here answers no messages, as a Run with no mail did live;
+//               what Orca answers for a Run it does not have was not seen,
+//               and the fake answers it the same.
+//   runDuring  { command, argv, env, on } — run `argv` to completion once,
 //               before answering the `on`th call of `command` (the first by
 //               default), so another writer really lands in the middle of a run
 //               rather than after it. That is the only way to reach the case the
@@ -1513,6 +1530,24 @@ if (command === 'orchestration check') {
     replayed,
     acknowledged,
   });
+}
+
+// A Run's newest mail, every column of it, read and unread alike (#630). Orca
+// checks no reader for it and changes nothing: it answers from any tab, and
+// from a shell outside Orca (seen live on 1.4.225, 2026-10-17). The envelope
+// is the usual one. Only a Run's address is answered here, the one the kit
+// reads; a `--terminal` that names no Run is refused in the fake's own words,
+// since what Orca answers for a bare terminal handle was not written down.
+if (command === 'orchestration inbox') {
+  const run = runIn(flag('--terminal'));
+  if (run === undefined) {
+    fail('invalid_argument', `this fake reads the inbox of a Run only, --terminal run:<id>, got ${flag('--terminal')}`);
+  }
+  const limit = flag('--limit') === undefined ? Infinity : Number(flag('--limit'));
+  const messages = [...((state.inbox ?? {})[run] ?? [])]
+    .sort((a, b) => b.sequence - a.sequence)
+    .slice(0, limit);
+  ok({ messages, count: messages.length });
 }
 
 /**

@@ -1460,9 +1460,10 @@ test('H22 health changes nothing at all: not a file, not a link, not a tab', asy
   // tab's terminal: a session is running only with its own harness in front
   // (#271, the second look at #296).
   // `orchestration run-show` reads whether Orca has each mailbox the book names (#508).
+  // `orchestration inbox` reads each live session's mailbox for mail that waits unannounced (#630).
   assert.deepEqual(
     [...new Set((await box.orca.calls()).slice(asked).map(orcaCommand))].sort(),
-    ['diagnostics memory', 'orchestration run-show', 'project setups', 'status', 'terminal list', 'terminal show'],
+    ['diagnostics memory', 'orchestration inbox', 'orchestration run-show', 'project setups', 'status', 'terminal list', 'terminal show'],
     'the only things a check may ask Orca are the ones that tell it something',
   );
 });

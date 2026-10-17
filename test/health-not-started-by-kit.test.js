@@ -560,9 +560,10 @@ test('K6 health reads a session Orca resumed and changes nothing: no file, no ta
   assert.deepEqual(await box.orca.setups(), setups, 'no Orca project made, changed or taken away');
   assert.deepEqual(await box.orca.terminals(), terminals, 'no tab opened, closed, retitled or typed into: health does not restart it');
   // `orchestration run-show` reads whether Orca has each mailbox the book names (#508).
+  // `orchestration inbox` reads each live session's mailbox for mail that waits unannounced (#630).
   assert.deepEqual(
     [...new Set((await box.orca.calls()).slice(asked).map(orcaCommand))].sort(),
-    ['diagnostics memory', 'orchestration run-show', 'project setups', 'status', 'terminal list', 'terminal show'],
+    ['diagnostics memory', 'orchestration inbox', 'orchestration run-show', 'project setups', 'status', 'terminal list', 'terminal show'],
     'the only things health asks Orca are the ones that tell it something',
   );
   for (const { args } of (await box.ps.calls()).slice(read)) {
