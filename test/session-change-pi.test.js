@@ -28,6 +28,16 @@
 //     `--session-id`, and the book keeps the old Claude conversation in the
 //     session's history as `{ ended: 'harness changed', harness: 'claude' }`.
 //
+// From the review of PR #608 (MP10): two `session change` commands on the same
+// session can run at once. Whatever order their reads and writes take, the
+// bot.yaml that results never holds a session with an extra argument that sets
+// approval on the harness it is written with (`-a` or `--approve` on Pi), which
+// neither command alone would have been allowed to write. One command's change
+// may be refused or lost. The order is forced as test/codex-work-dir-race.test.js
+// forces it (#585): helpers/read-gate.js stops one command just after its k-th
+// read of bot.yaml, the other runs to its end in that gap, and every read is
+// tried as the stop.
+//
 // Pi's other slices (mail, temp make on Pi, skills, health, session clear and
 // compact on Pi) are out of scope here.
 //
@@ -35,9 +45,11 @@
 // a fake `pi` on its PATH (helpers/pi.js). Nothing here starts a real harness.
 
 import assert from 'node:assert/strict';
-import { readFile, writeFile } from 'node:fs/promises';
+import { access, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
+import { setTimeout as delay } from 'node:timers/promises';
+import { pathToFileURL } from 'node:url';
 import { parse, stringify } from 'yaml';
 
 import {
@@ -47,6 +59,7 @@ import {
   createSandbox,
   orcaCommand,
   recordSession,
+  repoRoot,
   sessionIn,
   sh,
   skipGit,
@@ -574,3 +587,109 @@ test('MP9 up after a move to Pi with a model Pi has goes up', async (t) => {
   assert.equal(result.code, 0, `${result.stdout}${result.stderr}`);
   assert.ok((await pi.searches()).includes(PI_MODEL), `it asked Pi for the model, got: ${JSON.stringify(await pi.searches())}`);
 });
+
+// ================================================ 10. two session change commands at once (review of PR #608)
+
+const GATE_ENTRY = path.join(repoRoot, 'test', 'helpers', 'read-gate.js');
+
+/** How long the other command may take while one is stopped, before the gate is opened anyway (a kit with a lock may hold it back). */
+const OTHER_WAIT_MS = 30_000;
+
+const isThere = (file) => access(file).then(() => true, () => false);
+
+/**
+ * The pairs. Each command is allowed alone on a Claude session; together they
+ * must not leave the session on `harness` with `flag` in its extra_args.
+ */
+const RACES = {
+  pi: {
+    harness: 'pi',
+    flag: '-a',
+    setUp: (box) => skipping(box),
+    A: ['--harness', 'pi'],
+    B: ['--extra-arg=-a'],
+  },
+  codex: {
+    harness: 'codex',
+    flag: '--sandbox',
+    setUp: (box) => withSession(box),
+    A: ['--harness', 'codex'],
+    B: ['--extra-arg=--sandbox', '--extra-arg=danger-full-access'],
+  },
+};
+
+/** The environment that loads the read gate on api-bot's bot.yaml, stopping after read `at` (0: none). */
+function gated(box, bots, { at, log, gate }) {
+  return {
+    ...box.env,
+    NODE_OPTIONS: [box.env.NODE_OPTIONS, `--import=${pathToFileURL(GATE_ENTRY).href}`].filter(Boolean).join(' '),
+    OBK_TEST_READ_GATE_FILE: botFile(bots),
+    OBK_TEST_READ_GATE_LOG: log,
+    OBK_TEST_READ_GATE_AT: String(at),
+    OBK_TEST_READ_GATE_OPEN: gate,
+  };
+}
+
+/** How many times `command` of `race`, run alone, reads bot.yaml; and that it is allowed alone. */
+async function readsOf(t, race, command) {
+  const box = await createSandbox(t);
+  const bots = await race.setUp(box);
+  const log = box.path('reads.log');
+  await writeFile(log, '');
+
+  const alone = await change(box, race[command], { env: gated(box, bots, { at: 0, log, gate: box.path('gate') }) });
+
+  assert.equal(alone.code, 0, `the premise: ${command} (${race[command].join(' ')}) alone is allowed, got:\n${alone.stdout}${alone.stderr}`);
+  const reads = (await readFile(log, 'utf8')).split('\n').filter(Boolean).length;
+  assert.ok(reads >= 1, `the premise: the gate sees ${command} read bot.yaml, got ${reads} reads`);
+  return reads;
+}
+
+/** Wait until the stopped command has reached its stop, or has ended without reaching it. */
+async function stoppedAt(gate, run) {
+  for (;;) {
+    if (await isThere(`${gate}.reached`)) return true;
+    if (run.ended) return false;
+    await delay(20);
+  }
+}
+
+for (const [name, race] of Object.entries(RACES)) {
+  for (const [stoppedOne, otherOne] of [['A', 'B'], ['B', 'A']]) {
+    test(`MP10 ${name}: ${stoppedOne} (${race[stoppedOne].join(' ')}) stopped after each of its reads of bot.yaml while ${otherOne} (${race[otherOne].join(' ')}) runs: never ${race.harness} with ${race.flag}`, async (t) => {
+      const reads = await readsOf(t, race, stoppedOne);
+      await readsOf(t, race, otherOne); // the premise: the other is allowed alone too
+
+      for (let at = 1; at <= reads; at += 1) {
+        const box = await createSandbox(t);
+        const bots = await race.setUp(box);
+        const gate = box.path('gate');
+        const env = gated(box, bots, { at, log: box.path('reads.log'), gate });
+
+        const run = { ended: false };
+        run.result = change(box, race[stoppedOne], { env }).then((result) => { run.ended = true; return result; });
+        const reached = await stoppedAt(gate, run);
+        let other;
+        if (reached) {
+          other = change(box, race[otherOne]);
+          await Promise.race([other, delay(OTHER_WAIT_MS)]);
+        }
+        await writeFile(gate, '');
+        const first = await run.result;
+        const second = other === undefined ? await change(box, race[otherOne]) : await other;
+
+        const doc = parse(await readFile(botFile(bots), 'utf8'));
+        const session = (doc.sessions ?? []).find((one) => one?.name === 'daily');
+        assert.ok(session, `daily is still in bot.yaml, got: ${JSON.stringify(doc.sessions)}`);
+        const harness = session.harness ?? doc.harness;
+        const extra = Array.isArray(session.extra_args) ? session.extra_args.map(String) : [String(session.extra_args ?? '')];
+        assert.ok(
+          !(harness === race.harness && extra.some((arg) => arg === race.flag || arg.startsWith(`${race.flag}=`))),
+          `${stoppedOne} (${race[stoppedOne].join(' ')}) stopped after read ${at} of ${reads}, `
+          + `${otherOne} (${race[otherOne].join(' ')}) run in the gap: exit ${first.code} and ${second.code}, `
+          + `and bot.yaml now holds a ${race.harness} session with ${race.flag} in its extra_args: ${JSON.stringify(session)}`,
+        );
+      }
+    });
+  }
+}
