@@ -16,29 +16,28 @@
 on run argv
 	set appPath to item 1 of argv
 	tell application "System Events"
-		repeat with candidate in (every application process whose name is "Orca")
-			if POSIX path of application file of candidate is appPath then
-				tell candidate
-					-- Menu 1 is Apple's own.
-					repeat with b from 2 to count of menu bar items of menu bar 1
-						set m to menu 1 of menu bar item b of menu bar 1
-						set labels to name of menu items of m
-						repeat with i from 1 to count of labels
-							set label to item i of labels
-							if label is not missing value then
-								if label is "Force Reload" or label starts with ("Force Reload" & tab) or label ends with (tab & "⌘⇧R") then
-									-- Asked last, right before the click, so Orca has had no time to
-									-- lose the front since.
-									if frontmost of candidate is false then return "Orca is not the front app"
-									click menu item i of m
-									return "reloaded"
-								end if
+		-- By its path alone: another build of Orca has another name (#551).
+		repeat with candidate in (every application process whose POSIX path of application file is appPath)
+			tell candidate
+				-- Menu 1 is Apple's own.
+				repeat with b from 2 to count of menu bar items of menu bar 1
+					set m to menu 1 of menu bar item b of menu bar 1
+					set labels to name of menu items of m
+					repeat with i from 1 to count of labels
+						set label to item i of labels
+						if label is not missing value then
+							if label is "Force Reload" or label starts with ("Force Reload" & tab) or label ends with (tab & "⌘⇧R") then
+								-- Asked last, right before the click, so Orca has had no time to
+								-- lose the front since.
+								if frontmost of candidate is false then return "Orca is not the front app"
+								click menu item i of m
+								return "reloaded"
 							end if
-						end repeat
+						end if
 					end repeat
-				end tell
-				return "no Force Reload in Orca's menus"
-			end if
+				end repeat
+			end tell
+			return "no Force Reload in Orca's menus"
 		end repeat
 	end tell
 	return "no Orca running from " & appPath

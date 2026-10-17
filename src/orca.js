@@ -135,8 +135,16 @@ export function findProject(home) {
   return projects().find((setup) => setup.path === home);
 }
 
-/** Where Orca keeps its own settings: one file per profile, under the user's home. */
-export const profilesDir = () => path.join(homedir(), 'Library', 'Application Support', 'orca', 'profiles');
+/**
+ * Where Orca keeps its own settings: one file per profile, under the user's home.
+ * OBK_ORCA_DATA names the data folder of another build of Orca, as OBK_ORCA
+ * names its CLI: a build's folder is written only inside its own CLI, so the
+ * kit cannot tell it from the app (#551).
+ */
+export const profilesDir = () => path.join(
+  process.env.OBK_ORCA_DATA || path.join(homedir(), 'Library', 'Application Support', 'orca'),
+  'profiles',
+);
 
 /**
  * Orca's own default launch arguments, per profile it keeps:

@@ -54,7 +54,10 @@ folder.
 
 On the Orca CLI path: `/usr/local/bin/orca` is a root-only symlink on some
 machines and fails for an ordinary user, so use the full path above. If Orca
-lives somewhere else here, find it and set `OBK_ORCA` to it.
+lives somewhere else here, find it and set `OBK_ORCA` to it. If that is another
+build of Orca with its own data folder, also set `OBK_ORCA_DATA` to the full
+path of that folder, for example `$HOME/Library/Application Support/orca-lean`.
+The kit reads Orca's launch arguments from the `profiles` folder there.
 
 If Node is older than 24.21.0, say so and stop. The kit's book of sessions is a
 SQLite write transaction through Node's own `node:sqlite`, and 24.21.0 is the
