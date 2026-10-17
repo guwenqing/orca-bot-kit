@@ -46,6 +46,7 @@ export const COMMANDS = {
   'temp retire': ['bots', 'name'],
   'temp trust-hooks': ['bots', 'name'],
   'temp answer': ['bots', 'name'],
+  run: ['timeout'],
 };
 
 /**
@@ -68,12 +69,14 @@ export const DEFAULT_COMMANDS = [
  * The commands kept out of the default permission set, which keep the user's
  * yes (ADR 0051): the ones that change permissions, close a long-lived
  * session, make the bots folder, or make or change a bot or its sessions,
- * which the owner leaves to Bot Father (#548, #615).
+ * which the owner leaves to Bot Father (#548, #615); and `run`, which runs
+ * whatever its arguments say, so a rule for it names its command (#532).
  */
 export const KEPT_BACK = [
   'init', 'retire', 'pause', 'restart', 'bot create',
   'bot change', 'session add', 'session change',
   'permission allow', 'permission disallow', 'permission approval',
+  'run',
 ];
 
 /**

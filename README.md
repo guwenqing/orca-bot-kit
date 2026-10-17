@@ -166,8 +166,8 @@ nobody asked: its own commands for this bots folder, reading a long message,
 `git add` and `git commit`
 ([ADR 0050](docs/adr/0050-the-kit-writes-every-bots-default-permission-rules.md)).
 `obk permission`, `obk retire`, `obk pause`, `obk restart`, `obk bot create`,
-`obk bot change`, `obk session add`, `obk session change` and `obk init` are
-not in the set, and keep your yes
+`obk bot change`, `obk session add`, `obk session change`, `obk init` and
+`obk run` are not in the set, and keep your yes
 ([ADR 0051](docs/adr/0051-permission-changes-and-risky-operations-have-commands-of-their-own.md)).
 A rule beyond the set is written by `obk permission allow`, after your yes to
 the exact rule. A bot that still holds a rule that the kit gave every bot
