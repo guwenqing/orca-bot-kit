@@ -10,7 +10,8 @@ answers with the address and the command that carries it.
 
 If your harness refuses a message, do not send it again by another road. Tell
 your maker or your user, with the harness's reason. A refusal can mean a missing
-permission rule, which they can add through the kit after the user's yes.
+permission rule. Send the refusal to whoever adds your rules: your maker, your
+user or your fleet's manager.
 
 Mail is queued, not an interruption. When Orca says you have mail, read it
 with `"${OBK_CLI:-obk}" message check --bots <bots>`, never a bare `orca
