@@ -48,14 +48,14 @@
 
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { access, mkdir, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { access, mkdir, readdir, readFile, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 import { pathToFileURL } from 'node:url';
 import { parse } from 'yaml';
 
-import { readBook, takeBotTurn, updateBook } from '../src/book.js';
-import { bookLockFile, botHomeOf, botLockFile, createSandbox, node, repoRoot } from './helpers/cli.js';
+import { readBook, takeBotTurn, takeLineTurn, updateBook } from '../src/book.js';
+import { bookLockFile, botHomeOf, botLockFile, createSandbox, node, repoRoot, turnLockFile } from './helpers/cli.js';
 
 const BOT = 'api-bot';
 const OUTSIDE_TEXT = 'a file of the user\'s, outside the bot\'s folder of locks\n';
@@ -355,3 +355,88 @@ for (const [kind, plant] of PLAIN) {
     assert.equal(hasOps(parse(await readFile(botYamlOf(bots), 'utf8'))), true, 'bot.yaml has the session ops');
   });
 }
+
+// ------------------------------------------------- the name looked at again, after the lock is held
+
+// The tests above plant a link before the kit comes for the lock, so the kit
+// meets the link when it opens the name itself. The issue asks for one more
+// thing: whatever is at the name when the lock is taken is never followed, and
+// SQLite never makes a file. That moment is reached here with no race: a
+// second turn on one lock file in one process, taken while the first is held.
+// The kit cannot open the name again for the second turn on its own (closing
+// any descriptor on that file would let go of the first turn's lock), so what
+// is at the name then is what the lock is taken on.
+//
+// The lock is a session's `lines` turn, which takeLineTurn takes shared: two
+// can be held at once in one process. The session daily need not be in
+// bot.yaml.
+//
+// N1  First turn held; the real `lines` file moved aside in its folder, and a
+//     link at its name to a name outside with nothing at it. The second turn
+//     is not taken (it throws, or answers undefined), and nothing is made
+//     outside.
+// N2  The same, with a link to an empty file outside: that file keeps its 0
+//     bytes, nothing is made beside it, and the second turn is not taken.
+// N3  The other side: with nothing swapped, the two turns are both taken and
+//     both let go.
+
+const LINE_WAIT_MS = 2_000;
+
+/** Take a line turn, and answer how it ended: `{ turn }` (undefined when it did not come), or `{ error }`. */
+function lineTurn(home) {
+  try {
+    return { turn: takeLineTurn(home, 'daily', LINE_WAIT_MS) };
+  } catch (error) {
+    return { error };
+  }
+}
+
+const notTaken = (ended) => ended.error !== undefined || ended.turn === undefined;
+const toldLine = (ended) => (ended.error ? `it threw: ${ended.error.message}` : ended.turn === undefined ? 'it answered undefined' : 'it was taken');
+
+for (const [criterion, kind, outsideText] of [['N1', 'a name outside with nothing at it', null], ['N2', 'an empty file outside', '']]) {
+  test(`#605 ${criterion} a second line turn, taken while the first is held and after the lines file was swapped for a link to ${kind}: it is not taken, and nothing is made or changed outside`, async (t) => {
+    const box = await createSandbox(t);
+    const { bots, home } = await aBot(box);
+    const outside = await outsideFolder(box);
+    const target = path.join(outside, 'target.lock');
+    if (outsideText !== null) await writeFile(target, outsideText);
+    const lines = turnLockFile(bots, BOT, 'daily', 'lines');
+
+    const first = lineTurn(home);
+    assert.equal(typeof first.turn?.release, 'function', `the premise: the first line turn is taken, ${toldLine(first)}`);
+    let second;
+    try {
+      assert.equal(await isThere(lines), true, `the premise: the first turn holds its lock on ${lines}`);
+      await rename(lines, `${lines}.moved`);
+      await symlink(target, lines);
+
+      second = lineTurn(home);
+
+      if (outsideText === null) assert.equal(await isThere(target), false, `no file is made at the link's target ${target}`);
+      else await assertKeeps(target, outsideText);
+      assert.deepEqual(await readdir(outside), outsideText === null ? [] : ['target.lock'], 'nothing is made in the folder outside');
+      assert.equal(notTaken(second), true, `the second line turn is not taken; ${toldLine(second)}`);
+    } finally {
+      // Let go of whatever was taken, so the sandbox can go; the claim is above.
+      try { second?.turn?.release(); } catch { /* the claim is above */ }
+      try { first.turn.release(); } catch { /* the claim is above */ }
+    }
+  });
+}
+
+test('#605 N3 two line turns held at once, with nothing swapped: both are taken, and both let go', async (t) => {
+  const box = await createSandbox(t);
+  const { home } = await aBot(box);
+
+  const first = lineTurn(home);
+  assert.equal(typeof first.turn?.release, 'function', `the first line turn is taken; ${toldLine(first)}`);
+  const second = lineTurn(home);
+  assert.equal(typeof second.turn?.release, 'function', `the second line turn is taken while the first is held; ${toldLine(second)}`);
+  second.turn.release();
+  first.turn.release();
+  // Both let go: a third turn comes again.
+  const third = lineTurn(home);
+  assert.equal(typeof third.turn?.release, 'function', `a line turn is taken again after both were let go; ${toldLine(third)}`);
+  third.turn.release();
+});
