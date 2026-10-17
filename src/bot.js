@@ -75,8 +75,19 @@ export function leadsOutside(home, target) {
   }
   // Links that never settle lead nowhere the kit can vouch for.
   if (real === undefined) return `${target}, through links that never settle`;
-  const root = realpathSync(home);
+  const root = realpathSync.native(home);
   return real === root || real.startsWith(root + path.sep) ? undefined : real;
+}
+
+/**
+ * Refuse to write a bot's own file — its `bot.yaml`, its `AGENTS.md` — through a
+ * link that takes it out of the bot folder at `home`: what is there is the
+ * user's own file, not the bot's (#569).
+ */
+export function refuseOutside(home, file) {
+  const real = leadsOutside(home, file);
+  if (real === undefined) return;
+  throw new Error(`${file} leads outside the bot folder, to ${real}, through a link, and the kit writes a bot's files only inside the bot folder, so nothing was written. Replace the link with a file of the bot's own, then run the command again.`);
 }
 
 /** How many links deep a path is followed before it is taken to lead nowhere. */
@@ -99,10 +110,16 @@ function whereItLeads(target) {
       at = path.dirname(at);
     }
     try {
-      return path.join(realpathSync(at), ...rest);
+      // The native call, which asks the file system: the JS one runs
+      // path.resolve first, which takes `hop/..` away before `hop` is followed.
+      return path.join(realpathSync.native(at), ...rest);
     } catch (error) {
       if (!lstatSync(at).isSymbolicLink()) throw error;
-      next = path.join(path.resolve(path.dirname(at), readlinkSync(at)), ...rest);
+      // Joined as text, not with path.join or path.resolve: they take `hop/..`
+      // away before `hop` is followed, and the file system follows it first
+      // (#569 review).
+      const text = readlinkSync(at);
+      next = [path.isAbsolute(text) ? text : `${path.dirname(at)}${path.sep}${text}`, ...rest].join(path.sep);
     }
   }
   return undefined;
@@ -232,6 +249,7 @@ export function addSession(bots, bot, settings) {
   if (!existsSync(file)) {
     throw new Error(`there is no bot called ${bot} in ${bots}: ${file} is not there. Create it with obk bot create.`);
   }
+  refuseOutside(home, file);
 
   const known = readBot(home, bot);
   if (known.sessions.some((session) => session.name === settings.name)) {
@@ -498,7 +516,11 @@ function editSession(bots, bot, index, session, what) {
  * `write` is not false.
  */
 function editBot(bots, bot, what, edit, expected, write = true) {
-  const file = path.join(existingBot(bots, bot), BOT_YAML);
+  const home = existingBot(bots, bot);
+  const file = path.join(home, BOT_YAML);
+  // Before the dry run too, so a command that writes elsewhere first is
+  // refused before it writes anything.
+  refuseOutside(home, file);
   const source = readFileSync(file, 'utf8');
   const doc = parseDocument(source);
   edit(doc);
