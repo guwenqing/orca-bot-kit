@@ -13,3 +13,4 @@ R3: `obk permission disallow` MUST take back each rule of R1, after the user's y
 
 Assumed: the notice in R2 is the one #548 and #564 print ("<bot> holds <rule>, which is no longer one of the kit's defaults. To take it back: …"). The kit spells each rule with its own path and the bots folder, as the default set spelled it. Bot Father keeps the three as held rules, and `rules build` and `up` name them for Bot Father too, as they do for `restart` and `bot create`. No kit rule or skill tells a bot other than Bot Father to run the three.
 Out: the kit taking any rule back by itself (Bot Father takes the rules back from the other bots, after the release); `obk temp make` and the other temp commands, which stay in the set.
+Signed off: 2026-10-17 owner, origin/2026-10-17-signoff.md
