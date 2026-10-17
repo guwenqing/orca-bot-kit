@@ -144,8 +144,13 @@ function leftBeside(bots) {
       for (const session of readBot(home, name).sessions) {
         owned.add(promptPath(bots, name, session.name));
         // The file a session names as its own prompt, which the kit reads to
-        // start it (#577).
-        if (set(session.prompt_file)) owned.add(promptFile(session, home));
+        // start it, and the file a link there leads to (#577).
+        if (set(session.prompt_file)) {
+          const file = promptFile(session, home);
+          owned.add(file);
+          const real = realpathOf(file);
+          if (real !== undefined) owned.add(real);
+        }
         // Where a live session's prompt was before #534: nothing reads it once
         // the session starts again, and its retire removes it.
         owned.add(oldPromptPath(bots, name, session.name));
@@ -157,7 +162,7 @@ function leftBeside(bots) {
 
   if (known) {
     for (const at of promptFilesIn(`${bots}.prompts`)) {
-      if (owned.has(at)) continue;
+      if (owned.has(at) || owned.has(realpathOf(at))) continue;
       found.push(finding('leftover', at, `${at} is a start prompt the kit wrote beside your bots folder, and no session of any bot answers to it now. Nothing reads it.`));
     }
   }

@@ -494,7 +494,7 @@ export function startPrompt(session, { home, workDir }) {
 }
 
 /** Where a session's prompt file is: in the bot home, where the user put it. */
-export const promptFile = (session, home) => path.resolve(home, session.prompt_file);
+export const promptFile = (session, home) => path.resolve(home, String(session.prompt_file));
 
 /**
  * A prompt short and simple enough to type into the launch line as it is: one
