@@ -7,13 +7,13 @@
 // The files are the user's. A command that cannot do what was asked refuses and
 // writes nothing, rather than leave a bot half made or a bot.yaml half edited.
 
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, statSync, writeFileSync } from 'node:fs';
+import { accessSync, constants, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { isSeq, parse, parseDocument, stringify } from 'yaml';
 
-import { defaultApproval, HARNESSES, harnessOf, sessionTrouble } from './launch.js';
+import { defaultApproval, HARNESSES, harnessOf, sessionTrouble, workDirOf } from './launch.js';
 
 /** Where the bots live inside the user's bots folder. */
 export const botsDir = (bots) => path.join(bots, 'bots');
@@ -278,7 +278,7 @@ export function addSession(bots, bot, settings) {
   if (!changesExactly(source, text, (was) => ({ ...was, sessions: [...(was.sessions ?? []), session] }))) {
     throw new Error(`${file} cannot have a session added to it without changing something else in it, so nothing was written. Add ${settings.name} to its sessions list by hand.`);
   }
-  writeFileSync(file, text);
+  writeWhole(file, text);
   return { bot, home, session };
 }
 
@@ -387,9 +387,30 @@ export function changeSession(bots, bot, name, settings) {
     .filter(([, value]) => value !== '' && !(Array.isArray(value) && value.every((one) => one === ''))));
   const trouble = sessionTrouble(session, harnessOf(session, known.harness), home);
   if (trouble !== undefined) throw new Error(trouble);
+  // Judged on the session as it is written, which is the whole session, so a
+  // change another command made in between cannot be combined with this one.
+  refuseCodexOutside(bot, session, was, known.harness, home, 'session change');
 
   editSession(bots, bot, index, session, `change ${bot}'s session ${name}`);
   return { bot, home, session, ...(moved === undefined ? {} : { moved }) };
+}
+
+/**
+ * Refuse a session that would run on Codex with a work dir outside its bot
+ * home (ADR 0045): Codex is launched with `--add-dir` for it, which lets the
+ * session write there, and `session add` and `session change` are in every
+ * bot's default set (#585). Outside is by the spelling, which the launch line
+ * names, or by where links really lead. `was` is the session before the
+ * change: one already on Codex with the same work dir widens nothing.
+ */
+export function refuseCodexOutside(bot, session, was, botHarness, home, command) {
+  if (harnessOf(session, botHarness) !== 'codex') return;
+  const workDir = workDirOf(session, home);
+  if (workDir === undefined) return;
+  const spelledIn = workDir === home || workDir.startsWith(home + path.sep);
+  if (spelledIn && leadsOutside(home, workDir) === undefined) return;
+  if (was !== undefined && harnessOf(was, botHarness) === 'codex' && workDirOf(was, home) === workDir) return;
+  throw new Error(`${command} would give ${bot}/${session.name}, a Codex session, the work dir ${workDir}, which is outside ${bot}'s folder, ${home}. Codex would then be allowed to write that folder. A Codex session's work dir stays in its bot folder, such as work/${session.name}. Nothing was changed.`);
 }
 
 /**
@@ -533,7 +554,28 @@ function editBot(bots, bot, what, edit, expected, write = true) {
     throw refusal;
   }
   if (!changesExactly(source, text, expected)) throw refusal;
-  if (write && text !== source) writeFileSync(file, text);
+  if (write && text !== source) writeWhole(file, text);
+}
+
+/**
+ * Write `text` over the bot.yaml `file` in one step, as the book is written:
+ * to a file of this process's own beside it, then moved over it. Two commands
+ * that write it at once leave one whole text or the other, never the one with
+ * the end of the other after it, which can read as a session neither command
+ * wrote (#585). A link to it is written through, to the file it names, and the
+ * file keeps its mode. A file the user made read-only is refused, as a write in
+ * place would be, though a move over it would go through. Whatever is already
+ * at the new file's name is taken away and the file is made new, never written
+ * through: a link a session left there would take the text out of the bot
+ * folder, and the move would make bot.yaml that link.
+ */
+export function writeWhole(file, text) {
+  const real = realpathSync(file);
+  accessSync(real, constants.W_OK);
+  const half = `${real}.${process.pid}.part`;
+  rmSync(half, { force: true });
+  writeFileSync(half, text, { flag: 'wx', mode: statSync(real).mode & 0o777 });
+  renameSync(half, real);
 }
 
 /** A bot that is there, by its home, or the refusal a caller who named another is owed. */

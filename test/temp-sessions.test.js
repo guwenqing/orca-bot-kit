@@ -51,6 +51,7 @@ import {
   assertRefused,
   conversationOnRecord,
   bookIn,
+  bookOf,
   botHomeOf,
   createSandbox,
   fakeProgram,
@@ -70,6 +71,9 @@ import {
 
 const BOT = 'temp-bot';
 const OTHER = 'other-temp-bot';
+
+/** Loaded into one run to make a single file one the kit cannot write (TQ4, TQ5). */
+const FAIL_WRITE_ENTRY = new URL('./helpers/fail-write.js', import.meta.url).href;
 
 /** The maker's own start prompt, which a session it makes must not be given. */
 const PLANNER_PROMPT = 'You plan the work on the API and hand it out.';
@@ -836,25 +840,30 @@ test('TQ4 a make whose book write fails and whose prompt file cannot be removed 
   // The make must take the book's lock and write its prompt file, and only then
   // fail on the book (#572: a make that cannot take the lock writes no prompt
   // file, so holding the lock no longer reaches this case). For the run, the
-  // bot's folder is read-only: bot.yaml in it can still be written over, but
-  // no new file can be made there, and the book is written through a new file
-  // beside it. The prompts folder is read-only too. A file of the same name
-  // already in it can be written over by the make, but not removed.
+  // book alone cannot be written, as in TQ5 (helpers/fail-write.js), and
+  // bot.yaml beside it can. The prompts folder is read-only: a file of the
+  // same name already in it can be written over by the make, but not removed.
   const box = await createSandbox(t);
   const { bots, planner } = await fleet(box);
   const file = promptFileOf(bots, BOT, 'scout');
   await mkdir(path.dirname(file), { recursive: true });
   await writeFile(file, 'left over from an earlier run\n');
-  const folders = [promptsOf(bots), botHomeOf(bots, BOT)];
-  const modes = await Promise.all(folders.map(async (folder) => (await stat(folder)).mode & 0o7777));
+  const folder = promptsOf(bots);
+  const mode = (await stat(folder)).mode & 0o7777;
   const from = await callCount(box);
 
   let result;
   try {
-    for (const folder of folders) await chmod(folder, 0o555);
-    result = await make(box, planner, SCOUT);
+    await chmod(folder, 0o555);
+    result = await box.run(['temp', 'make', '--bots', 'bots', ...SCOUT], {
+      env: {
+        ...inTab(box, planner),
+        NODE_OPTIONS: [box.env.NODE_OPTIONS, `--import=${FAIL_WRITE_ENTRY}`].filter(Boolean).join(' '),
+        OBK_TEST_FAIL_WRITE_TO: bookOf(bots, BOT),
+      },
+    });
   } finally {
-    for (const [at, folder] of folders.entries()) await chmod(folder, modes[at]);
+    await chmod(folder, mode);
   }
 
   const said = `${result.stdout}${result.stderr}`;
@@ -865,6 +874,7 @@ test('TQ4 a make whose book write fails and whose prompt file cannot be removed 
   assert.equal(await sessionIn(bots, BOT, 'scout'), undefined, 'nor in the book');
   assert.deepEqual(orcaCallsOf(await since(box, from), 'terminal create'), [], 'and no tab was opened');
   assert.match(said, /nothing|taken back|taken off/i, `it says the session was taken back, nothing made, got:\n${said}`);
+  assert.match(said, /taken back|taken off|off bot\.yaml/i, `it says the session was taken back off bot.yaml, or this is not the case at hand, got:\n${said}`);
   assert.ok(said.includes(file), `it names the prompt file left, got:\n${said}`);
   assert.match(said, /EACCES|EPERM|permission/i, `and why it could not be removed, got:\n${said}`);
   assert.ok(
@@ -878,28 +888,29 @@ test('TQ4 a make whose book write fails and whose prompt file cannot be removed 
   );
 });
 
-test('TQ5 a make whose book write fails takes the session back off bot.yaml, removes its prompt file, says nothing was made, and works once the book can be written', { skip: NEEDS_A_USER }, async (t) => {
+test('TQ5 a make whose book write fails takes the session back off bot.yaml, removes its prompt file, says nothing was made, and works once the book can be written', async (t) => {
   // TQ4's case with a prompts folder that can be written: the make takes the
   // book's lock, writes its prompt file and bot.yaml, and then fails on the
   // book. Before #572, TQ1 covered the removal here, since its make wrote the
-  // prompt file before it waited on the lock; now that make writes none. The
-  // bot's folder is read-only for the run: bot.yaml in it can still be written
-  // over, but the book is written through a new file beside it.
+  // prompt file before it waited on the lock; now that make writes none. For
+  // the run, the book alone cannot be written: helpers/fail-write.js refuses
+  // the make a write of it, of a new file beside it named after it, and a
+  // rename onto it, with EACCES. bot.yaml beside it can be written as before
+  // (#585 writes it through a new file and a rename, so a read-only bot folder
+  // no longer leaves it writable).
   const box = await createSandbox(t);
   const { bots, planner } = await fleet(box);
   const file = promptFileOf(bots, BOT, 'scout');
-  const folder = botHomeOf(bots, BOT);
-  const mode = (await stat(folder)).mode & 0o7777;
   const before = await world(box, bots);
   const from = await callCount(box);
 
-  let result;
-  try {
-    await chmod(folder, 0o555);
-    result = await make(box, planner, SCOUT);
-  } finally {
-    await chmod(folder, mode);
-  }
+  const result = await box.run(['temp', 'make', '--bots', 'bots', ...SCOUT], {
+    env: {
+      ...inTab(box, planner),
+      NODE_OPTIONS: [box.env.NODE_OPTIONS, `--import=${FAIL_WRITE_ENTRY}`].filter(Boolean).join(' '),
+      OBK_TEST_FAIL_WRITE_TO: bookOf(bots, BOT),
+    },
+  });
 
   const said = `${result.stdout}${result.stderr}`;
   assert.notEqual(result.code, 0, `the make failed, and says so in its exit code, got:\n${said}`);

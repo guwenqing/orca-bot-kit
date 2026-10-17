@@ -42,8 +42,15 @@ pi --version                                            # 1.1.0, for a bot on Pi
 ```
 
 The Orca line must come back with `ok: true` and `result.runtime.reachable:
-true`. Anything else means Orca is not running, whatever else it says: ask them
-to start it, then run the line again.
+true`. When it answers that Orca is not running or not reachable, ask them to
+start it, then run the line again.
+
+When the line fails with an error instead of an answer, the error is the
+problem. It does not show that Orca is stopped. Tell them the error as the CLI
+printed it, and do not ask them to start Orca for it. For example, `EPERM` with
+`process.cwd failed` or `uv_cwd` means that the CLI cannot read the folder the
+shell is in, while Orca can be running. Run the line again from their home
+folder.
 
 On the Orca CLI path: `/usr/local/bin/orca` is a root-only symlink on some
 machines and fails for an ordinary user, so use the full path above. If Orca
@@ -133,8 +140,8 @@ Read everything it prints. Three parts of it matter to them:
   not stop Bot Father for the kit's own commands, reading a long message
   beside the bots folder, and its commits. The kit writes this set for every
   bot, with nobody asked. Say in a sentence what it allows, and that
-  `obk permission`, `obk retire`, `obk pause` and `obk init` are not in it and
-  keep their yes;
+  `obk permission`, `obk retire`, `obk pause`, `obk restart`, `obk bot create`
+  and `obk init` are not in it and keep their yes;
 - **anything it says about Orca's own default launch arguments.** Orca adds
   these to every agent it launches, relaunches and resumes. When they carry a
   permission bypass, every session runs in that mode whatever approval level the
@@ -193,21 +200,22 @@ that folder itself, exactly as you gave it to `obk init`:
 "$ORCA" terminal read --terminal <handle> --screen --json
 ```
 
-What you will see, and the usual answer. Each goes as one
+What you will see, and the usual answer. Each key goes as one
 `"$ORCA" terminal send --terminal <handle> --text …`, with the return inside the
 text and **no** `--enter`, because a menu takes a return as the keypress it is
-waiting for:
+waiting for. Where the Send cell names `obk` commands, send no keys: the kit
+answers that screen, by the command and its arguments below the table.
 
 | On screen | Send | Which is | Proven on |
 |---|---|---|---|
 | Claude Code's folder trust list | `\x1b[B\r` | down, then return: its selection starts on **No, exit** | Claude Code 2.1.283 |
 | Codex's directory trust, `1. Trust and continue` (older: `1. Yes, continue`) | `\r` | return: its selection starts on **Trust and continue** | Codex 0.160.0 |
-| Codex's `Hooks need review` | `\x1b[B\r` | down, then return, to **Trust all and continue**; if the selection already starts there, return alone | Codex 0.160.0 |
+| Codex's `Hooks need review` | `obk session trust-hooks`, or `obk temp trust-hooks` for a temporary session | the kit checks the hooks, then goes to **Trust all and continue** | Codex 0.160.0 |
 | Codex's `/new`: `Where should the new conversation run?` | `\r` | return: its selection starts on **Current checkout** (bot home); on 0.162.0 it is called **1. Use current Git worktree** (Keep using the current working directory). Never **Create new Git worktree** | Codex 0.160.0; Codex 0.162.0 (#516) |
 | Codex's update offer, `1. Update now` | `\r` | return: its selection starts on **Update now**, which accepts it | Codex 0.156.1; seen on 0.157.1 (offering 0.158.0) with the selection on **Update now**, not pressed; 0.158.0 offered 0.160.0, taken on 2026-10-02 by Bot Father's restarts |
 | `[oh-my-zsh] Would you like to update?` | `n` | they update their own shell | oh-my-zsh bf77e35 |
-| Claude Code's `Teach auto mode about your environment?` | `\x1b` | Esc, which cancels it (**Not now**). On 2.1.283 it is a form, not a list: `How you use Claude here`, `Also scan shell history`, `Also scan your other repos`, `Continue`, and `Enter to continue · Esc to cancel`. **Never send a return**: Enter is **Continue**, which starts a scan of the project, recent Claude sessions and, by default, the machine's shell history | Not yet proven: Esc cancels in Claude Code 2.1.283's code, not yet seen live (#370); the form was seen live twice on 2.1.283, in #261's live test and #239's live run 1 (#416); 2.1.278 showed a numbered list, answered with 2. Not now |
-| Claude Code 2.1.289's `Teach auto mode about your environment?`, a numbered list: `1. Yes`, `2. Not now`, `3. Don't show again`, and `Enter to confirm · Esc to cancel`, above the input box | `\x1b[B\r` | down, then return, to **2. Not now**: its selection starts on **1. Yes**. Read the screen after the down arrow, and send the return only with the selection on **2. Not now**. Never **1. Yes**, which starts the teach scan, and never **3. Don't show again** | Not yet proven: the list was seen live on 2.1.289 with its selection on 1. Yes, in #489's live run 1, and was not answered there |
+| Claude Code's `Teach auto mode about your environment?` | `obk session answer`, or `obk temp answer` for a temporary session | the kit sends Esc, which cancels it (**Not now**). On 2.1.283 it is a form, not a list: `How you use Claude here`, `Also scan shell history`, `Also scan your other repos`, `Continue`, and `Enter to continue · Esc to cancel`. **Never send a return**: Enter is **Continue**, which starts a scan of the project, recent Claude sessions and, by default, the machine's shell history | Not yet proven: Esc cancels in Claude Code 2.1.283's code, not yet seen live (#370); the form was seen live twice on 2.1.283, in #261's live test and #239's live run 1 (#416); 2.1.278 showed a numbered list, answered with 2. Not now |
+| Claude Code 2.1.289's `Teach auto mode about your environment?`, a numbered list: `1. Yes`, `2. Not now`, `3. Don't show again`, and `Enter to confirm · Esc to cancel`, above the input box | `obk session answer`, or `obk temp answer` for a temporary session | the kit goes down, then returns, to **2. Not now**: its selection starts on **1. Yes**. The kit reads the screen after the down arrow, and sends the return only with the selection on **2. Not now**. Never **1. Yes**, which starts the teach scan, and never **3. Don't show again** | Not yet proven: the list was seen live on 2.1.289 with its selection on 1. Yes, in #489's live run 1, and was not answered there |
 
 Each key counts on where the selection starts, as it did on the version named.
 Read the screen in front of you before you send: if the selection is somewhere
@@ -299,8 +307,10 @@ obk health --bots <their path>
 
 It reads the setup and says what it found, and writes nothing at all. It exits 1
 when it found something, so do not read a non-zero exit as a broken setup. The
-one exception is an error with no findings, saying Orca is not answering: that
-is a real problem, and the fix is to start Orca and run it again.
+one exception is an error with no findings: that is a real problem. Tell them
+the error as it is. When it says Orca is not answering, run the Orca line from
+step 1 again, and go by what that gives: start Orca only when it answers that
+Orca is not running.
 
 Relay what it says in plain words. Nothing it prints is a verdict: which findings
 matter is for them, or for Bot Father, to judge. If something looks wrong to you,

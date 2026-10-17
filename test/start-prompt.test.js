@@ -45,6 +45,7 @@ import {
   sh,
   tabsOfBot,
   typedInto,
+  workDirByHand,
 } from './helpers/cli.js';
 
 const PROMPT = 'Read your AGENTS.md and reply in one line with what this bot owns.';
@@ -332,7 +333,9 @@ test('a session with a work dir and no prompt still has the note to say', async 
 test('an absolute work dir reaches the note as it is', async (t) => {
   const box = await createSandbox(t);
   const elsewhere = path.join(box.root, 'clones', 'api');
-  const bots = await withSession(box, ['--prompt', PROMPT, '--work-dir', elsewhere]);
+  const bots = await withSession(box, ['--prompt', PROMPT]);
+  // By hand: session add refuses a Codex session a work dir outside (#585), and up still takes it.
+  await workDirByHand(bots, 'prompt-bot', 'daily', elsewhere);
 
   const { typed } = await up(box, bots);
 

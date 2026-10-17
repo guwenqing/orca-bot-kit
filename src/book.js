@@ -6,7 +6,7 @@
 // theirs. Beside each session's tab it holds the harness session id that
 // session is running under, and every id it ran under before.
 
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { isDeepStrictEqual } from 'node:util';
@@ -85,11 +85,18 @@ function withHistoryListed(entry) {
  * is, never half of it, and a writer that dies leaves the old file in place:
  * the new text goes to a file of this process's own and is moved over the book,
  * which is one operation the file system either did or did not do.
+ *
+ * Whatever is already at that file's name is taken away and the file is made
+ * new, never written through: a session can leave a link there in its own bot
+ * folder, which would take the book's text out of it, and the move would make
+ * the book that link (#599). A link made there in between makes the write fail,
+ * and the old book stays whole.
  */
 export function writeBook(home, book) {
   const file = bookFile(home);
   const half = `${file}.${process.pid}.part`;
-  writeFileSync(half, `${HEADER}${stringify(book)}`);
+  rmSync(half, { force: true });
+  writeFileSync(half, `${HEADER}${stringify(book)}`, { flag: 'wx' });
   renameSync(half, file);
 }
 

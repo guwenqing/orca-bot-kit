@@ -14,11 +14,11 @@
 // file, so the difference is theirs to see.
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { parseDocument } from 'yaml';
 
-import { changesExactly, requireBotsFolder, YAML_OUT } from './bot.js';
+import { changesExactly, leadsOutside, requireBotsFolder, YAML_OUT } from './bot.js';
 import { ownCli, shellWord } from './launch.js';
 
 /** The user's file that lists where skills come from. */
@@ -64,6 +64,9 @@ export function addSource(bots, { name, repo, ref, path: inside }) {
   }
   if (TAKEN.includes(name)) {
     throw new Error(`${name} is the kit's own shelf, which a bot names kit:<name>, so a source cannot be called that. Call it something else.`);
+  }
+  if (inside !== undefined && !staysInRepo(inside)) {
+    throw new Error(`${inside} cannot be the path of the source ${name}: it leads out of the repo, and a path is a subfolder inside it, such as skills.`);
   }
 
   const file = path.join(bots, SKILLS_YAML);
@@ -272,6 +275,47 @@ function git(args, cwd, trouble) {
   return result.stdout.trim();
 }
 
+/**
+ * Whether a source's path, as written, names a folder inside its repo: not an
+ * absolute path, and no `..` that climbs above the top (#571). A link inside the
+ * clone can still lead out; `skills build` follows it before linking.
+ */
+const staysInRepo = (inside) => !path.isAbsolute(inside) && path.normalize(inside).split(path.sep)[0] !== '..';
+
+/**
+ * Where a source's skill at `dir` really leads when a link takes it, or anything
+ * in it, out of the source's clone; undefined when all of it stays inside (#571).
+ * A harness reads any file in a skill, so the whole folder is walked, through
+ * the links that stay inside as well.
+ */
+export function leavesClone(bots, name, dir) {
+  const clone = cloneDir(bots, name);
+  const seen = new Set();
+  const walk = (at) => {
+    const real = leadsOutside(clone, at);
+    if (real !== undefined) return real;
+    let entries;
+    try {
+      const where = realpathSync.native(at);
+      // A folder reached twice, through a link back into the skill, is walked once.
+      if (seen.has(where) || !statSync(where).isDirectory()) return undefined;
+      seen.add(where);
+      entries = readdirSync(where);
+    } catch (error) {
+      // Nothing there: whatever links it says so.
+      if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return undefined;
+      // A folder the kit may not read can hold a link out, and nothing shows it.
+      throw new Error(`${name}: the kit could not read ${at} (${error.code ?? error.message}), so it cannot tell whether anything in the skill leads out of the source's clone, and it links nothing from there.`);
+    }
+    for (const entry of entries) {
+      const found = walk(path.join(at, entry));
+      if (found !== undefined) return found;
+    }
+    return undefined;
+  };
+  return walk(dir);
+}
+
 /** Where a source's skills sit inside its clone: its root, or the subfolder it names. */
 export const skillsIn = (bots, source) => path.join(cloneDir(bots, source.name), source.path ?? '');
 
@@ -352,6 +396,9 @@ export function readSources(file) {
     }
     if (source.path !== undefined && typeof source.path !== 'string') {
       throw new Error(`${file}: the source ${name} has a path that is not a subfolder inside the repo.`);
+    }
+    if (source.path !== undefined && !staysInRepo(source.path)) {
+      throw new Error(`${file}: the source ${name} has the path ${source.path}, which leads out of the repo, and a path is a subfolder inside it, such as skills.`);
     }
     return source;
   });
