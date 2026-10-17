@@ -165,12 +165,14 @@ function commandBroadness(all) {
   if (star === -1) return undefined;
 
   const program = path.basename(words[0].replace(/:?\*.*$/, ''));
+  if (isKit(words[0]) && mayRun(words[1] ?? '')) return runBroadness(words);
   if (runnerOf(program) !== undefined) {
     // Only what runs, fixed by its absolute path, narrows it. A wrapper's
-    // program is then judged by itself; an interpreter's script is the end.
+    // program is then judged by itself; an interpreter's script is the end,
+    // unless it is the kit, which is judged as the kit.
     const next = (words[1] ?? '').replace(/:\*$/, '');
     const fixed = next.startsWith('/') && !next.includes('*');
-    if (fixed && WRAPPERS.has(program)) return commandBroadness(words.slice(1));
+    if (fixed && (WRAPPERS.has(program) || isKit(next))) return commandBroadness(words.slice(1));
     if (fixed && runnerOf(path.basename(next)) === undefined) return undefined;
     return `${program} runs whatever its arguments say, so ${ANY}`;
   }
@@ -181,6 +183,37 @@ function commandBroadness(all) {
   if (before === 0) return ANY;
   if (before < 2) return `it lets the bot run ${words[0].replace(/:?\*.*$/, '')} with any arguments`;
   return undefined;
+}
+
+/** Whether a word is the kit's CLI: `obk` by its name, or the path the kit runs as. */
+const isKit = (word) => path.basename(word) === 'obk' || word === ownCli();
+
+/**
+ * Whether a rule's word can match `run`: Claude's `*` matches any characters,
+ * spaces too, so `ru*` matches `run --timeout 1 -- sh`, while `:*` matches
+ * only at the end of a word.
+ */
+function mayRun(word) {
+  const star = word.indexOf('*');
+  if (star === -1) return word === 'run';
+  const before = word.slice(0, star);
+  return before.endsWith(':') ? before === 'run:' : 'run'.startsWith(before);
+}
+
+/**
+ * Why a rule for `obk run`, as shell words, is broad, or undefined (#532). It
+ * runs whatever its arguments say, so only a fixed time limit, `--`, and a
+ * command after it that is narrow as a rule of its own narrow it.
+ */
+function runBroadness(words) {
+  const [, , ...rest] = words;
+  let command;
+  if (rest[0] === '--timeout' && /^\d+$/.test(rest[1] ?? '') && rest[2] === '--') command = rest.slice(3);
+  if (/^--timeout=\d+$/.test(rest[0] ?? '') && rest[1] === '--') command = rest.slice(2);
+  if (words[1] !== 'run' || command === undefined || command.length === 0) {
+    return `obk run runs whatever its arguments say, so ${ANY}. A rule for it names the command after --, such as Bash(obk run --timeout 300 -- go test:*)`;
+  }
+  return commandBroadness(command);
 }
 
 /**

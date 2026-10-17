@@ -34,6 +34,7 @@ import { addSkill, buildSkills, linkSkills, removeSkill } from './skills.js';
 import { addSource, fetchSources } from './sources.js';
 import { answerSession, answerTemp, listRoles, makeTemp, optionsLine, retireTemp, trustHooks, trustSessionHooks } from './temp.js';
 import { readUsage } from './usage.js';
+import { parseRun, runBounded } from './run.js';
 import { BOT_FATHER, bringUp, ownMailbox } from './up.js';
 
 const USAGE = `obk — Orca Bot Kit.
@@ -326,13 +327,22 @@ Usage:
                             For the kit's own launch line, not for typing: run
                             in the session's own tab, it gives the session its
                             mailbox, or binds the one it has, to that tab.
+  obk run --timeout <seconds> -- <command> [<arg> ...]
+                            Run one command with a hard time limit, with no
+                            shell, and exit with its exit code. When the time
+                            runs out, it stops the command and everything it
+                            started (SIGTERM, then SIGKILL after 3 s), says so
+                            on stderr, and exits 124. A command it cannot find
+                            exits 127. A rule can allow it for one command,
+                            such as Bash(obk run --timeout 300 -- go test:*).
+                            It needs no --bots, and takes no --json.
   obk --version             Print the kit's version.
   obk --help                Print this text.
 
 Every command is safe to run again. Most only add what is missing; the ones
 that close a tab or take something away say so above. Every bot is allowed
-the kit's commands by default, except obk permission, retire, pause and init,
-which keep the user's yes.
+the kit's commands by default, except obk permission, retire, pause, init and
+run, which keep the user's yes.
 Add --json to any of them for the same answer as JSON.
 
 For another build of Orca, OBK_ORCA names its CLI, and OBK_ORCA_DATA the full
@@ -386,6 +396,10 @@ function version() {
 }
 
 async function run(argv) {
+  // What follows `obk run --timeout <n> --` is the command's own, flags and
+  // all, so it is read by `run` alone, before the kit reads its flags (#532).
+  if (argv[0] === 'run') return runBounded(parseRun(argv.slice(1)));
+
   const { values, positionals, tokens } = parseArgs({
     args: argv,
     allowPositionals: true,
