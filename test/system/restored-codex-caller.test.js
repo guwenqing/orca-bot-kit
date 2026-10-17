@@ -121,7 +121,8 @@
 // above); a trust or hooks screen there means the launch-time trust did not
 // take, and is not to be answered. The resumed Codex runs on
 // this machine's own Codex settings, as a restore does; if it asks before it
-// runs a command, allow it. If a harness offers an update, accept it (PRD 6.5).
+// runs a command, allow it. If a harness offers an update, do not take it: it
+// updates that harness for the whole machine (#581, #618).
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';

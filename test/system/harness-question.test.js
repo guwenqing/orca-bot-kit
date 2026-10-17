@@ -61,10 +61,10 @@
 // The Codex session is given its folder's trust at launch (#240,
 // test/helpers/codex-trust.js), so Codex asks neither its folder trust nor its
 // hooks review, and writes nothing about this folder into the user's own
-// ~/.codex/config.toml; it may still offer an update. Bot Father's Claude tab
-// asks its folder trust, which nothing here waits on. Every wait says what the
-// tab is showing when it runs out of patience, so a run left alone names the
-// screen that stopped it.
+// ~/.codex/config.toml; its update offer is off for the run (#581). Bot
+// Father's Claude tab asks its folder trust, which nothing here waits on. Every
+// wait says what the tab is showing when it runs out of patience, so a run left
+// alone names the screen that stopped it.
 //
 // It takes a minute or two: one real harness, one start prompt, one menu.
 

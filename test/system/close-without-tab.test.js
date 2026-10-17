@@ -62,7 +62,8 @@
 //
 //   1. `Plain Close daily`: Claude Code's folder-trust list. Its selection
 //      starts on `No, exit`, so it takes a down-arrow and then return.
-//   2. The same tab, if Claude Code offers an update: accept it (PRD 6.5).
+//   2. The same tab, if Claude Code offers an update: do not take it. It
+//      updates Claude Code for the whole machine (#618).
 //   3. After `up`, the new `Plain Close daily` tab. It is the same folder, so it
 //      should come straight up; if it asks again, answer it the same way.
 //   4. `Bot Father daily` will be sitting on its own trust question. Leave it.

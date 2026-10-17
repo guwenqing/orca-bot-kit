@@ -80,7 +80,8 @@
 //      report is sent to this session, and a session still on its first screen
 //      can be told nothing.
 //   2. The grooming tab, the same list: answer it the same way, if it asks.
-//   3. Either tab, if Claude Code offers an update: accept it (PRD 6.5).
+//   3. Either tab, if Claude Code offers an update: do not take it. It
+//      updates Claude Code for the whole machine (#618).
 //   4. `Bot Father ops` is a plain shell. If zsh asks to update itself, `n`.
 //   5. Either Claude tab, after a turn: Claude Code 2.1.283's form "Teach auto
 //      mode about your environment?". Esc cancels it. The test types nothing
