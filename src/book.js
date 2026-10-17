@@ -269,6 +269,29 @@ class LockNotWritable extends Error {
 }
 
 /**
+ * The right to change the bot's `bot.yaml` (#595), held from the read a command
+ * makes its change on until that change is written. Two commands that change
+ * one bot at the same time then each change what the other left, and neither
+ * change is lost.
+ *
+ * The book's kind of lock, on a file of its own beside the book's: `temp make`
+ * writes bot.yaml while it holds the book's, and nothing takes the book's while
+ * it holds this one, so neither waits on the other.
+ */
+export function takeBotTurn(home) {
+  const file = botLockFile(home);
+  try {
+    return lockOn(file, WAIT_MS);
+  } catch (error) {
+    if (error instanceof LockNotWritable) throw error;
+    throw new Error(`waited ${WAIT_MS / 1000} seconds for something else to finish writing ${path.join(home, 'bot.yaml')} and it did not (${error.message}). bot.yaml was not changed. Try again; if nothing is running, remove ${file}, which is where writers take their turn.`);
+  }
+}
+
+/** Beside the book's lock, with the bot's name: the lock files of its sessions carry one more part. */
+const botLockFile = (home) => path.join(botLocks(home), `${encodeURIComponent(path.basename(realpathSync(home)))}.bot.lock`);
+
+/**
  * One session's turn at its mailbox (#321): held by `session mailbox` for its
  * whole step, by `message check` in the session's own tab for its bind, read and
  * ack, and by `up` while it writes a new tab for the session into the book. So
