@@ -58,7 +58,7 @@ Claude Code and Pi sessions keep what #222 gave them: an outside work dir is
 written as given, and the answer says it is outside the bot folder.
 
 `up` does not change. A `bot.yaml` that the user writes by hand launches as
-written, as for `extra_args` ([ADR 0044](0044-extra-arguments-that-widen-a-session-are-refused.md)).
+written, as for `extra_args` (#567).
 
 The kit gives no road for the user's yes to an outside work dir on Codex. If
 a user needs one later, that is a new requirement.
