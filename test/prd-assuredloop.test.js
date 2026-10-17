@@ -9,10 +9,14 @@
 // frameworks out of "What we are not doing" with it: the owner reversed only
 // the AssuredLoop part.
 //
-// The words of the PRD are not pinned. A line rules AssuredLoop out when it
-// names it and does not say it is used; a line records the use when it names
-// AssuredLoop, says it is used, and names its source (#474 or 2026-10-03).
-// The npm scope `@assuredloop/` in the package name is not the framework.
+// The words of the PRD are not pinned, and what its prose means is left to the
+// review. The checks here are of structure only. A line rules AssuredLoop out
+// when, in one clause, AssuredLoop follows a "no", "not" or "never" with no
+// "other than", "besides", "except", "apart from" or "but" between them, or
+// when AssuredLoop "is not" or "is never". A line records the use when it
+// names AssuredLoop, does not rule it out, and names its source (#474 or
+// 2026-10-03). The npm scope `@assuredloop/` in the package name is not the
+// framework.
 
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
@@ -51,16 +55,34 @@ const withoutScope = (text) => text.replace(/@assuredloop\//gi, '');
 /** Whether a text names AssuredLoop the framework. */
 const namesAssuredLoop = (text) => /\bAssuredLoop\b/i.test(withoutScope(text));
 
-/** Whether a text says something is used here, and not that it is not used. */
-const saysUsed = (text) =>
-  /\b(?:use[sd]?|adopt(?:s|ed)?)\b/i.test(text) &&
-  !/\b(?:not|never|no longer)\s+(?:be\s+)?(?:use[sd]?|adopt(?:s|ed)?)\b/i.test(text);
+/** The clauses of a line: its parts between brackets and a `.`, `;` or `:` that ends a word. */
+const clausesOf = (line) => withoutScope(line).split(/[.;:](?=\s|$)|[[\]()]/);
+
+/** Words that negate what follows them in a clause. */
+const NEGATION = /\b(?:no|not|never)\b/gi;
+/** Words that take what follows them out of a negation: "no framework other than X". */
+const EXCEPTION = /\b(?:other than|besides|except|apart from|but)\b/i;
+/** A negation just after the name: "AssuredLoop is not used". */
+const NEGATED_AFTER = /^\s*(?:(?:is|was|stays|remains)\s+(?:not|never|no longer)|isn't)\b/i;
+
+/** Whether a clause negates the AssuredLoop that starts at an index of it. */
+function negatesAt(clause, index, length) {
+  const before = clause.slice(0, index);
+  const negations = [...before.matchAll(NEGATION)];
+  const last = negations.at(-1);
+  if (last !== undefined && !EXCEPTION.test(before.slice(last.index))) return true;
+  return NEGATED_AFTER.test(clause.slice(index + length));
+}
 
 /** Whether a line says AssuredLoop is not used here. */
-const rulesOutAssuredLoop = (line) => namesAssuredLoop(line) && !saysUsed(withoutScope(line));
+const rulesOutAssuredLoop = (line) =>
+  clausesOf(line).some((clause) => [...clause.matchAll(/\bAssuredLoop\b/gi)].some((match) => negatesAt(clause, match.index, match[0].length)));
 
 /** Whether a line names the owner's decision to adopt AssuredLoop: #474 or 2026-10-03. */
 const citesTheDecision = (line) => /#474\b|2026-10-03/.test(line);
+
+/** Whether a line records that AssuredLoop is used here, by the owner's decision. */
+const recordsTheUse = (line) => namesAssuredLoop(line) && !rulesOutAssuredLoop(line) && citesTheDecision(line);
 
 /** The AssuredLoop section of AGENTS.md, or null when it has none. */
 async function agentsAssuredLoop() {
@@ -86,8 +108,8 @@ test('the PRD does not rule out AssuredLoop while AGENTS.md requires it', async 
     'a contributor reads in the PRD\'s "What we are not doing" that AssuredLoop is not used, ' +
       'while AGENTS.md requires it (#474)',
   );
-  const elsewhere = (await readText(PRD)).split('\n').filter((line) => /\bNo AssuredLoop\b/i.test(withoutScope(line)) && !saysUsed(line));
-  assert.deepEqual(elsewhere, [], 'a contributor reads "No AssuredLoop" in the PRD, while AGENTS.md requires it (#474)');
+  const elsewhere = (await readText(PRD)).split('\n').filter(rulesOutAssuredLoop);
+  assert.deepEqual(elsewhere, [], 'a contributor reads in the PRD that AssuredLoop is not used, while AGENTS.md requires it (#474)');
 });
 
 test('the PRD records that AssuredLoop is used here, by the owner\'s decision', async (t) => {
@@ -96,7 +118,7 @@ test('the PRD records that AssuredLoop is used here, by the owner\'s decision', 
     return;
   }
   const lines = (await readText(PRD)).split('\n');
-  const records = lines.filter((line) => namesAssuredLoop(line) && saysUsed(withoutScope(line)) && citesTheDecision(line));
+  const records = lines.filter(recordsTheUse);
   assert.ok(
     records.length > 0,
     'a contributor finds nothing in the PRD that says AssuredLoop is used in this repo, ' +
@@ -118,8 +140,29 @@ test('OpenSpec and other process frameworks stay out of this repo', async () => 
   );
 });
 
+/** A line that still bans AssuredLoop, though it has a "Use" and the decision's source in it. */
+const BANS_WITH_USE =
+  'No AssuredLoop, OpenSpec or other process framework in this repo for now. Use AGENTS.md for the process. ' +
+  '[decided by the owner, 2026-10-03, #474]';
+/** A line that lets AssuredLoop in and keeps the rest out, with "uses" in it. */
+const LETS_IN_WITH_USES =
+  'No process framework in this repo other than AssuredLoop, for now: no OpenSpec or the like. ' +
+  'This repo uses AssuredLoop to keep its requests and its spec, this PRD; AGENTS.md says how. ' +
+  '[decided by the owner, 2026-10-03, #474]';
+/** A line that lets AssuredLoop in and keeps the rest out, with no "use" or "adopt" in it. */
+const LETS_IN_WITHOUT_USE =
+  'No process framework in this repo other than AssuredLoop, for now: no OpenSpec or the like. ' +
+  'AssuredLoop keeps this repo\'s requests and its spec, this PRD, and AGENTS.md says how. ' +
+  '[decided by the owner, 2026-10-03, #474]';
+
 test('the rules here tell a line that rules AssuredLoop out from one that records its use', () => {
   assert.ok(rulesOutAssuredLoop('No AssuredLoop, OpenSpec or other process framework in this repo for now. [decided]'));
+  assert.ok(rulesOutAssuredLoop(BANS_WITH_USE));
+  assert.ok(!recordsTheUse(BANS_WITH_USE));
+  for (const line of [LETS_IN_WITH_USES, LETS_IN_WITHOUT_USE]) {
+    assert.ok(!rulesOutAssuredLoop(line), line);
+    assert.ok(recordsTheUse(line), line);
+  }
   assert.ok(rulesOutAssuredLoop('AssuredLoop is not used here.'));
   assert.ok(!rulesOutAssuredLoop('No OpenSpec or other process framework besides AssuredLoop, which this repo uses (#474).'));
   assert.ok(!rulesOutAssuredLoop('Installed with `npm install -g @assuredloop/orca-bot-kit`.'));
