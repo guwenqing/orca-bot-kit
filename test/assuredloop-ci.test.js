@@ -366,19 +366,17 @@ test('AGENTS.md gives a way to run al at exactly 0.1.0 that installs nothing glo
   );
 });
 
-// The skill is found through the paragraph that names its file: that paragraph
-// says which al it belongs to, so it names 0.1.0. How it leads there (a URL at
-// 0.1.0, npm pack, a folder of its own) is free.
+// Which al's skill the reader gets is the al the section selects: it reads no
+// global folder (here), it gives no version of the package but 0.1.0 (the test
+// on the exact version), and it gives a way to get 0.1.0 with no global
+// install (the test on the run). Where in the section the skill's file is
+// named, and how it is reached (a URL at 0.1.0, npm pack, npx, a folder of its
+// own), is free.
 test('AGENTS.md leads to the skill of al 0.1.0, not to the one in the global npm folder', async () => {
   const section = await assuredLoopSection();
   const global = globalFoldersIn(section);
   assert.deepEqual(global, [], `the AssuredLoop section of AGENTS.md should not read the global npm folder, which holds whatever al the machine has`);
-  const paragraphs = section.split(/\n\s*\n/).filter((paragraph) => paragraph.includes(SKILL_FILE));
-  assert.ok(paragraphs.length > 0, `the AssuredLoop section of AGENTS.md should name the skill's file, ${SKILL_FILE}`);
-  assert.ok(
-    paragraphs.some(namesTheVersion),
-    `the paragraph of AGENTS.md that names ${SKILL_FILE} should say it is the skill of ${VERSION}, got:\n${paragraphs.join('\n\n')}`,
-  );
+  assert.ok(section.includes(SKILL_FILE), `the AssuredLoop section of AGENTS.md should name the skill's file, ${SKILL_FILE}`);
 });
 
 test('AGENTS.md no longer names the clone of AssuredLoop at 056d24c', async () => {
