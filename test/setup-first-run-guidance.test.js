@@ -20,7 +20,7 @@
 // 2. The commands kept out of the kit's default permission set. SETUP.md
 //    section 4 names the commands that keep the user's yes, and named four
 //    while the kit keeps back more. `KEPT_BACK` in src/commands.js is the list
-//    the kit works from (ADR 0041), so it is the expected value here: each
+//    the kit works from (ADR 0051), so it is the expected value here: each
 //    command on it is to be named in section 4's text as `obk <its words>`, the
 //    three `permission …` commands together as `obk permission`. Only the text
 //    outside the code blocks counts, so the `obk init --bots …` line the page

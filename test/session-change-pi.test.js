@@ -11,7 +11,7 @@
 //
 //   - every Pi session counts as `dangerously-skip` (#547). A move to Pi of a
 //     session whose approval is `auto` or `ask` is refused, says why, and
-//     writes nothing. `session change` does not widen an approval (ADR 0041),
+//     writes nothing. `session change` does not widen an approval (ADR 0051),
 //     so a session with no approval key, which counts as its old harness's
 //     default (auto on Claude and on Codex), is refused too. That refusal
 //     names the road: Bot Father runs `obk permission approval ...

@@ -51,7 +51,7 @@ export const approvalRank = (level) => ['ask', 'auto', 'dangerously-skip'].index
 /**
  * The harness flags that set approval or permissions, or widen what a session
  * may write or run, which only `obk permission approval` may change, not an
- * extra argument (ADR 0041, ADR 0049). Codex's short flags take their value
+ * extra argument (ADR 0051, ADR 0049). Codex's short flags take their value
  * glued on too. Pi's `--approve` and `-a` make it trust the folder's own
  * files, which the kit's `--no-approve` keeps it from (#578).
  */
@@ -133,7 +133,7 @@ function allowedConfig(setting) {
 /**
  * Refuse extra arguments that set a session's approval or permissions on
  * `harness`, or widen what it may write or run, before anything is written,
- * naming the command that does it (ADR 0041, ADR 0049).
+ * naming the command that does it (ADR 0051, ADR 0049).
  * `args` is a list, or, as a user may write `extra_args` by hand, one string
  * of shell text. The kit types such a string into the tab's shell as it
  * stands, so the guard takes it only when it can be sure of the words the

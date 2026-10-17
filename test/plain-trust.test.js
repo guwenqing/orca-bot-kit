@@ -188,15 +188,17 @@ const ORCA_CHECK = 'Bash(orca orchestration check --run:*)';
 /**
  * The pinned screen is a capture of the set the #555 run's kit gave: 36 rules,
  * among them the bare orca check, which the screen lists. #564 R1 takes that
- * rule out of the set (35 rules), so the capture as it stands is now a screen
- * for a set the kit no longer writes, and the check must refuse it (the tests
- * below hold that).
+ * rule out of the set (35 rules), and #615 R1 takes out the rules of bot
+ * change, session add and session change (32 rules), so the capture as it
+ * stands is now a screen for a set the kit no longer writes, and the check
+ * must refuse it (the tests below hold that). The three #615 took out are not
+ * among the rules the screen lists by name.
  *
  * KIT_NOW is not a capture. It is derived from the capture by hand, to test the
  * check's other rules on a screen for the set as it is now: the count row for
  * the set now, the bare orca check taken out of the rule rows (the ", and"
  * before the last item kept), every other row as captured. How Claude Code
- * lists and wraps the rules of a 35-rule set has not been seen live; a live
+ * lists and wraps the rules of a 32-rule set has not been seen live; a live
  * run that brings the screen up is what shows that.
  */
 const LIST_1 = '   Bash(/Volumes/DevData/projects/ai/mybots/bots/kit-dev/work/d…, Bash(git add:*), Bash(git commit:*), and';
@@ -231,11 +233,13 @@ const refused = (said, ...seen) => {
   for (const what of seen) assert.ok(said.includes(what), `the refusal names ${what}: ${said}`);
 };
 
-test('kit trust: the kit\'s default set for the captured paths has 35 rules, the 36 the screen counted less the bare orca check (#564 R1), all different (a change to the defaults shows here first)', () => {
+test('kit trust: the kit\'s default set for the captured paths has 32 rules, the 36 the screen counted less the bare orca check (#564 R1) and the rules of bot change, session add and session change (#615 R1), all different (a change to the defaults shows here first)', () => {
   const removed = ['session nudge', 'session mail'].map((command) => `Bash(${KIT_CLI} ${command} --bots ${KIT_BOTS}:*)`);
   for (const rule of removed) assert.ok(!DEFAULTS.includes(rule), `${rule} is no longer a default (#555)`);
   assert.ok(!DEFAULTS.includes(ORCA_CHECK), `${ORCA_CHECK} is no longer a default (#564 R1)`);
-  assert.equal(DEFAULTS.length, 35, 'the 36 the screen counted, less one');
+  const kept = ['bot change', 'session add', 'session change'].map((command) => `Bash(${KIT_CLI} ${command} --bots ${KIT_BOTS}:*)`);
+  for (const rule of kept) assert.ok(!DEFAULTS.includes(rule), `${rule} is no longer a default (#615 R1)`);
+  assert.equal(DEFAULTS.length, 32, 'the 36 the screen counted, less four');
   assert.equal(new Set(DEFAULTS).size, DEFAULTS.length);
   assert.ok(DEFAULTS.includes('Bash(git add:*)') && DEFAULTS.includes('Bash(git commit:*)'), 'the other whole rules the screen lists are in the set');
 });

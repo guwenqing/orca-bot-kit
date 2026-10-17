@@ -31,6 +31,14 @@
 // names each one with the `holds` line of R4, and `permission disallow` takes
 // each one back. The order of the holds lines is not promised.
 //
+// #615 widens them again (its R1 to R3): `bot change`, `session add` and
+// `session change` leave the set and keep the user's yes, as `restart` and
+// `bot create` do. The kit writes none of their rules, in either harness form;
+// a bot that holds one keeps it, in bot.yaml and its harness files; `rules
+// build` and `up` name it with the same holds line; and `permission disallow`
+// takes it back. Bot Father is not a special case: a Bot Father that holds the
+// three is named too. Eight rules in all now.
+//
 // The rules are spelled here from the requirement, as kit 0.26.0 spelled its
 // defaults (helpers/permissions.js `kitRule`), and the Codex lines as
 // `prefixRule` spells them: the CLI and the bots folder plain words. A
@@ -43,6 +51,7 @@ import test from 'node:test';
 import { createSandbox, sh, shellWord, skipGit, snapshot } from './helpers/cli.js';
 import {
   addedLinesIn,
+  BOT_FATHER_COMMANDS,
   allowedIn,
   allowOf,
   codexAllowedIn,
@@ -99,15 +108,15 @@ const createRule = (box, bots) => kitRule(box, bots, 'bot create');
 /** The rule kit 0.26 wrote for `session mail`, a command #555 removed. */
 const mailRule = (box, bots) => kitRule(box, bots, 'session mail');
 
-/** Every rule that left the default set, the five of #564 R2. */
+/** Every rule that left the default set: the five of #564 R2 and the three of #615 R1, eight. */
 const heldRules = (box, bots) => noLongerDefaultRules(box, bots);
 
 /** The Codex line for a kit command, the CLI and the bots folder plain words. */
 const codexLine = (box, bots, command) => prefixRule([box.cli, ...command.split(' '), '--bots', bots]);
 
 /**
- * The five rules of #564 R2 by name, each with its rule and its Codex line:
- * the four kit commands, then Orca's bare check.
+ * The eight rules by name, each with its rule and its Codex line: the seven
+ * kit commands (#548, #615 and #555's two), then Orca's bare check.
  */
 const HELD = [
   ...[...NO_LONGER_DEFAULT_COMMANDS, ...GONE_COMMANDS].map((command) => ({
@@ -180,19 +189,25 @@ test('H0 the holds line as the tests spell it, against a worked example', () => 
   assert.equal(codexLine(box, '/x/bots', 'bot create'), 'prefix_rule(pattern=["/x/bin/obk", "bot", "create", "--bots", "/x/bots"], decision="allow")');
 });
 
-test('H0 #564: the five rules of R2 and their Codex lines as the tests spell them, against worked examples', () => {
+test('H0 #564 #615: the eight rules that left the set and their Codex lines as the tests spell them, against worked examples', () => {
   const box = { cli: '/x/bin/obk' };
   assert.deepEqual(sorted(heldRules(box, '/x/bots')), sorted([
     'Bash(/x/bin/obk restart --bots /x/bots:*)',
     'Bash(/x/bin/obk bot create --bots /x/bots:*)',
+    'Bash(/x/bin/obk bot change --bots /x/bots:*)',
+    'Bash(/x/bin/obk session add --bots /x/bots:*)',
+    'Bash(/x/bin/obk session change --bots /x/bots:*)',
     'Bash(/x/bin/obk session mail --bots /x/bots:*)',
     'Bash(/x/bin/obk session nudge --bots /x/bots:*)',
     'Bash(orca orchestration check --run:*)',
   ]));
-  assert.deepEqual(HELD.map(({ rule }) => rule(box, '/x/bots')), heldRules(box, '/x/bots'), 'HELD names the same five');
+  assert.deepEqual(HELD.map(({ rule }) => rule(box, '/x/bots')), heldRules(box, '/x/bots'), 'HELD names the same eight');
   assert.deepEqual(sorted(HELD.map(({ line }) => line(box, '/x/bots'))), sorted([
     'prefix_rule(pattern=["/x/bin/obk", "restart", "--bots", "/x/bots"], decision="allow")',
     'prefix_rule(pattern=["/x/bin/obk", "bot", "create", "--bots", "/x/bots"], decision="allow")',
+    'prefix_rule(pattern=["/x/bin/obk", "bot", "change", "--bots", "/x/bots"], decision="allow")',
+    'prefix_rule(pattern=["/x/bin/obk", "session", "add", "--bots", "/x/bots"], decision="allow")',
+    'prefix_rule(pattern=["/x/bin/obk", "session", "change", "--bots", "/x/bots"], decision="allow")',
     'prefix_rule(pattern=["/x/bin/obk", "session", "mail", "--bots", "/x/bots"], decision="allow")',
     'prefix_rule(pattern=["/x/bin/obk", "session", "nudge", "--bots", "/x/bots"], decision="allow")',
     'prefix_rule(pattern=["orca", "orchestration", "check", "--run"], decision="allow")',
@@ -207,11 +222,16 @@ test('H0 #564: the five rules of R2 and their Codex lines as the tests spell the
     "holds      api-bot  Bash(/x/bin/obk session mail --bots /x/bots:*), which is no longer one of the kit's defaults. "
       + "To take it back:  /x/bin/obk permission disallow --bots /x/bots --bot api-bot --rule 'Bash(/x/bin/obk session mail --bots /x/bots:*)'",
   );
+  assert.equal(
+    heldLine(box, '/x/bots', 'bot-father', kitRule(box, '/x/bots', 'session change')),
+    "holds      bot-father  Bash(/x/bin/obk session change --bots /x/bots:*), which is no longer one of the kit's defaults. "
+      + "To take it back:  /x/bin/obk permission disallow --bots /x/bots --bot bot-father --rule 'Bash(/x/bin/obk session change --bots /x/bots:*)'",
+  );
 });
 
 // ----------------------------------------------------------------- R2: the kit writes neither rule
 
-test('H2 R2 (#564 R1) init and bot create of Claude bots write none of the five rules, and write the other defaults', async (t) => {
+test('H2 R2 (#564 R1, #615 R1) init and bot create of Claude bots write none of the eight rules, and write the other defaults', async (t) => {
   const box = await createSandbox(t);
   const bots = box.path('bots');
   const made = await box.run(['init', '--bots', 'bots', '--harness', 'claude']);
@@ -223,7 +243,7 @@ test('H2 R2 (#564 R1) init and bot create of Claude bots write none of the five 
     const allow = await allowOf(bots, bot);
     const settings = await allowedIn(bots, bot);
     // The contrast: the defaults beside them are written.
-    for (const command of ['up', 'unpause', 'bot change', 'rules build']) {
+    for (const command of ['up', 'unpause', 'session clear', 'rules build']) {
       assert.ok(allow.includes(kitRule(box, bots, command)), `${bot}'s allow should hold the default for ${command}, got:\n${JSON.stringify(allow, null, 2)}`);
       assert.ok(settings.includes(kitRule(box, bots, command)), `${settingsOf(bots, bot)} should allow the default for ${command}`);
     }
@@ -235,7 +255,7 @@ test('H2 R2 (#564 R1) init and bot create of Claude bots write none of the five 
   }
 });
 
-test('H2 R2 (#564 R1) init and bot create of Codex bots write none of the five rules, nor their lines in obk.rules, and write the other defaults', async (t) => {
+test('H2 R2 (#564 R1, #615 R1) init and bot create of Codex bots write none of the eight rules, nor their lines in obk.rules, and write the other defaults', async (t) => {
   const box = await createSandbox(t);
   const bots = await seeded(box, 'codex');
   await makeBot(box, BOT, 'codex');
@@ -254,7 +274,7 @@ test('H2 R2 (#564 R1) init and bot create of Codex bots write none of the five r
 
 for (const [writer, args] of WRITERS) {
   for (const [label, harness, sessions, files] of HARNESSES) {
-    test(`H2 R2 (#564 R1) ${writer} of ${label} whose allow is empty writes every default back but none of the five rules`, async (t) => {
+    test(`H2 R2 (#564 R1, #615 R1) ${writer} of ${label} whose allow is empty writes every default back but none of the eight rules`, async (t) => {
       const box = await createSandbox(t);
       const bots = await seeded(box);
       await makeBot(box, BOT, harness, sessions);
@@ -278,7 +298,7 @@ for (const [writer, args] of WRITERS) {
 
 for (const [writer, args] of WRITERS) {
   for (const [label, harness, sessions, files] of HARNESSES) {
-    test(`H3 R3 (#564 R2) ${writer} of ${label} whose allow holds all five rules removes none, from allow or its harness files`, async (t) => {
+    test(`H3 R3 (#564 R2, #615 R2) ${writer} of ${label} whose allow holds all eight rules removes none, from allow or its harness files`, async (t) => {
       const box = await createSandbox(t);
       const bots = await seeded(box);
       await makeBot(box, BOT, harness, sessions);
@@ -306,7 +326,7 @@ for (const [writer, args] of WRITERS) {
 
 for (const [writer, args] of WRITERS) {
   for (const [label, harness, sessions] of HARNESSES) {
-    test(`H4 R4 (#564 R2) ${writer} of ${label} that holds all five rules names each once, with the command that takes it back, at every run`, async (t) => {
+    test(`H4 R4 (#564 R2, #615 R2) ${writer} of ${label} that holds all eight rules names each once, with the command that takes it back, at every run`, async (t) => {
       const box = await createSandbox(t);
       const bots = await seeded(box);
       await makeBot(box, BOT, harness, sessions);
@@ -341,11 +361,14 @@ test('H4 R4 a bot that holds only one rule gets one line; a bot that holds neith
   assert.equal(holdsLinesIn(result.stdout).length, 3, `three holds lines in all, got:\n${result.stdout}`);
 });
 
-// #564 R2: each of the three new rules alone, on each harness, gets its own
-// line and nothing else does; bot-father, which holds none, gets none.
-for (const { name, rule: ruleOf } of HELD.filter(({ name }) => !NO_LONGER_DEFAULT_COMMANDS.includes(name))) {
+// #564 R2 and #615 R2: each rule that left the set after #548, alone, on each
+// harness, gets its own line and nothing else does; bot-father, which holds
+// none, gets none.
+const AFTER_548 = HELD.filter(({ name }) => !['restart', 'bot create'].includes(name));
+
+for (const { name, rule: ruleOf } of AFTER_548) {
   for (const [writer, args] of WRITERS) {
-    test(`H4 #564 R2 ${writer} of a Claude bot and a Codex bot that hold only the ${name} rule names it once for each, and nothing for bot-father`, async (t) => {
+    test(`H4 #564 R2 #615 R2 ${writer} of a Claude bot and a Codex bot that hold only the ${name} rule names it once for each, and nothing for bot-father`, async (t) => {
       const box = await createSandbox(t);
       const bots = await seeded(box);
       await makeBot(box, BOT, 'claude', [['daily']]);
@@ -423,8 +446,8 @@ test('H4 R4 in a bots folder with an apostrophe and a space, the line quotes the
   assert.equal(count(await allowedIn(bots, BOT), rule), 0, 'and the settings file');
 });
 
-for (const { name, rule: ruleOf, line } of HELD.filter(({ name }) => !NO_LONGER_DEFAULT_COMMANDS.includes(name))) {
-  test(`H4 #564 R2 R3 in a bots folder with an apostrophe and a space, the line for the ${name} rule of a bot on both harnesses is right, and its command takes the rule back from allow and both harness files`, async (t) => {
+for (const { name, rule: ruleOf, line } of AFTER_548) {
+  test(`H4 #564 #615 R2 R3 in a bots folder with an apostrophe and a space, the line for the ${name} rule of a bot on both harnesses is right, and its command takes the rule back from allow and both harness files`, async (t) => {
     const box = await createSandbox(t);
     const folder = "bob's bots";
     const bots = await seeded(box, 'claude', folder);
@@ -548,11 +571,11 @@ for (const [label, sessions, files] of [
 
 for (const [at, { name: command, rule: ruleOf, line: lineOf }] of HELD.entries()) {
   for (const [label, harness, sessions, files] of HARNESSES) {
-    test(`H5 R5 (#564 R3) permission disallow takes back the ${command} rule of ${label}, from allow and its harness files, and no holds line is left for it`, async (t) => {
+    test(`H5 R5 (#564 R3, #615 R3) permission disallow takes back the ${command} rule of ${label}, from allow and its harness files, and no holds line is left for it`, async (t) => {
       const box = await createSandbox(t);
       const bots = await seeded(box);
       await makeBot(box, BOT, harness, sessions);
-      // The other is the next of the five: one that stays, to show only the one asked for leaves.
+      // The other is the next of the eight: one that stays, to show only the one asked for leaves.
       const next = HELD[(at + 1) % HELD.length];
       const [rule, other] = [ruleOf(box, bots), next.rule(box, bots)];
       const otherCommand = next.name;
@@ -630,4 +653,94 @@ test('H5 #564 R3 permission disallow of the orca check rule beside a rule still 
   assert.equal(alone.code, 0, `the orca rule alone is taken back, got:\n${alone.stdout}${alone.stderr}`);
   assert.equal(count(await allowOf(bots, BOT), ORCA_CHECK_RULE), 0, 'it left allow');
   assert.equal(count(await allowedIn(bots, BOT), ORCA_CHECK_RULE), 0, 'and the settings file');
+});
+
+// ----------------------------------------------------------------- #615: the three Bot Father keeps
+
+/** The rules of the three commands #615 R1 takes out of the set: bot change, session add, session change. */
+const botFatherRules = (box, bots) => BOT_FATHER_COMMANDS.map((command) => kitRule(box, bots, command));
+
+// #615 R2, as assumed: Bot Father is not a special case. A Bot Father whose
+// allow holds the three (the kit before #615 wrote them for every bot) keeps
+// them, and `rules build` and `up` of the whole fleet name each one for it,
+// with the command that takes it back. A bot that holds none gets no line.
+for (const [writer, args] of [
+  ['rules build', ['rules', 'build', '--bots', 'bots']],
+  ['up', ['up', '--bots', 'bots']],
+]) {
+  for (const harness of ['claude', 'codex']) {
+    test(`H6 #615 R2 ${writer} of a fleet whose ${harness} Bot Father holds bot change, session add and session change keeps the three and names each once for bot-father`, async (t) => {
+      const box = await createSandbox(t);
+      const bots = await seeded(box, harness);
+      await makeBot(box, BOT, harness, [['daily']]);
+      const three = botFatherRules(box, bots);
+      await hold(bots, 'bot-father', three);
+
+      const result = await ok(box.run(args));
+
+      assert.deepEqual(
+        sorted(holdsLinesIn(result.stdout)),
+        sorted(three.map((rule) => heldLine(box, bots, 'bot-father', rule))),
+        `one holds line for each of the three, about bot-father, exactly as R4 spells it, and no other, got:\n${result.stdout}`,
+      );
+      const allow = await allowOf(bots, 'bot-father');
+      for (const command of BOT_FATHER_COMMANDS) {
+        const rule = kitRule(box, bots, command);
+        assert.equal(count(allow, rule), 1, `bot-father's allow should still hold ${rule}, once, got:\n${JSON.stringify(allow, null, 2)}`);
+        if (harness === 'claude') {
+          assert.equal(count(await allowedIn(bots, 'bot-father'), rule), 1, `${settingsOf(bots, 'bot-father')} should still allow ${rule}, once`);
+        } else {
+          const lines = await codexAllowedIn(bots, 'bot-father');
+          assert.equal(count(lines, codexLine(box, bots, command)), 1, `${codexRulesOf(bots, 'bot-father')} should still hold the line for ${command}, once, got:\n${lines.join('\n')}`);
+        }
+      }
+      assert.ok(!addedLinesIn(result.stdout).some((line) => three.some((rule) => line.endsWith(rule))), `no allowed line should name any of the three, got:\n${result.stdout}`);
+      assert.equal(count(await allowOf(bots, BOT), three[0]), 0, `${BOT}, which held none, is not given ${three[0]}`);
+
+      const answer = jsonOf(await box.run([...args, '--json']));
+      const file = harness === 'claude' ? settingsOf(bots, 'bot-father') : codexRulesOf(bots, 'bot-father');
+      assert.deepEqual(sorted(heldOf(entryAt(answer, 'bot-father', file))), sorted(three), 'in --json, bot-father\'s entry carries the three in held');
+      const other = harness === 'claude' ? settingsOf(bots, BOT) : codexRulesOf(bots, BOT);
+      assert.deepEqual(heldOf(entryAt(answer, BOT, other)), [], `and ${BOT}'s entry an empty held`);
+    });
+  }
+}
+
+// #615 R3: the three taken back in one run, as Bot Father would take them back
+// from another bot after the release, from allow and both harness files; the
+// bot's own rule stays, and nothing is named or written back afterwards.
+test('H6 #615 R3 permission disallow takes back bot change, session add and session change together from a bot on both harnesses, and rules build names none of them afterwards', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  await makeBot(box, BOT, 'codex', BOTH);
+  const three = botFatherRules(box, bots);
+  await hold(bots, BOT, [...three, OWN_RULE]);
+  await ok(box.run(['rules', 'build', '--bots', 'bots', '--bot', BOT]));
+  for (const command of BOT_FATHER_COMMANDS) {
+    assert.equal(count(await codexAllowedIn(bots, BOT), codexLine(box, bots, command)), 1, `the premise: obk.rules holds the line for ${command}`);
+  }
+
+  const result = await permissionDisallow(box, BOT, three);
+
+  assert.equal(result.code, 0, `the three are no longer defaults, so they are taken back, got:\n${result.stdout}${result.stderr}`);
+  const allow = await allowOf(bots, BOT);
+  const settings = await allowedIn(bots, BOT);
+  const lines = await codexAllowedIn(bots, BOT);
+  for (const command of BOT_FATHER_COMMANDS) {
+    const rule = kitRule(box, bots, command);
+    assert.equal(count(allow, rule), 0, `allow should no longer hold ${rule}, got:\n${JSON.stringify(allow, null, 2)}`);
+    assert.equal(count(settings, rule), 0, `${settingsOf(bots, BOT)} should no longer allow ${rule}`);
+    assert.equal(count(lines, codexLine(box, bots, command)), 0, `${codexRulesOf(bots, BOT)} should no longer hold the line for ${command}`);
+  }
+  assert.equal(count(allow, OWN_RULE), 1, 'the user\'s own rule stays');
+
+  const after = await ok(box.run(['rules', 'build', '--bots', 'bots', '--bot', BOT]));
+
+  assert.deepEqual(holdsLinesIn(after.stdout), [], `none of the three is named any more, got:\n${after.stdout}`);
+  for (const command of BOT_FATHER_COMMANDS) {
+    const rule = kitRule(box, bots, command);
+    assert.equal(count(await allowOf(bots, BOT), rule), 0, `rules build does not write ${rule} back`);
+    assert.equal(count(await allowedIn(bots, BOT), rule), 0, 'nor into the settings file');
+    assert.equal(count(await codexAllowedIn(bots, BOT), codexLine(box, bots, command)), 0, 'nor its line into obk.rules');
+  }
 });

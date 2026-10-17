@@ -18,6 +18,10 @@
 // longer in the set: the kit's rules tell every bot to read its mail with
 // `obk message check`, and nothing of the kit needs a bot to run the bare one.
 //
+// #615: `bot change`, `session add` and `session change` are no longer in the
+// set: they keep the user's yes, as `restart` and `bot create` do (#548), and
+// only Bot Father keeps them. A bot's allow may still hold their rules.
+//
 // #527: the set holds no order the tests may rely on, except that rules
 // already in a bot's `allow` keep their place. A SendMessage rule may or may
 // not be in it (still being settled), so every reading here leaves SendMessage
@@ -34,14 +38,15 @@ import { botYamlOf } from './skills.js';
 /**
  * The kit's commands every bot is allowed, each narrowed to the bots folder
  * (#527): every command but those in NOT_DEFAULT_COMMANDS. #548 took
- * `restart` and `bot create` out of it, and #555 took out `session nudge` and
- * `session mail`, which are no longer commands of the kit.
+ * `restart` and `bot create` out of it, #555 took out `session nudge` and
+ * `session mail`, which are no longer commands of the kit, and #615 took out
+ * `bot change`, `session add` and `session change`.
  */
 export const KIT_COMMANDS = [
   'up', 'unpause', 'health', 'groom', 'roster', 'usage',
-  'bot change', 'rules build',
+  'rules build',
   'skills add', 'skills remove', 'skills build', 'skills fetch', 'skills update', 'source add',
-  'session add', 'session change', 'session clear', 'session compact',
+  'session clear', 'session compact',
   'message to', 'message send', 'message check',
   'session record', 'session sent', 'session name', 'session mailbox',
   'temp make', 'temp roles', 'temp retire', 'temp trust-hooks', 'temp answer',
@@ -50,14 +55,26 @@ export const KIT_COMMANDS = [
   'session trust-hooks', 'session answer',
 ];
 
-/** The kit's commands that are never in the default set: they keep the user's yes (#527, and #548 for restart and bot create). */
-export const NOT_DEFAULT_COMMANDS = ['init', 'retire', 'pause', 'permission allow', 'permission disallow', 'permission approval', 'restart', 'bot create'];
+/**
+ * The kit's commands that are never in the default set: they keep the user's
+ * yes (#527, #548 for restart and bot create, and #615 for bot change, session
+ * add and session change).
+ */
+export const NOT_DEFAULT_COMMANDS = [
+  'init', 'retire', 'pause', 'permission allow', 'permission disallow', 'permission approval', 'restart', 'bot create',
+  'bot change', 'session add', 'session change',
+];
 
 /**
- * The two commands #548 took out of the default set (kit 0.26.0 had them in
- * it). A bot's allow may still hold their rules; the kit keeps them there.
+ * The commands an earlier kit gave every bot and that are kept back now: the
+ * two #548 took out of the default set (kit 0.26.0 had them in it), and the
+ * three #615 took out. A bot's allow may still hold their rules; the kit keeps
+ * them there.
  */
-export const NO_LONGER_DEFAULT_COMMANDS = ['restart', 'bot create'];
+export const NO_LONGER_DEFAULT_COMMANDS = ['restart', 'bot create', 'bot change', 'session add', 'session change'];
+
+/** The three commands #615 took out of the default set: only Bot Father keeps them. */
+export const BOT_FATHER_COMMANDS = ['bot change', 'session add', 'session change'];
 
 /**
  * The two commands #555 removed from the kit. Kit 0.26 gave every bot a rule
@@ -126,8 +143,9 @@ export const codexDefaultLines = (box, bots) => [
 ];
 
 /**
- * Every rule kit 0.26 gave every bot that is no longer in the set (#548 and
- * #564 R2): the rules of `restart` and `bot create`, of the two commands #555
+ * Every rule an earlier kit gave every bot that is no longer in the set (#548,
+ * #564 R2 and #615 R2): the rules of `restart` and `bot create`, of `bot
+ * change`, `session add` and `session change`, of the two commands #555
  * removed, and Orca's bare check. A bot that still holds one keeps it, and
  * `rules build` and `up` name it.
  */

@@ -180,7 +180,7 @@ export function readBot(home, name = path.basename(home)) {
     // The roles its temporary sessions can be made in, judged by tempRoles.
     ...(bot.temp_roles === undefined ? {} : { temp_roles: bot.temp_roles }),
     // The widest approval its temporary sessions may be made at, the user's yes
-    // kept by `permission approval --temps` (ADR 0041).
+    // kept by `permission approval --temps` (ADR 0051).
     ...(bot.temp_approval === undefined ? {} : { temp_approval: bot.temp_approval }),
     // A paused bot is one `obk up` leaves closed; its sessions keep their book.
     ...(bot.paused === true ? { paused: true } : {}),
@@ -401,7 +401,7 @@ export function changeSession(bots, bot, name, settings) {
     if (trouble !== undefined) throw new Error(trouble);
     // A session with no approval runs at its harness's default, auto on claude
     // and codex, and dangerously-skip on Pi: a move to Pi would widen it with
-    // nobody asked (ADR 0041, #589).
+    // nobody asked (ADR 0051, #589).
     if (moved?.to === 'pi' && !set(session.approval) && defaultApproval(from) !== 'dangerously-skip') {
       throw new Error(`${bot}'s session ${name} has no approval in bot.yaml, so on ${from} it runs at ${defaultApproval(from)}. Every Pi session runs as dangerously-skip, and session change widens no approval. After the user's yes, Bot Father sets it with ${shellWord(ownCli())} permission approval --bots ${shellWord(bots)} --bot ${bot} --session ${name} --approval dangerously-skip; then the session can move to Pi. Nothing was changed.`);
     }
@@ -422,8 +422,8 @@ export function changeSession(bots, bot, name, settings) {
 /**
  * Refuse a session that would run on Codex with a work dir outside its bot
  * home (ADR 0045): Codex is launched with `--add-dir` for it, which lets the
- * session write there, and `session add` and `session change` are in every
- * bot's default set (#585). Outside is by the spelling, which the launch line
+ * session write there, and `session add` and `session change` were in every
+ * bot's default set (#585), and a bot may still hold their rules (#615). Outside is by the spelling, which the launch line
  * names, or by where links really lead. `was` is the session before the
  * change: one already on Codex with the same work dir widens nothing.
  */
@@ -439,7 +439,7 @@ export function refuseCodexOutside(bot, session, was, botHarness, home, command)
 
 /**
  * Record the widest approval the bot's temporary sessions may be made at,
- * `level`, as `temp_approval` (ADR 0041). Returns { bot, home, level }.
+ * `level`, as `temp_approval` (ADR 0051). Returns { bot, home, level }.
  */
 export function setTempApproval(bots, bot, level) {
   return withBotTurn(existingBot(bots, bot), () => {

@@ -1,7 +1,7 @@
 // The kit's commands, each with the flags it cannot do without, which `obk`
 // reads to parse a command line; and the two lists every command is on one of:
-// those every bot is allowed by default (#527, ADR 0048), and those kept back
-// for the user's yes (ADR 0041). A new command is on neither until someone
+// those every bot is allowed by default (#527, ADR 0050), and those kept back
+// for the user's yes (ADR 0051). A new command is on neither until someone
 // puts it on one, and a test holds every command to that choice.
 
 /** The commands, and the flags each one cannot do without. */
@@ -50,14 +50,14 @@ export const COMMANDS = {
 
 /**
  * The commands every bot is allowed by default, each narrowed to its bots
- * folder (ADR 0048). Only a command named here is in the default set; one that
+ * folder (ADR 0050). Only a command named here is in the default set; one that
  * runs whatever its arguments say never is.
  */
 export const DEFAULT_COMMANDS = [
   'up', 'unpause', 'health', 'groom', 'roster', 'usage',
-  'bot change', 'rules build',
+  'rules build',
   'skills add', 'skills remove', 'skills build', 'skills fetch', 'skills update', 'source add',
-  'session add', 'session change', 'session clear', 'session compact',
+  'session clear', 'session compact',
   'message to', 'message send', 'message check',
   'session record', 'session sent', 'session name', 'session mailbox',
   'session trust-hooks', 'session answer',
@@ -66,20 +66,22 @@ export const DEFAULT_COMMANDS = [
 
 /**
  * The commands kept out of the default permission set, which keep the user's
- * yes (ADR 0041): the ones that change permissions, close a long-lived
- * session, make the bots folder, or make a bot, which the owner leaves to Bot
- * Father (#548).
+ * yes (ADR 0051): the ones that change permissions, close a long-lived
+ * session, make the bots folder, or make or change a bot or its sessions,
+ * which the owner leaves to Bot Father (#548, #615).
  */
 export const KEPT_BACK = [
   'init', 'retire', 'pause', 'restart', 'bot create',
+  'bot change', 'session add', 'session change',
   'permission allow', 'permission disallow', 'permission approval',
 ];
 
 /**
- * The commands kit 0.26.0 gave every bot by default and that are kept back now
- * (#548). A bot may still hold their rules, which the kit names and leaves.
+ * The commands the kit gave every bot by default and that are kept back now
+ * (#548, #615). A bot may still hold their rules, which the kit names and
+ * leaves.
  */
-export const NO_LONGER_DEFAULT = ['restart', 'bot create'];
+export const NO_LONGER_DEFAULT = ['restart', 'bot create', 'bot change', 'session add', 'session change'];
 
 /**
  * The commands kit 0.26.0 gave every bot by default and that the kit no longer

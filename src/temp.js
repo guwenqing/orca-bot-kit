@@ -189,7 +189,7 @@ function settingsFor(bot, maker, option, given) {
 /**
  * Refuse an approval wider than the widest of the maker's own and the bot's
  * `temp_approval`, which only the user's yes through `permission approval
- * --temps` widens (ADR 0041).
+ * --temps` widens (ADR 0051).
  */
 function refuseWiderApproval(bots, caller, bot, maker, asked) {
   if (asked === undefined) return;

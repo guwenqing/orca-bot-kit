@@ -8,8 +8,9 @@
 // reading a long message's body beside the bots folder, and the commit rule.
 // Since #564 (R1) Orca's bare orchestration check is not in it: the kit's rules
 // tell a bot to read its mail with `obk message check`. `init`, `retire`, `pause`, the three
-// `permission` commands, and since #548 `restart` and `bot create`, are never
-// in it, and no broad rule is. A bot that runs
+// `permission` commands, since #548 `restart` and `bot create`, and since #615
+// `bot change`, `session add` and `session change`, are never in it, and no
+// broad rule is. A bot that runs
 // only on Codex gets the set without the Read rule, in Codex's own form in
 // `.codex/rules/obk.rules`. A bot runs on Claude when its harness is `claude`
 // or any of its sessions says `harness: claude`, and on Codex the same way with
@@ -113,25 +114,41 @@ test('D0 the set as the tests spell it: every kit command but the kept-back ones
   const rules = defaultRules(box, '/x/bots');
   assert.equal(new Set(rules).size, rules.length, 'each rule once');
   // #548 R1: restart and bot create no longer among them (#527 had 36, #548
-  // 34). #555 removed session nudge and session mail from the kit: 32.
-  assert.equal(KIT_COMMANDS.length, 32);
+  // 34). #555 removed session nudge and session mail from the kit: 32. #615
+  // R1 took out bot change, session add and session change: 29.
+  assert.equal(KIT_COMMANDS.length, 29);
   for (const command of NOT_DEFAULT_COMMANDS) {
     assert.ok(!rules.includes(kitRule(box, '/x/bots', command)), `${command} is not in the set`);
   }
   assert.ok(rules.includes('Bash(/x/bin/obk temp make --bots /x/bots:*)'));
-  assert.ok(rules.includes('Bash(/x/bin/obk bot change --bots /x/bots:*)'));
+  assert.ok(rules.includes('Bash(/x/bin/obk session clear --bots /x/bots:*)'));
   assert.ok(rules.includes('Bash(/x/bin/obk session answer --bots /x/bots:*)'));
   assert.ok(rules.includes('Bash(git add:*)') && rules.includes('Bash(git commit:*)'));
-  // #564 R1: the bare orca check left the set, and nothing else joined or left
-  // it: the 32 kit commands, the Read rule and the two git rules.
+  // #615 R1: the three Bot Father keeps, in both forms, written out by hand.
+  for (const rule of [
+    'Bash(/x/bin/obk bot change --bots /x/bots:*)',
+    'Bash(/x/bin/obk session add --bots /x/bots:*)',
+    'Bash(/x/bin/obk session change --bots /x/bots:*)',
+  ]) {
+    assert.ok(!rules.includes(rule), `${rule} is not in the set (#615 R1)`);
+  }
+  for (const line of [
+    'prefix_rule(pattern=["/x/bin/obk", "bot", "change", "--bots", "/x/bots"], decision="allow")',
+    'prefix_rule(pattern=["/x/bin/obk", "session", "add", "--bots", "/x/bots"], decision="allow")',
+    'prefix_rule(pattern=["/x/bin/obk", "session", "change", "--bots", "/x/bots"], decision="allow")',
+  ]) {
+    assert.ok(!codexDefaultLines(box, '/x/bots').includes(line), `nor its Codex line ${line} (#615 R1)`);
+  }
+  // #564 R1: the bare orca check left the set. #615 R1: nothing else joined or
+  // left it: the 29 kit commands, the Read rule and the two git rules.
   assert.ok(!rules.includes('Bash(orca orchestration check --run:*)'), 'the bare orca check is not in the set');
   assert.equal(ORCA_CHECK_RULE, 'Bash(orca orchestration check --run:*)');
-  assert.equal(rules.length, 35);
+  assert.equal(rules.length, 32);
   assert.equal(readDefault(box, '/x/bots'), 'Read(//x/bots.messages/**)');
   assert.equal(codexDefaultRules(box, '/x/bots').length, rules.length - 1, 'Codex: the set without the Read rule');
   assert.equal(ORCA_CHECK_LINE, 'prefix_rule(pattern=["orca", "orchestration", "check", "--run"], decision="allow")');
   assert.ok(!codexDefaultLines(box, '/x/bots').includes(ORCA_CHECK_LINE), 'nor its Codex line');
-  assert.equal(codexDefaultLines(box, '/x/bots').length, 34, 'Codex: one line per Bash rule of the set');
+  assert.equal(codexDefaultLines(box, '/x/bots').length, 31, 'Codex: one line per Bash rule of the set');
   assert.ok(codexDefaultLines(box, '/x/bots').includes('prefix_rule(pattern=["/x/bin/obk", "temp", "trust-hooks", "--bots", "/x/bots"], decision="allow")'));
 });
 
@@ -243,7 +260,7 @@ test('D3 init --harness codex writes Bot Father the set without the Read rule, i
 // ----------------------------------------------------------------- what is never in it
 
 for (const [label, harness] of [['a Claude bot', 'claude'], ['a Codex bot', 'codex']]) {
-  test(`D4 ${label} is given no rule for init, retire, pause, the permission commands, restart or bot create, and nothing broad`, async (t) => {
+  test(`D4 ${label} is given no rule for init, retire, pause, the permission commands, restart, bot create, bot change, session add or session change, and nothing broad`, async (t) => {
     const box = await createSandbox(t);
     const bots = await seeded(box);
     await makeBot(box, 'api-bot', harness, [['daily']]);
