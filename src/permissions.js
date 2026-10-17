@@ -254,6 +254,15 @@ export const runsOnCodex = (bot) => bot.harness === 'codex'
   || bot.sessions.some((session) => harnessOf(session, bot.harness) === 'codex');
 
 /**
+ * Whether the kit keeps the bot's Codex rules file: while the bot runs on
+ * Codex, and after it has left Codex for as long as the file it wrote is
+ * there in the bot folder, so the file never holds a rule that `allow` no
+ * longer does (#613). A link out of the bot folder is not the kit's file.
+ */
+const keepsCodex = (bot, home) => runsOnCodex(bot)
+  || (existsSync(path.join(home, CODEX_FILE)) && leadsOutside(home, path.join(home, CODEX_FILE)) === undefined);
+
+/**
  * The default rules this bot is not allowed yet, in the default order. A bot
  * only on Codex is not given the Read rule: its sandbox reads every file
  * already.
@@ -326,7 +335,7 @@ export function refuseNoCodexForm(bot, rules) {
  * not write is an entry with its `trouble` rather than a throw.
  */
 export function writePermissions(bots, home, bot, { keepGoing = false } = {}) {
-  const writers = [[runsOnClaude, FILE], [runsOnCodex, CODEX_FILE]].filter(([runs]) => runs(bot));
+  const writers = [[runsOnClaude, FILE], [keepsCodex, CODEX_FILE]].filter(([runs]) => runs(bot, home));
   let defaults = [];
   // Read before anything is written, so a file's trouble still names them.
   let held = [];
@@ -357,8 +366,8 @@ export function writePermissions(bots, home, bot, { keepGoing = false } = {}) {
  */
 export function allowIn(bots, home, bot) {
   refuseUnwritable(path.join(home, 'bot.yaml'));
-  const plans = [[runsOnClaude, planClaude], [runsOnCodex, planCodex]]
-    .filter(([runs]) => runs(bot)).map(([, plan]) => plan(bots, home, bot));
+  const plans = [[runsOnClaude, planClaude], [keepsCodex, planCodex]]
+    .filter(([runs]) => runs(bot, home)).map(([, plan]) => plan(bots, home, bot));
   for (const plan of plans) if (plan.writes) refuseUnwritable(plan.answer.file);
   return () => plans.map((plan) => plan.write());
 }
@@ -437,7 +446,8 @@ export function takeBack(bots, home, bot, rules) {
   }
   const codex = path.join(home, CODEX_FILE);
   let before = [];
-  if (runsOnCodex(bot)) {
+  const codexKept = keepsCodex(bot, home);
+  if (codexKept) {
     refuseOutside(home, codex);
     if (existsSync(codex)) {
       before = ruleLines(readFileSync(codex, 'utf8'));
@@ -455,7 +465,7 @@ export function takeBack(bots, home, bot, rules) {
       }
       entries.push({ bot: bot.name, file, written: [], removed });
     }
-    if (runsOnCodex(after)) {
+    if (codexKept) {
       const entry = planCodex(bots, home, after).write();
       // A line goes only when no rule still allowed gives it.
       const kept = [...codexOf(home, after).lines.keys()];
