@@ -287,18 +287,19 @@ otherwise `/Applications/Orca.app/Contents/Resources/bin/orca`. A bare
 `orca` can fail. Send each key as one `<orca> terminal send --terminal
 <handle> --text …`, with the return inside the text and no `--enter`. Where
 the Send cell names `obk` commands, send no keys: the kit answers that
-screen, by the commands below.
+screen, by the commands below, the first for a long-lived session and the
+second for a temporary one.
 
 | On screen | Send | Which is | Proven on |
 |---|---|---|---|
 | Claude Code's trust list | `\x1b[B\r` | down, return: off **No, exit** | Claude Code 2.1.283 |
 | Codex's `Trust this folder?` | `\r` | return: it starts on yes | Codex 0.160.0 |
-| Codex's `Hooks need review` | `obk session trust-hooks`, or `obk temp trust-hooks` for a temporary session | the kit: **Trust all and continue** | Codex 0.160.0 |
+| Codex's hooks review | `obk session trust-hooks`, `obk temp trust-hooks` | trust | Codex 0.160.0 |
 | Codex's `Where should the new conversation run?` | `\r` | **Current checkout** | Codex 0.160.0 |
 | Codex's update offer, `1. Update now` | `\r` | **Update now**, where it starts | Codex 0.156.1 |
 | `[oh-my-zsh] Would you like to update?` | `n` | no: the user updates it | oh-my-zsh bf77e35 |
-| Claude Code's `Teach auto mode…` | `obk session answer`, or `obk temp answer` for a temporary session | the kit: Esc, Not now; no return | Not yet proven, below |
-| The same, 2.1.289's list | `obk session answer`, or `obk temp answer` for a temporary session | the kit: down, return, **2. Not now** | Not yet proven, below |
+| Claude Code's Teach form | `obk session answer`, `obk temp answer` | Esc | Not yet proven, below |
+| Its 2.1.289 list | `obk session answer`, `obk temp answer` | 2. Not now | Not yet proven, below |
 
 Each key counts on where the selection starts on the version named. Read the
 screen before you send: if the selection is elsewhere or the options have
