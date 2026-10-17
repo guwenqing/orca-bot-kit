@@ -111,7 +111,10 @@ const HOLD_MS = 8000;
 /**
  * Hold a bot's book lock, the way another writer of the book does, until
  * `release` is called: the file SQLite locks, beside the bots folder (#534),
- * taken with `BEGIN IMMEDIATE`.
+ * taken with `BEGIN IMMEDIATE` and let go with `ROLLBACK`, as src/book.js
+ * does. A make stopped while it tries for the lock can still hold SQLite's
+ * shared lock on the file; COMMIT would then fail at once, and ROLLBACK does
+ * not (#611).
  */
 async function holdBookLock(bots, bot) {
   const file = bookLockFile(bots, bot);
@@ -124,7 +127,7 @@ async function holdBookLock(bots, bot) {
       if (!held) return;
       held = false;
       try {
-        db.exec('COMMIT');
+        db.exec('ROLLBACK');
       } finally {
         db.close();
       }
