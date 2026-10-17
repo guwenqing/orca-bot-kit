@@ -44,9 +44,13 @@
 //      `obk groom` lists one job, not the one `--on` made, ending later than
 //      it, at the same time and with the same runs (review of PR #439).
 //
-// It runs the real flow, the job a user would have: `--run-on codex` with no
-// `--extra-arg` at all, so no trust given at launch and no sleep flag (a
-// grooming task does not tell the run to wait). The architect's ruling on #238:
+// It runs the real flow, the job a user would have: `--run-on codex` with one
+// extra argument only, `-c check_for_update_on_startup=false`, so no trust given
+// at launch and no sleep flag (a grooming task does not tell the run to wait).
+// That one argument turns Codex's update offer off for the run (#581), since no
+// screen allowlist answers the offer, and a new Codex release would stop the
+// run. It gives no trust, so the #238 ruling on trust at launch does not cover
+// it. The job lists it in its runs. The architect's ruling on #238:
 // trust given at launch, by the bypass or by a precomputed hooks.state hash,
 // starts a Codex agent with its trust bypassed, which Claude Code's auto mode
 // refused when the grooming session was asked to schedule it (live run 1). So
@@ -188,6 +192,9 @@ const EFFORT = 'medium';
 /** The job's runs: a Codex model that is not this machine's default, at an effort that is not Codex's. */
 const CODEX_MODEL = 'gpt-6-sol';
 const CODEX_EFFORT = 'low';
+
+/** The one extra argument the run gets: Codex's update offer off (#581). */
+const CODEX_EXTRA = ['-c', 'check_for_update_on_startup=false'];
 
 /** How long a real agent is given to act on one line. */
 const ANSWER_MS = 240000;
@@ -648,6 +655,8 @@ test('a grooming job with --run-on codex starts one Codex run at its fire, on th
   const on = obkJson([
     'groom', '--bots', bots, '--on', '--at', at,
     '--run-on', 'codex', '--model', CODEX_MODEL, '--effort', CODEX_EFFORT,
+    // CODEX_EXTRA, written out, so test/system-codex-trust.test.js can read it here.
+    '--extra-arg=-c', '--extra-arg=check_for_update_on_startup=false',
   ]).groom;
   assert.equal(on.asked, 'on', `--on types the line that schedules it: ${JSON.stringify(on)}`);
 
@@ -664,7 +673,7 @@ test('a grooming job with --run-on codex starts one Codex run at its fire, on th
 
   const [listed] = obkJson(['groom', '--bots', bots]).groom.jobs;
   assert.equal(listed?.id, made.id, 'obk groom lists the job Claude Code made');
-  assert.deepEqual(listed.run, { harness: 'codex', model: CODEX_MODEL, effort: CODEX_EFFORT }, `and its runs: ${JSON.stringify(listed)}`);
+  assert.deepEqual(listed.run, { harness: 'codex', model: CODEX_MODEL, effort: CODEX_EFFORT, extra_args: CODEX_EXTRA }, `and its runs: ${JSON.stringify(listed)}`);
 
   // The fire. Nothing is typed into the grooming tab from here on.
   const fire = await until(
@@ -829,6 +838,6 @@ test('a grooming job with --run-on codex starts one Codex run at its fire, on th
       + `${refusedIn(after(groomingLines(home), firedAt))}\n  the grooming conversation since the fire:\n${tailOf(after(groomingLines(home), firedAt))}`,
     POLL_MS,
   );
-  assert.deepEqual(replaced.run, { harness: 'codex', model: CODEX_MODEL, effort: CODEX_EFFORT }, `with the same runs: ${JSON.stringify(replaced)}`);
+  assert.deepEqual(replaced.run, { harness: 'codex', model: CODEX_MODEL, effort: CODEX_EFFORT, extra_args: CODEX_EXTRA }, `with the same runs: ${JSON.stringify(replaced)}`);
   assert.equal(replaced.cron, cron, 'at the same time');
 });

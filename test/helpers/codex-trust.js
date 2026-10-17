@@ -1,8 +1,8 @@
 // A system test's Codex session starts trusted by launch-time overrides, so
 // Codex writes no folder trust and no hooks trust into the user's own
-// ~/.codex/config.toml (#240, option (c)), and without Codex's sleep tool
-// (#432); and the reader a test checks that file with, before and after. See
-// test/codex-trust.test.js.
+// ~/.codex/config.toml (#240, option (c)), without Codex's sleep tool (#432),
+// and with no update offer (#581); and the reader a test checks that file
+// with, before and after. See test/codex-trust.test.js.
 
 /** A TOML basic string: the same escapes JSON uses, which TOML reads alike. */
 const tomlString = (text) => JSON.stringify(text);
@@ -20,7 +20,8 @@ export const projectTrust = (folder) => `projects={${tomlString(folder)}={trust_
  * The `session add` arguments every Codex session a system test makes is
  * launched with: it starts in the bots folder at `botsRealpath` with no
  * folder-trust question and no hooks review, with nothing of its own written
- * into config.toml at startup, and without Codex's sleep tool:
+ * into config.toml at startup, without Codex's sleep tool, and with no update
+ * offer:
  *
  *   -c projects={"<folder>"={trust_level="trusted"}}   the folder's trust, as a
  *                                  whole table in one -c; the dotted key form
@@ -36,6 +37,10 @@ export const projectTrust = (folder) => `projects={${tomlString(folder)}={trust_
  *                                  waits for an idle tab never end. The kit's
  *                                  own launch line keeps the tool: the notice it
  *                                  types ends such a sleep (seen live, #432)
+ *   -c check_for_update_on_startup=false  no update offer at start, which no
+ *                                  system test may answer: a test takes no
+ *                                  update and dismisses none in the user's
+ *                                  own Codex state (#581)
  *
  * Codex looks for trust at the session's folder and then at its git root, the
  * realpath first, so the bots folder's realpath covers every bot in it.
@@ -56,6 +61,7 @@ export const codexTrustArgs = (botsRealpath, { hooks = true, sleep = false } = {
   ...(hooks ? ['--dangerously-bypass-hook-trust'] : []),
   '-c', 'tui.show_tooltips=false',
   ...(sleep ? [] : ['-c', 'features.sleep_tool=false']),
+  '-c', 'check_for_update_on_startup=false',
 ].map((arg) => `--extra-arg=${arg}`);
 
 /** A table header this reads: `[projects."…"]` or `[hooks.state."…"]`, the key double- or single-quoted. */
