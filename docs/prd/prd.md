@@ -64,7 +64,7 @@ Each line is a check a developer can run. Issues turn these into acceptance test
 
 ## [PRD-6] 5. What we are not doing
 
-- No process framework in this repo other than AssuredLoop, for now: no OpenSpec or the like. This repo uses AssuredLoop to keep its requests and its spec, this PRD; AGENTS.md says how. [decided by the owner, 2026-10-03, #474]
+- No AssuredLoop, OpenSpec or other process framework in this repo for now. [decided]
 - No Codex-desktop integration; no sidebar, phone or remote work — Orca does that. [decided]
 - No Claude handoff / "consult Claude" skill; Claude is a first-class harness. [decided]
 - No panel discussion yet. [decided]
