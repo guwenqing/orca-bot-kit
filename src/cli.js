@@ -442,7 +442,7 @@ async function run(argv) {
   }
 
   // A permission rule narrows a command to one bots folder by its first words,
-  // whatever comes after them (ADR 0047), and the last of two `--bots` would
+  // whatever comes after them (ADR 0048), and the last of two `--bots` would
   // win: so a second one is refused before anything runs.
   if (tokens.filter((token) => token.kind === 'option' && token.name === 'bots').length > 1) {
     throw new Error('--bots is given more than once. Give it once: one command works on one bots folder. Nothing was done.');
@@ -836,7 +836,7 @@ const commands = {
   },
 
   'bot create'(bots, values) {
-    // The kit's default rules (ADR 0047) are in the bot's first bot.yaml.
+    // The kit's default rules (ADR 0048) are in the bot's first bot.yaml.
     const allow = botDefaults(bots, { harness: values.harness, sessions: [] });
     const made = createBot(bots, { name: values.name, harness: values.harness, charter: values.charter, allow });
     // The bot's AGENTS.md is the rules build's, here as everywhere else, so
@@ -1786,7 +1786,7 @@ function charterRulesLines(bots, bot, rules) {
 
 /**
  * What became of each bot's permission rules: each of the kit's default rules
- * the run added to the bot, word for word (ADR 0047), each rule of a command no
+ * the run added to the bot, word for word (ADR 0048), each rule of a command no
  * longer in the set that the bot still holds, with the command that takes it
  * back (ADR 0041), and the file the allowed ones were written into. Nothing for
  * a bot with nothing added, held or written.
