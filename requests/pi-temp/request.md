@@ -11,3 +11,4 @@ R1: A temporary session MUST be able to run on Pi, as on Claude Code or Codex. `
 
 Assumed: this is slice 3 of #547 (#648). A Pi temporary session takes the maker's model and effort only when the maker is on Pi too, as for the other harnesses. The other refusals of a Pi session hold for a temporary one too: a start prompt that begins with `@`, a context setting, and the extra arguments `--approve` and `-a`. The facts are from Pi 1.3.0 and Orca 1.4.225.
 Out: rules and skills for Pi, health of a Pi session, the book following a `/new` in a Pi tab, and `session change --harness pi`: later slices of #547.
+Signed off: 2026-10-18 owner, origin/2026-10-18-signoff.md
