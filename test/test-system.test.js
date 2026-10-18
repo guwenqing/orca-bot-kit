@@ -4361,9 +4361,10 @@ const STUBBORN = "process.on('SIGTERM', () => {}); process.on('SIGINT', () => {}
  * own folder, adds a Codex key, mints Runs and adds an Orca project in the
  * fake's world. It prints `ALPHA`. With `child` it then starts a child that
  * ignores SIGTERM and never ends, and writes its pid down (`child`). With
- * `marks`, the test's t.after and the file's after each write the time they
- * ran into that file. Then it waits for ever, or with `loop` it spins in a
- * synchronous endless loop where no teardown can run.
+ * `marks`, the test writes the time it starts (`start`) into that file, and
+ * its t.after and the file's after each write the time they ran. Then it
+ * waits for ever, or with `loop` it spins in a synchronous endless loop where
+ * no teardown can run.
  */
 const hangs = ({ pids, child = null, loop = false, leaves = null, marks = null }) => [
   "import { spawn } from 'node:child_process';",
@@ -4376,7 +4377,10 @@ const hangs = ({ pids, child = null, loop = false, leaves = null, marks = null }
   ...(marks ? [`after(() => appendFileSync(${JSON.stringify(marks)}, JSON.stringify({ hook: 'file', at: Date.now() }) + '\\n'));`] : []),
   '',
   "test('hangs', async (t) => {",
-  ...(marks ? [`  t.after(() => appendFileSync(${JSON.stringify(marks)}, JSON.stringify({ hook: 'test', at: Date.now() }) + '\\n'));`] : []),
+  ...(marks ? [
+    `  appendFileSync(${JSON.stringify(marks)}, JSON.stringify({ hook: 'start', at: Date.now() }) + '\\n');`,
+    `  t.after(() => appendFileSync(${JSON.stringify(marks)}, JSON.stringify({ hook: 'test', at: Date.now() }) + '\\n'));`,
+  ] : []),
   ...(leaves ? [
     `  const leaves = ${JSON.stringify(leaves)};`,
     '  mkdirSync(leaves.folder, { recursive: true });',
@@ -4671,12 +4675,25 @@ describe('test-system: a hard time limit on the whole run (#653)', { concurrency
     reapLater(t, await pidsIn(pidsFile), box);
 
     assertEnded(result);
+    const ended = run.startedAt + result.ms;
     const marks = await pidsIn(marksFile);
+    // The test's own start is the clock node's timeout counts from; the
+    // runner's setup before it takes as long as the machine makes it take.
+    const start = marks.find((one) => one.hook === 'start');
+    assert.ok(start, `the test should have started, got marks ${JSON.stringify(marks)}:\n${everything(result)}`);
     for (const hook of ['test', 'file']) {
       const mark = marks.find((one) => one.hook === hook);
+      // A process the hard stop kills, by any signal, runs no after hook and
+      // writes nothing: a mark is a teardown node's own cancel ran, before it.
       assert.ok(mark, `the ${hook === 'test' ? 'test\'s t.after' : 'file\'s after'} should have run, got marks ${JSON.stringify(marks)}:\n${everything(result)}`);
-      const at = mark.at - run.startedAt;
-      assert.ok(at >= 1000 && at < 4000, `the ${hook} teardown should run at about 2 s, before the 4 s limit, ran at ${at} ms`);
+      // About 2 s after the test started: not at once, and before 4 s, which
+      // the limit, counted from earlier than the test's start, is not past.
+      const sinceStart = mark.at - start.at;
+      assert.ok(
+        sinceStart >= 1000 && sinceStart < 4000,
+        `the ${hook} teardown should run when node's timeout cancels the test, about 2 s after it started; ran ${sinceStart} ms after it started`,
+      );
+      assert.ok(mark.at <= ended, `the ${hook} teardown should run before the run ended, ran ${mark.at - ended} ms after it`);
     }
   });
 
