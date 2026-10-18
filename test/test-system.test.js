@@ -4139,3 +4139,126 @@ describe('test-system: a backup of both harness configs before every live run (#
     assertNoSecrets(result);
   });
 });
+
+// A system test may need to know that the run named it (#634, under the
+// owner's rule in #561): a test that mounts a tab in the owner's open Orca
+// window does so only in a run that names its file. So the runner tells the
+// files it starts which files were named, through one variable:
+//
+//   OBK_SYSTEM_NAMED  the absolute path of each test file named on the
+//                     runner's command line, one per line; the empty string
+//                     when no file was named (a run of every system test).
+//
+// Set by the runner on every run it starts, whatever the developer's shell had.
+
+/** The variable the runner sets to the files a run named. */
+const NAMED = 'OBK_SYSTEM_NAMED';
+
+/**
+ * A system test file that writes down what it saw of OBK_SYSTEM_NAMED,
+ * `<name>:<value as JSON>` (null when it was not set), in `ran.log` beside the
+ * repo. JSON, because the value holds line breaks.
+ */
+const seesNamed = (name) => [
+  "const { appendFileSync } = process.getBuiltinModule('node:fs');",
+  "const path = process.getBuiltinModule('node:path');",
+  "const { test } = process.getBuiltinModule('node:test');",
+  '',
+  `test(${JSON.stringify(name)}, () => {`,
+  `  const seen = process.env[${JSON.stringify(NAMED)}];`,
+  `  appendFileSync(path.join(path.dirname(process.env[${JSON.stringify(WORLD)}]), 'ran.log'), ${JSON.stringify(`${name}:`)} + JSON.stringify(seen ?? null) + '\\n');`,
+  '});',
+  '',
+].join('\n');
+
+/** What each file saw, as { name: value }, from ran.log; a value of undefined is a file that did not run. */
+async function namedSeen(fixture) {
+  const seen = {};
+  for (const line of await ranIn(fixture)) {
+    const at = line.indexOf(':');
+    seen[line.slice(0, at)] = JSON.parse(line.slice(at + 1));
+  }
+  return seen;
+}
+
+/** The lines of a value of OBK_SYSTEM_NAMED, sorted: the order of the names is not the contract. */
+const namedLines = (value) => (typeof value === 'string' ? value.split('\n').filter((line) => line !== '').sort() : value);
+
+describe('test-system: the runner tells its tests which files the run named (OBK_SYSTEM_NAMED, #634)', { concurrency: true }, () => {
+  const FILES = {
+    'test/system/alpha.test.js': seesNamed('ALPHA'),
+    'test/system/beta.test.js': seesNamed('BETA'),
+  };
+
+  /** The fixture's environment, with no OBK_SYSTEM_NAMED of the shell's: the runner's to set. */
+  const bareEnv = (fixture) => {
+    const { [NAMED]: _named, ...env } = fixture.env;
+    return env;
+  };
+
+  test('a run that names one file gives that test the file\'s absolute path', async (t) => {
+    const fixture = await createRepo(t, { files: FILES });
+
+    const result = await fixture.confirmed({ names: ['test/system/beta.test.js'], env: bareEnv(fixture) });
+
+    assert.equal(result.code, 0, `${result.stdout}${result.stderr}`);
+    assert.deepEqual(await namedSeen(fixture), { BETA: path.join(fixture.repo, 'test', 'system', 'beta.test.js') });
+  });
+
+  test('a run that names no file gives every test the empty string', async (t) => {
+    const fixture = await createRepo(t, { files: FILES });
+
+    const result = await fixture.confirmed({ env: bareEnv(fixture) });
+
+    assert.equal(result.code, 0, `${result.stdout}${result.stderr}`);
+    assert.deepEqual(await namedSeen(fixture), { ALPHA: '', BETA: '' });
+  });
+
+  test('a run that names two files gives each test both absolute paths, one per line', async (t) => {
+    const fixture = await createRepo(t, { files: FILES });
+
+    const result = await fixture.confirmed({ names: ['test/system/alpha.test.js', 'test/system/beta.test.js'], env: bareEnv(fixture) });
+
+    assert.equal(result.code, 0, `${result.stdout}${result.stderr}`);
+    const seen = await namedSeen(fixture);
+    const both = [path.join(fixture.repo, 'test', 'system', 'alpha.test.js'), path.join(fixture.repo, 'test', 'system', 'beta.test.js')].sort();
+    assert.deepEqual(Object.keys(seen).sort(), ['ALPHA', 'BETA'], `both files ran, got: ${JSON.stringify(seen)}`);
+    assert.deepEqual(namedLines(seen.ALPHA), both, `alpha saw: ${JSON.stringify(seen.ALPHA)}`);
+    assert.deepEqual(namedLines(seen.BETA), both, `beta saw: ${JSON.stringify(seen.BETA)}`);
+    assert.equal(seen.ALPHA.split('\n').filter((line) => line !== '').length, 2, `one line for each file, got: ${JSON.stringify(seen.ALPHA)}`);
+  });
+
+  test('a file named by its absolute path, or with ./ in front, is given as the same absolute path', async (t) => {
+    const fixture = await createRepo(t, { files: FILES });
+    const beta = path.join(fixture.repo, 'test', 'system', 'beta.test.js');
+
+    for (const name of [beta, './test/system/beta.test.js']) {
+      await rm(path.join(path.dirname(fixture.repo), 'ran.log'), { force: true });
+
+      const result = await fixture.confirmed({ names: [name], env: bareEnv(fixture) });
+
+      assert.equal(result.code, 0, `${name}: ${result.stdout}${result.stderr}`);
+      assert.deepEqual(await namedSeen(fixture), { BETA: beta }, `named as ${name}`);
+    }
+  });
+
+  test('a run that names no file gives the empty string whatever the developer\'s shell had in OBK_SYSTEM_NAMED', async (t) => {
+    const fixture = await createRepo(t, { files: FILES });
+    const stale = path.join(fixture.repo, 'test', 'system', 'alpha.test.js');
+
+    const result = await fixture.confirmed({ env: { ...bareEnv(fixture), [NAMED]: stale } });
+
+    assert.equal(result.code, 0, `${result.stdout}${result.stderr}`);
+    assert.deepEqual(await namedSeen(fixture), { ALPHA: '', BETA: '' });
+  });
+
+  test('a named run gives the named file\'s path, not one the developer\'s shell had in OBK_SYSTEM_NAMED', async (t) => {
+    const fixture = await createRepo(t, { files: FILES });
+    const stale = path.join(fixture.repo, 'test', 'system', 'alpha.test.js');
+
+    const result = await fixture.confirmed({ names: ['test/system/beta.test.js'], env: { ...bareEnv(fixture), [NAMED]: stale } });
+
+    assert.equal(result.code, 0, `${result.stdout}${result.stderr}`);
+    assert.deepEqual(await namedSeen(fixture), { BETA: path.join(fixture.repo, 'test', 'system', 'beta.test.js') });
+  });
+});
