@@ -62,14 +62,15 @@ const ORCA_CHECK = 'Bash(orca orchestration check --run:*)';
 /**
  * Whether a rule is one for `obk run` (#532), which #652 took out of the kit:
  * the kit, then `run`. The kit is its CLI as `permission allow` recorded it,
- * the bare `obk` that `obk run`'s own help spelled, or any path to an `obk`.
- * A rule for it named the command after `--`, so it is known by its first two
- * words.
+ * the bare `obk` that `obk run`'s own help spelled, or any path to an `obk`,
+ * quoted or not. A rule for it named the command after `--`, so it is known by
+ * its first two shell words.
  */
 export function isRunRule(rule, cli = ownCli()) {
-  if ([' ', ':', ')'].some((next) => rule.startsWith(`Bash(${shellWord(cli)} run${next}`))) return true;
-  const kit = /^Bash\((\S+) run[ :)]/.exec(rule)?.[1];
-  return kit !== undefined && path.basename(kit) === 'obk';
+  const text = /^Bash\((.*)\)$/s.exec(rule)?.[1];
+  const [kit, word] = (text === undefined ? undefined : shellWords(text).words) ?? [];
+  if (kit === undefined || word === undefined) return false;
+  return (kit === cli || path.basename(kit) === 'obk') && (word === 'run' || word.startsWith('run:'));
 }
 
 /**
