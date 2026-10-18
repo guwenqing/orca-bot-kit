@@ -1007,3 +1007,25 @@ docs, or Orca's 1.4.225 bundle. The kit was tested with Pi 1.1.0.
   **read in code** (the 1.4.225 bundle's resume command table). Not seen live.
 - **Pi's update notice** (`Update Available … New version 1.3.0 is available. Run pi update`) is a line
   in the conversation, not a question; nothing answers it. **seen live**.
+- **Fleet mail in a Pi tab (#634).** Read on 2026-10-17 in Pi 1.3.0 (installed on the owner's Mac that
+  day; slice 1 saw 1.1.0) and the Orca 1.4.225 bundle. Not yet seen live; the live check is
+  `test/system/pi-mail.test.js`.
+  - Pi has no messaging between sessions of its own, so the kit sends every letter to or from a Pi
+    session by the Orca mailbox. A Pi launch line starts with the kit's mailbox step, as a Codex line
+    does.
+  - Orca's Pi extension `orca-titlebar-spinner.ts` titles the tab `π - <name> - <folder>` at rest and
+    `<braille frame> π - <name> - <folder>` while Pi works, and `π ! …` while a dialog waits. Orca's
+    status rules for agent `pi` read `^π - ` as idle, and Pi's hooks count as `authoritative`. So Orca's
+    notice reaches a Pi tab by the same rule as a Claude Code tab: an idle title seen live, and a tab
+    the window has loaded (section 1).
+  - Pi's bash tool runs each command with Pi's whole environment (`getShellEnv` spreads `process.env`),
+    so `ORCA_TAB_ID`, `ORCA_TERMINAL_HANDLE`, `OBK_TAB_SHELL` and `OBK_CLI` reach an `obk` that a Pi
+    session runs. So `obk message check` and `obk message send` take the caller from a Pi tab, as from
+    a Claude Code tab. Pi has no shared background server, so the Codex refusal of #408 does not apply.
+  - An Escape while Pi works aborts the turn (`app.interrupt`, the editor's `onEscape`), and the abort
+    kills the running command's whole process tree (`core/tools/bash.js`, `killProcessTree`). Codex
+    keeps such a command as a background terminal; Pi does not, so `message send --interrupt` says
+    nothing of it for Pi. An Escape also puts any queued steering or follow-up messages back into the
+    editor.
+  - A line typed while Pi works is queued as a steering message (Enter), not a new turn. Orca types its
+    notice only into an idle tab.
