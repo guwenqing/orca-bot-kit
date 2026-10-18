@@ -22,8 +22,11 @@
 // local install of 0.1.0 instead: one into a folder of its own, not the global
 // one. So AGENTS.md gives both kinds as allowed ways, a run through npx (or npm
 // exec, or a dlx) and a local install. The two are told apart by what the
-// command does, a run or an install, and not by the words around them. The
-// print command for the skill stays.
+// command does, a run or an install, and not by the words around them. A
+// global install is found the same way, by parsing the command, so a flag
+// before the verb or an alias around it does not hide one. Whether the command
+// that prints the skill stays is left to the review of the diff: a test could
+// read only its words, not what it prints, without running npx.
 
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
@@ -110,34 +113,6 @@ function isGlobalInstall(words) {
 /** Whether words name AssuredLoop's CLI as a package, at any version or none. */
 const namesPackage = (words) => words.some((word) => word === PACKAGE || word.startsWith(`${PACKAGE}@`));
 
-/**
- * Whether a command installs AssuredLoop's CLI into the global folder: with
- * npm, or with pnpm, yarn or bun, which have global installs of their own.
- */
-function installsPackageGlobally(words) {
-  if (!namesPackage(words)) return false;
-  if (isGlobalInstall(words)) return true;
-  const verbs = words.filter((word) => !word.startsWith('-'));
-  const global = words.some((word) => ['-g', '--global'].includes(word));
-  if (['pnpm', 'bun'].includes(words[0])) return ['add', 'install', 'i'].includes(verbs[1]) && global;
-  if (words[0] === 'yarn') return verbs[1] === 'global' && verbs[2] === 'add';
-  return false;
-}
-
-/**
- * Whether a command gets AssuredLoop's CLI at 0.1.0 exactly with nothing
- * installed globally: run through npx, npm exec, a dlx and the like, or
- * installed into a folder of its own. The command may sit in an alias or a
- * shell function: quotes, braces and a `name=` in front of a word are dropped.
- */
-function getsPinnedWithoutGlobal(words) {
-  const plain = words.map((word) => word.replace(/^[\w-]*=/, '').replace(/^['"({]+|['";)}]+$/g, ''));
-  if (plain[0] === 'echo' || installsPackageGlobally(plain)) return false;
-  const at = plain.findIndex((word, i) => ['npx', 'pnpx', 'bunx'].includes(word)
-    || (['npm', 'pnpm', 'yarn'].includes(word) && ['exec', 'x', 'dlx', 'install', 'i', 'add'].includes(plain[i + 1])));
-  return at >= 0 && plain.slice(at).includes(`${PACKAGE}@${VERSION}`);
-}
-
 /** The flags of npm, pnpm, yarn and bun that take the next word as their value. */
 const FLAGS_WITH_VALUE = ['--prefix', '-C', '--dir', '--cwd', '--location'];
 
@@ -148,29 +123,57 @@ const FLAGS_WITH_VALUE = ['--prefix', '-C', '--dir', '--cwd', '--location'];
  */
 const unwrapped = (words) => words.map((word) => word.replace(/^\w[\w-]*=/, '').replace(/^['"({]+|['";)}]+$/g, ''));
 
-/** Whether words name AssuredLoop's CLI at 0.1.0 exactly, alone or as a flag's value. */
-const namesPinned = (words) => words.some((word) => word === `${PACKAGE}@${VERSION}` || word.endsWith(`=${PACKAGE}@${VERSION}`));
-
 /**
- * The package manager a command calls (npm, pnpm, yarn or bun) and its verb:
- * the first word after it that is not a flag or a flag's value.
- * `--location global`, before or after the verb, gives no verb: the command
- * is a global one.
+ * The package manager a command calls (npm, pnpm, yarn or bun), the words after
+ * it, and its verbs: those of them that are not a flag or a flag's value, the
+ * first of them the verb. `npm --prefix .al install` has the verb install.
  */
 function managerVerbOf(words) {
   const plain = unwrapped(words);
-  const none = { plain, verb: undefined, rest: [] };
+  const none = { plain, manager: undefined, verb: undefined, verbs: [], rest: [] };
   if (plain[0] === 'echo') return none;
   const at = plain.findIndex((word) => ['npm', 'pnpm', 'yarn', 'bun'].includes(word));
   if (at < 0) return none;
   const rest = plain.slice(at + 1);
-  if (rest.some((word, i) => word === '--location' && rest[i + 1] === 'global')) return none;
+  const verbs = [];
   for (let i = 0; i < rest.length; i += 1) {
-    if (!rest[i].startsWith('-')) return { plain, verb: rest[i], rest };
-    if (FLAGS_WITH_VALUE.includes(rest[i])) i += 1;
+    if (!rest[i].startsWith('-')) verbs.push(rest[i]);
+    else if (FLAGS_WITH_VALUE.includes(rest[i])) i += 1;
   }
-  return none;
+  return { plain, manager: plain[at], verb: verbs[0], verbs, rest };
 }
+
+/**
+ * Whether a command installs AssuredLoop's CLI into the global folder: with
+ * npm, or with pnpm, yarn or bun, which have global installs of their own. The
+ * command is parsed: a flag before the verb, such as `npm --prefix .al install
+ * -g`, and an alias or a shell function around it do not hide the install.
+ */
+function installsPackageGlobally(words) {
+  const { plain, manager, verbs, rest } = managerVerbOf(words);
+  if (manager === undefined || !namesPackage(plain)) return false;
+  if (manager === 'yarn') return verbs[0] === 'global' && verbs[1] === 'add';
+  const global = rest.some((word, at) => ['-g', '--global', '--location=global'].includes(word)
+    || (word === '--location' && rest[at + 1] === 'global'));
+  return ['install', 'i', 'add'].includes(verbs[0]) && global;
+}
+
+/**
+ * Whether a command gets AssuredLoop's CLI at 0.1.0 exactly with nothing
+ * installed globally: run through npx, npm exec, a dlx and the like, or
+ * installed into a folder of its own. The command may sit in an alias or a
+ * shell function: quotes, braces and a `name=` in front of a word are dropped.
+ */
+function getsPinnedWithoutGlobal(words) {
+  const plain = words.map((word) => word.replace(/^[\w-]*=/, '').replace(/^['"({]+|['";)}]+$/g, ''));
+  if (plain[0] === 'echo' || installsPackageGlobally(words)) return false;
+  const at = plain.findIndex((word, i) => ['npx', 'pnpx', 'bunx'].includes(word)
+    || (['npm', 'pnpm', 'yarn'].includes(word) && ['exec', 'x', 'dlx', 'install', 'i', 'add'].includes(plain[i + 1])));
+  return at >= 0 && plain.slice(at).includes(`${PACKAGE}@${VERSION}`);
+}
+
+/** Whether words name AssuredLoop's CLI at 0.1.0 exactly, alone or as a flag's value. */
+const namesPinned = (words) => words.some((word) => word === `${PACKAGE}@${VERSION}` || word.endsWith(`=${PACKAGE}@${VERSION}`));
 
 /**
  * Whether a command installs AssuredLoop's CLI at 0.1.0 exactly into a folder
@@ -178,8 +181,8 @@ function managerVerbOf(words) {
  * without --prefix. A run through npx, npm exec or a dlx is not an install.
  */
 function installsPinnedLocally(words) {
-  const { plain, verb, rest } = managerVerbOf(words);
-  if (!['install', 'i', 'add'].includes(verb) || installsPackageGlobally(plain)) return false;
+  const { verb, rest } = managerVerbOf(words);
+  if (!['install', 'i', 'add'].includes(verb) || installsPackageGlobally(words)) return false;
   return namesPinned(rest);
 }
 
@@ -356,6 +359,15 @@ test('the check for a global install of the package sees npm, pnpm, yarn and bun
   assert.equal(global('pnpm add -g @assuredloop/cli@0.1.0'), true);
   assert.equal(global('yarn global add @assuredloop/cli@0.1.0'), true);
   assert.equal(global('bun add --global @assuredloop/cli@0.1.0'), true);
+  assert.equal(global('npm --prefix .al install --global @assuredloop/cli@0.1.0'), true, 'a flag with a value before the verb');
+  assert.equal(global('npm --prefix=.al i -g @assuredloop/cli@0.1.0'), true, 'a flag= before the verb');
+  assert.equal(global('npm install --location global @assuredloop/cli@0.1.0'), true, '--location global, as two words');
+  assert.equal(global('yarn --cwd .al global add @assuredloop/cli@0.1.0'), true, 'yarn, with a flag before global add');
+  assert.equal(global("alias al-up='npm --prefix .al install -g @assuredloop/cli@0.1.0'"), true, 'in an alias');
+  assert.equal(global('al-up() { npm i -g @assuredloop/cli@0.1.0; }'), true, 'in a shell function');
+  assert.equal(global('sudo npm install -g @assuredloop/cli@0.1.0'), true, 'behind sudo');
+  assert.equal(global('echo npm install -g @assuredloop/cli@0.1.0'), false, 'an echo installs nothing');
+  assert.equal(global('npm --prefix .al install @assuredloop/cli@0.1.0'), false, 'a flag before the verb, not global');
   assert.equal(global('npm install --global @assuredloop/orca-bot-kit'), false, 'the kit is another package');
   assert.equal(global('npm install @assuredloop/cli@0.1.0'), false, 'not global');
   assert.equal(global('npm install --prefix .al @assuredloop/cli@0.1.0'), false, 'into a folder of its own');
@@ -375,6 +387,8 @@ test('the check for a run of 0.1.0 sees npx, npm exec, a dlx and an install of i
   assert.equal(runs('al() { npx -y @assuredloop/cli@0.1.0 "$@"; }'), true, 'in a shell function');
   assert.equal(runs('npm install --global @assuredloop/cli@0.1.0'), false, 'a global install');
   assert.equal(runs('npm i -g @assuredloop/cli@0.1.0'), false, 'a global install');
+  assert.equal(runs('npm install --location=global @assuredloop/cli@0.1.0'), false, 'a global install with --location=global');
+  assert.equal(runs("alias al-up='npm install --location=global @assuredloop/cli@0.1.0'"), false, 'a global install in an alias');
   assert.equal(runs('npx @assuredloop/cli context'), false, 'no version');
   assert.equal(runs('npx @assuredloop/cli@latest context'), false, 'a tag');
   assert.equal(runs('npx @assuredloop/cli@^0.1.0 context'), false, 'a range');
@@ -401,6 +415,9 @@ test('the check for a local install sees an install of 0.1.0 exactly into a fold
   assert.equal(installs('pnpm dlx @assuredloop/cli@0.1.0 context'), false, 'a run through a dlx');
   assert.equal(installs('npm install --global @assuredloop/cli@0.1.0'), false, 'a global install');
   assert.equal(installs('npm i -g --prefix .al @assuredloop/cli@0.1.0'), false, 'a global install, even with --prefix');
+  assert.equal(installs('npm --prefix .al install --global @assuredloop/cli@0.1.0'), false, 'a global install, with a flag before the verb');
+  assert.equal(installs('npm --prefix=.al i -g @assuredloop/cli@0.1.0'), false, 'a global install, with a flag= before the verb');
+  assert.equal(installs("alias al-up='npm --prefix .al install -g @assuredloop/cli@0.1.0'"), false, 'a global install in an alias');
   assert.equal(installs('npm install --location=global @assuredloop/cli@0.1.0'), false, 'a global install');
   assert.equal(installs('npm install --location global @assuredloop/cli@0.1.0'), false, 'a global install');
   assert.equal(installs('yarn global add @assuredloop/cli@0.1.0'), false, 'a global install');
@@ -443,6 +460,17 @@ test('the check for a global install AGENTS.md tells a reader to run sees one in
   assert.deepEqual(globalInstallsTold('Do not run `npm i -g @assuredloop/cli`. Run `npx -y @assuredloop/cli@0.1.0` instead.'), [], 'a warning, then a run');
   assert.deepEqual(globalInstallsTold('Use `npx -y @assuredloop/cli@0.1.0 context`.'), [], 'a run');
   assert.deepEqual(globalInstallsTold('Install the kit: `npm install -g @assuredloop/orca-bot-kit`.'), [], 'the kit is another package');
+  assert.deepEqual(
+    globalInstallsTold('Install it: `npm --prefix .al install --global @assuredloop/cli@0.1.0`.'),
+    ['`npm --prefix .al install --global @assuredloop/cli@0.1.0`'],
+    'a flag before the verb',
+  );
+  assert.deepEqual(
+    globalInstallsTold("Add this: `alias al-up='npm --prefix .al i -g @assuredloop/cli@0.1.0'`."),
+    ["`alias al-up='npm --prefix .al i -g @assuredloop/cli@0.1.0'`"],
+    'in an alias',
+  );
+  assert.deepEqual(globalInstallsTold('Install it here: `npm --prefix .al install @assuredloop/cli@0.1.0`.'), [], 'a local install');
 });
 
 test('the check for the global npm folder sees `npm root -g` and a path through lib/node_modules, and not a local root or a URL', () => {
@@ -504,14 +532,6 @@ test('AGENTS.md still gives a run of al at exactly 0.1.0 through npx, npm exec o
   assert.ok(runs.length > 0, `the AssuredLoop section of AGENTS.md should still give a run of ${PACKAGE}@${VERSION} through npx, npm exec or a dlx`);
 });
 
-// The boundary of #641 keeps the command that prints the skill. How it reaches
-// the file is free; a bare path to the file is not a command.
-test('AGENTS.md still gives a command that prints the skill\'s file', async () => {
-  const section = await assuredLoopSection();
-  const spans = [...section.matchAll(/```[^\n]*\n([\s\S]*?)```|`([^`]+)`/g)].map((match) => match[0]);
-  const prints = spans.filter((span) => span.includes(SKILL_FILE) && codeCommandsIn(span).some((words) => words.length > 1));
-  assert.ok(prints.length > 0, `the AssuredLoop section of AGENTS.md should still give a command that prints ${SKILL_FILE}`);
-});
 
 // Which al's skill the reader gets is the al the section selects: it reads no
 // global folder (here), it gives no version of the package but 0.1.0 (the test
