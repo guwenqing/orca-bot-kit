@@ -24,7 +24,8 @@
 //       takes it back, and no `holds` line is left for it. The middle of the
 //       line is the implementer's wording. The kit word of such a rule is the
 //       kit's own CLI path, the bare word `obk` (as #532's help spelled its
-//       example), or another path to an obk (the review of PR #656). A rule
+//       example), or another path to an obk (the review of PR #656), quoted
+//       when it has a space in it (its second review). A rule
 //       whose first word is no obk (`make run …`), or whose next word is not
 //       `run`, is not one, and is not named.
 //   RM5 The kit writes no rule that names `obk run`, for a bot on Claude or on
@@ -162,6 +163,10 @@ const runRules = (box) => [
   // path to an obk.
   { spelled: 'the bare word obk', rule: 'Bash(obk run --timeout 300 -- go test:*)', line: prefixRule(['obk', 'run', '--timeout', '300', '--', 'go', 'test']) },
   { spelled: 'another path to an obk', rule: 'Bash(/opt/homebrew/bin/obk run --timeout=300 -- npm test:*)', line: prefixRule(['/opt/homebrew/bin/obk', 'run', '--timeout=300', '--', 'npm', 'test']) },
+  // The second review of PR #656: a path with a space in it, quoted, which
+  // permission allow takes.
+  { spelled: 'a path with a space, in single quotes', rule: "Bash('/opt/my tools/obk' run --timeout 300 -- npm test:*)", line: prefixRule(['/opt/my tools/obk', 'run', '--timeout', '300', '--', 'npm', 'test']) },
+  { spelled: 'a path with a space, in double quotes', rule: 'Bash("/opt/my tools/obk" run:*)', line: prefixRule(['/opt/my tools/obk', 'run']) },
 ];
 
 /** Rules that are not for `obk run`: the first word is no obk, or the word after it is not `run`. */
@@ -169,6 +174,7 @@ const NOT_RUN_RULES = [
   'Bash(make run --timeout 3 -- sh:*)',
   'Bash(npm run build:*)',
   'Bash(/usr/local/bin/notobk run --timeout 3 -- go test:*)',
+  "Bash('/opt/my tools/notobk' run --timeout 3 -- go test:*)",
   'Bash(echo obk run:*)',
   'Bash(obk runner --timeout 3:*)',
   'Bash(obk health --bots /elsewhere:*)',

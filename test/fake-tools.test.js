@@ -28,7 +28,8 @@
 //     scripts/test-system.js of #653 met FT9's refusal);
 //   - the preload reaches a grandchild whose environment keeps NODE_OPTIONS,
 //     and not one whose environment drops it, as helpers/fake-tools.js says
-//     (FT10).
+//     (FT10). The core drops it in one place only, which core-is-core.test.js
+//     CC5 holds.
 //
 // Every check runs a child `node` with the sandbox's environment. Nothing here
 // imports helpers/fake-tools.js into the suite's own process.

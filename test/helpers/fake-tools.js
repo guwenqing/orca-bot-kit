@@ -38,8 +38,12 @@
 //   - A child started with an environment whose NODE_OPTIONS does not load
 //     this file runs without it, and so does all it starts. The kit does that
 //     for one child only, Orca's runtime client (src/orca.js askRuntime),
-//     which starts no process. helpers/cli.js refuses such an environment for
-//     a process the suite itself starts.
+//     which starts no process. core-is-core.test.js CC5 holds the core to
+//     that: it fails on any other environment the core gives a child, any
+//     other mention of NODE_OPTIONS in src/, and any process call in
+//     src/orca-runtime.cjs. helpers/cli.js refuses such an environment for a
+//     process the suite itself starts. Test code that starts a child with
+//     such an environment (FT10 does, to show this) is not held.
 //   - ps and lsof by another spelling (a bare `ps` on PATH, which
 //     src/record.js runs) are the real programs. Both only read.
 //   - A child from fork, and one from spawnSync or execFileSync (which has

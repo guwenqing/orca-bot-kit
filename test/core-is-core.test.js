@@ -31,20 +31,32 @@
 //      in a sandbox, so a command that needs a flag is refused for the flag
 //      and not as unknown.
 //
-// The settings the core reads are every name read off `process.env` in a
-// JavaScript file under src/: `process.env.NAME`, `process.env['NAME']`, and
-// `process.env[CONST]` where CONST is a string constant declared in src/
-// (`TAB_ENV = 'ORCA_TAB_ID'` in src/record.js, `SHELL_ENV` in src/launch.js,
-// `TERMINAL_ENV` in src/orca.js). Spreading the whole environment into a
-// child's (`{ ...process.env }`) reads no name, and `process.<other>` reads
-// no setting. The code is read with its comments and the inside of its
-// strings, templates and regular expressions blanked out. Any other use of
-// `process` (destructured, given another name, passed whole, indexed,
-// declared), of `globalThis`, `global`, `eval` or `Function`, a constant that
-// is declared twice or not at all, an import of `node:process`, an AppleScript
-// `system attribute`, or a file under src/ of a kind the check cannot read,
-// fails the check as one it cannot read: the check does not guess (the review
-// of PR #656).
+// The settings the core reads (the architect's ruling on R3's guard: list
+// the shapes that are allowed, and fail every other). In a JavaScript file
+// under src/, a setting is read in one of these shapes only, and each name
+// read must be on the PRD's list:
+//
+//   a. `process.env.NAME`, with NAME spelled out;
+//   b. `process.env[TAB_ENV]`, `process.env[SHELL_ENV]` and
+//      `process.env[TERMINAL_ENV]`: an exception, so that src/ does not
+//      change. The same constant gives the name the kit writes into a launch
+//      line, so one spelling serves both. Each is declared once in src/, as
+//      `const NAME = '<one literal string>'`, and that string is the name read;
+//      a template, a concatenation, a call, a second declaration or another
+//      binding of the name fails;
+//   c. `{ ...process.env, ... }` in askRuntime of src/orca.js only: an
+//      exception, because it hands the whole environment to Orca's client and
+//      reads no name.
+//
+// `process.<other>` (exitCode, argv, pid) does not touch the environment, and
+// is fine. Every other use of `process.env`, or of `process`, fails: a
+// destructuring, a copy, a computed or quoted name, a write, a pass to a
+// function, `process` given another name, `globalThis`, `global`, `eval`,
+// `Function` or `.constructor`, and the string 'process' or 'node:process'
+// (an import or a require). So do an AppleScript `system attribute` and a
+// file under src/ of a kind the check cannot read. The code is read with its
+// comments and the inside of its strings, templates and regular expressions
+// blanked out, so a word in a message does not count.
 //
 // What the check still cannot see:
 //   - a new flag on a command the list names (the list is of commands, not
@@ -59,8 +71,23 @@
 //     starts read from the environment it hands them (git, Orca, the
 //     harnesses);
 //   - a setting read only by a shell the kit's text runs, such as
-//     `"${OBK_CLI:-obk}"` in rules/ and skills/, or `$OBK_ORCA` in a skill.
+//     `"${OBK_CLI:-obk}"` in rules/ and skills/, or `$OBK_ORCA` in a skill;
+//   - what code from outside the core reads when a child process runs it
+//     (Orca's runtime client, which askRuntime starts), and a read inside a
+//     dependency (yaml);
+//   - a binding of TAB_ENV, SHELL_ENV or TERMINAL_ENV in a shape the check
+//     does not know (say, a `for (const TAB_ENV of ...)`).
 // Those stay for review to catch.
+//
+// Also here (CC5, the review of PR #656): only askRuntime in src/orca.js
+// gives a child an environment of its own, and the script that child runs,
+// src/orca-runtime.cjs, starts no process and sends no signal. Any other env
+// key, `.env =`, mention of NODE_OPTIONS, or such a call in the script, is a
+// place the check reports. A child without the kit's NODE_OPTIONS runs
+// without the suite's preload (helpers/fake-tools.js), so a sandboxed run
+// could reach a real ps, osascript or kill. What it cannot see: an env key
+// that is computed (`[KEY]:`), and an options object that comes in whole
+// from elsewhere (`{ ...given }`).
 //
 // Also here, from R1: the core reads none of the settings that existed only
 // for the kit's own tests (OBK_PS, OBK_LSOF, OBK_STTY, OBK_OSASCRIPT,
@@ -138,16 +165,21 @@ async function filesUnder(dir) {
 
 const lineAt = (text, index) => text.slice(0, index).split('\n').length;
 
-/** `name = 'value'` string constants, in every given source, as name → set of values. */
-function constantsIn(sources) {
-  const found = new Map();
-  for (const { text } of sources) {
-    for (const match of text.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(['"])([^'"\\\n]*)\2/g)) {
-      if (!found.has(match[1])) found.set(match[1], new Set());
-      found.get(match[1]).add(match[3]);
-    }
-  }
-  return found;
+/**
+ * The one place in src/ that gives a child an environment of its own: Orca's
+ * runtime client, run by askRuntime in src/orca.js without the kit's
+ * NODE_OPTIONS, as Orca's own `bin/orca` runs it (F2 and W1 check that). The
+ * child it starts runs RUNTIME, which must start nothing of its own.
+ */
+const KNOWN_ENV = { file: 'src/orca.js', fn: 'askRuntime' };
+const RUNTIME = 'src/orca-runtime.cjs';
+
+/** Where the function `name` of `text` starts and ends, or undefined. */
+function functionSpan(text, name) {
+  const start = text.search(new RegExp(`^(?:export\\s+)?(?:async\\s+)?function\\s+${name}\\s*\\(`, 'm'));
+  if (start < 0) return undefined;
+  const end = text.indexOf('\n}\n', start);
+  return end < 0 ? undefined : [start, end + 2];
 }
 
 /** Words after which a `/` starts a regular expression, not a division. */
@@ -245,57 +277,134 @@ function codeOnly(text) {
 }
 
 /**
- * What the JavaScript `sources` read from the environment: `names`, and
- * `unread`, each place the check cannot read, as `file:line: why`.
- *
- * Every use of `process` in the code (not in a comment or a string) is read:
- * `process.<name>` other than env reads no setting; `process.env` as above;
- * anything else (`process` destructured, given another name, passed whole,
- * indexed, declared, as a key) is a place the check cannot read. So are
- * `globalThis`, `global`, `eval` and `Function`, which reach `process`
- * without its name, and an import or require of `node:process`.
+ * The constants through which a setting may be read, as `process.env[NAME]`
+ * (shape b of the header). An exception kept so that src/ does not change:
+ * the same constant gives the name the kit writes into a launch line or a
+ * message (`${TAB_ENV}=…`, `${SHELL_ENV}=$$`), so one spelling serves both.
  */
-function settingsReadBy(sources) {
-  const constants = constantsIn(sources);
-  const names = new Set();
-  const unread = [];
-  for (const { file, text } of sources) {
-    const code = codeOnly(text);
-    const at = (index, why) => unread.push(`${file}:${lineAt(text, index)}: ${why}`);
-    const shown = (index) => text.slice(index).split('\n')[0].trim();
-    for (const match of code.matchAll(/(?<![\w$])process(?![\w$])/g)) {
+const ENV_CONSTANTS = ['TAB_ENV', 'SHELL_ENV', 'TERMINAL_ENV'];
+const ENV_CONSTANT = new RegExp(`(?<![\\w$.])(${ENV_CONSTANTS.join('|')})(?![\\w$])`, 'g');
+
+/** A write to what comes before: an assignment, an update, or a delete. */
+const WRITE_AFTER = /^\s*(?:=(?!=)|\+\+|--|(?:[-+*/%&|^]|\*\*|<<|>>>?|\?\?|&&|\|\|)=)/;
+
+/**
+ * The value of each of ENV_CONSTANTS in the `sources`, when it is declared
+ * once, as `const NAME = '<literal>'`; and a place in `unread` for every
+ * other declaration or binding of one.
+ */
+function envConstantsIn(sources, unread) {
+  const found = new Map(ENV_CONSTANTS.map((name) => [name, []]));
+  for (const { file, text, code } of sources) {
+    const at = (index, why) => unread.push(`${file}:${lineAt(text, index)}: ${why}: ${text.slice(index).split('\n')[0].trim()}`);
+    const lists = [...code.matchAll(/(?<![\w$.])(?:import|export)\s*\{[^}]*\}/g)].map((match) => [match.index, match.index + match[0].length]);
+    const inList = (index) => lists.some(([from, to]) => index >= from && index < to);
+    for (const match of code.matchAll(ENV_CONSTANT)) {
+      const name = match[1];
       const before = code.slice(0, match.index);
-      // Some object's own `process` (`answer.result?.process`), not Node's.
-      if (/(?:\?\.|\.)\s*$/.test(before)) continue;
-      const afterAt = match.index + match[0].length;
-      const member = /^\s*(?:\?\.|\.)\s*([A-Za-z_$][\w$]*)/.exec(code.slice(afterAt));
-      if (member === null) {
-        at(match.index, `process used in a way this check cannot read: ${shown(match.index)}`);
+      const after = code.slice(match.index + name.length);
+      const declared = /(?<![\w$.])(const|let|var)\s+$/.exec(before);
+      if (declared) {
+        const literal = /^\s*=\s*(['"])([^'"\\\n]*)\1\s*(?:;|\n|$)/.exec(text.slice(match.index + name.length));
+        if (declared[1] !== 'const' || literal === null) at(match.index, `${name} is not declared as one const with one literal string`);
+        found.get(name).push(literal === null || declared[1] !== 'const' ? undefined : literal[2]);
         continue;
       }
+      if (inList(match.index)) {
+        if (/(?<![\w$])as\s+$/.test(before)) at(match.index, `another name imported or exported as ${name}`);
+        continue;
+      }
+      if (/(?<![\w$.])(?:import|as)\s+$/.test(before)) {
+        at(match.index, `another name bound to ${name}`);
+        continue;
+      }
+      const prev = before.trimEnd().at(-1);
+      const next = after.trimStart();
+      const asIndex = /process\.env\[$/.test(before);
+      const inHole = /\$\{\s*$/.test(before);
+      if (!asIndex && !inHole && ['(', ',', '{', '['].includes(prev) && /^(?:[),}\]:]|=(?!=)|=>)/.test(next)) at(match.index, `${name} bound or given in a shape this check does not allow`);
+    }
+  }
+  const values = new Map();
+  for (const [name, declared] of found) {
+    if (declared.length !== 1) unread.push(`src/: ${name} is declared ${declared.length} times, and must be declared once`);
+    else if (declared[0] !== undefined) values.set(name, declared[0]);
+  }
+  return values;
+}
+
+/**
+ * What the JavaScript `sources` read from the environment: `names`, and
+ * `unread`, each place in a shape the check does not allow, as
+ * `file:line: why`. `listed` is the PRD's list: a name read that it does not
+ * hold is a place too.
+ */
+function settingsReadBy(sources, listed) {
+  const read = sources.map(({ file, text }) => ({ file, text, code: codeOnly(text) }));
+  const names = new Set();
+  const unread = [];
+  const constants = envConstantsIn(read, unread);
+  for (const { file, text, code } of read) {
+    const shown = (index) => text.slice(index).split('\n')[0].trim();
+    const at = (index, why) => unread.push(`${file}:${lineAt(text, index)}: ${why}: ${shown(index)}`);
+    const spreadSpan = file === KNOWN_ENV.file ? functionSpan(text, KNOWN_ENV.fn) : undefined;
+    const name = (index, setting, tail, before) => {
+      if (WRITE_AFTER.test(tail) || /(?<![\w$.])delete\s*$/.test(before)) return at(index, 'a write to process.env, which is no read');
+      names.add(setting);
+      if (!listed.has(setting)) at(index, `${setting}, which the PRD's list does not name`);
+    };
+    for (const match of code.matchAll(/(?<![\w$])process(?![\w$])/g)) {
+      const before = code.slice(0, match.index);
+      // Some object's own `process` (`answer.result?.process`), not Node's;
+      // a spread (`...process`) is Node's.
+      if (/(?:\?\.|(?<!\.\.)\.)\s*$/.test(before)) continue;
+      const afterAt = match.index + match[0].length;
+      const after = code.slice(afterAt);
+      const member = /^\s*(?:\?\.|\.)\s*([A-Za-z_$][\w$]*)/.exec(after);
+      if (member === null) {
+        at(match.index, 'process used in a shape this check does not allow');
+        continue;
+      }
+      // process.exitCode, process.argv and the like touch no setting.
       if (member[1] !== 'env') continue;
-      const envAt = afterAt + member[0].length;
-      const after = text.slice(envAt);
-      const afterCode = code.slice(envAt);
-      const dotted = /^\s*(?:\?\.|\.)\s*([A-Za-z_$][\w$]*)/.exec(afterCode);
-      const quoted = /^\s*(?:\?\.)?\s*\[\s*(['"])([^'"\\]+)\1\s*\]/.exec(after);
-      const byName = /^\s*(?:\?\.)?\s*\[\s*([A-Za-z_$][\w$]*)\s*\]/.exec(afterCode);
-      if (dotted) names.add(dotted[1]);
-      else if (quoted) names.add(quoted[2]);
-      else if (byName) {
-        const values = constants.get(byName[1]);
-        if (values?.size === 1) names.add([...values][0]);
-        else at(match.index, `process.env[${byName[1]}], and ${byName[1]} is ${values === undefined ? 'no string constant declared in src/' : `declared with ${values.size} values`}`);
-      } else if (/\.\.\.\s*$/.test(before)) {
-        // The whole environment spread into a child's: no name is read.
+      if (!/^\.env(?![\w$])/.test(after)) {
+        at(match.index, 'process.env reached in a shape this check does not allow');
+        continue;
+      }
+      const rest = code.slice(afterAt + 4);
+      const dotted = /^\.([A-Za-z_$][\w$]*)/.exec(rest);
+      const byConstant = /^\[([A-Za-z_$][\w$]*)\]/.exec(rest);
+      if (dotted) {
+        // Shape a.
+        name(match.index, dotted[1], rest.slice(dotted[0].length), before);
+      } else if (byConstant && ENV_CONSTANTS.includes(byConstant[1])) {
+        // Shape b: the constant's one literal value is the name read.
+        const value = constants.get(byConstant[1]);
+        if (value === undefined) at(match.index, `process.env[${byConstant[1]}], and ${byConstant[1]} has no one literal value`);
+        else name(match.index, value, rest.slice(byConstant[0].length), before);
+      } else if (spreadSpan !== undefined && match.index >= spreadSpan[0] && match.index < spreadSpan[1] && /\.\.\.\s*$/.test(before) && /^\s*[,}]/.test(rest)) {
+        // Shape c: askRuntime hands the whole environment to Orca's client.
       } else {
-        at(match.index, `process.env used in a way this check cannot read: ${shown(match.index)}`);
+        at(match.index, 'process.env used in a shape this check does not allow');
       }
     }
-    for (const match of code.matchAll(/(?<![\w$.])(globalThis|global|eval|Function)(?![\w$])/g)) {
-      at(match.index, `${match[1]}, which can reach process without its name: ${shown(match.index)}`);
+    for (const match of code.matchAll(/(?<![\w$.])(globalThis|global|eval|Function)(?![\w$])|(?:\?\.|\.)\s*(constructor)(?![\w$])/g)) {
+      at(match.index, `${match[1] ?? match[2]}, which can reach process without its name`);
     }
-    for (const match of text.matchAll(/(?:\bfrom\s*|\brequire\s*\(\s*|\bimport\s*\(\s*)(['"])(?:node:)?process\1/g)) at(match.index, 'an import of node:process, which this check cannot read');
+    // An import or a require of process: 'node:process' anywhere in the code,
+    // and 'process' where a module name goes. In the code, not in a comment:
+    // the quote itself is code. ('process' is also a kind of finding in
+    // src/health.js, which is no import.)
+    for (const match of text.matchAll(/(['"`])(node:)?process\1/g)) {
+      if (code[match.index] !== match[1]) continue;
+      const before = code.slice(0, match.index);
+      if (match[2] !== undefined || /(?:(?<![\w$.])from|(?<![\w$.])(?:require|import)\s*\(|\)\s*\()\s*$/.test(before)) at(match.index, 'an import or a require of process');
+    }
+    // A require by another road: createRequire, module.require, or require
+    // given another name.
+    for (const match of code.matchAll(/(?<![\w$])createRequire(?![\w$])|(?:\?\.|\.)\s*require(?![\w$])|(?<![\w$.])require(?![\w$])(?!\s*\()/g)) {
+      at(match.index, 'a require that this check cannot follow');
+    }
   }
   return { names, unread };
 }
@@ -316,9 +425,61 @@ async function coreSettings() {
       unread.push(`${file}: a kind of file this check cannot read for what it takes from the environment`);
     }
   }
-  const read = settingsReadBy(scripts);
+  const read = settingsReadBy(scripts, new Set((await prdLists()).settings));
   for (const name of read.names) names.add(name);
   return { names, unread: [...unread, ...read.unread], scripts };
+}
+
+// ----------------------------------------------------------------- what the core hands a child
+
+/**
+ * Each place in the JavaScript `sources` that gives a child an environment of
+ * its own, or could, outside askRuntime: `unread`, as `file:line: why`; and
+ * `known`, what askRuntime holds of it.
+ *
+ * Read as places: an `env` key of an object (`env:`, `'env':`, a shorthand
+ * `{ env }`), a `.env =` that is not process's own, and any mention of
+ * NODE_OPTIONS, comments and strings included. In RUNTIME also: a mention of
+ * child_process, a call name of it (spawn, exec, execFile, fork and their
+ * Sync forms), process.kill, an import(), and a require of anything but the
+ * client it is given.
+ */
+function childEnvsIn(sources) {
+  const unread = [];
+  const known = { env: 0, nodeOptions: 0 };
+  for (const { file, text } of sources) {
+    const code = codeOnly(text);
+    const span = file === KNOWN_ENV.file ? functionSpan(text, KNOWN_ENV.fn) : undefined;
+    const inKnown = (index) => span !== undefined && index >= span[0] && index < span[1];
+    const shown = (index) => text.slice(index).split('\n')[0].trim();
+    const place = (index, why, kind) => {
+      if (kind !== undefined && inKnown(index)) known[kind] += 1;
+      else unread.push(`${file}:${lineAt(text, index)}: ${why}: ${shown(index)}`);
+    };
+    for (const match of code.matchAll(/(?<![\w$.])env(?![\w$])/g)) {
+      const before = code.slice(0, match.index).trimEnd().at(-1);
+      const after = code.slice(match.index + 3).trimStart()[0];
+      if (after === ':') place(match.index, 'an env key, which gives a child an environment of its own', 'env');
+      else if ((before === '{' || before === ',') && (after === ',' || after === '}')) place(match.index, 'an env shorthand key, which gives a child an environment of its own', 'env');
+    }
+    for (const match of text.matchAll(/(['"`])env\1\s*:/g)) {
+      if (code[match.index] === match[1]) place(match.index, 'a quoted env key, which gives a child an environment of its own', 'env');
+    }
+    for (const match of code.matchAll(/(?:\?\.|\.)\s*env\s*=(?!=)/g)) {
+      if (!/(?<![\w$.])process\s*$/.test(code.slice(0, match.index))) place(match.index, 'an env set on an object, which can give a child an environment of its own', 'env');
+    }
+    for (const match of text.matchAll(/NODE_OPTIONS/g)) place(match.index, 'NODE_OPTIONS, which decides what a child of the kit loads', 'nodeOptions');
+    if (file === RUNTIME) {
+      for (const match of text.matchAll(/child_process/g)) place(match.index, `child_process in ${RUNTIME}, whose process runs without the kit's NODE_OPTIONS`);
+      for (const match of code.matchAll(/(?<![\w$])(spawn|spawnSync|exec|execSync|execFile|execFileSync|fork)(?![\w$])/g)) place(match.index, `${match[1]} in ${RUNTIME}, whose process runs without the kit's NODE_OPTIONS`);
+      for (const match of code.matchAll(/(?<![\w$.])process\s*(?:\?\.|\.)\s*kill(?![\w$])/g)) place(match.index, `process.kill in ${RUNTIME}, whose process runs without the kit's NODE_OPTIONS`);
+      for (const match of code.matchAll(/(?<![\w$.])import\s*\(/g)) place(match.index, `an import() in ${RUNTIME}, which can load what starts a process`);
+      for (const match of code.matchAll(/(?<![\w$.])require\s*\(\s*([^)]*)\)/g)) {
+        if (match[1].trim() !== 'client') place(match.index, `a require in ${RUNTIME} of something other than the client it is given`);
+      }
+    }
+  }
+  return { unread, known };
 }
 
 // ----------------------------------------------------------------- the commands the core has
@@ -373,59 +534,129 @@ async function probedCommands(box, candidates) {
 
 // ----------------------------------------------------------------- the reader, against worked examples
 
-test('CC0 the settings reader, against worked examples: each form it reads, and each it refuses to guess', () => {
-  const read = settingsReadBy([
-    { file: 'a.js', text: "export const TAB = 'ORCA_TAB_ID';\nconst x = process.env.OBK_ORCA || process.env?.CODEX_HOME;\nconst y = process.env['QUOTED'];\nconst env = { ...process.env, X: '1' };\n" },
-    { file: 'b.js', text: "import { TAB } from './a.js';\nconst z = process.env[TAB];\nconst w = process.env[ SPACED ];\nconst SPACED = \"SPACED_NAME\";\n" },
-  ]);
-  assert.deepEqual(sorted(read.names), ['CODEX_HOME', 'OBK_ORCA', 'ORCA_TAB_ID', 'QUOTED', 'SPACED_NAME']);
-  assert.deepEqual(read.unread, []);
+/** askRuntime as src/orca.js has it, in short: the one env of its own a child gets, and the one spread of process.env. */
+const ASK_RUNTIME_EXAMPLE = [
+  'function askRuntime(method, params, killMs = CLIENT_KILL_MS) {',
+  '  try {',
+  "    const env = { ...process.env, ELECTRON_RUN_AS_NODE: '1' };",
+  '    delete env.NODE_OPTIONS;',
+  '    delete env.NODE_REPL_EXTERNAL_MODULE;',
+  "    const asked = spawnSync(orca, [RUNTIME_SCRIPT, client], { env, encoding: 'utf8', timeout: killMs });",
+  '    return asked.stdout;',
+  '  } catch {',
+  '    return undefined;',
+  '  }',
+  '}',
+  '',
+].join('\n');
 
-  // What is not a use of Node's process: the word in a comment, a string, a
-  // template's text or a regular expression, and some object's own `process`;
-  // and other members of process, which read no setting.
-  const plain = settingsReadBy([{ file: 'd.js', text: [
-    '// the process in front of the tab; const p = process;',
+/** The settings of the PRD's list, as the examples use them. */
+const EXAMPLE_LIST = new Set(['CODEX_HOME', 'OBK_ORCA', 'OBK_ORCA_DATA', 'OBK_TAB_SHELL', 'ORCA_TAB_ID', 'ORCA_TERMINAL_HANDLE']);
+
+/** The three constants, declared as src/ declares them, and read as src/ reads them. */
+const EXAMPLE_CORE = () => [
+  { file: 'src/record.js', text: "import { harnessOf, SHELL_ENV } from './launch.js';\nexport const TAB_ENV = 'ORCA_TAB_ID';\nexport { SHELL_ENV };\n" },
+  { file: 'src/launch.js', text: "export const SHELL_ENV = \"OBK_TAB_SHELL\";\nconst line = `${SHELL_ENV}=$$`;\nconst size = mark.slice(SHELL_ENV.length + 1);\n" },
+  { file: 'src/orca.js', text: `import { TAB_ENV } from './record.js';\nexport const orcaCli = () => process.env.OBK_ORCA || BUILT_IN;\nconst data = process.env.OBK_ORCA_DATA || here;\n${ASK_RUNTIME_EXAMPLE}export const TERMINAL_ENV = 'ORCA_TERMINAL_HANDLE';\n` },
+  { file: 'src/cli.js', text: "import { TERMINAL_ENV } from './orca.js';\nimport { SHELL_ENV, TAB_ENV } from './record.js';\nconst tab = process.env[TAB_ENV];\nrecord(tab, process.env[SHELL_ENV]);\nif (process.env[TERMINAL_ENV] === undefined) say(`${TERMINAL_ENV} is not set`);\nconst file = path.join(process.env.CODEX_HOME || path.join(home, '.codex'), 'config.toml');\n" },
+];
+
+/** EXAMPLE_CORE with `text` added as src/x.js, or with the file of `replace` given that text instead. */
+const exampleWith = (text, replace) => {
+  const core = EXAMPLE_CORE();
+  if (replace === undefined) return [...core, { file: 'src/x.js', text }];
+  return core.map((one) => (one.file === replace ? { file: replace, text } : one));
+};
+
+test('CC0 the settings reader, against worked examples: each shape it allows, and each other shape fails', () => {
+  const good = settingsReadBy(EXAMPLE_CORE(), EXAMPLE_LIST);
+  assert.deepEqual(good.unread, [], 'the shapes of today\'s src/ are allowed');
+  assert.deepEqual(sorted(good.names), sorted(EXAMPLE_LIST));
+
+  // What does not touch the environment: the word in a comment, a string, a
+  // template's text or a regular expression, some object's own `process`,
+  // and other members of process.
+  const plain = settingsReadBy([...EXAMPLE_CORE(), { file: 'src/d.js', text: [
+    '// the process in front of the tab; const p = process; process.env[name]',
     '/* const { env } = process; */',
-    "const said = 'a process the kit did not start: process';",
+    "const said = 'a process the kit did not start: process.env.NOPE';",
     'const shown = `the process ${who} started, process.env and all`;',
     'const pattern = /process|globalThis/g;',
     'const seen = answer.result?.process;',
     'process.exitCode = process.argv.length > 2 ? 0 : 1;',
-    "const tpl = `${process.env.TPL_NAME} and ${`nested ${process.env['NESTED']}`}`;",
+    'const tpl = `${process.env.OBK_ORCA} and ${`nested ${process.env.CODEX_HOME}`}`;',
     'const half = total / process.pid / 2;',
-  ].join('\n') }]);
-  assert.deepEqual(plain.unread, [], 'none of these is a place the check cannot read');
-  assert.deepEqual(sorted(plain.names), ['NESTED', 'TPL_NAME']);
+  ].join('\n') }], EXAMPLE_LIST);
+  assert.deepEqual(plain.unread, [], 'none of these is a shape that fails');
 
+  // Point 2 of the ruling, and the reviews of PR #656: every other road to
+  // process's environment.
   for (const [text, why] of [
-    ['const { OBK_X } = process.env;', 'destructured'],
-    ['const env = process.env; env.OBK_X;', 'aliased'],
-    ['Object.keys(process.env);', 'passed whole to a function'],
-    ['process.env[name];', 'a name that is no constant'],
-    ['process.env[`OBK_${x}`];', 'a name built at run time'],
-    ["const A = 'ONE'; const A2 = 1; process.env[B]; const B = 'X'; const B = 'Y';", 'a constant declared twice'],
-    ["process['env'].OBK_X;", 'process[...]'],
-    ["import { env } from 'node:process';", 'an import of node:process'],
-    ["const p = require('process');", 'a require of process'],
-    // The review of PR #656: every use of process the reader cannot read.
-    ["const { env: reviewEnv } = process; if (reviewEnv.OBK_REVIEW_GATE === 'yes') return 0;", 'process destructured'],
+    ["const { env: reviewEnv } = process; if (reviewEnv.OBK_REVIEW_GATE === 'yes') return 0;", 'the reviewer\'s line: process destructured'],
     ['const { env } = process;', 'process destructured, plain'],
-    ['const p = process; p.env.OBK_X;', 'process given another name'],
-    ['let p; p = process;', 'process given to a name later'],
+    ['const { OBK_ORCA } = process.env;', 'process.env destructured'],
+    ['const e = process.env; e.OBK_ORCA;', 'process.env copied to a name'],
+    ['const all = { ...process.env };', 'process.env spread outside askRuntime'],
+    ['Object.assign({}, process.env);', 'process.env copied by a call'],
+    ['read(process.env);', 'process.env passed to a function'],
+    ['process.env[name];', 'a computed name'],
+    ["process.env['OBK_ORCA'];", 'a quoted name'],
+    ['process.env[`OBK_ORCA`];', 'a name in a template'],
+    ["const OTHER_ENV = 'OBK_ORCA'; process.env[OTHER_ENV];", 'a constant that is not one of the three'],
+    ['process.env?.OBK_ORCA;', 'optional chaining on process.env'],
+    ['process?.env.OBK_ORCA;', 'optional chaining on process'],
+    ["process['env'].OBK_ORCA;", 'process indexed'],
+    ['process . env.OBK_ORCA;', 'process.env with spaces'],
+    ["process.env.OBK_ORCA = 'x';", 'a write'],
+    ["process.env.OBK_ORCA ??= 'x';", 'a write by ??='],
+    ['delete process.env.OBK_ORCA;', 'a delete'],
+    ['process.env[TAB_ENV] = 1;', 'a write through a constant'],
+    ['process.env.NOT_LISTED;', 'a name the PRD\'s list does not name'],
     ['read(process);', 'process passed whole'],
-    ['globalThis.process.env.OBK_X;', 'globalThis.process'],
-    ["globalThis['process'].env.OBK_X;", "globalThis['process']"],
-    ['const g = globalThis;', 'globalThis given another name'],
-    ['global.process.env.OBK_X;', 'global.process'],
-    ["eval('process.env.OBK_X');", 'eval'],
-    ["new Function('return process')();", 'Function'],
+    ['const p = process; p.env.OBK_ORCA;', 'process given another name'],
+    ['let p; p = process;', 'process given to a name later'],
     ['const o = { process };', 'process as a shorthand key'],
-    ['function f(process) { return process.env.OBK_X; }', 'process declared as a parameter'],
+    ['function f(process) { return process.env.OBK_ORCA; }', 'process declared as a parameter'],
     ['process\n  ;', 'process at the end of a statement'],
     ['const s = `${process}`;', 'process in a template, whole'],
+    ['globalThis.process.env.OBK_ORCA;', 'globalThis.process'],
+    ["globalThis['process'].env.OBK_ORCA;", "globalThis['process']"],
+    ['const g = globalThis;', 'globalThis given another name'],
+    ['global.process.env.OBK_ORCA;', 'global.process'],
+    ["eval('process.env.OBK_ORCA');", 'eval'],
+    ["new Function('return process')();", 'Function'],
+    ["(() => {}).constructor('return proc' + 'ess')();", 'Function through .constructor'],
+    ["import { env } from 'node:process';", 'an import of node:process'],
+    ["import proc from 'process';", 'an import of process'],
+    ["const p = require('process');", 'a require of process'],
+    ["const p = createRequire(import.meta.url)('node:process');", 'a require made by createRequire'],
+    ["const p = await import('node:process');", 'an import() of node:process'],
   ]) {
-    assert.ok(settingsReadBy([{ file: 'c.js', text }]).unread.length > 0, `${why} should be a place the check cannot read: ${text}`);
+    assert.ok(settingsReadBy(exampleWith(text), EXAMPLE_LIST).unread.length > 0, `${why} should fail: ${text}`);
+  }
+
+  // The spread is allowed in askRuntime of src/orca.js only.
+  assert.ok(settingsReadBy(exampleWith(`${ASK_RUNTIME_EXAMPLE}`), EXAMPLE_LIST).unread.length > 0, 'the askRuntime form in another file should fail');
+  assert.ok(settingsReadBy(exampleWith(`${ASK_RUNTIME_EXAMPLE.replace('askRuntime', 'askAgain')}export const TERMINAL_ENV = 'ORCA_TERMINAL_HANDLE';\n`, 'src/orca.js'), EXAMPLE_LIST).unread.length > 0, 'the askRuntime form in another function should fail');
+
+  // Point 3b: a new name never comes in by a change to a constant.
+  const record = (declaration) => `import { harnessOf, SHELL_ENV } from './launch.js';\n${declaration}\nexport { SHELL_ENV };\n`;
+  for (const [text, replace, why] of [
+    [record("export const TAB_ENV = 'SOME_NEW_NAME';"), 'src/record.js', 'a value the PRD\'s list does not name'],
+    [record('export const TAB_ENV = `ORCA_TAB_ID`;'), 'src/record.js', 'a value in a template'],
+    [record("export const TAB_ENV = 'ORCA_' + 'TAB_ID';"), 'src/record.js', 'a value by concatenation'],
+    [record("export const TAB_ENV = named('ORCA_TAB_ID');"), 'src/record.js', 'a value by a call'],
+    [record('export const TAB_ENV = OTHER;'), 'src/record.js', 'a value that is another name'],
+    [record("export let TAB_ENV = 'ORCA_TAB_ID';"), 'src/record.js', 'a let, which can change'],
+    [record(''), 'src/record.js', 'a constant declared nowhere'],
+    ["const TAB_ENV = 'ORCA_TAB_ID';", undefined, 'a constant declared twice'],
+    ["import { OTHER as TAB_ENV } from './x.js';", undefined, 'another name imported as the constant'],
+    ["import TAB_ENV from './x.js';", undefined, 'a default import bound to the constant'],
+    ['function f(TAB_ENV) { return process.env[TAB_ENV]; }', undefined, 'a parameter that hides the constant'],
+    ['const f = (a, TAB_ENV) => process.env[TAB_ENV];', undefined, 'an arrow parameter that hides the constant'],
+    ['const { TAB_ENV } = names; process.env[TAB_ENV];', undefined, 'a destructuring that hides the constant'],
+  ]) {
+    assert.ok(settingsReadBy(exampleWith(text, replace), EXAMPLE_LIST).unread.length > 0, `${why} should fail: ${text}`);
   }
 });
 
@@ -448,13 +679,45 @@ test('CC0 the help reader takes a command of two words only when COMMANDS has it
   assert.deepEqual(sorted(helpCommands(usage, new Set(['init', 'bot create', 'up']))), ['bot create', 'init', 'up']);
 });
 
+test('CC0 the child environment reader, against worked examples: the askRuntime form, and each other place it reports', () => {
+  const askRuntime = ASK_RUNTIME_EXAMPLE;
+  const runtime = "'use strict';\nconst [client] = process.argv.slice(2);\nconst { RuntimeClient } = require(client);\nnew RuntimeClient().call('x').finally(() => process.exit());\n";
+  const plain = "function other() {\n  const env = process.env;\n  const home = process.env.HOME;\n  const said = 'the env: of a child';\n  // { env: x }\n  return spawnSync('git', ['status'], { cwd: home, encoding: 'utf8' });\n}\n";
+  const good = childEnvsIn([
+    { file: 'src/orca.js', text: `${askRuntime}${plain}` },
+    { file: RUNTIME, text: runtime },
+  ]);
+  assert.deepEqual(good.unread, [], 'the askRuntime form, a plain spawn and the runtime script as it is are no places to report');
+  assert.deepEqual(good.known, { env: 1, nodeOptions: 1 });
+
+  for (const [file, text, why] of [
+    ['src/orca.js', `${askRuntime}function more() {\n  return spawnSync('git', [], { env: { ...process.env, X: '1' } });\n}\n`, 'a second env: in another function'],
+    ['src/orca.js', `${askRuntime}function more(env) {\n  return spawn('git', [], { cwd, env });\n}\n`, 'a shorthand env in another function'],
+    ['src/up.js', "spawn('node', [file], { env: { ...process.env, NODE_OPTIONS: '' } });", "NODE_OPTIONS: '' with an env key"],
+    ['src/up.js', "const options = { NODE_OPTIONS: '' };", "NODE_OPTIONS: '' alone"],
+    ['src/up.js', "delete process.env.NODE_OPTIONS;", 'NODE_OPTIONS taken out of the kit\'s own environment, which every child inherits'],
+    ['src/up.js', "const e = process.env['NODE_OPTIONS'];", 'NODE_OPTIONS in a string'],
+    ['src/up.js', "spawnSync('git', [], { 'env': e });", 'a quoted env key'],
+    ['src/up.js', 'const o = {}; o.env = e; spawnSync(\'git\', [], o);', 'an env set on an options object'],
+    ['src/up.js', askRuntime, 'the askRuntime form in another file'],
+    ['src/orca.js', askRuntime.replace('askRuntime', 'askAgain'), 'the askRuntime form in another function'],
+    [RUNTIME, `${runtime}require('node:child_process').spawnSync('/bin/kill', ['-9', '1']);\n`, 'a spawn in orca-runtime.cjs'],
+    [RUNTIME, `${runtime}const { execFile } = require(client);\n`, 'a child_process call name in orca-runtime.cjs'],
+    [RUNTIME, `${runtime}process.kill(1, 'SIGTERM');\n`, 'process.kill in orca-runtime.cjs'],
+    [RUNTIME, `${runtime}const cp = require('child' + '_proc' + 'ess');\n`, 'a require of something built at run time in orca-runtime.cjs'],
+    [RUNTIME, `${runtime}import('node:' + name);\n`, 'an import() in orca-runtime.cjs'],
+  ]) {
+    assert.ok(childEnvsIn([{ file, text }]).unread.length > 0, `${why} should be a place the check reports: ${text}`);
+  }
+});
+
 // ----------------------------------------------------------------- R3: the lists and the core agree
 
-test('CC1 the PRD\'s [PRD-8] names the settings the core reads, and no others; and the check can read every place the core reads one', async () => {
+test('CC1 the PRD\'s [PRD-8] names the settings the core reads, and no others; and src/ reaches the environment only in the shapes the check allows', async () => {
   const { settings } = await prdLists();
   const core = await coreSettings();
 
-  assert.deepEqual(core.unread, [], 'places in src/ this check cannot read for a setting: write them in a form it reads, or teach it');
+  assert.deepEqual(core.unread, [], 'places in src/ that reach the environment in a shape the check does not allow: read a setting as process.env.NAME, with NAME on the PRD\'s list');
   const listed = new Set(settings);
   assert.deepEqual(minus(core.names, listed), [], 'settings the core reads that the PRD\'s list does not name: name them in [PRD-8], with the owner\'s sign-off, or stop reading them');
   assert.deepEqual(minus(listed, core.names), [], 'settings the PRD\'s list names that the core does not read: take them out of the list');
@@ -482,6 +745,15 @@ test('CC2 the PRD\'s [PRD-8] names the commands the CLI has, and no others: COMM
   const listed = new Set(listedNames);
   assert.deepEqual(minus(core, listed), [], 'commands the CLI has that the PRD\'s list does not name: name them in [PRD-8], with the owner\'s sign-off, or take them out');
   assert.deepEqual(minus(listed, core), [], 'commands the PRD\'s list names that the CLI does not have: take them out of the list');
+});
+
+test('CC5 only askRuntime in src/orca.js gives a child an environment of its own, and the script its child runs starts nothing', async () => {
+  const { scripts } = await coreSettings();
+  assert.ok(scripts.some(({ file }) => file === RUNTIME), `the premise: ${RUNTIME} is read`);
+  const read = childEnvsIn(scripts);
+
+  assert.deepEqual(read.unread, [], 'places in src/ that give a child an environment of its own, or could, outside askRuntime: a child without the kit\'s NODE_OPTIONS runs without the test preload (helpers/fake-tools.js), so a sandbox could reach a real program');
+  assert.deepEqual(read.known, { env: 1, nodeOptions: 1 }, 'the premise: askRuntime in src/orca.js still holds its one env and its one NODE_OPTIONS');
 });
 
 // ----------------------------------------------------------------- R1: what left the core, and what stays
