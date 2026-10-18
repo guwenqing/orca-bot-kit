@@ -22,8 +22,14 @@
 //      are refused as programs. As words of a shell line (exec, execSync,
 //      `shell: true`, or a shell such as sh, bash or zsh with -c) they are
 //      refused too, because a shell's own `kill` sends real signals.
-//   4. process.kill() of any process but this one is refused. Signal 0, which
-//      only asks whether a process is there, is let through.
+//   4. process.kill() of any process but this one, and of any group, is
+//      refused, except for a child that this process started with spawn,
+//      execFile or exec, and that child's group: kill only processes you
+//      started, by their own pid (AGENTS.md). A child's own pid is let
+//      through until its exit is seen, and its group after that as well, so
+//      that a runner can stop what its child left in the group (as
+//      scripts/test-system.js does). Signal 0, which only asks whether a
+//      process is there, is let through.
 //   5. A child inherits this file through NODE_OPTIONS, and so does each of its
 //      children, while the environment it is given keeps NODE_OPTIONS.
 //
@@ -36,6 +42,12 @@
 //     a process the suite itself starts.
 //   - ps and lsof by another spelling (a bare `ps` on PATH, which
 //     src/record.js runs) are the real programs. Both only read.
+//   - A child from fork, and one from spawnSync or execFileSync (which has
+//     ended when the call returns), is not recorded, so it may not be
+//     signalled. A grandchild may not be either, unless its own parent sends
+//     the signal.
+//   - A group id is a child's pid. Once the group is empty, that id may come
+//     back to an unrelated process; a signal to the group then reaches it.
 //   - A shell script from a file, and code given to another interpreter
 //     (`node -e`, `python3 -c`) that builds a path at run time, are not read.
 //
@@ -117,25 +129,50 @@ function check(name, file, rest) {
   }
 }
 
+/** The pids of the children this process started that have not ended yet. */
+const running = new Set();
+/** The pids of all the children this process started: each is the id of the child's group, if it leads one. */
+const started = new Set();
+
+/** Record the child of an async call, so that this process may signal it and its group. */
+function record(child) {
+  if (!Number.isInteger(child?.pid)) return child;
+  running.add(child.pid);
+  started.add(child.pid);
+  child.once('exit', () => running.delete(child.pid));
+  return child;
+}
+
 for (const name of ['spawn', 'spawnSync', 'execFile', 'execFileSync']) {
   const real = childProcess[name];
+  const async = !name.endsWith('Sync');
   childProcess[name] = function fakeTools(file, ...rest) {
     check(name, file, rest);
-    return real.call(this, programFor(file), ...rest);
+    const result = real.call(this, programFor(file), ...rest);
+    return async ? record(result) : result;
   };
 }
 
 for (const name of ['exec', 'execSync']) {
   const real = childProcess[name];
+  const async = !name.endsWith('Sync');
   childProcess[name] = function fakeTools(line, ...rest) {
     if (shellLineActs(line)) refuse(`${name} runs ${JSON.stringify(line)}`);
-    return real.call(this, line, ...rest);
+    const result = real.call(this, line, ...rest);
+    return async ? record(result) : result;
   };
+}
+
+/** Whether this process may send a signal to `pid`: itself, a running child of its own, or the group of a child of its own. */
+function mayKill(pid) {
+  const id = Number(pid);
+  if (id === process.pid) return true;
+  return id < 0 ? started.has(-id) : running.has(id);
 }
 
 const realKill = process.kill.bind(process);
 process.kill = function fakeTools(pid, signal) {
-  if (Number(pid) !== process.pid && signal !== 0) refuse(`process.kill(${pid}, ${JSON.stringify(signal ?? 'SIGTERM')}) would signal a process that is not this one`);
+  if (signal !== 0 && !mayKill(pid)) refuse(`process.kill(${pid}, ${JSON.stringify(signal ?? 'SIGTERM')}) would signal a process or a group that this process did not start`);
   return realKill(pid, signal);
 };
 

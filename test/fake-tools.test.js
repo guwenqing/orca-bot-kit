@@ -22,7 +22,10 @@
 //     PR #656);
 //   - kill, osascript and stty by another spelling, as programs or as words of
 //     a shell line, are refused (FT8);
-//   - process.kill() of another process is refused (FT9);
+//   - process.kill() of a process or a group that this process did not start
+//     is refused (FT9), and of its own child and that child's group it goes
+//     through, which a runner needs to stop what it started (FT11, after
+//     scripts/test-system.js of #653 met FT9's refusal);
 //   - the preload reaches a grandchild whose environment keeps NODE_OPTIONS,
 //     and not one whose environment drops it, as helpers/fake-tools.js says
 //     (FT10).
@@ -233,25 +236,34 @@ test('FT8 kill, osascript and stty by any other spelling are refused, as program
   assert.deepEqual(plain, ['ran', 'ran']);
 });
 
-test('FT9 process.kill() of another process is refused; of this one, or with signal 0, it goes through', async (t) => {
+test('FT9 process.kill() of a process or a group this process did not start is refused; with signal 0, or of this one, it goes through', async (t) => {
   const box = await createSandbox(t);
 
   const said = await inChild(box, box.env, [
     "import { spawn } from 'node:child_process';",
-    // A process of this child's own, the leader of a group of its own, so a
-    // refusal that failed would stop only it.
-    "const sleeper = spawn('/bin/sleep', ['30'], { stdio: 'ignore', detached: true });",
+    // A sleeper that this child did not start: its own child (a node with the
+    // preload) starts it, as the leader of a group of its own, and prints its
+    // pid. A refusal that failed would stop only the sleeper.
+    'const keeper = spawn(process.execPath, ["-e", [',
+    '  "const { spawn } = require(\'node:child_process\');",',
+    '  "const sleeper = spawn(\'/bin/sleep\', [\'30\'], { stdio: \'ignore\', detached: true });",',
+    '  "process.stdout.write(String(sleeper.pid) + \'\\\\n\');",',
+    '  "process.stdin.on(\'data\', () => { process.kill(sleeper.pid, \'SIGKILL\'); process.exit(0); });",',
+    '].join("\\n")], { stdio: ["pipe", "pipe", "inherit"] });',
+    'const pid = await new Promise((resolve) => keeper.stdout.once("data", (d) => resolve(Number(String(d).trim()))));',
     'const out = {};',
-    'try { process.kill(sleeper.pid, "SIGTERM"); out.other = "ran"; } catch (error) { out.other = error.message.includes("helpers/fake-tools.js") ? "refused" : error.message; }',
-    'try { process.kill(-sleeper.pid); out.group = "ran"; } catch (error) { out.group = error.message.includes("helpers/fake-tools.js") ? "refused" : error.message; }',
-    'out.probe = process.kill(sleeper.pid, 0);',
+    'try { process.kill(pid, "SIGTERM"); out.other = "ran"; } catch (error) { out.other = error.message.includes("helpers/fake-tools.js") ? "refused" : error.message; }',
+    'try { process.kill(-pid); out.group = "ran"; } catch (error) { out.group = error.message.includes("helpers/fake-tools.js") ? "refused" : error.message; }',
+    'out.probe = process.kill(pid, 0);',
     'out.own = process.kill(process.pid, 0);',
-    'out.alive = sleeper.exitCode === null && sleeper.signalCode === null;',
-    'sleeper.kill("SIGKILL");',
+    // Its parent, which started it, stops the sleeper.
+    'const ended = new Promise((resolve) => keeper.once("exit", (code) => resolve(code)));',
+    'keeper.stdin.write("stop\\n");',
+    'out.keeper = await ended;',
     'process.stdout.write(JSON.stringify(out));',
   ]);
 
-  assert.deepEqual(said, { other: 'refused', group: 'refused', probe: true, own: true, alive: true });
+  assert.deepEqual(said, { other: 'refused', group: 'refused', probe: true, own: true, keeper: 0 });
 });
 
 test('FT10 the preload reaches a grandchild whose environment keeps NODE_OPTIONS, and not one whose environment drops it', async (t) => {
@@ -272,4 +284,50 @@ test('FT10 the preload reaches a grandchild whose environment keeps NODE_OPTIONS
 
   assert.deepEqual(said, { inherited: 'true', kept: 'true', emptied: 'false', dropped: 'false' },
     'the preload goes as far as NODE_OPTIONS carries it: helpers/fake-tools.js names this limit, and the kit drops NODE_OPTIONS only for Orca\'s runtime client');
+});
+
+test('FT11 a process may signal a child it started and that child\'s group, through spawn, execFile and exec; after the child ends, its group only', async (t) => {
+  const box = await createSandbox(t);
+
+  const said = await inChild(box, box.env, [
+    "import { spawn, execFile, exec } from 'node:child_process';",
+    'const out = {};',
+    'const exited = (child) => new Promise((resolve) => (child.exitCode !== null || child.signalCode !== null ? resolve(child.signalCode) : child.once("exit", (code, signal) => resolve(signal))));',
+    'const tryKill = (pid, signal) => { try { process.kill(pid, signal); return "ran"; } catch (error) { return error.message.includes("helpers/fake-tools.js") ? "refused" : error.code ?? error.message; } };',
+    // A refused signal leaves the child running, so it is stopped through its
+    // own handle and the check goes on.
+    'const stopped = async (said, child) => [said, said === "ran" ? await exited(child) : (child.kill("SIGKILL"), "not stopped")];',
+    // A child by its own pid, from each of spawn, execFile and exec.
+    'const one = spawn("/bin/sleep", ["30"], { stdio: "ignore" });',
+    'out.spawn = await stopped(tryKill(one.pid, "SIGTERM"), one);',
+    'const two = execFile("/bin/sleep", ["30"], () => {});',
+    'out.execFile = await stopped(tryKill(two.pid, "SIGTERM"), two);',
+    'const three = exec("exec /bin/sleep 30", () => {});',
+    'out.exec = await stopped(tryKill(three.pid, "SIGTERM"), three);',
+    // A child that leads a group of its own, with a child of its own in it,
+    // as scripts/test-system.js starts node --test: the whole group stops.
+    'const leader = spawn("/bin/sh", ["-c", "/bin/sleep 30 & echo $!; wait"], { stdio: ["ignore", "pipe", "inherit"], detached: true });',
+    'const inner = await new Promise((resolve) => leader.stdout.once("data", (d) => resolve(Number(String(d).trim()))));',
+    'out.group = await stopped(tryKill(-leader.pid, "SIGKILL"), leader);',
+    'let gone = false;',
+    'for (let i = 0; i < 40 && !gone; i += 1) { try { process.kill(inner, 0); await new Promise((r) => setTimeout(r, 50)); } catch { gone = true; } }',
+    'out.innerGone = gone;',
+    // After the exit is seen: the group is still the child\'s (the runner
+    // stops what it left there), its own pid is not.
+    'out.afterGroupProbe = tryKill(-leader.pid, 0);',
+    'out.afterGroup = tryKill(-leader.pid, "SIGKILL");',
+    'out.afterOwn = tryKill(leader.pid, "SIGTERM");',
+    'process.stdout.write(JSON.stringify(out));',
+  ]);
+
+  assert.deepEqual(said, {
+    spawn: ['ran', 'SIGTERM'],
+    execFile: ['ran', 'SIGTERM'],
+    exec: ['ran', 'SIGTERM'],
+    group: ['ran', 'SIGKILL'],
+    innerGone: true,
+    afterGroupProbe: 'ESRCH',
+    afterGroup: 'ESRCH',
+    afterOwn: 'refused',
+  });
 });
