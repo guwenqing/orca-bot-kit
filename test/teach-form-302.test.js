@@ -15,11 +15,13 @@
 //      them. The frame is the one the kit already requires: a full-width rule
 //      right above the title and, below the foot, nothing or the input box.
 //   2. The architect's ruling: the new shape is one more exact match, never a
-//      looser one. A mix of the 2.1.283 form's rows and the 2.1.302 form's
-//      rows is neither shape and is refused, as are the near misses: a value
-//      changed, a row more or a row less, a row twice, rows out of order, two
-//      pointers or none, and the form quoted in a turn without the frame.
-//      Each refusal prints what the screen shows, and nothing is typed.
+//      looser one. Since #646 the values after the three settings rows' names
+//      may differ, and either foot may come with any values
+//      (teach-form-values.test.js holds that). Everything else is still
+//      exact, so the near misses are refused: a row more or a row less, a row
+//      twice, rows out of order, two pointers or none, and the form quoted in
+//      a turn without the frame. Each refusal prints what the screen shows,
+//      and nothing is typed.
 //   3. After Esc the form must go. If it is still there, the command fails
 //      and says so. On success it says which session, that it sent Esc (Not
 //      now) to the Teach auto mode screen, and that the screen has gone.
@@ -45,7 +47,7 @@ import { describe, it as test } from 'node:test';
 
 import { questionIn } from '../src/orca.js';
 import { createSandbox, kitLaunchMark, repoRoot, sentInto, sessionIn } from './helpers/cli.js';
-import { CLAUDE_ANSWERED, CLAUDE_TEACH_FORM, CLAUDE_TEACH_FORM_302 } from './helpers/screens.js';
+import { CLAUDE_ANSWERED, CLAUDE_TEACH_FORM_302 } from './helpers/screens.js';
 
 const BOT = 'temp-bot';
 const TASK = 'Read the open pull request and write down what it changes.';
@@ -56,9 +58,8 @@ const ESC = '\x1b';
 /** The form's title row, as read. */
 const TITLE = 'Teach auto mode about your environment?';
 
-/** The 2.1.302 form's foot, as read, and the 2.1.283 form's, as captured. */
+/** The 2.1.302 form's foot, as read. */
 const FOOT_302 = '   ←/→ to change · Enter to continue · Esc to cancel';
-const FOOT_283 = '   ←/→ to change usage · Enter to continue · Esc to cancel';
 
 /** Where the fixture's title row and foot row are. */
 const TITLE_AT = CLAUDE_TEACH_FORM_302.findIndex((row) => row.trim() === TITLE);
@@ -212,13 +213,10 @@ for (const command of COMMANDS) {
     // ------------------------------------------------------------ 2. one more exact match, never a looser one
 
     // Each screen that is neither the 2.1.283 form nor the 2.1.302 form, with
-    // a row of it the refusal has to print: what the screen shows.
+    // any values, with a row of it the refusal has to print: what the screen
+    // shows. A screen with only a value changed, or the other form's foot, is
+    // the form (#646, teach-form-values.test.js).
     for (const [label, screen, row] of [
-      ['a mix: the 2.1.302 form with the 2.1.283 row "Also scan shell history     true"', changed((one) => (one === '   ❯ Also scan shell history     false' ? '   ❯ Also scan shell history     true' : one)), /Also scan shell history\s+true/],
-      ['a mix: the 2.1.302 rows with the 2.1.283 foot "←/→ to change usage"', changed((one) => (one === FOOT_302 ? FOOT_283 : one)), /to change usage/],
-      ['a mix: the captured 2.1.283 form with the 2.1.302 foot', CLAUDE_TEACH_FORM.map((one) => (one === FOOT_283 ? FOOT_302 : one)), /Also scan shell history\s+true/],
-      ['the form with a value changed, "Also scan your other repos" on true', changed((one) => (one === '     Also scan your other repos  false' ? '     Also scan your other repos  true' : one)), /Also scan your other repos\s+true/],
-      ['the form with "How you use Claude here" on another value', changed((one) => (one === '     How you use Claude here     Mixed' ? '     How you use Claude here     Work' : one)), /How you use Claude here\s+Work/],
       ['the form with a row more', withAboveFoot('     Also scan your home folder  false'), /Also scan your home folder/],
       ['the form with a row less, no "Also scan your other repos"', CLAUDE_TEACH_FORM_302.filter((one) => one !== '     Also scan your other repos  false'), /Teach auto mode about your environment\?/],
       ['the form with a row less, no second row of its description', CLAUDE_TEACH_FORM_302.filter((one) => !one.startsWith('   repositories.')), /Teach auto mode about your environment\?/],

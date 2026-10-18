@@ -20,9 +20,11 @@
 //      against the captured CLAUDE_TEACH_FORM, by `onlyTeachFormOf`'s rule
 //      (helpers/screens.js): every non-blank row from the title down is one of
 //      the captured form's rows, the pointer ❯ on exactly one of them,
-//      whichever; nothing missing, nothing added. Anything else is refused: no
-//      key into any tab, and it prints what the screen shows. For Codex's hooks
-//      review, the refusal points to `temp trust-hooks`.
+//      whichever; nothing missing, nothing added. Since #646 the values after
+//      the three settings rows' names may differ (teach-form-values.test.js),
+//      so no case here changes a value. Anything else is refused: no key into
+//      any tab, and it prints what the screen shows. For Codex's hooks review,
+//      the refusal points to `temp trust-hooks`.
 //   4. The typing turn: typing-turn-temp-answer.test.js.
 //   5. After the key it reads the screen again; if the form's title row is
 //      still there after a few seconds, it fails and says so.
@@ -421,12 +423,11 @@ describe('obk temp answer', AT_ONCE, () => {
     });
   }
 
-  // Each screen that is not the captured form, with a row of it the refusal has
-  // to print: what the screen shows.
+  // Each screen that is not the captured form, with any values, with a row of
+  // it the refusal has to print: what the screen shows.
   for (const [label, screen, row] of [
     ['the form with a row more', [...CLAUDE_TEACH_FORM.slice(0, -1), '     Also scan your home folder  false', CLAUDE_TEACH_FORM.at(-1)], /Also scan your home folder/],
     ['the form with a row less', CLAUDE_TEACH_FORM.filter((one) => !one.includes('Also scan your other repos')), /Teach auto mode about your environment\?/],
-    ['the form with a value changed, false to true', changed((one) => (one.includes('Also scan your other repos') ? one.replace('false', 'true') : one)), /Also scan your other repos\s+true/],
     ['the form with one of its rows shown twice', [...CLAUDE_TEACH_FORM.slice(0, -1), '     Continue', CLAUDE_TEACH_FORM.at(-1)], /Teach auto mode about your environment\?/],
     ['the form with two pointers', changed((one) => (one === '     Continue' ? '   ❯ Continue' : one)), /❯ Continue/],
     ['the form with no pointer', changed((one) => one.replace('❯', ' ')), /Also scan shell history\s+true/],
