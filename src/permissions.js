@@ -279,7 +279,8 @@ const kitAs = (kit) => alt(text('obk'), seq(many(notSpace), text('/obk')), text(
  * The kit's run of any command, for the kit as it is spelled now, alone or
  * behind a runner; then the run with a time limit; then after `--` any
  * command, a runner with whatever it is told to run (a first argument that is
- * not a fixed path), or another such run of the kit.
+ * not a fixed path, or the fixed path of another runner, as `commandBroadness`
+ * judges it), or another such run of the kit.
  */
 const runsOfAny = new Map();
 function runOfAny() {
@@ -291,6 +292,7 @@ function runOfAny() {
         text(' run --timeout'), alt(text(' '), text('=')), one(digit), many(digit), text(' -- '),
       )(m, from);
       m.edge(after, null, from);
+      m.edge(seq(runner, text(' '))(m, after), null, after);
       return alt(seq(text(ANY_COMMAND), many(anything)), seq(runner, text(' '), one((c) => c !== '/'), many(anything)))(m, after);
     }));
   }
@@ -492,7 +494,7 @@ function afterWord(state, word) {
     case 'timeout': return /^\d+$/.test(word) ? ['limit'] : [];
     case 'limit': return word === '--' ? ['command'] : [];
     case 'command': return kitOrRunner('runner');
-    case 'runner': return [...(isKit(word) ? ['kit'] : []), ...(word.startsWith('/') ? [] : ['any'])];
+    case 'runner': return [...(isKit(word) ? ['kit'] : []), ...(!word.startsWith('/') ? ['any'] : (isRunner(word) ? ['runner'] : []))];
     default: return ['any'];
   }
 }

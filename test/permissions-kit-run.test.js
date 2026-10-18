@@ -920,3 +920,41 @@ test('KR20 Codex strings with escapes, the decision by position, patterns token 
   });
   await t.test('KR20 health changes none of the files', () => assertUnchanged(was));
 });
+
+// ----------------------------------------------------------------- a runner behind a runner after -- (third review of PR #640)
+
+test('KR21 after --, a runner followed by the absolute path of another runner is that runner, for Claude and Codex', async (t) => {
+  const box = await sandbox(t);
+  const bots = await fleet(box, { bots: [[CODEX_BOT, 'codex']] });
+  const claudeIn = [
+    'Bash(obk run --timeout 300 -- env /bin/sh:*)',
+    'Bash(obk run --timeout 300 -- env /usr/bin/env /bin/sh:*)',
+    'Bash(obk run --timeout 300 -- nice /usr/bin/python3:*)',
+  ];
+  const claudeOut = [
+    'Bash(obk run --timeout 300 -- env /usr/bin/true:*)',
+    'Bash(obk run --timeout 300 -- env /usr/bin/env /usr/bin/true:*)',
+  ];
+  const codexIn = 'prefix_rule(pattern=["obk", "run", "--timeout", "300", "--", "env", "/bin/sh"], decision="allow")';
+  const codexOut = 'prefix_rule(pattern=["obk", "run", "--timeout", "300", "--", "env", "/usr/bin/true"], decision="allow")';
+  await put(userSettings(box.home), settingsText(claudeIn));
+  await put(repoLocalSettings(bots), settingsText(claudeOut));
+  await put(userRules(box.home), rulesText([codexIn]));
+  const fleetFile = folderRules(bots);
+  await put(fleetFile, rulesText([codexOut]));
+  const was = await frozen([userSettings(box.home), repoLocalSettings(bots), userRules(box.home), fleetFile]);
+
+  const found = await health(box);
+
+  for (const rule of claudeIn) {
+    await t.test(`KR21 ${rule} in Claude's user settings is a kit-run rule`, () => assertKitRun(found, rule, userSettings(box.home)));
+  }
+  await t.test(`KR21 ${claudeOut.join(' and ')} are not kit-run rules: no finding names the repo's settings.local.json`, () => {
+    assert.deepEqual(naming(found, repoLocalSettings(bots)), [], `got: ${show(found)}`);
+  });
+  await t.test(`KR21 ${codexIn} in Codex's user rules is a kit-run rule`, () => assertKitRun(found, codexIn, userRules(box.home)));
+  await t.test(`KR21 ${codexOut} in the fleet's rules is not a kit-run rule`, () => {
+    assert.deepEqual(found.filter((one) => names(one, fleetFile) && isKitRun(one)), [], `got: ${show(found)}`);
+  });
+  await t.test('KR21 health changes none of the files', () => assertUnchanged(was));
+});
