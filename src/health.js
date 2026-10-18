@@ -27,7 +27,7 @@ import { transcriptsIn } from './conversations.js';
 import { hookTrouble } from './hooks.js';
 import { APPROVALS, bypassFlags, harnessOf, HARNESSES, isAddressOf, ownCli, promptFile, sessionTrouble, set, SHELL_ENV, shellWord, workDirOf } from './launch.js';
 import { frontOfTab, mailIn, orcaDefaultArgs, projects, runMissing, tabs, tabToTypeInto, wordsOfProcess } from './orca.js';
-import { kitRunTrouble, permissionsTrouble, runsOnClaude, runsOnCodex } from './permissions.js';
+import { permissionsTrouble } from './permissions.js';
 import { processesIn } from './processes.js';
 import { TAB_ENV } from './record.js';
 import { agentsTrouble, rulesStamp } from './rules.js';
@@ -49,27 +49,10 @@ export function checkHealth(bots, { bot: onlyBot } = {}) {
   const names = botsNamed(bots, onlyBot);
   const setups = projects();
 
-  const found = [...orcaSettingFindings(), ...leftInOrca(bots, setups), ...leftBeside(bots), ...kitRunElsewhere(bots)];
+  const found = [...orcaSettingFindings(), ...leftInOrca(bots, setups), ...leftBeside(bots)];
   const sessions = [];
   for (const name of names) found.push(...aboutBot(bots, name, setups, sessions));
   return { found, sessions };
-}
-
-/**
- * The rules beside every bot's folder that let the kit's run run any command
- * (#635), for the harnesses the fleet's bots run on. A bot the kit cannot
- * read is named by its own check.
- */
-function kitRunElsewhere(bots) {
-  const read = botNames(bots).flatMap((name) => {
-    try {
-      return [readBot(botDir(bots, name), name)];
-    } catch {
-      return [];
-    }
-  });
-  return kitRunTrouble(bots, { claude: read.some(runsOnClaude), codex: read.some(runsOnCodex) })
-    .map(({ where, says }) => finding('config', where, says));
 }
 
 /** One finding, as the report and the `--json` answer carry it. */
@@ -222,7 +205,7 @@ function aboutBot(bots, name, setups, sessions) {
     ...rolesTrouble(home, bot).map(said('config')),
     ...agentsTrouble(bots, home, bot).map(said('config')),
     ...hooksOf(bots, home, bot).map(said('config')),
-    ...permissionsTrouble(bots, home, bot).map(said('config')),
+    ...permissionsTrouble(home, bot).map(said('config')),
     ...skillsTrouble(bots, home, bot).map(said('skill')),
     ...inOrca(bots, home, bot, setups, sessions),
     ...leftRunning(home, bot),

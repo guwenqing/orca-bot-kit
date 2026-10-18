@@ -144,8 +144,8 @@ Read everything it prints. Three parts of it matter to them:
   beside the bots folder, and its commits. The kit writes this set for every
   bot, with nobody asked. Say in a sentence what it allows, and that
   `obk permission`, `obk retire`, `obk pause`, `obk restart`, `obk bot create`,
-  `obk bot change`, `obk session add`, `obk session change`, `obk init` and
-  `obk run` are not in it and keep their yes;
+  `obk bot change`, `obk session add`, `obk session change` and `obk init` are
+  not in it and keep their yes;
 - **anything it says about Orca's own default launch arguments.** Orca adds
   these to every agent it launches, relaunches and resumes. When they carry a
   permission bypass, every session runs in that mode whatever approval level the

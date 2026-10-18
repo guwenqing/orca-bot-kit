@@ -44,6 +44,12 @@ both links.
 
 The owner's decisions for this repo, which bind anyone working here:
 
+- Core is core and test is test: "All the test related stuff please build it out side the
+  kit core!!!! Core is core and test is test." (the owner, 2026-10-18, #652). The core is
+  what the package ships: `src/`, `rules/`, `skills/`, `README.md` and `SETUP.md`. Build
+  what only the kit's own tests use under `test/` or `scripts/`. Never add a command, an
+  option or an environment setting to the core for the tests. PRD section 6.1 lists every
+  command and setting the core has, and CI fails when they differ (ADR 0052).
 - Take no requirement stricter than the intent.
 - One PR per issue, squash-merged.
 - CI runs a good current Node version, not the lowest one the package supports.
