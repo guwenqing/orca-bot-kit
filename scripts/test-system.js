@@ -416,41 +416,104 @@ function reportConfigsLeft(before, foldersBefore) {
 }
 
 /**
- * Pi's session store: one folder per working folder, under `<agent dir>/sessions`,
- * the agent dir $PI_CODING_AGENT_DIR when it is set and ~/.pi/agent otherwise
- * (Pi 1.3.0, config.js getAgentDir; tech notes, section 6).
+ * Pi's agent dir, read as Pi 1.3.0 reads it (config.js getAgentDir,
+ * utils/paths.js normalizePath): $PI_CODING_AGENT_DIR when it is set, with `~`
+ * and a leading `~/` from the home folder and a `file://` URL as its path, and
+ * ~/.pi/agent otherwise. Undefined when that is not an absolute path: Pi reads
+ * a relative one from its own working folder, which the runner cannot know.
  */
-const piStore = () => path.join(process.env.PI_CODING_AGENT_DIR || path.join(os.homedir(), '.pi', 'agent'), 'sessions');
+function piAgentDir() {
+  const set = process.env.PI_CODING_AGENT_DIR;
+  if (!set) return path.join(os.homedir(), '.pi', 'agent');
+  let dir = set;
+  if (set === '~') dir = os.homedir();
+  else if (set.startsWith('~/')) dir = path.join(os.homedir(), set.slice(2));
+  else if (/^file:\/\//.test(set)) {
+    try {
+      dir = fileURLToPath(set);
+    } catch {
+      return undefined;
+    }
+  }
+  return path.isAbsolute(dir) ? dir : undefined;
+}
 
-/** The names in Pi's store right now; none when there is no store. */
+/**
+ * Pi's session store, `<agent dir>/sessions`: one folder per working folder
+ * (tech notes, section 6). Answers { store, names } with the names in it now,
+ * none when there is no store, or { store, error } when it cannot be read or
+ * cannot be found.
+ */
 function piFoldersNow() {
+  const agentDir = piAgentDir();
+  if (agentDir === undefined) {
+    return { store: undefined, error: `PI_CODING_AGENT_DIR is ${JSON.stringify(process.env.PI_CODING_AGENT_DIR)}, which does not lead to an absolute path` };
+  }
+  const store = path.join(agentDir, 'sessions');
   try {
-    return new Set(readdirSync(piStore()));
-  } catch {
-    return new Set();
+    return { store, names: new Set(readdirSync(store)) };
+  } catch (error) {
+    return error.code === 'ENOENT' ? { store, names: new Set() } : { store, error: error.code ?? error.message };
   }
 }
 
 /**
  * How Pi names the folder of a working folder below `root`: `--`, the real path
  * without its leading `/` and with every `/`, `\` and `:` as `-`, and so on. The
- * name cannot be read back into a path, so a folder is the run's when it is
- * new since the run began and its name starts with a run-folder root's
- * encoding and `-obk-system-` (#634).
+ * name cannot be read back into a path (`/` and `-` both give `-`), so it only
+ * picks the folders worth a look; piProof decides (#634 review).
  */
 const piPrefixOf = (root) => `--${root.replace(/^\//, '').replaceAll(/[/\\:]/g, '-')}-obk-system-`;
 
 /**
+ * Whether a folder in Pi's store is the run's: it holds session files and
+ * nothing else, and each one's header names a working folder in one of the
+ * run's own folders (#634 review). Answers true, or why not.
+ */
+function piProof(dir, foldersBefore) {
+  let entries;
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch (error) {
+    return `it cannot be read (${error.code ?? error.message})`;
+  }
+  if (entries.length === 0) return 'it holds no session file';
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith('.jsonl')) return `it holds ${entry.name}, which is not a session file`;
+    let header;
+    try {
+      header = JSON.parse(readFileSync(path.join(dir, entry.name), 'utf8').split('\n')[0]);
+    } catch {
+      header = undefined;
+    }
+    if (header?.type !== 'session' || typeof header.cwd !== 'string') return `${entry.name} does not start with a Pi session header`;
+    if (!runOwns(header.cwd, foldersBefore)) return `${entry.name} is for ${header.cwd}, which is not in one of the run's own folders`;
+  }
+  return true;
+}
+
+/**
  * What the run left in Pi's store for its own folders, taken out again (#634),
  * as the harness configs' keys are (#240): only a real folder, new since the
- * run began, named for a working folder in one of the run's folders. Everything
- * else stays. Answers whether a removal failed, which fails the run.
+ * run began, whose name looks like the run's and whose session files prove it
+ * (piProof). A folder that looks like the run's without that proof stays, and
+ * so does everything when the store could not be read when the run began.
+ * Answers whether anything that may be the run's was left, which fails the run.
  */
-function reportPiLeft(before) {
-  const store = piStore();
+function reportPiLeft(before, foldersBefore) {
+  if (before.error !== undefined) {
+    process.stdout.write(`\nPi's session store ${before.store ?? '(unknown)'} could not be read when the run began (${before.error}), so the runner cannot tell what the run added, and it removed nothing from it.\n`);
+    return true;
+  }
+  const { store } = before;
+  const now = piFoldersNow();
+  if (now.error !== undefined) {
+    process.stdout.write(`\nPi's session store ${store} could not be read after the run (${now.error}), so the runner removed nothing from it.\n`);
+    return true;
+  }
   const roots = [realPath(os.tmpdir()), realPath(repo) && path.join(realPath(repo), 'local-data')].filter((root) => root !== undefined);
   const prefixes = roots.map(piPrefixOf);
-  const ours = [...piFoldersNow()].filter((name) => !before.has(name) && prefixes.some((prefix) => name.startsWith(prefix)))
+  const looks = [...now.names].filter((name) => !before.names.has(name) && prefixes.some((prefix) => name.startsWith(prefix)))
     .filter((name) => {
       try {
         return lstatSync(path.join(store, name)).isDirectory();
@@ -461,7 +524,13 @@ function reportPiLeft(before) {
 
   const removed = [];
   const failed = [];
-  for (const name of ours) {
+  const unproven = [];
+  for (const name of looks) {
+    const proof = piProof(path.join(store, name), foldersBefore);
+    if (proof !== true) {
+      unproven.push(`${name}: ${proof}`);
+      continue;
+    }
     try {
       rmSync(path.join(store, name), { recursive: true });
       removed.push(name);
@@ -473,9 +542,10 @@ function reportPiLeft(before) {
   const lines = [];
   if (removed.length > 0) lines.push(`Pi kept sessions for the run's own folders in ${store}. They were removed again:`, ...removed.map((name) => `  ${name}`));
   if (failed.length > 0) lines.push(`Pi kept sessions for the run's own folders in ${store}, and they could not be removed, so they are the owner's to clear:`, ...failed.map((name) => `  ${name}`));
-  if (ours.length === 0) lines.push(`Pi's session store holds no new folder for the run's own folders.`);
+  if (unproven.length > 0) lines.push(`Pi has new folders in ${store} named like the run's own, with no proof that they are. They were left in place, for a person to look at:`, ...unproven.map((name) => `  ${name}`));
+  if (looks.length === 0) lines.push(`Pi's session store holds no new folder for the run's own folders.`);
   process.stdout.write(`\n${lines.join('\n')}\n`);
-  return failed.length > 0;
+  return failed.length > 0 || unproven.length > 0;
 }
 
 /**
@@ -974,7 +1044,7 @@ function run() {
   // as a passing one does, and the developer is owed the accounting either way.
   reportRunsLeft(before);
   const leftKeys = reportConfigsLeft(configsBefore, foldersBefore);
-  const leftPi = reportPiLeft(piBefore);
+  const leftPi = reportPiLeft(piBefore, foldersBefore);
   reportBackupCompared(backup);
   const leftProjects = reportProjectsLeft(setupsBefore, foldersBefore);
 
@@ -983,7 +1053,7 @@ function run() {
   // The Runs accounting never changes this: it is a report, not a check. A
   // trust key left in the owner's Codex config does: that is a check (#240).
   // So is a project left in the owner's Orca (#536), and a Pi session folder
-  // of the run's that could not be removed (#634).
+  // that may be the run's and is still there (#634).
   return result.status === 0 && !leftKeys && !leftPi && !leftProjects ? 0 : 1;
 }
 
