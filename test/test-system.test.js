@@ -4453,6 +4453,71 @@ const LIMITS_REFUSED = [
   ['two limits', ['--limit=60', '--limit=30']],
 ];
 
+/**
+ * A system test file whose test, with `child`, starts a child that is not
+ * detached, so it stays in the test's process group, unrefs it, and writes its
+ * pid down: the child ignores SIGTERM and SIGINT and never ends, and nothing
+ * waits for it. The file writes down its own pid and its parent's as `hangs`
+ * does, and prints `ALPHA`. With `waits` the test then waits on an interval
+ * that its t.after clears, so once node's own timeout cancels it nothing keeps
+ * the file running and node --test ends by itself; without it, it passes at
+ * once. Without `child` it is the same test, leaving nothing behind.
+ */
+const leavesAChild = ({ pids, child = null, waits = false }) => [
+  "import { spawn } from 'node:child_process';",
+  "import { appendFileSync } from 'node:fs';",
+  "import { test } from 'node:test';",
+  '',
+  `const note = (role, pid) => appendFileSync(${JSON.stringify(pids)}, JSON.stringify({ role, pid }) + '\\n');`,
+  "note('parent', process.ppid);",
+  "note('file', process.pid);",
+  '',
+  "test('alpha', async (t) => {",
+  ...(child ? [
+    `  const kid = spawn(process.execPath, ['-e', ${JSON.stringify(STUBBORN)}, ${JSON.stringify(child)}], { stdio: 'ignore' });`,
+    '  kid.unref();',
+    "  note('child', kid.pid);",
+  ] : []),
+  "  process.stdout.write('ALPHA\\n');",
+  ...(waits ? [
+    '  const timer = setInterval(() => {}, 1000);',
+    '  t.after(() => clearInterval(timer));',
+    '  await new Promise(() => {});',
+  ] : []),
+  '});',
+  '',
+].join('\n');
+
+/** A fixture repo whose one system test is `leavesAChild`; answers it with where the pids are written. */
+async function withAChildLeft(t, { child = true, waits = false } = {}) {
+  const fixture = await createRepo(t);
+  const box = path.dirname(fixture.repo);
+  const pidsFile = path.join(box, 'pids.log');
+  await write(fixture.repo, 'test/system/alpha.test.js', leavesAChild({ pids: pidsFile, child: child ? stubbornToken(box) : null, waits }));
+  return { fixture, box, pidsFile };
+}
+
+/**
+ * What a run printed from the test's own `ALPHA` on, and on stderr, as a set
+ * of lines with what differs from one run to the next taken out: the
+ * sandbox's paths in both spellings, the backup folder's name and every
+ * number. Two runs of the same test in two sandboxes then print the same set.
+ */
+function linesAfterTheTests(result, fixture) {
+  const at = result.stdout.indexOf('ALPHA');
+  assert.ok(at >= 0, `the test's own output should reach stdout, got:\n${everything(result)}`);
+  const box = path.dirname(fixture.repo);
+  const spellings = [...new Set([box, box.replace(/^\/private(?=\/)/, ''), `/private${box.replace(/^\/private(?=\/)/, '')}`])];
+  return new Set(`${result.stdout.slice(at)}\n${result.stderr}`
+    .split('\n')
+    .map((line) => {
+      let plain = line;
+      for (const spelling of spellings) plain = plain.split(spelling).join('<box>');
+      return plain.replace(/obk-config-backup-[A-Za-z0-9]+/g, 'obk-config-backup-<x>').replace(/\d+(?:\.\d+)?/g, 'N').trim();
+    })
+    .filter((line) => line !== ''));
+}
+
 describe('test-system: a hard time limit on the whole run (#653)', { concurrency: true }, () => {
   // L1
   test('a confirmed run with no --limit says, before any test runs, that it holds 3600 seconds', async (t) => {
@@ -4677,4 +4742,45 @@ describe('test-system: a hard time limit on the whole run (#653)', { concurrency
       assertLeftNamed(result, left.setup);
     });
   }
+
+  // L8 (a), the review's case
+  test('with --limit=4, a test cancelled at about 2 s that left an unref\'d child in its process group, and that lets node --test end by itself: the child is no longer alive after the run', async (t) => {
+    const { fixture, box, pidsFile } = await withAChildLeft(t, { waits: true });
+
+    const result = await startRunner(fixture, [CONFIRM, '--limit=4']).done;
+    const pids = await pidsIn(pidsFile);
+    reapLater(t, pids, box);
+
+    const child = pids.find((one) => one.role === 'child');
+    assert.ok(child, `the test should have started its child, got pids ${JSON.stringify(pids)}:\n${everything(result)}`);
+    assertEnded(result);
+    assert.ok(await goneWithin(child.pid, 3000), `the child ${child.pid} the test left in its process group should no longer be alive after the run`);
+  });
+
+  // L8 (b)
+  test('a passing run whose test left an unref\'d child in its process group: the child is no longer alive, the run exits 0, and it prints a line that a run with no such child does not', async (t) => {
+    const left = await withAChildLeft(t);
+    const clean = await withAChildLeft(t, { child: false });
+
+    const result = await startRunner(left.fixture, [CONFIRM]).done;
+    const pids = await pidsIn(left.pidsFile);
+    reapLater(t, pids, left.box);
+    const control = await startRunner(clean.fixture, [CONFIRM]).done;
+    reapLater(t, await pidsIn(clean.pidsFile), clean.box);
+
+    const child = pids.find((one) => one.role === 'child');
+    assert.ok(child, `the test should have started its child, got pids ${JSON.stringify(pids)}:\n${everything(result)}`);
+    assertEnded(result);
+    assertEnded(control);
+    assert.ok(await goneWithin(child.pid, 3000), `the child ${child.pid} the test left in its process group should no longer be alive after the run`);
+    assert.equal(result.code, 0, `stopping what the tests left does not change the exit status of a run whose tests passed:\n${everything(result)}`);
+    assert.equal(control.code, 0, everything(control));
+    // The line that says it stopped processes is one that the run with no
+    // child left does not print; and that run prints nothing (b) does not.
+    const withChild = linesAfterTheTests(result, left.fixture);
+    const without = linesAfterTheTests(control, clean.fixture);
+    const extra = [...withChild].filter((line) => !without.has(line));
+    assert.ok(extra.length > 0, `the run should say in a line that it stopped processes, got:\n${everything(result)}`);
+    assert.deepEqual([...without].filter((line) => !withChild.has(line)), [], `a run with no child left should print no line the run with one does not, got:\n${everything(control)}`);
+  });
 });
