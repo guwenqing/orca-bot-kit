@@ -218,143 +218,270 @@ function runBroadness(words) {
 }
 
 /**
- * Two commands no rule names. A rule that matches one after the kit's run lets
- * that run run any command; one that matches both lets the bot run any command
- * without the kit.
+ * A program no rule can name, standing for any command: a rule that matches
+ * the kit's run of it matches the run of any command (#635). Shell words
+ * cannot hold it.
  */
-const PROBES = ['qz-any-command', 'xj-any-command'];
+const ANY_COMMAND = '\u0007';
 
-/** Text as a regular expression that matches it and nothing else. */
-const literally = (text) => text.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/** A wildcard in a rule, as `globOf` gives it: any text, spaces included. */
+const STAR = Symbol('*');
+
+/** A rule's text as a glob: each character itself, and each `*` a wildcard when `wild`. */
+const globOf = (text, wild = true) => [...text].map((char) => (wild && char === '*' ? STAR : char));
+
+/*
+ * The commands a rule is held against, as a small automaton (#635): each state
+ * a list of edges, each a test of one character, or null for an edge that
+ * takes none. A part is `(machine, from) => to`.
+ */
+const text = (word) => (m, from) => [...word].reduce((at, char) => one((c) => c === char)(m, at), from);
+const one = (test) => (m, from) => {
+  const to = m.state();
+  m.edge(from, test, to);
+  return to;
+};
+const many = (test) => (m, from) => {
+  const to = m.state();
+  m.edge(from, null, to);
+  m.edge(to, test, to);
+  return to;
+};
+const seq = (...parts) => (m, from) => parts.reduce((at, part) => part(m, at), from);
+const alt = (...parts) => (m, from) => {
+  const to = m.state();
+  for (const part of parts) m.edge(part(m, from), null, to);
+  return to;
+};
+const maybe = (part) => alt(part, seq());
+
+function automaton(part) {
+  const states = [];
+  const m = { state: () => states.push([]) - 1, edge: (from, test, to) => states[from].push([test, to]) };
+  const start = m.state();
+  return { states, start, end: part(m, start) };
+}
+
+const notSpace = (c) => c !== ' ' && c !== '\t';
+const digit = (c) => c >= '0' && c <= '9';
+const anything = () => true;
+
+/** A program that runs whatever its arguments say, by its name or its absolute path, with a version on its name or not. */
+const runner = seq(maybe(seq(text('/'), maybe(seq(many(notSpace), text('/'))))), alt(...[...RUNNERS].map(text)), many((c) => digit(c) || c === '.'));
+
+/** A word that is a runner, and nothing more. */
+let runnerWord;
 
 /**
- * Whether a Bash rule's text matches a command as Claude Code matches it (its
- * permissions docs): `x:*` at the end is `x *`, a ` *` at the end matches `x`
- * alone too, and any other `*` matches any text, spaces included.
+ * The kit's run of any command, for the kit as it is spelled now: `obk`, any
+ * path to an `obk`, or the CLI the kit runs as, alone or behind a runner;
+ * then the run with a time limit; then after `--` any command, or a runner
+ * with whatever it is told to run (a first argument that is not a fixed path).
  */
-function claudeMatches(spec, command) {
-  const text = spec.endsWith(':*') ? `${spec.slice(0, -2)} *` : spec;
-  if (new RegExp(`^${text.split('*').map(literally).join('.*')}$`, 's').test(command)) return true;
-  return text.endsWith(' *') && command === text.slice(0, -2);
+const runsOfAny = new Map();
+function runOfAny() {
+  const kit = shellWord(ownCli());
+  if (!runsOfAny.has(kit)) {
+    runsOfAny.set(kit, automaton(seq(
+      maybe(seq(runner, text(' '))),
+      alt(text('obk'), seq(many(notSpace), text('/obk')), text(kit)),
+      text(' run --timeout'), alt(text(' '), text('=')), one(digit), many(digit), text(' -- '),
+      alt(seq(text(ANY_COMMAND), many(anything)), seq(runner, text(' '), one((c) => c !== '/'), many(anything))),
+    )));
+  }
+  return runsOfAny.get(kit);
 }
 
 /**
- * The ways a rule may spell the kit: `obk`, the kit's CLI as it prints
- * itself, and the rule's own first word when it is a path to an `obk`.
+ * Whether a glob matches any command the automaton takes: a walk of the two
+ * together, where a wildcard takes any character, and every test takes one.
  */
-function kitSpellings(first, spell = shellWord) {
-  const word = first.replace(/:?\*.*$/s, '');
-  return [...new Set(['obk', spell(ownCli()), ...(path.basename(word) === 'obk' ? [spell(word)] : [])])];
-}
-
-/** The kit's run of `command`, as words, with each time limit a rule may name. */
-function kitRuns(kits, numbers, command) {
-  const seconds = [...new Set(['300', ...numbers])];
-  return kits.flatMap((kit) => seconds.flatMap((n) => [
-    [kit, 'run', '--timeout', n, '--', command],
-    [kit, 'run', `--timeout=${n}`, '--', command],
-  ]));
+function meets(glob, { states, start, end }) {
+  const seen = new Set();
+  const todo = [[0, start]];
+  while (todo.length > 0) {
+    const [at, state] = todo.pop();
+    const key = at * states.length + state;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (at === glob.length && state === end) return true;
+    const here = glob[at];
+    if (here === STAR) todo.push([at + 1, state]);
+    for (const [test, to] of states[state]) {
+      if (test === null || here === STAR) todo.push([at, to]);
+      else if (here !== undefined && test(here)) todo.push([at + 1, to]);
+    }
+  }
+  return false;
 }
 
 /**
- * Whether a Claude rule lets the kit's run run any command (#635): it
- * matches the run with a command after `--` that no rule names, or it names
- * the run and the command after `--` is any command, such as a shell. A rule
- * that lets the bot run any command without the kit, `Bash` or `Bash(*)`, is
- * not one: it is named as any other rule.
+ * Whether a rule, as its first two words and its glob, lets the kit's run run
+ * any command (#635). One whose first word can be a runner lets the bot run
+ * any command without the kit, unless the kit itself comes next, and is named
+ * as any other rule: `Bash`, `Bash(*)`, `Bash(env:*)`.
+ */
+function runsAnyThroughKit([first = '', second = ''], glob, wild) {
+  runnerWord ??= automaton(runner);
+  const plain = (word) => word.replace(/:\*$/, '');
+  const kitNext = !(wild && second.includes('*')) && isKit(plain(second));
+  if (meets(globOf(plain(first), wild), runnerWord) && !kitNext) return false;
+  return meets(glob, runOfAny());
+}
+
+/**
+ * Whether a Claude rule lets the kit's run run any command (#635), matched as
+ * Claude Code matches it: `x:*` at the end is `x *`, and any `*` is any text,
+ * spaces included. A rule with no wildcard is one exact command.
  */
 export function letsRunAnything(rule) {
   const bash = /^Bash(?:\((.*)\))?$/s.exec(rule);
   if (bash === null) return false;
   const spec = bash[1] ?? '*';
-  if (PROBES.every((probe) => claudeMatches(spec, probe))) return false;
+  if (!spec.includes('*')) return false;
   const { words, odd } = shellWords(spec);
-  const first = odd === undefined ? words[0] ?? '' : spec.split(' ')[0];
-  const probes = kitRuns(kitSpellings(first), spec.match(/\d+/g) ?? [], PROBES[0]).map((one) => one.join(' '));
-  if (probes.some((probe) => claudeMatches(spec, probe))) return true;
-  if (odd !== undefined || !isKit(words[0] ?? '') || words[1] !== 'run') return false;
-  return runBroadness(words)?.includes(ANY) ?? false;
+  const glob = globOf(spec.endsWith(':*') ? `${spec.slice(0, -2)} *` : spec);
+  return runsAnyThroughKit(odd === undefined ? words : spec.split(' '), glob, true);
+}
+
+/*
+ * A Codex rules file, read as far as health reads one (#635): its comments,
+ * and calls of the three builtins whose arguments are literals. Anything else
+ * is Starlark the kit does not evaluate, and health says it cannot tell.
+ */
+const BUILTINS = new Set(['prefix_rule', 'host_executable', 'network_rule']);
+
+/** The text with each comment blanked out, so a place in it is the same place in the file. */
+function uncommented(source) {
+  let out = '';
+  let quote;
+  for (let at = 0; at < source.length; at += 1) {
+    const char = source[at];
+    if (quote !== undefined) {
+      out += char;
+      if (char === '\\' && at + 1 < source.length) out += source[++at];
+      else if (char === quote || char === '\n') quote = undefined;
+    } else if (char === '#') {
+      while (at + 1 < source.length && source[at + 1] !== '\n') {
+        out += ' ';
+        at += 1;
+      }
+      out += ' ';
+    } else {
+      if (char === '"' || char === "'") quote = char;
+      out += char;
+    }
+  }
+  return out;
+}
+
+const skipSpace = (source, at) => {
+  let i = at;
+  while (/\s/.test(source[i] ?? '')) i += 1;
+  return i;
+};
+
+/** A literal at `at`: `{ value, end }`, or undefined for anything the kit does not read. */
+function literal(source, from) {
+  const at = skipSpace(source, from);
+  const quote = source[at];
+  if (quote === '"' || quote === "'") {
+    let value = '';
+    for (let i = at + 1; i < source.length && source[i] !== '\n'; i += 1) {
+      if (source[i] === quote) return { value, end: i + 1 };
+      if (source[i] === '\\') i += 1;
+      value += source[i] ?? '';
+    }
+    return undefined;
+  }
+  if (quote === '[' || quote === '(') {
+    const close = quote === '[' ? ']' : ')';
+    const value = [];
+    let i = skipSpace(source, at + 1);
+    while (source[i] !== close) {
+      const item = literal(source, i);
+      if (item === undefined) return undefined;
+      value.push(item.value);
+      i = skipSpace(source, item.end);
+      if (source[i] === ',') i = skipSpace(source, i + 1);
+      else if (source[i] !== close) return undefined;
+    }
+    return { value, end: i + 1 };
+  }
+  const word = /^(-?\d+(?:\.\d+)?|True|False|None)\b/.exec(source.slice(at));
+  return word === null ? undefined : { value: word[1], end: at + word[0].length };
+}
+
+/** A builtin's arguments from its `(`: `{ args, end }`, each `{ name, value }`, or undefined. */
+function argumentsOf(source, open) {
+  const args = [];
+  let at = skipSpace(source, open + 1);
+  while (source[at] !== ')') {
+    const named = /^([A-Za-z_]\w*)\s*=(?!=)/.exec(source.slice(at));
+    if (named !== null) at += named[0].length;
+    const item = literal(source, at);
+    if (item === undefined) return undefined;
+    args.push({ name: named?.[1], value: item.value });
+    at = skipSpace(source, item.end);
+    if (source[at] === ',') at = skipSpace(source, at + 1);
+    else if (source[at] !== ')') return undefined;
+  }
+  return { args, end: at + 1 };
 }
 
 /**
- * A Starlark string or list of strings at `at` in `text`, as `{ value, end }`,
- * or undefined: the part of a rules file's `prefix_rule` the kit reads.
+ * A rules file's `prefix_rule` calls and what health cannot read in it:
+ * `{ rules, unread }`, each rule `{ text, pattern, decision }` with its text as
+ * the file has it, and `unread` the first statement it cannot read, or
+ * undefined.
  */
-function starlarkValue(text, at) {
-  let i = at;
-  while (/\s/.test(text[i] ?? '')) i += 1;
-  const quote = text[i];
-  if (quote === '"' || quote === "'") {
-    let value = '';
-    for (i += 1; i < text.length && text[i] !== quote; i += 1) {
-      if (text[i] === '\\') i += 1;
-      value += text[i] ?? '';
+function readRules(source) {
+  const bare = uncommented(source);
+  const rules = [];
+  let unread;
+  let at = skipSpace(bare, 0);
+  while (at < bare.length) {
+    const call = /^([A-Za-z_]\w*)\s*\(/.exec(bare.slice(at));
+    const read = call !== null && BUILTINS.has(call[1]) ? argumentsOf(bare, at + call[0].length - 1) : undefined;
+    if (read === undefined) {
+      // One line on: what health cannot read is said once, and what it can still comes out.
+      const line = bare.indexOf('\n', at);
+      const end = line === -1 ? bare.length : line;
+      unread ??= source.slice(at, end).trim();
+      at = skipSpace(bare, end);
+      continue;
     }
-    return i < text.length ? { value, end: i + 1 } : undefined;
+    if (call[1] === 'prefix_rule') {
+      const pattern = read.args.find((arg) => arg.name === 'pattern') ?? read.args.find((arg) => arg.name === undefined);
+      const decision = read.args.find((arg) => arg.name === 'decision');
+      rules.push({ text: source.slice(at, read.end), pattern: pattern?.value, decision: decision === undefined ? 'allow' : decision.value });
+    }
+    at = skipSpace(bare, read.end);
+    while (bare[at] === ';') at = skipSpace(bare, at + 1);
   }
-  if (quote !== '[') return undefined;
-  const value = [];
-  i += 1;
-  for (;;) {
-    while (/[\s,]/.test(text[i] ?? '')) i += 1;
-    if (text[i] === ']') return { value, end: i + 1 };
-    const item = starlarkValue(text, i);
-    if (item === undefined) return undefined;
-    value.push(item.value);
-    i = item.end;
-  }
+  return { rules, unread };
 }
 
 /** The command prefixes a `prefix_rule` pattern stands for: an element that is a list is each of its words. */
 function patternPrefixes(pattern) {
+  if (!Array.isArray(pattern)) return [];
   return pattern.reduce((prefixes, element) => {
     const words = Array.isArray(element) ? element : [element];
     if (words.some((word) => typeof word !== 'string')) return [];
-    return prefixes.flatMap((prefix) => words.map((word) => [...prefix, word]));
-  }, [[]]).slice(0, 256);
+    return prefixes.flatMap((prefix) => words.map((word) => [...prefix, word])).slice(0, 256);
+  }, [[]]);
 }
 
 /**
- * Whether a Codex `prefix_rule` call allows the kit's run to run any command:
- * an allow rule whose pattern is the start of the run with any command after
- * `--`, or of the run of any command, judged as the Claude rule of the same words.
+ * A rules file's `prefix_rule` calls that let the kit's run run any command,
+ * as their text, and the first statement health cannot read: `{ runs, unread }`.
+ * Codex matches a rule's words as the command's first words, each exactly.
  */
-function codexLetsRunAnything(call) {
-  const decision = /\bdecision\s*=\s*["'](\w+)["']/.exec(call);
-  if (decision !== null && decision[1] !== 'allow') return false;
-  const at = /\bpattern\s*=\s*/.exec(call);
-  const pattern = at === null ? undefined : starlarkValue(call, at.index + at[0].length);
-  if (pattern === undefined || !Array.isArray(pattern.value)) return false;
-  return patternPrefixes(pattern.value).some((prefix) => {
-    if (prefix.length === 0) return false;
-    const numbers = prefix.flatMap((word) => word.match(/\d+/g) ?? []);
-    const runs = kitRuns(kitSpellings(prefix[0], (word) => word), numbers, PROBES[0]);
-    if (runs.some((run) => prefix.every((word, index) => word === run[index]))) return true;
-    return letsRunAnything(`Bash(${prefix.map(shellWord).join(' ')}:*)`);
-  });
-}
-
-/** Each `prefix_rule(…)` call in a rules file's text that lets the kit's run run any command, as its text. */
-function codexRunRules(text) {
-  const found = [];
-  for (const start of text.matchAll(/\bprefix_rule\s*\(/g)) {
-    // The call runs to the `)` that closes it, outside any string.
-    let depth = 0;
-    let quote;
-    let end = start.index;
-    for (; end < text.length; end += 1) {
-      const char = text[end];
-      if (quote !== undefined) {
-        if (char === '\\') end += 1;
-        else if (char === quote) quote = undefined;
-      } else if (char === '"' || char === "'") quote = char;
-      else if (char === '(') depth += 1;
-      else if (char === ')' && --depth === 0) break;
-    }
-    const call = text.slice(start.index, end + 1);
-    if (codexLetsRunAnything(call)) found.push(call);
-  }
-  return found;
+function codexRunRules(source) {
+  const { rules, unread } = readRules(source);
+  const runs = rules.filter(({ pattern, decision }) => decision === 'allow' && patternPrefixes(pattern).some((words) =>
+    words.length > 0 && runsAnyThroughKit(words, [...globOf(words.join(' '), false), ' ', STAR], false)));
+  return { runs: runs.map((rule) => rule.text), unread };
 }
 
 /**
@@ -817,15 +944,17 @@ function codexTrouble(home, bot) {
       } catch (error) {
         return unread(where, error);
       }
-      // A rule over several lines that lets the kit's run run any command is
-      // named whole, beside its lines.
-      const runs = codexRunRules(text);
+      // A rule that lets the kit's run run any command and is not one whole
+      // line, over several lines or with a comment after it, is named whole.
+      const { runs, unread: hidden } = codexRunRules(text);
+      const lines = ruleLines(text);
       return [
-        ...ruleLines(text).map((line) => ({
+        ...lines.map((line) => ({
           where,
           says: runs.includes(line) ? codexRunSays(where, line, bot.name) : `${where} holds ${line}, which the user added, not the kit. It stays where it is.`,
         })),
-        ...runs.filter((rule) => rule.includes('\n')).map((rule) => ({ where, says: codexRunSays(where, rule, bot.name) })),
+        ...runs.filter((rule) => !lines.includes(rule)).map((rule) => ({ where, says: codexRunSays(where, rule, bot.name) })),
+        ...unclear(where, hidden, bot.name),
       ];
     });
 
@@ -852,14 +981,26 @@ function codexTrouble(home, bot) {
 /** How the kit's run is called, as a finding names it. */
 const RUN_FORM = 'obk run --timeout <seconds> -- <command>';
 
-/** What the user does about a rule that lets the kit's run run any command, in a file the kit did not write. */
-const takeOut = (file) => `It stays where it is: ${file} is the user's, not the kit's. To close the gap, the user takes the rule out of the file. The kit's default rules already allow the kit's own commands, narrowed to this bots folder, and a bounded run gets a narrow rule of its own, such as Bash(${shellWord(ownCli())} run --timeout 300 -- go test:*), through obk permission allow after the user's yes.`;
+/**
+ * What the user does about a rule that lets the kit's run run any command, in
+ * a file the kit did not write: the user's own, or the machine's policy.
+ */
+const takeOut = (file, policy = false) => `It stays where it is: ${file} is ${policy ? "this machine's policy" : "the user's"}, not the kit's. To close the gap, ${policy ? 'whoever keeps that policy takes' : 'the user takes'} the rule out of the file. The kit's default rules already allow the kit's own commands, narrowed to this bots folder, and a bounded run gets a narrow rule of its own, such as Bash(${shellWord(ownCli())} run --timeout 300 -- go test:*), through obk permission allow after the user's yes.`;
 
 /** Health's words on a Claude rule the kit did not write that lets the kit's run run any command (#635). */
-const claudeRunSays = (file, rule, who) => `${file} allows ${rule}, which the kit did not write. With obk run, it also lets ${who} run any command as ${RUN_FORM}, and auto mode does not judge that command. ${takeOut(file)}`;
+const claudeRunSays = (file, rule, who, policy) => `${file} allows ${rule}, which the kit did not write. With obk run, it also lets ${who} run any command as ${RUN_FORM}, and auto mode does not judge that command. ${takeOut(file, policy)}`;
 
 /** Health's words on such a Codex rule. An allowed command runs outside Codex's sandbox, with no review. */
-const codexRunSays = (file, rule, who) => `${file} holds ${rule}, which the kit did not write. With obk run, it also lets ${who} run any command as ${RUN_FORM}, outside Codex's sandbox and with no review. ${takeOut(file)}`;
+const codexRunSays = (file, rule, who, policy) => `${file} holds ${rule}, which the kit did not write. With obk run, it also lets ${who} run any command as ${RUN_FORM}, outside Codex's sandbox and with no review. ${takeOut(file, policy)}`;
+
+/**
+ * Health's words on a Codex rules file that holds what health does not read,
+ * such as a pattern kept in a variable: it cannot tell what the file allows.
+ */
+const unclear = (where, part, who) => (part === undefined ? [] : [{
+  where,
+  says: `${where} holds ${part}, which health does not read: it reads only prefix_rule, host_executable and network_rule calls written out in full. So it cannot tell whether a rule there lets ${who} run whatever command obk run is given. It stays where it is. To check the file, run codex execpolicy check --rules ${shellWord(where)} with the kit's run, such as obk run --timeout 300 -- sh -c true, and read its decision.`,
+}]);
 
 /** A file health cannot read is one finding of its own, and the rest of the fleet's health still comes out. */
 const unread = (where, error) => [{ where, says: `${where} could not be read (${error.code ?? error.message}), so health cannot say what it holds. It stays where it is.` }];
@@ -868,7 +1009,7 @@ const unread = (where, error) => [{ where, says: `${where} could not be read (${
  * Health's findings on each rule in a Claude settings file the kit does not
  * write that lets the kit's run run any command.
  */
-function claudeRunTrouble(file, who) {
+function claudeRunTrouble(file, who, policy) {
   if (!existsSync(file)) return [];
   let present;
   try {
@@ -877,14 +1018,14 @@ function claudeRunTrouble(file, who) {
     return [{ where: file, says: error.message }];
   }
   return [...new Set(present)].filter((rule) => typeof rule === 'string' && letsRunAnything(rule))
-    .map((rule) => ({ where: file, says: claudeRunSays(file, rule, who) }));
+    .map((rule) => ({ where: file, says: claudeRunSays(file, rule, who, policy) }));
 }
 
 /**
  * Health's findings on each rule in the `.rules` files of a Codex rules
  * folder the kit does not write that lets the kit's run run any command.
  */
-function codexRunTrouble(folder, who) {
+function codexRunTrouble(folder, who, policy) {
   let names;
   try {
     names = existsSync(folder) ? readdirSync(folder) : [];
@@ -895,7 +1036,8 @@ function codexRunTrouble(folder, who) {
     const where = path.join(folder, name);
     try {
       if (!statSync(where).isFile()) return [];
-      return codexRunRules(readFileSync(where, 'utf8')).map((rule) => ({ where, says: codexRunSays(where, rule, who) }));
+      const { runs, unread: hidden } = codexRunRules(readFileSync(where, 'utf8'));
+      return [...runs.map((rule) => ({ where, says: codexRunSays(where, rule, who, policy) })), ...unclear(where, hidden, who)];
     } catch (error) {
       return unread(where, error);
     }
@@ -916,13 +1058,30 @@ function repoRoot(from) {
  * the kit's run run any command. Claude Code reads the user's settings, and,
  * for a session started below a git repository's root, the local settings at
  * that root; Codex reads the user's rules, and the rules of each folder from
- * the root down to the session's, once the project is trusted. Read only: the
- * kit names a rule there, never takes it out.
+ * the root down to the session's, once the project is trusted. Both read the
+ * machine's policy too; Claude's can also come from MDM or the claude.ai
+ * console, which no file shows. Read only: the kit names a rule there, never
+ * takes it out.
  */
 export function kitRunTrouble(bots, { claude, codex }) {
   const root = repoRoot(botsDir(bots));
+  // OBK_POLICY_ROOT stands for `/` where the policy folders are, as in a test.
+  const system = process.env.OBK_POLICY_ROOT || path.parse(process.cwd()).root;
   const found = [];
   if (claude) {
+    const managed = path.join(system, process.platform === 'darwin' ? 'Library/Application Support/ClaudeCode' : 'etc/claude-code');
+    const policy = 'every bot\'s Claude sessions';
+    found.push(...claudeRunTrouble(path.join(managed, 'managed-settings.json'), policy, true));
+    const parts = path.join(managed, 'managed-settings.d');
+    let names = [];
+    try {
+      names = existsSync(parts) ? readdirSync(parts) : [];
+    } catch (error) {
+      found.push(...unread(parts, error));
+    }
+    for (const name of names.filter((one) => one.endsWith('.json') && !one.startsWith('.')).sort()) {
+      found.push(...claudeRunTrouble(path.join(parts, name), policy, true));
+    }
     const user = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
     found.push(...claudeRunTrouble(path.join(user, 'settings.json'), 'every bot\'s Claude sessions'));
     if (root !== undefined && root !== os.homedir()) {
@@ -931,6 +1090,7 @@ export function kitRunTrouble(bots, { claude, codex }) {
   }
   if (codex) {
     const user = process.env.CODEX_HOME || path.join(os.homedir(), '.codex');
+    found.push(...codexRunTrouble(path.join(system, 'etc/codex/rules'), 'every bot\'s Codex sessions', true));
     found.push(...codexRunTrouble(path.join(user, 'rules'), 'every bot\'s Codex sessions'));
     const folders = [];
     for (let at = botsDir(bots); root !== undefined; at = path.dirname(at)) {

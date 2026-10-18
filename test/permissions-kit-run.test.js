@@ -36,6 +36,22 @@
 //        `<bots folder>/bots`
 //     g. `$CLAUDE_CONFIG_DIR/settings.json`, else `$HOME/.claude/settings.json`
 //     h. `$CODEX_HOME/rules/*.rules`, else `$HOME/.codex/rules/*.rules`
+//     i. Codex system rules, `<P>/etc/codex/rules/*.rules` (review of PR #640)
+//     j. Claude managed settings: `managed-settings.json` and each `*.json`
+//        (not hidden) in `managed-settings.d/`, under `<P>/Library/Application
+//        Support/ClaudeCode` on macOS and `<P>/etc/claude-code` elsewhere
+//   <P> is OBK_POLICY_ROOT, a folder that stands for /, or / when it is unset.
+//
+// A Codex rules file is read as Codex reads it (review of PR #640): a `#`
+// comment is no rule and hides no call; a call may span lines; text in a
+// comment or in another argument does not change the decision; the pattern
+// may come first without its name. A file with anything else in it (a name,
+// an argument that is no literal) gets one finding that names the file and
+// says `cannot tell`, beside the kit-run findings for what health can read.
+// Claude rules are matched with a wildcard anywhere, and the kit counts behind
+// a program that runs its arguments (env, node, nice); a rule that lets the
+// bot run any command without the kit (`Bash(sh:*)`, `Bash(env:*)`, `Bash(o*)`)
+// is not a kit-run rule.
 //
 // The words read here are only these: the rule or the line verbatim, the
 // `where`, `obk run` and `any command`, and the fix: for a file the kit did not
@@ -45,7 +61,8 @@
 // a kit-run finding.
 //
 // Every sandbox starts with CODEX_HOME and CLAUDE_CONFIG_DIR unset, so no run
-// reads the real ones; HOME is the sandbox's own. Everything goes through the
+// reads the real ones; HOME is the sandbox's own, and OBK_POLICY_ROOT an empty
+// folder of the sandbox's own, so no run reads the machine's system policy. Everything goes through the
 // CLI on a sandboxed fleet that is up in the fake Orca.
 
 import assert from 'node:assert/strict';
@@ -70,11 +87,17 @@ const BOT = 'api-bot';
 const CODEX_BOT = 'cx-bot';
 const PAST = new Date('2020-01-01T00:00:00Z');
 
+/** The folder that stands for / in system policy paths: OBK_POLICY_ROOT. */
+const policyRootOf = (box) => path.join(box.root, 'policy');
+
 /** A sandbox with neither CODEX_HOME nor CLAUDE_CONFIG_DIR set: every run reads the sandbox's HOME, never the real one. */
 async function sandbox(t) {
   const box = await createSandbox(t);
   delete box.env.CODEX_HOME;
   delete box.env.CLAUDE_CONFIG_DIR;
+  // The machine's system policy is never read: an empty folder stands for /.
+  box.env.OBK_POLICY_ROOT = policyRootOf(box);
+  await mkdir(box.env.OBK_POLICY_ROOT);
   return box;
 }
 
@@ -573,4 +596,270 @@ test('KR12 a fleet with no bot on Claude is not held to the repo\'s or the user\
     for (const file of claudeFiles) assert.deepEqual(naming(found, file), [], `got: ${show(found)}`);
     assert.deepEqual(saying(found, 'Bash(obk:*)'), [], `got: ${show(found)}`);
   });
+});
+
+// ----------------------------------------------------------------- system policy: i, j (review of PR #640)
+
+/** Where Claude Code keeps managed settings under `root`, by the platform the kit runs on. */
+const claudePolicyDir = (root) => (process.platform === 'darwin'
+  ? path.join(root, 'Library', 'Application Support', 'ClaudeCode')
+  : path.join(root, 'etc', 'claude-code'));
+/** Claude's managed settings (j). */
+const managedSettings = (root) => path.join(claudePolicyDir(root), 'managed-settings.json');
+/** A drop-in file of Claude's managed settings (j). */
+const managedDropIn = (root, name) => path.join(claudePolicyDir(root), 'managed-settings.d', name);
+/** A Codex system rules file (i). */
+const systemRules = (root, name = 'default.rules') => path.join(root, 'etc', 'codex', 'rules', name);
+
+/** Whether a finding says health cannot tell what a file allows. */
+const isCannotTell = (finding) => typeof finding.says === 'string' && finding.says.includes('cannot tell');
+/** A kit-run finding, and not a `cannot tell` one. */
+const isKitRunOnly = (finding) => isKitRun(finding) && !isCannotTell(finding);
+
+/**
+ * The kit-run findings whose `where` is `file`, `count` of them, each of kind
+ * config, about `bot` (undefined for a fleet-wide file), with `obk run`, `any
+ * command` and the fix. For a rule health names without its line verbatim.
+ */
+function assertKitRunsIn(found, file, count, { bot } = {}) {
+  const said = found.filter((one) => one.where === file && isKitRunOnly(one));
+  assert.equal(said.length, count, `${count} kit-run finding(s) should have where ${file}, got: ${show(found)}`);
+  for (const finding of said) {
+    assert.equal(finding.kind, 'config', `got: ${show(finding)}`);
+    assert.equal(finding.bot, bot, `got: ${show(finding)}`);
+    assert.ok(finding.says.includes('obk run'), `got: ${finding.says}`);
+    assert.ok(finding.says.includes('run --timeout 300 -- go test'), `the fix names a narrow run rule, got: ${finding.says}`);
+    assert.ok(finding.says.includes('permission allow'), `got: ${finding.says}`);
+  }
+  return said;
+}
+
+test('KR13 a kit-run rule in system policy is named once, for no one bot: Codex system rules, Claude managed settings and their drop-ins', async (t) => {
+  const box = await sandbox(t);
+  const root = policyRootOf(box);
+  await fleet(box, { bots: [[BOT, 'claude'], [CODEX_BOT, 'codex']] });
+  const places = [
+    ['i. Codex system rules', systemRules(root), rulesText(['prefix_rule(pattern=["obk"], decision="allow")']), 'prefix_rule(pattern=["obk"], decision="allow")'],
+    ['j. Claude managed settings', managedSettings(root), settingsText(['Bash(obk:*)']), 'Bash(obk:*)'],
+    ['j. a drop-in of Claude managed settings', managedDropIn(root, '10-team.json'), settingsText(['Bash(obk run:*)']), 'Bash(obk run:*)'],
+  ];
+  for (const [, file, text] of places) await put(file, text);
+  // Not read: a hidden drop-in, and a drop-in that is no .json.
+  const hidden = managedDropIn(root, '.hidden.json');
+  const notJsonName = managedDropIn(root, 'README.txt');
+  await put(hidden, settingsText(['Bash(obk *)']));
+  await put(notJsonName, settingsText(['Bash(obk r*)']));
+  const was = await frozen([...places.map(([, file]) => file), hidden, notJsonName]);
+
+  const found = await health(box);
+
+  for (const [label, file, , rule] of places) {
+    await t.test(`KR13 ${label}: ${rule} is named once, with the fix`, () => {
+      assertKitRun(found, rule, file);
+      assert.equal(saying(found, rule).length, 1, `named once, not once per bot, got: ${show(found)}`);
+    });
+  }
+  await t.test('KR13 a hidden drop-in and a drop-in that is no .json are not read', () => {
+    assert.deepEqual(naming(found, hidden), [], `got: ${show(found)}`);
+    assert.deepEqual(naming(found, notJsonName), [], `got: ${show(found)}`);
+  });
+  await t.test('KR13 health changes none of the files', () => assertUnchanged(was));
+});
+
+test('KR14 system policy health cannot read is one finding naming the file, and health still answers the rest', async (t) => {
+  const box = await sandbox(t);
+  const root = policyRootOf(box);
+  const bots = await fleet(box, { bots: [[BOT, 'claude'], [CODEX_BOT, 'codex']] });
+  const notJson = [
+    ['j. Claude managed settings', managedSettings(root)],
+    ['j. a drop-in of Claude managed settings', managedDropIn(root, '20-bad.json')],
+  ];
+  for (const [, file] of notJson) await put(file, '{ "permissions": { "allow": [\n');
+  const unreadable = systemRules(root);
+  const missing = path.join(box.root, 'gone', 'system.rules');
+  await mkdir(path.dirname(unreadable), { recursive: true });
+  await symlink(missing, unreadable);
+  await handAllow(bots, BOT, ['Bash(obk:*)']);
+  const was = await frozen(notJson.map(([, file]) => file));
+
+  const found = await health(box);
+
+  for (const [label, file] of [...notJson, ['i. Codex system rules', unreadable]]) {
+    await t.test(`KR14 ${label}, unreadable, is one finding naming it`, () => {
+      assert.equal(naming(found, file).length, 1, `one finding should name ${file}, got: ${show(found)}`);
+    });
+  }
+  await t.test('KR14 the kit-run rule elsewhere is still named', () => {
+    assertKitRun(found, 'Bash(obk:*)', settingsOf(bots, BOT), { bot: BOT });
+  });
+  await t.test('KR14 health changes none of the files, and leaves the link as it is', async () => {
+    await assertUnchanged(was);
+    assert.equal(await readlink(unreadable), missing);
+  });
+});
+
+test('KR15 a fleet with no bot on Codex is not held to Codex system rules', async (t) => {
+  const box = await sandbox(t);
+  const root = policyRootOf(box);
+  await fleet(box);
+  await put(systemRules(root), rulesText(['prefix_rule(pattern=["obk"], decision="allow")']));
+  // The contrast: Claude managed settings, which it is held to.
+  await put(managedSettings(root), settingsText(['Bash(obk:*)']));
+
+  const found = await health(box);
+
+  await t.test('KR15 the contrast: j. Claude managed settings are read', () => assertKitRun(found, 'Bash(obk:*)', managedSettings(root)));
+  await t.test('KR15 i is not read', () => assert.deepEqual(naming(found, systemRules(root)), [], `got: ${show(found)}`));
+});
+
+test('KR16 a fleet with no bot on Claude is not held to Claude managed settings', async (t) => {
+  const box = await sandbox(t);
+  const root = policyRootOf(box);
+  await fleet(box, { father: 'codex', bots: [[CODEX_BOT, 'codex']] });
+  const claudeFiles = [managedSettings(root), managedDropIn(root, '10-team.json')];
+  for (const file of claudeFiles) await put(file, settingsText(['Bash(obk:*)']));
+  // The contrast: Codex system rules, which it is held to.
+  await put(systemRules(root), rulesText(['prefix_rule(pattern=["obk"], decision="allow")']));
+
+  const found = await health(box);
+
+  await t.test('KR16 the contrast: i. Codex system rules are read', () => assertKitRun(found, 'prefix_rule(pattern=["obk"], decision="allow")', systemRules(root)));
+  await t.test('KR16 j is not read', () => {
+    for (const file of claudeFiles) assert.deepEqual(naming(found, file), [], `got: ${show(found)}`);
+  });
+});
+
+// ----------------------------------------------------------------- Codex rules read as Codex reads them (review of PR #640)
+
+test('KR17 a Codex rules file is read as Codex reads it: comments, calls over several lines, other arguments, the pattern first, and what health cannot read', async (t) => {
+  const box = await sandbox(t);
+  const bots = await fleet(box, { bots: [[CODEX_BOT, 'codex']] });
+  const dir = path.dirname(userRules(box.home));
+  const at = (name) => path.join(dir, name);
+  // [label, file, text, kit-run findings, cannot tell findings]
+  const cases = [
+    ['a rule in a comment is no rule', at('comment.rules'), '# prefix_rule(pattern=["obk"], decision="allow")\n', 0, 0],
+    ['a comment inside a call over several lines does not hide it', at('lines.rules'), [
+      'prefix_rule(pattern=[',
+      '    "obk", # command name',
+      '    "run"',
+      '], decision="allow")',
+      '',
+    ].join('\n'), 1, 0],
+    ['a decision in another argument\'s string is not the decision', at('justification.rules'), 'prefix_rule(pattern=["obk"], justification="decision=\'forbidden\'")\n', 1, 0],
+    ['a decision in a comment is not the decision', at('comment-decision.rules'), 'prefix_rule(pattern=["obk"], # decision="forbidden"\ndecision="allow")\n', 1, 0],
+    ['forbidden, with allow only in another argument\'s string', at('forbidden.rules'), 'prefix_rule(pattern=["obk"], justification="decision=\'allow\'", decision="forbidden")\n', 0, 0],
+    ['the pattern first, without its name', at('positional.rules'), 'prefix_rule(["obk", "run"])\n', 1, 0],
+    ['a pattern held in a name', at('name.rules'), 'kit = ["obk", "run"]\nprefix_rule(pattern=kit, decision="allow")\n', 0, 1],
+    ['a decision that is no literal, beside a rule health can read', at('mixed.rules'), 'prefix_rule(pattern=["obk"], decision="allow")\nprefix_rule(pattern=["obk"], decision=d)\n', 1, 1],
+    ['only literal calls of prefix_rule, host_executable and network_rule', at('literals.rules'), [
+      '# literals only',
+      'prefix_rule(pattern=["gh", ("pr", "issue")], decision=\'allow\', justification=\'single quotes\', not_match=None)',
+      'host_executable(name="git", paths=["/usr/bin/git"])',
+      'network_rule(host="example.com", port=443, allow=True, log=False)',
+      '',
+    ].join('\n'), 0, 0],
+  ];
+  for (const [, file, text] of cases) await put(file, text);
+  // f: what health cannot read in the fleet's rules too.
+  const fleetFile = folderRules(bots, 'name.rules');
+  await put(fleetFile, 'kit = ["obk"]\nprefix_rule(pattern=kit)\n');
+  const was = await frozen([...cases.map(([, file]) => file), fleetFile]);
+
+  const found = await health(box);
+
+  for (const [label, file, , kitRuns, cannot] of cases) {
+    await t.test(`KR17 ${label}: ${kitRuns} kit-run finding(s), ${cannot} cannot tell`, () => {
+      assertKitRunsIn(found, file, kitRuns);
+      const told = found.filter((one) => names(one, file) && isCannotTell(one));
+      assert.equal(told.length, cannot, `${cannot} finding(s) should name ${file} and say cannot tell, got: ${show(found)}`);
+    });
+  }
+  await t.test('KR17 the rule health can read in mixed.rules is named verbatim', () => {
+    assert.equal(saying(found, 'prefix_rule(pattern=["obk"], decision="allow")').filter((one) => one.where === at('mixed.rules') && isKitRunOnly(one)).length, 1, `got: ${show(found)}`);
+  });
+  await t.test('KR17 f. what health cannot read in the fleet\'s rules is one cannot tell finding', () => {
+    assert.equal(found.filter((one) => names(one, fleetFile) && isCannotTell(one)).length, 1, `got: ${show(found)}`);
+  });
+  await t.test('KR17 health changes none of the files', () => assertUnchanged(was));
+});
+
+test('KR18 in a bot\'s own rules file, each line keeps its finding, and a kit-run call that is not one whole line gets a kit-run finding of its own', async (t) => {
+  const box = await sandbox(t);
+  const bots = await fleet(box, { bots: [[CODEX_BOT, 'codex']] });
+  const file = theirRulesOf(bots, CODEX_BOT);
+  const whole = 'prefix_rule(pattern=["obk", "run"], decision="allow")';
+  const commented = 'prefix_rule(pattern=["obk"], decision="allow")  # mine';
+  await put(file, [
+    whole,
+    'prefix_rule(pattern=[',
+    '    "obk", # command name',
+    '    "run"',
+    '], decision="allow")',
+    commented,
+    '',
+  ].join('\n'));
+  const was = await frozen([file]);
+
+  const found = await health(box);
+
+  await t.test('KR18 three kit-run findings: the whole line, the call over several lines, the call with a comment after it', () => {
+    assertKitRunsIn(found, file, 3, { bot: CODEX_BOT });
+  });
+  await t.test('KR18 the whole line is named by one finding, and it is the kit-run one', () => {
+    const said = saying(found, whole).filter((one) => one.where === file);
+    assert.equal(said.length, 1, `got: ${show(found)}`);
+    assert.ok(isKitRunOnly(said[0]), `got: ${show(said[0])}`);
+  });
+  await t.test('KR18 the line with a comment after it keeps its neutral finding (H5)', () => {
+    assert.equal(saying(found, commented).filter((one) => one.where === file && !isKitRun(one)).length, 1, `got: ${show(found)}`);
+  });
+  await t.test('KR18 health does not change the file', () => assertUnchanged(was));
+});
+
+// ----------------------------------------------------------------- a wildcard anywhere, and the kit behind a runner (review of PR #640)
+
+test('KR19 Claude rules match with a wildcard anywhere and with the kit behind a runner; Codex patterns count the kit behind a runner too', async (t) => {
+  const box = await sandbox(t);
+  const bots = await fleet(box, { bots: [[BOT, 'claude'], [CODEX_BOT, 'codex']] });
+  const cli = shellWord(box.cli);
+  const inRules = [
+    ['Bash(/opt/*/obk:*)', 'a star inside the path of the kit'],
+    ['Bash(*/obk:*)', 'a star for the folder of the kit'],
+    ['Bash(env /opt/homebrew/bin/obk run:*)', 'the kit behind env'],
+    [`Bash(env ${cli} run:*)`, 'the kit\'s own CLI behind env'],
+    [`Bash(node ${cli} run:*)`, 'the kit\'s own CLI behind node'],
+    ['Bash(nice obk run:*)', 'the kit behind nice'],
+    ['Bash(obk run --timeout=60 -- *)', '--timeout=<n>, then any command'],
+  ];
+  const inFile = localSettingsOf(bots, BOT);
+  await put(inFile, settingsText(inRules.map(([rule]) => rule)));
+  const outRules = [
+    'Bash', 'Bash(*)', 'Bash(sh:*)', 'Bash(env:*)', 'Bash(o*)',
+    'Bash(env /usr/bin/true:*)', 'Bash(obk run --timeout 300 -- env /usr/bin/true:*)', 'Bash(obk ru:*)',
+  ];
+  const outFiles = [localSettingsOf(bots, 'bot-father'), repoLocalSettings(bots), userSettings(box.home)];
+  for (const file of outFiles) await put(file, settingsText(outRules));
+  const codexIn = 'prefix_rule(pattern=["env", "/opt/homebrew/bin/obk", "run"], decision="allow")';
+  const codexOut = ['prefix_rule(pattern=["env"], decision="allow")', 'prefix_rule(pattern=["sh"], decision="allow")'];
+  await put(userRules(box.home), rulesText([codexIn]));
+  const fleetFile = folderRules(bots);
+  await put(fleetFile, rulesText(codexOut));
+  const was = await frozen([inFile, ...outFiles, userRules(box.home), fleetFile]);
+
+  const found = await health(box);
+
+  for (const [rule, why] of inRules) {
+    await t.test(`KR19 ${rule} is a kit-run rule (${why})`, () => assertKitRun(found, rule, inFile, { bot: BOT }));
+  }
+  await t.test(`KR19 the rules that are not (${outRules.join(', ')}) in c, e and g: no finding names those files`, () => {
+    for (const file of outFiles) assert.deepEqual(naming(found, file), [], `got: ${show(found)}`);
+  });
+  await t.test(`KR19 ${codexIn} is a kit-run rule (the kit behind env)`, () => assertKitRun(found, codexIn, userRules(box.home)));
+  for (const line of codexOut) {
+    await t.test(`KR19 ${line} is not a kit-run rule (any command, without the kit)`, () => {
+      assert.deepEqual(saying(found, line).filter((one) => names(one, fleetFile) && isKitRun(one)), [], `got: ${show(found)}`);
+    });
+  }
+  await t.test('KR19 health changes none of the files', () => assertUnchanged(was));
 });
