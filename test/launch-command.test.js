@@ -51,6 +51,7 @@ import {
   tokenless,
   tokenlessWord,
   typedInto,
+  withoutSandbox,
   workDirByHand,
 } from './helpers/cli.js';
 import { addSession } from './helpers/permissions.js';
@@ -240,7 +241,7 @@ test('Claude never gets --add-dir, wherever its work dir is', async (t) => {
 
   const typed = await launchOf(box, 'claude', ['--work-dir', outside]);
 
-  assert.ok(!typed.includes('--add-dir'), `Claude should get no --add-dir, got: ${typed}`);
+  assert.ok(!withoutSandbox(box, typed).includes('--add-dir'), `Claude should get no --add-dir, got: ${typed}`);
   assert.ok(tokenless(typed).startsWith(`${bareLaunch(box, 'claude', 'api-bot', 'daily')} -- '`), `got: ${typed}`);
 });
 

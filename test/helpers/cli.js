@@ -971,17 +971,35 @@ export const nameOnLine = (line) => / -n ([^ ]+)/.exec(line)?.[1];
 
 /**
  * Every value the words a harness was launched with can give a setting, each
- * one whole: a word of its own (`-m opus`, `--effort xhigh`), what follows the
- * `=` of a `key=value` word (`-c model_reasoning_effort=xhigh`, `--model=opus`),
- * in quotes or not, and the model and the context of Claude Code's `opus[1m]`.
- * Never a piece of a word: a folder on the line, such as a sandbox's random
- * `obk-1m9rET` or the system's temp folder, is not a setting (#639).
+ * one whole: a word of its own (`-m opus`, `--effort xhigh`), what follows a
+ * short option's letter (`-mopus`, `-cmodel=opus`), what follows the `=` of a
+ * `key=value` word (`-c model_reasoning_effort=xhigh`, `--model=opus`), in
+ * quotes or not, and the model and the context of Claude Code's `opus[1m]`.
+ * Each value is read again the same way, so `--config=model=opus` gives
+ * `model=opus` and then `opus`. Never a piece of a word: a folder on the line,
+ * such as a sandbox's random `obk-1m9rET` or the system's temp folder, is not a
+ * setting (#639).
  */
-export const settingValuesOf = (argv) => argv.flatMap((word) => {
-  const value = /^[\w.-]+=(.*)$/s.exec(word)?.[1].replace(/^(["'])(.*)\1$/s, '$2');
-  return [word, ...(value === undefined ? [] : [value])]
-    .flatMap((one) => [one, ...(/^([^[\]]+)\[([^[\]]+)\]$/.exec(one)?.slice(1) ?? [])]);
-});
+export const settingValuesOf = (argv) => argv.flatMap(valuesIn);
+
+/** One word, and every value inside it, as `settingValuesOf` reads them. */
+function valuesIn(word) {
+  const inside = [
+    /^-[A-Za-z]=?(.+)$/s.exec(word)?.[1],
+    /^[\w.-]+\s*=\s*(.*)$/s.exec(word)?.[1].trim().replace(/^(["'])(.*)\1$/s, '$2'),
+    ...(/^([^[\]]+)\[([^[\]]+)\]$/.exec(word)?.slice(1) ?? []),
+  ];
+  return [word, ...inside.filter((one) => one !== undefined && one !== word).flatMap(valuesIn)];
+}
+
+/**
+ * A line or a text with the sandbox's own folder, wherever it names it, written
+ * `<sandbox>`. That folder is in the system's temp folder, which the user
+ * chooses and which can hold any word, and its own name is random (#639). So a
+ * check that a word is not on a line, or is, looks at the line this way.
+ */
+export const withoutSandbox = (box, text) => [box.root, box.root.replaceAll("'", "'\\''")]
+  .reduce((rest, root) => rest.replaceAll(root, '<sandbox>'), text);
 
 /**
  * The one Codex setting that lets a sandboxed session reach the Orca CLI at

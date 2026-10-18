@@ -67,6 +67,7 @@ import {
   sh,
   spellingsOf,
   typedInto,
+  withoutSandbox,
 } from './helpers/cli.js';
 import { addSession } from './helpers/permissions.js';
 import { commandsIn, flagValue, withWord } from './helpers/typed-command.js';
@@ -409,7 +410,7 @@ test('C2 the job\'s make, run in the grooming tab at a fire, makes the run: a Co
   assert.ok(words.includes(`-m\n${MODEL}`), `Codex is started on ${MODEL}: ${JSON.stringify(call.args)}`);
   assert.ok(words.includes(`-c\nmodel_reasoning_effort=${EFFORT}`), `at ${EFFORT} effort: ${JSON.stringify(call.args)}`);
   assert.ok(words.includes(EXTRA.join('\n')), `with the extra arguments, in order: ${JSON.stringify(call.args)}`);
-  assert.ok(!words.includes('model_context_window'), `and no context window: ${JSON.stringify(call.args)}`);
+  assert.ok(!withoutSandbox(box, words).includes('model_context_window'), `and no context window: ${JSON.stringify(call.args)}`);
   assert.ok(words.includes('-a\non-request'), `and the grooming session's approval, ask: ${JSON.stringify(call.args)}`);
   const task = await readFile(await taskFileOf(box, bots, job), 'utf8');
   assert.ok(call.args.at(-1).startsWith(task.trimEnd()), `its start prompt is the run's task: ${JSON.stringify(call.args.at(-1))}`);
