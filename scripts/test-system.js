@@ -15,7 +15,7 @@
 // tests, and does not answer as though it had.
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -413,6 +413,69 @@ function reportConfigsLeft(before, foldersBefore) {
   process.stdout.write(`\n${lines.join('\n')}\n`);
   return left.length > 0 || removed.codex.why !== undefined || removed.claude.why !== undefined
     || after.codex.unparsed === true;
+}
+
+/**
+ * Pi's session store: one folder per working folder, under `<agent dir>/sessions`,
+ * the agent dir $PI_CODING_AGENT_DIR when it is set and ~/.pi/agent otherwise
+ * (Pi 1.3.0, config.js getAgentDir; tech notes, section 6).
+ */
+const piStore = () => path.join(process.env.PI_CODING_AGENT_DIR || path.join(os.homedir(), '.pi', 'agent'), 'sessions');
+
+/** The names in Pi's store right now; none when there is no store. */
+function piFoldersNow() {
+  try {
+    return new Set(readdirSync(piStore()));
+  } catch {
+    return new Set();
+  }
+}
+
+/**
+ * How Pi names the folder of a working folder below `root`: `--`, the real path
+ * without its leading `/` and with every `/`, `\` and `:` as `-`, and so on. The
+ * name cannot be read back into a path, so a folder is the run's when it is
+ * new since the run began and its name starts with a run-folder root's
+ * encoding and `-obk-system-` (#634).
+ */
+const piPrefixOf = (root) => `--${root.replace(/^\//, '').replaceAll(/[/\\:]/g, '-')}-obk-system-`;
+
+/**
+ * What the run left in Pi's store for its own folders, taken out again (#634),
+ * as the harness configs' keys are (#240): only a real folder, new since the
+ * run began, named for a working folder in one of the run's folders. Everything
+ * else stays. Answers whether a removal failed, which fails the run.
+ */
+function reportPiLeft(before) {
+  const store = piStore();
+  const roots = [realPath(os.tmpdir()), realPath(repo) && path.join(realPath(repo), 'local-data')].filter((root) => root !== undefined);
+  const prefixes = roots.map(piPrefixOf);
+  const ours = [...piFoldersNow()].filter((name) => !before.has(name) && prefixes.some((prefix) => name.startsWith(prefix)))
+    .filter((name) => {
+      try {
+        return lstatSync(path.join(store, name)).isDirectory();
+      } catch {
+        return false;
+      }
+    });
+
+  const removed = [];
+  const failed = [];
+  for (const name of ours) {
+    try {
+      rmSync(path.join(store, name), { recursive: true });
+      removed.push(name);
+    } catch (error) {
+      failed.push(`${name} (${error.code ?? error.message})`);
+    }
+  }
+
+  const lines = [];
+  if (removed.length > 0) lines.push(`Pi kept sessions for the run's own folders in ${store}. They were removed again:`, ...removed.map((name) => `  ${name}`));
+  if (failed.length > 0) lines.push(`Pi kept sessions for the run's own folders in ${store}, and they could not be removed, so they are the owner's to clear:`, ...failed.map((name) => `  ${name}`));
+  if (ours.length === 0) lines.push(`Pi's session store holds no new folder for the run's own folders.`);
+  process.stdout.write(`\n${lines.join('\n')}\n`);
+  return failed.length > 0;
 }
 
 /**
@@ -894,6 +957,7 @@ function run() {
   const configsBefore = trustKeys();
   const foldersBefore = runFoldersNow();
   const setupsBefore = listSetups();
+  const piBefore = piFoldersNow();
 
   // OBK_SYSTEM_TESTS is how a system test knows this command started it: loaded
   // any other way, it skips (test/helpers/system.js, #328). OBK_SYSTEM_NAMED is
@@ -910,6 +974,7 @@ function run() {
   // as a passing one does, and the developer is owed the accounting either way.
   reportRunsLeft(before);
   const leftKeys = reportConfigsLeft(configsBefore, foldersBefore);
+  const leftPi = reportPiLeft(piBefore);
   reportBackupCompared(backup);
   const leftProjects = reportProjectsLeft(setupsBefore, foldersBefore);
 
@@ -917,8 +982,9 @@ function run() {
   // nothing at all. Anything but a clean 0 means the system tests did not pass.
   // The Runs accounting never changes this: it is a report, not a check. A
   // trust key left in the owner's Codex config does: that is a check (#240).
-  // So is a project left in the owner's Orca (#536).
-  return result.status === 0 && !leftKeys && !leftProjects ? 0 : 1;
+  // So is a project left in the owner's Orca (#536), and a Pi session folder
+  // of the run's that could not be removed (#634).
+  return result.status === 0 && !leftKeys && !leftPi && !leftProjects ? 0 : 1;
 }
 
 process.exitCode = run();
