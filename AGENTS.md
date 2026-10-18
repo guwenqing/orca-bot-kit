@@ -14,12 +14,17 @@ work from a later slice into an earlier one.
 
 AssuredLoop keeps this project's requests and spec: before work that changes a promise, read the skill of al 0.1.0 and run `al context`.
 
-`al` is the npm package `@assuredloop/cli` at exactly `0.1.0`. Run it as
-`npx -y @assuredloop/cli@0.1.0 <args>`, wherever this file says `al`. Do not install
-it globally: the global `al` belongs to every project on the machine, and a newer one
-does not read this repo's records. The skill ships in the package, at
+`al` is the npm package `@assuredloop/cli` at exactly `0.1.0`. Wherever this file says
+`al`, run that version in one of two ways: through npx, as
+`npx -y @assuredloop/cli@0.1.0 <args>`, or from an install of its own in a folder that is
+not the global one, made with `npm install --prefix <dir> @assuredloop/cli@0.1.0` and run
+as `<dir>/node_modules/.bin/al <args>`. Do not install it globally: the global `al`
+belongs to every project on the machine, and a newer one does not read this repo's
+records. The skill ships in the package, at
 `@assuredloop/cli/skills/assuredloop/SKILL.md`; this prints it:
 `npx -y -p @assuredloop/cli@0.1.0 -c 'cat "$(dirname "$(command -v al)")/../@assuredloop/cli/skills/assuredloop/SKILL.md"'`.
+In an install of its own, the skill is
+`<dir>/node_modules/@assuredloop/cli/skills/assuredloop/SKILL.md`.
 CI runs `al check --strict` at that version on every pull request. The baseline is `docs/prd/` (`.assuredloop`); the
 decision records are `docs/adr/`.
 Every PR states its tier, in its commit message (`al check` reads it there) and the PR:
