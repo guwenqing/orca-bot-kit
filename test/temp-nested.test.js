@@ -56,6 +56,7 @@ import {
   orcaCallsOf,
   sentInto,
   sessionIn,
+  settingValuesOf,
   sh,
   skipGit,
   snapshot,
@@ -392,9 +393,9 @@ test('N4 on another harness than its temporary maker\'s, it takes only that make
   const fake = await fakeProgram(box, 'codex', {});
   const argv = await argvOf(box, line, fake);
   assert.ok(argv.join('\n').includes('-a\non-request'), `Codex asks, as drafter does: ${JSON.stringify(argv)}`);
-  const settings = argv.slice(0, -1).join(' ');
-  for (const word of [/\bsonnet\b/, /\bhigh\b/, /\b1m\b/, /gpt-6-sol/, /\blow\b/, /\b200000\b/]) {
-    assert.doesNotMatch(settings, word, `nothing of drafter's or nightly's settings on the launch line: ${JSON.stringify(argv)}`);
+  const settings = settingValuesOf(argv.slice(0, -1));
+  for (const word of ['sonnet', 'high', '1m', 'gpt-6-sol', 'low', '200000']) {
+    assert.ok(!settings.includes(word), `nothing of drafter's or nightly's ${word} on the launch line: ${JSON.stringify(argv)}`);
   }
 });
 
@@ -445,7 +446,10 @@ const HOLD_MS = 8000;
 /**
  * Hold a bot's book lock, the way another writer of the book does, until
  * `release` is called: the file SQLite locks, beside the bots folder in
- * `<bots>.locks/<bot>/<bot home's name>.lock` (#534), taken with `BEGIN IMMEDIATE`.
+ * `<bots>.locks/<bot>/<bot home's name>.lock` (#534), taken with `BEGIN IMMEDIATE`
+ * and let go with `ROLLBACK`, as src/book.js does. A make that waits for the
+ * lock can still hold SQLite's shared lock on the file; COMMIT would then fail
+ * at once, and ROLLBACK does not (#611, #628).
  */
 async function holdBookLock(bots, bot) {
   const file = path.join(`${bots}.locks`, bot, `${encodeURIComponent(bot)}.lock`);
@@ -455,7 +459,7 @@ async function holdBookLock(bots, bot) {
   return {
     release() {
       try {
-        db.exec('COMMIT');
+        db.exec('ROLLBACK');
       } finally {
         db.close();
       }

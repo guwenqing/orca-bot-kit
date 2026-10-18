@@ -19,6 +19,7 @@
 // here makes a Run appear mid-run without anything real being brought up.
 
 import assert from 'node:assert/strict';
+import { execFileSync, spawn } from 'node:child_process';
 import { lstatSync, realpathSync } from 'node:fs';
 import { chmod, copyFile, mkdir, readdir, readFile, readlink, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -4984,5 +4985,784 @@ describe('test-system: a Pi store the runner cannot read at the start, or cannot
     assert.ok(there(atHome.folder), `a folder in the default store stays: ${atHome.folder}`);
     assert.ok(everything(result).includes('pi-agent'), `the output says which value it could not place, got:\n${everything(result)}`);
     assert.notEqual(result.code, 0, `a store it cannot place fails the run:\n${everything(result)}`);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A hard time limit on the whole run (#653)
+// ---------------------------------------------------------------------------
+//
+// Every confirmed run has a hard time limit, 3600 seconds unless
+// `--limit=<n>` (a whole number from 1 to 3600) makes it shorter; the runner
+// says the limit it holds before any test runs. A test still running at the
+// limit less a grace (30 s, or half the limit under 60 s) is cancelled by
+// node's own test timeout, so its teardown runs. At the limit the whole
+// process tree the tests started is stopped. After a stop the runner still
+// does everything it does after a normal run, then exits 1 with a line that
+// names the limit in seconds. A signal to the runner itself (SIGINT, SIGTERM)
+// stops the tree the same way. A run that ends before the limit is as before.
+//
+// Each run here is started by the test itself and has an outer bound of its
+// own, so a stop that is missing fails the test rather than hanging it. The
+// fake system tests write down the pids of what they started, and anything of
+// theirs still alive after the test is killed by its own pid, once its command
+// line shows it is the test's.
+
+/** The longest any one run here may take: past it the test kills the runner itself, by its pid. */
+const OUTER_BOUND_MS = 30_000;
+
+/** How long after the runner exits its streams may stay open, held by what it left running, before the test cuts them. */
+const STREAMS_GRACE_MS = 2_000;
+
+/** A number of seconds, as a line names it: `4 s`, `4s`, `4 sec`, `4 seconds`, `4-second`, and not part of `14 s` or `0.4 s`. */
+const inSeconds = (n) => new RegExp(`(?<![\\w.-])${n}[ -]?(?:s|secs?|seconds?)\\b`, 'i');
+
+/**
+ * Start the runner as a process of this test's own, with these arguments,
+ * from the repo. Answers its pid, when it started, what it has printed so far,
+ * a way to send it a signal (to its own pid, never a group), and `done`: its
+ * code, signal and streams, how long it ran in ms, and whether the outer bound
+ * had to stop it. `nodeArgs` go to node before the script (a preload, say).
+ */
+function startRunner(fixture, args, { env = fixture.env, nodeArgs = [] } = {}) {
+  const box = path.dirname(fixture.repo);
+  // Every run here asks the fixture's fake Orca and lives in the sandbox's own HOME and temp folder.
+  assert.equal(env.OBK_ORCA, fixture.orcaPath, 'every run here must ask the fixture\'s fake Orca');
+  assert.ok(env.HOME.startsWith(`${box}${path.sep}`), `every run here must have the sandbox's HOME, got ${env.HOME}`);
+  assert.ok(env.TMPDIR.startsWith(`${box}${path.sep}`), `every run here must have the sandbox's temp folder, got ${env.TMPDIR}`);
+
+  const startedAt = Date.now();
+  const child = spawn(process.execPath, [...nodeArgs, path.join(fixture.repo, 'scripts', 'test-system.js'), ...args], {
+    cwd: fixture.repo,
+    env,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let stdout = '';
+  let stderr = '';
+  child.stdout.setEncoding('utf8');
+  child.stderr.setEncoding('utf8');
+  child.stdout.on('data', (chunk) => { stdout += chunk; });
+  child.stderr.on('data', (chunk) => { stderr += chunk; });
+  let outerBoundHit = false;
+  const bound = setTimeout(() => {
+    outerBoundHit = true;
+    child.kill('SIGKILL');
+  }, OUTER_BOUND_MS);
+
+  const done = new Promise((resolve, reject) => {
+    child.on('error', (error) => {
+      clearTimeout(bound);
+      reject(error);
+    });
+    child.on('exit', (code, signal) => {
+      clearTimeout(bound);
+      const ms = Date.now() - startedAt;
+      let finished = false;
+      let cut;
+      const finish = () => {
+        if (finished) return;
+        finished = true;
+        clearTimeout(cut);
+        resolve({ code, signal, ms, outerBoundHit, stdout, stderr });
+      };
+      // Whatever the runner left running may still hold its streams open.
+      cut = setTimeout(() => {
+        child.stdout.destroy();
+        child.stderr.destroy();
+        finish();
+      }, STREAMS_GRACE_MS);
+      child.on('close', finish);
+    });
+  });
+
+  return {
+    pid: child.pid,
+    startedAt,
+    done,
+    printed: () => stdout,
+    send: (name) => child.kill(name),
+  };
+}
+
+/** The run ended by itself, before the test's own outer bound had to stop it. */
+function assertEnded(result) {
+  assert.ok(
+    !result.outerBoundHit,
+    `the run should end by itself; the test's own ${OUTER_BOUND_MS / 1000} s bound had to stop it, got:\n${everything(result)}`,
+  );
+}
+
+/** What a run's fake system test wrote down of the processes it is part of and started, oldest first. */
+async function pidsIn(file) {
+  try {
+    return (await readFile(file, 'utf8')).split('\n').filter((line) => line !== '').map((line) => JSON.parse(line));
+  } catch (error) {
+    if (error.code === 'ENOENT') return [];
+    throw error;
+  }
+}
+
+/**
+ * What one pid is: null when no process has it (the kernel says ESRCH), or
+ * its state and command line as `ps` gives them. Signal 0 only asks whether
+ * the pid is there; it sends nothing. When the pid is there and `ps` cannot
+ * say what it is, or the answer is not one of those, that is not known, and
+ * this throws rather than call the process gone: the test fails with why.
+ */
+function psOf(pid) {
+  if (!Number.isInteger(pid) || pid <= 1) throw new Error(`${JSON.stringify(pid)} is not a pid this test can ask about`);
+  const there = () => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch (error) {
+      if (error.code === 'ESRCH') return false;
+      if (error.code === 'EPERM') return true;
+      throw new Error(`whether process ${pid} is there is not known: ${error.code ?? error.message}`);
+    }
+  };
+  if (!there()) return null;
+  let out;
+  let why = 'ps printed nothing for it';
+  try {
+    out = execFileSync('ps', ['-p', String(pid), '-o', 'stat=,command='], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  } catch (error) {
+    out = '';
+    why = `ps failed: ${error.code ?? `exit ${error.status}`} ${String(error.stderr ?? '').trim()}`.trim();
+  }
+  if (out === '') {
+    // ps finds nothing for a pid that has just gone; one that is still there is not known.
+    if (!there()) return null;
+    throw new Error(`process ${pid} is there, but what it is is not known (${why}), so the test cannot say whether it is running`);
+  }
+  const [stat, ...command] = out.split(/\s+/);
+  return { stat, command: command.join(' ') };
+}
+
+/** A process with this pid is running: there, and not a zombie waiting to be reaped. */
+function isRunning(pid) {
+  const found = psOf(pid);
+  return found !== null && !found.stat.startsWith('Z');
+}
+
+/** Wait up to `ms` for the process to be gone; answers whether it is. */
+async function goneWithin(pid, ms) {
+  const until = Date.now() + ms;
+  while (isRunning(pid)) {
+    if (Date.now() > until) return false;
+    await new Promise((resolve) => { setTimeout(resolve, 100); });
+  }
+  return true;
+}
+
+/** What a fake system test's child carries on its command line, so the test can tell it is its own. */
+const stubbornToken = (box) => `obk-653-stubborn:${box}`;
+
+/** What each role's command line must show before the test kills a leftover by its pid. */
+const OURS = {
+  child: (command, box) => command.includes(stubbornToken(box)),
+  file: (command) => command.includes('alpha.test.js'),
+  parent: (command) => command.includes('--test') || command.includes('test-system.js'),
+};
+
+/**
+ * After the test, kill by its own pid each process the fake system test wrote
+ * down that is still running and whose command line shows it is the test's:
+ * the child first, then the test file's process, then the one that started
+ * it. Never pid 1 or lower, and never this process. Each is printed first.
+ */
+function reapLater(t, pids, box) {
+  t.after(() => {
+    const unknown = [];
+    for (const { role, pid } of [...pids].reverse()) {
+      if (!Number.isInteger(pid) || pid <= 1 || pid === process.pid || pid === process.ppid) continue;
+      let found;
+      try {
+        found = psOf(pid);
+      } catch (error) {
+        // Not known to be gone, and not known to be the test's: left, and said.
+        unknown.push(`${role} ${pid}: ${error.message}`);
+        continue;
+      }
+      if (found === null || found.stat.startsWith('Z') || !OURS[role]?.(found.command, box)) continue;
+      process.stderr.write(`#653 test cleanup: killing the leftover ${role} ${pid}: ${found.command}\n`);
+      try {
+        process.kill(pid, 'SIGKILL');
+      } catch (error) {
+        if (error.code !== 'ESRCH') throw error;
+      }
+    }
+    if (unknown.length > 0) {
+      throw new Error(`the test could not tell whether these are still running, so it did not kill them; check them by hand:\n${unknown.join('\n')}`);
+    }
+  });
+}
+
+/** What the fake system test's child runs: it ignores SIGTERM and SIGINT and never ends. */
+const STUBBORN = "process.on('SIGTERM', () => {}); process.on('SIGINT', () => {}); setInterval(() => {}, 1000);";
+
+/**
+ * A system test file that never ends. It writes down, in `pids`, the pid of
+ * the process that started it (`parent`) and its own (`file`). With `leaves`
+ * it first leaves things behind as a real system test does: it makes the run's
+ * own folder, adds a Codex key, mints Runs and adds an Orca project in the
+ * fake's world. It prints `ALPHA`. With `child` it then starts a child that
+ * ignores SIGTERM and never ends, and writes its pid down (`child`). With
+ * `marks`, the test writes the time it starts (`start`) into that file, and
+ * its t.after and the file's after each write the time they ran. Then it
+ * waits for ever, or with `loop` it spins in a synchronous endless loop where
+ * no teardown can run.
+ */
+const hangs = ({ pids, child = null, loop = false, leaves = null, marks = null }) => [
+  "import { spawn } from 'node:child_process';",
+  "import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';",
+  "import { after, test } from 'node:test';",
+  '',
+  `const note = (role, pid) => appendFileSync(${JSON.stringify(pids)}, JSON.stringify({ role, pid }) + '\\n');`,
+  "note('parent', process.ppid);",
+  "note('file', process.pid);",
+  ...(marks ? [`after(() => appendFileSync(${JSON.stringify(marks)}, JSON.stringify({ hook: 'file', at: Date.now() }) + '\\n'));`] : []),
+  '',
+  "test('hangs', async (t) => {",
+  ...(marks ? [
+    `  appendFileSync(${JSON.stringify(marks)}, JSON.stringify({ hook: 'start', at: Date.now() }) + '\\n');`,
+    `  t.after(() => appendFileSync(${JSON.stringify(marks)}, JSON.stringify({ hook: 'test', at: Date.now() }) + '\\n'));`,
+  ] : []),
+  ...(leaves ? [
+    `  const leaves = ${JSON.stringify(leaves)};`,
+    '  mkdirSync(leaves.folder, { recursive: true });',
+    '  writeFileSync(leaves.codex.file, leaves.codex.text);',
+    `  const worldFile = process.env[${JSON.stringify(WORLD)}];`,
+    "  const world = JSON.parse(readFileSync(worldFile, 'utf8'));",
+    '  world.runs.push(...leaves.runs);',
+    '  world.setups.push(...leaves.setups);',
+    '  world.testsRan = true;',
+    '  writeFileSync(worldFile, JSON.stringify(world));',
+  ] : []),
+  "  process.stdout.write('ALPHA\\n');",
+  ...(child ? [
+    `  const kid = spawn(process.execPath, ['-e', ${JSON.stringify(STUBBORN)}, ${JSON.stringify(child)}], { stdio: 'ignore' });`,
+    "  note('child', kid.pid);",
+  ] : []),
+  ...(loop ? ['  for (;;) { /* no teardown can run */ }'] : ['  setInterval(() => {}, 1000);', '  await new Promise(() => {});']),
+  '});',
+  '',
+].join('\n');
+
+/**
+ * A fixture repo whose one system test never ends (`hangs`), with both
+ * harness configs under the sandbox's HOME and Runs already on the machine.
+ * `leaves: true` has the test leave a Codex key, two Runs and an Orca project
+ * under an obk-system folder it makes, so each check after the run has
+ * something of the run's to name. Answers the fixture, the env to run with
+ * (the machine's own CODEX_HOME and CLAUDE_CONFIG_DIR taken out), the config
+ * files, what the test leaves, and where it writes its pids and marks.
+ */
+async function withHang(t, { child = false, loop = false, leaves = false, marks = false } = {}) {
+  const fixture = await createRepo(t, { runs: ALREADY_THERE });
+  const box = path.dirname(fixture.repo);
+  const temp = tempSpellings(fixture);
+  const { CODEX_HOME: _codex, CLAUDE_CONFIG_DIR: _claude, ...env } = fixture.env;
+  const files = { codex: path.join(env.HOME, '.codex', 'config.toml'), claude: path.join(env.HOME, '.claude.json') };
+  await write(path.dirname(files.codex), 'config.toml', codexConfig({}));
+  await write(env.HOME, '.claude.json', claudeConfig([]));
+  const left = {
+    folder: `${temp.dir}/obk-system-alpha-Hl53`,
+    key: `${temp.real}/obk-system-alpha-Hl53/bots`,
+    setup: setupNamed(setupIdOf(653), `${temp.real}/obk-system-alpha-Hl53/bots/bots/bot-father`),
+  };
+  const pidsFile = path.join(box, 'pids.log');
+  const marksFile = path.join(box, 'marks.log');
+  await write(fixture.repo, 'test/system/alpha.test.js', hangs({
+    pids: pidsFile,
+    child: child ? stubbornToken(box) : null,
+    loop,
+    marks: marks ? marksFile : null,
+    leaves: leaves ? {
+      folder: left.folder,
+      codex: { file: files.codex, text: codexConfig({ projects: [left.key] }) },
+      runs: MINTED,
+      setups: [left.setup],
+    } : null,
+  }));
+  return { fixture, env, files, left, box, pidsFile, marksFile };
+}
+
+/** Before any test ran (before the test's own `ALPHA`), a line said the limit it holds, `seconds`. */
+function assertSaidTheLimitFirst(result, seconds) {
+  const at = result.stdout.indexOf('ALPHA');
+  assert.ok(at >= 0, `the test's own output should reach stdout, got:\n${everything(result)}`);
+  const before = result.stdout.slice(0, at);
+  assert.ok(
+    before.split('\n').some((line) => inSeconds(seconds).test(line)),
+    `before any test it should say the limit it holds, ${seconds} seconds, got:\n${before}`,
+  );
+}
+
+/**
+ * The lines, from the test's own `ALPHA` on and on stderr, that speak of the
+ * limit or the time and name `seconds`: where a line that the limit stopped
+ * the run would be. The announcement before the tests is not among them.
+ */
+function stopLines(result, seconds) {
+  const at = result.stdout.indexOf('ALPHA');
+  assert.ok(at >= 0, `the test's own output should reach stdout, got:\n${everything(result)}`);
+  return `${result.stdout.slice(at)}\n${result.stderr}`
+    .split('\n')
+    .filter((line) => /limit|time/i.test(line) && inSeconds(seconds).test(line));
+}
+
+/** A system test that takes about a second, prints ALPHA, and then passes or fails. */
+const takesASecond = ({ fails }) => [
+  "import test from 'node:test';",
+  '',
+  "test('takes a second', async () => {",
+  "  process.stdout.write('ALPHA\\n');",
+  '  await new Promise((resolve) => { setTimeout(resolve, 1000); });',
+  ...(fails ? ["  throw new Error('ALPHA failed');"] : []),
+  '});',
+  '',
+].join('\n');
+
+/**
+ * `--limit` values that are refused, each with why. Each is the list of
+ * arguments after the confirmation.
+ */
+const LIMITS_REFUSED = [
+  ['zero', ['--limit=0']],
+  ['a negative number', ['--limit=-5']],
+  ['one over 3600', ['--limit=3601']],
+  ['not a number', ['--limit=abc']],
+  ['not a whole number', ['--limit=1.5']],
+  ['empty', ['--limit=']],
+  ['no "="', ['--limit']],
+  ['the same limit given twice', ['--limit=60', '--limit=60']],
+  ['two limits', ['--limit=60', '--limit=30']],
+];
+
+/**
+ * A system test file whose test, with `child`, starts a child that is not
+ * detached, so it stays in the test's process group, unrefs it, and writes its
+ * pid down: the child ignores SIGTERM and SIGINT and never ends, and nothing
+ * waits for it. The file writes down its own pid and its parent's as `hangs`
+ * does, and prints `ALPHA`. With `waits` the test then waits on an interval
+ * that its t.after clears, so once node's own timeout cancels it nothing keeps
+ * the file running and node --test ends by itself; without it, it passes at
+ * once. Without `child` it is the same test, leaving nothing behind.
+ */
+const leavesAChild = ({ pids, child = null, waits = false }) => [
+  "import { spawn } from 'node:child_process';",
+  "import { appendFileSync } from 'node:fs';",
+  "import { test } from 'node:test';",
+  '',
+  `const note = (role, pid) => appendFileSync(${JSON.stringify(pids)}, JSON.stringify({ role, pid }) + '\\n');`,
+  "note('parent', process.ppid);",
+  "note('file', process.pid);",
+  '',
+  "test('alpha', async (t) => {",
+  ...(child ? [
+    `  const kid = spawn(process.execPath, ['-e', ${JSON.stringify(STUBBORN)}, ${JSON.stringify(child)}], { stdio: 'ignore' });`,
+    '  kid.unref();',
+    "  note('child', kid.pid);",
+  ] : []),
+  "  process.stdout.write('ALPHA\\n');",
+  ...(waits ? [
+    '  const timer = setInterval(() => {}, 1000);',
+    '  t.after(() => clearInterval(timer));',
+    '  await new Promise(() => {});',
+  ] : []),
+  '});',
+  '',
+].join('\n');
+
+/** A fixture repo whose one system test is `leavesAChild`; answers it with where the pids are written. */
+async function withAChildLeft(t, { child = true, waits = false } = {}) {
+  const fixture = await createRepo(t);
+  const box = path.dirname(fixture.repo);
+  const pidsFile = path.join(box, 'pids.log');
+  await write(fixture.repo, 'test/system/alpha.test.js', leavesAChild({ pids: pidsFile, child: child ? stubbornToken(box) : null, waits }));
+  return { fixture, box, pidsFile };
+}
+
+/**
+ * What a run printed from the test's own `ALPHA` on, and on stderr, as a set
+ * of lines with what differs from one run to the next taken out: the
+ * sandbox's paths in both spellings, the backup folder's name and every
+ * number. Two runs of the same test in two sandboxes then print the same set.
+ */
+function linesAfterTheTests(result, fixture) {
+  const at = result.stdout.indexOf('ALPHA');
+  assert.ok(at >= 0, `the test's own output should reach stdout, got:\n${everything(result)}`);
+  const box = path.dirname(fixture.repo);
+  const spellings = [...new Set([box, box.replace(/^\/private(?=\/)/, ''), `/private${box.replace(/^\/private(?=\/)/, '')}`])];
+  return new Set(`${result.stdout.slice(at)}\n${result.stderr}`
+    .split('\n')
+    .map((line) => {
+      let plain = line;
+      for (const spelling of spellings) plain = plain.split(spelling).join('<box>');
+      return plain.replace(/obk-config-backup-[A-Za-z0-9]+/g, 'obk-config-backup-<x>').replace(/\d+(?:\.\d+)?/g, 'N').trim();
+    })
+    .filter((line) => line !== ''));
+}
+
+/**
+ * A preload for the runner that makes node itself impossible to start again:
+ * process.execPath names a file that does not exist, so the runner's own
+ * spawn of node --test fails (ENOENT) and no test can run. Only the runner's
+ * process has it; the fake Orca, a script of its own, is not touched.
+ */
+const NO_NODE = (missing) => `process.execPath = ${JSON.stringify(missing)};\n`;
+
+/**
+ * stdout after the `Config backup:` line and the lines under it: what the
+ * runner says once it has made its backup, when no test printed anything to
+ * mark where the tests were. The announcement and the backup's own lines,
+ * which name the configs and say what is not there, are not in it.
+ */
+function afterTheBackup(result) {
+  const lines = result.stdout.split('\n');
+  const at = lines.findIndex((line) => line.startsWith('Config backup: '));
+  assert.ok(at >= 0, `stdout should have the line \`Config backup: <folder>\`, got:\n${everything(result)}`);
+  let end = at + 1;
+  while (end < lines.length && /^\s+\S/.test(lines[end])) end += 1;
+  return lines.slice(end).join('\n');
+}
+
+describe('test-system: a hard time limit on the whole run (#653)', { concurrency: true }, () => {
+  // L1
+  test('a confirmed run with no --limit says, before any test runs, that it holds 3600 seconds', async (t) => {
+    const fixture = await createRepo(t);
+
+    const result = await startRunner(fixture, [CONFIRM]).done;
+
+    assertEnded(result);
+    assert.equal(result.code, 0, everything(result));
+    assertSaidTheLimitFirst(result, 3600);
+  });
+
+  // L1, L2
+  test('with --limit=4 it says, before any test runs, that it holds 4 seconds, and a quick run passes', async (t) => {
+    const fixture = await createRepo(t);
+
+    const result = await startRunner(fixture, [CONFIRM, '--limit=4']).done;
+
+    assertEnded(result);
+    assert.equal(result.code, 0, everything(result));
+    assertSaidTheLimitFirst(result, 4);
+  });
+
+  // L2
+  describe('a --limit that is not a whole number from 1 to 3600 is refused: the flag named, not 0, no test run, no backup', { concurrency: true }, () => {
+    for (const [what, args] of LIMITS_REFUSED) {
+      test(`${what} (${args.join(' ')}) is refused`, async (t) => {
+        const { fixture, env } = await withConfigsAndOrca(t, { files: { 'test/system/alpha.test.js': tallies('ALPHA') } });
+
+        const refused = await startRunner(fixture, [CONFIRM, ...args], { env }).done;
+
+        assertEnded(refused);
+        assert.notEqual(refused.code, 0, `${args.join(' ')} should be refused, got:\n${everything(refused)}`);
+        assert.ok(!/^\s+at /m.test(everything(refused)), `expected a message, got a crash:\n${everything(refused)}`);
+        assert.ok(everything(refused).includes('--limit'), `the refusal should name --limit, got:\n${everything(refused)}`);
+        assert.deepEqual(await ranIn(fixture), [], `no test should have run, got:\n${everything(refused)}`);
+        await assertNoBackup(refused, env.TMPDIR, args.join(' '));
+
+        // The same repo with a limit it takes: the test runs and a backup is
+        // made, so the silence above was the refusal's doing.
+        const accepted = await startRunner(fixture, [CONFIRM, '--limit=60'], { env }).done;
+
+        assertEnded(accepted);
+        assert.equal(accepted.code, 0, everything(accepted));
+        assert.deepEqual(await ranIn(fixture), ['ALPHA']);
+        backupSaid(accepted);
+      });
+    }
+
+    test('`--limit 600` with a space is still refused: no test run, no backup', async (t) => {
+      const { fixture, env } = await withConfigsAndOrca(t, { files: { 'test/system/alpha.test.js': tallies('ALPHA') } });
+
+      const refused = await startRunner(fixture, [CONFIRM, '--limit', '600'], { env }).done;
+
+      assertEnded(refused);
+      assert.notEqual(refused.code, 0, `--limit 600 should be refused, got:\n${everything(refused)}`);
+      assert.ok(!/^\s+at /m.test(everything(refused)), `expected a message, got a crash:\n${everything(refused)}`);
+      assert.deepEqual(await ranIn(fixture), [], `no test should have run, got:\n${everything(refused)}`);
+      await assertNoBackup(refused, env.TMPDIR, '--limit 600');
+    });
+  });
+
+  // L2: the bounds themselves are taken.
+  test('--limit=3600 and --limit=1 are taken: each run says its limit and makes its backup', async (t) => {
+    const { fixture, env } = await withConfigsAndOrca(t, { files: { 'test/system/alpha.test.js': marker('ALPHA') } });
+
+    const most = await startRunner(fixture, [CONFIRM, '--limit=3600'], { env }).done;
+
+    assertEnded(most);
+    assert.equal(most.code, 0, everything(most));
+    assertSaidTheLimitFirst(most, 3600);
+    backupSaid(most);
+
+    // A 1-second limit may stop even a quick test; what shows it was taken is
+    // that the run went on to say its limit and make its backup.
+    const least = await startRunner(fixture, [CONFIRM, '--limit=1'], { env }).done;
+
+    assertEnded(least);
+    backupSaid(least);
+    assert.ok(
+      least.stdout.split('\n').some((line) => inSeconds(1).test(line)),
+      `it should say the limit it holds, 1 second, got:\n${everything(least)}`,
+    );
+  });
+
+  // L3
+  test('with --limit=4 a test still running at 2 s is cancelled by node\'s own timeout, and its t.after and the file\'s after run before the limit', async (t) => {
+    const { fixture, env, box, pidsFile, marksFile } = await withHang(t, { marks: true });
+
+    const run = startRunner(fixture, [CONFIRM, '--limit=4'], { env });
+    const result = await run.done;
+    reapLater(t, await pidsIn(pidsFile), box);
+
+    assertEnded(result);
+    const ended = run.startedAt + result.ms;
+    const marks = await pidsIn(marksFile);
+    // The test's own start is the clock node's timeout counts from; the
+    // runner's setup before it takes as long as the machine makes it take.
+    const start = marks.find((one) => one.hook === 'start');
+    assert.ok(start, `the test should have started, got marks ${JSON.stringify(marks)}:\n${everything(result)}`);
+    for (const hook of ['test', 'file']) {
+      const mark = marks.find((one) => one.hook === hook);
+      // A process the hard stop kills, by any signal, runs no after hook and
+      // writes nothing: a mark is a teardown node's own cancel ran, before it.
+      assert.ok(mark, `the ${hook === 'test' ? 'test\'s t.after' : 'file\'s after'} should have run, got marks ${JSON.stringify(marks)}:\n${everything(result)}`);
+      // About 2 s after the test started: not at once, and before 4 s, which
+      // the limit, counted from earlier than the test's start, is not past.
+      const sinceStart = mark.at - start.at;
+      assert.ok(
+        sinceStart >= 1000 && sinceStart < 4000,
+        `the ${hook} teardown should run when node's timeout cancels the test, about 2 s after it started; ran ${sinceStart} ms after it started`,
+      );
+      assert.ok(mark.at <= ended, `the ${hook} teardown should run before the run ended, ran ${mark.at - ended} ms after it`);
+    }
+  });
+
+  // L4 (a)
+  test('with --limit=4 a test that never ends and whose child ignores SIGTERM: the run ends soon after 4 s and the child is no longer alive', async (t) => {
+    const { fixture, env, box, pidsFile } = await withHang(t, { child: true });
+
+    const result = await startRunner(fixture, [CONFIRM, '--limit=4'], { env }).done;
+    const pids = await pidsIn(pidsFile);
+    reapLater(t, pids, box);
+
+    const child = pids.find((one) => one.role === 'child');
+    assert.ok(child, `the test should have started its child, got pids ${JSON.stringify(pids)}:\n${everything(result)}`);
+    assertEnded(result);
+    assert.ok(result.ms < 9000, `the run should end within a few seconds after the 4 s limit, ended at ${result.ms} ms`);
+    assert.ok(await goneWithin(child.pid, 3000), `the test's child ${child.pid}, which ignores SIGTERM, should no longer be alive after the run`);
+  });
+
+  // L4 (b)
+  test('with --limit=4 a test stuck in a synchronous endless loop: the run still ends, at about 4 s, and the test\'s process is no longer alive', async (t) => {
+    const { fixture, env, box, pidsFile } = await withHang(t, { loop: true });
+
+    const result = await startRunner(fixture, [CONFIRM, '--limit=4'], { env }).done;
+    const pids = await pidsIn(pidsFile);
+    reapLater(t, pids, box);
+
+    const file = pids.find((one) => one.role === 'file');
+    assert.ok(file, `the test file should have written its pid, got pids ${JSON.stringify(pids)}:\n${everything(result)}`);
+    assertEnded(result);
+    assert.ok(result.ms >= 3000 && result.ms < 9000, `the run should end at about the 4 s limit, ended at ${result.ms} ms`);
+    assert.ok(await goneWithin(file.pid, 3000), `the looping test's process ${file.pid} should no longer be alive after the run`);
+  });
+
+  // L5
+  for (const [how, options] of [['waits for ever', {}], ['spins in a synchronous loop', { loop: true }]]) {
+    test(`after the limit stops a test that ${how}: the Runs report, the config-key check, the backup compare and the projects check, then exit 1 with a line that names 4 s`, async (t) => {
+      const { fixture, env, files, left, box, pidsFile } = await withHang(t, { ...options, leaves: true });
+
+      const result = await startRunner(fixture, [CONFIRM, '--limit=4'], { env }).done;
+      reapLater(t, await pidsIn(pidsFile), box);
+
+      assertEnded(result);
+      assert.equal(result.code, 1, everything(result));
+      // The Runs report: the Runs the test minted are named, those already there are not.
+      const report = afterTheRun(result);
+      for (const run of MINTED) assert.ok(report.includes(run.id), `the Runs report should name ${run.id}, got:\n${report}`);
+      for (const run of ALREADY_THERE) assert.ok(!report.includes(run.id), `${run.id} was there before the run, got:\n${report}`);
+      // The config-key check names the run's key.
+      assertNamed(result, left.key, 'the Codex key the stopped test added');
+      // The compare with the backup: one line for each config.
+      const compared = comparison(result, backupSaid(result).dir);
+      for (const live of [files.codex, files.claude]) {
+        assert.equal(compared.filter((line) => line.includes(live)).length, 1, `the compare should have one line for ${live}, got:\n${compared.join('\n')}`);
+      }
+      // The projects check names the project the test left.
+      assertLeftNamed(result, left.setup);
+      // And a line says the time limit stopped the run, naming it in seconds.
+      assert.ok(stopLines(result, 4).length > 0, `a line should say the 4 s time limit stopped the run, got:\n${everything(result)}`);
+    });
+  }
+
+  // L6
+  test('with no --limit a run that ends by itself is as before: 0 for a pass, 1 for a failure, and no line that the limit stopped it', async (t) => {
+    for (const fails of [false, true]) {
+      const fixture = await createRepo(t, { files: { 'test/system/alpha.test.js': takesASecond({ fails }) } });
+
+      const result = await startRunner(fixture, [CONFIRM]).done;
+
+      assertEnded(result);
+      assert.equal(result.code, fails ? 1 : 0, everything(result));
+      assert.deepEqual(stopLines(result, 3600), [], `no line should say the limit stopped the run, got:\n${everything(result)}`);
+    }
+  });
+
+  // L6
+  test('with --limit=10 a test that takes a second is not stopped: 0 for a pass, 1 for a failure, and no line that the limit stopped it', async (t) => {
+    for (const fails of [false, true]) {
+      const fixture = await createRepo(t, { files: { 'test/system/alpha.test.js': takesASecond({ fails }) } });
+
+      const result = await startRunner(fixture, [CONFIRM, '--limit=10']).done;
+
+      assertEnded(result);
+      assert.equal(result.code, fails ? 1 : 0, everything(result));
+      assert.match(result.stdout, /ALPHA/);
+      assert.deepEqual(stopLines(result, 10), [], `no line should say the limit stopped the run, got:\n${everything(result)}`);
+    }
+  });
+
+  // L7
+  for (const name of ['SIGINT', 'SIGTERM']) {
+    test(`${name} to the runner during the tests stops the whole tree: the child that ignores SIGTERM is gone, every check after the run is printed, and it does not exit 0`, async (t) => {
+      const { fixture, env, files, left, box, pidsFile } = await withHang(t, { child: true, leaves: true });
+
+      // No --limit: the default 3600 s cannot be what stops it.
+      const runner = startRunner(fixture, [CONFIRM], { env });
+      // The signal goes only once the test has written its child's pid, and
+      // its own output has reached the runner's stdout.
+      const until = Date.now() + 15_000;
+      let child;
+      while (Date.now() < until) {
+        child = (await pidsIn(pidsFile)).find((one) => one.role === 'child');
+        if (child && runner.printed().includes('ALPHA')) break;
+        await new Promise((resolve) => { setTimeout(resolve, 100); });
+      }
+      const ready = child !== undefined && runner.printed().includes('ALPHA');
+      if (ready) runner.send(name);
+      const result = await runner.done;
+      const pids = await pidsIn(pidsFile);
+      reapLater(t, pids, box);
+
+      assert.ok(ready, `the test should have started its child and printed ALPHA within 15 s, got pids ${JSON.stringify(pids)}:\n${everything(result)}`);
+      assertEnded(result);
+      assert.notEqual(result.code, 0, `a run stopped by ${name} must not exit 0, got:\n${everything(result)}`);
+      assert.ok(await goneWithin(child.pid, 3000), `the test's child ${child.pid}, which ignores SIGTERM, should no longer be alive after ${name}`);
+      const report = afterTheRun(result);
+      for (const run of MINTED) assert.ok(report.includes(run.id), `the Runs report should name ${run.id}, got:\n${report}`);
+      assertNamed(result, left.key, 'the Codex key the stopped test added');
+      const compared = comparison(result, backupSaid(result).dir);
+      for (const live of [files.codex, files.claude]) {
+        assert.equal(compared.filter((line) => line.includes(live)).length, 1, `the compare should have one line for ${live}, got:\n${compared.join('\n')}`);
+      }
+      assertLeftNamed(result, left.setup);
+    });
+  }
+
+  // L8 (a), the review's case
+  test('with --limit=4, a test cancelled at about 2 s that left an unref\'d child in its process group, and that lets node --test end by itself: the child is no longer alive after the run', async (t) => {
+    const { fixture, box, pidsFile } = await withAChildLeft(t, { waits: true });
+
+    const result = await startRunner(fixture, [CONFIRM, '--limit=4']).done;
+    const pids = await pidsIn(pidsFile);
+    reapLater(t, pids, box);
+
+    const child = pids.find((one) => one.role === 'child');
+    assert.ok(child, `the test should have started its child, got pids ${JSON.stringify(pids)}:\n${everything(result)}`);
+    assertEnded(result);
+    assert.ok(await goneWithin(child.pid, 3000), `the child ${child.pid} the test left in its process group should no longer be alive after the run`);
+  });
+
+  // L8 (b)
+  test('a passing run whose test left an unref\'d child in its process group: the child is no longer alive, the run exits 0, and it prints a line that a run with no such child does not', async (t) => {
+    const left = await withAChildLeft(t);
+    const clean = await withAChildLeft(t, { child: false });
+
+    const result = await startRunner(left.fixture, [CONFIRM]).done;
+    const pids = await pidsIn(left.pidsFile);
+    reapLater(t, pids, left.box);
+    const control = await startRunner(clean.fixture, [CONFIRM]).done;
+    reapLater(t, await pidsIn(clean.pidsFile), clean.box);
+
+    const child = pids.find((one) => one.role === 'child');
+    assert.ok(child, `the test should have started its child, got pids ${JSON.stringify(pids)}:\n${everything(result)}`);
+    assertEnded(result);
+    assertEnded(control);
+    assert.ok(await goneWithin(child.pid, 3000), `the child ${child.pid} the test left in its process group should no longer be alive after the run`);
+    assert.equal(result.code, 0, `stopping what the tests left does not change the exit status of a run whose tests passed:\n${everything(result)}`);
+    assert.equal(control.code, 0, everything(control));
+    // The line that says it stopped processes is one that the run with no
+    // child left does not print; and that run prints nothing (b) does not.
+    const withChild = linesAfterTheTests(result, left.fixture);
+    const without = linesAfterTheTests(control, clean.fixture);
+    const extra = [...withChild].filter((line) => !without.has(line));
+    assert.ok(extra.length > 0, `the run should say in a line that it stopped processes, got:\n${everything(result)}`);
+    assert.deepEqual([...without].filter((line) => !withChild.has(line)), [], `a run with no child left should print no line the run with one does not, got:\n${everything(control)}`);
+  });
+
+  // L9
+  test('when node --test cannot be started at all (ENOENT), the runner still prints the Runs report, the config-key check, the backup compare and the projects check, says the tests could not be started, and exits not 0 without a crash', async (t) => {
+    const live = { id: 'run_appeared653', objective: 'obk somebody/else', created_at: '2026-10-18T12:00:00Z' };
+    const fixture = await createRepo(t, {
+      runs: ALREADY_THERE,
+      appearsDuring: [live],
+      files: { 'test/system/alpha.test.js': tallies('ALPHA') },
+    });
+    const box = path.dirname(fixture.repo);
+    const { CODEX_HOME: _codex, CLAUDE_CONFIG_DIR: _claude, ...env } = fixture.env;
+    const files = { codex: path.join(env.HOME, '.codex', 'config.toml'), claude: path.join(env.HOME, '.claude.json') };
+    await write(path.dirname(files.codex), 'config.toml', codexConfig({}));
+    await write(env.HOME, '.claude.json', claudeConfig([]));
+    const preload = path.join(box, 'no-node.mjs');
+    await writeFile(preload, NO_NODE(path.join(box, 'no-such-node')));
+
+    const result = await startRunner(fixture, [CONFIRM], { env, nodeArgs: ['--import', pathToFileURL(preload).href] }).done;
+
+    assertEnded(result);
+    assert.equal(result.signal, null, `it should exit, not die: ${result.signal}`);
+    assert.notEqual(result.code, 0, `a run whose tests could not be started must not exit 0, got:\n${everything(result)}`);
+    assert.ok(!/^\s+at /m.test(result.stderr), `it should not crash with an unhandled error, got:\n${result.stderr}`);
+    assert.doesNotMatch(result.stderr, /Unhandled 'error' event/, `it should not crash with an unhandled error, got:\n${result.stderr}`);
+    assert.deepEqual(await ranIn(fixture), [], 'no system test could have run');
+    const report = afterTheBackup(result);
+    // A line says the tests could not be started.
+    assert.ok(
+      `${report}\n${result.stderr}`.split('\n').some((line) => /\btests?\b|node --test/i.test(line) && /could ?n[o']t|cannot|can't|unable|fail|not (?:be )?started/i.test(line)),
+      `a line should say the tests could not be started, got:\n${everything(result)}`,
+    );
+    // The Runs report names the Run that appeared.
+    assert.ok(report.includes(live.id), `the Runs report should name ${live.id}, got:\n${report}`);
+    // The config-key check speaks of the configs, apart from the compare's lines.
+    assert.ok(
+      report.split('\n').some((line) => /harness|config/i.test(line) && !line.includes(files.codex) && !line.includes(files.claude) && /\b(?:no|none|nothing)\b|\bkeys?\b/i.test(line)),
+      `a line should give the config-key check, got:\n${report}`,
+    );
+    // The compare with the backup: a line naming the backup folder, and one line for each config, the same as before.
+    const dir = backupSaid(result).dir;
+    const lines = report.split('\n');
+    const header = lines.findIndex((line) => line.includes(dir) && /compar/i.test(line));
+    assert.ok(header >= 0, `a line should say what is compared with the backup in ${dir}, got:\n${report}`);
+    const compared = [];
+    for (const line of lines.slice(header + 1)) {
+      if (!/^\s+\S/.test(line)) break;
+      compared.push(line);
+    }
+    for (const live of [files.codex, files.claude]) {
+      const mine = compared.filter((line) => line.includes(live));
+      assert.equal(mine.length, 1, `the compare should have one line for ${live}, got:\n${compared.join('\n')}`);
+      assert.ok(VERDICTS.same(mine[0]), `${live} is as it was, got: ${mine[0]}`);
+    }
+    // The projects check speaks.
+    assert.ok(
+      unwrapped(report).split(/(?<=[.!?])\s+/).some((sentence) => /\bprojects?\b/i.test(sentence)),
+      `a sentence should give the projects check, got:\n${report}`,
+    );
   });
 });

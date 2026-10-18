@@ -328,7 +328,9 @@ numbered list, answered with `2. Not now`, and on 2.1.289 it is one again:
 selection on 1. Yes (seen live, not answered, in #489). The kit goes down to
 2. Not now, reads the screen, and only then returns. On 2.1.302 it is the
 form again, with `Also scan shell history` on `false` and a foot that starts
-`←/→ to change` (seen live in #604); the kit sends it Esc too. Codex's hooks
+`←/→ to change` (seen live in #604), and later with it on `true` (#646). The
+values of its three settings can differ, and the kit sends it Esc whatever
+they are. Codex's hooks
 question matters most. The kit's hook is how the book learns which
 conversation the session is running, and until it is answered the
 conversation has not started. Codex's trust applies to the repository root,

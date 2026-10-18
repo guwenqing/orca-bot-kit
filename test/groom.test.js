@@ -60,6 +60,7 @@ import {
   skipGit,
   snapshot,
   spellingsOf,
+  withoutSandbox,
 } from './helpers/cli.js';
 import { CLAUDE_FEEDBACK_PANEL, CLAUDE_FEEDBACK_PANEL_GONE, CLAUDE_TEACH_LIST, CLAUDE_TEACH_LIST_GONE } from './helpers/screens.js';
 
@@ -1209,7 +1210,7 @@ test('G8 --now asks for one grooming run now, the run a job would do, and schedu
   }
   assertNamesCli(box, line);
   assert.ok(line.includes(bots), `and which bots folder it grooms, ${bots}, got: ${line}`);
-  assert.doesNotMatch(line, /CronCreate/, `a run now schedules nothing, got: ${line}`);
+  assert.doesNotMatch(withoutSandbox(box, line), /CronCreate/, `a run now schedules nothing, got: ${line}`);
   assert.equal(answer.groom.asked, 'now');
 });
 

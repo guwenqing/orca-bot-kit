@@ -62,6 +62,7 @@ import {
   orcaFlag,
   recordSession,
   sessionIn,
+  settingValuesOf,
   sh,
   skipGit,
   snapshot,
@@ -559,7 +560,7 @@ test('TM9 a session made on a harness other than the maker\'s takes only its app
   const argv = await argvOf(box, line, fake);
   assert.ok(argv.join('\n').includes('-a\non-request'), `Codex asks, as planner does: ${JSON.stringify(argv)}`);
   for (const claude of ['opus', 'xhigh', '1m']) {
-    assert.ok(!argv.some((word) => word.includes(claude)), `nothing of planner's ${claude} on the launch line: ${JSON.stringify(argv)}`);
+    assert.ok(!settingValuesOf(argv).includes(claude), `nothing of planner's ${claude} on the launch line: ${JSON.stringify(argv)}`);
   }
 });
 
@@ -781,7 +782,10 @@ const everything = (box) => snapshot(box.cwd, (rel) => rel === 'bots/.git' || re
 /**
  * Hold a bot's book lock, the way another writer of the book does, until
  * `release` is called: the file SQLite locks, beside the bots folder in
- * `<bots>.locks/<bot>/<bot home's name>.lock` (#534), taken with `BEGIN IMMEDIATE`.
+ * `<bots>.locks/<bot>/<bot home's name>.lock` (#534), taken with `BEGIN IMMEDIATE`
+ * and let go with `ROLLBACK`, as src/book.js does. A make that waits for the
+ * lock can still hold SQLite's shared lock on the file; COMMIT would then fail
+ * at once, and ROLLBACK does not (#611, #628).
  */
 async function holdBookLock(bots, bot) {
   const file = path.join(`${bots}.locks`, bot, `${encodeURIComponent(bot)}.lock`);
@@ -791,7 +795,7 @@ async function holdBookLock(bots, bot) {
   return {
     release() {
       try {
-        db.exec('COMMIT');
+        db.exec('ROLLBACK');
       } finally {
         db.close();
       }

@@ -69,6 +69,7 @@ import {
   tokenless,
   tokenlessWord,
   typedInto,
+  withoutSandbox,
   workDirByHand,
 } from './helpers/cli.js';
 import { addSession } from './helpers/permissions.js';
@@ -732,7 +733,7 @@ test('a session whose book holds the bare name gets an address of its own at its
   const again = await up(box);
 
   const line = again.typed[0];
-  assert.ok(!line.includes('--resume'), `a fresh start, got: ${line}`);
+  assert.ok(!withoutSandbox(box, line).includes('--resume'), `a fresh start, got: ${line}`);
   assert.match(String(nameOnLine(line)), addressPattern('api-bot', 'daily'), `got: ${line}`);
   assert.equal((await sessionIn(bots, 'api-bot', 'daily')).address, nameOnLine(line), 'and the book holds what the line carried');
 });
@@ -748,7 +749,7 @@ test('a session the book holds no id for comes up fresh, with its start prompt',
   const again = await up(box);
 
   assert.deepEqual(again.typed, [`${bareLaunch(box, 'codex', 'api-bot', 'daily')} -- '${PROMPT}'`]);
-  assert.ok(!again.typed[0].includes('resume'), `there is nothing to resume, got: ${again.typed[0]}`);
+  assert.ok(!withoutSandbox(box, again.typed[0]).includes('resume'), `there is nothing to resume, got: ${again.typed[0]}`);
 });
 
 test('a session whose tab is still open is left alone, id in the book or not', async (t) => {

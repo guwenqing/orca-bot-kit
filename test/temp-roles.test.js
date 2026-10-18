@@ -38,7 +38,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { createSandbox, fakeProgram, typedInto } from './helpers/cli.js';
+import { createSandbox, fakeProgram, settingValuesOf, typedInto } from './helpers/cli.js';
 import {
   answerIn,
   argvOf,
@@ -112,7 +112,7 @@ test('R1 a Codex option made from a Claude maker: the option\'s harness, model, 
   for (const part of ['-a\non-request', '-m\ngpt-6.1-sol', '-c\nmodel_reasoning_effort=xhigh', '-c\nmodel_context_window=400000']) {
     assert.ok(words.includes(part), `Codex is given ${part.replaceAll('\n', ' ')}, got: ${JSON.stringify(argv)}`);
   }
-  assert.ok(!argv.slice(0, -1).some((word) => /opus|\b1m\b/.test(word)), `nothing of planner's Claude settings, got: ${JSON.stringify(argv)}`);
+  assert.ok(!settingValuesOf(argv.slice(0, -1)).some((value) => ['opus', '1m'].includes(value)), `nothing of planner's Claude settings, got: ${JSON.stringify(argv)}`);
 });
 
 // ------------------------------------------------------- R3 a flag wins

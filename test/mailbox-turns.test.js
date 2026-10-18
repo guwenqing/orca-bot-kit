@@ -550,7 +550,9 @@ const turnFile = (bots, bot, session) => turnLockFile(bots, bot, session, 'mailb
  * SQLite write transaction on the turn's file, as the kit's own is. The only
  * way to have a turn held for as long as a test needs. Let go inside the test
  * itself, because the sandbox is removed before a `t.after` of the test's own
- * would run.
+ * would run. Let go with `ROLLBACK`, as src/book.js does: a command that waits
+ * for the turn can still hold SQLite's shared lock on the file; COMMIT would
+ * then fail at once, and ROLLBACK does not (#611, #628).
  */
 async function withTurnHeld(bots, bot, session, body) {
   const file = turnFile(bots, bot, session);
@@ -561,7 +563,7 @@ async function withTurnHeld(bots, bot, session, body) {
   const release = () => {
     if (!held) return;
     held = false;
-    db.exec('COMMIT');
+    db.exec('ROLLBACK');
     db.close();
   };
   try {
