@@ -4293,10 +4293,13 @@ describe('test-system: the runner tells its tests which files the run named (OBK
 const piFolderName = (real) => `--${real.replace(/^\//, '').replaceAll(/[/\\:]/g, '-')}--`;
 
 /**
- * A system test file that, while it runs, makes `folders` (with a file in
- * each), writes `files`, makes `links` ({ link, to }), and then takes the write
- * bit off each folder in `locks`. It prints its marker, and fails afterwards
- * when `thenFails` says so.
+ * A system test file that, while it runs, makes `folders` as Pi would, each
+ * { folder, cwd, make }: the working folder `cwd` first when `make` says so,
+ * as a system test makes its own, then the Pi folder with one session file in
+ * it, named <stamp>_<uuid>.jsonl, whose first line is Pi's header with that
+ * cwd. Then it writes `files`, makes `links` ({ link, to }), and takes the
+ * write bit off each folder in `locks`. It prints its marker, and fails
+ * afterwards when `thenFails` says so.
  */
 const writesPiStore = (name, { folders = [], files = [], links = [], locks = [], thenFails = false } = {}) => [
   "import { chmodSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs';",
@@ -4304,9 +4307,12 @@ const writesPiStore = (name, { folders = [], files = [], links = [], locks = [],
   "import test from 'node:test';",
   '',
   `test(${JSON.stringify(name)}, () => {`,
-  `  for (const folder of ${JSON.stringify(folders)}) {`,
+  `  for (const { folder, cwd, make } of ${JSON.stringify(folders)}) {`,
+  '    if (make) mkdirSync(cwd, { recursive: true });',
   '    mkdirSync(folder, { recursive: true });',
-  "    writeFileSync(path.join(folder, '2026-10-18T01-02-03-004Z_run-id.jsonl'), '{\"type\":\"session\"}\\n');",
+  "    const id = '3f1c2a9e-5b7d-4c8e-9a01-23456789abcd';",
+  "    const header = { type: 'session', version: 3, id, timestamp: '2026-10-18T01:02:03.004Z', cwd };",
+  "    writeFileSync(path.join(folder, `2026-10-18T01-02-03-004Z_${id}.jsonl`), `${JSON.stringify(header)}\\n`);",
   '  }',
   `  for (const { file, text } of ${JSON.stringify(files)}) {`,
   '    mkdirSync(path.dirname(file), { recursive: true });',
@@ -4329,7 +4335,11 @@ const writesPiStore = (name, { folders = [], files = [], links = [], locks = [],
  * variable to the empty string, and 'unset' leaves it out; the last two put it
  * at <HOME>/.pi/agent/sessions. `names` is what a folder for a working folder
  * under each run-folder root is called: `names.tmp('obk-system-x/bots/b')` and
- * `names.localData(…)`. `write(during)` writes the run's one system test.
+ * `names.localData(…)`; `folderFor(cwd)` is the folder for any working folder,
+ * and `claim(folder, cwd)` says which working folder a folder of another name
+ * is for. `write(during)` writes the run's one system test: each of
+ * `during.folders` gets a session file whose cwd is its working folder, and a
+ * working folder inside the sandbox is made during the run.
  */
 async function withPiStore(t, { agentDir = 'set' } = {}) {
   const fixture = await createRepo(t);
@@ -4344,16 +4354,31 @@ async function withPiStore(t, { agentDir = 'set' } = {}) {
     ...(agentDir === 'set' ? { PI_CODING_AGENT_DIR: agent } : {}),
     ...(agentDir === 'empty' ? { PI_CODING_AGENT_DIR: '' } : {}),
   };
+  // The working folder each Pi folder's name stands for, by that name: the
+  // name is lossy, so it is written down when the name is made.
+  const cwds = new Map();
+  const claim = (folder, cwd) => {
+    cwds.set(path.basename(folder), cwd);
+    return folder;
+  };
+  const folderFor = (cwd) => claim(path.join(store, piFolderName(cwd)), cwd);
   const names = {
-    tmp: (rel) => path.join(store, piFolderName(path.join(tmp, rel))),
-    localData: (rel) => path.join(store, piFolderName(path.join(localData, rel))),
+    tmp: (rel) => folderFor(path.join(tmp, rel)),
+    localData: (rel) => folderFor(path.join(localData, rel)),
+  };
+  const asPi = (folder) => {
+    const cwd = cwds.get(path.basename(folder));
+    if (cwd === undefined) throw new Error(`no working folder is known for ${folder}: make it with names, folderFor or claim`);
+    return { folder, cwd, make: cwd.startsWith(`${box}${path.sep}`) };
   };
   return {
     fixture,
     store,
     names,
+    folderFor,
+    claim,
     env,
-    write: (during = {}) => write(fixture.repo, 'test/system/alpha.test.js', writesPiStore('ALPHA', during)),
+    write: ({ folders = [], ...during } = {}) => write(fixture.repo, 'test/system/alpha.test.js', writesPiStore('ALPHA', { ...during, folders: folders.map(asPi) })),
     run: () => fixture.confirmed({ env }),
   };
 }
@@ -4458,12 +4483,12 @@ describe('test-system: Pi\'s session folders for the run\'s own folders are remo
     const tmp = realpathSync(pi.fixture.env.TMPDIR);
     const mine = pi.names.tmp('obk-system-pi-mail-Oth001/bots/pi-mail');
     const others = [
-      path.join(pi.store, piFolderName('/Users/owner/work/app')),
+      pi.folderFor('/Users/owner/work/app'),
       pi.names.tmp('obk-other-Oth001/bots/pi-mail'),
       pi.names.tmp('work/obk-system-pi-mail-Deep01/bots/pi-mail'),
-      path.join(pi.store, piFolderName(`${tmp}x/obk-system-pi-mail-Oth001/bots/pi-mail`)),
-      path.join(pi.store, piFolderName(path.join(path.dirname(pi.fixture.repo), 'elsewhere', 'local-data', 'obk-system-pi-mail-Oth001'))),
-      path.join(pi.store, `-${piFolderName(path.join(tmp, 'obk-system-pi-mail-Oth001'))}`),
+      pi.folderFor(`${tmp}x/obk-system-pi-mail-Oth001/bots/pi-mail`),
+      pi.folderFor(path.join(path.dirname(pi.fixture.repo), 'elsewhere', 'local-data', 'obk-system-pi-mail-Oth001')),
+      pi.claim(path.join(pi.store, `-${piFolderName(path.join(tmp, 'obk-system-pi-mail-Oth001'))}`), '/Users/owner/work/app'),
     ];
     await pi.write({ folders: [mine, ...others] });
 
@@ -4505,7 +4530,7 @@ describe('test-system: Pi\'s session folders for the run\'s own folders are remo
 
   test('P4 a store that gained no folder of the run\'s: the run says so, names none, and exits 0', async (t) => {
     const pi = await withPiStore(t);
-    const other = path.join(pi.store, piFolderName('/Users/owner/work/app'));
+    const other = pi.folderFor('/Users/owner/work/app');
     await pi.write({ folders: [other] });
 
     const result = await pi.run();
