@@ -34,9 +34,10 @@ import { setTimeout as pause } from 'node:timers/promises';
 import { readBook, takeLineTurn, TYPING_HELD, TYPING_WAIT_MS, updateBook } from './book.js';
 import { addSession, dropSession, NAME, readBot, tempRoles } from './bot.js';
 import { untrustedKitHooks } from './hook-trust.js';
-import { approvalRank, DEFAULT_APPROVAL, harnessOf, isShortPrompt, ownCli, refuseApprovalArgs, shellWord, startPrompt, workDirOf } from './launch.js';
+import { approvalRank, DEFAULT_APPROVAL, harnessOf, isShortPrompt, ownCli, piApprovalTrouble, refuseApprovalArgs, set, shellWord, startPrompt, workDirOf } from './launch.js';
 import { findSession, sessionInTab } from './message.js';
 import { orca, screenRows, tabs } from './orca.js';
+import { piTrouble } from './pi.js';
 import { retireSession } from './retire.js';
 import { BOT_FATHER, bringUp, promptPath } from './up.js';
 
@@ -75,11 +76,21 @@ export async function makeTemp(bots, { tab, ...given }) {
 
   const maker = bot.sessions.find((session) => session.name === caller.session);
   const { settings, chosen } = settingsFor(bot, maker, role?.option ?? {}, given);
-  if (chosen.harness.value === 'pi') {
-    throw new Error(`${name} would run on Pi, and a temporary session on Pi comes in a later slice of #547. Make it on claude or codex. Nothing was made.`);
+  const onPi = chosen.harness.value === 'pi';
+  if (onPi) {
+    // Pi has one level, whatever the maker's is (the owner, #547).
+    const trouble = piApprovalTrouble(given.approval, name);
+    if (trouble !== undefined) throw new Error(`${trouble} Nothing was made.`);
+    settings.approval = 'dangerously-skip';
+    if (given.approval === undefined) chosen.approval = { value: 'dangerously-skip', from: 'harness' };
   }
-  refuseWiderApproval(bots, caller, bot, maker, given.approval);
+  refuseWiderApproval(bots, caller, bot, maker, given.approval ?? (onPi ? settings.approval : undefined), onPi && given.approval === undefined ? name : undefined);
   refuseApprovalArgs(chosen.harness.value, given.extra_args);
+  // Asked before anything is written, so a Pi that cannot start one makes nothing (#578).
+  if (onPi) {
+    const trouble = piTrouble(set(settings.model) ? [settings.model] : []);
+    if (trouble !== undefined) throw new Error(`${trouble} Nothing was made.`);
+  }
   settings.name = name;
   if (given.extra_args !== undefined) settings.extra_args = given.extra_args;
   if (given.prompt !== undefined) settings.prompt = given.prompt;
@@ -189,9 +200,10 @@ function settingsFor(bot, maker, option, given) {
 /**
  * Refuse an approval wider than the widest of the maker's own and the bot's
  * `temp_approval`, which only the user's yes through `permission approval
- * --temps` widens (ADR 0051).
+ * --temps` widens (ADR 0051). `onPi` names a Pi session that was given no
+ * level: Pi's one level is what is judged then (#648).
  */
-function refuseWiderApproval(bots, caller, bot, maker, asked) {
+function refuseWiderApproval(bots, caller, bot, maker, asked, onPi) {
   if (asked === undefined) return;
   // A blank level is the kit's default at launch (ADR 0015), so it is judged as that.
   const effective = (given) => (given === undefined || given === null || String(given).trim() === '' ? DEFAULT_APPROVAL : given);
@@ -199,7 +211,8 @@ function refuseWiderApproval(bots, caller, bot, maker, asked) {
   const own = effective(maker?.approval);
   const widest = approvalRank(bot.temp_approval) > approvalRank(own) ? bot.temp_approval : own;
   if (approvalRank(level) <= approvalRank(widest)) return;
-  throw new Error(`--approval ${level} is wider than ${caller.session}'s own approval, ${own}${widest === own ? '' : `, and than ${caller.bot}'s temp_approval, ${widest}`}, and a session does not widen another's approval. The user allows it for ${caller.bot}'s temporary sessions with  ${shellWord(ownCli())} permission approval --bots ${shellWord(bots)} --bot ${caller.bot} --temps --approval ${level}. Nothing was made.`);
+  const what = onPi === undefined ? `--approval ${level}` : `${onPi} would run on Pi, and every Pi session runs as ${level}, which`;
+  throw new Error(`${what} is wider than ${caller.session}'s own approval, ${own}${widest === own ? '' : `, and than ${caller.bot}'s temp_approval, ${widest}`}, and a session does not widen another's approval. The user allows it for ${caller.bot}'s temporary sessions with  ${shellWord(ownCli())} permission approval --bots ${shellWord(bots)} --bot ${caller.bot} --temps --approval ${level}. Nothing was made.`);
 }
 
 /**
@@ -651,9 +664,43 @@ const wholeScreen = (rows) => rows.filter((row) => row.trim() !== '').map((row) 
  */
 export async function answerTemp(bots, { tab, name }) {
   const caller = callerIn(bots, tab, 'answer', "answer a session's first-run screen");
-  ownTemp(caller, name, 'answer for', 'Nothing was typed.');
-  const sent = await answerTeach({ run: `${caller.bot}/${name}`, home: caller.home, session: name }, 'temp');
+  const { bot, session } = ownTemp(caller, name, 'answer for', 'Nothing was typed.');
+  const target = { run: `${caller.bot}/${name}`, home: caller.home, session: name };
+  if (harnessOf(session, bot.harness) === 'pi') sayPiScreen(target, 'temp');
+  const sent = await answerTeach(target, 'temp');
   return { bot: caller.bot, session: name, maker: caller.session, sent };
+}
+
+/** The foot of Pi's own lists: its trust question's, and an extension's `ctx.ui.select` (Pi 1.3.0). */
+const PI_LIST_FOOT = /↑↓ navigate +enter select +escape\/ctrl\+c cancel/;
+
+/**
+ * Refuse to answer a Pi session's screen, and say what it is (#648). The kit
+ * starts Pi with `--no-approve`, and then no screen of Pi's own waits for a
+ * key (tech notes, section 6). What still can is named and left to the user:
+ * Pi's trust question, its warning that waits for a key, and an extension's
+ * question. Nothing is typed, so no turn for a line is taken.
+ */
+function sayPiScreen({ run, home, session }, kind) {
+  const nothing = 'Nothing was typed.';
+  const tabId = readBook(home).sessions[session]?.tab;
+  const handle = tabId === undefined ? undefined : tabs(home).find((one) => one.tabId === tabId)?.handle;
+  if (handle === undefined) {
+    throw new Error(`${run} runs on Pi and has no tab open in Orca, so there is no screen of its to answer. ${nothing}`);
+  }
+  const seen = screenRows(handle);
+  if (seen.rows === undefined) {
+    throw new Error(`${run} runs on Pi, and its screen could not be read (${seen.unreadable}). ${nothing}`);
+  }
+  const has = (test) => seen.rows.some((row) => test(row.trim()));
+  const what = has((row) => row === 'Trust project folder?')
+    ? `Pi's project-trust question, which Pi does not ask when the kit starts it with --no-approve. Trusting a folder is the user's choice`
+    : has((row) => row.endsWith('Press any key to continue...'))
+      ? 'a warning of Pi\'s that waits for a key, such as its notice of an old hooks/ folder in ~/.pi/agent or the project. It is the user\'s to read and answer'
+      : has((row) => PI_LIST_FOOT.test(row))
+        ? 'a question from an extension of Pi\'s, not from Pi or the kit. It is the user\'s to answer'
+        : `no first-run screen of Pi's: the kit starts Pi with --no-approve, and then Pi asks nothing before it works`;
+  throw new Error(`${run} runs on Pi, and its screen shows ${what}. ${kind} answer answers none of Pi's screens. ${nothing} It shows:\n${wholeScreen(seen.rows)}`);
 }
 
 /**
@@ -714,6 +761,7 @@ export async function trustSessionHooks(bots, { tab, bot, session }) {
  */
 export async function answerSession(bots, { tab, bot, session }) {
   const target = longLivedTarget(bots, { tab, bot, session }, 'answer');
+  if (target.harness === 'pi') sayPiScreen(target, 'session');
   const sent = await answerTeach(target, 'session');
   return { bot: target.bot, session: target.session, sent };
 }
