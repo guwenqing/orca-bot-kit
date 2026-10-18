@@ -896,11 +896,14 @@ function run() {
   const setupsBefore = listSetups();
 
   // OBK_SYSTEM_TESTS is how a system test knows this command started it: loaded
-  // any other way, it skips (test/helpers/system.js, #328).
+  // any other way, it skips (test/helpers/system.js, #328). OBK_SYSTEM_NAMED is
+  // how it knows it was named: the files named, one per line, and empty for a
+  // run of them all. A test that mounts a tab in the owner's Orca window runs
+  // only when it was named (the owner, #561; #634).
   const result = spawnSync(process.execPath, ['--test', ...files], {
     cwd: repo,
     stdio: 'inherit',
-    env: { ...process.env, OBK_SYSTEM_TESTS: '1' },
+    env: { ...process.env, OBK_SYSTEM_TESTS: '1', OBK_SYSTEM_NAMED: named().length === 0 ? '' : files.join('\n') },
   });
 
   // After the tests, whatever they did: a failing run leaves Runs behind just
