@@ -62,6 +62,7 @@ import {
   orcaFlag,
   recordSession,
   sessionIn,
+  settingValuesOf,
   sh,
   skipGit,
   snapshot,
@@ -559,7 +560,7 @@ test('TM9 a session made on a harness other than the maker\'s takes only its app
   const argv = await argvOf(box, line, fake);
   assert.ok(argv.join('\n').includes('-a\non-request'), `Codex asks, as planner does: ${JSON.stringify(argv)}`);
   for (const claude of ['opus', 'xhigh', '1m']) {
-    assert.ok(!argv.some((word) => word.includes(claude)), `nothing of planner's ${claude} on the launch line: ${JSON.stringify(argv)}`);
+    assert.ok(!settingValuesOf(argv).includes(claude), `nothing of planner's ${claude} on the launch line: ${JSON.stringify(argv)}`);
   }
 });
 

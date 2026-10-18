@@ -970,6 +970,20 @@ export const tokenless = (line) => line.replace(/( -n )([^ ]+)/, (all, flag, wor
 export const nameOnLine = (line) => / -n ([^ ]+)/.exec(line)?.[1];
 
 /**
+ * Every value the words a harness was launched with can give a setting, each
+ * one whole: a word of its own (`-m opus`, `--effort xhigh`), what follows the
+ * `=` of a `key=value` word (`-c model_reasoning_effort=xhigh`, `--model=opus`),
+ * in quotes or not, and the model and the context of Claude Code's `opus[1m]`.
+ * Never a piece of a word: a folder on the line, such as a sandbox's random
+ * `obk-1m9rET` or the system's temp folder, is not a setting (#639).
+ */
+export const settingValuesOf = (argv) => argv.flatMap((word) => {
+  const value = /^[\w.-]+=(.*)$/s.exec(word)?.[1].replace(/^(["'])(.*)\1$/s, '$2');
+  return [word, ...(value === undefined ? [] : [value])]
+    .flatMap((one) => [one, ...(/^([^[\]]+)\[([^[\]]+)\]$/.exec(one)?.slice(1) ?? [])]);
+});
+
+/**
  * The one Codex setting that lets a sandboxed session reach the Orca CLI at
  * all. Proved live: at the kit's default approval level Codex answers
  * `runtime_unavailable` for every Orca call without it, and reaches the
