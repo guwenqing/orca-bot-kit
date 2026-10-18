@@ -899,6 +899,56 @@ function PI_SCREENS() {
     ' ~/bots/bots/temp-bot   openai/gpt-6.1-sol • low',
   ];
   const shell = ['Last login: Sun Oct 18 09:12:40 on ttys004', 'someone@mac temp-bot % '];
+  // An extension's text question (ctx.ui.input at session_start; Pi 1.3.0's
+  // components/extension-input.js, the review of PR #651): its title, a
+  // description, the input line, and a foot with no pointer and no arrows.
+  const extensionInput = [
+    '',
+    ' Name the branch for this session',
+    ' A short name; the extension makes the branch before the first turn.',
+    ' ',
+    '',
+    ' enter submit  escape/ctrl+c cancel',
+  ];
+  // Pi's first-time setup on an official build with PI_EXPERIMENTAL=1 and no
+  // settings.json, which --no-approve does not skip (Pi 1.3.0's
+  // components/first-time-setup.js, the review of PR #651): a logo, the
+  // welcome, then step 1, the theme, or step 2, the usage data. The logo and
+  // the note's last three rows are this file's own sketch.
+  const setupTop = [
+    '',
+    '   ┌─┐',
+    '   │π│',
+    '   └─┘',
+    '',
+    ' Welcome to Pi, the minimal coding agent.',
+    '',
+  ];
+  const setupTheme = [
+    ...setupTop,
+    ' Pick a theme.',
+    '',
+    ' → System (matches your terminal colors)',
+    '   Dark',
+    '   Light',
+    '',
+    ' ↑↓ navigate  enter continue  escape/ctrl+c skip setup',
+  ];
+  const setupAnalytics = [
+    ...setupTop,
+    ' Opt-in to anonymous usage data sharing?',
+    '',
+    ' Opting in stores a tracking identifier in settings.json and enables anonymous',
+    ' reports of which features are used. No code, prompt or file content is sent.',
+    ' You can change this at any time in settings.json.',
+    ' Skipping the setup leaves it off.',
+    '',
+    ' → Share anonymous usage data',
+    '   Don\'t share',
+    '',
+    ' ↑↓ navigate  enter finish  escape/ctrl+c skip setup',
+  ];
+  const setup = [/first[- ]time setup/i, /theme/i, /analytics|usage data/i, /\buser/i];
   const firstRun = /first[- ]run/i;
   const none = /\b(no|not|nothing|none)\b/i;
   return [
@@ -907,6 +957,9 @@ function PI_SCREENS() {
     { label: 'a question from an extension of Pi\'s', screen: extension, quote: 'Choose a workspace profile for this session', means: [/extension/i] },
     { label: 'Pi idle at its input line', screen: idle, quote: 'Model scope: openai/gpt-6.1-sol', means: [firstRun, none] },
     { label: 'a shell prompt where Pi has quit', screen: shell, quote: 'someone@mac temp-bot %', means: [firstRun, none] },
+    { label: 'a text question from an extension of Pi\'s', screen: extensionInput, quote: 'Name the branch for this session', means: [/extension/i] },
+    { label: 'Pi\'s first-time setup at its theme step', screen: setupTheme, quote: 'System (matches your terminal colors)', means: setup },
+    { label: 'Pi\'s first-time setup at its usage-data step', screen: setupAnalytics, quote: 'Opt-in to anonymous usage data sharing?', means: setup },
   ];
 }
 
