@@ -29,10 +29,11 @@ export const orcaCli = () => process.env.OBK_ORCA || BUILT_IN;
  * Run one Orca command and give back its `result`.
  * Every call asks for `--json`; anything else would be text to guess at.
  * With `timeoutMs`, Orca is given that long to answer, and the call is ended
- * and refused if it has not.
+ * and refused if it has not. With `whole`, an answer of any size is taken,
+ * where Node would otherwise stop at a megabyte (review of PR #632).
  */
-export function orca(args, { timeoutMs } = {}) {
-  const answer = ask(args, timeoutMs);
+export function orca(args, { timeoutMs, whole = false } = {}) {
+  const answer = ask(args, timeoutMs, whole);
   if (answer.ok !== true) {
     // Orca's own words: it knows what went wrong, and the caller is an LLM
     // that can act on them.
@@ -55,8 +56,12 @@ const refusal = (args, answer) => Object.assign(
 );
 
 /** One Orca command, and the whole envelope back, refusals included. */
-function ask(args, timeoutMs) {
-  const asked = spawnSync(orcaCli(), [...args, '--json'], { encoding: 'utf8', ...(timeoutMs === undefined ? {} : { timeout: timeoutMs }) });
+function ask(args, timeoutMs, whole = false) {
+  const asked = spawnSync(orcaCli(), [...args, '--json'], {
+    encoding: 'utf8',
+    ...(timeoutMs === undefined ? {} : { timeout: timeoutMs }),
+    ...(whole ? { maxBuffer: Infinity } : {}),
+  });
   if (asked.error?.code === 'ETIMEDOUT') {
     throw Object.assign(new Error(`Orca did not answer ${args.join(' ')} within ${timeoutMs / 1000} seconds.`), { code: TIMED_OUT });
   }
@@ -1064,6 +1069,17 @@ export function postMessage({ to, from, subject, body, type = 'status', thread }
  */
 export const readMailbox = (id, { peek = false, handle } = {}, options) =>
   orca(['orchestration', 'check', '--run', id, ...as(handle), ...(peek ? ['--peek'] : [])], options);
+
+/**
+ * The newest `limit` messages in a mailbox, newest first, with every column
+ * Orca keeps for them: `read` and `delivered_at` among them, which `check`
+ * leaves out. Orca asks no reader for this, so any tab can read any mailbox,
+ * and nothing is marked read or delivered (tech notes, section 1; #630). The
+ * answer carries each letter's whole text, and a local letter's text has no
+ * cap in Orca, so the answer is taken whatever its size.
+ */
+export const mailIn = (id, limit) =>
+  orca(['orchestration', 'inbox', '--terminal', `run:${id}`, '--limit', String(limit)], { whole: true }).messages ?? [];
 
 /** Say a batch has been read. Orca answers with the batch after it. */
 export const ackMailbox = (id, delivery, handle, options) =>

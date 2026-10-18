@@ -577,6 +577,13 @@ What it looks for:
   `<bot>.<session>` every fleet's sessions had before 0.10.0, which a session of
   another fleet can write to. Its next start through the kit gives it one of its
   own, so the finding names the `obk restart … --session` that does it;
+- **a session whose mail waits and Orca has not told it**: mail older than an
+  hour that is unread and that Orca's notice never reached, while the session's
+  harness is idle now. Orca can stop telling a session that sat idle through an
+  Orca restart or update, so the finding names the `obk restart … --session`
+  that opens a new tab, which Orca tells. It counts the letters and gives the
+  time of the oldest; it never shows their subject or text. A busy session is
+  not named: Orca tells it when its turn ends;
 - **a process still running in a retired session's work dir**: one from before
   retire stopped them, or one it could not stop, with its pid and command;
 - **leftovers no book owns**: an Orca project inside your bots folder with no

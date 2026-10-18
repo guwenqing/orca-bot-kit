@@ -1468,6 +1468,8 @@ export const ALLOWED_ORCA_COMMANDS = [
   'orchestration run-show',
   'orchestration send',
   'orchestration check',
+  // Read-only: a Run's newest mail with its read and delivered marks, which health reads (#630).
+  'orchestration inbox',
   'automations list',
   'automations create',
   'automations edit',

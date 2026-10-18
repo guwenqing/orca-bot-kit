@@ -373,8 +373,9 @@ test('#508 4: health names a mailbox Orca does not have and changes nothing: no 
   assert.deepEqual(await snapshot(box.root, skipOrcaFake), before, 'every file and every link is as it was: the book still names the Run');
   assert.deepEqual(await box.orca.runs(), runs, 'no Run made, bound or changed');
   assert.deepEqual(await box.orca.terminals(), terminals, 'no tab opened, closed or typed into');
-  const orchestration = [...new Set((await box.orca.calls()).slice(asked).map(orcaCommand))].filter((command) => command.startsWith('orchestration '));
-  assert.deepEqual(orchestration, ['orchestration run-show'], 'of the mailbox calls, health only asks to see a Run');
+  // `orchestration inbox` reads each live session's mailbox for mail that waits unannounced (#630).
+  const orchestration = [...new Set((await box.orca.calls()).slice(asked).map(orcaCommand))].filter((command) => command.startsWith('orchestration ')).sort();
+  assert.deepEqual(orchestration, ['orchestration inbox', 'orchestration run-show'], 'of the mailbox calls, health only asks to see a Run and to read its mail');
 });
 
 test('#508 4: after the restart health names, the session has a mailbox Orca has, bound to its new tab, and the finding is gone', async (t) => {
