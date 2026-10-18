@@ -362,6 +362,11 @@ test('a maker makes a temporary session on Pi, finds no first-run screen of Pi\'
     }
     // Orca's sidebar keeps a deleted project's row until its window is rebuilt (#343).
     if (deleted > 0 && !(await reloadWindow())) t.diagnostic(RELOAD_LINE);
+    // Pi's own settings files, compared and reported before any assert can stop the teardown; never written.
+    for (const name of PI_SETTINGS) {
+      const now = hashOf(path.join(PI_AGENT, name));
+      if (now !== before.pi[name]) t.diagnostic(`${path.join(PI_AGENT, name)} changed during the run (Pi's own write); nothing was copied back`);
+    }
     assert.deepEqual(foreign, [], `tabs this test did not create are open at its homes, so it closed only its own and left those projects and ${bots} in place`);
     await removeBotsFolderAndSiblings(bots);
 
@@ -372,10 +377,6 @@ test('a maker makes a temporary session on Pi, finds no first-run screen of Pi\'
       assert.deepEqual(await terminalsAfterClosing(each, closed), [], `this test left tabs behind in ${each}`);
     }
     assert.deepEqual(failedDeletes, [], 'projects this test could not remove, left in Orca');
-    for (const name of PI_SETTINGS) {
-      const now = hashOf(path.join(PI_AGENT, name));
-      if (now !== before.pi[name]) t.diagnostic(`${path.join(PI_AGENT, name)} changed during the run (Pi's own write); nothing was copied back`);
-    }
   });
 
   // ---------------------------------------------------------------------------
