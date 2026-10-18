@@ -44,16 +44,22 @@
 //      `const NAME = '<one literal string>'`, and that string is the name read;
 //      a template, a concatenation, a call, a second declaration or another
 //      binding of the name fails;
-//   c. `{ ...process.env, ... }` in askRuntime of src/orca.js only: an
-//      exception, because it hands the whole environment to Orca's client and
-//      reads no name.
+//   c. the one statement `const env = { ...process.env, ELECTRON_RUN_AS_NODE:
+//      '1' };`, once, in askRuntime of src/orca.js: an exception, because it
+//      hands the whole environment to Orca's client and reads no name. That
+//      `env` is then used only as askRuntime uses it today: `delete
+//      env.NODE_OPTIONS;`, `delete env.NODE_REPL_EXTERNAL_MODULE;`, and the
+//      `{ env, ... }` option of its spawnSync call. Any other spread, a second
+//      such statement, and any other use of that `env` fails.
 //
-// `process.<other>` (exitCode, argv, pid) does not touch the environment, and
-// is fine. Every other use of `process.env`, or of `process`, fails: a
-// destructuring, a copy, a computed or quoted name, a write, a pass to a
-// function, `process` given another name, `globalThis`, `global`, `eval`,
-// `Function` or `.constructor`, and the string 'process' or 'node:process'
-// (an import or a require). So do an AppleScript `system attribute` and a
+// `process` is reached only by that global name, and only through the
+// members src/ uses today (PROCESS_MEMBERS). Every other use of
+// `process.env`, or of `process`, fails: a member not on that list (say,
+// `process.getBuiltinModule('process')`), a destructuring, a copy, a computed
+// or quoted name, a write, a pass to a function, `process` given another
+// name, `globalThis`, `global`, `eval`, `Function` or `.constructor`, and the
+// string 'process' or 'node:process' (an import or a require). So do an
+// AppleScript `system attribute` and a
 // file under src/ of a kind the check cannot read. The code is read with its
 // comments and the inside of its strings, templates and regular expressions
 // blanked out, so a word in a message does not count.
@@ -76,8 +82,14 @@
 //     (Orca's runtime client, which askRuntime starts), and a read inside a
 //     dependency (yaml);
 //   - a binding of TAB_ENV, SHELL_ENV or TERMINAL_ENV in a shape the check
-//     does not know (say, a `for (const TAB_ENV of ...)`).
-// Those stay for review to catch.
+//     does not know (say, a `for (const TAB_ENV of ...)`);
+//   - a read hidden on purpose: through eval, new Function, a dynamic import
+//     of a computed name, or code built at run time. The guard is there to
+//     catch what a developer writes by habit (a new setting, a new command,
+//     the usual ways to read the environment), not one who sets out to hide a
+//     read. It keeps the checks it has for these, and goes no further (the
+//     architect's stop rule, the third review of PR #656).
+// Those stay for review to catch, under the core rule.
 //
 // Also here (CC5, the review of PR #656): only askRuntime in src/orca.js
 // gives a child an environment of its own, and the script that child runs,
@@ -334,6 +346,81 @@ function envConstantsIn(sources, unread) {
 }
 
 /**
+ * The members of `process` that src/ uses today, each reached as
+ * `process.<member>`. Every other member fails: some reach the environment
+ * or a module by another road (getBuiltinModule, binding, mainModule,
+ * dlopen), and a new one is for review to allow here.
+ */
+const PROCESS_MEMBERS = new Set([
+  'env', // read in the shapes a, b and c only, below
+  'argv',
+  'exit',
+  'exitCode',
+  'getuid', // the user id, for lsof and the process table (src/processes.js, src/orca.js)
+  'pid',
+  'platform',
+  'stderr',
+  'stdout',
+]);
+
+/** Shape c: the one statement of askRuntime that spreads process.env, as src/orca.js has it. */
+const RUNTIME_ENV = "const env = { ...process.env, ELECTRON_RUN_AS_NODE: '1' };";
+/** The uses of that `env` askRuntime makes today, besides the option of its spawnSync call. */
+const RUNTIME_ENV_USES = ['delete env.NODE_OPTIONS;', 'delete env.NODE_REPL_EXTERNAL_MODULE;'];
+
+/**
+ * The index in `text` of the `process` of RUNTIME_ENV, and a place in
+ * `unread` for every use of that `env` in askRuntime but the allowed ones.
+ * Undefined when askRuntime is not in `text`, or has RUNTIME_ENV other than
+ * once.
+ */
+function runtimeSpreadIn(file, text, code, at) {
+  if (file !== KNOWN_ENV.file) return undefined;
+  const span = functionSpan(text, KNOWN_ENV.fn);
+  if (span === undefined) return undefined;
+  const body = text.slice(span[0], span[1]);
+  const first = body.indexOf(RUNTIME_ENV);
+  if (first < 0 || body.indexOf(RUNTIME_ENV, first + 1) >= 0) return undefined;
+  const declared = span[0] + first;
+  const allowed = new Set([declared + RUNTIME_ENV.indexOf('env')]);
+  for (const use of RUNTIME_ENV_USES) {
+    const where = body.indexOf(use);
+    if (where >= 0 && body.indexOf(use, where + 1) < 0) allowed.add(span[0] + where + use.indexOf('env'));
+  }
+  const option = spawnSyncEnvOption(code, span);
+  if (option !== undefined) allowed.add(option);
+  // Every `env` that is no member of something else; a spread (`...env`) is one.
+  for (const match of code.slice(span[0], span[1]).matchAll(/(?<![\w$]|(?<!\.\.)\.)env(?![\w$])/g)) {
+    const index = span[0] + match.index;
+    if (!allowed.has(index)) at(index, 'a use of askRuntime\'s env that this check does not allow');
+  }
+  return declared + RUNTIME_ENV.indexOf('process');
+}
+
+/**
+ * The index of `env` when the one spawnSync call in `span` of `code` has it
+ * as a shorthand key of an object that is a direct argument of the call.
+ */
+function spawnSyncEnvOption(code, span) {
+  const calls = [...code.slice(span[0], span[1]).matchAll(/(?<![\w$.])spawnSync\s*\(/g)];
+  if (calls.length !== 1) return undefined;
+  let i = span[0] + calls[0].index + calls[0][0].length;
+  const stack = ['('];
+  let found;
+  for (; i < span[1] && stack.length > 0; i += 1) {
+    const c = code[i];
+    if ('([{'.includes(c)) stack.push(c);
+    else if (')]}'.includes(c)) stack.pop();
+    else if (c === 'e' && /^env(?![\w$])/.test(code.slice(i)) && !/[\w$.]/.test(code[i - 1])
+      && stack.length === 2 && stack[1] === '{'
+      && /[{,]$/.test(code.slice(0, i).trimEnd()) && /^[,}]/.test(code.slice(i + 3).trimStart())) {
+      found = found === undefined ? i : null;
+    }
+  }
+  return found ?? undefined;
+}
+
+/**
  * What the JavaScript `sources` read from the environment: `names`, and
  * `unread`, each place in a shape the check does not allow, as
  * `file:line: why`. `listed` is the PRD's list: a name read that it does not
@@ -347,7 +434,7 @@ function settingsReadBy(sources, listed) {
   for (const { file, text, code } of read) {
     const shown = (index) => text.slice(index).split('\n')[0].trim();
     const at = (index, why) => unread.push(`${file}:${lineAt(text, index)}: ${why}: ${shown(index)}`);
-    const spreadSpan = file === KNOWN_ENV.file ? functionSpan(text, KNOWN_ENV.fn) : undefined;
+    const spreadAt = runtimeSpreadIn(file, text, code, at);
     const name = (index, setting, tail, before) => {
       if (WRITE_AFTER.test(tail) || /(?<![\w$.])delete\s*$/.test(before)) return at(index, 'a write to process.env, which is no read');
       names.add(setting);
@@ -363,6 +450,14 @@ function settingsReadBy(sources, listed) {
       const member = /^\s*(?:\?\.|\.)\s*([A-Za-z_$][\w$]*)/.exec(after);
       if (member === null) {
         at(match.index, 'process used in a shape this check does not allow');
+        continue;
+      }
+      if (!/^\.[A-Za-z_$]/.test(after)) {
+        at(match.index, `process reached by ?. or with spaces, which this check does not allow`);
+        continue;
+      }
+      if (!PROCESS_MEMBERS.has(member[1])) {
+        at(match.index, `process.${member[1]}, a member of process this check does not allow`);
         continue;
       }
       // process.exitCode, process.argv and the like touch no setting.
@@ -382,7 +477,7 @@ function settingsReadBy(sources, listed) {
         const value = constants.get(byConstant[1]);
         if (value === undefined) at(match.index, `process.env[${byConstant[1]}], and ${byConstant[1]} has no one literal value`);
         else name(match.index, value, rest.slice(byConstant[0].length), before);
-      } else if (spreadSpan !== undefined && match.index >= spreadSpan[0] && match.index < spreadSpan[1] && /\.\.\.\s*$/.test(before) && /^\s*[,}]/.test(rest)) {
+      } else if (match.index === spreadAt) {
         // Shape c: askRuntime hands the whole environment to Orca's client.
       } else {
         at(match.index, 'process.env used in a shape this check does not allow');
@@ -638,6 +733,47 @@ test('CC0 the settings reader, against worked examples: each shape it allows, an
   // The spread is allowed in askRuntime of src/orca.js only.
   assert.ok(settingsReadBy(exampleWith(`${ASK_RUNTIME_EXAMPLE}`), EXAMPLE_LIST).unread.length > 0, 'the askRuntime form in another file should fail');
   assert.ok(settingsReadBy(exampleWith(`${ASK_RUNTIME_EXAMPLE.replace('askRuntime', 'askAgain')}export const TERMINAL_ENV = 'ORCA_TERMINAL_HANDLE';\n`, 'src/orca.js'), EXAMPLE_LIST).unread.length > 0, 'the askRuntime form in another function should fail');
+
+  // The third review of PR #656: process is reached only through the members
+  // src/ uses today.
+  for (const [text, why] of [
+    ['if (process.getBuiltinModule("process").env.OBK_REVIEW_GATE === "yes") return 0;', 'the reviewer\'s line: getBuiltinModule'],
+    ["const p = process.getBuiltinModule('node:process');", 'getBuiltinModule of node:process'],
+    ["const p = process['getBuiltinModule']('process');", 'getBuiltinModule, indexed'],
+    ["process.binding('util');", 'binding'],
+    ['const m = process.mainModule;', 'mainModule'],
+    ['process.dlopen(module, file);', 'dlopen'],
+    ['const here = process.cwd();', 'cwd, a member src/ does not use'],
+    ['const id = process?.pid;', 'a member by optional chaining'],
+  ]) {
+    assert.ok(settingsReadBy(exampleWith(text), EXAMPLE_LIST).unread.length > 0, `${why} should fail: ${text}`);
+  }
+
+  // Shape c is the one statement, once, and its env is used only as
+  // askRuntime uses it today.
+  const orcaText = EXAMPLE_CORE().find(({ file }) => file === 'src/orca.js').text;
+  const inAskRuntime = (change) => exampleWith(orcaText.replace(ASK_RUNTIME_EXAMPLE, change(ASK_RUNTIME_EXAMPLE)), 'src/orca.js');
+  const statement = "    const env = { ...process.env, ELECTRON_RUN_AS_NODE: '1' };\n";
+  for (const [change, why] of [
+    [(body) => body.replace('  try {\n', '  try {\n    const reviewEnv = { ...process.env }; if (reviewEnv.OBK_REVIEW_GATE === "yes") return undefined;\n'), 'the reviewer\'s line: another spread in askRuntime'],
+    [(body) => body.replace(statement, `${statement}${statement.replace('const env', 'const again')}`), 'a second statement of that form'],
+    [(body) => body.replace(statement, `${statement}${statement}`), 'the same statement twice'],
+    [(body) => body.replace(statement, statement.replace("'1' }", "'1', ...process.env }")), 'a second spread in the statement'],
+    [(body) => body.replace(statement, statement.replace('const env', 'let env')), 'the statement changed'],
+    [(body) => body.replace('    delete env.NODE_OPTIONS;\n', '    delete env.NODE_OPTIONS;\n    if (env.OBK_X) return undefined;\n'), 'env.OBK_X'],
+    [(body) => body.replace('    delete env.NODE_OPTIONS;\n', '    delete env.NODE_OPTIONS;\n    const one = env[name];\n'), 'env[name]'],
+    [(body) => body.replace('    delete env.NODE_OPTIONS;\n', '    delete env.NODE_OPTIONS;\n    log(env);\n'), 'env passed to another call'],
+    [(body) => body.replace('    delete env.NODE_OPTIONS;\n', '    delete env.NODE_OPTIONS;\n    const copy = { ...env };\n'), 'env spread again'],
+    [(body) => body.replace('    delete env.NODE_OPTIONS;\n', '    delete env.NODE_OPTIONS;\n    delete env.NODE_OPTIONS;\n'), 'a delete twice'],
+    [(body) => body.replace('    delete env.NODE_OPTIONS;\n', '    delete env.OBK_X;\n'), 'a delete of another name'],
+    [(body) => body.replace('{ env, encoding', '{ env: env, encoding'), 'the option written out'],
+    [(body) => body.replace('{ env, encoding', '{ cwd: [env], encoding'), 'env inside another option'],
+    [(body) => body.replace('    return asked.stdout;\n', "    spawnSync('git', [], { env });\n    return asked.stdout;\n"), 'env given to a second spawnSync'],
+  ]) {
+    const changed = inAskRuntime(change);
+    assert.notDeepEqual(changed, EXAMPLE_CORE(), `the premise: ${why} changes the example`);
+    assert.ok(settingsReadBy(changed, EXAMPLE_LIST).unread.length > 0, `${why} should fail`);
+  }
 
   // Point 3b: a new name never comes in by a change to a constant.
   const record = (declaration) => `import { harnessOf, SHELL_ENV } from './launch.js';\n${declaration}\nexport { SHELL_ENV };\n`;
