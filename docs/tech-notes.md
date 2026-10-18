@@ -1008,8 +1008,25 @@ docs, or Orca's 1.4.225 bundle. The kit was tested with Pi 1.1.0.
 - **Pi's update notice** (`Update Available … New version 1.3.0 is available. Run pi update`) is a line
   in the conversation, not a question; nothing answers it. **seen live**.
 - **Fleet mail in a Pi tab (#634).** Read on 2026-10-17 in Pi 1.3.0 (installed on the owner's Mac that
-  day; slice 1 saw 1.1.0) and the Orca 1.4.225 bundle. Not yet seen live; the live check is
-  `test/system/pi-mail.test.js`.
+  day; slice 1 saw 1.1.0) and the Orca 1.4.225 bundle, and seen live on 2026-10-18 on the same versions.
+  - **Seen live** (2026-10-18, 04:22Z): one letter by `obk message send` to a Pi session of a real bot
+    (kit-dev), in a tab the window had loaded (`orphaned: false`), its prompt telling it to run
+    `obk message check` when told of mail. The letter had `delivered_at` within 1 s, and Orca's notice
+    landed in Pi's session file as a user turn ("You have 1 orchestration message. Run `orca
+    orchestration check --run <id>`."). 3 s later Pi ran the kit's `obk message check`, not the bare
+    check the notice names; the check gave it the letter and marked it read, and Pi answered.
+    Nothing was typed into the tab but Orca's notice.
+  - **Not seen live**: `--interrupt` on a busy Pi tab, and Orca's notice in a throwaway project's Pi
+    tab. In `test/system/pi-mail.test.js` (2026-10-18, 00:08 local) Orca listed the throwaway
+    project's Pi tab and Codex tab as orphaned as soon as they were up, and `orca terminal switch` to
+    the Pi tab, answered ok, left it orphaned for 15 s. The likely cause, worked out and not proven: the
+    window had never loaded that project, and the Orca CLI has no command that opens one there. So that test fails on an orphaned tab and says
+    so; the live check of the notice was the probe above.
+  - `orca terminal list` shows a Pi tab's title in Orca's own words: `Pi - <name> - <folder>`, and
+    `Pi ready` at rest after a turn. Pi itself writes `π - <name> - <folder>` (its `APP_TITLE` is `π`);
+    Orca's renderer has the label table `pi: { workingLabel: "Pi", idleLabel: "Pi ready", … }`, and its
+    main bundle puts the label in place of `π` for the title it shows. **read in code**; the two shown
+    titles **seen live**.
   - Pi has no messaging between sessions of its own, so the kit sends every letter to or from a Pi
     session by the Orca mailbox. A Pi launch line starts with the kit's mailbox step, as a Codex line
     does.
