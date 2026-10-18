@@ -36,11 +36,15 @@
 // `process.env[CONST]` where CONST is a string constant declared in src/
 // (`TAB_ENV = 'ORCA_TAB_ID'` in src/record.js, `SHELL_ENV` in src/launch.js,
 // `TERMINAL_ENV` in src/orca.js). Spreading the whole environment into a
-// child's (`{ ...process.env }`) reads no name. Any other use of `process.env`,
-// a constant that is declared twice or not at all, `process[...]`, an import
-// of `node:process`, an AppleScript `system attribute`, or a file under src/
-// of a kind the check cannot read, fails the check as one it cannot read: the
-// check does not guess.
+// child's (`{ ...process.env }`) reads no name, and `process.<other>` reads
+// no setting. The code is read with its comments and the inside of its
+// strings, templates and regular expressions blanked out. Any other use of
+// `process` (destructured, given another name, passed whole, indexed,
+// declared), of `globalThis`, `global`, `eval` or `Function`, a constant that
+// is declared twice or not at all, an import of `node:process`, an AppleScript
+// `system attribute`, or a file under src/ of a kind the check cannot read,
+// fails the check as one it cannot read: the check does not guess (the review
+// of PR #656).
 //
 // What the check still cannot see:
 //   - a new flag on a command the list names (the list is of commands, not
@@ -146,22 +150,136 @@ function constantsIn(sources) {
   return found;
 }
 
+/** Words after which a `/` starts a regular expression, not a division. */
+const BEFORE_REGEX = new Set(['return', 'typeof', 'case', 'do', 'else', 'in', 'of', 'new', 'delete', 'void', 'throw', 'yield', 'await', 'instanceof']);
+
+/**
+ * `text` with every comment, and the inside of every string, template text and
+ * regular expression, blanked out with spaces, newlines kept: the code alone,
+ * each character where it was. A plain English "process" in a comment or a
+ * message is then no use of `process`.
+ */
+function codeOnly(text) {
+  const out = [...text];
+  const blank = (from, to) => {
+    for (let k = from; k < to; k += 1) if (out[k] !== '\n') out[k] = ' ';
+  };
+  const holes = []; // the brace depth at each `${` still open
+  let depth = 0;
+  let last = ''; // the last character of code that is not a space
+  let word = ''; // the last word of code, when that came last
+  let i = 0;
+  // The text of a template from `from`, up to its end or its next `${`.
+  const template = (from) => {
+    let j = from;
+    while (j < text.length && text[j] !== '`' && !(text[j] === '$' && text[j + 1] === '{')) j += text[j] === '\\' ? 2 : 1;
+    blank(from, j);
+    if (text[j] === '`') {
+      last = '`';
+      return j + 1;
+    }
+    holes.push(depth);
+    depth += 1;
+    last = '{';
+    return j + 2;
+  };
+  while (i < text.length) {
+    const c = text[i];
+    const next = text[i + 1];
+    if (c === '/' && next === '/') {
+      const end = text.indexOf('\n', i);
+      blank(i, end < 0 ? text.length : end);
+      i = end < 0 ? text.length : end;
+    } else if (c === '/' && next === '*') {
+      const end = text.indexOf('*/', i + 2);
+      blank(i, end < 0 ? text.length : end + 2);
+      i = end < 0 ? text.length : end + 2;
+    } else if (c === "'" || c === '"') {
+      let j = i + 1;
+      while (j < text.length && text[j] !== c && text[j] !== '\n') j += text[j] === '\\' ? 2 : 1;
+      blank(i + 1, j);
+      i = j + 1;
+      last = c;
+      word = '';
+    } else if (c === '`') {
+      i = template(i + 1);
+      word = '';
+    } else if (c === '/' && (last === '' || /[(,=:[!&|?{};+\-*%<>~^]/.test(last) || BEFORE_REGEX.has(word))) {
+      let j = i + 1;
+      let inClass = false;
+      while (j < text.length && text[j] !== '\n' && (inClass || text[j] !== '/')) {
+        if (text[j] === '\\') j += 1;
+        else if (text[j] === '[') inClass = true;
+        else if (text[j] === ']') inClass = false;
+        j += 1;
+      }
+      blank(i + 1, j);
+      i = j + 1;
+      last = '/';
+      word = '';
+    } else {
+      if (c === '{') depth += 1;
+      if (c === '}') {
+        depth -= 1;
+        if (holes.length > 0 && holes[holes.length - 1] === depth) {
+          holes.pop();
+          i = template(i + 1);
+          continue;
+        }
+      }
+      if (/[\w$]/.test(c)) {
+        const run = /^[\w$]+/.exec(text.slice(i))[0];
+        word = run;
+        last = run.at(-1);
+        i += run.length;
+        continue;
+      }
+      if (!/\s/.test(c)) {
+        last = c;
+        word = '';
+      }
+      i += 1;
+    }
+  }
+  return out.join('');
+}
+
 /**
  * What the JavaScript `sources` read from the environment: `names`, and
  * `unread`, each place the check cannot read, as `file:line: why`.
+ *
+ * Every use of `process` in the code (not in a comment or a string) is read:
+ * `process.<name>` other than env reads no setting; `process.env` as above;
+ * anything else (`process` destructured, given another name, passed whole,
+ * indexed, declared, as a key) is a place the check cannot read. So are
+ * `globalThis`, `global`, `eval` and `Function`, which reach `process`
+ * without its name, and an import or require of `node:process`.
  */
 function settingsReadBy(sources) {
   const constants = constantsIn(sources);
   const names = new Set();
   const unread = [];
   for (const { file, text } of sources) {
+    const code = codeOnly(text);
     const at = (index, why) => unread.push(`${file}:${lineAt(text, index)}: ${why}`);
-    for (const match of text.matchAll(/\bprocess\s*(?:\?\.|\.)\s*env\b/g)) {
-      const after = text.slice(match.index + match[0].length);
-      const before = text.slice(0, match.index);
-      const dotted = /^\s*(?:\?\.|\.)\s*([A-Za-z_$][\w$]*)/.exec(after);
+    const shown = (index) => text.slice(index).split('\n')[0].trim();
+    for (const match of code.matchAll(/(?<![\w$])process(?![\w$])/g)) {
+      const before = code.slice(0, match.index);
+      // Some object's own `process` (`answer.result?.process`), not Node's.
+      if (/(?:\?\.|\.)\s*$/.test(before)) continue;
+      const afterAt = match.index + match[0].length;
+      const member = /^\s*(?:\?\.|\.)\s*([A-Za-z_$][\w$]*)/.exec(code.slice(afterAt));
+      if (member === null) {
+        at(match.index, `process used in a way this check cannot read: ${shown(match.index)}`);
+        continue;
+      }
+      if (member[1] !== 'env') continue;
+      const envAt = afterAt + member[0].length;
+      const after = text.slice(envAt);
+      const afterCode = code.slice(envAt);
+      const dotted = /^\s*(?:\?\.|\.)\s*([A-Za-z_$][\w$]*)/.exec(afterCode);
       const quoted = /^\s*(?:\?\.)?\s*\[\s*(['"])([^'"\\]+)\1\s*\]/.exec(after);
-      const byName = /^\s*(?:\?\.)?\s*\[\s*([A-Za-z_$][\w$]*)\s*\]/.exec(after);
+      const byName = /^\s*(?:\?\.)?\s*\[\s*([A-Za-z_$][\w$]*)\s*\]/.exec(afterCode);
       if (dotted) names.add(dotted[1]);
       else if (quoted) names.add(quoted[2]);
       else if (byName) {
@@ -171,10 +289,12 @@ function settingsReadBy(sources) {
       } else if (/\.\.\.\s*$/.test(before)) {
         // The whole environment spread into a child's: no name is read.
       } else {
-        at(match.index, `process.env used in a way this check cannot read: ${(match[0] + after.split('\n')[0]).trim()}`);
+        at(match.index, `process.env used in a way this check cannot read: ${shown(match.index)}`);
       }
     }
-    for (const match of text.matchAll(/\bprocess\s*(?:\?\.)?\s*\[/g)) at(match.index, 'process[...], which this check cannot read');
+    for (const match of code.matchAll(/(?<![\w$.])(globalThis|global|eval|Function)(?![\w$])/g)) {
+      at(match.index, `${match[1]}, which can reach process without its name: ${shown(match.index)}`);
+    }
     for (const match of text.matchAll(/(?:\bfrom\s*|\brequire\s*\(\s*|\bimport\s*\(\s*)(['"])(?:node:)?process\1/g)) at(match.index, 'an import of node:process, which this check cannot read');
   }
   return { names, unread };
@@ -261,6 +381,23 @@ test('CC0 the settings reader, against worked examples: each form it reads, and 
   assert.deepEqual(sorted(read.names), ['CODEX_HOME', 'OBK_ORCA', 'ORCA_TAB_ID', 'QUOTED', 'SPACED_NAME']);
   assert.deepEqual(read.unread, []);
 
+  // What is not a use of Node's process: the word in a comment, a string, a
+  // template's text or a regular expression, and some object's own `process`;
+  // and other members of process, which read no setting.
+  const plain = settingsReadBy([{ file: 'd.js', text: [
+    '// the process in front of the tab; const p = process;',
+    '/* const { env } = process; */',
+    "const said = 'a process the kit did not start: process';",
+    'const shown = `the process ${who} started, process.env and all`;',
+    'const pattern = /process|globalThis/g;',
+    'const seen = answer.result?.process;',
+    'process.exitCode = process.argv.length > 2 ? 0 : 1;',
+    "const tpl = `${process.env.TPL_NAME} and ${`nested ${process.env['NESTED']}`}`;",
+    'const half = total / process.pid / 2;',
+  ].join('\n') }]);
+  assert.deepEqual(plain.unread, [], 'none of these is a place the check cannot read');
+  assert.deepEqual(sorted(plain.names), ['NESTED', 'TPL_NAME']);
+
   for (const [text, why] of [
     ['const { OBK_X } = process.env;', 'destructured'],
     ['const env = process.env; env.OBK_X;', 'aliased'],
@@ -271,6 +408,22 @@ test('CC0 the settings reader, against worked examples: each form it reads, and 
     ["process['env'].OBK_X;", 'process[...]'],
     ["import { env } from 'node:process';", 'an import of node:process'],
     ["const p = require('process');", 'a require of process'],
+    // The review of PR #656: every use of process the reader cannot read.
+    ["const { env: reviewEnv } = process; if (reviewEnv.OBK_REVIEW_GATE === 'yes') return 0;", 'process destructured'],
+    ['const { env } = process;', 'process destructured, plain'],
+    ['const p = process; p.env.OBK_X;', 'process given another name'],
+    ['let p; p = process;', 'process given to a name later'],
+    ['read(process);', 'process passed whole'],
+    ['globalThis.process.env.OBK_X;', 'globalThis.process'],
+    ["globalThis['process'].env.OBK_X;", "globalThis['process']"],
+    ['const g = globalThis;', 'globalThis given another name'],
+    ['global.process.env.OBK_X;', 'global.process'],
+    ["eval('process.env.OBK_X');", 'eval'],
+    ["new Function('return process')();", 'Function'],
+    ['const o = { process };', 'process as a shorthand key'],
+    ['function f(process) { return process.env.OBK_X; }', 'process declared as a parameter'],
+    ['process\n  ;', 'process at the end of a statement'],
+    ['const s = `${process}`;', 'process in a template, whole'],
   ]) {
     assert.ok(settingsReadBy([{ file: 'c.js', text }]).unread.length > 0, `${why} should be a place the check cannot read: ${text}`);
   }

@@ -7,17 +7,37 @@
 // a call of one of the five paths goes to the fake that the variable beside it
 // names in the process's environment.
 //
-// A process with this file loaded never runs one of the five real programs.
-// When the variable is not set, the call goes to a path that is not there, and
-// the kit sees a program that does not start. So no sandboxed run reads the
-// machine's process table, clicks the real Orca's menu, or sends a real
-// signal (#537), even when a test forgets a fake.
+// What it covers, in a process with this file loaded:
 //
-// The kit runs the five with spawnSync (src/orca.js, src/processes.js). This
-// covers spawn, spawnSync, execFile and execFileSync, the forms that take the
-// program by itself. A shell line (exec, execSync, or a spawn with `shell`)
-// that names one of the five paths cannot be sent to a fake safely, so it is
-// refused with an error that says why.
+//   1. spawn, spawnSync, execFile and execFileSync of one of the five fixed
+//      paths run the fake its variable names. With the variable not set, the
+//      call goes to a path that is not there, and the kit sees a program that
+//      does not start. The kit runs the five this way (src/orca.js,
+//      src/processes.js).
+//   2. A call of any other program whose arguments name one of the five paths
+//      as a word is refused: a shell with -c and a line (`sh -c '/bin/kill
+//      -l'`), a wrapper (`env /bin/kill`), anything. So is a shell line, from
+//      exec, execSync or `shell: true`, that names one.
+//   3. kill, osascript and stty by any other spelling (`kill`, `/usr/bin/kill`)
+//      are refused as programs. As words of a shell line (exec, execSync,
+//      `shell: true`, or a shell such as sh, bash or zsh with -c) they are
+//      refused too, because a shell's own `kill` sends real signals.
+//   4. process.kill() of any process but this one is refused. Signal 0, which
+//      only asks whether a process is there, is let through.
+//   5. A child inherits this file through NODE_OPTIONS, and so does each of its
+//      children, while the environment it is given keeps NODE_OPTIONS.
+//
+// What it does not cover:
+//
+//   - A child started with an environment whose NODE_OPTIONS does not load
+//     this file runs without it, and so does all it starts. The kit does that
+//     for one child only, Orca's runtime client (src/orca.js askRuntime),
+//     which starts no process. helpers/cli.js refuses such an environment for
+//     a process the suite itself starts.
+//   - ps and lsof by another spelling (a bare `ps` on PATH, which
+//     src/record.js runs) are the real programs. Both only read.
+//   - A shell script from a file, and code given to another interpreter
+//     (`node -e`, `python3 -c`) that builds a path at run time, are not read.
 //
 // Node's builtin modules give ES modules live bindings, so a change to
 // `node:child_process` reaches `import { spawnSync } from 'node:child_process'`
@@ -49,22 +69,58 @@ function programFor(file) {
   return fake === undefined || fake === '' ? NO_FAKE : fake;
 }
 
-/** Whether a shell line names one of the fixed paths as a word. */
-const namesTool = (line) => typeof line === 'string'
-  && Object.keys(FAKE_TOOLS).some((file) => new RegExp(`(^|[\\s;&|('"\`])${file.replaceAll('/', '\\/')}($|[\\s;&|)'"\`])`).test(line));
+/** The programs that act on the world, refused by any spelling but the fixed one. */
+const ACTING = ['kill', 'osascript', 'stty'];
 
-const refuseLine = (how, line) => {
-  throw new Error(`helpers/fake-tools.js: ${how} names ${JSON.stringify(line)}, a shell line with one of ${Object.keys(FAKE_TOOLS).join(', ')} in it. `
-    + 'A shell line cannot be sent to a fake safely. Run the program by itself, with spawnSync or execFileSync.');
+/** Shells, which run the line after -c. */
+const SHELLS = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'mksh', 'fish', 'csh', 'tcsh', 'ash', 'busybox']);
+
+const asWord = (word) => new RegExp(`(^|[\\s;&|(){}<>!'"\`])${word.replaceAll('/', '\\/')}($|[\\s;&|(){}<>'"\`])`);
+const FIXED_WORDS = Object.keys(FAKE_TOOLS).map(asWord);
+const ACTING_WORDS = ACTING.map(asWord);
+
+/** Whether a text names one of the fixed paths as a word. */
+const namesTool = (text) => typeof text === 'string' && FIXED_WORDS.some((word) => word.test(text));
+
+/** Whether a shell line names a fixed path, or kill, osascript or stty, as a word. */
+const shellLineActs = (line) => namesTool(line) || (typeof line === 'string' && ACTING_WORDS.some((word) => word.test(line)));
+
+const basename = (file) => (typeof file === 'string' ? file.slice(file.lastIndexOf('/') + 1) : '');
+
+const refuse = (what) => {
+  throw new Error(`helpers/fake-tools.js: ${what}. In a sandbox the kit's ps, lsof, stty, osascript and kill go to fakes, `
+    + `and only by their fixed paths (${Object.keys(FAKE_TOOLS).join(', ')}), run by themselves with spawnSync or execFileSync.`);
 };
 
 /** The options of a call, wherever they sit among its arguments. */
 const optionsIn = (rest) => rest.find((arg) => arg !== null && typeof arg === 'object' && !Array.isArray(arg));
 
+/** The argument list of a call, when it has one. */
+const argsIn = (rest) => (Array.isArray(rest[0]) ? rest[0] : []);
+
+/** Refuse a call of `file` with `rest` that could reach a real one of the five. */
+function check(name, file, rest) {
+  if (typeof file !== 'string' || Object.hasOwn(FAKE_TOOLS, file)) return;
+  const args = argsIn(rest);
+  if (optionsIn(rest)?.shell) {
+    const line = [file, ...args].join(' ');
+    if (shellLineActs(line)) refuse(`${name} with shell runs ${JSON.stringify(line)}`);
+    return;
+  }
+  if (ACTING.includes(basename(file))) refuse(`${name} runs ${file}, which is not its fixed path`);
+  const named = args.find((arg) => namesTool(arg));
+  if (named !== undefined) refuse(`${name} runs ${file} with ${JSON.stringify(named)}, which names a fixed path`);
+  if (SHELLS.has(basename(file))) {
+    const at = args.findIndex((arg) => typeof arg === 'string' && /^-[a-zA-Z]*c[a-zA-Z]*$/.test(arg));
+    const line = at < 0 ? undefined : args[at + 1];
+    if (line !== undefined && shellLineActs(line)) refuse(`${name} runs ${file} -c ${JSON.stringify(line)}`);
+  }
+}
+
 for (const name of ['spawn', 'spawnSync', 'execFile', 'execFileSync']) {
   const real = childProcess[name];
   childProcess[name] = function fakeTools(file, ...rest) {
-    if (optionsIn(rest)?.shell && namesTool(file)) refuseLine(`${name} with shell`, file);
+    check(name, file, rest);
     return real.call(this, programFor(file), ...rest);
   };
 }
@@ -72,9 +128,15 @@ for (const name of ['spawn', 'spawnSync', 'execFile', 'execFileSync']) {
 for (const name of ['exec', 'execSync']) {
   const real = childProcess[name];
   childProcess[name] = function fakeTools(line, ...rest) {
-    if (namesTool(line)) refuseLine(name, line);
+    if (shellLineActs(line)) refuse(`${name} runs ${JSON.stringify(line)}`);
     return real.call(this, line, ...rest);
   };
 }
+
+const realKill = process.kill.bind(process);
+process.kill = function fakeTools(pid, signal) {
+  if (Number(pid) !== process.pid && signal !== 0) refuse(`process.kill(${pid}, ${JSON.stringify(signal ?? 'SIGTERM')}) would signal a process that is not this one`);
+  return realKill(pid, signal);
+};
 
 syncBuiltinESMExports();

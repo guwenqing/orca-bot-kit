@@ -22,7 +22,11 @@
 //       `holds` line that ends with the `permission disallow` command that
 //       takes it back, and carry it in `held` in --json; `permission disallow`
 //       takes it back, and no `holds` line is left for it. The middle of the
-//       line is the implementer's wording.
+//       line is the implementer's wording. The kit word of such a rule is the
+//       kit's own CLI path, the bare word `obk` (as #532's help spelled its
+//       example), or another path to an obk (the review of PR #656). A rule
+//       whose first word is no obk (`make run …`), or whose next word is not
+//       `run`, is not one, and is not named.
 //   RM5 The kit writes no rule that names `obk run`, for a bot on Claude or on
 //       Codex (RR5 of the run-rules test, which #652 removed, moved here).
 //   RM6 `obk health` gives no finding about rules that let `obk run` run any
@@ -152,8 +156,22 @@ test('RM3 README.md, SETUP.md, rules/ and skills/ name no obk run', async () => 
 
 /** The rules for `obk run` a bot may hold, as `permission allow` recorded them, and the Codex line it wrote for each. */
 const runRules = (box) => [
-  { rule: `Bash(${shellWord(box.cli)} run --timeout 300 -- go test:*)`, line: prefixRule([box.cli, 'run', '--timeout', '300', '--', 'go', 'test']) },
-  { rule: `Bash(${shellWord(box.cli)} run --timeout=300 -- npm test:*)`, line: prefixRule([box.cli, 'run', '--timeout=300', '--', 'npm', 'test']) },
+  { spelled: 'the kit\'s own CLI path', rule: `Bash(${shellWord(box.cli)} run --timeout 300 -- go test:*)`, line: prefixRule([box.cli, 'run', '--timeout', '300', '--', 'go', 'test']) },
+  { spelled: 'the kit\'s own CLI path, --timeout=', rule: `Bash(${shellWord(box.cli)} run --timeout=300 -- npm test:*)`, line: prefixRule([box.cli, 'run', '--timeout=300', '--', 'npm', 'test']) },
+  // The review of PR #656: as #532's own help text spelled it, and by another
+  // path to an obk.
+  { spelled: 'the bare word obk', rule: 'Bash(obk run --timeout 300 -- go test:*)', line: prefixRule(['obk', 'run', '--timeout', '300', '--', 'go', 'test']) },
+  { spelled: 'another path to an obk', rule: 'Bash(/opt/homebrew/bin/obk run --timeout=300 -- npm test:*)', line: prefixRule(['/opt/homebrew/bin/obk', 'run', '--timeout=300', '--', 'npm', 'test']) },
+];
+
+/** Rules that are not for `obk run`: the first word is no obk, or the word after it is not `run`. */
+const NOT_RUN_RULES = [
+  'Bash(make run --timeout 3 -- sh:*)',
+  'Bash(npm run build:*)',
+  'Bash(/usr/local/bin/notobk run --timeout 3 -- go test:*)',
+  'Bash(echo obk run:*)',
+  'Bash(obk runner --timeout 3:*)',
+  'Bash(obk health --bots /elsewhere:*)',
 ];
 
 /** Put `rules` into the bot's allow by hand, after what it holds, each once. */
@@ -236,26 +254,50 @@ test('RM4 rules build --json: the entry of a bot that holds rules for obk run ca
 });
 
 for (const [label, harness, files] of HARNESSES) {
-  test(`RM4 permission disallow takes back a rule for obk run of ${label}, from allow and its harness file, and no holds line is left for it`, async (t) => {
+  for (const [at, gone] of runRules({ cli: '/x' }).entries()) {
+    test(`RM4 permission disallow takes back a rule for obk run spelled with ${gone.spelled} of ${label}, from allow and its harness file, and no holds line is left for it`, async (t) => {
+      const box = await createSandbox(t);
+      const bots = await withBot(box, harness);
+      const rules = runRules(box);
+      const [rule, kept] = [rules[at], rules[(at + 1) % rules.length]];
+      await hold(bots, BOT, [rule.rule, kept.rule]);
+      await ok(box.run(['rules', 'build', '--bots', 'bots', '--bot', BOT]));
+
+      const result = await permissionDisallow(box, BOT, [rule.rule]);
+
+      assert.equal(result.code, 0, `a rule for a command the kit no longer has is taken back, got:\n${result.stdout}${result.stderr}`);
+      assert.equal(count(await allowOf(bots, BOT), rule.rule), 0, `allow no longer holds ${rule.rule}`);
+      assert.equal(count(await allowOf(bots, BOT), kept.rule), 1, `the other rule stays: ${kept.rule}`);
+      if (files.claude) assert.equal(count(await allowedIn(bots, BOT), rule.rule), 0, `${settingsOf(bots, BOT)} no longer allows ${rule.rule}`);
+      if (files.codex) assert.equal(count(await codexAllowedIn(bots, BOT), rule.line), 0, `${codexRulesOf(bots, BOT)} no longer holds ${rule.line}`);
+
+      const after = await ok(box.run(['rules', 'build', '--bots', 'bots', '--bot', BOT]));
+
+      assert.deepEqual(holdsLinesIn(after.stdout).filter((line) => line.includes(rule.rule)), [], `no holds line for the rule taken back, got:\n${after.stdout}`);
+      assertHoldsLine(after.stdout, box, bots, BOT, kept.rule);
+      assert.equal(count(await allowOf(bots, BOT), rule.rule), 0, 'rules build does not write it back');
+    });
+  }
+}
+
+for (const [writer, argsFor] of WRITERS) {
+  test(`RM4 ${writer} names the rules for obk run in each spelling, and no rule whose first word is no obk or whose next word is not run`, async (t) => {
     const box = await createSandbox(t);
-    const bots = await withBot(box, harness);
-    const [gone, kept] = runRules(box);
-    await hold(bots, BOT, [gone.rule, kept.rule]);
-    await ok(box.run(['rules', 'build', '--bots', 'bots', '--bot', BOT]));
+    const bots = await withBot(box, 'claude');
+    const held = runRules(box).map(({ rule }) => rule);
+    await hold(bots, BOT, [...NOT_RUN_RULES, ...held]);
 
-    const result = await permissionDisallow(box, BOT, [gone.rule]);
+    const plain = await ok(box.run(argsFor(BOT)));
+    const answer = jsonOf(await box.run([...argsFor(BOT), '--json']));
 
-    assert.equal(result.code, 0, `a rule for a command the kit no longer has is taken back, got:\n${result.stdout}${result.stderr}`);
-    assert.equal(count(await allowOf(bots, BOT), gone.rule), 0, `allow no longer holds ${gone.rule}`);
-    assert.equal(count(await allowOf(bots, BOT), kept.rule), 1, `the other rule stays: ${kept.rule}`);
-    if (files.claude) assert.equal(count(await allowedIn(bots, BOT), gone.rule), 0, `${settingsOf(bots, BOT)} no longer allows ${gone.rule}`);
-    if (files.codex) assert.equal(count(await codexAllowedIn(bots, BOT), gone.line), 0, `${codexRulesOf(bots, BOT)} no longer holds ${gone.line}`);
-
-    const after = await ok(box.run(['rules', 'build', '--bots', 'bots', '--bot', BOT]));
-
-    assert.deepEqual(holdsLinesIn(after.stdout).filter((line) => line.includes(gone.rule)), [], `no holds line for the rule taken back, got:\n${after.stdout}`);
-    assertHoldsLine(after.stdout, box, bots, BOT, kept.rule);
-    assert.equal(count(await allowOf(bots, BOT), gone.rule), 0, 'rules build does not write it back');
+    for (const rule of NOT_RUN_RULES) {
+      assert.deepEqual(holdsLinesIn(plain.stdout).filter((line) => line.includes(rule)), [], `${rule} is no rule for obk run, and gets no holds line, got:\n${plain.stdout}`);
+      assert.equal(count(await allowOf(bots, BOT), rule), 1, `allow keeps ${rule}`);
+    }
+    const heldNow = entryAt(answer, BOT, settingsOf(bots, BOT)).held;
+    assert.ok(Array.isArray(heldNow), `the entry carries held, a list, got: ${JSON.stringify(heldNow)}`);
+    assert.deepEqual([...heldNow].sort(), [...held].sort(), 'held names the rules for obk run in each spelling, and none of the others');
+    for (const rule of held) assertHoldsLine(plain.stdout, box, bots, BOT, rule);
   });
 }
 
