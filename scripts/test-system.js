@@ -777,6 +777,19 @@ function runTests(files, seconds, env) {
     child.on('exit', (status, signal) => {
       clearTimeout(timer);
       for (const one of signals) process.off(one, onSignal);
+      // A process the tests started can stay in their group after node --test
+      // ends, an unref'd child say. It is the run's, so it goes too (review of
+      // PR #654). One the tests moved to a group of their own is out of reach
+      // without an id from ps (#655).
+      let left = false;
+      try {
+        process.kill(-child.pid, 0);
+        left = true;
+        process.kill(-child.pid, 'SIGKILL');
+      } catch {
+        // The group is empty.
+      }
+      if (left) process.stdout.write('\nThe tests left processes in their process group when they ended, and the runner stopped them.\n');
       resolve({ status, signal, stopped });
     });
   });
