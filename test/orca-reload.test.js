@@ -146,14 +146,14 @@ test('R4 anything but exactly reloaded on a clean exit is false, tried once and 
   }
 });
 
-test('R5 with no osascript where OBK_OSASCRIPT points, reloadWindow() is false', async (t) => {
+test('R5 with no osascript where /usr/bin/osascript goes, reloadWindow() is false', async (t) => {
   const box = await aMac(t);
-  box.env.OBK_OSASCRIPT = box.path('no-such-osascript');
+  box.env.OBK_TEST_OSASCRIPT = box.path('no-such-osascript');
 
   assert.equal((await reloadIn(box)).answer, false);
 
   // The same Mac with the fake back in place: the reload is done.
-  box.env.OBK_OSASCRIPT = box.osascript.cli;
+  box.env.OBK_TEST_OSASCRIPT = box.osascript.cli;
   assert.equal((await reloadIn(box)).answer, true);
 });
 
@@ -298,7 +298,7 @@ const CANNOT = [
   { name: 'Orca or its menu item is not found', arrange: (box) => box.osascript.answer(OSASCRIPT.notFound), tries: 1 },
   { name: 'osascript says nothing', arrange: (box) => box.osascript.answer(OSASCRIPT.silent), tries: 1 },
   { name: 'osascript fails', arrange: (box) => box.osascript.answer({ stdout: 'reloaded\n', code: 1 }), tries: 1 },
-  { name: 'there is no osascript', arrange: (box) => { box.env.OBK_OSASCRIPT = box.path('no-such-osascript'); }, tries: 0 },
+  { name: 'there is no osascript', arrange: (box) => { box.env.OBK_TEST_OSASCRIPT = box.path('no-such-osascript'); }, tries: 0 },
 ];
 
 for (const { name, arrange, tries } of CANNOT) {

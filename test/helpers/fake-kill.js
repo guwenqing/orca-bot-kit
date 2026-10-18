@@ -1,5 +1,5 @@
-// A fake `kill` for the ordinary suite (#537). `OBK_KILL` points every
-// sandboxed run at it, so `npm test` never sends a signal to anything: it
+// A fake `kill` for the ordinary suite (#537). helpers/fake-tools.js sends
+// every sandboxed run's /bin/kill to it (OBK_TEST_KILL), so `npm test` never sends a signal to anything: it
 // writes the call down and changes the fake ps's process table
 // (`processes` in state.json, helpers/fake-ps.js), and that is all.
 //

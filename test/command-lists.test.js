@@ -51,13 +51,14 @@ test('CL2 neither list names a command the CLI does not know, and neither names 
 // #548 R1 moved restart and bot create from the default set to the kept-back
 // list. #555 removed `session nudge` and `session mail` from the kit. #615 R1
 // moved bot change, session add and session change to the kept-back list.
-// #532 added `run`, kept back: 29 and twelve now, where #615 had 29 and
-// eleven, #555 32 and eight, #548 34 and eight, and #527 36 and six.
-test('CL3 the two lists are the requirement\'s: the default set\'s 29 commands, and the twelve kept back', () => {
+// #532 added `run`, kept back, and #652 took it out of the kit: 29 and eleven
+// now, as #615 had, where #532 had 29 and twelve, #555 32 and eight, #548 34
+// and eight, and #527 36 and six.
+test('CL3 the two lists are the requirement\'s: the default set\'s 29 commands, and the eleven kept back', () => {
   const { DEFAULT_COMMANDS, KEPT_BACK } = lists();
 
   assert.equal(KIT_COMMANDS.length, 29, 'the premise: the helper spells 29');
-  assert.equal(NOT_DEFAULT_COMMANDS.length, 12, 'the premise: the helper spells twelve');
+  assert.equal(NOT_DEFAULT_COMMANDS.length, 11, 'the premise: the helper spells eleven');
   assert.deepEqual(sorted(DEFAULT_COMMANDS), sorted(KIT_COMMANDS));
   assert.deepEqual(sorted(KEPT_BACK), sorted(NOT_DEFAULT_COMMANDS));
 });
@@ -95,12 +96,21 @@ test('CL5 #615 R1: bot change, session add and session change are kept back for 
   }
 });
 
-// #532: `run` is a command of the CLI, kept back: no bot is given it by
-// default, since it runs whatever command it is given.
-test('CL6 #532: run is a command the CLI knows, on KEPT_BACK, and not in the default set', () => {
+// #652 R2: `run` (#532) is no command of the kit's. It is on no list of
+// src/commands.js but REMOVED, the commands the kit no longer has and whose
+// rules a bot may still hold (#564), beside #555's two.
+test('CL6 #652 R2: run is in no list of src/commands.js but REMOVED, which still holds session mail and session nudge', () => {
   const { known, DEFAULT_COMMANDS, KEPT_BACK } = lists();
+  const { NO_LONGER_DEFAULT, REMOVED } = commands;
+  assert.ok(Array.isArray(NO_LONGER_DEFAULT), `src/commands.js should export NO_LONGER_DEFAULT, an array, got: ${JSON.stringify(NO_LONGER_DEFAULT)}`);
+  assert.ok(Array.isArray(REMOVED), `src/commands.js should export REMOVED, an array, got: ${JSON.stringify(REMOVED)}`);
 
-  assert.ok(known.includes('run'), `COMMANDS should hold run, got: ${JSON.stringify(known)}`);
-  assert.ok(KEPT_BACK.includes('run'), `run should be on KEPT_BACK, got: ${JSON.stringify(KEPT_BACK)}`);
+  assert.ok(!known.includes('run'), `COMMANDS should not hold run, got: ${JSON.stringify(known)}`);
+  assert.ok(!KEPT_BACK.includes('run'), `run should not be on KEPT_BACK, got: ${JSON.stringify(KEPT_BACK)}`);
   assert.ok(!DEFAULT_COMMANDS.includes('run'), `run should not be on DEFAULT_COMMANDS, got: ${JSON.stringify(DEFAULT_COMMANDS)}`);
+  assert.ok(!NO_LONGER_DEFAULT.includes('run'), `run should not be on NO_LONGER_DEFAULT, got: ${JSON.stringify(NO_LONGER_DEFAULT)}`);
+  assert.ok(REMOVED.includes('run'), `run should be on REMOVED, got: ${JSON.stringify(REMOVED)}`);
+  for (const command of ['session mail', 'session nudge']) {
+    assert.ok(REMOVED.includes(command), `${command} stays on REMOVED, got: ${JSON.stringify(REMOVED)}`);
+  }
 });

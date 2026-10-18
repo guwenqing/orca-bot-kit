@@ -248,7 +248,8 @@ test('F1 a busy harness the runtime finds in front gets the Escape, as one ps fi
 
 test('F1 a ps that cannot be started at all, not only one that exits 126, is a ps that cannot read the tab', async (t) => {
   // The kit may meet the sandbox as a process that will not spawn rather than
-  // one that exits: here the file OBK_PS names has no exec bit.
+  // one that exits: here the file /bin/ps goes to has no exec bit
+  // (OBK_TEST_PS, helpers/fake-tools.js).
   const box = await createSandbox(t);
   const bots = await fleetIn(box);
   await orcaApp(box);
@@ -256,7 +257,7 @@ test('F1 a ps that cannot be started at all, not only one that exits 126, is a p
   await writeFile(noExec, '#!/bin/sh\necho "this ps must never run" >&2\nexit 70\n');
   await chmod(noExec, 0o644);
 
-  const said = await send(box, { env: { ...box.env, OBK_PS: noExec } });
+  const said = await send(box, { env: { ...box.env, OBK_TEST_PS: noExec } });
 
   await assertEscapedOnly(box, (await tabOf(box, bots, 'coder')).tabId, said);
 });
@@ -294,7 +295,9 @@ test('F2 the client runs as plain Node, without the NODE_OPTIONS or NODE_REPL_EX
   const loaded = (await app.loads()).length;
 
   const said = await send(box, {
-    env: { ...box.env, NODE_OPTIONS: '--no-deprecation', NODE_REPL_EXTERNAL_MODULE: box.path('no-such-repl.js') },
+    // The sandbox's own NODE_OPTIONS stay: they carry the preload that keeps
+    // the kit on the fake ps (helpers/fake-tools.js).
+    env: { ...box.env, NODE_OPTIONS: `${box.env.NODE_OPTIONS} --no-deprecation`, NODE_REPL_EXTERNAL_MODULE: box.path('no-such-repl.js') },
   });
 
   const loads = (await app.loads()).slice(loaded);

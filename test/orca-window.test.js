@@ -415,7 +415,9 @@ test('W1 the client runs as plain Node, without the NODE_OPTIONS or NODE_REPL_EX
   const loaded = (await app.loads()).length;
 
   const result = await box.run(['up', '--bots', 'bots'], {
-    env: { ...box.env, NODE_OPTIONS: '--no-deprecation', NODE_REPL_EXTERNAL_MODULE: box.path('no-such-repl.js') },
+    // The sandbox's own NODE_OPTIONS stay: they carry the preload that keeps
+    // the kit on the fake ps (helpers/fake-tools.js).
+    env: { ...box.env, NODE_OPTIONS: `${box.env.NODE_OPTIONS} --no-deprecation`, NODE_REPL_EXTERNAL_MODULE: box.path('no-such-repl.js') },
   });
 
   assert.equal(result.code, 0, result.stderr);

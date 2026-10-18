@@ -1,5 +1,5 @@
-// A fake `osascript` for the ordinary suite. `OBK_OSASCRIPT` points every
-// sandboxed run at it, so `npm test` never reaches the machine's own osascript,
+// A fake `osascript` for the ordinary suite. helpers/fake-tools.js sends every
+// sandboxed run's /usr/bin/osascript to it (OBK_TEST_OSASCRIPT), so `npm test` never reaches the machine's own osascript,
 // and through it System Events and the real Orca's menu (#343).
 //
 // The kit asks it one thing: force-reload the window of one Orca, through

@@ -1,6 +1,7 @@
-// A fake `lsof` and a fake `stty` for the ordinary suite. `OBK_LSOF` and
-// `OBK_STTY` point every sandboxed run at them, so `npm test` never reads the
-// machine's own terminals.
+// A fake `lsof` and a fake `stty` for the ordinary suite. helpers/fake-tools.js
+// sends every sandboxed run's /usr/sbin/lsof and /bin/stty to them
+// (OBK_TEST_LSOF, OBK_TEST_STTY), so `npm test` never reads the machine's own
+// terminals.
 //
 // They answer the question the kit asks before it types a launch line into a
 // tab it has just opened (#498): is the tab's shell at a ready prompt, with

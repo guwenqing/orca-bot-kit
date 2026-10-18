@@ -121,7 +121,7 @@ async function assuredloopLines() {
 }
 
 test('the anchor rule gives the anchors GitHub gives', () => {
-  // The one the README links to today.
+  // The one CONTRIBUTING.md links to today (the README until #652).
   assert.equal(slug('7.3 Decided rules inside the skills'), '73-decided-rules-inside-the-skills');
   assert.equal(slug('6.6 Rules and `AGENTS.md`'), '66-rules-and-agentsmd');
   // With an ID in front, as AssuredLoop writes them.
@@ -177,7 +177,7 @@ test('every link to a heading in the PRD lands on one, and on the section it nam
   const links = (await markdownLinks()).filter((link) => link.resolved === NEW_PRD && link.anchor !== null);
   assert.ok(
     links.some((link) => link.file !== NEW_PRD),
-    `some file outside the PRD should link to a heading in it, as README.md's PRD 7.3 link does`,
+    `some file outside the PRD should link to a heading in it, as CONTRIBUTING.md's PRD 7.3 link does`,
   );
 
   const problems = [];
