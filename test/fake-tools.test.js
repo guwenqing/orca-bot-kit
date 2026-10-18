@@ -56,9 +56,14 @@ async function recorder(box, name) {
   return file;
 }
 
-/** Run `lines` as an ES module in a child node, with `env`; its stdout parsed as JSON. */
-async function inChild(box, env, lines) {
-  const ran = await node(['--input-type=module', '-e', lines.join('\n')], { cwd: box.cwd, env });
+/**
+ * Run `lines` as an ES module in a child node, with `env`; its stdout parsed
+ * as JSON. The lines are literal code: a value the child needs is `data`,
+ * which it reads as JSON from process.argv[1], never code built from it
+ * (CodeQL js/bad-code-sanitization, alert 7 of PR #656).
+ */
+async function inChild(box, env, lines, data = null) {
+  const ran = await node(['--input-type=module', '-e', lines.join('\n'), JSON.stringify(data)], { cwd: box.cwd, env });
   assert.equal(ran.code, 0, `the child should run, got:\n${ran.stdout}${ran.stderr}`);
   return JSON.parse(ran.stdout);
 }
@@ -84,7 +89,7 @@ test('FT2 each fixed path runs its fake, through spawnSync, execFileSync, spawn 
 
   const said = await inChild(box, env, [
     "import cp, { spawnSync, execFileSync, spawn, execFile } from 'node:child_process';",
-    `const tools = ${JSON.stringify(TOOLS.map(([file]) => file))};`,
+    'const tools = JSON.parse(process.argv[1]);',
     'const out = {};',
     'const viaSpawn = (file) => new Promise((resolve) => { let text = ""; const child = spawn(file, ["three"]); child.stdout.on("data", (d) => { text += d; }); child.on("close", () => resolve(text)); });',
     'const viaExecFile = (file) => new Promise((resolve) => execFile(file, ["four"], (error, stdout) => resolve(stdout)));',
@@ -98,7 +103,7 @@ test('FT2 each fixed path runs its fake, through spawnSync, execFileSync, spawn 
     '  ].map((line) => JSON.parse(line));',
     '}',
     'process.stdout.write(JSON.stringify(out));',
-  ]);
+  ], TOOLS.map(([file]) => file));
 
   for (const [file, name] of TOOLS) {
     assert.deepEqual(said[file], ['one', 'two', 'three', 'four', 'five'].map((args) => ({ fake: name, args })), `${file} should run the fake ${name} each way`);
@@ -112,7 +117,7 @@ test('FT3 with no fake named, a fixed path does not start: the real program is n
 
   const said = await inChild(box, env, [
     "import { spawnSync } from 'node:child_process';",
-    `const tools = ${JSON.stringify(TOOLS.map(([file]) => file))};`,
+    'const tools = JSON.parse(process.argv[1]);',
     'const out = {};',
     // `kill -0 <own pid>` would succeed on the real kill; `-l` lists signals on it.
     'for (const file of tools) {',
@@ -120,7 +125,7 @@ test('FT3 with no fake named, a fixed path does not start: the real program is n
     '  out[file] = { error: ran.error?.code ?? null, status: ran.status, stdout: ran.stdout ?? null };',
     '}',
     'process.stdout.write(JSON.stringify(out));',
-  ]);
+  ], TOOLS.map(([file]) => file));
 
   for (const [file] of TOOLS) {
     assert.equal(said[file].error, 'ENOENT', `${file} with no fake named should not start at all, got: ${JSON.stringify(said[file])}`);
@@ -134,14 +139,15 @@ test('FT4 a shell line that names a fixed path is refused, and does not run', as
   const said = await inChild(box, box.env, [
     "import { execSync, exec, spawnSync } from 'node:child_process';",
     'const out = [];',
-    `const lines = ['/bin/kill -0 $$ && touch ${marker}', 'true; /bin/ps -A > ${marker}'];`,
+    'const marker = JSON.parse(process.argv[1]);',
+    "const lines = ['/bin/kill -0 $$ && touch ' + marker, 'true; /bin/ps -A > ' + marker];",
     'for (const line of lines) {',
     '  try { execSync(line); out.push("ran"); } catch (error) { out.push(error.message.includes("fake-tools") ? "refused" : `failed: ${error.message}`); }',
     '  try { exec(line, () => {}); out.push("ran"); } catch (error) { out.push(error.message.includes("fake-tools") ? "refused" : `failed: ${error.message}`); }',
     '  try { spawnSync(line, { shell: true }); out.push("ran"); } catch (error) { out.push(error.message.includes("fake-tools") ? "refused" : `failed: ${error.message}`); }',
     '}',
     'process.stdout.write(JSON.stringify(out));',
-  ]);
+  ], marker);
 
   assert.deepEqual(said, Array(6).fill('refused'));
   await assert.rejects(readFile(marker), { code: 'ENOENT' }, 'nothing of the refused lines ran');
@@ -170,39 +176,41 @@ test('FT6 a sandboxed run whose NODE_OPTIONS lost the preload is refused before 
 });
 
 /**
- * Run each of `calls`, a JavaScript expression, in a child node with the
- * sandbox's environment: `refused` when the preload refused it, else what it
- * gave. `marker` is a file a call that ran would make.
+ * Run each of `calls`, a JavaScript expression written as a literal in the
+ * test, in a child node with the sandbox's environment: `refused` when the
+ * preload refused it, else what it gave. The calls come to the child as data
+ * with `marker`, a file a call that ran would make; in a call, MARKER is that
+ * path and TOUCH the shell line that makes it. No call is built from a value.
  */
-async function eachOf(box, calls, env = box.env) {
+async function eachOf(box, calls, marker = box.path('ran'), env = box.env) {
   return inChild(box, env, [
     "import cp, { spawnSync, spawn, execFile, execFileSync, execSync, exec } from 'node:child_process';",
-    `const calls = ${JSON.stringify(calls)};`,
+    'const { calls, marker: MARKER } = JSON.parse(process.argv[1]);',
+    "const TOUCH = '/usr/bin/touch ' + MARKER;",
     'const out = [];',
     'for (const call of calls) {',
     '  try { await eval(call); out.push("ran"); } catch (error) { out.push(error.message.includes("helpers/fake-tools.js") ? "refused" : `failed: ${error.message}`); }',
     '}',
     'process.stdout.write(JSON.stringify(out));',
-  ]);
+  ], { calls, marker });
 }
 
 test('FT7 another program that would reach a fixed path is refused: a shell with -c, by name or by path, and a wrapper', async (t) => {
   const box = await createSandbox(t);
   const marker = box.path('ran');
-  const touch = `/usr/bin/touch ${marker}`;
 
   const calls = [
-    `spawnSync('/bin/sh', ['-c', '/bin/kill -l; ${touch}'])`,
-    `spawnSync('sh', ['-c', '/bin/kill -0 $$ && ${touch}'])`,
-    `spawnSync('/bin/bash', ['-c', 'true; /bin/ps -A > ${marker}'])`,
-    `execFileSync('zsh', ['-lc', '/usr/sbin/lsof -v; ${touch}'])`,
-    `spawn('/bin/dash', ['-c', '/usr/bin/osascript -e 1; ${touch}'])`,
-    `execFile('ksh', ['-c', '/bin/stty -a; ${touch}'], () => {})`,
-    `spawnSync('/usr/bin/env', ['/bin/kill', '-l'])`,
-    `spawnSync('/usr/bin/xargs', ['/bin/kill', '-l'])`,
-    `cp.spawnSync('/bin/sh', ['-c', '/bin/kill -l'])`,
+    "spawnSync('/bin/sh', ['-c', '/bin/kill -l; ' + TOUCH])",
+    "spawnSync('sh', ['-c', '/bin/kill -0 $$ && ' + TOUCH])",
+    "spawnSync('/bin/bash', ['-c', 'true; /bin/ps -A > ' + MARKER])",
+    "execFileSync('zsh', ['-lc', '/usr/sbin/lsof -v; ' + TOUCH])",
+    "spawn('/bin/dash', ['-c', '/usr/bin/osascript -e 1; ' + TOUCH])",
+    "execFile('ksh', ['-c', '/bin/stty -a; ' + TOUCH], () => {})",
+    "spawnSync('/usr/bin/env', ['/bin/kill', '-l'])",
+    "spawnSync('/usr/bin/xargs', ['/bin/kill', '-l'])",
+    "cp.spawnSync('/bin/sh', ['-c', '/bin/kill -l'])",
   ];
-  const said = await eachOf(box, calls);
+  const said = await eachOf(box, calls, marker);
 
   assert.deepEqual(said.map((one, at) => `${calls[at]}: ${one}`), calls.map((call) => `${call}: refused`));
   await assert.rejects(readFile(marker), { code: 'ENOENT' }, 'nothing of the refused calls ran');
@@ -211,28 +219,27 @@ test('FT7 another program that would reach a fixed path is refused: a shell with
 test('FT8 kill, osascript and stty by any other spelling are refused, as programs and as words of a shell line', async (t) => {
   const box = await createSandbox(t);
   const marker = box.path('ran');
-  const touch = `/usr/bin/touch ${marker}`;
 
   const calls = [
     "spawnSync('kill', ['-0', String(process.pid)])",
     "spawnSync('/usr/bin/kill', ['-0', String(process.pid)])",
     "execFileSync('osascript', ['-e', '1'])",
     "spawnSync('stty', ['-a'])",
-    `spawnSync('/bin/sh', ['-c', 'kill -0 $$ && ${touch}'])`,
-    `spawnSync('bash', ['-c', 'stty -a; ${touch}'])`,
-    `execSync('kill -0 $$ && ${touch}')`,
-    `exec('osascript -e 1; ${touch}', () => {})`,
-    `spawnSync('kill -0 $$ && ${touch}', { shell: true })`,
+    "spawnSync('/bin/sh', ['-c', 'kill -0 $$ && ' + TOUCH])",
+    "spawnSync('bash', ['-c', 'stty -a; ' + TOUCH])",
+    "execSync('kill -0 $$ && ' + TOUCH)",
+    "exec('osascript -e 1; ' + TOUCH, () => {})",
+    "spawnSync('kill -0 $$ && ' + TOUCH, { shell: true })",
   ];
-  const said = await eachOf(box, calls);
+  const said = await eachOf(box, calls, marker);
 
   assert.deepEqual(said.map((one, at) => `${calls[at]}: ${one}`), calls.map((call) => `${call}: refused`));
   await assert.rejects(readFile(marker), { code: 'ENOENT' }, 'nothing of the refused calls ran');
 
   // A line or a path that only has the word inside another word is not refused.
   const plain = await eachOf(box, [
-    `spawnSync('/bin/sh', ['-c', 'echo killing /x/kill/y'])`,
-    `execSync('echo stty-like')`,
+    "spawnSync('/bin/sh', ['-c', 'echo killing /x/kill/y'])",
+    "execSync('echo stty-like')",
   ]);
   assert.deepEqual(plain, ['ran', 'ran']);
 });
@@ -269,19 +276,22 @@ test('FT9 process.kill() of a process or a group this process did not start is r
 
 test('FT10 the preload reaches a grandchild whose environment keeps NODE_OPTIONS, and not one whose environment drops it', async (t) => {
   const box = await createSandbox(t);
-  // Whether a node process has the preload, read without running any tool.
-  const loaded = "import('node:child_process').then((cp) => process.stdout.write(String(cp.spawnSync.name === 'fakeTools')))";
+  // Whether a node process has the preload, read without running any tool: a
+  // file of its own, which the grandchild runs by its path.
+  const probe = box.path('loaded.mjs');
+  await writeFile(probe, "import cp from 'node:child_process';\nprocess.stdout.write(String(cp.spawnSync.name === 'fakeTools'));\n");
 
   const said = await inChild(box, box.env, [
     "import { execFileSync } from 'node:child_process';",
-    `const ask = (env) => execFileSync(process.execPath, ['-e', ${JSON.stringify(loaded)}], { env, encoding: 'utf8' });`,
+    'const probe = JSON.parse(process.argv[1]);',
+    "const ask = (env) => execFileSync(process.execPath, [probe], { env, encoding: 'utf8' });",
     'process.stdout.write(JSON.stringify({',
     '  inherited: ask(undefined),',
     '  kept: ask({ ...process.env, NODE_OPTIONS: `${process.env.NODE_OPTIONS} --no-deprecation` }),',
     "  emptied: ask({ ...process.env, NODE_OPTIONS: '' }),",
     '  dropped: ask(Object.fromEntries(Object.entries(process.env).filter(([name]) => name !== "NODE_OPTIONS"))),',
     '}));',
-  ]);
+  ], probe);
 
   assert.deepEqual(said, { inherited: 'true', kept: 'true', emptied: 'false', dropped: 'false' },
     'the preload goes as far as NODE_OPTIONS carries it: helpers/fake-tools.js names this limit, and the kit drops NODE_OPTIONS only for Orca\'s runtime client');
