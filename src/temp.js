@@ -77,14 +77,16 @@ export async function makeTemp(bots, { tab, ...given }) {
   const maker = bot.sessions.find((session) => session.name === caller.session);
   const { settings, chosen } = settingsFor(bot, maker, role?.option ?? {}, given);
   const onPi = chosen.harness.value === 'pi';
+  // A blank --approval names no level, so on Pi it is judged as left out (the review of PR #651).
+  const asked = onPi && !set(given.approval) ? undefined : given.approval;
   if (onPi) {
     // Pi has one level, whatever the maker's is (the owner, #547).
-    const trouble = piApprovalTrouble(given.approval, name);
+    const trouble = piApprovalTrouble(asked, name);
     if (trouble !== undefined) throw new Error(`${trouble} Nothing was made.`);
     settings.approval = 'dangerously-skip';
-    if (given.approval === undefined) chosen.approval = { value: 'dangerously-skip', from: 'harness' };
+    if (asked === undefined) chosen.approval = { value: 'dangerously-skip', from: 'harness' };
   }
-  refuseWiderApproval(bots, caller, bot, maker, given.approval ?? (onPi ? settings.approval : undefined), onPi && given.approval === undefined ? name : undefined);
+  refuseWiderApproval(bots, caller, bot, maker, asked ?? (onPi ? settings.approval : undefined), onPi && asked === undefined ? name : undefined);
   refuseApprovalArgs(chosen.harness.value, given.extra_args);
   // Asked before anything is written, so a Pi that cannot start one makes nothing (#578).
   if (onPi) {
