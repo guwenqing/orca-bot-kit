@@ -750,7 +750,8 @@ function limitOf(args) {
  * spawn: seen on Node 26.11.1, SIGTERM ends `node --test` at once and runs no
  * after-hook, so a softer signal buys nothing. A signal to the runner stops the
  * group too, as Ctrl-C stopped the tests when they shared the runner's group.
- * Answers { status, signal, stopped }, stopped being the limit or the signal.
+ * Answers { status, signal, stopped }, stopped being the limit or the signal,
+ * or { status: null, failed } when node --test could not be started at all.
  */
 function runTests(files, seconds, env) {
   const grace = seconds < 60 ? seconds / 2 : 30;
@@ -773,10 +774,20 @@ function runTests(files, seconds, env) {
   const signals = ['SIGINT', 'SIGTERM', 'SIGHUP'];
   const onSignal = (signal) => stop(`A ${signal} to the runner`);
   for (const signal of signals) process.on(signal, onSignal);
+  const settle = () => {
+    clearTimeout(timer);
+    for (const one of signals) process.off(one, onSignal);
+  };
   return new Promise((resolve) => {
+    // A spawn that fails (ENOENT, EAGAIN) emits no exit, and the reports must
+    // still run (review of PR #654). Nothing else here emits an error: the
+    // runner never kills, aborts or messages the child through its handle.
+    child.on('error', (error) => {
+      settle();
+      resolve({ status: null, failed: error.code ?? error.message });
+    });
     child.on('exit', (status, signal) => {
-      clearTimeout(timer);
-      for (const one of signals) process.off(one, onSignal);
+      settle();
       // A process the tests started can stay in their group after node --test
       // ends, an unref'd child say. It is the run's, so it goes too (review of
       // PR #654). One the tests moved to a group of their own is out of reach
@@ -1000,6 +1011,9 @@ async function run() {
   // trust key left in the owner's Codex config does: that is a check (#240).
   // So is a project left in the owner's Orca (#536). A run that the limit or a
   // signal stopped (#653) fails too: SIGKILL leaves the tests no status of 0.
+  if (result.failed !== undefined) {
+    process.stdout.write(`\nThe tests could not be started (${result.failed}), so the run failed.\n`);
+  }
   if (result.stopped !== undefined) {
     process.stdout.write(`\n${result.stopped} stopped the run: its tests did not finish, so the run failed. A test stopped this way may not have closed its tabs or removed its projects; the check above names any project left.\n`);
   }
