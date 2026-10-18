@@ -540,6 +540,51 @@ describe('a temporary session on Pi', { concurrency: 4 }, () => {
     assert.deepEqual({ harness: settings.harness, approval: settings.approval }, { harness: 'claude', approval: 'ask' });
   });
 
+  // A blank --approval (empty, or spaces only) is no level given (the review
+  // of PR #651): for a Pi session it is judged as if it were left out. Every
+  // make refused without --approval is refused with a blank one, and changes
+  // nothing; one allowed without it says the approval came from the harness,
+  // not from the flag.
+  const BLANKS = [['an empty --approval=', ['--approval=']], ['a spaces-only --approval \'  \'', ['--approval', '  ']]];
+
+  for (const [blank, given] of BLANKS) {
+    for (const [label, options, maker] of [
+      ['ask with no temp_approval', {}, 'planner'],
+      ['auto with no temp_approval', {}, 'nightly'],
+      ['no approval (auto) with no temp_approval', { planner: null }, 'planner'],
+      ['ask with temp_approval auto', { temps: 'auto' }, 'planner'],
+    ]) {
+      test(`P3 a maker at ${label} making a Pi session with ${blank} is refused as without it, names --temps, and changes nothing`, async (t) => {
+        const box = await createSandbox(t);
+        await fakePi(box);
+        const fleetOf = await fleet(box, options);
+        const { bots } = fleetOf;
+
+        const said = await assertPiMakeRefused(box, bots, fleetOf[maker], ['--name', 'scout', '--prompt', TASK, '--harness', 'pi', ...given]);
+        for (const word of ['permission approval', '--temps', 'dangerously-skip']) {
+          assert.ok(said.includes(word), `the refusal names the command the user runs, ${word} in it, got:\n${said}`);
+        }
+        assert.equal(await entryIn(bots, 'scout'), undefined, 'scout is not in bot.yaml');
+      });
+    }
+
+    for (const [label, options] of [
+      ['a maker at ask with temp_approval dangerously-skip', { temps: 'dangerously-skip' }],
+      ['a maker at dangerously-skip', { planner: 'dangerously-skip' }],
+    ]) {
+      test(`P3 ${label} making a Pi session with ${blank}: made at dangerously-skip, and chosen says from the harness, not the flag`, async (t) => {
+        const box = await createSandbox(t);
+        await fakePi(box);
+        const { bots, planner } = await fleet(box, options);
+
+        const result = await made(box, planner, ['--name', 'scout', '--prompt', TASK, '--harness', 'pi', ...given, '--json']);
+
+        assert.deepEqual(chosenIn(answerIn(result)).approval, { value: 'dangerously-skip', from: 'harness' }, `got: ${result.stdout}`);
+        assert.equal((await settingsOf(bots, 'scout')).approval, 'dangerously-skip');
+      });
+    }
+  }
+
   // ================================================================= P4 Pi not ready
 
   test('P4 temp make of a Pi session with no pi on PATH is refused before anything is written', async (t) => {
