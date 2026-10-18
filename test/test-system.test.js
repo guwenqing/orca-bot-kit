@@ -4175,9 +4175,9 @@ const inSeconds = (n) => new RegExp(`(?<![\\w.-])${n}[ -]?(?:s|secs?|seconds?)\\
  * from the repo. Answers its pid, when it started, what it has printed so far,
  * a way to send it a signal (to its own pid, never a group), and `done`: its
  * code, signal and streams, how long it ran in ms, and whether the outer bound
- * had to stop it.
+ * had to stop it. `nodeArgs` go to node before the script (a preload, say).
  */
-function startRunner(fixture, args, { env = fixture.env } = {}) {
+function startRunner(fixture, args, { env = fixture.env, nodeArgs = [] } = {}) {
   const box = path.dirname(fixture.repo);
   // Every run here asks the fixture's fake Orca and lives in the sandbox's own HOME and temp folder.
   assert.equal(env.OBK_ORCA, fixture.orcaPath, 'every run here must ask the fixture\'s fake Orca');
@@ -4185,7 +4185,7 @@ function startRunner(fixture, args, { env = fixture.env } = {}) {
   assert.ok(env.TMPDIR.startsWith(`${box}${path.sep}`), `every run here must have the sandbox's temp folder, got ${env.TMPDIR}`);
 
   const startedAt = Date.now();
-  const child = spawn(process.execPath, [path.join(fixture.repo, 'scripts', 'test-system.js'), ...args], {
+  const child = spawn(process.execPath, [...nodeArgs, path.join(fixture.repo, 'scripts', 'test-system.js'), ...args], {
     cwd: fixture.repo,
     env,
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -4255,16 +4255,41 @@ async function pidsIn(file) {
   }
 }
 
-/** What `ps` says of one pid: its state and command line, or null when there is no such process. */
+/**
+ * What one pid is: null when no process has it (the kernel says ESRCH), or
+ * its state and command line as `ps` gives them. Signal 0 only asks whether
+ * the pid is there; it sends nothing. When the pid is there and `ps` cannot
+ * say what it is, or the answer is not one of those, that is not known, and
+ * this throws rather than call the process gone: the test fails with why.
+ */
 function psOf(pid) {
+  if (!Number.isInteger(pid) || pid <= 1) throw new Error(`${JSON.stringify(pid)} is not a pid this test can ask about`);
+  const there = () => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch (error) {
+      if (error.code === 'ESRCH') return false;
+      if (error.code === 'EPERM') return true;
+      throw new Error(`whether process ${pid} is there is not known: ${error.code ?? error.message}`);
+    }
+  };
+  if (!there()) return null;
+  let out;
+  let why = 'ps printed nothing for it';
   try {
-    const out = execFileSync('ps', ['-p', String(pid), '-o', 'stat=,command='], { encoding: 'utf8' }).trim();
-    if (out === '') return null;
-    const [stat, ...command] = out.split(/\s+/);
-    return { stat, command: command.join(' ') };
-  } catch {
-    return null;
+    out = execFileSync('ps', ['-p', String(pid), '-o', 'stat=,command='], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  } catch (error) {
+    out = '';
+    why = `ps failed: ${error.code ?? `exit ${error.status}`} ${String(error.stderr ?? '').trim()}`.trim();
   }
+  if (out === '') {
+    // ps finds nothing for a pid that has just gone; one that is still there is not known.
+    if (!there()) return null;
+    throw new Error(`process ${pid} is there, but what it is is not known (${why}), so the test cannot say whether it is running`);
+  }
+  const [stat, ...command] = out.split(/\s+/);
+  return { stat, command: command.join(' ') };
 }
 
 /** A process with this pid is running: there, and not a zombie waiting to be reaped. */
@@ -4301,9 +4326,17 @@ const OURS = {
  */
 function reapLater(t, pids, box) {
   t.after(() => {
+    const unknown = [];
     for (const { role, pid } of [...pids].reverse()) {
       if (!Number.isInteger(pid) || pid <= 1 || pid === process.pid || pid === process.ppid) continue;
-      const found = psOf(pid);
+      let found;
+      try {
+        found = psOf(pid);
+      } catch (error) {
+        // Not known to be gone, and not known to be the test's: left, and said.
+        unknown.push(`${role} ${pid}: ${error.message}`);
+        continue;
+      }
       if (found === null || found.stat.startsWith('Z') || !OURS[role]?.(found.command, box)) continue;
       process.stderr.write(`#653 test cleanup: killing the leftover ${role} ${pid}: ${found.command}\n`);
       try {
@@ -4311,6 +4344,9 @@ function reapLater(t, pids, box) {
       } catch (error) {
         if (error.code !== 'ESRCH') throw error;
       }
+    }
+    if (unknown.length > 0) {
+      throw new Error(`the test could not tell whether these are still running, so it did not kill them; check them by hand:\n${unknown.join('\n')}`);
     }
   });
 }
@@ -4516,6 +4552,29 @@ function linesAfterTheTests(result, fixture) {
       return plain.replace(/obk-config-backup-[A-Za-z0-9]+/g, 'obk-config-backup-<x>').replace(/\d+(?:\.\d+)?/g, 'N').trim();
     })
     .filter((line) => line !== ''));
+}
+
+/**
+ * A preload for the runner that makes node itself impossible to start again:
+ * process.execPath names a file that does not exist, so the runner's own
+ * spawn of node --test fails (ENOENT) and no test can run. Only the runner's
+ * process has it; the fake Orca, a script of its own, is not touched.
+ */
+const NO_NODE = (missing) => `process.execPath = ${JSON.stringify(missing)};\n`;
+
+/**
+ * stdout after the `Config backup:` line and the lines under it: what the
+ * runner says once it has made its backup, when no test printed anything to
+ * mark where the tests were. The announcement and the backup's own lines,
+ * which name the configs and say what is not there, are not in it.
+ */
+function afterTheBackup(result) {
+  const lines = result.stdout.split('\n');
+  const at = lines.findIndex((line) => line.startsWith('Config backup: '));
+  assert.ok(at >= 0, `stdout should have the line \`Config backup: <folder>\`, got:\n${everything(result)}`);
+  let end = at + 1;
+  while (end < lines.length && /^\s+\S/.test(lines[end])) end += 1;
+  return lines.slice(end).join('\n');
 }
 
 describe('test-system: a hard time limit on the whole run (#653)', { concurrency: true }, () => {
@@ -4782,5 +4841,64 @@ describe('test-system: a hard time limit on the whole run (#653)', { concurrency
     const extra = [...withChild].filter((line) => !without.has(line));
     assert.ok(extra.length > 0, `the run should say in a line that it stopped processes, got:\n${everything(result)}`);
     assert.deepEqual([...without].filter((line) => !withChild.has(line)), [], `a run with no child left should print no line the run with one does not, got:\n${everything(control)}`);
+  });
+
+  // L9
+  test('when node --test cannot be started at all (ENOENT), the runner still prints the Runs report, the config-key check, the backup compare and the projects check, says the tests could not be started, and exits not 0 without a crash', async (t) => {
+    const live = { id: 'run_appeared653', objective: 'obk somebody/else', created_at: '2026-10-18T12:00:00Z' };
+    const fixture = await createRepo(t, {
+      runs: ALREADY_THERE,
+      appearsDuring: [live],
+      files: { 'test/system/alpha.test.js': tallies('ALPHA') },
+    });
+    const box = path.dirname(fixture.repo);
+    const { CODEX_HOME: _codex, CLAUDE_CONFIG_DIR: _claude, ...env } = fixture.env;
+    const files = { codex: path.join(env.HOME, '.codex', 'config.toml'), claude: path.join(env.HOME, '.claude.json') };
+    await write(path.dirname(files.codex), 'config.toml', codexConfig({}));
+    await write(env.HOME, '.claude.json', claudeConfig([]));
+    const preload = path.join(box, 'no-node.mjs');
+    await writeFile(preload, NO_NODE(path.join(box, 'no-such-node')));
+
+    const result = await startRunner(fixture, [CONFIRM], { env, nodeArgs: ['--import', pathToFileURL(preload).href] }).done;
+
+    assertEnded(result);
+    assert.equal(result.signal, null, `it should exit, not die: ${result.signal}`);
+    assert.notEqual(result.code, 0, `a run whose tests could not be started must not exit 0, got:\n${everything(result)}`);
+    assert.ok(!/^\s+at /m.test(result.stderr), `it should not crash with an unhandled error, got:\n${result.stderr}`);
+    assert.doesNotMatch(result.stderr, /Unhandled 'error' event/, `it should not crash with an unhandled error, got:\n${result.stderr}`);
+    assert.deepEqual(await ranIn(fixture), [], 'no system test could have run');
+    const report = afterTheBackup(result);
+    // A line says the tests could not be started.
+    assert.ok(
+      `${report}\n${result.stderr}`.split('\n').some((line) => /\btests?\b|node --test/i.test(line) && /could ?n[o']t|cannot|can't|unable|fail|not (?:be )?started/i.test(line)),
+      `a line should say the tests could not be started, got:\n${everything(result)}`,
+    );
+    // The Runs report names the Run that appeared.
+    assert.ok(report.includes(live.id), `the Runs report should name ${live.id}, got:\n${report}`);
+    // The config-key check speaks of the configs, apart from the compare's lines.
+    assert.ok(
+      report.split('\n').some((line) => /harness|config/i.test(line) && !line.includes(files.codex) && !line.includes(files.claude) && /\b(?:no|none|nothing)\b|\bkeys?\b/i.test(line)),
+      `a line should give the config-key check, got:\n${report}`,
+    );
+    // The compare with the backup: a line naming the backup folder, and one line for each config, the same as before.
+    const dir = backupSaid(result).dir;
+    const lines = report.split('\n');
+    const header = lines.findIndex((line) => line.includes(dir) && /compar/i.test(line));
+    assert.ok(header >= 0, `a line should say what is compared with the backup in ${dir}, got:\n${report}`);
+    const compared = [];
+    for (const line of lines.slice(header + 1)) {
+      if (!/^\s+\S/.test(line)) break;
+      compared.push(line);
+    }
+    for (const live of [files.codex, files.claude]) {
+      const mine = compared.filter((line) => line.includes(live));
+      assert.equal(mine.length, 1, `the compare should have one line for ${live}, got:\n${compared.join('\n')}`);
+      assert.ok(VERDICTS.same(mine[0]), `${live} is as it was, got: ${mine[0]}`);
+    }
+    // The projects check speaks.
+    assert.ok(
+      unwrapped(report).split(/(?<=[.!?])\s+/).some((sentence) => /\bprojects?\b/i.test(sentence)),
+      `a sentence should give the projects check, got:\n${report}`,
+    );
   });
 });
