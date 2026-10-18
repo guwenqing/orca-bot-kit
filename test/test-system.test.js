@@ -4799,6 +4799,13 @@ describe('test-system: a Pi folder is removed only on proof that it is the run\'
       const notes = path.join(mine.folder, 'notes.txt');
       return { folder: mine.folder, keep: notes, during: together(mine.during, { files: [{ file: notes, text: 'the owner\'s notes\n' }] }) };
     }],
+    // Only the name fails here: the file starts with a good header of the run's,
+    // so rule d passes and rule c alone must keep the folder.
+    ['R2 c a folder with a file named *.json, not *.jsonl, that starts with a good session header of the run\'s, beside a good one', (pi) => {
+      const mine = pi.goodRun('obk-system-json-Jn0001/bots/pi-mail');
+      const json = piSessionFile(mine.folder, 2).replace(/\.jsonl$/, '.json');
+      return { folder: mine.folder, keep: json, during: together(mine.during, { files: [{ file: json, text: piHeader({ cwd: mine.work }) }] }) };
+    }],
     ['R2 c a folder with a link inside, beside a good file', (pi) => {
       const mine = pi.goodRun('obk-system-link-Lk0001/bots/pi-mail');
       const target = path.join(pi.box, 'link-target.jsonl');
