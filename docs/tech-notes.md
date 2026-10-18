@@ -563,6 +563,13 @@ Nothing in the kit's code, tests or skills stands in his way.
   session stayed stopped until about 08:40Z; what answered it then is not recorded here. The kit now
   answers this shape with Esc, as the 2.1.283 form. **verified** (live, the form and its words; Esc
   on 2.1.302, not seen)
+  Seen again on 2.1.302 (2026-10-18, about 07:25Z, Orca 1.4.225, kit-dev developer-641's tab, #646),
+  after a turn: the same form, but with `❯ Also scan shell history  true`. Who or what set it to
+  `true` is not known. The kit refused it, because its shapes held each value exactly. The architect
+  sent one Esc by hand at about 08:33Z; the form was gone, and the session went on. The kit now
+  matches the form's title, description, row names and foot exactly, and takes any value after each
+  of the three settings. **verified** (live, the form with `true`, and Esc removing it; whether that
+  Esc recorded a Not now, not seen)
 - Anything else: type nothing and raise it with the user, naming the bot, the tab and what is on screen.
 
 The kit's own code does not change user-level settings on its own initiative.

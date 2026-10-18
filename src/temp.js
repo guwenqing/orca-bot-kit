@@ -531,9 +531,29 @@ const TEACH_TITLE = 'Teach auto mode about your environment?';
 const TEACH_FOOT = /Enter to .*· Esc to cancel/;
 
 /**
+ * A setting row of the Teach form: its name, then spaces and a value. The value
+ * is whatever the setting shows, `Mixed`, `true` or `false` as read, and Esc
+ * cancels the form whatever it is (#646).
+ */
+const setting = (name) => ({ name, fits: (row) => row.startsWith(name) && /^ +\S/.test(row.slice(name.length)) });
+
+/** The Teach form's rows, from its title to its foot, with `foot`. */
+const teachForm = (foot) => [
+  TEACH_TITLE,
+  'Claude Code reads this project, your recent Claude sessions, and optionally your shell history and other',
+  'repositories. Claude analyzes this data and customizes auto mode to make better decisions.',
+  setting('How you use Claude here'),
+  setting('Also scan shell history'),
+  setting('Also scan your other repos'),
+  'Continue',
+  foot,
+];
+
+/**
  * The known shapes of the Teach screen, from its title to its foot, each as
  * captured live, with what answers it. Rows are compared trimmed, the pointer
- * `❯` taken out, so the pointer may sit on any one of them.
+ * `❯` taken out, so the pointer may sit on any one of them. A setting row
+ * matches by its name, whatever its value.
  *
  * Claude Code 2.1.283's form (#261's live test, #416) and 2.1.302's (#604) are
  * answered with Esc, which cancels them (Not now), never a return, which is
@@ -542,34 +562,8 @@ const TEACH_FOOT = /Enter to .*· Esc to cancel/;
  * architect's ruling on #489).
  */
 const TEACH_SHAPES = [
-  {
-    name: 'the 2.1.283 form',
-    rows: [
-      TEACH_TITLE,
-      'Claude Code reads this project, your recent Claude sessions, and optionally your shell history and other',
-      'repositories. Claude analyzes this data and customizes auto mode to make better decisions.',
-      'How you use Claude here     Mixed',
-      'Also scan shell history     true',
-      'Also scan your other repos  false',
-      'Continue',
-      '←/→ to change usage · Enter to continue · Esc to cancel',
-    ],
-    escape: true,
-  },
-  {
-    name: 'the 2.1.302 form',
-    rows: [
-      TEACH_TITLE,
-      'Claude Code reads this project, your recent Claude sessions, and optionally your shell history and other',
-      'repositories. Claude analyzes this data and customizes auto mode to make better decisions.',
-      'How you use Claude here     Mixed',
-      'Also scan shell history     false',
-      'Also scan your other repos  false',
-      'Continue',
-      '←/→ to change · Enter to continue · Esc to cancel',
-    ],
-    escape: true,
-  },
+  { name: 'the 2.1.283 form', rows: teachForm('←/→ to change usage · Enter to continue · Esc to cancel'), escape: true },
+  { name: 'the 2.1.302 form', rows: teachForm('←/→ to change · Enter to continue · Esc to cancel'), escape: true },
   {
     name: 'the 2.1.289 list',
     rows: [
@@ -588,6 +582,12 @@ const NOT_NOW_CHOICE = '2. Not now';
 
 /** A row as a shape is compared: trimmed, with its pointer, wherever it sits, taken out. */
 const unpointed = (row) => row.replace('❯', ' ').trim();
+
+/** Whether a shape's row `want` is the screen's `row`, as unpointed gives it. */
+const fitsRow = (want, row) => (typeof want === 'string' ? row === want : want.fits(row));
+
+/** A shape's row as a refusal names it. */
+const shapeRow = (want) => (typeof want === 'string' ? want : `${want.name} and a value`);
 
 /** The full-width rule Claude Code draws right above the screen's title: `─` in 2.1.289, `▔` in 2.1.283. */
 const ABOVE_TITLE = /^(?:─+|▔+)$/;
@@ -622,13 +622,13 @@ function teachScreen(rows) {
   const misfits = TEACH_SHAPES.map((shape) => {
     const pointers = block.filter((row) => row.includes('❯')).length;
     if (pointers !== 1) return `${pointers} rows with the pointer ❯, where ${shape.name} has one`;
-    const odd = block.find((row) => !shape.rows.includes(unpointed(row)));
+    const odd = block.find((row) => !shape.rows.some((want) => fitsRow(want, unpointed(row))));
     if (odd !== undefined) return `a row ${shape.name} does not have: ${odd.trim()}`;
-    const missing = shape.rows.find((row) => !block.map(unpointed).includes(row));
-    if (missing !== undefined) return `no row ${missing}, which ${shape.name} has`;
+    const missing = shape.rows.find((want) => !block.some((row) => fitsRow(want, unpointed(row))));
+    if (missing !== undefined) return `no row ${shapeRow(missing)}, which ${shape.name} has`;
     if (block.length !== shape.rows.length) return `${block.length} rows, where ${shape.name} has ${shape.rows.length}`;
-    const moved = block.findIndex((row, at) => unpointed(row) !== shape.rows[at]);
-    if (moved >= 0) return `the row ${block[moved].trim()} where ${shape.name} has ${shape.rows[moved]}`;
+    const moved = block.findIndex((row, at) => !fitsRow(shape.rows[at], unpointed(row)));
+    if (moved >= 0) return `the row ${block[moved].trim()} where ${shape.name} has ${shapeRow(shape.rows[moved])}`;
     return undefined;
   });
   const fits = misfits.findIndex((misfit) => misfit === undefined);
@@ -642,7 +642,7 @@ const wholeScreen = (rows) => rows.filter((row) => row.trim() !== '').map((row) 
 /**
  * Answer the first-run screen of a temporary session the caller made (#489):
  * Claude Code's Teach auto mode screen, in one of the shapes the kit knows,
- * matched exactly. The 2.1.283 and 2.1.302 forms get Esc. The 2.1.289 list gets arrows to
+ * matched exactly. The 2.1.283 and 2.1.302 forms get Esc, whatever their settings show. The 2.1.289 list gets arrows to
  * "2. Not now" where needed, a second look that the pointer is there and the
  * list is otherwise as it was, and only then a return. Anything else is refused with
  * nothing typed. Like `trustHooks`, it is one command a permission rule of its
