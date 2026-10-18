@@ -227,8 +227,8 @@ const ANY_COMMAND = '\u0007';
 /** A wildcard in a rule, as `globOf` gives it: any text, spaces included. */
 const STAR = Symbol('*');
 
-/** A rule's text as a glob: each character itself, and each `*` a wildcard when `wild`. */
-const globOf = (text, wild = true) => [...text].map((char) => (wild && char === '*' ? STAR : char));
+/** A rule's text as a glob: each character itself, and each `*` a wildcard. */
+const globOf = (text) => [...text].map((char) => (char === '*' ? STAR : char));
 
 /*
  * The commands a rule is held against, as a small automaton (#635): each state
@@ -272,24 +272,37 @@ const runner = seq(maybe(seq(text('/'), maybe(seq(many(notSpace), text('/'))))),
 /** A word that is a runner, and nothing more. */
 let runnerWord;
 
+/** The kit as a word: `obk`, any path to an `obk`, or the CLI the kit runs as. */
+const kitAs = (kit) => alt(text('obk'), seq(many(notSpace), text('/obk')), text(kit));
+
 /**
- * The kit's run of any command, for the kit as it is spelled now: `obk`, any
- * path to an `obk`, or the CLI the kit runs as, alone or behind a runner;
- * then the run with a time limit; then after `--` any command, or a runner
- * with whatever it is told to run (a first argument that is not a fixed path).
+ * The kit's run of any command, for the kit as it is spelled now, alone or
+ * behind a runner; then the run with a time limit; then after `--` any
+ * command, a runner with whatever it is told to run (a first argument that is
+ * not a fixed path), or another such run of the kit.
  */
 const runsOfAny = new Map();
 function runOfAny() {
   const kit = shellWord(ownCli());
   if (!runsOfAny.has(kit)) {
-    runsOfAny.set(kit, automaton(seq(
-      maybe(seq(runner, text(' '))),
-      alt(text('obk'), seq(many(notSpace), text('/obk')), text(kit)),
-      text(' run --timeout'), alt(text(' '), text('=')), one(digit), many(digit), text(' -- '),
-      alt(seq(text(ANY_COMMAND), many(anything)), seq(runner, text(' '), one((c) => c !== '/'), many(anything))),
-    )));
+    runsOfAny.set(kit, automaton((m, from) => {
+      const after = seq(
+        maybe(seq(runner, text(' '))), kitAs(kit),
+        text(' run --timeout'), alt(text(' '), text('=')), one(digit), many(digit), text(' -- '),
+      )(m, from);
+      m.edge(after, null, from);
+      return alt(seq(text(ANY_COMMAND), many(anything)), seq(runner, text(' '), one((c) => c !== '/'), many(anything)))(m, after);
+    }));
   }
   return runsOfAny.get(kit);
+}
+
+/** The kit as a word, and nothing more, for the kit as it is spelled now. */
+const kitWords = new Map();
+function kitWord() {
+  const kit = shellWord(ownCli());
+  if (!kitWords.has(kit)) kitWords.set(kit, automaton(kitAs(kit)));
+  return kitWords.get(kit);
 }
 
 /**
@@ -316,23 +329,12 @@ function meets(glob, { states, start, end }) {
 }
 
 /**
- * Whether a rule, as its first two words and its glob, lets the kit's run run
- * any command (#635). One whose first word can be a runner lets the bot run
- * any command without the kit, unless the kit itself comes next, and is named
- * as any other rule: `Bash`, `Bash(*)`, `Bash(env:*)`.
- */
-function runsAnyThroughKit([first = '', second = ''], glob, wild) {
-  runnerWord ??= automaton(runner);
-  const plain = (word) => word.replace(/:\*$/, '');
-  const kitNext = !(wild && second.includes('*')) && isKit(plain(second));
-  if (meets(globOf(plain(first), wild), runnerWord) && !kitNext) return false;
-  return meets(glob, runOfAny());
-}
-
-/**
  * Whether a Claude rule lets the kit's run run any command (#635), matched as
  * Claude Code matches it: `x:*` at the end is `x *`, and any `*` is any text,
- * spaces included. A rule with no wildcard is one exact command.
+ * spaces included. A rule with no wildcard is one exact command. One whose
+ * first word can be a runner lets the bot run any command without the kit,
+ * unless its next word can be only the kit, and is named as any other rule:
+ * `Bash`, `Bash(*)`, `Bash(env *)`.
  */
 export function letsRunAnything(rule) {
   const bash = /^Bash(?:\((.*)\))?$/s.exec(rule);
@@ -340,8 +342,12 @@ export function letsRunAnything(rule) {
   const spec = bash[1] ?? '*';
   if (!spec.includes('*')) return false;
   const { words, odd } = shellWords(spec);
-  const glob = globOf(spec.endsWith(':*') ? `${spec.slice(0, -2)} *` : spec);
-  return runsAnyThroughKit(odd === undefined ? words : spec.split(' '), glob, true);
+  const [first = '', second = ''] = odd === undefined ? words : spec.split(' ');
+  runnerWord ??= automaton(runner);
+  const word = (one) => globOf(one.replace(/:\*$/, ''));
+  const kitNext = second !== '' && meets(word(second), kitWord()) && !meets(word(second), runnerWord);
+  if (meets(word(first), runnerWord) && !kitNext) return false;
+  return meets(globOf(spec.endsWith(':*') ? `${spec.slice(0, -2)} *` : spec), runOfAny());
 }
 
 /*
@@ -387,10 +393,10 @@ function literal(source, from) {
   const quote = source[at];
   if (quote === '"' || quote === "'") {
     let value = '';
-    for (let i = at + 1; i < source.length && source[i] !== '\n'; i += 1) {
+    // An escape is not read: a string with one is something health cannot tell.
+    for (let i = at + 1; i < source.length && source[i] !== '\n' && source[i] !== '\\'; i += 1) {
       if (source[i] === quote) return { value, end: i + 1 };
-      if (source[i] === '\\') i += 1;
-      value += source[i] ?? '';
+      value += source[i];
     }
     return undefined;
   }
@@ -452,9 +458,15 @@ function readRules(source) {
       continue;
     }
     if (call[1] === 'prefix_rule') {
-      const pattern = read.args.find((arg) => arg.name === 'pattern') ?? read.args.find((arg) => arg.name === undefined);
-      const decision = read.args.find((arg) => arg.name === 'decision');
-      rules.push({ text: source.slice(at, read.end), pattern: pattern?.value, decision: decision === undefined ? 'allow' : decision.value });
+      // The pattern, then the decision, may come by place; anything more is not read.
+      const placed = read.args.filter((arg) => arg.name === undefined);
+      const named = (name) => read.args.find((arg) => arg.name === name);
+      if (placed.length > 2 || (placed.length > 0 && named('pattern')) || (placed.length > 1 && named('decision'))) {
+        unread ??= source.slice(at, read.end).trim();
+      } else {
+        const decision = (named('decision') ?? placed[1])?.value ?? 'allow';
+        rules.push({ text: source.slice(at, read.end), pattern: (named('pattern') ?? placed[0])?.value, decision });
+      }
     }
     at = skipSpace(bare, read.end);
     while (bare[at] === ';') at = skipSpace(bare, at + 1);
@@ -462,14 +474,46 @@ function readRules(source) {
   return { rules, unread };
 }
 
-/** The command prefixes a `prefix_rule` pattern stands for: an element that is a list is each of its words. */
-function patternPrefixes(pattern) {
-  if (!Array.isArray(pattern)) return [];
-  return pattern.reduce((prefixes, element) => {
+/** Whether a word is a program that runs whatever its arguments say, by its name or its absolute path. */
+const isRunner = (word) => (!word.includes('/') || word.startsWith('/')) && runnerOf(path.basename(word)) !== undefined;
+
+/**
+ * Where the kit's run of any command can be after one more word of a
+ * pattern, from where it was, as `codexRunsAny` reads one; none when the word
+ * cannot be there.
+ */
+function afterWord(state, word) {
+  const kitOrRunner = (runner) => [...(isKit(word) ? ['kit'] : []), ...(isRunner(word) ? [runner] : [])];
+  switch (state) {
+    case 'start': return kitOrRunner('wrapper');
+    case 'wrapper': return isKit(word) ? ['kit'] : [];
+    case 'kit': return word === 'run' ? ['run'] : [];
+    case 'run': return word === '--timeout' ? ['timeout'] : (/^--timeout=\d+$/.test(word) ? ['limit'] : []);
+    case 'timeout': return /^\d+$/.test(word) ? ['limit'] : [];
+    case 'limit': return word === '--' ? ['command'] : [];
+    case 'command': return kitOrRunner('runner');
+    case 'runner': return [...(isKit(word) ? ['kit'] : []), ...(word.startsWith('/') ? [] : ['any'])];
+    default: return ['any'];
+  }
+}
+
+/**
+ * Whether a `prefix_rule` pattern lets the kit's run run any command (#635),
+ * matched as Codex matches it: each element one word of the command, exactly,
+ * or any word of a list. It does when the pattern can be the start of the
+ * kit's run of any command, as `runOfAny` has it for Claude. A runner alone
+ * lets the bot run any command without the kit, and is not one.
+ */
+function codexRunsAny(pattern) {
+  if (!Array.isArray(pattern) || pattern.length === 0) return false;
+  let states = new Set(['start']);
+  for (const element of pattern) {
     const words = Array.isArray(element) ? element : [element];
-    if (words.some((word) => typeof word !== 'string')) return [];
-    return prefixes.flatMap((prefix) => words.map((word) => [...prefix, word])).slice(0, 256);
-  }, [[]]);
+    if (words.some((word) => typeof word !== 'string')) return false;
+    states = new Set([...states].flatMap((state) => words.flatMap((word) => afterWord(state, word))));
+    if (states.size === 0) return false;
+  }
+  return [...states].some((state) => state !== 'wrapper');
 }
 
 /**
@@ -479,8 +523,7 @@ function patternPrefixes(pattern) {
  */
 function codexRunRules(source) {
   const { rules, unread } = readRules(source);
-  const runs = rules.filter(({ pattern, decision }) => decision === 'allow' && patternPrefixes(pattern).some((words) =>
-    words.length > 0 && runsAnyThroughKit(words, [...globOf(words.join(' '), false), ' ', STAR], false)));
+  const runs = rules.filter(({ pattern, decision }) => decision === 'allow' && codexRunsAny(pattern));
   return { runs: runs.map((rule) => rule.text), unread };
 }
 

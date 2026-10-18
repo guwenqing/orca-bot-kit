@@ -863,3 +863,60 @@ test('KR19 Claude rules match with a wildcard anywhere and with the kit behind a
   }
   await t.test('KR19 health changes none of the files', () => assertUnchanged(was));
 });
+
+// ----------------------------------------------------------------- strings, positions, tokens and a run inside a run (second review of PR #640)
+
+test('KR20 Codex strings with escapes, the decision by position, patterns token by token, and a kit run inside a kit run, for Codex and Claude', async (t) => {
+  const box = await sandbox(t);
+  const bots = await fleet(box, { bots: [[CODEX_BOT, 'codex']] });
+  const dir = path.dirname(userRules(box.home));
+  const at = (name) => path.join(dir, name);
+  const many = [...Array.from({ length: 256 }, (_, n) => `"other${n}"`), '"obk"'].join(', ');
+  // [label, file name, line, kit-run findings, cannot tell findings]; undefined: not asserted.
+  const cases = [
+    ['D1 an escape in the pattern is not decoded', 'escape-pattern.rules', 'prefix_rule(pattern=["\\x6fbk"], decision="allow")', 0, 1],
+    ['D1 an escape in the decision is not decoded', 'escape-decision.rules', 'prefix_rule(pattern=["obk"], decision="\\x61llow")', 0, 1],
+    ['D2 the second positional argument is the decision: allow', 'positional-allow.rules', 'prefix_rule(["obk"], "allow")', 1, 0],
+    ['D2 a third positional argument is more than health reads', 'positional-three.rules', 'prefix_rule(["obk"], "allow", "why")', undefined, 1],
+    ['E1 one token that holds spaces matches no command of several words', 'one-token.rules', 'prefix_rule(pattern=["obk", "run --timeout 300 -- sh -c"], decision="allow")', 0, 0],
+    ['E2 a first element of 257 alternatives, the kit last', 'many.rules', `prefix_rule(pattern=[[${many}]], decision="allow")`, 1, 0],
+    ['E3 alternatives that hold a runner and the kit', 'runner-or-kit.rules', 'prefix_rule(pattern=[["sh", "obk"]], decision="allow")', 1, 0],
+    ['F a kit run inside a kit run', 'nested.rules', 'prefix_rule(pattern=["obk", "run", "--timeout", "300", "--", "obk", "run"], decision="allow")', 1, 0],
+    ['F the kit behind env inside a kit run', 'nested-env.rules', 'prefix_rule(pattern=["obk", "run", "--timeout", "300", "--", "env", "/opt/homebrew/bin/obk", "run"], decision="allow")', 1, 0],
+    ['F a narrow run inside a kit run', 'nested-narrow.rules', 'prefix_rule(pattern=["obk", "run", "--timeout", "300", "--", "obk", "run", "--timeout", "5", "--", "go", "test"], decision="allow")', 0, 0],
+  ];
+  for (const [, name, line] of cases) await put(at(name), rulesText([line]));
+  // D2: the second positional argument forbids, so no finding at all.
+  const forbidden = at('positional-forbidden.rules');
+  await put(forbidden, rulesText(['prefix_rule(["obk"], "forbidden")']));
+  // F for Claude: a kit run inside a kit run, and the kit behind env with a wildcard path, in g; the rules that are not, in e.
+  const claudeIn = [
+    'Bash(obk run --timeout 300 -- obk run:*)',
+    'Bash(obk run --timeout 300 -- obk run --timeout 5 -- sh:*)',
+    'Bash(env /opt/*/obk run:*)',
+  ];
+  const claudeOut = ['Bash(obk run --timeout 300 -- obk run --timeout 5 -- go test:*)', 'Bash(env *)'];
+  await put(userSettings(box.home), settingsText(claudeIn));
+  await put(repoLocalSettings(bots), settingsText(claudeOut));
+  const was = await frozen([...cases.map(([, name]) => at(name)), forbidden, userSettings(box.home), repoLocalSettings(bots)]);
+
+  const found = await health(box);
+
+  for (const [label, name, line, kitRuns, cannot] of cases) {
+    await t.test(`KR20 ${label}: ${line.length > 120 ? `${line.slice(0, 117)}...` : line}`, () => {
+      if (kitRuns !== undefined) assertKitRunsIn(found, at(name), kitRuns);
+      const told = found.filter((one) => names(one, at(name)) && isCannotTell(one));
+      assert.equal(told.length, cannot, `${cannot} finding(s) should name ${at(name)} and say cannot tell, got: ${show(found)}`);
+    });
+  }
+  await t.test('KR20 D2 the second positional argument is the decision: forbidden gives no finding', () => {
+    assert.deepEqual(naming(found, forbidden), [], `got: ${show(found)}`);
+  });
+  for (const rule of claudeIn) {
+    await t.test(`KR20 F ${rule} in Claude's user settings is a kit-run rule`, () => assertKitRun(found, rule, userSettings(box.home)));
+  }
+  await t.test(`KR20 F ${claudeOut.join(' and ')} are not kit-run rules: no finding names the repo's settings.local.json`, () => {
+    assert.deepEqual(naming(found, repoLocalSettings(bots)), [], `got: ${show(found)}`);
+  });
+  await t.test('KR20 health changes none of the files', () => assertUnchanged(was));
+});
