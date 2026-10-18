@@ -61,10 +61,16 @@ const ORCA_CHECK = 'Bash(orca orchestration check --run:*)';
 
 /**
  * Whether a rule is one for `obk run` (#532), which #652 took out of the kit:
- * the kit's CLI, as `permission allow` recorded it, then `run`. A rule for it
- * named the command after `--`, so it is known by its first two words.
+ * the kit, then `run`. The kit is its CLI as `permission allow` recorded it,
+ * the bare `obk` that `obk run`'s own help spelled, or any path to an `obk`.
+ * A rule for it named the command after `--`, so it is known by its first two
+ * words.
  */
-export const isRunRule = (rule, cli = ownCli()) => [' ', ':', ')'].some((next) => rule.startsWith(`Bash(${shellWord(cli)} run${next}`));
+export function isRunRule(rule, cli = ownCli()) {
+  if ([' ', ':', ')'].some((next) => rule.startsWith(`Bash(${shellWord(cli)} run${next}`))) return true;
+  const kit = /^Bash\((\S+) run[ :)]/.exec(rule)?.[1];
+  return kit !== undefined && path.basename(kit) === 'obk';
+}
 
 /**
  * The rules that were defaults once and are not now, that the bot's `allow`
