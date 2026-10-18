@@ -66,17 +66,13 @@
 // nothing when it cannot (#619); it takes out of ~/.claude.json the trust
 // Claude Code records for the run's own folders (#240).
 //
-// Pi's records. The runner on this branch does not remove the Pi session
-// folders a run caused (PR #638 adds that, not merged). So this test removes
-// them itself, in its teardown, and no others: only a folder under
-// ~/.pi/agent/sessions whose name is the one Pi gives one of its own
-// throwaway folders (the bot home, and helper's work dir, named as tech notes
-// section 6 says), and only when everything in it is a `.jsonl` file whose
-// header names a cwd inside its own throwaway bots folder. Anything else in
-// it leaves the folder where it is, and the test fails naming it. Nothing
-// else under ~/.pi is written; settings.json, trust.json and models.json in
-// ~/.pi/agent are compared before and after, and a change is reported, not
-// undone (Pi may write a new lastChangelogVersion or a missing deviceId).
+// Pi's records. The runner removes the Pi session folders under
+// ~/.pi/agent/sessions that the run's own throwaway folders caused (PR #638);
+// it is the one deleter of them. This test removes none: it only reads Pi's
+// session file for the book's id. Nothing under ~/.pi is written by it;
+// settings.json, trust.json and models.json in ~/.pi/agent are compared
+// before and after, and a change is reported, not undone (Pi may write a new
+// lastChangelogVersion or a missing deviceId).
 // The model, openai/gpt-6-luna at low, is the cheapest the tech notes name.
 //
 // It runs at night: the owner's rule is that a live test that mounts a
@@ -86,7 +82,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, rmSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { mkdtemp, readdir, realpath, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -334,52 +330,6 @@ function closedByKit(entries) {
   if (Array.isArray(entries)) guard.closedByKit(entries);
 }
 
-/**
- * Remove the Pi session folders of this run's own folders, `reals`, and no
- * other: each only when everything in it is a `.jsonl` file whose header
- * names a cwd inside `bots`. Answers what was left, and why.
- */
-function removeOwnPiFolders(reals, bots) {
-  const left = [];
-  for (const real of reals) {
-    const dir = path.join(PI_SESSIONS, piFolderNameOf(real));
-    if (!existsSync(dir)) continue;
-    if (!lstatSync(dir).isDirectory()) {
-      left.push(`${dir}: not a folder`);
-      continue;
-    }
-    const odd = [];
-    for (const name of readdirSync(dir)) {
-      const file = path.join(dir, name);
-      if (!name.endsWith('.jsonl') || !lstatSync(file).isFile()) {
-        odd.push(`${name}: not a .jsonl file`);
-        continue;
-      }
-      const cwd = piLinesOf(file)[0]?.cwd;
-      let inside = false;
-      try {
-        const where = path.relative(bots, realpathSync(cwd));
-        inside = typeof cwd === 'string' && !where.startsWith('..') && !path.isAbsolute(where);
-      } catch {
-        inside = typeof cwd === 'string' && path.resolve(cwd).startsWith(`${bots}${path.sep}`);
-      }
-      if (!inside) odd.push(`${name}: its header names cwd ${JSON.stringify(cwd)}, not inside ${bots}`);
-    }
-    if (odd.length > 0) {
-      left.push(`${dir}, left in place: ${odd.join('; ')}`);
-      continue;
-    }
-    rmSyncFolder(dir);
-  }
-  return left;
-}
-
-/** Remove one folder this test has checked is its own. */
-function rmSyncFolder(dir) {
-  assert.ok(path.dirname(dir) === PI_SESSIONS && path.basename(dir).startsWith('--'), `refusing to remove ${dir}: not a Pi session folder`);
-  rmSync(dir, { recursive: true });
-}
-
 test('a maker makes a temporary session on Pi, finds no first-run screen of Pi\'s in it, and retires it', async (t) => {
   const before = {
     handles: new Set(allTerminals().map((terminal) => terminal.handle)),
@@ -391,7 +341,6 @@ test('a maker makes a temporary session on Pi, finds no first-run screen of Pi\'
   const homeOf = (bot) => path.join(bots, 'bots', bot);
   const homes = ['bot-father', BOT].map(homeOf);
   const home = homeOf(BOT);
-  const ownPiFolders = [home, path.join(home, 'work', HELPER)];
 
   // Registered before anything is created, so it runs however this test ends.
   t.after(async () => {
@@ -414,8 +363,6 @@ test('a maker makes a temporary session on Pi, finds no first-run screen of Pi\'
     // Orca's sidebar keeps a deleted project's row until its window is rebuilt (#343).
     if (deleted > 0 && !(await reloadWindow())) t.diagnostic(RELOAD_LINE);
     assert.deepEqual(foreign, [], `tabs this test did not create are open at its homes, so it closed only its own and left those projects and ${bots} in place`);
-    // Pi's own records of the run's folders, checked to be the run's, before the folders go.
-    const piLeft = removeOwnPiFolders(ownPiFolders, bots);
     await removeBotsFolderAndSiblings(bots);
 
     const { closedNotOurs, goneElsewhere } = guard.verdict(before.handles);
@@ -429,7 +376,6 @@ test('a maker makes a temporary session on Pi, finds no first-run screen of Pi\'
       const now = hashOf(path.join(PI_AGENT, name));
       if (now !== before.pi[name]) t.diagnostic(`${path.join(PI_AGENT, name)} changed during the run (Pi's own write); nothing was copied back`);
     }
-    assert.deepEqual(piLeft, [], 'Pi session folders of this run that were not only its own, left in place');
   });
 
   // ---------------------------------------------------------------------------
