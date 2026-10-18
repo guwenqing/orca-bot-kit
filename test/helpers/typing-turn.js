@@ -23,7 +23,10 @@ export const typingTurnFile = (bots, bot, session) => turnLockFile(bots, bot, se
  * Take one session's typing turn from this test process, run `body`, and let
  * the turn go when `body` ends, or earlier when it calls the `release` it is
  * given. Let go inside the test itself, because the sandbox is removed before
- * a `t.after` of the test's own would run.
+ * a `t.after` of the test's own would run. Let go with `ROLLBACK`, as
+ * src/book.js does: a command that waits for the turn can still hold SQLite's
+ * shared lock on the file; COMMIT would then fail at once, and ROLLBACK does
+ * not (#611, #628).
  */
 export async function withTypingTurnHeld(bots, bot, session, body) {
   const file = typingTurnFile(bots, bot, session);
@@ -34,7 +37,7 @@ export async function withTypingTurnHeld(bots, bot, session, body) {
   const release = () => {
     if (!held) return;
     held = false;
-    db.exec('COMMIT');
+    db.exec('ROLLBACK');
     db.close();
   };
   try {

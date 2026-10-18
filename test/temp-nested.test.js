@@ -445,7 +445,10 @@ const HOLD_MS = 8000;
 /**
  * Hold a bot's book lock, the way another writer of the book does, until
  * `release` is called: the file SQLite locks, beside the bots folder in
- * `<bots>.locks/<bot>/<bot home's name>.lock` (#534), taken with `BEGIN IMMEDIATE`.
+ * `<bots>.locks/<bot>/<bot home's name>.lock` (#534), taken with `BEGIN IMMEDIATE`
+ * and let go with `ROLLBACK`, as src/book.js does. A make that waits for the
+ * lock can still hold SQLite's shared lock on the file; COMMIT would then fail
+ * at once, and ROLLBACK does not (#611, #628).
  */
 async function holdBookLock(bots, bot) {
   const file = path.join(`${bots}.locks`, bot, `${encodeURIComponent(bot)}.lock`);
@@ -455,7 +458,7 @@ async function holdBookLock(bots, bot) {
   return {
     release() {
       try {
-        db.exec('COMMIT');
+        db.exec('ROLLBACK');
       } finally {
         db.close();
       }
