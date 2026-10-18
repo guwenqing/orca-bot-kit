@@ -1081,21 +1081,26 @@ docs, or Orca's 1.4.225 bundle. The kit was tested with Pi 1.1.0.
     `models.json` and `trust.json` in `~/.pi/agent` had the same SHA-256 before and after. Pi made the
     working folder's session folder under `~/.pi/agent/sessions` at once, empty, since there was no turn;
     the throwaway folder stayed empty. What Orca's extensions add in a real tab is not seen yet.
-  - **With `--no-approve` no core screen of Pi's waits for a key**, before or after a turn. **read in
-    code**: `--no-approve` sets the trust override to false (`cli/args.js:232`), so `main.js:595` never
-    asks, and nothing is read from or written to `trust.json`. The other candidates do not ask: the
-    changelog is lines in the chat, and shows nothing when `lastChangelogVersion` is the running version
-    (`interactive-mode.js:988-1008`); the theme-and-analytics setup runs only when `settings.json` is
-    missing on an official build with `PI_EXPERIMENTAL=1` (`cli/startup-ui.js:98-113`); there is no
-    consent screen; the model selector and login open only on `/model`, ctrl+L or `/login`; the update
+  - **With `--no-approve` and an existing `~/.pi/agent/settings.json`, no core screen of Pi's waits for
+    a key**, before or after a turn. **read in code**: `--no-approve` sets the trust override to false
+    (`cli/args.js:232`), so `main.js:595` never asks, and nothing is read from or written to
+    `trust.json`. The other candidates do not ask: the changelog is lines in the chat, and shows nothing
+    when `lastChangelogVersion` is the running version (`interactive-mode.js:988-1008`); there is no
+    consent screen apart from the first-time setup below; the model selector and login open only on `/model`, ctrl+L or `/login`; the update
     notice is lines in the chat; a missing package in `settings.json` is installed by npm with no question;
     and after a turn there is no rating or feedback question, and compaction asks nothing.
-  - **What can still wait for a key** (**read in code**; none of them seen): Pi's deprecation warning,
-    `Press any key to continue...`, when `~/.pi/agent/hooks` or `<cwd>/.pi/hooks` exists, or a `tools/`
-    folder there holds more than `fd` and `rg` (`migrations.js:203-268`); a dialog that an extension opens
-    with `ctx.ui.select`, `confirm` or `input` in its `session_start`, which holds the start prompt until
-    it is answered, drawn with the trust screen's `→` pointer and foot `↑↓ navigate  enter select
-    escape/ctrl+c cancel`; and a tool's question during a turn, such as `cursor_ask_question` of the
+  - **What can still wait for a key** (**read in code**; none of them seen): Pi's first-time setup, which
+    `--no-approve` does not skip, on an official build with `PI_EXPERIMENTAL=1`, no `PI_CODING_AGENT_DIR`
+    and no `settings.json` (`main.js:539`, `cli/startup-ui.js:98-113`): `Welcome to Pi, the minimal
+    coding agent.`, then `Pick a theme.` with foot `↑↓ navigate  enter continue  escape/ctrl+c skip setup`,
+    then `Opt-in to anonymous usage data sharing?` with foot `… enter finish  escape/ctrl+c skip setup`
+    (`components/first-time-setup.js`); Pi's deprecation warning, `Press any key to continue...`, when
+    `~/.pi/agent/hooks` or `<cwd>/.pi/hooks` exists, or a `tools/` folder there holds more than `fd` and
+    `rg` (`migrations.js:203-268`); a dialog that an extension opens in its `session_start`, which holds
+    the start prompt until it is answered: `ctx.ui.select` and `confirm` drawn with the trust screen's `→`
+    pointer and foot `↑↓ navigate  enter select  escape/ctrl+c cancel`, and `ctx.ui.input` with the foot
+    `enter submit  escape/ctrl+c cancel` (`components/extension-input.js:47`); and a tool's question during
+    a turn, such as `cursor_ask_question` of the
     `pi-cursor-sdk` package on a `cursor/…` model. The installed extensions open no dialog at start.
     Without `--no-approve`, a bot folder under a bots repo whose root has `.agents/skills` would get the
     trust screen, since a `.agents/skills` in any folder above counts (`core/trust-manager.js:151-170`).
