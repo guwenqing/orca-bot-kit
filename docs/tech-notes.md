@@ -1020,8 +1020,12 @@ docs, or Orca's 1.4.225 bundle. The kit was tested with Pi 1.1.0.
     tab. In `test/system/pi-mail.test.js` (2026-10-18, 00:08 local) Orca listed the throwaway
     project's Pi tab and Codex tab as orphaned as soon as they were up, and `orca terminal switch` to
     the Pi tab, answered ok, left it orphaned for 15 s. The likely cause, worked out and not proven: the
-    window had never loaded that project, and the Orca CLI has no command that opens one there. So that test fails on an orphaned tab and says
-    so; the live check of the notice was the probe above.
+    window had never loaded that project, and the Orca CLI has no command that opens one there. Seen
+    live by #561 (2026-10-18): one more project with one plain tab made the older projects' tabs real,
+    and a tab added to the same project did not; the cause is not known. So the test now takes that
+    step (`test/helpers/newer-project.js`) in a night run that names it, and fails plainly when a tab
+    is still orphaned 30 s later. That step is not yet seen live in this test; the live check of the
+    notice was the probe above.
   - `orca terminal list` shows a Pi tab's title in Orca's own words: `Pi - <name> - <folder>`, and
     `Pi ready` at rest after a turn. Pi itself writes `π - <name> - <folder>` (its `APP_TITLE` is `π`);
     Orca's renderer has the label table `pi: { workingLabel: "Pi", idleLabel: "Pi ready", … }`, and its
