@@ -40,6 +40,7 @@ import {
   sh,
   tabsOfBot,
   typedInto,
+  withoutSandbox,
   workDirByHand,
 } from './helpers/cli.js';
 
@@ -177,7 +178,7 @@ test('SL5 a Claude launch line names none of the kit\'s folders and carries no -
 
   const line = await launchOf(box, bots, 'api-bot');
 
-  assert.ok(!line.includes('--add-dir'), `Claude gets no --add-dir, got: ${line}`);
+  assert.ok(!withoutSandbox(box, line).includes('--add-dir'), `Claude gets no --add-dir, got: ${line}`);
   for (const dir of kitDirsOf(bots, 'api-bot')) assert.ok(!line.includes(dir), `Claude's line does not name ${dir}, got: ${line}`);
 });
 

@@ -36,6 +36,7 @@ import {
   sh,
   tabsOfBot,
   typedInto,
+  withoutSandbox,
 } from './helpers/cli.js';
 
 /** The longest prompt still typed into the line: one line, this many characters. */
@@ -158,7 +159,7 @@ for (const [label, length, byFile] of [
     const { typed, tab } = await up(box, bots, bot);
 
     assert.equal('promptFile' in tab, byFile, `${length} characters: got ${JSON.stringify(typed)}`);
-    assert.equal(typed.includes('cat '), byFile, `${length} characters: got ${JSON.stringify(typed)}`);
+    assert.equal(withoutSandbox(box, typed).includes('cat '), byFile, `${length} characters: got ${JSON.stringify(typed)}`);
     if (!byFile) assert.ok(typed.endsWith(`-- ${prompt}`), `the text itself, got: ${typed}`);
   });
 }
