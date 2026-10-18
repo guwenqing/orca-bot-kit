@@ -45,18 +45,31 @@
 // **An orphaned tab.** This test opens its bots in a throwaway Orca project,
 // and the Orca window may not load it. Orca lists a tab of a project its
 // window has not loaded as orphaned (`orphaned: true`, tab id `pty:<ptyId>`),
-// and it gives such a tab no notice (tech notes, section 1; #579). Before each
-// case the test looks. When the Pi tab is orphaned, it may load its own tab,
-// and no other, with `orca terminal switch --terminal <its own handle>`, but
+// and it gives such a tab no notice (tech notes, section 1; #579). A tab counts
+// as real only when Orca lists it with `orphaned: false` and a tab id that does
+// not start with `pty:`. Before each case the test looks at the Pi tab, and in
+// case 1 also at the Codex sender's tab, which gets the reply.
+//
+// When one of them is not real, the test opens ONE MORE throwaway project in
+// its bots folder, made as `obk up` makes a bot's project, with one plain tab
+// in it (helpers/newer-project.js). Then it waits up to REAL_MS until those
+// tabs are real, and fails plainly if they are not. What was seen live on
+// 2026-10-18 (#561, #634): `orca terminal switch --terminal <handle>` answered
+// ok, and the tab stayed orphaned, so this test no longer switches. One more
+// project with a plain tab made the older tabs real; a tab added to the same
+// project did not; the plain tab itself was orphaned again within 30 s. The
+// cause is not known.
+//
+// That step opens a project and a tab in the owner's Orca window, so it runs
 // only when both hold (the owner's rule in #561):
 //
 //   - the local hour is 0 to 5 (between midnight and 6 am), and
 //   - the run named this file (the runner's OBK_SYSTEM_NAMED holds its path).
 //
-// Otherwise it switches nothing and fails, and says why: Orca gives no notice
-// to an orphaned tab, and the switch runs only in a night run that names this
-// file. A run that does not name this file loads no tab. The switch moves the
-// owner's view of Orca to this test's tab; that is why it waits for the night.
+// Otherwise it opens nothing and fails, and says why: Orca gives no notice to
+// an orphaned tab. A run that does not name this file opens no extra project
+// and no extra tab. The extra project's home is in the teardown's homes, so
+// the tab guard closes its plain tab and the teardown deletes the project.
 //
 // The machine it runs on is someone's working machine, with their own tabs
 // open. So this test, like the ones beside it:
@@ -113,6 +126,7 @@ import { codexTrustArgs } from '../helpers/codex-trust.js';
 import { questionOn, waitingOn } from '../helpers/screens.js';
 import { tabGuard } from '../helpers/tab-guard.js';
 import { deleteOwnProject } from '../helpers/own-project.js';
+import { openNewerProject } from '../helpers/newer-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
 
 /** The Orca CLI that works for a normal user (tech notes, section 1). */
@@ -143,8 +157,8 @@ const QUIET_MS = 30000;
 /** How long after a letter with --interrupt Orca's notice is given to land in the record. */
 const NOTICE_MS = 90000;
 
-/** How long a switch to the Pi tab is given to take it out of the orphaned listing. */
-const LOAD_MS = 15000;
+/** How long the tabs are given to be listed as real after one more project is opened (#561: about 30 s). */
+const REAL_MS = 30000;
 
 /**
  * The busy loop: this many lines, one a second. Long enough that the interrupt
@@ -257,11 +271,16 @@ function rowsOf(handle) {
 /** The tab as Orca lists it now, or undefined when Orca does not list it. */
 const listed = (handle) => allTerminals().find((terminal) => terminal.handle === handle);
 
+/** Whether Orca lists the tab as real: `orphaned: false` and a tab id that does not start with `pty:` (#561). */
+const realTab = (entry) => entry?.orphaned === false && typeof entry.tabId === 'string' && !entry.tabId.startsWith('pty:');
+
 /** Whether Orca lists the tab as orphaned now, in words. */
 function orphanWords(handle) {
   const entry = listed(handle);
   if (entry === undefined) return 'not listed by Orca at all';
-  return entry.orphaned === true ? `listed as ORPHANED (tab id ${entry.tabId}): Orca gives an orphaned tab no notice` : 'listed as loaded, not orphaned';
+  return realTab(entry)
+    ? `listed as real (orphaned: false, tab id ${entry.tabId})`
+    : `listed as ORPHANED (orphaned: ${entry.orphaned}, tab id ${entry.tabId}): Orca gives an orphaned tab no notice`;
 }
 
 /** What the tab is showing, for the message of a wait that ran out, with whether it is orphaned. */
@@ -314,41 +333,55 @@ function lookAtOrphan(t, title, handle, when) {
 }
 
 /**
- * Before a case that needs Orca's notice in the tab: the tab is loaded, or
- * this test loads its own tab, at night in a run that names this file, or the
- * case fails and says why.
+ * Before a case that needs Orca's notice in its tabs: each of `tabs`
+ * ({ title, handle }, the Pi tab first) is real, or this test opens one more
+ * project, at night in a run that names this file, and each is real within
+ * REAL_MS; or the case fails and says why. The extra project's home goes into
+ * `homes`, the teardown's list, before it is made.
  */
-async function loadedForNotice(t, title, handle, why) {
-  const entry = listed(handle);
-  assert.ok(entry !== undefined, `${title}: Orca no longer lists its tab ${handle}`);
-  t.diagnostic(`${title} (${handle}) before ${why}: ${orphanWords(handle)}`);
-  if (entry.orphaned !== true) return;
+async function loadedForNotice(t, tabs, why, { bots, homes }) {
+  const notReal = [];
+  for (const { title, handle } of tabs) {
+    const entry = listed(handle);
+    assert.ok(entry !== undefined, `${title}: Orca no longer lists its tab ${handle}`);
+    t.diagnostic(`${title} (${handle}) before ${why}: ${orphanWords(handle)}`);
+    if (!realTab(entry)) notReal.push({ title, handle });
+  }
+  if (notReal.length === 0) return;
 
+  const names = notReal.map(({ title, handle }) => `${title} (${handle})`).join(', ');
   const now = new Date();
   const night = atNight(now);
   const named = namedThisRun();
   if (!(night && named)) {
-    t.diagnostic(`${title}: did not switch to ${handle} (night: ${night}, this file named: ${named})`);
+    t.diagnostic(`opened no extra project for ${names} (night: ${night}, this file named: ${named})`);
     assert.fail([
-      `${title}: Orca lists the Pi tab ${handle} as orphaned before ${why}.`,
+      `Orca lists these tabs as orphaned before ${why}: ${names}.`,
       'Orca gives no notice to an orphaned tab, so this case cannot pass.',
-      `This test loads its own tab (orca terminal switch --terminal ${handle}) only in a night run, between midnight and 6 am local time, that names this file:`,
+      'This test opens one more project and one plain tab in the Orca window only in a night run, between midnight and 6 am local time, that names this file:',
       '  npm run test:system -- --yes test/system/pi-mail.test.js',
-      `This run is at ${now.toTimeString().slice(0, 5)} local time and ${named ? 'names this file' : 'does not name this file'}, so it switched nothing.`,
+      `This run is at ${now.toTimeString().slice(0, 5)} local time and ${named ? 'names this file' : 'does not name this file'}, so it opened nothing.`,
     ].join('\n'));
   }
 
-  const switched = orca(['terminal', 'switch', '--terminal', handle]);
-  t.diagnostic(`${title}: switched to its own tab ${handle} at ${now.toISOString()}: ${switched.ok === true ? 'Orca answered ok' : `Orca refused: ${JSON.stringify(switched.error)}`}`);
-  assert.equal(switched.ok, true, `${title}: orca terminal switch --terminal ${handle} failed: ${JSON.stringify(switched.error)}`);
-  const stop = Date.now() + LOAD_MS;
-  let still = listed(handle)?.orphaned === true;
-  while (still && Date.now() < stop) {
+  const count = homes.filter((home) => path.basename(home).startsWith('newer-')).length + 1;
+  const home = path.join(bots, 'bots', `newer-${count}`);
+  homes.push(home);
+  const newer = await openNewerProject(guard, home, `pi-mail newer ${count}`);
+  t.diagnostic(`opened one more project at ${home} at ${now.toISOString()} for ${names}: tellWindow ${newer.told ? 'taken' : 'not taken'}, plain tab ${newer.handle}`);
+  const stop = Date.now() + REAL_MS;
+  let still = notReal.filter(({ handle }) => !realTab(listed(handle)));
+  while (still.length > 0 && Date.now() < stop) {
     await setTimeout(500);
-    still = listed(handle)?.orphaned === true;
+    still = notReal.filter(({ handle }) => !realTab(listed(handle)));
   }
-  t.diagnostic(`${title} (${handle}) after the switch: ${orphanWords(handle)}`);
-  assert.equal(still, false, `${title}: Orca still lists the Pi tab ${handle} as orphaned ${LOAD_MS} ms after this test switched to it, so no notice can come`);
+  for (const { title, handle } of notReal) t.diagnostic(`${title} (${handle}) after one more project: ${orphanWords(handle)}`);
+  t.diagnostic(`the plain tab ${newer.handle}: ${orphanWords(newer.handle)}`);
+  assert.deepEqual(
+    still.map(({ handle }) => handle),
+    [],
+    `Orca still lists these tabs as orphaned ${REAL_MS} ms after this test opened one more project at ${home}, so no notice can come: ${still.map(({ title, handle }) => `${title} (${handle})`).join(', ')}`,
+  );
 }
 
 // ------------------------------------------------------------- Pi's record
@@ -586,7 +619,8 @@ test('a Pi session gets fleet mail: Orca\'s notice in its tab, its own check, a 
     turnsOf(idle.record(), 'assistant').length > 0 && idleNow(idle.handle) ? true : undefined
   ), () => `\n  its Pi record's tail:\n  ${tailOf(idle.record())}${whatIsUp(idle.handle)}`, idle.screen);
 
-  await loadedForNotice(t, idle.title, idle.handle, 'the letter to the idle Pi receiver');
+  // The Codex sender's tab too: the reply needs Orca's notice there.
+  await loadedForNotice(t, [idle, sender], 'the letter to the idle Pi receiver', { bots, homes });
   const sinceLetter = Date.now() - 1000;
   send(t, bots, { to: `${PI}/idle`, subject: 'the pi system test', text: `${QUESTION}. Please reply to me.` });
   lookAtOrphan(t, idle.title, idle.handle, 'after the letter');
@@ -599,8 +633,7 @@ test('a Pi session gets fleet mail: Orca\'s notice in its tab, its own check, a 
   await until(`${idle.title} to read the letter with obk message check`, ANSWER_MS, async () => ((await mailReadIn(idle.mailFile)).includes(QUESTION) ? true : undefined), () => `\n  its Pi record's tail:\n  ${tailOf(idle.record())}${whatIsUp(idle.handle)}`, idle.screen);
   t.diagnostic(`${idle.title}: read the letter ${Math.round((Date.now() - sinceLetter) / 1000)} s after it was sent`);
 
-  // The switch is only ever to a Pi tab of this test's; the Codex sender's tab
-  // is looked at, and a wait that runs out says whether it is orphaned.
+  // Looked at again: a wait that runs out says whether it is orphaned now.
   lookAtOrphan(t, sender.title, sender.handle, 'before the reply reaches it');
   await until(`the reply from ${idle.title} to reach ${sender.title}, read with its own check`, ROUND_TRIP_MS, async () => ((await mailReadIn(sender.mailFile)).includes(PASSPHRASE) ? true : undefined), () => `\n  ${idle.title}'s Pi record's tail:\n  ${tailOf(idle.record())}${whatIsUp(sender.handle)}`, sender.screen);
   t.diagnostic(`${sender.title}: read the reply ${Math.round((Date.now() - sinceLetter) / 1000)} s after the first letter was sent`);
@@ -612,7 +645,7 @@ test('a Pi session gets fleet mail: Orca\'s notice in its tab, its own check, a 
 
   // Orca holds its notice for a busy receiver, so a quiet record means
   // something only in a tab that could get a notice at all.
-  await loadedForNotice(t, busy.title, busy.handle, 'the letter without --interrupt');
+  await loadedForNotice(t, [busy], 'the letter without --interrupt', { bots, homes });
   const sinceQuiet = Date.now() - 1000;
   const stepsBefore = await stepsIn(busy.stepsFile);
   send(t, bots, { to: `${PI}/busy`, subject: 'the pi quiet report', text: `${QUIET} — nothing to do, just read this.` });
@@ -632,7 +665,7 @@ test('a Pi session gets fleet mail: Orca\'s notice in its tab, its own check, a 
   lookAtOrphan(t, busy.title, busy.handle, 'after the quiet watch');
 
   // ----------------------------------------------------------- 3. busy, --interrupt
-  await loadedForNotice(t, busy.title, busy.handle, 'the letter with --interrupt');
+  await loadedForNotice(t, [busy], 'the letter with --interrupt', { bots, homes });
   const sinceUrgent = Date.now() - 1000;
   const urgentSaid = send(t, bots, { to: `${PI}/busy`, subject: 'the pi urgent report', text: `${URGENT} — nothing to do, just read this.`, interrupt: true });
   const stepsAtEscape = await stepsIn(busy.stepsFile);
