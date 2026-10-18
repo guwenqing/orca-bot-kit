@@ -14,7 +14,7 @@
 // it was asked in as many words. A run that was not confirmed did not run the
 // tests, and does not answer as though it had.
 
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -718,6 +718,70 @@ const CONFIRM = '--yes';
 
 const asked = () => process.argv.slice(2).includes(CONFIRM);
 
+/**
+ * The longest a confirmed run may take, in seconds, and the flag that makes it
+ * shorter, never longer and never off (#653). A plain `npm run test:system`
+ * could hang with its throwaway tabs open in the owner's Orca window.
+ */
+const LIMIT = 3600;
+const LIMIT_FLAG = '--limit';
+
+/**
+ * The limit this run holds, as `{ seconds }`, or `{ refused }` with why. Only
+ * `--limit=<n>` counts, with `=`: every argument without a leading `-` is a
+ * file name.
+ */
+function limitOf(args) {
+  const given = args.filter((arg) => arg === LIMIT_FLAG || arg.startsWith(`${LIMIT_FLAG}=`));
+  if (given.length === 0) return { seconds: LIMIT };
+  if (given.length > 1) return { refused: `${LIMIT_FLAG} is given ${given.length} times` };
+  const value = given[0].slice(LIMIT_FLAG.length + 1);
+  if (!/^[1-9][0-9]*$/.test(value) || Number(value) > LIMIT) {
+    return { refused: `${given[0]} is not a whole number of seconds from 1 to ${LIMIT}` };
+  }
+  return { seconds: Number(value) };
+}
+
+/**
+ * Run `files` in one `node --test`, in a process group of its own, stopped at
+ * `seconds` (#653). A test still running at the limit less a grace (30 s, or
+ * half a limit under 60 s) is cancelled by node's own test timeout, and its own
+ * teardown runs. At the limit the whole group gets SIGKILL, by the id taken at
+ * spawn: seen on Node 26.11.1, SIGTERM ends `node --test` at once and runs no
+ * after-hook, so a softer signal buys nothing. A signal to the runner stops the
+ * group too, as Ctrl-C stopped the tests when they shared the runner's group.
+ * Answers { status, signal, stopped }, stopped being the limit or the signal.
+ */
+function runTests(files, seconds, env) {
+  const grace = seconds < 60 ? seconds / 2 : 30;
+  const child = spawn(process.execPath, ['--test', `--test-timeout=${Math.round((seconds - grace) * 1000)}`, ...files], {
+    cwd: repo,
+    stdio: 'inherit',
+    env,
+    detached: true,
+  });
+  let stopped;
+  const stop = (why) => {
+    stopped ??= why;
+    try {
+      process.kill(-child.pid, 'SIGKILL');
+    } catch {
+      // The group is gone already.
+    }
+  };
+  const timer = setTimeout(() => stop(`The time limit of ${seconds} s`), seconds * 1000);
+  const signals = ['SIGINT', 'SIGTERM', 'SIGHUP'];
+  const onSignal = (signal) => stop(`A ${signal} to the runner`);
+  for (const signal of signals) process.on(signal, onSignal);
+  return new Promise((resolve) => {
+    child.on('exit', (status, signal) => {
+      clearTimeout(timer);
+      for (const one of signals) process.off(one, onSignal);
+      resolve({ status, signal, stopped });
+    });
+  });
+}
+
 /** The files named on the command line: every argument that is not a flag. */
 const named = () => process.argv.slice(2).filter((arg) => !arg.startsWith('-'));
 
@@ -827,9 +891,19 @@ function whatItDoes() {
   ].join('\n'));
 }
 
-function run() {
+async function run() {
   // Before anything else, Orca included: a name that is not one of the system
-  // tests is refused whether or not there is an Orca to drive.
+  // tests, or a limit that is not one, is refused whether or not there is an
+  // Orca to drive.
+  const limit = limitOf(process.argv.slice(2));
+  if (limit.refused !== undefined) {
+    process.stderr.write(
+      `${limit.refused}, so nothing was run.\n`
+      + `${LIMIT_FLAG}=<seconds> sets a shorter limit than the ${LIMIT} s every run has, such as:\n`
+      + `  npm run test:system -- ${CONFIRM} ${LIMIT_FLAG}=1800 ${path.relative(repo, systemTests)}/<file>.test.js\n`,
+    );
+    return 1;
+  }
   const choice = chosen(named());
   if (choice.refused !== undefined) {
     process.stderr.write(
@@ -897,11 +971,8 @@ function run() {
 
   // OBK_SYSTEM_TESTS is how a system test knows this command started it: loaded
   // any other way, it skips (test/helpers/system.js, #328).
-  const result = spawnSync(process.execPath, ['--test', ...files], {
-    cwd: repo,
-    stdio: 'inherit',
-    env: { ...process.env, OBK_SYSTEM_TESTS: '1' },
-  });
+  process.stdout.write(`Time limit: ${limit.seconds} s for the whole run; ${LIMIT_FLAG}=<seconds> sets a shorter one.\n\n`);
+  const result = await runTests(files, limit.seconds, { ...process.env, OBK_SYSTEM_TESTS: '1' });
 
   // After the tests, whatever they did: a failing run leaves Runs behind just
   // as a passing one does, and the developer is owed the accounting either way.
@@ -914,8 +985,12 @@ function run() {
   // nothing at all. Anything but a clean 0 means the system tests did not pass.
   // The Runs accounting never changes this: it is a report, not a check. A
   // trust key left in the owner's Codex config does: that is a check (#240).
-  // So is a project left in the owner's Orca (#536).
+  // So is a project left in the owner's Orca (#536). A run that the limit or a
+  // signal stopped (#653) fails too: SIGKILL leaves the tests no status of 0.
+  if (result.stopped !== undefined) {
+    process.stdout.write(`\n${result.stopped} stopped the run: its tests did not finish, so the run failed. A test stopped this way may not have closed its tabs or removed its projects; the check above names any project left.\n`);
+  }
   return result.status === 0 && !leftKeys && !leftProjects ? 0 : 1;
 }
 
-process.exitCode = run();
+process.exitCode = await run();
