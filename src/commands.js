@@ -46,7 +46,6 @@ export const COMMANDS = {
   'temp retire': ['bots', 'name'],
   'temp trust-hooks': ['bots', 'name'],
   'temp answer': ['bots', 'name'],
-  run: ['timeout'],
 };
 
 /**
@@ -69,14 +68,12 @@ export const DEFAULT_COMMANDS = [
  * The commands kept out of the default permission set, which keep the user's
  * yes (ADR 0051): the ones that change permissions, close a long-lived
  * session, make the bots folder, or make or change a bot or its sessions,
- * which the owner leaves to Bot Father (#548, #615); and `run`, which runs
- * whatever its arguments say, so a rule for it names its command (#532).
+ * which the owner leaves to Bot Father (#548, #615).
  */
 export const KEPT_BACK = [
   'init', 'retire', 'pause', 'restart', 'bot create',
   'bot change', 'session add', 'session change',
   'permission allow', 'permission disallow', 'permission approval',
-  'run',
 ];
 
 /**
@@ -87,8 +84,8 @@ export const KEPT_BACK = [
 export const NO_LONGER_DEFAULT = ['restart', 'bot create', 'bot change', 'session add', 'session change'];
 
 /**
- * The commands kit 0.26.0 gave every bot by default and that the kit no longer
- * has (#555). A bot may still hold their rules, which the kit names and leaves
- * (#564).
+ * The commands the kit no longer has: the two kit 0.26.0 gave every bot by
+ * default (#555), and `run` (#532), which #652 took out of the kit. A bot may
+ * still hold their rules, which the kit names and leaves (#564).
  */
-export const REMOVED = ['session mail', 'session nudge'];
+export const REMOVED = ['session mail', 'session nudge', 'run'];

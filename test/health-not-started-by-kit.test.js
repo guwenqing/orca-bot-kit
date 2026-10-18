@@ -9,7 +9,7 @@
 //
 // So for each session whose tab is live with its own harness in front (health's
 // `running: yes`), health reads the environment of the process in front, with
-// `<OBK_PS> -E -ww -o command= -p <pid>` (tech notes, section 1). The kit's
+// `/bin/ps -E -ww -o command= -p <pid>` (tech notes, section 1). The kit's
 // launch line puts OBK_TAB_SHELL there. Its absence, in an environment that
 // carries ORCA_TAB_ID=<that tab's id>, is a harness the kit did not start, and
 // that session gets one finding of kind `session`: the bot, the session, that

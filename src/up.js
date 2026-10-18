@@ -10,7 +10,7 @@ import path from 'node:path';
 import { setTimeout as pause } from 'node:timers/promises';
 
 import { forgetClaimed, forgetSession, MAILBOX_WAIT_MS, readBook, rememberSession, sessionIdsIn, tabIdsIn, takeLineTurn, takeMailboxTurn, TYPING_HELD, TYPING_WAIT_MS, updateBook, withUnclaimed } from './book.js';
-import { botDir, botNames, displayName, projectName, readBot } from './bot.js';
+import { botDir, botNames, displayName, readBot } from './bot.js';
 import { conversationsIn, hasConversation, heldAsUserTurn, transcriptsIn } from './conversations.js';
 import { dropRemovedHooks, installHook } from './hooks.js';
 import { writePermissions } from './permissions.js';
@@ -233,7 +233,7 @@ async function bringUpBot(bots, home, bot, onlySession) {
   // Orca is asked first and the book is written after: nothing that takes time
   // happens while the book is held, because a session's own hook may be writing
   // its id into that same file at any moment.
-  const { change, ...orca } = orcaProject(home, projectName(bots, name));
+  const { change, ...orca } = orcaProject(home, title);
   await updateBook(home, (book) => { book.orca = orca; });
   // Orca's window does not see a project made or renamed on the command line
   // until it is told (#224).

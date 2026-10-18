@@ -71,8 +71,8 @@
 //
 // **It is attended.** The bots folder is `<tmp>/obk-system-list-line-*`
 // (`<tmp>` is the system temp folder), and the bot's project shows in Orca as
-// `List Codex · temp fleet obk-system-list-line-…`. This test answers none of
-// the screens a harness puts up of its own. What to expect:
+// `List Codex`. This test answers none of the screens a harness puts up of
+// its own. What to expect:
 //
 //   1. `Bot Father daily`: Claude Code's folder trust. Nothing here waits on
 //      Bot Father. Leave it.

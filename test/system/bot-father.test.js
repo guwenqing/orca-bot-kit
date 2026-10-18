@@ -25,7 +25,7 @@ import path from 'node:path';
 import test from '../helpers/system.js';
 import { setTimeout } from 'node:timers/promises';
 
-import { assertMarkedName, cliEntry, sessionTabIds } from '../helpers/cli.js';
+import { cliEntry, sessionTabIds } from '../helpers/cli.js';
 import { tabGuard } from '../helpers/tab-guard.js';
 import { deleteOwnProject } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
@@ -192,9 +192,9 @@ test('Bot Father comes up in the real Orca, and nothing else is touched', async 
   const setups = allSetups().filter((setup) => setup.path === home);
   assert.equal(setups.length, 1, `Orca should hold one workspace for ${home}, got ${JSON.stringify(setups)}`);
   assert.equal(setups[0].kind, 'folder', 'a git-kind workspace has no worktree to open a tab in');
-  // This fleet is under the temp folder, so its project is marked as a
-  // throwaway one, naming the folder it is in (#401).
-  assertMarkedName(setups[0].displayName, 'Bot Father', path.basename(bots));
+  // Under the temp folder or not, a fleet's project is called by the bot's
+  // display name alone (#652 took out #401's mark).
+  assert.equal(setups[0].displayName, 'Bot Father');
 
   const opened = terminalsAt(home);
   assert.equal(opened.length, 2, `Bot Father has a daily tab and an ops tab, got ${JSON.stringify(opened)}`);

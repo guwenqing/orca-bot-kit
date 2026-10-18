@@ -25,10 +25,11 @@
 //   book keeping a retired session's work dir, which health reads.)
 //
 // The interface, as the brief gives it. The kit reads the table with
-// `<OBK_PS> -A -ww -o pid=,ppid=,pgid=,uid=,stat=,command=`, the working
-// folders with `<OBK_LSOF> -a -d cwd -u <uid> -Fpn`, and signals with
-// `<OBK_KILL> -s TERM|KILL -- -<pgid>|<pid>`. All three are fakes here
-// (helpers/fake-ps.js, helpers/fake-tty.js, helpers/fake-kill.js): the table
+// `/bin/ps -A -ww -o pid=,ppid=,pgid=,uid=,stat=,command=`, the working
+// folders with `/usr/sbin/lsof -a -d cwd -u <uid> -Fpn`, and signals with
+// `/bin/kill -s TERM|KILL -- -<pgid>|<pid>`. All three are fakes here
+// (helpers/fake-ps.js, helpers/fake-tty.js, helpers/fake-kill.js, reached
+// through helpers/fake-tools.js, #652): the table
 // is `processes` in the fake Orca's state.json, and the fake kill writes each
 // call down and changes that table, and signals nothing. The `--json` answer
 // of a retire of a session with a work dir gains

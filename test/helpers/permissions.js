@@ -58,13 +58,12 @@ export const KIT_COMMANDS = [
 /**
  * The kit's commands that are never in the default set: they keep the user's
  * yes (#527, #548 for restart and bot create, and #615 for bot change, session
- * add and session change). #532 added `run`: it runs any command it is given,
- * so a bot is allowed it only by a narrow rule that names the command.
+ * add and session change). #532 added `run` here and #652 took it out of the
+ * kit (test/run-removed.test.js).
  */
 export const NOT_DEFAULT_COMMANDS = [
   'init', 'retire', 'pause', 'permission allow', 'permission disallow', 'permission approval', 'restart', 'bot create',
   'bot change', 'session add', 'session change',
-  'run',
 ];
 
 /**

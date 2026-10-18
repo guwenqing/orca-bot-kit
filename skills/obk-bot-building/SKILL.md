@@ -214,12 +214,13 @@ does not have yet to its `bot.yaml` and its settings, or for Codex its
 `.codex/rules/obk.rules`, and say which rules they wrote. The set leaves out
 the commands that keep the user's yes: `obk permission`, `obk retire`, `obk
 pause`, `obk restart`, `obk bot create`, `obk bot change`, `obk session add`,
-`obk session change`, `obk init` and `obk run`. A bot that still holds a rule that the
+`obk session change` and `obk init`. A bot that still holds a rule that the
 kit gave every bot before and that is no longer in the set (`obk restart`,
 `obk bot create`, `obk bot change`, `obk session add`, `obk session change`,
 `obk session mail`, `obk session nudge`, or Orca's `orca orchestration check
---run`) keeps it, and `obk rules build` and `obk up` name
-it with the `obk permission disallow` command that takes it back; run that
+--run`) keeps it, and so does a bot that holds a rule the user allowed for the
+kit's `run` command, which the kit no longer has. `obk rules build` and `obk up`
+name each such rule with the `obk permission disallow` command that takes it back; run that
 command only after the user's yes. Never write a
 permission rule into a settings or rules file by hand.
 
@@ -245,11 +246,7 @@ out; the kit refuses it, and it refuses a rule of its own default set too. Keep
 each rule narrow: a program and what it does. The kit refuses a rule that lets
 the bot run any command, a program with any arguments, or a shell or
 interpreter with any arguments; a user who wants one for a bot adds it to that
-bot's settings themselves. For a test run with a time limit, propose `obk run`
-with the real command after `--`, such as
-`Bash(<kit> run --timeout 300 -- go test:*)`: the kit refuses a rule for
-`perl -e 'alarm …'`, since perl runs whatever its arguments say. Propose no
-rule for what the charter does not grant.
+bot's settings themselves. Propose no rule for what the charter does not grant.
 
 A bot that should learn across its sessions can use its harness's own memory,
 turned on for that bot alone, whatever the user's own setting is for everything

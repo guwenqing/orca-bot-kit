@@ -153,6 +153,8 @@ const BROAD = [
   ['Bash(\'/opt/my tools/sh\' -c:*)', 'd: a shell by a quoted absolute path with a space in it'],
   ['Bash(/opt/homebrew/bin/python3.12 -c:*)', 'd: python3 with a version on its name'],
   ['Bash(node20 -e:*)', 'd: node with a version on its name'],
+  // From RR3 of the run-rules test that #652 removed with `obk run`: kept.
+  ["Bash(perl -e 'alarm 300; exec @ARGV' -- go test:*)", 'd: perl -e, the raw time-limit form'],
   // not plain words: a character the shell reads as more than itself
   [String.raw`Bash(/bin/s\h -c:*)`, 'plain: a backslash escape in the program'],
   [String.raw`Bash(X=a\ b /bin/sh -c:*)`, 'plain: a backslash escaping a space'],
@@ -194,6 +196,10 @@ const NARROW = [
   ['Bash(gh pr create --title "a b":*)', 'plain: a space inside double quotes'],
   ['Bash(~/bin/tool run:*)', 'plain: a ~ at the start of a word'],
   ['Bash(npm run build:*)', 'three plain words'],
+  // From RR3 and RR7 of the run-rules test that #652 removed with `obk run`: kept.
+  ['Bash(make run --timeout 3 -- sh:*)', 'make is no shell, interpreter, wrapper or the kit, with many words before :*'],
+  ['Bash(obk ru:*)', 'two words before :*'],
+  ['Bash(obk he*)', 'two words before the star'],
   [String.raw`Bash(gh pr merge --body 'it'\''s done':*)`, String.raw`plain: \' outside quotes, the kit's own form for an apostrophe`],
   ['Read(//Users/someone/project/**)', 'one folder, not the whole disk'],
   ['Edit(~/notes/**)', 'one folder, not the whole home'],
