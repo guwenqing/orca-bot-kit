@@ -673,15 +673,22 @@ export async function answerTemp(bots, { tab, name }) {
   return { bot: caller.bot, session: name, maker: caller.session, sent };
 }
 
-/** The foot of Pi's own lists: its trust question's, and an extension's `ctx.ui.select` (Pi 1.3.0). */
-const PI_LIST_FOOT = /↑↓ navigate +enter select +escape\/ctrl\+c cancel/;
+/**
+ * The foot of an extension's question in Pi 1.3.0: `ctx.ui.select` and
+ * `confirm` draw the trust question's list foot, `ctx.ui.input` its own.
+ */
+const PI_ASK_FOOT = /(?:↑↓ navigate +enter select|enter submit) +escape\/ctrl\+c cancel/;
+
+/** The foot of each step of Pi 1.3.0's first-time setup. */
+const PI_SETUP_FOOT = /enter (?:continue|finish) +escape\/ctrl\+c skip setup/;
 
 /**
  * Refuse to answer a Pi session's screen, and say what it is (#648). The kit
  * starts Pi with `--no-approve`, and then no screen of Pi's own waits for a
- * key (tech notes, section 6). What still can is named and left to the user:
- * Pi's trust question, its warning that waits for a key, and an extension's
- * question. Nothing is typed, so no turn for a line is taken.
+ * key where Pi has its settings already (tech notes, section 6). What still
+ * can is named and left to the user: Pi's trust question, its first-time
+ * setup, its warning that waits for a key, and an extension's question.
+ * Nothing is typed, so no turn for a line is taken.
  */
 function sayPiScreen({ run, home, session }, kind) {
   const nothing = 'Nothing was typed.';
@@ -697,11 +704,13 @@ function sayPiScreen({ run, home, session }, kind) {
   const has = (test) => seen.rows.some((row) => test(row.trim()));
   const what = has((row) => row === 'Trust project folder?')
     ? `Pi's project-trust question, which Pi does not ask when the kit starts it with --no-approve. Trusting a folder is the user's choice`
-    : has((row) => row.endsWith('Press any key to continue...'))
-      ? 'a warning of Pi\'s that waits for a key, such as its notice of an old hooks/ folder in ~/.pi/agent or the project. It is the user\'s to read and answer'
-      : has((row) => PI_LIST_FOOT.test(row))
-        ? 'a question from an extension of Pi\'s, not from Pi or the kit. It is the user\'s to answer'
-        : `no first-run screen of Pi's: the kit starts Pi with --no-approve, and then Pi asks nothing before it works`;
+    : has((row) => PI_SETUP_FOOT.test(row))
+      ? 'Pi\'s first-time setup, which asks for a theme and whether to share anonymous usage data (analytics) when Pi has no settings.json yet. Both are the user\'s choice'
+      : has((row) => row.endsWith('Press any key to continue...'))
+        ? 'a warning of Pi\'s that waits for a key, such as its notice of an old hooks/ folder in ~/.pi/agent or the project. It is the user\'s to read and answer'
+        : has((row) => PI_ASK_FOOT.test(row))
+          ? 'a question from an extension of Pi\'s, not from Pi or the kit. It is the user\'s to answer'
+          : `no first-run screen of Pi's: the kit starts Pi with --no-approve, and then Pi asks nothing before it works`;
   throw new Error(`${run} runs on Pi, and its screen shows ${what}. ${kind} answer answers none of Pi's screens. ${nothing} It shows:\n${wholeScreen(seen.rows)}`);
 }
 
