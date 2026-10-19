@@ -67,8 +67,11 @@ async function assuredLoopSection() {
  */
 const specsIn = (text) => [...text.matchAll(/@assuredloop\/cli@([^\s`'"(),[\]/]+)/g)].map((match) => match[1].replace(/\.$/, ''));
 
+/** A text with every character that is special in a RegExp escaped, the backslash included. */
+const escapeRegExp = (text) => text.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&');
+
 /** Whether a text names a version as a whole, not as part of 11.0.0, 1.0.0-beta or 1.0.0.1. */
-const namesVersionIn = (text, version) => new RegExp(`(?:^|[^\\w.^~<>=-])v?${version.replace(/\./g, '\\.')}(?![\\w-]|\\.\\d)`).test(text);
+const namesVersionIn = (text, version) => new RegExp(`(?:^|[^\\w.^~<>=-])v?${escapeRegExp(version)}(?![\\w-]|\\.\\d)`).test(text);
 
 /** Whether a text names 1.0.0 as a whole version. */
 const namesTheVersion = (text) => namesVersionIn(text, VERSION);
@@ -374,6 +377,11 @@ test('the check for the version sees 1.0.0 as a whole version, and not 11.0.0, 1
   assert.equal(namesTheVersion('al 1.0.0.1'), false, 'part of a longer version');
   assert.equal(namesTheVersion('al ^1.0.0'), false, 'a range');
   assert.equal(namesTheVersion('al 0.1.0'), false, 'the old version');
+  assert.equal(namesVersionIn('al 1x0x0', '1.0.0'), false, 'a dot in the version is a dot, not any character');
+  assert.equal(namesVersionIn('al 1\\0', '1\\0'), true, 'a backslash in the version is a backslash');
+  assert.equal(namesVersionIn('al 10', '1\\0'), false, 'a backslash in the version escapes nothing');
+  assert.equal(namesVersionIn('al 1.0+b', '1.0+b'), true, 'a plus in the version is a plus');
+  assert.equal(namesVersionIn('al 1.00b', '1.0+b'), false, 'a plus in the version repeats nothing');
 });
 
 test('the Node major version is read from 25.8.0, 25 and v24.1, and not from an alias', () => {
