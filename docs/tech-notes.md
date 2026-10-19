@@ -1022,8 +1022,39 @@ docs, or Orca's 1.4.225 bundle. The kit was tested with Pi 1.1.0.
   - **Orca's own restore of a Pi tab** runs `pi --session <transcriptPath>`, with none of the kit's
     flags (read in code, above): no `--extension`, so such a tab does not follow a `/new` until the kit
     restarts it; no `--no-approve` (#578); and no `--skill` (#659). Not fixed here.
-  - `obk session clear` does not type `/new` into a Pi tab yet: the kit has not seen Pi's input line and
-    slash menu through Orca's screen read, which its check before Return needs. A follow-up issue adds it.
+  - `obk session clear` types `/new` into a Pi tab since #663: see the next point.
+- **Pi's input box, slash menu and at-work row, for `obk session clear` (#663).** Read on 2026-10-19
+  in Pi 1.3.0's `dist/` (pi-tui `components/editor.js`, `components/select-list.js`, `autocomplete.js`,
+  `fuzzy.js`; coding-agent `modes/interactive/interactive-mode.js`, `components/custom-editor.js`,
+  `components/status-indicator.js`). **read in code**; not yet seen through Orca's `terminal read`.
+  - The input box is a rule of `─` across the width, the editor's rows with no pointer and no
+    placeholder, then a second rule. The empty editor shows its cursor as an inverse space. The slash
+    menu is drawn **below** the bottom rule, unlike Claude Code's and Codex's: a row per command, the
+    selected one starting `→ `, the others two spaces, and a row `(<n>/<total>)` when it scrolls (5
+    rows by default). Pi's footer (the folder, the counts and the model) comes under it.
+  - The menu opens at a `/` at the start of the message, and is filtered at each character by a fuzzy
+    match on the bare command name, best first; an exact name gets 100 points more, so `/new` puts
+    `new` first. The selection starts on the first row.
+  - With the menu open, Return writes the selected row's command into the line (`/<name> `) and then
+    submits it, trimmed (`tui.select.confirm`, "Fall through to submit"). So the selected row is what
+    runs, as on Codex. Escape closes the menu; with no menu open, Escape is Pi's interrupt.
+  - The menu's list is rebuilt after each character, asynchronously, and the old list stays on screen
+    until the new one comes. A Return in that moment applies the old list's row against the old
+    prefix, which writes a wrong line. Worked out from the code, not seen: this may be why `/reload`
+    typed 10 ms apart did not run (#659, above). The screen cannot tell an old list from a new one
+    when both have the same selected row.
+  - A space after `/new` closes the menu: the line then has arguments, and `new` has no argument
+    completions. Return then submits `/new ` trimmed, which is `/new`.
+  - `/new` is taken before Pi looks at whether it is streaming, as `/reload` is. `handleClearCommand`
+    shows `✓ New session started`; an extension's `session_before_switch` can cancel it.
+  - While Pi works, its status is drawn into the box's **top** rule: `── <spinner> Working (escape to
+    interrupt) ──…`, and `Compacting context... (escape to cancel)`, `Retrying (<n>/<max>) in <s>s...
+    (escape to cancel)`, `Summarizing branch... (escape to cancel)`. The key is the user's binding for
+    `app.interrupt`, `escape` by default. Pi's startup help also says `escape to interrupt`, with no
+    brackets. The kit's older busy marker, `esc to interrupt`, matches neither. So the kit counts the
+    bracketed form in a row that starts with `─` as at work, only where Orca names the agent pi: in
+    `obk session clear`'s looks and in the typing gate's idle answer, which `obk skills build` reads
+    before it types `/reload` (#663).
 - **Project trust.** When the working folder or a folder above it has `.pi/settings.json`, `.pi/mcp.json`,
   `.pi/extensions|skills|prompts|themes`, `.pi/SYSTEM.md`, `.pi/APPEND_SYSTEM.md` or a project
   `.agents/skills`, Pi asks first, unless `--approve`/`--no-approve`, an extension, or a saved answer in
