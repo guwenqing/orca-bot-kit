@@ -1102,6 +1102,15 @@ docs, or Orca's 1.4.225 bundle. The kit was tested with Pi 1.1.0.
     keybindings, extensions, skills, prompts, themes, and context files` and listed the new skill
     set. The third turn's session file held a `message` with `role: "system"` whose `sections` were
     `project_context` (the new probe word) and `skills` (the new skill in, the old one out).
+  - **`/reload` reloads more than skills.** **Seen live**: its box said `Reloading keybindings,
+    extensions, skills, prompts, themes, and context files...` and its status line `Reloaded
+    keybindings, extensions, skills, prompts, themes, and context files`. The next turn took the new
+    `AGENTS.md` with the new skills, as above. In code (`agent-session.js`, `reload`), it also reads
+    the settings files again, stops every extension with `session_shutdown` (reason `reload`) and
+    starts them again with `session_start`, Orca's three Pi extensions and the user's packages among
+    them, and keeps the tools that were on. The conversation stays as it was. So `obk skills build`,
+    by typing `/reload`, also gives a running Pi session the bot's current `AGENTS.md` and restarts
+    its extensions. Not seen live: what an extension of the user's does at that restart.
   - So Pi 1.3.0 sends a change to its system prompt as a system message at the next turn, with only
     the sections that changed (`_preparePromptAndToolLoadout`, `diffSystemPromptSections`). An
     `/export` to HTML shows the prompt the session started with, not that change, so it cannot show

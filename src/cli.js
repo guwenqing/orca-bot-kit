@@ -1840,6 +1840,11 @@ function rulesLines(rules, bots) {
       ...(entry.bytes > CODEX_CAP
         ? [`             it is over the ${CODEX_CAP / 1024} KiB Codex reads, so a Codex session will not see all of it.`]
         : []),
+      // What applies to Pi and what does not, said wherever the rules are
+      // reported, so the reader never takes the allow list for a limit (#659).
+      ...(entry.pi === true
+        ? [`${'pi'.padEnd(9)}  ${entry.bot}  its Pi sessions read AGENTS.md when they start. Pi has no permission rules and no hooks, so the kit writes neither for Pi: a Pi session runs as dangerously-skip, and the bot's allow list does not limit it.`]
+        : []),
     ];
   });
 }
@@ -1853,6 +1858,7 @@ function skillsLines(skills) {
   return skills.flatMap((entry) => [
     entry.bot,
     ...(entry.trouble === undefined ? [] : [`  ${'trouble'.padEnd(9)}  ${entry.trouble}`]),
+    ...(entry.pi === undefined ? [] : [`  ${'pi'.padEnd(9)}  its Pi sessions load the skills in .agents/skills, which the kit names on each Pi launch line; a running Pi session takes a change at /reload`]),
     ...entry.skills.map((skill) => `  ${(skill.managed ? 'linked' : 'yours').padEnd(9)}  ${skill.name.padEnd(24)}  ${skill.from ?? 'no list names it; the kit leaves it alone'}`),
     ...(entry.removed ?? []).map((name) => `  ${'removed'.padEnd(9)}  ${name.padEnd(24)}  no list names it now`),
     ...(entry.sessions ?? []).map((one) => toldLine(entry.bot, one)),
@@ -1862,9 +1868,13 @@ function skillsLines(skills) {
 /** What `skills build` did about one running session of a bot whose skills changed. */
 function toldLine(bot, { session, harness, state, read, blocked, trouble }) {
   const who = `${bot}/${session}`;
-  const after = harness === 'claude' ? 'Once that is settled, type /reload-skills in its tab.' : 'Its next turn takes the change by itself.';
+  const reload = harness === 'pi' ? '/reload' : '/reload-skills';
+  const after = harness === 'codex' ? 'Its next turn takes the change by itself.' : `Once that is settled, type ${reload} in its tab.`;
   const [word, says] = {
-    reloaded: ['reloaded', '/reload-skills was typed into its tab; a busy session runs it when its turn ends'],
+    reloaded: ['reloaded', harness === 'pi'
+      ? '/reload was typed into its tab; Pi takes the change at its next turn'
+      : '/reload-skills was typed into its tab; a busy session runs it when its turn ends'],
+    busy: ['not told', 'it is busy, and Pi refuses /reload while it works, so nothing was typed. Once its turn ends, type /reload in its tab.'],
     'next-turn': ['next turn', `Codex takes the change at the start of its next turn. If a skill is not there then, a restart makes it appear${read?.length > 0 ? `; meanwhile it can read ${read.join(', ')}` : ''}`],
     'not-up': ['not told', 'not up; it reads its skills when it starts'],
     blocked: ['not told', `its tab is waiting for an answer (${blocked}), so nothing was typed. ${after}`],
