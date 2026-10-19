@@ -58,15 +58,15 @@ function asked(harness, session, name) {
 }
 
 function judged(harness, name, configured, observed) {
-  // A Pi reply can stand for two values (see fromPi); the first is its own.
+  // A Pi reply can leave two values open (see fromPi): its own, which shows,
+  // and the selection before it. Agreeing with one of the two is not a match.
   const choices = observed?.choices ?? [observed];
   const shown = choices[0] === undefined ? {} : { observed: said(name, choices[0]) };
   if (configured === undefined) return { state: 'not-asked-for', ...shown };
   const verdicts = choices.map((choice) => same(harness, name, configured, choice));
-  const matched = verdicts.indexOf(true);
-  if (matched !== -1) return { state: 'match', configured, observed: said(name, choices[matched]) };
-  if (verdicts.includes(undefined)) return { state: 'unknown', configured, ...shown };
-  return { state: 'mismatch', configured, ...shown };
+  if (verdicts.every((verdict) => verdict === false)) return { state: 'mismatch', configured, ...shown };
+  if (verdicts.length === 1 && verdicts[0] === true) return { state: 'match', configured, ...shown };
+  return { state: 'unknown', configured, ...shown };
 }
 
 /** Whether the record says what was asked for; undefined when it cannot say. */
@@ -107,8 +107,9 @@ function samePiModel(configured, observed) {
   const provider = ran.slice(0, ran.indexOf('/'));
   const id = ran.slice(ran.indexOf('/') + 1);
   if (model === ran || model === id) return true;
+  // A provider before a slash is only a hint: the whole pattern may be part of an id.
   const slash = model.indexOf('/');
-  const part = slash === -1 ? id.includes(model) : model.slice(0, slash) === provider && id.includes(model.slice(slash + 1));
+  const part = id.includes(model) || (slash !== -1 && model.slice(0, slash) === provider && id.includes(model.slice(slash + 1)));
   return part ? undefined : false;
 }
 
@@ -164,40 +165,65 @@ function fromClaude(entries) {
   return used;
 }
 
+/** What Pi writes on a virtual model (Pi 1.3.0, virtual-models.js): the api of its catalog entry, and its router's state. */
+const PI_VIRTUAL = 'pi-virtual';
+const PI_VIRTUAL_STATE = 'pi.virtual-model-state';
+
 /**
  * What a Pi record says it runs with, from `start` on: the model, as
  * `<provider>/<model>`, and the thinking level (tech notes, section 6). Pi
  * writes nothing about approval.
  *
  * The latest line that names one decides. A `model_change` or
- * `thinking_level_change` line decides alone. A reply gives two choices: its
- * own value, or the last change before it, before the start too. Pi follows
- * that selection, and when it is a virtual model, such as `router/auto`, its
- * replies name the model it routed to (Pi 1.3.0, getBranchSelection).
+ * `thinking_level_change` line decides alone. A reply names the model that
+ * answered, and the level it was asked at. On a resume with `--model` or
+ * `--thinking`, Pi writes no change line, so a change before a reply may be
+ * stale; but a change to a virtual model, such as `router/auto`, stays the
+ * selection, and its replies name the model it routed to (Pi 1.3.0,
+ * getBranchSelection). So the change before a reply stands when the record
+ * shows it is virtual, the reply stands when the record shows the change is
+ * physical, and otherwise the two are left open. A router may change the
+ * level as well, so a reply's level stands alone only on a physical model.
+ * A reply a router could not route names the virtual model, and counts only
+ * as that proof.
  */
 function fromPi(entries, start) {
   const named = (provider, model) => (typeof provider === 'string' && typeof model === 'string' ? `${provider}/${model}` : undefined);
-  const reply = (entry) => (entry.type === 'message' && entry.message?.role === 'assistant' ? entry.message : {});
-  const latest = (change, changed, replied) => {
-    const changeAt = (at) => (entries[at].type === change ? changed(entries[at]) : undefined);
-    if (start === -1) return undefined;
-    for (let at = entries.length - 1; at >= start; at -= 1) {
-      const set = changeAt(at);
-      if (set !== undefined) return set;
-      const own = replied(reply(entries[at]));
-      if (own === undefined) continue;
-      for (let before = at - 1; before >= 0; before -= 1) {
-        const earlier = changeAt(before);
-        if (earlier !== undefined) return earlier === own ? own : { choices: [own, earlier] };
-      }
-      return own;
-    }
+  const text = (value) => (typeof value === 'string' ? value : undefined);
+  const assistant = (entry) => (entry.type === 'message' && entry.message?.role === 'assistant' ? entry.message : undefined);
+  const reply = (entry) => (assistant(entry)?.api === PI_VIRTUAL ? undefined : assistant(entry));
+  const modelOf = (entry) => (entry.type === 'model_change' ? named(entry.provider, entry.modelId) : named(reply(entry)?.provider, reply(entry)?.model));
+  const levelOf = (entry) => text(entry.type === 'thinking_level_change' ? entry.thinkingLevel : reply(entry)?.thinkingLevel);
+  const changeBefore = (type, read, at) => {
+    for (let before = at - 1; before >= 0; before -= 1) if (entries[before].type === type) return read(entries[before]);
     return undefined;
   };
-  const text = (value) => (typeof value === 'string' ? value : undefined);
+  const virtual = (model) => entries.some((entry) => (entry.type === 'custom' && entry.customType === PI_VIRTUAL_STATE && named(entry.data?.provider, entry.data?.modelId) === model)
+    || (assistant(entry)?.api === PI_VIRTUAL && named(entry.message.provider, entry.message.model) === model));
+  const physical = (model) => entries.some((entry) => entry.type !== 'model_change' && modelOf(entry) === model);
+  const latest = (read) => {
+    if (start === -1) return -1;
+    for (let at = entries.length - 1; at >= start; at -= 1) if (read(entries[at]) !== undefined) return at;
+    return -1;
+  };
+  /** The model the line at `at` says, and whether it is a physical one that a reply's level is sure of. */
+  const modelAt = (at) => {
+    const own = modelOf(entries[at]);
+    if (entries[at].type === 'model_change') return { model: own, sure: false };
+    const earlier = changeBefore('model_change', modelOf, at);
+    if (own === undefined) return { sure: false };
+    if (earlier === undefined || earlier === own || (!virtual(earlier) && physical(earlier))) return { model: own, sure: true };
+    if (virtual(earlier)) return { model: earlier, sure: false };
+    return { model: { choices: [own, earlier] }, sure: false };
+  };
+
+  const model = latest(modelOf);
+  const level = latest(levelOf);
+  const own = level === -1 ? undefined : levelOf(entries[level]);
+  const earlier = level === -1 || entries[level].type === 'thinking_level_change' ? undefined : changeBefore('thinking_level_change', levelOf, level);
   return {
-    model: latest('model_change', (entry) => named(entry.provider, entry.modelId), (message) => named(message.provider, message.model)),
-    effort: latest('thinking_level_change', (entry) => text(entry.thinkingLevel), (message) => text(message.thinkingLevel)),
+    model: model === -1 ? undefined : modelAt(model).model,
+    effort: earlier === undefined || earlier === own || modelAt(level).sure ? own : { choices: [own, earlier] },
   };
 }
 
