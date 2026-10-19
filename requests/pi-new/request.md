@@ -11,3 +11,4 @@ R1: When a new conversation starts in a Pi session's tab, by a person's `/new` t
 
 Assumed: this is slice 6 of #547 (#662). The kit learns the new id through a Pi extension of its own, given on every Pi launch line with `--extension`. It reports through the kit's existing `obk session record`, as the Claude Code and Codex hooks do, and it handles no credentials, types into no tab and reaches no network. The kit writes nothing into `~/.pi/agent`, and `--no-approve` stays. A tab that Orca brings back by itself runs `pi --session <file>` with none of the kit's flags, so it does not follow a `/new` until the kit restarts it. The facts are from Pi 1.3.0 and Orca 1.4.225.
 Out: `obk session clear` typing `/new` into a Pi tab (a follow-up issue), `obk session compact` on Pi, and a fix for Orca's own restore of a Pi tab.
+Signed off: 2026-10-19 owner, origin/2026-10-19-signoff.md
