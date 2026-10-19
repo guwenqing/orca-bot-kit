@@ -18,9 +18,12 @@
 // H3. The finding "The harness has conversations on record in <bot>'s folder
 //     that the book does not name: <id> (begun …) …" also comes for Pi
 //     conversations. For Pi its words carry no hook explanation: not "hook",
-//     not "Codex", not "a clear it did not record". It still names each id,
-//     and tells how to give one to a session: write it into the book under
-//     that session as `session: <id>`. For Claude Code and Codex conversations
+//     not "Codex", not "a clear it did not record". Since #662 the kit's Pi
+//     extension tells the book of a /new, so the words do not say nothing
+//     tells the book: they name the extension, and say why this one was
+//     missed (the tab ran without the extension, or its record went wrong).
+//     It still names each id, and tells how to give one to a session: write
+//     it into the book under that session as `session: <id>`. For Claude Code and Codex conversations
 //     the finding keeps its words, the hook explanation included.
 //
 // The wording beyond those words is the implementer's. Every run is in the
@@ -272,6 +275,23 @@ test('H3 Pi conversations the book does not name are named, each id with when it
   assert.match(words, /session:/, `it says to write the id in the book as session: <id>, got: ${words}`);
   assert.match(words, /sessions\.yaml|\bbook\b/, `in the book, got: ${words}`);
   assertNoHookWords(finding, 'the Pi conversations the book does not name');
+  // Since #662 the kit's Pi extension tells the book of a /new. So the words
+  // do not say nothing tells the book; they name the extension, and say why
+  // this one was missed: the tab ran without the extension (Orca brought it
+  // back by itself, or the kit started it before it had the extension), or
+  // the extension's record went wrong.
+  assert.doesNotMatch(words, /nothing tells the book/i, `the kit's Pi extension tells the book of a /new now, got: ${words}`);
+  assert.match(words, /extension/i, `it names the kit's Pi extension as what tells the book of a /new, got: ${words}`);
+  assert.match(
+    words,
+    /without (?:the |its |that |the kit's |a )?(?:Pi )?extension|no extension|not have (?:the |its )?extension|(?:Orca|by itself)[^.]*(?:brought|restor|resum|reopen)/i,
+    `it says the tab may have run without the extension, as one Orca brought back by itself, got: ${words}`,
+  );
+  assert.match(
+    words,
+    /(?:record|extension)[^.]*(?:went wrong|failed|fail|error|did not work|didn't work)/i,
+    `it says the extension's record may have gone wrong, got: ${words}`,
+  );
   assert.ok(!words.includes(held), `the book names ${held}, so it is not one of them, got: ${words}`);
   assert.deepEqual(naming(answer.found.filter((one) => one.bot === 'bot-father'), conv(1)), [], 'it ran in pier\'s folder, not Bot Father\'s');
 });
