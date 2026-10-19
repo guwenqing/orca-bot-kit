@@ -58,13 +58,23 @@
 //         terminal columns, so a status with an emoji, CJK characters or a
 //         combining mark fills the full width with another count of
 //         characters than the bottom rule. The kit does not measure columns.
-//         So where a bottom rule is found but no top rule as long as it, a
-//         row above it that starts `──`, ends `─` and holds text besides rule
-//         characters and the scroll label is Pi at work, as above: waited
-//         out, refused as busy at 30 s, nothing typed, and the typing gate
-//         calls the tab not idle (skills build types no `/reload`). An idle
-//         top rule holds no text, so its length always matches. A shorter
-//         rule with no text in it (D3) is still no input box.
+//         And Pi frames some command output in the chat (/hotkeys,
+//         /changelog) with plain full-width rules, as long as the box's rules
+//         (the review of b2a0bde). So the kit walks up from the bottom rule
+//         over the rows that start `──` and end `─`:
+//           1. The first one as long as the bottom rule is the top rule; Pi is
+//              at work when it holds words besides `─` and the scroll label.
+//              Rows above it never count.
+//           2. Before that, one of another length whose words hold a
+//              character that is not ASCII is a status: Pi is at work.
+//           3. Before that, one of another length whose words are all ASCII
+//              is an editor row (an ASCII status always fills the width), and
+//              the walk goes on.
+//           4. No top rule and no status: no input box, not at work.
+//         At work means as above: waited out, refused as busy at 30 s,
+//         nothing typed, and the typing gate calls the tab not idle (skills
+//         build types no `/reload`). D3 (a short pure rule) and a lone
+//         `── a draft ──` with no top rule are no input box.
 //       - After `/new`, before the return: the editor's row reads exactly
 //         `/new` (or Orca's draft does), and the menu row below the bottom rule
 //         that starts with `→` has `new` as its first word. Otherwise the four
@@ -146,11 +156,16 @@ import {
   PI_SHORT_TOP,
   PI_SUMMARY_IN_CHAT,
   PI_WORKING,
+  PI_IDLE_DIVIDED,
+  PI_RULED_DRAFT_NO_TOP,
   PI_WORKING_CJK,
+  PI_WORKING_CJK_DIVIDED,
   PI_WORKING_COMBINING,
+  PI_WORKING_COMBINING_DIVIDED,
   PI_WORKING_CUT,
   PI_WORKING_DASHES_IN_EDITOR,
   PI_WORKING_EMOJI,
+  PI_WORKING_EMOJI_DIVIDED,
   PI_WORKING_RULE,
   piAtWork,
   piBusyWith,
@@ -170,14 +185,31 @@ const WIDE_STATUSES = [
   { screen: PI_WORKING_COMBINING, codePoints: 121, names: '⠋ Cafe\u0301', what: 'an extension\'s message with a combining acute, "── ⠋ Café ──…", 121 code points in 120 columns' },
 ];
 
-/** The premise of a wide-character case: its top rule has the code points the review measured, and its bottom rule 120. */
+// The same statuses under a chat that holds Pi's plain full-width dividers
+// (/hotkeys, /changelog; the review of b2a0bde): a divider as long as the
+// bottom rule sits above each status, and is no top rule.
+const WIDE_STATUSES_DIVIDED = [
+  { screen: PI_WORKING_EMOJI_DIVIDED, codePoints: 119, names: '⠋ Reading 🔎', what: 'an extension\'s message with an emoji, "── ⠋ Reading 🔎 ──…", under a full-width divider in the chat' },
+  { screen: PI_WORKING_CJK_DIVIDED, codePoints: 116, names: '⠋ 正在处理', what: 'an extension\'s message in CJK characters, "── ⠋ 正在处理 ──…", under a full-width divider in the chat' },
+  { screen: PI_WORKING_COMBINING_DIVIDED, codePoints: 121, names: '⠋ Cafe\u0301', what: 'an extension\'s message with a combining acute, "── ⠋ Café ──…", under a full-width divider in the chat' },
+];
+
+/**
+ * The premise of a wide-character case: its top rule has the code points the
+ * review measured, its bottom rule 120, and, under a divided chat, a row of
+ * `─` alone as long as the bottom rule above the status.
+ */
 function assertWidePremise(screen, what) {
-  const wide = WIDE_STATUSES.find((entry) => entry.screen === screen);
+  const wide = [...WIDE_STATUSES, ...WIDE_STATUSES_DIVIDED].find((entry) => entry.screen === screen);
   if (wide === undefined) return;
   const top = screen.find((row) => row.startsWith('── ⠋'));
   const bottom = screen.findLast((row) => /^─+$/.test(row));
   assert.equal([...top].length, wide.codePoints, `the premise (${what}): the top rule's code points`);
   assert.equal([...bottom].length, 120, `the premise (${what}): the bottom rule's code points`);
+  if (WIDE_STATUSES_DIVIDED.includes(wide)) {
+    const above = screen.slice(0, screen.indexOf(top));
+    assert.ok(above.some((row) => row === bottom), `the premise (${what}): a full-width divider in the chat above the status`);
+  }
 }
 const PROMPT = 'Read your AGENTS.md and keep the queue moving.';
 
@@ -541,17 +573,25 @@ describe('obk session clear on a Pi session types /new and is confirmed by the b
     });
   }
 
-  it('D3 the row right above the editor is a rule of another width than the bottom rule: no input box, so nothing typed, and the refusal says the screen shows no input box', LIMIT, async (t) => {
-    const box = await createSandbox(t);
-    const bots = await piRunning(box);
-    await changeTab(box, (await liveTab(box, bots)).tabId, { screen: PI_SHORT_TOP, nextScreens: piScreensFor(PI_NEW_TYPED, PI_IDLE_AFTER_NEW) });
-    const before = await typedEverywhere(box);
+  for (const { screen, what } of [
+    { screen: PI_SHORT_TOP, what: 'the row right above the editor is a rule of another width than the bottom rule' },
+    // Rule 4 of the walk: ASCII words in a short rule-shaped row are an editor
+    // row, and no row above it is a rule, so there is no top rule and no status.
+    { screen: PI_RULED_DRAFT_NO_TOP, what: 'a bottom rule with "── a draft ──" above it and no top rule at all' },
+  ]) {
+    it(`D3 ${what}: no input box, so nothing typed, and the refusal says the screen shows no input box`, LIMIT, async (t) => {
+      const box = await createSandbox(t);
+      const bots = await piRunning(box);
+      await changeTab(box, (await liveTab(box, bots)).tabId, { screen, nextScreens: piScreensFor(PI_NEW_TYPED, PI_IDLE_AFTER_NEW) });
+      const before = await typedEverywhere(box);
 
-    const said = assertRefused(await clearOf(box));
+      const said = assertRefused(await clearOf(box));
 
-    await assertNothingTyped(box, before, 'a screen with no input box');
-    assert.match(said, /input box/i, `it says the screen shows no input box, got:\n${said}`);
-  });
+      await assertNothingTyped(box, before, 'a screen with no input box');
+      assert.match(said, /input box/i, `it says the screen shows no input box, got:\n${said}`);
+      assert.doesNotMatch(said, /busy/i, `and does not call the session busy, got:\n${said}`);
+    });
+  }
 
   // ------------------------------------------------ busy, by Pi's own row
 
@@ -576,6 +616,8 @@ describe('obk session clear on a Pi session types /new and is confirmed by the b
     // Wide characters: the top rule fills the 120 columns of the bottom rule
     // with another count of code points (the review of 5455aa6).
     ...WIDE_STATUSES,
+    // The same under a full-width divider in the chat (the review of b2a0bde).
+    ...WIDE_STATUSES_DIVIDED,
   ]) {
     it(`B1 Pi at work by its top rule ${what}, Orca's tui-idle ok: waited out, nothing typed until a read shows Pi at rest, then /new is entered`, LIMIT, async (t) => {
       assertWidePremise(screen, what);
@@ -604,6 +646,7 @@ describe('obk session clear on a Pi session types /new and is confirmed by the b
   for (const { screen, what } of [
     { screen: PI_IDLE, what: 'the startup help\'s "escape to interrupt" in the chat, the top rule `─` alone' },
     { screen: PI_SUMMARY_IN_CHAT, what: 'a row "── Summary ──…" in the chat above the box, the box\'s top rule `─` alone' },
+    { screen: PI_IDLE_DIVIDED, what: 'full-width dividers of `─` alone in the chat above the box, the box\'s top rule `─` alone, its editor empty' },
   ]) {
     it(`B2 ${what}: no sign of work, so /new is typed at once and entered`, LIMIT, async (t) => {
       const box = await createSandbox(t);
@@ -743,6 +786,7 @@ describe('#663: the Pi waits that run out, side by side', { concurrency: true },
   for (const { screen, what, names } of [
     { screen: PI_WORKING, what: 'its usual top rule "── ⠋ Working ──…"', names: '⠋ Working' },
     ...WIDE_STATUSES,
+    WIDE_STATUSES_DIVIDED[0],
   ]) {
     it(`X1 Pi at work by ${what === 'its usual top rule "── ⠋ Working ──…"' ? what : `its top rule ${what}`} for the whole 30 s, Orca's tui-idle ok: refused after about that long, saying it is busy and naming the row, nothing typed`, LIMIT, async (t) => {
       assertWidePremise(screen, what);
@@ -891,6 +935,7 @@ describe('#663: skills build and Pi\'s at-work row', { concurrency: 2 }, () => {
     { screen: PI_WORKING, what: 'its usual row "── ⠋ Working ──…"' },
     { screen: piBusyWith('Reading the pull request'), what: 'an extension\'s own message "── ⠋ Reading the pull request ──…"' },
     ...WIDE_STATUSES,
+    ...WIDE_STATUSES_DIVIDED,
   ]) {
     it(`S1 a Pi tab showing Pi at work by its top rule, ${what}, Orca's tui-idle ok: no /reload typed, not told, and it says the session is busy`, LIMIT, async (t) => {
       assertWidePremise(screen, what);
@@ -913,6 +958,7 @@ describe('#663: skills build and Pi\'s at-work row', { concurrency: 2 }, () => {
   for (const { screen, what } of [
     { screen: PI_IDLE, what: 'its startup help on screen' },
     { screen: PI_SUMMARY_IN_CHAT, what: 'a row "── Summary ──…" in the chat above a pure top rule' },
+    { screen: PI_IDLE_DIVIDED, what: 'full-width dividers in the chat above a pure top rule' },
   ]) {
     it(`S1 the control: the same Pi tab at rest, ${what}: /reload is typed, and it is reloaded`, LIMIT, async (t) => {
       const box = await createSandbox(t);

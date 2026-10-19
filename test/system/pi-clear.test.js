@@ -378,36 +378,39 @@ const ruleWords = (row) => row.replaceAll(SCROLL_LABEL, '').replaceAll('─', ''
 /** A bottom rule of Pi's input box: `─` alone, or `─` with the scroll label. */
 const isBottomRule = (row) => row.trimEnd().startsWith('─') && ruleWords(row) === '';
 
+/** A row shaped like a rule of Pi's: starts `──`, ends `─`. */
+const isRuleShaped = (row) => row.startsWith('──') && row.endsWith('─');
+
 /**
- * Pi's input box on `rows`: the lowest bottom rule, the nearest row above it
- * that is a rule of the same full width (starts `──`, ends `─`, exactly as
- * long) as its top rule, and the editor's rows between them, whatever they
- * start with; undefined when there is no such pair.
+ * Pi's input box on `rows`, by the walk of #663: from the lowest bottom rule
+ * up, over the rule-shaped rows only. The first one as long as the bottom
+ * rule (in code points) is the top rule, and rows above it never count:
+ * `{ top, editor, below }`. Before it, one of another length whose words
+ * hold a character that is not ASCII is a status in wide or combining
+ * characters (the review of 5455aa6): `{ status }`, no box to type into.
+ * One whose words are all ASCII is an editor row, and the walk goes on.
+ * Neither: undefined, no input box. A plain full-width divider in the chat
+ * (DynamicBorder, the review of b2a0bde) is reached only when no status or
+ * top rule comes before it.
  */
 function inputBoxOf(rows) {
   const bottom = rows.findLastIndex(isBottomRule);
   if (bottom < 1) return undefined;
   const width = [...rows[bottom]].length;
-  const top = rows.slice(0, bottom).findLastIndex((row) => isRuleShaped(row) && [...row].length === width);
-  if (top < 0) return undefined;
-  return { top: rows[top], editor: rows.slice(top + 1, bottom), below: rows.slice(bottom + 1) };
+  for (let at = bottom - 1; at >= 0; at -= 1) {
+    const row = rows[at];
+    if (!isRuleShaped(row)) continue;
+    if ([...row].length === width) return { top: row, editor: rows.slice(at + 1, bottom), below: rows.slice(bottom + 1) };
+    if (/[^\x00-\x7f]/.test(ruleWords(row))) return { status: row };
+  }
+  return undefined;
 }
 
-/** A row shaped like a top rule: starts `──`, ends `─`. */
-const isRuleShaped = (row) => row.startsWith('──') && row.endsWith('─');
-
-/**
- * Whether Pi's top rule on `rows` says it is at work: any text in it besides
- * `─` and the scroll label. With a bottom rule but no top rule as long as it,
- * a rule-shaped row above it with text in it counts too: a status in wide or
- * combining characters fills the columns with another count of code points
- * (the review of 5455aa6).
- */
+/** Whether Pi's screen on `rows` says it is at work: a status found on the walk, or a top rule with words in it besides `─` and the scroll label. */
 const atWorkOn = (rows) => {
   const box = inputBoxOf(rows ?? []);
-  if (box !== undefined) return ruleWords(box.top) !== '';
-  const bottom = (rows ?? []).findLastIndex(isBottomRule);
-  return bottom > 0 && rows.slice(0, bottom).some((row) => isRuleShaped(row) && ruleWords(row) !== '');
+  if (box === undefined) return false;
+  return box.status !== undefined || ruleWords(box.top) !== '';
 };
 
 /** Fail unless Pi's editor in the tab is empty now: no draft from Orca, and every row between the two rules blank. */
@@ -415,7 +418,7 @@ function assertEditorEmpty(handle, when) {
   const { rows, draft } = readOf(handle);
   assert.ok(rows !== undefined, `${when}: the tab's screen could not be read.${whatIsUp(handle)}`);
   const box = inputBoxOf(rows);
-  assert.ok(box !== undefined, `${when}: the screen shows no input box of two rules of ─, as Pi 1.3.0's code draws it; the reconstruction is wrong:\n    ${rows.join('\n    ')}`);
+  assert.ok(box?.top !== undefined, `${when}: the screen shows no input box of two rules of ─, as Pi 1.3.0's code draws it; the reconstruction is wrong:\n    ${rows.join('\n    ')}`);
   assert.ok(draft === undefined || draft === '', `${when}: Orca's draft for the tab is ${JSON.stringify(draft)}, not empty:\n    ${rows.join('\n    ')}`);
   assert.deepEqual(box.editor.filter((row) => row.trim() !== ''), [], `${when}: Pi's editor is empty:\n    ${rows.join('\n    ')}`);
 }

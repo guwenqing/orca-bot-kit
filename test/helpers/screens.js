@@ -1920,6 +1920,17 @@ export function claudeTrustOf(rows, folder, { allow, defaults }) {
 //     no rule of the box. With no such pair, the screen shows no input box.
 //     (The review of #663 found a looser reading that took an editor row
 //     starting with `─` for the top rule.)
+//   - Pi lays its rows out by terminal columns, so a status with wide or
+//     combining characters fills the width with another count of characters
+//     than the bottom rule (the review of 5455aa6). And Pi frames some
+//     command output in the chat with plain full-width rules (DynamicBorder,
+//     /hotkeys, /changelog), as long as the box's rules (the review of
+//     b2a0bde). So the walk up from the bottom rule, over the rows that start
+//     `──` and end `─`: the first one as long as the bottom rule is the top
+//     rule, and rows above it never count; before it, a shorter or longer one
+//     whose words hold a character that is not ASCII is a status, and Pi is
+//     at work; one whose words are all ASCII is an editor row, and the walk
+//     goes on. No top rule and no status: no input box.
 //
 // The other words (the rest of the help, the chat, the descriptions of the
 // commands other than `new` and `name`, the footer's numbers, the spinner
@@ -2043,6 +2054,37 @@ export const piBusyWith = (words) => piScreen({ top: piStatusRule(words) });
 export const PI_WORKING_EMOJI = piBusyWith('Reading 🔎');
 export const PI_WORKING_CJK = piBusyWith('正在处理');
 export const PI_WORKING_COMBINING = piBusyWith('Cafe\u0301');
+
+/**
+ * The chat after a command whose output Pi frames in plain full-width rules
+ * (its DynamicBorder, as in /hotkeys and /changelog; the review of b2a0bde):
+ * rows of `─` alone, as long as the input box's rules, ABOVE the box. They are
+ * no rule of the box. The words between them are made up.
+ */
+const PI_CHAT_DIVIDED = [
+  ...PI_CHAT,
+  PI_RULE,
+  ' Keyboard shortcuts',
+  '   ctrl+c   clear the editor',
+  '   escape   interrupt the turn',
+  PI_RULE,
+  '',
+];
+
+/** The wide statuses above, under a chat that holds Pi's full-width dividers. */
+export const PI_WORKING_EMOJI_DIVIDED = piScreen({ chat: PI_CHAT_DIVIDED, top: piStatusRule('Reading 🔎') });
+export const PI_WORKING_CJK_DIVIDED = piScreen({ chat: PI_CHAT_DIVIDED, top: piStatusRule('正在处理') });
+export const PI_WORKING_COMBINING_DIVIDED = piScreen({ chat: PI_CHAT_DIVIDED, top: piStatusRule('Cafe\u0301') });
+
+/** Pi at rest under a chat that holds its full-width dividers: a pure top rule, the editor empty. */
+export const PI_IDLE_DIVIDED = piScreen({ chat: PI_CHAT_DIVIDED });
+
+/**
+ * A bottom rule with no top rule over it: the row above the bottom rule is
+ * `── a draft ──`, ASCII words in a short rule-shaped row (an editor row), and
+ * no row above it is a rule. No input box, and no status.
+ */
+export const PI_RULED_DRAFT_NO_TOP = [...PI_CHAT, '── a draft ──', PI_RULE, ...PI_FOOTER];
 
 /** The width of the narrow Pi screen below. */
 const PI_NARROW = 28;
