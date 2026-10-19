@@ -484,7 +484,7 @@ export function harnessInTab(handle, timeoutMs, readMs) {
     blockedReason: answer.result?.wait?.blockedReason,
     agent,
     ...frontOf(handle, shown?.ptyId, readMs),
-    ...screenOf(handle, readMs),
+    ...screenOf(handle, readMs, agent),
   };
 }
 
@@ -502,14 +502,15 @@ export const QUESTION_ON_SCREEN = 'question-on-screen';
 
 /**
  * What the tab `handle` renders: `{ question }`, true when it shows a question
- * of its harness's own, with the `rows` it read, or `{ screenUnreadable: <why> }`. Orca refusing is an
+ * of its harness's own, `agent` the one Orca names there, with the `rows` it
+ * read, or `{ screenUnreadable: <why> }`. Orca refusing is an
  * answer that cannot be read, not an error, and so is anything that is not the
  * rendered screen: accumulated output comes back in fragments (tech notes,
  * section 1).
  */
-function screenOf(handle, readMs) {
+function screenOf(handle, readMs, agent) {
   const read = screenRows(handle, readMs);
-  return read.rows === undefined ? { screenUnreadable: read.unreadable } : { question: questionIn(read.rows), rows: read.rows, draft: read.draft };
+  return read.rows === undefined ? { screenUnreadable: read.unreadable } : { question: questionIn(read.rows, agent), rows: read.rows, draft: read.draft };
 }
 
 /**
@@ -539,6 +540,16 @@ const POINTER_ROW = /^ *[›❯]/;
 /** How a harness's form says it is answered, as Claude Code 2.1.283 draws its foot (#416). */
 const FORM_FOOT = /Enter to (?:continue|confirm|select)\b.*Esc to cancel/i;
 
+/**
+ * How Pi 1.3.0 ends each of its selectors and dialogs: its cancel key, by
+ * default `escape/ctrl+c` (`Escape/Ctrl+C` under /model), then what it does.
+ * Pi points with `→` and has no numbers, so neither rule above sees one, and
+ * Orca calls the tab idle under it (developer-660, live, 2026-10-19; tech
+ * notes, section 6, for the trust screen). Pi draws it from the user's
+ * keybindings, so a rebound cancel key is not seen.
+ */
+const PI_FOOT = /\bescape\/ctrl\+c (?:to )?(?:cancel|close|skip setup)\b/i;
+
 /** That pointer on a numbered choice, and the column its number starts in. */
 const ON_A_CHOICE = /^( *[›❯] +)\d+\. /;
 
@@ -553,8 +564,14 @@ const ON_A_CHOICE = /^( *[›❯] +)\d+\. /;
  * while it is the last thing drawn right above the input box (#491).
  * Unnumbered lists do not count. Codex puts a status row right under its input
  * line, lined up with it, and by its layout that is one.
+ *
+ * `agent` is the harness Orca names in the tab. For Pi, a row anywhere with
+ * Pi's own foot counts too (#659): Pi keeps no closed selector in its chat, so
+ * only text a model printed can put those words higher up, and then nothing is
+ * typed, which is the safe way to be wrong. Other harnesses never see it.
  */
-export function questionIn(rows) {
+export function questionIn(rows, agent) {
+  if (agent === 'pi' && rows.some((row) => PI_FOOT.test(row))) return true;
   if (feedbackPanelIn(rows)) return true;
   const at = rows.findLastIndex((row) => POINTER_ROW.test(row));
   // A form of the harness's own has no numbers but a foot that says how to
