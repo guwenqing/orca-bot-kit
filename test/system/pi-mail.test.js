@@ -17,7 +17,9 @@
 //   1. An idle Pi receiver. A letter goes into its mailbox. Orca's own notice
 //      reaches its tab: a user turn in its Pi session file that names its Run.
 //      It reads the letter with `obk message check`, run in its own tab with
-//      no --bot, its shell writing the answer to a file in its own folder.
+//      no --bot. Its shell writes the answer to a file in its own folder,
+//      through `tee`, so the answer is also in the Pi's own tool result: the
+//      Pi sees the letter's words, which ask it to reply.
 //      Then it replies, with `obk message send` and no --from, and the reply
 //      reaches the Codex sender, whose own check writes it to its file.
 //   2. A busy Pi receiver, running a shell loop of LOOP_STEPS seconds that its
@@ -481,13 +483,18 @@ const aBotOf = (bots) => [
  * How a session reads its mail: the kit's check, its shell writing the time and
  * the answer to its file. A Pi session runs it in its own tab with no --bot
  * (#634, A5); the Codex sender names itself, as the tests beside it do.
+ *
+ * Through `tee -a`, not `>>`: the answer goes to the file and to the session's
+ * own tool result too. With `>>` alone the Pi's tool result was "(no output)",
+ * so it never saw the letter that asked it to reply (live run, 2026-10-19).
  */
 const readsItsMail = (bots, bot, session, home) => [
   'Whenever anything tells you that you have fleet mail or orchestration messages, new or not yet read,',
   'do not run the command it names. Run exactly this command instead:',
   bot === PI
-    ? `{ date +%s; ${KIT} message check --bots ${bots} --json; } >> ${mailFileOf(home, session)}`
-    : `{ date +%s; ${KIT} message check --bots ${bots} --bot ${bot} --session ${session} --json; } >> ${mailFileOf(home, session)}`,
+    ? `{ date +%s; ${KIT} message check --bots ${bots} --json; } | tee -a ${mailFileOf(home, session)}`
+    : `{ date +%s; ${KIT} message check --bots ${bots} --bot ${bot} --session ${session} --json; } | tee -a ${mailFileOf(home, session)}`,
+  'Then read what that command printed: it is your mail.',
   'The files these commands write in your folder are the only thing you write.',
 ];
 
@@ -631,7 +638,7 @@ test('a Pi session gets fleet mail: Orca\'s notice in its tab, its own check, a 
   assert.deepEqual(typed.map((turn) => turn.text), [], `${idle.title}: no line of the kit's in its record, only Orca's notice`);
 
   await until(`${idle.title} to read the letter with obk message check`, ANSWER_MS, async () => ((await mailReadIn(idle.mailFile)).includes(QUESTION) ? true : undefined), () => `\n  its Pi record's tail:\n  ${tailOf(idle.record())}${whatIsUp(idle.handle)}`, idle.screen);
-  t.diagnostic(`${idle.title}: read the letter ${Math.round((Date.now() - sinceLetter) / 1000)} s after it was sent`);
+  t.diagnostic(`${idle.title}: its check wrote the letter to its file ${Math.round((Date.now() - sinceLetter) / 1000)} s after it was sent`);
 
   // Looked at again: a wait that runs out says whether it is orphaned now.
   lookAtOrphan(t, sender.title, sender.handle, 'before the reply reaches it');
