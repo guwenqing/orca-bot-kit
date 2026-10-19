@@ -29,11 +29,31 @@
 //       - Before the first character: no draft from Orca, and the editor's row
 //         between the two rules blank. Otherwise refused, nothing typed, and
 //         the refusal says what the line holds.
-//       - Busy: a top rule that holds a bracketed `(<key> to interrupt)` or
-//         `(<key> to cancel)` is Pi at work: waited out, and refused at 30 s
-//         with nothing typed. The same row between characters stops the typing
-//         and takes back what was typed. The startup help's `escape to
-//         interrupt`, with no brackets, in the chat, is no sign of work.
+//       - Busy: Pi draws its status into the TOP rule of its input box,
+//         `── <spinner> <message> ───…`, and the message can be anything:
+//         usually `Working` with no hint after it, or `Working (escape to
+//         interrupt)`, `Compacting context... (escape to cancel)`, a message
+//         cut short at a narrow width, or an extension's own words. So a top
+//         rule that holds any text besides its rule characters and Pi's scroll
+//         label is Pi at work: waited out, and refused at 30 s with nothing
+//         typed. The same row between characters stops the typing and takes
+//         back what was typed. Not at work: a top rule of `─` alone, or of `─`
+//         and the scroll label ` ↑ <n> more ` alone (a long draft; the bottom
+//         rule may carry ` ↓ <n> more `). A status beside the scroll label is
+//         at work. The startup help's
+//         `escape to interrupt` in the chat is no sign of work. (The first
+//         version of this file took only a bracketed `(<key> to interrupt)` or
+//         `(<key> to cancel)` for work, which missed Pi's usual row: the
+//         review of #663, checked in Pi 1.3.0's code.)
+//       - The input box: its bottom rule is the lowest row that is a rule (`─`
+//         alone, or with a scroll label); its top rule is the nearest row
+//         above it that is a rule of the same full width (starts `──`, ends
+//         `─`, exactly as long as the bottom rule). Every row between them is
+//         an editor row, whatever it starts with, `─` included; a row that
+//         starts with `─` in the chat above the box is no rule of it. With no
+//         such pair, nothing is typed, and the refusal says the screen shows
+//         no input box. (The review's second finding: a looser reading took
+//         an editor row `─ a draft of the user` for the top rule.)
 //       - After `/new`, before the return: the editor's row reads exactly
 //         `/new` (or Orca's draft does), and the menu row below the bottom rule
 //         that starts with `→` has `new` as its first word. Otherwise the four
@@ -91,8 +111,16 @@ import {
   CODEX_IDLE,
   CODEX_NEW_MENU,
   CODEX_NEW_TYPED,
+  PI_DASH_DRAFT,
+  PI_DASH_DRAFT_TWO_DASH_ROWS,
+  PI_DASH_DRAFT_TWO_ROWS,
+  PI_DASHES_DRAFT,
   PI_DRAFT,
   PI_IDLE,
+  PI_LONG_DRAFT,
+  PI_LONG_DRAFT_LEFT,
+  PI_LONG_DRAFT_ROWS,
+  PI_LONG_DRAFT_WORKING,
   PI_IDLE_AFTER_NEW,
   PI_IDLE_NO_CURSOR,
   PI_MODEL_SELECTOR,
@@ -103,7 +131,12 @@ import {
   PI_NEW_OTHER_SELECTED,
   PI_NEW_TYPED,
   PI_NEW_TYPED_IN_DRAFT,
+  PI_RULED_DRAFT,
+  PI_SHORT_TOP,
+  PI_SUMMARY_IN_CHAT,
   PI_WORKING,
+  PI_WORKING_CUT,
+  PI_WORKING_DASHES_IN_EDITOR,
   PI_WORKING_RULE,
   piAtWork,
   piBusyWith,
@@ -448,13 +481,62 @@ describe('obk session clear on a Pi session types /new and is confirmed by the b
     });
   }
 
+  // The review's second finding: an editor row that starts with `─` is an
+  // editor row, not the box's top rule. With no draft from Orca, each of these
+  // is a draft in the line: refused before the first key, nothing typed.
+  for (const { screen, shows, what } of [
+    { screen: PI_DASH_DRAFT, shows: '─ a draft of the user', what: 'one editor row "─ a draft of the user"' },
+    { screen: PI_RULED_DRAFT, shows: '── a draft ──', what: 'one editor row "── a draft ──"' },
+    { screen: PI_DASH_DRAFT_TWO_ROWS, shows: 'and the second row of it', what: 'two editor rows, the first "─ the first row of a draft"' },
+    { screen: PI_DASH_DRAFT_TWO_DASH_ROWS, shows: '─ and the second row of it', what: 'two editor rows, each starting with "─"' },
+    { screen: PI_DASHES_DRAFT, shows: '──────────', what: 'one editor row "──────────", `─` alone and shorter than the rules' },
+  ]) {
+    it(`D2 Orca gives no draft and Pi's editor holds ${what}: refused before the first character, nothing typed into any tab, and the refusal is about the line`, LIMIT, async (t) => {
+      const box = await createSandbox(t);
+      const bots = await piRunning(box);
+      await changeTab(box, (await liveTab(box, bots)).tabId, { screen, nextScreens: piScreensFor(PI_NEW_TYPED, PI_IDLE_AFTER_NEW) });
+      const before = await typedEverywhere(box);
+      const book = await sessionIn(bots, BOT, 'daily');
+
+      const said = assertRefused(await clearOf(box));
+
+      await assertNothingTyped(box, before, `a draft in the Pi line (${what})`);
+      assert.ok(said.includes(shows), `the refusal shows the draft, ${shows}, got:\n${said}`);
+      const own = screen.filter((row) => row.trim() !== '').reduce((rest, row) => rest.replaceAll(row.trim(), ''), said);
+      assert.match(own, /\b(?:line|draft|editor)\b/i, `the refusal is about what the line holds, got:\n${said}`);
+      assert.deepEqual(await sessionIn(bots, BOT, 'daily'), book, 'the book is as it was');
+    });
+  }
+
+  it('D3 the row right above the editor is a rule of another width than the bottom rule: no input box, so nothing typed, and the refusal says the screen shows no input box', LIMIT, async (t) => {
+    const box = await createSandbox(t);
+    const bots = await piRunning(box);
+    await changeTab(box, (await liveTab(box, bots)).tabId, { screen: PI_SHORT_TOP, nextScreens: piScreensFor(PI_NEW_TYPED, PI_IDLE_AFTER_NEW) });
+    const before = await typedEverywhere(box);
+
+    const said = assertRefused(await clearOf(box));
+
+    await assertNothingTyped(box, before, 'a screen with no input box');
+    assert.match(said, /input box/i, `it says the screen shows no input box, got:\n${said}`);
+  });
+
   // ------------------------------------------------ busy, by Pi's own row
 
   // A screen that shows Pi at work for its first three reads, Orca's tui-idle
   // answering ok all along, then Pi at rest: the kit may type only after a
-  // read that shows Pi at rest, the fourth at the earliest.
+  // read that shows Pi at rest, the fourth at the earliest. The first case,
+  // `Working` with no hint, is the row Pi draws on almost every turn.
   for (const { screen, what } of [
-    { screen: PI_WORKING, what: '"── ⠋ Working (escape to interrupt) ──…"' },
+    { screen: PI_WORKING, what: 'its usual row, "── ⠋ Working ──…", no hint after the message' },
+    { screen: PI_WORKING_CUT, what: 'a status cut short in a narrow tab, "── ⠋ Working (escape to ────"' },
+    { screen: piBusyWith('Reading the pull request'), what: 'an extension\'s own message, "── ⠋ Reading the pull request ──…"' },
+    // The long draft is gone once Pi is at rest here: a fixture's shortcut, so
+    // that a kit that took the row for no work would meet the draft and refuse.
+    { screen: PI_LONG_DRAFT_WORKING, what: 'the status beside the scroll label, "── ⠋ Working ─── ↑ 3 more ──…", a long draft below it' },
+    // The editor row is `─` alone and shorter than the rules: no rule of the
+    // box, so the top rule is the one above it, with the status in it.
+    { screen: PI_WORKING_DASHES_IN_EDITOR, what: 'its usual row, "── ⠋ Working ──…", over an editor row "──────────"' },
+    { screen: piBusyWith('Working (escape to interrupt)'), what: '"── ⠋ Working (escape to interrupt) ──…"' },
     { screen: piBusyWith('Compacting context... (escape to cancel)'), what: '"── ⠋ Compacting context... (escape to cancel) ──…"' },
     { screen: piBusyWith('Retrying (1/3) in 4s... (escape to cancel)'), what: '"── ⠋ Retrying (1/3) in 4s... (escape to cancel) ──…"' },
     { screen: piBusyWith('Working (ctrl+x to interrupt)'), what: 'a rebound key, "── ⠋ Working (ctrl+x to interrupt) ──…"' },
@@ -482,21 +564,54 @@ describe('obk session clear on a Pi session types /new and is confirmed by the b
     });
   }
 
-  it('B2 the startup help\'s "escape to interrupt", with no brackets, in the chat, is no sign of work: /new is typed at once and entered', LIMIT, async (t) => {
-    const box = await createSandbox(t);
-    const bots = await piRunning(box);
-    assert.ok(PI_IDLE.includes(' escape to interrupt'), 'the premise: the help line is on the screen');
-    await changeTab(box, (await liveTab(box, bots)).tabId, { nextScreens: piScreensFor(PI_NEW_TYPED, PI_IDLE_AFTER_NEW) });
+  for (const { screen, what } of [
+    { screen: PI_IDLE, what: 'the startup help\'s "escape to interrupt" in the chat, the top rule `─` alone' },
+    { screen: PI_SUMMARY_IN_CHAT, what: 'a row "── Summary ──…" in the chat above the box, the box\'s top rule `─` alone' },
+  ]) {
+    it(`B2 ${what}: no sign of work, so /new is typed at once and entered`, LIMIT, async (t) => {
+      const box = await createSandbox(t);
+      const bots = await piRunning(box);
+      assert.ok(screen.includes(' escape to interrupt'), 'the premise: the help line is on the screen');
+      await changeTab(box, (await liveTab(box, bots)).tabId, { screen, nextScreens: piScreensFor(PI_NEW_TYPED, PI_IDLE_AFTER_NEW) });
 
-    const started = Date.now();
-    const { result, played } = await runPlaying(box, bots, { then: () => piReports(box, bots) });
-    const took = Date.now() - started;
+      const started = Date.now();
+      const { result, played } = await runPlaying(box, bots, { then: () => piReports(box, bots) });
+      const took = Date.now() - started;
 
-    answered(result, 'the clear');
-    assert.ok(played, 'the premise: Pi reported the new conversation');
-    assert.deepEqual(await sendsInto(box, bots), [...typed(NEW), RETURN]);
-    assert.ok(took < 20_000, `nothing was waited out: it took ${took} ms`);
-  });
+      answered(result, 'the clear');
+      assert.ok(played, 'the premise: Pi reported the new conversation');
+      assert.deepEqual(await sendsInto(box, bots), [...typed(NEW), RETURN]);
+      assert.ok(took < 20_000, `nothing was waited out: it took ${took} ms`);
+    });
+  }
+
+  // A long draft, Pi at rest: its scroll labels in the rules are no status.
+  // The draft is refused at once, as a draft, not waited out as work.
+  for (const { screen, what } of [
+    { screen: PI_LONG_DRAFT, what: 'centred, "── ↑ 3 more ──" and "── ↓ 2 more ──"' },
+    { screen: PI_LONG_DRAFT_LEFT, what: 'near the left end, "─── ↑ 3 more ───…" and "─── ↓ 2 more ───…"' },
+  ]) {
+    it(`B4 a long draft with Pi's scroll labels in its rules, ${what}, and no status: no sign of work, so it is refused at once for the draft, nothing typed`, LIMIT, async (t) => {
+      const box = await createSandbox(t);
+      const bots = await piRunning(box);
+      await changeTab(box, (await liveTab(box, bots)).tabId, { screen, nextScreens: piScreensFor(PI_NEW_TYPED, PI_IDLE_AFTER_NEW) });
+      const before = await typedEverywhere(box);
+
+      const started = Date.now();
+      const said = assertRefused(await clearOf(box));
+      const took = Date.now() - started;
+
+      await assertNothingTyped(box, before, 'a long draft in the Pi line');
+      assert.ok(PI_LONG_DRAFT_ROWS.some((row) => said.includes(row)), `the refusal shows what the line holds, got:\n${said}`);
+      // The box with its scroll labels is still Pi's input box, so the reason
+      // is the line, in the kit's own words: with every row of the screen
+      // taken out of what it said, it still speaks of the line or the draft.
+      const own = screen.filter((row) => row.trim() !== '').reduce((rest, row) => rest.replaceAll(row.trim(), ''), said);
+      assert.match(own, /\b(?:line|draft|editor)\b/i, `the refusal is about what the line holds, not about the screen, got:\n${said}`);
+      assert.doesNotMatch(said, /busy/i, `a scroll label is no sign of work, got:\n${said}`);
+      assert.ok(took < 20_000, `nothing was waited out: it took ${took} ms`);
+    });
+  }
 
   it('B3 Pi\'s /model selector on screen, Orca calling the tab idle: waited out as a question, nothing typed until it is gone, then /new is entered', LIMIT, async (t) => {
     const box = await createSandbox(t);
@@ -529,7 +644,7 @@ describe('obk session clear on a Pi session types /new and is confirmed by the b
     const said = assertRefused(await clearOf(box));
 
     assert.deepEqual(await sendsInto(box, bots), [...typed('/n'), { text: backspaces('/n'), enter: false }], 'the two typed, then exactly those two taken back, and nothing more');
-    assert.ok(said.includes('escape to interrupt'), `it names its signal, the at-work row, got:\n${said}`);
+    assert.ok(said.includes('⠋ Working'), `it names its signal, the at-work row "── ⠋ Working ──…", got:\n${said}`);
   });
 
   it('W1 Pi\'s at-work row is up once the last character of /new is in: no return, the four taken back in one send, and the refusal names the row', LIMIT, async (t) => {
@@ -540,7 +655,7 @@ describe('obk session clear on a Pi session types /new and is confirmed by the b
     const said = assertRefused(await clearOf(box));
 
     assert.deepEqual(await sendsInto(box, bots), [...typed(NEW), { text: backspaces(NEW), enter: false }], 'the look before the return stops it');
-    assert.ok(said.includes('escape to interrupt'), `it names its signal, the at-work row, got:\n${said}`);
+    assert.ok(said.includes('⠋ Working'), `it names its signal, the at-work row "── ⠋ Working ──…", got:\n${said}`);
   });
 
   it('W1 the menu draws late, after the last character, with Pi\'s at-work row on the same screen: no return, the four taken back, and the refusal names the row', LIMIT, async (t) => {
@@ -553,7 +668,7 @@ describe('obk session clear on a Pi session types /new and is confirmed by the b
     const said = assertRefused(await clearOf(box));
 
     assert.deepEqual(await sendsInto(box, bots), [...typed(NEW), { text: backspaces(NEW), enter: false }], 'the screen that passed the menu rule carried the at-work row, so no return');
-    assert.ok(said.includes('escape to interrupt'), `it names its signal, the at-work row, got:\n${said}`);
+    assert.ok(said.includes('⠋ Working'), `it names its signal, the at-work row "── ⠋ Working ──…", got:\n${said}`);
   });
 });
 
@@ -588,7 +703,7 @@ describe('#663: Pi refusals once /new is typed, side by side', { concurrency: tr
 // ---------------------------------------------------------------- the waits that run out
 
 describe('#663: the Pi waits that run out, side by side', { concurrency: true }, () => {
-  it('X1 Pi at work by its top rule for the whole 30 s, Orca\'s tui-idle ok: refused after about that long, saying it is busy and naming the row, nothing typed', LIMIT, async (t) => {
+  it('X1 Pi at work by its usual top rule "── ⠋ Working ──…" for the whole 30 s, Orca\'s tui-idle ok: refused after about that long, saying it is busy and naming the row, nothing typed', LIMIT, async (t) => {
     const box = await createSandbox(t);
     const bots = await piRunning(box);
     const was = (await sessionIn(bots, BOT, 'daily')).session;
@@ -601,7 +716,7 @@ describe('#663: the Pi waits that run out, side by side', { concurrency: true },
 
     const said = assertRefused(result);
     assert.match(said, /busy/i, `it says the session is busy, got:\n${said}`);
-    assert.ok(said.includes('escape to interrupt'), `and names its signal, the at-work row, got:\n${said}`);
+    assert.ok(said.includes('⠋ Working'), `and names its signal, the at-work row "── ⠋ Working ──…", got:\n${said}`);
     await assertNothingTyped(box, before, 'Pi at work throughout');
     assert.ok(took >= 25_000, `it waited for the session, up to 30 s, before refusing; it took ${took} ms`);
     assert.ok(took < 90_000, `and the wait is bounded; it took ${took} ms`);
@@ -729,33 +844,44 @@ function toldLine(stdout, bot, session) {
 }
 
 describe('#663: skills build and Pi\'s at-work row', { concurrency: 2 }, () => {
-  it('S1 a Pi tab showing Pi at work by its top rule, Orca\'s tui-idle ok: no /reload typed, not told, and it says the session is busy', LIMIT, async (t) => {
-    const box = await createSandbox(t);
-    const bots = await piRunning(box, { sessions: ['daily'] });
-    await changeTab(box, (await liveTab(box, bots)).tabId, { screen: PI_WORKING });
-    await addSkills(botYamlOf(bots, BOT), 'kit:obk-tdd');
+  for (const { screen, what } of [
+    { screen: PI_WORKING, what: 'its usual row "── ⠋ Working ──…"' },
+    { screen: piBusyWith('Reading the pull request'), what: 'an extension\'s own message "── ⠋ Reading the pull request ──…"' },
+  ]) {
+    it(`S1 a Pi tab showing Pi at work by its top rule, ${what}, Orca's tui-idle ok: no /reload typed, not told, and it says the session is busy`, LIMIT, async (t) => {
+      const box = await createSandbox(t);
+      const bots = await piRunning(box, { sessions: ['daily'] });
+      await changeTab(box, (await liveTab(box, bots)).tabId, { screen });
+      await addSkills(botYamlOf(bots, BOT), 'kit:obk-tdd');
 
-    const result = await box.run(['skills', 'build', '--bots', 'bots']);
+      const result = await box.run(['skills', 'build', '--bots', 'bots']);
 
-    assert.equal(result.code, 0, `a session not told is not a failure: ${result.stdout}${result.stderr}`);
-    assert.deepEqual(sentInto(await liveTab(box, bots)).slice(1), [], 'nothing typed into a Pi tab at work: Pi refuses /reload while it works');
-    const { line, word } = toldLine(result.stdout, BOT, 'daily');
-    assert.equal(word, 'not told', `got: ${line}`);
-    assert.match(line, /busy|working|at work/i, `it says the Pi session is busy, got: ${line}`);
-    assert.match(line, /\/reload(?![-\w])/, `and to type /reload once its turn ends, got: ${line}`);
-  });
+      assert.equal(result.code, 0, `a session not told is not a failure: ${result.stdout}${result.stderr}`);
+      assert.deepEqual(sentInto(await liveTab(box, bots)).slice(1), [], 'nothing typed into a Pi tab at work: Pi refuses /reload while it works');
+      const { line, word } = toldLine(result.stdout, BOT, 'daily');
+      assert.equal(word, 'not told', `got: ${line}`);
+      assert.match(line, /busy|working|at work/i, `it says the Pi session is busy, got: ${line}`);
+      assert.match(line, /\/reload(?![-\w])/, `and to type /reload once its turn ends, got: ${line}`);
+    });
+  }
 
-  it('S1 the control: the same Pi tab at rest, its startup help on screen: /reload is typed, and it is reloaded', LIMIT, async (t) => {
-    const box = await createSandbox(t);
-    const bots = await piRunning(box, { sessions: ['daily'] });
-    await addSkills(botYamlOf(bots, BOT), 'kit:obk-tdd');
+  for (const { screen, what } of [
+    { screen: PI_IDLE, what: 'its startup help on screen' },
+    { screen: PI_SUMMARY_IN_CHAT, what: 'a row "── Summary ──…" in the chat above a pure top rule' },
+  ]) {
+    it(`S1 the control: the same Pi tab at rest, ${what}: /reload is typed, and it is reloaded`, LIMIT, async (t) => {
+      const box = await createSandbox(t);
+      const bots = await piRunning(box, { sessions: ['daily'] });
+      await changeTab(box, (await liveTab(box, bots)).tabId, { screen });
+      await addSkills(botYamlOf(bots, BOT), 'kit:obk-tdd');
 
-    const result = await box.run(['skills', 'build', '--bots', 'bots']);
+      const result = await box.run(['skills', 'build', '--bots', 'bots']);
 
-    assert.equal(result.code, 0, `${result.stdout}${result.stderr}`);
-    const sent = sentInto(await liveTab(box, bots)).slice(1);
-    assert.equal(sent.map((one) => one.text).join(''), '/reload', `exactly /reload, got: ${JSON.stringify(sent)}`);
-    assert.equal(sent.filter((one) => one.enter).length, 1, `sent off with one Enter, got: ${JSON.stringify(sent)}`);
-    assert.equal(toldLine(result.stdout, BOT, 'daily').word, 'reloaded');
-  });
+      assert.equal(result.code, 0, `${result.stdout}${result.stderr}`);
+      const sent = sentInto(await liveTab(box, bots)).slice(1);
+      assert.equal(sent.map((one) => one.text).join(''), '/reload', `exactly /reload, got: ${JSON.stringify(sent)}`);
+      assert.equal(sent.filter((one) => one.enter).length, 1, `sent off with one Enter, got: ${JSON.stringify(sent)}`);
+      assert.equal(toldLine(result.stdout, BOT, 'daily').word, 'reloaded');
+    });
+  }
 });

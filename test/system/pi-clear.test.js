@@ -28,11 +28,14 @@
 // sent after them. Those prints are research, not assertions.
 //
 // How the editor is read here, after Pi 1.3.0's code (the reconstruction):
-// the input box is the last two rows that are rules of `─` on the screen,
-// the editor's rows between them. The busy row is that top rule holding a
-// bracketed `(<key> to interrupt)` or `(<key> to cancel)`. When the screen has
-// no such box, the check that needs it fails, with the screen in the message:
-// that is a finding about the reconstruction.
+// the input box's bottom rule is the lowest row on the screen that is `─`
+// alone, or `─` with Pi's scroll label ` ↓ <n> more `; its top rule is the
+// nearest row above that which is a rule of the same full width (starts `──`,
+// ends `─`, exactly as long); every row between them is an editor row. Pi is at work when that top rule holds any text besides `─` and the
+// scroll label ` ↑ <n> more `: Pi draws its status there as `── <spinner>
+// <message> ───…`, usually `── ⠋ Working ───…` with no hint. When the screen
+// has no such box, the check that needs it fails, with the screen in the
+// message: that is a finding about the reconstruction.
 //
 // **An orphaned tab.** This test opens its bot in a throwaway Orca project,
 // and the Orca window may not load it. Orca lists a tab of a project its
@@ -366,22 +369,35 @@ function printScreen(t, when, handle) {
 
 // ------------------------------------------------------------- Pi's screen, as Pi 1.3.0's code draws it
 
-/** A rule of Pi's input box: a row that starts with `─` and has a run of them. */
-const RULE = /^─{2}.*─{8,}/;
+/** Pi's scroll label in a rule of its input box, ` ↑ 3 more ` or ` ↓ 2 more `, with a long draft (pi-tui editor.js createScrollBorder). */
+const SCROLL_LABEL = / [↑↓] \d+ more /g;
 
-/** A bracketed `(<key> to interrupt)` or `(<key> to cancel)`: Pi's status in its top rule while it works. */
-const AT_WORK = /\([^()]* to (?:interrupt|cancel)\)/;
+/** A rule's text once its `─` and its scroll label are taken out: empty for a plain rule. */
+const ruleWords = (row) => row.replaceAll(SCROLL_LABEL, '').replaceAll('─', '').trim();
 
-/** Pi's input box on `rows`: the last two rules, and the editor's rows between them; undefined when there are not two. */
+/** A bottom rule of Pi's input box: `─` alone, or `─` with the scroll label. */
+const isBottomRule = (row) => row.trimEnd().startsWith('─') && ruleWords(row) === '';
+
+/**
+ * Pi's input box on `rows`: the lowest bottom rule, the nearest row above it
+ * that is a rule of the same full width (starts `──`, ends `─`, exactly as
+ * long) as its top rule, and the editor's rows between them, whatever they
+ * start with; undefined when there is no such pair.
+ */
 function inputBoxOf(rows) {
-  const rules = rows.map((row, at) => (RULE.test(row) ? at : -1)).filter((at) => at >= 0);
-  if (rules.length < 2) return undefined;
-  const [top, bottom] = rules.slice(-2);
+  const bottom = rows.findLastIndex(isBottomRule);
+  if (bottom < 1) return undefined;
+  const width = rows[bottom].length;
+  const top = rows.slice(0, bottom).findLastIndex((row) => row.startsWith('──') && row.endsWith('─') && row.length === width);
+  if (top < 0) return undefined;
   return { top: rows[top], editor: rows.slice(top + 1, bottom), below: rows.slice(bottom + 1) };
 }
 
-/** Whether Pi's top rule on `rows` says it is at work. */
-const atWorkOn = (rows) => AT_WORK.test(inputBoxOf(rows ?? [])?.top ?? '');
+/** Whether Pi's top rule on `rows` says it is at work: any text in it besides `─` and the scroll label. */
+const atWorkOn = (rows) => {
+  const box = inputBoxOf(rows ?? []);
+  return box !== undefined && ruleWords(box.top) !== '';
+};
 
 /** Fail unless Pi's editor in the tab is empty now: no draft from Orca, and every row between the two rules blank. */
 function assertEditorEmpty(handle, when) {
