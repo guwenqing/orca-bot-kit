@@ -165,9 +165,8 @@ function fromClaude(entries) {
   return used;
 }
 
-/** What Pi writes on a virtual model (Pi 1.3.0, virtual-models.js): the api of its catalog entry, and its router's state. */
+/** The api of a virtual model's catalog entry (Pi 1.3.0, virtual-models.js). */
 const PI_VIRTUAL = 'pi-virtual';
-const PI_VIRTUAL_STATE = 'pi.virtual-model-state';
 
 /**
  * What a Pi record says it runs with, from `start` on: the model, as
@@ -179,13 +178,13 @@ const PI_VIRTUAL_STATE = 'pi.virtual-model-state';
  * answered, and the level it was asked at. On a resume with `--model` or
  * `--thinking`, Pi writes no change line, so a change before a reply may be
  * stale; but a change to a virtual model, such as `router/auto`, stays the
- * selection, and its replies name the model it routed to (Pi 1.3.0,
- * getBranchSelection). So the change before a reply stands when the record
- * shows it is virtual, the reply stands when the record shows the change is
- * physical, and otherwise the two are left open. A router may change the
- * level as well, so a reply's level stands alone only on a physical model.
- * A reply a router could not route names the virtual model, and counts only
- * as that proof.
+ * selection while the router is registered, and its replies name the model
+ * it routed to (Pi 1.3.0, getBranchSelection, docs/virtual-models.md). The
+ * record cannot show what is registered now. So the reply stands when the
+ * change names the same model, or a model a reply shows is physical, and
+ * otherwise the two are left open. A router may change the level as well, so
+ * a reply's level stands alone only on a physical model. A reply a router
+ * could not route names the virtual model, and is passed over, as Pi does.
  */
 function fromPi(entries, start) {
   const named = (provider, model) => (typeof provider === 'string' && typeof model === 'string' ? `${provider}/${model}` : undefined);
@@ -198,8 +197,6 @@ function fromPi(entries, start) {
     for (let before = at - 1; before >= 0; before -= 1) if (entries[before].type === type) return read(entries[before]);
     return undefined;
   };
-  const virtual = (model) => entries.some((entry) => (entry.type === 'custom' && entry.customType === PI_VIRTUAL_STATE && named(entry.data?.provider, entry.data?.modelId) === model)
-    || (assistant(entry)?.api === PI_VIRTUAL && named(entry.message.provider, entry.message.model) === model));
   const physical = (model) => entries.some((entry) => entry.type !== 'model_change' && modelOf(entry) === model);
   const latest = (read) => {
     if (start === -1) return -1;
@@ -212,8 +209,7 @@ function fromPi(entries, start) {
     if (entries[at].type === 'model_change') return { model: own, sure: false };
     const earlier = changeBefore('model_change', modelOf, at);
     if (own === undefined) return { sure: false };
-    if (earlier === undefined || earlier === own || (!virtual(earlier) && physical(earlier))) return { model: own, sure: true };
-    if (virtual(earlier)) return { model: earlier, sure: false };
+    if (earlier === undefined || earlier === own || physical(earlier)) return { model: own, sure: true };
     return { model: { choices: [own, earlier] }, sure: false };
   };
 

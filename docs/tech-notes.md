@@ -1239,14 +1239,16 @@ docs, or Orca's 1.4.225 bundle. The kit was tested with Pi 1.1.0.
     model it chose depends on Pi's catalog. On a resume with `--model` or `--thinking`, Pi writes no
     `model_change` or `thinking_level_change` (`sdk.js`), so an old change line can stand before
     replies on another model. `getBranchSelection` keeps the last `model_change` over later replies
-    only when the catalog says it names a virtual model (api `pi-virtual`). The record does not say
-    so directly. It shows it only when a `custom` line `pi.virtual-model-state` or a failed routing
-    (an assistant message with api `pi-virtual`) names the model. A reply's `thinkingLevel` is the
-    level of the request, after a router changed it (`pi-agent-core`, `agent-loop.js`). So health
-    takes the change when the record proves it virtual, and the reply when a reply on the change's
-    model proves it physical. Otherwise a match on either is `unknown`, which a virtual model with
-    no such line also gets. A pattern that is part of an id is `unknown` too. The record does not
-    hold a display name, so a pattern that is one shows as a mismatch.
+    only when the catalog says it names a virtual model (api `pi-virtual`), and only while that
+    model is registered: "If the virtual model is no longer registered, Pi falls back to the physical
+    model that answered last" (`docs/virtual-models.md`). A `custom` line `pi.virtual-model-state`
+    or a failed routing (an assistant message with api `pi-virtual`) shows that a model was virtual
+    once, not that its router is still there. A reply's `thinkingLevel` is the level of the request,
+    after a router changed it (`pi-agent-core`, `agent-loop.js`). So health takes the reply when the
+    change names the same model, or one that a reply shows is physical. Otherwise a match on either
+    is `unknown`, so a session on a virtual model always shows its model and level as `unknown`,
+    which is no finding. A pattern that is part of an id is `unknown` too. The record does not hold
+    a display name, so a pattern that is one shows as a mismatch.
   - **Seen live after #660** (2026-10-19, 03:45 local, `test/system/pi-health.test.js` at 584d806,
     passing, same versions): the healthy Pi had model `match` (observed `openai/gpt-6-luna`) and effort
     `match` (observed `low`), read from its record, and no finding. With another id in the book: the
