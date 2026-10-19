@@ -589,8 +589,15 @@ export function piBox(rows) {
  */
 export function piAtWorkIn(rows, agent) {
   if (agent !== 'pi') return undefined;
-  const top = piBox(rows)?.top;
-  return top !== undefined && top.replace(PI_SCROLL, '').replaceAll('─', '').trim() !== '' ? top : undefined;
+  const hasStatus = (row) => row.replace(PI_SCROLL, '').replaceAll('─', '').trim() !== '';
+  const box = piBox(rows);
+  if (box !== undefined) return hasStatus(box.top) ? box.top : undefined;
+  // Pi lays out by columns, and the kit counts characters: a status with
+  // wide or combining characters in it is no rule as long as the bottom one.
+  // An idle Pi's top rule has no status, and is always as long, so a rule
+  // with words in it over a bottom rule is Pi at work (review of PR #666).
+  const bottom = rows.findLastIndex((row) => PI_RULE.test(row.trimEnd()));
+  return bottom < 0 ? undefined : rows.slice(0, bottom).findLast((row) => PI_TOP_RULE.test(row.trimEnd()) && hasStatus(row));
 }
 
 /** That pointer on a numbered choice, and the column its number starts in. */

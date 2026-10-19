@@ -1059,7 +1059,11 @@ docs, or Orca's 1.4.225 bundle. The kit was tested with Pi 1.1.0.
     older busy marker, `esc to interrupt`, matches none of these. So the kit counts the box's top rule
     with any other text in it as at work, only where Orca names the agent pi: in `obk session clear`'s
     looks and in the typing gate's idle answer, which `obk skills build` reads before it types `/reload`
-    (#663; the plain `Working` row was the reviewer's finding).
+    (#663; the plain `Working` row was the reviewer's finding). Pi measures by terminal columns, and the
+    kit counts characters, so a status with an emoji, CJK or a combining mark is not as long as the
+    bottom rule. The kit does not measure columns: an idle Pi's top rule has no status and is always as
+    long, so a `──…─` row with words in it above the bottom rule, where no top rule is as long, counts
+    as at work too (the reviewer's second look).
 - **Project trust.** When the working folder or a folder above it has `.pi/settings.json`, `.pi/mcp.json`,
   `.pi/extensions|skills|prompts|themes`, `.pi/SYSTEM.md`, `.pi/APPEND_SYSTEM.md` or a project
   `.agents/skills`, Pi asks first, unless `--approve`/`--no-approve`, an extension, or a saved answer in
