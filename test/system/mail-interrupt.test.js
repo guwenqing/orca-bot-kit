@@ -10,7 +10,8 @@
 // tells the receiver when it is idle. With `--interrupt`, the kit first sends
 // one Escape into a busy receiver's tab, and the doorbell then comes at once
 // (the probe of 2026-10-11: about 1 s after the Escape on Claude Code, about
-// 2 s on Codex). This test judges the doorbell on Codex only; see below.
+// 2 s on Codex). This test judges the doorbell on Codex in every run, and on
+// Claude only when the night gate below is open (#561).
 //
 // Two busy receivers, one on each harness, side by side: `mail-claude/busy`
 // and `mail-codex/busy`. Each runs a shell loop of LOOP_STEPS seconds, which
@@ -27,25 +28,69 @@
 //      Then, within NOTICE_MS of the send, and well before the loop would
 //      have ended by itself, the busy turn is shown ended in the record:
 //        - Claude: Claude Code's own interrupt line, a user turn that starts
-//          "[Request interrupted by user" (e.g. "… for tool use]").
+//          "[Request interrupted by user" (e.g. "… for tool use]"). Then,
+//          with the night gate open, Orca's notice for the receiver's
+//          mailbox lands as a user turn after that line.
 //        - Codex: Orca's notice for the receiver's mailbox lands as a user
 //          turn, and the rollout shows a turn end between the send and the
-//          notice. Then the receiver reads both letters with
-//          `obk message check`.
+//          notice.
+//      Then the receiver reads both letters with `obk message check` (on
+//      Claude, with the night gate open: the reading follows the notice).
 //
-// Why the Claude receiver is not asked for Orca's notice here: this test
-// opens its bots in a throwaway Orca project that the Orca window never
-// loads, so Orca lists their Claude tabs as orphaned (`tabId`
-// "pty:<ptyId>"; docs/tech-notes.md, line 477: a Claude Code tab in a
-// project the window has not loaded turns orphaned within 2 s). Live, Orca
-// delivered no notice at all to such a Claude tab: not after the Escape,
-// and not to a calm idle Claude receiver with no Escape either. The notice
-// to a busy Claude receiver after --interrupt was proven on a tab in the
-// window's graph instead: Orca's notice came 3 s after the send (the plan A
-// receipt, bots/kit-dev/work/developer-555/live-555-A-receipt.txt, 2026-10-11).
-// So for Claude this test judges what the kit does (nothing typed without
-// --interrupt; one Escape that ends the busy turn with it), and not Orca's
-// notice, its timing, or the reading of the letters that follows it.
+// Why this test makes one more throwaway project, and why it looks at the
+// Claude tab before it waits for its notice (#561): Orca gives no notice at
+// all to a Claude tab it lists as orphaned (`tabId` "pty:<ptyId>",
+// `orphaned: true`; tech notes, "Mailbox"). This test opens its bots in
+// throwaway Orca projects that the Orca window never loads. In the runs of
+// #555 (2026-10-11) its Claude tab was orphaned each time, and Orca gave it no
+// notice: not after the Escape, and not to an idle Claude receiver with no
+// Escape either. So until #561 this test checked no notice for Claude.
+//
+// Seen in a probe of 2026-10-18 (Orca 1.4.225, 5 runs; the cause is not
+// known): in a throwaway bots folder, the tabs of the newest Orca project are
+// listed orphaned. The Codex sender's tab, in the first project, was orphaned
+// until the Claude project was made, and then real to the end. The Claude
+// tab, in the newest project, stayed orphaned (2 runs). A new plain tab in
+// the Claude tab's own project did not help. When a third throwaway project
+// was made, with one plain tab in it, after the Claude tab was ready, the
+// Claude tab was real just after (a UUID `tabId`, `orphaned: false`), and
+// stayed real to the end, about 40 s more. Orca's notice reached Claude 2 s
+// after a send (2 runs of 2). The plain tab was orphaned itself 30 s later.
+// One more run had a real Claude tab with no third project; that is not
+// explained.
+//
+// So once the busy Claude receiver's tab is open, this test makes one more
+// throwaway project in its own bots folder, NEWER, with one plain tab in it,
+// as `obk up` makes a bot's project (helpers/newer-project.js
+// `openNewerProject`), and waits up to REAL_MS for the busy Claude tab to be
+// listed real.
+// It is made after the busy tab opens, because the busy tab opens in the
+// Claude project after the idle tabs, and whether a new tab in an older
+// project is real once a newer project exists was not seen. It prints each
+// Claude tab's listing before and just after. Just before it waits for the
+// Claude notice, it reads the busy Claude tab in Orca's listing again and
+// prints its `tabId` and `orphaned`. When the tab is orphaned, the test fails
+// and names that cause, not a timeout: Orca's rule for orphaned tabs may have
+// changed. It never skips and never passes then. The known limit: the step is
+// seen to work in 2 runs, and the cause in Orca is not known. The test
+// mounts, switches and reloads nothing to get a real `tabId`; the plain tab
+// gets no key, and the teardown closes it and deletes its project.
+//
+// **The night gate.** The NEWER step makes a throwaway tab turn real in the
+// owner's Orca window. The owner's rule (2026-10-17): a test that does that
+// runs that part only in a run that names its file, between midnight and 6 am
+// local time (helpers/night-gate.js). So the #561 part runs only when both
+// hold: the NEWER project, its wait and its diagnostics, the look at the
+// Claude tab (claudeTabInTheGraph), the wait for Orca's notice after the
+// interrupt line, and the reading of both letters on Claude, which follows
+// the notice. To run it:
+// `npm run test:system -- --yes test/system/mail-interrupt.test.js`,
+// between midnight and 6 am.
+//
+// With the gate closed, the Claude case ends at Claude Code's interrupt line,
+// as before #561, and no NEWER project is made. The test prints why the gated
+// part did not run. That is not a pass of the Claude notice: it was not
+// checked. The Codex case is the same with the gate open or closed.
 //
 // What is ASSERTED is judged from the receiver's own record of its turns (the
 // Claude transcript `~/.claude/projects/<slug>/<id>.jsonl`, the Codex rollout
@@ -54,8 +99,10 @@
 // in its bot folder: its loop's steps and its mail checks.
 //
 // What is OBSERVED, NOT JUDGED (printed as diagnostics): every send's output;
-// how long after the send Claude's interrupt line and Codex's notice came;
-// whether Codex's loop went on in a background terminal after the Escape.
+// how long after the send Claude's interrupt line and each notice came; the
+// Claude tab's `tabId` and `orphaned` in Orca's listing (judged only as said
+// above); whether Codex's loop went on in a background terminal after the
+// Escape.
 //
 // The senders: `mail-codex/idle` writes to the Claude receiver and
 // `mail-claude/idle` to the Codex one, so every letter takes the Orca road:
@@ -78,7 +125,8 @@
 //     lines, the kit's Escape for --interrupt, Orca's own notices, and the
 //     test's answers below, in its own Claude tabs;
 //   - closes only its own tabs, through the tab guard, then deletes its own
-//     workspaces, whatever happened;
+//     workspaces, whatever happened, the NEWER project and its plain tab
+//     among them when the gate made them;
 //   - signals no process.
 //
 // `orca terminal close --worktree … --all` is never run here, and the helper
@@ -109,6 +157,7 @@ import { readFileSync } from 'node:fs';
 import { mkdtemp, readdir, readFile, realpath, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import test from '../helpers/system.js';
 import { setTimeout } from 'node:timers/promises';
 import { parse } from 'yaml';
@@ -120,7 +169,12 @@ import { rolloutFilesOf } from '../helpers/codex-rollout.js';
 import { onlyTeachFormOf, questionOn, waitingOn } from '../helpers/screens.js';
 import { tabGuard } from '../helpers/tab-guard.js';
 import { deleteOwnProject } from '../helpers/own-project.js';
+import { openNewerProject } from '../helpers/newer-project.js';
+import { atNight, namedThisRun } from '../helpers/night-gate.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
+
+/** This file, as the runner names it in OBK_SYSTEM_NAMED. */
+const THIS_FILE = fileURLToPath(import.meta.url);
 
 /** The Orca CLI that works for a normal user (tech notes, section 1). */
 const ORCA = process.env.OBK_ORCA || '/Applications/Orca.app/Contents/Resources/bin/orca';
@@ -134,7 +188,7 @@ const ANSWER_MS = 240000;
 /** How long after a letter without --interrupt the busy receiver is watched for anything typed. */
 const QUIET_MS = 30000;
 
-/** How long after a letter with --interrupt the busy turn's end (Claude's interrupt line, Codex's notice) is given to land in the record. */
+/** How long after a letter with --interrupt the busy turn's end (Claude's interrupt line, Codex's notice) is given to land in the record, and on Claude the notice after that line. */
 const NOTICE_MS = 90000;
 
 /**
@@ -175,6 +229,29 @@ function allTerminals() {
 
 /** The terminals in one workspace, by the path they were opened in. */
 const terminalsAt = (home) => allTerminals().filter((terminal) => terminal.worktreePath === home);
+
+/** One tab's `tabId` and `orphaned` in Orca's listing right now, by its handle, which stays the same while Orca lists a tab as orphaned (#187). */
+function listingOf(handle) {
+  const found = allTerminals().find((terminal) => terminal.handle === handle);
+  return found === undefined ? { listed: false } : { tabId: found.tabId, orphaned: found.orphaned };
+}
+
+/** Whether a listing shows the tab in the window's graph: a real `tabId`, not "pty:<ptyId>", and not `orphaned` (tech notes, "Mailbox"). */
+const inTheGraph = (listing) => listing.orphaned !== true && typeof listing.tabId === 'string' && listing.tabId !== '' && !listing.tabId.startsWith('pty:');
+
+/**
+ * The premise of a wait for Orca's notice to a Claude tab (#561): Orca lists
+ * the tab with its real `tabId`, and not as orphaned. An orphaned Claude tab
+ * gets no notice at all, so the run fails here with that cause, and never
+ * skips or passes. The NEWER project is made to keep the tab real (the
+ * header says why).
+ */
+function claudeTabInTheGraph(t, title, handle) {
+  const listing = listingOf(handle);
+  t.diagnostic(`${title}: before the wait for Orca's notice, Orca lists its tab ${handle} as ${JSON.stringify(listing)}`);
+  assert.notEqual(listing.listed, false, `${title}: Orca lists its tab ${handle}, which the wait for its notice needs`);
+  assert.ok(inTheGraph(listing), `${title}: its Claude tab is orphaned (Orca lists ${handle} as ${JSON.stringify(listing)}) although this test made a newer throwaway project after it, and Orca gives an orphaned Claude tab no notice at all, so this run cannot judge the notice. Orca's rule for orphaned tabs may have changed (the header says what was seen).`);
+}
 
 /** The tabs Orca lists at `home` once it has caught up with what was closed. */
 async function terminalsAfterClosing(home, closed, within = 5000) {
@@ -409,6 +486,12 @@ const KIT = '"$OBK_CLI"';
 const CLAUDE = 'mail-claude';
 const CODEX = 'mail-codex';
 
+/** The one more throwaway project, at `<bots>/bots/<NEWER>` with no bot in it, made after the busy Claude tab opens (#561; the header says why). */
+const NEWER = 'mail-newer';
+
+/** How long after the NEWER project the busy Claude tab is given to be listed real; it was real just after it, live. */
+const REAL_MS = 30000;
+
 /** The file a session's shell writes its mail checks to, and its loop's file. */
 const mailFileOf = (home, session) => path.join(home, `mail-${session}.txt`);
 const stepsFileOf = (home, session) => path.join(home, `steps-${session}.txt`);
@@ -481,13 +564,21 @@ async function together(t, cases) {
 
 /**
  * One busy receiver: a letter without --interrupt, which waits and types
- * nothing; then one with --interrupt, which ends the busy turn. On Codex,
- * Orca's notice then comes at once, and both letters are read; on Claude the
- * case ends at the interrupt (the header says why).
+ * nothing; then one with --interrupt, which ends the busy turn. Orca's notice
+ * then comes at once, and both letters are read. On Claude that is only when
+ * `gateOpen`, and the tab is first read in Orca's listing; with the gate
+ * closed, the Claude case ends at the interrupt line (the header says why,
+ * #561).
  */
-async function busyCase(t, { bots, title, harness, handle, recordOf, mailbox, stepsFile, mailFile, screen, from, to }) {
+async function busyCase(t, { bots, title, harness, handle, recordOf, mailbox, stepsFile, mailFile, screen, from, to, gateOpen = false }) {
   await until(`${title} to be part way through its loop`, READY_MS, async () => ((await readFile(stepsFile, 'utf8').catch(() => '')).includes(PART_WAY) ? true : undefined), () => whatIsUp(handle), screen);
-  const loopStarted = Date.now() - 5000;
+  // When the loop began: its first step's time, less the second it slept.
+  // Read from its file, not from now: with the gate open, the Claude case
+  // comes here only after the NEWER project's wait, when its loop can be well
+  // past PART_WAY (#561).
+  const first = /^STEP-01 (\d+)$/m.exec(await readFile(stepsFile, 'utf8').catch(() => ''));
+  assert.ok(first !== null, `${title}: the loop's first step has its time in ${stepsFile}`);
+  const loopStarted = (Number(first[1]) - 1) * 1000;
   const record = () => entriesOf(recordOf());
 
   // 1. Without --interrupt: the letter waits, and nothing is typed.
@@ -510,7 +601,7 @@ async function busyCase(t, { bots, title, harness, handle, recordOf, mailbox, st
   assert.ok(stepsAfter > stepsBefore, `${title}: the loop went on through the send without --interrupt (${stepsBefore} steps, then ${stepsAfter})`);
   assert.ok(stepsAfter < LOOP_STEPS, `${title}: the loop is still running, so the receiver was busy all along (${stepsAfter} of ${LOOP_STEPS} steps)`);
 
-  // 2. With --interrupt: the turn ends; on Codex, Orca's notice comes.
+  // 2. With --interrupt: the turn ends, and Orca's notice comes.
   const urgent = { subject: `the ${harness} urgent report`, word: harness === 'claude' ? 'PETREL-7382' : 'SHRIKE-8493' };
   const sinceUrgent = Date.now() - 1000;
   const urgentSaid = send(bots, { to, from, ...urgent, interrupt: true });
@@ -522,22 +613,29 @@ async function busyCase(t, { bots, title, harness, handle, recordOf, mailbox, st
   const naturalEnd = loopStarted + LOOP_STEPS * 1000;
   if (harness === 'claude') {
     // The busy turn was interrupted: Claude Code's own interrupt line, after
-    // the send. Orca's notice is not asked for here: the tab is orphaned in
-    // this throwaway project, and Orca gives such a Claude tab no notice at
-    // all (tech notes, line 477; the header says where the notice was proven).
+    // the send.
     const interrupted = await until(`${title}'s record to show its busy turn interrupted after the send with --interrupt`, NOTICE_MS, async () => userTurnsOf(harness, record()).find((turn) => turn.at >= sinceUrgent && CLAUDE_INTERRUPTED.test(turn.text)), () => `\n  the record's tail:\n  ${tailOf(record())}${whatIsUp(handle)}`, screen);
     t.diagnostic(`${title}: Claude Code's interrupt line ("${interrupted.text}") came ${Math.round((interrupted.at - sinceUrgent) / 1000)} s after the send with --interrupt`);
     assert.ok(interrupted.at < naturalEnd - 30000, `${title}: the busy turn was interrupted well before the loop would have ended by itself (interrupt at ${new Date(interrupted.at).toISOString()}, the loop's own end about ${new Date(naturalEnd).toISOString()})`);
-    return;
+    // With the gate closed, the case ends here: no NEWER project was made, so
+    // the tab can be orphaned, and Orca gives it no notice (the header says why).
+    if (!gateOpen) return;
+    // Then Orca's notice, after that line. Orca gives an orphaned Claude tab
+    // none, so the tab is read in the listing first (#561; the header says why).
+    claudeTabInTheGraph(t, title, handle);
+    const notice = await until(`${title}'s record to show Orca's notice after its interrupt line`, NOTICE_MS, async () => noticesIn(harness, record(), { since: sinceUrgent, mailbox }).find((turn) => turn.index > interrupted.index), () => `\n  Orca lists its tab as ${JSON.stringify(listingOf(handle))}.\n  the record's tail:\n  ${tailOf(record())}${whatIsUp(handle)}`, screen);
+    t.diagnostic(`${title}: Orca's notice came ${Math.round((notice.at - sinceUrgent) / 1000)} s after the send with --interrupt; Orca lists its tab as ${JSON.stringify(listingOf(handle))}`);
+  } else {
+    const notice = await until(`${title}'s record to show Orca's notice after the interrupt`, NOTICE_MS, async () => noticesIn(harness, record(), { since: sinceUrgent, mailbox })[0], () => `\n  the record's tail:\n  ${tailOf(record())}${whatIsUp(handle)}`, screen);
+    t.diagnostic(`${title}: Orca's notice came ${Math.round((notice.at - sinceUrgent) / 1000)} s after the send with --interrupt`);
+    assert.ok(notice.at < naturalEnd - 30000, `${title}: the notice came well before the loop would have ended by itself, so the busy turn was ended (notice at ${new Date(notice.at).toISOString()}, the loop's own end about ${new Date(naturalEnd).toISOString()})`);
+    const entries = record();
+    const ended = entries.slice(0, notice.index).filter((entry) => isTurnEnd(entry) && atOf(entry) >= sinceUrgent);
+    assert.ok(ended.length > 0, `${title}: the rollout shows the busy turn's end between the send with --interrupt and the notice.\n  ${tailOf(entries)}`);
   }
-  const notice = await until(`${title}'s record to show Orca's notice after the interrupt`, NOTICE_MS, async () => noticesIn(harness, record(), { since: sinceUrgent, mailbox })[0], () => `\n  the record's tail:\n  ${tailOf(record())}${whatIsUp(handle)}`, screen);
-  t.diagnostic(`${title}: Orca's notice came ${Math.round((notice.at - sinceUrgent) / 1000)} s after the send with --interrupt`);
-  assert.ok(notice.at < naturalEnd - 30000, `${title}: the notice came well before the loop would have ended by itself, so the busy turn was ended (notice at ${new Date(notice.at).toISOString()}, the loop's own end about ${new Date(naturalEnd).toISOString()})`);
-  const entries = record();
-  const ended = entries.slice(0, notice.index).filter((entry) => isTurnEnd(entry) && atOf(entry) >= sinceUrgent);
-  assert.ok(ended.length > 0, `${title}: the rollout shows the busy turn's end between the send with --interrupt and the notice.\n  ${tailOf(entries)}`);
 
-  // 3. Both letters are read, with obk message check (Codex only; see above).
+  // 3. Both letters are read, with obk message check (on Claude, only with
+  // the gate open).
   await until(`${title} to read both letters`, ANSWER_MS, async () => {
     const text = await mailReadIn(mailFile);
     return text.includes(quiet.word) && text.includes(urgent.word) ? true : undefined;
@@ -548,14 +646,16 @@ async function busyCase(t, { bots, title, harness, handle, recordOf, mailbox, st
 
 // ------------------------------------------------------------- the test
 
-test('one road and one signal: a busy receiver gets nothing typed without --interrupt, and --interrupt ends its turn (and, on Codex, Orca\'s notice comes)', async (t) => {
+test('one road and one signal: a busy receiver gets nothing typed without --interrupt, and --interrupt ends its turn and Orca\'s notice comes (on Claude, only in a night run that names this file)', async (t) => {
   const before = {
     handles: new Set(allTerminals().map((terminal) => terminal.handle)),
     setups: new Set(allSetups().map((setup) => setup.id)),
   };
   const bots = await realpath(await mkdtemp(path.join(os.tmpdir(), 'obk-system-interrupt-')));
   const homeOf = (bot) => path.join(bots, 'bots', bot);
-  const homes = ['bot-father', CLAUDE, CODEX].map(homeOf);
+  // NEWER's home holds no bot.yaml, so the kit takes it for no bot. It stays
+  // in the list with the gate closed too: nothing is made there then.
+  const homes = ['bot-father', CLAUDE, CODEX, NEWER].map(homeOf);
 
   // Registered before anything is created, so it runs however this test ends.
   t.after(async () => {
@@ -618,14 +718,42 @@ test('one road and one signal: a busy receiver gets nothing typed without --inte
 
   // The two senders: a failure here ends the run.
   await bringUp(CODEX, 'idle');
-  await bringUp(CLAUDE, 'idle');
+  const idleClaude = await bringUp(CLAUDE, 'idle');
 
   // The two busy receivers, side by side: each comes up in its own case, now,
   // so its loop starts now.
   const failures = await together(t, {
     'busy Claude': async () => {
       const busy = await bringUp(CLAUDE, 'busy', { wait: false });
-      await busyCase(t, { bots, ...busy, to: `${CLAUDE}/busy`, from: `${CODEX}/idle` });
+      // The night gate (the header says why): the #561 part runs only in a
+      // run that names this file, between midnight and 6 am local time.
+      const now = new Date();
+      const named = namedThisRun(THIS_FILE);
+      const night = atNight(now);
+      const gateOpen = named && night;
+      if (!gateOpen) {
+        const why = [named ? '' : 'this run does not name this file', night ? '' : `it is ${now.toTimeString().slice(0, 5)} local time, not between midnight and 6 am`].filter((one) => one !== '').join(', and ');
+        t.diagnostic(`NOT CHECKED: Orca's notice to the busy Claude receiver and its reading of both letters. The night gate is closed (${why}), so this run made no newer project, and the Claude case ends at the interrupt line. To check them, run \`npm run test:system -- --yes test/system/mail-interrupt.test.js\` between midnight and 6 am local time.`);
+      } else {
+        // The NEWER project, made here: after the busy Claude tab opens, so its
+        // project is not the newest one, and while its harness starts its first
+        // turn, so the loop still has its time (#561; the header says why).
+        const claudeTabs = [idleClaude, busy];
+        for (const one of claudeTabs) t.diagnostic(`before the newer project: Orca lists ${one.title}'s tab ${one.handle} as ${JSON.stringify(listingOf(one.handle))}`);
+        const newer = await openNewerProject(guard, homeOf(NEWER), 'Mail Newer');
+        for (const one of claudeTabs) t.diagnostic(`just after the newer project: Orca lists ${one.title}'s tab ${one.handle} as ${JSON.stringify(listingOf(one.handle))}`);
+        // A wait that does not fail: a tab still orphaned after it fails at
+        // the notice, with that cause (claudeTabInTheGraph).
+        const stop = Date.now() + REAL_MS;
+        let real = inTheGraph(listingOf(busy.handle));
+        while (!real && Date.now() < stop) {
+          await busy.screen();
+          await setTimeout(1000);
+          real = inTheGraph(listingOf(busy.handle));
+        }
+        t.diagnostic(`made the newer project at ${homeOf(NEWER)} (project ${newer.projectId}, window told: ${newer.told}), with the plain tab ${newer.handle}; the busy Claude tab listed real within ${REAL_MS} ms: ${real}`);
+      }
+      await busyCase(t, { bots, ...busy, to: `${CLAUDE}/busy`, from: `${CODEX}/idle`, gateOpen });
     },
     'busy Codex': async () => {
       const busy = await bringUp(CODEX, 'busy', { wait: false });
