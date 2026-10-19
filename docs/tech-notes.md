@@ -1047,14 +1047,19 @@ docs, or Orca's 1.4.225 bundle. The kit was tested with Pi 1.1.0.
     completions. Return then submits `/new ` trimmed, which is `/new`.
   - `/new` is taken before Pi looks at whether it is streaming, as `/reload` is. `handleClearCommand`
     shows `✓ New session started`; an extension's `session_before_switch` can cancel it.
-  - While Pi works, its status is drawn into the box's **top** rule: `── <spinner> Working (escape to
-    interrupt) ──…`, and `Compacting context... (escape to cancel)`, `Retrying (<n>/<max>) in <s>s...
-    (escape to cancel)`, `Summarizing branch... (escape to cancel)`. The key is the user's binding for
-    `app.interrupt`, `escape` by default. Pi's startup help also says `escape to interrupt`, with no
-    brackets. The kit's older busy marker, `esc to interrupt`, matches neither. So the kit counts the
-    bracketed form in a row that starts with `─` as at work, only where Orca names the agent pi: in
-    `obk session clear`'s looks and in the typing gate's idle answer, which `obk skills build` reads
-    before it types `/reload` (#663).
+  - While Pi works, its status is drawn into the box's **top** rule: `── <spinner> <message> ──…`. The
+    usual message is plain `Working` (`defaultWorkingMessage`; `showWorkingStatusIndicator` adds no hint),
+    so the row is `── ⠋ Working ───…`. It reads `Working (escape to interrupt)` only when Pi resets its
+    extensions' UI while the status is up (`resetExtensionUI`). An extension can set any message. Pi's
+    other states are `Compacting context... (escape to cancel)`, `Retrying (<n>/<max>) in <s>s... (escape
+    to cancel)` and `Summarizing branch... (escape to cancel)`, where the key is the user's binding for
+    `app.interrupt`, `escape` by default. A narrow box cuts the status. With no status, the top rule is
+    only `─`, or `─` with ` ↑ <n> more ` when a long draft scrolls (`createScrollBorder`); the bottom rule
+    can carry ` ↓ <n> more `. Pi's startup help says `escape to interrupt` too, and is no turn. The kit's
+    older busy marker, `esc to interrupt`, matches none of these. So the kit counts the box's top rule
+    with any other text in it as at work, only where Orca names the agent pi: in `obk session clear`'s
+    looks and in the typing gate's idle answer, which `obk skills build` reads before it types `/reload`
+    (#663; the plain `Working` row was the reviewer's finding).
 - **Project trust.** When the working folder or a folder above it has `.pi/settings.json`, `.pi/mcp.json`,
   `.pi/extensions|skills|prompts|themes`, `.pi/SYSTEM.md`, `.pi/APPEND_SYSTEM.md` or a project
   `.agents/skills`, Pi asks first, unless `--approve`/`--no-approve`, an extension, or a saved answer in

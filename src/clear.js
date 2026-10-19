@@ -19,7 +19,7 @@ import { botDir, readBot } from './bot.js';
 import { claudeTranscript, codexRollout } from './conversations.js';
 import { harnessOf, ownCli, shellWord } from './launch.js';
 import { eachLine, firstLine } from './lines.js';
-import { FEEDBACK_PANEL, feedbackPanelIn, findProject, orca, piAtWorkIn, QUESTION_ON_SCREEN, questionIn, screenRows, tabs, tabToTypeInto, TIMED_OUT } from './orca.js';
+import { FEEDBACK_PANEL, feedbackPanelIn, findProject, orca, piAtWorkIn, piBox, QUESTION_ON_SCREEN, questionIn, screenRows, tabs, tabToTypeInto, TIMED_OUT } from './orca.js';
 import { botsNamed, sessionsOf, typeListLine } from './up.js';
 
 /** The harness's own command for each, as typed into its input line. Codex's and Pi's clear is `/new` (tech notes, sections 3 and 6). */
@@ -100,13 +100,9 @@ const CHAR_GAP_MS = 100;
 const AT_WORK = [/esc to interrupt/i, /^\s*\S\s+\S+…\s+\(\d/];
 
 /**
- * A rule of Pi 1.3.0's input box, above and below its editor's rows, the top
- * one with Pi's status in it while it works; Pi draws its slash menu below
- * the bottom one, the selected row starting `→ ` (pi-tui's `editor.js` and
- * `select-list.js`; read in code, #663).
+ * The selected row of Pi 1.3.0's slash menu, which it draws below its input
+ * box (pi-tui's `select-list.js`; read in code, #663).
  */
-const PI_RULE = /^\s*─{3,}\s*$/;
-const PI_TOP_RULE = /^\s*─/;
 const PI_SELECTED = /^ *→ +/;
 
 /**
@@ -494,18 +490,6 @@ function codexMenuWrong(rows, at, line, command, version) {
   const selected = commands[0].replace(/^ *› +/, '');
   if (selected.split(/\s+/)[0] !== command) return { why: `the selected row of its menu is "${selected.trim()}"`, menu: true };
   return undefined;
-}
-
-/**
- * Pi's input box on the screen, `{ editor, below }`: the rows between its two
- * rules, and the rows under the bottom one. The bottom rule is the lowest full
- * rule, and the top one the nearest rule above it. Undefined with no such box.
- */
-function piBox(rows) {
-  const bottom = rows.findLastIndex((row) => PI_RULE.test(row));
-  const top = rows.slice(0, Math.max(bottom, 0)).findLastIndex((row) => PI_TOP_RULE.test(row));
-  if (bottom < 0 || top < 0) return undefined;
-  return { editor: rows.slice(top + 1, bottom), below: rows.slice(bottom + 1) };
 }
 
 /**

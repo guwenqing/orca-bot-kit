@@ -551,21 +551,46 @@ const FORM_FOOT = /Enter to (?:continue|confirm|select)\b.*Esc to cancel/i;
 const PI_FOOT = /\bescape\/ctrl\+c (?:to )?(?:cancel|close|skip setup)\b/i;
 
 /**
- * How Pi 1.3.0 says it is at work: its status drawn into its input box's top
- * rule, `── ⠋ Working (escape to interrupt) ──…`, or `… (escape to cancel)`
- * while it compacts or waits to retry (`custom-editor.js`,
- * `status-indicator.js`; read in code, #663). Its startup help says
- * `escape to interrupt` too, with no brackets, and that is no turn.
+ * The rules of Pi 1.3.0's input box, each across the whole width: the bottom
+ * one only `─`, or with Pi's ` ↓ <n> more ` (or ` ↑ <n> more `) while a long
+ * draft scrolls; the top one starting `──`, with Pi's status in it while it
+ * works, `── ⠋ Working ───…` (pi-tui `editor.js`, `custom-editor.js`; read in
+ * code, #663). Pi wraps its editor's text a column short of the width, so no
+ * row of a draft is as long as a rule.
  */
-const PI_AT_WORK = /^\s*─.*\([^()]*\bto (?:interrupt|cancel)\)/;
+const PI_SCROLL = / [↑↓] \d+ more /;
+const PI_RULE = new RegExp(`^─+(?:${PI_SCROLL.source}─*)?$`);
+const PI_TOP_RULE = /^──.*─$/;
+
+/**
+ * Pi's input box on a rendered screen, `{ top, editor, below }`: its top rule,
+ * every row between its two rules, and the rows under the bottom one (Pi's
+ * slash menu, then its footer). The bottom rule is the lowest rule, and the
+ * top one the nearest row above it that is a rule as long. Undefined when the
+ * screen has no such pair.
+ */
+export function piBox(rows) {
+  const bottom = rows.findLastIndex((row) => PI_RULE.test(row.trimEnd()));
+  if (bottom < 0) return undefined;
+  const width = [...rows[bottom].trimEnd()].length;
+  const top = rows.slice(0, bottom).findLastIndex((row) => PI_TOP_RULE.test(row.trimEnd()) && [...row.trimEnd()].length === width);
+  if (top < 0) return undefined;
+  return { top: rows[top], editor: rows.slice(top + 1, bottom), below: rows.slice(bottom + 1) };
+}
 
 /**
  * The row of a rendered screen that says the harness is at work, as only Pi
- * draws it, or undefined. `agent` is the harness Orca names in the tab: the
- * row counts only where it is pi (#663).
+ * draws it, or undefined: its input box's top rule with anything in it but
+ * the rule and the scroll label. Pi's usual status is a plain `Working`, and
+ * an extension can put its own words there, so no word is looked for; Pi's
+ * startup help says `escape to interrupt` too, and is no turn. `agent` is
+ * the harness Orca names in the tab: the row counts only where it is pi
+ * (#663).
  */
 export function piAtWorkIn(rows, agent) {
-  return agent === 'pi' ? rows.find((row) => PI_AT_WORK.test(row)) : undefined;
+  if (agent !== 'pi') return undefined;
+  const top = piBox(rows)?.top;
+  return top !== undefined && top.replace(PI_SCROLL, '').replaceAll('─', '').trim() !== '' ? top : undefined;
 }
 
 /** That pointer on a numbered choice, and the column its number starts in. */
