@@ -1069,3 +1069,36 @@ docs, or Orca's 1.4.225 bundle. The kit was tested with Pi 1.1.0.
     editor.
   - A line typed while Pi works is queued as a steering message (Enter), not a new turn. Orca types its
     notice only into an idle tab.
+- **`obk health` and a Pi session (#660).** Seen live on 2026-10-19, 02:15 local, in a throwaway fleet
+  (a research probe through `npm run test:system`, not kept), Pi 1.3.0 and Orca 1.4.225, five Pi sessions
+  on `openai/gpt-6-luna` at thinking `low`. What health said before #660:
+  - A healthy Pi, idle after its start turn: no finding, `running: yes`. Every setting was `unknown`:
+    health read the Pi record with the Codex reader, which finds nothing in it.
+  - After `/quit` in its tab: the shell-in-front finding, in the same words as for Claude Code and
+    Codex, with the restart command. Pi printed `To resume this session: pi --session <id>` and left
+    the tab's shell in front.
+  - Its tab closed: the "Orca has no tab of that id" finding, as for the others.
+  - The book given another id than the one Pi was in: the real id was named as a conversation the
+    book does not name, in words about the kit's hook ("a clear it did not record, or a Codex hooks
+    file trusted late"), which are not true for Pi. Nothing said that the book's own id had no Pi
+    record.
+  - A session whose model Pi does not list, and health with no `pi` on PATH: no finding.
+  - No hook finding and no permission-rule finding for the Pi-only bot.
+  - Pi's model selector (`/model`): no finding. The kit's typing gate answered that the tab was idle
+    and could take a line, and Orca's `terminal wait --for tui-idle` was satisfied with no
+    `blockedReason`. The selector replaces Pi's input box between its two rules, with a `→` pointer,
+    and its foot is `Enter to select · Ctrl+S to set as default · Escape/Ctrl+C to cancel`, which the
+    kit's screen check does not take for a question. Its title stayed `π - <name> - <folder>`, with no
+    `!`. #661 teaches the screen check this screen; health has no screen finding for any harness.
+  - `ps -E -ww -o command= -p <pid>` of a running Pi gave the one word `pi`: no arguments and no
+    environment, so neither `ORCA_TAB_ID` nor the kit's `OBK_TAB_SHELL` mark can be read. So health
+    cannot tell a Pi that the kit started from one that Orca restored with `pi --session <path>`
+    (above), and it says nothing about it. `frontOfTab` gave `{ front: 'program', command: 'pi' }`,
+    and the gate gave `agent: 'pi'`, `idle: true`.
+  - Orca's `terminal show` gave `agentIdentity: pi` and the title `Pi ready` or `π - <name> - <folder>`;
+    after `/quit` the identity was gone. Every tab of the throwaway project was listed as orphaned.
+  - A Pi record names the model and thinking level on each reply: an assistant `message` carries
+    `provider`, `model` and `thinkingLevel`, beside the `model_change` (`provider`, `modelId`) and
+    `thinking_level_change` (`thinkingLevel`) lines written at the start. **seen** in a kit-dev Pi
+    record of 2026-10-18, and **read in docs** (`docs/session-format.md`: a `model_change` may name a
+    virtual model, and the replies then name the physical model that answered).
