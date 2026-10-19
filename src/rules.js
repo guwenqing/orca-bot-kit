@@ -22,7 +22,7 @@ import { parse } from 'yaml';
 
 import { botDir, botNames, displayName, readBot, refuseOutside } from './bot.js';
 import { dropRemovedHooks } from './hooks.js';
-import { ownCli, shellWord } from './launch.js';
+import { ownCli, runsOnPi, shellWord } from './launch.js';
 
 /** The kit's own units, inside the installed package. */
 const KIT_RULES = fileURLToPath(new URL('../rules', import.meta.url));
@@ -73,8 +73,16 @@ const checksum = (text) => createHash('sha256').update(text).digest('hex').slice
  * What the bot carries is `failed` — a name that resolves to nothing, a unit
  * that cannot be read — and the user fixes it in a list. The file itself is
  * `conflict`, which only the person who edited it can settle.
+ *
+ * A bot that runs on Pi has `pi: true` too, for the report to say what the
+ * kit does and does not write for Pi (#659).
  */
 export function buildAgents(bots, home, bot) {
+  const built = agentsInto(bots, home, bot);
+  return runsOnPi(bot) ? { ...built, pi: true } : built;
+}
+
+function agentsInto(bots, home, bot) {
   const file = path.join(home, AGENTS);
 
   let built;

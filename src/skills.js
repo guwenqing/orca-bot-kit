@@ -8,7 +8,9 @@
 // away reaches it without a restart. Claude Code takes it through its own
 // `/reload-skills`, which `obk skills build` types into the session's tab.
 // Codex has no such command and takes it at the start of its next turn (tech
-// notes, sections 2 and 3). Outwards: the kit takes away only the links it put
+// notes, sections 2 and 3). Pi loads the Codex directory, which its launch
+// line names, and takes a change at its own `/reload`, typed only while it is
+// idle (section 6, #659). Outwards: the kit takes away only the links it put
 // there, and never the skill one was pointing at.
 //
 // An entry names one of four shelves: the kit's own (`kit:<name>`), an online
@@ -25,7 +27,7 @@ import { parse, parseDocument, stringify } from 'yaml';
 
 import { bookFile, readBook, takeLineTurn, TYPING_HELD, TYPING_WAIT_MS } from './book.js';
 import { botDir, botNames, changesExactly, leadsOutside, readBot, refuseOutside, withBotTurn, writeWhole, YAML_OUT } from './bot.js';
-import { harnessOf, ownCli, shellWord } from './launch.js';
+import { harnessOf, ownCli, piSkillsDir, runsOnPi, shellWord } from './launch.js';
 import { orcaTrouble, tabToTypeInto, typeIntoTab } from './orca.js';
 import { listIn } from './rules.js';
 import { cloneDir, isCloned, leavesClone, readSources, skillsIn, wrongClone } from './sources.js';
@@ -142,12 +144,18 @@ export function removeSkill(bots, bot, ref) {
 /**
  * Give one bot the skills its lists name. Returns what there is to report:
  * `{ bot, skills, linked, removed }` for a bot whose links are in place, and
- * `{ bot, skills, trouble }` for one whose list the kit could not follow.
+ * `{ bot, skills, trouble }` for one whose list the kit could not follow. A bot
+ * that runs on Pi has `pi` too: the directory its Pi sessions load (#659).
  *
  * A list with one entry the kit cannot follow links nothing at all: half a
  * bot's skills is not a bot anybody asked for, and the user fixes one line.
  */
 export function linkSkills(bots, home, bot) {
+  const entry = linkInto(bots, home, bot);
+  return runsOnPi(bot) ? { ...entry, pi: piSkillsDir(home) } : entry;
+}
+
+function linkInto(bots, home, bot) {
   const record = readRecord(home);
   const held = new Map();
 
@@ -440,7 +448,7 @@ const LOOK_MS = 2000;
  * harness's own means (PRD 6.5: changes reach running sessions without a
  * restart, and the sessions a change affects are told). Returns one entry per
  * session, in the bot's order: `{ session, harness, state }`, where the state
- * is `reloaded`, `next-turn` (with `read`), `not-up`, `blocked` (with
+ * is `reloaded`, `next-turn` (with `read`), `busy`, `not-up`, `blocked` (with
  * `blocked`) or `unknown` (with `trouble`).
  *
  * Claude Code gets `/reload-skills` typed into its tab, through the same gate
@@ -449,7 +457,11 @@ const LOOK_MS = 2000;
  * command and takes the change at the start of its next turn by itself, so
  * nothing is typed, and the caller is given the SKILL.md of each skill linked
  * in, for the session to read if the skill has not appeared (tech notes,
- * sections 2 and 3). Nothing is ever restarted.
+ * sections 2 and 3). Pi gets its own `/reload` through the same gate, and only
+ * while it is idle: a busy Pi refuses the command and keeps nothing for later,
+ * so a busy one is `busy`, and one with a draft in its input line is typed
+ * nothing either, since the command would join the draft (section 6, #659).
+ * Nothing is ever restarted.
  */
 function tellSessions(home, bot, linked) {
   let book;
@@ -478,9 +490,6 @@ function tellSessions(home, bot, linked) {
     const told = { session: session.name, harness };
     const tab = typeof book[session.name]?.tab === 'string' ? book[session.name].tab : undefined;
     if (tab === undefined) return { ...told, state: 'not-up' };
-    // Skills reach a Pi session in a later slice (#547), and nothing is typed
-    // into its tab before then.
-    if (harness === 'pi') return { ...told, state: 'unknown', trouble: 'it runs on Pi, and the kit does not give a Pi session skills yet, so nothing was typed' };
     if (down !== undefined) return { ...told, state: 'unknown', trouble: `the kit could not look at its tab, and nothing was typed: ${down}` };
     let turn;
     try {
@@ -505,7 +514,11 @@ function tellSessions(home, bot, linked) {
         const read = linked.map((name) => path.join(home, SKILL_DIRS.codex, name, MANIFEST)).filter((file) => existsSync(file));
         return { ...told, state: 'next-turn', read };
       }
-      typeIntoTab(found.handle, '/reload-skills');
+      if (harness === 'pi') {
+        if (found.draft !== undefined) return { ...told, state: 'unknown', trouble: `its input line holds a draft, "${found.draft}", and /reload would join it, so nothing was typed` };
+        if (!found.idle) return { ...told, state: 'busy' };
+      }
+      typeIntoTab(found.handle, harness === 'pi' ? '/reload' : '/reload-skills');
       return { ...told, state: 'reloaded' };
     } catch (error) {
       // The links are made whatever Orca says, so this is reported, not
