@@ -168,7 +168,10 @@ export async function compactSession(bots, { bot, session }) {
 /**
  * The session as something to type into, once everything that refuses before
  * Orca is asked to type has been asked: `{ name, home, session, harness, tabId }`.
- * A `verb`, clear or compact, is refused on Pi until a later slice of #547.
+ * A `verb`, clear or compact, is refused on Pi. The kit has not yet seen Pi's
+ * input line and slash menu through Orca's screen, which its check before the
+ * return needs (#663); a `/new` typed in a Pi tab is followed by the book all
+ * the same (#662).
  */
 export function sessionToType(bots, bot, session, verb) {
   botsNamed(bots, bot);
@@ -176,6 +179,9 @@ export function sessionToType(bots, bot, session, verb) {
   const known = readBot(home, bot);
   const [settings] = sessionsOf(known, session);
   const name = `${bot} ${session}`;
+  if (verb === 'clear' && harnessOf(settings, known.harness) === 'pi') {
+    throw new Error(`${name} runs on Pi, and obk session clear does not type into a Pi tab yet: the kit cannot yet check what Pi's screen shows before it presses return (#663). Type /new in its tab yourself: the book follows it, and the new conversation gets its start prompt again. Nothing was typed.`);
+  }
   if (verb !== undefined && harnessOf(settings, known.harness) === 'pi') {
     throw new Error(`${name} runs on Pi, and obk session ${verb} does not work on a Pi session yet: a later slice of #547 adds it. Nothing was typed.`);
   }
