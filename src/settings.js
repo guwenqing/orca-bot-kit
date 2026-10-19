@@ -2,7 +2,7 @@
 //
 // A session can run on settings other than the ones bot.yaml asks for: it
 // started before a change, a default of the user's own leaked in, or a flag was
-// dropped. Each harness writes down what it used (tech notes, sections 2 and 3),
+// dropped. Each harness writes down what it used (tech notes, sections 2, 3 and 6),
 // so the two can be put side by side. Read only: these are the harness's files.
 //
 // Four answers, and only one of them is good news. A record that cannot be read,
@@ -10,7 +10,8 @@
 // setting the session never asked for is not a disagreement either, whatever the
 // harness chose: it is `not-asked-for`.
 
-import { DEFAULT_APPROVAL } from './launch.js';
+import { defaultApproval } from './launch.js';
+import { withoutThinking } from './pi.js';
 import { lines } from './usage.js';
 
 export const SETTINGS = ['model', 'effort', 'context', 'approval'];
@@ -22,8 +23,9 @@ export const SETTINGS = ['model', 'effort', 'context', 'approval'];
  * every setting asked for is then unknown.
  */
 export function settingsInUse(harness, session, file, since) {
-  const used = file === undefined ? {} : (harness === 'claude' ? fromClaude : fromCodex)(sinceStart(lines(file), since));
-  return Object.fromEntries(SETTINGS.map((name) => [name, judged(harness, name, asked(session, name), used[name])]));
+  const reader = harness === 'claude' ? fromClaude : harness === 'pi' ? fromPi : fromCodex;
+  const used = file === undefined ? {} : reader(sinceStart(lines(file), since));
+  return Object.fromEntries(SETTINGS.map((name) => [name, judged(harness, name, asked(harness, session, name), used[name])]));
 }
 
 /**
@@ -42,12 +44,13 @@ function sinceStart(entries, since) {
 }
 
 /** What the session asks for, as bot.yaml has it, or undefined when it asks for nothing. */
-function asked(session, name) {
+function asked(harness, session, name) {
   const value = session[name];
   const set = value !== undefined && value !== null && String(value).trim() !== '';
   // The kit puts an approval level on every launch line, so a session always
-  // asks for one: the default, when it names none (ADR 0015).
-  if (name === 'approval') return set ? String(value).trim() : DEFAULT_APPROVAL;
+  // asks for one: its harness's default, when it names none (ADR 0015). Pi
+  // has one level (#547).
+  if (name === 'approval') return set ? String(value).trim() : defaultApproval(harness);
   return set ? String(value).trim() : undefined;
 }
 
@@ -62,7 +65,7 @@ function judged(harness, name, configured, observed) {
 /** Whether the record says what was asked for; undefined when it cannot say. */
 function same(harness, name, configured, observed) {
   if (observed === undefined) return undefined;
-  if (name === 'model') return sameModel(configured, observed);
+  if (name === 'model') return harness === 'pi' ? samePiModel(configured, observed) : sameModel(configured, observed);
   // Codex reports the window it was given at 95%, rounded down (tech notes,
   // section 3): 200000 comes back as 190000.
   if (name === 'context') return Number(observed) === Math.floor(Number(configured) * 0.95);
@@ -80,6 +83,16 @@ function same(harness, name, configured, observed) {
 function sameModel(configured, observed) {
   const model = configured.replace(/\[[^\]]*\]$/, '');
   return model.includes('-') ? observed === model : observed.split('-').includes(model);
+}
+
+/**
+ * A Pi model as bot.yaml names it, `openai/gpt-6-luna` or `gpt-6-luna`, maybe
+ * with a trailing `:<thinking level>`, against the `<provider>/<model>` Pi
+ * wrote down: it matches either whole.
+ */
+function samePiModel(configured, observed) {
+  const model = withoutThinking(configured);
+  return model === observed || model === observed.slice(observed.indexOf('/') + 1);
 }
 
 /** The permission mode Claude Code records for each level (tech notes, section 2). */
@@ -130,6 +143,25 @@ function fromClaude(entries) {
       if (typeof entry.effort === 'string') used.effort = entry.effort;
     }
     if (typeof entry.permissionMode === 'string') used.approval = entry.permissionMode;
+  }
+  return used;
+}
+
+/**
+ * What a Pi record says it runs with, the latest of each: the model a
+ * `model_change` line chose or a reply names, as `<provider>/<model>`, and the
+ * thinking level a `thinking_level_change` line set or a reply carries (tech
+ * notes, section 6). Pi writes nothing about approval.
+ */
+function fromPi(entries) {
+  const used = {};
+  const named = (provider, model) => (typeof provider === 'string' && typeof model === 'string' ? `${provider}/${model}` : undefined);
+  for (const entry of entries) {
+    const reply = entry.type === 'message' && entry.message?.role === 'assistant' ? entry.message : undefined;
+    const model = entry.type === 'model_change' ? named(entry.provider, entry.modelId) : named(reply?.provider, reply?.model);
+    if (model !== undefined) used.model = model;
+    const level = entry.type === 'thinking_level_change' ? entry.thinkingLevel : reply?.thinkingLevel;
+    if (typeof level === 'string') used.effort = level;
   }
   return used;
 }
