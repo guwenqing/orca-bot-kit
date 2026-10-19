@@ -1102,3 +1102,9 @@ docs, or Orca's 1.4.225 bundle. The kit was tested with Pi 1.1.0.
     `thinking_level_change` (`thinkingLevel`) lines written at the start. **seen** in a kit-dev Pi
     record of 2026-10-18, and **read in docs** (`docs/session-format.md`: a `model_change` may name a
     virtual model, and the replies then name the physical model that answered).
+  - **Seen live after #660** (2026-10-19, 03:45 local, `test/system/pi-health.test.js` at 584d806,
+    passing, same versions): the healthy Pi had model `match` (observed `openai/gpt-6-luna`) and effort
+    `match` (observed `low`), read from its record, and no finding. With another id in the book: the
+    finding that Pi has no record of it, and the one that names Pi's real id as not in the book, neither
+    with words about a hook. A model Pi does not list: a config finding naming the session, the model
+    and `pi --list-models`. No `pi` on PATH: one config finding to install Pi, and no model finding.
