@@ -1068,3 +1068,58 @@ docs, or Orca's 1.4.225 bundle. The kit was tested with Pi 1.1.0.
     editor.
   - A line typed while Pi works is queued as a steering message (Enter), not a new turn. Orca types its
     notice only into an idle tab.
+- **Rules and skills in a Pi session (#659).** Read in Pi 1.3.0's `dist/` (`core/skills.js`,
+  `core/resource-loader.js`, `main.js`, `modes/interactive/interactive-mode.js`) and seen live on
+  2026-10-19 between 01:30 and 01:45 local. Each probe ran the real `pi` 1.3.0 outside Orca, in a
+  throwaway folder in the scratchpad: a bot folder with `AGENTS.md`, a `CLAUDE.md` link to it,
+  `.agents/skills` holding one real skill folder, one link to a skill folder outside and one link that
+  leads nowhere, and `.pi/skills` holding one more. The `ORCA_*` and `OBK_*` variables were taken out
+  of each probe's environment, so Orca's Pi extensions told Orca nothing. The probes that asked the
+  model used `openai/gpt-6-luna` at thinking `low` and prompts that asked only for a word.
+  - **`--skill <folder>` loads every skill in that folder with `--no-approve` on.** **Seen live**, by
+    `pi --mode rpc --no-session --no-approve --skill <bot>/.agents/skills` and RPC `get_commands`, which
+    lists the skills and calls no model: the real skill and the linked one were listed, with source
+    `local` and scope `temporary`. The link that leads nowhere was left out with no message
+    (`skills.js`: "Broken symlink, skip it"). The `.pi/skills` skill was not listed. Without `--skill`,
+    the same line listed none of the folder's skills. With `--approve` instead, the `.pi/skills` skill
+    and both `.agents/skills` skills were listed. Each run listed the skills in the user's own
+    `~/.agents/skills` as well: Pi reads that folder whatever the trust.
+  - In code: Pi resolves each `--skill` path against the working folder and gives it to the resource
+    loader as an extra skill path. The loader loads extra paths whatever the project trust and whatever
+    `--no-skills`. In a folder it follows links to folders, takes a folder with a `SKILL.md` as one
+    skill and looks no deeper, skips names that start with `.` and `node_modules`, and honours
+    `.gitignore`, `.ignore` and `.fdignore`. A skill's name is its frontmatter `name`, or else its
+    folder's name. A skill with no `description` is not loaded. Of two skills with one name, the first
+    found wins, and Pi warns of the other. The `<location>` the model is given is the path through the
+    link, not the real path.
+  - `--no-approve` gives no implicit trust on `/reload` either: `main.js` sets `autoTrustOnReloadCwd`
+    only when neither flag is given, and `trust.json` is left alone. **read in code**.
+  - **A running Pi session does not take a new skill, or a changed `AGENTS.md`, by itself.** **Seen
+    live** in an interactive `pi --session-dir <scratch> --no-approve --skill <bot>/.agents/skills`
+    driven through a pseudo-terminal. After the first turn, a link to a second skill was put into
+    `.agents/skills`, the first link was taken away, and `AGENTS.md` got another probe word. The
+    second turn's session file held no new system message. Then `/reload` printed `Reloaded
+    keybindings, extensions, skills, prompts, themes, and context files` and listed the new skill
+    set. The third turn's session file held a `message` with `role: "system"` whose `sections` were
+    `project_context` (the new probe word) and `skills` (the new skill in, the old one out).
+  - So Pi 1.3.0 sends a change to its system prompt as a system message at the next turn, with only
+    the sections that changed (`_preparePromptAndToolLoadout`, `diffSystemPromptSections`). An
+    `/export` to HTML shows the prompt the session started with, not that change, so it cannot show
+    whether a reload took. A model asked to list its skills after a reload once repeated its earlier
+    answer: the session file is the check.
+  - **`/reload` is refused while Pi works.** **Seen live**: `/reload` typed during a turn that ran
+    `sleep 20` printed `Wait for the current response to finish before reloading.`, and nothing was
+    reloaded or queued. In code, the editor's submit handler takes `/reload` before it looks at
+    whether Pi is streaming (`handleReloadCommand`), so a busy Pi does not keep it for later, unlike a
+    line of text, which it queues as steering.
+  - **Typed one character at a time, `/reload` did not run.** **Seen live**: with 10 ms between
+    characters, the command menu opened at `/` and the return did not run `/reload`. The same text
+    written to the terminal in one piece, then a return 0.3 s later, ran it. How `orca terminal send
+    --text … --enter` writes its text is not known: the system test shows it.
+  - Context files: the probes' startup listing showed `[Context] AGENTS.md` and no `CLAUDE.md`, and
+    the line `This project is not trusted. Project .pi resources and packages are ignored.` **seen
+    live**.
+  - So the kit puts `--skill <bot home>/.agents/skills` on each Pi launch line, the folder it already
+    links every bot's skills into for Codex, and never writes into `~/.pi/agent`. `obk skills build`
+    types `/reload` into a Pi session's tab only when Orca finds it idle. A Pi session reads the bot's
+    `AGENTS.md` because its tab starts in the bot folder.
