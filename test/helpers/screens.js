@@ -1934,10 +1934,25 @@ const piRule = (width = PI_WIDTH) => '─'.repeat(width);
 /** A rule of Pi's input box at the usual width. */
 const PI_RULE = piRule();
 
-/** Pi's top rule with its status drawn into it while it works: `── ⠋ <words> ─…`, `width` wide. */
+/**
+ * The terminal columns `text` fills: a combining mark none, a wide character
+ * (a CJK character, an emoji) two, any other character one. Pi lays its rows
+ * out by columns, not by characters (the review of #663). This covers the
+ * characters these screens use; it is not a full East Asian Width table.
+ */
+const columnsOf = (text) => [...text].reduce(
+  (sum, ch) => sum + (/\p{M}/u.test(ch) ? 0 : /[\p{Script=Han}\p{Extended_Pictographic}]/u.test(ch) ? 2 : 1),
+  0,
+);
+
+/**
+ * Pi's top rule with its status drawn into it while it works: `── ⠋ <words> ─…`,
+ * `width` columns wide. With wide or combining characters in the words, the
+ * row holds another count of characters than the bottom rule.
+ */
 export const piStatusRule = (words, width = PI_WIDTH) => {
   const head = `── ⠋ ${words} `;
-  return `${head}${'─'.repeat(Math.max(0, width - head.length))}`;
+  return `${head}${'─'.repeat(Math.max(0, width - columnsOf(head)))}`;
 };
 
 /** A rule with Pi's scroll label, ` ↑ 3 more ` or ` ↓ 2 more `, centred in it. */
@@ -2016,6 +2031,18 @@ export const PI_WORKING = piScreen({ top: PI_WORKING_RULE });
 
 /** Pi at work with `words` in its top rule, its editor empty. */
 export const piBusyWith = (words) => piScreen({ top: piStatusRule(words) });
+
+/**
+ * Pi at work with an extension's status in wide or combining characters, the
+ * top rule as wide in columns as the bottom rule but not as long in
+ * characters (the review of #663, from Pi 1.3.0's renderer at 120 columns):
+ * an emoji, 2 columns in 1 code point, gives 119 code points; four CJK
+ * characters, 2 columns each, give 116; an `e` with a combining acute,
+ * U+0301, 1 column in 2 code points, gives 121. The words are made up.
+ */
+export const PI_WORKING_EMOJI = piBusyWith('Reading 🔎');
+export const PI_WORKING_CJK = piBusyWith('正在处理');
+export const PI_WORKING_COMBINING = piBusyWith('Cafe\u0301');
 
 /** The width of the narrow Pi screen below. */
 const PI_NARROW = 28;

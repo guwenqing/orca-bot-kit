@@ -54,6 +54,17 @@
 //         such pair, nothing is typed, and the refusal says the screen shows
 //         no input box. (The review's second finding: a looser reading took
 //         an editor row `─ a draft of the user` for the top rule.)
+//       - Wide characters (the review of 5455aa6): Pi lays its rows out by
+//         terminal columns, so a status with an emoji, CJK characters or a
+//         combining mark fills the full width with another count of
+//         characters than the bottom rule. The kit does not measure columns.
+//         So where a bottom rule is found but no top rule as long as it, a
+//         row above it that starts `──`, ends `─` and holds text besides rule
+//         characters and the scroll label is Pi at work, as above: waited
+//         out, refused as busy at 30 s, nothing typed, and the typing gate
+//         calls the tab not idle (skills build types no `/reload`). An idle
+//         top rule holds no text, so its length always matches. A shorter
+//         rule with no text in it (D3) is still no input box.
 //       - After `/new`, before the return: the editor's row reads exactly
 //         `/new` (or Orca's draft does), and the menu row below the bottom rule
 //         that starts with `→` has `new` as its first word. Otherwise the four
@@ -135,8 +146,11 @@ import {
   PI_SHORT_TOP,
   PI_SUMMARY_IN_CHAT,
   PI_WORKING,
+  PI_WORKING_CJK,
+  PI_WORKING_COMBINING,
   PI_WORKING_CUT,
   PI_WORKING_DASHES_IN_EDITOR,
+  PI_WORKING_EMOJI,
   PI_WORKING_RULE,
   piAtWork,
   piBusyWith,
@@ -146,6 +160,25 @@ import {
 import { addSkills, botYamlOf } from './helpers/skills.js';
 
 const BOT = 'pi-bot';
+
+// Pi's status in wide or combining characters (the review of 5455aa6): each
+// top rule fills the bottom rule's 120 columns, with the code points Pi 1.3.0's
+// renderer gave at that width. `names` is the status the refusal shows.
+const WIDE_STATUSES = [
+  { screen: PI_WORKING_EMOJI, codePoints: 119, names: '⠋ Reading 🔎', what: 'an extension\'s message with an emoji, "── ⠋ Reading 🔎 ──…", 119 code points in 120 columns' },
+  { screen: PI_WORKING_CJK, codePoints: 116, names: '⠋ 正在处理', what: 'an extension\'s message in CJK characters, "── ⠋ 正在处理 ──…", 116 code points in 120 columns' },
+  { screen: PI_WORKING_COMBINING, codePoints: 121, names: '⠋ Cafe\u0301', what: 'an extension\'s message with a combining acute, "── ⠋ Café ──…", 121 code points in 120 columns' },
+];
+
+/** The premise of a wide-character case: its top rule has the code points the review measured, and its bottom rule 120. */
+function assertWidePremise(screen, what) {
+  const wide = WIDE_STATUSES.find((entry) => entry.screen === screen);
+  if (wide === undefined) return;
+  const top = screen.find((row) => row.startsWith('── ⠋'));
+  const bottom = screen.findLast((row) => /^─+$/.test(row));
+  assert.equal([...top].length, wide.codePoints, `the premise (${what}): the top rule's code points`);
+  assert.equal([...bottom].length, 120, `the premise (${what}): the bottom rule's code points`);
+}
 const PROMPT = 'Read your AGENTS.md and keep the queue moving.';
 
 /** The id Pi makes for the new conversation, as its extension reports it. */
@@ -540,8 +573,12 @@ describe('obk session clear on a Pi session types /new and is confirmed by the b
     { screen: piBusyWith('Compacting context... (escape to cancel)'), what: '"── ⠋ Compacting context... (escape to cancel) ──…"' },
     { screen: piBusyWith('Retrying (1/3) in 4s... (escape to cancel)'), what: '"── ⠋ Retrying (1/3) in 4s... (escape to cancel) ──…"' },
     { screen: piBusyWith('Working (ctrl+x to interrupt)'), what: 'a rebound key, "── ⠋ Working (ctrl+x to interrupt) ──…"' },
+    // Wide characters: the top rule fills the 120 columns of the bottom rule
+    // with another count of code points (the review of 5455aa6).
+    ...WIDE_STATUSES,
   ]) {
     it(`B1 Pi at work by its top rule ${what}, Orca's tui-idle ok: waited out, nothing typed until a read shows Pi at rest, then /new is entered`, LIMIT, async (t) => {
+      assertWidePremise(screen, what);
       const box = await createSandbox(t);
       const bots = await piRunning(box);
       const tab = await liveTab(box, bots);
@@ -703,25 +740,31 @@ describe('#663: Pi refusals once /new is typed, side by side', { concurrency: tr
 // ---------------------------------------------------------------- the waits that run out
 
 describe('#663: the Pi waits that run out, side by side', { concurrency: true }, () => {
-  it('X1 Pi at work by its usual top rule "── ⠋ Working ──…" for the whole 30 s, Orca\'s tui-idle ok: refused after about that long, saying it is busy and naming the row, nothing typed', LIMIT, async (t) => {
-    const box = await createSandbox(t);
-    const bots = await piRunning(box);
-    const was = (await sessionIn(bots, BOT, 'daily')).session;
-    await changeTab(box, (await liveTab(box, bots)).tabId, { screen: PI_WORKING });
-    const before = await typedEverywhere(box);
+  for (const { screen, what, names } of [
+    { screen: PI_WORKING, what: 'its usual top rule "── ⠋ Working ──…"', names: '⠋ Working' },
+    ...WIDE_STATUSES,
+  ]) {
+    it(`X1 Pi at work by ${what === 'its usual top rule "── ⠋ Working ──…"' ? what : `its top rule ${what}`} for the whole 30 s, Orca's tui-idle ok: refused after about that long, saying it is busy and naming the row, nothing typed`, LIMIT, async (t) => {
+      assertWidePremise(screen, what);
+      const box = await createSandbox(t);
+      const bots = await piRunning(box);
+      const was = (await sessionIn(bots, BOT, 'daily')).session;
+      await changeTab(box, (await liveTab(box, bots)).tabId, { screen });
+      const before = await typedEverywhere(box);
 
-    const started = Date.now();
-    const result = await clearOf(box);
-    const took = Date.now() - started;
+      const started = Date.now();
+      const result = await clearOf(box);
+      const took = Date.now() - started;
 
-    const said = assertRefused(result);
-    assert.match(said, /busy/i, `it says the session is busy, got:\n${said}`);
-    assert.ok(said.includes('⠋ Working'), `and names its signal, the at-work row "── ⠋ Working ──…", got:\n${said}`);
-    await assertNothingTyped(box, before, 'Pi at work throughout');
-    assert.ok(took >= 25_000, `it waited for the session, up to 30 s, before refusing; it took ${took} ms`);
-    assert.ok(took < 90_000, `and the wait is bounded; it took ${took} ms`);
-    assert.equal((await sessionIn(bots, BOT, 'daily')).session, was, 'the book is as it was');
-  });
+      const said = assertRefused(result);
+      assert.match(said, /busy/i, `it says the session is busy, got:\n${said}`);
+      assert.ok(said.includes(names), `and names its signal, the at-work row with "${names}", got:\n${said}`);
+      await assertNothingTyped(box, before, 'Pi at work throughout');
+      assert.ok(took >= 25_000, `it waited for the session, up to 30 s, before refusing; it took ${took} ms`);
+      assert.ok(took < 90_000, `and the wait is bounded; it took ${took} ms`);
+      assert.equal((await sessionIn(bots, BOT, 'daily')).session, was, 'the book is as it was');
+    });
+  }
 
   it('X1 Pi\'s /model selector on screen for the whole 30 s, Orca calling the tab idle: refused, saying a question is up, nothing typed', LIMIT, async (t) => {
     const box = await createSandbox(t);
@@ -847,8 +890,10 @@ describe('#663: skills build and Pi\'s at-work row', { concurrency: 2 }, () => {
   for (const { screen, what } of [
     { screen: PI_WORKING, what: 'its usual row "── ⠋ Working ──…"' },
     { screen: piBusyWith('Reading the pull request'), what: 'an extension\'s own message "── ⠋ Reading the pull request ──…"' },
+    ...WIDE_STATUSES,
   ]) {
     it(`S1 a Pi tab showing Pi at work by its top rule, ${what}, Orca's tui-idle ok: no /reload typed, not told, and it says the session is busy`, LIMIT, async (t) => {
+      assertWidePremise(screen, what);
       const box = await createSandbox(t);
       const bots = await piRunning(box, { sessions: ['daily'] });
       await changeTab(box, (await liveTab(box, bots)).tabId, { screen });

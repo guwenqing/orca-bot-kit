@@ -387,16 +387,27 @@ const isBottomRule = (row) => row.trimEnd().startsWith('─') && ruleWords(row) 
 function inputBoxOf(rows) {
   const bottom = rows.findLastIndex(isBottomRule);
   if (bottom < 1) return undefined;
-  const width = rows[bottom].length;
-  const top = rows.slice(0, bottom).findLastIndex((row) => row.startsWith('──') && row.endsWith('─') && row.length === width);
+  const width = [...rows[bottom]].length;
+  const top = rows.slice(0, bottom).findLastIndex((row) => isRuleShaped(row) && [...row].length === width);
   if (top < 0) return undefined;
   return { top: rows[top], editor: rows.slice(top + 1, bottom), below: rows.slice(bottom + 1) };
 }
 
-/** Whether Pi's top rule on `rows` says it is at work: any text in it besides `─` and the scroll label. */
+/** A row shaped like a top rule: starts `──`, ends `─`. */
+const isRuleShaped = (row) => row.startsWith('──') && row.endsWith('─');
+
+/**
+ * Whether Pi's top rule on `rows` says it is at work: any text in it besides
+ * `─` and the scroll label. With a bottom rule but no top rule as long as it,
+ * a rule-shaped row above it with text in it counts too: a status in wide or
+ * combining characters fills the columns with another count of code points
+ * (the review of 5455aa6).
+ */
 const atWorkOn = (rows) => {
   const box = inputBoxOf(rows ?? []);
-  return box !== undefined && ruleWords(box.top) !== '';
+  if (box !== undefined) return ruleWords(box.top) !== '';
+  const bottom = (rows ?? []).findLastIndex(isBottomRule);
+  return bottom > 0 && rows.slice(0, bottom).some((row) => isRuleShaped(row) && ruleWords(row) !== '');
 };
 
 /** Fail unless Pi's editor in the tab is empty now: no draft from Orca, and every row between the two rules blank. */
