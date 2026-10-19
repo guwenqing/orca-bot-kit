@@ -29,12 +29,21 @@
 //   2. The test adds a second skill to the list with `obk skills add` and runs
 //      `obk skills build` while the Pi tab is idle. The build's line for
 //      `pi-rs/daily` says `reloaded`.
-//   3. One letter from the sender gives the Pi session one more turn, by
+//   3. A Pi tab on one of Pi's own selectors is not idle (the architect's
+//      ruling after developer-660's live look on 2026-10-19). The test opens
+//      `/model` in the idle Pi tab, typed as the kit types a line, and waits
+//      for the selector's foot. It adds a third skill and runs
+//      `obk skills build`. The line for `pi-rs/daily` says `not told`, and
+//      the selector is still on screen with no `/reload` in it. Then one
+//      Escape closes the selector, and the test waits for the tab to be idle.
+//   4. It adds a fourth skill and runs `obk skills build` again (a build tells
+//      only when its links change). The line says `reloaded`.
+//   5. One letter from the sender gives the Pi session one more turn, by
 //      Orca's own notice. A later system message in its session file has a
-//      `skills` section that holds the second skill's name. Without the
-//      `/reload`, Pi takes no new skill by itself (tech notes, section 6, seen
-//      live), so this shows the reload took.
-//   4. Nothing new appeared under ~/.pi/agent but the two sessions' own folders
+//      `skills` section that holds the fourth and the third skill's names.
+//      Without a `/reload`, Pi takes no new skill by itself (tech notes,
+//      section 6, seen live), so this shows the reload took.
+//   6. Nothing new appeared under ~/.pi/agent but the two sessions' own folders
 //      and files, and ~/.pi/agent/trust.json is byte for byte what it was.
 //
 // What is ASSERTED is judged from Pi's own record of the session,
@@ -63,8 +72,10 @@
 //     creates anything;
 //   - runs this checkout's `src/cli.js` by its full path, never the machine's
 //     `obk`;
-//   - types at no bot: the only keys that go into a tab are the kit's launch
-//     lines, the kit's `/reload`, and Orca's own notice;
+//   - types into its own throwaway Pi tab only, and only these: `/model` with
+//     a return, one Escape to close that selector, and the kit's `/reload`;
+//     beside them the only keys that reach any tab are the kit's launch lines
+//     and Orca's own notice;
 //   - closes only its own tabs, through the tab guard, then deletes its own
 //     workspaces, whatever happened;
 //   - removes Pi's session folders of its own two throwaway bot folders, and
@@ -76,11 +87,13 @@
 // ~/.claude.json and ~/.codex/config.toml before the run and compares them
 // after it.
 //
-// **Nobody answers anything by hand.** No Pi tab here should ask anything: Pi
-// shows no trust screen with the kit's `--no-approve`. Bot Father's own tab is
-// left as it comes up; nothing is sent to it. So the test answers no screen:
-// any question on a Pi tab's screen (`questionOn`), and Pi's trust screen by
-// its title, stops the run at once, with the screen in the failure message.
+// **Nobody answers anything by hand.** No Pi tab here should ask anything but
+// the /model selector this test opens itself and closes with its one Escape:
+// Pi shows no trust screen with the kit's `--no-approve`. Bot Father's own tab
+// is left as it comes up; nothing is sent to it. So the test answers no other
+// screen: any question on a Pi tab's screen (`questionOn`), and Pi's trust
+// screen by its title, stops the run at once, with the screen in the failure
+// message.
 //
 // The model: Pi on `openai/gpt-6-luna` at thinking `low`, as pi-mail.test.js.
 // Each session is told to answer with one word and to use no tool.
@@ -88,7 +101,7 @@
 // What it cannot clean up, and says so: the Run mailboxes it makes (Orca has
 // no `run-delete`), and whatever Orca keeps of its own for these tabs.
 //
-// It takes about five minutes.
+// It takes about six minutes.
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -144,11 +157,25 @@ const PI_TRUST = path.join(PI_AGENT, 'trust.json');
 /** The title of Pi's project-trust screen (tech notes, section 6), which --no-approve should keep away. */
 const PI_TRUST_TITLE = 'Trust project folder?';
 
-/** The words this run alone uses: the probe word in AGENTS.md, and the two skills' names and descriptions. */
+/** How long Pi is given to draw the /model selector, and to take it away after the Escape. */
+const SELECTOR_MS = 20000;
+
+/**
+ * The foot of Pi 1.3.0's /model selector, as developer-660 saw it live:
+ * `Enter to select · Ctrl+S to set as default · Escape/Ctrl+C to cancel`.
+ */
+const MODEL_FOOT = /Escape\/Ctrl\+C to cancel/;
+
+/** The Escape key, as the kit's own pressEscape sends it: the character, with no return. */
+const ESCAPE = '\x1b';
+
+/** The words this run alone uses: the probe word in AGENTS.md, and the four skills' names and descriptions. */
 const RUN = randomBytes(4).toString('hex');
 const PROBE = `PROBE-PELICAN-${RUN.toUpperCase()}`;
 const FIRST = { name: `rsk-first-${RUN}`, description: `Use this skill when the user mentions the word heron-${RUN}.` };
 const SECOND = { name: `rsk-second-${RUN}`, description: `Use this skill when the user mentions the word egret-${RUN}.` };
+const THIRD = { name: `rsk-third-${RUN}`, description: `Use this skill when the user mentions the word ibis-${RUN}.` };
+const FOURTH = { name: `rsk-fourth-${RUN}`, description: `Use this skill when the user mentions the word stork-${RUN}.` };
 
 const PI = 'pi-rs';
 const SENDER = 'pi-rs-sender';
@@ -274,12 +301,21 @@ function idleNow(handle) {
  * One look at a tab's screen. No tab here should ask anything, and this test
  * answers nothing: Pi's trust screen, which its `→` pointer keeps from
  * `questionOn`, or any other question stops the run, with the screen.
+ *
+ * The one exception is the /model selector this test opens itself, while
+ * `modelSelector` says it is open: `questionOn` takes its foot ("Enter to
+ * select · … · Escape/Ctrl+C to cancel") for a form's. It is let through only
+ * when the screen is no question at all with the selector's foot row taken
+ * out, so any other question on the same screen still stops the run. Pi's
+ * trust screen is stopped at by its title first, whatever this says.
  */
-function stopAtScreens(title, handle) {
+function stopAtScreens(title, handle, { modelSelector = false } = {}) {
   const rows = rowsOf(handle);
   if (rows === undefined) return;
   assert.ok(!rows.some((row) => row.includes(PI_TRUST_TITLE)), `${title} shows Pi's project-trust screen, which the kit's --no-approve should keep away; this test answers nothing, and the run stops here:\n    ${rows.join('\n    ')}`);
   const question = questionOn(rows);
+  if (question !== undefined && modelSelector && rows.some((row) => MODEL_FOOT.test(row))
+    && questionOn(rows.filter((row) => !MODEL_FOOT.test(row))) === undefined) return;
   assert.equal(question, undefined, `${title} shows a screen this test does not know, and it answers nothing; the run stops here:\n    ${rows.join('\n    ')}`);
 }
 
@@ -492,11 +528,16 @@ test('a Pi session starts from its bot\'s AGENTS.md and skills, and takes a skil
   // The first skill, listed before up: up links it before it opens the tab.
   await writeSkill(bots, FIRST);
   await writeSkill(bots, SECOND);
+  await writeSkill(bots, THIRD);
+  await writeSkill(bots, FOURTH);
   const listed1 = obk(['skills', 'add', '--bots', bots, '--bot', PI, '--skill', FIRST.name]);
   assert.equal(listed1.status, 0, `obk skills add ${FIRST.name}: ${listed1.stdout}${listed1.stderr}`);
   for (const bot of [PI, SENDER]) {
     obkJson(['session', 'add', '--bots', bots, '--bot', bot, '--name', 'daily', '--harness', 'pi', '--model', PI_MODEL, '--effort', PI_THINKING, `--prompt=${PROMPT}`]);
   }
+
+  /** Whether the test's own /model selector is open in the Pi tab: from the send of /model until it is gone after the Escape. */
+  let selectorOpen = false;
 
   /** One session up, its conversation and mailbox in the book, and its first turn answered with its tab idle. */
   const bringUp = async (bot) => {
@@ -504,7 +545,8 @@ test('a Pi session starts from its bot\'s AGENTS.md and skills, and takes a skil
     assert.equal(entry.created, true, `the premise: up opened ${entry.title}`);
     const { title } = entry;
     const handle = entry.terminal;
-    const screen = async () => stopAtScreens(title, handle);
+    // Only the Pi session's own tab, and only while its /model selector is open (step 3).
+    const screen = async () => stopAtScreens(title, handle, { modelSelector: bot === PI && selectorOpen });
     const held = await until(`the book to hold ${title}'s conversation and mailbox`, READY_MS, async () => {
       const found = await sessionIn(homeOf(bot), 'daily');
       return typeof found.session === 'string' && typeof found.mailbox === 'string' ? found : undefined;
@@ -533,34 +575,68 @@ test('a Pi session starts from its bot\'s AGENTS.md and skills, and takes a skil
     `the premise: ${SECOND.name}, not yet on the list, is not among its skills`,
   );
 
+  /** Add one skill to the Pi bot's list, run `obk skills build` for it, and answer the build's one line about pi-rs/daily. */
+  const addAndBuild = (skill, what) => {
+    const listed = obk(['skills', 'add', '--bots', bots, '--bot', PI, '--skill', skill.name]);
+    assert.equal(listed.status, 0, `obk skills add ${skill.name}: ${listed.stdout}${listed.stderr}`);
+    const built = obk(['skills', 'build', '--bots', bots, '--bot', PI]);
+    t.diagnostic(`obk skills build ${what} said (exit ${built.status}):\n  ${`${built.stdout}${built.stderr}`.trim().replaceAll('\n', '\n  ')}`);
+    assert.equal(built.status, 0, `obk skills build ${what}: ${built.stdout}${built.stderr}`);
+    const told = built.stdout.split('\n').filter((line) => line.includes(` ${PI}/daily `) || line.endsWith(` ${PI}/daily`));
+    assert.equal(told.length, 1, `the build ${what} has one line about ${PI}/daily, got:\n${built.stdout}`);
+    return told[0];
+  };
+
   // ----------------------------------------------------------- 2. a skill added, built, and /reload
   await loadedForNotice(t, pi, 'the skills build', { bots, homes });
-  const listed2 = obk(['skills', 'add', '--bots', bots, '--bot', PI, '--skill', SECOND.name]);
-  assert.equal(listed2.status, 0, `obk skills add ${SECOND.name}: ${listed2.stdout}${listed2.stderr}`);
   await until(`${pi.title} to be idle before the build`, READY_MS, async () => (idleNow(pi.handle) ? true : undefined), () => whatIsUp(pi.handle), pi.screen);
   const mark = pi.record().length;
-  const built = obk(['skills', 'build', '--bots', bots, '--bot', PI]);
-  t.diagnostic(`obk skills build said (exit ${built.status}):\n  ${`${built.stdout}${built.stderr}`.trim().replaceAll('\n', '\n  ')}`);
-  assert.equal(built.status, 0, `obk skills build: ${built.stdout}${built.stderr}`);
-  const told = built.stdout.split('\n').filter((line) => line.includes(` ${PI}/daily `) || line.endsWith(` ${PI}/daily`));
-  assert.equal(told.length, 1, `the build has one line about ${PI}/daily, got:\n${built.stdout}`);
-  assert.match(told[0], /^ {2}reloaded {2,}/, `the idle Pi session was reloaded, got: ${told[0]}`);
+  const second = addAndBuild(SECOND, 'with the tab idle');
+  assert.match(second, /^ {2}reloaded {2,}/, `the idle Pi session was reloaded, got: ${second}`);
   const reloaded = await until(`${pi.title} to be idle again after /reload`, RELOAD_MS, async () => (idleNow(pi.handle) ? true : undefined), () => whatIsUp(pi.handle), pi.screen).then(() => rowsOf(pi.handle) ?? []);
   t.diagnostic(`${pi.title}'s screen after the build (observed, not judged):\n    ${reloaded.slice(-12).join('\n    ')}`);
 
-  // ----------------------------------------------------------- 3. one more turn, and the second skill
+  // ----------------------------------------------------------- 3. on a selector, not told
+  // `/model` and its return in one send, as the kit types a line: typed one
+  // character at a time, a slash command opened Pi's command menu instead
+  // (tech notes, section 6).
+  selectorOpen = true;
+  const opened = orca(['terminal', 'send', '--terminal', pi.handle, '--text', '/model', '--enter']);
+  assert.equal(opened.ok, true, `orca terminal send /model failed: ${JSON.stringify(opened.error)}`);
+  const footShown = () => (rowsOf(pi.handle) ?? []).some((row) => MODEL_FOOT.test(row));
+  await until(`${pi.title} to show the /model selector's foot`, SELECTOR_MS, async () => (footShown() ? true : undefined), () => whatIsUp(pi.handle), pi.screen);
+  t.diagnostic(`${pi.title} on the /model selector, Orca says it is idle: ${idleNow(pi.handle)} (observed, not judged)`);
+  const third = addAndBuild(THIRD, 'with the /model selector open');
+  assert.match(third, /^ {2}not told {2,}/, `a Pi tab on a selector is not idle, so the kit types nothing into it, got: ${third}`);
+  const onSelector = rowsOf(pi.handle) ?? [];
+  assert.ok(onSelector.some((row) => MODEL_FOOT.test(row)), `the selector is still on screen after the build:\n    ${onSelector.join('\n    ')}`);
+  assert.ok(!onSelector.some((row) => row.includes('/reload')), `no /reload in the selector's search row, or anywhere on screen:\n    ${onSelector.join('\n    ')}`);
+  const escaped = orca(['terminal', 'send', '--terminal', pi.handle, '--text', ESCAPE]);
+  assert.equal(escaped.ok, true, `orca terminal send of the Escape failed: ${JSON.stringify(escaped.error)}`);
+  await until(`the /model selector to go from ${pi.title} and its tab to be idle`, SELECTOR_MS, async () => (!footShown() && idleNow(pi.handle) ? true : undefined), () => whatIsUp(pi.handle), pi.screen);
+  selectorOpen = false;
+
+  // ----------------------------------------------------------- 4. idle again, reloaded
+  const fourth = addAndBuild(FOURTH, 'with the tab idle again');
+  assert.match(fourth, /^ {2}reloaded {2,}/, `the idle Pi session was reloaded, got: ${fourth}`);
+  await until(`${pi.title} to be idle again after the second /reload`, RELOAD_MS, async () => (idleNow(pi.handle) ? true : undefined), () => whatIsUp(pi.handle), pi.screen);
+
+  // ----------------------------------------------------------- 5. one more turn, and the skills added
   const sent = obk([
     'message', 'send', '--bots', bots, '--to', `${PI}/daily`, '--from', `${SENDER}/daily`,
     '--subject', 'one more turn', '--text', 'Answer with one word: ok.',
   ]);
   t.diagnostic(`the send said (exit ${sent.status}):\n  ${`${sent.stdout}${sent.stderr}`.trim().replaceAll('\n', '\n  ')}`);
   assert.equal(sent.status, 0, `the letter went: ${sent.stdout}${sent.stderr}`);
-  const later = await until(`a system message after the build in ${pi.title}'s record whose skills section names ${SECOND.name}`, NOTICE_MS, async () => (
-    messagesOf(pi.record(), 'system').find(({ index, message }) => index >= mark && (sectionOf(message, 'skills') ?? '').includes(SECOND.name))
+  const later = await until(`a system message after the builds in ${pi.title}'s record whose skills section names ${FOURTH.name} and ${THIRD.name}`, NOTICE_MS, async () => (
+    messagesOf(pi.record(), 'system').find(({ index, message }) => {
+      const skills = sectionOf(message, 'skills') ?? '';
+      return index >= mark && skills.includes(FOURTH.name) && skills.includes(THIRD.name);
+    })
   ), () => `\n  system messages:\n  ${systemsIn(pi.record())}\n  tail:\n  ${tailOf(pi.record())}${whatIsUp(pi.handle)}`, pi.screen);
-  t.diagnostic(`${pi.title}: the second skill came in the system message at line ${later.index} of its record`);
+  t.diagnostic(`${pi.title}: the skills added came in the system message at line ${later.index} of its record; ${SECOND.name} ${sectionOf(later.message, 'skills').includes(SECOND.name) ? 'is' : 'is not'} in it too (observed, not judged)`);
 
-  // ----------------------------------------------------------- 4. ~/.pi/agent
+  // ----------------------------------------------------------- 6. ~/.pi/agent
   assert.equal(trustNow(), before.trust, '~/.pi/agent/trust.json is byte for byte what it was: Pi\'s project trust is left as it is');
   const ours = piFolders.map((name) => `sessions/${name}`);
   const agentAfter = piAgentPaths(piFolders);

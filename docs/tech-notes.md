@@ -1126,6 +1126,16 @@ docs, or Orca's 1.4.225 bundle. The kit was tested with Pi 1.1.0.
     characters, the command menu opened at `/` and the return did not run `/reload`. The same text
     written to the terminal in one piece, then a return 0.3 s later, ran it. How `orca terminal send
     --text … --enter` writes its text is not known: the system test shows it.
+  - **Orca calls a Pi tab idle while Pi shows a selector.** Seen live by developer-660 on
+    2026-10-19 at 02:15 local (Pi 1.3.0, Orca 1.4.225), not by this slice: with Pi's `/model`
+    selector open, `terminal wait --for tui-idle` answered ok with no `blockedReason`, and the kit's
+    gate found no question on the screen. The selector points with `→` and ends `Enter to select ·
+    Ctrl+S to set as default · Escape/Ctrl+C to cancel`. In code, each of Pi's selectors and dialogs
+    ends with its cancel key, `escape/ctrl+c` by default, then `cancel`, `to cancel`, `to close` or
+    `skip setup` (`components/*.js`, `keyHint("tui.select.cancel", …)`). Pi draws the key from the
+    user's keybindings, and the model selector draws no foot when it has no set-as-default hint. So
+    the kit's screen check counts that foot as a question on a Pi screen, and only there (#659). A
+    rebound cancel key, or a selector with no foot, is not seen.
   - Context files: the probes' startup listing showed `[Context] AGENTS.md` and no `CLAUDE.md`, and
     the line `This project is not trusted. Project .pi resources and packages are ignored.` **seen
     live**.
