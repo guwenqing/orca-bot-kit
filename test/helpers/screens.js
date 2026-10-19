@@ -1877,3 +1877,168 @@ export function claudeTrustOf(rows, folder, { allow, defaults }) {
   if (!Array.isArray(allow) || allow.length > 0) return `it pre-approves nothing, where the folder's .claude/settings.json allows ${JSON.stringify(allow)}`;
   return onlyPlainTrustOf(rows, folder);
 }
+
+// Pi 1.3.0 (#663). Every screen below is a RECONSTRUCTION from Pi 1.3.0's own
+// code, as the requirement of #663 describes what that code draws. None of
+// them was seen through Orca's `terminal read` yet; they are to be checked
+// live, and test/system/pi-clear.test.js prints what Orca shows. What the
+// requirement gives, and these screens keep:
+//
+//   - Above the input box, the chat. Pi's startup help in it holds the line
+//     `escape to interrupt`, with no brackets: that line is no sign of work.
+//   - The input box: a top rule, a full row of `─`; the editor's row, with no
+//     pointer and no placeholder (empty, it is blank, here with a trailing
+//     space where the cursor is); a bottom rule, a full row of `─`.
+//   - BELOW the bottom rule: the slash menu when it is open, then Pi's footer
+//     (the working folder, then token counts and the model). The other
+//     harnesses draw their menus above the box. A menu row is a command name
+//     and a description; the selected row starts `→ `, the others two spaces;
+//     when there are more rows than fit, one more row like `  (1/12)`. With
+//     `/new` typed, the exact match `new` is first and selected.
+//   - While Pi works, its status is drawn INTO the top rule:
+//     `── ⠋ Working (escape to interrupt) ──…`, `── ⠋ Compacting context...
+//     (escape to cancel) ──…`, `── ⠋ Retrying (1/3) in 4s... (escape to
+//     cancel) ──…`.
+//
+// The other words (the rest of the help, the chat, the descriptions of the
+// commands other than `new` and `name`, the footer's numbers, the spinner
+// frame) are made up here, and so is the width.
+
+/** The width these Pi screens are drawn at. */
+const PI_WIDTH = 120;
+
+/** A rule of Pi's input box: a full row of `─`. */
+const PI_RULE = '─'.repeat(PI_WIDTH);
+
+/** Pi's top rule with its status drawn into it while it works: `── ⠋ <words> ─…`, full width. */
+export const piStatusRule = (words) => {
+  const head = `── ⠋ ${words} `;
+  return `${head}${'─'.repeat(PI_WIDTH - head.length)}`;
+};
+
+/** The top rule while Pi works on a turn, as the requirement quotes it. */
+export const PI_WORKING_RULE = piStatusRule('Working (escape to interrupt)');
+
+/** What a Pi session has drawn above its input box after its start turn: its startup help, then the turn. */
+const PI_CHAT = [
+  ' pi v1.3.0',
+  ' escape to interrupt',
+  ' ctrl+c to clear',
+  ' ctrl+c twice to exit',
+  ' ctrl+d to exit (empty)',
+  ' / for commands',
+  '',
+  ' [Context]',
+  '   ~/bots/bots/pi-bot/AGENTS.md',
+  ' [Skills]',
+  '   obk-tdd',
+  '',
+  ' Read your AGENTS.md and keep the queue moving.',
+  '',
+  ' ok',
+  '',
+];
+
+/** Pi's footer under its input box (and under the menu when one is open): the folder, then the counts and the model. */
+const PI_FOOTER = [
+  ' ~/bots/bots/pi-bot',
+  ` ${'↑1.2k ↓48 $0.000 0.4%/272k (auto)'.padEnd(PI_WIDTH - 26)}openai/gpt-6-luna • low`,
+];
+
+/** A row of Pi's slash menu: `→ ` on the selected one, two spaces on the others, the name padded to 20. */
+const piMenuRow = (name, description, selected = false) => `${selected ? '→ ' : '  '}${name.padEnd(20)}${description}`;
+
+/** Pi's menu for `/new` typed: the exact match, `new`, first and selected. */
+const PI_NEW_MENU = [piMenuRow('new', 'Start a new session', true)];
+
+/**
+ * A Pi screen: the chat, the input box with `top` as its top rule and
+ * `editor` as its editor's row, then `below` (a menu, or nothing), then the
+ * footer.
+ */
+export const piScreen = ({ chat = PI_CHAT, top = PI_RULE, editor = ' ', below = [] } = {}) => [...chat, top, editor, PI_RULE, ...below, ...PI_FOOTER];
+
+/** Pi at rest after its start turn, its editor empty (a trailing space where the cursor is), no menu. The startup help's `escape to interrupt` is on it. */
+export const PI_IDLE = piScreen();
+
+/** The same, the editor's row empty with no space at all. */
+export const PI_IDLE_NO_CURSOR = piScreen({ editor: '' });
+
+/** Pi at rest after a `/new`: the chat cleared but for the startup help, the editor empty. */
+export const PI_IDLE_AFTER_NEW = piScreen({ chat: PI_CHAT.slice(0, 7) });
+
+/** Pi at rest with a draft of the user's in its editor, not sent. */
+export const PI_DRAFT = piScreen({ editor: 'half a thought about the release' });
+
+/** Pi at work on a turn: its status in the top rule, its editor empty. */
+export const PI_WORKING = piScreen({ top: PI_WORKING_RULE });
+
+/** Pi at work with `words` in its top rule, its editor empty. */
+export const piBusyWith = (words) => piScreen({ top: piStatusRule(words) });
+
+/** Pi's menu rows for what is typed so far, while `/new` is typed. */
+const PI_TYPING_MENUS = {
+  '/': [
+    piMenuRow('settings', 'Open settings menu', true),
+    piMenuRow('model', 'Select model (opens selector UI)'),
+    piMenuRow('export', 'Export session to HTML file'),
+    piMenuRow('name', 'Set session display name'),
+    piMenuRow('new', 'Start a new session'),
+    '  (1/18)',
+  ],
+  '/n': [piMenuRow('name', 'Set session display name', true), piMenuRow('new', 'Start a new session')],
+  '/ne': PI_NEW_MENU,
+};
+
+/**
+ * What Pi shows after each character of `/new` but the last, as the kit
+ * types it one character a send: the typed part in the editor's row and the
+ * menu below the box. One screen per send, for the fake Orca's
+ * `nextScreens`; the screen after the last character is the test's to give.
+ */
+export const whileTypingPi = () => ['/', '/n', '/ne'].map((typed) => piScreen({ editor: typed, below: PI_TYPING_MENUS[typed] }));
+
+/** Pi at work, its status in the top rule, with `typed` (part or all of `/new`) in its editor and the menu for it below. */
+export const piAtWork = (typed) => piScreen({ top: PI_WORKING_RULE, editor: typed, below: typed === '/new' ? PI_NEW_MENU : PI_TYPING_MENUS[typed] });
+
+/** `/new` typed: the editor's row reads `/new`, and below the box the menu with `new` first and selected. */
+export const PI_NEW_TYPED = piScreen({ editor: '/new', below: PI_NEW_MENU });
+
+/** `/new` typed, and the editor's row blank while Orca's draft reads `/new`: a read with a draft. */
+export const PI_NEW_TYPED_IN_DRAFT = { screen: piScreen({ below: PI_NEW_MENU }), draft: '/new' };
+
+/** `/new` typed, and no menu below the box: the footer right under the bottom rule. */
+export const PI_NEW_NO_MENU = piScreen({ editor: '/new' });
+
+/** `/new` typed, and the menu's selected row another command, `name`, with `new` under it. */
+export const PI_NEW_OTHER_SELECTED = piScreen({
+  editor: '/new',
+  below: [piMenuRow('name', 'Set session display name', true), piMenuRow('new', 'Start a new session')],
+});
+
+/** `/new` typed, and the menu's `→ new` row drawn ABOVE the top rule, where the other harnesses draw theirs, and nothing below the box. */
+export const PI_NEW_MENU_ABOVE = piScreen({ chat: [...PI_CHAT, ...PI_NEW_MENU], editor: '/new' });
+
+/** `/new` typed, and the editor's row reads `/nwe`, two keys swapped, with the menu as for `/new` (Pi's match is fuzzy). */
+export const PI_NEW_KEYS_SWAPPED = piScreen({ editor: '/nwe', below: PI_NEW_MENU });
+
+/** `/new` typed, the editor's row blank, the menu as for `/new`, and Orca's draft `/nwe`: a read with a draft. */
+export const PI_NEW_DRAFT_KEYS_SWAPPED = { screen: piScreen({ below: PI_NEW_MENU }), draft: '/nwe' };
+
+/**
+ * Pi's /model selector in the input box's place, its foot as developer-660
+ * saw it live (#659): a question, by Pi's cancel foot, in a tab where Orca
+ * names agent pi. The rows around the foot are made up.
+ */
+export const PI_MODEL_SELECTOR = [
+  ...PI_CHAT,
+  PI_RULE,
+  ' Select model',
+  ' Search: ',
+  ' → gpt-6-luna                  openai',
+  '   gpt-6.1-sol                 openai',
+  '',
+  '  Enter to select · Ctrl+S to set as default · Escape/Ctrl+C to cancel',
+  PI_RULE,
+  ...PI_FOOTER,
+];
