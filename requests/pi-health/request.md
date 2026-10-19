@@ -11,3 +11,4 @@ R1: `obk health` MUST know a Pi session as it knows a Claude Code or Codex sessi
 
 Assumed: this is slice 5 of #547 (#660). A live probe on 2026-10-19 (Pi 1.3.0, Orca 1.4.225) found what health said before this change; it is in the tech notes, section 6. `ps -E` shows a Pi process only as `pi`, with no environment, so health cannot tell a Pi that the kit started from one that Orca restored, and it reports nothing about that. Pi writes nothing about approval, so a Pi session's approval stays unknown in health's list. The kit's screen check does not yet see Pi's own selector screens; #661 teaches it, and the mail finding then uses it for Pi.
 Out: a finding for a session that waits on a screen, which no harness has (the architect's ruling of 2026-10-19 on #660); the book following a `/new` in a Pi tab; `session change --harness pi`.
+Signed off: 2026-10-19 owner, origin/2026-10-19-signoff.md
