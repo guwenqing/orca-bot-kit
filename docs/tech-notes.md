@@ -1174,8 +1174,11 @@ docs, or Orca's 1.4.225 bundle. The kit was tested with Pi 1.1.0.
     line of text, which it queues as steering.
   - **Typed one character at a time, `/reload` did not run.** **Seen live**: with 10 ms between
     characters, the command menu opened at `/` and the return did not run `/reload`. The same text
-    written to the terminal in one piece, then a return 0.3 s later, ran it. How `orca terminal send
-    --text … --enter` writes its text is not known: the system test shows it.
+    written to the terminal in one piece, then a return 0.3 s later, ran it. `orca terminal send
+    --text /reload --enter` runs it: **seen live** in `test/system/pi-rules-skills.test.js`
+    (2026-10-19, 03:54 local, Pi 1.3.0, Orca 1.4.225, run 82c8eb9e). After `obk skills build`
+    typed it, the tab showed `Reloaded keybindings, extensions, skills, prompts, themes, and context
+    files`, and the session file's system message at the next turn named the skills added since.
   - **Orca calls a Pi tab idle while Pi shows a selector.** Seen live by developer-660 on
     2026-10-19 at 02:15 local (Pi 1.3.0, Orca 1.4.225), not by this slice: with Pi's `/model`
     selector open, `terminal wait --for tui-idle` answered ok with no `blockedReason`, and the kit's
@@ -1185,7 +1188,10 @@ docs, or Orca's 1.4.225 bundle. The kit was tested with Pi 1.1.0.
     `skip setup` (`components/*.js`, `keyHint("tui.select.cancel", …)`). Pi draws the key from the
     user's keybindings, and the model selector draws no foot when it has no set-as-default hint. So
     the kit's screen check counts that foot as a question on a Pi screen, and only there (#659). A
-    rebound cancel key, or a selector with no foot, is not seen.
+    rebound cancel key, or a selector with no foot, is not seen. In the same live run (82c8eb9e),
+    with `/model` open, `obk skills build` said `not told` with `question-on-screen` and typed
+    nothing. In that run Orca's own wait called the tab not idle, so Orca's answer is not the same
+    each time; the screen check does not depend on it. **seen live**
   - Context files: the probes' startup listing showed `[Context] AGENTS.md` and no `CLAUDE.md`, and
     the line `This project is not trusted. Project .pi resources and packages are ignored.` **seen
     live**.
