@@ -50,15 +50,36 @@
 //      line; the one key mail types is the Escape of `message send
 //      --interrupt`, through the same gate as the skills reload. Both pass the
 //      gate: the send reports no trouble, and either it pressed Escape (the
-//      program reads it) or Orca called the program idle and nothing was
-//      typed, as `--interrupt` wants. The program reads `/reload-skills`.
-//      Then the program stops, and the shell is in front of `target`'s tab.
+//      program reads one Escape and nothing else of the kit's) or Orca called
+//      the program idle and the kit typed nothing, as `--interrupt` wants.
+//      The program reads `/reload-skills`. Then the program stops, and the
+//      shell is in front of `target`'s tab.
 //   7. The check, in `listed`'s tab, which steps 2 to 5 bring up only now:
 //      staged, the captured list (CLAUDE_TEACH_LIST). The send to `listed`
 //      with `--interrupt` is not interrupted and names `question-on-screen`,
 //      and a skills reload is reported blocked on `question-on-screen` for
-//      `listed`; the program read not one byte, and the list is still drawn.
-//      The system tests' own look, `waitingOn`, sees the live list too.
+//      `listed`; the program read not one byte from the kit, and the list is
+//      still drawn. The system tests' own look, `waitingOn`, sees the live
+//      list too.
+//
+// Orca's own notice can also reach the staging program (#561). Each send puts
+// a letter in the receiver's Orca mailbox, and Orca types its notice into the
+// receiver's tab when it calls the agent there idle. Orca gives no notice to
+// a Claude tab it lists as orphaned (tech notes, "Mailbox"). Seen in a probe
+// of 2026-10-18 (Orca 1.4.225; the cause is not known): in a throwaway bots
+// folder, the tabs of the newest Orca project are listed orphaned, and a
+// Claude tab turned real, and got Orca's notice, once a newer project was
+// made. `target` and `listed` are in gate-bot's project, the newest one here,
+// so most likely they get no notice today. But one run of that probe had a
+// real Claude tab in the newest project, which is not explained, so a notice
+// can land in `target`'s or `listed`'s program after the send. So the checks of
+// what the program read take Orca's notice for that receiver's own mailbox
+// out first (`orcaNoticesOnly`), and judge the rest as before. The notice's
+// words are known from Claude Code's transcript; the bytes Orca frames them
+// with in the pty are not, so the check passes any mix of returns, new lines
+// and `ESC [` sequences around the words, and nothing else: no bare Escape,
+// and no other text. A notice is not judged here, whether it comes or not;
+// the program's bytes are printed, with the tab's `tabId` and `orphaned`.
 //
 // Why a fresh tab for each stage (#560): on Orca 1.4.224 the stage that ran
 // second in the same tab got no agent name from Orca in 3 of 4 runs, so no kit
@@ -438,6 +459,46 @@ function drawnAsStaged(rendered, staged) {
   return true;
 }
 
+/**
+ * Whether the bytes a staging program read are Orca's own notices for
+ * `mailbox` and nothing else (#561; the header says why). The empty string is,
+ * since it holds nothing that is not Orca's. The notice's words are as Claude
+ * Code's transcript showed them on 2026-10-18: "You have 1 orchestration
+ * message. Run `orca orchestration check --run run_<id>`." Orca's framing of
+ * them in the pty is not known, so around them only a return, a new line or
+ * an `ESC [` sequence (such as bracketed paste's `ESC [200~`) passes, and
+ * only with at least one notice for this mailbox among them. A bare Escape,
+ * `/reload-skills`, a mail line or any other text is not Orca's notice, so a
+ * key from the kit makes this false. Bytes still arriving make it false until
+ * the notice is whole; a check waits for it rather than look once.
+ */
+function orcaNoticesOnly(read, mailbox) {
+  assert.match(String(mailbox), /^run_\w+$/, `the premise: the receiver's mailbox is an Orca Run, got: ${mailbox}`);
+  const notice = new RegExp(`You have \\d+ orchestration messages?\\.\\s+Run \`orca orchestration check --run ${mailbox}\`\\.?`, 'y');
+  const frame = /\x1b\[[0-?]*[ -/]*[@-~]|[\r\n]/y;
+  let at = 0;
+  let notices = 0;
+  while (at < read.length) {
+    notice.lastIndex = at;
+    frame.lastIndex = at;
+    if (notice.test(read)) {
+      notices += 1;
+      at = notice.lastIndex;
+    } else if (frame.test(read)) {
+      at = frame.lastIndex;
+    } else {
+      return false;
+    }
+  }
+  return read === '' || notices > 0;
+}
+
+/** One tab's `tabId` and `orphaned` in Orca's listing right now, for a diagnostic: Orca gives an orphaned Claude tab no notice. */
+function listingOf(handle) {
+  const found = allTerminals().find((terminal) => terminal.handle === handle);
+  return found === undefined ? { listed: false } : { tabId: found.tabId, orphaned: found.orphaned };
+}
+
 /** `obk skills build` for the bot, `--json`: what it says of the session `name`. */
 function buildFor(bots, name) {
   const answer = obkJson(['skills', 'build', '--bots', bots, '--bot', BOT]);
@@ -666,15 +727,27 @@ test('the kit types no mail interrupt and no skills reload into a tab showing Cl
   assert.equal(idleSent.sent, true, `the message is in the mailbox: ${JSON.stringify(idleSent)}`);
   assert.equal(idleSent.transport, 'orca', `through Orca, where the kit carries the letter and its --interrupt: ${JSON.stringify(idleSent)}`);
   assert.equal(idleSent.interruptTrouble, undefined, `the premise: with no question on the staged screen the kit's gate lets the interrupt through, got: ${JSON.stringify(idleSent)}`);
+  // Orca's notice for target's letter can follow in the program's bytes
+  // (#561). The kit presses its Escape before it posts the letter
+  // (src/message.js), so the notice can only come after the Escape: the kit's
+  // part is the first byte, and the rest is Orca's notice or nothing. Not
+  // drained: target's mailbox is empty until the send posts the letter, and a
+  // drain after the send races Orca's notice, which comes about 2 s after it.
+  const targetMailbox = sessionIn(home, TARGET).mailbox;
   if (idleSent.interrupted === true) {
-    await until('the Escape to reach the staging program', MOVE_MS, async () => (
-      (keysRead() ?? '') === '\x1b' ? true : undefined
-    ), () => ` It read: ${JSON.stringify(keysRead())}.`);
+    await until('one Escape, and nothing else but Orca\'s notice, to reach the staging program', MOVE_MS, async () => {
+      const read = keysRead() ?? '';
+      return read.startsWith('\x1b') && orcaNoticesOnly(read.slice(1), targetMailbox) ? true : undefined;
+    }, () => ` It read: ${JSON.stringify(keysRead())}; Orca's notice for ${targetMailbox} is the only other thing it may read.`);
   } else {
     assert.equal(idleSent.idle, true, `not interrupted with no trouble only when Orca called the staged program idle, got: ${JSON.stringify(idleSent)}`);
-    assert.equal(keysRead(), '', `nothing typed into a receiver Orca calls idle, got: ${JSON.stringify(keysRead())}`);
+    await until('the staging program to read nothing from the kit, in a receiver Orca calls idle', MOVE_MS, async () => {
+      const read = keysRead();
+      return read !== undefined && orcaNoticesOnly(read, targetMailbox) ? true : undefined;
+    }, () => ` It read: ${JSON.stringify(keysRead())}; Orca's notice for ${targetMailbox} is the only thing it may read.`);
     t.diagnostic('Orca called the staged program idle, so the interrupt passed the gate and typed nothing; the skills reload below shows the gate typing into this tab');
   }
+  t.diagnostic(`after the send --interrupt, the staging program in target's tab read ${JSON.stringify(keysRead())}; Orca lists the tab as ${JSON.stringify(listingOf(handle))}`);
 
   obkJson(['skills', 'add', '--bots', bots, '--bot', BOT, '--skill', 'kit:obk-tdd']);
   const idleBuild = buildFor(bots, TARGET);
@@ -708,8 +781,15 @@ test('the kit types no mail interrupt and no skills reload into a tab showing Cl
   const listBuild = buildFor(bots, LISTED);
   assert.deepEqual(listBuild, { session: LISTED, harness: 'claude', state: 'blocked', blocked: QUESTION }, `no /reload-skills into a tab with the Teach list up, got: ${JSON.stringify(listBuild)}`);
 
+  // Orca's notice for listed's letter can still reach the program (#561; the
+  // header says why); it is Orca's key, not the kit's, so it is taken out.
   await setTimeout(SETTLE_MS);
-  assert.equal(keysRead(), '', `the staging program read not one byte while the list was up, got: ${JSON.stringify(keysRead())}`);
+  const listedMailbox = sessionIn(home, LISTED).mailbox;
+  await until('the staging program to have read not one byte from the kit while the list was up', MOVE_MS, async () => {
+    const read = keysRead();
+    return read !== undefined && orcaNoticesOnly(read, listedMailbox) ? true : undefined;
+  }, () => ` It read: ${JSON.stringify(keysRead())}; Orca's notice for ${listedMailbox} is the only thing it may read.`);
+  t.diagnostic(`while the list was up, the staging program in listed's tab read ${JSON.stringify(keysRead())}; Orca lists the tab as ${JSON.stringify(listingOf(listHandle))}`);
   assert.ok(drawnAsStaged(rowsOf(listHandle), CLAUDE_TEACH_LIST), `and the staged list is still drawn as it was.${whatIsUp(listHandle)}`);
   await stopStage(listHandle);
 });
