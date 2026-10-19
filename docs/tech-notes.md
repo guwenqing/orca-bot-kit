@@ -1011,6 +1011,14 @@ docs, or Orca's 1.4.225 bundle. The kit was tested with Pi 1.1.0.
     as the Claude Code and Codex hooks do, with Pi's id and reason; after a `/new` the kit answers with
     the start prompt, and the extension gives it to Pi with `sendMessage`. Nothing goes into
     `~/.pi/agent` or the folder's `.pi/`.
+  - **Seen live in Orca** (2026-10-19, 04:06 local, `test/system/pi-new.test.js` at 6d36900, passing;
+    Pi 1.3.0, Orca 1.4.225): after `/new` and a return typed into a kit-made Pi tab, the book held the
+    new id 97 ms after the return, with the old id in the history. Pi listed `pi-record.js` under
+    `[Extensions]` beside Orca's three. The start prompt showed in the new conversation under the
+    heading `[obk-start-prompt]`, and the new file held it as a `custom_message`. After `obk restart`
+    the next turn went into the new id's file, and a second `/new` was followed in 97 ms too. Pi also
+    printed `This project is not trusted. Project .pi resources and packages are ignored. Use /trust
+    to save a trust decision, then restart pi.`: a line in the chat, not a question.
   - **Orca's own restore of a Pi tab** runs `pi --session <transcriptPath>`, with none of the kit's
     flags (read in code, above): no `--extension`, so such a tab does not follow a `/new` until the kit
     restarts it; no `--no-approve` (#578); and, after #659, no `--skill`. Not fixed here.
