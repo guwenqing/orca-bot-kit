@@ -16,6 +16,11 @@
 //      and `pi --list-models`.
 //   d. `pi --list-models <model>` itself fails (exit not 0, or killed): a
 //      finding naming the session and the model, saying Pi could not answer.
+//   e. The plain `pi --list-models` fails (exit not 0, or killed): one finding
+//      per Pi bot that says Pi could not list its models, names
+//      `pi --list-models` and says why (what Pi printed, or how it ended). It
+//      does not say Pi is signed in to no provider, and does not advise
+//      /login. No finding for each model is given for that bot.
 //
 // With (a) or (b), no finding for each model is given for that bot. A session
 // with no model takes Pi's default and gets no model finding. Pi is asked at
@@ -296,6 +301,39 @@ for (const how of ['fails', 'killed']) {
     assert.doesNotMatch(finding.says, /none matching|no models? match|not list|n't list|lists none|lists no|unknown to Pi/i, `Pi did not say it lacks the model, so the finding does not say so, got: ${finding.says}`);
     assert.ok((await pi.searches()).includes('anthropic/claude-opus-5-5'), `health asked Pi for the model, got: ${JSON.stringify(await pi.searches())}`);
     assert.deepEqual(configOf(answer, bots, 'pier').filter((one) => hasWord(one.says, 'plain')), [], 'plain names no model, so Pi is not asked for one');
+  });
+}
+
+// ---------------------------------------------------------------------------
+// e. Pi cannot list its models at all.
+// ---------------------------------------------------------------------------
+
+for (const how of ['fails', 'killed']) {
+  test(`H4e a plain pi --list-models that ${how === 'fails' ? 'exits non-zero' : 'dies by a signal'} gives each Pi bot one config finding that Pi could not list its models, with why; not "signed in to no provider", no /login, and no finding for a model`, async (t) => {
+    const box = await createSandbox(t);
+    await fakePi(box, { listModels: how });
+    await seeded(box);
+    // The search form still answers, so a model Pi does not list would be
+    // named if health went on to judge models.
+    await botWritten(box, 'pier', [['daily', '--model', NOSUCH], ['review', '--model', 'anthropic/claude-opus-5-5'], ['plain']]);
+    await botWritten(box, 'pier-two', [['daily']]);
+    const bots = box.path('bots');
+
+    const answer = await found(box);
+
+    for (const bot of ['pier', 'pier-two']) {
+      const mine = configOf(answer, bots, bot);
+      assert.equal(mine.length, 1, `one config finding at ${botYamlOf(bots, bot)}, got: ${JSON.stringify(answer.found, null, 2)}`);
+      const { says } = mine[0];
+      assert.match(says, /(?:could not|couldn't|cannot|can't|failed to|unable to) list/i, `it says Pi could not list its models, got: ${says}`);
+      assert.ok(says.includes('pi --list-models'), `it names pi --list-models, got: ${says}`);
+      const why = how === 'fails'
+        ? says.includes('could not reach the model registry') || /\bexit\w*\b[^.]*\b1\b/i.test(says)
+        : /kill|signal/i.test(says);
+      assert.ok(why, `it says why: ${how === 'fails' ? 'what Pi printed, or its exit code 1' : 'that Pi was killed by a signal'}, got: ${says}`);
+      assert.doesNotMatch(says, /signed in to no|no provider|\/login/i, `Pi did not say nobody is signed in, so the finding does not say so, got: ${says}`);
+    }
+    assert.deepEqual(saying(answer, NOSUCH), [], `Pi listed nothing, so no model of it is judged, got: ${JSON.stringify(answer.found, null, 2)}`);
   });
 }
 

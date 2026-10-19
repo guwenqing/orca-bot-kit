@@ -13,18 +13,28 @@
 //
 // What is pinned:
 //
-//   - The model is the latest line since the start that names one (a
-//     model_change, or an assistant message's provider and model), shown as
-//     `<provider>/<model>`. The effort is the latest line since the start
-//     that names a thinking level (a thinking_level_change, or an assistant
-//     message's thinkingLevel).
+//   - The model: look at the lines since the start, from the newest back.
+//     The first line that names a model decides. A `model_change` decides
+//     alone: `<provider>/<modelId>`. An assistant reply gives two choices:
+//     its own `<provider>/<model>`, or the model of the last `model_change`
+//     before it in the whole record, before the start too. The second stands
+//     for a virtual model (a router, such as `router/auto`): Pi follows that
+//     selection, and its replies name the physical model it routed to (Pi
+//     1.3.0, getBranchSelection). The thinking level works the same way, with
+//     `thinking_level_change` lines and a reply's `thinkingLevel`.
 //   - bot.yaml's model is a Pi model pattern: `openai/gpt-6-luna` or
 //     `gpt-6-luna`, maybe with a trailing `:<thinking level>` (off, minimal,
-//     low, medium, high, xhigh, max) that is not part of the model. It matches
-//     when, without that suffix, it equals `<provider>/<model>` or `<model>`.
-//     Anything else is a mismatch. A `:8b` is no thinking level, and stays
-//     part of the model.
-//   - The effort matches when it equals Pi's thinking level.
+//     low, medium, high, xhigh, max) that is not part of the model. A `:8b`
+//     is no thinking level, and stays part of the model. Without regard to
+//     case, and without that suffix, it is `match` when it equals
+//     `<provider>/<model>` or `<model>` of a choice; otherwise `unknown` when
+//     Pi could resolve it fuzzily to a choice (with `p/rest`, the provider is
+//     `p` and the model id holds `rest`; with no slash, the model id holds
+//     all of it); otherwise `mismatch`. `observed` is the choice that
+//     matched, or, when none did, the deciding line's own value.
+//   - The effort matches when it equals a choice, otherwise it is a mismatch.
+//   - A known limit, not tested: Pi also matches a model's display name,
+//     which the record does not hold, so such a pattern shows as a mismatch.
 //   - A setting the session does not ask for is `not-asked-for`, with what
 //     was observed. No record line since the start is `unknown`. Approval is
 //     always `unknown`, configured `dangerously-skip`: Pi writes nothing about
@@ -55,7 +65,7 @@ const SETTINGS = ['model', 'effort', 'context', 'approval'];
 const BOT = 'pier';
 
 /** The models the fake Pi lists here: its own, and the ones these cases name. */
-const MODELS = [...PI_MODELS, 'openai/gpt-6-luna', 'anthropic/gpt-6-luna'];
+const MODELS = [...PI_MODELS, 'openai/gpt-6-luna', 'anthropic/gpt-6-luna', 'router/auto'];
 
 // ---------------------------------------------------------------- the fleet
 
@@ -259,16 +269,22 @@ test('H1 a running Pi session on the model and level bot.yaml asks for: model an
 // Which models match: one bot, one session per case, one health run.
 // ---------------------------------------------------------------------------
 
-test('H1 Pi model patterns: with or without the provider, and a trailing thinking level, match; a part of the name, another provider, or a cut name do not', async (t) => {
+test('H1 Pi model patterns: with or without the provider, a trailing thinking level, and in any case, match; a part of the name Pi could resolve to is unknown; another provider or model is a mismatch', async (t) => {
   const cases = [
     { name: 'full', model: 'openai/gpt-6-luna', ran: ['openai', 'gpt-6-luna'], state: 'match' },
     { name: 'bare', model: 'gpt-6-luna', ran: ['openai', 'gpt-6-luna'], state: 'match' },
     { name: 'levelled', model: 'openai/gpt-6-luna:high', ran: ['openai', 'gpt-6-luna'], state: 'match' },
     { name: 'bare-off', model: 'gpt-6-luna:off', ran: ['openai', 'gpt-6-luna'], state: 'match' },
+    // Pi matches a model reference without regard to case.
+    { name: 'upper-full', model: 'OpenAI/GPT-6-LUNA', ran: ['openai', 'gpt-6-luna'], state: 'match' },
+    { name: 'upper-bare', model: 'GPT-6-Luna', ran: ['openai', 'gpt-6-luna'], state: 'match' },
     // `:8b` is no thinking level: it is part of the model's own name.
     { name: 'own-colon', model: 'ollama/llama3:8b', ran: ['ollama', 'llama3:8b'], state: 'match' },
-    { name: 'cut-colon', model: 'ollama/llama3', ran: ['ollama', 'llama3:8b'], state: 'mismatch' },
-    { name: 'prefix', model: 'openai/gpt-6', ran: ['openai', 'gpt-6-luna'], state: 'mismatch' },
+    // Pi could resolve these fuzzily to what ran, or to another model: the
+    // kit cannot see Pi's catalog, so it cannot tell.
+    { name: 'cut-colon', model: 'ollama/llama3', ran: ['ollama', 'llama3:8b'], state: 'unknown' },
+    { name: 'prefix', model: 'openai/gpt-6', ran: ['openai', 'gpt-6-luna'], state: 'unknown' },
+    { name: 'bare-part', model: 'luna', ran: ['openai', 'gpt-6-luna'], state: 'unknown' },
     { name: 'other-provider', model: 'anthropic/gpt-6-luna', ran: ['openai', 'gpt-6-luna'], state: 'mismatch' },
     { name: 'other-model', model: 'gpt-6-luna', ran: ['openai', 'gpt-6.1-sol'], state: 'mismatch' },
   ];
@@ -282,6 +298,12 @@ test('H1 Pi model patterns: with or without the provider, and a trailing thinkin
 
   for (const { name, model, ran: [provider, ranModel], state } of cases) {
     assertSeen(entryOf(answer, name), 'model', { state, observed: `${provider}/${ranModel}` }, `bot.yaml asks for ${model} and Pi ran ${provider}/${ranModel}`);
+  }
+  for (const { name } of cases.filter((one) => one.state !== 'mismatch')) {
+    assert.deepEqual(sessionFindings(answer, name), [], `${name} is a match or unknown, and neither is a finding, got: ${JSON.stringify(answer.found, null, 2)}`);
+  }
+  for (const { name } of cases.filter((one) => one.state === 'mismatch')) {
+    assert.equal(sessionFindings(answer, name).length, 1, `${name} is a mismatch, and gets its finding, got: ${JSON.stringify(answer.found, null, 2)}`);
   }
 });
 
@@ -376,7 +398,7 @@ test('H1 no record of the book\'s conversation, or one with no line since its he
 // The latest line wins, and only lines since the start count.
 // ---------------------------------------------------------------------------
 
-test('H1 the latest line that names a model or a level wins, whichever kind of line it is; a line that names none changes nothing', async (t) => {
+test('H1 a model_change or thinking_level_change after the last reply decides alone; a reply after a change gives what bot.yaml asks for when it ran it; a reply that names no level changes nothing', async (t) => {
   const box = await createSandbox(t);
   const bots = await piBotUp(box, [
     ['answer-last', '--model', 'gpt-6-luna', '--effort', 'high'],
@@ -412,6 +434,53 @@ test('H1 the latest line that names a model or a level wins, whichever kind of l
   assertSeen(entryOf(answer, 'change-last'), 'effort', { state: 'mismatch', observed: 'medium' }, 'the thinking_level_change after the answer says the level now');
   assertSeen(entryOf(answer, 'no-level'), 'model', { state: 'match', observed: 'openai/gpt-6-luna' }, 'the last answer names the model');
   assertSeen(entryOf(answer, 'no-level'), 'effort', { state: 'match', observed: 'low' }, 'an answer that names no level leaves the level as it was');
+});
+
+test('H1 a virtual model: a reply routed to another model still matches the model_change before it, since the start or before it; it must be the last model_change before the reply, and a change after the reply decides alone', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await piBotUp(box, [
+    ['virtual', '--model', 'router/auto', '--effort', 'low'],
+    ['virtual-old', '--model', 'router/auto', '--effort', 'low'],
+    ['routed-elsewhere', '--model', 'anthropic/claude-opus-5-5', '--effort', 'medium'],
+    ['switched-since', '--model', 'router/auto'],
+    ['changed-after', '--model', 'router/auto'],
+  ]);
+  const routed = (when) => piAnswered(when, { provider: 'openai', model: 'gpt-6-luna', thinkingLevel: 'high' });
+  // The reviewer's case: Pi follows router/auto at low, and its reply names
+  // the model it routed to, at the level it ran.
+  const virtual = [modelChange(onTheDay(9), 'router', 'auto'), thinkingChange(onTheDay(9), 'low'), userSaid(onTheDay(9, 1)), routed(onTheDay(9, 5))];
+  await talking(box, bots, 'virtual', conv(1), virtual);
+  // The selection was made before the kit last started the session; since
+  // the start there are only replies.
+  await talking(box, bots, 'virtual-old', conv(2), [
+    modelChange(onTheDay(7, 30), 'router', 'auto'),
+    thinkingChange(onTheDay(7, 30), 'low'),
+    userSaid(onTheDay(9)),
+    routed(onTheDay(9, 1)),
+  ], { begun: onTheDay(7) });
+  // bot.yaml asks for neither choice: the reply's own values are shown.
+  await talking(box, bots, 'routed-elsewhere', conv(3), virtual);
+  // router/auto was the selection once, but the last model_change before the reply is another.
+  await talking(box, bots, 'switched-since', conv(4), [
+    modelChange(onTheDay(7, 30), 'router', 'auto'),
+    modelChange(onTheDay(9), 'openai', 'gpt-6.1-sol'),
+    userSaid(onTheDay(9, 1)),
+    routed(onTheDay(9, 5)),
+  ], { begun: onTheDay(7) });
+  await talking(box, bots, 'changed-after', conv(5), [...virtual, modelChange(onTheDay(9, 10), 'openai', 'gpt-6.1-sol')]);
+
+  const answer = await found(box);
+
+  assertSeen(entryOf(answer, 'virtual'), 'model', { state: 'match', observed: 'router/auto' }, 'the reply follows the router/auto selection before it');
+  assertSeen(entryOf(answer, 'virtual'), 'effort', { state: 'match', observed: 'low' }, 'the reply follows the low selection before it');
+  assert.deepEqual(sessionFindings(answer, 'virtual'), [], `virtual runs what bot.yaml asks for, got: ${JSON.stringify(answer.found, null, 2)}`);
+  assertSeen(entryOf(answer, 'virtual-old'), 'model', { state: 'match', observed: 'router/auto' }, 'the selection before the start still stands behind the replies since');
+  assertSeen(entryOf(answer, 'virtual-old'), 'effort', { state: 'match', observed: 'low' }, 'the level selected before the start still stands behind the replies since');
+  assert.deepEqual(sessionFindings(answer, 'virtual-old'), [], `virtual-old runs what bot.yaml asks for, got: ${JSON.stringify(answer.found, null, 2)}`);
+  assertSeen(entryOf(answer, 'routed-elsewhere'), 'model', { state: 'mismatch', observed: 'openai/gpt-6-luna' }, 'neither choice matches, so the reply\'s own model shows');
+  assertSeen(entryOf(answer, 'routed-elsewhere'), 'effort', { state: 'mismatch', observed: 'high' }, 'neither choice matches, so the reply\'s own level shows');
+  assertSeen(entryOf(answer, 'switched-since'), 'model', { state: 'mismatch', observed: 'openai/gpt-6-luna' }, 'the last model_change before the reply is openai/gpt-6.1-sol, not router/auto');
+  assertSeen(entryOf(answer, 'changed-after'), 'model', { state: 'mismatch', observed: 'openai/gpt-6.1-sol' }, 'the model_change after the reply decides alone');
 });
 
 test('H1 only lines since the kit last started the session count: lines before the book\'s launched time say nothing', async (t) => {
