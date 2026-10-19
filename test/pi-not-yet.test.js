@@ -2,10 +2,9 @@
 // words, with nothing changed. Later slices of #547 add them.
 //
 //   obk init --harness pi           Bot Father on Pi
-//   obk temp make --harness pi      a temporary session on Pi, and a temp make
-//                                   whose harness comes out as Pi any other
-//                                   way: from a Pi maker, or from a role option
 //   obk session clear / compact     on a Pi session
+//
+// A temporary session on Pi came in #648: test/pi-temp.test.js.
 //
 // Every run is in the sandbox (helpers/cli.js), with a fake `pi` on its PATH
 // (helpers/pi.js).
@@ -16,7 +15,6 @@ import test from 'node:test';
 
 import { createSandbox, orcaCallsOf, sessionIn, skipGit, snapshot, tabsOfBot } from './helpers/cli.js';
 import { fakePi } from './helpers/pi.js';
-import { editBotYaml, fleet, inTab, make, TASK, world } from './helpers/temp-roles.js';
 
 const BOT = 'pi-bot';
 const PROMPT = 'Read your AGENTS.md and keep the queue moving.';
@@ -59,45 +57,6 @@ test('N11 init --harness pi is refused in plain words, and makes nothing', async
   assert.equal(await exists(box.path('bots')), false, 'no bots folder was made');
   assert.deepEqual(await box.orca.setups(), [], 'and nothing was opened in Orca');
   assert.deepEqual(await box.orca.terminals(), []);
-});
-
-// ----------------------------------------------------------------- temp make
-
-test('N11 temp make --harness pi is refused in plain words, and changes nothing', async (t) => {
-  const box = await createSandbox(t);
-  await fakePi(box);
-  const { bots, nightly } = await fleet(box, { roles: false });
-  const before = await world(box, bots);
-
-  const result = await make(box, nightly, ['--name', 'helper', '--prompt', TASK, '--harness', 'pi']);
-
-  assertRefusedForPi(result);
-  assert.deepEqual(await world(box, bots), before, 'a refusal changes nothing');
-});
-
-test('N11 temp make whose role option names Pi is refused in plain words, and changes nothing', async (t) => {
-  const box = await createSandbox(t);
-  await fakePi(box);
-  const { bots, nightly } = await fleet(box, { roles: false });
-  await editBotYaml(bots, (doc) => ({ ...doc, temp_roles: { tinker: [{ name: 'pi', harness: 'pi', model: 'anthropic/claude-opus-5-5' }] } }));
-  const before = await world(box, bots);
-
-  const result = await make(box, nightly, ['--name', 'helper', '--prompt', TASK, '--role', 'tinker']);
-
-  assertRefusedForPi(result);
-  assert.deepEqual(await world(box, bots), before, 'a refusal changes nothing');
-});
-
-test('N11 temp make from a Pi session, which would take its maker\'s Pi, is refused in plain words, and changes nothing', async (t) => {
-  const box = await createSandbox(t);
-  await fakePi(box);
-  const { bots, terminal } = await piUp(box);
-  const before = await world(box, bots);
-
-  const result = await box.run(['temp', 'make', '--bots', 'bots', '--name', 'helper', '--prompt', TASK], { env: inTab(box, terminal) });
-
-  assertRefusedForPi(result);
-  assert.deepEqual(await world(box, bots), before, 'a refusal changes nothing');
 });
 
 // ----------------------------------------------------------------- session clear and compact
