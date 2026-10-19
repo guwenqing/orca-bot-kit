@@ -107,6 +107,7 @@ import { questionOn, waitingOn } from '../helpers/screens.js';
 import { tabGuard } from '../helpers/tab-guard.js';
 import { deleteOwnProject } from '../helpers/own-project.js';
 import { openNewerProject } from '../helpers/newer-project.js';
+import { atNight, namedThisRun } from '../helpers/night-gate.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
 
 /** The Orca CLI that works for a normal user (tech notes, section 1). */
@@ -284,21 +285,6 @@ function stopAtScreens(title, handle) {
 
 // ------------------------------------------------------------- an orphaned tab
 
-/** Whether the runner named this file (OBK_SYSTEM_NAMED: one absolute path per line). */
-function namedThisRun() {
-  const real = (file) => {
-    try {
-      return realpathSync(file);
-    } catch {
-      return file;
-    }
-  };
-  return (process.env.OBK_SYSTEM_NAMED ?? '').split('\n').filter((line) => line !== '').some((line) => real(line) === real(THIS_FILE));
-}
-
-/** Whether the local hour is 0 to 5. */
-const atNight = (at = new Date()) => at.getHours() < 6;
-
 /**
  * Before the build: the Pi tab is real, or this test opens one more project,
  * at night in a run that names this file, and the tab is real within REAL_MS;
@@ -313,7 +299,7 @@ async function loadedForNotice(t, { title, handle }, why, { bots, homes }) {
 
   const now = new Date();
   const night = atNight(now);
-  const named = namedThisRun();
+  const named = namedThisRun(THIS_FILE);
   if (!(night && named)) {
     t.diagnostic(`opened no extra project for ${title} (night: ${night}, this file named: ${named})`);
     assert.fail([
@@ -456,7 +442,7 @@ test('a Pi session starts from its bot\'s AGENTS.md and skills, and takes a skil
   const homes = ['bot-father', PI, SENDER].map(homeOf);
   /** Pi's session folders of this test's own bot folders, by name, known once the folders exist. */
   const piFolders = [];
-  t.diagnostic(`this run names this file: ${namedThisRun()}; local time ${new Date().toTimeString().slice(0, 5)}; run ${RUN}`);
+  t.diagnostic(`this run names this file: ${namedThisRun(THIS_FILE)}; local time ${new Date().toTimeString().slice(0, 5)}; run ${RUN}`);
 
   // Registered before anything is created, so it runs however this test ends.
   t.after(async () => {
