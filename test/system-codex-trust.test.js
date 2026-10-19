@@ -11,7 +11,8 @@
 // harness: '…' … }` in the file, is that object's; bot-father is Claude (the
 // kit's `init --harness claude`); anything else, such as a loop's
 // `bot.harness`, could be Codex. A session that is or could be Codex has to pass
-// `codexTrustArgs(` in the same call.
+// `codexTrustArgs(` in the same call. A Pi session (#578) is not Codex, and is
+// passed as a Claude one is (#634).
 //
 // Two files are left out on purpose: codex-first-run-screens.test.js, whose
 // point is to meet and answer Codex's first-run screens (its writes are named by
@@ -156,13 +157,13 @@ function after(elements, flag) {
   return at < 0 ? undefined : elements[at + 1];
 }
 
-/** What a harness expression says, in this file: 'claude', 'codex', or undefined when it could be either. */
+/** What a harness expression says, in this file: 'claude', 'codex', 'pi', or undefined when it could be any. */
 function harnessOf(code, expression) {
-  const literal = /^'(claude|codex)'$/.exec(expression ?? '');
+  const literal = /^'(claude|codex|pi)'$/.exec(expression ?? '');
   if (literal !== null) return literal[1];
   const field = /^([A-Z_][A-Z0-9_]*)\.harness$/.exec(expression ?? '');
   if (field !== null) {
-    const object = new RegExp(`const ${field[1]} = \\{[^}]*?\\bharness: '(claude|codex)'`).exec(code);
+    const object = new RegExp(`const ${field[1]} = \\{[^}]*?\\bharness: '(claude|codex|pi)'`).exec(code);
     if (object !== null) return object[1];
   }
   return undefined;
@@ -184,7 +185,7 @@ function untrustedCodexIn(source, file) {
     if (own !== undefined) harness = harnessOf(code, own);
     else if (bot === "'bot-father'") harness = 'claude';
     else if (bots.has(bot)) harness = harnessOf(code, bots.get(bot));
-    if (harness === 'claude') continue;
+    if (harness === 'claude' || harness === 'pi') continue;
     const session = after(elements, '--name');
     if (text.includes('codexTrustArgs(')) {
       trouble.push(...formsAgainst(text, file, 'bot', bot, `a session add for ${bot} ${session}`));
@@ -194,7 +195,7 @@ function untrustedCodexIn(source, file) {
   }
   for (const { elements, text } of callsOf(code, 'temp', 'make')) {
     const own = after(elements, '--harness');
-    if (own === undefined || harnessOf(code, own) === 'claude') continue;
+    if (own === undefined || ['claude', 'pi'].includes(harnessOf(code, own))) continue;
     const name = after(elements, '--name');
     if (text.includes('codexTrustArgs(')) {
       trouble.push(...formsAgainst(text, file, 'make', name, `a temp make of ${name}`));
@@ -271,6 +272,23 @@ test('the check names each Codex session made without the trust args, and passes
     'a session add for \'lit-codex\' \'daily\', a Codex session, passes no codexTrustArgs(…)',
     'a session add for bot.name \'daily\', which could be a Codex session, passes no codexTrustArgs(…)',
   ]);
+});
+
+test('a Pi session is not a Codex one: its session add passes without the trust args, by a literal and by an object (#634)', () => {
+  const pi = "const PI_BOT = {\n  name: 'x-pi',\n  harness: 'pi',\n};\n"
+    + "obkJson(['bot', 'create', '--bots', bots, '--name', PI, '--harness', 'pi']);\n"
+    + "obkJson(['bot', 'create', '--bots', bots, '--name', PI_BOT.name, '--harness', PI_BOT.harness]);\n"
+    + "obkJson(['bot', 'create', '--bots', bots, '--name', CODEX, '--harness', 'codex']);\n"
+    + "for (const session of ['idle', 'busy']) obkJson(['session', 'add', '--bots', bots, '--bot', PI, '--name', session, '--model', PI_MODEL]);\n"
+    + "obkJson(['session', 'add', '--bots', bots, '--bot', PI_BOT.name, '--name', 'daily']);\n"
+    + "obkJson(['session', 'add', '--bots', bots, '--bot', CODEX, '--name', 'other', '--harness', 'pi']);\n"
+    + "obkJson(['session', 'add', '--bots', bots, '--bot', CODEX, '--name', 'daily']);\n"
+    + "obkJson(['session', 'add', '--bots', bots, '--bot', PI, '--name', 'switched', '--harness', 'codex']);\n"
+    + "obkJson(['temp', 'make', '--bots', bots, '--name', 'pi-temp', '--harness', 'pi']);\n";
+  assert.deepEqual(untrustedCodexIn(pi, 'pi-cases.test.js'), [
+    'a session add for CODEX \'daily\', a Codex session, passes no codexTrustArgs(…)',
+    'a session add for PI \'switched\', a Codex session, passes no codexTrustArgs(…)',
+  ], 'the Pi sessions pass, by the bot\'s literal, by its object and by their own --harness; the Codex ones are still named');
 });
 
 test('hooks: false is taken for the one call named for it, and named anywhere else', () => {

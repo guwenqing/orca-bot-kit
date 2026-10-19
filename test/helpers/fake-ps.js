@@ -23,6 +23,11 @@
 //   its shell      -/bin/zsh          parent: the pane
 //   the harness    claude / codex     parent: the shell
 //
+// A Pi tab (#634) holds `pi` there: Pi renames its process, and `ps` shows
+// command `pi` with no arguments (seen live, Orca 1.4.225 and Pi 1.1.0; tech
+// notes, section 6). What `ps -E` shows of a renamed process's environment was
+// not seen: the fake gives it the variables a launched harness has.
+//
 // Every one of them answers with the same tpgid, the pid of whoever is in
 // front: the shell at a prompt, the harness while it runs. One live line, the
 // pane with its harness in front: `44701  1063 44812 /usr/bin/login`. A pid
@@ -281,7 +286,7 @@ export function tableOf(state) {
 /** The harness a tab was launched with: the first line typed into it names one, or none was. */
 export function launchedIn(terminal) {
   const first = terminal.typed?.[0]?.text;
-  return first === undefined ? undefined : /(?:^|\s)(claude|codex)(?=\s|$)/.exec(first)?.[1];
+  return first === undefined ? undefined : /(?:^|\s)(claude|codex|pi)(?=\s|$)/.exec(first)?.[1];
 }
 
 /**
@@ -467,7 +472,9 @@ function environmentOf(state, terminal, row, dir) {
   const launched = launchedIn(terminal) ?? 'claude';
   const program = row.comm === 'node' ? `node ${NPM_CLI[launched]}` : row.comm;
   const typed = terminal.typed?.[0]?.text ?? '';
-  const resumed = (row.comm === 'node' ? launched : row.comm) === 'codex' ? `${program} resume ${RESUMED}` : `${program} --resume ${RESUMED}`;
+  const resumed = row.comm === 'pi'
+    ? 'pi'
+    : (row.comm === 'node' ? launched : row.comm) === 'codex' ? `${program} resume ${RESUMED}` : `${program} --resume ${RESUMED}`;
   switch (terminal.environment) {
     case 'ps-fails':
       return undefined;
@@ -495,7 +502,8 @@ function environmentOf(state, terminal, row, dir) {
       const word = row.comm === 'node' ? launched : row.comm;
       const at = typed.search(new RegExp(`(?:^|\\s)${word}(?=\\s|$)`));
       const given = at < 0 ? word : typed.slice(at).trim().replaceAll("'\\''", "'").replaceAll("'", '');
-      const command = `${program}${given.slice(word.length)}`;
+      // Pi renames its process: `pi`, with no arguments (#634).
+      const command = row.comm === 'pi' ? 'pi' : `${program}${given.slice(word.length)}`;
       const cli = /(?:^|\s)OBK_CLI=('(?:[^']|'\\'')*'|\S+)/.exec(typed)?.[1];
       const kits = [
         ...(typed.includes('OBK_TAB_SHELL=$$') ? [`OBK_TAB_SHELL=${row.ppid}`] : []),

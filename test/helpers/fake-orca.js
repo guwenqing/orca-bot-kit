@@ -161,7 +161,9 @@
 //   agentIdentity  what `terminal show` and `terminal list` give as every
 //               tab's `agentIdentity`, when the key is there (null included).
 //               Left out, a tab carries its own: null when it is made, and the
-//               harness its launch line names once that line is typed into it.
+//               harness its launch line names once that line is typed into it:
+//               `claude`, `codex`, or `pi` for a Pi tab (seen live on Orca
+//               1.4.225, tech notes, section 6; #634).
 //               Live it is both late and stale (#232): up to ~5 s after the
 //               launch line it may not be there yet, and a tab back at a zsh
 //               prompt still said `codex` more than 70 s after Codex quit. The

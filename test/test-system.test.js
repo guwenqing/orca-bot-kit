@@ -4141,6 +4141,853 @@ describe('test-system: a backup of both harness configs before every live run (#
   });
 });
 
+// A system test may need to know that the run named it (#634, under the
+// owner's rule in #561): a test that mounts a tab in the owner's open Orca
+// window does so only in a run that names its file. So the runner tells the
+// files it starts which files were named, through one variable:
+//
+//   OBK_SYSTEM_NAMED  the absolute path of each test file named on the
+//                     runner's command line, one per line; the empty string
+//                     when no file was named (a run of every system test).
+//
+// Set by the runner on every run it starts, whatever the developer's shell had.
+
+/** The variable the runner sets to the files a run named. */
+const NAMED = 'OBK_SYSTEM_NAMED';
+
+/**
+ * A system test file that writes down what it saw of OBK_SYSTEM_NAMED,
+ * `<name>:<value as JSON>` (null when it was not set), in `ran.log` beside the
+ * repo. JSON, because the value holds line breaks.
+ */
+const seesNamed = (name) => [
+  "const { appendFileSync } = process.getBuiltinModule('node:fs');",
+  "const path = process.getBuiltinModule('node:path');",
+  "const { test } = process.getBuiltinModule('node:test');",
+  '',
+  `test(${JSON.stringify(name)}, () => {`,
+  `  const seen = process.env[${JSON.stringify(NAMED)}];`,
+  `  appendFileSync(path.join(path.dirname(process.env[${JSON.stringify(WORLD)}]), 'ran.log'), ${JSON.stringify(`${name}:`)} + JSON.stringify(seen ?? null) + '\\n');`,
+  '});',
+  '',
+].join('\n');
+
+/** What each file saw, as { name: value }, from ran.log; a value of undefined is a file that did not run. */
+async function namedSeen(fixture) {
+  const seen = {};
+  for (const line of await ranIn(fixture)) {
+    const at = line.indexOf(':');
+    seen[line.slice(0, at)] = JSON.parse(line.slice(at + 1));
+  }
+  return seen;
+}
+
+/** The lines of a value of OBK_SYSTEM_NAMED, sorted: the order of the names is not the contract. */
+const namedLines = (value) => (typeof value === 'string' ? value.split('\n').filter((line) => line !== '').sort() : value);
+
+describe('test-system: the runner tells its tests which files the run named (OBK_SYSTEM_NAMED, #634)', { concurrency: true }, () => {
+  const FILES = {
+    'test/system/alpha.test.js': seesNamed('ALPHA'),
+    'test/system/beta.test.js': seesNamed('BETA'),
+  };
+
+  /** The fixture's environment, with no OBK_SYSTEM_NAMED of the shell's: the runner's to set. */
+  const bareEnv = (fixture) => {
+    const { [NAMED]: _named, ...env } = fixture.env;
+    return env;
+  };
+
+  test('a run that names one file gives that test the file\'s absolute path', async (t) => {
+    const fixture = await createRepo(t, { files: FILES });
+
+    const result = await fixture.confirmed({ names: ['test/system/beta.test.js'], env: bareEnv(fixture) });
+
+    assert.equal(result.code, 0, `${result.stdout}${result.stderr}`);
+    assert.deepEqual(await namedSeen(fixture), { BETA: path.join(fixture.repo, 'test', 'system', 'beta.test.js') });
+  });
+
+  test('a run that names no file gives every test the empty string', async (t) => {
+    const fixture = await createRepo(t, { files: FILES });
+
+    const result = await fixture.confirmed({ env: bareEnv(fixture) });
+
+    assert.equal(result.code, 0, `${result.stdout}${result.stderr}`);
+    assert.deepEqual(await namedSeen(fixture), { ALPHA: '', BETA: '' });
+  });
+
+  test('a run that names two files gives each test both absolute paths, one per line', async (t) => {
+    const fixture = await createRepo(t, { files: FILES });
+
+    const result = await fixture.confirmed({ names: ['test/system/alpha.test.js', 'test/system/beta.test.js'], env: bareEnv(fixture) });
+
+    assert.equal(result.code, 0, `${result.stdout}${result.stderr}`);
+    const seen = await namedSeen(fixture);
+    const both = [path.join(fixture.repo, 'test', 'system', 'alpha.test.js'), path.join(fixture.repo, 'test', 'system', 'beta.test.js')].sort();
+    assert.deepEqual(Object.keys(seen).sort(), ['ALPHA', 'BETA'], `both files ran, got: ${JSON.stringify(seen)}`);
+    assert.deepEqual(namedLines(seen.ALPHA), both, `alpha saw: ${JSON.stringify(seen.ALPHA)}`);
+    assert.deepEqual(namedLines(seen.BETA), both, `beta saw: ${JSON.stringify(seen.BETA)}`);
+    assert.equal(seen.ALPHA.split('\n').filter((line) => line !== '').length, 2, `one line for each file, got: ${JSON.stringify(seen.ALPHA)}`);
+  });
+
+  test('a file named by its absolute path, or with ./ in front, is given as the same absolute path', async (t) => {
+    const fixture = await createRepo(t, { files: FILES });
+    const beta = path.join(fixture.repo, 'test', 'system', 'beta.test.js');
+
+    for (const name of [beta, './test/system/beta.test.js']) {
+      await rm(path.join(path.dirname(fixture.repo), 'ran.log'), { force: true });
+
+      const result = await fixture.confirmed({ names: [name], env: bareEnv(fixture) });
+
+      assert.equal(result.code, 0, `${name}: ${result.stdout}${result.stderr}`);
+      assert.deepEqual(await namedSeen(fixture), { BETA: beta }, `named as ${name}`);
+    }
+  });
+
+  test('a run that names no file gives the empty string whatever the developer\'s shell had in OBK_SYSTEM_NAMED', async (t) => {
+    const fixture = await createRepo(t, { files: FILES });
+    const stale = path.join(fixture.repo, 'test', 'system', 'alpha.test.js');
+
+    const result = await fixture.confirmed({ env: { ...bareEnv(fixture), [NAMED]: stale } });
+
+    assert.equal(result.code, 0, `${result.stdout}${result.stderr}`);
+    assert.deepEqual(await namedSeen(fixture), { ALPHA: '', BETA: '' });
+  });
+
+  test('a named run gives the named file\'s path, not one the developer\'s shell had in OBK_SYSTEM_NAMED', async (t) => {
+    const fixture = await createRepo(t, { files: FILES });
+    const stale = path.join(fixture.repo, 'test', 'system', 'alpha.test.js');
+
+    const result = await fixture.confirmed({ names: ['test/system/beta.test.js'], env: { ...bareEnv(fixture), [NAMED]: stale } });
+
+    assert.equal(result.code, 0, `${result.stdout}${result.stderr}`);
+    assert.deepEqual(await namedSeen(fixture), { BETA: path.join(fixture.repo, 'test', 'system', 'beta.test.js') });
+  });
+});
+
+// Pi's session folders for the run's own folders are taken out again after
+// the run (#634), as the harness configs' keys are (#240). Pi keeps one folder
+// per working folder in its store, `<agent dir>/sessions`, the agent dir
+// $PI_CODING_AGENT_DIR when it is set and not empty and ~/.pi/agent otherwise
+// (Pi 1.3.0, config.js getAgentDir). The folder is named `--<path>--`, <path>
+// the working folder's real path without its leading `/` and with every `/`,
+// `\` and `:` as `-` (tech notes, section 6).
+//
+//   P1  The store is found where Pi finds it: PI_CODING_AGENT_DIR, or
+//       <HOME>/.pi/agent when that is unset or empty.
+//   P2  After the tests, the runner removes each folder in the store that was
+//       not there before the run, is a folder (not a file, not a link), and is
+//       named `--` + a run-folder root, encoded, + `-obk-system-`. The roots are
+//       the real path of the temp folder and `<repo>/local-data`.
+//   P3  Everything else stays as it was: a folder there before the run (an
+//       obk-system- one too), a new folder for another working folder, a file
+//       or a link with such a name, every file in a folder it keeps. No store
+//       at all is no error.
+//   P4  It names each folder it removed, or says the store gained none under
+//       the run's folders. A removal that fails names the folder as the owner's
+//       to clear, and the run exits non-zero.
+//   P5  It is done whether the tests passed or failed, after them.
+//
+// Here HOME and TMPDIR are the sandbox's (helpers/cli.js); each test chooses
+// what PI_CODING_AGENT_DIR is, whatever this shell has.
+
+/** Pi's encoding of a working folder's real path, as its folder's name: `--<path>--`. */
+const piFolderName = (real) => `--${real.replace(/^\//, '').replaceAll(/[/\\:]/g, '-')}--`;
+
+/**
+ * A system test file that, while it runs, makes `folders` as Pi would, each
+ * { folder, cwd, make }: the working folder `cwd` first when `make` says so,
+ * as a system test makes its own, then the Pi folder with one session file in
+ * it, named <stamp>_<uuid>.jsonl, whose first line is Pi's header with that
+ * cwd. Then it writes `files`, makes `links` ({ link, to }), and takes the
+ * write bit off each folder in `locks`. It prints its marker, and fails
+ * afterwards when `thenFails` says so.
+ */
+const writesPiStore = (name, { folders = [], files = [], links = [], locks = [], thenFails = false } = {}) => [
+  "import { chmodSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs';",
+  "import path from 'node:path';",
+  "import test from 'node:test';",
+  '',
+  `test(${JSON.stringify(name)}, () => {`,
+  `  for (const { folder, cwd, make } of ${JSON.stringify(folders)}) {`,
+  '    if (make) mkdirSync(cwd, { recursive: true });',
+  '    mkdirSync(folder, { recursive: true });',
+  "    const id = '3f1c2a9e-5b7d-4c8e-9a01-23456789abcd';",
+  "    const header = { type: 'session', version: 3, id, timestamp: '2026-10-18T01:02:03.004Z', cwd };",
+  "    writeFileSync(path.join(folder, `2026-10-18T01-02-03-004Z_${id}.jsonl`), `${JSON.stringify(header)}\\n`);",
+  '  }',
+  `  for (const { file, text } of ${JSON.stringify(files)}) {`,
+  '    mkdirSync(path.dirname(file), { recursive: true });',
+  '    writeFileSync(file, text);',
+  '  }',
+  `  for (const { link, to } of ${JSON.stringify(links)}) {`,
+  '    mkdirSync(path.dirname(link), { recursive: true });',
+  '    symlinkSync(to, link);',
+  '  }',
+  `  for (const folder of ${JSON.stringify(locks)}) chmodSync(folder, 0o555);`,
+  `  process.stdout.write(${JSON.stringify(`${name}\n`)});`,
+  ...(thenFails ? [`  throw new Error(${JSON.stringify(`${name} failed`)});`] : []),
+  '});',
+  '',
+].join('\n');
+
+/**
+ * A fixture repo and the Pi store its run uses: `agentDir` 'set' puts it in a
+ * folder of the sandbox's own through PI_CODING_AGENT_DIR, 'empty' sets that
+ * variable to the empty string, and 'unset' leaves it out; the last two put it
+ * at <HOME>/.pi/agent/sessions. `names` is what a folder for a working folder
+ * under each run-folder root is called: `names.tmp('obk-system-x/bots/b')` and
+ * `names.localData(…)`; `folderFor(cwd)` is the folder for any working folder,
+ * and `claim(folder, cwd)` says which working folder a folder of another name
+ * is for. `write(during)` writes the run's one system test: each of
+ * `during.folders` gets a session file whose cwd is its working folder, and a
+ * working folder inside the sandbox is made during the run.
+ */
+async function withPiStore(t, { agentDir = 'set' } = {}) {
+  const fixture = await createRepo(t);
+  const box = path.dirname(fixture.repo);
+  const tmp = realpathSync(fixture.env.TMPDIR);
+  const localData = path.join(realpathSync(fixture.repo), 'local-data');
+  const agent = agentDir === 'set' ? path.join(box, 'pi-agent') : path.join(fixture.env.HOME, '.pi', 'agent');
+  const store = path.join(agent, 'sessions');
+  const { PI_CODING_AGENT_DIR: _pi, ...rest } = fixture.env;
+  const env = {
+    ...rest,
+    ...(agentDir === 'set' ? { PI_CODING_AGENT_DIR: agent } : {}),
+    ...(agentDir === 'empty' ? { PI_CODING_AGENT_DIR: '' } : {}),
+  };
+  // The working folder each Pi folder's name stands for, by that name: the
+  // name is lossy, so it is written down when the name is made.
+  const cwds = new Map();
+  const claim = (folder, cwd) => {
+    cwds.set(path.basename(folder), cwd);
+    return folder;
+  };
+  const folderFor = (cwd) => claim(path.join(store, piFolderName(cwd)), cwd);
+  const names = {
+    tmp: (rel) => folderFor(path.join(tmp, rel)),
+    localData: (rel) => folderFor(path.join(localData, rel)),
+  };
+  const asPi = (folder) => {
+    const cwd = cwds.get(path.basename(folder));
+    if (cwd === undefined) throw new Error(`no working folder is known for ${folder}: make it with names, folderFor or claim`);
+    return { folder, cwd, make: cwd.startsWith(`${box}${path.sep}`) };
+  };
+  return {
+    fixture,
+    store,
+    names,
+    folderFor,
+    claim,
+    env,
+    write: ({ folders = [], ...during } = {}) => write(fixture.repo, 'test/system/alpha.test.js', writesPiStore('ALPHA', { ...during, folders: folders.map(asPi) })),
+    run: () => fixture.confirmed({ env }),
+  };
+}
+
+/** Whether a path is there at all, as itself: a link counts, whatever it leads to. */
+function there(target) {
+  try {
+    lstatSync(target);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+describe('test-system: Pi\'s session folders for the run\'s own folders are removed after the run (#634)', { concurrency: true }, () => {
+  test('P2 P4 a new Pi folder for a run folder under the temp folder is removed, with what is in it, and named', async (t) => {
+    const pi = await withPiStore(t);
+    const mine = pi.names.tmp('obk-system-pi-mail-AbC123/bots/pi-mail');
+    await pi.write({ folders: [mine] });
+
+    const result = await pi.run();
+
+    assert.equal(result.code, 0, everything(result));
+    assert.equal(there(mine), false, `the run's Pi folder ${mine} should be gone`);
+    assert.ok(there(pi.store), 'the store itself stays');
+    assert.ok(afterTheRun(result).includes(path.basename(mine)), `the output names the folder it removed, got:\n${afterTheRun(result)}`);
+  });
+
+  test('P2 a new Pi folder for a run folder under <repo>/local-data is removed', async (t) => {
+    const pi = await withPiStore(t);
+    const mine = pi.names.localData('obk-system-pi-mail-Lc0001/bots/pi-mail');
+    await pi.write({ folders: [mine] });
+
+    const result = await pi.run();
+
+    assert.equal(result.code, 0, everything(result));
+    assert.equal(there(mine), false, `the run's Pi folder ${mine} should be gone`);
+  });
+
+  test('P2 P4 two new Pi folders of the run are both removed, and each is named', async (t) => {
+    const pi = await withPiStore(t);
+    const mine = [pi.names.tmp('obk-system-pi-mail-Two001/bots/idle'), pi.names.tmp('obk-system-pi-mail-Two001/bots/busy')];
+    await pi.write({ folders: mine });
+
+    const result = await pi.run();
+
+    assert.equal(result.code, 0, everything(result));
+    for (const folder of mine) {
+      assert.equal(there(folder), false, `${folder} should be gone`);
+      assert.ok(afterTheRun(result).includes(path.basename(folder)), `the output names ${path.basename(folder)}, got:\n${afterTheRun(result)}`);
+    }
+  });
+
+  for (const [label, agentDir] of [['unset', 'unset'], ['set to the empty string', 'empty']]) {
+    test(`P1 with PI_CODING_AGENT_DIR ${label}, the store is <HOME>/.pi/agent/sessions, and the run's folder there is removed`, async (t) => {
+      const pi = await withPiStore(t, { agentDir });
+      const mine = pi.names.tmp('obk-system-pi-mail-Hm0001/bots/pi-mail');
+      await pi.write({ folders: [mine] });
+
+      const result = await pi.run();
+
+      assert.equal(result.code, 0, everything(result));
+      assert.equal(there(mine), false, `the run's Pi folder ${mine} should be gone`);
+    });
+  }
+
+  test('P1 with PI_CODING_AGENT_DIR set, the store under <HOME>/.pi/agent is not the run\'s to touch', async (t) => {
+    const pi = await withPiStore(t);
+    const mine = pi.names.tmp('obk-system-pi-mail-Ag0001/bots/pi-mail');
+    const homeStore = path.join(pi.fixture.env.HOME, '.pi', 'agent', 'sessions');
+    const atHome = path.join(homeStore, path.basename(mine));
+    await pi.write({ folders: [mine, atHome] });
+
+    const result = await pi.run();
+
+    assert.equal(result.code, 0, everything(result));
+    assert.equal(there(mine), false, `the folder in PI_CODING_AGENT_DIR's store should be gone: ${mine}`);
+    assert.ok(there(atHome), `the same name in the default store, which PI_CODING_AGENT_DIR moved away from, stays: ${atHome}`);
+  });
+
+  test('P3 a Pi folder for a run folder that was there before the run stays, with every file in it', async (t) => {
+    const pi = await withPiStore(t);
+    const old = pi.names.tmp('obk-system-older-Old001/bots/pi-mail');
+    const file = path.join(old, 'older_id.jsonl');
+    await mkdir(old, { recursive: true });
+    await writeFile(file, 'the older run\'s turns\n');
+    const mine = pi.names.tmp('obk-system-pi-mail-New001/bots/pi-mail');
+    await pi.write({ folders: [mine], files: [{ file: path.join(old, 'during_id.jsonl'), text: 'a turn written during the run\n' }] });
+
+    const result = await pi.run();
+
+    assert.equal(result.code, 0, everything(result));
+    assert.equal(there(mine), false, `the premise: the run's new folder goes: ${mine}`);
+    assert.ok(there(old), `the folder there before the run stays: ${old}`);
+    assert.equal(await readFile(file, 'utf8'), 'the older run\'s turns\n', 'with its file as it was');
+    assert.equal(await readFile(path.join(old, 'during_id.jsonl'), 'utf8'), 'a turn written during the run\n', 'and a file written in it during the run');
+    assert.ok(!afterTheRun(result).includes(path.basename(old)), `and it is not named as removed, got:\n${afterTheRun(result)}`);
+  });
+
+  test('P3 new Pi folders for any other working folder stay, near misses of the run\'s names included', async (t) => {
+    const pi = await withPiStore(t);
+    const tmp = realpathSync(pi.fixture.env.TMPDIR);
+    const mine = pi.names.tmp('obk-system-pi-mail-Oth001/bots/pi-mail');
+    const others = [
+      pi.folderFor('/Users/owner/work/app'),
+      pi.names.tmp('obk-other-Oth001/bots/pi-mail'),
+      pi.names.tmp('work/obk-system-pi-mail-Deep01/bots/pi-mail'),
+      pi.folderFor(`${tmp}x/obk-system-pi-mail-Oth001/bots/pi-mail`),
+      pi.folderFor(path.join(path.dirname(pi.fixture.repo), 'elsewhere', 'local-data', 'obk-system-pi-mail-Oth001')),
+      pi.claim(path.join(pi.store, `-${piFolderName(path.join(tmp, 'obk-system-pi-mail-Oth001'))}`), '/Users/owner/work/app'),
+    ];
+    await pi.write({ folders: [mine, ...others] });
+
+    const result = await pi.run();
+
+    assert.equal(result.code, 0, everything(result));
+    assert.equal(there(mine), false, `the premise: the run's folder goes: ${mine}`);
+    for (const other of others) assert.ok(there(other), `a folder for another working folder stays: ${other}`);
+  });
+
+  test('P3 a file and a symlink named as a run\'s Pi folder stay, and so does what the link leads to', async (t) => {
+    const pi = await withPiStore(t);
+    const asFile = pi.names.tmp('obk-system-pi-mail-Fil001/bots/pi-mail');
+    const asLink = pi.names.tmp('obk-system-pi-mail-Lnk001/bots/pi-mail');
+    const target = path.join(path.dirname(pi.fixture.repo), 'link-target');
+    await mkdir(target, { recursive: true });
+    await writeFile(path.join(target, 'kept.jsonl'), 'behind the link\n');
+    await pi.write({ files: [{ file: asFile, text: 'not a folder\n' }], links: [{ link: asLink, to: target }] });
+
+    const result = await pi.run();
+
+    assert.equal(result.code, 0, everything(result));
+    assert.equal(await readFile(asFile, 'utf8'), 'not a folder\n', 'the file stays as it was');
+    assert.ok(lstatSync(asLink).isSymbolicLink(), 'the symlink stays a symlink');
+    assert.equal(await readlink(asLink), target, 'leading where it led');
+    assert.equal(await readFile(path.join(target, 'kept.jsonl'), 'utf8'), 'behind the link\n', 'and what it leads to is untouched');
+  });
+
+  test('P3 P4 no Pi store at all is no error: the run exits as its tests did and says the store gained nothing', async (t) => {
+    const pi = await withPiStore(t);
+    await pi.write({});
+
+    const result = await pi.run();
+
+    assert.equal(result.code, 0, everything(result));
+    assert.equal(there(pi.store), false, 'and no store was made');
+    assert.match(afterTheRun(result), /\bPi\b/, `the report speaks of Pi's store, got:\n${afterTheRun(result)}`);
+  });
+
+  test('P4 a store that gained no folder of the run\'s: the run says so, names none, and exits 0', async (t) => {
+    const pi = await withPiStore(t);
+    const other = pi.folderFor('/Users/owner/work/app');
+    await pi.write({ folders: [other] });
+
+    const result = await pi.run();
+
+    assert.equal(result.code, 0, everything(result));
+    assert.ok(there(other), 'the other folder stays');
+    const report = afterTheRun(result);
+    assert.match(report, /\bPi\b/, `the report speaks of Pi's store, got:\n${report}`);
+    assert.ok(!report.includes(path.basename(other)), `and names no folder as removed, got:\n${report}`);
+  });
+
+  test('P4 a removal that fails names the folder as the owner\'s to clear, and the run exits non-zero though its tests passed', async (t) => {
+    const pi = await withPiStore(t);
+    const mine = pi.names.tmp('obk-system-pi-mail-Lck001/bots/pi-mail');
+    // The store loses its write bit, so nothing in it can be removed.
+    await pi.write({ folders: [mine], locks: [pi.store] });
+    t.after(() => chmod(pi.store, 0o755).catch(() => {}));
+
+    const result = await pi.run();
+    await chmod(pi.store, 0o755);
+
+    assert.notEqual(result.code, 0, `a Pi folder the run could not remove fails the run:\n${everything(result)}`);
+    assert.ok(there(mine), `the premise: the folder could not be removed: ${mine}`);
+    const report = afterTheRun(result);
+    assert.ok(report.includes(path.basename(mine)), `the report names the folder, got:\n${report}`);
+    assert.match(report, /owner/i, `and says it is the owner's to clear, got:\n${report}`);
+  });
+
+  test('P5 the run\'s Pi folder is removed when its tests failed too, and the run still fails', async (t) => {
+    const pi = await withPiStore(t);
+    const mine = pi.names.tmp('obk-system-pi-mail-Fai001/bots/pi-mail');
+    await pi.write({ folders: [mine], thenFails: true });
+
+    const result = await pi.run();
+
+    assert.notEqual(result.code, 0, `the tests failed, so the run does:\n${everything(result)}`);
+    assert.equal(there(mine), false, `the run's Pi folder ${mine} should be gone all the same`);
+  });
+});
+
+// What makes a Pi folder the run's, and what the runner does when it cannot
+// tell (#634, the second round). The requirement:
+//
+//   R1  Only "the store does not exist" (ENOENT) counts as an empty store at the
+//       start. Any other error when the store is read at the start means the
+//       runner cannot tell what is new: it removes nothing from the store, even
+//       when the store can be read at the end, names the store, and the run
+//       fails.
+//   R2  A folder in the store is removed only when (a) it was not there at the
+//       start, (b) it is a real folder, not a link, (c) it holds at least one
+//       entry and every entry is a regular file named *.jsonl, (d) the first
+//       line of each is JSON with type "session" and a string cwd, and (e) each
+//       cwd lies inside one of the run's own folders: under the temp folder
+//       (/private/var/… or /var/…) or <repo>/local-data, below an obk-system-*
+//       folder that was not there before the run. A new folder whose name looks
+//       like the run's but fails c, d or e stays, is named, and fails the run. A
+//       new folder whose name does not look like the run's stays and is not
+//       named.
+//   R3  PI_CODING_AGENT_DIR is read as Pi 1.3.0 reads it: "~" is the home
+//       folder, "~/…" is under it, "file://…" is that URL's path, anything else
+//       as it is; unset or empty is ~/.pi/agent. A value that is still not an
+//       absolute path makes the runner remove nothing, say so, and fail.
+//
+// Here HOME and TMPDIR are the sandbox's (helpers/cli.js), and every
+// PI_CODING_AGENT_DIR a test sets leads into the sandbox.
+
+/** The header line Pi 1.3.0 writes first in a session file, with `fields` over it. */
+const piHeader = (fields) => `${JSON.stringify({
+  type: 'session',
+  version: 3,
+  id: '94104b80-94e8-4de2-ab6b-00c7b8ee421b',
+  timestamp: '2026-10-18T04:12:42.876Z',
+  ...fields,
+})}\n{"type":"message","id":"a1b2c3d4"}\n`;
+
+/** A session file's path in a Pi folder, named as Pi names them: <stamp>_<uuid>.jsonl. */
+const piSessionFile = (folder, n = 1) => path.join(folder, `2026-10-18T04-12-4${n}-876Z_94104b80-94e8-4de2-ab6b-00c7b8ee42${n}${n}.jsonl`);
+
+/**
+ * A system test file that, while it runs: gives each `modes` target its mode,
+ * removes each of `removes`, makes each of `dirs` (empty), writes `files`
+ * ({ file, text }), and makes `links` ({ link, to }). It prints its marker.
+ */
+const actsOnPiStore = (name, { modes = [], removes = [], dirs = [], files = [], links = [] } = {}) => [
+  "import { chmodSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';",
+  "import path from 'node:path';",
+  "import test from 'node:test';",
+  '',
+  `test(${JSON.stringify(name)}, () => {`,
+  `  for (const { target, mode } of ${JSON.stringify(modes)}) chmodSync(target, mode);`,
+  `  for (const target of ${JSON.stringify(removes)}) rmSync(target, { recursive: true, force: true });`,
+  `  for (const dir of ${JSON.stringify(dirs)}) mkdirSync(dir, { recursive: true });`,
+  `  for (const { file, text } of ${JSON.stringify(files)}) {`,
+  '    mkdirSync(path.dirname(file), { recursive: true });',
+  '    writeFileSync(file, text);',
+  '  }',
+  `  for (const { link, to } of ${JSON.stringify(links)}) {`,
+  '    mkdirSync(path.dirname(link), { recursive: true });',
+  '    symlinkSync(to, link);',
+  '  }',
+  `  process.stdout.write(${JSON.stringify(`${name}\n`)});`,
+  '});',
+  '',
+].join('\n');
+
+/** The parts of what a system test does, joined into one. */
+const together = (...parts) => {
+  const all = { modes: [], removes: [], dirs: [], files: [], links: [] };
+  for (const part of parts) for (const [key, list] of Object.entries(part)) all[key].push(...list);
+  return all;
+};
+
+/**
+ * A fixture repo whose run has its Pi store in the sandbox, through
+ * PI_CODING_AGENT_DIR. `goodRun(rel, store)` is a Pi folder that holds all the
+ * proof R2 asks for: its working folder, <temp>/<rel>, and the session file in
+ * it are both made during the run, and the file's cwd is that working folder.
+ */
+async function withPiProof(t) {
+  const fixture = await createRepo(t);
+  const box = path.dirname(fixture.repo);
+  const tmp = realpathSync(fixture.env.TMPDIR);
+  const repo = realpathSync(fixture.repo);
+  const localData = path.join(repo, 'local-data');
+  const agent = path.join(box, 'pi-agent');
+  const { PI_CODING_AGENT_DIR: _pi, ...rest } = fixture.env;
+  const env = { ...rest, PI_CODING_AGENT_DIR: agent };
+  // The runner must not reach the owner's store: its HOME is the sandbox's.
+  assert.ok(env.HOME.startsWith(`${box}${path.sep}`), `HOME should be the sandbox's, got ${env.HOME}`);
+  assert.ok(!env.HOME.startsWith(os.homedir()), `HOME should not be this machine's home, got ${env.HOME}`);
+  const store = path.join(agent, 'sessions');
+  const folderFor = (cwd, where = store) => path.join(where, piFolderName(cwd));
+  const goodAt = (work, where = store) => {
+    const folder = folderFor(work, where);
+    const file = piSessionFile(folder);
+    return { work, folder, file, during: { dirs: [work], files: [{ file, text: piHeader({ cwd: work }) }] } };
+  };
+  return {
+    fixture,
+    box,
+    tmp,
+    repo,
+    localData,
+    env,
+    store,
+    folderFor,
+    goodAt,
+    goodRun: (rel, where = store) => goodAt(path.join(tmp, rel), where),
+    write: (during = {}) => write(fixture.repo, 'test/system/alpha.test.js', actsOnPiStore('ALPHA', together(during))),
+    run: (more = {}) => fixture.confirmed({ env: { ...env, ...more } }),
+  };
+}
+
+/** The other spelling of a path under /private/var on macOS: /var/…, or false where there is none. */
+const VAR_SPELLING = (() => {
+  const real = realpathSync(os.tmpdir());
+  return real.startsWith('/private/var/') ? (p) => p.replace(/^\/private/, '') : false;
+})();
+const NO_VAR_SPELLING = VAR_SPELLING ? undefined : 'the temp folder here is not under /private/var, so it has no /var spelling';
+
+describe('test-system: a Pi folder is removed only on proof that it is the run\'s (#634)', { concurrency: true }, () => {
+  test('R2 the good case: a new folder whose session file\'s cwd is in a new obk-system-* folder under the temp folder is removed, and the run passes', async (t) => {
+    const pi = await withPiProof(t);
+    const mine = pi.goodRun('obk-system-good-Gd0001/bots/pi-mail');
+    await pi.write(mine.during);
+
+    const result = await pi.run();
+
+    assert.equal(result.code, 0, everything(result));
+    assert.equal(there(mine.folder), false, `the run's Pi folder should be gone: ${mine.folder}`);
+    assert.ok(there(pi.store), 'the store itself stays');
+  });
+
+  test('R2 the good case under <repo>/local-data: a new folder whose cwd is in a new obk-system-* folder there is removed', async (t) => {
+    const pi = await withPiProof(t);
+    const mine = pi.goodAt(path.join(pi.localData, 'obk-system-good-Ld0001', 'bots', 'pi-mail'));
+    await pi.write(mine.during);
+
+    const result = await pi.run();
+
+    assert.equal(result.code, 0, everything(result));
+    assert.equal(there(mine.folder), false, `the run's Pi folder should be gone: ${mine.folder}`);
+  });
+
+  test('R2 the good case with two good session files in one folder: the folder is removed', async (t) => {
+    const pi = await withPiProof(t);
+    const mine = pi.goodRun('obk-system-good-Tw0001/bots/pi-mail');
+    const second = { file: piSessionFile(mine.folder, 2), text: piHeader({ cwd: mine.work, id: '0f0e0d0c-0b0a-4908-8706-050403020100' }) };
+    await pi.write(together(mine.during, { files: [second] }));
+
+    const result = await pi.run();
+
+    assert.equal(result.code, 0, everything(result));
+    assert.equal(there(mine.folder), false, `the run's Pi folder should be gone: ${mine.folder}`);
+  });
+
+  test('R2 e a cwd spelled /var/… for a run folder whose real path is /private/var/… is the same place: the folder is removed', { skip: NO_VAR_SPELLING }, async (t) => {
+    const pi = await withPiProof(t);
+    const work = path.join(pi.tmp, 'obk-system-var-Vr0001', 'bots', 'pi-mail');
+    const folder = pi.folderFor(work);
+    const file = piSessionFile(folder);
+    assert.ok(work.startsWith('/private/var/'), `the premise: the real path is under /private/var: ${work}`);
+    await pi.write({ dirs: [work], files: [{ file, text: piHeader({ cwd: VAR_SPELLING(work) }) }] });
+
+    const result = await pi.run();
+
+    assert.equal(result.code, 0, everything(result));
+    assert.equal(there(folder), false, `the run's Pi folder should be gone: ${folder}`);
+  });
+
+  test('R2 e a temp folder given as /var/… and a cwd as its real path /private/var/… are the same place: the folder is removed', { skip: NO_VAR_SPELLING }, async (t) => {
+    const pi = await withPiProof(t);
+    const mine = pi.goodRun('obk-system-var-Vr0002/bots/pi-mail');
+    assert.ok(mine.work.startsWith('/private/var/'), `the premise: the cwd is the real path: ${mine.work}`);
+    await pi.write(mine.during);
+
+    const result = await pi.run({ TMPDIR: VAR_SPELLING(pi.tmp) });
+
+    assert.equal(result.code, 0, everything(result));
+    assert.equal(there(mine.folder), false, `the run's Pi folder should be gone: ${mine.folder}`);
+  });
+
+  // Each case is a new folder whose name looks like the run's, next to a good
+  // one of the run's that goes, so that "removes nothing at all" cannot pass.
+  // `make(pi)` gives the folder that must stay, the file in it to read back (if
+  // any), what the run does, and what is set up before it.
+  const notProven = [
+    ['R2 e a cwd under <temp>/obk/system-x/…: the name matches, the path is not the run\'s', (pi) => {
+      const work = path.join(pi.tmp, 'obk', 'system-x', 'bots', 'pi-mail');
+      const folder = pi.folderFor(work);
+      return { folder, keep: piSessionFile(folder), during: { dirs: [work], files: [{ file: piSessionFile(folder), text: piHeader({ cwd: work }) }] } };
+    }],
+    ['R2 e a cwd in a sibling of the temp folder, <temp>-obk-system-x/…', (pi) => {
+      const work = `${pi.tmp}-obk-system-x/bots/pi-mail`;
+      const folder = pi.folderFor(work);
+      return { folder, keep: piSessionFile(folder), during: { dirs: [work], files: [{ file: piSessionFile(folder), text: piHeader({ cwd: work }) }] } };
+    }],
+    ['R2 e a cwd in an obk-system-* folder that was there before the run began', (pi) => {
+      const work = path.join(pi.tmp, 'obk-system-before-Bf0001', 'bots', 'pi-mail');
+      const folder = pi.folderFor(work);
+      return {
+        folder,
+        keep: piSessionFile(folder),
+        before: async () => mkdir(work, { recursive: true }),
+        during: { files: [{ file: piSessionFile(folder), text: piHeader({ cwd: work }) }] },
+      };
+    }],
+    ['R2 e a cwd that climbs out of a new obk-system-* folder with ..', (pi) => {
+      const run = path.join(pi.tmp, 'obk-system-dots-Dt0001');
+      const folder = pi.folderFor(path.join(run, 'bots', 'pi-mail'));
+      const cwd = `${run}/../../outside/bots/pi-mail`;
+      return { folder, keep: piSessionFile(folder), during: { dirs: [run], files: [{ file: piSessionFile(folder), text: piHeader({ cwd }) }] } };
+    }],
+    ['R2 e two files in one folder, one good and one whose cwd is not the run\'s', (pi) => {
+      const mine = pi.goodRun('obk-system-two-Tw0002/bots/pi-mail');
+      const other = { file: piSessionFile(mine.folder, 2), text: piHeader({ cwd: '/Users/owner/work/app', id: '0f0e0d0c-0b0a-4908-8706-050403020100' }) };
+      return { folder: mine.folder, keep: other.file, during: together(mine.during, { files: [other] }) };
+    }],
+    ['R2 c an empty folder', (pi) => {
+      const work = path.join(pi.tmp, 'obk-system-empty-Em0001', 'bots', 'pi-mail');
+      const folder = pi.folderFor(work);
+      return { folder, during: { dirs: [work, folder] } };
+    }],
+    ['R2 c a folder with a file not named *.jsonl beside a good one', (pi) => {
+      const mine = pi.goodRun('obk-system-txt-Tx0001/bots/pi-mail');
+      const notes = path.join(mine.folder, 'notes.txt');
+      return { folder: mine.folder, keep: notes, during: together(mine.during, { files: [{ file: notes, text: 'the owner\'s notes\n' }] }) };
+    }],
+    // Only the name fails here: the file starts with a good header of the run's,
+    // so rule d passes and rule c alone must keep the folder.
+    ['R2 c a folder with a file named *.json, not *.jsonl, that starts with a good session header of the run\'s, beside a good one', (pi) => {
+      const mine = pi.goodRun('obk-system-json-Jn0001/bots/pi-mail');
+      const json = piSessionFile(mine.folder, 2).replace(/\.jsonl$/, '.json');
+      return { folder: mine.folder, keep: json, during: together(mine.during, { files: [{ file: json, text: piHeader({ cwd: mine.work }) }] }) };
+    }],
+    ['R2 c a folder with a link inside, beside a good file', (pi) => {
+      const mine = pi.goodRun('obk-system-link-Lk0001/bots/pi-mail');
+      const target = path.join(pi.box, 'link-target.jsonl');
+      const link = piSessionFile(mine.folder, 2);
+      return {
+        folder: mine.folder,
+        keep: mine.file,
+        before: async () => writeFile(target, piHeader({ cwd: mine.work })),
+        during: together(mine.during, { links: [{ link, to: target }] }),
+        alsoKept: target,
+      };
+    }],
+    ['R2 c a folder with a subfolder inside, beside a good file', (pi) => {
+      const mine = pi.goodRun('obk-system-sub-Sb0001/bots/pi-mail');
+      const inner = piSessionFile(path.join(mine.folder, 'subagents'), 2);
+      return { folder: mine.folder, keep: inner, during: together(mine.during, { files: [{ file: inner, text: piHeader({ cwd: mine.work }) }] }) };
+    }],
+    ['R2 d a session file whose first line is not JSON', (pi) => {
+      const work = path.join(pi.tmp, 'obk-system-text-Js0001', 'bots', 'pi-mail');
+      const folder = pi.folderFor(work);
+      return { folder, keep: piSessionFile(folder), during: { dirs: [work], files: [{ file: piSessionFile(folder), text: 'not json at all\n' }] } };
+    }],
+    ['R2 d an empty session file', (pi) => {
+      const work = path.join(pi.tmp, 'obk-system-zero-Zr0001', 'bots', 'pi-mail');
+      const folder = pi.folderFor(work);
+      return { folder, keep: piSessionFile(folder), during: { dirs: [work], files: [{ file: piSessionFile(folder), text: '' }] } };
+    }],
+    ['R2 d a header with no cwd', (pi) => {
+      const work = path.join(pi.tmp, 'obk-system-nocwd-Nc0001', 'bots', 'pi-mail');
+      const folder = pi.folderFor(work);
+      return { folder, keep: piSessionFile(folder), during: { dirs: [work], files: [{ file: piSessionFile(folder), text: '{"type":"session"}\n' }] } };
+    }],
+    ['R2 d a header whose cwd is not a string', (pi) => {
+      const work = path.join(pi.tmp, 'obk-system-numcwd-Nm0001', 'bots', 'pi-mail');
+      const folder = pi.folderFor(work);
+      return { folder, keep: piSessionFile(folder), during: { dirs: [work], files: [{ file: piSessionFile(folder), text: piHeader({ cwd: 42 }) }] } };
+    }],
+    ['R2 d a header whose type is not "session"', (pi) => {
+      const work = path.join(pi.tmp, 'obk-system-type-Ty0001', 'bots', 'pi-mail');
+      const folder = pi.folderFor(work);
+      return { folder, keep: piSessionFile(folder), during: { dirs: [work], files: [{ file: piSessionFile(folder), text: piHeader({ type: 'message', cwd: work }) }] } };
+    }],
+  ];
+
+  for (const [label, make] of notProven) {
+    test(`${label}: the folder stays, is named, and the run fails`, async (t) => {
+      const pi = await withPiProof(t);
+      const good = pi.goodRun('obk-system-good-Cn0001/bots/pi-mail');
+      const bad = make(pi);
+      assert.ok(path.basename(bad.folder).startsWith(`${piFolderName(pi.tmp).slice(0, -2)}-obk-system-`) || path.basename(bad.folder).startsWith(`${piFolderName(pi.localData).slice(0, -2)}-obk-system-`),
+        `the premise: the folder's name looks like the run's: ${path.basename(bad.folder)}`);
+      if (bad.before) await bad.before();
+      await pi.write(together(good.during, bad.during));
+
+      const result = await pi.run();
+
+      assert.equal(there(good.folder), false, `the premise: the good folder of the run beside it goes: ${good.folder}`);
+      assert.ok(there(bad.folder), `the folder without proof stays: ${bad.folder}`);
+      if (bad.keep) assert.ok(there(bad.keep), `with what was in it: ${bad.keep}`);
+      if (bad.alsoKept) assert.ok(there(bad.alsoKept), `and what its link leads to: ${bad.alsoKept}`);
+      assert.ok(everything(result).includes(path.basename(bad.folder)), `the output names the folder, got:\n${everything(result)}`);
+      assert.notEqual(result.code, 0, `a folder that looks like the run's but has no proof fails the run:\n${everything(result)}`);
+    });
+  }
+
+  test('R2 a new folder whose name does not look like the run\'s stays, is not named, and the run passes, whatever is in it', async (t) => {
+    const pi = await withPiProof(t);
+    const good = pi.goodRun('obk-system-good-Nl0001/bots/pi-mail');
+    const other = pi.folderFor('/Users/owner/work/app');
+    const notes = path.join(other, 'notes.txt');
+    await pi.write(together(good.during, { files: [{ file: notes, text: 'the owner\'s notes\n' }] }));
+
+    const result = await pi.run();
+
+    assert.equal(result.code, 0, everything(result));
+    assert.equal(there(good.folder), false, `the premise: the good folder of the run goes: ${good.folder}`);
+    assert.equal(await readFile(notes, 'utf8'), 'the owner\'s notes\n', 'the other folder stays with what is in it');
+    assert.ok(!everything(result).includes(path.basename(other)), `and is not named, got:\n${everything(result)}`);
+  });
+});
+
+describe('test-system: a Pi store the runner cannot read at the start, or cannot find, is left alone (#634)', { concurrency: true }, () => {
+  test('R1 a store that is not there at the start counts as empty: a good folder of the run made in it is removed', async (t) => {
+    const pi = await withPiProof(t);
+    const mine = pi.goodRun('obk-system-none-No0001/bots/pi-mail');
+    assert.equal(there(path.dirname(pi.store)), false, `the premise: no agent dir before the run: ${path.dirname(pi.store)}`);
+    await pi.write(mine.during);
+
+    const result = await pi.run();
+
+    assert.equal(result.code, 0, everything(result));
+    assert.equal(there(mine.folder), false, `the run's Pi folder should be gone: ${mine.folder}`);
+  });
+
+  test('R1 a store that cannot be read at the start (EACCES) loses nothing, though it can be read at the end; the store is named and the run fails', async (t) => {
+    const pi = await withPiProof(t);
+    const old = pi.goodRun('obk-system-old-Ac0001/bots/pi-mail');
+    await mkdir(old.work, { recursive: true });
+    await mkdir(old.folder, { recursive: true });
+    await writeFile(old.file, piHeader({ cwd: old.work }));
+    const mine = pi.goodRun('obk-system-new-Ac0002/bots/pi-mail');
+    await pi.write(together({ modes: [{ target: pi.store, mode: 0o755 }] }, mine.during));
+    await chmod(pi.store, 0o000);
+    t.after(() => chmod(pi.store, 0o755).catch(() => {}));
+
+    const result = await pi.run();
+    await chmod(pi.store, 0o755).catch(() => {});
+
+    assert.ok(there(old.file), `the old folder stays with its file: ${old.file}`);
+    assert.ok(there(mine.folder), `the new folder stays too, as the runner cannot tell it is new: ${mine.folder}`);
+    assert.ok(everything(result).includes(pi.store), `the output names the store, got:\n${everything(result)}`);
+    assert.notEqual(result.code, 0, `a store it could not read at the start fails the run:\n${everything(result)}`);
+  });
+
+  test('R1 a store that is a file at the start (ENOTDIR) and a folder at the end loses nothing; the store is named and the run fails', async (t) => {
+    const pi = await withPiProof(t);
+    await mkdir(path.dirname(pi.store), { recursive: true });
+    await writeFile(pi.store, 'not a folder\n');
+    const mine = pi.goodRun('obk-system-new-Nd0001/bots/pi-mail');
+    await pi.write(together({ removes: [pi.store] }, mine.during));
+
+    const result = await pi.run();
+
+    assert.ok(there(mine.folder), `the new folder stays, as the runner cannot tell it is new: ${mine.folder}`);
+    assert.ok(everything(result).includes(pi.store), `the output names the store, got:\n${everything(result)}`);
+    assert.notEqual(result.code, 0, `a store it could not read at the start fails the run:\n${everything(result)}`);
+  });
+
+  test('R3 PI_CODING_AGENT_DIR "~/pi-agent" is <HOME>/pi-agent: the good folder there is removed, and no "~" folder appears in the runner\'s working folder', async (t) => {
+    const pi = await withPiProof(t);
+    const store = path.join(pi.env.HOME, 'pi-agent', 'sessions');
+    const mine = pi.goodRun('obk-system-tilde-Td0001/bots/pi-mail', store);
+    await pi.write(mine.during);
+
+    const result = await pi.run({ PI_CODING_AGENT_DIR: '~/pi-agent' });
+
+    assert.equal(result.code, 0, everything(result));
+    assert.equal(there(mine.folder), false, `the run's Pi folder under <HOME>/pi-agent should be gone: ${mine.folder}`);
+    assert.equal(there(path.join(pi.fixture.repo, '~')), false, 'nothing is made at a relative "~" in the runner\'s working folder');
+  });
+
+  test('R3 PI_CODING_AGENT_DIR "~" is the home folder itself: the good folder in <HOME>/sessions is removed', async (t) => {
+    const pi = await withPiProof(t);
+    const store = path.join(pi.env.HOME, 'sessions');
+    const mine = pi.goodRun('obk-system-home-Hm0002/bots/pi-mail', store);
+    await pi.write(mine.during);
+
+    const result = await pi.run({ PI_CODING_AGENT_DIR: '~' });
+
+    assert.equal(result.code, 0, everything(result));
+    assert.equal(there(mine.folder), false, `the run's Pi folder under <HOME>/sessions should be gone: ${mine.folder}`);
+  });
+
+  test('R3 PI_CODING_AGENT_DIR as a file:// URL is that URL\'s path: the good folder there is removed', async (t) => {
+    const pi = await withPiProof(t);
+    const agent = path.join(pi.box, 'pi-url-agent');
+    const store = path.join(agent, 'sessions');
+    const mine = pi.goodRun('obk-system-url-Ur0001/bots/pi-mail', store);
+    await pi.write(mine.during);
+
+    const result = await pi.run({ PI_CODING_AGENT_DIR: pathToFileURL(agent).href });
+
+    assert.equal(result.code, 0, everything(result));
+    assert.equal(there(mine.folder), false, `the run's Pi folder under the URL's path should be gone: ${mine.folder}`);
+  });
+
+  test('R3 a relative PI_CODING_AGENT_DIR "pi-agent": the runner removes nothing, says so, and the run fails', async (t) => {
+    const pi = await withPiProof(t);
+    const inCwd = pi.goodRun('obk-system-rel-Rl0001/bots/pi-mail', path.join(pi.fixture.repo, 'pi-agent', 'sessions'));
+    const atHome = pi.goodRun('obk-system-rel-Rl0002/bots/pi-mail', path.join(pi.env.HOME, '.pi', 'agent', 'sessions'));
+    await pi.write(together(inCwd.during, atHome.during));
+
+    const result = await pi.run({ PI_CODING_AGENT_DIR: 'pi-agent' });
+
+    assert.ok(there(inCwd.folder), `a folder under the relative path, read from the runner's working folder, stays: ${inCwd.folder}`);
+    assert.ok(there(atHome.folder), `a folder in the default store stays: ${atHome.folder}`);
+    assert.ok(everything(result).includes('pi-agent'), `the output says which value it could not place, got:\n${everything(result)}`);
+    assert.notEqual(result.code, 0, `a store it cannot place fails the run:\n${everything(result)}`);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // A hard time limit on the whole run (#653)
 // ---------------------------------------------------------------------------

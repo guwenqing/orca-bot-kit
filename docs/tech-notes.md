@@ -1016,3 +1016,55 @@ docs, or Orca's 1.4.225 bundle. The kit was tested with Pi 1.1.0.
   **read in code** (the 1.4.225 bundle's resume command table). Not seen live.
 - **Pi's update notice** (`Update Available … New version 1.3.0 is available. Run pi update`) is a line
   in the conversation, not a question; nothing answers it. **seen live**.
+- **Fleet mail in a Pi tab (#634).** Read on 2026-10-17 in Pi 1.3.0 (installed on the owner's Mac that
+  day; slice 1 saw 1.1.0) and the Orca 1.4.225 bundle, and seen live on 2026-10-18 on the same versions.
+  - **Seen live** (2026-10-18, 04:22Z): one letter by `obk message send` to a Pi session of a real bot
+    (kit-dev), in a tab the window had loaded (`orphaned: false`), its prompt telling it to run
+    `obk message check` when told of mail. The letter had `delivered_at` within 1 s, and Orca's notice
+    landed in Pi's session file as a user turn ("You have 1 orchestration message. Run `orca
+    orchestration check --run <id>`."). 3 s later Pi ran the kit's `obk message check`, not the bare
+    check the notice names; the check gave it the letter and marked it read, and Pi answered.
+    Nothing was typed into the tab but Orca's notice.
+  - In `test/system/pi-mail.test.js` (2026-10-18, 00:08 local) Orca listed the throwaway project's Pi
+    tab and Codex tab as orphaned as soon as they were up, and `orca terminal switch` to the Pi tab,
+    answered ok, left it orphaned for 15 s. The likely cause, worked out and not proven: the window had
+    never loaded that project, and the Orca CLI has no command that opens one there. Seen live by #561
+    (2026-10-18): one more project with one plain tab made the older projects' tabs real, and a tab
+    added to the same project did not; the cause is not known. So the test now takes that step
+    (`test/helpers/newer-project.js`) in a night run that names it, and fails plainly when a tab is
+    still orphaned 30 s later.
+  - **Seen live** (2026-10-19, 00:37 local, the same test at a554dc7, passing): the step above made
+    the idle Pi tab real. Orca's notice reached it 2 s after the letter, and its own
+    `obk message check` with no `--bot` read the letter. Its reply by `obk message send` with no
+    `--from` reached the Codex sender, which read it 24 s after the first letter. A letter without
+    `--interrupt` to a busy Pi tab typed nothing into it. With `--interrupt` the send pressed Escape
+    once, and Orca's notice came 4 s later. The busy Pi's 100-step loop stood at step 39 at the Escape
+    and still at step 39 when both letters were read: it wrote no step after the Escape.
+  - An earlier run of the same test (00:11 local, at b34ffc9) failed at the reply. The test's prompt
+    sent the Pi's check output only to a file (`>>`), so the Pi's tool result was "(no output)". The Pi
+    never saw the letter that asked it to reply, and the Orca mailbox held no reply. The check now goes
+    through `tee -a`. This was a fault in the test, not in the kit.
+  - `orca terminal list` shows a Pi tab's title in Orca's own words: `Pi - <name> - <folder>`, and
+    `Pi ready` at rest after a turn. Pi itself writes `π - <name> - <folder>` (its `APP_TITLE` is `π`);
+    Orca's renderer has the label table `pi: { workingLabel: "Pi", idleLabel: "Pi ready", … }`, and its
+    main bundle puts the label in place of `π` for the title it shows. **read in code**; the two shown
+    titles **seen live**.
+  - Pi has no messaging between sessions of its own, so the kit sends every letter to or from a Pi
+    session by the Orca mailbox. A Pi launch line starts with the kit's mailbox step, as a Codex line
+    does.
+  - Orca's Pi extension `orca-titlebar-spinner.ts` titles the tab `π - <name> - <folder>` at rest and
+    `<braille frame> π - <name> - <folder>` while Pi works, and `π ! …` while a dialog waits. Orca's
+    status rules for agent `pi` read `^π - ` as idle, and Pi's hooks count as `authoritative`. So Orca's
+    notice reaches a Pi tab by the same rule as a Claude Code tab: an idle title seen live, and a tab
+    the window has loaded (section 1).
+  - Pi's bash tool runs each command with Pi's whole environment (`getShellEnv` spreads `process.env`),
+    so `ORCA_TAB_ID`, `ORCA_TERMINAL_HANDLE`, `OBK_TAB_SHELL` and `OBK_CLI` reach an `obk` that a Pi
+    session runs. So `obk message check` and `obk message send` take the caller from a Pi tab, as from
+    a Claude Code tab. Pi has no shared background server, so the Codex refusal of #408 does not apply.
+  - An Escape while Pi works aborts the turn (`app.interrupt`, the editor's `onEscape`), and the abort
+    kills the running command's whole process tree (`core/tools/bash.js`, `killProcessTree`). Codex
+    keeps such a command as a background terminal; Pi does not, so `message send --interrupt` says
+    nothing of it for Pi. An Escape also puts any queued steering or follow-up messages back into the
+    editor.
+  - A line typed while Pi works is queued as a steering message (Enter), not a new turn. Orca types its
+    notice only into an idle tab.
