@@ -1069,3 +1069,53 @@ docs, or Orca's 1.4.225 bundle. The kit was tested with Pi 1.1.0.
     editor.
   - A line typed while Pi works is queued as a steering message (Enter), not a new turn. Orca types its
     notice only into an idle tab.
+- **First-run screens of Pi 1.3.0, and what a session leaves (#648).** Read on 2026-10-18 in Pi 1.3.0's
+  `dist/` (the bundle the bin runs, `dist/bundle/chunks/`, has the same strings), and seen in one probe
+  outside Orca: a throwaway folder, a plain pseudo-terminal of 120 by 40, every `ORCA_*` and `OBK_*`
+  variable removed (Orca's Pi extensions then do nothing), the line `pi --no-approve --session-id <uuid>
+  --name pi-probe-648`, no prompt and no model turn, then ctrl+d.
+  - **Seen outside Orca**: Pi printed `Warning: No project session found with id '<id>'; creating a new
+    session with that id.` and a `Model scope: …` line, then its startup help, `[Skills]`,
+    `[Extensions]` (Orca's three and the user's two packages), the editor and the foot. No question
+    waited for a key. ctrl+d ended it with exit 0, and no Pi process was left. `settings.json`,
+    `models.json` and `trust.json` in `~/.pi/agent` had the same SHA-256 before and after. Pi made the
+    working folder's session folder under `~/.pi/agent/sessions` at once, empty, since there was no turn;
+    the throwaway folder stayed empty. What Orca's extensions add in a real tab is not seen yet.
+  - **With `--no-approve` and an existing `~/.pi/agent/settings.json`, no core screen of Pi's waits for
+    a key**, before or after a turn. **read in code**: `--no-approve` sets the trust override to false
+    (`cli/args.js:232`), so `main.js:595` never asks, and nothing is read from or written to
+    `trust.json`. The other candidates do not ask: the changelog is lines in the chat, and shows nothing
+    when `lastChangelogVersion` is the running version (`interactive-mode.js:988-1008`); there is no
+    consent screen apart from the first-time setup below; the model selector and login open only on `/model`, ctrl+L or `/login`; the update
+    notice is lines in the chat; a missing package in `settings.json` is installed by npm with no question;
+    and after a turn there is no rating or feedback question, and compaction asks nothing.
+  - **What can still wait for a key** (**read in code**; none of them seen): Pi's first-time setup, which
+    `--no-approve` does not skip, on an official build with `PI_EXPERIMENTAL=1`, no `PI_CODING_AGENT_DIR`
+    and no `settings.json` (`main.js:539`, `cli/startup-ui.js:98-113`): `Welcome to Pi, the minimal
+    coding agent.`, then `Pick a theme.` with foot `↑↓ navigate  enter continue  escape/ctrl+c skip setup`,
+    then `Opt-in to anonymous usage data sharing?` with foot `… enter finish  escape/ctrl+c skip setup`
+    (`components/first-time-setup.js`); Pi's deprecation warning, `Press any key to continue...`, when
+    `~/.pi/agent/hooks` or `<cwd>/.pi/hooks` exists, or a `tools/` folder there holds more than `fd` and
+    `rg` (`migrations.js:203-268`); a dialog that an extension opens in its `session_start`, which holds
+    the start prompt until it is answered: `ctx.ui.select` and `confirm` drawn with the trust screen's `→`
+    pointer and foot `↑↓ navigate  enter select  escape/ctrl+c cancel`, and `ctx.ui.input` with the foot
+    `enter submit  escape/ctrl+c cancel` (`components/extension-input.js:47`); and a tool's question during
+    a turn, such as `cursor_ask_question` of the
+    `pi-cursor-sdk` package on a `cursor/…` model. The installed extensions open no dialog at start.
+    Without `--no-approve`, a bot folder under a bots repo whose root has `.agents/skills` would get the
+    trust screen, since a `.agents/skills` in any folder above counts (`core/trust-manager.js:151-170`).
+    So the kit knows these shapes by name, answers none of them, and says what is on the screen (#648).
+  - **A bad `--model`** (not found, ambiguous, unknown provider) makes Pi print the error and exit 1
+    before its screen comes up (`main.js:745-753`); an empty `--name` exits 1 too (`main.js:570-577`).
+    With no `--model`, Pi takes the first of the user's `enabledModels`.
+  - **What Pi writes for a session** (**read in code**): its session folder at start, and the session file
+    at the first message (`session-manager.js:290-300, 784-813`); nothing in the working folder, no pid
+    file and no lock of its own. `settings.json` changes only for a new `lastChangelogVersion` or a missing
+    `deviceId`; `auth.json` may be written on a token refresh; `pi-cursor-sdk` writes its two
+    `cursor-sdk-*.json` files in `~/.pi/agent`. So a retired Pi session leaves its conversation file, as a
+    Claude Code or Codex session leaves its transcript, and the book keeps its id under retired.
+  - **On quit** (**read in code**): ctrl+d on an empty editor, or ctrl+c twice, ends Pi; a running bash
+    tool's process group is killed with SIGKILL (`core/tools/bash.js:63-81`), and closing the terminal
+    kills the tracked children too. A process that a finished command left in the background is not
+    tracked, and lives on (worked out, not proven), which is what the retire's stop of the work dir's
+    processes is for (#537).
