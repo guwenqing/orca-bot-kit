@@ -289,7 +289,11 @@ for (const how of ['fails', 'killed']) {
     const answer = await found(box);
 
     const finding = assertModelFinding(answer, bots, 'pier', 'daily', 'anthropic/claude-opus-5-5');
-    assert.match(finding.says, /could not|couldn't|cannot|can't|did not answer|no answer|fail/i, `it says Pi could not answer, got: ${finding.says}`);
+    // Pi gave no answer about the model, which is not the same as Pi saying it
+    // does not list it (H4c). So the words say Pi could not answer, and they do
+    // not say the model is not listed.
+    assert.match(finding.says, /could not answer|couldn't answer|cannot answer|can't answer|did not answer|didn't answer|gave no answer|no answer|failed|exited|killed|signal/i, `it says Pi could not answer, got: ${finding.says}`);
+    assert.doesNotMatch(finding.says, /none matching|no models? match|not list|n't list|lists none|lists no|unknown to Pi/i, `Pi did not say it lacks the model, so the finding does not say so, got: ${finding.says}`);
     assert.ok((await pi.searches()).includes('anthropic/claude-opus-5-5'), `health asked Pi for the model, got: ${JSON.stringify(await pi.searches())}`);
     assert.deepEqual(configOf(answer, bots, 'pier').filter((one) => hasWord(one.says, 'plain')), [], 'plain names no model, so Pi is not asked for one');
   });
