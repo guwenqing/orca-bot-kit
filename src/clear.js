@@ -19,12 +19,12 @@ import { botDir, readBot } from './bot.js';
 import { claudeTranscript, codexRollout } from './conversations.js';
 import { harnessOf, ownCli, shellWord } from './launch.js';
 import { eachLine, firstLine } from './lines.js';
-import { FEEDBACK_PANEL, feedbackPanelIn, findProject, orca, QUESTION_ON_SCREEN, questionIn, screenRows, tabs, tabToTypeInto, TIMED_OUT } from './orca.js';
+import { FEEDBACK_PANEL, feedbackPanelIn, findProject, orca, piAtWorkIn, QUESTION_ON_SCREEN, questionIn, screenRows, tabs, tabToTypeInto, TIMED_OUT } from './orca.js';
 import { botsNamed, sessionsOf, typeListLine } from './up.js';
 
-/** The harness's own command for each, as typed into its input line. Codex's clear is `/new` (tech notes, section 3). */
+/** The harness's own command for each, as typed into its input line. Codex's and Pi's clear is `/new` (tech notes, sections 3 and 6). */
 const COMMANDS = {
-  clear: { claude: '/clear', codex: '/new' },
+  clear: { claude: '/clear', codex: '/new', pi: '/new' },
   compact: { claude: '/compact', codex: '/compact' },
 };
 
@@ -100,7 +100,17 @@ const CHAR_GAP_MS = 100;
 const AT_WORK = [/esc to interrupt/i, /^\s*\S\s+\S+…\s+\(\d/];
 
 /**
- * Clear the session: `/clear` on Claude Code, `/new` on Codex. Returns
+ * A rule of Pi 1.3.0's input box, above and below its editor's rows, the top
+ * one with Pi's status in it while it works; Pi draws its slash menu below
+ * the bottom one, the selected row starting `→ ` (pi-tui's `editor.js` and
+ * `select-list.js`; read in code, #663).
+ */
+const PI_RULE = /^\s*─{3,}\s*$/;
+const PI_TOP_RULE = /^\s*─/;
+const PI_SELECTED = /^ *→ +/;
+
+/**
+ * Clear the session: `/clear` on Claude Code, `/new` on Codex and Pi. Returns
  * `{ bot, session, harness, was, now }`, the conversation the book held before
  * (or null) and the one it holds now.
  */
@@ -168,10 +178,7 @@ export async function compactSession(bots, { bot, session }) {
 /**
  * The session as something to type into, once everything that refuses before
  * Orca is asked to type has been asked: `{ name, home, session, harness, tabId }`.
- * A `verb`, clear or compact, is refused on Pi. The kit has not yet seen Pi's
- * input line and slash menu through Orca's screen, which its check before the
- * return needs (#663); a `/new` typed in a Pi tab is followed by the book all
- * the same (#662).
+ * A compact is refused on Pi: a later slice of #547 may add it.
  */
 export function sessionToType(bots, bot, session, verb) {
   botsNamed(bots, bot);
@@ -179,10 +186,7 @@ export function sessionToType(bots, bot, session, verb) {
   const known = readBot(home, bot);
   const [settings] = sessionsOf(known, session);
   const name = `${bot} ${session}`;
-  if (verb === 'clear' && harnessOf(settings, known.harness) === 'pi') {
-    throw new Error(`${name} runs on Pi, and obk session clear does not type into a Pi tab yet: the kit cannot yet check what Pi's screen shows before it presses return (#663). Type /new in its tab yourself: the book follows it, and the new conversation gets its start prompt again. Nothing was typed.`);
-  }
-  if (verb !== undefined && harnessOf(settings, known.harness) === 'pi') {
+  if (verb === 'compact' && harnessOf(settings, known.harness) === 'pi') {
     throw new Error(`${name} runs on Pi, and obk session ${verb} does not work on a Pi session yet: a later slice of #547 adds it. Nothing was typed.`);
   }
   const unpause = `${shellWord(ownCli())} unpause --bots ${shellWord(bots)} --bot ${bot}`;
@@ -239,9 +243,16 @@ export async function typeCommand(it, command, { before = () => {}, check = menu
   // Nothing may be in the input line before: no draft for the command to join.
   // Orca gives a draft in the line beside the screen, and the screen's line
   // then reads the pointer alone (#510, #516). Where it gives none, Codex's
-  // line on the screen has to be empty.
+  // line on the screen has to be empty, and so do Pi's editor rows.
   const emptyLine = ({ rows, draft }) => {
     if (draft !== undefined) throw new Error(`${it.name}: nothing was typed, because its input line holds a draft: it reads "${draft}".${shownEnd(rows)}`);
+    if (it.harness === 'pi') {
+      const box = piBox(rows);
+      if (box === undefined) throw new Error(`${it.name}: nothing was typed, because its screen shows no input box.${shownEnd(rows)}`);
+      const line = box.editor.map((row) => row.trim()).filter((row) => row !== '').join(' ⏎ ');
+      if (line !== '') throw new Error(`${it.name}: nothing was typed, because its input line is not empty: it reads "${line}".${shownEnd(rows)}`);
+      return;
+    }
     if (it.harness !== 'codex') return;
     const line = rows.findLast((row) => /^ *›/.test(row))?.trim();
     if (!CODEX_EMPTY.includes(line)) {
@@ -301,7 +312,7 @@ export async function typeCommand(it, command, { before = () => {}, check = menu
         // A send Orca did not answer in time may have gone in all the same.
         // Counted only where the line was empty before the first key, so the
         // one backspace too many can take nothing of the user's (#480 review).
-        if (error.code === TIMED_OUT && it.harness === 'codex') typed += 1;
+        if (error.code === TIMED_OUT && (it.harness === 'codex' || it.harness === 'pi')) typed += 1;
         throw error;
       }
       typed += 1;
@@ -379,7 +390,7 @@ function lookAt(it, { idle = true } = {}) {
   }
   if (found.agent !== it.harness) return { why: `Orca names ${found.agent} in it, and the session runs on ${it.harness}` };
   // The gate has read the screen already: it saw no question on it.
-  const signal = signalIn(found.rows);
+  const signal = signalIn(found.rows, it.harness);
   if (signal !== undefined) return { why: signal };
   if (idle && !found.idle) return { why: 'it is busy with a turn: Orca\'s tui-idle did not answer ok' };
   return { handle: found.handle, rows: found.rows, draft: found.draft };
@@ -400,7 +411,7 @@ async function typedWrong(handle, harness, command, version, check) {
     const seen = screenRows(handle, READ_MS);
     // The screen that lets the return in has to pass the look too: a turn or
     // a question that shows on it stops it at once (review of c1e5ba4).
-    const signal = seen.rows === undefined ? undefined : signalIn(seen.rows);
+    const signal = seen.rows === undefined ? undefined : signalIn(seen.rows, harness);
     if (signal !== undefined) return { why: signal, rows: seen.rows };
     const wrong = seen.rows === undefined ? { why: `its screen could not be read (${seen.unreadable})` } : check(seen.rows, harness, command, version, seen.draft);
     if (wrong === undefined || Date.now() >= until) return wrong && { ...wrong, rows: seen.rows };
@@ -415,9 +426,9 @@ async function typedWrong(handle, harness, command, version, check) {
  */
 const PANEL_WHY = 'its panel of feedback drafts is open above its input box, and the kit does not answer it, since a draft sent from it goes to Anthropic: it clears once the user reviews, sends or dismisses the drafts in that tab';
 
-/** Why `rows` say not to type now, as the look says it, or undefined: a turn at work, or a question. */
-function signalIn(rows) {
-  const working = rows.find((row) => AT_WORK.some((marker) => marker.test(row)));
+/** Why `rows` of `harness` say not to type now, as the look says it, or undefined: a turn at work, or a question. */
+function signalIn(rows, harness) {
+  const working = rows.find((row) => AT_WORK.some((marker) => marker.test(row))) ?? piAtWorkIn(rows, harness);
   if (working !== undefined) return `it is busy with a turn: its screen shows "${working.trim()}"`;
   if (feedbackPanelIn(rows)) return PANEL_WHY;
   if (questionIn(rows)) return 'a question of its harness\'s own is on its screen';
@@ -425,6 +436,7 @@ function signalIn(rows) {
 }
 
 function menuWrong(rows, harness, command, version, draft) {
+  if (harness === 'pi') return piMenuWrong(rows, command, draft);
   const at = rows.findLastIndex((row) => /^ *[›❯]/.test(row));
   if (at < 0) return { why: 'its screen shows no input line' };
   // Claude Code 2.1.288 puts a non-breaking space after its pointer (live run 4).
@@ -481,6 +493,40 @@ function codexMenuWrong(rows, at, line, command, version) {
   if (!/^ *› +/.test(commands[0])) return { why: `its menu's one row "${commands[0].trim()}" is not selected`, menu: true };
   const selected = commands[0].replace(/^ *› +/, '');
   if (selected.split(/\s+/)[0] !== command) return { why: `the selected row of its menu is "${selected.trim()}"`, menu: true };
+  return undefined;
+}
+
+/**
+ * Pi's input box on the screen, `{ editor, below }`: the rows between its two
+ * rules, and the rows under the bottom one. The bottom rule is the lowest full
+ * rule, and the top one the nearest rule above it. Undefined with no such box.
+ */
+function piBox(rows) {
+  const bottom = rows.findLastIndex((row) => PI_RULE.test(row));
+  const top = rows.slice(0, Math.max(bottom, 0)).findLastIndex((row) => PI_TOP_RULE.test(row));
+  if (bottom < 0 || top < 0) return undefined;
+  return { editor: rows.slice(top + 1, bottom), below: rows.slice(bottom + 1) };
+}
+
+/**
+ * With the slash menu open, Return in Pi 1.3.0 runs the selected row's
+ * command (pi-tui's `editor.js`, `tui.select.confirm`; read in code, #663).
+ * So the editor's one row, or Orca's draft where it gives one, reads the
+ * command, and the selected row below the box names it. A menu still drawn
+ * for an earlier part of the command looks the same when its selected row is
+ * the command too: the kit's gap between keys and its reads make that
+ * unlikely, and this cannot tell it apart.
+ */
+function piMenuWrong(rows, command, draft) {
+  const box = piBox(rows);
+  if (box === undefined) return { why: 'its screen shows no input box' };
+  const lines = box.editor.map((row) => row.trim()).filter((row) => row !== '');
+  const line = draft ?? lines.join(' ⏎ ');
+  if (line !== command || (draft === undefined && lines.length !== 1)) return { why: `its input line reads "${line}"` };
+  const selected = box.below.find((row) => PI_SELECTED.test(row));
+  if (selected === undefined) return { why: 'no menu of commands came up below its input box', menu: true };
+  const name = selected.replace(PI_SELECTED, '').trim().split(/\s+/)[0];
+  if (`/${name}` !== command) return { why: `the selected row of its menu is "${selected.trim()}"`, menu: true };
   return undefined;
 }
 
@@ -586,4 +632,4 @@ const SEND_MS = 5000;
 /** Type `keys` into the tab as they are, with no return of Orca's. */
 const send = (handle, keys) => orca(['terminal', 'send', '--terminal', handle, '--text', keys], { timeoutMs: SEND_MS });
 
-const harnessName = (harness) => (harness === 'claude' ? 'Claude Code' : 'Codex');
+const harnessName = (harness) => ({ claude: 'Claude Code', codex: 'Codex', pi: 'Pi' })[harness];

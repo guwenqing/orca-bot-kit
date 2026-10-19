@@ -550,6 +550,24 @@ const FORM_FOOT = /Enter to (?:continue|confirm|select)\b.*Esc to cancel/i;
  */
 const PI_FOOT = /\bescape\/ctrl\+c (?:to )?(?:cancel|close|skip setup)\b/i;
 
+/**
+ * How Pi 1.3.0 says it is at work: its status drawn into its input box's top
+ * rule, `── ⠋ Working (escape to interrupt) ──…`, or `… (escape to cancel)`
+ * while it compacts or waits to retry (`custom-editor.js`,
+ * `status-indicator.js`; read in code, #663). Its startup help says
+ * `escape to interrupt` too, with no brackets, and that is no turn.
+ */
+const PI_AT_WORK = /^\s*─.*\([^()]*\bto (?:interrupt|cancel)\)/;
+
+/**
+ * The row of a rendered screen that says the harness is at work, as only Pi
+ * draws it, or undefined. `agent` is the harness Orca names in the tab: the
+ * row counts only where it is pi (#663).
+ */
+export function piAtWorkIn(rows, agent) {
+  return agent === 'pi' ? rows.find((row) => PI_AT_WORK.test(row)) : undefined;
+}
+
 /** That pointer on a numbered choice, and the column its number starts in. */
 const ON_A_CHOICE = /^( *[›❯] +)\d+\. /;
 
@@ -721,7 +739,9 @@ export function tabToTypeInto(home, tabId, timeoutMs) {
   if (seen.question === undefined) {
     return { unsure: `the kit could not tell whether a question is waiting on its screen (${seen.screenUnreadable}), so nothing was typed` };
   }
-  return { handle: live.handle, agent: seen.agent, idle: seen.answered, rows: seen.rows, draft: seen.draft };
+  // Orca's tui-idle does not answer the same each time for a Pi tab (tech
+  // notes, section 6), so Pi's own word that it is at work counts too.
+  return { handle: live.handle, agent: seen.agent, idle: seen.answered && piAtWorkIn(seen.rows, seen.agent) === undefined, rows: seen.rows, draft: seen.draft };
 }
 
 /**
