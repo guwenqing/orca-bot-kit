@@ -977,9 +977,45 @@ docs, or Orca's 1.4.225 bundle. The kit was tested with Pi 1.1.0.
   `user`, `assistant` or `toolResult`. A user turn's `content` is a list of `{type:"text",text}` (or a
   string). The folder was made at launch and the file only after the first turn. **seen live** and
   **read in code** (`docs/session-format.md`).
-- **`/new` in a Pi tab starts another session file**, which the book does not learn in slice 1: the kit
-  has no Pi hook, so a restart resumes the conversation the book holds. A later slice of #547 adds it.
-  **read in docs** (`docs/sessions.md`), not tried live.
+- **`/new` in a Pi tab, and how the kit learns it (#662).** Pi 1.3.0, 2026-10-19, outside Orca: a
+  throwaway folder, a plain pseudo-terminal of 120 by 40, every `ORCA_*` and `OBK_*` variable removed,
+  `openai/gpt-6-luna` at thinking `low`, the line `pi --no-approve --session-id <uuid> --name probe-662
+  -e <a logging extension in a throwaway folder>`. `settings.json`, `models.json`, `trust.json` and
+  `auth.json` in `~/.pi/agent`, and its `extensions/` list, were the same before and after.
+  - **Seen live**: an extension named with `-e` loads with `--no-approve`. It runs in Pi's own process:
+    its `process.pid` was the pid the pseudo-terminal started, so Pi does not start itself again, and a
+    command the extension starts is Pi's own child, as a Claude Code hook is Claude Code's. That command
+    had Pi's whole environment.
+  - **Seen live**: `/new` fires `session_shutdown` (reason `new`, with the new file as
+    `targetSessionFile`); then the extension is loaded again; then `session_start` with reason `new`,
+    `previousSessionFile` the old file, and `ctx.sessionManager.getSessionId()` the new id. Pi made the
+    new id itself (a UUIDv7, `01a152f4-c1d5-7324-…`), and the new file is
+    `<the same session folder>/<timestamp>_<new id>.jsonl`. The start gives `session_start` with reason
+    `startup` and the id of `--session-id`. Reasons in the types (`core/extensions/types.d.ts`):
+    `startup`, `reload`, `new`, `resume`, `fork`. **read in code**: `/new` is `runtimeHost.newSession()`
+    with no options (`interactive-mode.js`, `handleClearCommand`).
+  - **Nothing links the new conversation to the old one.** **Seen live**: the new file's header is
+    `{"type":"session","version":3,"id","timestamp","cwd"}`, with no `parentSession`, and no
+    `session_info` line: the `--name` does not carry over. **read in code**: `parentSession` is set only
+    by `/fork`, `/clone` and `newSession({ parentSession })` (`docs/session-format.md`,
+    `session-manager.js`). The old file stays as it was.
+  - **Seen live**: a later `pi --no-approve --session-id <the new id>` printed no `No project session
+    found` warning and showed only the turn after the `/new`.
+  - **Seen live**: `pi.sendMessage({ customType, content, display: true })`, with no `triggerTurn`, in the
+    `session_start` handler after `/new`, wrote a `custom_message` line into the new file and started no
+    turn. At the next turn the model used it ("Which color does this session work on, by the note
+    above?" answered `teal`, the note's word). So it does what Claude Code's `additionalContext` does
+    after a `/clear`.
+  - So the kit ships a Pi extension, `src/pi-record.js`, and puts `--extension <its path>` on every Pi
+    launch line, beside `--no-approve`. At each `session_start` it runs the kit's own `session record`,
+    as the Claude Code and Codex hooks do, with Pi's id and reason; after a `/new` the kit answers with
+    the start prompt, and the extension gives it to Pi with `sendMessage`. Nothing goes into
+    `~/.pi/agent` or the folder's `.pi/`.
+  - **Orca's own restore of a Pi tab** runs `pi --session <transcriptPath>`, with none of the kit's
+    flags (read in code, above): no `--extension`, so such a tab does not follow a `/new` until the kit
+    restarts it; no `--no-approve` (#578); and, after #659, no `--skill`. Not fixed here.
+  - `obk session clear` does not type `/new` into a Pi tab yet: the kit has not seen Pi's input line and
+    slash menu through Orca's screen read, which its check before Return needs. A follow-up issue adds it.
 - **Project trust.** When the working folder or a folder above it has `.pi/settings.json`, `.pi/mcp.json`,
   `.pi/extensions|skills|prompts|themes`, `.pi/SYSTEM.md`, `.pi/APPEND_SYSTEM.md` or a project
   `.agents/skills`, Pi asks first, unless `--approve`/`--no-approve`, an extension, or a saved answer in
