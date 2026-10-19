@@ -619,7 +619,7 @@ function offTheBook(bots, home, bot, book, onRecord) {
   // launch line, so one the book does not name was begun inside Pi (#660).
   const onPi = stray.filter((one) => one.harness === 'pi');
   if (onPi.length === 0) return found;
-  found.push(finding('session', bookFile(home), `Pi has conversations on record in ${bot.name}'s folder that the book does not name: ${listed(onPi)}. Pi begins one when /new is typed in its tab, and nothing tells the book of it. ${give}`, bot.name));
+  found.push(finding('session', bookFile(home), `Pi has conversations on record in ${bot.name}'s folder that the book does not name: ${listed(onPi)}. Pi begins one when /new is typed in its tab, and the kit's Pi extension tells the book of it, so these were missed: the tab ran without the extension (a tab Orca brought back by itself, or one the kit started before it had the extension), or the extension's record went wrong. ${give}`, bot.name));
 
   // A Pi session whose conversation in the book Pi has no record of, while Pi
   // has one the book does not name: it is in another conversation than the
