@@ -122,7 +122,7 @@ Usage:
                             moves the folder only once Orca no longer lists
                             the project.
   obk temp make --bots <path> --name <session> [--role <role>[:<option>]]
-                (--prompt <text> | --prompt-file <path>) [--harness claude|codex]
+                (--prompt <text> | --prompt-file <path>) [--harness claude|codex|pi]
                 [--model <m>] [--effort <e>] [--context <c>]
                 [--approval ${APPROVALS.join('|')}] [--extra-arg=<arg>]...
                             Run in a session's own tab: make a temporary
@@ -133,7 +133,9 @@ Usage:
                             you say otherwise; on another harness than yours
                             it takes only your approval. --approval is refused
                             wider than yours, unless obk permission approval
-                            --temps allowed it for the bot. It works in
+                            --temps allowed it for the bot. On Pi it runs as
+                            dangerously-skip, Pi's one level, so that holds
+                            there too. It works in
                             work/<session>, and has the task as its start
                             prompt. The book records it as temporary, made by
                             you.
@@ -168,7 +170,8 @@ Usage:
                             "Teach auto mode" screen on a temporary session it
                             made with Not now, in a shape the kit knows, and
                             check the screen went. It refuses any other
-                            screen, and types nothing then.
+                            screen, and types nothing then. On a Pi session
+                            it answers nothing, and says what the screen is.
   obk rules build --bots <path> [--bot <bot>]
                             Build every bot's AGENTS.md from its charter and
                             the rule units it carries, or just the one you
