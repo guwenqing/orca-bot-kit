@@ -80,9 +80,8 @@
 //
 // **It is attended.** The bots folder is `<tmp>/obk-system-resume-listed-*`
 // (`<tmp>` is the system temp folder), and its projects show in Orca as
-// `Resume Codex · temp fleet obk-system-resume-listed-…` and `Resume Claude ·
-// temp fleet …`. This test answers none of the screens a harness puts up of its
-// own. What to expect, in order:
+// `Resume Codex` and `Resume Claude`. This test answers none of the screens a
+// harness puts up of its own. What to expect, in order:
 //
 //   1. `Bot Father daily`: Claude Code's folder trust. Nothing here waits on
 //      Bot Father or writes to it. Leave it.

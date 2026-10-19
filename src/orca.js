@@ -381,8 +381,8 @@ function askRuntime(method, params, killMs = CLIENT_KILL_MS) {
 
 const RUNTIME_SCRIPT = fileURLToPath(new URL('./orca-runtime.cjs', import.meta.url));
 
-/** The `osascript` this run asks. OBK_OSASCRIPT overrides it, as OBK_PS does `ps`. */
-const osascriptCli = () => process.env.OBK_OSASCRIPT || '/usr/bin/osascript';
+/** The `osascript` the kit asks, by its fixed path: no setting changes it (#652). */
+const OSASCRIPT = '/usr/bin/osascript';
 
 /** How long macOS is given to click the menu item. */
 const RELOAD_KILL_MS = 5000;
@@ -406,7 +406,7 @@ export function reloadWindow() {
   try {
     // <Orca.app>/Contents/Resources/bin/orca, often reached through a link.
     const app = path.resolve(realpathSync(orcaCli()), '..', '..', '..', '..');
-    const asked = spawnSync(osascriptCli(), [RELOAD_SCRIPT, app], {
+    const asked = spawnSync(OSASCRIPT, [RELOAD_SCRIPT, app], {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
       timeout: RELOAD_KILL_MS,
@@ -741,8 +741,8 @@ export function frontOfTab(handle) {
   return frontOf(handle, shown?.ptyId);
 }
 
-/** The `ps` this run reads. OBK_PS overrides it, as OBK_ORCA does Orca. */
-export const psCli = () => process.env.OBK_PS || '/bin/ps';
+/** The `ps` the kit reads, by its fixed path: no setting changes it (#652). */
+export const PS = '/bin/ps';
 
 /**
  * Who holds the terminal of the tab `handle`, whose pane is `ptyId`:
@@ -838,9 +838,9 @@ function panePid(ptyId, readMs) {
   return { pane };
 }
 
-/** The `lsof` and `stty` this run asks. OBK_LSOF and OBK_STTY override them, as OBK_PS does `ps`. */
-export const lsofCli = () => process.env.OBK_LSOF || '/usr/sbin/lsof';
-const sttyCli = () => process.env.OBK_STTY || '/bin/stty';
+/** The `lsof` and `stty` the kit asks, by their fixed paths, as `ps`. */
+export const LSOF = '/usr/sbin/lsof';
+const STTY = '/bin/stty';
 
 /**
  * One look at the shell of a tab the kit has just opened, before anything is
@@ -893,7 +893,7 @@ export function shellInTab(handle, until) {
  * or as the pane itself where the pane is the shell.
  */
 function ttyMode(pid, left) {
-  const listed = spawnSync(lsofCli(), ['-a', '-R', '-d', '0', '-u', String(process.getuid()), '-FpRn'], { encoding: 'utf8', timeout: left() });
+  const listed = spawnSync(LSOF, ['-a', '-R', '-d', '0', '-u', String(process.getuid()), '-FpRn'], { encoding: 'utf8', timeout: left() });
   if (listed.error?.code === 'ETIMEDOUT') return { unreadable: 'lsof did not answer in time', late: true };
   if (listed.error || listed.status !== 0) return { unreadable: `lsof could not list the processes' ttys` };
   // One record per process: `p<pid>`, `R<parent pid>`, `f0`, `n<name>`.
@@ -906,7 +906,7 @@ function ttyMode(pid, left) {
   }
   if (tty === undefined) return { unreadable: `lsof named no tty for the shell of its pane, pid ${pid}` };
 
-  const read = spawnSync(sttyCli(), ['-a', '-f', tty], { encoding: 'utf8', timeout: left() });
+  const read = spawnSync(STTY, ['-a', '-f', tty], { encoding: 'utf8', timeout: left() });
   if (read.error?.code === 'ETIMEDOUT') return { unreadable: `stty did not answer in time for ${tty}`, late: true };
   if (read.error || read.status !== 0) return { unreadable: `stty could not read ${tty}` };
   const words = read.stdout.split(/\s+/);
@@ -926,14 +926,14 @@ function ttyMode(pid, left) {
  * looks for one whole word it knows.
  */
 export function wordsOfProcess(pid) {
-  const asked = spawnSync(psCli(), ['-E', '-ww', '-o', 'command=', '-p', String(pid)], { encoding: 'utf8' });
+  const asked = spawnSync(PS, ['-E', '-ww', '-o', 'command=', '-p', String(pid)], { encoding: 'utf8' });
   if (asked.error || asked.status !== 0) return undefined;
   return asked.stdout.trim().split(/\s+/);
 }
 
 /** One process as `ps` gives it, read only: `{ ppid, tpgid, comm }`, `{ late: true }` past `readMs`, or undefined. */
 function psLine(pid, readMs) {
-  const asked = spawnSync(psCli(), ['-o', 'pid=,ppid=,tpgid=,comm=', '-p', String(pid)], { encoding: 'utf8', ...(readMs === undefined ? {} : { timeout: readMs }) });
+  const asked = spawnSync(PS, ['-o', 'pid=,ppid=,tpgid=,comm=', '-p', String(pid)], { encoding: 'utf8', ...(readMs === undefined ? {} : { timeout: readMs }) });
   if (asked.error?.code === 'ETIMEDOUT') return { late: true };
   if (asked.error || asked.status !== 0) return undefined;
   const line = /^\s*(\d+)\s+(\d+)\s+(-?\d+)\s+(.+?)\s*$/.exec(asked.stdout);

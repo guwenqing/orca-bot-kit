@@ -8,7 +8,6 @@
 // writes nothing, rather than leave a bot half made or a bot.yaml half edited.
 
 import { accessSync, constants, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { isSeq, parse, parseDocument, stringify } from 'yaml';
@@ -132,25 +131,6 @@ function whereItLeads(target) {
  */
 export const displayName = (name) =>
   name.split('-').map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
-
-/**
- * What Orca is asked to call a bot's project. A fleet whose bots folder is under
- * the system's temp folder, as a system test's or a live check's is, gets a mark
- * and the name of the first folder under the temp folder, so its Bot Father is
- * never taken for the owner's in Orca's sidebar (#401). Every other fleet's
- * project is called what it always was. Tab titles keep `displayName` either way.
- */
-export function projectName(bots, name) {
-  let under;
-  try {
-    under = path.relative(realpathSync(os.tmpdir()), realpathSync(bots));
-  } catch {
-    return displayName(name);
-  }
-  // The temp folder itself, or anywhere outside it, is not a throwaway fleet's.
-  if (under === '' || under === '..' || under.startsWith(`..${path.sep}`) || path.isAbsolute(under)) return displayName(name);
-  return `${displayName(name)} · temp fleet ${under.split(path.sep)[0]}`;
-}
 
 /**
  * A bot's own file: which harness its sessions run on unless they say

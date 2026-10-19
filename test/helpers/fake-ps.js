@@ -1,5 +1,6 @@
-// A fake `ps` for the ordinary suite. `OBK_PS` points every sandboxed run at
-// it, so `npm test` never reads the machine's own process table.
+// A fake `ps` for the ordinary suite. helpers/fake-tools.js sends every
+// sandboxed run's /bin/ps to it (OBK_TEST_PS), so `npm test` never reads the
+// machine's own process table.
 //
 // It answers the question the kit asks it most (#232): who is in front of an
 // Orca tab's terminal. The kit reads the tab's pane pid out of `orca

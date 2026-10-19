@@ -19,19 +19,18 @@
 // signals: SIGTERM first, to the whole group where every process in it is the
 // session's own, then up to 3 seconds for them to end, then SIGKILL to each
 // that still runs. Inside Codex's sandbox `ps` does not start (#298), and then
-// nothing is stopped and the answer says it cannot tell. OBK_PS, OBK_LSOF and
-// OBK_KILL override the three, as OBK_ORCA does Orca, so the suite runs on
-// fakes and sends no real signal.
+// nothing is stopped and the answer says it cannot tell. The kit runs the three
+// by their fixed paths, and no setting changes them (#652).
 
 import { spawnSync } from 'node:child_process';
 import { realpathSync } from 'node:fs';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
-import { lsofCli, psCli } from './orca.js';
+import { LSOF, PS } from './orca.js';
 
-/** The `kill` this run sends signals with. OBK_KILL overrides it. */
-const killCli = () => process.env.OBK_KILL || '/bin/kill';
+/** The `kill` the kit sends signals with, by its fixed path. */
+const KILL = '/bin/kill';
 
 /** How long one `ps`, `lsof` or `kill` may take. */
 const READ_MS = 10_000;
@@ -273,7 +272,7 @@ function readProcesses() {
  * READ_MS.
  */
 function workingFolders(ms = READ_MS) {
-  const asked = spawnSync(lsofCli(), ['-a', '-d', 'cwd', '-u', String(process.getuid()), '-Fpn'], { encoding: 'utf8', timeout: bound(ms), maxBuffer: 64 * 1024 * 1024 });
+  const asked = spawnSync(LSOF, ['-a', '-d', 'cwd', '-u', String(process.getuid()), '-Fpn'], { encoding: 'utf8', timeout: bound(ms), maxBuffer: 64 * 1024 * 1024 });
   if (asked.error?.code === 'ETIMEDOUT') return { unreadable: 'lsof did not answer in time' };
   if (asked.error || asked.status !== 0) return { unreadable: `lsof could not list the processes' working folders${because(asked)}` };
   const cwds = new Map();
@@ -292,7 +291,7 @@ function workingFolders(ms = READ_MS) {
  * own command line (review of PR #543). Or `{ unreadable: <why> }`.
  */
 function processTable(ms = READ_MS) {
-  const asked = spawnSync(psCli(), ['-A', '-ww', '-o', 'pid=,ppid=,pgid=,uid=,stat=,lstart=,command='], { encoding: 'utf8', timeout: bound(ms), maxBuffer: 64 * 1024 * 1024 });
+  const asked = spawnSync(PS, ['-A', '-ww', '-o', 'pid=,ppid=,pgid=,uid=,stat=,lstart=,command='], { encoding: 'utf8', timeout: bound(ms), maxBuffer: 64 * 1024 * 1024 });
   if (asked.error?.code === 'ETIMEDOUT') return { unreadable: 'ps did not answer in time' };
   if (asked.error || asked.status !== 0) return { unreadable: `ps could not read the process table${because(asked)}` };
   const table = new Map();
@@ -383,7 +382,7 @@ const inside = (cwd, dir) => cwd === dir || cwd.startsWith(`${dir}${path.sep}`);
  */
 function signal(name, target, ms = READ_MS) {
   if (!Number.isInteger(target) || Math.abs(target) <= 1) return { refused: `the kit does not signal ${target}` };
-  const sent = spawnSync(killCli(), ['-s', name, '--', String(target)], { encoding: 'utf8', timeout: bound(ms) });
+  const sent = spawnSync(KILL, ['-s', name, '--', String(target)], { encoding: 'utf8', timeout: bound(ms) });
   // Cut off at its time: whether the signal went is not known.
   if (sent.error?.code === 'ETIMEDOUT') return { late: true };
   if (!sent.error && sent.status === 0) return {};

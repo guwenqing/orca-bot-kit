@@ -862,7 +862,7 @@ test('the check for a summary sees one a failed shard skips, one a cancelled run
   assert.equal(holds({ if: 'always()', steps: [{ if: "contains(needs.*.result, 'failure')", run: 'exit 1' }] }), false, 'passes a cancelled shard');
 });
 
-test('the README says the same about Node as the package and the workflow do', async () => {
+test('the README says the same about Node as the package and the workflow do, and so does CONTRIBUTING.md', async () => {
   // The floor lives in three places a person writes by hand — `engines.node`, the
   // workflow, and the sentence a user reads before installing anything — and a
   // reader has no way to tell which of them is stale. The other guards hold the
@@ -877,15 +877,20 @@ test('the README says the same about Node as the package and the workflow do', a
 
   // And every exact version it names in the same breath as Node is one this repo
   // still stands behind: the floor, or a version CI actually runs the suite on.
+  // The README's "Working on the kit", which names the versions CI runs, is in
+  // CONTRIBUTING.md since #652, and is held to the same.
   const running = await ciNodeVersions();
   const allowed = new Set([floor, ...running]);
-  for (const line of readme.split('\n').filter((text) => /\bnode\b/i.test(text))) {
-    for (const named of line.match(/\d+\.\d+\.\d+/g) ?? []) {
-      assert.ok(
-        allowed.has(named),
-        `the README says Node ${named}, which is neither the floor ${floor} nor a version CI runs`
-        + ` (${running.join(', ')}): ${line.trim()}`,
-      );
+  const contributing = await readFile(path.join(repoRoot, 'CONTRIBUTING.md'), 'utf8');
+  for (const [page, text] of [['the README', readme], ['CONTRIBUTING.md', contributing]]) {
+    for (const line of text.split('\n').filter((one) => /\bnode\b/i.test(one))) {
+      for (const named of line.match(/\d+\.\d+\.\d+/g) ?? []) {
+        assert.ok(
+          allowed.has(named),
+          `${page} says Node ${named}, which is neither the floor ${floor} nor a version CI runs`
+          + ` (${running.join(', ')}): ${line.trim()}`,
+        );
+      }
     }
   }
 });

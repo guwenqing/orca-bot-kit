@@ -99,9 +99,8 @@
 // the architect's ruling (a)).
 //
 // **It is attended, lightly.** The bots folder is `<tmp>/obk-system-codex-screens-*`
-// and the bot's project shows in Orca as `Screens Codex · temp fleet
-// obk-system-codex-screens-…`. The Codex tab, `Screens Codex daily`, is the
-// test's to answer: leave it alone. `Bot Father daily` shows Claude Code's
+// and the bot's project shows in Orca as `Screens Codex`. The Codex tab,
+// `Screens Codex daily`, is the test's to answer: leave it alone. `Bot Father daily` shows Claude Code's
 // folder trust; nothing here waits on it, so leave that too. A screen in the
 // Codex tab that the test does not recognise stops the test with the screen,
 // and nothing is typed into it.

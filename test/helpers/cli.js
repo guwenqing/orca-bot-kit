@@ -4,26 +4,34 @@
 //
 //   <root>/bin/obk       symlink to the repo's src/cli.js (what `npm link` makes)
 //   <root>/bin/orca      fake Orca (helpers/fake-orca.js), what OBK_ORCA names
-//   <root>/bin/fake-ps   fake ps (helpers/fake-ps.js), what OBK_PS names
+//   <root>/bin/fake-ps   fake ps (helpers/fake-ps.js), where /bin/ps goes
 //   <root>/bin/fake-osascript
-//                        fake osascript (helpers/fake-osascript.js), what
-//                        OBK_OSASCRIPT names
+//                        fake osascript (helpers/fake-osascript.js), where
+//                        /usr/bin/osascript goes
 //   <root>/bin/fake-lsof, <root>/bin/fake-stty
-//                        fake lsof and stty (helpers/fake-tty.js), what
-//                        OBK_LSOF and OBK_STTY name
-//   <root>/bin/fake-kill fake kill (helpers/fake-kill.js), what OBK_KILL names:
-//                        it writes down each signal and changes the fake ps's
-//                        process table, and sends nothing (#537)
+//                        fake lsof and stty (helpers/fake-tty.js), where
+//                        /usr/sbin/lsof and /bin/stty go
+//   <root>/bin/fake-kill fake kill (helpers/fake-kill.js), where /bin/kill
+//                        goes: it writes down each signal and changes the fake
+//                        ps's process table, and sends nothing (#537)
 //   <root>/orca-fake/    the fake Orca's world: state.json and calls.log
 //   <root>/cwd           the working directory the CLI is spawned from
 //   <root>/home          HOME, so a stray write to the home dir shows up here
-//   <root>/tmp           TMPDIR, the kit's system temp folder (#401)
+//   <root>/tmp           TMPDIR, the kit's system temp folder
 //   <root>/Orca.app      only after `orcaApp`: a fake of the installed app, with
 //                        Orca's runtime client in it, and bin/orca linked into it
 //
 //   <root>/home/Library/Application Support/orca/profiles/local-default/orca-data.json
 //                        Orca's own settings, where Orca keeps them on this
 //                        machine (tech notes, section 1)
+//
+// The kit runs those five programs by their fixed paths, and reads no setting
+// that changes them (#652). So every process a sandbox starts loads
+// helpers/fake-tools.js first, through NODE_OPTIONS, and that test code sends
+// each fixed path to the fake that OBK_TEST_PS, OBK_TEST_LSOF, OBK_TEST_STTY,
+// OBK_TEST_OSASCRIPT or OBK_TEST_KILL names. Those five are the suite's
+// variables, read by the suite's own code; the kit reads none of them. A test
+// that wants a tool to fail points its variable at something else.
 //
 // `bin` goes first on PATH, so the CLI under test is the real entry point, and
 // `<root>/bin/obk` is the path the kit is started by: the one it names itself
@@ -44,13 +52,11 @@
 // The kit reads it and must never write it (PRD 6.5), which is what
 // `assertHomeUntouched` is for.
 //
-// A fleet under the system temp folder is a throwaway one, and the kit marks
-// its Orca projects so (#401). Every sandbox is under the machine's temp
-// folder, so left there every fleet in the suite would be a throwaway one and
-// no test could speak for the owner's own. So the kit runs with a temp folder
-// of the sandbox's own, `<root>/tmp`, which holds none of `cwd`: a fleet in the
-// sandbox is an owner's fleet, and a test about a throwaway one makes its bots
-// folder under `tmp`.
+// The kit runs with a temp folder of the sandbox's own, `<root>/tmp`, beside
+// `cwd` and holding none of it, so what the kit makes in its temp folder (a
+// copy of Orca's database) stays in the sandbox. Until #652 it was also
+// how a fleet in the sandbox was told from a throwaway one under the temp
+// folder, whose Orca projects the kit marked (#401); the kit marks none now.
 
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -71,6 +77,14 @@ const fakePsEntry = fileURLToPath(new URL('./fake-ps.js', import.meta.url));
 const fakeTtyEntry = fileURLToPath(new URL('./fake-tty.js', import.meta.url));
 const fakeKillEntry = fileURLToPath(new URL('./fake-kill.js', import.meta.url));
 const asPlatformEntry = fileURLToPath(new URL('./as-platform.js', import.meta.url));
+/**
+ * The preload that sends the kit's fixed tool paths to the sandbox's fakes
+ * (helpers/fake-tools.js), as NODE_OPTIONS names it. Never imported here: it
+ * changes `node:child_process` for the process that loads it.
+ */
+export const FAKE_TOOLS_IMPORT = `--import=${pathToFileURL(fileURLToPath(new URL('./fake-tools.js', import.meta.url))).href}`;
+/** The suite's variables that name the fakes, for helpers/fake-tools.js. */
+const FAKE_TOOL_VARS = ['OBK_TEST_PS', 'OBK_TEST_LSOF', 'OBK_TEST_STTY', 'OBK_TEST_OSASCRIPT', 'OBK_TEST_KILL'];
 
 /** Where the fake Orca keeps its world, inside a sandbox. */
 const FAKE_ORCA_DIR = 'orca-fake';
@@ -109,6 +123,13 @@ export async function packageVersion() {
  */
 function capture(command, args, options = {}) {
   const { stdin, ...rest } = options;
+  // A sandbox's environment without the preload would run the real ps, lsof,
+  // stty, osascript and kill: refused before anything starts.
+  if (rest.env !== undefined && FAKE_TOOL_VARS.some((name) => rest.env[name] !== undefined)
+    && !(rest.env.NODE_OPTIONS ?? '').split(' ').includes(FAKE_TOOLS_IMPORT)) {
+    return Promise.reject(new Error(`this environment names the sandbox's fake tools, but its NODE_OPTIONS lacks ${FAKE_TOOLS_IMPORT}, `
+      + 'so the kit would run the real ps, lsof, stty, osascript and kill. Add to box.env.NODE_OPTIONS; do not replace it.'));
+  }
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { ...rest, stdio: [stdin === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'] });
     let stdout = '';
@@ -221,7 +242,7 @@ export async function createSandbox(t) {
 
   // The fake ps, reading the same world: who is in front of each tab is part
   // of what Orca's tabs hold (#232). Not called `ps`, so nothing that looks for
-  // `ps` on PATH finds it; only the kit's OBK_PS names it.
+  // `ps` on PATH finds it; only helpers/fake-tools.js sends /bin/ps to it.
   const fakePs = path.join(bin, 'fake-ps');
   await writeFile(fakePs, [
     '#!/usr/bin/env node',
@@ -236,8 +257,9 @@ export async function createSandbox(t) {
 
   // The fake lsof and stty (#498), reading the same world: whether a new tab's
   // shell is ready for the launch line is read off its tty. Not called `lsof`
-  // or `stty`, for the same reason as the fake ps; only OBK_LSOF and OBK_STTY
-  // name them. Left as they are, every tab's shell is at a ready prompt.
+  // or `stty`, for the same reason as the fake ps; only helpers/fake-tools.js
+  // sends /usr/sbin/lsof and /bin/stty to them. Left as they are, every tab's
+  // shell is at a ready prompt.
   const fakeTty = {};
   for (const [tool, run] of [['lsof', 'runLsof'], ['stty', 'runStty']]) {
     fakeTty[tool] = path.join(bin, `fake-${tool}`);
@@ -255,7 +277,8 @@ export async function createSandbox(t) {
 
   // The fake kill (#537), changing the same world: a retire stops what its
   // session left running, and the suite must never send a real signal. Not
-  // called `kill`, for the same reason as the fake ps; only OBK_KILL names it.
+  // called `kill`, for the same reason as the fake ps; only
+  // helpers/fake-tools.js sends /bin/kill to it.
   const fakeKill = path.join(bin, 'fake-kill');
   await writeFile(fakeKill, [
     '#!/usr/bin/env node',
@@ -270,7 +293,8 @@ export async function createSandbox(t) {
 
   // The fake osascript (#343): the kit reloads Orca's window through it, and
   // the real one would reach System Events and the real Orca's menu. Not called
-  // `osascript`, for the same reason as the fake ps; only OBK_OSASCRIPT names it.
+  // `osascript`, for the same reason as the fake ps; only helpers/fake-tools.js
+  // sends /usr/bin/osascript to it.
   // A shell script, unlike the other fakes, so that it has written the call
   // down before the kit's 5 s are up however busy the machine (#381).
   const fakeOsascript = path.join(bin, 'fake-osascript');
@@ -299,11 +323,13 @@ export async function createSandbox(t) {
     HOME: home,
     TMPDIR: tmp,
     OBK_ORCA: fakeOrca,
-    OBK_PS: fakePs,
-    OBK_OSASCRIPT: fakeOsascript,
-    OBK_LSOF: fakeTty.lsof,
-    OBK_STTY: fakeTty.stty,
-    OBK_KILL: fakeKill,
+    // The fakes, reached from test code only (helpers/fake-tools.js, #652).
+    NODE_OPTIONS: [process.env.NODE_OPTIONS, FAKE_TOOLS_IMPORT].filter(Boolean).join(' '),
+    OBK_TEST_PS: fakePs,
+    OBK_TEST_OSASCRIPT: fakeOsascript,
+    OBK_TEST_LSOF: fakeTty.lsof,
+    OBK_TEST_STTY: fakeTty.stty,
+    OBK_TEST_KILL: fakeKill,
   };
 
   const readState = async () => JSON.parse(await readFile(stateFile, 'utf8'));
@@ -1615,19 +1641,6 @@ const commentsIn = (text) => text
   .split('\n')
   .map((line) => /(?:^|\s)#(.*)$/.exec(line)?.[1].trim())
   .filter((comment) => comment !== undefined);
-
-/**
- * `name` is a project name marked as a throwaway fleet's (#401): the bot's
- * `display` name and the `folder` under the temp folder are both in it whole,
- * and something beyond them and the spaces between them is the mark. The words
- * are the kit's to choose, so this holds what the name has, not how it reads.
- */
-export function assertMarkedName(name, display, folder) {
-  assert.ok(name.includes(display), `the project name should keep the display name ${display}, got ${JSON.stringify(name)}`);
-  assert.ok(name.includes(folder), `the project name should name the folder ${folder}, got ${JSON.stringify(name)}`);
-  const rest = name.replace(display, '').replace(folder, '');
-  assert.match(rest, /\S/, `the project name should carry a mark beside ${display} and ${folder}, got ${JSON.stringify(name)}`);
-}
 
 /** Nothing the kit writes leaves whitespace hanging at the end of a line. */
 export function assertNoTrailingSpace(text) {
