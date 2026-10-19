@@ -447,6 +447,10 @@ export function launchCommand(session, { harness, home, workDir, prompt, promptF
     // So it is given the bot's skills by name, from the bot folder and nowhere
     // every Pi session reads (#659).
     words.push('--skill', piSkillsDir(home));
+    // The kit's own extension, from this kit's own folder: Pi has no hooks, so
+    // this is how the book hears of a `/new` in the tab (#662). Pi loads a file
+    // named here whatever the trust.
+    words.push('--extension', PI_EXTENSION);
     // The id the book holds, resumed or new: Pi opens the conversation with it,
     // and makes it when there is none (tech notes, section 6).
     words.push('--session-id', resume ?? sessionId);
@@ -591,6 +595,9 @@ export const shellWord = quoted;
  */
 export const mailboxStep = (bots, bot, session) =>
   [ownCli(), 'session', 'mailbox', '--bots', bots, '--bot', bot, '--session', session].map(quoted).join(' ');
+
+/** The kit's Pi extension, beside this file (src/pi-record.js). */
+const PI_EXTENSION = fileURLToPath(new URL('./pi-record.js', import.meta.url));
 
 /**
  * The CLI that is running, by the path it was started by: the kit calls itself
