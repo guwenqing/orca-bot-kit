@@ -209,7 +209,8 @@ function fromPi(entries, start) {
     if (entries[at].type === 'model_change') return { model: own, sure: false };
     const earlier = changeBefore('model_change', modelOf, at);
     if (own === undefined) return { sure: false };
-    if (earlier === undefined || earlier === own || physical(earlier)) return { model: own, sure: true };
+    // The reply itself shows its own model is physical, so a change to that model is settled too.
+    if (earlier === undefined || physical(earlier)) return { model: own, sure: true };
     return { model: { choices: [own, earlier] }, sure: false };
   };
 
