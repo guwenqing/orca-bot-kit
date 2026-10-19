@@ -51,7 +51,8 @@ jobs:
   # Every pull request states its tier (AGENTS.md), and AssuredLoop's `al check
   # --strict` fails on a not ok the branch owns. It compares the branch with
   # main, so it needs the whole history. `al` comes from npm at the exact
-  # version AGENTS.md names, the same pinned install a developer makes.
+  # version AGENTS.md names, the same pinned install a developer makes. al 1.0.0
+  # needs Node 24 or newer.
   assuredloop:
     name: al check
     runs-on: ubuntu-latest
@@ -62,7 +63,7 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 25.8.0
-      - run: npm install --global @assuredloop/cli@0.1.0
+      - run: npm install --global @assuredloop/cli@1.0.0
       - run: al check --strict
 
   # The one check to read: it passes only when every shard passed. It runs even
