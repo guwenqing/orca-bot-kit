@@ -20,22 +20,24 @@
 //     assistant reply names V, its own `<provider>/<model>`; C is the last
 //     `model_change` before it in the whole record, before the start too.
 //       a. No C, or C is V: V alone.
-//       b. C proven virtual (anywhere in the record, a `custom` line of
-//          customType "pi.virtual-model-state" names it in `data`, or a
-//          "pi-virtual" reply names it): C alone, and observed is C. Pi
-//          follows a virtual selection, and its replies name the physical
-//          model it routed to (Pi 1.3.0, getBranchSelection).
-//       c. C proven physical (anywhere in the record, a reply with another
-//          `api` names it): V alone. On resume with --model, Pi writes no
-//          new model_change, so an old physical one can stand before replies
-//          on a new model.
-//       d. Otherwise undecided: a mismatch for both V and C is `mismatch`,
-//          anything else `unknown`; observed is V.
+//       b. C proven physical (anywhere in the record, a reply with an `api`
+//          other than "pi-virtual" names it): V alone. On resume with
+//          --model, Pi writes no new model_change, so an old physical one
+//          can stand before replies on a new model.
+//       c. Otherwise open: a mismatch for both V and C is `mismatch`,
+//          anything else `unknown`; observed is V. C may be a virtual model
+//          (a router, such as `router/auto`) that Pi follows, its replies
+//          naming the physical model it routed to (Pi 1.3.0,
+//          getBranchSelection). But on resume Pi falls back to the physical
+//          model that answered last when the virtual model is no longer
+//          registered (Pi's docs/virtual-models.md), and the record cannot
+//          show that. So a `pi.virtual-model-state` line, or a failed
+//          routing, proves nothing either way.
 //   - The thinking level the same way. A `thinking_level_change` decides
 //     alone. A reply names L; T is the last `thinking_level_change` before it
 //     in the whole record. No T, or T is L: L alone. The reply's model came
-//     out as a or c (physical): L alone. Otherwise undecided: a mismatch for
-//     both L and T is `mismatch`, anything else `unknown`; observed is L.
+//     out as a or b: L alone. Otherwise open: a mismatch for both L and T is
+//     `mismatch`, anything else `unknown`; observed is L.
 //   - bot.yaml's model is a Pi model pattern: `openai/gpt-6-luna` or
 //     `gpt-6-luna`, maybe with a trailing `:<thinking level>` (off, minimal,
 //     low, medium, high, xhigh, max) that is not part of the model. A `:8b`
@@ -45,8 +47,12 @@
 //     fuzzily (the id holds the whole pattern, or the pattern is `p/rest`
 //     with provider `p` and an id that holds `rest`); otherwise `mismatch`.
 //     For a choice that decides alone, observed is that choice.
-//   - A known limit, not tested: Pi also matches a model's display name,
-//     which the record does not hold, so such a pattern shows as a mismatch.
+//   - Known limits, not tested: a virtual model always shows `unknown`
+//     beside a reply on its physical model, since the record cannot show its
+//     router is still registered. A reply proves C physical, but an
+//     extension can later register a virtual model with the same id, which
+//     then holds. Pi also matches a model's display name, which the record
+//     does not hold, so such a pattern shows as a mismatch.
 //   - A setting the session does not ask for is `not-asked-for`, with what
 //     was observed. No record line since the start is `unknown`. Approval is
 //     always `unknown`, configured `dangerously-skip`: Pi writes nothing about
@@ -179,7 +185,7 @@ const piAnswered = (when, { provider, model, thinkingLevel, api = 'openai-respon
 /** A failed routing of a virtual model: Pi writes it as a reply with api "pi-virtual", naming the virtual model. */
 const routingFailed = (when, provider, model) => piAnswered(when, { provider, model, api: 'pi-virtual', stopReason: 'error' });
 
-/** Pi's own note of a virtual model's state, which proves the model it names is virtual. */
+/** Pi's own note of a virtual model's state: the model was virtual once. Whether Pi still has it now, the record cannot show. */
 const virtualState = (when, provider, modelId) => ({
   type: 'custom',
   id: nextId(),
@@ -515,75 +521,95 @@ test('H1 a model_change that may be stale: unproven, a reply on another model is
   assert.deepEqual(sessionFindings(answer, 'sol-asked'), [], `sol-asked runs what bot.yaml asks for, got: ${JSON.stringify(answer.found, null, 2)}`);
 });
 
-test('H1 a virtual model: proven by Pi\'s virtual-model-state line or by a failed routing, the model_change decides, and its level is undecided; unproven, it is unknown; the last model_change before the reply counts; a change after the reply decides alone; neither choice matching is a mismatch', async (t) => {
+test('H1 a virtual model: a reply on another model than the router/auto change before it is open, whatever Pi\'s virtual-model-state line or a failed routing says; a failed routing is skipped; the last model_change before the reply counts; a change after the reply decides alone; neither choice matching is a mismatch', async (t) => {
   const box = await createSandbox(t);
   const bots = await piBotUp(box, [
-    ['auto-proven', '--model', 'router/auto', '--effort', 'low'],
-    ['auto-proven-old', '--model', 'router/auto'],
-    ['luna-proven', '--model', 'openai/gpt-6-luna'],
-    ['auto-unproven', '--model', 'router/auto', '--effort', 'low'],
-    ['auto-unproven-old', '--model', 'router/auto'],
+    ['auto-noted', '--model', 'router/auto', '--effort', 'low'],
+    ['auto-noted-old', '--model', 'router/auto'],
+    ['luna-noted', '--model', 'openai/gpt-6-luna'],
+    ['auto-bare', '--model', 'router/auto', '--effort', 'low'],
+    ['auto-bare-old', '--model', 'router/auto'],
     ['auto-failed', '--model', 'router/auto'],
     ['luna-failed', '--model', 'openai/gpt-6-luna'],
+    ['auto-resumed', '--model', 'router/auto'],
+    ['luna-resumed', '--model', 'openai/gpt-6-luna'],
+    ['opus-resumed', '--model', 'anthropic/claude-opus-5-5'],
     ['opus-asked', '--model', 'anthropic/claude-opus-5-5', '--effort', 'medium'],
     ['auto-switched', '--model', 'router/auto'],
     ['changed-after', '--model', 'router/auto'],
   ]);
   const old = { begun: onTheDay(7) };
   const routed = (when) => piAnswered(when, { provider: 'openai', model: 'gpt-6-luna', thinkingLevel: 'high' });
-  // Pi follows router/auto at low; its reply names the model it routed to,
-  // at the level the router gave the request.
+  // Pi selects router/auto at low; its reply names the model it ran on, at
+  // the level of the request. Whether Pi still follows router/auto, or fell
+  // back to that model, the record cannot show.
   const selected = [modelChange(onTheDay(9), 'router', 'auto'), thinkingChange(onTheDay(9), 'low'), userSaid(onTheDay(9, 1)), routed(onTheDay(9, 5))];
-  const proof = virtualState(onTheDay(9), 'router', 'auto');
-  await talking(box, bots, 'auto-proven', conv(1), [proof, ...selected]);
-  // Selected and proven before the start; since the start, only replies.
-  await talking(box, bots, 'auto-proven-old', conv(2), [
+  // Pi's note that router/auto was virtual once: it proves nothing about now.
+  const noted = virtualState(onTheDay(9), 'router', 'auto');
+  await talking(box, bots, 'auto-noted', conv(1), [noted, ...selected]);
+  await talking(box, bots, 'auto-noted-old', conv(2), [
     modelChange(onTheDay(7, 30), 'router', 'auto'),
     virtualState(onTheDay(7, 30), 'router', 'auto'),
     userSaid(onTheDay(9)),
     routed(onTheDay(9, 1)),
   ], old);
-  // Proven virtual, the model_change decides alone: luna, which the reply
-  // names, is not what Pi was asked to run.
-  await talking(box, bots, 'luna-proven', conv(3), [proof, ...selected]);
-  await talking(box, bots, 'auto-unproven', conv(4), selected);
-  await talking(box, bots, 'auto-unproven-old', conv(5), [
+  await talking(box, bots, 'luna-noted', conv(3), [noted, ...selected]);
+  await talking(box, bots, 'auto-bare', conv(4), selected);
+  await talking(box, bots, 'auto-bare-old', conv(5), [
     modelChange(onTheDay(7, 30), 'router', 'auto'),
     userSaid(onTheDay(9)),
     routed(onTheDay(9, 1)),
   ], old);
-  // A physical reply, then a failed routing, which is skipped and proves
-  // router/auto virtual.
+  // A physical reply, then a failed routing naming router/auto, which Pi
+  // skips: the physical reply decides, against the change before it.
   const failed = [...selected, userSaid(onTheDay(9, 6)), routingFailed(onTheDay(9, 7), 'router', 'auto')];
   await talking(box, bots, 'auto-failed', conv(6), failed);
   await talking(box, bots, 'luna-failed', conv(7), failed);
-  await talking(box, bots, 'opus-asked', conv(8), selected);
+  // The reviewer's case: router/auto selected and noted before the start,
+  // then physical replies on luna, one before the start and one since.
+  const resumed = [
+    modelChange(onTheDay(7, 30), 'router', 'auto'),
+    virtualState(onTheDay(7, 30), 'router', 'auto'),
+    userSaid(onTheDay(7, 31)),
+    piAnswered(onTheDay(7, 32), { provider: 'openai', model: 'gpt-6-luna' }),
+    userSaid(onTheDay(9)),
+    piAnswered(onTheDay(9, 1), { provider: 'openai', model: 'gpt-6-luna' }),
+  ];
+  await talking(box, bots, 'auto-resumed', conv(8), resumed, old);
+  await talking(box, bots, 'luna-resumed', conv(9), resumed, old);
+  await talking(box, bots, 'opus-resumed', conv(10), resumed, old);
+  await talking(box, bots, 'opus-asked', conv(11), selected);
   // router/auto was the selection once, but the last model_change before the reply is another.
-  await talking(box, bots, 'auto-switched', conv(9), [
+  await talking(box, bots, 'auto-switched', conv(12), [
     modelChange(onTheDay(7, 30), 'router', 'auto'),
     modelChange(onTheDay(9), 'openai', 'gpt-6.1-sol'),
     userSaid(onTheDay(9, 1)),
     routed(onTheDay(9, 5)),
   ], old);
-  await talking(box, bots, 'changed-after', conv(10), [proof, ...selected, modelChange(onTheDay(9, 10), 'openai', 'gpt-6.1-sol')]);
+  await talking(box, bots, 'changed-after', conv(13), [noted, ...selected, modelChange(onTheDay(9, 10), 'openai', 'gpt-6.1-sol')]);
 
   const answer = await found(box);
   const all = JSON.stringify(answer.found, null, 2);
+  const luna = 'openai/gpt-6-luna';
 
-  assertSeen(entryOf(answer, 'auto-proven'), 'model', { state: 'match', observed: 'router/auto' }, 'router/auto is proven virtual, so it decides');
-  assertSeen(entryOf(answer, 'auto-proven'), 'effort', { state: 'unknown', observed: 'high' }, 'a router may change the level: low against a reply at high is undecided');
-  assert.deepEqual(sessionFindings(answer, 'auto-proven'), [], `auto-proven runs the model bot.yaml asks for, and unknown is no finding, got: ${all}`);
-  assertSeen(entryOf(answer, 'auto-proven-old'), 'model', { state: 'match', observed: 'router/auto' }, 'the proven selection before the start stands behind the replies since');
-  assertSeen(entryOf(answer, 'luna-proven'), 'model', { state: 'mismatch', observed: 'router/auto' }, 'proven virtual, router/auto alone decides, and luna is not it');
-  assertSeen(entryOf(answer, 'auto-unproven'), 'model', { state: 'unknown', observed: 'openai/gpt-6-luna' }, 'nothing proves router/auto virtual or physical');
-  assertSeen(entryOf(answer, 'auto-unproven'), 'effort', { state: 'unknown', observed: 'high' }, 'the reply\'s model is undecided, so its level is too');
-  assert.deepEqual(sessionFindings(answer, 'auto-unproven'), [], `unknown is no finding, got: ${all}`);
-  assertSeen(entryOf(answer, 'auto-unproven-old'), 'model', { state: 'unknown', observed: 'openai/gpt-6-luna' }, 'the selection before the start is unproven too');
-  assertSeen(entryOf(answer, 'auto-failed'), 'model', { state: 'match', observed: 'router/auto' }, 'the failed routing is skipped, and proves router/auto virtual');
-  assertSeen(entryOf(answer, 'luna-failed'), 'model', { state: 'mismatch', observed: 'router/auto' }, 'proven virtual by the failed routing, router/auto alone decides');
-  assertSeen(entryOf(answer, 'opus-asked'), 'model', { state: 'mismatch', observed: 'openai/gpt-6-luna' }, 'bot.yaml asks for neither choice: the reply\'s own model shows');
+  assertSeen(entryOf(answer, 'auto-noted'), 'model', { state: 'unknown', observed: luna }, 'router/auto matches the change, luna the reply, and nothing proves the change physical');
+  assertSeen(entryOf(answer, 'auto-noted'), 'effort', { state: 'unknown', observed: 'high' }, 'the reply\'s model is open, so its level is too: low against a reply at high');
+  assert.deepEqual(sessionFindings(answer, 'auto-noted'), [], `unknown is no finding, got: ${all}`);
+  assertSeen(entryOf(answer, 'auto-noted-old'), 'model', { state: 'unknown', observed: luna }, 'the note before the start proves nothing about now');
+  assertSeen(entryOf(answer, 'luna-noted'), 'model', { state: 'unknown', observed: luna }, 'luna matches the reply, and the change is open');
+  assert.deepEqual(sessionFindings(answer, 'luna-noted'), [], `unknown is no finding, got: ${all}`);
+  assertSeen(entryOf(answer, 'auto-bare'), 'model', { state: 'unknown', observed: luna }, 'nothing proves router/auto physical');
+  assertSeen(entryOf(answer, 'auto-bare'), 'effort', { state: 'unknown', observed: 'high' }, 'the reply\'s model is open, so its level is too');
+  assertSeen(entryOf(answer, 'auto-bare-old'), 'model', { state: 'unknown', observed: luna }, 'the change before the start is open too');
+  assertSeen(entryOf(answer, 'auto-failed'), 'model', { state: 'unknown', observed: luna }, 'the failed routing is skipped; the luna reply before it is open against router/auto');
+  assertSeen(entryOf(answer, 'luna-failed'), 'model', { state: 'unknown', observed: luna }, 'the failed routing is skipped; luna matches the reply, and the change is open');
+  assertSeen(entryOf(answer, 'auto-resumed'), 'model', { state: 'unknown', observed: luna }, 'Pi may follow router/auto, or have fallen back to luna');
+  assertSeen(entryOf(answer, 'luna-resumed'), 'model', { state: 'unknown', observed: luna }, 'the same record, asked for luna: still open');
+  assertSeen(entryOf(answer, 'opus-resumed'), 'model', { state: 'mismatch', observed: luna }, 'bot.yaml asks for neither router/auto nor luna');
+  assert.equal(sessionFindings(answer, 'opus-resumed').length, 1, `the mismatch is a finding, got: ${all}`);
+  assertSeen(entryOf(answer, 'opus-asked'), 'model', { state: 'mismatch', observed: luna }, 'bot.yaml asks for neither choice: the reply\'s own model shows');
   assertSeen(entryOf(answer, 'opus-asked'), 'effort', { state: 'mismatch', observed: 'high' }, 'bot.yaml asks for neither level: the reply\'s own level shows');
-  assertSeen(entryOf(answer, 'auto-switched'), 'model', { state: 'mismatch', observed: 'openai/gpt-6-luna' }, 'the last model_change before the reply is openai/gpt-6.1-sol, not router/auto');
+  assertSeen(entryOf(answer, 'auto-switched'), 'model', { state: 'mismatch', observed: luna }, 'the last model_change before the reply is openai/gpt-6.1-sol, not router/auto');
   assertSeen(entryOf(answer, 'changed-after'), 'model', { state: 'mismatch', observed: 'openai/gpt-6.1-sol' }, 'the model_change after the reply decides alone');
 });
 
