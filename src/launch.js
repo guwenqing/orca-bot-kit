@@ -226,6 +226,19 @@ export const set = (value) => value !== undefined && value !== null && String(va
 /** Which harness a session runs on: its own, or the bot's. */
 export const harnessOf = (session, botHarness) => (set(session.harness) ? session.harness : botHarness);
 
+/** Whether a bot runs on Pi: as its own harness, or in one of its sessions. */
+export const runsOnPi = (bot) => bot.harness === 'pi'
+  || bot.sessions.some((session) => harnessOf(session, bot.harness) === 'pi');
+
+/**
+ * The folder a Pi session loads its bot's skills from: the bot's own
+ * `.agents/skills`, which the kit links every bot's skills into for Codex
+ * (`SKILL_DIRS` in skills.js). `--no-approve` keeps Pi from the folder's own
+ * skills, and a folder named with `--skill` loads whatever the trust (tech
+ * notes, section 6, #659).
+ */
+export const piSkillsDir = (home) => path.join(home, '.agents', 'skills');
+
 /**
  * A session's name on Claude Code, which is also the address another Claude
  * session writes to (ADR 0042). It goes on the launch line as `-n`, and it is
@@ -431,6 +444,9 @@ export function launchCommand(session, { harness, home, workDir, prompt, promptF
     // Pi trusts none of the folder's own files (`.pi/`, `.agents/skills`), so it
     // shows no trust screen and runs nothing the kit has not looked at (#578).
     words.push('--no-approve');
+    // So it is given the bot's skills by name, from the bot folder and nowhere
+    // every Pi session reads (#659).
+    words.push('--skill', piSkillsDir(home));
     // The kit's own extension, from this kit's own folder: Pi has no hooks, so
     // this is how the book hears of a `/new` in the tab (#662). Pi loads a file
     // named here whatever the trust.

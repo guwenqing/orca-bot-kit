@@ -157,9 +157,12 @@ with Pi 1.1.0). Pi asks before no tool call, so a Pi session is always
 yourself first: `obk up` asks Pi which models it can use, and starts nothing
 when Pi has none, or not the one the session names. The kit gives a Pi session
 its id, so `obk up` resumes it after its tab is closed. Pi has no context
-setting: name a model that carries it. Mail, temporary sessions, skills and
-health for a Pi session come later, and so do `obk init --harness pi` and
-`obk session clear` and `compact` on Pi.
+setting: name a model that carries it. A Pi session reads its bot's
+`AGENTS.md` and loads its bot's skills from `.agents/skills`; when
+`obk skills build` changes them, it types `/reload` into an idle Pi tab. Pi has
+no permission rules and no hooks, so the bot's allow list does not limit a Pi
+session. Mail, temporary sessions and health for a Pi session come later, and
+so do `obk init --harness pi` and `obk session clear` and `compact` on Pi.
 
 Every bot gets the kit's default permission rules, written by the kit with
 nobody asked: its own commands for this bots folder, reading a long message,
