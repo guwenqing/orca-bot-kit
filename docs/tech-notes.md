@@ -1061,9 +1061,12 @@ docs, or Orca's 1.4.225 bundle. The kit was tested with Pi 1.1.0.
     looks and in the typing gate's idle answer, which `obk skills build` reads before it types `/reload`
     (#663; the plain `Working` row was the reviewer's finding). Pi measures by terminal columns, and the
     kit counts characters, so a status with an emoji, CJK or a combining mark is not as long as the
-    bottom rule. The kit does not measure columns: an idle Pi's top rule has no status and is always as
-    long, so a `──…─` row with words in it above the bottom rule, where no top rule is as long, counts
-    as at work too (the reviewer's second look).
+    bottom rule. Pi also draws plain full-width dividers in the chat (`DynamicBorder`, in `/hotkeys`
+    and `/changelog` output). So the kit walks up from the bottom rule over rows with a rule's ends,
+    and the first that decides is taken: one as long is the top rule, and rows above it are the chat;
+    one not as long with words of more than ASCII is a status, so Pi is at work; one not as long with
+    ASCII words is a draft, since an ASCII status always fills the width, and the walk goes on. The
+    kit does not measure columns (the reviewer's second and third looks).
 - **Project trust.** When the working folder or a folder above it has `.pi/settings.json`, `.pi/mcp.json`,
   `.pi/extensions|skills|prompts|themes`, `.pi/SYSTEM.md`, `.pi/APPEND_SYSTEM.md` or a project
   `.agents/skills`, Pi asks first, unless `--approve`/`--no-approve`, an extension, or a saved answer in

@@ -562,42 +562,59 @@ const PI_SCROLL = / [↑↓] \d+ more /;
 const PI_RULE = new RegExp(`^─+(?:${PI_SCROLL.source}─*)?$`);
 const PI_TOP_RULE = /^──.*─$/;
 
+/** The words in a row of Pi's, once its rule characters and its scroll label are taken out. */
+const piWords = (row) => row.replace(PI_SCROLL, '').replaceAll('─', '').trim();
+
+/**
+ * Pi's two rules on a rendered screen, `{ bottom, top }` or `{ bottom, status
+ * }` as indexes into `rows`, or `{}` with no bottom rule. The bottom rule is
+ * the lowest rule. Then, up from it, only rows with a rule's ends count, and
+ * the first that decides is taken: one as long is the top rule, and rows
+ * above it are the chat (Pi's own dividers among them). One not as long,
+ * with words of more than ASCII in it, is a status: Pi lays out by columns
+ * and the kit counts characters, so a status with wide or combining
+ * characters is not as long. An ASCII status always is, so one not as long
+ * with ASCII words is an editor row, and the walk goes on (reviews of PR
+ * #666).
+ */
+function piRules(rows) {
+  const bottom = rows.findLastIndex((row) => PI_RULE.test(row.trimEnd()));
+  if (bottom < 0) return {};
+  const width = [...rows[bottom].trimEnd()].length;
+  for (let at = bottom - 1; at >= 0; at -= 1) {
+    const row = rows[at].trimEnd();
+    if (!PI_TOP_RULE.test(row)) continue;
+    if ([...row].length === width) return { bottom, top: at };
+    if (/[^\x20-\x7e]/.test(piWords(row))) return { bottom, status: at };
+  }
+  return { bottom };
+}
+
 /**
  * Pi's input box on a rendered screen, `{ top, editor, below }`: its top rule,
  * every row between its two rules, and the rows under the bottom one (Pi's
- * slash menu, then its footer). The bottom rule is the lowest rule, and the
- * top one the nearest row above it that is a rule as long. Undefined when the
- * screen has no such pair.
+ * slash menu, then its footer). Undefined when `piRules` finds no top rule.
  */
 export function piBox(rows) {
-  const bottom = rows.findLastIndex((row) => PI_RULE.test(row.trimEnd()));
-  if (bottom < 0) return undefined;
-  const width = [...rows[bottom].trimEnd()].length;
-  const top = rows.slice(0, bottom).findLastIndex((row) => PI_TOP_RULE.test(row.trimEnd()) && [...row.trimEnd()].length === width);
-  if (top < 0) return undefined;
+  const { bottom, top } = piRules(rows);
+  if (top === undefined) return undefined;
   return { top: rows[top], editor: rows.slice(top + 1, bottom), below: rows.slice(bottom + 1) };
 }
 
 /**
  * The row of a rendered screen that says the harness is at work, as only Pi
  * draws it, or undefined: its input box's top rule with anything in it but
- * the rule and the scroll label. Pi's usual status is a plain `Working`, and
- * an extension can put its own words there, so no word is looked for; Pi's
- * startup help says `escape to interrupt` too, and is no turn. `agent` is
- * the harness Orca names in the tab: the row counts only where it is pi
- * (#663).
+ * the rule and the scroll label, or a status `piRules` found instead. Pi's
+ * usual status is a plain `Working`, and an extension can put its own words
+ * there, so no word is looked for; Pi's startup help says `escape to
+ * interrupt` too, and is no turn. `agent` is the harness Orca names in the
+ * tab: the row counts only where it is pi (#663).
  */
 export function piAtWorkIn(rows, agent) {
   if (agent !== 'pi') return undefined;
-  const hasStatus = (row) => row.replace(PI_SCROLL, '').replaceAll('─', '').trim() !== '';
-  const box = piBox(rows);
-  if (box !== undefined) return hasStatus(box.top) ? box.top : undefined;
-  // Pi lays out by columns, and the kit counts characters: a status with
-  // wide or combining characters in it is no rule as long as the bottom one.
-  // An idle Pi's top rule has no status, and is always as long, so a rule
-  // with words in it over a bottom rule is Pi at work (review of PR #666).
-  const bottom = rows.findLastIndex((row) => PI_RULE.test(row.trimEnd()));
-  return bottom < 0 ? undefined : rows.slice(0, bottom).findLast((row) => PI_TOP_RULE.test(row.trimEnd()) && hasStatus(row));
+  const { top, status } = piRules(rows);
+  if (status !== undefined) return rows[status];
+  return top !== undefined && piWords(rows[top]) !== '' ? rows[top] : undefined;
 }
 
 /** That pointer on a numbered choice, and the column its number starts in. */
