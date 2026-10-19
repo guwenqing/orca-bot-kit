@@ -1152,6 +1152,14 @@ docs, or Orca's 1.4.225 bundle. The kit was tested with Pi 1.1.0.
     `thinking_level_change` (`thinkingLevel`) lines written at the start. **seen** in a kit-dev Pi
     record of 2026-10-18, and **read in docs** (`docs/session-format.md`: a `model_change` may name a
     virtual model, and the replies then name the physical model that answered).
+  - How Pi takes a model pattern and keeps its selection, **read in code** (Pi 1.3.0), after the
+    reviewer's points on #660. `resolveModelReference` ignores case. A `provider/` prefix is a hint,
+    and a pattern that is part of a model's id or display name also resolves, so which model it chose
+    depends on Pi's catalog. `getBranchSelection` keeps a `model_change` as the selection until the
+    next one, and on resume Pi writes such a line only in some cases. So health reads a reply as two
+    choices: its own model, or the last `model_change` before it. It shows a pattern that is part of
+    an id as `unknown`. The record does not hold a display name, so a pattern that is one shows as a
+    mismatch. The same holds for the thinking level.
   - **Seen live after #660** (2026-10-19, 03:45 local, `test/system/pi-health.test.js` at 584d806,
     passing, same versions): the healthy Pi had model `match` (observed `openai/gpt-6-luna`) and effort
     `match` (observed `low`), read from its record, and no finding. With another id in the book: the

@@ -268,8 +268,10 @@ function sessionSettings(home, bot) {
 /**
  * Why Pi cannot run this bot's Pi sessions, paused ones too, in the words
  * `up` would refuse them with (#660): Pi does not run, can use no model, or
- * cannot use the model a session names. Pi is asked read only, through the
- * answers `pi` keeps for the whole run, and never about its credentials.
+ * cannot use the model a session names. When Pi cannot list its models at
+ * all, that is said instead, and no model is judged. Pi is asked read only,
+ * through the answers `pi` keeps for the whole run, and never about its
+ * credentials.
  */
 function piReadiness(home, bot, pi) {
   const onPi = bot.sessions.filter((session) => harnessOf(session, bot.harness) === 'pi');
@@ -280,7 +282,11 @@ function piReadiness(home, bot, pi) {
   if (runs !== undefined) {
     return [{ where, says: `Pi does not run here (${runs}), and ${bot.name}'s sessions ${names} run on Pi. obk up will not start them until it does. Install Pi.` }];
   }
-  if (!pi.hasModels()) {
+  const models = pi.models();
+  if (models.failed !== undefined) {
+    return [{ where, says: `Pi could not list its models: pi --list-models failed (${models.failed}), and ${bot.name}'s sessions ${names} run on Pi. The kit cannot say whether Pi can use their models. Run that command yourself to see why.` }];
+  }
+  if (!models.any) {
     return [{ where, says: `Pi has no model it can use: it is signed in to no provider, and ${bot.name}'s sessions ${names} run on Pi. obk up will not start them until it is. Sign in to Pi yourself (start pi and use /login, or set a provider's API key). The kit never handles Pi's credentials.` }];
   }
   return onPi.filter((session) => set(session.model)).flatMap((session) => {
