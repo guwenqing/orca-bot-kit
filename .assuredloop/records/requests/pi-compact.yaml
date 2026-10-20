@@ -26,4 +26,5 @@ decisions: []
 tasks: []
 bindings:
   - { holder: pi-compact/R1, link: from, target: pi-compact/2026-10-20-owner-words.md, holder_sha256: 019c6f71520954622eb03415880fb6b41013a54cc69953e68bc8f6fb2d40b435, target_sha256: f1226f129e02c776fe3108784c456030e80014af5a721b9d9fe6a3731c1a1f37 }
+  - { holder: KIT-28, link: serves, target: pi-compact/R1, holder_sha256: ed0618c52bd0472ea1f1794670ac9af072023e2b2ed08b686dada9f22dfdce6e, target_sha256: 019c6f71520954622eb03415880fb6b41013a54cc69953e68bc8f6fb2d40b435, target_version: 1 }
 dispositions: []

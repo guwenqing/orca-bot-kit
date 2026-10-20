@@ -111,7 +111,7 @@ paragraphs:
     display: KIT-27 (6.5, [PRD-12] 6.5 Session identity)
   - id: KIT-28
     kind: rule
-    text_sha256: 8e618e688d0445eb3c14da20ed0b24b5dd2779918a966a300a02723b0000898b
+    text_sha256: ed0618c52bd0472ea1f1794670ac9af072023e2b2ed08b686dada9f22dfdce6e
     display: KIT-28 (6.5:1, in [PRD-12] 6.5 Session identity)
   - id: KIT-29
     kind: note
