@@ -86,8 +86,8 @@ to npm with a provenance statement. Nothing else publishes.
 obk init --bots /absolute/path/to/my-bots --harness claude
 ```
 
-`--harness claude|codex` says which harness Bot Father itself runs on; there is
-no default. This makes the folder a git repository and seeds it:
+`--harness claude|codex|pi` says which harness Bot Father itself runs on; there
+is no default. This makes the folder a git repository and seeds it:
 
 ```
 my-bots/
