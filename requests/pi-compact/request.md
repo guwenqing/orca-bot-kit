@@ -14,4 +14,4 @@ Tier: 1 · Status: open
 
 Assumed: this is a follow-up of #663, part of #547 (#671). Pi 1.3.0 lists `/compact` in its slash menu, and a compaction writes a line `{"type":"compaction","timestamp":…}` into the conversation's session file, `~/.pi/agent/sessions/--<folder>--/<time>_<id>.jsonl` (read in code). These facts are from Pi 1.3.0, and a live run in a throwaway Orca tab at night checks them. No command, option or setting is added.
 Out: a fix for Orca's own restore of a Pi tab, and Pi's automatic compaction.
-Signed off: 2026-10-20 owner, origin/2026-10-20-signoff.md
+Signed off: 2026-10-20 owner, origin/2026-10-20-signoff-2.md

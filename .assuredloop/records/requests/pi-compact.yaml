@@ -26,6 +26,15 @@ signoff:
     transcribed_by: kit-dev/architect
     covers:
       - { id: R1, version: 1, sha256: 019c6f71520954622eb03415880fb6b41013a54cc69953e68bc8f6fb2d40b435 }
+  - id: S2
+    file: 2026-10-20-signoff-2.md
+    sha256: e35a1ad275eedf6937afa90bbdd74121dc76cc5a3347dc3da304cd8e5df82840
+    signed: 2026-10-20T10:25Z
+    source: "https://github.com/guwenqing/orca-bot-kit/issues/547 (the owner, first-hand in the kit-dev architect's session, recorded by qiragu: the ask 'add a new requirement to support pi …' at about 2026-10-10T20:20Z in the issue's body, whose intent is that a session runs on Pi 'in the same way as on Claude Code and Codex'; obk session compact works on Claude Code and Codex, and #663 left compact on Pi to the architect, who filed #671. As for slices 1 to 6 and pi-clear, the architect rules that these words sign this tier-1 line, with no second yes. Second record: R1 now names the space step that closes a stale-menu gap reviewer-671 found; the change only makes the kit more careful. The change adds no command, option or setting, and the kit types nothing into a busy Pi tab. The owner answered the ask, not this line as written)"
+    words: add a new requirement to support pi …
+    transcribed_by: kit-dev/architect
+    covers:
+      - { id: R1, version: 2, sha256: d8865eb20a0ec0f965d03b0ea8589f2eaa8b9c77c317665e42328811db2fce53 }
 decisions: []
 tasks: []
 bindings:
