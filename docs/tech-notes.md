@@ -1105,12 +1105,22 @@ docs, or Orca's 1.4.225 bundle. The kit was tested with Pi 1.1.0.
     about the last 20000 tokens (`keepRecentTokens`), so a short conversation has nothing to compact.
     The kit then says, after 5 minutes, that the compact is not confirmed yet.
   - A menu list still drawn from an earlier key: Return applies the selected row against the prefix that
-    list was made for (`applyCompletion`). With the line `/compact` and a list for `/compac` whose row is
-    `compact`, the result is `/compact` again. With a list for a shorter prefix, the text before that
-    prefix is not blank, so the line becomes the rest of the typed text and the row's name, such as
-    `/ccompact`: no command of Pi's. A row other than `compact` is never applied, because the kit presses
-    Return only when the selected row names `compact`. So a stale row cannot run a command other than
-    `/compact`.
+    list was made for (`applyCompletion`), and the screen cannot tell that list from a fresh one. **Seen**
+    on 2026-10-20 with Pi 1.3.0's own `Editor` and `CombinedAutocompleteProvider` run in isolation, outside
+    Orca, with an extension command `ccompact` in the list (the reviewer's finding on #671, then repeated):
+    a list settled for `/compac` gave `/compact` again, but a list settled for `/compa`, with `compact`
+    selected and the line `/compact`, made Return submit `/ccompact`. That line runs an extension command
+    of that name, or goes to the model as a prompt. So a selected row of `compact` is not enough.
+  - A space after `/compact` makes Pi ask for the list of `/compact `, and `compact` has no argument
+    completions, so the menu closes. **Seen** in the same probe: `/compact`, settled, then a space, settled:
+    no menu, and Return submitted `/compact` (`submitValue` trims). A stale `/compa` list with `ct ` typed
+    at once still showed until it settled; a Return while it showed submitted `/cocompact`, and a Return
+    after it settled submitted `/compact`. Older requests cannot open the menu again, since a result counts
+    only while the text is the one it was asked for (`isAutocompleteRequestCurrent`).
+  - So on Pi, `obk session compact` types `/compact`, checks the editor row and the selected row `compact`,
+    types one space, and presses Return only when the editor reads `/compact` and no menu row shows below
+    the box (#671). Otherwise it takes back all nine characters. `obk session clear` types `/new` without
+    the space (#663), and has the same gap with a list left from `/n`.
 - **Project trust.** When the working folder or a folder above it has `.pi/settings.json`, `.pi/mcp.json`,
   `.pi/extensions|skills|prompts|themes`, `.pi/SYSTEM.md`, `.pi/APPEND_SYSTEM.md` or a project
   `.agents/skills`, Pi asks first, unless `--approve`/`--no-approve`, an extension, or a saved answer in

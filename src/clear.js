@@ -213,6 +213,7 @@ async function enter(it, verb, before = () => {}) {
         before();
       },
       cannot: (wrong) => (verb === 'compact' && wrong.menu && it.harness === 'codex' ? ` ${harnessName(it.harness)} here cannot compact: its menu does not offer ${COMMANDS[verb][it.harness]}.` : ''),
+      close: verb === 'compact' && it.harness === 'pi' ? PI_CLOSE : undefined,
     });
     return { ...typed, typing };
   } catch (error) {
@@ -227,11 +228,12 @@ async function enter(it, verb, before = () => {}) {
  * screen: by default the slash menu's check, which a command with words after
  * it does not pass, since Codex closes its menu at the space (#480). `before`
  * runs just before the command is typed; `cannot` adds to a refusal what a
- * wrong screen means; past `deadline`, a time, what was typed is taken back
- * and nothing is entered. Returns the command, the handle it went into, and
- * when it was typed.
+ * wrong screen means; `close`, `{ key, check }`, is one more key typed once
+ * `check` passes, and its own check of the screen before the return; past
+ * `deadline`, a time, what was typed is taken back and nothing is entered.
+ * Returns the command, the handle it went into, and when it was typed.
  */
-export async function typeCommand(it, command, { before = () => {}, check = menuWrong, cannot = () => '', deadline = Infinity } = {}) {
+export async function typeCommand(it, command, { before = () => {}, check = menuWrong, cannot = () => '', close, deadline = Infinity } = {}) {
   // Nothing may be in the input line before: no draft for the command to join.
   // Orca gives a draft in the line beside the screen, and the screen's line
   // then reads the pointer alone (#510, #516). Where it gives none, Codex's
@@ -295,22 +297,31 @@ export async function typeCommand(it, command, { before = () => {}, check = menu
     takeBack();
     throw new Error(`${it.name}: ${command} was being typed, and after ${sofar} ${look.why}, so what was typed was taken back and nothing was entered.`);
   };
+  const typeKey = (char) => {
+    try {
+      send(handle, char);
+    } catch (error) {
+      // A send Orca did not answer in time may have gone in all the same.
+      // Counted only where the line was empty before the first key, so the
+      // one backspace too many can take nothing of the user's (#480 review).
+      if (error.code === TIMED_OUT && (it.harness === 'codex' || it.harness === 'pi')) typed += 1;
+      throw error;
+    }
+    typed += 1;
+  };
   try {
     for (const char of command) {
       if (typed > 0) await lookAgain();
-      try {
-        send(handle, char);
-      } catch (error) {
-        // A send Orca did not answer in time may have gone in all the same.
-        // Counted only where the line was empty before the first key, so the
-        // one backspace too many can take nothing of the user's (#480 review).
-        if (error.code === TIMED_OUT && (it.harness === 'codex' || it.harness === 'pi')) typed += 1;
-        throw error;
-      }
-      typed += 1;
+      typeKey(char);
     }
     await lookAgain();
     let wrong = await typedWrong(handle, it.harness, command, version, check);
+    if (wrong === undefined && close !== undefined) {
+      await lookAgain();
+      typeKey(close.key);
+      await lookAgain();
+      wrong = await typedWrong(handle, it.harness, command, version, close.check);
+    }
     if (wrong === undefined && Date.now() > deadline) wrong = { why: 'its time ran out' };
     if (wrong !== undefined) {
       takeBack();
@@ -507,6 +518,31 @@ function piMenuWrong(rows, command, draft) {
   if (selected === undefined) return { why: 'no menu of commands came up below its input box', menu: true };
   const name = selected.replace(PI_SELECTED, '').trim().split(/\s+/)[0];
   if (`/${name}` !== command) return { why: `the selected row of its menu is "${selected.trim()}"`, menu: true };
+  return undefined;
+}
+
+/**
+ * Pi 1.3.0 applies a menu list still drawn from an earlier key against that
+ * key's prefix, so `/compact` under a list for `/compa` submits `/ccompact`,
+ * and the screen cannot tell that list from a fresh one. A space makes Pi list
+ * `/compact `, for which it has nothing, and so close the menu; with no menu,
+ * Return submits the line trimmed, `/compact` (tech notes, section 6; #671).
+ */
+const PI_CLOSE = { key: ' ', check: (rows, harness, command, version, draft) => piClosedWrong(rows, command, draft) };
+
+/**
+ * Why the screen does not show Pi's editor reading `command`, a space after
+ * it, with no menu below the box, or undefined when it does. A list still
+ * drawn has its selected row.
+ */
+function piClosedWrong(rows, command, draft) {
+  const box = piBox(rows);
+  if (box === undefined) return { why: 'its screen shows no input box' };
+  const lines = box.editor.map((row) => row.trim()).filter((row) => row !== '');
+  const line = draft?.trim() ?? lines.join(' ⏎ ');
+  if (line !== command || (draft === undefined && lines.length !== 1)) return { why: `its input line reads "${line}" after the space` };
+  const selected = box.below.find((row) => PI_SELECTED.test(row));
+  if (selected !== undefined) return { why: `a menu is still below its input box after the space, its selected row "${selected.trim()}"` };
   return undefined;
 }
 
