@@ -1,0 +1,20 @@
+schema: assuredloop/1
+request: pi-compact
+tier: "1"
+status: open
+sources:
+  - file: 2026-10-20-owner-words.md
+    kind: owner-words
+    sha256: f1226f129e02c776fe3108784c456030e80014af5a721b9d9fe6a3731c1a1f37
+    taken: 2026-10-20T09:29Z
+requirements:
+  - id: R1
+    version: 1
+    sha256: 019c6f71520954622eb03415880fb6b41013a54cc69953e68bc8f6fb2d40b435
+    title: obk session compact types /compact into a Pi tab
+signoff: []
+decisions: []
+tasks: []
+bindings:
+  - { holder: pi-compact/R1, link: from, target: pi-compact/2026-10-20-owner-words.md, holder_sha256: 019c6f71520954622eb03415880fb6b41013a54cc69953e68bc8f6fb2d40b435, target_sha256: f1226f129e02c776fe3108784c456030e80014af5a721b9d9fe6a3731c1a1f37 }
+dispositions: []
