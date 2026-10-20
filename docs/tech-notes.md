@@ -1084,6 +1084,33 @@ docs, or Orca's 1.4.225 bundle. The kit was tested with Pi 1.1.0.
     - At the end of the turn: the box empty, and both rules plain again.
     - Not seen: the scroll labels, a status other than `Working`, a wide status, a chat divider over
       the box, and a stale menu list. **verified** (live, for the points above)
+- **`/compact` in a Pi tab, for `obk session compact` (#671).** Read on 2026-10-20 in Pi 1.3.0's `dist/`
+  (coding-agent `core/slash-commands.js`, `core/agent-session.js`, `core/session-manager.js`,
+  `core/compaction/compaction.js`, `modes/interactive/interactive-mode.js`; pi-tui `autocomplete.js`,
+  `components/editor.js`). **read in code**, not seen in Orca yet.
+  - The slash menu lists `{ name: "compact", description: "Manually compact the session context" }`. Pi runs
+    a line that is `/compact`, or `/compact <instructions>`, as a manual compaction (`handleCompactCommand`).
+    It first aborts any turn that runs; the kit types only into an idle tab.
+  - While it compacts, the status is `Compacting context... (escape to cancel)`, in the input box's top
+    rule, so the kit's at-work check counts it as busy (the point above).
+  - At the end of a compaction, Pi appends one line to the conversation's session file:
+    `{"type":"compaction","id","parentId","timestamp","summary","firstKeptEntryId","tokensBefore",…}`,
+    with `timestamp` an ISO time taken when the line is written (`appendCompaction`). Pi's automatic
+    compaction writes the same kind of line. The conversation id stays the same. So the kit confirms a
+    compact by a `compaction` line in the book's conversation's file, written after the kit began to
+    type and dated at or after that moment, as it does for Claude Code's `compact_boundary` and Codex's
+    `compacted`.
+  - A compact can fail with no line: `Nothing to compact (session too small)`, `Already compacted` (the
+    last entry is a compaction), `Compaction cancelled`, or an error of the model. A manual compact keeps
+    about the last 20000 tokens (`keepRecentTokens`), so a short conversation has nothing to compact.
+    The kit then says, after 5 minutes, that the compact is not confirmed yet.
+  - A menu list still drawn from an earlier key: Return applies the selected row against the prefix that
+    list was made for (`applyCompletion`). With the line `/compact` and a list for `/compac` whose row is
+    `compact`, the result is `/compact` again. With a list for a shorter prefix, the text before that
+    prefix is not blank, so the line becomes the rest of the typed text and the row's name, such as
+    `/ccompact`: no command of Pi's. A row other than `compact` is never applied, because the kit presses
+    Return only when the selected row names `compact`. So a stale row cannot run a command other than
+    `/compact`.
 - **Project trust.** When the working folder or a folder above it has `.pi/settings.json`, `.pi/mcp.json`,
   `.pi/extensions|skills|prompts|themes`, `.pi/SYSTEM.md`, `.pi/APPEND_SYSTEM.md` or a project
   `.agents/skills`, Pi asks first, unless `--approve`/`--no-approve`, an extension, or a saved answer in

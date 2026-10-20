@@ -16,7 +16,7 @@ import { setTimeout as pause } from 'node:timers/promises';
 
 import { readBook, takeTypingTurn, TYPING_HELD, TYPING_WAIT_MS } from './book.js';
 import { botDir, readBot } from './bot.js';
-import { claudeTranscript, codexRollout } from './conversations.js';
+import { claudeTranscript, codexRollout, piSession } from './conversations.js';
 import { harnessOf, ownCli, shellWord } from './launch.js';
 import { eachLine, firstLine } from './lines.js';
 import { FEEDBACK_PANEL, feedbackPanelIn, findProject, orca, piAtWorkIn, piBox, QUESTION_ON_SCREEN, questionIn, screenRows, tabs, tabToTypeInto, TIMED_OUT } from './orca.js';
@@ -25,7 +25,7 @@ import { botsNamed, sessionsOf, typeListLine } from './up.js';
 /** The harness's own command for each, as typed into its input line. Codex's and Pi's clear is `/new` (tech notes, sections 3 and 6). */
 const COMMANDS = {
   clear: { claude: '/clear', codex: '/new', pi: '/new' },
-  compact: { claude: '/compact', codex: '/compact' },
+  compact: { claude: '/compact', codex: '/compact', pi: '/compact' },
 };
 
 /** The pointer each harness starts its input line with (tech notes, section 1). */
@@ -111,7 +111,7 @@ const PI_SELECTED = /^ *→ +/;
  * (or null) and the one it holds now.
  */
 export async function clearSession(bots, { bot, session }) {
-  const it = sessionToType(bots, bot, session, 'clear');
+  const it = sessionToType(bots, bot, session);
   const was = readBook(it.home).sessions[session]?.session ?? null;
   const { command, handle, typing } = await enter(it, 'clear');
 
@@ -147,7 +147,7 @@ export async function clearSession(bots, { bot, session }) {
  * command began, and not yet when COMPACT_MS passed without one.
  */
 export async function compactSession(bots, { bot, session }) {
-  const it = sessionToType(bots, bot, session, 'compact');
+  const it = sessionToType(bots, bot, session);
   // What the record holds when /compact is typed is not this compact's: one
   // that ends while the kit waits for the session to be idle is the one
   // before it (review of PR #466). So only what is written after counts.
@@ -174,17 +174,13 @@ export async function compactSession(bots, { bot, session }) {
 /**
  * The session as something to type into, once everything that refuses before
  * Orca is asked to type has been asked: `{ name, home, session, harness, tabId }`.
- * A compact is refused on Pi: a later slice of #547 may add it.
  */
-export function sessionToType(bots, bot, session, verb) {
+export function sessionToType(bots, bot, session) {
   botsNamed(bots, bot);
   const home = realpathSync(botDir(bots, bot));
   const known = readBot(home, bot);
   const [settings] = sessionsOf(known, session);
   const name = `${bot} ${session}`;
-  if (verb === 'compact' && harnessOf(settings, known.harness) === 'pi') {
-    throw new Error(`${name} runs on Pi, and obk session ${verb} does not work on a Pi session yet: a later slice of #547 adds it. Nothing was typed.`);
-  }
   const unpause = `${shellWord(ownCli())} unpause --bots ${shellWord(bots)} --bot ${bot}`;
   if (known.paused === true) throw new Error(`${bot} is paused, so ${name} is not running and nothing was typed. Bring it back with ${unpause}.`);
   if (settings.paused === true) throw new Error(`${name} is paused, so it is not running and nothing was typed. Bring it back with ${unpause} --session ${session}.`);
@@ -553,6 +549,7 @@ async function answerWhereToRun(it, handle, command) {
 /** Where the harness keeps the record of `conversation`, or undefined when it has none yet. */
 function recordFile(harness, home, conversation) {
   if (conversation === null) return undefined;
+  if (harness === 'pi') return piSession(home, conversation);
   return harness === 'claude' ? claudeTranscript(home, conversation) : codexRollout(conversation);
 }
 
@@ -585,9 +582,9 @@ function compactedSince(harness, record, since) {
       } catch {
         return false;
       }
-      // Claude Code's marker, and Codex's (tech notes, sections 2 and 3).
-      const compaction = harness === 'claude'
-        ? entry?.type === 'system' && entry.subtype === 'compact_boundary'
+      // Claude Code's marker, Codex's, and Pi's (tech notes, sections 2, 3 and 6).
+      const compaction = harness === 'claude' ? entry?.type === 'system' && entry.subtype === 'compact_boundary'
+        : harness === 'pi' ? entry?.type === 'compaction'
         : entry?.type === 'compacted';
       found = compaction && Date.parse(entry.timestamp) >= since;
       return found;
