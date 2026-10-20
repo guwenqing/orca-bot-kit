@@ -26,4 +26,5 @@ decisions: []
 tasks: []
 bindings:
   - { holder: bot-father-harness-choice/R1, link: from, target: bot-father-harness-choice/2026-10-20-owner-words.md, holder_sha256: 15f93ab19c3825e5b7b64c5dc796e78c40b7071afe498946894941550a7eb042, target_sha256: 54714084323e1b8e7dbf57de33ceac0168a3e3fb45365007c4d8c28a48846db0 }
+  - { holder: KIT-22, link: serves, target: bot-father-harness-choice/R1, holder_sha256: 8b0be10bb1f440db370b39306db4bab91331385238091712aeb0da22c3726dc2, target_sha256: 15f93ab19c3825e5b7b64c5dc796e78c40b7071afe498946894941550a7eb042, target_version: 1 }
 dispositions: []

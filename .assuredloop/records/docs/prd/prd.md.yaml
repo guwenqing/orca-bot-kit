@@ -87,7 +87,7 @@ paragraphs:
     display: KIT-21 (6.2, [PRD-9] 6.2 Host)
   - id: KIT-22
     kind: rule
-    text_sha256: a8e799a1b81cf26a952e37fd9f5c0a2825c4ff69aeb0659eeb6c4ace2f78dda6
+    text_sha256: 8b0be10bb1f440db370b39306db4bab91331385238091712aeb0da22c3726dc2
     display: KIT-22 (6.2:1, in [PRD-9] 6.2 Host)
   - id: KIT-23
     kind: note
