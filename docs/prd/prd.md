@@ -1,10 +1,18 @@
+<!-- KIT-1 note -->
+
 # [PRD-1] Bot Kit on Orca — design PRD
 
+<!-- KIT-2 note -->
+
 Date: 2026-09-19. Status: draft for owner review.
+
+<!-- KIT-3 note -->
 
 This PRD replaces the Codex-desktop plan (Request #9, Epic #11 and its children).
 The old content has been removed from the tree, the process tooling included; git history has it if intent needs checking.
 Decisions with lasting consequences are in [`docs/adr/`](../adr/).
+
+<!-- KIT-4 definition -->
 
 Every item is marked:
 
@@ -12,27 +20,45 @@ Every item is marked:
 - **[decided — blanket]** — covered by a blanket acceptance ("the round 1 you are right", "THE REST IS OK"), not by a specific statement.
 - **[proposed]** — the assistant's proposal; the owner has not confirmed it. Strike or change freely.
 
+<!-- KIT-5 definition -->
+
 Sections 3 and 4 describe the outcome; the tags in sections 5 to 8 govern what is decided.
+
+<!-- KIT-6 scope -->
 
 This PRD says what is wanted and where the limits are. It does not say how to build it: names of commands, files, flags and fields are the builder's to choose, and facts about Orca and the harnesses live in `tech-notes.md`.
 
+<!-- KIT-7 note -->
+
 ## [PRD-2] 1. Problem
+
+<!-- KIT-8 purpose -->
 
 A person wants a small fleet of long-lived role bots on their own computer:
 a manager, developers, reviewers, a personal helper.
 Each bot keeps its identity, rules, skills and sessions across restarts.
 The person manages everything by talking to an LLM, not by editing files.
 
+<!-- KIT-9 rationale -->
+
 The first attempt used Codex desktop projects as the host.
 It failed on host limits (permissions, project visibility, manual steps) and on heavy process.
 The owner already runs a similar setup on Orca elsewhere. This product is the Orca version.
 
+<!-- KIT-10 note -->
+
 ## [PRD-3] 2. Who it is for
+
+<!-- KIT-11 scope -->
 
 - The owner first, but the kit is not only for the owner. [decided]
 - People who are not programmers should be able to run it through Bot Father. [decided, from Request #9]
 
+<!-- KIT-12 note -->
+
 ## [PRD-4] 3. What the user can do
+
+<!-- KIT-13 purpose -->
 
 1. Install the kit with npm, run one init, and get Bot Father running in Orca.
 2. Ask Bot Father to create, change, pause or retire bots and sessions.
@@ -45,7 +71,11 @@ The owner already runs a similar setup on Orca elsewhere. This product is the Or
 9. Get a daily grooming report: how the bots are doing, what to improve, and what it costs.
 10. Give code-writing bots a working methodology: TDD with a separate test author, mutation testing, a separate reviewer, debugging, architecture.
 
+<!-- KIT-14 note -->
+
 ## [PRD-5] 4. How we will know it works
+
+<!-- KIT-15 rule -->
 
 Each line is a check a developer can run. Issues turn these into acceptance tests.
 
@@ -62,7 +92,11 @@ Each line is a check a developer can run. Issues turn these into acceptance test
 11. A developer bot using the TDD skill produces: a failing test first, a test written by a separate author, and a mutation result.
 12. The kit can report plainly what is wrong with a setup: conflicting or broken configuration, a broken skill link, a session the book knows that Orca does not, leftovers no book owns.
 
+<!-- KIT-16 note -->
+
 ## [PRD-6] 5. What we are not doing
+
+<!-- KIT-17 scope -->
 
 - No process framework in this repo other than AssuredLoop, for now: no OpenSpec or the like. This repo uses AssuredLoop to keep its requests and its spec, this PRD; AGENTS.md says how. [decided by the owner, 2026-10-03, #474]
 - No Codex-desktop integration; no sidebar, phone or remote work — Orca does that. [decided]
@@ -75,9 +109,15 @@ Each line is a check a developer can run. Issues turn these into acceptance test
 - No "main brain" dispatcher role for now; later it may be an optional recipe built from the existing skills. A third harness is not added now, but adding one must stay cheap. [decided] Changed by the owner on 2026-10-10 (#547): Pi is the third harness, "add a new requirement to support pi". It comes in slices; the first (#578) is in 6.4 and 6.5. [decided]
 - No cloud execution. [proposed — carried from Request #9]
 
+<!-- KIT-18 note -->
+
 ## [PRD-7] 6. Product
 
+<!-- KIT-19 note -->
+
 ### [PRD-8] 6.1 Shape
+
+<!-- KIT-20 rule -->
 
 - An npm package with a CLI and skills, installed with `npm install -g @assuredloop/orca-bot-kit`. Working on the kit itself runs a clone's `src/cli.js` by its full path: the `obk` on PATH stays the published install, and the kit calls itself back by the path of the CLI that started it (#220). [decided]
 - Everything, skills included, comes from the package. [decided]
@@ -88,7 +128,11 @@ Each line is a check a developer can run. Issues turn these into acceptance test
 - The `obk` commands, and no others: `init`, `up`, `restart`, `pause`, `unpause`, `retire`, `health`, `groom`, `roster`, `usage`, `bot create`, `bot change`, `permission allow`, `permission disallow`, `permission approval`, `rules build`, `skills add`, `skills remove`, `skills build`, `skills fetch`, `skills update`, `source add`, `session add`, `session change`, `session clear`, `session compact`, `message to`, `message send`, `message check`, `session record`, `session sent`, `session name`, `session mailbox`, `session trust-hooks`, `session answer`, `temp make`, `temp roles`, `temp retire`, `temp trust-hooks`, `temp answer`. [decided by the owner, 2026-10-18, #652]
 - The environment settings the core reads, and no others: `CODEX_HOME`, `OBK_ORCA`, `OBK_ORCA_DATA`, `OBK_TAB_SHELL`, `ORCA_TAB_ID`, `ORCA_TERMINAL_HANDLE`. [decided by the owner, 2026-10-18, #652] A check in CI fails when the core has a command or a setting that these two lists do not name, or when they name one that the core does not have.
 
+<!-- KIT-21 note -->
+
 ### [PRD-9] 6.2 Host
+
+<!-- KIT-22 rule -->
 
 - Orca. A bot is an Orca project; a session is a tab. Naming, ordering, phone and remote access are Orca's. [decided] → ADR 0046
 - A bot's Orca project is a folder workspace; many tabs share it. Proven live: a git-kind registration of a folder inside the bots repo gets no worktree and cannot host tabs. So a bot's project shows no git status in Orca. [decided by the coordinator on evidence]
@@ -97,7 +141,11 @@ Each line is a check a developer can run. Issues turn these into acceptance test
 - A bot home is a plain folder. The kit never creates a git worktree for the bots repo or for a bot, and never registers a bot folder in Orca as a git repo. Orca calls every workspace a "worktree"; the kit's output and docs say "Orca project" or "folder workspace". [decided]
 - `obk init` takes `--harness claude|codex` with no silent default and no interactive prompt; the setup step asks the user once and passes it. [decided by the coordinator]
 
+<!-- KIT-23 note -->
+
 ### [PRD-10] 6.3 Workspace
+
+<!-- KIT-24 rule -->
 
 - All bots live in one folder, and that folder is one git repo for all bots. It is local; the user may push it. [decided]
 - The kit does not copy its code or skills into it unless the user wants that; kit skills are links to the installed package. [decided] → ADR 0014
@@ -108,7 +156,11 @@ Each line is a check a developer can run. Issues turn these into acceptance test
 - Writing is not banned anywhere: an AI acting on the user's instruction may write whatever the user asks, user-level settings included. What the kit's own mechanical code writes is narrower: it writes the files the kit manages in the bots repo, and it does not reach into the user's global or user-level settings by itself. When that code edits a file that also holds the user's own text, it keeps what the user wrote and leaves a valid file, using the standard library for the format. [decided]
 - A symlink loop in a path the kit is given is detected and reported to the user as a problem, in plain words. [decided] (Moved here from section 8 on 2026-09-24.)
 
+<!-- KIT-25 note -->
+
 ### [PRD-11] 6.4 Bots and sessions
+
+<!-- KIT-26 rule -->
 
 - Sessions of one bot share the bot home. One bot may have several sessions. [decided]
 - Every session starts at the bot home. A per-session work dir is an instruction only and is always a plain folder; the kit creates it and adds the note to the start prompt automatically. It has nothing to do with git worktrees. When a bot clones a repo into its work dir and works on it, it honours that repo's own rules; whether it clones, uses a worktree there, or does something else is for the user to say. [decided]
@@ -137,7 +189,11 @@ Each line is a check a developer can run. Issues turn these into acceptance test
   When `obk temp retire` or `obk retire` retires a session that has a work dir, the kit stops, after it closes the session's tab, each of the user's processes whose working folder is in that work dir, and each process that descends from one of them, wherever it works; retiring a bot does the same for each of its sessions. It never stops a process it cannot show to be the session's own, nor the retire's own run or a process that started it, and it names a process that only shares a process group with them, with its pid, working folder and command. It stops them gently, then surely: SIGTERM first, to the whole group where every process in it is the session's own and by pid otherwise, a wait of up to 3 seconds, then SIGKILL to each that still runs; it names each process it stopped and each it could not stop, with why. Where it cannot read the process table or the working folders, as inside Codex's sandbox, it says it cannot tell, stops nothing, and the retire still finishes. `obk health` reports each process still running in a retired session's work dir, with its pid and command, and stops nothing. [decided by the owner, signed 2026-10-10, #537]
   A long-lived session's first-run screen is answered through the kit too, by one command for each screen: `obk session trust-hooks` for Codex's `Hooks need review`, and `obk session answer` for Claude Code's `Teach auto mode` screen. A long-lived session is Bot Father's, so the caller is a Bot Father session or a caller outside every bot's session, such as the user or an assistant of theirs. A session of any other bot is refused, with Bot Father named and nothing typed, and a temporary session's screen stays its maker's. The commands make the same checks as the temp commands: they read the screen, answer only the exact shapes the kit knows, with arrows and a return and never a digit, refuse any other screen and say what it showed, and check afterwards that the screen went. Before the kit trusts a session's hooks, for a long-lived session or a temporary one, it checks that the hooks the review covers are the kit's own: the bot's `.codex/hooks.json` holds no hook the kit did not write, and the count on the screen is the number of the kit's own hooks that Codex does not trust yet. Where the kit cannot tell, it refuses. [decided by the owner, 2026-10-10, #506] These commands are in the kit's default permission set, because they are narrow by construction. [the architect, 2026-10-10, #527 D2] → ADR 0051
 
+<!-- KIT-27 note -->
+
 ### [PRD-12] 6.5 Session identity
+
+<!-- KIT-28 rule -->
 
 - The kit's book is the authority for session ids. Orca loses its resume record when a tab is closed. [decided] → ADR 0012
 - The book keeps a Pi session's id, and bringing it up again after its tab closed resumes that conversation. [decided by the owner, 2026-10-10, #547; #578] The kit names the id itself, on the launch line. [the architect, #578] A `/new` typed in a Pi tab reaches the book as a `/clear` does: the book holds the new conversation's id, the session's history keeps the old one, and the new conversation gets the session's start prompt again. Pi has no hooks, so a Pi extension that the kit ships tells the kit, through `obk session record`; the kit puts it on every Pi launch line with `--extension` and writes nothing into Pi's own folder. A tab that Orca brings back by itself does not have it, until the kit restarts the tab. [decided by the owner, 2026-10-10, #547; #662] `obk session clear` on a Pi session types Pi's `/new` into its tab, with the same care as on Claude Code and Codex, and the book confirms it; `obk session compact` on a Pi session types nothing and says so. A Pi screen that says Pi is at work counts as busy wherever the kit types into a Pi tab. [decided by the owner, 2026-10-10, #547; #663]
@@ -153,7 +209,11 @@ Each line is a check a developer can run. Issues turn these into acceptance test
 - Changes reach running sessions without a restart wherever the harness allows it; the sessions a change affects are told. [decided]
 - A config change notifies the sessions it affects. [decided — blanket]
 
+<!-- KIT-29 note -->
+
 ### [PRD-13] 6.6 Rules and `AGENTS.md`
+
+<!-- KIT-30 rule -->
 
 - Each bot has one `AGENTS.md`, shared by all its sessions. It is per bot — the bot's identity — not a universal file. [decided]
 - It is built from the bot's charter plus rule units: the kit's common rules, the user's rules, and the bot's own choices, with defaults that every bot gets. What the user wrote by hand is kept, and a conflict with the build is shown, never silently overwritten. [decided] → ADR 0013
@@ -164,7 +224,11 @@ Each line is a check a developer can run. Issues turn these into acceptance test
 - A bot's charter says what it owns, what good looks like, and what it must ask about first. A bot acts alone only inside that written boundary. [decided in principle; charter fields proposed]
 - Two plain defaults in the kit's rules: no silent fallback (when the model a session asks for is not available, the bot says so and asks; it never quietly switches), and role limits such as "read-only, does not modify" are a normal part of a charter. [decided]
 
+<!-- KIT-31 note -->
+
 ### [PRD-14] 6.7 Skills management
+
+<!-- KIT-32 rule -->
 
 - The kit ships common skills the user picks from. The user may keep common skills in the bots root or anywhere. [decided]
 - `skills.yaml` lists online sources: repo, subfolder, ref (branch, tag or sha). The kit clones them into the sibling `<bots>.skill-sources/` folder, records the resolved sha, and links what a bot uses. [decided]
@@ -174,7 +238,11 @@ Each line is a check a developer can run. Issues turn these into acceptance test
 - Kit skill names carry the prefix `obk-`; folder name = skill name. [decided] → ADR 0019
 - Bot Father recommends and provides the right skills for each role the user creates. [decided]
 
+<!-- KIT-33 note -->
+
 ### [PRD-15] 6.8 Bot Father
+
+<!-- KIT-34 rule -->
 
 - Init creates Bot Father with its default management session on. [decided]
 - An extra ops tab in Bot Father's project, **always out of the book**: a plain shell, any harness, for fleet-wide operations. [decided]
@@ -194,7 +262,11 @@ Each line is a check a developer can run. Issues turn these into acceptance test
 - Ordinary bots do not read other bots' histories unless the user asks. Bot Father and grooming may. [decided]
 - Practices borrowed from how people run Grok Bots: an interview that writes the bot's charter; a review of the bot list that gives each bot one verdict; a pattern counts only after it appears twice; each finding gets one kind of fix; short reports; pausing a bot also pauses its automation. [proposed]
 
+<!-- KIT-35 note -->
+
 ### [PRD-16] 6.9 Messaging
+
+<!-- KIT-36 rule -->
 
 - Sessions and bots can talk. Same harness: native messaging when it works; across harnesses: Orca. [decided] → ADR 0042
 - Research result: Claude-to-Claude native messaging is documented and addressable by session name; Codex-to-Codex (`codex queue`) is not trustworthy yet. So: Claude↔Claude native; everything else through the Orca mailbox; retest Codex during the build. [decided rule, researched outcome]
@@ -205,14 +277,24 @@ Each line is a check a developer can run. Issues turn these into acceptance test
 - The kit sets no message-acceptance override. With the default `auto` level on both ends, Claude Code delivers native messages without asking; that is the harness's own rule. A pair that includes a `dangerously-skip` session would be held for approval, so such pairs use the Orca mailbox. [decided: it is up to auto mode]
 - A message that the receiving session's approval rule holds or refuses is not re-sent by another route; the sender waits, or the user decides. Choosing Orca for a mixed-approval pair is transport selection made in advance, not a way around a hold that has happened. [decided by the coordinator after a peer audit]
 
+<!-- KIT-37 note -->
+
 ### [PRD-17] 6.10 Git behaviour of the bots repo
+
+<!-- KIT-38 rule -->
 
 - Config, rules, prompts, grooming findings and `sessions.yaml` are committed. The CLI never commits by itself; Bot Father commits after a management action; grooming commits once a day. [decided]
   Changed by the owner on 2026-09-24 (#235): every bot commits its own changes to the bots repo often, staging by name only what it changed. It is a rule every bot carries, not left to Bot Father or grooming. The CLI still never commits by itself. Pushing is not part of this decision. [decided] A bot commits what it changed, and what the kit wrote in its own bot's folder (its files there and its book of sessions); Bot Father commits what no bot owns: init's files, the defaults, the user's rules and skill lists. [the architect's reading, 2026-09-25; the owner may overrule]
 
+<!-- KIT-39 note -->
+
 ## [PRD-18] 7. Methodology skills
 
+<!-- KIT-40 note -->
+
 ### [PRD-19] 7.1 Principles for the skill set
+
+<!-- KIT-41 rule -->
 
 - The skills are candidates for all bots; the user picks them, helped by suggestions. They give techniques only: no process, no phases, no assumed way of working, so the user can apply whatever way of working they like. Lightweight does not mean fluffy: each skill takes a very good portion of the good material from all the sources. [decided]
 - Organised by technique, not by role. [decided]
@@ -225,7 +307,11 @@ Each line is a check a developer can run. Issues turn these into acceptance test
 - What the kit owns must be maintainable in principle. An existing tool the kit relies on must be standard and famous. [decided] → ADR 0016
 - Sources: mattpocock/skills (mostly aligned; tracker, PRD and workflow parts left out), Cursor pstack (cherry-pick; mode, personas, multi-model machinery, PR automation and the principle set left out), superpowers (cherry-pick concrete checks only), Kent Beck (take what is good), Karpathy-style rules, citypaul's mutation skill, Cloudflare's security-audit skill (ideas for review; recommended as an upstream source, not bundled), Claude Code's built-in review skills (ideas for review). [decided: mattpocock mostly aligned, pstack cherry-pick, Kent Beck take what is good. proposed: the superpowers, Karpathy-style, citypaul and Cloudflare uses, and every pick list]
 
+<!-- KIT-42 note -->
+
 ### [PRD-20] 7.2 Skills
+
+<!-- KIT-43 scope -->
 
 | Skill | What it covers | Status |
 |---|---|---|
@@ -238,7 +324,11 @@ Each line is a check a developer can run. Issues turn these into acceptance test
 | `obk-personal-facilitation` | Very light to-do and daily help | [decided] |
 | the management skills | see 6.8 | [decided] |
 
+<!-- KIT-44 note -->
+
 ### [PRD-21] 7.3 Decided rules inside the skills
+
+<!-- KIT-45 rule -->
 
 TDD and tests:
 
@@ -257,9 +347,13 @@ TDD and tests:
   7. For the toolkit user: the TDD skill teaches the hand check as the everyday way and mentions the tool only as an audit; it never makes a tool a requirement, and it does not spend the user's time on a tool that does not fit their suite.
 - Refactoring is outside the red/green loop. A small refactor is part of the change and fits the same old contract (so the existing tests stay green — the assistant's reading). If a change is so substantial that the old tests cannot hold, the tests are redone the proper way: the separate author again, usually deleting the old tests first. A large-scale refactor is a planned activity of its own. [decided]
 
+<!-- KIT-46 rule -->
+
 Review:
 
 - The reviewer is always separate (a subagent counts) and never modifies code; it only comments. The implementer makes the change, and the change is verified again. [decided] → ADR 0017
+
+<!-- KIT-47 rule -->
 
 Architecture:
 
@@ -267,11 +361,17 @@ Architecture:
 - A very light part on stating what is wanted and dividing the work; the user decides the details and the tracking system. [decided]
 - When the whole app is designed, or a new feature is planned, the large test work that tests it end to end is planned with it. [decided]
 
+<!-- KIT-48 rule -->
+
 General:
 
 - Less is better where possible. [decided]
 - No guard script. [decided]
 
+<!-- KIT-49 note -->
+
 ## [PRD-22] 8. Working agreement for building this
+
+<!-- KIT-50 scope -->
 
 How this repo is built is not part of the kit, and the kit's skills must not assume it. The repo's own conventions are in `AGENTS.md`. The way the owner's bots build it (who hands out issues, who writes tests and reviews, when a session is cleared) belongs to those bots: it is in the kit-dev bot's charter and prompts. [decided by the owner, 2026-09-24] The earlier text of this section, with its record of the live checks, is in git history; the live checks still owed are in `tech-notes.md` section 5.

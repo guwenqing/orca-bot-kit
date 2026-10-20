@@ -1,0 +1,203 @@
+schema: assuredloop/1
+file: docs/prd/prd.md
+paragraphs:
+  - id: KIT-1
+    kind: note
+    text_sha256: 95e5f2396985b96e92cc762cfae0b5ab74e660910019c0fc956cf0c01c7b9814
+    display: KIT-1 (0, [PRD-1] Bot Kit on Orca — design PRD)
+  - id: KIT-2
+    kind: note
+    text_sha256: 5c14084704803b4cc5f954fbfa2e8cb5cdd0a0e1508db47b2a2240eee8a3a25a
+    display: KIT-2 (0:1, in [PRD-1] Bot Kit on Orca — design PRD)
+  - id: KIT-3
+    kind: note
+    text_sha256: 4de7ad161b8f87481a19be3be65d549ec31fbe4a203be537026ef127c9b7f4c1
+    display: KIT-3 (0:2, in [PRD-1] Bot Kit on Orca — design PRD)
+  - id: KIT-4
+    kind: definition
+    text_sha256: 623c9f90ae44403d4e95c73dee43c7506cc93f613f4ae028eab52ac654820d6f
+    display: KIT-4 (0:3, in [PRD-1] Bot Kit on Orca — design PRD)
+  - id: KIT-5
+    kind: definition
+    text_sha256: 6bf1d5ef3723db65bbb27cc7329b3a09a6e7f4d18eac4dcedc4e962c21a19aef
+    display: KIT-5 (0:4, in [PRD-1] Bot Kit on Orca — design PRD)
+  - id: KIT-6
+    kind: scope
+    text_sha256: 9098b3d6de548451a3590407929e4aaba9a7a2896dd98a2c0eab1d60598f7980
+    display: KIT-6 (0:5, in [PRD-1] Bot Kit on Orca — design PRD)
+  - id: KIT-7
+    kind: note
+    text_sha256: 5d03e7a99e002ab06be29ad9b4e34ffa9b09bfb9bde2e904148ca1820151fe44
+    display: KIT-7 (1, [PRD-2] 1. Problem)
+  - id: KIT-8
+    kind: purpose
+    text_sha256: a0da35307d47d917cefe0cb8e2c4e2692304a756db79688156b26f67e4aff2da
+    display: KIT-8 (1:1, in [PRD-2] 1. Problem)
+  - id: KIT-9
+    kind: rationale
+    text_sha256: ecaa5a53b16783144a64ca33b15aae6cb337c707c488eaf0a84ae95591cce59a
+    display: KIT-9 (1:2, in [PRD-2] 1. Problem)
+  - id: KIT-10
+    kind: note
+    text_sha256: f81d14b7383e87aa8511c8b8fce00113a145ad050c39e0065cb6c91eeb308966
+    display: KIT-10 (2, [PRD-3] 2. Who it is for)
+  - id: KIT-11
+    kind: scope
+    text_sha256: 7496184457b200004d9d22de4a22f9963cdbee806289e2eac200590f38d52bd0
+    display: KIT-11 (2:1, in [PRD-3] 2. Who it is for)
+  - id: KIT-12
+    kind: note
+    text_sha256: d57f25247fe42c1219460552589d898402f0b03fc13ef2ff45765bc052d73d70
+    display: KIT-12 (3, [PRD-4] 3. What the user can do)
+  - id: KIT-13
+    kind: purpose
+    text_sha256: 5d2cb3f4c999451eb8954c26c0202134db63af8c02cff2475327b5af08bfeddf
+    display: KIT-13 (3:1, in [PRD-4] 3. What the user can do)
+  - id: KIT-14
+    kind: note
+    text_sha256: ac876f3a89903612fe6e2d2dbfffdd6f0caf89c1996e997847cb5dd07c95d088
+    display: KIT-14 (4, [PRD-5] 4. How we will know it works)
+  - id: KIT-15
+    kind: rule
+    text_sha256: 19cf8e253081c7667138b09c2660b4603cd344563d0ee720be9686db490d130d
+    display: KIT-15 (4:1, in [PRD-5] 4. How we will know it works)
+  - id: KIT-16
+    kind: note
+    text_sha256: 66850c85d949dfc94b58ae899d40e68130abf409c78716732e78779aa46a7f8d
+    display: KIT-16 (5, [PRD-6] 5. What we are not doing)
+  - id: KIT-17
+    kind: scope
+    text_sha256: dbcf3a7e4e93406b062cab78e2631efa9725792b386359595b2dfb8ae2a7bde8
+    display: KIT-17 (5:1, in [PRD-6] 5. What we are not doing)
+  - id: KIT-18
+    kind: note
+    text_sha256: 0658a7dd441d519fb621a80f7ca1f30638bbf3adac3d100bc0399a23a93f6144
+    display: KIT-18 (6, [PRD-7] 6. Product)
+  - id: KIT-19
+    kind: note
+    text_sha256: 85a04df70748425247288358f4573d76f6f830d8fbb1aee10fbdb475d87039d1
+    display: KIT-19 (6.1, [PRD-8] 6.1 Shape)
+  - id: KIT-20
+    kind: rule
+    text_sha256: 5e2b23ddd429d1dcb5f9e30df4e4ecea51bb933528e882720ee6777acf76c070
+    display: KIT-20 (6.1:1, in [PRD-8] 6.1 Shape)
+  - id: KIT-21
+    kind: note
+    text_sha256: 2d174b873bb94343ce272019710936c13db6f3f755b3c83c440b07a546fd31ea
+    display: KIT-21 (6.2, [PRD-9] 6.2 Host)
+  - id: KIT-22
+    kind: rule
+    text_sha256: a8e799a1b81cf26a952e37fd9f5c0a2825c4ff69aeb0659eeb6c4ace2f78dda6
+    display: KIT-22 (6.2:1, in [PRD-9] 6.2 Host)
+  - id: KIT-23
+    kind: note
+    text_sha256: 3d80edeedf25a0e801a4f2d6355c653409515974850429f07f75144cb4cdc69f
+    display: KIT-23 (6.3, [PRD-10] 6.3 Workspace)
+  - id: KIT-24
+    kind: rule
+    text_sha256: 2d2cf628d29c3c8e419bf45e86ecb3e71e595d488e37cb38d102b72425b4ec15
+    display: KIT-24 (6.3:1, in [PRD-10] 6.3 Workspace)
+  - id: KIT-25
+    kind: note
+    text_sha256: 6a114e109842b51c5ad4d49327ff22edf41ce02f9aa7e10580b7f52115ed3281
+    display: KIT-25 (6.4, [PRD-11] 6.4 Bots and sessions)
+  - id: KIT-26
+    kind: rule
+    text_sha256: 2cae422e69aebe4f78929238e3f5f1b7094375562364e5cc9b386e3f0bca3d2c
+    display: KIT-26 (6.4:1, in [PRD-11] 6.4 Bots and sessions)
+  - id: KIT-27
+    kind: note
+    text_sha256: f75354a5984e3af787fd900755a8e32e7f19d0a64649a91ab8b0f41e20f622e1
+    display: KIT-27 (6.5, [PRD-12] 6.5 Session identity)
+  - id: KIT-28
+    kind: rule
+    text_sha256: 8e618e688d0445eb3c14da20ed0b24b5dd2779918a966a300a02723b0000898b
+    display: KIT-28 (6.5:1, in [PRD-12] 6.5 Session identity)
+  - id: KIT-29
+    kind: note
+    text_sha256: 52bd1d7652aafafff884150cac18f9569e3c60f463b01b9516b8ef304147fd06
+    display: KIT-29 (6.6, [PRD-13] 6.6 Rules and `AGENTS.md`)
+  - id: KIT-30
+    kind: rule
+    text_sha256: b393c05d1733d9dea34d896194812884deb90803f98c317c65ba54203c453360
+    display: KIT-30 (6.6:1, in [PRD-13] 6.6 Rules and `AGENTS.md`)
+  - id: KIT-31
+    kind: note
+    text_sha256: e5e81f74c7c6ec00f8610ee6ed6922dc72b666286efb2c4bf85ac4260c0c8b81
+    display: KIT-31 (6.7, [PRD-14] 6.7 Skills management)
+  - id: KIT-32
+    kind: rule
+    text_sha256: 22ea530aad5736120165c2b7cf018e37e298a3c83e00a6864714596b0b93256d
+    display: KIT-32 (6.7:1, in [PRD-14] 6.7 Skills management)
+  - id: KIT-33
+    kind: note
+    text_sha256: 54c2bfa8494338ca3aec289e7bff3236d2f0e0ecd43d30f8d0d189fef749174b
+    display: KIT-33 (6.8, [PRD-15] 6.8 Bot Father)
+  - id: KIT-34
+    kind: rule
+    text_sha256: b4f6059b6bf697edeac63a7c3fdf7e03c834f44d8cfb07191ed3da669a7c7344
+    display: KIT-34 (6.8:1, in [PRD-15] 6.8 Bot Father)
+  - id: KIT-35
+    kind: note
+    text_sha256: 2b5c1853933eee3b6d1c06d4ed41d3150715748c48f3b11c16fdb926aa17064e
+    display: KIT-35 (6.9, [PRD-16] 6.9 Messaging)
+  - id: KIT-36
+    kind: rule
+    text_sha256: eb28af33d62dca20ffe3c24c8e253c4ac01df4e1ab24878388d38b440e4a8482
+    display: KIT-36 (6.9:1, in [PRD-16] 6.9 Messaging)
+  - id: KIT-37
+    kind: note
+    text_sha256: 7c6efb0860c39098a95e68e808df100d29765150611c1c94fa6f7392492895d1
+    display: KIT-37 (6.10, [PRD-17] 6.10 Git behaviour of the bots repo)
+  - id: KIT-38
+    kind: rule
+    text_sha256: 14e50297b0097f55244bbb5bfe2a47f6367b66f1aea32f6ae19ef460cab272e6
+    display: KIT-38 (6.10:1, in [PRD-17] 6.10 Git behaviour of the bots repo)
+  - id: KIT-39
+    kind: note
+    text_sha256: 51909610bace8d859d438319884813fa10a0a90e1b5a9c562fcab47874c1e26c
+    display: KIT-39 (7, [PRD-18] 7. Methodology skills)
+  - id: KIT-40
+    kind: note
+    text_sha256: 1d047832422f078e48fe94d71607819227d7eb6b71c5464f05dfa2239cae098f
+    display: KIT-40 (7.1, [PRD-19] 7.1 Principles for the skill set)
+  - id: KIT-41
+    kind: rule
+    text_sha256: 481c31892dc56a9b6996e6cc7df201b4e5634ea81d0b1361f10bddfdd64acc11
+    display: KIT-41 (7.1:1, in [PRD-19] 7.1 Principles for the skill set)
+  - id: KIT-42
+    kind: note
+    text_sha256: 7442093b4cfe3b0741a357848b2412f23b523f887ac4e642b0e4568c95ce919a
+    display: KIT-42 (7.2, [PRD-20] 7.2 Skills)
+  - id: KIT-43
+    kind: scope
+    text_sha256: cb084c587dcb58e207781dae14c98baa93b1d2232b33e698870c158badd5072e
+    display: KIT-43 (7.2:1, in [PRD-20] 7.2 Skills)
+  - id: KIT-44
+    kind: note
+    text_sha256: 8fe4601140b1660b4cca07f0778367ad94d1eaedc3c9265403b104ce1f4ff93c
+    display: KIT-44 (7.3, [PRD-21] 7.3 Decided rules inside the skills)
+  - id: KIT-45
+    kind: rule
+    text_sha256: e1910eba8fc1d677dd718ec9fa10eab470a35e8fb8309367b3658760c59b0a2b
+    display: KIT-45 (7.3:1, in [PRD-21] 7.3 Decided rules inside the skills)
+  - id: KIT-46
+    kind: rule
+    text_sha256: 2785349b92a8ea46e49ef017095dc5a9edc29b3f3f3c7c17fb0296b8af341d93
+    display: KIT-46 (7.3:2, in [PRD-21] 7.3 Decided rules inside the skills)
+  - id: KIT-47
+    kind: rule
+    text_sha256: 3a3ba7837e4ff089b34eae00e0ecc079660cab2756ad69cf008c86460146ecfb
+    display: KIT-47 (7.3:3, in [PRD-21] 7.3 Decided rules inside the skills)
+  - id: KIT-48
+    kind: rule
+    text_sha256: 8f2f4e621000d113062fae96922247429d53b801801c5a37c2eabae2d19be626
+    display: KIT-48 (7.3:4, in [PRD-21] 7.3 Decided rules inside the skills)
+  - id: KIT-49
+    kind: note
+    text_sha256: 4bff6bedd637b21aed6de7a171fb95568500851701d4e370c0f1b10c828b0064
+    display: KIT-49 (8, [PRD-22] 8. Working agreement for building this)
+  - id: KIT-50
+    kind: scope
+    text_sha256: aa49bbcb8417d6613bb816e19c91aba753801f93622f72abb5f073601e1e0897
+    display: KIT-50 (8:1, in [PRD-22] 8. Working agreement for building this)

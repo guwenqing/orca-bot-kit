@@ -1,0 +1,10 @@
+# The AssuredLoop model (design.md 3, schema.md 4 and 6), with a version.
+schema: assuredloop/1
+kinds:
+  promise: [purpose, scope, rule, limit, definition]
+  design: [component, interface, data, flow, choice, approach]
+  informative: [rationale, example, open]
+  note: [note]
+  change-only: [plan, step, migration]
+# The link words a marker may hold.
+links: [serves, builds-on, changes, removes, explains, illustrates, resolved-by, governed-by, decides, for, supersedes, source]
