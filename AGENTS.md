@@ -12,28 +12,37 @@ work from a later slice into an earlier one.
 
 ## AssuredLoop
 
-AssuredLoop keeps this project's requests and spec: before work that changes a promise, read the skill of al 0.1.0 and run `al context`.
+AssuredLoop keeps this project's requests and spec: before work that changes a promise, read the skill of al 1.0.0 and run `al context`.
 
-`al` is the npm package `@assuredloop/cli` at exactly `0.1.0`. Wherever this file says
+`al` is the npm package `@assuredloop/cli` at exactly `1.0.0`. Wherever this file says
 `al`, run that version in one of two ways: through npx, as
-`npx -y @assuredloop/cli@0.1.0 <args>`, or from an install of its own in a folder outside
-the global one, made with `npm install --prefix <dir> @assuredloop/cli@0.1.0` and run
+`npx -y @assuredloop/cli@1.0.0 <args>`, or from an install of its own in a folder outside
+the global one, made with `npm install --prefix <dir> @assuredloop/cli@1.0.0` and run
 as `<dir>/node_modules/.bin/al <args>`. Do not install it globally: the global `al`
-belongs to every project on the machine, and a newer one does not read this repo's
+belongs to every project on the machine, and another version may not read this repo's
 records. The skill ships in the package, at
 `@assuredloop/cli/skills/assuredloop/SKILL.md`; this prints it:
-`npx -y -p @assuredloop/cli@0.1.0 -c 'cat "$(dirname "$(command -v al)")/../@assuredloop/cli/skills/assuredloop/SKILL.md"'`.
+`npx -y -p @assuredloop/cli@1.0.0 -c 'cat "$(dirname "$(command -v al)")/../@assuredloop/cli/skills/assuredloop/SKILL.md"'`.
 In an install of its own, the skill is
 `<dir>/node_modules/@assuredloop/cli/skills/assuredloop/SKILL.md`.
-CI runs `al check --strict` at that version on every pull request. The baseline is `docs/prd/` (`.assuredloop`); the
-decision records are `docs/adr/`.
+CI runs `al check --strict` at that version on every pull request. The baseline is `docs/prd/`
+(`root:` in `.assuredloop/config.yaml`), and al keeps its records in `.assuredloop/records/`,
+committed with the change. Each paragraph of the PRD has a hidden marker before it, with
+its ID and kind: keep the marker when you edit the paragraph. The decision records are
+`docs/adr/`; al 1.0.0 reads ADRs only in `docs/prd/adr/`, so it does not read them.
+The requests that al 0.1.0 concluded stay in `requests/archive/` as files; al 1.0.0 does
+not read them. To check one, run al 0.1.0 at its commit.
 Every PR states its tier, in its commit message (`al check` reads it there) and the PR:
 
 - No promise in the baseline changes: tier 0. Write no record. `Tier: 0 — <what it restores>`.
 - A small change to a promise: tier 1. `al new <name> --tier 1 --from -`, the owner's
-  words on stdin, the owner's sign-off recorded, the baseline section edited, and
-  `al conclude <name>`, all in the PR. `Tier: 1 — <claim>`. The owner signs, not you.
-- Tier 2, 3 and S keep their records in the PR the same way; the skill says how.
+  words on stdin; the organized requirement `R1` in `requests/<name>/request.md`;
+  `al index`; the owner's sign-off recorded with `al record <name> signoff`; the PRD
+  paragraph edited, with `serves:<name>/R1` in its marker; and `al conclude <name> --yes`,
+  all in the PR. `Tier: 1 — <claim>`. The owner signs, not you.
+- A new paragraph is written with no marker. `al spec --add-ids docs/prd/prd.md --yes`
+  gives it the next ID; then write its kind and links in the marker.
+- Tier 1d, 2, 3 and S keep their records in the PR the same way; the skill says how.
 
 ## How code is made here
 
