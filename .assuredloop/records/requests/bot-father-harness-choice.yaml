@@ -1,0 +1,20 @@
+schema: assuredloop/1
+request: bot-father-harness-choice
+tier: "1"
+status: open
+sources:
+  - file: 2026-10-20-owner-words.md
+    kind: owner-words
+    sha256: 54714084323e1b8e7dbf57de33ceac0168a3e3fb45365007c4d8c28a48846db0
+    taken: 2026-10-20T20:35Z
+requirements:
+  - id: R1
+    version: 1
+    sha256: 15f93ab19c3825e5b7b64c5dc796e78c40b7071afe498946894941550a7eb042
+    title: The user chooses Bot Father's harness at setup, Pi included
+signoff: []
+decisions: []
+tasks: []
+bindings:
+  - { holder: bot-father-harness-choice/R1, link: from, target: bot-father-harness-choice/2026-10-20-owner-words.md, holder_sha256: 15f93ab19c3825e5b7b64c5dc796e78c40b7071afe498946894941550a7eb042, target_sha256: 54714084323e1b8e7dbf57de33ceac0168a3e3fb45365007c4d8c28a48846db0 }
+dispositions: []
