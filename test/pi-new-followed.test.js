@@ -13,8 +13,8 @@
 //       book holds after, and what the extension sent to Pi
 //   (X, every Pi launch line carries `--extension <the kit's src/pi-record.js>`,
 //       is in test/pi-extension-line.test.js)
-//   C   `obk session clear` on a Pi session still types nothing, and now says
-//       to use `/new`, which the book follows
+//   (C, `obk session clear` on a Pi session, typed `/new` since #663, is in
+//       test/pi-clear.test.js)
 //
 // What is pinned is what can be seen: the book, the calls of sendMessage, how
 // the handler settled. Not pinned: the customType, the exact stdin, or the
@@ -34,7 +34,6 @@ import {
   bookOf,
   botHomeOf,
   createSandbox,
-  orcaCallsOf,
   sessionIn,
   tabsOfBot,
 } from './helpers/cli.js';
@@ -308,22 +307,4 @@ test('E10 a Pi that cannot say its session id: the handler resolves, changes not
   assert.equal(await bookText(bots), before, 'the book is as it was');
   assertSentNothing(report);
   await assertFollows(box, { bots, home, tab });
-});
-
-// ================================================================= C session clear
-
-test('C1 session clear on a Pi session refuses, types nothing, and says to use /new, which the book follows', async (t) => {
-  const box = await createSandbox(t);
-  await fakePi(box);
-  await piFleet(box);
-  const sends = orcaCallsOf(await box.orca.calls(), 'terminal send').length;
-
-  const result = await box.run(['session', 'clear', '--bots', 'bots', '--bot', BOT, '--session', 'daily']);
-
-  assert.notEqual(result.code, 0, `this should have been refused, got:\n${result.stdout}${result.stderr}`);
-  const said = result.stdout + result.stderr;
-  assert.ok(!/^\s+at /m.test(said), `expected a message, got a crash:\n${said}`);
-  assert.equal(orcaCallsOf(await box.orca.calls(), 'terminal send').length, sends, 'nothing was typed into any tab');
-  assert.ok(said.includes('/new'), `the refusal should name /new, got:\n${said}`);
-  assert.ok(!/later slice/i.test(said), `and no longer say a later slice adds it, got:\n${said}`);
 });

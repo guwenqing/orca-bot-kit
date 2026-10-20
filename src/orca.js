@@ -550,6 +550,73 @@ const FORM_FOOT = /Enter to (?:continue|confirm|select)\b.*Esc to cancel/i;
  */
 const PI_FOOT = /\bescape\/ctrl\+c (?:to )?(?:cancel|close|skip setup)\b/i;
 
+/**
+ * The rules of Pi 1.3.0's input box, each across the whole width: the bottom
+ * one only `─`, or with Pi's ` ↓ <n> more ` (or ` ↑ <n> more `) while a long
+ * draft scrolls; the top one starting `──`, with Pi's status in it while it
+ * works, `── ⠋ Working ───…` (pi-tui `editor.js`, `custom-editor.js`; read in
+ * code, #663). Pi wraps its editor's text a column short of the width, so no
+ * row of a draft is as long as a rule.
+ */
+const PI_SCROLL = / [↑↓] \d+ more /;
+const PI_RULE = new RegExp(`^─+(?:${PI_SCROLL.source}─*)?$`);
+const PI_TOP_RULE = /^──.*─$/;
+
+/** The words in a row of Pi's, once its rule characters and its scroll label are taken out. */
+const piWords = (row) => row.replace(PI_SCROLL, '').replaceAll('─', '').trim();
+
+/**
+ * Pi's two rules on a rendered screen, `{ bottom, top }` or `{ bottom, status
+ * }` as indexes into `rows`, or `{}` with no bottom rule. The bottom rule is
+ * the lowest rule. Then, up from it, only rows with a rule's ends count, and
+ * the first that decides is taken: one as long is the top rule, and rows
+ * above it are the chat (Pi's own dividers among them). One not as long,
+ * with words of more than ASCII in it, is a status: Pi lays out by columns
+ * and the kit counts characters, so a status with wide or combining
+ * characters is not as long. An ASCII status always is, so one not as long
+ * with ASCII words is an editor row, and the walk goes on (reviews of PR
+ * #666).
+ */
+function piRules(rows) {
+  const bottom = rows.findLastIndex((row) => PI_RULE.test(row.trimEnd()));
+  if (bottom < 0) return {};
+  const width = [...rows[bottom].trimEnd()].length;
+  for (let at = bottom - 1; at >= 0; at -= 1) {
+    const row = rows[at].trimEnd();
+    if (!PI_TOP_RULE.test(row)) continue;
+    if ([...row].length === width) return { bottom, top: at };
+    if (/[^\x20-\x7e]/.test(piWords(row))) return { bottom, status: at };
+  }
+  return { bottom };
+}
+
+/**
+ * Pi's input box on a rendered screen, `{ top, editor, below }`: its top rule,
+ * every row between its two rules, and the rows under the bottom one (Pi's
+ * slash menu, then its footer). Undefined when `piRules` finds no top rule.
+ */
+export function piBox(rows) {
+  const { bottom, top } = piRules(rows);
+  if (top === undefined) return undefined;
+  return { top: rows[top], editor: rows.slice(top + 1, bottom), below: rows.slice(bottom + 1) };
+}
+
+/**
+ * The row of a rendered screen that says the harness is at work, as only Pi
+ * draws it, or undefined: its input box's top rule with anything in it but
+ * the rule and the scroll label, or a status `piRules` found instead. Pi's
+ * usual status is a plain `Working`, and an extension can put its own words
+ * there, so no word is looked for; Pi's startup help says `escape to
+ * interrupt` too, and is no turn. `agent` is the harness Orca names in the
+ * tab: the row counts only where it is pi (#663).
+ */
+export function piAtWorkIn(rows, agent) {
+  if (agent !== 'pi') return undefined;
+  const { top, status } = piRules(rows);
+  if (status !== undefined) return rows[status];
+  return top !== undefined && piWords(rows[top]) !== '' ? rows[top] : undefined;
+}
+
 /** That pointer on a numbered choice, and the column its number starts in. */
 const ON_A_CHOICE = /^( *[›❯] +)\d+\. /;
 
@@ -721,7 +788,9 @@ export function tabToTypeInto(home, tabId, timeoutMs) {
   if (seen.question === undefined) {
     return { unsure: `the kit could not tell whether a question is waiting on its screen (${seen.screenUnreadable}), so nothing was typed` };
   }
-  return { handle: live.handle, agent: seen.agent, idle: seen.answered, rows: seen.rows, draft: seen.draft };
+  // Orca's tui-idle does not answer the same each time for a Pi tab (tech
+  // notes, section 6), so Pi's own word that it is at work counts too.
+  return { handle: live.handle, agent: seen.agent, idle: seen.answered && piAtWorkIn(seen.rows, seen.agent) === undefined, rows: seen.rows, draft: seen.draft };
 }
 
 /**

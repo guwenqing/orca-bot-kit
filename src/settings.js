@@ -2,7 +2,7 @@
 //
 // A session can run on settings other than the ones bot.yaml asks for: it
 // started before a change, a default of the user's own leaked in, or a flag was
-// dropped. Each harness writes down what it used (tech notes, sections 2 and 3),
+// dropped. Each harness writes down what it used (tech notes, sections 2, 3 and 6),
 // so the two can be put side by side. Read only: these are the harness's files.
 //
 // Four answers, and only one of them is good news. A record that cannot be read,
@@ -10,7 +10,8 @@
 // setting the session never asked for is not a disagreement either, whatever the
 // harness chose: it is `not-asked-for`.
 
-import { DEFAULT_APPROVAL } from './launch.js';
+import { defaultApproval } from './launch.js';
+import { withoutThinking } from './pi.js';
 import { lines } from './usage.js';
 
 export const SETTINGS = ['model', 'effort', 'context', 'approval'];
@@ -22,47 +23,56 @@ export const SETTINGS = ['model', 'effort', 'context', 'approval'];
  * every setting asked for is then unknown.
  */
 export function settingsInUse(harness, session, file, since) {
-  const used = file === undefined ? {} : (harness === 'claude' ? fromClaude : fromCodex)(sinceStart(lines(file), since));
-  return Object.fromEntries(SETTINGS.map((name) => [name, judged(harness, name, asked(session, name), used[name])]));
+  const entries = file === undefined ? [] : lines(file);
+  const start = startOf(entries, since);
+  // Pi's reader also looks before the start, for the selection a reply follows.
+  const used = harness === 'pi' ? fromPi(entries, start)
+    : (harness === 'claude' ? fromClaude : fromCodex)(start === -1 ? [] : entries.slice(start));
+  return Object.fromEntries(SETTINGS.map((name) => [name, judged(harness, name, asked(harness, session, name), used[name])]));
 }
 
 /**
- * What the record says since the kit last started the session. A start resumes
- * the conversation it had, so the file still holds what the process before it
- * wrote, and that says what that process ran with, not this one. Everything
+ * Where the record since the kit last started the session begins, or -1. A
+ * start resumes the conversation it had, so the file still holds what the
+ * process before it wrote, and that says what that process ran with, not this
+ * one. Everything
  * from the first line written at or after the start counts, a line with no time
  * of its own included. With no start to go by, no line can be shown to be this
  * process's, so none counts.
  */
-function sinceStart(entries, since) {
+function startOf(entries, since) {
   const from = Date.parse(since ?? '');
-  if (Number.isNaN(from)) return [];
-  const first = entries.findIndex((entry) => Date.parse(entry.timestamp ?? '') >= from);
-  return first === -1 ? [] : entries.slice(first);
+  if (Number.isNaN(from)) return -1;
+  return entries.findIndex((entry) => Date.parse(entry.timestamp ?? '') >= from);
 }
 
 /** What the session asks for, as bot.yaml has it, or undefined when it asks for nothing. */
-function asked(session, name) {
+function asked(harness, session, name) {
   const value = session[name];
   const set = value !== undefined && value !== null && String(value).trim() !== '';
   // The kit puts an approval level on every launch line, so a session always
-  // asks for one: the default, when it names none (ADR 0015).
-  if (name === 'approval') return set ? String(value).trim() : DEFAULT_APPROVAL;
+  // asks for one: its harness's default, when it names none (ADR 0015). Pi
+  // has one level (#547).
+  if (name === 'approval') return set ? String(value).trim() : defaultApproval(harness);
   return set ? String(value).trim() : undefined;
 }
 
 function judged(harness, name, configured, observed) {
-  const shown = observed === undefined ? {} : { observed: said(name, observed) };
+  // A Pi reply can leave two values open (see fromPi): its own, which shows,
+  // and the selection before it. Agreeing with one of the two is not a match.
+  const choices = observed?.choices ?? [observed];
+  const shown = choices[0] === undefined ? {} : { observed: said(name, choices[0]) };
   if (configured === undefined) return { state: 'not-asked-for', ...shown };
-  const verdict = same(harness, name, configured, observed);
-  if (verdict === undefined) return { state: 'unknown', configured, ...shown };
-  return { state: verdict ? 'match' : 'mismatch', configured, ...shown };
+  const verdicts = choices.map((choice) => same(harness, name, configured, choice));
+  if (verdicts.every((verdict) => verdict === false)) return { state: 'mismatch', configured, ...shown };
+  if (verdicts.length === 1 && verdicts[0] === true) return { state: 'match', configured, ...shown };
+  return { state: 'unknown', configured, ...shown };
 }
 
 /** Whether the record says what was asked for; undefined when it cannot say. */
 function same(harness, name, configured, observed) {
   if (observed === undefined) return undefined;
-  if (name === 'model') return sameModel(configured, observed);
+  if (name === 'model') return harness === 'pi' ? samePiModel(configured, observed) : sameModel(configured, observed);
   // Codex reports the window it was given at 95%, rounded down (tech notes,
   // section 3): 200000 comes back as 190000.
   if (name === 'context') return Number(observed) === Math.floor(Number(configured) * 0.95);
@@ -80,6 +90,27 @@ function same(harness, name, configured, observed) {
 function sameModel(configured, observed) {
   const model = configured.replace(/\[[^\]]*\]$/, '');
   return model.includes('-') ? observed === model : observed.split('-').includes(model);
+}
+
+/**
+ * A Pi model as bot.yaml names it, `openai/gpt-6-luna` or `gpt-6-luna`, maybe
+ * with a trailing `:<thinking level>`, against the `<provider>/<model>` Pi
+ * wrote down: it matches either whole, in any case, as Pi does. Pi also takes
+ * a pattern that is part of a model's id, and which model it then chose
+ * depends on what else it lists, so such a pattern cannot be judged (Pi 1.3.0,
+ * resolveModelReference). Pi matches a display name too, which the record
+ * does not hold: such a pattern shows as a mismatch.
+ */
+function samePiModel(configured, observed) {
+  const model = withoutThinking(configured).toLowerCase();
+  const ran = observed.toLowerCase();
+  const provider = ran.slice(0, ran.indexOf('/'));
+  const id = ran.slice(ran.indexOf('/') + 1);
+  if (model === ran || model === id) return true;
+  // A provider before a slash is only a hint: the whole pattern may be part of an id.
+  const slash = model.indexOf('/');
+  const part = id.includes(model) || (slash !== -1 && model.slice(0, slash) === provider && id.includes(model.slice(slash + 1)));
+  return part ? undefined : false;
 }
 
 /** The permission mode Claude Code records for each level (tech notes, section 2). */
@@ -132,6 +163,65 @@ function fromClaude(entries) {
     if (typeof entry.permissionMode === 'string') used.approval = entry.permissionMode;
   }
   return used;
+}
+
+/** The api of a virtual model's catalog entry (Pi 1.3.0, virtual-models.js). */
+const PI_VIRTUAL = 'pi-virtual';
+
+/**
+ * What a Pi record says it runs with, from `start` on: the model, as
+ * `<provider>/<model>`, and the thinking level (tech notes, section 6). Pi
+ * writes nothing about approval.
+ *
+ * The latest line that names one decides. A `model_change` or
+ * `thinking_level_change` line decides alone. A reply names the model that
+ * answered, and the level it was asked at. On a resume with `--model` or
+ * `--thinking`, Pi writes no change line, so a change before a reply may be
+ * stale; but a change to a virtual model, such as `router/auto`, stays the
+ * selection while the router is registered, and its replies name the model
+ * it routed to (Pi 1.3.0, getBranchSelection, docs/virtual-models.md). The
+ * record cannot show what is registered now. So the reply stands when the
+ * change names the same model, or a model a reply shows is physical, and
+ * otherwise the two are left open. A router may change the level as well, so
+ * a reply's level stands alone only on a physical model. A reply a router
+ * could not route names the virtual model, and is passed over, as Pi does.
+ */
+function fromPi(entries, start) {
+  const named = (provider, model) => (typeof provider === 'string' && typeof model === 'string' ? `${provider}/${model}` : undefined);
+  const text = (value) => (typeof value === 'string' ? value : undefined);
+  const assistant = (entry) => (entry.type === 'message' && entry.message?.role === 'assistant' ? entry.message : undefined);
+  const reply = (entry) => (assistant(entry)?.api === PI_VIRTUAL ? undefined : assistant(entry));
+  const modelOf = (entry) => (entry.type === 'model_change' ? named(entry.provider, entry.modelId) : named(reply(entry)?.provider, reply(entry)?.model));
+  const levelOf = (entry) => text(entry.type === 'thinking_level_change' ? entry.thinkingLevel : reply(entry)?.thinkingLevel);
+  const changeBefore = (type, read, at) => {
+    for (let before = at - 1; before >= 0; before -= 1) if (entries[before].type === type) return read(entries[before]);
+    return undefined;
+  };
+  const physical = (model) => entries.some((entry) => entry.type !== 'model_change' && modelOf(entry) === model);
+  const latest = (read) => {
+    if (start === -1) return -1;
+    for (let at = entries.length - 1; at >= start; at -= 1) if (read(entries[at]) !== undefined) return at;
+    return -1;
+  };
+  /** The model the line at `at` says, and whether it is a physical one that a reply's level is sure of. */
+  const modelAt = (at) => {
+    const own = modelOf(entries[at]);
+    if (entries[at].type === 'model_change') return { model: own, sure: false };
+    const earlier = changeBefore('model_change', modelOf, at);
+    if (own === undefined) return { sure: false };
+    // The reply itself shows its own model is physical, so a change to that model is settled too.
+    if (earlier === undefined || physical(earlier)) return { model: own, sure: true };
+    return { model: { choices: [own, earlier] }, sure: false };
+  };
+
+  const model = latest(modelOf);
+  const level = latest(levelOf);
+  const own = level === -1 ? undefined : levelOf(entries[level]);
+  const earlier = level === -1 || entries[level].type === 'thinking_level_change' ? undefined : changeBefore('thinking_level_change', levelOf, level);
+  return {
+    model: model === -1 ? undefined : modelAt(model).model,
+    effort: earlier === undefined || earlier === own || modelAt(level).sure ? own : { choices: [own, earlier] },
+  };
 }
 
 /** What a Codex rollout says it runs with: its latest turn, and its latest count. */

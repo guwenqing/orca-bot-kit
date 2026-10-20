@@ -152,7 +152,7 @@ a Codex session
 ([ADR 0045](docs/adr/0045-a-codex-sessions-work-dir-stays-in-its-bot-folder.md)).
 
 A bot or a session can also run on [Pi](https://pi.dev) (`--harness pi`, tested
-with Pi 1.1.0). Pi asks before no tool call, so a Pi session is always
+with Pi 1.3.0). Pi asks before no tool call, so a Pi session is always
 `dangerously-skip`, and the kit refuses `auto` and `ask` for it. Sign in to Pi
 yourself first: `obk up` asks Pi which models it can use, and starts nothing
 when Pi has none, or not the one the session names. The kit gives a Pi session
@@ -161,8 +161,9 @@ setting: name a model that carries it. A Pi session reads its bot's
 `AGENTS.md` and loads its bot's skills from `.agents/skills`; when
 `obk skills build` changes them, it types `/reload` into an idle Pi tab. Pi has
 no permission rules and no hooks, so the bot's allow list does not limit a Pi
-session. Mail, temporary sessions and health for a Pi session come later, and
-so do `obk init --harness pi` and `obk session clear` and `compact` on Pi.
+session. `obk health` reads a Pi session's model and thinking level from Pi's
+own record, and says when Pi cannot run it. `obk init --harness pi`, and
+`obk session clear` and `compact` on Pi, come later.
 
 Every bot gets the kit's default permission rules, written by the kit with
 nobody asked: its own commands for this bots folder, reading a long message,

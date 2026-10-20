@@ -1022,8 +1022,68 @@ docs, or Orca's 1.4.225 bundle. The kit was tested with Pi 1.1.0.
   - **Orca's own restore of a Pi tab** runs `pi --session <transcriptPath>`, with none of the kit's
     flags (read in code, above): no `--extension`, so such a tab does not follow a `/new` until the kit
     restarts it; no `--no-approve` (#578); and no `--skill` (#659). Not fixed here.
-  - `obk session clear` does not type `/new` into a Pi tab yet: the kit has not seen Pi's input line and
-    slash menu through Orca's screen read, which its check before Return needs. A follow-up issue adds it.
+  - `obk session clear` types `/new` into a Pi tab since #663: see the next point.
+- **Pi's input box, slash menu and at-work row, for `obk session clear` (#663).** Read on 2026-10-19
+  in Pi 1.3.0's `dist/` (pi-tui `components/editor.js`, `components/select-list.js`, `autocomplete.js`,
+  `fuzzy.js`; coding-agent `modes/interactive/interactive-mode.js`, `components/custom-editor.js`,
+  `components/status-indicator.js`). **read in code**; what Orca's `terminal read` showed is the last
+  point, kept apart.
+  - The input box is a rule of `─` across the width, the editor's rows with no pointer and no
+    placeholder, then a second rule. The empty editor shows its cursor as an inverse space. The slash
+    menu is drawn **below** the bottom rule, unlike Claude Code's and Codex's: a row per command, the
+    selected one starting `→ `, the others two spaces, and a row `(<n>/<total>)` when it scrolls (5
+    rows by default). Pi's footer (the folder, the counts and the model) comes under it.
+  - The menu opens at a `/` at the start of the message, and is filtered at each character by a fuzzy
+    match on the bare command name, best first; an exact name gets 100 points more, so `/new` puts
+    `new` first. The selection starts on the first row.
+  - With the menu open, Return writes the selected row's command into the line (`/<name> `) and then
+    submits it, trimmed (`tui.select.confirm`, "Fall through to submit"). So the selected row is what
+    runs, as on Codex. Escape closes the menu; with no menu open, Escape is Pi's interrupt.
+  - The menu's list is rebuilt after each character, asynchronously, and the old list stays on screen
+    until the new one comes. A Return in that moment applies the old list's row against the old
+    prefix, which writes a wrong line. Worked out from the code, not seen: this may be why `/reload`
+    typed 10 ms apart did not run (#659, above). The screen cannot tell an old list from a new one
+    when both have the same selected row.
+  - A space after `/new` closes the menu: the line then has arguments, and `new` has no argument
+    completions. Return then submits `/new ` trimmed, which is `/new`.
+  - `/new` is taken before Pi looks at whether it is streaming, as `/reload` is. `handleClearCommand`
+    shows `✓ New session started`; an extension's `session_before_switch` can cancel it.
+  - While Pi works, its status is drawn into the box's **top** rule: `── <spinner> <message> ──…`. The
+    usual message is plain `Working` (`defaultWorkingMessage`; `showWorkingStatusIndicator` adds no hint),
+    so the row is `── ⠋ Working ───…`. It reads `Working (escape to interrupt)` only when Pi resets its
+    extensions' UI while the status is up (`resetExtensionUI`). An extension can set any message. Pi's
+    other states are `Compacting context... (escape to cancel)`, `Retrying (<n>/<max>) in <s>s... (escape
+    to cancel)` and `Summarizing branch... (escape to cancel)`, where the key is the user's binding for
+    `app.interrupt`, `escape` by default. A narrow box cuts the status. With no status, the top rule is
+    only `─`, or `─` with ` ↑ <n> more ` when a long draft scrolls (`createScrollBorder`); the bottom rule
+    can carry ` ↓ <n> more `. Pi's startup help says `escape to interrupt` too, and is no turn. The kit's
+    older busy marker, `esc to interrupt`, matches none of these. So the kit counts the box's top rule
+    with any other text in it as at work, only where Orca names the agent pi: in `obk session clear`'s
+    looks and in the typing gate's idle answer, which `obk skills build` reads before it types `/reload`
+    (#663; the plain `Working` row was the reviewer's finding). Pi measures by terminal columns, and the
+    kit counts characters, so a status with an emoji, CJK or a combining mark is not as long as the
+    bottom rule. Pi also draws plain full-width dividers in the chat (`DynamicBorder`, in `/hotkeys`
+    and `/changelog` output). So the kit walks up from the bottom rule over rows with a rule's ends,
+    and the first that decides is taken: one as long is the top rule, and rows above it are the chat;
+    one not as long with words of more than ASCII is a status, so Pi is at work; one not as long with
+    ASCII words is a draft, since an ASCII status always fills the width, and the walk goes on. The
+    kit does not measure columns (the reviewer's second and third looks).
+  - **Seen in Orca** (2026-10-20, Orca 1.4.225, Pi 1.3.0 on `gpt-6-luna`, low; a throwaway fleet of
+    `test/system/pi-clear.test.js`, `terminal read --screen`, a 120-column tab, run 2 at 4a3125e):
+    - At rest: two plain rules of `─` across the width, with nothing between them, then the footer.
+    - `/new`, typed one character a send 100 ms apart: the editor row `/new`, and under the bottom
+      rule one menu row, `→ new         Start a new session`, then the footer.
+    - `/new ` (a trailing space): the editor row `/new`, and no menu row. The kit types `/new` and
+      reads the menu row; no run sent Return on `/new `, so that path is not seen.
+    - `obk session clear` when idle: exit 0 in about 4.8 s, a new id in the book, and the screen
+      `✓ New session started` with the box empty.
+    - At work on a `sleep 40` bash call: the top rule was `── ⠋ Working ───…` (`⠙` a moment later),
+      with no hint, the bottom rule plain, and `$ sleep 40` and `Elapsed <n>s` in the chat above.
+      Orca's `tui-idle` wait timed out here. `obk session clear` waited 30 s, typed nothing, and was
+      refused with that row quoted.
+    - At the end of the turn: the box empty, and both rules plain again.
+    - Not seen: the scroll labels, a status other than `Working`, a wide status, a chat divider over
+      the box, and a stale menu list. **verified** (live, for the points above)
 - **Project trust.** When the working folder or a folder above it has `.pi/settings.json`, `.pi/mcp.json`,
   `.pi/extensions|skills|prompts|themes`, `.pi/SYSTEM.md`, `.pi/APPEND_SYSTEM.md` or a project
   `.agents/skills`, Pi asks first, unless `--approve`/`--no-approve`, an extension, or a saved answer in
@@ -1243,3 +1303,59 @@ docs, or Orca's 1.4.225 bundle. The kit was tested with Pi 1.1.0.
     links every bot's skills into for Codex, and never writes into `~/.pi/agent`. `obk skills build`
     types `/reload` into a Pi session's tab only when Orca finds it idle. A Pi session reads the bot's
     `AGENTS.md` because its tab starts in the bot folder.
+- **`obk health` and a Pi session (#660).** Seen live on 2026-10-19, 02:15 local, in a throwaway fleet
+  (a research probe through `npm run test:system`, not kept), Pi 1.3.0 and Orca 1.4.225, five Pi sessions
+  on `openai/gpt-6-luna` at thinking `low`. What health said before #660:
+  - A healthy Pi, idle after its start turn: no finding, `running: yes`. Every setting was `unknown`:
+    health read the Pi record with the Codex reader, which finds nothing in it.
+  - After `/quit` in its tab: the shell-in-front finding, in the same words as for Claude Code and
+    Codex, with the restart command. Pi printed `To resume this session: pi --session <id>` and left
+    the tab's shell in front.
+  - Its tab closed: the "Orca has no tab of that id" finding, as for the others.
+  - The book given another id than the one Pi was in: the real id was named as a conversation the
+    book does not name, in words about the kit's hook ("a clear it did not record, or a Codex hooks
+    file trusted late"), which are not true for Pi. Nothing said that the book's own id had no Pi
+    record.
+  - A session whose model Pi does not list, and health with no `pi` on PATH: no finding.
+  - No hook finding and no permission-rule finding for the Pi-only bot.
+  - Pi's model selector (`/model`): no finding. The kit's typing gate answered that the tab was idle
+    and could take a line, and Orca's `terminal wait --for tui-idle` was satisfied with no
+    `blockedReason`. The selector replaces Pi's input box between its two rules, with a `→` pointer,
+    and its foot is `Enter to select · Ctrl+S to set as default · Escape/Ctrl+C to cancel`, which the
+    kit's screen check does not take for a question. Its title stayed `π - <name> - <folder>`, with no
+    `!`. #661 teaches the screen check this screen; health has no screen finding for any harness.
+  - `ps -E -ww -o command= -p <pid>` of a running Pi gave the one word `pi`: no arguments and no
+    environment, so neither `ORCA_TAB_ID` nor the kit's `OBK_TAB_SHELL` mark can be read. So health
+    cannot tell a Pi that the kit started from one that Orca restored with `pi --session <path>`
+    (above), and it says nothing about it. `frontOfTab` gave `{ front: 'program', command: 'pi' }`,
+    and the gate gave `agent: 'pi'`, `idle: true`.
+  - Orca's `terminal show` gave `agentIdentity: pi` and the title `Pi ready` or `π - <name> - <folder>`;
+    after `/quit` the identity was gone. Every tab of the throwaway project was listed as orphaned.
+  - A Pi record names the model and thinking level on each reply: an assistant `message` carries
+    `provider`, `model` and `thinkingLevel`, beside the `model_change` (`provider`, `modelId`) and
+    `thinking_level_change` (`thinkingLevel`) lines written at the start. **seen** in a kit-dev Pi
+    record of 2026-10-18, and **read in docs** (`docs/session-format.md`: a `model_change` may name a
+    virtual model, and the replies then name the physical model that answered).
+  - How Pi takes a model pattern and keeps its selection, **read in code** (Pi 1.3.0), after the
+    reviewer's points on #660. `resolveModelReference` ignores case. A `provider/` prefix is only a
+    hint: the whole text may be a model id on another provider, such as `anthropic/claude-opus-5-5`
+    on `openrouter`. A pattern that is part of a model's id or display name also resolves, so which
+    model it chose depends on Pi's catalog. On a resume with `--model` or `--thinking`, Pi writes no
+    `model_change` or `thinking_level_change` (`sdk.js`), so an old change line can stand before
+    replies on another model. `getBranchSelection` keeps the last `model_change` over later replies
+    only when the catalog says it names a virtual model (api `pi-virtual`), and only while that
+    model is registered: "If the virtual model is no longer registered, Pi falls back to the physical
+    model that answered last" (`docs/virtual-models.md`). A `custom` line `pi.virtual-model-state`
+    or a failed routing (an assistant message with api `pi-virtual`) shows that a model was virtual
+    once, not that its router is still there. A reply's `thinkingLevel` is the level of the request,
+    after a router changed it (`pi-agent-core`, `agent-loop.js`). So health takes the reply when the
+    change names the same model, or one that a reply shows is physical. Otherwise a match on either
+    is `unknown`, so a session on a virtual model always shows its model and level as `unknown`,
+    which is no finding. A pattern that is part of an id is `unknown` too. The record does not hold
+    a display name, so a pattern that is one shows as a mismatch.
+  - **Seen live after #660** (2026-10-19, 03:45 local, `test/system/pi-health.test.js` at 584d806,
+    passing, same versions): the healthy Pi had model `match` (observed `openai/gpt-6-luna`) and effort
+    `match` (observed `low`), read from its record, and no finding. With another id in the book: the
+    finding that Pi has no record of it, and the one that names Pi's real id as not in the book, neither
+    with words about a hook. A model Pi does not list: a config finding naming the session, the model
+    and `pi --list-models`. No `pi` on PATH: one config finding to install Pi, and no model finding.

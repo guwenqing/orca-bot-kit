@@ -103,11 +103,13 @@
 //               answered (captured live, #329; the captures in
 //               helpers/screens.js end at their last drawn row). Left out, the
 //               harness's idle screen as captured, with no question on it:
-//               Codex's for a tab a Codex launch line was typed into, Claude
-//               Code's for any other (helpers/screens.js, CODEX_IDLE and
-//               CLAUDE_IDLE). So a test that says nothing about screens means
-//               what it meant before. One terminal can carry a `screen` of its
-//               own, for that tab alone, or `screen` under its entry in
+//               Codex's for a tab a Codex launch line was typed into, Pi's
+//               for a tab a Pi launch line was typed into (a reconstruction,
+//               PI_IDLE: Pi never draws Claude Code's screen, #663), Claude
+//               Code's for any other (helpers/screens.js, CODEX_IDLE, PI_IDLE
+//               and CLAUDE_IDLE). So a test that says nothing about screens
+//               means what it meant before. One terminal can carry a `screen`
+//               of its own, for that tab alone, or `screen` under its entry in
 //               `byName` (helpers/fake-ps.js), set before the kit makes it.
 //               Orca shows it only through `terminal read`, never in `list`
 //               or `show`.
@@ -502,7 +504,7 @@ import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, renameS
 import path from 'node:path';
 
 import { foregroundOf, launchedIn, panePid, settingsFor } from './fake-ps.js';
-import { CLAUDE_IDLE, CODEX_IDLE } from './screens.js';
+import { CLAUDE_IDLE, CODEX_IDLE, PI_IDLE } from './screens.js';
 
 const dir = process.env.OBK_FAKE_ORCA_DIR;
 if (dir === undefined) {
@@ -958,7 +960,7 @@ if (command === 'terminal read') {
   const terminal = (state.terminals ?? []).find((entry) => entry.handle === flag('--terminal'));
   if (!terminal) fail('terminal_not_found', `no terminal with handle ${flag('--terminal')}`);
 
-  const tail = terminal.screen ?? settingsFor(state, terminal)?.screen ?? state.screen ?? (launchedIn(terminal) === 'codex' ? CODEX_IDLE : CLAUDE_IDLE);
+  const tail = terminal.screen ?? settingsFor(state, terminal)?.screen ?? state.screen ?? ({ codex: CODEX_IDLE, pi: PI_IDLE }[launchedIn(terminal)] ?? CLAUDE_IDLE);
   // A screen that draws late moves on once its reads are used (`then`, under `nextScreens`).
   if (terminal.thenScreen !== undefined) {
     terminal.readsBeforeThen -= 1;

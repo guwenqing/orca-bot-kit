@@ -23,11 +23,12 @@ import path from 'node:path';
 
 import { bookFile, readBook, sessionIdsIn, tabIdsIn } from './book.js';
 import { botDir, botNames, botsDir, readBot, tempRoles, unknownKeys } from './bot.js';
-import { transcriptsIn } from './conversations.js';
+import { hasConversation, transcriptsIn } from './conversations.js';
 import { hookTrouble } from './hooks.js';
 import { APPROVALS, bypassFlags, harnessOf, HARNESSES, isAddressOf, ownCli, promptFile, sessionTrouble, set, SHELL_ENV, shellWord, workDirOf } from './launch.js';
 import { frontOfTab, mailIn, orcaDefaultArgs, projects, runMissing, tabs, tabToTypeInto, wordsOfProcess } from './orca.js';
 import { permissionsTrouble } from './permissions.js';
+import { askPi } from './pi.js';
 import { processesIn } from './processes.js';
 import { TAB_ENV } from './record.js';
 import { agentsTrouble, rulesStamp } from './rules.js';
@@ -51,7 +52,9 @@ export function checkHealth(bots, { bot: onlyBot } = {}) {
 
   const found = [...orcaSettingFindings(), ...leftInOrca(bots, setups), ...leftBeside(bots)];
   const sessions = [];
-  for (const name of names) found.push(...aboutBot(bots, name, setups, sessions));
+  // Pi is asked only when a bot has a Pi session, and each question once (#660).
+  const pi = askPi();
+  for (const name of names) found.push(...aboutBot(bots, name, setups, sessions, pi));
   return { found, sessions };
 }
 
@@ -185,7 +188,7 @@ function leftBeside(bots) {
 }
 
 /** Everything wrong with one bot. Its running sessions are added to `sessions`. */
-function aboutBot(bots, name, setups, sessions) {
+function aboutBot(bots, name, setups, sessions, pi) {
   const home = botDir(bots, name);
 
   let bot;
@@ -206,6 +209,7 @@ function aboutBot(bots, name, setups, sessions) {
     ...agentsTrouble(bots, home, bot).map(said('config')),
     ...hooksOf(bots, home, bot).map(said('config')),
     ...permissionsTrouble(home, bot).map(said('config')),
+    ...piReadiness(home, bot, pi).map(said('config')),
     ...skillsTrouble(bots, home, bot).map(said('skill')),
     ...inOrca(bots, home, bot, setups, sessions),
     ...leftRunning(home, bot),
@@ -258,6 +262,40 @@ function sessionSettings(home, bot) {
     return trouble === undefined
       ? []
       : [{ where: file, says: `${file}: ${trouble} obk up will not start ${bot.name} until that is settled.` }];
+  });
+}
+
+/**
+ * Why Pi cannot run this bot's Pi sessions, paused ones too, in the words
+ * `up` would refuse them with (#660): Pi does not run, can use no model, or
+ * cannot use the model a session names. When Pi cannot list its models at
+ * all, that is said instead, and no model is judged. Pi is asked read only,
+ * through the answers `pi` keeps for the whole run, and never about its
+ * credentials.
+ */
+function piReadiness(home, bot, pi) {
+  const onPi = bot.sessions.filter((session) => harnessOf(session, bot.harness) === 'pi');
+  if (onPi.length === 0) return [];
+  const where = path.join(home, 'bot.yaml');
+  const names = onPi.map((session) => session.name).join(', ');
+  const runs = pi.runs();
+  if (runs !== undefined) {
+    return [{ where, says: `Pi does not run here (${runs}), and ${bot.name}'s sessions ${names} run on Pi. obk up will not start them until it does. Install Pi.` }];
+  }
+  const models = pi.models();
+  if (models.failed !== undefined) {
+    return [{ where, says: `Pi could not list its models: pi --list-models failed (${models.failed}), and ${bot.name}'s sessions ${names} run on Pi. The kit cannot say whether Pi can use their models. Run that command yourself to see why.` }];
+  }
+  if (!models.any) {
+    return [{ where, says: `Pi has no model it can use: it is signed in to no provider, and ${bot.name}'s sessions ${names} run on Pi. obk up will not start them until it is. Sign in to Pi yourself (start pi and use /login, or set a provider's API key). The kit never handles Pi's credentials.` }];
+  }
+  return onPi.filter((session) => set(session.model)).flatMap((session) => {
+    const model = String(session.model).trim();
+    const found = pi.model(model);
+    if (found.failed !== undefined) {
+      return [{ where, says: `${bot.name}'s session ${session.name} runs on Pi with the model ${model}, and the kit cannot say whether Pi can use it: pi --list-models ${found.search} failed (${found.failed}). Run that command yourself to see why.` }];
+    }
+    return found.listed ? [] : [{ where, says: `${bot.name}'s session ${session.name} runs on Pi with the model ${model}, and Pi cannot use it: pi --list-models lists none matching it. obk up will not start the session. Sign in to its provider in Pi yourself, or give the session a model Pi lists.` }];
   });
 }
 
@@ -471,7 +509,7 @@ function inOrca(bots, home, bot, setups, sessions) {
     }
   }
 
-  found.push(...offTheBook(real ?? home, bot, book, onRecord));
+  found.push(...offTheBook(bots, real ?? home, bot, book, onRecord));
 
   // A tab outside the book is somebody else's, and in Bot Father's project it
   // is the ops tab: the one tab the kit deliberately keeps no record of, so it
@@ -555,9 +593,11 @@ function unannounced(bots, home, bot, name, entry) {
  * The conversations a harness has on record in this bot's folder that the book
  * does not name anywhere. The hook is how an id reaches the book, and when it
  * fails it fails quietly (ADR 0022), so this is where a stale book shows: the
- * harness's own record set beside it (ADR 0012).
+ * harness's own record set beside it (ADR 0012). Pi has no hook of the kit's,
+ * so for Pi it also names a session whose conversation in the book Pi has no
+ * record of (#660).
  */
-function offTheBook(home, bot, book, onRecord) {
+function offTheBook(bots, home, bot, book, onRecord) {
   // A retired session's conversations are in the book too, under `retired`.
   const named = sessionIdsIn(book);
   for (const entry of Object.values(book.sessions)) {
@@ -566,10 +606,32 @@ function offTheBook(home, bot, book, onRecord) {
 
   // A subagent's conversation is no session's, so the book has no reason to name it.
   const stray = onRecord.filter((one) => !one.subagent && !named.has(one.id));
-  if (stray.length === 0) return [];
+  const listed = (some) => some.map((one) => `${one.id} (begun ${one.at})`).join(', ');
+  const give = `To give one to a session, write it into ${bookFile(home)} under that session as  session: <id>  and run obk up again.`;
+  const found = [];
 
-  const listed = stray.map((one) => `${one.id} (begun ${one.at})`).join(', ');
-  return [finding('session', bookFile(home), `The harness has conversations on record in ${bot.name}'s folder that the book does not name: ${listed}. The kit's hook may have missed them: a clear it did not record, or a Codex hooks file trusted late. To give one to a session, write it into ${bookFile(home)} under that session as  session: <id>  and run obk up again.`, bot.name)];
+  const hooked = stray.filter((one) => one.harness !== 'pi');
+  if (hooked.length > 0) {
+    found.push(finding('session', bookFile(home), `The harness has conversations on record in ${bot.name}'s folder that the book does not name: ${listed(hooked)}. The kit's hook may have missed them: a clear it did not record, or a Codex hooks file trusted late. ${give}`, bot.name));
+  }
+
+  // The kit has no hook in Pi: it names a Pi session's conversation on the
+  // launch line, so one the book does not name was begun inside Pi (#660).
+  const onPi = stray.filter((one) => one.harness === 'pi');
+  if (onPi.length === 0) return found;
+  found.push(finding('session', bookFile(home), `Pi has conversations on record in ${bot.name}'s folder that the book does not name: ${listed(onPi)}. Pi begins one when /new is typed in its tab, and the kit's Pi extension tells the book of it, so these were missed: the tab ran without the extension (a tab Orca brought back by itself, or one the kit started before it had the extension), or the extension's record went wrong. ${give}`, bot.name));
+
+  // A Pi session whose conversation in the book Pi has no record of, while Pi
+  // has one the book does not name: it is in another conversation than the
+  // book holds, and its next start would begin the book's one afresh. A book
+  // id with no record and no such conversation is a session before its first
+  // turn, which Pi has written nothing for yet, and is not said.
+  for (const session of bot.sessions) {
+    const id = book.sessions[session.name]?.session;
+    if (harnessOf(session, bot.harness) !== 'pi' || bot.paused === true || session.paused === true || typeof id !== 'string' || hasConversation('pi', home, id)) continue;
+    found.push(finding('session', bookFile(home), `${bot.name}'s session ${session.name} has the conversation ${id} in the book, and Pi has no record of it in this bot's folder, while Pi has conversations there that the book does not name. So it is likely in one of those, and its next start would begin ${id} afresh rather than go on with it. Write the one it is in into ${bookFile(home)} under ${session.name} as  session: <id>, then ${shellWord(ownCli())} restart --bots ${shellWord(bots)} --bot ${bot.name} --session ${session.name}`, bot.name));
+  }
+  return found;
 }
 
 /** Every conversation on record in the bot's folder, from every harness any of its sessions runs on or a retired one may have, as `obk usage` reads them. */
@@ -580,7 +642,7 @@ function recordIn(home, bot, book) {
   if (Array.isArray(book.retired) && book.retired.length > 0) for (const harness of HARNESSES) harnesses.add(harness);
   return [...harnesses]
     .filter((harness) => HARNESSES.includes(harness))
-    .flatMap((harness) => transcriptsIn(harness, home));
+    .flatMap((harness) => transcriptsIn(harness, home).map((one) => ({ ...one, harness })));
 }
 
 /** What a directory holds, and nothing at all when there is no directory. */
