@@ -162,8 +162,9 @@ setting: name a model that carries it. A Pi session reads its bot's
 `obk skills build` changes them, it types `/reload` into an idle Pi tab. Pi has
 no permission rules and no hooks, so the bot's allow list does not limit a Pi
 session. `obk health` reads a Pi session's model and thinking level from Pi's
-own record, and says when Pi cannot run it. `obk init --harness pi`, and
-`obk session clear` and `compact` on Pi, come later.
+own record, and says when Pi cannot run it. `obk session clear` types Pi's
+`/new` into a Pi tab. `obk session compact` on Pi types nothing, and says so.
+`obk init --harness pi` and `obk session compact` on Pi come later.
 
 Every bot gets the kit's default permission rules, written by the kit with
 nobody asked: its own commands for this bots folder, reading a long message,
