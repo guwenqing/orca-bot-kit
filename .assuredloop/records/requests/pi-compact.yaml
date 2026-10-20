@@ -12,6 +12,10 @@ requirements:
     version: 1
     sha256: 019c6f71520954622eb03415880fb6b41013a54cc69953e68bc8f6fb2d40b435
     title: obk session compact types /compact into a Pi tab
+  - id: R1
+    version: 2
+    sha256: d8865eb20a0ec0f965d03b0ea8589f2eaa8b9c77c317665e42328811db2fce53
+    title: obk session compact types /compact into a Pi tab
 signoff:
   - id: S1
     file: 2026-10-20-signoff.md
