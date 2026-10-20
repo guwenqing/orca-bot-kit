@@ -1877,3 +1877,354 @@ export function claudeTrustOf(rows, folder, { allow, defaults }) {
   if (!Array.isArray(allow) || allow.length > 0) return `it pre-approves nothing, where the folder's .claude/settings.json allows ${JSON.stringify(allow)}`;
   return onlyPlainTrustOf(rows, folder);
 }
+
+// Pi 1.3.0 (#663). Every screen below is a RECONSTRUCTION from Pi 1.3.0's own
+// code, as the requirement of #663 describes what that code draws. None of
+// them was seen through Orca's `terminal read` yet; they are to be checked
+// live, and test/system/pi-clear.test.js prints what Orca shows. What the
+// requirement gives, and these screens keep:
+//
+//   - Above the input box, the chat. Pi's startup help in it holds the line
+//     `escape to interrupt`, with no brackets: that line is no sign of work.
+//   - The input box: a top rule, a full row of `─`; the editor's row, with no
+//     pointer and no placeholder (empty, it is blank, here with a trailing
+//     space where the cursor is); a bottom rule, a full row of `─`.
+//   - BELOW the bottom rule: the slash menu when it is open, then Pi's footer
+//     (the working folder, then token counts and the model). The other
+//     harnesses draw their menus above the box. A menu row is a command name
+//     and a description; the selected row starts `→ `, the others two spaces;
+//     when there are more rows than fit, one more row like `  (1/12)`. With
+//     `/new` typed, the exact match `new` is first and selected.
+//   - While Pi works, its status is drawn INTO the top rule, as
+//     `── <spinner> <message> ───…` (custom-editor.js renderTopBorder). The
+//     usual message is the default, `Working`, with no hint after it:
+//     `── ⠋ Working ───…` (interactive-mode.js showWorkingStatusIndicator).
+//     Other messages: `Working (escape to interrupt)` on one reset path,
+//     `Compacting context... (escape to cancel)`, `Retrying (1/3) in 4s...
+//     (escape to cancel)`, an extension's own words, and at a narrow width a
+//     message cut short, `── ⠋ Working (escape to ─…`. (The first version of
+//     these screens had only the bracketed forms, which was wrong: the review
+//     of #663, checked in Pi 1.3.0's code.)
+//   - With a long draft in the editor, Pi's scroll labels go into the rules:
+//     ` ↑ <n> more ` in the top rule and ` ↓ <n> more ` in the bottom rule,
+//     centred, or near the left end when narrow (pi-tui editor.js
+//     createScrollBorder). A label alone is no status. A status and the label
+//     together are: `── ⠋ Working ─── ↑ 3 more ───`.
+//   - The input box: its bottom rule is the lowest row that is a rule, `─`
+//     alone or `─` with a scroll label; its top rule is the nearest row above
+//     that is a rule of the same full width, starting `──`, ending `─`, and
+//     exactly as long as the bottom rule (renderTopBorder and
+//     renderBottomBorder draw both across the whole width). Every row between
+//     them is an editor row, whatever it starts with, `─` included. A row that
+//     starts with `─` in the chat above the box, such as `── Summary ──…`, is
+//     no rule of the box. With no such pair, the screen shows no input box.
+//     (The review of #663 found a looser reading that took an editor row
+//     starting with `─` for the top rule.)
+//   - Pi lays its rows out by terminal columns, so a status with wide or
+//     combining characters fills the width with another count of characters
+//     than the bottom rule (the review of 5455aa6). And Pi frames some
+//     command output in the chat with plain full-width rules (DynamicBorder,
+//     /hotkeys, /changelog), as long as the box's rules (the review of
+//     b2a0bde). So the walk up from the bottom rule, over the rows that start
+//     `──` and end `─`: the first one as long as the bottom rule is the top
+//     rule, and rows above it never count; before it, a shorter or longer one
+//     whose words hold a character that is not ASCII is a status, and Pi is
+//     at work; one whose words are all ASCII is an editor row, and the walk
+//     goes on. No top rule and no status: no input box.
+//
+// The other words (the rest of the help, the chat, the descriptions of the
+// commands other than `new` and `name`, the footer's numbers, the spinner
+// frame, an extension's message) are made up here, and so is the width.
+
+/** The width these Pi screens are drawn at. */
+const PI_WIDTH = 120;
+
+/** A rule of Pi's input box: a full row of `─`, `width` wide. */
+const piRule = (width = PI_WIDTH) => '─'.repeat(width);
+
+/** A rule of Pi's input box at the usual width. */
+const PI_RULE = piRule();
+
+/**
+ * The terminal columns `text` fills: a combining mark none, a wide character
+ * (a CJK character, an emoji) two, any other character one. Pi lays its rows
+ * out by columns, not by characters (the review of #663). This covers the
+ * characters these screens use; it is not a full East Asian Width table.
+ */
+const columnsOf = (text) => [...text].reduce(
+  (sum, ch) => sum + (/\p{M}/u.test(ch) ? 0 : /[\p{Script=Han}\p{Extended_Pictographic}]/u.test(ch) ? 2 : 1),
+  0,
+);
+
+/**
+ * Pi's top rule with its status drawn into it while it works: `── ⠋ <words> ─…`,
+ * `width` columns wide. With wide or combining characters in the words, the
+ * row holds another count of characters than the bottom rule.
+ */
+export const piStatusRule = (words, width = PI_WIDTH) => {
+  const head = `── ⠋ ${words} `;
+  return `${head}${'─'.repeat(Math.max(0, width - columnsOf(head)))}`;
+};
+
+/** A rule with Pi's scroll label, ` ↑ 3 more ` or ` ↓ 2 more `, centred in it. */
+export const piScrollRule = (label, width = PI_WIDTH) => {
+  const text = ` ${label} `;
+  const left = Math.floor((width - text.length) / 2);
+  return `${'─'.repeat(left)}${text}${'─'.repeat(width - left - text.length)}`;
+};
+
+/** The top rule while Pi works on a turn, with its default message and no hint: the usual case. */
+export const PI_WORKING_RULE = piStatusRule('Working');
+
+/** The top rule with the bracketed hint after the message, as on one of Pi's reset paths. */
+export const PI_WORKING_HINT_RULE = piStatusRule('Working (escape to interrupt)');
+
+/** What a Pi session has drawn above its input box after its start turn: its startup help, then the turn. */
+const PI_CHAT = [
+  ' pi v1.3.0',
+  ' escape to interrupt',
+  ' ctrl+c to clear',
+  ' ctrl+c twice to exit',
+  ' ctrl+d to exit (empty)',
+  ' / for commands',
+  '',
+  ' [Context]',
+  '   ~/bots/bots/pi-bot/AGENTS.md',
+  ' [Skills]',
+  '   obk-tdd',
+  '',
+  ' Read your AGENTS.md and keep the queue moving.',
+  '',
+  ' ok',
+  '',
+];
+
+/** Pi's footer under its input box (and under the menu when one is open): the folder, then the counts and the model. */
+const PI_FOOTER = [
+  ' ~/bots/bots/pi-bot',
+  ` ${'↑1.2k ↓48 $0.000 0.4%/272k (auto)'.padEnd(PI_WIDTH - 26)}openai/gpt-6-luna • low`,
+];
+
+/** A row of Pi's slash menu: `→ ` on the selected one, two spaces on the others, the name padded to 20. */
+const piMenuRow = (name, description, selected = false) => `${selected ? '→ ' : '  '}${name.padEnd(20)}${description}`;
+
+/** Pi's menu for `/new` typed: the exact match, `new`, first and selected. */
+const PI_NEW_MENU = [piMenuRow('new', 'Start a new session', true)];
+
+/**
+ * A Pi screen: the chat, the input box with `top` as its top rule and
+ * `editor` as its editor's row, then `below` (a menu, or nothing), then the
+ * footer.
+ */
+export const piScreen = ({ chat = PI_CHAT, top = PI_RULE, editor = ' ', bottom = PI_RULE, below = [], footer = PI_FOOTER } = {}) => [
+  ...chat,
+  top,
+  ...(Array.isArray(editor) ? editor : [editor]),
+  bottom,
+  ...below,
+  ...footer,
+];
+
+/** Pi at rest after its start turn, its editor empty (a trailing space where the cursor is), no menu. The startup help's `escape to interrupt` is on it. */
+export const PI_IDLE = piScreen();
+
+/** The same, the editor's row empty with no space at all. */
+export const PI_IDLE_NO_CURSOR = piScreen({ editor: '' });
+
+/** Pi at rest after a `/new`: the chat cleared but for the startup help, the editor empty. */
+export const PI_IDLE_AFTER_NEW = piScreen({ chat: PI_CHAT.slice(0, 7) });
+
+/** Pi at rest with a draft of the user's in its editor, not sent. */
+export const PI_DRAFT = piScreen({ editor: 'half a thought about the release' });
+
+/** Pi at work on a turn: `── ⠋ Working ───…` in the top rule, its editor empty. The usual case. */
+export const PI_WORKING = piScreen({ top: PI_WORKING_RULE });
+
+/** Pi at work with `words` in its top rule, its editor empty. */
+export const piBusyWith = (words) => piScreen({ top: piStatusRule(words) });
+
+/**
+ * Pi at work with an extension's status in wide or combining characters, the
+ * top rule as wide in columns as the bottom rule but not as long in
+ * characters (the review of #663, from Pi 1.3.0's renderer at 120 columns):
+ * an emoji, 2 columns in 1 code point, gives 119 code points; four CJK
+ * characters, 2 columns each, give 116; an `e` with a combining acute,
+ * U+0301, 1 column in 2 code points, gives 121. The words are made up.
+ */
+export const PI_WORKING_EMOJI = piBusyWith('Reading 🔎');
+export const PI_WORKING_CJK = piBusyWith('正在处理');
+export const PI_WORKING_COMBINING = piBusyWith('Cafe\u0301');
+
+/**
+ * The chat after a command whose output Pi frames in plain full-width rules
+ * (its DynamicBorder, as in /hotkeys and /changelog; the review of b2a0bde):
+ * rows of `─` alone, as long as the input box's rules, ABOVE the box. They are
+ * no rule of the box. The words between them are made up.
+ */
+const PI_CHAT_DIVIDED = [
+  ...PI_CHAT,
+  PI_RULE,
+  ' Keyboard shortcuts',
+  '   ctrl+c   clear the editor',
+  '   escape   interrupt the turn',
+  PI_RULE,
+  '',
+];
+
+/** The wide statuses above, under a chat that holds Pi's full-width dividers. */
+export const PI_WORKING_EMOJI_DIVIDED = piScreen({ chat: PI_CHAT_DIVIDED, top: piStatusRule('Reading 🔎') });
+export const PI_WORKING_CJK_DIVIDED = piScreen({ chat: PI_CHAT_DIVIDED, top: piStatusRule('正在处理') });
+export const PI_WORKING_COMBINING_DIVIDED = piScreen({ chat: PI_CHAT_DIVIDED, top: piStatusRule('Cafe\u0301') });
+
+/** Pi at rest under a chat that holds its full-width dividers: a pure top rule, the editor empty. */
+export const PI_IDLE_DIVIDED = piScreen({ chat: PI_CHAT_DIVIDED });
+
+/**
+ * A bottom rule with no top rule over it: the row above the bottom rule is
+ * `── a draft ──`, ASCII words in a short rule-shaped row (an editor row), and
+ * no row above it is a rule. No input box, and no status.
+ */
+export const PI_RULED_DRAFT_NO_TOP = [...PI_CHAT, '── a draft ──', PI_RULE, ...PI_FOOTER];
+
+/** The width of the narrow Pi screen below. */
+const PI_NARROW = 28;
+
+/**
+ * Pi at work in a narrow tab: the status cut short in the top rule,
+ * `── ⠋ Working (escape to ────`, every rule 28 wide.
+ */
+export const PI_WORKING_CUT = piScreen({
+  chat: [' pi v1.3.0', ' escape to interrupt', ''],
+  top: piStatusRule('Working (escape to', PI_NARROW),
+  bottom: piRule(PI_NARROW),
+  footer: [' ~/bots/bots/pi-bot', ' gpt-6-luna • low'],
+});
+
+/** A long draft in Pi's editor, the rows that show of it. */
+export const PI_LONG_DRAFT_ROWS = [
+  'the release notes, the second paragraph of a long',
+  'draft that the user is still writing and has not',
+  'sent, so the editor scrolls and shows only these',
+];
+
+/** Pi at rest with a long draft: ` ↑ 3 more ` in the top rule and ` ↓ 2 more ` in the bottom rule, and no status. Not at work. */
+export const PI_LONG_DRAFT = piScreen({ top: piScrollRule('↑ 3 more'), editor: PI_LONG_DRAFT_ROWS, bottom: piScrollRule('↓ 2 more') });
+
+/** The same long draft and no status, the scroll labels near the left end of the rules, as Pi draws them when narrow. Not at work. */
+export const PI_LONG_DRAFT_LEFT = piScreen({
+  top: `─── ↑ 3 more ${'─'.repeat(PI_WIDTH - 13)}`,
+  editor: PI_LONG_DRAFT_ROWS,
+  bottom: `─── ↓ 2 more ${'─'.repeat(PI_WIDTH - 13)}`,
+});
+
+/** The same draft while Pi works: `── ⠋ Working ─── ↑ 3 more ───…` in the top rule. At work. */
+export const PI_LONG_DRAFT_WORKING = piScreen({
+  top: `── ⠋ Working ─── ↑ 3 more ${'─'.repeat(PI_WIDTH - 26)}`,
+  editor: PI_LONG_DRAFT_ROWS,
+  bottom: piScrollRule('↓ 2 more'),
+});
+
+/** Pi at rest, its editor holding a draft whose one row starts with `─`: `─ a draft of the user`. */
+export const PI_DASH_DRAFT = piScreen({ editor: '─ a draft of the user' });
+
+/** Pi at rest, its editor holding a draft that looks like a short rule with words: `── a draft ──`. */
+export const PI_RULED_DRAFT = piScreen({ editor: '── a draft ──' });
+
+/** Pi at rest, its editor holding a draft of two rows, the first starting with `─`. */
+export const PI_DASH_DRAFT_TWO_ROWS = piScreen({ editor: ['─ the first row of a draft', 'and the second row of it'] });
+
+/** Pi at rest, its editor holding a draft of two rows, each starting with `─`. */
+export const PI_DASH_DRAFT_TWO_DASH_ROWS = piScreen({ editor: ['─ the first row of a draft', '─ and the second row of it'] });
+
+/** Pi at rest, its editor holding a row of `─` alone, shorter than the rules: `──────────`. */
+export const PI_DASHES_DRAFT = piScreen({ editor: '──────────' });
+
+/**
+ * A screen whose row right above the editor is a rule of another width,
+ * `──────` 40 wide, under a full-width bottom rule: no top rule of the same
+ * width above the bottom one, so no input box.
+ */
+export const PI_SHORT_TOP = piScreen({ top: '─'.repeat(40) });
+
+/**
+ * Pi at work, `── ⠋ Working ───…` in its true top rule, and its editor holding
+ * a row of `─` alone, shorter than the rules: a reading that took that row
+ * for the top rule would find no status and an empty editor.
+ */
+export const PI_WORKING_DASHES_IN_EDITOR = piScreen({ top: PI_WORKING_RULE, editor: '──────────' });
+
+/**
+ * Pi at rest, a row in the chat that starts with `─` and holds words, as a
+ * compaction summary's head might, `── Summary ──…`, and the box's own top
+ * rule pure. Not at work: that row is no rule of the box.
+ */
+export const PI_SUMMARY_IN_CHAT = piScreen({
+  chat: [...PI_CHAT, `── Summary ${'─'.repeat(PI_WIDTH - 11)}`, ' The session so far: the queue was read and nothing changed.', ''],
+});
+
+/** Pi's menu rows for what is typed so far, while `/new` is typed. */
+const PI_TYPING_MENUS = {
+  '/': [
+    piMenuRow('settings', 'Open settings menu', true),
+    piMenuRow('model', 'Select model (opens selector UI)'),
+    piMenuRow('export', 'Export session to HTML file'),
+    piMenuRow('name', 'Set session display name'),
+    piMenuRow('new', 'Start a new session'),
+    '  (1/18)',
+  ],
+  '/n': [piMenuRow('name', 'Set session display name', true), piMenuRow('new', 'Start a new session')],
+  '/ne': PI_NEW_MENU,
+};
+
+/**
+ * What Pi shows after each character of `/new` but the last, as the kit
+ * types it one character a send: the typed part in the editor's row and the
+ * menu below the box. One screen per send, for the fake Orca's
+ * `nextScreens`; the screen after the last character is the test's to give.
+ */
+export const whileTypingPi = () => ['/', '/n', '/ne'].map((typed) => piScreen({ editor: typed, below: PI_TYPING_MENUS[typed] }));
+
+/** Pi at work, its status in the top rule, with `typed` (part or all of `/new`) in its editor and the menu for it below. */
+export const piAtWork = (typed) => piScreen({ top: PI_WORKING_RULE, editor: typed, below: typed === '/new' ? PI_NEW_MENU : PI_TYPING_MENUS[typed] });
+
+/** `/new` typed: the editor's row reads `/new`, and below the box the menu with `new` first and selected. */
+export const PI_NEW_TYPED = piScreen({ editor: '/new', below: PI_NEW_MENU });
+
+/** `/new` typed, and the editor's row blank while Orca's draft reads `/new`: a read with a draft. */
+export const PI_NEW_TYPED_IN_DRAFT = { screen: piScreen({ below: PI_NEW_MENU }), draft: '/new' };
+
+/** `/new` typed, and no menu below the box: the footer right under the bottom rule. */
+export const PI_NEW_NO_MENU = piScreen({ editor: '/new' });
+
+/** `/new` typed, and the menu's selected row another command, `name`, with `new` under it. */
+export const PI_NEW_OTHER_SELECTED = piScreen({
+  editor: '/new',
+  below: [piMenuRow('name', 'Set session display name', true), piMenuRow('new', 'Start a new session')],
+});
+
+/** `/new` typed, and the menu's `→ new` row drawn ABOVE the top rule, where the other harnesses draw theirs, and nothing below the box. */
+export const PI_NEW_MENU_ABOVE = piScreen({ chat: [...PI_CHAT, ...PI_NEW_MENU], editor: '/new' });
+
+/** `/new` typed, and the editor's row reads `/nwe`, two keys swapped, with the menu as for `/new` (Pi's match is fuzzy). */
+export const PI_NEW_KEYS_SWAPPED = piScreen({ editor: '/nwe', below: PI_NEW_MENU });
+
+/** `/new` typed, the editor's row blank, the menu as for `/new`, and Orca's draft `/nwe`: a read with a draft. */
+export const PI_NEW_DRAFT_KEYS_SWAPPED = { screen: piScreen({ below: PI_NEW_MENU }), draft: '/nwe' };
+
+/**
+ * Pi's /model selector in the input box's place, its foot as developer-660
+ * saw it live (#659): a question, by Pi's cancel foot, in a tab where Orca
+ * names agent pi. The rows around the foot are made up.
+ */
+export const PI_MODEL_SELECTOR = [
+  ...PI_CHAT,
+  PI_RULE,
+  ' Select model',
+  ' Search: ',
+  ' → gpt-6-luna                  openai',
+  '   gpt-6.1-sol                 openai',
+  '',
+  '  Enter to select · Ctrl+S to set as default · Escape/Ctrl+C to cancel',
+  PI_RULE,
+  ...PI_FOOTER,
+];

@@ -2,9 +2,11 @@
 // words, with nothing changed. Later slices of #547 add them.
 //
 //   obk init --harness pi           Bot Father on Pi
-//   obk session clear / compact     on a Pi session
+//   obk session compact             on a Pi session
 //
-// A temporary session on Pi came in #648: test/pi-temp.test.js.
+// A temporary session on Pi came in #648: test/pi-temp.test.js. `obk session
+// clear` on a Pi session came in #663: test/pi-clear.test.js. Compact on Pi
+// stays refused until the architect adds it.
 //
 // Every run is in the sandbox (helpers/cli.js), with a fake `pi` on its PATH
 // (helpers/pi.js).
@@ -59,9 +61,9 @@ test('N11 init --harness pi is refused in plain words, and makes nothing', async
   assert.deepEqual(await box.orca.terminals(), []);
 });
 
-// ----------------------------------------------------------------- session clear and compact
+// ----------------------------------------------------------------- session compact
 
-for (const verb of ['clear', 'compact']) {
+for (const verb of ['compact']) {
   test(`N11 session ${verb} on a Pi session is refused in plain words, types nothing, and changes nothing`, async (t) => {
     const box = await createSandbox(t);
     await fakePi(box);
