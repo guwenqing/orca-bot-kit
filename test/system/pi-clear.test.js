@@ -182,7 +182,7 @@ const PROMPT = 'You are a system test\'s session and you own nothing. Do not run
 const BUSY_SECONDS = 40;
 
 /** The busy turn: one bash tool call of `sleep`, and nothing else. */
-const BUSY_LINE = `Use your bash tool once to run exactly this command, and wait for it to finish: sleep ${BUSY_SECONDS} .`
+const BUSY_LINE = `Use your bash tool once to run exactly the command \`sleep ${BUSY_SECONDS}\`, and wait for it to finish.`
   + ' Run no other command, read no file and write no file. When it has finished, reply DONE and nothing else.';
 
 /** Where Pi keeps its sessions, under the user's own HOME (tech notes, section 6). */
