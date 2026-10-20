@@ -1026,7 +1026,8 @@ docs, or Orca's 1.4.225 bundle. The kit was tested with Pi 1.1.0.
 - **Pi's input box, slash menu and at-work row, for `obk session clear` (#663).** Read on 2026-10-19
   in Pi 1.3.0's `dist/` (pi-tui `components/editor.js`, `components/select-list.js`, `autocomplete.js`,
   `fuzzy.js`; coding-agent `modes/interactive/interactive-mode.js`, `components/custom-editor.js`,
-  `components/status-indicator.js`). **read in code**; not yet seen through Orca's `terminal read`.
+  `components/status-indicator.js`). **read in code**; what Orca's `terminal read` showed is the last
+  point, kept apart.
   - The input box is a rule of `─` across the width, the editor's rows with no pointer and no
     placeholder, then a second rule. The empty editor shows its cursor as an inverse space. The slash
     menu is drawn **below** the bottom rule, unlike Claude Code's and Codex's: a row per command, the
@@ -1067,6 +1068,22 @@ docs, or Orca's 1.4.225 bundle. The kit was tested with Pi 1.1.0.
     one not as long with words of more than ASCII is a status, so Pi is at work; one not as long with
     ASCII words is a draft, since an ASCII status always fills the width, and the walk goes on. The
     kit does not measure columns (the reviewer's second and third looks).
+  - **Seen in Orca** (2026-10-20, Orca 1.4.225, Pi 1.3.0 on `gpt-6-luna`, low; a throwaway fleet of
+    `test/system/pi-clear.test.js`, `terminal read --screen`, a 120-column tab, run 2 at 4a3125e):
+    - At rest: two plain rules of `─` across the width, with nothing between them, then the footer.
+    - `/new`, typed one character a send 100 ms apart: the editor row `/new`, and under the bottom
+      rule one menu row, `→ new         Start a new session`, then the footer.
+    - `/new ` (a trailing space): the editor row `/new`, and no menu row. The kit types `/new` and
+      reads the menu row; no run sent Return on `/new `, so that path is not seen.
+    - `obk session clear` when idle: exit 0 in about 4.8 s, a new id in the book, and the screen
+      `✓ New session started` with the box empty.
+    - At work on a `sleep 40` bash call: the top rule was `── ⠋ Working ───…` (`⠙` a moment later),
+      with no hint, the bottom rule plain, and `$ sleep 40` and `Elapsed <n>s` in the chat above.
+      Orca's `tui-idle` wait timed out here. `obk session clear` waited 30 s, typed nothing, and was
+      refused with that row quoted.
+    - At the end of the turn: the box empty, and both rules plain again.
+    - Not seen: the scroll labels, a status other than `Working`, a wide status, a chat divider over
+      the box, and a stale menu list. **verified** (live, for the points above)
 - **Project trust.** When the working folder or a folder above it has `.pi/settings.json`, `.pi/mcp.json`,
   `.pi/extensions|skills|prompts|themes`, `.pi/SYSTEM.md`, `.pi/APPEND_SYSTEM.md` or a project
   `.agents/skills`, Pi asks first, unless `--approve`/`--no-approve`, an extension, or a saved answer in
