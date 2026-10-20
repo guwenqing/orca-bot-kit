@@ -17,13 +17,30 @@
 //     the typing gate, 100 ms or more apart; on any stop, exactly the
 //     characters typed taken back, that many backspaces (\x7f) in one send;
 //     the return a send of its own (`\r`, no --enter); nothing typed after it.
-//   - The command is `/compact`. Before the return, the editor's row reads
-//     exactly `/compact` (or Orca's draft does, the row blank), and the menu's
-//     selected row BELOW the bottom rule, the one that starts `→ `, has
-//     `compact` as its first word. Otherwise the eight characters are taken
-//     back in one send, no return, and the refusal shows the screen's rows. A
-//     list still drawn from an earlier key (`→ changelog` from `/c`, `→ copy`
-//     from `/co`) must not run: Return would run its selected row.
+//   - The command is `/compact`, then one space, then the return (the
+//     architect's ruling on the review of #671). Pi rebuilds its menu list
+//     after each key, asynchronously, and a list drawn for an earlier key can
+//     still be up: Return then applies its selected row to the old prefix
+//     (`/ccompact` from a `/compa` list, whose selected row is `compact` too,
+//     so the screen cannot tell it from a fresh one). A space closes the menu,
+//     since `compact` takes no argument, and Return with no menu submits the
+//     line trimmed, exactly `/compact`. So:
+//       1. Once `/compact` is in, the editor's row reads exactly `/compact`
+//          (or Orca's draft does, the row blank), and the menu's selected row
+//          BELOW the bottom rule, the one that starts `→ `, has `compact` as
+//          its first word. Otherwise the eight characters are taken back in
+//          one send, no space, no return, and the refusal shows the screen's
+//          rows (`→ changelog` from `/c`, `→ copy` from `/co` among them).
+//       2. Then one space, a send of its own, after the same look through the
+//          typing gate as each character, 100 ms or more after the `t`. A
+//          stop there takes back the eight.
+//       3. Then the return, only when the editor's row reads `/compact` once
+//          trimmed (or Orca's draft does, the row blank) and no menu row
+//          below the box starts `→`. The kit reads again for a few seconds
+//          while a menu still shows. A menu that stays, a line that reads
+//          anything else, or Pi at work: all nine characters taken back in
+//          one send of nine backspaces, no return, and the refusal shows the
+//          screen's rows.
 //   - Confirmed by Pi's own record of the session's conversation, the book's
 //     id: the session file `~/.pi/agent/sessions/--<folder>--/<time>_<id>.jsonl`
 //     of the bot home gains a `compaction` line whose `timestamp` is at or
@@ -88,6 +105,14 @@ import {
   PI_COMPACT_LONGER_SELECTED,
   PI_COMPACT_MENU_ABOVE,
   PI_COMPACT_NO_MENU,
+  PI_COMPACT_SPACED,
+  PI_COMPACT_SPACED_AT_WORK,
+  PI_COMPACT_SPACED_DRAFT_SWAPPED,
+  PI_COMPACT_SPACED_IN_DRAFT,
+  PI_COMPACT_SPACED_KEYS_SWAPPED,
+  PI_COMPACT_SPACED_STALE,
+  PI_COMPACT_SPACED_STALE_CHANGELOG,
+  PI_COMPACT_SPACED_STALE_IN_DRAFT,
   PI_COMPACT_STALE_CHANGELOG,
   PI_COMPACT_STALE_COPY,
   PI_COMPACT_TYPED,
@@ -144,10 +169,19 @@ const backspaces = (command) => '\x7f'.repeat(command.length);
 /** The return, as a send of its own. */
 const RETURN = { text: '\r', enter: false };
 
-/** `/compact` typed and taken back with eight backspaces in one send, and never entered. */
+/** What the kit types before the return: `/compact` and one space. */
+const SPACED = `${COMPACT} `;
+
+/** `/compact`, the space and the return, each a send of its own: the command entered. */
+const ENTERED = [...typed(SPACED), RETURN];
+
+/** `/compact` typed and taken back with eight backspaces in one send: no space, and never entered. */
 const TAKEN_BACK = [...typed(COMPACT), { text: backspaces(COMPACT), enter: false }];
 
-/** The screens the Pi tab shows, one per send, as `/compact` is typed, then `after`: the screen once the last character is in, and whatever follows. */
+/** `/compact` and the space typed, and all nine taken back with nine backspaces in one send, never entered. */
+const SPACED_TAKEN_BACK = [...typed(SPACED), { text: backspaces(SPACED), enter: false }];
+
+/** The screens the Pi tab shows, one per send, as `/compact` is typed, then `after`: the screen once the last character is in, the one after the space, and whatever follows. */
 const piScreensFor = (...after) => [...whileTypingPiCompact(), ...after];
 
 /** Pi's own folder under the sandbox's HOME, which the kit must not write into. */
@@ -327,7 +361,7 @@ describe('obk session compact on a Pi session types /compact and is confirmed by
     const { bots, record, id } = await piRunning(box);
     const tab = await liveTab(box, bots);
     const book = await sessionIn(bots, BOT, 'daily');
-    await changeTab(box, tab.tabId, { nextScreens: piScreensFor(PI_COMPACT_TYPED, PI_IDLE) });
+    await changeTab(box, tab.tabId, { nextScreens: piScreensFor(PI_COMPACT_TYPED, PI_COMPACT_SPACED, PI_IDLE) });
     const others = Object.fromEntries(Object.entries(await typedEverywhere(box)).filter(([handle]) => handle !== tab.handle));
     const from = (await box.orca.calls()).length;
 
@@ -337,7 +371,7 @@ describe('obk session compact on a Pi session types /compact and is confirmed by
     assert.ok(played, 'the premise: the return was sent and Pi wrote its compaction');
     assert.deepEqual(
       await sendsInto(box, bots),
-      [...typed(COMPACT), RETURN],
+      ENTERED,
       '/compact as text, one character a send, then the return as a send of its own, and nothing else',
     );
     assert.equal(answer.bots, bots, 'bots is the folder, resolved');
@@ -348,21 +382,22 @@ describe('obk session compact on a Pi session types /compact and is confirmed by
     await assertSentOnlyInto(box, tab.handle, from, 'compact on Pi');
   });
 
-  for (const { start, read, after, what } of [
+  for (const { start, read, spaced = PI_COMPACT_SPACED, after, what } of [
     { start: PI_IDLE_NO_CURSOR, read: PI_COMPACT_TYPED, after: PI_IDLE, what: 'its editor row empty with no cursor space before the first key' },
-    { start: PI_IDLE, read: PI_COMPACT_TYPED_IN_DRAFT, after: PI_IDLE, what: 'the editor row blank after typing and Orca\'s draft reading /compact' },
+    { start: PI_IDLE, read: PI_COMPACT_TYPED_IN_DRAFT, spaced: PI_COMPACT_SPACED_IN_DRAFT, after: PI_IDLE, what: 'the editor row blank and Orca\'s draft reading /compact, then "/compact " after the space, with no menu' },
+    { start: PI_IDLE, read: PI_COMPACT_TYPED, spaced: PI_COMPACT_SPACED_IN_DRAFT, after: PI_IDLE, what: 'the editor row blank after the space and Orca\'s draft reading "/compact ", with no menu' },
     { start: PI_IDLE, read: PI_COMPACT_TYPED, after: PI_COMPACTING, what: 'Pi showing "── ⠋ Compacting context... (escape to cancel) ──…" after the return until it writes its compaction' },
   ]) {
     it(`P1 the compact on Pi with ${what}: /compact is entered, and the compaction is the answer`, LIMIT, async (t) => {
       const box = await createSandbox(t);
       const { bots, record, id } = await piRunning(box);
-      await changeTab(box, (await liveTab(box, bots)).tabId, { screen: start, nextScreens: piScreensFor(read, after) });
+      await changeTab(box, (await liveTab(box, bots)).tabId, { screen: start, nextScreens: piScreensFor(read, spaced, after) });
 
       const { result, played } = await runPlaying(box, bots, { then: () => piCompacts(record) });
 
       const answer = answered(result, 'the compact');
       assert.ok(played, 'the premise: the return was sent and Pi wrote its compaction');
-      assert.deepEqual(await sendsInto(box, bots), [...typed(COMPACT), RETURN]);
+      assert.deepEqual(await sendsInto(box, bots), ENTERED);
       assert.deepEqual(answer.compacted, confirmedFor(id));
     });
   }
@@ -371,23 +406,23 @@ describe('obk session compact on a Pi session types /compact and is confirmed by
     const box = await createSandbox(t);
     const { bots, records, ids } = await piRunning(box);
     const tab = await liveTab(box, bots, 'review');
-    await changeTab(box, tab.tabId, { nextScreens: piScreensFor(PI_COMPACT_TYPED, PI_IDLE) });
+    await changeTab(box, tab.tabId, { nextScreens: piScreensFor(PI_COMPACT_TYPED, PI_COMPACT_SPACED, PI_IDLE) });
     const daily = await sendsInto(box, bots, 'daily');
 
     const { result, played } = await runPlaying(box, bots, { session: 'review', then: () => piCompacts(records.review) });
 
     const answer = answered(result, 'the compact of review');
     assert.ok(played, 'the premise: the return was sent and Pi wrote its compaction');
-    assert.deepEqual(await sendsInto(box, bots, 'review'), [...typed(COMPACT), RETURN]);
+    assert.deepEqual(await sendsInto(box, bots, 'review'), ENTERED);
     assert.deepEqual(await sendsInto(box, bots, 'daily'), daily, 'nothing typed into daily\'s tab');
     assert.deepEqual(answer.compacted, { bot: BOT, session: 'review', harness: 'pi', conversation: ids.review, confirmed: true });
   });
 
-  it('P2 each character of /compact is its own send, each after a look through the typing gate, 100 ms or more apart, then the return', LIMIT, async (t) => {
+  it('P2 each character of /compact and the space after it is its own send, each after a look through the typing gate, 100 ms or more apart, then a read of the screen, then the return', LIMIT, async (t) => {
     const box = await createSandbox(t);
     const { bots, record } = await piRunning(box);
     const tab = await liveTab(box, bots);
-    await changeTab(box, tab.tabId, { nextScreens: piScreensFor(PI_COMPACT_TYPED, PI_IDLE) });
+    await changeTab(box, tab.tabId, { nextScreens: piScreensFor(PI_COMPACT_TYPED, PI_COMPACT_SPACED, PI_IDLE) });
     const from = (await box.orca.calls()).length;
 
     const { result, played } = await runPlaying(box, bots, { then: () => piCompacts(record) });
@@ -399,32 +434,35 @@ describe('obk session compact on a Pi session types /compact and is confirmed by
     const sends = calls
       .map((call, at) => ({ call, at }))
       .filter(({ call }) => orcaCommand(call) === 'terminal send' && orcaFlag(call, '--terminal') === tab.handle);
-    const keys = sends.slice(0, COMPACT.length);
+    const keys = sends.slice(0, SPACED.length);
     assert.deepEqual(
       keys.map(({ call }) => ({ text: orcaFlag(call, '--text'), enter: call.args.includes('--enter') })),
-      typed(COMPACT),
-      'the first eight sends are /compact, one character each, none with --enter',
+      typed(SPACED),
+      'the first nine sends are /compact and a space, one character each, none with --enter',
     );
     let since = -1;
     for (const [n, { at }] of keys.entries()) {
       const looks = calls.slice(since + 1, at).filter((call) => orcaCommand(call) === 'terminal wait'
         && orcaFlag(call, '--terminal') === tab.handle && orcaFlag(call, '--for') === 'tui-idle');
-      assert.ok(looks.length > 0, `a look through the gate (terminal wait --for tui-idle on the tab) before character ${n + 1}, ${JSON.stringify(COMPACT[n])}`);
+      assert.ok(looks.length > 0, `a look through the gate (terminal wait --for tui-idle on the tab) before character ${n + 1}, ${JSON.stringify(SPACED[n])}`);
       since = at;
     }
     for (let n = 1; n < keys.length; n += 1) {
       const gap = clock[keys[n].at].at - clock[keys[n - 1].at].at;
       assert.ok(gap >= 100, `character ${n + 1} came ${gap} ms after the one before it; the requirement is 100 ms or more`);
     }
-    const ret = sends[COMPACT.length];
+    const ret = sends[SPACED.length];
+    const readsAfterSpace = calls.slice(keys[SPACED.length - 1].at + 1, ret?.at ?? calls.length)
+      .filter((call) => orcaCommand(call) === 'terminal read' && orcaFlag(call, '--terminal') === tab.handle);
+    assert.ok(readsAfterSpace.length > 0, 'the screen is read after the space and before the return');
     assert.deepEqual(ret && { text: orcaFlag(ret.call, '--text'), enter: ret.call.args.includes('--enter') }, RETURN, 'then the return, as a send of its own, with no --enter');
-    assert.equal(sends.length, COMPACT.length + 1, 'and nothing after the return');
+    assert.equal(sends.length, SPACED.length + 1, 'and nothing after the return');
   });
 
   it('P3 the compact without --json says, on its way out, the bot, the session and the conversation, and not that it is unconfirmed', LIMIT, async (t) => {
     const box = await createSandbox(t);
     const { bots, record, id } = await piRunning(box);
-    await changeTab(box, (await liveTab(box, bots)).tabId, { nextScreens: piScreensFor(PI_COMPACT_TYPED, PI_IDLE) });
+    await changeTab(box, (await liveTab(box, bots)).tabId, { nextScreens: piScreensFor(PI_COMPACT_TYPED, PI_COMPACT_SPACED, PI_IDLE) });
 
     const { result, played } = await runPlaying(box, bots, { flags: [], then: () => piCompacts(record) });
 
@@ -439,7 +477,7 @@ describe('obk session compact on a Pi session types /compact and is confirmed by
   it('P4 the kit reads no credential, writes nothing into ~/.pi/agent and deletes nothing there: the folder is as it was, but for Pi\'s own compaction line', LIMIT, async (t) => {
     const box = await createSandbox(t);
     const { bots, record, id } = await piRunning(box);
-    await changeTab(box, (await liveTab(box, bots)).tabId, { nextScreens: piScreensFor(PI_COMPACT_TYPED, PI_IDLE) });
+    await changeTab(box, (await liveTab(box, bots)).tabId, { nextScreens: piScreensFor(PI_COMPACT_TYPED, PI_COMPACT_SPACED, PI_IDLE) });
     const agent = piAgentOf(box);
     // Pi's credentials, its settings, and another conversation of the same
     // bot home, compacted an hour ago: all Pi's, none the kit's to touch.
@@ -530,7 +568,7 @@ describe('obk session compact on a Pi session types /compact and is confirmed by
     it(`D1 ${what}: refused before the first character, nothing typed into any tab, and the refusal says what the line holds`, LIMIT, async (t) => {
       const box = await createSandbox(t);
       const { bots } = await piRunning(box);
-      await changeTab(box, (await liveTab(box, bots)).tabId, { ...change, nextScreens: piScreensFor(PI_COMPACT_TYPED, PI_IDLE) });
+      await changeTab(box, (await liveTab(box, bots)).tabId, { ...change, nextScreens: piScreensFor(PI_COMPACT_TYPED, PI_COMPACT_SPACED, PI_IDLE) });
       const before = await typedEverywhere(box);
 
       const said = assertRefused(await compactOf(box));
@@ -553,7 +591,7 @@ describe('obk session compact on a Pi session types /compact and is confirmed by
     it(`D2 Orca gives no draft and Pi's editor holds ${what}: refused before the first character, nothing typed into any tab, and the refusal is about the line`, LIMIT, async (t) => {
       const box = await createSandbox(t);
       const { bots } = await piRunning(box);
-      await changeTab(box, (await liveTab(box, bots)).tabId, { screen, nextScreens: piScreensFor(PI_COMPACT_TYPED, PI_IDLE) });
+      await changeTab(box, (await liveTab(box, bots)).tabId, { screen, nextScreens: piScreensFor(PI_COMPACT_TYPED, PI_COMPACT_SPACED, PI_IDLE) });
       const before = await typedEverywhere(box);
 
       const said = assertRefused(await compactOf(box));
@@ -572,7 +610,7 @@ describe('obk session compact on a Pi session types /compact and is confirmed by
     it(`D3 ${what}: no input box, so nothing typed, and the refusal says the screen shows no input box`, LIMIT, async (t) => {
       const box = await createSandbox(t);
       const { bots } = await piRunning(box);
-      await changeTab(box, (await liveTab(box, bots)).tabId, { screen, nextScreens: piScreensFor(PI_COMPACT_TYPED, PI_IDLE) });
+      await changeTab(box, (await liveTab(box, bots)).tabId, { screen, nextScreens: piScreensFor(PI_COMPACT_TYPED, PI_COMPACT_SPACED, PI_IDLE) });
       const before = await typedEverywhere(box);
 
       const said = assertRefused(await compactOf(box));
@@ -606,7 +644,7 @@ describe('obk session compact on a Pi session types /compact and is confirmed by
         screen,
         thenScreen: PI_IDLE,
         readsBeforeThen: 3,
-        nextScreens: piScreensFor(PI_COMPACT_TYPED, PI_IDLE),
+        nextScreens: piScreensFor(PI_COMPACT_TYPED, PI_COMPACT_SPACED, PI_IDLE),
       });
       const from = (await box.orca.calls()).length;
 
@@ -615,7 +653,7 @@ describe('obk session compact on a Pi session types /compact and is confirmed by
       const answer = answered(result, 'the compact');
       assert.ok(played, 'the premise: Pi wrote its compaction');
       assert.deepEqual(answer.compacted, confirmedFor(id));
-      assert.deepEqual(await sendsInto(box, bots), [...typed(COMPACT), RETURN]);
+      assert.deepEqual(await sendsInto(box, bots), ENTERED);
       const reads = await readsBeforeFirstSend(box, tab.handle, from);
       assert.ok(reads >= 4, `nothing was typed while the screen showed Pi at work: the first read to show it at rest is the fourth, and ${reads} read(s) came before the first key`);
     });
@@ -628,7 +666,7 @@ describe('obk session compact on a Pi session types /compact and is confirmed by
     it(`B2 ${what}: no sign of work, so /compact is typed at once and entered`, LIMIT, async (t) => {
       const box = await createSandbox(t);
       const { bots, record } = await piRunning(box);
-      await changeTab(box, (await liveTab(box, bots)).tabId, { screen, nextScreens: piScreensFor(PI_COMPACT_TYPED, PI_IDLE) });
+      await changeTab(box, (await liveTab(box, bots)).tabId, { screen, nextScreens: piScreensFor(PI_COMPACT_TYPED, PI_COMPACT_SPACED, PI_IDLE) });
 
       const started = Date.now();
       const { result, played } = await runPlaying(box, bots, { then: () => piCompacts(record) });
@@ -636,7 +674,7 @@ describe('obk session compact on a Pi session types /compact and is confirmed by
 
       answered(result, 'the compact');
       assert.ok(played, 'the premise: Pi wrote its compaction');
-      assert.deepEqual(await sendsInto(box, bots), [...typed(COMPACT), RETURN]);
+      assert.deepEqual(await sendsInto(box, bots), ENTERED);
       assert.ok(took < 20_000, `nothing was waited out: it took ${took} ms`);
     });
   }
@@ -649,7 +687,7 @@ describe('obk session compact on a Pi session types /compact and is confirmed by
       screen: PI_MODEL_SELECTOR,
       thenScreen: PI_IDLE,
       readsBeforeThen: 3,
-      nextScreens: piScreensFor(PI_COMPACT_TYPED, PI_IDLE),
+      nextScreens: piScreensFor(PI_COMPACT_TYPED, PI_COMPACT_SPACED, PI_IDLE),
     });
     const from = (await box.orca.calls()).length;
 
@@ -657,7 +695,7 @@ describe('obk session compact on a Pi session types /compact and is confirmed by
 
     answered(result, 'the compact');
     assert.ok(played, 'the premise: Pi wrote its compaction');
-    assert.deepEqual(await sendsInto(box, bots), [...typed(COMPACT), RETURN]);
+    assert.deepEqual(await sendsInto(box, bots), ENTERED);
     const reads = await readsBeforeFirstSend(box, tab.handle, from);
     assert.ok(reads >= 4, `nothing was typed while the selector was up: the first read without it is the fourth, and ${reads} read(s) came before the first key`);
   });
@@ -670,7 +708,7 @@ describe('obk session compact on a Pi session types /compact and is confirmed by
     it(`B4 a long draft with Pi's scroll labels in its rules, ${what}, and no status: refused at once for the draft, nothing typed`, LIMIT, async (t) => {
       const box = await createSandbox(t);
       const { bots } = await piRunning(box);
-      await changeTab(box, (await liveTab(box, bots)).tabId, { screen, nextScreens: piScreensFor(PI_COMPACT_TYPED, PI_IDLE) });
+      await changeTab(box, (await liveTab(box, bots)).tabId, { screen, nextScreens: piScreensFor(PI_COMPACT_TYPED, PI_COMPACT_SPACED, PI_IDLE) });
       const before = await typedEverywhere(box);
 
       const started = Date.now();
@@ -699,18 +737,18 @@ describe('obk session compact on a Pi session types /compact and is confirmed by
     assert.equal(await readFile(record, 'utf8'), file, 'Pi\'s file is as it was');
   });
 
-  it('W1 Pi\'s at-work row is up once the last character of /compact is in: no return, the eight taken back in one send, and the refusal names the row', LIMIT, async (t) => {
+  it('W1 Pi\'s at-work row is up once the last character of /compact is in: no space, no return, the eight taken back in one send, and the refusal names the row', LIMIT, async (t) => {
     const box = await createSandbox(t);
     const { bots } = await piRunning(box);
     await changeTab(box, (await liveTab(box, bots)).tabId, { nextScreens: piScreensFor(piAtWorkCompact(COMPACT), PI_IDLE) });
 
     const said = assertRefused(await compactOf(box));
 
-    assert.deepEqual(await sendsInto(box, bots), TAKEN_BACK, 'the look before the return stops it');
+    assert.deepEqual(await sendsInto(box, bots), TAKEN_BACK, 'the look before the space stops it');
     assert.ok(said.includes('⠋ Working'), `it names its signal, the at-work row "── ⠋ Working ──…", got:\n${said}`);
   });
 
-  it('W1 the menu draws late, after the last character, with Pi\'s at-work row on the same screen: no return, the eight taken back, and the refusal names the row', LIMIT, async (t) => {
+  it('W1 the menu draws late, after the last character, with Pi\'s at-work row on the same screen: no space, no return, the eight taken back, and the refusal names the row', LIMIT, async (t) => {
     const box = await createSandbox(t);
     const { bots } = await piRunning(box);
     await changeTab(box, (await liveTab(box, bots)).tabId, {
@@ -719,8 +757,64 @@ describe('obk session compact on a Pi session types /compact and is confirmed by
 
     const said = assertRefused(await compactOf(box));
 
-    assert.deepEqual(await sendsInto(box, bots), TAKEN_BACK, 'the screen that passed the menu rule carried the at-work row, so no return');
+    assert.deepEqual(await sendsInto(box, bots), TAKEN_BACK, 'the screen that passed the menu rule carried the at-work row, so no space and no return');
     assert.ok(said.includes('⠋ Working'), `it names its signal, the at-work row "── ⠋ Working ──…", got:\n${said}`);
+  });
+
+  // Between keys the kit's look is the typing gate (a question) and Pi's own
+  // at-work row, not Orca's tui-idle: an open slash menu was seen to stop
+  // tui-idle answering ok (#391, live run 3; test/session-clear.test.js, "Orca's
+  // tui-idle stops answering ok once the first character is typed"). The
+  // space is typed with Pi's menu open, so it is a key like the others.
+  it('W2 Orca\'s tui-idle stops answering ok once /compact is in, the menu open, with no at-work row and no question on screen: the space is still typed, then the return, and the compaction confirms it', LIMIT, async (t) => {
+    const box = await createSandbox(t);
+    const { bots, record, id } = await piRunning(box);
+    await changeTab(box, (await liveTab(box, bots)).tabId, {
+      nextScreens: piScreensFor({ screen: PI_COMPACT_TYPED, tuiIdle: 'busy' }, PI_COMPACT_SPACED, PI_IDLE),
+    });
+
+    const { result, played } = await runPlaying(box, bots, { then: () => piCompacts(record) });
+
+    const answer = answered(result, 'the compact');
+    assert.ok(played, 'the premise: the return was sent and Pi wrote its compaction');
+    assert.deepEqual(await sendsInto(box, bots), ENTERED, 'tui-idle alone does not stop the space: /compact, the space, and the return');
+    assert.deepEqual(answer.compacted, confirmedFor(id));
+  });
+
+  it('W2 Pi\'s at-work row comes up after the space, with no menu: no return, all nine taken back in one send, and the refusal names the row', LIMIT, async (t) => {
+    const box = await createSandbox(t);
+    const { bots, record } = await piRunning(box);
+    await changeTab(box, (await liveTab(box, bots)).tabId, { nextScreens: piScreensFor(PI_COMPACT_TYPED, PI_COMPACT_SPACED_AT_WORK, PI_IDLE) });
+    const file = await readFile(record, 'utf8');
+
+    const said = assertRefused(await compactOf(box));
+
+    assert.deepEqual(await sendsInto(box, bots), SPACED_TAKEN_BACK, '/compact and the space, then nine backspaces in one send, and no return');
+    assert.ok(said.includes('⠋ Working'), `it names its signal, the at-work row "── ⠋ Working ──…", got:\n${said}`);
+    assert.equal(await readFile(record, 'utf8'), file, 'Pi\'s file is as it was');
+  });
+
+  it('S1 a menu still drawn after the space, the /compa list with compact selected, that closes after a few reads: the return waits for a read with no menu, then goes in', LIMIT, async (t) => {
+    const box = await createSandbox(t);
+    const { bots, record, id } = await piRunning(box);
+    const tab = await liveTab(box, bots);
+    await changeTab(box, tab.tabId, {
+      nextScreens: piScreensFor(PI_COMPACT_TYPED, { screen: PI_COMPACT_SPACED_STALE, then: PI_COMPACT_SPACED, reads: 3 }, PI_IDLE),
+    });
+    const from = (await box.orca.calls()).length;
+
+    const { result, played } = await runPlaying(box, bots, { then: () => piCompacts(record) });
+
+    const answer = answered(result, 'the compact');
+    assert.ok(played, 'the premise: the return was sent and Pi wrote its compaction');
+    assert.deepEqual(answer.compacted, confirmedFor(id));
+    assert.deepEqual(await sendsInto(box, bots), ENTERED, '/compact, the space, and the return once the menu had closed');
+    const calls = (await box.orca.calls()).slice(from).filter((call) => orcaFlag(call, '--terminal') === tab.handle);
+    const sendAt = calls.map((call, at) => (orcaCommand(call) === 'terminal send' ? at : -1)).filter((at) => at >= 0);
+    const space = sendAt[SPACED.length - 1];
+    const ret = sendAt[SPACED.length];
+    const reads = calls.slice(space + 1, ret).filter((call) => orcaCommand(call) === 'terminal read').length;
+    assert.ok(reads >= 4, `the return came only after a read with no menu: the first such read is the fourth after the space, and ${reads} read(s) came between the space and the return`);
   });
 });
 
@@ -739,7 +833,7 @@ describe('#671: Pi refusals once /compact is typed, side by side', { concurrency
     { read: PI_COMPACT_KEYS_SWAPPED, shows: '/compcat', what: 'the editor row reads /compcat under the right menu' },
     { read: PI_COMPACT_DRAFT_KEYS_SWAPPED, shows: '/compcat', what: 'Orca\'s draft reads /compcat, the editor row blank, under the right menu' },
   ]) {
-    it(`M1 ${what}: no return, the eight taken back in one send, refused, and the refusal shows the screen's rows`, LIMIT, async (t) => {
+    it(`M1 ${what}: no space, no return, the eight taken back in one send, refused, and the refusal shows the screen's rows`, LIMIT, async (t) => {
       const box = await createSandbox(t);
       const { bots, record } = await piRunning(box);
       await changeTab(box, (await liveTab(box, bots)).tabId, { nextScreens: piScreensFor(read, PI_IDLE) });
@@ -748,8 +842,38 @@ describe('#671: Pi refusals once /compact is typed, side by side', { concurrency
 
       const said = assertRefused(await compactOf(box));
 
-      assert.deepEqual(await sendsInto(box, bots), TAKEN_BACK, '/compact taken back with eight backspaces in one send, and never entered');
+      assert.deepEqual(await sendsInto(box, bots), TAKEN_BACK, '/compact taken back with eight backspaces in one send: no space, and never entered');
       assert.ok(said.includes(shows), `the refusal says what the screen showed, ${shows} among it, got:\n${said}`);
+      assert.deepEqual(await sessionIn(bots, BOT, 'daily'), book, 'the book is as it was');
+      assert.equal(await readFile(record, 'utf8'), file, 'Pi\'s file is as it was');
+    });
+  }
+
+  // After the space: the return only with the line reading /compact and no
+  // menu row below the box. A menu still up after the kit's few seconds of
+  // reads, or another line, takes back all nine.
+  for (const { spaced, shows, what } of [
+    { spaced: PI_COMPACT_SPACED_STALE, shows: '→ compact', what: 'the list drawn for /compa still below the box after the space, compact selected, never closing (a Return would submit /ccompact)' },
+    { spaced: PI_COMPACT_SPACED_STALE_CHANGELOG, shows: '→ changelog', what: 'the list drawn for /c still below the box after the space, changelog selected, never closing' },
+    { spaced: PI_COMPACT_TYPED, shows: '→ compact', what: 'the screen unchanged after the space, the editor row /compact and the menu on compact, never closing' },
+    { spaced: PI_COMPACT_SPACED_STALE_IN_DRAFT, shows: '→ compact', what: 'Orca\'s draft "/compact " after the space, the editor row blank, and the /compa list still below the box' },
+    { spaced: PI_COMPACT_SPACED_KEYS_SWAPPED, shows: '/compac t', what: 'the editor row reads "/compac t" after the space, with no menu' },
+    { spaced: PI_COMPACT_SPACED_DRAFT_SWAPPED, shows: '/compac t', what: 'Orca\'s draft reads "/compac t" after the space, the editor row blank, with no menu' },
+  ]) {
+    it(`M2 ${what}: no return, all nine taken back in one send, refused, and the refusal shows the screen's rows`, LIMIT, async (t) => {
+      const box = await createSandbox(t);
+      const { bots, record } = await piRunning(box);
+      await changeTab(box, (await liveTab(box, bots)).tabId, { nextScreens: piScreensFor(PI_COMPACT_TYPED, spaced, PI_IDLE) });
+      const book = await sessionIn(bots, BOT, 'daily');
+      const file = await readFile(record, 'utf8');
+
+      const started = Date.now();
+      const said = assertRefused(await compactOf(box));
+      const took = Date.now() - started;
+
+      assert.deepEqual(await sendsInto(box, bots), SPACED_TAKEN_BACK, '/compact and the space taken back with nine backspaces in one send, and never entered');
+      assert.ok(said.includes(shows), `the refusal says what the screen showed, ${shows} among it, got:\n${said}`);
+      assert.ok(took < 60_000, `the reads after the space last a few seconds, not long; it took ${took} ms`);
       assert.deepEqual(await sessionIn(bots, BOT, 'daily'), book, 'the book is as it was');
       assert.equal(await readFile(record, 'utf8'), file, 'Pi\'s file is as it was');
     });
@@ -794,18 +918,34 @@ describe('#671: what does not confirm a compact on Pi, side by side', { concurre
     const box = await createSandbox(t);
     const { bots, record, id } = await piRunning(box);
     await piCompacts(record, new Date(Date.now() - 60_000));
-    await changeTab(box, (await liveTab(box, bots)).tabId, { nextScreens: piScreensFor(PI_COMPACT_TYPED, PI_IDLE) });
+    await changeTab(box, (await liveTab(box, bots)).tabId, { nextScreens: piScreensFor(PI_COMPACT_TYPED, PI_COMPACT_SPACED, PI_IDLE) });
 
     const outcome = await confirmedOnlyByTheRealOne(box, bots, record);
 
     assertConfirmedOnlyByTheRealOne(outcome, id, 'a compaction already in the file');
-    assert.deepEqual(await sendsInto(box, bots), [...typed(COMPACT), RETURN]);
+    assert.deepEqual(await sendsInto(box, bots), ENTERED);
+  });
+
+  it('C6 a compaction already in Pi\'s file before the command, but dated ten minutes after it (after the typing), does not confirm it; the one written after the return does', LIMIT, async (t) => {
+    // C1 and C3 date their early line before the typing, so a kit that only
+    // compared dates would pass them. This line is dated later than anything
+    // the kit types, but it was in the file before the command began: only
+    // where it is in the file says it is not the compaction of this command.
+    const box = await createSandbox(t);
+    const { bots, record, id } = await piRunning(box);
+    await piCompacts(record, new Date(Date.now() + 10 * 60_000));
+    await changeTab(box, (await liveTab(box, bots)).tabId, { nextScreens: piScreensFor(PI_COMPACT_TYPED, PI_COMPACT_SPACED, PI_IDLE) });
+
+    const outcome = await confirmedOnlyByTheRealOne(box, bots, record);
+
+    assertConfirmedOnlyByTheRealOne(outcome, id, 'a compaction already in the file, dated in the future');
+    assert.deepEqual(await sendsInto(box, bots), ENTERED);
   });
 
   it('C2 a compaction written after the return but dated before the command does not confirm it; one dated after does', LIMIT, async (t) => {
     const box = await createSandbox(t);
     const { bots, record, id } = await piRunning(box);
-    await changeTab(box, (await liveTab(box, bots)).tabId, { nextScreens: piScreensFor(PI_COMPACT_TYPED, PI_IDLE) });
+    await changeTab(box, (await liveTab(box, bots)).tabId, { nextScreens: piScreensFor(PI_COMPACT_TYPED, PI_COMPACT_SPACED, PI_IDLE) });
     const old = new Date(Date.now() - 5 * 60_000);
 
     const outcome = await confirmedOnlyByTheRealOne(box, bots, record, () => piCompacts(record, old));
@@ -823,7 +963,7 @@ describe('#671: what does not confirm a compact on Pi, side by side', { concurre
       screen: PI_COMPACTING,
       thenScreen: PI_IDLE,
       readsBeforeThen: 3,
-      nextScreens: piScreensFor(PI_COMPACT_TYPED, PI_IDLE),
+      nextScreens: piScreensFor(PI_COMPACT_TYPED, PI_COMPACT_SPACED, PI_IDLE),
     });
     const early = "const line = JSON.parse(process.argv[2]); line.timestamp = new Date().toISOString();"
       + " require('node:fs').appendFileSync(process.argv[1], JSON.stringify(line) + '\\n');";
@@ -854,7 +994,7 @@ describe('#671: what does not confirm a compact on Pi, side by side', { concurre
       at: hourAgo,
       lines: [piLines.user(PROMPT, hourAgo, 1), piLines.assistant('ok', hourAgo, 2)],
     });
-    await changeTab(box, (await liveTab(box, bots)).tabId, { nextScreens: piScreensFor(PI_COMPACT_TYPED, PI_IDLE) });
+    await changeTab(box, (await liveTab(box, bots)).tabId, { nextScreens: piScreensFor(PI_COMPACT_TYPED, PI_COMPACT_SPACED, PI_IDLE) });
 
     const outcome = await confirmedOnlyByTheRealOne(box, bots, record, () => piCompacts(other));
 
@@ -864,7 +1004,7 @@ describe('#671: what does not confirm a compact on Pi, side by side', { concurre
   it('C5 a line of another type written after the return, a message, does not confirm it; the compaction after it does', LIMIT, async (t) => {
     const box = await createSandbox(t);
     const { bots, record, id } = await piRunning(box);
-    await changeTab(box, (await liveTab(box, bots)).tabId, { nextScreens: piScreensFor(PI_COMPACT_TYPED, PI_IDLE) });
+    await changeTab(box, (await liveTab(box, bots)).tabId, { nextScreens: piScreensFor(PI_COMPACT_TYPED, PI_COMPACT_SPACED, PI_IDLE) });
 
     const outcome = await confirmedOnlyByTheRealOne(box, bots, record, () => appendFile(record, `${JSON.stringify(piLines.assistant('Compacted the context.', new Date(), 5))}\n`));
 
@@ -932,7 +1072,7 @@ describe('#671: the 5 minutes for Pi\'s record run out, side by side', { concurr
       at: hourAgo,
       lines: [piLines.user(PROMPT, hourAgo, 1), piLines.assistant('ok', hourAgo, 2)],
     });
-    await changeTab(box, (await liveTab(box, bots)).tabId, { nextScreens: piScreensFor(PI_COMPACT_TYPED, PI_IDLE) });
+    await changeTab(box, (await liveTab(box, bots)).tabId, { nextScreens: piScreensFor(PI_COMPACT_TYPED, PI_COMPACT_SPACED, PI_IDLE) });
     const old = new Date(Date.now() - 5 * 60_000);
 
     const started = Date.now();
@@ -947,7 +1087,7 @@ describe('#671: the 5 minutes for Pi\'s record run out, side by side', { concurr
     assert.ok(played, 'the premise: the return was sent and the lines were written');
     const answer = answered(result, 'a compact Pi\'s record does not show in time');
     assert.deepEqual(answer.compacted, { bot: BOT, session: 'daily', harness: 'pi', conversation: id, confirmed: false });
-    assert.deepEqual(await sendsInto(box, bots), [...typed(COMPACT), RETURN], 'the command was entered once, and nothing was typed after it');
+    assert.deepEqual(await sendsInto(box, bots), ENTERED, 'the command was entered once, and nothing was typed after it');
     assert.ok(took >= 280_000, `it waited the 5 minutes for Pi's record before it answered; it took ${took} ms`);
     assert.ok(took < 400_000, `and the wait is bounded; it took ${took} ms`);
   });
@@ -955,7 +1095,7 @@ describe('#671: the 5 minutes for Pi\'s record run out, side by side', { concurr
   it('Y2 plain, Pi writing nothing at all: exit 0 after about 5 minutes, saying the compact of the bot\'s session is not confirmed yet', LONG_LIMIT, async (t) => {
     const box = await createSandbox(t);
     const { bots } = await piRunning(box);
-    await changeTab(box, (await liveTab(box, bots)).tabId, { nextScreens: piScreensFor(PI_COMPACT_TYPED, PI_IDLE) });
+    await changeTab(box, (await liveTab(box, bots)).tabId, { nextScreens: piScreensFor(PI_COMPACT_TYPED, PI_COMPACT_SPACED, PI_IDLE) });
 
     const started = Date.now();
     const result = await compactOf(box);
@@ -966,7 +1106,7 @@ describe('#671: the 5 minutes for Pi\'s record run out, side by side', { concurr
     for (const word of [BOT, 'daily']) {
       assert.ok(result.stdout.includes(word), `the plain answer names ${word}, got:\n${result.stdout}`);
     }
-    assert.deepEqual(await sendsInto(box, bots), [...typed(COMPACT), RETURN], 'the premise: the command was entered');
+    assert.deepEqual(await sendsInto(box, bots), ENTERED, 'the premise: the command was entered');
     assert.ok(took >= 280_000, `it waited the 5 minutes for Pi's record before it answered; it took ${took} ms`);
   });
 });

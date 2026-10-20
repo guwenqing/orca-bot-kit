@@ -18,7 +18,12 @@
 //   b. `obk session compact` on the idle Pi session exits 0, its JSON answer
 //      says harness pi, the book's conversation and confirmed true, and Pi's
 //      session file for that id holds one more `compaction` line, dated after
-//      the command started. The book still holds the same id.
+//      the command started. The book still holds the same id. The kit types
+//      `/compact`, a space, and then its return only when the editor reads
+//      `/compact` with no menu below the box (the architect's ruling, #671):
+//      the run prints that screen when a read catches it, and asserts a
+//      compaction dated after it; when no read catches it, it says so as a
+//      finding.
 //   c. While Pi runs one turn that does only `sleep 40` through its bash tool,
 //      `obk session compact` is refused as busy within about 30 s, and nothing
 //      was typed: Pi's editor is still empty, and its file holds no more
@@ -28,12 +33,12 @@
 // It is also the research for the tech notes (#671): Pi's /compact screens in
 // the unit suite are reconstructions from Pi 1.3.0's code. So it prints the
 // rows of `orca terminal read --screen` of its own tab, with Orca's `draft`
-// when Orca gives one: at rest before anything is typed; with `/c` and with
-// `/compact` typed by this test, before any return; during the kit's compact,
+// when Orca gives one: at rest before anything is typed; with `/c`, with
+// `/compact` and with `/compact ` typed by this test, before any return; during the kit's compact,
 // each time the screen changes, to see what Pi shows while it compacts; after
 // the compact; during the busy turn; and at the end. It also says how long the
 // compact took: the kit's whole run, and from its start to the compaction's
-// own timestamp. The `/c` and `/compact` steps are the test's own typing,
+// own timestamp. The `/c`, `/compact` and `/compact ` steps are the test's own typing,
 // before the kit's compact runs: one character a send, 100 ms apart, then
 // taken back with one send of as many backspaces (\x7f), and the editor is
 // checked empty again. No return is ever sent after them. Those prints are
@@ -81,7 +86,7 @@
 //     creates anything;
 //   - runs this checkout's `src/cli.js` by its full path, never the machine's
 //     `obk` (#220), outside any tab of its own caller;
-//   - types only into its own Pi tab: `/c` and `/compact`, each one character
+//   - types only into its own Pi tab: `/c`, `/compact` and `/compact `, each one character
 //     a send and taken back, and the lines of its own turns with a return;
 //     every other key is the kit's own compact;
 //   - closes only its own tabs, through the tab guard, then deletes its own
@@ -170,6 +175,9 @@ const COMPACT_LIMIT_MS = 420000;
 
 /** How often the screen is looked at while the kit's compact runs. */
 const DURING_EVERY_MS = 1000;
+
+/** How often the screen is read while the kit's compact runs, until the screen before its return is caught. */
+const DURING_FAST_MS = 100;
 
 /** At most this many screens are printed while the kit's compact runs, each one only when the rows changed. */
 const DURING_PRINTS = 12;
@@ -609,6 +617,30 @@ function repliedAfter(lines, asked, word) {
   return at >= 0 && lines.slice(at + 1).some((line) => line.type === 'message' && line.message?.role === 'assistant' && textOf(line.message.content).includes(word));
 }
 
+/** Print one read of the tab that was already made, every row, with its draft, without reading again. */
+function printRows(t, when, { rows, draft, source, error }) {
+  t.diagnostic([
+    `${when}: orca terminal read --screen`,
+    `  source: ${JSON.stringify(source)}; draft: ${draft === undefined ? '(no draft key)' : JSON.stringify(draft)}${error === undefined ? '' : `; error: ${JSON.stringify(error)}`}`,
+    `  ${(rows ?? ['(no rendered screen)']).length} rows, each between | and |:`,
+    ...(rows ?? ['(no rendered screen)']).map((row) => `  |${row}|`),
+  ].join('\n'));
+}
+
+/**
+ * Whether one read shows the screen the kit sends its return on (the
+ * architect's ruling, #671): Pi's input box with its editor reading
+ * `/compact` once trimmed, or its editor blank and Orca's draft reading
+ * `/compact` once trimmed, and no row starting `→` below the box.
+ */
+function readyForReturn({ rows, draft }) {
+  const box = inputBoxOf(rows ?? []);
+  if (box?.top === undefined) return false;
+  const editor = box.editor.map((row) => row.trim()).filter((row) => row !== '');
+  const line = editor.length === 0 ? String(draft ?? '').trim() : editor.join(' ');
+  return line === '/compact' && !box.below.some((row) => row.trimStart().startsWith('→'));
+}
+
 /**
  * Start this checkout's `obk`, by its full path, outside any tab, and do not
  * wait for it: the screen is read while it runs. `finished` turns true when
@@ -739,10 +771,11 @@ test('obk session compact on a Pi session: a compaction in Pi\'s file when idle,
   t.diagnostic(`step 2: compactions in A's file before the compact: ${compactionsBefore}`);
 
   // ---------------------------------------------------------------------------
-  // 3. Research: `/c` and `/compact` typed by this test, one character a
-  // send, read before any return, and taken back. No return goes in, so no
-  // command runs: no compaction is written.
-  for (const text of ['/c', '/compact']) {
+  // 3. Research: `/c`, `/compact` and `/compact ` (with the space the kit
+  // types before its return) typed by this test, one character a send, read
+  // before any return, and taken back. No return goes in, so no command runs:
+  // no compaction is written.
+  for (const text of ['/c', '/compact', '/compact ']) {
     await typeSlowly(tab.handle, text);
     await setTimeout(DRAW_MS);
     printScreen(t, `step 3, ${JSON.stringify(text)} typed by this test one character a send, ${CHAR_GAP_MS} ms apart, before any return`, tab.handle);
@@ -757,20 +790,34 @@ test('obk session compact on a Pi session: a compaction in Pi\'s file when idle,
   // 4 (b). `obk session compact` on the idle Pi session: exit 0, harness pi,
   // the book's conversation A, confirmed, and one more compaction in A's file,
   // dated after the command started. The screen is printed as it changes.
+  // The architect's ruling (#671): the kit types `/compact`, then a space,
+  // then the return only when the editor reads `/compact` and no menu row is
+  // below the box. This run must show that moment: the screen is read every
+  // DURING_FAST_MS, and the first read with the editor reading `/compact`
+  // (or Orca's draft reading it, trimmed) and no row starting `→` below the
+  // box is printed as the screen before the return. When no read caught it,
+  // the run says so as a finding; the compaction is still asserted.
   await until('step 4: the Pi tab to be idle before the compact', READY_MS, async () => (idleNow(tab.handle) ? true : undefined), () => whatIsUp(tab.handle));
   printScreen(t, 'step 4, before obk session compact', tab.handle);
   const compactAt = Date.now();
   const running = obkInBackground(['session', 'compact', '--bots', bots, '--bot', BOT, '--session', SESSION, '--json']);
   let shown;
   let prints = 0;
+  let beforeReturn;
   while (!running.finished && Date.now() - compactAt < COMPACT_LIMIT_MS) {
-    const rows = JSON.stringify(rowsOf(tab.handle));
+    const read = readOf(tab.handle);
+    const since = Date.now() - compactAt;
+    if (beforeReturn === undefined && readyForReturn(read)) {
+      beforeReturn = { ...read, since };
+      printRows(t, `step 4, the screen before the return: the editor reads /compact and no menu is below the box, ${since} ms after the compact started`, read);
+    }
+    const rows = JSON.stringify(read.rows);
     if (rows !== shown && prints < DURING_PRINTS) {
-      printScreen(t, `step 4, during obk session compact, ${Date.now() - compactAt} ms after it started`, tab.handle);
+      printRows(t, `step 4, during obk session compact, ${since} ms after it started`, read);
       shown = rows;
       prints += 1;
     }
-    await setTimeout(DURING_EVERY_MS);
+    await setTimeout(beforeReturn === undefined ? DURING_FAST_MS : DURING_EVERY_MS);
   }
   assert.ok(running.finished, `step 4: obk session compact did not end within ${COMPACT_LIMIT_MS} ms.${whatIsUp(tab.handle)}`);
   const compact = await running.done;
@@ -791,6 +838,14 @@ test('obk session compact on a Pi session: a compaction in Pi\'s file when idle,
   }
   assert.deepEqual(compacted, { bot: BOT, session: SESSION, harness: 'pi', conversation: idA, confirmed: true }, `step 4: the answer says the compact of A is confirmed, harness pi.\n  A's file's tail:\n    ${tailOf(piLinesOf(fileA))}`);
   assert.ok(fresh.some((line) => Date.parse(line.timestamp) >= compactAt), `step 4: A's file holds a compaction dated after the compact started, got: ${JSON.stringify(fresh.map((line) => line.timestamp))}`);
+  if (beforeReturn === undefined) {
+    t.diagnostic('step 4, FINDING: no read during the compact caught the screen before the return (the editor reading /compact with no menu below the box), '
+      + `though the screen was read every ${DURING_FAST_MS} ms until then. So this run does not show that the return after the space is what ran Pi's compact.`);
+  } else {
+    const after = fresh.filter((line) => Date.parse(line.timestamp) >= compactAt + beforeReturn.since);
+    t.diagnostic(`step 4: the screen before the return was read ${beforeReturn.since} ms after the compact started; compactions dated after that read: ${after.length}`);
+    assert.ok(after.length > 0, `step 4: a compaction in A's file is dated after the screen before the return was read, got: ${JSON.stringify(fresh.map((line) => line.timestamp))}`);
+  }
   assert.equal(sessionIn(home, SESSION).session, idA, 'step 4: a compact leaves the book on A');
   const compactions = compactionsIn(piLinesOf(fileA)).length;
 

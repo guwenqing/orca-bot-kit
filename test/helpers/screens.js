@@ -2307,3 +2307,37 @@ export const PI_COMPACT_DRAFT_KEYS_SWAPPED = { screen: piScreen({ below: PI_COMP
 
 /** Pi compacting after `/compact` went in: `── ⠋ Compacting context... (escape to cancel) ──…` in its top rule, its editor empty. */
 export const PI_COMPACTING = piBusyWith('Compacting context... (escape to cancel)');
+
+// After `/compact` passes the menu check, the kit types one space (the
+// architect's ruling on the review of #671). Pi rebuilds its list for
+// `/compact `; `compact` has no argument completions, so the menu closes, and
+// Return then submits the line trimmed, exactly `/compact`. A list built for
+// an earlier key can still be drawn for a moment, and Return then applies its
+// selected row to the old prefix: `/ccompact` from a `/compa` list, which
+// looks the same as a fresh one (seen with Pi 1.3.0's own Editor in
+// isolation, developer-671's notes/pi-menu-probe.mjs). So the kit sends Return
+// only when the editor's row reads `/compact` and no menu row is below the box.
+
+/** `/compact ` typed: the editor's row reads `/compact ` and the menu is closed, the footer right under the bottom rule. */
+export const PI_COMPACT_SPACED = piScreen({ editor: '/compact ' });
+
+/** `/compact ` typed, the editor's row blank, no menu, and Orca's draft `/compact `: a read with a draft. */
+export const PI_COMPACT_SPACED_IN_DRAFT = { screen: piScreen(), draft: '/compact ' };
+
+/** `/compact ` typed, and the list drawn for `/compa` still below the box, `compact` selected: a Return would submit `/ccompact`. */
+export const PI_COMPACT_SPACED_STALE = piScreen({ editor: '/compact ', below: PI_COMPACT_MENU });
+
+/** `/compact ` typed, and the list drawn for `/c` still below the box, `changelog` selected. */
+export const PI_COMPACT_SPACED_STALE_CHANGELOG = piScreen({ editor: '/compact ', below: PI_COMPACT_MENUS['/c'] });
+
+/** `/compact ` typed, and the editor's row reads `/compac t`, two keys out of order, with no menu. */
+export const PI_COMPACT_SPACED_KEYS_SWAPPED = piScreen({ editor: '/compac t' });
+
+/** `/compact ` typed, no menu, and Orca's draft `/compac t`, the editor's row blank. */
+export const PI_COMPACT_SPACED_DRAFT_SWAPPED = { screen: piScreen(), draft: '/compac t' };
+
+/** Pi at work after the space: its status in the top rule, `/compact ` in its editor, no menu. */
+export const PI_COMPACT_SPACED_AT_WORK = piScreen({ top: PI_WORKING_RULE, editor: '/compact ' });
+
+/** `/compact ` typed, the editor's row blank, Orca's draft `/compact `, and the list drawn for `/compa` still below the box. */
+export const PI_COMPACT_SPACED_STALE_IN_DRAFT = { screen: piScreen({ below: PI_COMPACT_MENU }), draft: '/compact ' };
