@@ -189,20 +189,28 @@ test('Codex gets --add-dir for a work dir outside the bot home, and nothing for 
   // was launched in, so a work dir anywhere else has to be named. A work dir
   // always brings its note with it, which is the prompt word at the end.
   const box = await createSandbox(t);
+  const farCodex = await fakeProgram(box, 'codex', {});
   const outside = path.join(box.root, 'clones', 'api');
   const inside = await createSandbox(t);
+  const nearCodex = await fakeProgram(inside, 'codex', {});
 
   const far = await launchOf(box, 'codex', [], { workDir: outside });
   const near = await launchOf(inside, 'codex', ['--work-dir', 'work/api']);
 
   assert.ok(
-    far.startsWith(launchLine(box, withKit(box, `codex --approve-for-me --no-daemon -c sandbox_workspace_write.network_access=true --add-dir ${outside} <kit dirs> -- '`), API_DAILY)),
+    far.startsWith(launchLine(box, withKit(box, `codex --approve-for-me --no-daemon -c sandbox_workspace_write.network_access=true --add-dir ${outside} <kit dirs> -- `), API_DAILY)),
     `--add-dir should come after the settings and before the prompt, got: ${far}`,
   );
+  assertNoteLast(await argvOf(box, far, farCodex), [
+    '--approve-for-me', '--no-daemon', '-c', 'sandbox_workspace_write.network_access=true', '--add-dir', outside, ...kitArgs(box),
+  ], outside);
   assert.ok(
-    near.startsWith(`${bareLaunch(inside, 'codex', 'api-bot', 'daily')} -- '`),
+    near.startsWith(`${bareLaunch(inside, 'codex', 'api-bot', 'daily')} -- `),
     `a work dir under the bot home is already inside the sandbox, got: ${near}`,
   );
+  assertNoteLast(await argvOf(inside, near, nearCodex), [
+    '--approve-for-me', '--no-daemon', '-c', 'sandbox_workspace_write.network_access=true', ...kitArgs(inside),
+  ], path.join(botHomeOf(inside.path('bots'), 'api-bot'), 'work', 'api'));
 });
 
 test('a work dir that is the bot home itself brings no --add-dir', async (t) => {
@@ -222,14 +230,18 @@ test('--add-dir is given the absolute path, even when the work dir was written r
   // A relative work dir is relative to the bot home, and `..` can climb out of
   // it. What Codex is given is a path, not the user's shorthand.
   const box = await createSandbox(t);
+  const fake = await fakeProgram(box, 'codex', {});
 
   const typed = await launchOf(box, 'codex', [], { workDir: '../shared-clones' });
 
-  const home = botHomeOf(box.path('bots'), 'api-bot');
+  const shared = path.resolve(botHomeOf(box.path('bots'), 'api-bot'), '../shared-clones');
   assert.ok(
-    typed.startsWith(launchLine(box, withKit(box, `codex --approve-for-me --no-daemon -c sandbox_workspace_write.network_access=true --add-dir ${path.resolve(home, '../shared-clones')} <kit dirs> -- '`), API_DAILY)),
+    typed.startsWith(launchLine(box, withKit(box, `codex --approve-for-me --no-daemon -c sandbox_workspace_write.network_access=true --add-dir ${shared} <kit dirs> -- `), API_DAILY)),
     `got: ${typed}`,
   );
+  assertNoteLast(await argvOf(box, typed, fake), [
+    '--approve-for-me', '--no-daemon', '-c', 'sandbox_workspace_write.network_access=true', '--add-dir', shared, ...kitArgs(box),
+  ], shared);
 });
 
 test('Claude never gets --add-dir, wherever its work dir is', async (t) => {
@@ -237,12 +249,19 @@ test('Claude never gets --add-dir, wherever its work dir is', async (t) => {
   // sandbox around the launch folder, and the work dir reaches it in the start
   // prompt like every other instruction.
   const box = await createSandbox(t);
+  const fake = await fakeProgram(box, 'claude', {});
   const outside = path.join(box.root, 'clones', 'api');
 
   const typed = await launchOf(box, 'claude', ['--work-dir', outside]);
 
   assert.ok(!withoutSandbox(box, typed).includes('--add-dir'), `Claude should get no --add-dir, got: ${typed}`);
-  assert.ok(tokenless(typed).startsWith(`${bareLaunch(box, 'claude', 'api-bot', 'daily')} -- '`), `got: ${typed}`);
+  assert.ok(tokenless(typed).startsWith(`${bareLaunch(box, 'claude', 'api-bot', 'daily')} -- `), `got: ${typed}`);
+  const argv = await argvOf(box, typed, fake);
+  assertNoteLast(
+    argv.map((word, at) => (argv[at - 1] === '-n' ? tokenlessWord(word) : word)),
+    ['--permission-mode', 'auto', '-n', `api-bot.daily.${TOKEN}`],
+    outside,
+  );
 });
 
 test('an extra_args written by hand as one string is typed as it stands', async (t) => {
@@ -339,6 +358,18 @@ const LEVELS = [
   ['ask', ['-a', 'on-request'], ['--permission-mode', 'manual']],
   ['dangerously-skip', ['--dangerously-bypass-approvals-and-sandbox'], ['--dangerously-skip-permissions']],
 ];
+
+/**
+ * That the harness was handed `flags` and nothing else before the separator,
+ * and after it one word: the start prompt, whose note names `workDir`. The
+ * kit puts a short prompt on the line itself and a long one in a file the line
+ * reads back (PRD 6.4), and a work dir's path, which is under the system's temp
+ * folder here, decides which. Read through a shell, both are the same argv.
+ */
+function assertNoteLast(argv, flags, workDir) {
+  assert.deepEqual(argv.slice(0, -1), [...flags, '--'], `the flags, then the separator, then the prompt alone, got: ${JSON.stringify(argv)}`);
+  assert.ok(argv.at(-1).includes(workDir), `the prompt word is the note naming ${workDir}, got: ${JSON.stringify(argv.at(-1))}`);
+}
 
 /** The arguments a shell running `typed` hands the fake harness. */
 async function argvOf(box, typed, fake) {
