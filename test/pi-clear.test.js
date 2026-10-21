@@ -865,6 +865,71 @@ describe('obk session clear on a Pi session types /new and is confirmed by the b
     });
   }
 
+  // The look through the gate right before the space (#673, the developer's
+  // hand mutation): after `w`, the kit looks through the gate, then reads the
+  // screen for the menu check, for up to a few seconds. That check reads the
+  // screen only. A question that comes up after the look that follows `w`,
+  // while the menu check runs, must still stop the space: so one more look
+  // through the gate comes before it. These show the question only at that
+  // look, never at the look after `w` nor at the menu check's read.
+
+  // Orca's gate: one answer per `terminal wait`, counted from when it is set.
+  // The look before the space is the seventh: two before the first key (the
+  // wait for an idle tab and the look before typing), one after each of `/`,
+  // `n`, `e` and `w`, then it. The test checks that premise in the call log
+  // afterwards, so a kit that looks a different number of times fails here
+  // plainly rather than passing by luck.
+  const GATE_BEFORE_SPACE = 7;
+  it('G1 Orca\'s gate names a question only at the look right before the space, after the menu check passed: no space, no return, the four taken back in one send, and the refusal says a question is up', LIMIT, async (t) => {
+    const box = await createSandbox(t);
+    const bots = await piRunning(box);
+    const tab = await liveTab(box, bots);
+    await changeTab(box, tab.tabId, { nextScreens: piScreensFor(PI_NEW_TYPED, PI_NEW_SPACED, PI_IDLE) });
+    const book = await sessionIn(bots, BOT, 'daily');
+    const from = (await box.orca.calls()).length;
+    await box.orca.set({ waitIdle: [...Array(GATE_BEFORE_SPACE - 1).fill(true), 'blocked', true] });
+
+    const said = assertRefused(await clearOf(box));
+
+    assert.deepEqual(await sendsInto(box, bots), TAKEN_BACK, '/new taken back with four backspaces in one send: no space, and never entered');
+    assert.match(said, /question/i, `it says a question is up, got:\n${said}`);
+    const calls = (await box.orca.calls()).slice(from);
+    const at = (test) => calls.map((call, n) => (test(call) ? n : -1)).filter((n) => n >= 0);
+    const waits = at((call) => orcaCommand(call) === 'terminal wait');
+    const w = at((call) => orcaCommand(call) === 'terminal send' && orcaFlag(call, '--terminal') === tab.handle && orcaFlag(call, '--text') === 'w')[0];
+    const blocked = waits[GATE_BEFORE_SPACE - 1];
+    assert.ok(w !== undefined && blocked > w, `the premise: the blocked answer came after the w was sent (w at call ${w}, blocked at ${blocked})`);
+    const readsBetween = calls.slice(w + 1, blocked).filter((call) => orcaCommand(call) === 'terminal read' && orcaFlag(call, '--terminal') === tab.handle).length;
+    const waitsBetween = waits.filter((n) => n > w && n < blocked).length;
+    assert.ok(readsBetween >= 2 && waitsBetween >= 1, `the premise: the blocked answer came after the look that follows w and after the menu check's read; between them came ${waitsBetween} wait(s) and ${readsBetween} read(s)`);
+    assert.deepEqual(await sessionIn(bots, BOT, 'daily'), book, 'the book is as it was');
+  });
+
+  // Pi's own question: the /model selector comes up on the third read after
+  // `w`. The first is the look after `w`, the second the menu check's (both
+  // show `/new` under the right menu), the third the look before the space.
+  it('G1 Pi\'s /model selector comes up only by the look right before the space, after the menu check passed: no space, no return, the four taken back in one send, and the refusal says a question is up', LIMIT, async (t) => {
+    const box = await createSandbox(t);
+    const bots = await piRunning(box);
+    const tab = await liveTab(box, bots);
+    await changeTab(box, tab.tabId, {
+      nextScreens: piScreensFor({ screen: PI_NEW_TYPED, then: PI_MODEL_SELECTOR, reads: 2 }, PI_NEW_SPACED, PI_IDLE),
+    });
+    const book = await sessionIn(bots, BOT, 'daily');
+    const from = (await box.orca.calls()).length;
+
+    const said = assertRefused(await clearOf(box));
+
+    assert.deepEqual(await sendsInto(box, bots), TAKEN_BACK, '/new taken back with four backspaces in one send: no space, and never entered');
+    assert.match(said, /question/i, `it says a question is up, got:\n${said}`);
+    const calls = (await box.orca.calls()).slice(from).filter((call) => orcaFlag(call, '--terminal') === tab.handle);
+    const w = calls.findIndex((call) => orcaCommand(call) === 'terminal send' && orcaFlag(call, '--text') === 'w');
+    const next = calls.findIndex((call, n) => n > w && orcaCommand(call) === 'terminal send');
+    const reads = calls.slice(w + 1, next).filter((call) => orcaCommand(call) === 'terminal read').length;
+    assert.ok(reads >= 3, `the premise: the screen was read three times or more after the w and before the next send, so a read showed the selector; it was read ${reads} time(s)`);
+    assert.deepEqual(await sessionIn(bots, BOT, 'daily'), book, 'the book is as it was');
+  });
+
   // A list still drawn after the space, that closes within the kit's screen
   // wait: the return waits for a read with no menu, then goes in (as S1 of
   // test/pi-compact.test.js).
