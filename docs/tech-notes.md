@@ -1119,8 +1119,11 @@ docs, or Orca's 1.4.225 bundle. The kit was tested with Pi 1.1.0.
     only while the text is the one it was asked for (`isAutocompleteRequestCurrent`).
   - So on Pi, `obk session compact` types `/compact`, checks the editor row and the selected row `compact`,
     types one space, and presses Return only when the editor reads `/compact` and no menu row shows below
-    the box (#671). Otherwise it takes back all nine characters. `obk session clear` types `/new` without
-    the space (#663), and has the same gap with a list left from `/n`.
+    the box (#671). Otherwise it takes back all nine characters. `obk session clear` had the same gap with
+    a list left from `/n`, which makes Return submit `/nnew` (developer-671, with Pi 1.3.0's own editor
+    code in isolation). So since #673 it types `/new`, checks the selected row `new`, types one space, and
+    presses Return only when the editor reads `/new` and no menu row shows; otherwise it takes back all
+    five characters.
   - **Seen live** on 2026-10-21 in Orca with Pi 1.3.0 and gpt-6-luna (`test/system/pi-compact.test.js`):
     before Return, the editor read `/compact` with no menu below the box. Then the box's top rule read
     `Compacting context... (escape to cancel)`. Pi's file got one `compaction` line about 20 s after the

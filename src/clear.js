@@ -213,7 +213,7 @@ async function enter(it, verb, before = () => {}) {
         before();
       },
       cannot: (wrong) => (verb === 'compact' && wrong.menu && it.harness === 'codex' ? ` ${harnessName(it.harness)} here cannot compact: its menu does not offer ${COMMANDS[verb][it.harness]}.` : ''),
-      close: verb === 'compact' && it.harness === 'pi' ? PI_CLOSE : undefined,
+      close: it.harness === 'pi' ? PI_CLOSE : undefined,
     });
     return { ...typed, typing };
   } catch (error) {
@@ -505,8 +505,7 @@ function codexMenuWrong(rows, at, line, command, version) {
  * So the editor's one row, or Orca's draft where it gives one, reads the
  * command, and the selected row below the box names it. A menu still drawn
  * for an earlier part of the command looks the same when its selected row is
- * the command too: the kit's gap between keys and its reads make that
- * unlikely, and this cannot tell it apart.
+ * the command too, and this cannot tell it apart: PI_CLOSE does.
  */
 function piMenuWrong(rows, command, draft) {
   const box = piBox(rows);
@@ -524,9 +523,10 @@ function piMenuWrong(rows, command, draft) {
 /**
  * Pi 1.3.0 applies a menu list still drawn from an earlier key against that
  * key's prefix, so `/compact` under a list for `/compa` submits `/ccompact`,
- * and the screen cannot tell that list from a fresh one. A space makes Pi list
- * `/compact `, for which it has nothing, and so close the menu; with no menu,
- * Return submits the line trimmed, `/compact` (tech notes, section 6; #671).
+ * and `/new` under one for `/n` submits `/nnew`; the screen cannot tell that
+ * list from a fresh one. A space makes Pi list `/compact ` or `/new `, for
+ * which it has nothing, and so close the menu; with no menu, Return submits
+ * the line trimmed, the command (tech notes, section 6; #671, #673).
  */
 const PI_CLOSE = { key: ' ', check: (rows, harness, command, version, draft) => piClosedWrong(rows, command, draft) };
 
