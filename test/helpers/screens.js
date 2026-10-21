@@ -2228,3 +2228,116 @@ export const PI_MODEL_SELECTOR = [
   PI_RULE,
   ...PI_FOOTER,
 ];
+
+// ---------------------------------------------------------------- Pi's /compact (#671)
+//
+// `obk session compact` on Pi types `/compact` as `obk session clear` types
+// `/new`. These screens are RECONSTRUCTIONS too, built as the `/new` ones
+// above. The command names and their descriptions are Pi 1.3.0's own
+// (core/slash-commands.js: `compact`, "Manually compact the session context";
+// `changelog`, `copy` and `clone`). Which rows Pi's fuzzy match lists for a
+// part typed, and in what order, was not worked out from its code: the lists
+// below only need some other row selected for `/c` and `/co`, and `compact`
+// first and selected once the name is far enough along. test/system/
+// pi-compact.test.js prints what Orca really shows.
+
+/** Pi's menu row for `compact`. */
+const piCompactRow = (selected = false) => piMenuRow('compact', 'Manually compact the session context', selected);
+
+/** Pi's menu for `/compact` typed: the exact match, `compact`, first and selected. */
+const PI_COMPACT_MENU = [piCompactRow(true)];
+
+/** Pi's menu rows for what is typed so far, while `/compact` is typed. */
+const PI_COMPACT_MENUS = {
+  '/': PI_TYPING_MENUS['/'],
+  '/c': [
+    piMenuRow('changelog', 'Show changelog entries', true),
+    piMenuRow('clone', 'Duplicate the current session at the current position'),
+    piCompactRow(),
+    piMenuRow('copy', 'Copy last agent message to clipboard'),
+  ],
+  '/co': [piMenuRow('copy', 'Copy last agent message to clipboard', true), piCompactRow()],
+  '/com': PI_COMPACT_MENU,
+  '/comp': PI_COMPACT_MENU,
+  '/compa': PI_COMPACT_MENU,
+  '/compac': PI_COMPACT_MENU,
+};
+
+/**
+ * What Pi shows after each character of `/compact` but the last, as the kit
+ * types it one character a send: the typed part in the editor's row and the
+ * menu below the box. One screen per send, for the fake Orca's
+ * `nextScreens`; the screen after the last character is the test's to give.
+ */
+export const whileTypingPiCompact = () => ['/', '/c', '/co', '/com', '/comp', '/compa', '/compac']
+  .map((typed) => piScreen({ editor: typed, below: PI_COMPACT_MENUS[typed] }));
+
+/** Pi at work, its status in the top rule, with `typed` (part or all of `/compact`) in its editor and the menu for it below. */
+export const piAtWorkCompact = (typed) => piScreen({ top: PI_WORKING_RULE, editor: typed, below: PI_COMPACT_MENUS[typed] ?? PI_COMPACT_MENU });
+
+/** `/compact` typed: the editor's row reads `/compact`, and below the box the menu with `compact` first and selected. */
+export const PI_COMPACT_TYPED = piScreen({ editor: '/compact', below: PI_COMPACT_MENU });
+
+/** `/compact` typed, and the editor's row blank while Orca's draft reads `/compact`: a read with a draft. */
+export const PI_COMPACT_TYPED_IN_DRAFT = { screen: piScreen({ below: PI_COMPACT_MENU }), draft: '/compact' };
+
+/** `/compact` typed, and no menu below the box: the footer right under the bottom rule. */
+export const PI_COMPACT_NO_MENU = piScreen({ editor: '/compact' });
+
+/** `/compact` typed, and the list drawn for `/c` still below the box: `changelog` selected, `compact` under it. A Return would run /changelog. */
+export const PI_COMPACT_STALE_CHANGELOG = piScreen({ editor: '/compact', below: PI_COMPACT_MENUS['/c'] });
+
+/** `/compact` typed, and the list drawn for `/co` still below the box: `copy` selected, `compact` under it. A Return would run /copy. */
+export const PI_COMPACT_STALE_COPY = piScreen({ editor: '/compact', below: PI_COMPACT_MENUS['/co'] });
+
+/** `/compact` typed, and the selected row an extension's command whose name only starts with compact, `compact-memory`, with `compact` under it. */
+export const PI_COMPACT_LONGER_SELECTED = piScreen({
+  editor: '/compact',
+  below: [piMenuRow('compact-memory', 'Compact the memory file', true), piCompactRow()],
+});
+
+/** `/compact` typed, and the menu's `→ compact` row drawn ABOVE the top rule, and nothing below the box. */
+export const PI_COMPACT_MENU_ABOVE = piScreen({ chat: [...PI_CHAT, ...PI_COMPACT_MENU], editor: '/compact' });
+
+/** `/compact` typed, and the editor's row reads `/compcat`, two keys swapped, with the menu as for `/compact` (Pi's match is fuzzy). */
+export const PI_COMPACT_KEYS_SWAPPED = piScreen({ editor: '/compcat', below: PI_COMPACT_MENU });
+
+/** `/compact` typed, the editor's row blank, the menu as for `/compact`, and Orca's draft `/compcat`: a read with a draft. */
+export const PI_COMPACT_DRAFT_KEYS_SWAPPED = { screen: piScreen({ below: PI_COMPACT_MENU }), draft: '/compcat' };
+
+/** Pi compacting after `/compact` went in: `── ⠋ Compacting context... (escape to cancel) ──…` in its top rule, its editor empty. */
+export const PI_COMPACTING = piBusyWith('Compacting context... (escape to cancel)');
+
+// After `/compact` passes the menu check, the kit types one space (the
+// architect's ruling on the review of #671). Pi rebuilds its list for
+// `/compact `; `compact` has no argument completions, so the menu closes, and
+// Return then submits the line trimmed, exactly `/compact`. A list built for
+// an earlier key can still be drawn for a moment, and Return then applies its
+// selected row to the old prefix: `/ccompact` from a `/compa` list, which
+// looks the same as a fresh one (seen with Pi 1.3.0's own Editor in
+// isolation, developer-671's notes/pi-menu-probe.mjs). So the kit sends Return
+// only when the editor's row reads `/compact` and no menu row is below the box.
+
+/** `/compact ` typed: the editor's row reads `/compact ` and the menu is closed, the footer right under the bottom rule. */
+export const PI_COMPACT_SPACED = piScreen({ editor: '/compact ' });
+
+/** `/compact ` typed, the editor's row blank, no menu, and Orca's draft `/compact `: a read with a draft. */
+export const PI_COMPACT_SPACED_IN_DRAFT = { screen: piScreen(), draft: '/compact ' };
+
+/** `/compact ` typed, and the list drawn for `/compa` still below the box, `compact` selected: a Return would submit `/ccompact`. */
+export const PI_COMPACT_SPACED_STALE = piScreen({ editor: '/compact ', below: PI_COMPACT_MENU });
+
+/** `/compact ` typed, and the list drawn for `/c` still below the box, `changelog` selected. */
+export const PI_COMPACT_SPACED_STALE_CHANGELOG = piScreen({ editor: '/compact ', below: PI_COMPACT_MENUS['/c'] });
+
+/** `/compact ` typed, and the editor's row reads `/compac t`, two keys out of order, with no menu. */
+export const PI_COMPACT_SPACED_KEYS_SWAPPED = piScreen({ editor: '/compac t' });
+
+/** `/compact ` typed, no menu, and Orca's draft `/compac t`, the editor's row blank. */
+export const PI_COMPACT_SPACED_DRAFT_SWAPPED = { screen: piScreen(), draft: '/compac t' };
+
+/** Pi at work after the space: its status in the top rule, `/compact ` in its editor, no menu. */
+export const PI_COMPACT_SPACED_AT_WORK = piScreen({ top: PI_WORKING_RULE, editor: '/compact ' });
+
+/** `/compact ` typed, the editor's row blank, Orca's draft `/compact `, and the list drawn for `/compa` still below the box. */
+export const PI_COMPACT_SPACED_STALE_IN_DRAFT = { screen: piScreen({ below: PI_COMPACT_MENU }), draft: '/compact ' };

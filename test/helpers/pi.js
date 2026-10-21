@@ -191,6 +191,21 @@ export const piLines = {
   system: (text, at, n) => piLines.message('system', [{ type: 'text', text }], at, n),
   sessionInfo: (name, at) => ({ type: 'session_info', name, timestamp: at.toISOString() }),
   modelChange: (at) => ({ type: 'model_change', provider: 'anthropic', modelId: 'claude-opus-5-5', timestamp: at.toISOString() }),
+  /**
+   * A compaction, as Pi 1.3.0 appends one to the session file after a
+   * `/compact`, and after its own automatic compaction too (#671, read in
+   * code): `timestamp` is an ISO string. The ids and the numbers are made up.
+   */
+  compaction: (at, n = 1) => ({
+    type: 'compaction',
+    id: `c${n}`,
+    parentId: `m${n}`,
+    timestamp: at.toISOString(),
+    summary: 'The session so far: the queue was read and nothing changed.',
+    firstKeptEntryId: 'm1',
+    tokensBefore: 50000,
+    fromHook: false,
+  }),
 };
 
 /**

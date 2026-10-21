@@ -16,7 +16,7 @@ import { setTimeout as pause } from 'node:timers/promises';
 
 import { readBook, takeTypingTurn, TYPING_HELD, TYPING_WAIT_MS } from './book.js';
 import { botDir, readBot } from './bot.js';
-import { claudeTranscript, codexRollout } from './conversations.js';
+import { claudeTranscript, codexRollout, piSession } from './conversations.js';
 import { harnessOf, ownCli, shellWord } from './launch.js';
 import { eachLine, firstLine } from './lines.js';
 import { FEEDBACK_PANEL, feedbackPanelIn, findProject, orca, piAtWorkIn, piBox, QUESTION_ON_SCREEN, questionIn, screenRows, tabs, tabToTypeInto, TIMED_OUT } from './orca.js';
@@ -25,7 +25,7 @@ import { botsNamed, sessionsOf, typeListLine } from './up.js';
 /** The harness's own command for each, as typed into its input line. Codex's and Pi's clear is `/new` (tech notes, sections 3 and 6). */
 const COMMANDS = {
   clear: { claude: '/clear', codex: '/new', pi: '/new' },
-  compact: { claude: '/compact', codex: '/compact' },
+  compact: { claude: '/compact', codex: '/compact', pi: '/compact' },
 };
 
 /** The pointer each harness starts its input line with (tech notes, section 1). */
@@ -111,7 +111,7 @@ const PI_SELECTED = /^ *→ +/;
  * (or null) and the one it holds now.
  */
 export async function clearSession(bots, { bot, session }) {
-  const it = sessionToType(bots, bot, session, 'clear');
+  const it = sessionToType(bots, bot, session);
   const was = readBook(it.home).sessions[session]?.session ?? null;
   const { command, handle, typing } = await enter(it, 'clear');
 
@@ -147,7 +147,7 @@ export async function clearSession(bots, { bot, session }) {
  * command began, and not yet when COMPACT_MS passed without one.
  */
 export async function compactSession(bots, { bot, session }) {
-  const it = sessionToType(bots, bot, session, 'compact');
+  const it = sessionToType(bots, bot, session);
   // What the record holds when /compact is typed is not this compact's: one
   // that ends while the kit waits for the session to be idle is the one
   // before it (review of PR #466). So only what is written after counts.
@@ -174,17 +174,13 @@ export async function compactSession(bots, { bot, session }) {
 /**
  * The session as something to type into, once everything that refuses before
  * Orca is asked to type has been asked: `{ name, home, session, harness, tabId }`.
- * A compact is refused on Pi: a later slice of #547 may add it.
  */
-export function sessionToType(bots, bot, session, verb) {
+export function sessionToType(bots, bot, session) {
   botsNamed(bots, bot);
   const home = realpathSync(botDir(bots, bot));
   const known = readBot(home, bot);
   const [settings] = sessionsOf(known, session);
   const name = `${bot} ${session}`;
-  if (verb === 'compact' && harnessOf(settings, known.harness) === 'pi') {
-    throw new Error(`${name} runs on Pi, and obk session ${verb} does not work on a Pi session yet: a later slice of #547 adds it. Nothing was typed.`);
-  }
   const unpause = `${shellWord(ownCli())} unpause --bots ${shellWord(bots)} --bot ${bot}`;
   if (known.paused === true) throw new Error(`${bot} is paused, so ${name} is not running and nothing was typed. Bring it back with ${unpause}.`);
   if (settings.paused === true) throw new Error(`${name} is paused, so it is not running and nothing was typed. Bring it back with ${unpause} --session ${session}.`);
@@ -217,6 +213,7 @@ async function enter(it, verb, before = () => {}) {
         before();
       },
       cannot: (wrong) => (verb === 'compact' && wrong.menu && it.harness === 'codex' ? ` ${harnessName(it.harness)} here cannot compact: its menu does not offer ${COMMANDS[verb][it.harness]}.` : ''),
+      close: verb === 'compact' && it.harness === 'pi' ? PI_CLOSE : undefined,
     });
     return { ...typed, typing };
   } catch (error) {
@@ -231,11 +228,12 @@ async function enter(it, verb, before = () => {}) {
  * screen: by default the slash menu's check, which a command with words after
  * it does not pass, since Codex closes its menu at the space (#480). `before`
  * runs just before the command is typed; `cannot` adds to a refusal what a
- * wrong screen means; past `deadline`, a time, what was typed is taken back
- * and nothing is entered. Returns the command, the handle it went into, and
- * when it was typed.
+ * wrong screen means; `close`, `{ key, check }`, is one more key typed once
+ * `check` passes, and its own check of the screen before the return; past
+ * `deadline`, a time, what was typed is taken back and nothing is entered.
+ * Returns the command, the handle it went into, and when it was typed.
  */
-export async function typeCommand(it, command, { before = () => {}, check = menuWrong, cannot = () => '', deadline = Infinity } = {}) {
+export async function typeCommand(it, command, { before = () => {}, check = menuWrong, cannot = () => '', close, deadline = Infinity } = {}) {
   // Nothing may be in the input line before: no draft for the command to join.
   // Orca gives a draft in the line beside the screen, and the screen's line
   // then reads the pointer alone (#510, #516). Where it gives none, Codex's
@@ -299,22 +297,31 @@ export async function typeCommand(it, command, { before = () => {}, check = menu
     takeBack();
     throw new Error(`${it.name}: ${command} was being typed, and after ${sofar} ${look.why}, so what was typed was taken back and nothing was entered.`);
   };
+  const typeKey = (char) => {
+    try {
+      send(handle, char);
+    } catch (error) {
+      // A send Orca did not answer in time may have gone in all the same.
+      // Counted only where the line was empty before the first key, so the
+      // one backspace too many can take nothing of the user's (#480 review).
+      if (error.code === TIMED_OUT && (it.harness === 'codex' || it.harness === 'pi')) typed += 1;
+      throw error;
+    }
+    typed += 1;
+  };
   try {
     for (const char of command) {
       if (typed > 0) await lookAgain();
-      try {
-        send(handle, char);
-      } catch (error) {
-        // A send Orca did not answer in time may have gone in all the same.
-        // Counted only where the line was empty before the first key, so the
-        // one backspace too many can take nothing of the user's (#480 review).
-        if (error.code === TIMED_OUT && (it.harness === 'codex' || it.harness === 'pi')) typed += 1;
-        throw error;
-      }
-      typed += 1;
+      typeKey(char);
     }
     await lookAgain();
     let wrong = await typedWrong(handle, it.harness, command, version, check);
+    if (wrong === undefined && close !== undefined) {
+      await lookAgain();
+      typeKey(close.key);
+      await lookAgain();
+      wrong = await typedWrong(handle, it.harness, command, version, close.check);
+    }
     if (wrong === undefined && Date.now() > deadline) wrong = { why: 'its time ran out' };
     if (wrong !== undefined) {
       takeBack();
@@ -514,6 +521,31 @@ function piMenuWrong(rows, command, draft) {
   return undefined;
 }
 
+/**
+ * Pi 1.3.0 applies a menu list still drawn from an earlier key against that
+ * key's prefix, so `/compact` under a list for `/compa` submits `/ccompact`,
+ * and the screen cannot tell that list from a fresh one. A space makes Pi list
+ * `/compact `, for which it has nothing, and so close the menu; with no menu,
+ * Return submits the line trimmed, `/compact` (tech notes, section 6; #671).
+ */
+const PI_CLOSE = { key: ' ', check: (rows, harness, command, version, draft) => piClosedWrong(rows, command, draft) };
+
+/**
+ * Why the screen does not show Pi's editor reading `command`, a space after
+ * it, with no menu below the box, or undefined when it does. A list still
+ * drawn has its selected row.
+ */
+function piClosedWrong(rows, command, draft) {
+  const box = piBox(rows);
+  if (box === undefined) return { why: 'its screen shows no input box' };
+  const lines = box.editor.map((row) => row.trim()).filter((row) => row !== '');
+  const line = draft?.trim() ?? lines.join(' ⏎ ');
+  if (line !== command || (draft === undefined && lines.length !== 1)) return { why: `its input line reads "${line}" after the space` };
+  const selected = box.below.find((row) => PI_SELECTED.test(row));
+  if (selected !== undefined) return { why: `a menu is still below its input box after the space, its selected row "${selected.trim()}"` };
+  return undefined;
+}
+
 /** The Codex version that wrote the rollout of `conversation`, from its session_meta line; undefined when that cannot be read. */
 function codexVersion(conversation) {
   const file = typeof conversation === 'string' ? codexRollout(conversation) : undefined;
@@ -553,6 +585,7 @@ async function answerWhereToRun(it, handle, command) {
 /** Where the harness keeps the record of `conversation`, or undefined when it has none yet. */
 function recordFile(harness, home, conversation) {
   if (conversation === null) return undefined;
+  if (harness === 'pi') return piSession(home, conversation);
   return harness === 'claude' ? claudeTranscript(home, conversation) : codexRollout(conversation);
 }
 
@@ -585,9 +618,9 @@ function compactedSince(harness, record, since) {
       } catch {
         return false;
       }
-      // Claude Code's marker, and Codex's (tech notes, sections 2 and 3).
-      const compaction = harness === 'claude'
-        ? entry?.type === 'system' && entry.subtype === 'compact_boundary'
+      // Claude Code's marker, Codex's, and Pi's (tech notes, sections 2, 3 and 6).
+      const compaction = harness === 'claude' ? entry?.type === 'system' && entry.subtype === 'compact_boundary'
+        : harness === 'pi' ? entry?.type === 'compaction'
         : entry?.type === 'compacted';
       found = compaction && Date.parse(entry.timestamp) >= since;
       return found;
