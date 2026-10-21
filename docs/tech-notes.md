@@ -1073,8 +1073,8 @@ docs, or Orca's 1.4.225 bundle. The kit was tested with Pi 1.1.0.
     - At rest: two plain rules of `─` across the width, with nothing between them, then the footer.
     - `/new`, typed one character a send 100 ms apart: the editor row `/new`, and under the bottom
       rule one menu row, `→ new         Start a new session`, then the footer.
-    - `/new ` (a trailing space): the editor row `/new`, and no menu row. The kit types `/new` and
-      reads the menu row; no run sent Return on `/new `, so that path is not seen.
+    - `/new ` (a trailing space): the editor row `/new`, and no menu row. Return on `/new ` was seen
+      on 2026-10-21 (#673, the `/compact` point below).
     - `obk session clear` when idle: exit 0 in about 4.8 s, a new id in the book, and the screen
       `✓ New session started` with the box empty.
     - At work on a `sleep 40` bash call: the top rule was `── ⠋ Working ───…` (`⠙` a moment later),
@@ -1124,6 +1124,10 @@ docs, or Orca's 1.4.225 bundle. The kit was tested with Pi 1.1.0.
     code in isolation). So since #673 it types `/new`, checks the selected row `new`, types one space, and
     presses Return only when the editor reads `/new` and no menu row shows; otherwise it takes back all
     five characters.
+  - **Seen live** on 2026-10-21 in Orca 1.4.225 with Pi 1.3.0 and gpt-6-luna (`test/system/pi-clear.test.js`
+    at 92f8448): during the kit's clear, the screen showed `/ne` with five menu rows, then `/new` with the
+    one row `→ new`, then `/new` with no menu row, and then `✓ New session started`. The book held the old
+    id at the read with no menu, and the new one after it. So Return on `/new ` runs Pi's `/new`.
   - **Seen live** on 2026-10-21 in Orca with Pi 1.3.0 and gpt-6-luna (`test/system/pi-compact.test.js`):
     before Return, the editor read `/compact` with no menu below the box. Then the box's top rule read
     `Compacting context... (escape to cancel)`. Pi's file got one `compaction` line about 20 s after the
