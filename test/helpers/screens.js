@@ -2341,3 +2341,53 @@ export const PI_COMPACT_SPACED_AT_WORK = piScreen({ top: PI_WORKING_RULE, editor
 
 /** `/compact ` typed, the editor's row blank, Orca's draft `/compact `, and the list drawn for `/compa` still below the box. */
 export const PI_COMPACT_SPACED_STALE_IN_DRAFT = { screen: piScreen({ below: PI_COMPACT_MENU }), draft: '/compact ' };
+
+// ---------------------------------------------------------------- Pi's /new and the space (#673)
+//
+// `obk session clear` on Pi types `/new`, checks the editor's row and the
+// selected row `new`, then types one space, as the compact does for
+// `/compact` (#671). Pi 1.3.0 redraws its menu after each key,
+// asynchronously, and a list drawn for an earlier key, `/n` say, can still be
+// up with `new` selected once `/new` is in: Return then applies that row to
+// the old prefix, and Pi submits a wrong line such as `/nnew`. `new` has no
+// argument completions, so the space closes the menu, and Return with no menu
+// submits the line trimmed, exactly `/new`. Seen in Orca (#673): with `/new `
+// typed, the editor's row reads `/new` and no menu row shows. These screens
+// are RECONSTRUCTIONS, built as the ones above; the `/n` list with `new`
+// selected is made up to stand for a list left from an earlier key.
+
+/** The list drawn for `/n`, with `new` selected rather than `name`: what a list left from an earlier key can show once `/new` is in. */
+const PI_N_LIST_ON_NEW = [piMenuRow('name', 'Set session display name'), piMenuRow('new', 'Start a new session', true)];
+
+/** `/new` typed, and the list drawn for `/n` still below the box, `new` selected: the menu check before the space cannot tell it from a fresh list. */
+export const PI_NEW_STALE_ON_NEW = piScreen({ editor: '/new', below: PI_N_LIST_ON_NEW });
+
+/** `/new ` typed: the editor's row reads `/new ` and the menu is closed, the footer right under the bottom rule. */
+export const PI_NEW_SPACED = piScreen({ editor: '/new ' });
+
+/** `/new ` typed, as Orca showed it (#673): the editor's row reads `/new`, trimmed, and no menu row shows. */
+export const PI_NEW_SPACED_AS_SEEN = piScreen({ editor: '/new' });
+
+/** `/new ` typed, the editor's row blank, no menu, and Orca's draft `/new `: a read with a draft. */
+export const PI_NEW_SPACED_IN_DRAFT = { screen: piScreen(), draft: '/new ' };
+
+/** `/new ` typed, and the list drawn for `/ne` still below the box, `new` selected. */
+export const PI_NEW_SPACED_STALE = piScreen({ editor: '/new ', below: PI_NEW_MENU });
+
+/** `/new ` typed, and the list drawn for `/n` still below the box, `new` selected: a Return would submit a line such as `/nnew`. */
+export const PI_NEW_SPACED_STALE_ON_NEW = piScreen({ editor: '/new ', below: PI_N_LIST_ON_NEW });
+
+/** `/new ` typed, and the list drawn for `/n` still below the box, `name` selected, `new` under it. */
+export const PI_NEW_SPACED_STALE_NAME = piScreen({ editor: '/new ', below: PI_TYPING_MENUS['/n'] });
+
+/** `/new ` typed, the editor's row blank, Orca's draft `/new `, and the list drawn for `/ne` still below the box. */
+export const PI_NEW_SPACED_STALE_IN_DRAFT = { screen: piScreen({ below: PI_NEW_MENU }), draft: '/new ' };
+
+/** `/new ` typed, and the editor's row reads `/ne w`, two keys out of order, with no menu. */
+export const PI_NEW_SPACED_KEYS_SWAPPED = piScreen({ editor: '/ne w' });
+
+/** `/new ` typed, no menu, and Orca's draft `/ne w`, the editor's row blank. */
+export const PI_NEW_SPACED_DRAFT_SWAPPED = { screen: piScreen(), draft: '/ne w' };
+
+/** Pi at work after the space: its status in the top rule, `/new ` in its editor, no menu. */
+export const PI_NEW_SPACED_AT_WORK = piScreen({ top: PI_WORKING_RULE, editor: '/new ' });

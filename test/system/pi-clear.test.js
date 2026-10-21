@@ -9,7 +9,12 @@
 //
 //   a. `obk session clear` on the idle Pi session exits 0, its JSON answer
 //      says harness pi, and the book holds a new id, with the old one in
-//      daily's history.
+//      daily's history. The kit types `/new`, a space, and then its return
+//      only when the editor reads `/new` with no menu below the box (#673, as
+//      #671 did for `/compact`): the run prints that screen when a read
+//      catches it, and asserts that the book still held the old id when that
+//      screen was read, and holds the new one after; when no read catches it,
+//      it says so as a finding.
 //   b. While Pi runs one turn that does only `sleep 40` through its bash tool,
 //      `obk session clear` is refused as busy within about 30 s, and nothing
 //      was typed: the book holds the same id, and Pi's editor is still empty.
@@ -20,7 +25,8 @@
 // look at them through Orca's `terminal read`. So at each step it prints the
 // rows of `orca terminal read --screen` of its own tab, with Orca's `draft`
 // when Orca gives one: at rest before anything is typed, with `/new` typed and
-// before any return, with `/new ` (a trailing space) typed, after the clear,
+// before any return, with `/new ` (a trailing space) typed, during the kit's
+// clear each time the screen changes (#673), after the clear,
 // during the busy turn, after the refused clear, and at the end. The `/new`
 // and `/new ` steps are the test's own typing, before the kit's clear runs:
 // one character a send, 100 ms apart, then taken back with one send of 4 or 5
@@ -110,7 +116,7 @@
 
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { mkdtemp, readdir, realpath, rm } from 'node:fs/promises';
 import os from 'node:os';
@@ -151,6 +157,15 @@ const CLEAR_LIMIT_MS = 120000;
 
 /** How long a refusal for a busy session may take: the kit's 30 s wait, and some to spare. */
 const BUSY_REFUSAL_MS = 60000;
+
+/** How often the screen is looked at while the kit's clear runs, once the screen before its return is caught. */
+const DURING_EVERY_MS = 1000;
+
+/** How often the screen is read while the kit's clear runs, until the screen before its return is caught. */
+const DURING_FAST_MS = 100;
+
+/** At most this many screens are printed while the kit's clear runs, each one only when the rows changed. */
+const DURING_PRINTS = 12;
 
 /** The gap between the characters this test types itself, as the kit's own clear spaces them. */
 const CHAR_GAP_MS = 100;
@@ -564,6 +579,54 @@ const tailOf = (lines, count = 15) => lines.slice(-count)
   .map((line) => `${line?.type}/${line?.message?.role ?? line?.customType ?? '-'}: ${JSON.stringify(line?.message?.content ?? line?.content ?? '').slice(0, 200)}`)
   .join('\n    ');
 
+/** Print one read of the tab that was already made, every row, with its draft, without reading again. */
+function printRows(t, when, { rows, draft, source, error }) {
+  t.diagnostic([
+    `${when}: orca terminal read --screen`,
+    `  source: ${JSON.stringify(source)}; draft: ${draft === undefined ? '(no draft key)' : JSON.stringify(draft)}${error === undefined ? '' : `; error: ${JSON.stringify(error)}`}`,
+    `  ${(rows ?? ['(no rendered screen)']).length} rows, each between | and |:`,
+    ...(rows ?? ['(no rendered screen)']).map((row) => `  |${row}|`),
+  ].join('\n'));
+}
+
+/**
+ * Whether one read shows the screen the kit sends its return on (#673, as
+ * test/system/pi-compact.test.js reads it for `/compact`): Pi's input box
+ * with its editor reading `/new` once trimmed, or its editor blank and Orca's
+ * draft reading `/new` once trimmed, and no row starting `→` below the box.
+ */
+function readyForReturn({ rows, draft }) {
+  const box = inputBoxOf(rows ?? []);
+  if (box?.top === undefined) return false;
+  const editor = box.editor.map((row) => row.trim()).filter((row) => row !== '');
+  const line = editor.length === 0 ? String(draft ?? '').trim() : editor.join(' ');
+  return line === '/new' && !box.below.some((row) => row.trimStart().startsWith('→'));
+}
+
+/**
+ * Start this checkout's `obk`, by its full path, outside any tab, and do not
+ * wait for it: the screen is read while it runs. `finished` turns true when
+ * it has ended, and `done` gives { status, stdout, stderr }. Nothing here
+ * signals it; the kit's own waits bound it.
+ */
+function obkInBackground(args) {
+  const run = { finished: false, stdout: '', stderr: '' };
+  const child = spawn(process.execPath, [cliEntry, ...args], { cwd: os.tmpdir(), env: outsideAnyTab, stdio: ['ignore', 'pipe', 'pipe'] });
+  child.stdout.setEncoding('utf8').on('data', (chunk) => { run.stdout += chunk; });
+  child.stderr.setEncoding('utf8').on('data', (chunk) => { run.stderr += chunk; });
+  run.done = new Promise((resolve) => {
+    child.on('error', (error) => {
+      run.finished = true;
+      resolve({ status: null, stdout: run.stdout, stderr: `${run.stderr}could not start obk: ${error.message}` });
+    });
+    child.on('close', (status) => {
+      run.finished = true;
+      resolve({ status, stdout: run.stdout, stderr: run.stderr });
+    });
+  });
+  return run;
+}
+
 // ------------------------------------------------------------- the test
 
 test('obk session clear on a Pi session: a new id in the book when idle, refused as busy with nothing typed during a turn, and the tab idle and empty at the end', async (t) => {
@@ -663,11 +726,42 @@ test('obk session clear on a Pi session: a new id in the book when idle, refused
 
   // ---------------------------------------------------------------------------
   // 3 (a). `obk session clear` on the idle Pi session: exit 0, harness pi, and
-  // the book holds B, not A, with A in daily's history.
+  // the book holds B, not A, with A in daily's history. The screen is printed
+  // as it changes. #673: the kit types `/new`, then a space, then the return
+  // only when the editor reads `/new` and no menu row is below the box. This
+  // run must show that moment: the screen is read every DURING_FAST_MS, and
+  // the first read with the editor reading `/new` (or Orca's draft reading
+  // it, trimmed) and no row starting `→` below the box is printed as the
+  // screen before the return. The book is read just before each such read:
+  // when it still held A then, the new id B came after the screen before the
+  // return. When no read caught it, the run says so as a finding; the clear
+  // is still asserted.
   await until('step 3: the Pi tab to be idle before the clear', READY_MS, async () => (idleNow(tab.handle) ? true : undefined), () => whatIsUp(tab.handle));
   printScreen(t, 'step 3, before obk session clear', tab.handle);
   const clearAt = Date.now();
-  const clear = obk(['session', 'clear', '--bots', bots, '--bot', BOT, '--session', SESSION, '--json']);
+  const running = obkInBackground(['session', 'clear', '--bots', bots, '--bot', BOT, '--session', SESSION, '--json']);
+  let shown;
+  let prints = 0;
+  let beforeReturn;
+  while (!running.finished && Date.now() - clearAt < CLEAR_LIMIT_MS) {
+    const book = sessionIn(home, SESSION).session;
+    const read = readOf(tab.handle);
+    const since = Date.now() - clearAt;
+    if (beforeReturn === undefined && readyForReturn(read)) {
+      beforeReturn = { ...read, since, book };
+      printRows(t, `step 3, the screen before the return: the editor reads /new and no menu is below the box, ${since} ms after the clear started; the book held ${book} just before this read`, read);
+    }
+    const rows = JSON.stringify(read.rows);
+    if (rows !== shown && prints < DURING_PRINTS) {
+      printRows(t, `step 3, during obk session clear, ${since} ms after it started`, read);
+      shown = rows;
+      prints += 1;
+    }
+    await setTimeout(beforeReturn === undefined ? DURING_FAST_MS : DURING_EVERY_MS);
+  }
+  assert.ok(running.finished, `step 3: obk session clear did not end within ${CLEAR_LIMIT_MS} ms.${whatIsUp(tab.handle)}`);
+  const clear = await running.done;
+  assert.ok(!/worktree/i.test(clear.stdout + clear.stderr), `obk said "worktree": ${clear.stdout}${clear.stderr}`);
   t.diagnostic(`step 3: obk session clear took ${Date.now() - clearAt} ms, exit ${clear.status}: ${clear.stdout.trim()} ${clear.stderr.trim()}`);
   printScreen(t, 'step 3, after obk session clear', tab.handle);
   assert.equal(clear.status, 0, `step 3: the clear on an idle Pi session should go through: ${clear.stdout}${clear.stderr}${whatIsUp(tab.handle)}`);
@@ -686,6 +780,13 @@ test('obk session clear on a Pi session: a new id in the book when idle, refused
   const entryB = sessionIn(home, SESSION);
   assert.equal(entryB.session, idB, `step 3: the book holds the new id B: ${JSON.stringify(entryB)}`);
   assert.ok(historyHolds(entryB, idA), `step 3: with A in daily's history: ${JSON.stringify(entryB)}`);
+  if (beforeReturn === undefined) {
+    t.diagnostic('step 3, FINDING: no read during the clear caught the screen before the return (the editor reading /new with no menu below the box), '
+      + `though the screen was read every ${DURING_FAST_MS} ms until then. So this run does not show that the return after the space is what ran Pi's /new.`);
+  } else {
+    t.diagnostic(`step 3: the screen before the return was read ${beforeReturn.since} ms after the clear started; the book held ${beforeReturn.book} just before that read, and holds ${idB} now`);
+    assert.equal(beforeReturn.book, idA, `step 3: the book still held A when the screen before the return was read, so the new id B came after it; it held ${beforeReturn.book}`);
+  }
 
   // ---------------------------------------------------------------------------
   // 4 (b). A turn that runs `sleep` through Pi's bash tool. While it runs,
