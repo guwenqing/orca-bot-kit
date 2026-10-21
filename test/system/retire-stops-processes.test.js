@@ -15,7 +15,8 @@
 //   2. The test starts processes of its own, each in a new process group of
 //      its own, as a harness's background command would be:
 //        - plain      `sleep 600`, its working folder dev's work dir;
-//        - stubborn   a node program that ignores SIGTERM, in the work dir;
+//        - stubborn   a node program that ignores SIGTERM, in the work dir,
+//                     and ends by itself after LIFE_S;
 //        - parent     a shell in the work dir, and its child, a `sleep 600`
 //                     whose working folder is a throwaway folder outside it;
 //        - bystander  a `sleep 600` in that outside folder, which is no
@@ -61,6 +62,11 @@
 // command it started and has printed the list. It never sends a signal to a
 // group, and never to an id it read from `ps`. It reads `ps -p <pid>` only to
 // see whether one of its own still runs. A minute or two.
+//
+// Because each of them is in a group of its own, the runner's hard stop at its
+// time limit (#653) does not reach them, and it can take the teardown above
+// with it. So each ends by itself within LIFE_S, well inside the run's limit:
+// the sleeps by their own length, stubborn by its own timer (#655).
 
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
@@ -76,6 +82,7 @@ import { parse } from 'yaml';
 import { cliEntry } from '../helpers/cli.js';
 import { tabGuard } from '../helpers/tab-guard.js';
 import { deleteOwnProject } from '../helpers/own-project.js';
+import { stubbornProgram } from '../helpers/stubborn.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
 
 /**
@@ -95,6 +102,9 @@ async function removeBotsFolderAndSiblings(bots) {
 
 /** The Orca CLI that works for a normal user (tech notes, section 1). */
 const ORCA = process.env.OBK_ORCA || '/Applications/Orca.app/Contents/Resources/bin/orca';
+
+/** How long each process the test starts lives at most: the sleeps' `600`, and stubborn's bound (#655). */
+const LIFE_S = 600;
 
 /** How long a process of the test's is given to start, or to be gone after the retire. */
 const SETTLE_MS = 15000;
@@ -342,7 +352,7 @@ test('temp retire stops the real processes a temporary session left in its work 
   };
   const plain = started('plain', spawn('/bin/sleep', ['600'], { cwd: work, detached: true, stdio: 'ignore' }), '/bin/sleep 600');
 
-  const STUBBORN = 'process.on("SIGTERM", () => {}); process.stdout.write("ready\\n"); setInterval(() => {}, 1000);';
+  const STUBBORN = stubbornProgram(LIFE_S);
   const stubborn = started('stubborn', spawn(process.execPath, ['-e', STUBBORN], { cwd: work, detached: true, stdio: ['ignore', 'pipe', 'ignore'] }), `${process.execPath} -e ${STUBBORN}`);
   // Its TERM handler is in place once it says so; a TERM before that would end it.
   assert.equal(await firstLine(stubborn, 'stubborn'), 'ready');
