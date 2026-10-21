@@ -1087,7 +1087,7 @@ docs, or Orca's 1.4.225 bundle. The kit was tested with Pi 1.1.0.
 - **`/compact` in a Pi tab, for `obk session compact` (#671).** Read on 2026-10-20 in Pi 1.3.0's `dist/`
   (coding-agent `core/slash-commands.js`, `core/agent-session.js`, `core/session-manager.js`,
   `core/compaction/compaction.js`, `modes/interactive/interactive-mode.js`; pi-tui `autocomplete.js`,
-  `components/editor.js`). **read in code**, not seen in Orca yet.
+  `components/editor.js`). **read in code**, and seen in Orca for the points marked **seen live**.
   - The slash menu lists `{ name: "compact", description: "Manually compact the session context" }`. Pi runs
     a line that is `/compact`, or `/compact <instructions>`, as a manual compaction (`handleCompactCommand`).
     It first aborts any turn that runs; the kit types only into an idle tab.
@@ -1121,6 +1121,11 @@ docs, or Orca's 1.4.225 bundle. The kit was tested with Pi 1.1.0.
     types one space, and presses Return only when the editor reads `/compact` and no menu row shows below
     the box (#671). Otherwise it takes back all nine characters. `obk session clear` types `/new` without
     the space (#663), and has the same gap with a list left from `/n`.
+  - **Seen live** on 2026-10-21 in Orca with Pi 1.3.0 and gpt-6-luna (`test/system/pi-compact.test.js`):
+    before Return, the editor read `/compact` with no menu below the box. Then the box's top rule read
+    `Compacting context... (escape to cancel)`. Pi's file got one `compaction` line about 20 s after the
+    kit began, with `tokensBefore` 56019, and the screen showed `[compaction]` and `Compacted from 56,019
+    tokens`. During a turn, the kit typed nothing and said after 30 s that the session is busy.
 - **Project trust.** When the working folder or a folder above it has `.pi/settings.json`, `.pi/mcp.json`,
   `.pi/extensions|skills|prompts|themes`, `.pi/SYSTEM.md`, `.pi/APPEND_SYSTEM.md` or a project
   `.agents/skills`, Pi asks first, unless `--approve`/`--no-approve`, an extension, or a saved answer in
