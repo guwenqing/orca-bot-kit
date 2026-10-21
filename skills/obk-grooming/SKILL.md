@@ -242,8 +242,9 @@ places and sending one to the other loses it.
 The pass runs in a session of Bot Father's own, `grooming`, on Claude Code's
 own scheduler. Add it like any session, with the model and effort it is to run
 at: `obk session add --bots <folder> --bot bot-father --name grooming --model
-<m> --effort <e>`, with `--harness claude` where Bot Father runs on Codex, then
-`obk up`. Its launch line carries them, so they are what every run uses.
+<m> --effort <e>`, with `--harness claude` where Bot Father runs on Codex or
+Pi, then `obk up`. Its launch line carries them, so they are what every run
+uses.
 
 The runs can be done on Codex instead. The session stays this Claude Code one,
 the clock and the reader, and `obk groom --on --at <HH:MM> --run-on codex

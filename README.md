@@ -86,8 +86,8 @@ to npm with a provenance statement. Nothing else publishes.
 obk init --bots /absolute/path/to/my-bots --harness claude
 ```
 
-`--harness claude|codex` says which harness Bot Father itself runs on; there is
-no default. This makes the folder a git repository and seeds it:
+`--harness claude|codex|pi` says which harness Bot Father itself runs on; there
+is no default. This makes the folder a git repository and seeds it:
 
 ```
 my-bots/
@@ -164,7 +164,7 @@ no permission rules and no hooks, so the bot's allow list does not limit a Pi
 session. `obk health` reads a Pi session's model and thinking level from Pi's
 own record, and says when Pi cannot run it. `obk session clear` types Pi's
 `/new` into a Pi tab, and `obk session compact` types Pi's `/compact`.
-`obk init --harness pi` comes later.
+`obk init --harness pi` puts Bot Father itself on Pi.
 
 Every bot gets the kit's default permission rules, written by the kit with
 nobody asked: its own commands for this bots folder, reading a long message,

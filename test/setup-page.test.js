@@ -20,6 +20,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { createSandbox, repoRoot } from './helpers/cli.js';
+import { fakePi } from './helpers/pi.js';
 
 const pageAt = (name) => readFile(path.join(repoRoot, name), 'utf8');
 const readPackage = async () => JSON.parse(await pageAt('package.json'));
@@ -135,6 +136,10 @@ test('every obk command SETUP.md gives is one the CLI runs', async (t) => {
   const ways = Math.max(...lines.map(waysIn));
   for (let way = 0; way < ways; way += 1) {
     const box = await createSandbox(t);
+    // A Pi that can use a model, as the page's user has before they choose pi
+    // (#674): the kit starts nothing on a Pi that cannot. It is a fake, so no
+    // way reaches the real `pi` on this machine's PATH.
+    await fakePi(box);
     const values = valuesIn(box);
     for (const line of lines) {
       const argv = argvFor(line, way, values);

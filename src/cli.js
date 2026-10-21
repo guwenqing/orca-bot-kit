@@ -39,7 +39,7 @@ import { BOT_FATHER, bringUp, ownMailbox } from './up.js';
 const USAGE = `obk — Orca Bot Kit.
 
 Usage:
-  obk init --bots <path> --harness claude|codex
+  obk init --bots <path> --harness claude|codex|pi
                             Create your bots folder: a git repo holding your
                             bots' configuration, with Bot Father in it, and
                             open Bot Father in Orca.
@@ -610,8 +610,6 @@ async function record(bots, bot) {
 
 const commands = {
   async init(bots, values) {
-    // Bot Father on Pi is not in the first slice of #547.
-    if (values.harness === 'pi') throw new Error('init does not take --harness pi yet: Bot Father runs on claude or codex, and its other bots may run on Pi. Nothing was written.');
     // Asked before anything is written, so an Orca that is down leaves the disk
     // exactly as it was and the caller can simply run the command again.
     refuseWhenOrcaIsDown();
