@@ -5,14 +5,14 @@ a manager, developers, reviewers, a personal helper. Each bot keeps its
 identity, its rules, its skills and its sessions across restarts.
 
 [Orca](https://github.com/stablyai/orca) is the host: a bot is an Orca project
-and a session is a tab, on Claude Code or Codex. The kit is an npm package with
+and a session is a tab, on Claude Code, Codex or Pi. The kit is an npm package with
 an `obk` command and a set of skills. You are meant to manage the fleet by
 talking to Bot Father, the first bot, whose skills call the CLI for you — not by
 editing files.
 
 The design is in [`docs/prd/prd.md`](docs/prd/prd.md); the decisions with lasting
 consequences are in [`docs/adr/`](docs/adr/); what we know about Orca and the
-two harnesses is in [`docs/tech-notes.md`](docs/tech-notes.md).
+harnesses is in [`docs/tech-notes.md`](docs/tech-notes.md).
 
 ## Start here
 
@@ -51,13 +51,13 @@ details and, when you say so, files the issue or gives you the text to paste.
 ## Status
 
 Early. The CLI creates your bots folder, brings Bot Father up in Orca, creates
-bots and their sessions on either harness, and builds each bot's `AGENTS.md`
-from its charter and the rules it carries.
+bots and their sessions on any of the three harnesses, and builds each bot's
+`AGENTS.md` from its charter and the rules it carries.
 
 ## Install
 
-Node.js >= 24.21.0, git, and Orca with at least one of Claude Code or Codex
-installed and configured. That line because the kit keeps writers out of each
+Node.js >= 24.21.0, git, and Orca with at least one of Claude Code, Codex or
+Pi installed and configured. That line because the kit keeps writers out of each
 other's way in a bot's book with a SQLite write transaction, through Node's own
 `node:sqlite`. That module is older than the 24 line; 24.21.0 is the first
 release measured here that loads it without an experimental warning on stderr,
@@ -535,8 +535,8 @@ leaves it running until the session is next restarted; after that, `--on --at`
 puts it back.
 `obk groom --compact` compacts its conversation between runs.
 
-The grooming session is always a Claude Code one, even on a Codex Bot Father (add
-it with `--harness claude` there): it is the clock, and where the reports arrive.
+The grooming session is always a Claude Code one, even on a Codex or Pi Bot Father
+(add it with `--harness claude` there): it is the clock, and where the reports arrive.
 To have the grooming itself done on Codex, turn it on with `--run-on codex`, and
 give the runs their model and effort:
 

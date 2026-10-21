@@ -20,7 +20,7 @@ Everything else you can find out by looking.
 ## What you are making
 
 Orca is the host. A bot is an Orca project and a session is a tab, running
-Claude Code or Codex. You are making the first bot, **Bot Father**, and a folder
+Claude Code, Codex or Pi. You are making the first bot, **Bot Father**, and a folder
 that holds the whole fleet's configuration as a git repository of theirs.
 
 When you are done they will have an Orca project called Bot Father with two

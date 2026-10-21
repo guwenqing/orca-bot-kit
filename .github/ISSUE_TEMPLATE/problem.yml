@@ -45,6 +45,7 @@ body:
         Orca (its About box, or orca --version):
         claude --version:
         codex --version:
+        pi --version:
         operating system:
     validations:
       required: true
