@@ -75,22 +75,46 @@
 //         nothing typed, and the typing gate calls the tab not idle (skills
 //         build types no `/reload`). D3 (a short pure rule) and a lone
 //         `── a draft ──` with no top rule are no input box.
-//       - After `/new`, before the return: the editor's row reads exactly
+//       - After `/new`, before the space: the editor's row reads exactly
 //         `/new` (or Orca's draft does), and the menu row below the bottom rule
 //         that starts with `→` has `new` as its first word. Otherwise the four
-//         characters are taken back in one send, no return, and the refusal
-//         shows the screen's rows.
+//         characters are taken back in one send, no space, no return, and the
+//         refusal shows the screen's rows.
+//   - The space (#673, as #671 did for `/compact`). Pi 1.3.0 redraws its menu
+//     after each key, asynchronously, and a list drawn for an earlier key,
+//     `/n` say, can still be up with `new` selected once `/new` is in: Return
+//     then applies that row to the old prefix, and Pi submits a wrong line
+//     such as `/nnew`. A space closes the menu, since `new` takes no argument
+//     (seen in Orca: with `/new ` the editor's row reads `/new` and no menu row
+//     shows), and Return with no menu submits the line trimmed, `/new`. So:
+//       1. Once `/new` passes the check above, one space, a send of its own,
+//          after the same look through the typing gate as each character, 100
+//          ms or more after the `w`. Orca's tui-idle alone not answering ok
+//          does not stop it (an open menu can stop tui-idle answering ok).
+//       2. Then the return, only when the editor's row reads `/new` once
+//          trimmed (or Orca's draft does, the row blank) and no menu row below
+//          the box starts `→`. A list that closes within the kit's screen wait
+//          passes. A menu that stays, a line that reads anything else, Pi at
+//          work, a question, or a stop at the gate: no return, all five
+//          characters taken back in one send of five backspaces, and the
+//          refusal says why (the menu and its selected row, or what the line
+//          reads after the space).
+//       3. Claude Code's `/clear` and Codex's `/new` get no space: typed and
+//          entered as before.
 //   - The architect's addition A: Pi's at-work row is part of the kit's shared
 //     screen check, and counts only in a tab where Orca names the agent pi,
 //     as Pi's selector foot does (#659). The same row on a Claude Code or a
 //     Codex screen changes nothing. And `obk skills build` types no `/reload`
 //     into a Pi tab whose screen shows that row, even when Orca's tui-idle
 //     answers ok: the session is reported busy, as when Orca calls it busy.
-//   - `obk session compact` on Pi stays refused: test/pi-not-yet.test.js.
+//   - `obk session compact` on Pi is as it was: test/pi-compact.test.js.
+//   - No command, option or environment setting is added to the core for
+//     these tests: the screens are in helpers/screens.js.
 //
 // How Pi is played here. The fake Orca types nothing anywhere. Each send into
 // the Pi tab can move its screen on (`nextScreens`, helpers/fake-orca.js), so
-// the screens Pi would show as `/new` is typed and entered are given in order.
+// the screens Pi would show as `/new` and the space are typed and the line is
+// entered are given in order.
 // Pi reports the new conversation at once, through the kit's own extension
 // (#662): the test plays that as Pi would, running the kit's
 // src/pi-record.js under a fake Pi (helpers/pi-extension.js) with the new id
@@ -150,6 +174,17 @@ import {
   PI_NEW_MENU_ABOVE,
   PI_NEW_NO_MENU,
   PI_NEW_OTHER_SELECTED,
+  PI_NEW_SPACED,
+  PI_NEW_SPACED_AS_SEEN,
+  PI_NEW_SPACED_AT_WORK,
+  PI_NEW_SPACED_DRAFT_SWAPPED,
+  PI_NEW_SPACED_IN_DRAFT,
+  PI_NEW_SPACED_KEYS_SWAPPED,
+  PI_NEW_SPACED_STALE,
+  PI_NEW_SPACED_STALE_IN_DRAFT,
+  PI_NEW_SPACED_STALE_NAME,
+  PI_NEW_SPACED_STALE_ON_NEW,
+  PI_NEW_STALE_ON_NEW,
   PI_NEW_TYPED,
   PI_NEW_TYPED_IN_DRAFT,
   PI_RULED_DRAFT,
@@ -237,8 +272,23 @@ const backspaces = (command) => '\x7f'.repeat(command.length);
 /** The return, as a send of its own. */
 const RETURN = { text: '\r', enter: false };
 
-/** The screens the Pi tab shows, one per send, as `/new` is typed, then `after`: the screen once the last character is in, and whatever follows. */
+/** What the kit types before the return on Pi: `/new` and one space (#673). */
+const SPACED = `${NEW} `;
+
+/** `/new`, the space and the return, each a send of its own: the command entered on Pi. */
+const ENTERED = [...typed(SPACED), RETURN];
+
+/** `/new` typed and taken back with four backspaces in one send: no space, and never entered. */
+const TAKEN_BACK = [...typed(NEW), { text: backspaces(NEW), enter: false }];
+
+/** `/new` and the space typed, and all five taken back with five backspaces in one send, never entered. */
+const SPACED_TAKEN_BACK = [...typed(SPACED), { text: backspaces(SPACED), enter: false }];
+
+/** The screens the Pi tab shows, one per send, as `/new` is typed, then `after`: the screen once the last character is in, the one after the space, and whatever follows. */
 const piScreensFor = (...after) => [...whileTypingPi(), ...after];
+
+/** The kit's own words in a refusal: what it said with every row of `rows` taken out. */
+const ownWords = (said, rows) => rows.filter((row) => row.trim() !== '').reduce((rest, row) => rest.replaceAll(row.trim(), ''), said);
 
 // ---------------------------------------------------------------- the fleet
 
@@ -384,12 +434,12 @@ async function readsBeforeFirstSend(box, handle, from) {
 // ---------------------------------------------------------------- the clear
 
 describe('obk session clear on a Pi session types /new and is confirmed by the book (#663)', { concurrency: 4 }, () => {
-  it('P1 the happy path: /new a character a send, a return of its own, nothing after it, and the new id the book holds is the answer, with harness pi', LIMIT, async (t) => {
+  it('P1 the happy path: /new a character a send, then one space, then a return of its own, nothing after it, and the new id the book holds is the answer, with harness pi', LIMIT, async (t) => {
     const box = await createSandbox(t);
     const bots = await piRunning(box);
     const tab = await liveTab(box, bots);
     const was = (await sessionIn(bots, BOT, 'daily')).session;
-    await changeTab(box, tab.tabId, { nextScreens: piScreensFor(PI_NEW_TYPED, PI_IDLE_AFTER_NEW) });
+    await changeTab(box, tab.tabId, { nextScreens: piScreensFor(PI_NEW_TYPED, PI_NEW_SPACED, PI_IDLE_AFTER_NEW) });
     const others = Object.fromEntries(Object.entries(await typedEverywhere(box)).filter(([handle]) => handle !== tab.handle));
     const from = (await box.orca.calls()).length;
 
@@ -399,8 +449,8 @@ describe('obk session clear on a Pi session types /new and is confirmed by the b
     assert.ok(played, 'the premise: the return was sent and Pi reported the new conversation');
     assert.deepEqual(
       await sendsInto(box, bots),
-      [...typed(NEW), RETURN],
-      '/new as text, one character a send, then the return as a send of its own, and nothing else: no record line, no answer to a question',
+      ENTERED,
+      '/new as text, one character a send, then one space, then the return as a send of its own, and nothing else: no record line, no answer to a question',
     );
     assert.equal(answer.bots, bots, 'bots is the folder, resolved');
     assert.deepEqual(answer.cleared, { bot: BOT, session: 'daily', harness: 'pi', was, now: NEW_ID });
@@ -410,30 +460,36 @@ describe('obk session clear on a Pi session types /new and is confirmed by the b
     await assertSentOnlyInto(box, tab.handle, from, 'clear on Pi');
   });
 
-  for (const { start, read, what } of [
+  for (const { start, read, spaced = PI_NEW_SPACED, what } of [
     { start: PI_IDLE_NO_CURSOR, read: PI_NEW_TYPED, what: 'its editor row empty with no cursor space before the first key' },
-    { start: PI_IDLE, read: PI_NEW_TYPED_IN_DRAFT, what: 'the editor row blank after typing and Orca\'s draft reading /new' },
+    { start: PI_IDLE, read: PI_NEW_TYPED_IN_DRAFT, spaced: PI_NEW_SPACED_IN_DRAFT, what: 'the editor row blank after typing and Orca\'s draft reading /new, then "/new " after the space, with no menu' },
+    { start: PI_IDLE, read: PI_NEW_TYPED, spaced: PI_NEW_SPACED_IN_DRAFT, what: 'the editor row blank after the space and Orca\'s draft reading "/new ", with no menu' },
+    { start: PI_IDLE, read: PI_NEW_TYPED, spaced: PI_NEW_SPACED_AS_SEEN, what: 'the editor row reading /new after the space, trimmed as Orca showed it, with no menu' },
+    // The gap of #673: a list drawn for `/n`, `new` selected, still up once
+    // `/new` is in. The check before the space cannot tell it from a fresh
+    // list; the space closes it, and only then does the return go in.
+    { start: PI_IDLE, read: PI_NEW_STALE_ON_NEW, what: 'the list drawn for /n still below the box once /new is in, new selected, closed by the space' },
   ]) {
-    it(`P1 the clear on Pi with ${what}: /new is entered, and the new conversation is the answer`, LIMIT, async (t) => {
+    it(`P1 the clear on Pi with ${what}: /new and the space are typed, the return goes in, and the new conversation is the answer`, LIMIT, async (t) => {
       const box = await createSandbox(t);
       const bots = await piRunning(box);
       const was = (await sessionIn(bots, BOT, 'daily')).session;
-      await changeTab(box, (await liveTab(box, bots)).tabId, { screen: start, nextScreens: piScreensFor(read, PI_IDLE_AFTER_NEW) });
+      await changeTab(box, (await liveTab(box, bots)).tabId, { screen: start, nextScreens: piScreensFor(read, spaced, PI_IDLE_AFTER_NEW) });
 
       const { result, played } = await runPlaying(box, bots, { then: () => piReports(box, bots) });
 
       const answer = answered(result, 'the clear');
       assert.ok(played, 'the premise: the return was sent and Pi reported the new conversation');
-      assert.deepEqual(await sendsInto(box, bots), [...typed(NEW), RETURN]);
+      assert.deepEqual(await sendsInto(box, bots), ENTERED);
       assert.deepEqual(answer.cleared, { bot: BOT, session: 'daily', harness: 'pi', was, now: NEW_ID });
     });
   }
 
-  it('P2 each character of /new is its own send, each after a look through the typing gate, 100 ms or more apart', LIMIT, async (t) => {
+  it('P2 each character of /new and the space after it is its own send, each after a look through the typing gate, 100 ms or more apart, then a read of the screen, then the return', LIMIT, async (t) => {
     const box = await createSandbox(t);
     const bots = await piRunning(box);
     const tab = await liveTab(box, bots);
-    await changeTab(box, tab.tabId, { nextScreens: piScreensFor(PI_NEW_TYPED, PI_IDLE_AFTER_NEW) });
+    await changeTab(box, tab.tabId, { nextScreens: piScreensFor(PI_NEW_TYPED, PI_NEW_SPACED, PI_IDLE_AFTER_NEW) });
     const from = (await box.orca.calls()).length;
 
     const { result, played } = await runPlaying(box, bots, { then: () => piReports(box, bots) });
@@ -445,31 +501,35 @@ describe('obk session clear on a Pi session types /new and is confirmed by the b
     const sends = calls
       .map((call, at) => ({ call, at }))
       .filter(({ call }) => orcaCommand(call) === 'terminal send' && orcaFlag(call, '--terminal') === tab.handle);
-    const keys = sends.slice(0, NEW.length);
+    const keys = sends.slice(0, SPACED.length);
     assert.deepEqual(
       keys.map(({ call }) => ({ text: orcaFlag(call, '--text'), enter: call.args.includes('--enter') })),
-      typed(NEW),
-      'the first four sends are /new, one character each, none with --enter',
+      typed(SPACED),
+      'the first five sends are /new and a space, one character each, none with --enter',
     );
     let since = -1;
     for (const [n, { at }] of keys.entries()) {
       const looks = calls.slice(since + 1, at).filter((call) => orcaCommand(call) === 'terminal wait'
         && orcaFlag(call, '--terminal') === tab.handle && orcaFlag(call, '--for') === 'tui-idle');
-      assert.ok(looks.length > 0, `a look through the gate (terminal wait --for tui-idle on the tab) before character ${n + 1}, ${JSON.stringify(NEW[n])}`);
+      assert.ok(looks.length > 0, `a look through the gate (terminal wait --for tui-idle on the tab) before character ${n + 1}, ${JSON.stringify(SPACED[n])}`);
       since = at;
     }
     for (let n = 1; n < keys.length; n += 1) {
       const gap = clock[keys[n].at].at - clock[keys[n - 1].at].at;
       assert.ok(gap >= 100, `character ${n + 1} came ${gap} ms after the one before it; the requirement is 100 ms or more`);
     }
-    const ret = sends[NEW.length];
+    const ret = sends[SPACED.length];
+    const readsAfterSpace = calls.slice(keys[SPACED.length - 1].at + 1, ret?.at ?? calls.length)
+      .filter((call) => orcaCommand(call) === 'terminal read' && orcaFlag(call, '--terminal') === tab.handle);
+    assert.ok(readsAfterSpace.length > 0, 'the screen is read after the space and before the return');
     assert.deepEqual(ret && { text: orcaFlag(ret.call, '--text'), enter: ret.call.args.includes('--enter') }, RETURN, 'then the return, as a send of its own, with no --enter');
+    assert.equal(sends.length, SPACED.length + 1, 'and nothing after the return');
   });
 
   it('P3 the clear without --json says, on its way out, the bot, the session and the new conversation', LIMIT, async (t) => {
     const box = await createSandbox(t);
     const bots = await piRunning(box);
-    await changeTab(box, (await liveTab(box, bots)).tabId, { nextScreens: piScreensFor(PI_NEW_TYPED, PI_IDLE_AFTER_NEW) });
+    await changeTab(box, (await liveTab(box, bots)).tabId, { nextScreens: piScreensFor(PI_NEW_TYPED, PI_NEW_SPACED, PI_IDLE_AFTER_NEW) });
 
     const run = clearOf(box);
     let finished = false;
@@ -534,7 +594,7 @@ describe('obk session clear on a Pi session types /new and is confirmed by the b
     it(`D1 ${what}: refused before the first character, nothing typed into any tab, and the refusal says what the line holds`, LIMIT, async (t) => {
       const box = await createSandbox(t);
       const bots = await piRunning(box);
-      await changeTab(box, (await liveTab(box, bots)).tabId, { ...change, nextScreens: piScreensFor(PI_NEW_TYPED, PI_IDLE_AFTER_NEW) });
+      await changeTab(box, (await liveTab(box, bots)).tabId, { ...change, nextScreens: piScreensFor(PI_NEW_TYPED, PI_NEW_SPACED, PI_IDLE_AFTER_NEW) });
       const before = await typedEverywhere(box);
       const book = await sessionIn(bots, BOT, 'daily');
 
@@ -559,7 +619,7 @@ describe('obk session clear on a Pi session types /new and is confirmed by the b
     it(`D2 Orca gives no draft and Pi's editor holds ${what}: refused before the first character, nothing typed into any tab, and the refusal is about the line`, LIMIT, async (t) => {
       const box = await createSandbox(t);
       const bots = await piRunning(box);
-      await changeTab(box, (await liveTab(box, bots)).tabId, { screen, nextScreens: piScreensFor(PI_NEW_TYPED, PI_IDLE_AFTER_NEW) });
+      await changeTab(box, (await liveTab(box, bots)).tabId, { screen, nextScreens: piScreensFor(PI_NEW_TYPED, PI_NEW_SPACED, PI_IDLE_AFTER_NEW) });
       const before = await typedEverywhere(box);
       const book = await sessionIn(bots, BOT, 'daily');
 
@@ -582,7 +642,7 @@ describe('obk session clear on a Pi session types /new and is confirmed by the b
     it(`D3 ${what}: no input box, so nothing typed, and the refusal says the screen shows no input box`, LIMIT, async (t) => {
       const box = await createSandbox(t);
       const bots = await piRunning(box);
-      await changeTab(box, (await liveTab(box, bots)).tabId, { screen, nextScreens: piScreensFor(PI_NEW_TYPED, PI_IDLE_AFTER_NEW) });
+      await changeTab(box, (await liveTab(box, bots)).tabId, { screen, nextScreens: piScreensFor(PI_NEW_TYPED, PI_NEW_SPACED, PI_IDLE_AFTER_NEW) });
       const before = await typedEverywhere(box);
 
       const said = assertRefused(await clearOf(box));
@@ -628,7 +688,7 @@ describe('obk session clear on a Pi session types /new and is confirmed by the b
         screen,
         thenScreen: PI_IDLE,
         readsBeforeThen: 3,
-        nextScreens: piScreensFor(PI_NEW_TYPED, PI_IDLE_AFTER_NEW),
+        nextScreens: piScreensFor(PI_NEW_TYPED, PI_NEW_SPACED, PI_IDLE_AFTER_NEW),
       });
       const from = (await box.orca.calls()).length;
 
@@ -637,7 +697,7 @@ describe('obk session clear on a Pi session types /new and is confirmed by the b
       const answer = answered(result, 'the clear');
       assert.ok(played, 'the premise: Pi reported the new conversation');
       assert.equal(answer.cleared.now, NEW_ID);
-      assert.deepEqual(await sendsInto(box, bots), [...typed(NEW), RETURN]);
+      assert.deepEqual(await sendsInto(box, bots), ENTERED);
       const reads = await readsBeforeFirstSend(box, tab.handle, from);
       assert.ok(reads >= 4, `nothing was typed while the screen showed Pi at work: the first read to show it at rest is the fourth, and ${reads} read(s) came before the first key`);
     });
@@ -652,7 +712,7 @@ describe('obk session clear on a Pi session types /new and is confirmed by the b
       const box = await createSandbox(t);
       const bots = await piRunning(box);
       assert.ok(screen.includes(' escape to interrupt'), 'the premise: the help line is on the screen');
-      await changeTab(box, (await liveTab(box, bots)).tabId, { screen, nextScreens: piScreensFor(PI_NEW_TYPED, PI_IDLE_AFTER_NEW) });
+      await changeTab(box, (await liveTab(box, bots)).tabId, { screen, nextScreens: piScreensFor(PI_NEW_TYPED, PI_NEW_SPACED, PI_IDLE_AFTER_NEW) });
 
       const started = Date.now();
       const { result, played } = await runPlaying(box, bots, { then: () => piReports(box, bots) });
@@ -660,7 +720,7 @@ describe('obk session clear on a Pi session types /new and is confirmed by the b
 
       answered(result, 'the clear');
       assert.ok(played, 'the premise: Pi reported the new conversation');
-      assert.deepEqual(await sendsInto(box, bots), [...typed(NEW), RETURN]);
+      assert.deepEqual(await sendsInto(box, bots), ENTERED);
       assert.ok(took < 20_000, `nothing was waited out: it took ${took} ms`);
     });
   }
@@ -674,7 +734,7 @@ describe('obk session clear on a Pi session types /new and is confirmed by the b
     it(`B4 a long draft with Pi's scroll labels in its rules, ${what}, and no status: no sign of work, so it is refused at once for the draft, nothing typed`, LIMIT, async (t) => {
       const box = await createSandbox(t);
       const bots = await piRunning(box);
-      await changeTab(box, (await liveTab(box, bots)).tabId, { screen, nextScreens: piScreensFor(PI_NEW_TYPED, PI_IDLE_AFTER_NEW) });
+      await changeTab(box, (await liveTab(box, bots)).tabId, { screen, nextScreens: piScreensFor(PI_NEW_TYPED, PI_NEW_SPACED, PI_IDLE_AFTER_NEW) });
       const before = await typedEverywhere(box);
 
       const started = Date.now();
@@ -701,7 +761,7 @@ describe('obk session clear on a Pi session types /new and is confirmed by the b
       screen: PI_MODEL_SELECTOR,
       thenScreen: PI_IDLE,
       readsBeforeThen: 3,
-      nextScreens: piScreensFor(PI_NEW_TYPED, PI_IDLE_AFTER_NEW),
+      nextScreens: piScreensFor(PI_NEW_TYPED, PI_NEW_SPACED, PI_IDLE_AFTER_NEW),
     });
     const from = (await box.orca.calls()).length;
 
@@ -709,7 +769,7 @@ describe('obk session clear on a Pi session types /new and is confirmed by the b
 
     answered(result, 'the clear');
     assert.ok(played, 'the premise: Pi reported the new conversation');
-    assert.deepEqual(await sendsInto(box, bots), [...typed(NEW), RETURN]);
+    assert.deepEqual(await sendsInto(box, bots), ENTERED);
     const reads = await readsBeforeFirstSend(box, tab.handle, from);
     assert.ok(reads >= 4, `nothing was typed while the selector was up: the first read without it is the fourth, and ${reads} read(s) came before the first key`);
   });
@@ -727,18 +787,18 @@ describe('obk session clear on a Pi session types /new and is confirmed by the b
     assert.ok(said.includes('⠋ Working'), `it names its signal, the at-work row "── ⠋ Working ──…", got:\n${said}`);
   });
 
-  it('W1 Pi\'s at-work row is up once the last character of /new is in: no return, the four taken back in one send, and the refusal names the row', LIMIT, async (t) => {
+  it('W1 Pi\'s at-work row is up once the last character of /new is in: no space, no return, the four taken back in one send, and the refusal names the row', LIMIT, async (t) => {
     const box = await createSandbox(t);
     const bots = await piRunning(box);
     await changeTab(box, (await liveTab(box, bots)).tabId, { nextScreens: piScreensFor(piAtWork(NEW), PI_IDLE) });
 
     const said = assertRefused(await clearOf(box));
 
-    assert.deepEqual(await sendsInto(box, bots), [...typed(NEW), { text: backspaces(NEW), enter: false }], 'the look before the return stops it');
+    assert.deepEqual(await sendsInto(box, bots), TAKEN_BACK, 'the look before the space stops it');
     assert.ok(said.includes('⠋ Working'), `it names its signal, the at-work row "── ⠋ Working ──…", got:\n${said}`);
   });
 
-  it('W1 the menu draws late, after the last character, with Pi\'s at-work row on the same screen: no return, the four taken back, and the refusal names the row', LIMIT, async (t) => {
+  it('W1 the menu draws late, after the last character, with Pi\'s at-work row on the same screen: no space, no return, the four taken back, and the refusal names the row', LIMIT, async (t) => {
     const box = await createSandbox(t);
     const bots = await piRunning(box);
     await changeTab(box, (await liveTab(box, bots)).tabId, {
@@ -747,9 +807,161 @@ describe('obk session clear on a Pi session types /new and is confirmed by the b
 
     const said = assertRefused(await clearOf(box));
 
-    assert.deepEqual(await sendsInto(box, bots), [...typed(NEW), { text: backspaces(NEW), enter: false }], 'the screen that passed the menu rule carried the at-work row, so no return');
+    assert.deepEqual(await sendsInto(box, bots), TAKEN_BACK, 'the screen that passed the menu rule carried the at-work row, so no space and no return');
     assert.ok(said.includes('⠋ Working'), `it names its signal, the at-work row "── ⠋ Working ──…", got:\n${said}`);
   });
+
+  // ------------------------------------------------ the space, and the screen after it (#673)
+
+  // Between keys the kit's look is the typing gate (a question) and Pi's own
+  // at-work row, not Orca's tui-idle: an open slash menu was seen to stop
+  // tui-idle answering ok (#391, live run 3). The space is typed with Pi's
+  // menu open, so it is a key like the others (as W2 of test/pi-compact.test.js).
+  it('W2 Orca\'s tui-idle stops answering ok once /new is in, the menu open, with no at-work row and no question on screen: the space is still typed, then the return, and the book confirms it', LIMIT, async (t) => {
+    const box = await createSandbox(t);
+    const bots = await piRunning(box);
+    const was = (await sessionIn(bots, BOT, 'daily')).session;
+    await changeTab(box, (await liveTab(box, bots)).tabId, {
+      nextScreens: piScreensFor({ screen: PI_NEW_TYPED, tuiIdle: 'busy' }, PI_NEW_SPACED, PI_IDLE_AFTER_NEW),
+    });
+
+    const { result, played } = await runPlaying(box, bots, { then: () => piReports(box, bots) });
+
+    const answer = answered(result, 'the clear');
+    assert.ok(played, 'the premise: the return was sent and Pi reported the new conversation');
+    assert.deepEqual(await sendsInto(box, bots), ENTERED, 'tui-idle alone does not stop the space: /new, the space, and the return');
+    assert.deepEqual(answer.cleared, { bot: BOT, session: 'daily', harness: 'pi', was, now: NEW_ID });
+  });
+
+  it('W2 Pi\'s at-work row comes up after the space, with no menu: no return, all five taken back in one send, and the refusal names the row', LIMIT, async (t) => {
+    const box = await createSandbox(t);
+    const bots = await piRunning(box);
+    await changeTab(box, (await liveTab(box, bots)).tabId, { nextScreens: piScreensFor(PI_NEW_TYPED, PI_NEW_SPACED_AT_WORK, PI_IDLE) });
+    const book = await sessionIn(bots, BOT, 'daily');
+
+    const said = assertRefused(await clearOf(box));
+
+    assert.deepEqual(await sendsInto(box, bots), SPACED_TAKEN_BACK, '/new and the space, then five backspaces in one send, and no return');
+    assert.ok(said.includes('⠋ Working'), `it names its signal, the at-work row "── ⠋ Working ──…", got:\n${said}`);
+    assert.deepEqual(await sessionIn(bots, BOT, 'daily'), book, 'the book is as it was');
+  });
+
+  for (const { spaced, what } of [
+    // Orca's gate names a reason after the space: the screen itself would pass.
+    { spaced: { screen: PI_NEW_SPACED, tuiIdle: 'blocked' }, what: 'Orca\'s gate names a question after the space, the editor reading "/new " with no menu' },
+    { spaced: PI_MODEL_SELECTOR, what: 'Pi\'s /model selector up after the space, by its cancel foot' },
+  ]) {
+    it(`Q1 ${what}: no return, all five taken back in one send, and the refusal says a question is up`, LIMIT, async (t) => {
+      const box = await createSandbox(t);
+      const bots = await piRunning(box);
+      await changeTab(box, (await liveTab(box, bots)).tabId, { nextScreens: piScreensFor(PI_NEW_TYPED, spaced, PI_IDLE) });
+      const book = await sessionIn(bots, BOT, 'daily');
+
+      const said = assertRefused(await clearOf(box));
+
+      assert.deepEqual(await sendsInto(box, bots), SPACED_TAKEN_BACK, '/new and the space, then five backspaces in one send, and no return');
+      assert.match(said, /question/i, `it says a question is up, got:\n${said}`);
+      assert.deepEqual(await sessionIn(bots, BOT, 'daily'), book, 'the book is as it was');
+    });
+  }
+
+  // The look through the gate right before the space (#673, the developer's
+  // hand mutation): after `w`, the kit looks through the gate, then reads the
+  // screen for the menu check, for up to a few seconds. That check reads the
+  // screen only. A question that comes up after the look that follows `w`,
+  // while the menu check runs, must still stop the space: so one more look
+  // through the gate comes before it. These show the question only at that
+  // look, never at the look after `w` nor at the menu check's read.
+
+  // Orca's gate: one answer per `terminal wait`, counted from when it is set.
+  // The look before the space is the seventh: two before the first key (the
+  // wait for an idle tab and the look before typing), one after each of `/`,
+  // `n`, `e` and `w`, then it. The test checks that premise in the call log
+  // afterwards, so a kit that looks a different number of times fails here
+  // plainly rather than passing by luck.
+  const GATE_BEFORE_SPACE = 7;
+  it('G1 Orca\'s gate names a question only at the look right before the space, after the menu check passed: no space, no return, the four taken back in one send, and the refusal says a question is up', LIMIT, async (t) => {
+    const box = await createSandbox(t);
+    const bots = await piRunning(box);
+    const tab = await liveTab(box, bots);
+    await changeTab(box, tab.tabId, { nextScreens: piScreensFor(PI_NEW_TYPED, PI_NEW_SPACED, PI_IDLE) });
+    const book = await sessionIn(bots, BOT, 'daily');
+    const from = (await box.orca.calls()).length;
+    await box.orca.set({ waitIdle: [...Array(GATE_BEFORE_SPACE - 1).fill(true), 'blocked', true] });
+
+    const said = assertRefused(await clearOf(box));
+
+    assert.deepEqual(await sendsInto(box, bots), TAKEN_BACK, '/new taken back with four backspaces in one send: no space, and never entered');
+    assert.match(said, /question/i, `it says a question is up, got:\n${said}`);
+    const calls = (await box.orca.calls()).slice(from);
+    const at = (test) => calls.map((call, n) => (test(call) ? n : -1)).filter((n) => n >= 0);
+    const waits = at((call) => orcaCommand(call) === 'terminal wait');
+    const w = at((call) => orcaCommand(call) === 'terminal send' && orcaFlag(call, '--terminal') === tab.handle && orcaFlag(call, '--text') === 'w')[0];
+    const blocked = waits[GATE_BEFORE_SPACE - 1];
+    assert.ok(w !== undefined && blocked > w, `the premise: the blocked answer came after the w was sent (w at call ${w}, blocked at ${blocked})`);
+    const readsBetween = calls.slice(w + 1, blocked).filter((call) => orcaCommand(call) === 'terminal read' && orcaFlag(call, '--terminal') === tab.handle).length;
+    const waitsBetween = waits.filter((n) => n > w && n < blocked).length;
+    assert.ok(readsBetween >= 2 && waitsBetween >= 1, `the premise: the blocked answer came after the look that follows w and after the menu check's read; between them came ${waitsBetween} wait(s) and ${readsBetween} read(s)`);
+    assert.deepEqual(await sessionIn(bots, BOT, 'daily'), book, 'the book is as it was');
+  });
+
+  // Pi's own question: the /model selector comes up on the third read after
+  // `w`. The first is the look after `w`, the second the menu check's (both
+  // show `/new` under the right menu), the third the look before the space.
+  it('G1 Pi\'s /model selector comes up only by the look right before the space, after the menu check passed: no space, no return, the four taken back in one send, and the refusal says a question is up', LIMIT, async (t) => {
+    const box = await createSandbox(t);
+    const bots = await piRunning(box);
+    const tab = await liveTab(box, bots);
+    await changeTab(box, tab.tabId, {
+      nextScreens: piScreensFor({ screen: PI_NEW_TYPED, then: PI_MODEL_SELECTOR, reads: 2 }, PI_NEW_SPACED, PI_IDLE),
+    });
+    const book = await sessionIn(bots, BOT, 'daily');
+    const from = (await box.orca.calls()).length;
+
+    const said = assertRefused(await clearOf(box));
+
+    assert.deepEqual(await sendsInto(box, bots), TAKEN_BACK, '/new taken back with four backspaces in one send: no space, and never entered');
+    assert.match(said, /question/i, `it says a question is up, got:\n${said}`);
+    const calls = (await box.orca.calls()).slice(from).filter((call) => orcaFlag(call, '--terminal') === tab.handle);
+    const w = calls.findIndex((call) => orcaCommand(call) === 'terminal send' && orcaFlag(call, '--text') === 'w');
+    const next = calls.findIndex((call, n) => n > w && orcaCommand(call) === 'terminal send');
+    const reads = calls.slice(w + 1, next).filter((call) => orcaCommand(call) === 'terminal read').length;
+    assert.ok(reads >= 3, `the premise: the screen was read three times or more after the w and before the next send, so a read showed the selector; it was read ${reads} time(s)`);
+    assert.deepEqual(await sessionIn(bots, BOT, 'daily'), book, 'the book is as it was');
+  });
+
+  // A list still drawn after the space, that closes within the kit's screen
+  // wait: the return waits for a read with no menu, then goes in (as S1 of
+  // test/pi-compact.test.js).
+  for (const { stale, what } of [
+    { stale: PI_NEW_SPACED_STALE, what: 'the /ne list with new selected' },
+    { stale: PI_NEW_SPACED_STALE_ON_NEW, what: 'the /n list with new selected, under which a Return would submit a line such as /nnew' },
+    { stale: PI_NEW_SPACED_STALE_NAME, what: 'the /n list with name selected' },
+  ]) {
+    it(`L1 a menu still drawn after the space, ${what}, that closes after a few reads: the return waits for a read with no menu, then goes in`, LIMIT, async (t) => {
+      const box = await createSandbox(t);
+      const bots = await piRunning(box);
+      const tab = await liveTab(box, bots);
+      const was = (await sessionIn(bots, BOT, 'daily')).session;
+      await changeTab(box, tab.tabId, {
+        nextScreens: piScreensFor(PI_NEW_TYPED, { screen: stale, then: PI_NEW_SPACED, reads: 3 }, PI_IDLE_AFTER_NEW),
+      });
+      const from = (await box.orca.calls()).length;
+
+      const { result, played } = await runPlaying(box, bots, { then: () => piReports(box, bots) });
+
+      const answer = answered(result, 'the clear');
+      assert.ok(played, 'the premise: the return was sent and Pi reported the new conversation');
+      assert.deepEqual(answer.cleared, { bot: BOT, session: 'daily', harness: 'pi', was, now: NEW_ID });
+      assert.deepEqual(await sendsInto(box, bots), ENTERED, '/new, the space, and the return once the menu had closed');
+      const calls = (await box.orca.calls()).slice(from).filter((call) => orcaFlag(call, '--terminal') === tab.handle);
+      const sendAt = calls.map((call, at) => (orcaCommand(call) === 'terminal send' ? at : -1)).filter((at) => at >= 0);
+      const space = sendAt[SPACED.length - 1];
+      const ret = sendAt[SPACED.length];
+      const reads = calls.slice(space + 1, ret).filter((call) => orcaCommand(call) === 'terminal read').length;
+      assert.ok(reads >= 4, `the return came only after a read with no menu: the first such read is the fourth after the space, and ${reads} read(s) came between the space and the return`);
+    });
+  }
 });
 
 // ---------------------------------------------------------------- the screen before the return
@@ -765,7 +977,7 @@ describe('#663: Pi refusals once /new is typed, side by side', { concurrency: tr
     { read: PI_NEW_KEYS_SWAPPED, shows: '/nwe', what: 'the editor row reads /nwe under the right menu' },
     { read: PI_NEW_DRAFT_KEYS_SWAPPED, shows: '/nwe', what: 'Orca\'s draft reads /nwe, the editor row blank, under the right menu' },
   ]) {
-    it(`M1 ${what}: no return, the four taken back in one send, refused, and the refusal shows the screen's rows`, LIMIT, async (t) => {
+    it(`M1 ${what}: no space, no return, the four taken back in one send, refused, and the refusal shows the screen's rows`, LIMIT, async (t) => {
       const box = await createSandbox(t);
       const bots = await piRunning(box);
       await changeTab(box, (await liveTab(box, bots)).tabId, { nextScreens: piScreensFor(read, PI_IDLE) });
@@ -773,8 +985,40 @@ describe('#663: Pi refusals once /new is typed, side by side', { concurrency: tr
 
       const said = assertRefused(await clearOf(box));
 
-      assert.deepEqual(await sendsInto(box, bots), [...typed(NEW), { text: backspaces(NEW), enter: false }], '/new taken back with four backspaces in one send, and never entered');
+      assert.deepEqual(await sendsInto(box, bots), TAKEN_BACK, '/new taken back with four backspaces in one send: no space, and never entered');
       assert.ok(said.includes(shows), `the refusal says what the screen showed, ${shows} among it, got:\n${said}`);
+      assert.deepEqual(await sessionIn(bots, BOT, 'daily'), book, 'the book is as it was');
+    });
+  }
+
+  // After the space: the return only with the line reading /new and no menu
+  // row below the box. A menu still up after the kit's screen wait, or
+  // another line, takes back all five (#673). `menu` says which reason the
+  // refusal gives in its own words: the menu, or the line.
+  for (const { spaced, shows, menu, what } of [
+    { spaced: PI_NEW_SPACED_STALE, shows: '→ new', menu: true, what: 'the list drawn for /ne still below the box after the space, new selected, never closing' },
+    { spaced: PI_NEW_SPACED_STALE_ON_NEW, shows: '→ new', menu: true, what: 'the list drawn for /n still below the box after the space, new selected, never closing (a Return would submit a line such as /nnew)' },
+    { spaced: PI_NEW_SPACED_STALE_NAME, shows: '→ name', menu: true, what: 'the list drawn for /n still below the box after the space, name selected, never closing' },
+    { spaced: PI_NEW_TYPED, shows: '→ new', menu: true, what: 'the screen unchanged after the space, the editor row /new and the menu on new, never closing' },
+    { spaced: PI_NEW_SPACED_STALE_IN_DRAFT, shows: '→ new', menu: true, what: 'Orca\'s draft "/new " after the space, the editor row blank, and the /ne list still below the box' },
+    { spaced: PI_NEW_SPACED_KEYS_SWAPPED, shows: '/ne w', menu: false, what: 'the editor row reads "/ne w" after the space, with no menu' },
+    { spaced: PI_NEW_SPACED_DRAFT_SWAPPED, shows: '/ne w', menu: false, what: 'Orca\'s draft reads "/ne w" after the space, the editor row blank, with no menu' },
+  ]) {
+    it(`M2 ${what}: no return, all five taken back in one send, refused, and the refusal says why`, LIMIT, async (t) => {
+      const box = await createSandbox(t);
+      const bots = await piRunning(box);
+      await changeTab(box, (await liveTab(box, bots)).tabId, { nextScreens: piScreensFor(PI_NEW_TYPED, spaced, PI_IDLE) });
+      const book = await sessionIn(bots, BOT, 'daily');
+
+      const started = Date.now();
+      const said = assertRefused(await clearOf(box));
+      const took = Date.now() - started;
+
+      assert.deepEqual(await sendsInto(box, bots), SPACED_TAKEN_BACK, '/new and the space taken back with five backspaces in one send, and never entered');
+      assert.ok(said.includes(shows), `the refusal says what the screen showed, ${shows} among it, got:\n${said}`);
+      const own = ownWords(said, Array.isArray(spaced) ? spaced : spaced.screen);
+      assert.match(own, menu ? /\bmenu\b/i : /\bline\b/i, `the refusal says, in its own words, that ${menu ? 'a menu is still below the box' : 'the line reads something else'} after the space, got:\n${said}`);
+      assert.ok(took < 60_000, `the reads after the space last a few seconds, not long; it took ${took} ms`);
       assert.deepEqual(await sessionIn(bots, BOT, 'daily'), book, 'the book is as it was');
     });
   }
@@ -826,11 +1070,11 @@ describe('#663: the Pi waits that run out, side by side', { concurrency: true },
     const box = await createSandbox(t);
     const bots = await piRunning(box);
     const was = (await sessionIn(bots, BOT, 'daily')).session;
-    await changeTab(box, (await liveTab(box, bots)).tabId, { nextScreens: piScreensFor(PI_NEW_TYPED, PI_IDLE_AFTER_NEW) });
+    await changeTab(box, (await liveTab(box, bots)).tabId, { nextScreens: piScreensFor(PI_NEW_TYPED, PI_NEW_SPACED, PI_IDLE_AFTER_NEW) });
 
     const said = assertRefused(await clearOf(box));
 
-    assert.deepEqual(await sendsInto(box, bots), [...typed(NEW), RETURN], 'the premise: the command was entered, and nothing was typed after it');
+    assert.deepEqual(await sendsInto(box, bots), ENTERED, 'the premise: the command was entered, and nothing was typed after it');
     assert.ok(said.includes(NEW), `it says what was entered, got:\n${said}`);
     assert.match(said, /\bconversation\b/i, `it says the book has no new conversation, got:\n${said}`);
     assert.match(said, /\btab\b/i, `and to look at the tab, got:\n${said}`);
@@ -913,6 +1157,49 @@ describe('#663: Pi\'s at-work row on a Claude Code or Codex screen changes nothi
     assert.deepEqual(await sendsInto(box, bots, 'daily', OTHER_BOT), [...typed(NEW), RETURN, RETURN, { text: RECORD_LINE, enter: true }]);
     assert.deepEqual(answer.cleared, { bot: OTHER_BOT, session: 'daily', harness: 'codex', was: 'sess-daily', now: 'sess-new' });
     assert.ok(took < 20_000, `nothing was waited out: it took ${took} ms`);
+  });
+});
+
+// ---------------------------------------------------------------- no space on Claude Code or Codex
+//
+// The space after the command is Pi's alone (#673): Claude Code's `/clear`
+// and Codex's `/new` are typed and entered as before, with no space. These
+// pass before the change: they hold that the change keeps the other two as
+// they were.
+
+describe('#673: Claude Code and Codex get no space', { concurrency: 2 }, () => {
+  it('N1 a Claude Code tab at rest: /clear a character a send, then the return, and no space anywhere', LIMIT, async (t) => {
+    const box = await createSandbox(t);
+    const { bots, tab } = await otherRunning(box, 'claude');
+    await changeTab(box, tab.tabId, { screen: CLAUDE_IDLE, nextScreens: [...whileTyping('claude', '/clear'), CLAUDE_CLEAR_TYPED, CLAUDE_IDLE] });
+
+    const { result, played } = await runPlaying(box, bots, { bot: OTHER_BOT, then: () => hookReports(box, bots, 'sess-cleared', 'clear') });
+
+    const answer = answered(result, 'the clear on Claude Code');
+    assert.ok(played, 'the premise: the hook reported the new conversation');
+    const sends = await sendsInto(box, bots, 'daily', OTHER_BOT);
+    assert.deepEqual(sends, [...typed('/clear'), RETURN], '/clear and the return, exactly as before');
+    assert.ok(!sends.some((one) => one.text.includes(' ')), `no send holds a space, got: ${JSON.stringify(sends)}`);
+    assert.deepEqual(answer.cleared, { bot: OTHER_BOT, session: 'daily', harness: 'claude', was: 'sess-daily', now: 'sess-cleared' });
+  });
+
+  it('N1 a Codex tab at rest: /new a character a send, then the return, then the answer to its question and its record line, and no space after /new', LIMIT, async (t) => {
+    const box = await createSandbox(t);
+    const { bots, tab } = await otherRunning(box, 'codex');
+    await changeTab(box, tab.tabId, { screen: CODEX_IDLE, nextScreens: [...whileTyping('codex', NEW), CODEX_NEW_TYPED, CODEX_NEW_MENU, CODEX_IDLE] });
+
+    const { result, played } = await runPlaying(box, bots, {
+      bot: OTHER_BOT,
+      when: (sends) => sends.some((one) => one.text === RECORD_LINE),
+      then: () => hookReports(box, bots, 'sess-new', 'startup'),
+    });
+
+    const answer = answered(result, 'the clear on Codex');
+    assert.ok(played, 'the premise: the line was typed and the hook reported the new conversation');
+    const sends = await sendsInto(box, bots, 'daily', OTHER_BOT);
+    assert.deepEqual(sends, [...typed(NEW), RETURN, RETURN, { text: RECORD_LINE, enter: true }], '/new, the return, the answer and the record line, exactly as before');
+    assert.notEqual(sends[NEW.length]?.text, ' ', 'no space after /new');
+    assert.deepEqual(answer.cleared, { bot: OTHER_BOT, session: 'daily', harness: 'codex', was: 'sess-daily', now: 'sess-new' });
   });
 });
 
