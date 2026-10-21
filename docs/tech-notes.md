@@ -1133,6 +1133,59 @@ docs, or Orca's 1.4.225 bundle. The kit was tested with Pi 1.1.0.
     `Compacting context... (escape to cancel)`. Pi's file got one `compaction` line about 20 s after the
     kit began, with `tokensBefore` 56019, and the screen showed `[compaction]` and `Compacted from 56,019
     tokens`. During a turn, the kit typed nothing and said after 30 s that the session is busy.
+- **`/reload` in one send meets no stale menu, so `obk skills build` keeps its one send (#679).** `obk
+  skills build` types `/reload` into an idle Pi tab with no draft by one `orca terminal send --text
+  /reload --enter` (`typeIntoTab`), with no screen check and no space. Read on 2026-10-21 in Orca
+  1.4.225's `app.asar` and Pi 1.3.0's `dist/` (pi-tui `components/editor.js`, `stdin-buffer.js`,
+  `terminal.js`, `tui.js`, `autocomplete.js`). **read in code**, and seen in a probe where marked.
+  - Orca takes its agent-prompt road, the text in a bracketed paste, only for a tab whose foreground
+    agent is `claude` or `codex` (`isTerminalRunningSettledPromptAgent`). A Pi tab gets the plain road
+    (`writeActionWithinLimit`): the text in one write (in 16 KiB pieces, so `/reload` is one), then a
+    wait of 500 ms plus 1 ms for each 4 KiB begun, so 501 ms, then `\r` in a write of its own.
+  - Each of those writes reaches the pty whole. For a local tab, Orca's pty controller sends its terminal
+    daemon one `write` notice with the whole string (`client.notify('write', { sessionId, data })`). The
+    daemon (`out/main/daemon-entry.js`) gives it to the session, which holds input only while its shell
+    is not ready yet (`shellReady.tryEnqueue`), and then to node-pty. Orca's node-pty 1.1.0
+    (`Resources/node_modules/node-pty/lib/unixTerminal.js`) puts the whole buffer into one `fs.write` on
+    the pty's master side, and writes only what is left after a short write. Read in Orca 1.4.225's
+    files.
+  - macOS keeps one short write together for the reader. Read in xnu's `bsd/kern/tty_dev.c`, the same in
+    xnu-8792.81.2 and in xnu-12377.121.6, the newest public release. The source of this Mac's Darwin
+    27.0.0 is not public. `ptcwrite`, the master side's write, takes the tty lock and puts each byte into
+    the input queue, and it lets the lock go only at the end. It stops early only when the queue holds
+    `TTYHOG - 2` bytes (1022) or the replica side is not open. `ptsread`, the replica side's read, takes
+    the same lock. So a read gets all of a 7-byte write or none of it, while the queue has room. Pi reads
+    its input as it comes, so the queue of an idle Pi is empty.
+  - Pi hands one read of its input to its editor key by key, in one synchronous loop
+    (`StdinBuffer.process`, the terminal's `data` handler, `TUI.handleInput`). The slash menu opens and
+    changes only when a request for its list ends, which is always after an `await`. Each new key cancels
+    the request before it. So one read of `/reload` leaves one request, for `/reload`. Its list selects
+    `reload` (an exact name gets 100 points more), and Return with that list writes `/reload ` and
+    submits it trimmed. A Return that comes before the list ends finds no menu and submits the line as it
+    is: `/reload`.
+  - A stale list needs three things at the Return: an earlier read of part of the text, whose list has
+    ended; a later read of the rest; and no list yet for the whole text. So Pi must read the one write of
+    `/reload` in two pieces. Then Pi must also read nothing more until the Return, 501 ms later, or the
+    list must take longer than that to end. Pi's own slash list is filtered in memory, with no wait on a
+    file or a process. Neither Orca's three Pi extensions nor the kit's `pi-record.js` adds an
+    autocomplete provider. A user's own Pi extension can.
+  - **Seen** on 2026-10-21 with Pi 1.3.0's own `Editor`, `CombinedAutocompleteProvider`, `StdinBuffer`
+    and built-in commands, outside Orca, with one more command `rreload` in the list (developer-679's
+    probe, kept in the text of PR #681, not in the repo). Orca's shape, `/reload` then 501 ms then `\r`,
+    submitted `/reload`, with the menu `/reload → reload` at the Return. `/reload\r` in one read
+    submitted `/reload`. `/rel` and `oad` in two reads, then 501 ms, then `\r`, submitted `/reload`. The
+    probe can see a stale list: `/rel`, its list ended, then `oad\r` in one read, submitted `/rereload`.
+    A list made 800 ms slow submitted `/reload` with Orca's shape (no menu at the Return), and
+    `/rereload` only with `/rel` and `oad` read 900 ms apart.
+  - **Seen** on the same day on macOS (Darwin 27.0.0): of 120,000 writes of `/reload` to a pty's master,
+    each in one `write`, a raw-mode reader in another process, which waits with `select` and then reads,
+    never got one in two reads. This agrees with the kernel code above. It is a sample, not the proof.
+  - So Pi reads Orca's one write of `/reload` in one piece, and the first thing that a stale list needs
+    is not there. One send of `/reload` meets no stale menu, and the kit keeps it. This rests on the path
+    above: Orca 1.4.225, its node-pty 1.1.0 and the macOS kernel. `obk session clear` and `obk session
+    compact` type their commands a key at a time, 100 ms apart, so a list ends between two keys; that is
+    why they need the check of the selected row and the space (#671, #673). Not seen: a live run in Orca
+    for this point. The earlier live `/reload` runs above (#659) passed.
 - **Project trust.** When the working folder or a folder above it has `.pi/settings.json`, `.pi/mcp.json`,
   `.pi/extensions|skills|prompts|themes`, `.pi/SYSTEM.md`, `.pi/APPEND_SYSTEM.md` or a project
   `.agents/skills`, Pi asks first, unless `--approve`/`--no-approve`, an extension, or a saved answer in
