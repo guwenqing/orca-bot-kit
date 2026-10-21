@@ -16,7 +16,7 @@ import { dropRemovedHooks, installHook } from './hooks.js';
 import { writePermissions } from './permissions.js';
 import { piTrouble } from './pi.js';
 import { addressOf, HARNESSES, harnessOf, isAddressOf, isShortPrompt, kitFolders, launchCommand, mailboxStep, reachesMail, sessionTrouble, startPrompt, workDirOf } from './launch.js';
-import { asFolderProject, coordinatorOf, findProject, harnessInTab, makeMailbox, makeProject, openTab, QUESTION_ON_SCREEN, retitleTab, runMissing, screenRows, shellInTab, tabs, tabToTypeInto, TERMINAL_ENV, TIMED_OUT, tellWindow, typeIntoTab, useMailbox } from './orca.js';
+import { asFolderProject, coordinatorOf, findProject, harnessInTab, loadInWindow, makeMailbox, makeProject, openTab, QUESTION_ON_SCREEN, retitleTab, runMissing, screenRows, shellInTab, tabs, tabToTypeInto, TERMINAL_ENV, TIMED_OUT, tellWindow, typeIntoTab, useMailbox } from './orca.js';
 import { TAB_ENV } from './record.js';
 import { buildAgents, rulesStamp } from './rules.js';
 import { linkSkills } from './skills.js';
@@ -40,7 +40,9 @@ const SECOND_LOOK_MS = 2000;
  * Bring bots up in Orca. Returns `{ tabs, rules }`: one tab entry per tab it
  * looked at — the sessions the book knows, and, for Bot Father, whatever else
  * is open in its project — and one rules entry and one skills entry per bot.
- * `projects` has one entry per Orca project this run made or renamed.
+ * `projects` has one entry per Orca project this run made or renamed, and per
+ * project Orca's window may not have loaded, with what went wrong as
+ * `windowTrouble` (#676).
  *
  * With no name it is every bot in the folder, in name order. `bot` brings up
  * one bot and `session` one of its sessions, for a caller that wants one thing
@@ -238,6 +240,10 @@ async function bringUpBot(bots, home, bot, onlySession) {
   // Orca's window does not see a project made or renamed on the command line
   // until it is told (#224).
   if (change !== undefined) tellWindow(orca.project);
+  // Its tabs get no notice of mail until the window loads them, and the window
+  // does not load a project it has never fetched (#676). Every run asks, so a
+  // project made before this is loaded too; the call changes nothing on screen.
+  const windowTrouble = loadInWindow(home);
 
   const live = new Map(tabs(home).map((tab) => [tab.tabId, tab]));
   const report = [];
@@ -256,7 +262,13 @@ async function bringUpBot(bots, home, bot, onlySession) {
       : spare.map((tab) => entry(tab, { bot: name, name: null, created: false }))));
   }
 
-  return { tabs: report, project: change === undefined ? undefined : { bot: name, project: orca.project, change } };
+  const project = {
+    bot: name,
+    project: orca.project,
+    ...(change === undefined ? {} : { change }),
+    ...(windowTrouble === undefined ? {} : { windowTrouble }),
+  };
+  return { tabs: report, project: change === undefined && windowTrouble === undefined ? undefined : project };
 }
 
 async function bringUpSession(bots, home, live, session, bot, title) {

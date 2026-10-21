@@ -12,7 +12,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 
-import { addSession, allowedNow, allowRules, botDir, changeBot, changeSession, createBot, disallowRules, leadsOutside, readBot, refuseCodexOutside, SESSION_FIELDS, setRoleCaps, setTempApproval } from './bot.js';
+import { addSession, allowedNow, allowRules, botDir, changeBot, changeSession, createBot, disallowRules, displayName, leadsOutside, readBot, refuseCodexOutside, SESSION_FIELDS, setRoleCaps, setTempApproval } from './bot.js';
 import { COMMANDS } from './commands.js';
 import { addCommand, groomCommand, grooming, upCommand } from './groom.js';
 import { checkHealth, orcaSettingFindings } from './health.js';
@@ -1932,12 +1932,17 @@ function tabLines({ bots, created, completed, rules, skills, permissions = [], t
     const back = one.session === undefined ? '' : ` --session ${one.session}`;
     lines.push(`${'paused'.padEnd(9)}  ${what}  left closed. Bring it back:  ${shellWord(ownCli())} unpause --bots ${shellWord(bots)} --bot ${one.bot}${back}`);
   }
+  // A window that has not loaded a bot's project gives its tabs no notice of
+  // mail (#676).
+  for (const one of projects.filter((project) => project.windowTrouble !== undefined)) {
+    lines.push(`${'window'.padEnd(9)}  ${displayName(one.bot)}  its tabs may get no fleet mail until Orca's window loads its project: ${one.windowTrouble}. Try again:  ${shellWord(ownCli())} up --bots ${shellWord(bots)} --bot ${one.bot}`);
+  }
 
   // Last before the summary, because what a check found is about the setup the
   // run has just left behind rather than about any one thing it did.
   lines.push(...foundLines(found));
   // Hedged, because nothing here can see whether the window was told (#224).
-  if (projects.length > 0) lines.push(RELOAD_LINE);
+  if (projects.some((project) => project.change !== undefined)) lines.push(RELOAD_LINE);
   lines.push(summary);
   return lines;
 }

@@ -408,6 +408,16 @@
 //               not found or is inspect-only." for a missing Run and a legacy
 //               one alike, so its refusal alone cannot tell the two apart. The
 //               request id after it is as the refusal in #508 showed it.
+//   worktreeSetLoads  true: a `worktree set` that goes through makes Orca's
+//               window load that project's tabs, as it did live (#676): every
+//               terminal at its path that was `orphaned: true` is listed as
+//               made again (`orphaned: false`) from then on. Left out, the set
+//               changes no tab, which is how a tab looks that stays orphaned.
+//   worktrees   { "<path>": { displayName, comment, isUnread, workspaceStatus } }
+//               — what `worktree set` was told about the worktree of a
+//               project at that path, field by field, and nothing else.
+//               Written by the fake, not by a test. A `worktree set` with no
+//               field writes nothing here (see its handler).
 //   closedHandles  [handle] — every terminal `terminal close` has closed:
 //               handles Orca issued and a Run may still name. Written by the
 //               fake, not by a test.
@@ -805,6 +815,59 @@ if (command === 'project setup-delete') {
     save();
   }
   ok({ deleted: { setupId: setup.id, projectId: setup.projectId, repoId: setup.repoId, path: setup.path } });
+}
+
+// One worktree's record, by `--worktree path:<p>` (#676). Orca 1.4.225 writes
+// the fields it was given and then tells its window `worktrees:changed` for
+// the repo, which makes the window fetch that repo's worktrees and so load a
+// new project's tabs (tech notes, section 1, #676). With no field given it
+// writes an empty change, and the call is still made. The fake does not model
+// the window: it changes no tab's `orphaned` here unless `worktreeSetLoads`
+// says the window loads the tabs.
+//
+// The answer is the shape Orca 1.4.225 answered with live: `result.worktree`,
+// its `id` `<repoId>::<path>`, with `repoId`, `path`, `displayName` and
+// `isUnread`, and `projectId` and `projectHostSetupId` filled in (seen in the
+// probes of #676). The other keys Orca's record carries were not written
+// down; `comment`, `workspaceStatus` and `sortOrder` here are the fake's own.
+// A path that is none of Orca's projects is refused `selector_not_found`, as
+// `terminal list --worktree` refuses one.
+if (command === 'worktree set') {
+  const target = worktreePathOf(flag('--worktree'));
+  const setup = target === undefined ? undefined : setupAt(target);
+  if (!setup) fail('selector_not_found', `no worktree matches ${flag('--worktree')}`);
+
+  const told = {};
+  if (flag('--display-name') !== undefined) told.displayName = flag('--display-name');
+  if (flag('--comment') !== undefined) told.comment = flag('--comment');
+  if (flag('--workspace-status') !== undefined) told.workspaceStatus = flag('--workspace-status');
+  if (args.includes('--read')) told.isUnread = false;
+  if (args.includes('--unread')) told.isUnread = true;
+  if (Object.keys(told).length > 0) {
+    state.worktrees = { ...(state.worktrees ?? {}), [setup.path]: { ...((state.worktrees ?? {})[setup.path] ?? {}), ...told } };
+    save();
+  }
+  // The window loads the project's tabs, when a test says it does.
+  if (state.worktreeSetLoads === true) {
+    const loaded = (state.terminals ?? []).filter((terminal) => terminal.worktreePath === setup.path && terminal.orphaned === true);
+    for (const terminal of loaded) terminal.orphaned = false;
+    if (loaded.length > 0) save();
+  }
+  const held = (state.worktrees ?? {})[setup.path] ?? {};
+  ok({
+    worktree: {
+      id: `${setup.repoId}::${setup.path}`,
+      repoId: setup.repoId,
+      path: setup.path,
+      displayName: held.displayName ?? setup.displayName,
+      comment: held.comment ?? '',
+      isUnread: held.isUnread ?? false,
+      workspaceStatus: held.workspaceStatus ?? null,
+      projectId: setup.projectId,
+      projectHostSetupId: setup.id,
+      sortOrder: 0,
+    },
+  });
 }
 
 /**

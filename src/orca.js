@@ -348,6 +348,29 @@ const CLIENT_KILL_MS = 3000;
 export const tellWindow = (projectId) => askRuntime('project.update', { projectId, updates: {} }) !== undefined;
 
 /**
+ * Have Orca's window load the tabs of the Orca project at `home`: undefined
+ * when Orca took the call, or what went wrong.
+ *
+ * The window loads a project's tabs only once it has fetched the project's
+ * worktrees, and nothing fetches them for a project the kit made, so its tabs
+ * stay orphaned and get no notice of mail (#676, tech notes). `worktree set`
+ * with no field writes an empty change and has Orca send the window the event
+ * that fetches them: nothing the user sees changes. What went wrong is said
+ * without Orca's own words, which name worktrees (PRD KIT-22: the kit says
+ * "Orca project"). `options` are `orca`'s.
+ */
+export function loadInWindow(home, options) {
+  try {
+    orca(['worktree', 'set', '--worktree', `path:${home}`], options);
+    return undefined;
+  } catch (error) {
+    return typeof error.code === 'string' && !/worktree/i.test(error.code)
+      ? `Orca refused the call (${error.code})`
+      : 'Orca gave no answer the kit could read';
+  }
+}
+
+/**
  * One call to Orca's runtime for a method its CLI does not offer, and the
  * runtime's answer, or undefined when there is none to be had.
  *

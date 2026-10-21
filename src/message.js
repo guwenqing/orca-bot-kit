@@ -18,11 +18,12 @@
 
 import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { setTimeout as pause } from 'node:timers/promises';
 
 import { MAILBOX_WAIT_MS, readBook, takeLineTurn, takeMailboxTurn, TYPING_HELD, TYPING_WAIT_MS } from './book.js';
 import { botDir, botNames, readBot } from './bot.js';
 import { harnessOf, isAddressOf, kitFolders, ownCli, reachesMail, SHELL_ENV, shellWord } from './launch.js';
-import { ackMailbox, coordinatorOf, postMessage, pressEscape, readMailbox, tabs, tabToTypeInto, TERMINAL_ENV, TIMED_OUT, useMailbox } from './orca.js';
+import { ackMailbox, coordinatorOf, loadInWindow, postMessage, pressEscape, readMailbox, tabs, tabToTypeInto, TERMINAL_ENV, TIMED_OUT, useMailbox } from './orca.js';
 
 /**
  * How much of a message travels as itself. Above this it is written to a file
@@ -161,7 +162,7 @@ export async function sendMessage(bots, { to: target, from: sender, tab, subject
 
   const written = bodyOf(bots, { from, to, subject, text, textFile });
   // Looked at before the post, which is the send's last call to Orca (PRD 6.9).
-  const shown = loaded(to);
+  const shown = await loaded(to);
   // The Escape goes first, so the turn has ended when the letter is in.
   const interrupted = interrupt ? interruptBusy(to) : {};
   const message = postMessage({
@@ -189,19 +190,34 @@ export async function sendMessage(bots, { to: target, from: sender, tab, subject
  * and lists one it has not as orphaned, as after a window restart (#579; tech
  * notes, section 1). So an orphaned tab is said, with its handle, and a
  * listing that cannot be read is said too, rather than taken for a loaded tab.
- * The look is made once: a tab orphaned after the send is not seen here.
+ * An orphaned tab of a project the window has never fetched is loaded by
+ * `loadInWindow`, which changes nothing on screen, so the kit asks for that
+ * and looks again for LOOK_MS (#676). A tab it does not load, as after a
+ * window restart (#579), is said as before. This is all before the send: a
+ * tab orphaned after it is not seen here.
  */
-function loaded(to) {
+async function loaded(to) {
   if (to.tab === undefined) return {};
-  let listed;
+  const look = () => tabs(to.home, { timeoutMs: LOOK_MS }).find((one) => one.tabId === to.tab);
+  let tab;
   try {
-    listed = tabs(to.home, { timeoutMs: LOOK_MS });
+    tab = look();
+    if (tab?.orphaned === true) {
+      loadInWindow(to.home, { timeoutMs: LOOK_MS });
+      const until = Date.now() + LOOK_MS;
+      while (tab?.orphaned === true && Date.now() < until) {
+        await pause(RELOOK_MS);
+        tab = look();
+      }
+    }
   } catch (error) {
     return { loadTrouble: error.message };
   }
-  const tab = listed.find((one) => one.tabId === to.tab);
   return tab?.orphaned === true ? { orphaned: true, handle: tab.handle } : {};
 }
+
+/** How long the kit waits between two looks at a tab it asked the window to load: it was loaded within 0.4 s, live (#676). */
+const RELOOK_MS = 200;
 
 /**
  * What is waiting for a session, and the reading of it.
