@@ -1612,3 +1612,28 @@ test('#676: worktree set loads the project\'s orphaned tabs only when told to, a
   answer(ask(box, ['worktree', 'set', '--worktree', `path:${one}`, '--json']));
   assert.deepEqual(orphaned(), { [first]: false, [second]: true }, 'told, it loads the tabs at its own path and no other');
 });
+
+test('#676 review: slowAfter makes the commands it names answer late once another command has been called, and not before', async (t) => {
+  const box = await createSandbox(t);
+  const home = box.path('bots', 'bots', 'one');
+  const added = answer(ask(box, ['repo', 'add', '--path', home, '--json']));
+  answer(ask(box, ['project', 'setup-update', '--setup', added.result.repo.id, '--kind', 'folder', '--json']));
+  await box.orca.set({ slowAfter: { after: 'worktree set', commands: ['terminal list'], ms: 1200 } });
+  const timed = (args) => {
+    const start = Date.now();
+    const result = answer(ask(box, args));
+    return { result, ms: Date.now() - start };
+  };
+
+  const early = timed(['terminal', 'list', '--json']);
+  const set = timed(['worktree', 'set', '--worktree', `path:${home}`, '--json']);
+  const late = timed(['terminal', 'list', '--json']);
+  const other = timed(['project', 'setups', '--json']);
+
+  assert.equal(early.result.ok, true);
+  assert.ok(early.ms < 1000, `before the worktree set a listing answers at once, took ${early.ms} ms`);
+  assert.ok(set.ms < 1000, `the worktree set itself is not slowed, took ${set.ms} ms`);
+  assert.equal(late.result.ok, true, 'a slow listing still answers');
+  assert.ok(late.ms >= 1200, `after it, the listing answers 1.2 s late, took ${late.ms} ms`);
+  assert.ok(other.ms < 1000, `a command it does not name answers at once, took ${other.ms} ms`);
+});

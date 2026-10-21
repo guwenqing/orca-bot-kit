@@ -3,8 +3,8 @@
 // notice reaches it. It runs against the real Claude Code, the real Codex and
 // the real Orca on this machine. Run it alone with
 // `npm run test:system -- --yes test/system/new-project-mail.test.js`,
-// between midnight and 6 am local time; `npm test` cannot, and no CI machine
-// could.
+// starting from 00:00 to 05:29 local time; `npm test` cannot, and no CI
+// machine could.
 //
 // What was seen (tech notes, section 1, #676): the tabs of a project that
 // `obk up` made were listed `orphaned: true` 2 s to 7 s after they opened, and
@@ -59,8 +59,11 @@
 // **The night gate.** A live run makes a throwaway tab real in the owner's
 // Orca window. The owner's rule (2026-10-17): such a test runs its live part
 // only in a run that names its file, between midnight and 6 am local time
-// (helpers/night-gate.js). Otherwise this test opens nothing, says why, and is
-// reported as skipped: nothing live was checked.
+// (helpers/night-gate.js). Issue #676 narrows it for this test: nothing starts
+// after 05:30. So its live part starts only from 00:00 to 05:29 local time
+// (`startsInWindow`), and helpers/night-gate.js, which other tests share,
+// keeps the owner's rule as it is. Otherwise this test opens nothing, says
+// why, and is reported as skipped: nothing live was checked.
 //
 // The machine it runs on is someone's working machine, with their own tabs
 // open. So this test, like the ones beside it:
@@ -124,6 +127,12 @@ import { tabGuard } from '../helpers/tab-guard.js';
 import { deleteOwnProject } from '../helpers/own-project.js';
 import { atNight, namedThisRun } from '../helpers/night-gate.js';
 import { RELOAD_LINE } from '../../src/orca.js';
+
+/**
+ * Whether the live part may start at `at`: the owner's night (helpers/night-gate.js,
+ * 0 to 5 am) and, for this test (#676), not from 05:30 on, so 00:00 to 05:29.
+ */
+const startsInWindow = (at) => atNight(at) && !(at.getHours() === 5 && at.getMinutes() >= 30);
 
 /** This file, as the runner names it in OBK_SYSTEM_NAMED. */
 const THIS_FILE = fileURLToPath(import.meta.url);
@@ -385,12 +394,12 @@ function letterIn(mailbox, subject) {
 
 test('a bot brought up in a new Orca project gets a tab the window loads, and Orca\'s notice of a letter reaches it', async (t) => {
   const now = new Date();
-  const night = atNight(now);
+  const night = startsInWindow(now);
   const named = namedThisRun(THIS_FILE);
   if (!(night && named)) {
     t.skip([
       `this run is at ${now.toTimeString().slice(0, 5)} local time and ${named ? 'names this file' : 'does not name this file'}, so it opened nothing and checked nothing live.`,
-      'It makes a throwaway tab real in the Orca window, which runs only in a run that names this file between midnight and 6 am local time:',
+      'It makes a throwaway tab real in the Orca window, which starts only in a run that names this file, from 00:00 to 05:29 local time:',
       '  npm run test:system -- --yes test/system/new-project-mail.test.js',
     ].join(' '));
     return;

@@ -829,6 +829,92 @@ for (const [label, bot] of RECEIVERS) {
   });
 }
 
+/** How late Orca answers each listing and each `terminal show` after the send's `worktree set`, as the reviewer saw it (#676). */
+const SLOW_MS = 1500;
+
+/** The most the send may take from its `worktree set` to its post: the second look's deadline of about 2 s, and some slack. */
+const SECOND_LOOK_BOUND_MS = 3000;
+
+/**
+ * The fleet, with the Codex receiver's tab orphaned and five more orphaned tabs
+ * in its project, tabs the user opened there that no book names; and an Orca
+ * that answers every listing and every `terminal show` SLOW_MS late once the
+ * send's `worktree set` has been made. `loads` says whether that set makes the
+ * window load the project's tabs.
+ */
+async function slowSecondLook(t, { loads }) {
+  const box = await createSandbox(t);
+  const bots = await fleet(box);
+  const home = botHomeOf(bots, 'coder');
+  const handle = await handleOf(box, bots, 'coder');
+  await box.orca.orphan(handle);
+  const others = [1, 2, 3, 4, 5].map((n) => ({
+    handle: `term_user_${n}`,
+    tabId: `tab_user_${n}`,
+    paneKey: `tab_user_${n}:leaf_user_${n}`,
+    ptyId: `repo_user::${home}@@0000aa0${n}`,
+    leafId: `leaf_user_${n}`,
+    worktreeId: `repo_user::${home}`,
+    worktreePath: home,
+    title: `my shell ${n}`,
+    agentIdentity: null,
+    orphaned: true,
+    typed: [],
+  }));
+  const before = orcaCallsOf(await box.orca.calls(), 'worktree set').length;
+  await box.orca.set({
+    terminals: [...await box.orca.terminals(), ...others],
+    worktreeSetLoads: loads,
+    slowAfter: { after: 'worktree set', commands: ['terminal list', 'terminal show'], ms: SLOW_MS, from: before },
+  });
+  return { box, bots, handle };
+}
+
+/** How long, by the fake's clock, from the send's `worktree set` to its post, `orchestration send`. */
+async function setToPost(box, from) {
+  const clock = (await box.orca.clock()).slice(from);
+  const set = clock.findIndex((call) => orcaCommand(call) === 'worktree set');
+  assert.ok(set >= 0, 'the premise: the send ran its worktree set');
+  const post = clock.findIndex((call, at) => at > set && orcaCommand(call) === 'orchestration send');
+  assert.ok(post >= 0, 'the send posted its letter after its worktree set');
+  return clock[post].at - clock[set].at;
+}
+
+test('R3 an Orca slow to answer after the send\'s worktree set, the tab still orphaned: the second look keeps its deadline, and the send says today\'s two lines', async (t) => {
+  const { box, handle } = await slowSecondLook(t, { loads: false });
+  const from = await callCount(box);
+
+  const result = await send(box, 'coder');
+
+  assert.equal(result.code, 0, `${result.stdout}${result.stderr}`);
+  const took = await setToPost(box, from);
+  assert.ok(took < SECOND_LOOK_BOUND_MS, `from the worktree set to the post took ${took} ms; the second look has one deadline of about 2 s, every Orca call in it included (bound ${SECOND_LOOK_BOUND_MS} ms)`);
+  const lines = result.stdout.split('\n').map((line) => line.trim());
+  const first = lines.indexOf(FIRST_LINE);
+  assert.ok(first >= 0, `today's first line, as it is, got:\n${result.stdout}`);
+  assert.equal(lines[first + 1], switchLine(box, handle), `then today's switch line, as it is, got:\n${result.stdout}`);
+  assert.equal((await box.orca.messages()).length, 1, 'and the letter is in the mailbox');
+});
+
+test('R3 an Orca slow to answer after the send\'s worktree set, the window loading the tab: the second look keeps its deadline, and the send says one of its two answers', async (t) => {
+  // Whether the slow listing that shows the tab real comes back inside the
+  // deadline is the kit's to judge: either answer is right, and nothing else is.
+  const { box, handle } = await slowSecondLook(t, { loads: true });
+  const from = await callCount(box);
+
+  const result = await send(box, 'coder');
+
+  assert.equal(result.code, 0, `${result.stdout}${result.stderr}`);
+  const took = await setToPost(box, from);
+  assert.ok(took < SECOND_LOOK_BOUND_MS, `from the worktree set to the post took ${took} ms; the second look has one deadline of about 2 s, every Orca call in it included (bound ${SECOND_LOOK_BOUND_MS} ms)`);
+  const lines = result.stdout.split('\n').map((line) => line.trim());
+  const first = lines.indexOf(FIRST_LINE);
+  const ordinary = lines.includes(ORDINARY) && !/orphaned/i.test(result.stdout);
+  const orphaned = first >= 0 && lines[first + 1] === switchLine(box, handle) && !lines.includes(ORDINARY);
+  assert.ok(ordinary || orphaned, `the ordinary line, or today's two orphaned lines, and not both, got:\n${result.stdout}`);
+  assert.equal((await box.orca.messages()).length, 1, 'and the letter is in the mailbox');
+});
+
 test('R3 a receiver whose tab is not orphaned: no worktree set; an orphaned one beside it gets one', async (t) => {
   const box = await createSandbox(t);
   const bots = await fleet(box);

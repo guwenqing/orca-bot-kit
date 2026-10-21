@@ -23,7 +23,7 @@ import { setTimeout as pause } from 'node:timers/promises';
 import { MAILBOX_WAIT_MS, readBook, takeLineTurn, takeMailboxTurn, TYPING_HELD, TYPING_WAIT_MS } from './book.js';
 import { botDir, botNames, readBot } from './bot.js';
 import { harnessOf, isAddressOf, kitFolders, ownCli, reachesMail, SHELL_ENV, shellWord } from './launch.js';
-import { ackMailbox, coordinatorOf, loadInWindow, postMessage, pressEscape, readMailbox, tabs, tabToTypeInto, TERMINAL_ENV, TIMED_OUT, useMailbox } from './orca.js';
+import { ackMailbox, coordinatorOf, listedOrphaned, loadInWindow, postMessage, pressEscape, readMailbox, tabs, tabToTypeInto, TERMINAL_ENV, TIMED_OUT, useMailbox } from './orca.js';
 
 /**
  * How much of a message travels as itself. Above this it is written to a file
@@ -192,28 +192,43 @@ export async function sendMessage(bots, { to: target, from: sender, tab, subject
  * listing that cannot be read is said too, rather than taken for a loaded tab.
  * An orphaned tab of a project the window has never fetched is loaded by
  * `loadInWindow`, which changes nothing on screen, so the kit asks for that
- * and looks again for LOOK_MS (#676). A tab it does not load, as after a
- * window restart (#579), is said as before. This is all before the send: a
- * tab orphaned after it is not seen here.
+ * and looks again until LOOK_MS after the ask (#676). A tab it does not load,
+ * as after a window restart (#579), is said as before. This is all before the
+ * send: a tab orphaned after it is not seen here.
  */
 async function loaded(to) {
   if (to.tab === undefined) return {};
-  const look = () => tabs(to.home, { timeoutMs: LOOK_MS }).find((one) => one.tabId === to.tab);
   let tab;
   try {
-    tab = look();
-    if (tab?.orphaned === true) {
-      loadInWindow(to.home, { timeoutMs: LOOK_MS });
-      const until = Date.now() + LOOK_MS;
-      while (tab?.orphaned === true && Date.now() < until) {
-        await pause(RELOOK_MS);
-        tab = look();
-      }
-    }
+    tab = tabs(to.home, { timeoutMs: LOOK_MS }).find((one) => one.tabId === to.tab);
   } catch (error) {
     return { loadTrouble: error.message };
   }
-  return tab?.orphaned === true ? { orphaned: true, handle: tab.handle } : {};
+  if (tab?.orphaned !== true) return {};
+  return (await loadedNow(to.home, tab.handle)) ? {} : { orphaned: true, handle: tab.handle };
+}
+
+/**
+ * Whether the window loads the orphaned tab `handle` at `home` once asked to.
+ * The ask and every look after it keep to one deadline, LOOK_MS from the ask,
+ * and each Orca call gets only the time that is left, so a slow Orca cannot
+ * hold the send up for longer (#676). A look that fails or runs out counts as
+ * a tab still orphaned.
+ */
+async function loadedNow(home, handle) {
+  const until = Date.now() + LOOK_MS;
+  const left = () => until - Date.now();
+  loadInWindow(home, { timeoutMs: LOOK_MS });
+  try {
+    for (let ms = left(); ms > 0; ms = left()) {
+      if (!listedOrphaned(home, handle, { timeoutMs: ms })) return true;
+      const wait = Math.min(RELOOK_MS, left());
+      if (wait > 0) await pause(wait);
+    }
+  } catch {
+    // A look that fails or runs out leaves the tab said as orphaned.
+  }
+  return false;
 }
 
 /** How long the kit waits between two looks at a tab it asked the window to load: it was loaded within 0.4 s, live (#676). */

@@ -365,6 +365,14 @@
 //               first n after those: one late answer among prompt ones. Both
 //               count from `from`, the calls of the command made before the
 //               hang was set (0 if left out).
+//   slowAfter   { after, commands, ms, from } — each command named in
+//               `commands` answers `ms` late (1500 if left out), as it would
+//               have answered, from the world as it is when the wait is over,
+//               once the command `after` has been called more than `from` times
+//               (0 if left out) in all; before that it answers at once. `after`
+//               itself is not slowed unless `commands` names it. Seen in the
+//               review of #676: after a `worktree set`, each `terminal show` of
+//               an orphaned tab in that project took about 1.5 s.
 //   crash       { command, exitCode, stdout, stderr } — no JSON, a bad exit code
 //   garbage     { command, text } — output that is not JSON at all
 //   runs        [{ id, objective, coordinator_handle, consumer_generation,
@@ -629,6 +637,16 @@ const hangFor = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0
 // whatever the world holds by then. One that applies first waits in `ok`.
 if (hangsNow() && state.hang.applied !== true) {
   hangFor(state.hang.ms);
+  state = JSON.parse(readFileSync(stateFile, 'utf8'));
+}
+
+// An Orca slow to answer some commands once another has been called (`slowAfter`).
+if (
+  state.slowAfter != null
+  && (state.slowAfter.commands ?? []).includes(command)
+  && callsSoFar(state.slowAfter.after) > (state.slowAfter.from ?? 0)
+) {
+  hangFor(state.slowAfter.ms ?? 1500);
   state = JSON.parse(readFileSync(stateFile, 'utf8'));
 }
 

@@ -457,6 +457,14 @@ export const tabs = (home, options) => orca(['terminal', 'list', '--worktree', `
     : tab));
 
 /**
+ * Whether Orca lists the terminal `handle` at `home` as orphaned, from one
+ * listing and no `terminal show`, so a caller with a deadline can give the one
+ * call all the time it has left (#676).
+ */
+export const listedOrphaned = (home, handle, options) => orca(['terminal', 'list', '--worktree', `path:${home}`], options).terminals
+  .some((tab) => tab.handle === handle && tab.orphaned === true);
+
+/**
  * Open a tab in the Orca project at `home`, titled `title`.
  *
  * No `--command`: for a project the kit has just made, `--command` with a
