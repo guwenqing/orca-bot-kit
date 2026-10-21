@@ -314,15 +314,25 @@ test('a work dir whose name has two spaces in it is named as it is', async (t) =
 
 test('a session with a work dir and no prompt still has the note to say', async (t) => {
   const box = await createSandbox(t);
+  const fake = await fakeProgram(box, 'codex', {});
   const bots = await withSession(box, ['--work-dir', 'work/api']);
 
   const { result, typed } = await up(box, bots, ['--json']);
 
   assert.ok(
-    typed[0].startsWith(`${bareLaunch(box, 'codex', 'prompt-bot', 'daily')} -- '`),
+    typed[0].startsWith(`${bareLaunch(box, 'codex', 'prompt-bot', 'daily')} -- `),
     `the note is something to say, got: ${JSON.stringify(typed)}`,
   );
-  assert.ok(typed[0].includes(path.join(botHomeOf(bots, 'prompt-bot'), 'work', 'api')));
+  // Read through a shell, as the tab reads it: the note is on the line itself
+  // when it is short, and in a file the line reads back when the work dir's
+  // path makes it long. Which one is the kit's to choose; the harness gets the
+  // same one word either way.
+  const argv = await argvOf(box, typed[0], fake);
+  assert.deepEqual(argv.slice(0, -1), ['--approve-for-me', '--no-daemon', '-c', 'sandbox_workspace_write.network_access=true', ...kitAddDirs(bots, 'prompt-bot'), '--']);
+  assert.ok(
+    argv.at(-1).includes(path.join(botHomeOf(bots, 'prompt-bot'), 'work', 'api')),
+    `the one word after the separator is the note, got: ${JSON.stringify(argv)}`,
+  );
   assert.equal(
     onlyTab(result).promptReceived,
     false,
@@ -332,6 +342,7 @@ test('a session with a work dir and no prompt still has the note to say', async 
 
 test('an absolute work dir reaches the note as it is', async (t) => {
   const box = await createSandbox(t);
+  const fake = await fakeProgram(box, 'codex', {});
   const elsewhere = path.join(box.root, 'clones', 'api');
   const bots = await withSession(box, ['--prompt', PROMPT]);
   // By hand: session add refuses a Codex session a work dir outside (#585), and up still takes it.
@@ -339,7 +350,11 @@ test('an absolute work dir reaches the note as it is', async (t) => {
 
   const { typed } = await up(box, bots);
 
-  assert.ok(typed[0].includes(elsewhere), `the note should name ${elsewhere}, got: ${typed[0]}`);
+  // The prompt word itself, as the harness gets it: the line names this work
+  // dir in its `--add-dir` too, and the note may be in a file the line reads.
+  const said = (await argvOf(box, typed[0], fake)).at(-1);
+  assert.ok(said.startsWith(`${PROMPT}\n\n`), `the prompt, and the note below it, got: ${JSON.stringify(said)}`);
+  assert.ok(said.includes(elsewhere), `the note should name ${elsewhere}, got: ${JSON.stringify(said)}`);
 });
 
 test('a session with nothing to say gets a launch line with no prompt word', async (t) => {

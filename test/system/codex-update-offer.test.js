@@ -43,14 +43,20 @@
 // does not write the blanks of a new screen, so a phrase is looked for with
 // its blanks taken out too.
 //
-// The pty driver is a short Python script, written into the run's temp folder
-// and run with `python3 -I`: Node has no pty of its own, and the kit takes no
-// dependency for one. It forks the child in a new pty, sets the window to 40
-// rows by 120 columns before it starts Codex, reads for WINDOW_S seconds, and
-// then sends SIGKILL to the child by the pid the fork gave it, and waits for
-// it. Each driver run has a hard time limit; if the driver itself is killed,
-// the test kills the child by that same pid, only when the child's command
-// line still names the run's own folder.
+// The pty driver is a short Python script (test/helpers/pty-driver.js), written
+// into the run's temp folder and run with `python3 -I`: Node has no pty of its
+// own, and the kit takes no dependency for one. It forks the child in a new
+// pty, sets the window to 40 rows by 120 columns before it starts Codex, reads
+// for WINDOW_S seconds, and then sends SIGKILL to the child by the pid the fork
+// gave it, and waits for it. Each driver run has a hard time limit; if the
+// driver itself is killed, the test kills the child by that same pid, only when
+// the child's command line still names the run's own folder.
+//
+// The new pty puts the child in a session of its own, so the runner's hard stop
+// at its time limit (#653) kills the driver and not the child, and can take
+// this test's own kill with it. So the child ends by itself after CHILD_LIFE_S
+// whatever happens: the driver sets an alarm in it before it starts Codex
+// (#655).
 //
 // The machine it runs on is someone's working machine. So this test opens no
 // Orca tab, types into nothing, signals no process but its own children by
@@ -70,12 +76,16 @@ import path from 'node:path';
 import test from '../helpers/system.js';
 
 import { projectTrust } from '../helpers/codex-trust.js';
+import { PTY_DRIVER } from '../helpers/pty-driver.js';
 
 /** How long each run reads the screen. Codex 0.163.0 drew the offer within 12 s. */
 const WINDOW_S = 30;
 
 /** The hard limit on each driver run, past its own window. */
 const DRIVER_LIMIT_MS = (WINDOW_S + 30) * 1000;
+
+/** How long each Codex child lives at most, should its driver be killed (#655). */
+const CHILD_LIFE_S = DRIVER_LIMIT_MS / 1000;
 
 /** The release the throwaway version.json offers. */
 const OFFERED = '99.0.0';
@@ -85,72 +95,6 @@ const CURSOR_ANSWER = Buffer.from('\x1b[1;1R').toString('hex');
 
 /** The user's own Codex files this test must leave as they are. */
 const USER_FILES = ['config.toml', 'version.json'].map((name) => path.join(os.homedir(), '.codex', name));
-
-/** The pty driver. Arguments: seconds, output file, report file, pid file, cwd, then the command. */
-const DRIVER = `
-import fcntl, json, os, pty, select, signal, struct, sys, termios, time
-
-seconds = float(sys.argv[1])
-out_path, report_path, pid_path, cwd = sys.argv[2:6]
-command = sys.argv[6:]
-
-pid, fd = pty.fork()
-if pid == 0:
-    try:
-        fcntl.ioctl(0, termios.TIOCSWINSZ, struct.pack('HHHH', 40, 120, 0, 0))
-        os.chdir(cwd)
-        os.execvp(command[0], command)
-    finally:
-        os._exit(127)
-
-with open(pid_path, 'w') as f:
-    f.write(str(pid))
-
-QUERY = b'\\x1b[6n'
-ANSWER = b'\\x1b[1;1R'
-screen = bytearray()
-writes = []
-queries = 0
-scanned = 0
-ended = False
-deadline = time.monotonic() + seconds
-while True:
-    left = deadline - time.monotonic()
-    if left <= 0:
-        break
-    ready, _, _ = select.select([fd], [], [], min(left, 0.5))
-    if not ready:
-        continue
-    try:
-        chunk = os.read(fd, 65536)
-    except OSError:
-        chunk = b''
-    if not chunk:
-        ended = True
-        break
-    screen += chunk
-    while True:
-        at = screen.find(QUERY, scanned)
-        if at < 0:
-            scanned = max(scanned, len(screen) - len(QUERY) + 1)
-            break
-        queries += 1
-        scanned = at + len(QUERY)
-        os.write(fd, ANSWER)
-        writes.append(ANSWER.hex())
-
-done, status = os.waitpid(pid, os.WNOHANG)
-killed = False
-if done == 0:
-    os.kill(pid, signal.SIGKILL)
-    killed = True
-    done, status = os.waitpid(pid, 0)
-
-with open(out_path, 'wb') as f:
-    f.write(bytes(screen))
-with open(report_path, 'w') as f:
-    json.dump({'pid': pid, 'queries': queries, 'writes': writes, 'ended': ended, 'killed': killed, 'status': status}, f)
-`;
 
 /** A file's sha256, or `missing`. Only the hash is ever printed. */
 const hashOf = (file) => (existsSync(file) ? createHash('sha256').update(readFileSync(file)).digest('hex') : 'missing');
@@ -218,7 +162,7 @@ async function runCodex(root, name, extra) {
 
   const files = { out: path.join(dir, 'screen.bin'), report: path.join(dir, 'report.json'), pid: path.join(dir, 'pid') };
   const command = ['codex', '--no-daemon', '-c', projectTrust(cwdReal), ...extra];
-  const done = spawnSync('python3', ['-I', path.join(root, 'pty-driver.py'), String(WINDOW_S), files.out, files.report, files.pid, cwdReal, ...command], {
+  const done = spawnSync('python3', ['-I', path.join(root, 'pty-driver.py'), String(WINDOW_S), String(CHILD_LIFE_S), files.out, files.report, files.pid, cwdReal, ...command], {
     env: childEnv(codexHome),
     cwd: cwdReal,
     encoding: 'utf8',
@@ -251,7 +195,7 @@ test('Codex shows its update offer without -c check_for_update_on_startup=false 
     await rm(root, { recursive: true, force: true });
     assert.equal(existsSync(root), false, `this test left ${root} behind`);
   });
-  await writeFile(path.join(root, 'pty-driver.py'), DRIVER);
+  await writeFile(path.join(root, 'pty-driver.py'), PTY_DRIVER);
 
   // The premise, in a throwaway CODEX_HOME of its own: a codex on PATH, and which.
   const versionHome = path.join(root, 'version-home');
