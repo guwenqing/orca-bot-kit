@@ -1158,7 +1158,7 @@ docs, or Orca's 1.4.225 bundle. The kit was tested with Pi 1.1.0.
     autocomplete provider. A user's own Pi extension can.
   - **Seen** on 2026-10-21 with Pi 1.3.0's own `Editor`, `CombinedAutocompleteProvider`, `StdinBuffer`
     and built-in commands, outside Orca, with one more command `rreload` in the list (developer-679's
-    probe, kept in the text of the PR for #679, not in the repo). Orca's shape, `/reload` then 501 ms
+    probe, kept in the text of PR #681, not in the repo). Orca's shape, `/reload` then 501 ms
     then `\r`, submitted `/reload`, with the menu `/reload → reload` at the Return. `/reload\r` in one
     read submitted `/reload`. `/rel` and `oad` in two reads, then 501 ms, then `\r`, submitted `/reload`.
     The probe can see a stale list: `/rel`, its list ended, then `oad\r` in one read, submitted
