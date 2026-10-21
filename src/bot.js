@@ -791,7 +791,7 @@ function asMapping(bot, file) {
 export function requireBotsFolder(bots) {
   const dir = botsDir(bots);
   if (statSync(dir, { throwIfNoEntry: false })?.isDirectory() !== true) {
-    throw new Error(`${bots} is not a bots folder: run obk init --bots <path> --harness claude|codex first.`);
+    throw new Error(`${bots} is not a bots folder: run obk init --bots <path> --harness claude|codex|pi first.`);
   }
   return dir;
 }

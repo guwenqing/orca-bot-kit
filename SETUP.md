@@ -38,7 +38,7 @@ git --version
 /Applications/Orca.app/Contents/Resources/bin/orca status --json
 claude --version                                        # at least one of these
 codex --version                                         # 0.156.1 or newer
-pi --version                                            # 1.3.0, for a bot on Pi
+pi --version                                            # 1.3.0
 ```
 
 The Orca line must come back with `ok: true` and `result.runtime.reachable:
@@ -63,7 +63,7 @@ If Node is older than 24.21.0, say so and stop. The kit's book of sessions is a
 SQLite write transaction through Node's own `node:sqlite`, and 24.21.0 is the
 first release measured here that loads it without an experimental warning.
 
-If neither harness is installed, say so and stop. If only one is, that is fine,
+If no harness is installed, say so and stop. If only one is, that is fine,
 and it is the one Bot Father will run on.
 
 If Codex is older than 0.156.1, say so and ask them to update it before a bot
@@ -121,15 +121,17 @@ book of sessions. It holds none of the kit's code. The bots commit their own
 changes to it; the kit's commands never commit, and pushing it somewhere is
 theirs to decide.
 
-**Which harness Bot Father runs on**, `claude` or `codex`. There is no default
-and the kit will not guess. It is Bot Father's own harness only; each bot they
-make later chooses its own. If only one harness is installed, say so and confirm
-it rather than asking as though the choice were open.
+**Which harness Bot Father runs on**, `claude`, `codex` or `pi`. There is no
+default and the kit will not guess. It is Bot Father's own harness only; each
+bot they make later chooses its own. If only one harness is installed, say so
+and confirm it rather than asking as though the choice were open. If they choose
+`pi`, they sign in to Pi themselves first: the kit never handles Pi's
+credentials, and `obk init` starts nothing while Pi can use no model.
 
 ## 4. Make the fleet
 
 ```sh
-obk init --bots <their path> --harness claude|codex
+obk init --bots <their path> --harness claude|codex|pi
 ```
 
 This makes the folder a git repository, seeds it, writes Bot Father, and opens

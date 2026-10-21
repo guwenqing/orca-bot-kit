@@ -97,7 +97,8 @@ charter: |
   names in paths, tokens, what a charter says. Put in the command that was run
   and its whole output, what you expected instead, and what these print:
   obk --version, obk health --bots <folder> --json, node --version, the Orca
-  version, and claude --version or codex --version; and the operating system.
+  version, and claude --version, codex --version or pi --version; and the
+  operating system.
   One problem per issue. If you cannot file it yourself, give your owner the
   text to paste.
 rules: []
