@@ -1,7 +1,7 @@
 schema: assuredloop/1
 request: pi-compact
 tier: "1"
-status: open
+status: concluded
 sources:
   - file: 2026-10-20-owner-words.md
     kind: owner-words

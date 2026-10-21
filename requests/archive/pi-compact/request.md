@@ -1,5 +1,5 @@
 # pi-compact
-Tier: 1 · Status: open
+Tier: 1 · Status: concluded
 
 ## Owner's words and dialog
 
@@ -15,3 +15,11 @@ Tier: 1 · Status: open
 Assumed: this is a follow-up of #663, part of #547 (#671). Pi 1.3.0 lists `/compact` in its slash menu, and a compaction writes a line `{"type":"compaction","timestamp":…}` into the conversation's session file, `~/.pi/agent/sessions/--<folder>--/<time>_<id>.jsonl` (read in code). These facts are from Pi 1.3.0, and a live run in a throwaway Orca tab at night checks them. No command, option or setting is added.
 Out: a fix for Orca's own restore of a Pi tab, and Pi's automatic compaction.
 Signed off: 2026-10-20 owner, origin/2026-10-20-signoff-2.md
+
+## Outcome
+
+Concluded 2026-10-21 with al conclude, on the working tree at fa78276.
+
+- R1 obk session compact types /compact into a Pi tab, version 2, signed in S2:
+  - KIT-28 rule: in docs/prd/prd.md, serves it
+- Not known: whether the code, tests and documents do what the paragraphs say; whether the work has ended: the tool does not take a merged task or a reconciled spec as evidence of that.
