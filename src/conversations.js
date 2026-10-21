@@ -49,7 +49,7 @@ const PI_FILE = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z_(.+)\.jsonl$/;
 const piIdOf = (name) => PI_FILE.exec(name)?.[1];
 
 /** Where Pi keeps the conversation `id` of this bot home, or undefined when it has none yet. */
-const piSession = (home, id) => {
+export const piSession = (home, id) => {
   const name = files(piDir(home)).find((one) => piIdOf(one) === id);
   return name === undefined ? undefined : path.join(piDir(home), name);
 };

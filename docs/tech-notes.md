@@ -1084,6 +1084,48 @@ docs, or Orca's 1.4.225 bundle. The kit was tested with Pi 1.1.0.
     - At the end of the turn: the box empty, and both rules plain again.
     - Not seen: the scroll labels, a status other than `Working`, a wide status, a chat divider over
       the box, and a stale menu list. **verified** (live, for the points above)
+- **`/compact` in a Pi tab, for `obk session compact` (#671).** Read on 2026-10-20 in Pi 1.3.0's `dist/`
+  (coding-agent `core/slash-commands.js`, `core/agent-session.js`, `core/session-manager.js`,
+  `core/compaction/compaction.js`, `modes/interactive/interactive-mode.js`; pi-tui `autocomplete.js`,
+  `components/editor.js`). **read in code**, and seen in Orca for the points marked **seen live**.
+  - The slash menu lists `{ name: "compact", description: "Manually compact the session context" }`. Pi runs
+    a line that is `/compact`, or `/compact <instructions>`, as a manual compaction (`handleCompactCommand`).
+    It first aborts any turn that runs; the kit types only into an idle tab.
+  - While it compacts, the status is `Compacting context... (escape to cancel)`, in the input box's top
+    rule, so the kit's at-work check counts it as busy (the point above).
+  - At the end of a compaction, Pi appends one line to the conversation's session file:
+    `{"type":"compaction","id","parentId","timestamp","summary","firstKeptEntryId","tokensBefore",…}`,
+    with `timestamp` an ISO time taken when the line is written (`appendCompaction`). Pi's automatic
+    compaction writes the same kind of line. The conversation id stays the same. So the kit confirms a
+    compact by a `compaction` line in the book's conversation's file, written after the kit began to
+    type and dated at or after that moment, as it does for Claude Code's `compact_boundary` and Codex's
+    `compacted`.
+  - A compact can fail with no line: `Nothing to compact (session too small)`, `Already compacted` (the
+    last entry is a compaction), `Compaction cancelled`, or an error of the model. A manual compact keeps
+    about the last 20000 tokens (`keepRecentTokens`), so a short conversation has nothing to compact.
+    The kit then says, after 5 minutes, that the compact is not confirmed yet.
+  - A menu list still drawn from an earlier key: Return applies the selected row against the prefix that
+    list was made for (`applyCompletion`), and the screen cannot tell that list from a fresh one. **Seen**
+    on 2026-10-20 with Pi 1.3.0's own `Editor` and `CombinedAutocompleteProvider` run in isolation, outside
+    Orca, with an extension command `ccompact` in the list (the reviewer's finding on #671, then repeated):
+    a list settled for `/compac` gave `/compact` again, but a list settled for `/compa`, with `compact`
+    selected and the line `/compact`, made Return submit `/ccompact`. That line runs an extension command
+    of that name, or goes to the model as a prompt. So a selected row of `compact` is not enough.
+  - A space after `/compact` makes Pi ask for the list of `/compact `, and `compact` has no argument
+    completions, so the menu closes. **Seen** in the same probe: `/compact`, settled, then a space, settled:
+    no menu, and Return submitted `/compact` (`submitValue` trims). A stale `/compa` list with `ct ` typed
+    at once still showed until it settled; a Return while it showed submitted `/cocompact`, and a Return
+    after it settled submitted `/compact`. Older requests cannot open the menu again, since a result counts
+    only while the text is the one it was asked for (`isAutocompleteRequestCurrent`).
+  - So on Pi, `obk session compact` types `/compact`, checks the editor row and the selected row `compact`,
+    types one space, and presses Return only when the editor reads `/compact` and no menu row shows below
+    the box (#671). Otherwise it takes back all nine characters. `obk session clear` types `/new` without
+    the space (#663), and has the same gap with a list left from `/n`.
+  - **Seen live** on 2026-10-21 in Orca with Pi 1.3.0 and gpt-6-luna (`test/system/pi-compact.test.js`):
+    before Return, the editor read `/compact` with no menu below the box. Then the box's top rule read
+    `Compacting context... (escape to cancel)`. Pi's file got one `compaction` line about 20 s after the
+    kit began, with `tokensBefore` 56019, and the screen showed `[compaction]` and `Compacted from 56,019
+    tokens`. During a turn, the kit typed nothing and said after 30 s that the session is busy.
 - **Project trust.** When the working folder or a folder above it has `.pi/settings.json`, `.pi/mcp.json`,
   `.pi/extensions|skills|prompts|themes`, `.pi/SYSTEM.md`, `.pi/APPEND_SYSTEM.md` or a project
   `.agents/skills`, Pi asks first, unless `--approve`/`--no-approve`, an extension, or a saved answer in
