@@ -126,7 +126,9 @@ default and the kit will not guess. It is Bot Father's own harness only; each
 bot they make later chooses its own. If only one harness is installed, say so
 and confirm it rather than asking as though the choice were open. If they choose
 `pi`, they sign in to Pi themselves first: the kit never handles Pi's
-credentials, and `obk init` starts nothing while Pi can use no model.
+credentials, and `obk init` starts nothing while Pi can use no model. When you
+ask or confirm, tell them: "On Pi, Bot Father acts without asking first, because
+Pi has no approval step."
 
 ## 4. Make the fleet
 
