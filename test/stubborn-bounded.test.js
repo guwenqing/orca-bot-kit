@@ -24,8 +24,9 @@
 //
 // Killing processes (AGENTS.md, 2026-09-20): every process here is this test's
 // own child, in this test's own group. The test signals only those, through
-// the handle node gave it at spawn, and an after-hook sends SIGKILL to any of
-// them that still runs, however the test ends.
+// the handle node gave it at spawn, and prints each pid before it signals it.
+// An after-hook sends SIGKILL to any of them that still runs, however the test
+// ends.
 
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -58,7 +59,9 @@ function startStubborn(t, seconds) {
   const at = performance.now();
   const child = spawn(process.execPath, ['-e', stubbornProgram(seconds)], { stdio: ['ignore', 'pipe', 'pipe'] });
   t.after(() => {
-    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+    if (child.exitCode !== null || child.signalCode !== null) return;
+    t.diagnostic(`stopping this test's own child that still runs: ${child.pid} (stubbornProgram(${seconds}))`);
+    child.kill('SIGKILL');
   });
   let out = '';
   let err = '';
@@ -87,6 +90,7 @@ const endedWithin = (ended, ms) => Promise.race([ended, setTimeout(ms, undefined
 test('the stubborn program outlives a SIGTERM sent once it says ready', async (t) => {
   const { child, ready, ended } = startStubborn(t, 60);
   assert.equal(await ready, 'ready');
+  t.diagnostic(`SIGTERM to this test's own child ${child.pid} (stubbornProgram(60))`);
   child.kill('SIGTERM');
   const after = await endedWithin(ended, 1000);
   assert.equal(after, undefined, `stubbornProgram(60) ended within 1 s of a SIGTERM: ${JSON.stringify(after)}`);
@@ -97,6 +101,7 @@ test('the stubborn program ends by itself, with code 0, once its seconds have pa
   const runs = [1, 5].map((seconds) => ({ seconds, ...startStubborn(t, seconds) }));
   await Promise.all(runs.map(async ({ seconds, child, ready, ended }) => {
     assert.equal(await ready, 'ready', `stubbornProgram(${seconds}) says ready first`);
+    t.diagnostic(`SIGTERM to this test's own child ${child.pid} (stubbornProgram(${seconds}))`);
     child.kill('SIGTERM');
     const within = seconds * 1000 + MARGIN_MS;
     const end = await endedWithin(ended, within);
