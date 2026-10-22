@@ -131,6 +131,10 @@ const ALWAYS = 1e6;
  * they are on the machine for the second and no test file made them: somebody
  * else's `obk up`, on a machine the tests do not have to themselves.
  *
+ * `runListSlow`, `{ calls, ms }`, makes that many listings, the first ones,
+ * take `ms` before they answer: an Orca that is slow while the runner looks
+ * at the machine before the tests (#689).
+ *
  * It answers `project setups --json` too (#536), out of the same world file:
  * `{ setups, setupsFails, setupsGarbles, setupsEnvelope }`. The envelope is the
  * one read live on Orca 1.4.223 (#536): exactly `id`, `ok`, `result: { setups }`
@@ -159,6 +163,11 @@ async function fakeOrca(box, { stdout = '', stderr = '', exitCode = 0 }, world) 
     "if (words.join(' ') === 'orchestration run-list') {",
     "  const state = JSON.parse(readFileSync(WORLD, 'utf8'));",
     '  const spend = (name) => { state[name] -= 1; writeFileSync(WORLD, JSON.stringify(state)); };',
+    '  if (state.runListSlow && state.runListSlow.calls > 0) {',
+    '    state.runListSlow.calls -= 1;',
+    '    writeFileSync(WORLD, JSON.stringify(state));',
+    '    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, state.runListSlow.ms);',
+    '  }',
     '  if (state.runListFails > 0) {',
     "    spend('runListFails');",
     "    writeSync(2, 'runtime_unavailable: Could not connect to the running Orca app\\n');",
@@ -555,12 +564,13 @@ async function createRepo(t, {
   runListEnvelope = 'ok',
   appearsDuring = [],
   setups = [],
+  runListSlow = null,
 } = {}) {
   const box = await createSandbox(t);
   const world = path.join(box.root, 'orca-runs.json');
   await writeFile(world, JSON.stringify({
     runs, runListFails, runListGarbles, runListEnvelope, appearsDuring,
-    setups, setupsFails: 0, setupsGarbles: 0, setupsEnvelope: 'ok',
+    setups, setupsFails: 0, setupsGarbles: 0, setupsEnvelope: 'ok', runListSlow,
   }));
   const orca = await fakeOrca(box, orcaOptions, world);
   const orcaPath = path.join(box.root, 'bin', 'orca');
@@ -5343,8 +5353,8 @@ const hangs = ({ pids, child = null, loop = false, leaves = null, marks = null }
  * (the machine's own CODEX_HOME and CLAUDE_CONFIG_DIR taken out), the config
  * files, what the test leaves, and where it writes its pids and marks.
  */
-async function withHang(t, { child = false, loop = false, leaves = false, marks = false } = {}) {
-  const fixture = await createRepo(t, { runs: ALREADY_THERE });
+async function withHang(t, { child = false, loop = false, leaves = false, marks = false, runListSlow = null } = {}) {
+  const fixture = await createRepo(t, { runs: ALREADY_THERE, runListSlow });
   const box = path.dirname(fixture.repo);
   const temp = tempSpellings(fixture);
   const { CODEX_HOME: _codex, CLAUDE_CONFIG_DIR: _claude, ...env } = fixture.env;
@@ -6043,5 +6053,138 @@ describe('test-system: a run that starts at night ends by 06:00 (#689)', { concu
     assert.equal(result.code, 2, `unconfirmed, it should exit 2 as before, got:\n${everything(result)}`);
     assert.deepEqual(await ranIn(fixture), []);
     await assertNoBackup(result, env.TMPDIR, 'unconfirmed at 05:59:59.500');
+  });
+});
+
+// The night ends at 06:00 whatever the steps before the tests take (#689,
+// review of PR #695). The runner looks at the machine before it starts the
+// tests: the config backup, and the Runs, trust keys and projects already
+// there. That takes time, more when Orca is slow. A run that starts at a local
+// hour from 0 to 5 must still end by 06:00:00 of that night. So node --test
+// gets the smaller of the limit asked for and the whole seconds left until
+// that 06:00 at the moment the tests are started, and the `Time limit:` line
+// shows that value. With less than 1 whole second left then, no test runs, the
+// runner says why, and exits 1.
+//
+// Here the runner's clock moves: a preload on the runner's process alone sets
+// it to a fixed local time at a fixed real moment, and from then on it runs
+// with the real clock. The test knows that real moment, so it knows when
+// 06:00 is on its own clock. The fake Orca's first run-list takes 3 s.
+
+/** The first run-list's delay: the time the runner's look before the tests takes, at least. */
+const SLOW_LISTING = { calls: 1, ms: 3000 };
+
+/**
+ * A clock preload: Date reads 2026-10-22 at `at` ([h, m, s, ms]) local time at
+ * the real moment `real` (ms), and runs on from there with the real clock.
+ */
+const movingClock = (at, real) => [
+  'const Real = globalThis.Date;',
+  `const base = new Real(2026, 9, 22, ${at.join(', ')}).getTime();`,
+  `const real = ${real};`,
+  'const now = () => base + (Real.now() - real);',
+  'class MovingDate extends Real {',
+  '  constructor(...args) {',
+  '    if (args.length === 0) super(now());',
+  '    else super(...args);',
+  '  }',
+  '  static now() { return now(); }',
+  '}',
+  'globalThis.Date = MovingDate;',
+  '',
+].join('\n');
+
+/**
+ * startRunner with the runner's clock at `at` now, moving. Answers the run and
+ * `sixAt`: the real time (this process's Date.now()) when the runner's clock
+ * reads 06:00:00 of that night.
+ */
+async function startMoving(fixture, at, args, options = {}) {
+  const box = path.dirname(fixture.repo);
+  const file = path.join(box, `moving-clock-${at.join('-')}.mjs`);
+  const real = Date.now();
+  await writeFile(file, movingClock(at, real));
+  const sixAt = real + (new Date(2026, 9, 22, 6, 0, 0, 0).getTime() - new Date(2026, 9, 22, ...at).getTime());
+  return { run: startRunner(fixture, args, { ...options, nodeArgs: ['--import', pathToFileURL(file).href] }), sixAt };
+}
+
+/** The seconds the `Time limit:` line shows. */
+function limitShown(result) {
+  const match = /^Time limit: (\d+) s for the whole run;/.exec(timeLimitLine(result));
+  assert.ok(match, `the limit line should give whole seconds, got: ${timeLimitLine(result)}`);
+  return Number(match[1]);
+}
+
+/**
+ * Watch the process of the run's test file, by the pid it wrote down: answers
+ * the real time it was first seen gone, or null when it was still alive
+ * `bound` ms after `until`, or never wrote its pid before the run ended.
+ */
+async function goneAt(pidsFile, done, until, bound = 15_000) {
+  let ended = false;
+  done.then(() => { ended = true; }, () => { ended = true; });
+  let pid;
+  for (;;) {
+    if (pid === undefined) pid = (await pidsIn(pidsFile)).find((one) => one.role === 'file')?.pid;
+    if (pid !== undefined && !isRunning(pid)) return Date.now();
+    if (pid === undefined && ended) return null;
+    if (Date.now() > until + bound) return null;
+    await new Promise((resolve) => { setTimeout(resolve, 50); });
+  }
+}
+
+describe('test-system: a night run ends by 06:00 whatever the steps before the tests take (#689, review of PR #695)', { concurrency: true }, () => {
+  test('a run that starts at 05:59:50 with a 3 s Orca listing before the tests: its test, which never ends, is gone by 06:00, and the limit shown is what was left when the tests started', async (t) => {
+    const { fixture, env, box, pidsFile } = await withHang(t, { runListSlow: SLOW_LISTING });
+
+    const { run, sixAt } = await startMoving(fixture, [5, 59, 50, 0], [CONFIRM], { env });
+    const gone = await goneAt(pidsFile, run.done, sixAt);
+    const result = await run.done;
+    reapLater(t, await pidsIn(pidsFile), box);
+
+    assertEnded(result);
+    assert.equal(result.code, 1, `a run the limit stopped fails, got:\n${everything(result)}`);
+    // Started at 05:59:50 at the earliest after a 3 s listing: 6.x s left at most.
+    const shown = limitShown(result);
+    assert.ok(shown >= 1 && shown <= 6, `the limit should be the whole seconds left when the tests started, 6 at most after the 3 s listing; it showed ${shown} s:\n${everything(result)}`);
+    assert.ok(gone !== null, `the test's process should be gone after the run, got:\n${everything(result)}`);
+    // The stop is a SIGKILL at the limit; 500 ms covers this watch's own polling.
+    assert.ok(gone <= sixAt + 500, `the test's process should be gone by 06:00 on the runner's clock; it was gone ${gone - sixAt} ms after 06:00:\n${everything(result)}`);
+  });
+
+  test('a run that starts at 05:00:00 with no --limit and a 3 s Orca listing before the tests holds no more than the seconds left at the tests\' start, 3596 at most', async (t) => {
+    const fixture = await createRepo(t, { runListSlow: SLOW_LISTING });
+
+    const { run } = await startMoving(fixture, [5, 0, 0, 0], [CONFIRM]);
+    const result = await run.done;
+
+    assertEnded(result);
+    assert.equal(result.code, 0, everything(result));
+    const shown = limitShown(result);
+    assert.ok(shown >= 3500 && shown <= 3596, `3600 s is asked for, and at least 3 s went by before the tests started, so the limit should be 3596 s at most; it showed ${shown} s:\n${everything(result)}`);
+  });
+
+  test('a run that starts at 05:59:57.500 and whose look before the tests takes past 06:00 runs no test, says the night ended, and exits 1', async (t) => {
+    const { fixture, env } = await withConfigsAndOrca(t, { files: { 'test/system/alpha.test.js': tallies('ALPHA') }, runListSlow: SLOW_LISTING });
+
+    const { run } = await startMoving(fixture, [5, 59, 57, 500], [CONFIRM], { env });
+    const result = await run.done;
+
+    assertEnded(result);
+    assert.equal(result.code, 1, `with no time left when the tests would start, it should exit 1, got:\n${everything(result)}`);
+    assert.ok(!/^\s+at /m.test(everything(result)), `expected a message, got a crash:\n${everything(result)}`);
+    assert.deepEqual(await ranIn(fixture), [], `no test should have run after 06:00, got:\n${everything(result)}`);
+    assert.match(everything(result), /06:00|night/i, `it should say the night ended, got:\n${everything(result)}`);
+  });
+
+  test('the same run by day, at 12:00:00 with the 3 s listing, holds 3600 s: the time before the tests cuts nothing by day', async (t) => {
+    const fixture = await createRepo(t, { runListSlow: SLOW_LISTING });
+
+    const { run } = await startMoving(fixture, [12, 0, 0, 0], [CONFIRM]);
+    const result = await run.done;
+
+    assertEnded(result);
+    assert.equal(result.code, 0, everything(result));
+    assert.equal(limitShown(result), 3600, everything(result));
   });
 });
