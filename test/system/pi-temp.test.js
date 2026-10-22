@@ -54,35 +54,45 @@
 // have to pass `onlyPlainTrustOf` or `onlyTeachFormOf`
 // (helpers/screens.js); none is answered here.
 //
-// **An orphaned tab.** This test opens its bots in a throwaway Orca project,
-// and the Orca window may not load it. Orca lists a tab of a project its
-// window has not loaded as orphaned (`orphaned: true`, tab id `pty:<ptyId>`):
-// it is not a tab the window has loaded (tech notes, section 1; #579), and
-// steps 3 to 5 read helper's tab as the window shows it. A tab counts as real
-// only when Orca lists it with `orphaned: false` and a tab id that does not
-// start with `pty:`. So after step 2 the test looks at helper's tab, and only
-// at that tab, and prints each look: observed, not judged.
+// **helper's tab must be real after `obk temp make` alone.** Orca lists a tab
+// of a project its window has not loaded as orphaned (`orphaned: true`, tab
+// id `pty:<ptyId>`): it is not a tab the window has loaded (tech notes,
+// section 1; #579), and steps 3 to 5 read helper's tab as the window shows
+// it. A tab counts as real only when Orca lists it with `orphaned: false` and
+// a tab id that does not start with `pty:`. Since #676, `obk temp make`, as
+// `obk up`, makes the Orca window load the bot's project, so the tab it opens
+// is real. So after step 2 the test looks at helper's tab, and only at that
+// tab, and prints the look. When it is not real, the test fails at once and
+// says so: which tab, what Orca listed, and whether `obk temp make`'s answer
+// named a `windowTrouble`. It does not wait for the tab to turn real.
+// It looks again every second for WATCH_MS (10 s), and fails at the first
+// look that finds the tab orphaned: #676 saw a new tab real when it opened
+// and orphaned 2 s to 7 s later, so one look could miss a failure.
 //
-// When it is not real, the test opens ONE MORE throwaway project in its bots
-// folder, made as `obk up` makes a bot's project, with one plain tab in it
-// (helpers/newer-project.js). Then it waits up to REAL_MS until helper's tab
-// is real, and fails plainly if it is not. What was seen live on 2026-10-18
-// (#561, #634): `orca terminal switch --terminal <handle>` answered ok, and
-// the tab stayed orphaned, so this test does not switch. One more project
-// with a plain tab made the older tabs real; a tab added to the same project
-// did not; the plain tab itself was orphaned again within 30 s. The cause is
-// not known.
+// **This test makes no extra project.** Until #676, it opened one more
+// throwaway project with one plain tab when helper's tab was orphaned. Seen
+// live on 2026-10-18 (#561, #634): that made the older tabs real, and `orca
+// terminal switch` did not; the cause was not known then. #676 found the cause
+// (tech notes, section 1), and that extra project would now hide whether the
+// kit's own command makes the tab real.
 //
-// That step opens a project and a tab in the owner's Orca window, so it runs
-// only when both hold (the owner's rule in #561):
+// **The night gate.** The owner's rule (2026-10-17): a test that makes a
+// throwaway tab real in the owner's Orca window runs that part only in a run
+// that names its file, between midnight and 6 am local time
+// (helpers/night-gate.js). Since #676, `obk init`, `obk up` and `obk temp
+// make` themselves make the tabs they open real. So the gate covers the whole
+// live part, from before the test makes its bots folder, and it starts only
+// when both hold:
 //
 //   - the local hour is 0 to 5 (between midnight and 6 am), and
 //   - the run named this file (the runner's OBK_SYSTEM_NAMED holds its path).
 //
-// Otherwise it opens nothing and fails, and says why. A run that does not name
-// this file opens no extra project and no extra tab. The extra project's home
-// is in the teardown's homes, so the tab guard closes its plain tab and the
-// teardown deletes the project.
+// Otherwise it opens nothing, says why, and is reported as skipped: nothing
+// live was checked.
+// It reads the gate again right before each later kit command that can open a
+// tab or make the window load a project (`obk up`, `obk temp make`). When the
+// night ended during the run, it opens nothing more and fails, and names the
+// step that did not run: such a run is not a pass.
 //
 // The machine it runs on is someone's working machine. So this test, like the
 // ones beside it: works in a throwaway bots folder under the system temp
@@ -125,7 +135,6 @@ import { cliEntry } from '../helpers/cli.js';
 import { questionOn } from '../helpers/screens.js';
 import { tabGuard } from '../helpers/tab-guard.js';
 import { deleteOwnProject } from '../helpers/own-project.js';
-import { openNewerProject } from '../helpers/newer-project.js';
 import { atNight, namedThisRun } from '../helpers/night-gate.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
 
@@ -150,6 +159,24 @@ const ORCA = process.env.OBK_ORCA || '/Applications/Orca.app/Contents/Resources/
 /** This file, as the runner names it in OBK_SYSTEM_NAMED. */
 const THIS_FILE = fileURLToPath(import.meta.url);
 
+/**
+ * The night gate again, right before a later kit command that can open a tab
+ * or make the Orca window load a project (#687): the same rule as at the
+ * test's start. When the night ended during the run, the test opens nothing
+ * more and fails here, naming `step`, which did not run, so the run is not a
+ * pass. The teardown runs as before.
+ */
+function gateStillOpen(step) {
+  const now = new Date();
+  const night = atNight(now);
+  const named = namedThisRun(THIS_FILE);
+  assert.ok(night && named, [
+    `The night gate closed during this run: it is ${now.toTimeString().slice(0, 5)} local time${named ? '' : ', and this run does not name this file'}.`,
+    `So this test opened nothing more: ${step} did not run, and no live step after it ran. This run is not a pass.`,
+    `Run it again in a night run, between midnight and 6 am local time: npm run test:system -- --yes test/system/${path.basename(THIS_FILE)}`,
+  ].join('\n'));
+}
+
 /** How long a tab is given to show its harness. */
 const READY_MS = 180000;
 
@@ -159,8 +186,13 @@ const ANSWER_MS = 240000;
 /** How long after a refusal the tab is watched for a change that should not come. */
 const SETTLE_MS = 5000;
 
-/** How long helper's tab is given to be listed as real after one more project is opened (#561: about 30 s). */
-const REAL_MS = 30000;
+/**
+ * How long a judged look watches a tab after the kit's command that opened it,
+ * and how often it looks: #676 saw a new tab real when it opened and orphaned
+ * 2 s to 7 s later. The tab must be real at every look in that time.
+ */
+const WATCH_MS = 10000;
+const WATCH_STEP_MS = 1000;
 
 const BOT = 'pi-temp-bot';
 const LEAD = 'lead';
@@ -386,50 +418,62 @@ function orphanWords(handle) {
     : `listed as ORPHANED (orphaned: ${entry.orphaned}, tab id ${entry.tabId}): it is not a tab the Orca window has loaded`;
 }
 
-/**
- * Before step 3: helper's tab ({ title, handle }) is real, or this test opens
- * one more project, at night in a run that names this file, and the tab is
- * real within REAL_MS; or the test fails and says why. The extra project's
- * home goes into `homes`, the teardown's list, before it is made.
- */
-async function loadedForReading(t, { title, handle }, why, { bots, homes }) {
-  const entry = listed(handle);
-  assert.ok(entry !== undefined, `${title}: Orca no longer lists its tab ${handle}`);
-  t.diagnostic(`${title} (${handle}) before ${why}: ${orphanWords(handle)}`);
-  if (realTab(entry)) return;
+/** What an `obk ... --json` answer said of its step that makes the Orca window load a bot's project (#676), in words. */
+function windowWords(answer) {
+  const trouble = (answer?.projects ?? []).filter((one) => one.windowTrouble !== undefined);
+  return trouble.length === 0
+    ? 'Its answer named no windowTrouble, so that step said it worked.'
+    : `Its answer named windowTrouble, so that step failed: ${trouble.map((one) => `${one.bot}: ${one.windowTrouble}`).join('; ')}.`;
+}
 
-  const name = `${title} (${handle})`;
+/**
+ * Before step 3: helper's tab ({ title, handle }) is real, or the test fails
+ * at once and says why. `by` names the kit's command that opened the tab, and
+ * `answer` is its --json answer: since #676 that command makes the Orca window
+ * load the bot's project. This test opens no extra project and does not wait
+ * for the tab to turn real.
+ * It looks again every WATCH_STEP_MS for WATCH_MS, and fails at the first
+ * look that finds the tab orphaned. `screen` is run between the looks.
+ */
+async function loadedForReading(t, { title, handle }, why, { by, answer, screen = async () => {} }) {
+  const start = Date.now();
+  let looks = 0;
+  for (;;) {
+    const entry = listed(handle);
+    const since = Math.round((Date.now() - start) / 1000);
+    assert.ok(entry !== undefined, `${title}: Orca no longer lists its tab ${handle}${looks === 0 ? '' : `, ${since} s after the first look before ${why}`}`);
+    if (looks === 0) t.diagnostic(`${title} (${handle}) before ${why}: ${orphanWords(handle)}`);
+    assert.ok(realTab(entry), [
+      looks === 0
+        ? `Orca lists ${title}'s tab ${handle} as orphaned before ${why} (orphaned: ${entry.orphaned}, tab id ${entry.tabId}).`
+        : `Orca lists ${title}'s tab ${handle} as orphaned ${since} s after the first look before ${why} (orphaned: ${entry.orphaned}, tab id ${entry.tabId}); it was real at the ${looks} looks before that.`,
+      `\`${by}\` should have made the Orca window load the bot's project, so that its tabs are real (#676). ${windowWords(answer)}`,
+      'An orphaned tab is not a tab the Orca window has loaded, so this test cannot read it as the window shows it.',
+      `This test opens no extra project and does not wait for the tab to turn real: it must be real at the first look and stay real for ${WATCH_MS / 1000} s.`,
+    ].join('\n'));
+    looks += 1;
+    if (Date.now() - start >= WATCH_MS) break;
+    await screen();
+    await setTimeout(WATCH_STEP_MS);
+  }
+  t.diagnostic(`${title} (${handle}): listed real at each of ${looks} looks over ${WATCH_MS / 1000} s after ${by}`);
+}
+
+test('a maker makes a temporary session on Pi, finds no first-run screen of Pi\'s in it, and retires it', async (t) => {
+  // The night gate (the header says why): the whole live part, from before
+  // the bots folder is made, runs only in a night run that names this file.
   const now = new Date();
   const night = atNight(now);
   const named = namedThisRun(THIS_FILE);
   if (!(night && named)) {
-    t.diagnostic(`opened no extra project for ${name} (night: ${night}, this file named: ${named})`);
-    assert.fail([
-      `Orca lists ${name}'s tab as orphaned before ${why}.`,
-      'An orphaned tab is not a tab the Orca window has loaded, so this test cannot read it as the window shows it.',
-      'This test opens one more project and one plain tab in the Orca window only in a night run, between midnight and 6 am local time, that names this file:',
+    t.skip([
+      `this run is at ${now.toTimeString().slice(0, 5)} local time and ${named ? 'names this file' : 'does not name this file'}, so it opened nothing and checked nothing live.`,
+      'Its obk init, obk up and obk temp make make throwaway tabs real in the Orca window (#676), so its live part starts only in a run that names this file, between midnight and 6 am local time:',
       '  npm run test:system -- --yes test/system/pi-temp.test.js',
-      `This run is at ${now.toTimeString().slice(0, 5)} local time and ${named ? 'names this file' : 'does not name this file'}, so it opened nothing.`,
-    ].join('\n'));
+    ].join(' '));
+    return;
   }
 
-  const count = homes.filter((home) => path.basename(home).startsWith('newer-')).length + 1;
-  const home = path.join(bots, 'bots', `newer-${count}`);
-  homes.push(home);
-  const newer = await openNewerProject(guard, home, `pi-temp newer ${count}`);
-  t.diagnostic(`opened one more project at ${home} at ${now.toISOString()} for ${name}: tellWindow ${newer.told ? 'taken' : 'not taken'}, plain tab ${newer.handle}`);
-  const stop = Date.now() + REAL_MS;
-  let real = realTab(listed(handle));
-  while (!real && Date.now() < stop) {
-    await setTimeout(500);
-    real = realTab(listed(handle));
-  }
-  t.diagnostic(`${name} after one more project: ${orphanWords(handle)}`);
-  t.diagnostic(`the plain tab ${newer.handle}: ${orphanWords(newer.handle)}`);
-  assert.ok(real, `Orca still lists ${name}'s tab as orphaned ${REAL_MS} ms after this test opened one more project at ${home}, so this test cannot read it as the window shows it`);
-}
-
-test('a maker makes a temporary session on Pi, finds no first-run screen of Pi\'s in it, and retires it', async (t) => {
   const before = {
     handles: new Set(allTerminals().map((terminal) => terminal.handle)),
     setups: new Set(allSetups().map((setup) => setup.id)),
@@ -482,6 +526,7 @@ test('a maker makes a temporary session on Pi, finds no first-run screen of Pi\'
   // 1. The fleet: Bot Father, and pi-temp-bot on Claude Code with one
   // long-lived session, lead, at the kit's default approval; the bot's
   // temporary sessions allowed dangerously-skip, by the kit's own command.
+  gateStillOpen('obk init');
   obkJson(['init', '--bots', bots, '--harness', 'claude']);
   obkJson([
     'bot', 'create', '--bots', bots, '--name', BOT, '--harness', 'claude',
@@ -490,12 +535,14 @@ test('a maker makes a temporary session on Pi, finds no first-run screen of Pi\'
   obkJson(['session', 'add', '--bots', bots, '--bot', BOT, '--name', LEAD, '--prompt', 'You are a system test\'s session and you own nothing. Say nothing and wait.']);
   obkJson(['permission', 'approval', '--bots', bots, '--bot', BOT, '--temps', '--approval', 'dangerously-skip']);
   assert.equal(botYamlOf(home).temp_approval, 'dangerously-skip', `the premise: the bot's temporary sessions may run at dangerously-skip: ${JSON.stringify(botYamlOf(home))}`);
+  gateStillOpen(`step 1, obk up of ${BOT}`);
   const leadTab = openedIn(obkJson(['up', '--bots', bots, '--bot', BOT]), 'up');
   const lead = { tabId: sessionIn(home, LEAD).tab, handle: leadTab.terminal };
   assert.equal(typeof lead.tabId, 'string', `the premise: the book holds lead's tab, got: ${JSON.stringify(sessionIn(home, LEAD))}`);
 
   // ---------------------------------------------------------------------------
   // 2. lead makes helper on Pi, on the cheap model, with one word to say.
+  gateStillOpen(`step 2, obk temp make of ${HELPER}`);
   const made = obkJson([
     'temp', 'make', '--bots', bots, '--name', HELPER, '--harness', 'pi', '--model', MODEL, '--effort', EFFORT, '--prompt', TASK,
   ], inTab(lead));
@@ -518,9 +565,9 @@ test('a maker makes a temporary session on Pi, finds no first-run screen of Pi\'
   const id = booked.session;
   assert.match(String(id), /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/, `the book holds a Pi session id for ${HELPER}: ${JSON.stringify(booked)}`);
 
-  // helper's tab is one the Orca window has loaded, or this test makes it so,
-  // at night in a run that names this file, or fails and says why.
-  await loadedForReading(t, { title: HELPER, handle }, 'it is read as Pi', { bots, homes });
+  // helper's tab is one the Orca window has loaded after temp make alone, or
+  // the test fails and says why.
+  await loadedForReading(t, { title: HELPER, handle }, 'it is read as Pi', { by: 'obk temp make', answer: made, screen: async () => assertNoQuestion(handle, 'while its tab was watched') });
 
   // ---------------------------------------------------------------------------
   // 3. Its tab comes up as Pi, with no question on it at any look.
