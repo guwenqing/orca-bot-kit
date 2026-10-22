@@ -6105,7 +6105,35 @@ async function startMoving(fixture, at, args, options = {}) {
   const real = Date.now();
   await writeFile(file, movingClock(at, real));
   const sixAt = real + (new Date(2026, 9, 22, 6, 0, 0, 0).getTime() - new Date(2026, 9, 22, ...at).getTime());
-  return { run: startRunner(fixture, args, { ...options, nodeArgs: ['--import', pathToFileURL(file).href] }), sixAt };
+  return { run: startRunner(fixture, args, { ...options, nodeArgs: ['--import', pathToFileURL(file).href, ...(options.nodeArgs ?? [])] }), sixAt };
+}
+
+/**
+ * A preload for the runner that writes down, in `marks`, the arguments of each
+ * spawn of a command whose arguments hold `--test`: each time the runner
+ * starts node --test. The call itself goes on as it would have.
+ */
+const SPAWN_SPY = (marks) => [
+  "import childProcess from 'node:child_process';",
+  "import { appendFileSync } from 'node:fs';",
+  "import { syncBuiltinESMExports } from 'node:module';",
+  'const real = childProcess.spawn;',
+  'childProcess.spawn = function spawn(command, args, ...rest) {',
+  `  if (Array.isArray(args) && args.includes('--test')) appendFileSync(${JSON.stringify(marks)}, JSON.stringify(args) + '\\n');`,
+  '  return real.call(this, command, args, ...rest);',
+  '};',
+  'syncBuiltinESMExports();',
+  '',
+].join('\n');
+
+/** What SPAWN_SPY wrote down: one list of arguments for each start of node --test, empty when there was none. */
+async function testSpawnsIn(marks) {
+  try {
+    return (await readFile(marks, 'utf8')).split('\n').filter((line) => line !== '').map((line) => JSON.parse(line));
+  } catch (error) {
+    if (error.code === 'ENOENT') return [];
+    throw error;
+  }
 }
 
 /** The seconds the `Time limit:` line shows. */
@@ -6164,17 +6192,37 @@ describe('test-system: a night run ends by 06:00 whatever the steps before the t
     assert.ok(shown >= 3500 && shown <= 3596, `3600 s is asked for, and at least 3 s went by before the tests started, so the limit should be 3596 s at most; it showed ${shown} s:\n${everything(result)}`);
   });
 
-  test('a run that starts at 05:59:57.500 and whose look before the tests takes past 06:00 runs no test, says the night ended, and exits 1', async (t) => {
+  test('a run that starts at 05:59:57.500 and whose look before the tests takes past 06:00 never starts node --test, says no test was run and that the night ended, and exits 1', async (t) => {
     const { fixture, env } = await withConfigsAndOrca(t, { files: { 'test/system/alpha.test.js': tallies('ALPHA') }, runListSlow: SLOW_LISTING });
+    const box = path.dirname(fixture.repo);
+    const marks = path.join(box, 'test-spawns.log');
+    const spy = path.join(box, 'spawn-spy.mjs');
+    await writeFile(spy, SPAWN_SPY(marks));
+    const spied = { env, nodeArgs: ['--import', pathToFileURL(spy).href] };
 
-    const { run } = await startMoving(fixture, [5, 59, 57, 500], [CONFIRM], { env });
+    const { run } = await startMoving(fixture, [5, 59, 57, 500], [CONFIRM], spied);
     const result = await run.done;
 
     assertEnded(result);
     assert.equal(result.code, 1, `with no time left when the tests would start, it should exit 1, got:\n${everything(result)}`);
     assert.ok(!/^\s+at /m.test(everything(result)), `expected a message, got a crash:\n${everything(result)}`);
+    // node --test was never started: not started and stopped at once by a 0 s limit.
+    assert.deepEqual(await testSpawnsIn(marks), [], `node --test should never have been started, got:\n${everything(result)}`);
+    assert.ok(!result.stdout.split('\n').some((line) => line.startsWith('Time limit: ')), `no time limit should be given to tests that never start, got:\n${everything(result)}`);
+    assert.ok(
+      !`${result.stdout}\n${result.stderr}`.split('\n').some((line) => /time limit/i.test(line) && /stopped/i.test(line)),
+      `no line should say a time limit stopped the run, got:\n${everything(result)}`,
+    );
     assert.deepEqual(await ranIn(fixture), [], `no test should have run after 06:00, got:\n${everything(result)}`);
+    assert.match(unwrapped(everything(result)), /\bno\b[^.]*\btests?\b[^.]*\b(?:was|were) (?:run|started)\b/i, `it should say that no system test was run, got:\n${everything(result)}`);
     assert.match(everything(result), /06:00|night/i, `it should say the night ended, got:\n${everything(result)}`);
+
+    // The spy sees node --test when it is started: the same repo at noon runs the test.
+    const noon = await (await startMoving(fixture, [12, 0, 0, 0], [CONFIRM], spied)).run.done;
+    assertEnded(noon);
+    assert.equal(noon.code, 0, everything(noon));
+    assert.equal((await testSpawnsIn(marks)).length, 1, `at noon the spy should see node --test started once, got:\n${everything(noon)}`);
+    assert.deepEqual(await ranIn(fixture), ['ALPHA'], 'at noon the test should run once');
   });
 
   test('the same run by day, at 12:00:00 with the 3 s listing, holds 3600 s: the time before the tests cuts nothing by day', async (t) => {
