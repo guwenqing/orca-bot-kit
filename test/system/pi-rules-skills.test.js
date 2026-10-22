@@ -54,15 +54,33 @@
 // changed (Pi's docs/session-format.md, and the tech notes, section 6).
 //
 // What is OBSERVED, NOT JUDGED (printed as diagnostics): the outputs of
-// `skills build` and of the send; whether Orca listed the Pi tab as orphaned;
-// Pi session folders other Pi sessions on this machine made while it ran.
+// `skills build` and of the send; whether Orca listed each tab as orphaned
+// once it was up (the Pi tab is judged before the build, below); Pi session
+// folders other Pi sessions on this machine made while it ran.
 //
-// **An orphaned tab.** Orca gives no notice to a tab it lists as orphaned, and
-// the kit may not type into one. So before the build this test makes sure the
-// Pi tab is real, by the same step and the same gate as pi-mail.test.js: one
-// more throwaway project with one plain tab (helpers/newer-project.js), only
-// when the local hour is 0 to 5 and the run named this file. Otherwise it
-// opens nothing, fails, and says why.
+// **The Pi tab must be real after `obk up` alone.** Orca gives no notice to a
+// tab it lists as orphaned, and the kit may not type into one. Since #676,
+// `obk up` makes the Orca window load the bot's project, so the tabs it opens
+// are real. So before the build, and so before the send of step 5 (a send
+// makes the window load an orphaned receiver's project itself, #676), the
+// test looks at the Pi tab. When it is not real, the test fails at once and
+// says so: which tab, what Orca listed, and whether `obk up`'s answer named a
+// `windowTrouble`. It does not wait for the tab to turn real.
+//
+// **This test makes no extra project.** Until #676, it opened one more
+// throwaway project with one plain tab when the Pi tab was orphaned, as
+// pi-mail.test.js did, and that made the tab real (#561); the cause was not
+// known then. #676 found the cause (tech notes, section 1), and that extra
+// project would now hide whether `obk up` alone makes the tab real.
+//
+// **The night gate.** The owner's rule (2026-10-17): a test that makes a
+// throwaway tab real in the owner's Orca window runs that part only in a run
+// that names its file, between midnight and 6 am local time
+// (helpers/night-gate.js). Since #676, `obk init` and `obk up` themselves make
+// the tabs they open real. So the gate covers the whole live part, from before
+// the test makes its bots folder: it starts only when the local hour is 0 to 5
+// and the run named this file. Otherwise it opens nothing, says why, and is
+// reported as skipped: nothing live was checked.
 //
 // The machine it runs on is someone's working machine, with their own tabs
 // open. So this test, like the ones beside it:
@@ -119,7 +137,6 @@ import { cliEntry } from '../helpers/cli.js';
 import { questionOn, waitingOn } from '../helpers/screens.js';
 import { tabGuard } from '../helpers/tab-guard.js';
 import { deleteOwnProject } from '../helpers/own-project.js';
-import { openNewerProject } from '../helpers/newer-project.js';
 import { atNight, namedThisRun } from '../helpers/night-gate.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
 
@@ -141,9 +158,6 @@ const RELOAD_MS = 30000;
  * of 2026-10-11).
  */
 const NOTICE_MS = 300000;
-
-/** How long the tab is given to be listed as real after one more project is opened (#561: about 30 s). */
-const REAL_MS = 30000;
 
 /** Pi's model and thinking level here. */
 const PI_MODEL = 'openai/gpt-6-luna';
@@ -319,43 +333,32 @@ function stopAtScreens(title, handle, { modelSelector = false } = {}) {
   assert.equal(question, undefined, `${title} shows a screen this test does not know, and it answers nothing; the run stops here:\n    ${rows.join('\n    ')}`);
 }
 
-// ------------------------------------------------------------- an orphaned tab
+// ------------------------------------------------------------- the tab is real
+
+/** What an `obk ... --json` answer said of its step that makes the Orca window load a bot's project (#676), in words. */
+function windowWords(answer) {
+  const trouble = (answer?.projects ?? []).filter((one) => one.windowTrouble !== undefined);
+  return trouble.length === 0
+    ? 'Its obk up named no windowTrouble, so that step said it worked.'
+    : `Its obk up named windowTrouble, so that step failed: ${trouble.map((one) => `${one.bot}: ${one.windowTrouble}`).join('; ')}.`;
+}
 
 /**
- * Before the build: the Pi tab is real, or this test opens one more project,
- * at night in a run that names this file, and the tab is real within REAL_MS;
- * or the test fails and says why. The extra project's home goes into `homes`,
- * the teardown's list, before it is made. The same step as pi-mail.test.js.
+ * Before the build: the Pi tab ({ title, handle, up }, `up` the --json answer
+ * of the `obk up` that opened it) is real, or the test fails at once and says
+ * why. Since #676 `obk up` makes the Orca window load the bot's project. This
+ * test opens no extra project and does not wait for the tab to turn real.
  */
-async function loadedForNotice(t, { title, handle }, why, { bots, homes }) {
+function loadedForNotice(t, { title, handle, up }, why) {
   const entry = listed(handle);
   assert.ok(entry !== undefined, `${title}: Orca no longer lists its tab ${handle}`);
   t.diagnostic(`${title} (${handle}) before ${why}: ${orphanWords(handle)}`);
-  if (realTab(entry)) return;
-
-  const now = new Date();
-  const night = atNight(now);
-  const named = namedThisRun(THIS_FILE);
-  if (!(night && named)) {
-    t.diagnostic(`opened no extra project for ${title} (night: ${night}, this file named: ${named})`);
-    assert.fail([
-      `Orca lists ${title}'s tab (${handle}) as orphaned before ${why}.`,
-      'Orca gives no notice to an orphaned tab, so this test cannot pass.',
-      'This test opens one more project and one plain tab in the Orca window only in a night run, between midnight and 6 am local time, that names this file:',
-      '  npm run test:system -- --yes test/system/pi-rules-skills.test.js',
-      `This run is at ${now.toTimeString().slice(0, 5)} local time and ${named ? 'names this file' : 'does not name this file'}, so it opened nothing.`,
-    ].join('\n'));
-  }
-
-  const count = homes.filter((home) => path.basename(home).startsWith('newer-')).length + 1;
-  const home = path.join(bots, 'bots', `newer-${count}`);
-  homes.push(home);
-  const newer = await openNewerProject(guard, home, `pi-rules-skills newer ${count}`);
-  t.diagnostic(`opened one more project at ${home} at ${now.toISOString()} for ${title}: tellWindow ${newer.told ? 'taken' : 'not taken'}, plain tab ${newer.handle}`);
-  const stop = Date.now() + REAL_MS;
-  while (!realTab(listed(handle)) && Date.now() < stop) await setTimeout(500);
-  t.diagnostic(`${title} (${handle}) after one more project: ${orphanWords(handle)}`);
-  assert.ok(realTab(listed(handle)), `Orca still lists ${title}'s tab (${handle}) as orphaned ${REAL_MS} ms after this test opened one more project at ${home}`);
+  assert.ok(realTab(entry), [
+    `Orca lists ${title}'s tab (${handle}) as orphaned before ${why} (orphaned: ${entry.orphaned}, tab id ${entry.tabId}).`,
+    `The obk up that opened it should have made the Orca window load the bot's project, so that its tabs are real (#676). ${windowWords(up)}`,
+    'Orca gives no notice to an orphaned tab, so this test cannot pass.',
+    'This test opens no extra project and does not wait for the tab to turn real.',
+  ].join('\n'));
 }
 
 // ------------------------------------------------------------- Pi's record
@@ -468,6 +471,20 @@ async function writeSkill(bots, { name, description }) {
 // ------------------------------------------------------------- the test
 
 test('a Pi session starts from its bot\'s AGENTS.md and skills, and takes a skill added later through skills build and /reload', async (t) => {
+  // The night gate (the header says why): the whole live part, from before
+  // the bots folder is made, runs only in a night run that names this file.
+  const now = new Date();
+  const night = atNight(now);
+  const named = namedThisRun(THIS_FILE);
+  if (!(night && named)) {
+    t.skip([
+      `this run is at ${now.toTimeString().slice(0, 5)} local time and ${named ? 'names this file' : 'does not name this file'}, so it opened nothing and checked nothing live.`,
+      'Its obk init and obk up make throwaway tabs real in the Orca window (#676), so its live part starts only in a run that names this file, between midnight and 6 am local time:',
+      '  npm run test:system -- --yes test/system/pi-rules-skills.test.js',
+    ].join(' '));
+    return;
+  }
+
   const before = {
     handles: new Set(allTerminals().map((terminal) => terminal.handle)),
     setups: new Set(allSetups().map((setup) => setup.id)),
@@ -478,7 +495,7 @@ test('a Pi session starts from its bot\'s AGENTS.md and skills, and takes a skil
   const homes = ['bot-father', PI, SENDER].map(homeOf);
   /** Pi's session folders of this test's own bot folders, by name, known once the folders exist. */
   const piFolders = [];
-  t.diagnostic(`this run names this file: ${namedThisRun(THIS_FILE)}; local time ${new Date().toTimeString().slice(0, 5)}; run ${RUN}`);
+  t.diagnostic(`local time ${new Date().toTimeString().slice(0, 5)}; run ${RUN}`);
 
   // Registered before anything is created, so it runs however this test ends.
   t.after(async () => {
@@ -541,7 +558,8 @@ test('a Pi session starts from its bot\'s AGENTS.md and skills, and takes a skil
 
   /** One session up, its conversation and mailbox in the book, and its first turn answered with its tab idle. */
   const bringUp = async (bot) => {
-    const entry = tabOf(obkJson(['up', '--bots', bots, '--bot', bot, '--session', 'daily']), 'daily');
+    const up = obkJson(['up', '--bots', bots, '--bot', bot, '--session', 'daily']);
+    const entry = tabOf(up, 'daily');
     assert.equal(entry.created, true, `the premise: up opened ${entry.title}`);
     const { title } = entry;
     const handle = entry.terminal;
@@ -556,7 +574,7 @@ test('a Pi session starts from its bot\'s AGENTS.md and skills, and takes a skil
       messagesOf(record(), 'assistant').length > 0 && idleNow(handle) ? true : undefined
     ), () => `\n  its Pi record's tail:\n  ${tailOf(record())}${whatIsUp(handle)}`, screen);
     t.diagnostic(`${title} (${handle}) once it was up: ${orphanWords(handle)}`);
-    return { title, handle, screen, id: held.session, record };
+    return { title, handle, up, screen, id: held.session, record };
   };
 
   const sender = await bringUp(SENDER);
@@ -588,7 +606,7 @@ test('a Pi session starts from its bot\'s AGENTS.md and skills, and takes a skil
   };
 
   // ----------------------------------------------------------- 2. a skill added, built, and /reload
-  await loadedForNotice(t, pi, 'the skills build', { bots, homes });
+  loadedForNotice(t, pi, 'the skills build');
   await until(`${pi.title} to be idle before the build`, READY_MS, async () => (idleNow(pi.handle) ? true : undefined), () => whatIsUp(pi.handle), pi.screen);
   const mark = pi.record().length;
   const second = addAndBuild(SECOND, 'with the tab idle');

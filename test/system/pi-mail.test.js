@@ -40,38 +40,46 @@
 // mail checks.
 //
 // What is OBSERVED, NOT JUDGED (printed as diagnostics): every send's output;
-// whether Orca listed the Pi tab as orphaned at each look; how long after a
-// send Orca's notice came, and the reply; how far the loop got after the
-// Escape.
+// whether Orca listed a tab as orphaned at each look after a send (the looks
+// before a send are judged, below); how long after a send Orca's notice came,
+// and the reply; how far the loop got after the Escape.
 //
-// **An orphaned tab.** This test opens its bots in a throwaway Orca project,
-// and the Orca window may not load it. Orca lists a tab of a project its
-// window has not loaded as orphaned (`orphaned: true`, tab id `pty:<ptyId>`),
-// and it gives such a tab no notice (tech notes, section 1; #579). A tab counts
-// as real only when Orca lists it with `orphaned: false` and a tab id that does
-// not start with `pty:`. Before each case the test looks at the Pi tab, and in
-// case 1 also at the Codex sender's tab, which gets the reply.
+// **Each tab must be real after `obk up` alone.** Orca lists a tab of a
+// project its window has not loaded as orphaned (`orphaned: true`, tab id
+// `pty:<ptyId>`), and it gives such a tab no notice (tech notes, section 1;
+// #579). A tab counts as real only when Orca lists it with `orphaned: false`
+// and a tab id that does not start with `pty:`. Since #676, `obk up` makes the
+// Orca window load the bot's project, so the tabs it opens are real. The test
+// looks at each tab once it is up, before the next `obk up`, and again before
+// each case: the Pi tab, and in case 1 also the Codex sender's tab, which gets
+// the reply. So it looks before any `obk message send` to a tab: a send makes
+// the window load an orphaned receiver's project itself (#676), and that would
+// hide a failure of `obk up`. When a tab is not real, the test fails at once
+// and says so: which tab, what Orca listed, and whether `obk up`'s answer
+// named a `windowTrouble`. It does not wait for a tab to turn real. The look
+// once a tab is up looks again every second for WATCH_MS (10 s), and fails at
+// the first look that finds the tab orphaned: #676 saw a new tab real when it
+// opened and orphaned 2 s to 7 s later, so one look could miss a failure.
 //
-// When one of them is not real, the test opens ONE MORE throwaway project in
-// its bots folder, made as `obk up` makes a bot's project, with one plain tab
-// in it (helpers/newer-project.js). Then it waits up to REAL_MS until those
-// tabs are real, and fails plainly if they are not. What was seen live on
-// 2026-10-18 (#561, #634): `orca terminal switch --terminal <handle>` answered
-// ok, and the tab stayed orphaned, so this test no longer switches. One more
-// project with a plain tab made the older tabs real; a tab added to the same
-// project did not; the plain tab itself was orphaned again within 30 s. The
-// cause is not known.
+// **This test makes no extra project.** Until #676, it opened one more
+// throwaway project with one plain tab when a tab was orphaned. Seen live on
+// 2026-10-18 (#561, #634): that made the older tabs real, and `orca terminal
+// switch` did not; the cause was not known then. #676 found the cause (tech
+// notes, section 1), and that extra project would now hide whether `obk up`
+// alone makes the tabs real.
 //
-// That step opens a project and a tab in the owner's Orca window, so it runs
-// only when both hold (the owner's rule in #561):
+// **The night gate.** The owner's rule (2026-10-17): a test that makes a
+// throwaway tab real in the owner's Orca window runs that part only in a run
+// that names its file, between midnight and 6 am local time
+// (helpers/night-gate.js). Since #676, `obk init` and `obk up` themselves make
+// the tabs they open real. So the gate covers the whole live part, from before
+// the test makes its bots folder, and it starts only when both hold:
 //
 //   - the local hour is 0 to 5 (between midnight and 6 am), and
 //   - the run named this file (the runner's OBK_SYSTEM_NAMED holds its path).
 //
-// Otherwise it opens nothing and fails, and says why: Orca gives no notice to
-// an orphaned tab. A run that does not name this file opens no extra project
-// and no extra tab. The extra project's home is in the teardown's homes, so
-// the tab guard closes its plain tab and the teardown deletes the project.
+// Otherwise it opens nothing, says why, and is reported as skipped: nothing
+// live was checked.
 //
 // The machine it runs on is someone's working machine, with their own tabs
 // open. So this test, like the ones beside it:
@@ -128,7 +136,6 @@ import { codexTrustArgs } from '../helpers/codex-trust.js';
 import { questionOn, waitingOn } from '../helpers/screens.js';
 import { tabGuard } from '../helpers/tab-guard.js';
 import { deleteOwnProject } from '../helpers/own-project.js';
-import { openNewerProject } from '../helpers/newer-project.js';
 import { atNight, namedThisRun } from '../helpers/night-gate.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
 
@@ -160,8 +167,13 @@ const QUIET_MS = 30000;
 /** How long after a letter with --interrupt Orca's notice is given to land in the record. */
 const NOTICE_MS = 90000;
 
-/** How long the tabs are given to be listed as real after one more project is opened (#561: about 30 s). */
-const REAL_MS = 30000;
+/**
+ * How long the look once a tab is up watches it, and how often it looks: #676
+ * saw a new tab real when it opened and orphaned 2 s to 7 s later. The tab
+ * must be real at every look in that time.
+ */
+const WATCH_MS = 10000;
+const WATCH_STEP_MS = 1000;
 
 /**
  * The busy loop: this many lines, one a second. Long enough that the interrupt
@@ -320,56 +332,64 @@ function lookAtOrphan(t, title, handle, when) {
   t.diagnostic(`${title} (${handle}) ${when}: ${orphanWords(handle)}`);
 }
 
+/** What an `obk ... --json` answer said of its step that makes the Orca window load a bot's project (#676), in words. */
+function windowWords(answer) {
+  const trouble = (answer?.projects ?? []).filter((one) => one.windowTrouble !== undefined);
+  return trouble.length === 0
+    ? 'Its obk up named no windowTrouble, so that step said it worked.'
+    : `Its obk up named windowTrouble, so that step failed: ${trouble.map((one) => `${one.bot}: ${one.windowTrouble}`).join('; ')}.`;
+}
+
 /**
- * Before a case that needs Orca's notice in its tabs: each of `tabs`
- * ({ title, handle }, the Pi tab first) is real, or this test opens one more
- * project, at night in a run that names this file, and each is real within
- * REAL_MS; or the case fails and says why. The extra project's home goes into
- * `homes`, the teardown's list, before it is made.
+ * The look once a tab ({ title, handle, up }, `up` the --json answer of the
+ * `obk up` that opened it) is up: it is real at the first look, and at every
+ * look each WATCH_STEP_MS for WATCH_MS, or the test fails at the first look
+ * that finds it orphaned, and says why. `screen` is run between the looks.
+ * This test opens no extra project and does not wait for the tab to turn real.
  */
-async function loadedForNotice(t, tabs, why, { bots, homes }) {
+async function realOnceUp(t, { title, handle, up }, why, screen) {
+  const start = Date.now();
+  let looks = 0;
+  for (;;) {
+    const entry = listed(handle);
+    const since = Math.round((Date.now() - start) / 1000);
+    assert.ok(entry !== undefined, `${title}: Orca no longer lists its tab ${handle}${looks === 0 ? '' : `, ${since} s after the first look before ${why}`}`);
+    if (looks === 0) t.diagnostic(`${title} (${handle}) before ${why}: ${orphanWords(handle)}`);
+    assert.ok(realTab(entry), [
+      looks === 0
+        ? `Orca lists ${title}'s tab ${handle} as orphaned before ${why} (orphaned: ${entry.orphaned}, tab id ${entry.tabId}), and Orca gives no notice to an orphaned tab.`
+        : `Orca lists ${title}'s tab ${handle} as orphaned ${since} s after the first look before ${why} (orphaned: ${entry.orphaned}, tab id ${entry.tabId}); it was real at the ${looks} looks before that. Orca gives no notice to an orphaned tab.`,
+      `The obk up that opened it should have made the Orca window load its bot's project, so that its tabs are real (#676). ${windowWords(up)}`,
+      `This test opens no extra project and does not wait for the tab to turn real: it must be real at the first look and stay real for ${WATCH_MS / 1000} s.`,
+    ].join('\n'));
+    looks += 1;
+    if (Date.now() - start >= WATCH_MS) break;
+    await screen();
+    await setTimeout(WATCH_STEP_MS);
+  }
+  t.diagnostic(`${title} (${handle}): listed real at each of ${looks} looks over ${WATCH_MS / 1000} s once it was up`);
+}
+
+/**
+ * Where the test looks at its tabs ({ title, handle, up }, `up` the --json
+ * answer of the `obk up` that opened the tab): each is real, or the test fails
+ * at once and says why. Since #676 `obk up` makes the Orca window load the
+ * bot's project. This test opens no extra project and does not wait for a tab
+ * to turn real.
+ */
+function loadedForNotice(t, tabs, why) {
   const notReal = [];
-  for (const { title, handle } of tabs) {
+  for (const { title, handle, up } of tabs) {
     const entry = listed(handle);
     assert.ok(entry !== undefined, `${title}: Orca no longer lists its tab ${handle}`);
     t.diagnostic(`${title} (${handle}) before ${why}: ${orphanWords(handle)}`);
-    if (!realTab(entry)) notReal.push({ title, handle });
+    if (!realTab(entry)) notReal.push(`${title}'s tab ${handle} (orphaned: ${entry.orphaned}, tab id ${entry.tabId}). ${windowWords(up)}`);
   }
-  if (notReal.length === 0) return;
-
-  const names = notReal.map(({ title, handle }) => `${title} (${handle})`).join(', ');
-  const now = new Date();
-  const night = atNight(now);
-  const named = namedThisRun(THIS_FILE);
-  if (!(night && named)) {
-    t.diagnostic(`opened no extra project for ${names} (night: ${night}, this file named: ${named})`);
-    assert.fail([
-      `Orca lists these tabs as orphaned before ${why}: ${names}.`,
-      'Orca gives no notice to an orphaned tab, so this case cannot pass.',
-      'This test opens one more project and one plain tab in the Orca window only in a night run, between midnight and 6 am local time, that names this file:',
-      '  npm run test:system -- --yes test/system/pi-mail.test.js',
-      `This run is at ${now.toTimeString().slice(0, 5)} local time and ${named ? 'names this file' : 'does not name this file'}, so it opened nothing.`,
-    ].join('\n'));
-  }
-
-  const count = homes.filter((home) => path.basename(home).startsWith('newer-')).length + 1;
-  const home = path.join(bots, 'bots', `newer-${count}`);
-  homes.push(home);
-  const newer = await openNewerProject(guard, home, `pi-mail newer ${count}`);
-  t.diagnostic(`opened one more project at ${home} at ${now.toISOString()} for ${names}: tellWindow ${newer.told ? 'taken' : 'not taken'}, plain tab ${newer.handle}`);
-  const stop = Date.now() + REAL_MS;
-  let still = notReal.filter(({ handle }) => !realTab(listed(handle)));
-  while (still.length > 0 && Date.now() < stop) {
-    await setTimeout(500);
-    still = notReal.filter(({ handle }) => !realTab(listed(handle)));
-  }
-  for (const { title, handle } of notReal) t.diagnostic(`${title} (${handle}) after one more project: ${orphanWords(handle)}`);
-  t.diagnostic(`the plain tab ${newer.handle}: ${orphanWords(newer.handle)}`);
-  assert.deepEqual(
-    still.map(({ handle }) => handle),
-    [],
-    `Orca still lists these tabs as orphaned ${REAL_MS} ms after this test opened one more project at ${home}, so no notice can come: ${still.map(({ title, handle }) => `${title} (${handle})`).join(', ')}`,
-  );
+  assert.deepEqual(notReal, [], [
+    `Orca lists these tabs as orphaned before ${why}, and Orca gives no notice to an orphaned tab.`,
+    'The obk up that opened each tab should have made the Orca window load its bot\'s project, so that its tabs are real (#676).',
+    'This test opens no extra project and does not wait for a tab to turn real.',
+  ].join('\n'));
 }
 
 // ------------------------------------------------------------- Pi's record
@@ -532,6 +552,20 @@ async function stepsIn(file) {
 // ------------------------------------------------------------- the test
 
 test('a Pi session gets fleet mail: Orca\'s notice in its tab, its own check, a reply; nothing typed while it is busy; --interrupt ends its turn', async (t) => {
+  // The night gate (the header says why): the whole live part, from before
+  // the bots folder is made, runs only in a night run that names this file.
+  const now = new Date();
+  const night = atNight(now);
+  const named = namedThisRun(THIS_FILE);
+  if (!(night && named)) {
+    t.skip([
+      `this run is at ${now.toTimeString().slice(0, 5)} local time and ${named ? 'names this file' : 'does not name this file'}, so it opened nothing and checked nothing live.`,
+      'Its obk init and obk up make throwaway tabs real in the Orca window (#676), so its live part starts only in a run that names this file, between midnight and 6 am local time:',
+      '  npm run test:system -- --yes test/system/pi-mail.test.js',
+    ].join(' '));
+    return;
+  }
+
   const before = {
     handles: new Set(allTerminals().map((terminal) => terminal.handle)),
     setups: new Set(allSetups().map((setup) => setup.id)),
@@ -539,7 +573,6 @@ test('a Pi session gets fleet mail: Orca\'s notice in its tab, its own check, a 
   const bots = await realpath(await mkdtemp(path.join(os.tmpdir(), 'obk-system-pi-mail-')));
   const homeOf = (bot) => path.join(bots, 'bots', bot);
   const homes = ['bot-father', PI, CODEX].map(homeOf);
-  t.diagnostic(`this run names this file: ${namedThisRun(THIS_FILE)}; local time ${new Date().toTimeString().slice(0, 5)}`);
 
   // Registered before anything is created, so it runs however this test ends.
   t.after(async () => {
@@ -580,7 +613,8 @@ test('a Pi session gets fleet mail: Orca\'s notice in its tab, its own check, a 
 
   /** One session up, and its conversation and mailbox in the book. */
   const bringUp = async (bot, session) => {
-    const entry = tabOf(obkJson(['up', '--bots', bots, '--bot', bot, '--session', session]), session);
+    const up = obkJson(['up', '--bots', bots, '--bot', bot, '--session', session]);
+    const entry = tabOf(up, session);
     assert.equal(entry.created, true, `the premise: up opened ${entry.title}`);
     const { title } = entry;
     const handle = entry.terminal;
@@ -589,10 +623,12 @@ test('a Pi session gets fleet mail: Orca\'s notice in its tab, its own check, a 
       const found = await sessionIn(homeOf(bot), session);
       return typeof found.session === 'string' && typeof found.mailbox === 'string' ? found : undefined;
     }, () => whatIsUp(handle), screen);
-    lookAtOrphan(t, title, handle, 'once it was up');
+    // Judged here, before the next obk up or send could make the window load it.
+    await realOnceUp(t, { title, handle, up }, 'the next step, once it was up', screen);
     return {
       title,
       handle,
+      up,
       screen,
       mailbox: held.mailbox,
       record: () => entriesOf(piRecordOf(homeOf(bot), held.session)),
@@ -613,7 +649,7 @@ test('a Pi session gets fleet mail: Orca\'s notice in its tab, its own check, a 
   ), () => `\n  its Pi record's tail:\n  ${tailOf(idle.record())}${whatIsUp(idle.handle)}`, idle.screen);
 
   // The Codex sender's tab too: the reply needs Orca's notice there.
-  await loadedForNotice(t, [idle, sender], 'the letter to the idle Pi receiver', { bots, homes });
+  loadedForNotice(t, [idle, sender], 'the letter to the idle Pi receiver');
   const sinceLetter = Date.now() - 1000;
   send(t, bots, { to: `${PI}/idle`, subject: 'the pi system test', text: `${QUESTION}. Please reply to me.` });
   lookAtOrphan(t, idle.title, idle.handle, 'after the letter');
@@ -634,11 +670,16 @@ test('a Pi session gets fleet mail: Orca\'s notice in its tab, its own check, a 
   // ----------------------------------------------------------- 2. busy, no --interrupt
   const busy = await bringUp(PI, 'busy');
   await until(`${busy.title} to be part way through its loop`, READY_MS, async () => ((await readFile(busy.stepsFile, 'utf8').catch(() => '')).includes(PART_WAY) ? true : undefined), () => `\n  its Pi record's tail:\n  ${tailOf(busy.record())}${whatIsUp(busy.handle)}`, busy.screen);
-  const loopStarted = Date.now() - 5000;
+  // When the loop began: its first step's time, less the second it slept.
+  // Read from its file, not from now: the watch once the tab was up can take
+  // the loop past PART_WAY before the wait above starts.
+  const firstStep = /^STEP-01 (\d+)$/m.exec(await readFile(busy.stepsFile, 'utf8').catch(() => ''));
+  assert.ok(firstStep !== null, `${busy.title}: the loop's first step has its time in ${busy.stepsFile}`);
+  const loopStarted = (Number(firstStep[1]) - 1) * 1000;
 
   // Orca holds its notice for a busy receiver, so a quiet record means
   // something only in a tab that could get a notice at all.
-  await loadedForNotice(t, [busy], 'the letter without --interrupt', { bots, homes });
+  loadedForNotice(t, [busy], 'the letter without --interrupt');
   const sinceQuiet = Date.now() - 1000;
   const stepsBefore = await stepsIn(busy.stepsFile);
   send(t, bots, { to: `${PI}/busy`, subject: 'the pi quiet report', text: `${QUIET} — nothing to do, just read this.` });
@@ -658,7 +699,7 @@ test('a Pi session gets fleet mail: Orca\'s notice in its tab, its own check, a 
   lookAtOrphan(t, busy.title, busy.handle, 'after the quiet watch');
 
   // ----------------------------------------------------------- 3. busy, --interrupt
-  await loadedForNotice(t, [busy], 'the letter with --interrupt', { bots, homes });
+  loadedForNotice(t, [busy], 'the letter with --interrupt');
   const sinceUrgent = Date.now() - 1000;
   const urgentSaid = send(t, bots, { to: `${PI}/busy`, subject: 'the pi urgent report', text: `${URGENT} — nothing to do, just read this.`, interrupt: true });
   const stepsAtEscape = await stepsIn(busy.stepsFile);

@@ -1,6 +1,8 @@
-// The gate for a system test step that makes a throwaway tab turn real in the
-// owner's Orca window (#561, #634): `namedThisRun(file)` and `atNight(at)` in
-// test/helpers/night-gate.js.
+// The gate for the steps of a system test that make a throwaway tab real in
+// the owner's Orca window: `namedThisRun(file)` and `atNight(at)` in
+// test/helpers/night-gate.js. Since #676, a bring-up (`obk init`, `obk up`,
+// `obk restart`, `obk unpause`, `obk temp make`) makes the tab it opens real.
+// So a test gates every step from its first bring-up on (#687).
 //
 // The owner's rule (2026-10-17): such a step runs only in a run that names its
 // file, between midnight and 6 am local time. The runner says which files a

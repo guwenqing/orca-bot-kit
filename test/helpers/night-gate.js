@@ -1,6 +1,8 @@
 // The gate for a system test step that makes a throwaway tab turn real in the
-// owner's Orca window (#561, #634): one more project with a plain tab in it
-// (helpers/newer-project.js).
+// owner's Orca window. Since #676, each bring-up of a bot (`obk init`, `obk up`
+// and the others) makes the Orca window load the bot's project, so its tabs
+// turn real. A test that checks those tabs gates every step from its first
+// bring-up on.
 //
 // The owner's rule (2026-10-17): a test that makes a throwaway tab turn real
 // in the owner's Orca window runs that part only in a run that names its file,
