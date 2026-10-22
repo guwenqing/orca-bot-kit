@@ -1531,6 +1531,8 @@ export const ALLOWED_ORCA_COMMANDS = [
   'automations list',
   'automations create',
   'automations edit',
+  // With no field: makes Orca's window load a new project's tabs (#676).
+  'worktree set',
 ];
 
 /**

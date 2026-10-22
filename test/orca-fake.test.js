@@ -1559,3 +1559,81 @@ test('#528 with neither key the fake takes setup-delete with --force and without
   assert.equal(JSON.parse(ask(box, ['project', 'setup-delete', '--setup', forced.setup.id, '--force', '--json']).stdout).ok, true);
   assert.deepEqual(await box.orca.setups(), []);
 });
+
+test('#676: the fake answers worktree set for a project by its path, in the shape Orca 1.4.225 answered, and refuses a path that is none of its projects', async (t) => {
+  const box = await createSandbox(t);
+  const home = box.path('bots', 'bots', 'bot-father');
+  const added = answer(ask(box, ['repo', 'add', '--path', home, '--json']));
+  answer(ask(box, ['project', 'setup-update', '--setup', added.result.repo.id, '--kind', 'folder', '--display-name', 'Bot Father', '--json']));
+  const [setup] = await box.orca.setups();
+  const before = await box.orca.state();
+
+  const set = answer(ask(box, ['worktree', 'set', '--worktree', `path:${home}`, '--json']));
+
+  assert.equal(set.ok, true, JSON.stringify(set));
+  assert.equal(set.result.worktree.id, `${setup.repoId}::${home}`);
+  assert.equal(set.result.worktree.repoId, setup.repoId);
+  assert.equal(set.result.worktree.path, home);
+  assert.equal(set.result.worktree.displayName, 'Bot Father');
+  assert.equal(set.result.worktree.isUnread, false);
+  assert.equal(set.result.worktree.projectId, setup.projectId);
+  assert.deepEqual(await box.orca.state(), before, 'a set with no field changes nothing the fake keeps');
+
+  const read = answer(ask(box, ['worktree', 'set', '--worktree', `path:${home}`, '--unread', '--json']));
+  assert.equal(read.result.worktree.isUnread, true, 'a field given is written and answered');
+
+  const elsewhere = answer(ask(box, ['worktree', 'set', '--worktree', `path:${box.path('nowhere')}`, '--json']));
+  assert.equal(elsewhere.ok, false);
+  assert.equal(elsewhere.error.code, 'selector_not_found');
+
+  const calls = (await box.orca.calls()).filter((call) => call.args[0] === 'worktree');
+  assert.equal(calls.length, 3, 'each call is written down like every other');
+});
+
+test('#676: worktree set loads the project\'s orphaned tabs only when told to, and only at its path', async (t) => {
+  const box = await createSandbox(t);
+  const tabIn = (home, title) => {
+    const added = answer(ask(box, ['repo', 'add', '--path', home, '--json']));
+    answer(ask(box, ['project', 'setup-update', '--setup', added.result.repo.id, '--kind', 'folder', '--json']));
+    return answer(ask(box, ['terminal', 'create', '--worktree', `path:${home}`, '--title', title, '--json'])).result.terminal.handle;
+  };
+  const one = box.path('bots', 'bots', 'one');
+  const two = box.path('bots', 'bots', 'two');
+  const first = tabIn(one, 'One daily');
+  const second = tabIn(two, 'Two daily');
+  await box.orca.orphan(first);
+  await box.orca.orphan(second);
+  const orphaned = () => Object.fromEntries(answer(ask(box, ['terminal', 'list', '--json'])).result.terminals.map((terminal) => [terminal.handle, terminal.orphaned]));
+
+  answer(ask(box, ['worktree', 'set', '--worktree', `path:${one}`, '--json']));
+  assert.deepEqual(orphaned(), { [first]: true, [second]: true }, 'left out, a set loads nothing');
+
+  await box.orca.set({ worktreeSetLoads: true });
+  answer(ask(box, ['worktree', 'set', '--worktree', `path:${one}`, '--json']));
+  assert.deepEqual(orphaned(), { [first]: false, [second]: true }, 'told, it loads the tabs at its own path and no other');
+});
+
+test('#676 review: slowAfter makes the commands it names answer late once another command has been called, and not before', async (t) => {
+  const box = await createSandbox(t);
+  const home = box.path('bots', 'bots', 'one');
+  const added = answer(ask(box, ['repo', 'add', '--path', home, '--json']));
+  answer(ask(box, ['project', 'setup-update', '--setup', added.result.repo.id, '--kind', 'folder', '--json']));
+  await box.orca.set({ slowAfter: { after: 'worktree set', commands: ['terminal list'], ms: 1200 } });
+  const timed = (args) => {
+    const start = Date.now();
+    const result = answer(ask(box, args));
+    return { result, ms: Date.now() - start };
+  };
+
+  const early = timed(['terminal', 'list', '--json']);
+  const set = timed(['worktree', 'set', '--worktree', `path:${home}`, '--json']);
+  const late = timed(['terminal', 'list', '--json']);
+  const other = timed(['project', 'setups', '--json']);
+
+  assert.equal(early.result.ok, true);
+  assert.ok(early.ms < 1000, `before the worktree set a listing answers at once, took ${early.ms} ms`);
+  assert.ok(set.ms < 1000, `the worktree set itself is not slowed, took ${set.ms} ms`);
+  assert.equal(late.result.ok, true, 'a slow listing still answers');
+  assert.ok(late.ms >= 1200, `after it, the listing answers 1.2 s late, took ${late.ms} ms`);
+  assert.ok(other.ms < 1000, `a command it does not name answers at once, took ${other.ms} ms`);
+});

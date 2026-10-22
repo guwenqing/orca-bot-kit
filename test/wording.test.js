@@ -78,9 +78,13 @@ test('the only worktree the kit ever names is the one in the Orca selector', asy
 
   for (const call of await box.orca.calls()) {
     // `orca worktree create` is never called; the flag `--worktree path:<p>` is
-    // how Orca is told which workspace, and that is all.
-    assert.notEqual(orcaCommand(call).split(' ')[0], 'worktree', `orca ${call.args.join(' ')}`);
-    for (const arg of call.args) {
+    // how Orca is told which workspace, and that is all. The one `worktree`
+    // command the kit calls is `worktree set` with no field, which makes Orca's
+    // window load a new project's tabs and makes no git worktree (#676).
+    const command = orcaCommand(call);
+    assert.ok(command.split(' ')[0] !== 'worktree' || command === 'worktree set', `orca ${call.args.join(' ')}`);
+    const args = command === 'worktree set' ? call.args.slice(2) : call.args;
+    for (const arg of args) {
       if (arg === '--worktree' || arg.startsWith('path:')) continue;
       assert.ok(!/worktree/i.test(arg), `orca ${call.args.join(' ')}: "worktree" belongs to the selector alone`);
     }
