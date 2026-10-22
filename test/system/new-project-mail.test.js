@@ -50,10 +50,11 @@
 // output; the tab's listing at each look; how long after the send
 // `delivered_at` came.
 //
-// **This test makes no extra project.** The tests beside it (pi-mail,
-// mail-interrupt) open one more throwaway project to make an orphaned tab real
-// (helpers/newer-project.js). This one must not: whether the kit's own step
-// keeps the tab real is the point, and a newer project would hide it. It does
+// **This test makes no extra project.** Until #687, the tests beside it
+// (pi-mail, mail-interrupt and others) opened one more throwaway project to
+// make an orphaned tab real; now none does. This one must not: whether the
+// kit's own step keeps the tab real is the point, and a newer project would
+// hide it. It does
 // not switch to or focus any tab either; its `orca` refuses both.
 //
 // **The night gate.** A live run makes a throwaway tab real in the owner's
