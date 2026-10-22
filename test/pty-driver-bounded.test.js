@@ -61,10 +61,10 @@ const ASKS = 'process.stdout.write("hi\\x1b[6n"); setTimeout(() => process.exit(
 /** Closes fds 0, 1 and 2, the pty that the fork gave the child. A test that uses it checks that the driver then sees the pty close. */
 const CLOSE_PTY = 'for (const fd of [0, 1, 2]) require("fs").closeSync(fd);';
 
-/** A command that closes its side of the pty at once, and ends with code 7 some 700 ms later. */
+/** A command that closes its side of the pty at once, and ends with code 7 some 700 ms later. Give it the test's folder, so the after-hook sees it. */
 const CLOSES_THEN_EXITS = `${CLOSE_PTY} setTimeout(() => process.exit(7), 700);`;
 
-/** A command that ignores SIGHUP and SIGTERM, closes its side of the pty at once, and runs for ever. */
+/** A command that ignores SIGHUP and SIGTERM, closes its side of the pty at once, and runs for ever. Give it the test's folder, so the after-hook sees it. */
 const CLOSES_THEN_RUNS = `process.on("SIGHUP", () => {}); process.on("SIGTERM", () => {}); ${CLOSE_PTY} setInterval(() => {}, 1000);`;
 
 /**
@@ -162,7 +162,7 @@ test('a child that ends inside the window is reported ended, not killed, with it
 });
 
 test('a child that closes the pty and then ends by itself inside the window is reported not killed, with its own status (#692)', async (t) => {
-  const { files, exited } = await runDriver(t, { seconds: 20, life: 60, command: () => [process.execPath, '-e', CLOSES_THEN_EXITS] });
+  const { files, exited } = await runDriver(t, { seconds: 20, life: 60, command: (where) => [process.execPath, '-e', CLOSES_THEN_EXITS, where] });
   const end = await Promise.race([exited, setTimeout(15000, undefined)]);
   assert.notEqual(end, undefined, 'the driver ends soon after its child does, inside its window');
   assert.deepEqual({ code: end.code, signal: end.signal }, { code: 0, signal: null }, `the driver ends with code 0: ${end.err}`);
@@ -197,7 +197,7 @@ test('a child that keeps the pty open past the window is killed at the window en
 
 test('a child that closes the pty and then runs on past the window is killed at the window end and reported killed', async (t) => {
   const WINDOW_S = 3;
-  const { dir, files, exited } = await runDriver(t, { seconds: WINDOW_S, life: 60, command: () => [process.execPath, '-e', CLOSES_THEN_RUNS] });
+  const { dir, files, exited } = await runDriver(t, { seconds: WINDOW_S, life: 60, command: (where) => [process.execPath, '-e', CLOSES_THEN_RUNS, where] });
   const end = await Promise.race([exited, setTimeout(WINDOW_S * 1000 + MARGIN_MS, undefined)]);
   assert.notEqual(end, undefined, `the driver does not wait on its child much past its window of ${WINDOW_S} s`);
   assert.deepEqual({ code: end.code, signal: end.signal }, { code: 0, signal: null }, `the driver ends with code 0: ${end.err}`);
