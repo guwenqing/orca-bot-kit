@@ -862,6 +862,191 @@ test('the check for a summary sees one a failed shard skips, one a cancelled run
   assert.equal(holds({ if: 'always()', steps: [{ if: "contains(needs.*.result, 'failure')", run: 'exit 1' }] }), false, 'passes a cancelled shard');
 });
 
+// A new head on a pull request (#694): CI stops the run for the head it
+// replaces, so the new head's shards do not wait for job slots behind a run
+// nobody needs. GitHub does that for a workflow-level `concurrency` with
+// `cancel-in-progress`: a new run stops the one in progress in the same group.
+// The group is an expression, so which runs share one is not something the
+// YAML's shape shows: the guards fill it in for runs whose facts are known, and
+// compare. A group is shared by every workflow in the repo, not only this one.
+// The summary still has to fail in the run that was stopped, so a merge never
+// reads it as green; the summary guard above plays out a cancelled run.
+
+const REPO = 'guwenqing/orca-bot-kit';
+
+/**
+ * The `github` context of a run on a pull request, as GitHub fills it in: `ref`
+ * is the pull request's own merge ref, `sha` the merge commit, and `head_ref`
+ * the name of the branch it comes from, which two pull requests can share.
+ */
+function pullRequestRun({ workflow, number, head = 'feature', base = 'main', from = REPO, sha, headSha, run, action = 'synchronize' }) {
+  const owner = from.split('/')[0];
+  return {
+    event_name: 'pull_request',
+    ref: `refs/pull/${number}/merge`,
+    ref_name: `${number}/merge`,
+    ref_type: 'branch',
+    head_ref: head,
+    base_ref: base,
+    sha,
+    run_id: String(run),
+    run_number: String(run % 1000),
+    run_attempt: '1',
+    workflow,
+    repository: REPO,
+    repository_owner: REPO.split('/')[0],
+    actor: 'qiragu',
+    triggering_actor: 'qiragu',
+    event: {
+      action,
+      number,
+      pull_request: {
+        number,
+        head: { ref: head, sha: headSha, label: `${owner}:${head}`, repo: { full_name: from } },
+        base: { ref: base, repo: { full_name: REPO } },
+      },
+      repository: { full_name: REPO },
+    },
+  };
+}
+
+/**
+ * The runs the guards compare, for a workflow named `workflow`: the first run
+ * of pull request 7, the run for its new head, pull request 8 from a fork with
+ * a branch of the same name, and pull request 9 from the same branch as 7 into
+ * another base, run by the same push as 7's new head.
+ */
+const runsOf = (workflow) => ({
+  first: pullRequestRun({ workflow, number: 7, sha: 'm1', headSha: 'h1', run: 2001, action: 'opened' }),
+  newer: pullRequestRun({ workflow, number: 7, sha: 'm2', headSha: 'h2', run: 2002 }),
+  fork: pullRequestRun({ workflow, number: 8, from: 'someone/orca-bot-kit', sha: 'm3', headSha: 'h3', run: 2003 }),
+  otherBase: pullRequestRun({ workflow, number: 9, base: 'next', sha: 'm4', headSha: 'h2', run: 2004 }),
+});
+
+/** A run of a workflow named `workflow` on a published release. */
+const releaseRun = (workflow) => ({
+  event_name: 'release',
+  ref: 'refs/tags/v1.0.0',
+  ref_name: 'v1.0.0',
+  ref_type: 'tag',
+  head_ref: '',
+  base_ref: '',
+  sha: 'r1',
+  run_id: '3001',
+  run_number: '1',
+  run_attempt: '1',
+  workflow,
+  repository: REPO,
+  repository_owner: REPO.split('/')[0],
+  actor: 'qiragu',
+  triggering_actor: 'qiragu',
+  event: { action: 'published', release: { tag_name: 'v1.0.0' }, repository: { full_name: REPO } },
+});
+
+/** A `concurrency` key's group for a run, filled in; undefined where the guard cannot read it. */
+const groupOf = (concurrency, github) => readValue(
+  typeof concurrency === 'object' && concurrency !== null ? concurrency.group : concurrency,
+  { github, inputs: {}, vars: {} },
+);
+
+/**
+ * Why workflow `doc`, named `name`, does not stop only the run that a newer run
+ * of the same pull request replaces: empty when it does. `others` are the other
+ * workflows of the repo, as `workflows()` gives them, whose groups it must not
+ * share.
+ */
+function supersedeProblems(doc, name, others = []) {
+  const concurrency = doc?.concurrency;
+  if (concurrency === undefined || concurrency === null) {
+    return ['it has no workflow-level `concurrency`, so nothing stops the run for a head that a newer one replaced'];
+  }
+  const runs = runsOf(name);
+  const groups = Object.fromEntries(Object.entries(runs).map(([id, run]) => [id, groupOf(concurrency, run)]));
+  if (Object.values(groups).includes(undefined)) {
+    return [`the guard cannot read its group: ${JSON.stringify(concurrency)}`];
+  }
+
+  const found = [];
+  const cancel = typeof concurrency === 'object' ? concurrency['cancel-in-progress'] : undefined;
+  let cancels = false;
+  if (typeof cancel === 'boolean') cancels = cancel;
+  else if (cancel !== undefined && cancel !== null) {
+    try {
+      const expression = String(cancel).replace(/^\s*\$\{\{([\s\S]*)\}\}\s*$/, '$1');
+      cancels = truthy(evaluate(expression, { github: runs.newer, inputs: {}, vars: {} }));
+    } catch {
+      found.push(`the guard cannot read its cancel-in-progress: ${JSON.stringify(cancel)}`);
+    }
+  }
+  if (!cancels) found.push('cancel-in-progress is not true for a new head, so the new run waits for the old one instead of stopping it');
+  if (typeof concurrency === 'object' && concurrency.queue === 'max') found.push('`queue: max` cannot go with cancel-in-progress');
+
+  if (groups.first !== groups.newer) {
+    found.push(`the run for a new head is in group "${groups.newer}" and the run it replaces in "${groups.first}", so it stops nothing`);
+  }
+  const otherPullRequests = { fork: 'pull request 8, from a fork with a branch of the same name', otherBase: 'pull request 9, from the same branch into another base' };
+  for (const [id, says] of Object.entries(otherPullRequests)) {
+    if (groups[id] === groups.newer) found.push(`${says}, shares group "${groups[id]}" with pull request 7, so one stops the other`);
+  }
+
+  // Another workflow's run in one of these groups would stop a CI run, or be
+  // stopped by one. Its job-level groups count as well as its own.
+  const mine = new Set(Object.values(groups));
+  for (const other of others) {
+    const keys = [other.doc?.concurrency, ...jobsOf(other.doc).map((job) => job?.concurrency)].filter((key) => key !== undefined && key !== null);
+    const theirRuns = [...Object.values(runsOf(other.doc?.name ?? other.name)), releaseRun(other.doc?.name ?? other.name)];
+    const shared = new Set(keys.flatMap((key) => theirRuns.map((run) => groupOf(key, run))).filter((group) => mine.has(group)));
+    for (const group of shared) found.push(`${other.name} has a run in group "${group}" too, so a run of one workflow can stop a run of the other`);
+  }
+  return found;
+}
+
+test('a new head on a pull request stops the CI run for the head it replaces, and no run of another pull request or workflow', async () => {
+  // #694: the new head's shards should not wait for job slots behind a run
+  // nobody needs, and a run is stopped only by a newer run of the same pull
+  // request.
+  const ci = await ciWorkflow();
+  const others = (await workflows()).filter((workflow) => !(triggersOf(workflow.doc).includes('pull_request') && jobsOf(workflow.doc).some(runsTheSuite)));
+  const found = supersedeProblems(ci, ci.name ?? '.github/workflows/ci.yml', others);
+  assert.deepEqual(found, [], `CI does not stop only a superseded run:\n  ${found.join('\n  ')}`);
+});
+
+test('the check for stopping a superseded run sees no group, no cancel, a group two pull requests share, one that changes each run, and one another workflow shares', () => {
+  const ciDoc = (concurrency) => ({ name: 'CI', on: { pull_request: null }, concurrency, jobs: {} });
+  const holds = (concurrency, others = []) => supersedeProblems(ciDoc(concurrency), 'CI', others).length === 0;
+  const lint = (concurrency) => [{ name: 'lint.yml', doc: { name: 'Lint', on: { pull_request: null }, concurrency, jobs: {} } }];
+
+  assert.equal(holds({ group: '${{ github.workflow }}-${{ github.ref }}', 'cancel-in-progress': true }), true, 'the workflow and the merge ref');
+  assert.equal(holds({ group: 'ci-${{ github.event.pull_request.number }}', 'cancel-in-progress': true }), true, 'the pull request\'s number');
+  assert.equal(holds({ group: '${{ github.workflow }}-${{ github.ref }}', 'cancel-in-progress': "${{ github.event_name == 'pull_request' }}" }), true, 'cancel-in-progress as an expression');
+  assert.equal(
+    holds({ group: '${{ github.workflow }}-${{ github.ref }}', 'cancel-in-progress': true }, lint({ group: '${{ github.workflow }}-${{ github.ref }}', 'cancel-in-progress': true })),
+    true,
+    'another workflow with the same expression, which its own name sets apart',
+  );
+  assert.equal(holds({ group: 'ci-${{ github.ref }}', 'cancel-in-progress': true }, [{ name: 'publish.yml', doc: { on: { release: null }, jobs: {} } }]), true, 'another workflow with no group');
+
+  assert.equal(holds(undefined), false, 'no concurrency');
+  assert.equal(holds({ group: '${{ github.workflow }}-${{ github.ref }}' }), false, 'no cancel-in-progress: the new run waits');
+  assert.equal(holds('${{ github.workflow }}-${{ github.ref }}'), false, 'a bare group: the new run waits');
+  assert.equal(holds({ group: '${{ github.workflow }}-${{ github.ref }}', 'cancel-in-progress': false }), false, 'cancel-in-progress false');
+  assert.equal(holds({ group: '${{ github.workflow }}-${{ github.ref }}', 'cancel-in-progress': "${{ github.event_name == 'push' }}" }), false, 'cancel-in-progress false on a pull request');
+  assert.equal(holds({ group: '${{ github.workflow }}-${{ github.ref }}', 'cancel-in-progress': true, queue: 'max' }), false, 'queue: max');
+  assert.equal(holds({ group: '${{ github.workflow }}-${{ github.head_ref }}', 'cancel-in-progress': true }), false, 'the head branch\'s name, which two pull requests share');
+  assert.equal(holds({ group: '${{ github.workflow }}', 'cancel-in-progress': true }), false, 'one group for every pull request');
+  assert.equal(holds({ group: '${{ github.workflow }}-${{ github.base_ref }}', 'cancel-in-progress': true }), false, 'the base branch');
+  assert.equal(holds({ group: '${{ github.workflow }}-${{ github.run_id }}', 'cancel-in-progress': true }), false, 'the run: never stops anything');
+  assert.equal(holds({ group: '${{ github.workflow }}-${{ github.sha }}', 'cancel-in-progress': true }), false, 'the commit: never stops anything');
+  assert.equal(holds({ group: '${{ github.workflow }}-${{ github.event.pull_request.head.sha }}', 'cancel-in-progress': true }), false, 'the head commit, which two pull requests share');
+  assert.equal(holds({ group: '${{ github.ref }}', 'cancel-in-progress': true }, lint({ group: '${{ github.ref }}' })), false, 'another workflow in the same group');
+  assert.equal(
+    holds({ group: '${{ github.ref }}', 'cancel-in-progress': true }, [{ name: 'lint.yml', doc: { name: 'Lint', on: { pull_request: null }, jobs: { lint: { concurrency: { group: '${{ github.ref }}' } } } } }]),
+    false,
+    'a job of another workflow in the same group',
+  );
+  assert.equal(holds({ group: '${{ secrets.GROUP }}', 'cancel-in-progress': true }), false, 'a group the guard cannot read');
+});
+
 test('the README says the same about Node as the package and the workflow do, and so does CONTRIBUTING.md', async () => {
   // The floor lives in three places a person writes by hand — `engines.node`, the
   // workflow, and the sentence a user reads before installing anything — and a
