@@ -6,8 +6,10 @@
 // It forks the child in a new pty, sets the window to 40 rows by 120 columns
 // before it starts the command, reads for `seconds`, answers each
 // cursor-position query (`ESC[6n` gets `ESC[1;1R`) and writes nothing else.
-// Then it sends SIGKILL to the child by the pid the fork gave it, and waits for
-// it.
+// When the pty closes, it waits for the child to end, up to the end of the
+// window: the child can close the pty a moment before it is reaped (#692).
+// A child that still runs at the end of the window gets SIGKILL by the pid the
+// fork gave it, and the driver waits for it.
 //
 // The new pty puts the child in a session of its own, out of reach of the
 // runner's hard stop (#653), which kills the driver. So the driver sets an
@@ -71,6 +73,9 @@ while True:
         writes.append(ANSWER.hex())
 
 done, status = os.waitpid(pid, os.WNOHANG)
+while done == 0 and time.monotonic() < deadline:
+    time.sleep(0.01)
+    done, status = os.waitpid(pid, os.WNOHANG)
 killed = False
 if done == 0:
     os.kill(pid, signal.SIGKILL)
