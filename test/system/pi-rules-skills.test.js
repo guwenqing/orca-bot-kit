@@ -603,6 +603,7 @@ test('a Pi session starts from its bot\'s AGENTS.md and skills, and takes a skil
     assert.deepEqual(failedDeletes, [], 'projects this test could not remove, left in Orca');
   });
 
+  gateStillOpen('obk init');
   obkJson(['init', '--bots', bots, '--harness', 'claude']);
   obkJson(['bot', 'create', '--bots', bots, '--name', PI, '--harness', 'pi', '--charter', `Pi RS exists for one system test run and owns nothing. Its probe word is ${PROBE}.`]);
   obkJson(['bot', 'create', '--bots', bots, '--name', SENDER, '--harness', 'pi', '--charter', 'Pi RS Sender exists for one system test run and owns nothing.']);

@@ -566,6 +566,7 @@ test('the book follows a /new typed in a Pi tab, the new conversation is given i
   // ---------------------------------------------------------------------------
   // 1. The fleet: Bot Father, and one Pi bot with daily on the cheap model,
   // brought up. The book holds A, and Pi's file for A holds the start turn.
+  gateStillOpen('obk init');
   obkJson(['init', '--bots', bots, '--harness', 'claude']);
   obkJson(['bot', 'create', '--bots', bots, '--name', BOT, '--harness', 'pi', '--charter', `${BOT} exists for one system test run and owns nothing.`]);
   obkJson(['session', 'add', '--bots', bots, '--bot', BOT, '--name', SESSION, '--model', MODEL, '--effort', EFFORT, `--prompt=${PROMPT}`]);

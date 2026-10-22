@@ -736,6 +736,7 @@ test('one road and one signal: a busy receiver gets nothing typed without --inte
     assert.deepEqual(failedDeletes, [], 'projects this test could not remove, left in Orca');
   });
 
+  gateStillOpen('obk init');
   obkJson(['init', '--bots', bots, '--harness', 'claude']);
   obkJson(['bot', 'create', '--bots', bots, '--name', CLAUDE, '--harness', 'claude', '--charter', 'Mail Claude exists for one system test run and owns nothing.']);
   obkJson(['bot', 'create', '--bots', bots, '--name', CODEX, '--harness', 'codex', '--charter', 'Mail Codex exists for one system test run and owns nothing.']);

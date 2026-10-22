@@ -526,6 +526,7 @@ test('a maker makes a temporary session on Pi, finds no first-run screen of Pi\'
   // 1. The fleet: Bot Father, and pi-temp-bot on Claude Code with one
   // long-lived session, lead, at the kit's default approval; the bot's
   // temporary sessions allowed dangerously-skip, by the kit's own command.
+  gateStillOpen('obk init');
   obkJson(['init', '--bots', bots, '--harness', 'claude']);
   obkJson([
     'bot', 'create', '--bots', bots, '--name', BOT, '--harness', 'claude',
