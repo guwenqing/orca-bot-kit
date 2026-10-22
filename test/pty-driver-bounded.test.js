@@ -14,7 +14,13 @@
 //     driver was killed with SIGKILL, though the command ignores SIGHUP and
 //     SIGTERM; it still runs before then;
 //   - a child that ends on its own inside the window is reported as ended, not
-//     killed, with its cursor-position query answered.
+//     killed, with its cursor-position query answered;
+//   - a child that closes its side of the pty, and then ends on its own inside
+//     the window, is not killed: the driver sees the pty close first, and
+//     reports the child's own status (#692);
+//   - a child that still runs at the end of the window gets SIGKILL from the
+//     driver soon after, and is reported killed with the status of a SIGKILL:
+//     both a child that keeps the pty open and one that closed it (#655).
 //
 // And, reading the system tests as text (it runs none of them): no system test
 // forks a pty or a new session of its own; that goes through the helper.
@@ -51,6 +57,15 @@ const STUBBORN = 'process.on("SIGHUP", () => {}); process.on("SIGTERM", () => {}
 
 /** A command that asks for the cursor position, reads the answer, and ends with code 0. */
 const ASKS = 'process.stdout.write("hi\\x1b[6n"); setTimeout(() => process.exit(0), 300);';
+
+/** Closes fds 0, 1 and 2, the pty that the fork gave the child. A test that uses it checks that the driver then sees the pty close. */
+const CLOSE_PTY = 'for (const fd of [0, 1, 2]) require("fs").closeSync(fd);';
+
+/** A command that closes its side of the pty at once, and ends with code 7 some 700 ms later. Give it the test's folder, so the after-hook sees it. */
+const CLOSES_THEN_EXITS = `${CLOSE_PTY} setTimeout(() => process.exit(7), 700);`;
+
+/** A command that ignores SIGHUP and SIGTERM, closes its side of the pty at once, and runs for ever. Give it the test's folder, so the after-hook sees it. */
+const CLOSES_THEN_RUNS = `process.on("SIGHUP", () => {}); process.on("SIGTERM", () => {}); ${CLOSE_PTY} setInterval(() => {}, 1000);`;
 
 /**
  * Write the driver into a throwaway folder and run it with `python3 -I`, as
@@ -144,6 +159,57 @@ test('a child that ends inside the window is reported ended, not killed, with it
     { queries: 1, writes: ['1b5b313b3152'], ended: true, killed: false, status: 0, pid: await childPid(files) },
   );
   assert.match((await readFile(files.out)).toString('latin1'), /hi\x1b\[6n/);
+});
+
+test('a child that closes the pty and then ends by itself inside the window is reported not killed, with its own status (#692)', async (t) => {
+  const { files, exited } = await runDriver(t, { seconds: 20, life: 60, command: (where) => [process.execPath, '-e', CLOSES_THEN_EXITS, where] });
+  const end = await Promise.race([exited, setTimeout(15000, undefined)]);
+  assert.notEqual(end, undefined, 'the driver ends soon after its child does, inside its window');
+  assert.deepEqual({ code: end.code, signal: end.signal }, { code: 0, signal: null }, `the driver ends with code 0: ${end.err}`);
+  const report = JSON.parse(await readFile(files.report, 'utf8'));
+  assert.equal(report.ended, true, 'the premise: the driver sees the pty close inside its window, before the child exits');
+  assert.deepEqual(
+    { killed: report.killed, status: report.status, pid: report.pid },
+    { killed: false, status: 7 << 8, pid: await childPid(files) },
+    'a child that exits by itself with code 7 inside the window is not killed, and its own status is reported',
+  );
+});
+
+test('a child that keeps the pty open past the window is killed at the window end and reported killed', async (t) => {
+  const WINDOW_S = 3;
+  const { dir, files, exited } = await runDriver(t, {
+    seconds: WINDOW_S,
+    life: 60,
+    command: (where) => [process.execPath, '-e', STUBBORN, path.join(where, 'ready')],
+  });
+  const end = await Promise.race([exited, setTimeout(WINDOW_S * 1000 + MARGIN_MS, undefined)]);
+  assert.notEqual(end, undefined, `the driver does not wait on its child much past its window of ${WINDOW_S} s`);
+  assert.deepEqual({ code: end.code, signal: end.signal }, { code: 0, signal: null }, `the driver ends with code 0: ${end.err}`);
+  const report = JSON.parse(await readFile(files.report, 'utf8'));
+  const pid = await childPid(files);
+  assert.deepEqual(
+    { ended: report.ended, killed: report.killed, status: report.status, pid: report.pid },
+    { ended: false, killed: true, status: 9, pid },
+    'a child that still runs with the pty open at the window end gets SIGKILL from the driver',
+  );
+  assert.equal(runsMine(pid, dir), false, `the child ${pid} no longer runs once the driver has ended`);
+});
+
+test('a child that closes the pty and then runs on past the window is killed at the window end and reported killed', async (t) => {
+  const WINDOW_S = 3;
+  const { dir, files, exited } = await runDriver(t, { seconds: WINDOW_S, life: 60, command: (where) => [process.execPath, '-e', CLOSES_THEN_RUNS, where] });
+  const end = await Promise.race([exited, setTimeout(WINDOW_S * 1000 + MARGIN_MS, undefined)]);
+  assert.notEqual(end, undefined, `the driver does not wait on its child much past its window of ${WINDOW_S} s`);
+  assert.deepEqual({ code: end.code, signal: end.signal }, { code: 0, signal: null }, `the driver ends with code 0: ${end.err}`);
+  const report = JSON.parse(await readFile(files.report, 'utf8'));
+  const pid = await childPid(files);
+  assert.equal(report.ended, true, 'the premise: the driver sees the pty close inside its window');
+  assert.deepEqual(
+    { killed: report.killed, status: report.status, pid: report.pid },
+    { killed: true, status: 9, pid },
+    'a child that still runs at the window end, with the pty closed, gets SIGKILL from the driver',
+  );
+  assert.equal(runsMine(pid, dir), false, `the child ${pid} no longer runs once the driver has ended`);
 });
 
 // ------------------------------------------------------------- the system tests
