@@ -80,6 +80,10 @@
 //
 // Otherwise it opens nothing, says why, and is reported as skipped: nothing
 // live was checked.
+// It reads the gate again right before each later kit command that can open a
+// tab or make the window load a project (`obk up`, `obk message send`). When
+// the night ended during the run, it opens nothing more and fails, and names
+// the step that did not run: such a run is not a pass.
 //
 // The machine it runs on is someone's working machine, with their own tabs
 // open. So this test, like the ones beside it:
@@ -144,6 +148,24 @@ const ORCA = process.env.OBK_ORCA || '/Applications/Orca.app/Contents/Resources/
 
 /** This file, as the runner names it in OBK_SYSTEM_NAMED. */
 const THIS_FILE = fileURLToPath(import.meta.url);
+
+/**
+ * The night gate again, right before a later kit command that can open a tab
+ * or make the Orca window load a project (#687): the same rule as at the
+ * test's start. When the night ended during the run, the test opens nothing
+ * more and fails here, naming `step`, which did not run, so the run is not a
+ * pass. The teardown runs as before.
+ */
+function gateStillOpen(step) {
+  const now = new Date();
+  const night = atNight(now);
+  const named = namedThisRun(THIS_FILE);
+  assert.ok(night && named, [
+    `The night gate closed during this run: it is ${now.toTimeString().slice(0, 5)} local time${named ? '' : ', and this run does not name this file'}.`,
+    `So this test opened nothing more: ${step} did not run, and no live step after it ran. This run is not a pass.`,
+    `Run it again in a night run, between midnight and 6 am local time: npm run test:system -- --yes test/system/${path.basename(THIS_FILE)}`,
+  ].join('\n'));
+}
 
 /** How long a tab is given to come up and be idle. */
 const READY_MS = 180000;
@@ -531,6 +553,7 @@ function promptOf(bots, bot, session) {
 
 /** Send one letter, the kit's own way, plain, from the Codex sender, and answer what it printed. */
 function send(t, bots, { to, subject, text, interrupt = false }) {
+  gateStillOpen(`the letter to ${to}${interrupt ? ' with --interrupt' : ''}`);
   const done = obk([
     'message', 'send', '--bots', bots, '--to', to, '--from', `${CODEX}/daily`,
     '--subject', subject, '--text', text, ...(interrupt ? ['--interrupt'] : []),
@@ -613,6 +636,7 @@ test('a Pi session gets fleet mail: Orca\'s notice in its tab, its own check, a 
 
   /** One session up, and its conversation and mailbox in the book. */
   const bringUp = async (bot, session) => {
+    gateStillOpen(`obk up of ${bot}/${session}`);
     const up = obkJson(['up', '--bots', bots, '--bot', bot, '--session', session]);
     const entry = tabOf(up, session);
     assert.equal(entry.created, true, `the premise: up opened ${entry.title}`);

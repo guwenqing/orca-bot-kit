@@ -55,8 +55,9 @@
 //
 // What is OBSERVED, NOT JUDGED (printed as diagnostics): the outputs of
 // `skills build` and of the send; whether Orca listed each tab as orphaned
-// once it was up (the Pi tab is judged before the build, below); Pi session
-// folders other Pi sessions on this machine made while it ran.
+// once it was up (the Pi tab is judged right after its `obk up` and before
+// the build, below); Pi session folders other Pi sessions on this machine
+// made while it ran.
 //
 // **The Pi tab must be real after `obk up` alone.** Orca gives no notice to a
 // tab it lists as orphaned, and the kit may not type into one. Since #676,
@@ -65,7 +66,11 @@
 // makes the window load an orphaned receiver's project itself, #676), the
 // test looks at the Pi tab. When it is not real, the test fails at once and
 // says so: which tab, what Orca listed, and whether `obk up`'s answer named a
-// `windowTrouble`. It does not wait for the tab to turn real.
+// `windowTrouble`. It does not wait for the tab to turn real. Right after the
+// Pi bot's `obk up`, before the readiness waits, it also looks every second
+// for WATCH_MS (10 s), and fails at the first look that finds the tab
+// orphaned: #676 saw a new tab real when it opened and orphaned 2 s to 7 s
+// later, so one look could miss a failure. The look before the build stays.
 //
 // **This test makes no extra project.** Until #676, it opened one more
 // throwaway project with one plain tab when the Pi tab was orphaned, as
@@ -81,6 +86,10 @@
 // the test makes its bots folder: it starts only when the local hour is 0 to 5
 // and the run named this file. Otherwise it opens nothing, says why, and is
 // reported as skipped: nothing live was checked.
+// It reads the gate again right before each later kit command that can open a
+// tab or make the window load a project (`obk up`, `obk message send`). When
+// the night ended during the run, it opens nothing more and fails, and names
+// the step that did not run: such a run is not a pass.
 //
 // The machine it runs on is someone's working machine, with their own tabs
 // open. So this test, like the ones beside it:
@@ -146,6 +155,24 @@ const ORCA = process.env.OBK_ORCA || '/Applications/Orca.app/Contents/Resources/
 /** This file, as the runner names it in OBK_SYSTEM_NAMED. */
 const THIS_FILE = fileURLToPath(import.meta.url);
 
+/**
+ * The night gate again, right before a later kit command that can open a tab
+ * or make the Orca window load a project (#687): the same rule as at the
+ * test's start. When the night ended during the run, the test opens nothing
+ * more and fails here, naming `step`, which did not run, so the run is not a
+ * pass. The teardown runs as before.
+ */
+function gateStillOpen(step) {
+  const now = new Date();
+  const night = atNight(now);
+  const named = namedThisRun(THIS_FILE);
+  assert.ok(night && named, [
+    `The night gate closed during this run: it is ${now.toTimeString().slice(0, 5)} local time${named ? '' : ', and this run does not name this file'}.`,
+    `So this test opened nothing more: ${step} did not run, and no live step after it ran. This run is not a pass.`,
+    `Run it again in a night run, between midnight and 6 am local time: npm run test:system -- --yes test/system/${path.basename(THIS_FILE)}`,
+  ].join('\n'));
+}
+
 /** How long a tab is given to come up, answer its first turn and be idle. */
 const READY_MS = 180000;
 
@@ -158,6 +185,14 @@ const RELOAD_MS = 30000;
  * of 2026-10-11).
  */
 const NOTICE_MS = 300000;
+
+/**
+ * How long the look right after the Pi bot's `obk up` watches its tab, and how
+ * often it looks: #676 saw a new tab real when it opened and orphaned 2 s to
+ * 7 s later. The tab must be real at every look in that time.
+ */
+const WATCH_MS = 10000;
+const WATCH_STEP_MS = 1000;
 
 /** Pi's model and thinking level here. */
 const PI_MODEL = 'openai/gpt-6-luna';
@@ -341,6 +376,38 @@ function windowWords(answer) {
   return trouble.length === 0
     ? 'Its obk up named no windowTrouble, so that step said it worked.'
     : `Its obk up named windowTrouble, so that step failed: ${trouble.map((one) => `${one.bot}: ${one.windowTrouble}`).join('; ')}.`;
+}
+
+/**
+ * The look right after the Pi bot's `obk up` ({ title, handle, up }, `up` its
+ * --json answer), before the readiness waits: the tab is real at the first
+ * look, and at every look each WATCH_STEP_MS for WATCH_MS, or the test fails
+ * at the first look that finds it orphaned, and says why. `screen` is run
+ * between the looks. This test opens no extra project and does not wait for
+ * the tab to turn real.
+ */
+async function realOnceUp(t, { title, handle, up }, screen) {
+  const start = Date.now();
+  let looks = 0;
+  for (;;) {
+    const entry = listed(handle);
+    const since = Math.round((Date.now() - start) / 1000);
+    assert.ok(entry !== undefined, `${title}: Orca no longer lists its tab ${handle}${looks === 0 ? '' : `, ${since} s after the first look after obk up`}`);
+    if (looks === 0) t.diagnostic(`${title} (${handle}) right after obk up: ${orphanWords(handle)}`);
+    assert.ok(realTab(entry), [
+      looks === 0
+        ? `Orca lists ${title}'s tab (${handle}) as orphaned right after obk up (orphaned: ${entry.orphaned}, tab id ${entry.tabId}).`
+        : `Orca lists ${title}'s tab (${handle}) as orphaned ${since} s after the first look after obk up (orphaned: ${entry.orphaned}, tab id ${entry.tabId}); it was real at the ${looks} looks before that.`,
+      `The obk up that opened it should have made the Orca window load the bot's project, so that its tabs are real (#676). ${windowWords(up)}`,
+      'Orca gives no notice to an orphaned tab, so this test cannot pass.',
+      `This test opens no extra project and does not wait for the tab to turn real: it must be real at the first look and stay real for ${WATCH_MS / 1000} s.`,
+    ].join('\n'));
+    looks += 1;
+    if (Date.now() - start >= WATCH_MS) break;
+    await screen();
+    await setTimeout(WATCH_STEP_MS);
+  }
+  t.diagnostic(`${title} (${handle}): listed real at each of ${looks} looks over ${WATCH_MS / 1000} s after obk up`);
 }
 
 /**
@@ -558,6 +625,7 @@ test('a Pi session starts from its bot\'s AGENTS.md and skills, and takes a skil
 
   /** One session up, its conversation and mailbox in the book, and its first turn answered with its tab idle. */
   const bringUp = async (bot) => {
+    gateStillOpen(`obk up of ${bot}/daily`);
     const up = obkJson(['up', '--bots', bots, '--bot', bot, '--session', 'daily']);
     const entry = tabOf(up, 'daily');
     assert.equal(entry.created, true, `the premise: up opened ${entry.title}`);
@@ -565,6 +633,8 @@ test('a Pi session starts from its bot\'s AGENTS.md and skills, and takes a skil
     const handle = entry.terminal;
     // Only the Pi session's own tab, and only while its /model selector is open (step 3).
     const screen = async () => stopAtScreens(title, handle, { modelSelector: bot === PI && selectorOpen });
+    // The Pi tab is judged right after its obk up, before the readiness waits (#676).
+    if (bot === PI) await realOnceUp(t, { title, handle, up }, screen);
     const held = await until(`the book to hold ${title}'s conversation and mailbox`, READY_MS, async () => {
       const found = await sessionIn(homeOf(bot), 'daily');
       return typeof found.session === 'string' && typeof found.mailbox === 'string' ? found : undefined;
@@ -640,6 +710,7 @@ test('a Pi session starts from its bot\'s AGENTS.md and skills, and takes a skil
   await until(`${pi.title} to be idle again after the second /reload`, RELOAD_MS, async () => (idleNow(pi.handle) ? true : undefined), () => whatIsUp(pi.handle), pi.screen);
 
   // ----------------------------------------------------------- 5. one more turn, and the skills added
+  gateStillOpen('step 5, the letter to the Pi session');
   const sent = obk([
     'message', 'send', '--bots', bots, '--to', `${PI}/daily`, '--from', `${SENDER}/daily`,
     '--subject', 'one more turn', '--text', 'Answer with one word: ok.',

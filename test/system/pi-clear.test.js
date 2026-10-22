@@ -76,6 +76,10 @@
 //
 // Otherwise it opens nothing, says why, and is reported as skipped: nothing
 // live was checked.
+// It reads the gate again right before each later kit command that can open a
+// tab or make the window load a project (`obk up`). When the night ended
+// during the run, it opens nothing more and fails, and names the step that did
+// not run: such a run is not a pass.
 //
 // The machine it runs on is someone's working machine. So this test, like the
 // ones beside it:
@@ -150,6 +154,24 @@ const ORCA = process.env.OBK_ORCA || '/Applications/Orca.app/Contents/Resources/
 
 /** This file, as the runner names it in OBK_SYSTEM_NAMED. */
 const THIS_FILE = fileURLToPath(import.meta.url);
+
+/**
+ * The night gate again, right before a later kit command that can open a tab
+ * or make the Orca window load a project (#687): the same rule as at the
+ * test's start. When the night ended during the run, the test opens nothing
+ * more and fails here, naming `step`, which did not run, so the run is not a
+ * pass. The teardown runs as before.
+ */
+function gateStillOpen(step) {
+  const now = new Date();
+  const night = atNight(now);
+  const named = namedThisRun(THIS_FILE);
+  assert.ok(night && named, [
+    `The night gate closed during this run: it is ${now.toTimeString().slice(0, 5)} local time${named ? '' : ', and this run does not name this file'}.`,
+    `So this test opened nothing more: ${step} did not run, and no live step after it ran. This run is not a pass.`,
+    `Run it again in a night run, between midnight and 6 am local time: npm run test:system -- --yes test/system/${path.basename(THIS_FILE)}`,
+  ].join('\n'));
+}
 
 /** The longest the whole test may take, its teardown not counted. */
 const TOTAL_MS = 1200000;
@@ -713,6 +735,7 @@ test('obk session clear on a Pi session: a new id in the book when idle, refused
   obkJson(['init', '--bots', bots, '--harness', 'claude']);
   obkJson(['bot', 'create', '--bots', bots, '--name', BOT, '--harness', 'pi', '--charter', `${BOT} exists for one system test run and owns nothing.`]);
   obkJson(['session', 'add', '--bots', bots, '--bot', BOT, '--name', SESSION, '--model', MODEL, '--effort', EFFORT, `--prompt=${PROMPT}`]);
+  gateStillOpen(`step 1, obk up of ${BOT}`);
   const upAnswer = obkJson(['up', '--bots', bots, '--bot', BOT]);
   const up = tabOf(upAnswer, SESSION);
   assert.equal(up.created, true, `the premise: up opened ${SESSION}'s tab: ${JSON.stringify(up)}`);

@@ -89,6 +89,10 @@
 //
 // Otherwise it opens nothing, says why, and is reported as skipped: nothing
 // live was checked.
+// It reads the gate again right before each later kit command that can open a
+// tab or make the window load a project (`obk up`, `obk temp make`). When the
+// night ended during the run, it opens nothing more and fails, and names the
+// step that did not run: such a run is not a pass.
 //
 // The machine it runs on is someone's working machine. So this test, like the
 // ones beside it: works in a throwaway bots folder under the system temp
@@ -154,6 +158,24 @@ const ORCA = process.env.OBK_ORCA || '/Applications/Orca.app/Contents/Resources/
 
 /** This file, as the runner names it in OBK_SYSTEM_NAMED. */
 const THIS_FILE = fileURLToPath(import.meta.url);
+
+/**
+ * The night gate again, right before a later kit command that can open a tab
+ * or make the Orca window load a project (#687): the same rule as at the
+ * test's start. When the night ended during the run, the test opens nothing
+ * more and fails here, naming `step`, which did not run, so the run is not a
+ * pass. The teardown runs as before.
+ */
+function gateStillOpen(step) {
+  const now = new Date();
+  const night = atNight(now);
+  const named = namedThisRun(THIS_FILE);
+  assert.ok(night && named, [
+    `The night gate closed during this run: it is ${now.toTimeString().slice(0, 5)} local time${named ? '' : ', and this run does not name this file'}.`,
+    `So this test opened nothing more: ${step} did not run, and no live step after it ran. This run is not a pass.`,
+    `Run it again in a night run, between midnight and 6 am local time: npm run test:system -- --yes test/system/${path.basename(THIS_FILE)}`,
+  ].join('\n'));
+}
 
 /** How long a tab is given to show its harness. */
 const READY_MS = 180000;
@@ -512,12 +534,14 @@ test('a maker makes a temporary session on Pi, finds no first-run screen of Pi\'
   obkJson(['session', 'add', '--bots', bots, '--bot', BOT, '--name', LEAD, '--prompt', 'You are a system test\'s session and you own nothing. Say nothing and wait.']);
   obkJson(['permission', 'approval', '--bots', bots, '--bot', BOT, '--temps', '--approval', 'dangerously-skip']);
   assert.equal(botYamlOf(home).temp_approval, 'dangerously-skip', `the premise: the bot's temporary sessions may run at dangerously-skip: ${JSON.stringify(botYamlOf(home))}`);
+  gateStillOpen(`step 1, obk up of ${BOT}`);
   const leadTab = openedIn(obkJson(['up', '--bots', bots, '--bot', BOT]), 'up');
   const lead = { tabId: sessionIn(home, LEAD).tab, handle: leadTab.terminal };
   assert.equal(typeof lead.tabId, 'string', `the premise: the book holds lead's tab, got: ${JSON.stringify(sessionIn(home, LEAD))}`);
 
   // ---------------------------------------------------------------------------
   // 2. lead makes helper on Pi, on the cheap model, with one word to say.
+  gateStillOpen(`step 2, obk temp make of ${HELPER}`);
   const made = obkJson([
     'temp', 'make', '--bots', bots, '--name', HELPER, '--harness', 'pi', '--model', MODEL, '--effort', EFFORT, '--prompt', TASK,
   ], inTab(lead));
