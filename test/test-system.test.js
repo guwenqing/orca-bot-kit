@@ -362,6 +362,36 @@ const HOW_TO_RUN = 'npm run test:system -- --yes';
 /** The helper every system test takes its `test` from. */
 const helperEntry = path.join(repoRoot, 'test', 'helpers', 'system.js');
 
+/** The night gate the helper holds since #689: a test on it runs only when named, from 00:00 to 05:59 local time. */
+const nightGateEntry = path.join(repoRoot, 'test', 'helpers', 'night-gate.js');
+
+/**
+ * A clock preload, for `--import` or NODE_OPTIONS: Date stands still at
+ * 2026-10-22 `hours:minutes:seconds.ms` local time. `new Date(...)` with
+ * arguments is the real one. It is this suite's own, written into a throwaway
+ * folder: the kit and its runner read no clock setting (#689).
+ */
+const fixedClock = (hours, minutes, seconds = 0, ms = 0) => [
+  'const Real = globalThis.Date;',
+  `const now = new Real(2026, 9, 22, ${hours}, ${minutes}, ${seconds}, ${ms}).getTime();`,
+  'class FixedDate extends Real {',
+  '  constructor(...args) {',
+  '    if (args.length === 0) super(now);',
+  '    else super(...args);',
+  '  }',
+  '  static now() { return now; }',
+  '}',
+  'globalThis.Date = FixedDate;',
+  '',
+].join('\n');
+
+/** Write a fixedClock preload into `dir` as `name`; answers its file URL. */
+async function clockIn(dir, name, ...at) {
+  const file = path.join(dir, name);
+  await writeFile(file, fixedClock(...at));
+  return pathToFileURL(file).href;
+}
+
 /**
  * A system test file that writes down what it saw of the gate, `<name>:<value>`,
  * in `ran.log` beside the repo: the value of OBK_SYSTEM_TESTS its process was
@@ -432,7 +462,9 @@ const reported = (result) => result.stdout
  * `node -e "import('<file>')"` did. Each takes the value of OBK_SYSTEM_TESTS to
  * start it with, and none at all when `gate` is undefined, whatever the shell
  * running this suite has; `reporter: false` gives the runner's own reporter,
- * what a developer sees.
+ * what a developer sees. `at` ([hours, minutes]) stands the clock at that
+ * local time, through a fixedClock preload, and `named: true` names the file
+ * in OBK_SYSTEM_NAMED, as a run of the runner that names it does (#689).
  */
 async function guardedFile(t, { fails = false } = {}) {
   const box = await createSandbox(t);
@@ -454,18 +486,26 @@ async function guardedFile(t, { fails = false } = {}) {
 
   // NODE_TEST_CONTEXT is set in every process this suite's runner starts, and a
   // `node --test` that inherits it runs nothing (see createRepo).
-  const { NODE_TEST_CONTEXT: _context, [GATE]: _gate, ...bare } = box.env;
-  const envWith = (gate) => (gate === undefined ? bare : { ...bare, [GATE]: gate });
+  const { NODE_TEST_CONTEXT: _context, [GATE]: _gate, OBK_SYSTEM_NAMED: _named, ...bare } = box.env;
+  const envWith = async (gate, at, named) => ({
+    ...bare,
+    ...(gate === undefined ? {} : { [GATE]: gate }),
+    ...(named ? { OBK_SYSTEM_NAMED: file } : {}),
+    ...(at === undefined ? {} : {
+      NODE_OPTIONS: [bare.NODE_OPTIONS, `--import=${await clockIn(box.root, `clock-${at.join('-')}.mjs`, ...at)}`].filter(Boolean).join(' '),
+    }),
+  });
   const reporterFlag = (wanted) => (wanted ? [`--test-reporter=${reporter}`] : []);
 
   return {
-    viaTest: ({ gate, reporter: wanted = true } = {}) => node(
+    file,
+    viaTest: async ({ gate, reporter: wanted = true, at, named = false } = {}) => node(
       [...reporterFlag(wanted), '--test', file],
-      { cwd: box.cwd, env: envWith(gate) },
+      { cwd: box.cwd, env: await envWith(gate, at, named) },
     ),
-    viaImport: ({ gate, reporter: wanted = true } = {}) => node(
+    viaImport: async ({ gate, reporter: wanted = true, at, named = false } = {}) => node(
       [...reporterFlag(wanted), '-e', `import(${JSON.stringify(pathToFileURL(file).href)})`],
-      { cwd: box.cwd, env: envWith(gate) },
+      { cwd: box.cwd, env: await envWith(gate, at, named) },
     ),
     /** What the body wrote, once per time it ran: empty when it never did. */
     async ran() {
@@ -1762,29 +1802,54 @@ describe('test-system', { concurrency: true }, () => {
         assert.deepEqual(await file.ran(), [], 'the body should never have run');
       });
 
-      test('with OBK_SYSTEM_TESTS=1 it is node:test\'s test: the body runs, with its test context, and passes', { loadsRunner: false }, async (t) => {
+      test('with OBK_SYSTEM_TESTS=1, at night and named, it is node:test\'s test: the body runs, with its test context, and passes', { loadsRunner: false }, async (t) => {
         const file = await guardedFile(t);
 
-        const tested = await file.viaTest({ gate: '1' });
-        const imported = await file.viaImport({ gate: '1' });
+        const tested = await file.viaTest({ gate: '1', at: [3, 0], named: true });
 
-        for (const [what, result] of [['node --test', tested], ['node -e import', imported]]) {
-          assert.equal(result.code, 0, `${what}: ${result.stdout}${result.stderr}`);
-          assert.deepEqual(
-            reported(result),
-            [{ type: 'test:pass', name: 'GUARDED', skip: null }],
-            `${what}: it should run and pass, not skip, got:\n${result.stdout}${result.stderr}`,
-          );
-        }
-        // Once for each load, and each time handed a test context with `after`,
-        // which is what the system tests clean up with.
-        assert.deepEqual(await file.ran(), ['function', 'function']);
+        assert.equal(tested.code, 0, `node --test: ${tested.stdout}${tested.stderr}`);
+        assert.deepEqual(
+          reported(tested),
+          [{ type: 'test:pass', name: 'GUARDED', skip: null }],
+          `node --test: it should run and pass, not skip, got:\n${tested.stdout}${tested.stderr}`,
+        );
+        // Handed a test context with `after`, which is what the system tests clean up with.
+        assert.deepEqual(await file.ran(), ['function']);
       });
 
-      test('with OBK_SYSTEM_TESTS=1 a body that fails fails the test, as node:test\'s own would', { loadsRunner: false }, async (t) => {
+      test('with OBK_SYSTEM_TESTS=1, by day or not named, the test is skipped with the night gate\'s reason and its body never runs (#689)', { loadsRunner: false }, async (t) => {
+        const file = await guardedFile(t);
+
+        for (const [what, options, time] of [
+          ['named, at 14:05', { at: [14, 5], named: true }, '14:05'],
+          ['not named, at 03:00', { at: [3, 0], named: false }, '03:00'],
+        ]) {
+          const result = await file.viaTest({ gate: '1', ...options });
+          assert.equal(result.code, 0, `${what}: a skip is not a failure, got:\n${result.stdout}${result.stderr}`);
+          const tests = reported(result);
+          assert.equal(tests.length, 1, `${what}: one test, got:\n${result.stdout}${result.stderr}`);
+          assert.equal(typeof tests[0].skip, 'string', `${what}: it should be skipped with a reason, got: ${JSON.stringify(tests[0])}`);
+          assert.ok(tests[0].skip.includes(time), `${what}: the reason should name the time, ${time}, got: ${tests[0].skip}`);
+        }
+        assert.deepEqual(await file.ran(), [], 'the body should never have run');
+      });
+
+      test('with OBK_SYSTEM_TESTS=1 and loaded by `node -e "import(...)"`, no file is named on the command line, so it is skipped, at night and with the file in OBK_SYSTEM_NAMED too (#689)', { loadsRunner: false }, async (t) => {
+        const file = await guardedFile(t);
+
+        const imported = await file.viaImport({ gate: '1', at: [3, 0], named: true });
+
+        assert.equal(imported.code, 0, `${imported.stdout}${imported.stderr}`);
+        const tests = reported(imported);
+        assert.equal(tests.length, 1, `one test, got:\n${imported.stdout}${imported.stderr}`);
+        assert.equal(typeof tests[0].skip, 'string', `it should be skipped with a reason, got: ${JSON.stringify(tests[0])}`);
+        assert.deepEqual(await file.ran(), [], 'the body should never have run');
+      });
+
+      test('with OBK_SYSTEM_TESTS=1, at night and named, a body that fails fails the test, as node:test\'s own would', { loadsRunner: false }, async (t) => {
         const file = await guardedFile(t, { fails: true });
 
-        const result = await file.viaTest({ gate: '1' });
+        const result = await file.viaTest({ gate: '1', at: [3, 0], named: true });
 
         assert.equal(result.code, 1, `${result.stdout}${result.stderr}`);
         assert.deepEqual(
@@ -1835,15 +1900,23 @@ describe('test-system', { concurrency: true }, () => {
       });
     });
 
-    test('a system test on the real helper runs under the confirmed command, and loaded any other way runs nothing and says how to run it', async (t) => {
-      // End to end, in a throwaway repo: a copy of the real helper beside a
-      // system test written the way the real ones are. Loaded directly first,
-      // so that anything in ran.log afterwards is the confirmed run's.
+    test('a system test on the real helper runs under the confirmed command, at night and named, and loaded any other way runs nothing and says how to run it', async (t) => {
+      // End to end, in a throwaway repo: a copy of the real helper and its
+      // night gate beside a system test written the way the real ones are.
+      // Loaded directly first, so that anything in ran.log afterwards is the
+      // confirmed run's. The clock is a preload of this test's own, through
+      // NODE_OPTIONS, which the runner hands on to the tests (#689).
       const fixture = await createRepo(t, {
         files: {
           'test/helpers/system.js': await readFile(helperEntry, 'utf8'),
+          'test/helpers/night-gate.js': await readFile(nightGateEntry, 'utf8'),
           'test/system/alpha.test.js': behindTheGate('ALPHA'),
         },
+      });
+      const box = path.dirname(fixture.repo);
+      const clocked = async (...at) => ({
+        ...fixture.env,
+        NODE_OPTIONS: [fixture.env.NODE_OPTIONS, `--import=${await clockIn(box, `clock-${at.join('-')}.mjs`, ...at)}`].filter(Boolean).join(' '),
       });
 
       const direct = await node(['--test', 'test/system/alpha.test.js'], { cwd: fixture.repo, env: fixture.env });
@@ -1857,10 +1930,22 @@ describe('test-system', { concurrency: true }, () => {
       }
       assert.deepEqual(await ranIn(fixture), [], 'loaded directly, the system test\'s body should never have run');
 
-      const confirmed = await fixture.confirmed();
+      // A confirmed run that does not name the file, at night, and one that
+      // names it, by day: each skips the test, and that is not a failure.
+      for (const [what, options] of [
+        ['not named, at 03:00', { env: await clocked(3, 0) }],
+        ['named, at 14:05', { env: await clocked(14, 5), names: ['test/system/alpha.test.js'] }],
+      ]) {
+        const skipped = await fixture.confirmed(options);
+        assert.equal(skipped.code, 0, `${what}: ${skipped.stdout}${skipped.stderr}`);
+        assert.match(skipped.stdout, /\bskip(?:ped)? 1\b/, `${what}: the test should be reported as skipped, got:\n${skipped.stdout}${skipped.stderr}`);
+        assert.deepEqual(await ranIn(fixture), [], `${what}: the body should never have run`);
+      }
+
+      const confirmed = await fixture.confirmed({ env: await clocked(3, 0), names: ['test/system/alpha.test.js'] });
 
       assert.equal(confirmed.code, 0, `${confirmed.stdout}${confirmed.stderr}`);
-      assert.deepEqual(await ranIn(fixture), ['ALPHA'], 'under the confirmed command it should have run once');
+      assert.deepEqual(await ranIn(fixture), ['ALPHA'], 'under the confirmed command, named, at night, it should have run once');
     });
   });
 });
@@ -5764,5 +5849,199 @@ describe('test-system: a hard time limit on the whole run (#653)', { concurrency
       unwrapped(report).split(/(?<=[.!?])\s+/).some((sentence) => /\bprojects?\b/i.test(sentence)),
       `a sentence should give the projects check, got:\n${report}`,
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A run that starts at night ends by 06:00 (#689)
+// ---------------------------------------------------------------------------
+//
+// A confirmed run that starts at a local hour from 0 to 5 holds the smaller of
+// two limits: the one it would have had anyway (3600 s, or --limit=<n>), and
+// the whole seconds left until 06:00:00 local time, rounded down. The grace and
+// the stop work as for any limit (#653). The `Time limit: <n> s for the whole
+// run; ...` line shows the limit it holds, and the output says when it was
+// capped so the run ends by 06:00. With less than 1 whole second left, no test
+// runs, the runner says why, and exits 1. A run that starts from 06:00 to 23:59
+// gets no cap. The cap comes after the --yes confirmation and before the
+// config backup, so a run that cannot start makes no backup.
+//
+// The clock is a fixedClock preload on the runner's process alone, by node's
+// own `--import`: the tests it starts have the real clock. So every test here
+// passes at any real hour.
+
+/** startRunner, with the runner's clock standing at 2026-10-22 `at` ([h, m, s, ms]) local time. */
+async function startAt(fixture, at, args, options = {}) {
+  const box = path.dirname(fixture.repo);
+  const clock = await clockIn(box, `runner-clock-${at.join('-')}.mjs`, ...at);
+  return startRunner(fixture, args, { ...options, nodeArgs: ['--import', clock] });
+}
+
+/** The runner's `Time limit:` line, which must be there. */
+function timeLimitLine(result) {
+  const line = result.stdout.split('\n').find((one) => one.startsWith('Time limit: '));
+  assert.ok(line !== undefined, `stdout should have the line \`Time limit: <n> s for the whole run; ...\`, got:\n${everything(result)}`);
+  return line;
+}
+
+/** The `Time limit:` line shows `seconds`. */
+function assertTimeLimit(result, seconds) {
+  const line = timeLimitLine(result);
+  assert.ok(line.startsWith(`Time limit: ${seconds} s for the whole run;`), `the limit should show ${seconds} s, got: ${line}\n${everything(result)}`);
+}
+
+/**
+ * The lines before any test ran (before the test's own `ALPHA`) that name
+ * 06:00: where the runner says it capped the limit.
+ */
+function sixOClockLines(result) {
+  const at = result.stdout.indexOf('ALPHA');
+  assert.ok(at >= 0, `the test's own output should reach stdout, got:\n${everything(result)}`);
+  return result.stdout.slice(0, at).split('\n').filter((line) => line.includes('06:00'));
+}
+
+describe('test-system: a run that starts at night ends by 06:00 (#689)', { concurrency: true }, () => {
+  /** What a run at noon, with no cap, prints that names 06:00: the lines that do not say a limit was capped. */
+  async function noonLines(t) {
+    const fixture = await createRepo(t);
+    const noon = await startAt(fixture, [12, 0, 0, 0], [CONFIRM]);
+    const result = await noon.done;
+    assertEnded(result);
+    assert.equal(result.code, 0, everything(result));
+    assertTimeLimit(result, 3600);
+    return sixOClockLines(result);
+  }
+
+  /** The run says, before any test, that its limit was capped to end by 06:00: a line naming 06:00 that a run at noon does not print. */
+  function assertSaysCapped(result, noon) {
+    const extra = sixOClockLines(result).filter((line) => !noon.includes(line));
+    assert.ok(extra.length > 0, `the run should say its limit was capped so it ends by 06:00, got:\n${everything(result)}`);
+  }
+
+  /** The run says nothing of a cap: the lines naming 06:00 are the ones a run at noon prints. */
+  function assertNotCapped(result, noon) {
+    assert.deepEqual(sixOClockLines(result), noon, `the run should say nothing of a cap to 06:00, got:\n${everything(result)}`);
+  }
+
+  test('at 05:59:50 the limit is 10 s, the run says it was capped, and a test that never ends is stopped by that limit', async (t) => {
+    const noon = await noonLines(t);
+    const { fixture, env, box, pidsFile } = await withHang(t);
+
+    const result = await (await startAt(fixture, [5, 59, 50, 0], [CONFIRM], { env })).done;
+    reapLater(t, await pidsIn(pidsFile), box);
+
+    assertEnded(result);
+    assertTimeLimit(result, 10);
+    assertSaysCapped(result, noon);
+    assert.equal(result.code, 1, `a run the limit stopped fails, got:\n${everything(result)}`);
+    assert.ok(result.ms >= 8000 && result.ms < 20000, `the run should end at about the 10 s limit, ended at ${result.ms} ms`);
+    assert.ok(stopLines(result, 10).length > 0, `a line should say the 10 s time limit stopped the run, got:\n${everything(result)}`);
+  });
+
+  test('at 05:30 with no --limit the limit is 1800 s, capped, and a quick run passes', async (t) => {
+    const noon = await noonLines(t);
+    const fixture = await createRepo(t);
+
+    const result = await (await startAt(fixture, [5, 30, 0, 0], [CONFIRM])).done;
+
+    assertEnded(result);
+    assert.equal(result.code, 0, everything(result));
+    assertTimeLimit(result, 1800);
+    assertSaysCapped(result, noon);
+  });
+
+  test('at night the smaller limit wins: at 05:30 --limit=3000 holds 1800 s, capped; --limit=600 holds 600 s, not capped', async (t) => {
+    const noon = await noonLines(t);
+    const fixture = await createRepo(t);
+
+    const capped = await (await startAt(fixture, [5, 30, 0, 0], [CONFIRM, '--limit=3000'])).done;
+    assertEnded(capped);
+    assert.equal(capped.code, 0, everything(capped));
+    assertTimeLimit(capped, 1800);
+    assertSaysCapped(capped, noon);
+
+    const given = await (await startAt(fixture, [5, 30, 0, 0], [CONFIRM, '--limit=600'])).done;
+    assertEnded(given);
+    assert.equal(given.code, 0, everything(given));
+    assertTimeLimit(given, 600);
+    assertNotCapped(given, noon);
+  });
+
+  test('at 04:00 with --limit=600 the limit is 600 s; at 04:00 and at 00:00 with no --limit it is 3600 s; none of them capped', async (t) => {
+    const noon = await noonLines(t);
+    const fixture = await createRepo(t);
+
+    for (const [at, args, seconds] of [
+      [[4, 0, 0, 0], [CONFIRM, '--limit=600'], 600],
+      [[4, 0, 0, 0], [CONFIRM], 3600],
+      [[0, 0, 0, 0], [CONFIRM], 3600],
+    ]) {
+      const result = await (await startAt(fixture, at, args)).done;
+      assertEnded(result);
+      assert.equal(result.code, 0, `${at.join(':')} ${args.join(' ')}: ${everything(result)}`);
+      assertTimeLimit(result, seconds);
+      assertNotCapped(result, noon);
+    }
+  });
+
+  test('from 06:00 to 23:59 there is no cap: at 06:00:00, 12:00 and 23:59:59 the limit is 3600 s, and --limit=600 at 12:00 holds 600 s', async (t) => {
+    const noon = await noonLines(t);
+    const fixture = await createRepo(t);
+
+    for (const [at, args, seconds] of [
+      [[6, 0, 0, 0], [CONFIRM], 3600],
+      [[12, 0, 0, 0], [CONFIRM], 3600],
+      [[23, 59, 59, 999], [CONFIRM], 3600],
+      [[12, 0, 0, 0], [CONFIRM, '--limit=600'], 600],
+    ]) {
+      const result = await (await startAt(fixture, at, args)).done;
+      assertEnded(result);
+      assert.equal(result.code, 0, `${at.join(':')} ${args.join(' ')}: ${everything(result)}`);
+      assertTimeLimit(result, seconds);
+      assertNotCapped(result, noon);
+    }
+  });
+
+  test('whole seconds, rounded down: at 05:59:59.000 and at 05:59:58.001 the limit is 1 s, and the run makes its backup', async (t) => {
+    for (const at of [[5, 59, 59, 0], [5, 59, 58, 1]]) {
+      const { fixture, env } = await withConfigsAndOrca(t, { files: { 'test/system/alpha.test.js': marker('ALPHA') } });
+
+      const result = await (await startAt(fixture, at, [CONFIRM], { env })).done;
+
+      assertEnded(result);
+      assertTimeLimit(result, 1);
+      backupSaid(result);
+    }
+  });
+
+  test('with less than 1 whole second left, at 05:59:59.500, no test runs, no backup is made, it says why, and it exits 1', async (t) => {
+    const { fixture, env } = await withConfigsAndOrca(t, { files: { 'test/system/alpha.test.js': tallies('ALPHA') } });
+
+    const result = await (await startAt(fixture, [5, 59, 59, 500], [CONFIRM], { env })).done;
+
+    assertEnded(result);
+    assert.equal(result.code, 1, everything(result));
+    assert.ok(!/^\s+at /m.test(everything(result)), `expected a message, got a crash:\n${everything(result)}`);
+    assert.deepEqual(await ranIn(fixture), [], `no test should have run, got:\n${everything(result)}`);
+    await assertNoBackup(result, env.TMPDIR, 'at 05:59:59.500');
+    assert.match(everything(result), /06:00|night/i, `it should say the night ends, got:\n${everything(result)}`);
+
+    // The same repo at 05:59:59.000, with 1 s left: a backup and a limit, so
+    // what stopped the run above was the time left.
+    const oneLeft = await (await startAt(fixture, [5, 59, 59, 0], [CONFIRM], { env })).done;
+    assertEnded(oneLeft);
+    assertTimeLimit(oneLeft, 1);
+    backupSaid(oneLeft);
+  });
+
+  test('the cap comes after the confirmation: at 05:59:59.500 a run without --yes is the unconfirmed run as before, exit 2, and runs nothing', async (t) => {
+    const { fixture, env } = await withConfigsAndOrca(t, { files: { 'test/system/alpha.test.js': tallies('ALPHA') } });
+
+    const result = await (await startAt(fixture, [5, 59, 59, 500], [], { env })).done;
+
+    assertEnded(result);
+    assert.equal(result.code, 2, `unconfirmed, it should exit 2 as before, got:\n${everything(result)}`);
+    assert.deepEqual(await ranIn(fixture), []);
+    await assertNoBackup(result, env.TMPDIR, 'unconfirmed at 05:59:59.500');
   });
 });

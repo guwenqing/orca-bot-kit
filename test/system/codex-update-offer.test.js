@@ -12,7 +12,9 @@
 // that run only and written nowhere (test/helpers/codex-trust.js). A live test
 // takes no update, and dismisses no offer in the user's own ~/.codex.
 //
-// It does not use Orca. It runs the real `codex` in a pty of its own, twice,
+// It does not use Orca, so it takes its `test` from helpers/system-no-orca.js
+// and runs at any hour, with OBK_ORCA pointed at a path that does not exist
+// (#689). It runs the real `codex` in a pty of its own, twice,
 // each time with a new throwaway CODEX_HOME and cwd under the system temp
 // folder. That CODEX_HOME holds only an `auth.json` with a fake API key (without
 // one, Codex stops at its sign-in screen and shows no offer) and a
@@ -73,7 +75,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import test from '../helpers/system.js';
+import test from '../helpers/system-no-orca.js';
 
 import { projectTrust } from '../helpers/codex-trust.js';
 import { PTY_DRIVER } from '../helpers/pty-driver.js';
