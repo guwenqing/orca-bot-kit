@@ -847,19 +847,23 @@ test('R3 a child that first appears after the deadline gets its own TERM, and KI
 
   const calls = await box.kill.calls();
   const argvs = JSON.stringify(calls.map((call) => call.args));
-  assert.deepEqual(calls[0]?.args, term(-51241), 'TERM to the group comes first');
+  // What the kit answered for the processes, with each why, read without an
+  // assertion of its own: a failure below says whether the child was found
+  // too late or a read failed after the parent's KILL (#697).
+  const said = `the answer's processes: ${JSON.stringify(answer.processes)}`;
+  assert.deepEqual(calls[0]?.args, term(-51241), `TERM to the group comes first, got: ${argvs}; ${said}`);
   const parentKill = callOf(calls, kill(51241));
   const childTerm = callOf(calls, term(51242));
   const childKill = callOf(calls, kill(51242));
-  assert.ok(parentKill !== undefined, `the premise: the parent got its KILL at the first deadline, got: ${argvs}`);
-  assert.ok(childTerm !== undefined, `the late child gets its own TERM, by pid, got: ${argvs}`);
-  assert.ok(childTerm.index > parentKill.index, `the premise: the child was found after the first deadline, got: ${argvs}`);
-  assert.ok(childKill !== undefined && childKill.index > childTerm.index, `and KILL by pid after it, got: ${argvs}`);
+  assert.ok(parentKill !== undefined, `the premise: the parent got its KILL at the first deadline, got: ${argvs}; ${said}`);
+  assert.ok(childTerm !== undefined, `the late child gets its own TERM, by pid, got: ${argvs}; ${said}`);
+  assert.ok(childTerm.index > parentKill.index, `the premise: the child was found after the first deadline, got: ${argvs}; ${said}`);
+  assert.ok(childKill !== undefined && childKill.index > childTerm.index, `and KILL by pid after it, got: ${argvs}; ${said}`);
   const waited = childKill.at - childTerm.at;
-  assert.ok(waited >= 2500, `KILL comes only after its own wait of 3 s from its own TERM; it came after ${waited} ms`);
+  assert.ok(waited >= 2500, `KILL comes only after its own wait of 3 s from its own TERM; it came after ${waited} ms; got: ${argvs}; ${said}`);
   const processes = processesIn(answer);
-  assert.deepEqual(processes.stopped.filter((one) => one.pid === 51242).map((one) => one.signal), ['SIGKILL']);
-  assert.deepEqual(processes.left.map((one) => one.pid), [51241], 'the parent, which KILL did not end, is left');
+  assert.deepEqual(processes.stopped.filter((one) => one.pid === 51242).map((one) => one.signal), ['SIGKILL'], `the child is stopped by SIGKILL, got: ${argvs}; ${said}`);
+  assert.deepEqual(processes.left.map((one) => one.pid), [51241], `the parent, which KILL did not end, is left, got: ${argvs}; ${said}`);
 });
 
 test('R2 a process that joins the group signalled whole during the wait, and descends from nothing of the session\'s, is never signalled and is named under left', async (t) => {
