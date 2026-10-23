@@ -19,6 +19,16 @@ on:
 permissions:
   contents: read
 
+# A new head on a pull request stops the run for the head it replaces, so the
+# new run does not wait for job slots behind a run nobody needs (#694). On a
+# pull request `github.ref` is `refs/pull/<number>/merge`, so each pull request
+# has a group of its own, and the workflow's name keeps it apart from another
+# workflow's. The summary job below still runs in a stopped run and fails, so
+# that run never reads as green.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # The version the kit is developed on: the current LTS line, pinned to the
   # release rather than left to follow the line.
