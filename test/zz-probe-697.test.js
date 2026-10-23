@@ -72,6 +72,7 @@ for (const fixture of ['old', 'new']) {
       const reads = await box.ps.tableReads();
       const lsofs = await box.lsof.calls();
       const childTerm = kills.some((call) => call.args.join(' ') === '-s TERM -- 51242');
+      t.diagnostic(`probe-697 ${fixture} run ${run}: real pids: test ${process.pid}, kit ${kills[0]?.caller}`);
       t.diagnostic(`probe-697 ${fixture} run ${run}: child TERM ${childTerm ? 'yes' : 'NO'}; setup ${setupMs} ms; retire ${retireMs} ms, first signal at +${t0 - retireStart} ms of it`);
       t.diagnostic(`probe-697 ${fixture} run ${run} kills: ${JSON.stringify(kills.map((call) => [call.args.slice(1).join(' ').replace('-- ', ''), call.at - t0]))}`);
       t.diagnostic(`probe-697 ${fixture} run ${run} reads: ${JSON.stringify(reads.map((read) => [read.at - t0, read.done - read.at]))}`);
