@@ -160,6 +160,10 @@
 // the first signal (1 is the first read after it), and `exitsAfterReads: n`
 // ends the process just before that read, as `exitsAtRead` does, counting
 // from the first signal: steps of the wait tied to the kit's own reads.
+// `appearsAfterKillOf: n` does the same until the fake kill has been asked
+// for a KILL to pid n by its own pid (`-s KILL -- n`, in kill.log): a process
+// started only once the kit has sent that KILL, tied to the kit's own signal
+// and not to a clock, so a slow run cannot show it before that KILL.
 // `exitsAtRead: n` on an entry ends that process just before the nth read of
 // the table (1 is the first, the reads counted from ps.log): from that read on
 // it is not in the table, and its children's parent pid is 1, as the system
@@ -252,8 +256,20 @@ function readsSinceSignal() {
   }
 }
 
-/** Whether an entry's process has started yet: see `appearsAfterMs` and `appearsAfterReads` above. */
+/** Whether the fake kill has been asked for a KILL to `pid` by its own pid, from kill.log. */
+function killSentTo(pid) {
+  const args = JSON.stringify(['-s', 'KILL', '--', String(pid)]);
+  try {
+    return readFileSync(path.join(process.env.OBK_FAKE_ORCA_DIR, 'kill.log'), 'utf8').split('\n')
+      .some((line) => line !== '' && JSON.stringify(JSON.parse(line).args) === args);
+  } catch {
+    return false;
+  }
+}
+
+/** Whether an entry's process has started yet: see `appearsAfterMs`, `appearsAfterReads` and `appearsAfterKillOf` above. */
 function started(entry) {
+  if (Number.isInteger(entry.appearsAfterKillOf) && !killSentTo(entry.appearsAfterKillOf)) return false;
   if (Number.isFinite(entry.appearsAfterReads) && readsSinceSignal() < entry.appearsAfterReads) return false;
   if (!Number.isFinite(entry.appearsAfterMs)) return true;
   const at = firstSignalAt();
