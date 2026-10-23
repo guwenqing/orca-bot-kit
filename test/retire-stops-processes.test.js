@@ -834,12 +834,13 @@ test('R3 a child that first appears after the deadline gets its own TERM, and KI
   await devFleet(box);
   const outside = await throwaway(box);
   // 51241 ignores TERM, and KILL does not end it either, so it is alive when
-  // its child 51242, in its group, starts 3.5 s after the first signal: after
-  // the first wait has ended and 51241 has had its KILL. A child is forked by
+  // its child 51242, in its group, starts: only once 51241 has had its KILL by
+  // pid, so after the first wait has ended, whatever the machine's speed (#697).
+  // The kit finds it at its first read after that KILL. A child is forked by
   // a parent that is alive, so the parent stays in the table.
   await table(box, [
     { pid: 51241, ppid: 1, pgid: 51241, cwd: workOf(box, 'dev'), command: 'node respawner.js', ignoresTerm: true, unkillable: true },
-    { pid: 51242, ppid: 51241, pgid: 51241, cwd: outside, command: 'node late-worker.js', ignoresTerm: true, appearsAfterMs: 3500 },
+    { pid: 51242, ppid: 51241, pgid: 51241, cwd: outside, command: 'node late-worker.js', ignoresTerm: true, appearsAfterKillOf: 51241 },
   ]);
 
   const answer = answerIn(await retire(box, ['--session', 'dev', '--json']));
