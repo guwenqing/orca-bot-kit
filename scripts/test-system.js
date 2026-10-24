@@ -876,6 +876,31 @@ function limitOf(args) {
 }
 
 /**
+ * When the night ends for a run that starts at `at`: 06:00 local time of that
+ * day for a run that starts at a local hour from 0 to 5, and undefined for one
+ * that starts by day (#689). A system test that can make a throwaway tab real
+ * in the owner's Orca window runs only at night, so a run that starts at night
+ * ends by then, whatever its steps before the tests take.
+ */
+function nightEnd(at) {
+  if (at.getHours() >= 6) return undefined;
+  const end = new Date(at);
+  end.setHours(6, 0, 0, 0);
+  return end;
+}
+
+/**
+ * The limit at `now`, as `{ seconds, capped }`: `seconds`, or when the night
+ * ends at `end`, no more than the whole seconds left until then. The grace and
+ * the teardown are those of any limit (#653). No time left gives 0 seconds.
+ */
+function nightCap(seconds, end, now) {
+  if (end === undefined) return { seconds, capped: false };
+  const left = Math.max(Math.floor((end - now) / 1000), 0);
+  return left < seconds ? { seconds: left, capped: true } : { seconds, capped: false };
+}
+
+/**
  * Run `files` in one `node --test`, in a process group of its own, stopped at
  * `seconds` (#653). A test still running at the limit less a grace (30 s, or
  * half a limit under 60 s) is cancelled by node's own test timeout, and its own
@@ -1102,6 +1127,18 @@ async function run() {
     return 2;
   }
 
+  // After the yes and before the backup (#689): a run with no time left
+  // before 06:00 runs nothing, so it backs up nothing.
+  const startedAt = new Date();
+  const end = nightEnd(startedAt);
+  if (nightCap(limit.seconds, end, startedAt).seconds < 1) {
+    process.stderr.write(
+      `It is ${startedAt.toTimeString().slice(0, 8)} local time: less than 1 s is left before 06:00, when the night ends.\n`
+      + 'So no system test was run, and nothing was changed. Ask for them again after 06:00.\n',
+    );
+    return 1;
+  }
+
   // No copy, no test loaded (#619): before anything else is asked or run.
   const backup = backUpConfigs();
   if (backup.why !== undefined) {
@@ -1130,10 +1167,26 @@ async function run() {
   // OBK_SYSTEM_TESTS is how a system test knows this command started it: loaded
   // any other way, it skips (test/helpers/system.js, #328). OBK_SYSTEM_NAMED is
   // how it knows it was named: the files named, one per line, and empty for a
-  // run of them all. A test that mounts a tab in the owner's Orca window runs
-  // only when it was named (the owner, #561; #634).
-  process.stdout.write(`Time limit: ${limit.seconds} s for the whole run; ${LIMIT_FLAG}=<seconds> sets a shorter one.\n\n`);
-  const result = await runTests(files, limit.seconds, { ...process.env, OBK_SYSTEM_TESTS: '1', OBK_SYSTEM_NAMED: named().length === 0 ? '' : files.join('\n') });
+  // run of them all. A test that can make a tab real in the owner's Orca
+  // window runs only when it was named, at night (test/helpers/system.js,
+  // the owner, #561; #634; #689).
+  // The cap again, now that the steps before the tests have taken their time:
+  // the limit's timer starts only when the tests are spawned.
+  const spawnAt = new Date();
+  const cap = nightCap(limit.seconds, end, spawnAt);
+  if (cap.seconds < 1) {
+    process.stderr.write(
+      `It is ${spawnAt.toTimeString().slice(0, 8)} local time: the steps before the tests took the time left before 06:00, when the night ends.\n`
+      + 'So no system test was run. The config backup above was made, and nothing else was changed. Ask for them again after 06:00.\n',
+    );
+    return 1;
+  }
+  process.stdout.write(`Time limit: ${cap.seconds} s for the whole run; ${LIMIT_FLAG}=<seconds> sets a shorter one.\n`);
+  if (cap.capped) {
+    process.stdout.write(`It is ${spawnAt.toTimeString().slice(0, 5)} local time, so the limit is cut to end the run by 06:00, when the night ends.\n`);
+  }
+  process.stdout.write('\n');
+  const result = await runTests(files, cap.seconds, { ...process.env, OBK_SYSTEM_TESTS: '1', OBK_SYSTEM_NAMED: named().length === 0 ? '' : files.join('\n') });
 
   // After the tests, whatever they did: a failing run leaves Runs behind just
   // as a passing one does, and the developer is owed the accounting either way.

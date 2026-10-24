@@ -4,7 +4,7 @@
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { isBuiltin } from 'node:module';
 import os from 'node:os';
@@ -1486,11 +1486,61 @@ test('no script under scripts/ links this checkout or installs anything globally
 // `npm run test:system -- --yes` started it. Loading a node:test file runs it,
 // so every other way in — `node --test <file>`, `node -e "import('<file>')"`, an
 // editor's runner — ran it against the real Orca too, and once did (#318). The
-// gate is test/helpers/system.js, whose `test` skips unless the runner started
-// the file; it holds for a system test only when that is where its `test`
-// comes from and nothing of node:test is loaded around it.
+// gate is in the helper a system test takes its `test` from, which skips unless
+// the runner started the file; it holds for a system test only when that is
+// where its `test` comes from and nothing of node:test is loaded around it.
+//
+// Since #689 there are two such helpers. test/helpers/system.js also holds the
+// night gate: a test on it runs only in a run that names its file, between
+// midnight and 6 am local time. test/helpers/system-no-orca.js has no night
+// gate, and is only for a test that does not touch Orca. So a file takes its
+// `test` from exactly one of the two, and a file on system-no-orca.js shows no
+// sign that it touches Orca or the kit: a new live test cannot get past the
+// night gate by mistake.
 
 const systemHelper = path.join(repoRoot, 'test', 'helpers', 'system.js');
+const noOrcaHelper = path.join(repoRoot, 'test', 'helpers', 'system-no-orca.js');
+const GATE_HELPERS = [systemHelper, noOrcaHelper];
+
+/**
+ * The test helpers that drive Orca or the kit, by their path in test/helpers/.
+ * A helper not on this list that imports one of them, or anything in src/,
+ * drives them too: `orcaSignsOf` follows the imports.
+ */
+const ORCA_HELPERS = [
+  'cli.js', // runs the kit, and makes the sandboxes and their fake Orca
+  'tab-guard.js', // asks the real Orca for tabs and closes them
+  'own-project.js', // removes Orca projects, through src/orca.js
+  'screens.js', // reads and answers what a tab in Orca shows
+  'claude-trust.js', // answers Claude Code's trust screen in an Orca tab
+  'orca-db-copy.js', // reads the real Orca's own settings database
+].map((name) => path.join(repoRoot, 'test', 'helpers', name));
+
+/** Every module specifier a file's code loads: static and dynamic imports, re-exports and requires. */
+function specifiersOf(code) {
+  const found = [];
+  for (const pattern of [
+    /^\s*import\s+[^'"`;]*?\bfrom\s*(['"])([^'"]+)\1/gm,
+    /^\s*import\s*(['"])([^'"]+)\1/gm,
+    /^\s*export\s+[^'"`;]*?\bfrom\s*(['"])([^'"]+)\1/gm,
+    /\bimport\s*\(\s*(['"`])([^'"`]+)\1\s*\)/g,
+    /\brequire\s*\(\s*(['"`])([^'"`]+)\1\s*\)/g,
+  ]) {
+    for (const match of code.matchAll(pattern)) found.push(match[2]);
+  }
+  return found;
+}
+
+/** The files a file at `file` loads by a relative specifier, as absolute paths. */
+const relativeLoadsOf = (code, file) => specifiersOf(code)
+  .filter((specifier) => specifier.startsWith('.'))
+  .map((specifier) => path.resolve(path.dirname(file), specifier));
+
+/** Which gate helpers `file` takes its `test` from: the default import named `test`, resolved from its own folder. */
+const testFromOf = (code, file) => [...code.matchAll(/^\s*import\s+test\s*(?:,\s*\{[^}]*\}\s*)?from\s+(['"])([^'"]+)\1/gm)]
+  .filter((match) => match[2].startsWith('.'))
+  .map((match) => path.resolve(path.dirname(file), match[2]))
+  .filter((helper) => GATE_HELPERS.includes(helper));
 
 /**
  * Why a system test file is outside the gate, one reason each: empty when it is
@@ -1501,51 +1551,205 @@ function outsideTheGate(source, file) {
   const code = codeOf(source);
   const reasons = [];
   if (/(['"`])node:test\1/.test(code)) reasons.push('it loads node:test itself');
-  const takesTest = [...code.matchAll(/^\s*import\s+test\s+from\s+(['"])([^'"]+)\1/gm)]
-    .some((match) => match[2].startsWith('.') && path.resolve(path.dirname(file), match[2]) === systemHelper);
-  if (!takesTest) reasons.push('it does not take `test` from test/helpers/system.js');
+  const takes = testFromOf(code, file);
+  if (takes.length === 0) reasons.push('it does not take `test` from test/helpers/system.js or test/helpers/system-no-orca.js');
+  const loads = new Set(relativeLoadsOf(code, file).filter((loaded) => GATE_HELPERS.includes(loaded)));
+  if (loads.size > 1) reasons.push('it loads both test/helpers/system.js and test/helpers/system-no-orca.js; it takes `test` from exactly one');
   return reasons;
 }
 
-test('the check for the system-test gate sees node:test loaded any way, and finds the helper from any folder', () => {
+/** The gate helper a file inside the gate takes its `test` from, or undefined. */
+const helperOf = (source, file) => testFromOf(codeOf(source), file)[0];
+
+/**
+ * Why a system test file on system-no-orca.js looks like it touches Orca or the
+ * kit, one reason each: empty when it shows no sign. Its own code, comments
+ * taken out, names none of `Orca.app`, `OBK_ORCA` and `cliEntry`, and neither
+ * does the code of any helper it loads, followed through the helpers they
+ * load; and nothing it loads that way is in src/ or one of ORCA_HELPERS.
+ * `read` reads a helper's source (a test passes its own).
+ */
+function orcaSignsOf(source, file, read = (helper) => readFileSync(helper, 'utf8')) {
+  const reasons = [];
+  const code = codeOf(source);
+  const words = ['Orca.app', 'OBK_ORCA', 'cliEntry'];
+  for (const word of words) {
+    if (code.includes(word)) reasons.push(`it names ${word}`);
+  }
+  const src = `${path.join(repoRoot, 'src')}${path.sep}`;
+  const seen = new Set();
+  const follow = (code, from, chain) => {
+    for (const loaded of relativeLoadsOf(code, from)) {
+      if (GATE_HELPERS.includes(loaded) || seen.has(loaded)) continue;
+      seen.add(loaded);
+      const via = [...chain, path.relative(repoRoot, loaded)];
+      if (loaded.startsWith(src)) reasons.push(`it loads ${via.join(' -> ')}, in src/`);
+      else if (ORCA_HELPERS.includes(loaded)) reasons.push(`it loads ${via.join(' -> ')}, which drives Orca or the kit`);
+      else if (loaded.startsWith(`${path.join(repoRoot, 'test')}${path.sep}`)) {
+        let text;
+        try {
+          text = read(loaded);
+        } catch (error) {
+          reasons.push(`it loads ${via.join(' -> ')}, which could not be read (${error.code ?? error.message})`);
+          continue;
+        }
+        const helperCode = codeOf(text);
+        for (const word of words) {
+          if (helperCode.includes(word)) reasons.push(`it loads ${via.join(' -> ')}, which names ${word}`);
+        }
+        follow(helperCode, loaded, via);
+      }
+    }
+  };
+  follow(code, file, []);
+  return reasons;
+}
+
+test('the check for the system-test gate sees node:test loaded any way, and finds either helper from any folder', () => {
   const top = path.join(systemTestsDir, 'a.test.js');
   const nested = path.join(systemTestsDir, 'group', 'b.test.js');
   const fromHelper = "import test from '../helpers/system.js';\n";
+  const fromNoOrca = "import test from '../helpers/system-no-orca.js';\n";
 
   assert.deepEqual(outsideTheGate(fromHelper, top), [], 'the helper, from test/system/');
   assert.deepEqual(outsideTheGate("import test from '../../helpers/system.js';\n", nested), [], 'the helper, from a folder under it');
   assert.deepEqual(outsideTheGate(`${fromHelper}// never 'node:test' here: it runs on load\n`, top), [], 'the word in a comment');
+  assert.deepEqual(outsideTheGate(fromNoOrca, top), [], 'the no-Orca helper, from test/system/');
+  assert.deepEqual(outsideTheGate("import test from '../../helpers/system-no-orca.js';\n", nested), [], 'the no-Orca helper, from a folder under it');
+  assert.deepEqual(outsideTheGate("import test, { NO_ORCA } from '../helpers/system-no-orca.js';\n", top), [], 'the no-Orca helper, with its constant');
 
   assert.notDeepEqual(outsideTheGate(fromHelper, nested), [], 'from a folder down, ../helpers/system.js is not the helper');
+  assert.notDeepEqual(outsideTheGate(fromNoOrca, nested), [], 'from a folder down, ../helpers/system-no-orca.js is not the helper');
   assert.notDeepEqual(outsideTheGate("import assert from 'node:assert/strict';\n", top), [], 'no `test` from the helper at all');
   assert.notDeepEqual(outsideTheGate("import test from './helpers/system.js';\n", top), [], 'a helper of the same name somewhere else');
-  for (const loads of [
-    "import test from 'node:test';",
-    'import { describe } from "node:test";',
-    "const { test: raw } = await import('node:test');",
-    "const { test: raw } = process.getBuiltinModule('node:test');",
+  assert.notDeepEqual(outsideTheGate("import test from './helpers/system-no-orca.js';\n", top), [], 'a no-Orca helper of the same name somewhere else');
+  assert.notDeepEqual(outsideTheGate("import { NO_ORCA } from '../helpers/system-no-orca.js';\n", top), [], 'the no-Orca helper loaded, but `test` not taken from it');
+  for (const both of [
+    `${fromHelper}import '../helpers/system-no-orca.js';\n`,
+    `${fromNoOrca}import '../helpers/system.js';\n`,
+    `${fromNoOrca}const { default: gated } = await import('../helpers/system.js');\n`,
   ]) {
-    assert.notDeepEqual(outsideTheGate(`${fromHelper}${loads}\n`, top), [], `should be seen: ${loads}`);
+    assert.notDeepEqual(outsideTheGate(both, top), [], `should be seen, both helpers: ${both}`);
+  }
+  for (const helper of [fromHelper, fromNoOrca]) {
+    for (const loads of [
+      "import test from 'node:test';",
+      'import { describe } from "node:test";',
+      "const { test: raw } = await import('node:test');",
+      "const { test: raw } = process.getBuiltinModule('node:test');",
+    ]) {
+      assert.notDeepEqual(outsideTheGate(`${helper}${loads}\n`, top), [], `should be seen: ${loads}, beside ${helper.trim()}`);
+    }
   }
 });
 
-test('every system test takes its `test` from test/helpers/system.js, and none loads node:test itself', async () => {
+test('the check for a system test on system-no-orca.js sees each sign that it touches Orca or the kit, and not the ones in a comment', () => {
+  const top = path.join(systemTestsDir, 'a.test.js');
+  const nested = path.join(systemTestsDir, 'group', 'b.test.js');
+  const fromNoOrca = "import test from '../helpers/system-no-orca.js';\n";
+
+  // What codex-update-offer.test.js loads is no sign: node built-ins and helpers that do not drive Orca.
+  assert.deepEqual(orcaSignsOf([
+    fromNoOrca,
+    "import { spawnSync } from 'node:child_process';",
+    "import { projectTrust } from '../helpers/codex-trust.js';",
+    "import { PTY_DRIVER } from '../helpers/pty-driver.js';",
+    "// It opens no Orca.app tab, and leaves OBK_ORCA and cliEntry alone.",
+    "/* nor the kit's src/cli.js: import '../../src/cli.js' */",
+    '',
+  ].join('\n'), top), [], 'the helpers it may load, and the words in comments');
+
+  for (const [what, source, file = top] of [
+    ['the kit run by its entry', `${fromNoOrca}import { cliEntry, node } from '../helpers/cli.js';\n`],
+    ['a sandbox and its fake Orca', `${fromNoOrca}import { createSandbox } from '../helpers/cli.js';\n`],
+    ['the sandbox helper, from a folder down', `import test from '../../helpers/system-no-orca.js';\nimport { createSandbox } from '../../helpers/cli.js';\n`, nested],
+    ['the tab guard', `${fromNoOrca}import { tabGuard } from '../helpers/tab-guard.js';\n`],
+    ['the own-project helper', `${fromNoOrca}import { deleteProject } from '../helpers/own-project.js';\n`],
+    ['the screens helper', `${fromNoOrca}import { claudeTrustOf } from '../helpers/screens.js';\n`],
+    ['the Claude trust helper', `${fromNoOrca}import { claudeTrust } from '../helpers/claude-trust.js';\n`],
+    ['the Orca settings reader', `${fromNoOrca}import { settingsOf } from '../helpers/orca-db-copy.js';\n`],
+    ['a helper that loads cli.js', `${fromNoOrca}import { readyShell } from '../helpers/shell-ready.js';\n`],
+    ['the kit\'s Orca module', `${fromNoOrca}import { orcaCli } from '../../src/orca.js';\n`],
+    ['the kit\'s entry, loaded bare', `${fromNoOrca}import '../../src/cli.js';\n`],
+    ['a dynamic import of cli.js', `${fromNoOrca}const { createSandbox } = await import('../helpers/cli.js');\n`],
+    ['a re-export from screens.js', `${fromNoOrca}export { claudeTrustOf } from '../helpers/screens.js';\n`],
+    ['the Orca app by its path', `${fromNoOrca}const orca = '/Applications/Orca.app/Contents/Resources/bin/orca';\n`],
+    ['OBK_ORCA read', `${fromNoOrca}const orca = process.env.OBK_ORCA;\n`],
+    ['cliEntry named', `${fromNoOrca}const entry = globalThis.cliEntry;\n`],
+  ]) {
+    assert.notDeepEqual(orcaSignsOf(source, file), [], `should be seen: ${what}`);
+  }
+});
+
+test('the check for a system test on system-no-orca.js looks for the words in every helper it follows too, comments taken out', () => {
+  const top = path.join(systemTestsDir, 'a.test.js');
+  const nested = path.join(systemTestsDir, 'group', 'b.test.js');
+  const helpers = path.join(repoRoot, 'test', 'helpers');
+  // Helpers that are not in the repo: the check reads them through `read`, and every other file from disk.
+  const fixtures = {
+    [path.join(helpers, 'fixture-orca-path.js')]: "export const ORCA = '/Applications/Orca.app/Contents/Resources/bin/orca';\n",
+    [path.join(helpers, 'fixture-obk-orca.js')]: 'export const orca = () => process.env.OBK_ORCA;\n',
+    [path.join(helpers, 'fixture-cli-entry.js')]: "export const entry = globalThis.cliEntry;\n",
+    [path.join(helpers, 'fixture-one-down.js')]: "export { ORCA } from './fixture-orca-path.js';\n",
+    [path.join(helpers, 'fixture-in-comment.js')]: [
+      '// It never calls /Applications/Orca.app, reads no OBK_ORCA and runs no cliEntry.',
+      '/* Not /Applications/Orca.app/Contents/Resources/bin/orca either. */',
+      'export const quiet = true;',
+      '',
+    ].join('\n'),
+  };
+  const read = (helper) => (Object.hasOwn(fixtures, helper) ? fixtures[helper] : readFileSync(helper, 'utf8'));
+  const fromNoOrca = "import test from '../helpers/system-no-orca.js';\n";
+
+  for (const [what, source, file = top] of [
+    ['a helper that names the Orca app\'s fixed CLI path', `${fromNoOrca}import { ORCA } from '../helpers/fixture-orca-path.js';\n`],
+    ['a helper that reads OBK_ORCA', `${fromNoOrca}import { orca } from '../helpers/fixture-obk-orca.js';\n`],
+    ['a helper that names cliEntry', `${fromNoOrca}import { entry } from '../helpers/fixture-cli-entry.js';\n`],
+    ['a helper, loaded through another helper, that names the Orca app', `${fromNoOrca}import { ORCA } from '../helpers/fixture-one-down.js';\n`],
+    ['a helper that names the Orca app, from a folder down', "import test from '../../helpers/system-no-orca.js';\nimport { ORCA } from '../../helpers/fixture-orca-path.js';\n", nested],
+    ['a helper that names the Orca app, loaded by a dynamic import', `${fromNoOrca}const { ORCA } = await import('../helpers/fixture-orca-path.js');\n`],
+  ]) {
+    assert.notDeepEqual(orcaSignsOf(source, file, read), [], `should be seen: ${what}`);
+  }
+
+  assert.deepEqual(
+    orcaSignsOf(`${fromNoOrca}import { quiet } from '../helpers/fixture-in-comment.js';\n`, top, read),
+    [],
+    'a helper that names the words only in comments is no sign',
+  );
+  // The helpers codex-update-offer.test.js loads, read from disk, name none of them.
+  assert.deepEqual(
+    orcaSignsOf(`${fromNoOrca}import { projectTrust } from '../helpers/codex-trust.js';\nimport { PTY_DRIVER } from '../helpers/pty-driver.js';\n`, top, read),
+    [],
+    'codex-trust.js and pty-driver.js are no sign',
+  );
+});
+
+test('every system test takes its `test` from test/helpers/system.js or test/helpers/system-no-orca.js, none loads node:test itself, and none on system-no-orca.js touches Orca or the kit', async () => {
   const tree = await snapshot(systemTestsDir);
   const files = Object.keys(tree).filter((rel) => rel.endsWith('.test.js') && tree[rel].startsWith('file:'));
   assert.ok(files.length > 0, 'there should be system tests to check');
 
   const found = [];
+  const noOrca = [];
   for (const rel of files) {
     const file = path.join(systemTestsDir, rel);
-    const reasons = outsideTheGate(await readFile(file, 'utf8'), file);
+    const source = await readFile(file, 'utf8');
+    const reasons = outsideTheGate(source, file);
+    if (helperOf(source, file) === noOrcaHelper) {
+      noOrca.push(rel);
+      reasons.push(...orcaSignsOf(source, file));
+    }
     if (reasons.length > 0) found.push(`test/system/${rel}: ${reasons.join('; ')}`);
   }
   assert.deepEqual(
     found,
     [],
-    'these run against the real Orca however they are loaded, not only under `npm run test:system -- --yes`;'
-    + ` import test from the helper instead:\n  ${found.join('\n  ')}`,
+    'these run against the real Orca however they are loaded, not only under `npm run test:system -- --yes`, or past the night gate;'
+    + ` import test from test/helpers/system.js instead:\n  ${found.join('\n  ')}`,
   );
+  // The one live test that does not touch Orca is on the helper without the night gate.
+  assert.ok(noOrca.includes('codex-update-offer.test.js'), `codex-update-offer.test.js should take its \`test\` from test/helpers/system-no-orca.js; the files on it are: ${JSON.stringify(noOrca)}`);
 });
 
 // What the floor needs (#533): the release's floor job installs only what a
