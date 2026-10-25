@@ -51,6 +51,7 @@ import {
   tokenless,
   typedInto,
 } from './helpers/cli.js';
+import { listSession } from './helpers/claude-registry.js';
 import { botYamlOf } from './helpers/skills.js';
 
 const BOT = 'api-bot';
@@ -779,7 +780,7 @@ test('HC8c a kept extra_args list with a number in it does not crash the move', 
 
 // ================================================ point 9: no Claude address on another harness
 
-// A Claude session's address (`<bot>.<session>.<token>`, ADR 0042) is the name
+// A Claude session's address (`<bot>.<session>.<token>`, ADR 0053) is the name
 // its Claude Code runs under. Once a tab opens the session on another harness,
 // nothing answers to that name, so the book holds no address for it, and a
 // Claude sender is told the Orca road to its mailbox. Back on Claude, the
@@ -852,6 +853,8 @@ test('HC9c a session that then restarts on Claude gets an address of its own aga
   assert.match(String(entry.address), addressPattern(BOT, 'daily'), `back on Claude the session has an address, got: ${JSON.stringify(entry)}`);
   const terminal = (await tabsOfBot(box, bots, BOT)).find((one) => one.tabId === entry.tab);
   assert.equal(entry.address, nameOnLine(typedInto(terminal)[0]), 'and it is the name its launch line carried');
+  // Its new harness is listed live in the sender's Claude registry under that name (#700).
+  await listSession(box, bots, BOT);
   const answer = await roadToDaily(box);
   assert.deepEqual({ transport: answer.transport, address: answer.address }, { transport: 'native', address: entry.address });
 });

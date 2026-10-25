@@ -1,0 +1,25 @@
+schema: assuredloop/1
+request: native-road-only-when-listed
+tier: "1"
+status: open
+sources:
+  - file: 2026-10-25-owner-words.md
+    kind: owner-words
+    sha256: b03b4f9fe48ce12ce85e24d1c5e86c93534bca520a3b1310cecab1ba4d2b4130
+    taken: 2026-10-25T21:05Z
+requirements:
+  - id: R1
+    version: 1
+    sha256: b44d75626a28bd4698a14de2c03dcb969657ae8aa2aefb7659d600274f532593
+    title: The native road only to a session the sender's Claude Code lists
+  - id: R2
+    version: 1
+    sha256: cc27a5cd5f78aeed29d92770dfa461c376e3405ff2d5db22081282ae80000ee8
+    title: The core reads CLAUDE_CONFIG_DIR
+signoff: []
+decisions: []
+tasks: []
+bindings:
+  - { holder: native-road-only-when-listed/R1, link: from, target: native-road-only-when-listed/2026-10-25-owner-words.md, holder_sha256: b44d75626a28bd4698a14de2c03dcb969657ae8aa2aefb7659d600274f532593, target_sha256: b03b4f9fe48ce12ce85e24d1c5e86c93534bca520a3b1310cecab1ba4d2b4130 }
+  - { holder: native-road-only-when-listed/R2, link: from, target: native-road-only-when-listed/2026-10-25-owner-words.md, holder_sha256: cc27a5cd5f78aeed29d92770dfa461c376e3405ff2d5db22081282ae80000ee8, target_sha256: b03b4f9fe48ce12ce85e24d1c5e86c93534bca520a3b1310cecab1ba4d2b4130 }
+dispositions: []

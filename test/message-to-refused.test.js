@@ -49,13 +49,18 @@ import {
   orcaCallsOf,
   sessionIn,
 } from './helpers/cli.js';
+import { listSession } from './helpers/claude-registry.js';
 import { addSession } from './helpers/permissions.js';
 import { agentsIn, blockIn, headingsIn, kitUnit, underIn } from './helpers/rules.js';
 
 /** The kit's rule unit that tells a bot how to write to another session. */
 const MAIL = 'mail';
 
-/** A bots folder holding `fleet`, every session brought up, so every one has a mailbox and an address. */
+/**
+ * A bots folder holding `fleet`, every session brought up, so every one has a
+ * mailbox and an address, and every Claude one listed live in the sender's
+ * Claude registry, as running sessions are, so the native road exists (#700).
+ */
 async function fleetIn(box, fleet) {
   assert.equal((await box.run(['init', '--bots', 'bots', '--harness', 'claude'])).code, 0);
   for (const [bot, harness, settings = []] of fleet) {
@@ -67,7 +72,11 @@ async function fleetIn(box, fleet) {
   }
   const up = await box.run(['up', '--bots', 'bots']);
   assert.equal(up.code, 0, up.stderr);
-  return box.path('bots');
+  const bots = box.path('bots');
+  for (const [bot, harness] of fleet) {
+    if (harness === 'claude') await listSession(box, bots, bot);
+  }
+  return bots;
 }
 
 /** `obk message to` as a person reads it. */

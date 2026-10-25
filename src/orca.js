@@ -1048,6 +1048,9 @@ export function wordsOfProcess(pid) {
   return asked.stdout.trim().split(/\s+/);
 }
 
+/** Whether the process `pid` runs now, as `ps` answers for it: a read that fails or runs out is a no. */
+export const isRunning = (pid, readMs) => psLine(pid, readMs)?.comm !== undefined;
+
 /** One process as `ps` gives it, read only: `{ ppid, tpgid, comm }`, `{ late: true }` past `readMs`, or undefined. */
 function psLine(pid, readMs) {
   const asked = spawnSync(PS, ['-o', 'pid=,ppid=,tpgid=,comm=', '-p', String(pid)], { encoding: 'utf8', ...(readMs === undefined ? {} : { timeout: readMs }) });

@@ -1319,6 +1319,9 @@ function toLines(answer, bots, where) {
     ...(answer.unnamed === true
       ? [`             ${where} is a Claude session running under no name the kit gave it: it was started before the kit named sessions, and nothing renames a live harness. It gets one the next time it starts. Until then the mailbox is the road that reaches it.`]
       : []),
+    ...(answer.unlisted === true
+      ? [`             ${where} is a Claude session of your approval class, but your own Claude Code does not list it among the live sessions its messaging reaches: it runs under another Claude config folder, or it is not running. So the mailbox is the road that reaches it.`]
+      : []),
     `             Send it:  ${shellWord(ownCli())} message send --bots ${shellWord(bots)} --to ${shellWord(where)} --subject <text> --text <text>`,
   ];
 }
