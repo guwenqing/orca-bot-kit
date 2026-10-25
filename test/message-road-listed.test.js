@@ -34,6 +34,7 @@
 // folder of the sandbox named by CLAUDE_CONFIG_DIR (helpers/claude-registry.js).
 
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { chmod, mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
@@ -436,11 +437,21 @@ test('R3 a Claude receiver of the sender\'s class listed live is still refused, 
 // reach, a second road after a native refusal (PRD 6.9, #109; review of PR
 // #702, point 1). How long the kit waits for one check is not part of the
 // interface: the slow ps is held back well past 2 s.
+//
+// Exit 1 alone does not say the pid is gone: Apple's ps exits 1 on an error of
+// its own too, with a message on stderr (`errx(1, "malloc failed")`). The real
+// ps answers a pid that is not there with exit 1 and nothing at all on stdout
+// or stderr (measured on macOS 27.0.1), and so does the fake. Any other answer
+// cannot tell, and keeps the entry (review of PR #702).
 
-/** The ways the fake ps cannot answer, as `orca.set` changes it, after `up`. */
+/**
+ * The ways the fake ps cannot answer, as `orca.set` changes it after `up`,
+ * each given the receiver's listed pid.
+ */
 const NO_ANSWER = [
-  ['a ps that answers only after 3 s', { psDelayMs: 3000 }],
-  ['a ps that does not start (exit 126, as in Codex\'s sandbox)', { ps: 'not-permitted' }],
+  ['a ps that answers only after 3 s', () => ({ psDelayMs: 3000 })],
+  ['a ps that does not start (exit 126, as in Codex\'s sandbox)', () => ({ ps: 'not-permitted' })],
+  ['a ps that answers the pid with an error of its own on stderr and exit 1', (pid) => ({ psErrors: { [pid]: 'ps: malloc failed' } })],
 ];
 
 for (const [label, fakePs] of NO_ANSWER) {
@@ -448,7 +459,7 @@ for (const [label, fakePs] of NO_ANSWER) {
     const box = await createSandbox(t);
     const bots = await fleetIn(box, TWO_AUTO);
     const { address, pid } = await listSession(box, bots, 'auto-two');
-    await box.orca.set(fakePs);
+    await box.orca.set(fakePs(pid));
 
     const answer = await askTo(box, 'auto-two', 'auto-one/daily');
 
@@ -460,7 +471,7 @@ for (const [label, fakePs] of NO_ANSWER) {
     const box = await createSandbox(t);
     const bots = await fleetIn(box, TWO_AUTO);
     const { address, pid } = await listSession(box, bots, 'auto-two');
-    await box.orca.set(fakePs);
+    await box.orca.set(fakePs(pid));
 
     const { result, answer } = await sendToTwo(box);
 
@@ -474,12 +485,16 @@ for (const [label, fakePs] of NO_ANSWER) {
 }
 
 test('R1 R2 #702 the contrast: a receiver listed with a pid the process table says is not there takes the mailbox, and the send carries it', async (t) => {
-  // The fake ps as it is, answering at once: exit 1 for a pid it does not
-  // know, which is the process table saying the pid is not there.
+  // The fake ps as it is, answering at once: exit 1 and nothing on stdout or
+  // stderr for a pid it does not know, as the real ps answers a pid that is
+  // not there, which is the process table saying so.
   const box = await createSandbox(t);
   const bots = await fleetIn(box, TWO_AUTO);
   const { address } = await sessionIn(bots, 'auto-two', 'daily');
   await listInRegistry(box, address, { pid: 49992 });
+  const silent = spawnSync(box.ps.cli, ['-o', 'pid=,ppid=,tpgid=,comm=', '-p', '49992'], { encoding: 'utf8' });
+  assert.deepEqual({ status: silent.status, stdout: silent.stdout, stderr: silent.stderr }, { status: 1, stdout: '', stderr: '' },
+    'the premise: the fake ps answers pid 49992 as the real ps answers a pid that is not there');
 
   assert.deepEqual(roadOf(await askTo(box, 'auto-two', 'auto-one/daily')), await mailboxOf(bots, 'auto-two'),
     `${address} is listed with pid 49992, which the fake ps answers is not there: the mailbox`);

@@ -31,7 +31,17 @@
 // Every one of them answers with the same tpgid, the pid of whoever is in
 // front: the shell at a prompt, the harness while it runs. One live line, the
 // pane with its harness in front: `44701  1063 44812 /usr/bin/login`. A pid
-// that is not there prints to stderr and exits 1.
+// that is not there prints nothing at all, on stdout or stderr, and exits 1:
+// measured on macOS 27.0.1, `/bin/ps -o pid=,ppid=,tpgid=,comm= -p 99999`
+// exits 1 with stdout and stderr both empty (the developer of #700,
+// 2026-10-25). Apple's ps also exits 1 on an error of its own, with a message
+// on stderr (`errx(1, "malloc failed")`, adv_cmds ps/ps.c), so exit 1 alone
+// does not say a pid is gone (review of PR #702).
+//
+// `psErrors` in state.json, when a test set it, makes that error: an object
+// keyed by pid, each value a line of text. A read of one of those pids, in the
+// shape above, writes the text to stderr and exits 1 with nothing on stdout,
+// whether or not the fake knows the pid.
 //
 // The pids are the fake's own: 40000 plus ten times the terminal's number, the
 // shell one above that, and the program run from the shell two above.
@@ -604,6 +614,13 @@ export function runPs() {
   }
   const pid = Number(args.at(-1));
 
+  // An error of ps's own for this pid, which a test set (see the top).
+  const error = state.psErrors?.[String(pid)];
+  if (read && typeof error === 'string') {
+    process.stderr.write(`${error}\n`);
+    process.exit(1);
+  }
+
   for (const terminal of state.terminals ?? []) {
     if (read && pid === panePid(state, terminal) && foregroundOf(state, terminal, dir) === 'garbage') {
       process.stdout.write('ps: the table was busy; this is not a line of it\n');
@@ -626,6 +643,7 @@ export function runPs() {
     }
   }
 
-  process.stderr.write(`ps: process id ${pid} not found\n`);
+  // A pid that is not there: nothing on stdout or stderr, and exit 1, as the
+  // real ps answers it (see the top).
   process.exit(1);
 }

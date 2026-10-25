@@ -1050,13 +1050,15 @@ export function wordsOfProcess(pid) {
 
 /**
  * Whether the process `pid` runs now, as `ps` answers for it: false only when
- * `ps` says no process has that pid (exit 1, nothing printed), and undefined
- * when it cannot tell: `ps` did not start, failed, ran out of time or printed
- * a line it cannot read (review of PR #702).
+ * `ps` says no process has that pid, and undefined when it cannot tell: `ps`
+ * did not start, failed, ran out of time or printed a line it cannot read.
+ * macOS's `ps` answers a pid that is not there with exit 1 and nothing on
+ * stdout or stderr (seen on macOS 27.0.1), and it exits 1 on an error of its
+ * own too, with the error on stderr (review of PR #702).
  */
 export function isRunning(pid, readMs) {
   const asked = askPs(pid, readMs);
-  if (asked.error === undefined && asked.status === 1 && asked.stdout.trim() === '') return false;
+  if (asked.error === undefined && asked.status === 1 && asked.stdout.trim() === '' && asked.stderr.trim() === '') return false;
   return psLine(pid, readMs, asked)?.comm === undefined ? undefined : true;
 }
 
