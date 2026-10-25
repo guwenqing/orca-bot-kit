@@ -118,8 +118,10 @@ export function roadBetween(from, to) {
  * Claude profile of its own after an account switch, and a session started
  * before it is in `~/.claude` (#700; tech notes, section 2). The command runs
  * in the sender's environment, so its CLAUDE_CONFIG_DIR is the sender's. An
- * entry counts when its `name` is the address and its pid runs; anything that
- * cannot be read lists nobody.
+ * entry counts when its `name` is the address, unless `ps` says its pid is not
+ * there: a check that cannot tell keeps the entry, so a slow `ps` opens no
+ * second road to a session the sender can reach (review of PR #702). A folder
+ * or a file that cannot be read lists nobody.
  */
 function listedLive(address) {
   const registry = path.join(process.env.CLAUDE_CONFIG_DIR || path.join(homedir(), '.claude'), 'sessions');
@@ -136,7 +138,7 @@ function listedLive(address) {
     } catch {
       return false;
     }
-    return entry?.name === address && Number.isInteger(entry.pid) && entry.pid > 0 && isRunning(entry.pid, LOOK_MS);
+    return entry?.name === address && Number.isInteger(entry.pid) && entry.pid > 0 && isRunning(entry.pid, LOOK_MS) !== false;
   });
 }
 

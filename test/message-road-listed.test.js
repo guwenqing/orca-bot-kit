@@ -425,3 +425,67 @@ test('R3 a Claude receiver of the sender\'s class listed live is still refused, 
   assert.deepEqual(orcaCallsOf(await box.orca.calls(), 'orchestration send'), [], 'nothing is sent to Orca');
   assert.deepEqual(await box.orca.messages(), [], 'and nothing is in a mailbox');
 });
+
+// ------------------------------------- a process check that cannot answer (#702)
+
+// An entry counts as not live only when the process table answers that its pid
+// is not there: in the sandbox, the fake ps exiting 1 for a pid it does not
+// know. A check that cannot answer (ps too slow, or ps that does not start)
+// says nothing about the pid, so the entry still lists the receiver. Taking it
+// as unlisted would open the mailbox to a receiver the sender's harness can
+// reach, a second road after a native refusal (PRD 6.9, #109; review of PR
+// #702, point 1). How long the kit waits for one check is not part of the
+// interface: the slow ps is held back well past 2 s.
+
+/** The ways the fake ps cannot answer, as `orca.set` changes it, after `up`. */
+const NO_ANSWER = [
+  ['a ps that answers only after 3 s', { psDelayMs: 3000 }],
+  ['a ps that does not start (exit 126, as in Codex\'s sandbox)', { ps: 'not-permitted' }],
+];
+
+for (const [label, fakePs] of NO_ANSWER) {
+  test(`R1 #702 a receiver listed with its live pid, and ${label}: message to still answers native, with no unlisted`, async (t) => {
+    const box = await createSandbox(t);
+    const bots = await fleetIn(box, TWO_AUTO);
+    const { address, pid } = await listSession(box, bots, 'auto-two');
+    await box.orca.set(fakePs);
+
+    const answer = await askTo(box, 'auto-two', 'auto-one/daily');
+
+    assert.deepEqual(roadOf(answer), nativeAt(address),
+      `${address} is listed with pid ${pid}, and ${label} cannot say that pid is gone, so the entry still lists it: ${JSON.stringify(answer)}`);
+  });
+
+  test(`R3 #702 a receiver listed with its live pid, and ${label}: message send is refused, and no letter is posted`, async (t) => {
+    const box = await createSandbox(t);
+    const bots = await fleetIn(box, TWO_AUTO);
+    const { address, pid } = await listSession(box, bots, 'auto-two');
+    await box.orca.set(fakePs);
+
+    const { result, answer } = await sendToTwo(box);
+
+    assert.notEqual(result.code, 0,
+      `${address} is listed with pid ${pid}, and ${label} cannot say that pid is gone, so the send should be refused, got:\n${result.stdout}${result.stderr}`);
+    assert.deepEqual({ sent: answer.sent, transport: answer.transport, address: answer.address }, { sent: false, transport: 'native', address },
+      `got: ${JSON.stringify(answer)}`);
+    assert.deepEqual(orcaCallsOf(await box.orca.calls(), 'orchestration send'), [], 'nothing is sent to Orca');
+    assert.deepEqual(await box.orca.messages(), [], 'and nothing is in a mailbox');
+  });
+}
+
+test('R1 R2 #702 the contrast: a receiver listed with a pid the process table says is not there takes the mailbox, and the send carries it', async (t) => {
+  // The fake ps as it is, answering at once: exit 1 for a pid it does not
+  // know, which is the process table saying the pid is not there.
+  const box = await createSandbox(t);
+  const bots = await fleetIn(box, TWO_AUTO);
+  const { address } = await sessionIn(bots, 'auto-two', 'daily');
+  await listInRegistry(box, address, { pid: 49992 });
+
+  assert.deepEqual(roadOf(await askTo(box, 'auto-two', 'auto-one/daily')), await mailboxOf(bots, 'auto-two'),
+    `${address} is listed with pid 49992, which the fake ps answers is not there: the mailbox`);
+
+  const { result, answer } = await sendToTwo(box);
+  assert.equal(result.code, 0, `the send should go through, got:\n${result.stdout}${result.stderr}`);
+  assert.equal(answer.sent, true, `got: ${JSON.stringify(answer)}`);
+  assert.equal((await box.orca.messages()).length, 1, 'one letter in the fake Orca\'s mailbox');
+});
