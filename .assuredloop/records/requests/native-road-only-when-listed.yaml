@@ -16,7 +16,18 @@ requirements:
     version: 1
     sha256: cc27a5cd5f78aeed29d92770dfa461c376e3405ff2d5db22081282ae80000ee8
     title: The core reads CLAUDE_CONFIG_DIR
-signoff: []
+signoff:
+  - id: S1
+    file: 2026-10-25-signoff.md
+    sha256: c516dbda1993d69e0f6b0d3be984ccd304436f13b478bb3d11df7e8c55438f2a
+    signed: 2026-10-25T22:38Z
+    source: the owner in the kit-dev architect session (Claude Code tab), 2026-10-25, answering the sign-off question for https://github.com/guwenqing/orca-bot-kit/issues/700 and PR https://github.com/guwenqing/orca-bot-kit/pull/702
+    words: I am good for the requirement
+    presented: R1 and R2 of requests/native-road-only-when-listed/request.md at 44ec3fb, quoted in full in the kit-dev architect session as option 1, with the options 2 (the simpler option) and 3 (no)
+    transcribed_by: kit-dev/architect
+    covers:
+      - { id: R1, version: 1, sha256: b44d75626a28bd4698a14de2c03dcb969657ae8aa2aefb7659d600274f532593 }
+      - { id: R2, version: 1, sha256: cc27a5cd5f78aeed29d92770dfa461c376e3405ff2d5db22081282ae80000ee8 }
 decisions: []
 tasks: []
 bindings:

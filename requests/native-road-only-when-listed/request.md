@@ -18,3 +18,4 @@ For two Claude sessions in the same approval class, `obk message to` MUST name t
 ### R2 The core reads CLAUDE_CONFIG_DIR
 
 The list in PRD 6.1 of the environment settings that the core reads MUST name `CLAUDE_CONFIG_DIR`, because R1 reads it to find the sender's registry, as Claude Code itself does.
+Signed off: 2026-10-25 owner, origin/2026-10-25-signoff.md
