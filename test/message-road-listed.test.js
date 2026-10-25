@@ -227,6 +227,36 @@ test('R1 files the kit cannot read are passed over, and the receiver\'s good ent
     'its good entry is read, whatever the files beside it hold');
 });
 
+/**
+ * Files beside the entries that are not entries: only `<pid>.json` is one.
+ * Each name below holds a whole, valid entry for the receiver with its live
+ * pid, so a kit that read it would list the receiver (#702 review).
+ */
+const NOT_ENTRIES = [
+  ['Claude Code\'s <pid>.<hex>.key', (pid) => `${pid}.3f9a1c2b.key`],
+  ['a <pid>.json.bak', (pid) => `${pid}.json.bak`],
+  ['a <pid>.json~', (pid) => `${pid}.json~`],
+  ['a <pid> with no extension', (pid) => `${pid}`],
+];
+
+for (const [label, nameOf] of NOT_ENTRIES) {
+  test(`R1 R2 only .json files are entries: the receiver named in ${label} alone is not listed, and the same JSON as <pid>.json is`, async (t) => {
+    const box = await createSandbox(t);
+    const bots = await fleetIn(box, TWO_AUTO);
+    const { address } = await sessionIn(bots, 'auto-two', 'daily');
+    const pid = await livePidOf(box, bots, 'auto-two');
+    const file = nameOf(pid);
+    await listInRegistry(box, address, { pid, file });
+
+    assert.deepEqual(roadOf(await askTo(box, 'auto-two', 'auto-one/daily')), await mailboxOf(bots, 'auto-two'),
+      `${file} in ${registryIn(defaultConfigDir(box))} holds a valid entry for ${address}, pid ${pid}, and is not a .json file, so it lists nobody`);
+
+    await listInRegistry(box, address, { pid, file: `${pid}.json` });
+    assert.deepEqual(roadOf(await askTo(box, 'auto-two', 'auto-one/daily')), nativeAt(address),
+      `the same entry as ${pid}.json lists the receiver: native`);
+  });
+}
+
 test('R1 R2 a registry folder the kit cannot read lists nobody: the mailbox, and no crash', async (t) => {
   const box = await createSandbox(t);
   const bots = await fleetIn(box, TWO_AUTO);
