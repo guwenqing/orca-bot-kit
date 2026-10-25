@@ -134,7 +134,7 @@ for (const [what, postToolUse, oldPlace] of [
   ['in the same PostToolUse group, after the kit\'s nudge entry', (nudge) => [{ matcher: 'Bash', hooks: [nudge, USER_HOOK] }], 'post_tool_use:0:1'],
   ['in a PostToolUse group of its own, after the kit\'s group', (nudge) => [{ matcher: 'Bash', hooks: [nudge] }, { matcher: 'Bash', hooks: [USER_HOOK] }], 'post_tool_use:1:0'],
 ]) {
-  test(`K2 a user's hook ${what} survives the upgrade, and its key moves from ${oldPlace} to post_tool_use:0:0 (the accepted cost, ADR 0042)`, async (t) => {
+  test(`K2 a user's hook ${what} survives the upgrade, and its key moves from ${oldPlace} to post_tool_use:0:0 (the accepted cost, ADR 0053)`, async (t) => {
     const box = await createSandbox(t);
     const bots = await botUp(box);
     const before = await asMainWroteIt(bots, postToolUse);
