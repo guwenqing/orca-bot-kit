@@ -2,7 +2,7 @@
 
 Date: 2026-10-25.
 Status: accepted.
-Decided by: the owner, in his design session of 2026-09-19 and on 2026-09-19 in #51; the coordinator, for the sentences marked as the coordinator's, where the owner was told and may overrule; the architect, for #394, for the sentences marked so, where the owner may overrule; the owner on 2026-10-11 for one road and one signal for each fleet mail, Orca's own notice, and an interrupt for urgent mail (#555); developer-700, for the native road only to a session the sender's own Claude Code lists (#700), marked (proposed) until the owner signs. Consulted: the slice 08 developer and reviewer, whose runs the Orca road rests on. A sentence marked (proposed) is not decided yet.
+Decided by: the owner, in his design session of 2026-09-19 and on 2026-09-19 in #51; the coordinator, for the sentences marked as the coordinator's, where the owner was told and may overrule; the architect, for #394, for the sentences marked so, where the owner may overrule; the owner on 2026-10-11 for one road and one signal for each fleet mail, Orca's own notice, and an interrupt for urgent mail (#555); the owner on 2026-10-25 for the native road only to a session the sender's own Claude Code lists (#700), in sign-off S1 of `requests/archive/native-road-only-when-listed/` ("I am good for the requirement"). Consulted: the slice 08 developer and reviewer, whose runs the Orca road rests on. A sentence marked (proposed) is not decided yet.
 Supersedes: [ADR 0042](0042-messaging-transport.md).
 
 ## Context
@@ -88,7 +88,7 @@ confirmed for slice 08 by the coordinator, 2026-09-21). The native road is
 named only where the sender's own registry lists the receiver's address with a
 process that runs; otherwise that pair takes the Orca mailbox, which `obk
 message to` names and `obk message send` carries, and the answer says why
-(proposed, #700). The kit reads the registry from the sender's own
+(the owner, 2026-10-25, #700). The kit reads the registry from the sender's own
 environment, as Claude Code does, and anything it cannot read lists nobody. Codex to Codex,
 cross-harness and mixed-approval pairs use the Orca orchestration mailbox. The
 bot never picks the transport: it looks the target up and the skill tells it
@@ -264,5 +264,5 @@ for slice 08, 2026-09-21; the owner was told and may overrule.)
   its watch, the Claude hook and the hint of unread mail are gone; [ADR 0042](0042-messaging-transport.md)
   replaces ADR 0035.
 - 2026-10-25, this record: the native road only to a session the sender's own
-  Claude Code lists live, and the mailbox otherwise, proposed for #700 after
+  Claude Code lists live, and the mailbox otherwise, the owner's decision for #700 after
   an account switch split the registry; the record replaces ADR 0042.
