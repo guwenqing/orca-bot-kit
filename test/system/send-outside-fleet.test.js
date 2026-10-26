@@ -96,7 +96,7 @@ import { addressPattern, cliEntry } from '../helpers/cli.js';
 import { waitingOn } from '../helpers/screens.js';
 import { claudeTrustAt, trustScreenMet } from '../helpers/claude-trust.js';
 import { tabGuard } from '../helpers/tab-guard.js';
-import { deleteOwnProject } from '../helpers/own-project.js';
+import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
 
 /**
@@ -372,17 +372,19 @@ test('a Claude session\'s native message to a session of another bots folder is 
 
   // Registered before anything is created, so it runs however this test ends.
   t.after(async () => {
-    const { closed, foreign } = guard.closeOwnAt(homes);
+    const { closed, foreign } = guard.closeOwnAt(placesOf(placesOf(homes, allSetups(), botsA), allSetups(), botsB));
     const held = new Set(foreign.map((one) => one.home));
     let deleted = 0;
     const failedDeletes = [];
-    for (const setup of allSetups()) {
-      if (!homes.includes(setup.path) || before.setups.has(setup.id) || held.has(setup.path)) continue;
-      try {
-        await deleteOwnProject(setup, setup.path.startsWith(`${botsA}/`) ? botsA : botsB);
-        deleted += 1;
-      } catch (error) {
-        failedDeletes.push(`${setup.path}: ${error.message}`);
+    for (const bots of [botsA, botsB]) {
+      for (const setup of projectsInBots(allSetups(), bots)) {
+        if (before.setups.has(setup.id) || held.has(setup.path)) continue;
+        try {
+          await deleteOwnProject(setup, bots);
+          deleted += 1;
+        } catch (error) {
+          failedDeletes.push(`${setup.path}: ${error.message}`);
+        }
       }
     }
     if (deleted > 0 && !(await reloadWindow())) t.diagnostic(RELOAD_LINE);

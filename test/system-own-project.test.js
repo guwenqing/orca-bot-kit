@@ -6,9 +6,13 @@
 // whose guard refuses a plain delete of a project with saved workspace details
 // unless `--force` is given (stablyai/orca#27172), and 1.4.223, which refuses
 // `--force` as an unknown flag. And it force-deletes only the run's own
-// projects: the project must sit strictly inside the test's throwaway bots
-// folder, `<real temp folder>/obk-system-<name>-…`, or it sends nothing and
-// fails with an AssertionError.
+// projects: the project must be the test's throwaway bots folder,
+// `<real temp folder>/obk-system-<name>-…`, or sit inside it (#712: the folder
+// itself too), or it sends nothing and fails with an AssertionError.
+//
+// And which projects a teardown picks to remove (#712): every one at the bots
+// folder or inside it (`projectsInBots`), with the places of those projects
+// handed to the tab guard beside the homes (`placesOf`).
 //
 // Run here against the fake Orca only (test/helpers/fake-orca.js): OBK_ORCA
 // names the sandbox's fake while a test runs. The bots folders are real ones
@@ -22,7 +26,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { createSandbox, orcaCallsOf, repoRoot } from './helpers/cli.js';
-import { deleteOwnProject } from './helpers/own-project.js';
+import { deleteOwnProject, placesOf, projectsInBots } from './helpers/own-project.js';
 
 /**
  * A sandbox whose fake Orca is the one `deleteProject` talks to: OBK_ORCA names
@@ -30,6 +34,9 @@ import { deleteOwnProject } from './helpers/own-project.js';
  */
 async function fakeOrcaFor(t) {
   const box = await createSandbox(t);
+  // Projects anywhere, in a git repo or not: an Orca that registers the folder
+  // it is given, as Orca did before 1.4.240 (#712).
+  await box.orca.set({ repoAddAsGiven: true });
   const had = Object.hasOwn(process.env, 'OBK_ORCA');
   const was = process.env.OBK_ORCA;
   process.env.OBK_ORCA = box.orca.cli;
@@ -115,6 +122,83 @@ test('a project directly in the bots folder is the run\'s own too', async (t) =>
   assert.deepEqual(await listedIds(box), []);
 });
 
+for (const orca of [{ deleteGuard: {} }, { forceUnknown: true }]) {
+  test(`a project at the bots folder itself is the run's own too, and goes (#712) (${Object.keys(orca)[0]})`, async (t) => {
+    // Orca 1.4.240 registers a git repo's top folder, so a run can leave a
+    // project at the bots folder itself, which `obk init` makes a git repo.
+    const box = await fakeOrcaFor(t);
+    const bots = await throwawayBots(t);
+    const owner = await projectAt(box, '/Users/owner/work/app');
+    const mine = await projectAt(box, bots);
+    await box.orca.set(orca);
+
+    await deleteOwnProject(mine, bots);
+
+    assert.deepEqual(await listedIds(box), [owner.id], 'the project is gone, and the owner\'s is still there');
+  });
+}
+
+// ------------------------------------------------------------- which projects a teardown picks (#712)
+
+/** A setup as `project setups` lists one, at `at`. */
+const setupAt = (id, at) => ({ id, projectId: `proj_${id}`, path: at, kind: 'folder' });
+
+test('a teardown picks every project at the bots folder or inside it, and none outside it', async (t) => {
+  const bots = await throwawayBots(t);
+  await mkdir(path.join(bots, 'bots', 'bot-father'), { recursive: true });
+  const elsewhere = await folderIn(t, os.tmpdir(), 'obk-elsewhere-');
+  const setups = [
+    setupAt('owner', '/Users/owner/work/app'),
+    setupAt('root', bots),
+    setupAt('home', path.join(bots, 'bots', 'bot-father')),
+    setupAt('gone', path.join(bots, 'bots', 'gone-bot')),
+    setupAt('middle', path.join(bots, 'bots')),
+    setupAt('parent', path.dirname(bots)),
+    setupAt('sibling', `${bots}-x`),
+    setupAt('dotdot', `${bots}/bots/../../owner-project`),
+    setupAt('elsewhere', elsewhere),
+    setupAt('relative', 'bots/bot-father'),
+  ];
+
+  assert.deepEqual(
+    projectsInBots(setups, bots).map((setup) => setup.id),
+    ['root', 'home', 'gone', 'middle'],
+  );
+});
+
+test('a teardown picks a project reached through a link by the place it really is', async (t) => {
+  const bots = await throwawayBots(t);
+  const elsewhere = await folderIn(t, os.tmpdir(), 'obk-elsewhere-');
+  await mkdir(path.join(bots, 'bots', 'coder'), { recursive: true });
+  // A link outside the bots folder that leads into it: really inside.
+  await symlink(path.join(bots, 'bots'), path.join(elsewhere, 'into-bots'));
+  // A link inside the bots folder that leads out of it: picked by how it is
+  // written, so that the delete refuses it out loud, not passed over.
+  await symlink(elsewhere, path.join(bots, 'linked'));
+
+  const setups = [
+    setupAt('into', path.join(elsewhere, 'into-bots', 'coder')),
+    setupAt('out', path.join(bots, 'linked', 'app')),
+    setupAt('outside', path.join(elsewhere, 'app')),
+  ];
+
+  assert.deepEqual(projectsInBots(setups, bots).map((setup) => setup.id), ['into', 'out']);
+});
+
+test('the places a teardown hands the tab guard are its homes and every project in the bots folder, each once', async (t) => {
+  const bots = await throwawayBots(t);
+  const home = path.join(bots, 'bots', 'bot-father');
+  const coder = path.join(bots, 'bots', 'coder');
+  const setups = [
+    setupAt('owner', '/Users/owner/work/app'),
+    setupAt('home', home),
+    setupAt('root', bots),
+  ];
+
+  assert.deepEqual(placesOf([home, coder], setups, bots), [home, coder, bots]);
+  assert.deepEqual(placesOf([home], [], bots), [home], 'with no project in Orca, the homes alone');
+});
+
 // ------------------------------------------------------------- any other refusal fails, and the project stays
 
 test('when Orca refuses the delete for any other reason, it throws with Orca\'s words, and the project stays', async (t) => {
@@ -160,7 +244,6 @@ test('a refusal on the guarded Orca with --force sent is not taken for 1.4.223\'
  * bots folder of the run's own shape (`ours`) and the test.
  */
 const NOT_OURS = [
-  ['the project is the bots folder itself', async (t, ours) => ({ bots: ours, home: ours })],
   ['the project is in a sibling folder whose name starts with the bots folder\'s', async (t, ours) => ({ bots: ours, home: path.join(`${ours}-x`, 'bots', 'bot-father') })],
   ['the project path leaves the bots folder through ..', async (t, ours) => ({ bots: ours, home: `${ours}/bots/../../owner-project` })],
   ['the project path leaves the bots folder through .. and comes back beside it', async (t, ours) => ({ bots: ours, home: `${ours}/../${path.basename(ours)}-x/bots` })],

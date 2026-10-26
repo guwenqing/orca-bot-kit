@@ -164,7 +164,7 @@ import { rolloutFilesOf, turnSettingsIn } from '../helpers/codex-rollout.js';
 import { waitingOn } from '../helpers/screens.js';
 import { claudeTrustAt, trustScreenMet } from '../helpers/claude-trust.js';
 import { tabGuard } from '../helpers/tab-guard.js';
-import { deleteOwnProject } from '../helpers/own-project.js';
+import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
 
 /**
@@ -531,12 +531,12 @@ test('a grooming job with --run-on codex starts one Codex run at its fire, on th
       t.diagnostic(`${CODEX_CONFIG} could not be read by its table headers: ${error.message}`);
     }
 
-    const { closed, foreign } = guard.closeOwnAt([home]);
+    const { closed, foreign } = guard.closeOwnAt(placesOf([home], allSetups(), bots));
     const held = new Set(foreign.map((one) => one.home));
     let deleted = 0;
     const failedDeletes = [];
-    for (const setup of allSetups()) {
-      if (setup.path !== home || before.setups.has(setup.id) || held.has(setup.path)) continue;
+    for (const setup of projectsInBots(allSetups(), bots)) {
+      if (before.setups.has(setup.id) || held.has(setup.path)) continue;
       try {
         await deleteOwnProject(setup, bots);
         deleted += 1;
