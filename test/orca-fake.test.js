@@ -225,15 +225,22 @@ test('the fake tab holds a login, a shell and a harness, in the shape seen live'
 test('the fake ps reads one pid and does nothing else', async (t) => {
   const box = await createSandbox(t);
 
+  // As the real ps answers a pid that is not there: exit 1, nothing on stdout
+  // or stderr (measured on macOS 27.0.1, review of PR #702).
   const missing = ps(box, 99999);
-  assert.equal(missing.status, 1, 'a pid that is not there');
-  assert.notEqual(missing.stderr, '');
+  assert.deepEqual({ status: missing.status, stdout: missing.stdout, stderr: missing.stderr }, { status: 1, stdout: '', stderr: '' },
+    'a pid that is not there');
+  // And an error of ps's own, which a test sets with `psErrors`: the message on stderr, exit 1.
+  await box.orca.set({ psErrors: { 99999: 'ps: malloc failed' } });
+  const failed = ps(box, 99999);
+  assert.deepEqual({ status: failed.status, stdout: failed.stdout, stderr: failed.stderr }, { status: 1, stdout: '', stderr: 'ps: malloc failed\n' },
+    'an error of ps\'s own');
 
   for (const argv of [['-Ao', 'pid=,ppid=,comm='], ['-o', 'pid=,ppid=,tpgid=,comm=', '-p', '-1'], ['-e']]) {
     const refused = spawnSync(box.ps.cli, argv, { env: box.env, encoding: 'utf8' });
     assert.equal(refused.status, 70, `${argv.join(' ')} is not a read of one pid`);
   }
-  assert.equal((await box.ps.calls()).length, 4, 'and every call is on the record, the refused ones too');
+  assert.equal((await box.ps.calls()).length, 5, 'and every call is on the record, the refused ones too');
 });
 
 test('the fake ps reads one process\'s environment the way macOS prints it, and in no other shape', async (t) => {

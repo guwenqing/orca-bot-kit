@@ -55,7 +55,7 @@ export function defaultRules(bots, cli = ownCli()) {
 /**
  * Orca's check, which the set held until #564: the kit's rules tell a bot to
  * read its mail with `obk message check`, never with the bare check, which
- * leaves it unread (ADR 0042).
+ * leaves it unread (ADR 0053).
  */
 const ORCA_CHECK = 'Bash(orca orchestration check --run:*)';
 

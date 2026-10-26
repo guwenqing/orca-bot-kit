@@ -16,7 +16,7 @@
 //
 // Two Codex bots, each with one session told what messaging.test.js's Codex bot
 // is told: to read its mail with the kit's check when anything says it has
-// some (since #555 that is Orca's own notice; ADR 0042), and then print
+// some (since #555 that is Orca's own notice; ADR 0053), and then print
 // MAIL: and the message, and to "Say nothing now and wait." Both sessions are
 // given their folder's trust at launch (#240, test/helpers/codex-trust.js).
 // `awake-codex` also has `-c features.sleep_tool=false`, as every other system

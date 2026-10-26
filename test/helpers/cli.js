@@ -315,8 +315,16 @@ export async function createSandbox(t) {
   // and the kit reads Orca's profiles there (#551). A shell that has it set
   // would have every run read that real folder, not the sandbox's home. A
   // sandbox starts without it too; a test that is about it sets it.
+  //
+  // CLAUDE_CONFIG_DIR names the Claude config dir whose `sessions` folder is
+  // the registry of live Claude sessions, which `obk message to` reads (#700).
+  // A suite run from a Claude tab Orca started with a profile of its own has it
+  // set to that real profile, and CI has it unset. A sandbox starts without it,
+  // so its registry is `<sandbox home>/.claude/sessions`; a test that is about
+  // it sets it (helpers/claude-registry.js).
   const outsideOrca = Object.fromEntries(Object.entries(process.env)
-    .filter(([name]) => !name.startsWith('ORCA_') && name !== 'OBK_CLI' && name !== 'OBK_TAB_SHELL' && name !== 'OBK_ORCA_DATA'));
+    .filter(([name]) => !name.startsWith('ORCA_') && name !== 'OBK_CLI' && name !== 'OBK_TAB_SHELL' && name !== 'OBK_ORCA_DATA'
+      && name !== 'CLAUDE_CONFIG_DIR'));
   const env = {
     ...outsideOrca,
     PATH: `${bin}${path.delimiter}${process.env.PATH}`,
@@ -958,7 +966,7 @@ export function harnessPartOf(line) {
 
 /**
  * A Claude session's name, which is also the address it is reached at:
- * `<bot>.<session>.<token>` (PRD 6.9, ADR 0042). Proved live that the name
+ * `<bot>.<session>.<token>` (PRD 6.9, ADR 0053). Proved live that the name
  * survives a resume, and the kit passes it on every launch anyway (tech notes,
  * section 2).
  *

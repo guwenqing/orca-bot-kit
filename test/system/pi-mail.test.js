@@ -175,7 +175,7 @@ const ANSWER_MS = 240000;
 
 /**
  * How long Orca's notice is given to reach an idle receiver: it reached an
- * idle Claude Code session about 3.5 min after its turn ended (ADR 0042, the
+ * idle Claude Code session about 3.5 min after its turn ended (ADR 0053, the
  * probe of 2026-10-11).
  */
 const IDLE_NOTICE_MS = 300000;

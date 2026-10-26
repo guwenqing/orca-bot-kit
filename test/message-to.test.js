@@ -3,7 +3,7 @@
 //
 // This is PRD 6.9's rule that the bot never picks the transport, made into a
 // command: a bot asks, and is told. Two things decide it and nothing else
-// (ADR 0042):
+// (ADR 0053):
 //
 //   native   both ends are Claude sessions in the same approval class. Claude
 //            Code has two classes, bypassing (`--dangerously-skip-permissions`)
@@ -48,6 +48,7 @@ import {
   tabsOfBot,
   typedInto,
 } from './helpers/cli.js';
+import { listInRegistry, listSession, livePidOf } from './helpers/claude-registry.js';
 import { addSession } from './helpers/permissions.js';
 
 /**
@@ -129,6 +130,9 @@ for (const [label, from, to, transport] of PAIRS) {
   test(`${label}: ${transport}`, async (t) => {
     const box = await createSandbox(t);
     const bots = await fleetIn(box);
+    // Every Claude receiver is listed live in the sender's Claude registry, so
+    // the road turns on the pair alone (#700). A Codex one has no address.
+    if (FLEET.find(([bot]) => bot === to)[1] === 'claude') await listSession(box, bots, to);
 
     const answer = await askTo(box, ['--to', to, '--from', `${from}/daily`]);
 
@@ -163,6 +167,8 @@ test('the native address is the name the receiver\'s harness was launched under'
   const box = await createSandbox(t);
   const bots = await fleetIn(box, [['auto-one', 'claude', []], ['auto-two', 'claude', []]]);
   const launched = nameOnLine(typedInto(await tabOf(box, bots, 'auto-two'))[0]);
+  // Listed live in the sender's Claude registry, as a running session is (#700).
+  await listSession(box, bots, 'auto-two');
 
   const answer = await askTo(box, ['--to', 'auto-two', '--from', 'auto-one/daily']);
 
@@ -206,6 +212,8 @@ for (const [route, command, closed] of RESUMED_BY) {
       assert.ok(line.includes('--resume sess-1'), `the run should have resumed, got: ${line}`);
       const address = nameOnLine(line);
       assert.match(String(address), addressPattern('auto-two', 'daily'), `under a new address of the kit's kind, got: ${line}`);
+      // The resumed harness is listed live under the address its line carried (#700).
+      await listInRegistry(box, address, { pid: await livePidOf(box, bots, 'auto-two') });
 
       const answer = await askTo(box, ['--to', 'auto-two', '--from', 'auto-one/daily']);
 
@@ -247,6 +255,9 @@ for (const [label, held, made] of RECEIVER_HELD) {
     const book = await bookIn(bots, 'auto-two');
     book.sessions.daily.address = held;
     await writeFile(bookOf(bots, 'auto-two'), stringify(book));
+    // The live harness is listed under the name its book holds, so only whether
+    // the kit made that name decides the road (#700).
+    await listInRegistry(box, held, { pid: await livePidOf(box, bots, 'auto-two') });
 
     const answer = await askTo(box, ['--to', 'auto-two', '--from', 'auto-one/daily']);
 
@@ -270,6 +281,8 @@ test('a session running since before #286 is still reached through its mailbox a
   const book = await bookIn(bots, 'auto-two');
   book.sessions.daily.address = 'auto-two.daily';
   await writeFile(bookOf(bots, 'auto-two'), stringify(book));
+  // Its live harness is listed under the shared name it runs under (#700).
+  await listInRegistry(box, 'auto-two.daily', { pid: await livePidOf(box, bots, 'auto-two') });
   const typedBefore = typedInto(await tabOf(box, bots, 'auto-two'));
 
   const up = await box.run(['up', '--bots', 'bots']);

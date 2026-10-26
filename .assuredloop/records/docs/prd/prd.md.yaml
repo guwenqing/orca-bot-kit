@@ -79,7 +79,7 @@ paragraphs:
     display: KIT-19 (6.1, [PRD-8] 6.1 Shape)
   - id: KIT-20
     kind: rule
-    text_sha256: 5e2b23ddd429d1dcb5f9e30df4e4ecea51bb933528e882720ee6777acf76c070
+    text_sha256: 91c5b91f74848388c25faf774349103ced39f92b5a9dec5d438c40dca49d13e2
     display: KIT-20 (6.1:1, in [PRD-8] 6.1 Shape)
   - id: KIT-21
     kind: note
@@ -143,7 +143,7 @@ paragraphs:
     display: KIT-35 (6.9, [PRD-16] 6.9 Messaging)
   - id: KIT-36
     kind: rule
-    text_sha256: eb28af33d62dca20ffe3c24c8e253c4ac01df4e1ab24878388d38b440e4a8482
+    text_sha256: 47cf37fc5fdf210847648251448c5d14e9fd46b89e7c674783b32b8efeee3235
     display: KIT-36 (6.9:1, in [PRD-16] 6.9 Messaging)
   - id: KIT-37
     kind: note
