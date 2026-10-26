@@ -16,7 +16,17 @@ requirements:
     version: 2
     sha256: 57d7e278785b56ace13e4982cfc60811ea61a3938a33e2574debc1d612cbd36b
     title: No session stops on Claude Code's Teach auto mode form
-signoff: []
+signoff:
+  - id: S1
+    file: 2026-10-26-signoff.md
+    sha256: adc9550da0c8e652d264c3853f370b27093c0b2b8391e215cfbf8cf8c737c06c
+    signed: 2026-10-26T01:44Z
+    source: the owner in the kit-dev architect session (Claude Code tab), 2026-10-25 local, answering the sign-off question for https://github.com/guwenqing/orca-bot-kit/issues/708
+    words: yes
+    presented: "R1 of requests/teach-form-off/request.md at 1d49036, quoted in full in the kit-dev architect session as option 1 (1 yes, 2 no), with its cost: /auto-mode-setup off in the bots' own sessions"
+    transcribed_by: kit-dev/architect
+    covers:
+      - { id: R1, version: 2, sha256: 57d7e278785b56ace13e4982cfc60811ea61a3938a33e2574debc1d612cbd36b }
 decisions: []
 tasks: []
 bindings:
