@@ -105,5 +105,5 @@ Existing bots get the hook the way they got SessionStart, the next time
 - 2026-10-25 (#705): a send to a subagent of the same session answers with
   a `pin` and no `routing` (Claude Code 2.1.283 to 2.1.310), and the hook
   warned about it. The decision holds. The hook now takes a send as one to
-  another session only when it went and its result has a `display`, which no
-  send inside the process has (tech notes, section 2).
+  another session only when it went, its result has a `msg_id`, and it has
+  neither `routing` nor `pin` (tech notes, section 2).

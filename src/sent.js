@@ -10,10 +10,12 @@
 //
 // It reads the send from its fields, never from its wording. Seen in the
 // transcripts of Claude Code 2.1.281 to 2.1.310 (#705): a send to another
-// session that went answers with a `display`, and a send to a subagent or
-// teammate inside the process never does. The input's `to` names the target,
-// as a session's name with an optional ` [xxxxxx]` reference, or as a `uds:`
-// socket path when answering a message, which no book can map.
+// session that went answers with a `msg_id` and with neither `routing` nor
+// `pin`. A send to a subagent or teammate inside the process has `routing` or
+// `pin`, or no `msg_id`. The transcript also has a `display`, but the copy the
+// model reads does not, and the hook may get either. The input's `to` names
+// the target, as a session's name with an optional ` [xxxxxx]` reference, or
+// as a `uds:` socket path when answering a message, which no book can map.
 
 import { readBook } from './book.js';
 import { botDir, botNames } from './bot.js';
@@ -72,7 +74,8 @@ function roadTo(bots, meant, ask) {
 
 /** Whether the send answered as one that went to another session. */
 function wentToAnotherSession(result) {
-  return result !== undefined && result.success === true && 'display' in result;
+  return result !== undefined && result.success === true && 'msg_id' in result
+    && !('routing' in result) && !('pin' in result);
 }
 
 /** What the send answered, as an object: Claude Code hands it over as one, or as its JSON. */

@@ -24,6 +24,14 @@
 //
 //   a send that failed (nothing to say):             { success: false, message, display }
 //
+// Claude Code keeps two copies of each result (seen by the same developer, on
+// disk, 2.1.281 to 2.1.310). The transcript's copy is the one above. The copy
+// the model reads drops `display` and `revivedAgentId` and keeps every other
+// field: another session's is { success, message, msg_id }, a failed send's
+// { success: false, message }, and the 2.1.301-2.1.310 resume's is the
+// 2.1.283-2.1.296 one. Which copy the hook gets is not known, so each case
+// that differs is pinned for both copies.
+//
 // What the requirement pins, through the public interface only
 // (`obk session sent --bots <bots> --bot <bot>`, the PostToolUse event on
 // standard input, the result under `tool_output` or `tool_response`, as an
@@ -98,6 +106,7 @@ const IN_PROCESS = [
     },
   },
   {
+    // Also the model's copy of the 2.1.301 to 2.1.310 resume above.
     label: 'a finished subagent resumed, Claude Code 2.1.283 to 2.1.296, with no revivedAgentId',
     to: 'a36d03de8ea1ea79f',
     result: {
@@ -158,6 +167,10 @@ const FAILED = {
   message: 'No agent named \'someone-else.daily.ab12cd34\' is reachable.',
   display: 'Not sent — no agent by that name',
 };
+
+/** The model's copies of the two results above: the same, without `display`. */
+const { display: _shown, ...ANOTHER_SESSION_MODEL } = ANOTHER_SESSION;
+const { display: _failShown, ...FAILED_MODEL } = FAILED;
 
 /** An address that no book of the sandbox's bots folder names. */
 const OUTSIDE_ADDRESS = 'kit-dev.architect.4snmt1e7';
@@ -242,15 +255,17 @@ for (const { label, to, result } of IN_PROCESS) {
 
 // ------------------------------------------------- another session: still warned
 
-test('X1 a message to another session at an address no book names, in the shape of 2.1.310: warned about under each field and encoding, never decided on', async (t) => {
+test('X1 a message to another session at an address no book names, in the shape of 2.1.310, the transcript\'s copy and the model\'s: warned about under each field and encoding, never decided on', async (t) => {
   const box = await createSandbox(t);
   await fleet(box);
 
-  for (const encoding of ENCODINGS) {
-    const what = `another session, ${encodingLabel(encoding)}`;
-    const text = assertWarned(await hook(box, sent(OUTSIDE_ADDRESS, ANOTHER_SESSION, encoding)), what);
-    assert.ok(text.includes(OUTSIDE_ADDRESS), `${what}: it names the address it went to: ${text}`);
-    assert.match(text, OUTSIDE, `${what}: and says it is outside this bots folder: ${text}`);
+  for (const [copy, result] of [['the transcript\'s copy', ANOTHER_SESSION], ['the model\'s copy, without display', ANOTHER_SESSION_MODEL]]) {
+    for (const encoding of ENCODINGS) {
+      const what = `another session, ${copy}, ${encodingLabel(encoding)}`;
+      const text = assertWarned(await hook(box, sent(OUTSIDE_ADDRESS, result, encoding)), what);
+      assert.ok(text.includes(OUTSIDE_ADDRESS), `${what}: it names the address it went to: ${text}`);
+      assert.match(text, OUTSIDE, `${what}: and says it is outside this bots folder: ${text}`);
+    }
   }
 });
 
@@ -265,15 +280,17 @@ test('X2 a message to another session at the bare name of a session this fleet h
   }
 });
 
-test('X3 in the shape of 2.1.310, a message to an address of this fleet, and a send that failed: nothing said', async (t) => {
+test('X3 in the shape of 2.1.310, a message to an address of this fleet, and a send that failed, the transcript\'s copy and the model\'s: nothing said', async (t) => {
   const box = await createSandbox(t);
   const { api, father } = await fleet(box);
 
   for (const to of [api, `${father} [f7d95e]`]) {
     assertSilent(await hook(box, sent(to, ANOTHER_SESSION)), `${to}, an address of this fleet`);
   }
-  for (const encoding of ENCODINGS) {
-    assertSilent(await hook(box, sent('someone-else.daily.ab12cd34', FAILED, encoding)), `a send that failed, ${encodingLabel(encoding)}`);
+  for (const [copy, result] of [['the transcript\'s copy', FAILED], ['the model\'s copy, without display', FAILED_MODEL]]) {
+    for (const encoding of ENCODINGS) {
+      assertSilent(await hook(box, sent('someone-else.daily.ab12cd34', result, encoding)), `a send that failed, ${copy}, ${encodingLabel(encoding)}`);
+    }
   }
 });
 
