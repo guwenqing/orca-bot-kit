@@ -570,6 +570,16 @@ Nothing in the kit's code, tests or skills stands in his way.
   matches the form's title, description, row names and foot exactly, and takes any value after each
   of the three settings. **verified** (live, the form with `true`, and Esc removing it; whether that
   Esc recorded a Not now, not seen)
+  **On 2.1.310 it is the 2.1.302 form, its description on one row (#701).** Seen live (reported 2026-10-25,
+  Claude Code 2.1.310, Orca 1.4.238, two sessions of two bots on the same evening): the 2.1.302 form's
+  rows and foot, but its description, `Claude Code reads this project, … to make better decisions.`,
+  on one row where 2.1.302 broke it after `and other`. The kit refused it on that row. The fleet's
+  manager sent one Esc by hand; the form was gone, and the session went on. Read in the 2.1.310
+  binary: the description is one string, drawn as plain text, so Claude Code wraps it at word breaks
+  to the tab's width; a tab of about 200 columns or more holds it on one row. The kit now matches the
+  description by its words, on as many rows as it is wrapped onto, and the rest of the form exactly,
+  as before. **verified** (live, the form and Esc removing it, by the issue's report; the wrap, read in
+  code)
 - Anything else: type nothing and raise it with the user, naming the bot, the tab and what is on screen.
 
 The kit's own code does not change user-level settings on its own initiative.
