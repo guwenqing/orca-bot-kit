@@ -232,7 +232,7 @@ async function enter(it, verb, before = () => {}) {
  * `check` passes, and its own check of the screen before the return; past
  * `deadline`, a time, what was typed is taken back and nothing is entered;
  * `whole` sends the command in one write and not a character a send; `last`
- * runs after the last look, with nothing between it and the first key.
+ * runs after the last look, given it, with nothing between it and the first key.
  * Returns the command, the handle it went into, and when it was typed.
  */
 export async function typeCommand(it, command, { before = () => {}, check = menuWrong, cannot = () => '', close, deadline = Infinity, whole = false, last = () => {} } = {}) {
@@ -264,7 +264,7 @@ export async function typeCommand(it, command, { before = () => {}, check = menu
   const ready = lookAt(it);
   if (ready.why !== undefined) throw new Error(`${it.name}: nothing was typed, because ${ready.why}.`);
   emptyLine(ready);
-  last();
+  last(ready);
   const { handle } = ready;
   const typedAt = Date.now();
   // One character a send, each after a look through the gate, so nothing goes

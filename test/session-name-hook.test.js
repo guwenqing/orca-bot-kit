@@ -138,7 +138,8 @@ test('the installed line, run as Codex runs it at a turn end in the session\'s t
   const name = `${CODEX_BOT}.daily`;
   const command = `/rename ${name}`;
   const above = CODEX_ANSWERED.slice(0, 12);
-  const status = '  GPT-6-Luna medium · /private/var/folders/…/bots/api-b…';
+  // The status row that stood under the empty line before the write (CODEX_IDLE's, what the fake shows), as on a real screen (#713 review).
+  const status = CODEX_IDLE[8];
   // The command written in one send (#713), then the return.
   const state = await box.orca.terminals();
   await box.orca.set({ terminals: state.map((one) => (one.tabId === tabId ? { ...one, nextScreens: [[...above, `› ${command}`, status], CODEX_IDLE] } : one)) });

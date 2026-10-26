@@ -959,7 +959,9 @@ Proved live on 2026-09-21 (Orca 1.4.205), in throwaway workspaces since removed:
   line. So the notice joined the half-typed command, and Orca's Enter ran `/rename` with the notice
   as part of the name. Since #713 the naming reads the session's mailbox last before it types, and
   types nothing while a letter is unread with no `delivered_at`. It sends the command in one write,
-  and its line check refuses text between the input line and Codex's status row. **verified**
+  and its line check refuses any row under the input line other than the one that stood there at
+  its last look before the write. That row is Codex's status row, which a user can set to one item
+  with no ` · ` (`tui.status_line`, review of PR #717). **verified**
   (records), **read in code** (Orca). Seen live (2026-10-26, `test/system/codex-thread-name.test.js`
   after #713, Codex 0.164.0, Orca 1.4.240): the one-write `/rename name-codex.main` ran as a
   command (the index named the thread so, and no user turn held it), and the input line was empty

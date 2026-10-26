@@ -93,7 +93,9 @@ export async function nameSession(bots, bot, said, tabId) {
     // notice inside the command became the thread's name (#713). A letter not
     // delivered yet is one Orca is about to ring for: name later. Read last
     // of all before the write.
-    const last = () => {
+    let footer;
+    const last = (ready) => {
+      footer = rowUnder(ready.rows);
       const mailbox = entry.mailbox;
       if (mailbox === undefined) return;
       let letters;
@@ -107,7 +109,7 @@ export async function nameSession(bots, bot, said, tabId) {
       }
     };
     try {
-      await typeCommand(it, `/rename ${name}`, { check: renameWrong, deadline, before, last, whole: true });
+      await typeCommand(it, `/rename ${name}`, { check: renameWrong(() => footer), deadline, before, last, whole: true });
     } finally {
       typing?.release();
     }
@@ -140,8 +142,11 @@ function nameOf(thread) {
   return name;
 }
 
-/** Codex's status row under its input line: two spaces, the model, then ` · `. */
-const STATUS_ROW = /^ {2}\S[^·]* · /;
+/** The first row with text under the input line, the lowest row Codex's pointer starts, or undefined. */
+function rowUnder(rows) {
+  const at = rows.findLastIndex((row) => /^ *›/.test(row));
+  return rows.slice(at + 1).find((row) => row.trim() !== '')?.trimEnd();
+}
 
 /**
  * Why the screen does not show `command` typed and ready, or undefined when it
@@ -151,17 +156,18 @@ const STATUS_ROW = /^ {2}\S[^·]* · /;
  * `sync_command_popup`, rust-v0.160.0), so a menu still open means the line is
  * not what it seems. Where Orca gives a draft, the draft is the line's text:
  * Codex 0.162.0's line on the screen then reads its pointer alone (#516).
+ * Under the line, the first row with text is the one that stood there before
+ * the write, `footer()`: Codex's status row, whatever the user set it to show.
  */
-function renameWrong(rows, _harness, command, _version, draft) {
+const renameWrong = (footer) => (rows, _harness, command, _version, draft) => {
   const at = rows.findLastIndex((row) => /^ *›/.test(row));
   if (at < 0) return { why: 'its screen shows no input line' };
   const line = draft === undefined ? rows[at].replaceAll(' ', ' ').trim() : `› ${draft}`;
   if (line !== `› ${command}`) return { why: `its input line reads "${line}"` };
   const above = rows.slice(0, at).findLast((row) => row.trim() !== '');
   if (above !== undefined && /^ *(?:› +)?\/\S/.test(above)) return { why: `a menu of commands stands above its input line: "${above.trim()}"` };
-  // Text between the line and Codex's status row (`  <model> · <path> · …`)
-  // is more of the line: Orca's notice, for one (#713).
-  const under = rows.slice(at + 1).find((row) => row.trim() !== '');
-  if (under !== undefined && !STATUS_ROW.test(under)) return { why: `text stands under its input line: "${under.trim()}"` };
+  // Any other row there is more of the line: Orca's notice, for one (#713).
+  const under = rowUnder(rows);
+  if (under !== footer()) return { why: `text stands under its input line: "${under?.trim()}"` };
   return undefined;
-}
+};

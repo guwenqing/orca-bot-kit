@@ -56,11 +56,17 @@
 //       5. Then it reads the screen: the input line, the lowest row starting
 //          with `›`, reads exactly `› /rename <bot>.<session>`, or, where Orca
 //          gives a draft, the draft is exactly the command; no slash-menu row
-//          stands above the line; and no text stands under the line before
-//          Codex's status row (the row like `  GPT-6.1-Sol default · <path> ·
-//          …`: two spaces, the model, then ` · `). A blank row there is not
-//          text. Otherwise the text is taken back, one backspace per
-//          character, in one send, nothing is entered, and it stops.
+//          stands above the line; and the first non-blank row under the line
+//          is the same row, word for word, as the one that stood under the
+//          empty line at the last look before the write, or there is none
+//          when none stood there then. That row is Codex's footer: its status
+//          row, `  GPT-6.1-Sol default · <path> · …`, or a footer of one item
+//          a user set in `tui.status_line`, `  GPT-6-Luna medium`, with no
+//          ` · `. A blank row is not text. So Orca's notice between the line
+//          and the footer is refused, and so is a notice under a line that
+//          had nothing under it. Otherwise the text is taken back, one
+//          backspace per character, in one send, nothing is entered, and it
+//          stops.
 //       6. The return is a send of its own: `\r`, without --enter.
 //       7. It confirms the name in session_index.jsonl, waiting up to 10 s.
 //          Confirmed or not, it exits 0.
@@ -181,8 +187,13 @@ const ABOVE_POPUP = CODEX_ANSWERED.slice(0, 11);
 /** Codex's screen above its input line: the box, the answered turn and the tip row (CODEX_ANSWERED, a capture). */
 const ABOVE_INPUT = CODEX_ANSWERED.slice(0, 12);
 
-/** Codex's status row under its input line, as live run 4 of #391 showed it, the folder as Codex shortened it. */
-const STATUS = '  GPT-6-Luna medium · /private/var/folders/…/bots/api-b…';
+/**
+ * Codex's status row under its input line: CODEX_IDLE's, a capture, so that
+ * the row under the line after the write is the row that stood under the
+ * empty line before it (#713 review), as on a real screen. CODEX_IDLE is what
+ * the fake Orca shows a Codex tab no test changed.
+ */
+const STATUS = CODEX_IDLE[8];
 
 /** `/rename`'s row in the popup, selected. The words after the command are made up. */
 const RENAME_ROW = '› /rename  rename the current thread';
@@ -942,6 +953,58 @@ for (const { what, screen } of [
     assertQuiet(result, what);
     assert.ok(played, 'the premise: the return went in, and Codex wrote its line');
     assert.deepEqual(await sendsInto(box, tab.tabId), renamed(), 'the command in one send, then the return, and nothing taken back');
+  });
+}
+
+// #713 review: Codex lets a user set `tui.status_line` to one item, so its
+// footer can read `  GPT-6-Luna medium`, with no ` · `. The line check
+// compares the row under the line with the one that stood there at the last
+// look before the write, whatever it reads. The footer row is a
+// reconstruction: no screen with a one-item footer was captured.
+
+/** A footer of one item, as `tui.status_line = ["model-with-reasoning"]` would draw it. A reconstruction. */
+const ONE_ITEM_FOOTER = '  GPT-6-Luna medium';
+
+/** Codex idle, its placeholder in the input line, and `below` under it. A reconstruction on CODEX_ANSWERED's rows. */
+const idleWith = (below) => [...ABOVE_INPUT, '› Ask Codex to do anything', ...below];
+
+test('#713 review: a one-item footer, "  GPT-6-Luna medium", under the line before and after the write: the command is entered, and Codex names the thread', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await running(box);
+  const tab = await liveTab(box, bots);
+  await changeTab(box, tab.tabId, {
+    screen: idleWith([ONE_ITEM_FOOTER]),
+    nextScreens: [[...ABOVE_INPUT, `› ${RENAME}`, ONE_ITEM_FOOTER], idleWith([ONE_ITEM_FOOTER])],
+  });
+
+  const { result, played } = await nameHookPlaying(box, bots, tab);
+
+  assertQuiet(result, 'a one-item footer');
+  assert.ok(played, 'the premise: the return went in, and Codex wrote its line');
+  assert.deepEqual(await sendsInto(box, tab.tabId), renamed(), 'the command in one send, then the return, and nothing taken back');
+});
+
+for (const { what, before, after } of [
+  {
+    what: 'Orca\'s notice between the line and the one-item footer that stood under it before',
+    before: idleWith([ONE_ITEM_FOOTER]),
+    after: [...ABOVE_INPUT, `› ${RENAME}`, NOTICE_ROW, ONE_ITEM_FOOTER],
+  },
+  {
+    what: 'nothing under the line before the write, and Orca\'s notice under it after',
+    before: idleWith([]),
+    after: [...ABOVE_INPUT, `› ${RENAME}`, NOTICE_ROW],
+  },
+]) {
+  test(`#713 review: ${what}: no return, and the command is taken back, one backspace per character, in one send`, async (t) => {
+    const box = await createSandbox(t);
+    const bots = await running(box);
+    const tab = await liveTab(box, bots);
+    await changeTab(box, tab.tabId, { screen: before, nextScreens: [after, before] });
+
+    assertQuiet(await nameHook(box, bots, tab), what);
+
+    assert.deepEqual(await sendsInto(box, tab.tabId), takenBack());
   });
 }
 
