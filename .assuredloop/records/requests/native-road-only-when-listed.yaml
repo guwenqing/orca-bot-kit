@@ -1,0 +1,38 @@
+schema: assuredloop/1
+request: native-road-only-when-listed
+tier: "1"
+status: concluded
+sources:
+  - file: 2026-10-25-owner-words.md
+    kind: owner-words
+    sha256: b03b4f9fe48ce12ce85e24d1c5e86c93534bca520a3b1310cecab1ba4d2b4130
+    taken: 2026-10-25T21:05Z
+requirements:
+  - id: R1
+    version: 1
+    sha256: b44d75626a28bd4698a14de2c03dcb969657ae8aa2aefb7659d600274f532593
+    title: The native road only to a session the sender's Claude Code lists
+  - id: R2
+    version: 1
+    sha256: cc27a5cd5f78aeed29d92770dfa461c376e3405ff2d5db22081282ae80000ee8
+    title: The core reads CLAUDE_CONFIG_DIR
+signoff:
+  - id: S1
+    file: 2026-10-25-signoff.md
+    sha256: c516dbda1993d69e0f6b0d3be984ccd304436f13b478bb3d11df7e8c55438f2a
+    signed: 2026-10-25T22:38Z
+    source: the owner in the kit-dev architect session (Claude Code tab), 2026-10-25, answering the sign-off question for https://github.com/guwenqing/orca-bot-kit/issues/700 and PR https://github.com/guwenqing/orca-bot-kit/pull/702
+    words: I am good for the requirement
+    presented: R1 and R2 of requests/native-road-only-when-listed/request.md at 44ec3fb, quoted in full in the kit-dev architect session as option 1, with the options 2 (the simpler option) and 3 (no)
+    transcribed_by: kit-dev/architect
+    covers:
+      - { id: R1, version: 1, sha256: b44d75626a28bd4698a14de2c03dcb969657ae8aa2aefb7659d600274f532593 }
+      - { id: R2, version: 1, sha256: cc27a5cd5f78aeed29d92770dfa461c376e3405ff2d5db22081282ae80000ee8 }
+decisions: []
+tasks: []
+bindings:
+  - { holder: native-road-only-when-listed/R1, link: from, target: native-road-only-when-listed/2026-10-25-owner-words.md, holder_sha256: b44d75626a28bd4698a14de2c03dcb969657ae8aa2aefb7659d600274f532593, target_sha256: b03b4f9fe48ce12ce85e24d1c5e86c93534bca520a3b1310cecab1ba4d2b4130 }
+  - { holder: native-road-only-when-listed/R2, link: from, target: native-road-only-when-listed/2026-10-25-owner-words.md, holder_sha256: cc27a5cd5f78aeed29d92770dfa461c376e3405ff2d5db22081282ae80000ee8, target_sha256: b03b4f9fe48ce12ce85e24d1c5e86c93534bca520a3b1310cecab1ba4d2b4130 }
+  - { holder: KIT-20, link: serves, target: native-road-only-when-listed/R2, holder_sha256: 91c5b91f74848388c25faf774349103ced39f92b5a9dec5d438c40dca49d13e2, target_sha256: cc27a5cd5f78aeed29d92770dfa461c376e3405ff2d5db22081282ae80000ee8, target_version: 1 }
+  - { holder: KIT-36, link: serves, target: native-road-only-when-listed/R1, holder_sha256: 47cf37fc5fdf210847648251448c5d14e9fd46b89e7c674783b32b8efeee3235, target_sha256: b44d75626a28bd4698a14de2c03dcb969657ae8aa2aefb7659d600274f532593, target_version: 1 }
+dispositions: []

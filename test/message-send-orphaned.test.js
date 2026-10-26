@@ -1,7 +1,7 @@
 // `obk message send` to a receiver whose tab Orca lists as orphaned (#579).
 //
 // Fleet mail on the Orca road goes into the receiver's mailbox, and Orca's own
-// notice tells the receiver to look (PRD 6.9, ADR 0042). Orca writes that
+// notice tells the receiver to look (PRD 6.9, ADR 0053). Orca writes that
 // notice only into a pane its window has loaded (tech notes, section 1). A tab
 // it lists as orphaned (`orphaned: true`, tab id `pty:<ptyId>`) is one the
 // window has not loaded, so no notice comes. After an Orca window restart most

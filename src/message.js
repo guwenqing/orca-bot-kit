@@ -1,4 +1,4 @@
-// `obk message`: one session writing to another (PRD 6.9, ADR 0042).
+// `obk message`: one session writing to another (PRD 6.9, ADR 0053).
 //
 // Two roads, and the bot never picks. Claude to Claude in the same approval
 // class is the harness's own messaging, which no command line can send for it —
@@ -10,20 +10,21 @@
 // refuses a send once the pane is gone. A Run survives the tab, the relaunch
 // and the restart, so a session's address is its Run (tech notes, section 1).
 //
-// One road and one signal (#555, ADR 0042): the letter goes into the
+// One road and one signal (#555, ADR 0053): the letter goes into the
 // receiver's mailbox, and Orca's own notice tells the receiver to look once it
 // is idle. The kit types nothing into the receiver's tab, except the one
 // Escape a sender asks for with --interrupt. Orca gives no notice to a tab its
 // window has not loaded, so the send says when the receiver's is one (#579).
 
-import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import path from 'node:path';
 import { setTimeout as pause } from 'node:timers/promises';
 
 import { MAILBOX_WAIT_MS, readBook, takeLineTurn, takeMailboxTurn, TYPING_HELD, TYPING_WAIT_MS } from './book.js';
 import { botDir, botNames, readBot } from './bot.js';
 import { harnessOf, isAddressOf, kitFolders, ownCli, reachesMail, SHELL_ENV, shellWord } from './launch.js';
-import { ackMailbox, coordinatorOf, listedOrphaned, loadInWindow, postMessage, pressEscape, readMailbox, tabs, tabToTypeInto, TERMINAL_ENV, TIMED_OUT, useMailbox } from './orca.js';
+import { ackMailbox, coordinatorOf, isRunning, listedOrphaned, loadInWindow, postMessage, pressEscape, readMailbox, tabs, tabToTypeInto, TERMINAL_ENV, TIMED_OUT, useMailbox } from './orca.js';
 
 /**
  * How much of a message travels as itself. Above this it is written to a file
@@ -89,11 +90,16 @@ export function findSession(bots, target) {
  */
 export function roadBetween(from, to) {
   const pair = from.harness === 'claude' && to.harness === 'claude' && from.approval === to.approval;
-  if (pair && to.address !== undefined) return { transport: 'native', address: to.address };
+  const mailbox = to.mailbox === undefined ? undefined : `run:${to.mailbox}`;
+  if (pair && to.address !== undefined) {
+    // Native only to a session the sender's own Claude Code lists: its
+    // messaging reaches no other, and the mailbox does (#700).
+    return listedLive(to.address) ? { transport: 'native', address: to.address } : { transport: 'orca', address: mailbox, unlisted: true };
+  }
 
   return {
     transport: 'orca',
-    address: to.mailbox === undefined ? undefined : `run:${to.mailbox}`,
+    address: mailbox,
     // A Claude pair that the native road cannot carry, because the receiver is
     // running under no name the kit gave it: it was started before the kit
     // named sessions, or before it gave them names of their own (#286), and
@@ -102,6 +108,38 @@ export function roadBetween(from, to) {
     // rather than left to wonder (review of PR #132, finding 1).
     unnamed: pair ? true : undefined,
   };
+}
+
+/**
+ * Whether the sender's own Claude Code lists `address` as a live session. Its
+ * messaging reaches only the sessions in its own registry, one
+ * `<pid>.json` for each, in `sessions` under its config dir, and two Claude
+ * Codes with two config dirs do not see each other: Orca starts a tab under a
+ * Claude profile of its own after an account switch, and a session started
+ * before it is in `~/.claude` (#700; tech notes, section 2). The command runs
+ * in the sender's environment, so its CLAUDE_CONFIG_DIR is the sender's. An
+ * entry counts when its `name` is the address, unless `ps` says its pid is not
+ * there: a check that cannot tell keeps the entry, so a slow `ps` opens no
+ * second road to a session the sender can reach (review of PR #702). A folder
+ * or a file that cannot be read lists nobody.
+ */
+function listedLive(address) {
+  const registry = path.join(process.env.CLAUDE_CONFIG_DIR || path.join(homedir(), '.claude'), 'sessions');
+  let files;
+  try {
+    files = readdirSync(registry).filter((file) => file.endsWith('.json'));
+  } catch {
+    return false;
+  }
+  return files.some((file) => {
+    let entry;
+    try {
+      entry = JSON.parse(readFileSync(path.join(registry, file), 'utf8'));
+    } catch {
+      return false;
+    }
+    return entry?.name === address && Number.isInteger(entry.pid) && entry.pid > 0 && isRunning(entry.pid, LOOK_MS) !== false;
+  });
 }
 
 /** What `obk message to` answers: the road, the address, and who is at each end. */

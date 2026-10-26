@@ -61,6 +61,7 @@ import {
   spellingsOf,
   tabsOfBot,
 } from './helpers/cli.js';
+import { listSession } from './helpers/claude-registry.js';
 
 // ---------------------------------------------------------------- the fleet
 
@@ -415,6 +416,9 @@ async function roadFromSender(box, bot) {
 test('R1 run in the sender\'s tab, a receiver in its own approval class: the warning names the native address', async (t) => {
   const box = await createSandbox(t);
   const { bots, peer } = await classes(box);
+  // The native road exists only to a receiver the sender's Claude registry
+  // lists live (#700).
+  await listSession(box, bots, 'peer-bot');
   assert.deepEqual(
     (({ transport, address }) => ({ transport, address }))(await roadFromSender(box, 'peer-bot')),
     { transport: 'native', address: peer.address },
@@ -443,6 +447,25 @@ test('R2 run in the sender\'s tab, a receiver in another approval class: the war
   assert.ok(text.includes(`run:${skip.mailbox}`), `it names skip-bot daily's mailbox, run:${skip.mailbox}, the road obk message to gives: ${text}`);
   assert.match(text, /\bmessage send\b/, `and that the road is obk message send: ${text}`);
   assert.ok(!text.includes(skip.address), `and not skip-bot daily's native address, ${skip.address}, which is not the road from this sender: ${text}`);
+});
+
+test('R1 #700 run in the sender\'s tab, a receiver in its own approval class that the sender\'s registry does not list: the warning names the run: mailbox and obk message send, and not the native address', async (t) => {
+  // The road `obk message to` gives (#700): SendMessage cannot reach a session
+  // its own registry does not list, so the mailbox is the road.
+  const box = await createSandbox(t);
+  const { bots, peer } = await classes(box);
+  assert.deepEqual(
+    (({ transport, address, unlisted }) => ({ transport, address, unlisted }))(await roadFromSender(box, 'peer-bot')),
+    { transport: 'orca', address: `run:${peer.mailbox}`, unlisted: true },
+    'the premise: obk message to gives the Orca road to an auto Claude receiver the sender\'s registry does not list',
+  );
+
+  const ran = await box.run(['session', 'sent', '--bots', 'bots', '--bot', 'api-bot'], { stdin: sent('peer-bot.daily', ANOTHER_SESSION), env: await senderTab(box, bots) });
+  const text = assertWarned(ran, 'the bare name of an unlisted session in the sender\'s class');
+
+  assert.ok(text.includes(`run:${peer.mailbox}`), `it names peer-bot daily's mailbox, run:${peer.mailbox}, the road obk message to gives: ${text}`);
+  assert.match(text, /\bmessage send\b/, `and that the road is obk message send: ${text}`);
+  assert.ok(!text.includes(peer.address), `and not peer-bot daily's native address, ${peer.address}, which the sender's harness cannot reach: ${text}`);
 });
 
 test('R3 with no tab to tell the sender by, the warning names the session\'s address and the obk message to command for it', async (t) => {

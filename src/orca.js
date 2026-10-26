@@ -1048,9 +1048,25 @@ export function wordsOfProcess(pid) {
   return asked.stdout.trim().split(/\s+/);
 }
 
+/**
+ * Whether the process `pid` runs now, as `ps` answers for it: false only when
+ * `ps` says no process has that pid, and undefined when it cannot tell: `ps`
+ * did not start, failed, ran out of time or printed a line it cannot read.
+ * macOS's `ps` answers a pid that is not there with exit 1 and nothing on
+ * stdout or stderr (seen on macOS 27.0.1), and it exits 1 on an error of its
+ * own too, with the error on stderr (review of PR #702).
+ */
+export function isRunning(pid, readMs) {
+  const asked = askPs(pid, readMs);
+  if (asked.error === undefined && asked.status === 1 && asked.stdout.trim() === '' && asked.stderr.trim() === '') return false;
+  return psLine(pid, readMs, asked)?.comm === undefined ? undefined : true;
+}
+
+const askPs = (pid, readMs) =>
+  spawnSync(PS, ['-o', 'pid=,ppid=,tpgid=,comm=', '-p', String(pid)], { encoding: 'utf8', ...(readMs === undefined ? {} : { timeout: readMs }) });
+
 /** One process as `ps` gives it, read only: `{ ppid, tpgid, comm }`, `{ late: true }` past `readMs`, or undefined. */
-function psLine(pid, readMs) {
-  const asked = spawnSync(PS, ['-o', 'pid=,ppid=,tpgid=,comm=', '-p', String(pid)], { encoding: 'utf8', ...(readMs === undefined ? {} : { timeout: readMs }) });
+function psLine(pid, readMs, asked = askPs(pid, readMs)) {
   if (asked.error?.code === 'ETIMEDOUT') return { late: true };
   if (asked.error || asked.status !== 0) return undefined;
   const line = /^\s*(\d+)\s+(\d+)\s+(-?\d+)\s+(.+?)\s*$/.exec(asked.stdout);

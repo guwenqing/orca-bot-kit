@@ -616,7 +616,7 @@ verdict: which of these matter, and in what order, is for you or for Bot Father.
 ## Sessions and bots that talk
 
 Ask the kit how to reach a session, and it answers with the road and the
-address ([ADR 0042](docs/adr/0042-messaging-transport.md)):
+address ([ADR 0053](docs/adr/0053-messaging-transport.md)):
 
 ```sh
 obk message to    --bots /path/to/my-bots --to api-bot/daily
@@ -639,6 +639,13 @@ That includes a Claude session still running under a name from before the
 token, `<bot>.<session>`: `message to` answers the mailbox road for it, never
 that name, until the kit's launch line next starts it (`obk restart`, or
 `obk up` after its tab is gone), which gives it a token name of its own.
+
+It also includes a Claude session that the sender's own Claude Code does not
+list as live. Claude Code's messaging reaches only the sessions in its own
+registry, under its config folder (`CLAUDE_CONFIG_DIR`, or `~/.claude`). After
+a Claude account switch, Orca starts new tabs under a config folder of its own,
+so a session started before the switch and one started after it cannot reach
+each other that way. `message to` and `message send` then take the mailbox.
 
 A session's mailbox is made the first time the kit starts it, and written in
 the book beside its tab. It is an Orca Run rather than the session's tab,
@@ -669,7 +676,7 @@ keeps a command it was running as a background terminal after an Escape. A
 receiver reads its mail with `obk message check`, which marks it read: a bare
 `orca orchestration check` leaves it unread, and Orca then gives no more
 notices for that mailbox
-([ADR 0042](docs/adr/0042-messaging-transport.md)).
+([ADR 0053](docs/adr/0053-messaging-transport.md)).
 
 A message longer than 4 KiB is written to a file beside your bots folder and
 named in the message, so a long one arrives whole without landing a document in

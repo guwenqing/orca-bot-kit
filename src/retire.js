@@ -17,7 +17,7 @@
 //
 // Closing a tab here ends the conversation in it on purpose, so unlike a
 // restart or a pause it does not wait for the book to know which one it was.
-// The mailbox Runs stay: Orca has no way to remove one (ADR 0042).
+// The mailbox Runs stay: Orca has no way to remove one (ADR 0053).
 //
 // What a session started in its work dir and left running is stopped once its
 // tab is closed, and named (#537): see processes.js.

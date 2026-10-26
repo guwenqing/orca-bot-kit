@@ -1,5 +1,5 @@
 // `obk message send`: the one road the kit can carry, which is the Orca
-// mailbox (PRD 6.9, ADR 0042).
+// mailbox (PRD 6.9, ADR 0053).
 //
 // It carries what it can and answers the rest with an address. A native pair —
 // two Claude sessions in one approval class — can only be written to by a
@@ -34,6 +34,7 @@ import {
   createSandbox,
   sessionIn,
 } from './helpers/cli.js';
+import { listInRegistry, listSession, livePidOf } from './helpers/claude-registry.js';
 
 /** The longest body that still travels as itself: 4 KiB of it. */
 const FITS = 4096;
@@ -146,6 +147,9 @@ test('a native pair is refused, the address to write to is named, and nothing is
   // itself, and no CLI can. The refusal is the answer — it carries the address.
   const box = await createSandbox(t);
   const bots = await fleetIn(box);
+  // The receiver is listed live in the sender's Claude registry, so the native
+  // road exists (#700).
+  await listSession(box, bots, 'reader');
   const before = await box.orca.terminals();
 
   const result = await send(box, [
@@ -195,6 +199,9 @@ for (const [label, held] of [
     const book = await bookIn(bots, 'reader');
     book.sessions.daily.address = held;
     await writeFile(bookOf(bots, 'reader'), stringify(book));
+    // Its live harness is listed under that name, so only whether the kit made
+    // the name decides the road (#700).
+    await listInRegistry(box, held, { pid: await livePidOf(box, bots, 'reader') });
 
     const result = await send(box, [
       '--to', 'reader', '--from', 'writer/daily', '--subject', 'about the review', '--text', 'have you started?',

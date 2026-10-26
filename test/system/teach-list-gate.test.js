@@ -21,7 +21,7 @@
 //      (step 6) and `listed` the list stage (step 7). `sender` is Codex, so
 //      mail from it goes through Orca, where the kit carries the letter and the
 //      Escape of `--interrupt`, and not by Claude Code's own messaging (PRD
-//      6.9, ADR 0042). Its trust comes at launch (#240, helpers/codex-trust.js);
+//      6.9, ADR 0053). Its trust comes at launch (#240, helpers/codex-trust.js);
 //      only its mailbox, which its launch line makes, is used.
 //   2. Each Claude session comes up in its own tab, and its folder trust is
 //      answered by this test, down and return, only when it is the plain one

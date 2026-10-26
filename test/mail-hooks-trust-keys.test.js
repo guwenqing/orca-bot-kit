@@ -14,7 +14,7 @@
 //       key changes: (a) in the same PostToolUse group, after the kit's entry,
 //       post_tool_use:0:1 becomes :0:0; (b) in a PostToolUse group of its own
 //       after the kit's group, post_tool_use:1:0 becomes :0:0. This is the
-//       accepted cost recorded in ADR 0042: Codex asks about that hook again.
+//       accepted cost recorded in ADR 0053: Codex asks about that hook again.
 //
 // Every run is in the sandbox (helpers/cli.js). Nothing here reaches the real
 // Orca, a real Codex, or the user's own config.toml.
@@ -134,7 +134,7 @@ for (const [what, postToolUse, oldPlace] of [
   ['in the same PostToolUse group, after the kit\'s nudge entry', (nudge) => [{ matcher: 'Bash', hooks: [nudge, USER_HOOK] }], 'post_tool_use:0:1'],
   ['in a PostToolUse group of its own, after the kit\'s group', (nudge) => [{ matcher: 'Bash', hooks: [nudge] }, { matcher: 'Bash', hooks: [USER_HOOK] }], 'post_tool_use:1:0'],
 ]) {
-  test(`K2 a user's hook ${what} survives the upgrade, and its key moves from ${oldPlace} to post_tool_use:0:0 (the accepted cost, ADR 0042)`, async (t) => {
+  test(`K2 a user's hook ${what} survives the upgrade, and its key moves from ${oldPlace} to post_tool_use:0:0 (the accepted cost, ADR 0053)`, async (t) => {
     const box = await createSandbox(t);
     const bots = await botUp(box);
     const before = await asMainWroteIt(bots, postToolUse);

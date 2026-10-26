@@ -181,7 +181,7 @@ const RELOAD_MS = 30000;
 
 /**
  * How long Orca's notice and the turn after it are given: it reached an idle
- * Claude Code session about 3.5 min after its turn ended (ADR 0042, the probe
+ * Claude Code session about 3.5 min after its turn ended (ADR 0053, the probe
  * of 2026-10-11).
  */
 const NOTICE_MS = 300000;

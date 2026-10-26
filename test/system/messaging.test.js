@@ -8,7 +8,7 @@
 //      of that is real: the Run mailbox each session was given at `up`, the
 //      message queued into it, Orca's own notice in the receiver's tab — the
 //      only thing that reaches a harness, because the mailbox is pull-only,
-//      and since #555 the kit types no line of its own (ADR 0042) — the
+//      and since #555 the kit types no line of its own (ADR 0053) — the
 //      harness reading its own mail with `obk message check`, and the reply
 //      coming back the other way under its own steam.
 //   2. A busy receiver is not interrupted (PRD 6.9). The mail is sent, with
@@ -143,7 +143,7 @@ const ANSWER_MS = 240000;
 /**
  * And how long a round trip between two agents is given: two turns and Orca's
  * notice in between, which reached an idle Claude Code session about 3.5 min
- * after its turn ended (ADR 0042, the probe of 2026-10-11).
+ * after its turn ended (ADR 0053, the probe of 2026-10-11).
  */
 const ROUND_TRIP_MS = 480000;
 
@@ -443,7 +443,7 @@ const aBotOf = (bots) => [
  * Reading its own mail when Orca tells it there is some, which both bots in
  * case 1 do: with the kit's check, which marks the mail read, and never with
  * the bare `orca orchestration check` Orca's notice names, which leaves it
- * open so Orca rings no more (ADR 0042, #555).
+ * open so Orca rings no more (ADR 0053, #555).
  */
 const readsItsMail = (bots, bot) => [
   'Whenever anything tells you that you have fleet mail or orchestration messages, new or not yet read,',
@@ -705,7 +705,7 @@ test('a Claude bot and a Codex bot exchange a message and a reply', async (t) =>
 test('a busy receiver finishes what it was doing before it reads its mail', async (t) => {
   // PRD 6.9: queued, not interrupting. A send with no `--interrupt` puts the
   // letter in the mailbox and types nothing, and Orca holds its notice for a
-  // busy receiver until it is idle (ADR 0042, #555).
+  // busy receiver until it is idle (ADR 0053, #555).
   //
   // Three things have to hold for that to have been shown, rather than assumed.
   //

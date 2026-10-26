@@ -1,7 +1,7 @@
 # ADR 0042: Native messaging Claude to Claude; the Orca mailbox for everything else
 
 Date: 2026-10-11.
-Status: accepted.
+Status: superseded by [ADR 0053](0053-messaging-transport.md).
 Decided by: the owner, in his design session of 2026-09-19 and on 2026-09-19 in #51; the coordinator, for the sentences marked as the coordinator's, where the owner was told and may overrule; the architect, for #394, for the sentences marked so, where the owner may overrule; the owner on 2026-10-11 for one road and one signal for each fleet mail, Orca's own notice, and an interrupt for urgent mail (#555). Consulted: the slice 08 developer and reviewer, whose runs the Orca road rests on. A sentence marked (proposed) is not decided yet.
 Supersedes: [ADR 0035](0035-messaging-transport.md).
 

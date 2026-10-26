@@ -241,7 +241,7 @@ export const piSkillsDir = (home) => path.join(home, '.agents', 'skills');
 
 /**
  * A session's name on Claude Code, which is also the address another Claude
- * session writes to (ADR 0042). It goes on the launch line as `-n`, and it is
+ * session writes to (ADR 0053). It goes on the launch line as `-n`, and it is
  * re-applied every time the session is started: a resume keeps the name by
  * itself (tech notes, section 2), and the kit does not depend on that.
  *
@@ -435,7 +435,7 @@ export function launchCommand(session, { harness, home, workDir, prompt, promptF
 
   if (harness === 'claude') {
     // The name is the address other Claude sessions write to, so it goes on
-    // every launch line, a resume included (ADR 0042).
+    // every launch line, a resume included (ADR 0053).
     if (address !== undefined) words.push('-n', address);
     // The context window rides on the model name: `sonnet[1m]`.
     if (set(session.model)) words.push('--model', set(session.context) ? `${session.model}[${session.context}]` : session.model);
