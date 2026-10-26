@@ -243,6 +243,33 @@ for (const then of ['answer', 'drop']) {
   });
 }
 
+test('#712 the fake holds a call only from the run whose environment a hold names, one hold to each gate', async (t) => {
+  const box = await createSandbox(t);
+  const gate = path.join(box.root, 'gate-b');
+  await box.orca.set({ hold: [{ command: 'project setups', gate, when: { OBK_TEST_RUN: 'B' }, ms: 10_000 }] });
+  t.after(() => {
+    try {
+      writeFileSync(`${gate}.go`, '');
+    } catch {}
+  });
+
+  // Another run's call goes through at once, and leaves the hold as it was.
+  assert.equal(answer(ask(box, ['project', 'setups', '--json'])).ok, true);
+  assert.equal(existsSync(`${gate}.held`), false);
+
+  const call = spawn(box.orca.cli, ['project', 'setups', '--json'], { cwd: box.cwd, env: { ...box.env, OBK_TEST_RUN: 'B' } });
+  const ended = new Promise((resolve) => call.on('close', (code) => resolve(code)));
+  await untilThere(`${gate}.held`);
+  assert.equal(readFileSync(`${gate}.held`, 'utf8'), `${call.pid}\n`, 'the call of run B is the one held');
+
+  // A second call of run B finds the hold taken, and goes through.
+  const second = spawnSync(box.orca.cli, ['project', 'setups', '--json'], { cwd: box.cwd, env: { ...box.env, OBK_TEST_RUN: 'B' }, encoding: 'utf8' });
+  assert.equal(JSON.parse(second.stdout).ok, true);
+
+  writeFileSync(`${gate}.go`, '');
+  assert.equal(await ended, 0);
+});
+
 test('the fake refuses a tab created with a bare harness name on it', async (t) => {
   // Proven live, three times for each harness: Orca gives up waiting for the
   // handle, and the tab it leaves behind never shows up in `terminal list`.

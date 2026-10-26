@@ -64,11 +64,14 @@
 //               repository: <p>", and changes nothing. A setup at <p> or at the
 //               top folder is answered as the one Orca has, and nothing is made.
 //               What `project setup-update` and the rest do is the same either way.
-//   hold        { command, gate, from, then, ms } — the call of `command` after
-//               the `from` made before the hold was set (0 if left out) waits
-//               until a file is at `<gate>.go`. It writes its own pid to
-//               `<gate>.held` first, so a test knows the call is in progress and
-//               can kill the caller then. Once the file is there, `then: 'drop'`
+//   hold        { command, gate, from, when, then, ms }, or a list of them, each
+//               with a gate of its own — the first call of `command` after the
+//               `from` made before the hold was set (0 if left out), from a
+//               process whose environment has every variable `when` names set
+//               to the value it gives (any process, if left out), waits until a
+//               file is at `<gate>.go`. It writes its own pid to `<gate>.held`
+//               first, so a test knows the call is in progress and can kill the
+//               caller then, or let another run go on (#712). Once the file is there, `then: 'drop'`
 //               ends the call with no answer and nothing changed, as a call that
 //               never reached Orca's runtime; anything else lets it go on as it
 //               would have, from the world as it is by then: Orca carried out a
@@ -707,13 +710,29 @@ if (aimedHere(state.runDuring)) {
 
 // One call held until the test lets it go, so the test can kill the caller
 // while the call is in progress (`hold`).
-if (aimedHere(state.hold) && state.hold.gate !== undefined && callsSoFar() === (state.hold.from ?? 0) + 1) {
-  const { gate } = state.hold;
+const holdsThis = (spec) => aimedHere(spec)
+  && spec.gate !== undefined
+  && callsSoFar() > (spec.from ?? 0)
+  && Object.entries(spec.when ?? {}).every(([name, value]) => process.env[name] === value);
+
+/** Claim `spec`'s one hold for this call: false when another call has it already. */
+function claimed(spec) {
+  try {
+    writeFileSync(`${spec.gate}.held`, `${process.pid}\n`, { flag: 'wx' });
+    return true;
+  } catch (error) {
+    if (error.code === 'EEXIST') return false;
+    throw error;
+  }
+}
+
+const held = (Array.isArray(state.hold) ? state.hold : [state.hold]).find((spec) => holdsThis(spec) && claimed(spec));
+if (held !== undefined) {
+  const { gate } = held;
   process.on('exit', () => writeFileSync(`${gate}.done`, `${process.pid}\n`));
-  writeFileSync(`${gate}.held`, `${process.pid}\n`);
-  const until = Date.now() + (state.hold.ms ?? 30_000);
+  const until = Date.now() + (held.ms ?? 30_000);
   while (!existsSync(`${gate}.go`) && Date.now() < until) hangFor(10);
-  if (!existsSync(`${gate}.go`) || state.hold.then === 'drop') process.exit(1);
+  if (!existsSync(`${gate}.go`) || held.then === 'drop') process.exit(1);
   state = JSON.parse(readFileSync(stateFile, 'utf8'));
 }
 
