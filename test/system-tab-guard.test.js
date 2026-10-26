@@ -55,8 +55,9 @@ const openNow = (box) => new Set(elsewhere(box, ['terminal', 'list']).terminals.
  */
 async function ownersMachine(t) {
   const box = await createSandbox(t);
-  // Orca registers a folder inside a git repo as git; this machine's are plain folders.
-  await box.orca.set({ repoAddKind: 'folder' });
+  // Orca registers a folder inside a git repo as git; this machine's are plain
+  // folders, registered as given, as Orca did before 1.4.240 (#712).
+  await box.orca.set({ repoAddKind: 'folder', repoAddAsGiven: true });
   const theirs = box.path('owner-project');
   const ours = box.path('test-project');
   elsewhere(box, ['repo', 'add', '--path', theirs]);

@@ -5,11 +5,11 @@
 
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 
-import { createSandbox, fakeProgram } from './helpers/cli.js';
+import { createSandbox, fakeProgram, git } from './helpers/cli.js';
 import { CLAUDE_IDLE, CODEX_IDLE, CODEX_NEW_MENU, CODEX_UPDATE_OFFER, questionOn } from './helpers/screens.js';
 
 /** Call the fake Orca the way the kit would. */
@@ -62,6 +62,8 @@ test('the fake refuses a tab in a folder Orca has not registered', async (t) => 
 test('the fake registers a folder as git, and takes the correction', async (t) => {
   const box = await createSandbox(t);
   const home = box.path('bots', 'bots', 'bot-father');
+  // The Orca before 1.4.240, which registers the folder it is given (#712).
+  await box.orca.set({ repoAddAsGiven: true });
 
   const added = answer(ask(box, ['repo', 'add', '--path', home, '--json']));
   assert.equal(added.ok, true);
@@ -90,10 +92,189 @@ test('the fake registers a folder as git, and takes the correction', async (t) =
   assert.equal('typed' in tabs.result.terminals[0], false);
 });
 
+/** A git repo at `top`, made with the suite's own git, and the folders given made inside it. */
+async function repoWith(top, ...inside) {
+  mkdirSync(top, { recursive: true });
+  const made = await git(['init', '--quiet'], top);
+  assert.equal(made.code, 0, made.stderr);
+  for (const folder of inside) mkdirSync(path.join(top, folder), { recursive: true });
+}
+
+test('#712 the fake registers the top folder of the git repo a folder is in, as Orca 1.4.240 does', async (t) => {
+  // Seen live: `repo add --path <T>/a/bots/b1`, with only `<T>/a` a git repo,
+  // answered a repo at `<T>/a`, kind git.
+  const box = await createSandbox(t);
+  const top = box.path('a');
+  await repoWith(top, 'bots/b1', 'bots/b2');
+
+  const added = answer(ask(box, ['repo', 'add', '--path', path.join(top, 'bots', 'b1'), '--json']));
+
+  assert.equal(added.ok, true);
+  assert.equal(added.result.repo.path, top);
+  assert.equal(added.result.repo.kind, 'git');
+  assert.deepEqual((await box.orca.setups()).map((setup) => setup.path), [top]);
+
+  // Any other folder in that repo is the same repo: nothing new is made.
+  const again = answer(ask(box, ['repo', 'add', '--path', path.join(top, 'bots', 'b2'), '--json']));
+  assert.equal(again.result.repo.id, added.result.repo.id);
+  assert.deepEqual((await box.orca.setups()).map((setup) => setup.path), [top]);
+});
+
+test('#712 a folder that is a git repo of its own is registered at its own path', async (t) => {
+  const box = await createSandbox(t);
+  const top = box.path('a');
+  await repoWith(top, 'bots/b1');
+  await repoWith(path.join(top, 'bots', 'b1'));
+
+  const added = answer(ask(box, ['repo', 'add', '--path', path.join(top, 'bots', 'b1'), '--json']));
+
+  assert.equal(added.result.repo.path, path.join(top, 'bots', 'b1'));
+  assert.deepEqual((await box.orca.setups()).map((setup) => setup.path), [path.join(top, 'bots', 'b1')]);
+});
+
+test('#712 a .git that git does not take as a repository does not count: the search goes on up', async (t) => {
+  // An empty folder called .git is not a repository to git, which passes
+  // over it to the repository around it.
+  const box = await createSandbox(t);
+  const top = box.path('a');
+  await repoWith(top, 'bots/b1/.git');
+
+  const added = answer(ask(box, ['repo', 'add', '--path', path.join(top, 'bots', 'b1'), '--json']));
+
+  assert.equal(added.result.repo.path, top);
+});
+
+test('#712 the fake refuses a folder in no git repo, as Orca does, and makes nothing', async (t) => {
+  const box = await createSandbox(t);
+  const folder = box.path('plain');
+  mkdirSync(folder);
+
+  const refused = ask(box, ['repo', 'add', '--path', folder, '--json']);
+
+  assert.equal(refused.status, 1);
+  assert.deepEqual(JSON.parse(refused.stdout).error, {
+    code: 'runtime_error',
+    message: `Not a valid git repository: ${folder}`,
+    data: {},
+  });
+  assert.deepEqual(await box.orca.setups(), []);
+});
+
+test('#712 a setup Orca has at the folder given is answered, though the folder is inside a repo', async (t) => {
+  const box = await createSandbox(t);
+  const top = box.path('a');
+  const home = path.join(top, 'bots', 'b1');
+  await repoWith(top, 'bots/b1');
+  const theirs = {
+    id: 'repo_9', projectId: 'proj_9', hostId: 'host_local', repoId: 'repo_9',
+    path: home, displayName: 'B1', kind: 'folder', setupState: 'ready', setupMethod: 'repo-add',
+  };
+  await box.orca.set({ setups: [theirs] });
+
+  const added = answer(ask(box, ['repo', 'add', '--path', home, '--json']));
+
+  assert.equal(added.result.repo.id, 'repo_9');
+  assert.equal(added.result.repo.path, home);
+  assert.deepEqual(await box.orca.setups(), [theirs], 'nothing is made at the top folder');
+});
+
+test('#712 the older Orca registers the folder as given, inside a repo or not', async (t) => {
+  const box = await createSandbox(t);
+  const top = box.path('a');
+  await repoWith(top, 'bots/b1');
+  await box.orca.set({ repoAddAsGiven: true });
+
+  const added = answer(ask(box, ['repo', 'add', '--path', path.join(top, 'bots', 'b1'), '--json']));
+
+  assert.equal(added.result.repo.path, path.join(top, 'bots', 'b1'));
+  assert.deepEqual((await box.orca.setups()).map((setup) => setup.path), [path.join(top, 'bots', 'b1')]);
+});
+
+/** Wait, for at most 10 s, until `file` is there. */
+async function untilThere(file) {
+  const until = Date.now() + 10_000;
+  while (!existsSync(file)) {
+    assert.ok(Date.now() < until, `nothing at ${file} after 10 s`);
+    await new Promise((resolve) => { setTimeout(resolve, 20); });
+  }
+}
+
+for (const then of ['answer', 'drop']) {
+  test(`#712 the fake holds one repo add until the test lets it go, then ${then === 'drop' ? 'drops it: no answer, nothing made' : 'carries it out'}`, async (t) => {
+    const box = await createSandbox(t);
+    const top = box.path('a');
+    await repoWith(top, 'bots/b1');
+    const gate = path.join(box.root, 'gate');
+    await box.orca.set({ hold: { command: 'repo add', gate, then, ms: 10_000 } });
+
+    const call = spawn(box.orca.cli, ['repo', 'add', '--path', path.join(top, 'bots', 'b1'), '--json'], { cwd: box.cwd, env: box.env });
+    let out = '';
+    call.stdout.on('data', (chunk) => { out += chunk; });
+    const ended = new Promise((resolve) => call.on('close', (code) => resolve(code)));
+    t.after(() => {
+      // The sandbox may be gone by now; the hold then ends by itself, within its `ms`.
+      try {
+        writeFileSync(`${gate}.go`, '');
+      } catch {}
+    });
+
+    await untilThere(`${gate}.held`);
+    assert.equal(readFileSync(`${gate}.held`, 'utf8'), `${call.pid}\n`, 'the held call names its own pid');
+    assert.equal(existsSync(`${gate}.done`), false, 'it is still in progress');
+    assert.deepEqual(await box.orca.setups(), [], 'and has made nothing yet');
+
+    writeFileSync(`${gate}.go`, '');
+    const code = await ended;
+
+    assert.equal(existsSync(`${gate}.done`), true, 'it says it has ended');
+    if (then === 'drop') {
+      assert.equal(code, 1);
+      assert.equal(out, '', 'no answer');
+      assert.deepEqual(await box.orca.setups(), []);
+    } else {
+      assert.equal(code, 0);
+      assert.equal(JSON.parse(out).result.repo.path, top);
+      assert.deepEqual((await box.orca.setups()).map((setup) => setup.path), [top]);
+    }
+
+    // Only that one call is held: the next goes through at once.
+    const next = answer(ask(box, ['repo', 'add', '--path', path.join(top, 'bots', 'b1'), '--json']));
+    assert.equal(next.result.repo.path, top);
+  });
+}
+
+test('#712 the fake holds a call only from the run whose environment a hold names, one hold to each gate', async (t) => {
+  const box = await createSandbox(t);
+  const gate = path.join(box.root, 'gate-b');
+  await box.orca.set({ hold: [{ command: 'project setups', gate, when: { OBK_TEST_RUN: 'B' }, ms: 10_000 }] });
+  t.after(() => {
+    try {
+      writeFileSync(`${gate}.go`, '');
+    } catch {}
+  });
+
+  // Another run's call goes through at once, and leaves the hold as it was.
+  assert.equal(answer(ask(box, ['project', 'setups', '--json'])).ok, true);
+  assert.equal(existsSync(`${gate}.held`), false);
+
+  const call = spawn(box.orca.cli, ['project', 'setups', '--json'], { cwd: box.cwd, env: { ...box.env, OBK_TEST_RUN: 'B' } });
+  const ended = new Promise((resolve) => call.on('close', (code) => resolve(code)));
+  await untilThere(`${gate}.held`);
+  assert.equal(readFileSync(`${gate}.held`, 'utf8'), `${call.pid}\n`, 'the call of run B is the one held');
+
+  // A second call of run B finds the hold taken, and goes through.
+  const second = spawnSync(box.orca.cli, ['project', 'setups', '--json'], { cwd: box.cwd, env: { ...box.env, OBK_TEST_RUN: 'B' }, encoding: 'utf8' });
+  assert.equal(JSON.parse(second.stdout).ok, true);
+
+  writeFileSync(`${gate}.go`, '');
+  assert.equal(await ended, 0);
+});
+
 test('the fake refuses a tab created with a bare harness name on it', async (t) => {
   // Proven live, three times for each harness: Orca gives up waiting for the
   // handle, and the tab it leaves behind never shows up in `terminal list`.
   const box = await createSandbox(t);
+  await box.orca.set({ repoAddAsGiven: true });
   const home = box.path('bots', 'bots', 'bot-father');
   answer(ask(box, ['repo', 'add', '--path', home, '--json']));
   const setup = (await box.orca.setups())[0];
@@ -112,6 +293,7 @@ test('the fake refuses a tab created with a bare harness name on it', async (t) 
 
 test('the fake waits, and remembers what was typed into a tab', async (t) => {
   const box = await createSandbox(t);
+  await box.orca.set({ repoAddAsGiven: true });
   const home = box.path('bots', 'bots', 'bot-father');
   answer(ask(box, ['repo', 'add', '--path', home, '--json']));
   const setup = (await box.orca.setups())[0];
@@ -148,6 +330,7 @@ test('the fake can hold a TUI on one look and none on the next', async (t) => {
   // it from a harness that is up and working, which is the whole reason a
   // second look exists, so the fake has to be able to say it.
   const box = await createSandbox(t);
+  await box.orca.set({ repoAddAsGiven: true });
   const home = box.path('bots', 'bots', 'bot-father');
   answer(ask(box, ['repo', 'add', '--path', home, '--json']));
   const setup = (await box.orca.setups())[0];
@@ -169,8 +352,20 @@ test('the fake can hold a TUI on one look and none on the next', async (t) => {
 });
 
 /** A folder project with one tab in it, and the handle and pty id Orca gave the tab. */
+/**
+ * Make `home` a git repo of its own, which Orca registers at its own path,
+ * whether it is Orca 1.4.240, which registers a repo's top folder, or an older
+ * one (#712).
+ */
+function repoOfItsOwn(box, home) {
+  mkdirSync(home, { recursive: true });
+  const repo = spawnSync('git', ['init', '--quiet', home], { env: { ...box.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' }, encoding: 'utf8' });
+  assert.equal(repo.status, 0, repo.stderr);
+}
+
 function oneTab(box) {
   const home = box.path('bots', 'bots', 'bot-father');
+  repoOfItsOwn(box, home);
   const added = answer(ask(box, ['repo', 'add', '--path', home, '--json']));
   answer(ask(box, ['project', 'setup-update', '--setup', added.result.repo.id, '--kind', 'folder', '--json']));
   const made = answer(ask(box, ['terminal', 'create', '--worktree', `path:${home}`, '--title', 'Daily', '--json']));
@@ -1213,6 +1408,7 @@ test('the fake can refuse a handle as stale for a while, and hand it out anew at
   // same handle worked. A fake that can only fail for ever cannot show a kit
   // that tries again.
   const box = await createSandbox(t);
+  await box.orca.set({ repoAddAsGiven: true });
   const home = box.path('bots', 'bots', 'bot-father');
   answer(ask(box, ['repo', 'add', '--path', home, '--json']));
   const setup = (await box.orca.setups())[0];
@@ -1242,6 +1438,7 @@ test('the fake can refuse one tab\'s close with --tab, keep listing it, and clos
   // --terminal <h> --tab` refused `tab_not_found` for a tab `terminal list`
   // still listed, and the same close without `--tab` worked.
   const box = await createSandbox(t);
+  await box.orca.set({ repoAddAsGiven: true });
   const home = box.path('bots', 'bots', 'bot-father');
   answer(ask(box, ['repo', 'add', '--path', home, '--json']));
   const setup = (await box.orca.setups())[0];
@@ -1375,6 +1572,7 @@ test('#438 twenty callers that save at once each read the world whole and answer
   // half of it, could not parse it, and answered nothing (#438). A world of a
   // few thousand projects makes each write long enough to be caught in.
   const box = await createSandbox(t);
+  await box.orca.set({ repoAddAsGiven: true });
   await box.orca.set({
     setups: Array.from({ length: 3000 }, (_, n) => ({
       id: `repo_seed_${n}`, projectId: `proj_seed_${n}`, hostId: 'host_local', repoId: `repo_seed_${n}`,
@@ -1465,6 +1663,7 @@ test('the fake writes a Codex receiver\'s turn in a rollout\'s own shape, and wr
 
 test('the fake ends a receiver\'s turn after busyFor more looks: busy, then idle again (#509)', async (t) => {
   const box = await createSandbox(t);
+  await box.orca.set({ repoAddAsGiven: true });
   const { inA, outside } = await twoTabs(box);
   const toA = inA(['orchestration', 'run-create', '--objective', 'a']).result.run.id;
   await box.orca.set({
@@ -1485,6 +1684,7 @@ test('the fake ends a receiver\'s turn after busyFor more looks: busy, then idle
 /** A fake Orca with one project at `home`, a folder one, as the kit leaves it. */
 function oneProject(box, name) {
   const home = box.path('bots', 'bots', name);
+  repoOfItsOwn(box, home);
   answer(ask(box, ['repo', 'add', '--path', home, '--json']));
   const setup = answer(ask(box, ['project', 'setups', '--json'])).result.setups.find((one) => one.path === home);
   answer(ask(box, ['project', 'setup-update', '--setup', setup.id, '--kind', 'folder', '--json']));
@@ -1569,6 +1769,7 @@ test('#528 with neither key the fake takes setup-delete with --force and without
 
 test('#676: the fake answers worktree set for a project by its path, in the shape Orca 1.4.225 answered, and refuses a path that is none of its projects', async (t) => {
   const box = await createSandbox(t);
+  await box.orca.set({ repoAddAsGiven: true });
   const home = box.path('bots', 'bots', 'bot-father');
   const added = answer(ask(box, ['repo', 'add', '--path', home, '--json']));
   answer(ask(box, ['project', 'setup-update', '--setup', added.result.repo.id, '--kind', 'folder', '--display-name', 'Bot Father', '--json']));
@@ -1599,6 +1800,7 @@ test('#676: the fake answers worktree set for a project by its path, in the shap
 
 test('#676: worktree set loads the project\'s orphaned tabs only when told to, and only at its path', async (t) => {
   const box = await createSandbox(t);
+  await box.orca.set({ repoAddAsGiven: true });
   const tabIn = (home, title) => {
     const added = answer(ask(box, ['repo', 'add', '--path', home, '--json']));
     answer(ask(box, ['project', 'setup-update', '--setup', added.result.repo.id, '--kind', 'folder', '--json']));
@@ -1622,6 +1824,7 @@ test('#676: worktree set loads the project\'s orphaned tabs only when told to, a
 
 test('#676 review: slowAfter makes the commands it names answer late once another command has been called, and not before', async (t) => {
   const box = await createSandbox(t);
+  await box.orca.set({ repoAddAsGiven: true });
   const home = box.path('bots', 'bots', 'one');
   const added = answer(ask(box, ['repo', 'add', '--path', home, '--json']));
   answer(ask(box, ['project', 'setup-update', '--setup', added.result.repo.id, '--kind', 'folder', '--json']));

@@ -100,7 +100,7 @@ import {
 } from '../helpers/screens.js';
 import { claudeTrustAt, trustScreenMet } from '../helpers/claude-trust.js';
 import { tabGuard } from '../helpers/tab-guard.js';
-import { deleteOwnProject } from '../helpers/own-project.js';
+import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
 
 /**
@@ -458,12 +458,12 @@ test('a long-lived session\'s first-run screens answered through the kit: Codex\
     // Only this test's own tabs are closed. A tab it did not create at one of
     // its homes is not its to close: that project and the bots folder stay
     // where they are, and the test fails naming the tab (review of PR #425).
-    const { closed, foreign } = guard.closeOwnAt(homes);
+    const { closed, foreign } = guard.closeOwnAt(placesOf(homes, allSetups(), bots));
     const held = new Set(foreign.map((one) => one.home));
     let deleted = 0;
     const failedDeletes = [];
-    for (const setup of allSetups()) {
-      if (!homes.includes(setup.path) || before.setups.has(setup.id) || held.has(setup.path)) continue;
+    for (const setup of projectsInBots(allSetups(), bots)) {
+      if (before.setups.has(setup.id) || held.has(setup.path)) continue;
       try {
         await deleteOwnProject(setup, bots);
         deleted += 1;

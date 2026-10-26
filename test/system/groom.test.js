@@ -115,7 +115,7 @@ import { parse } from 'yaml';
 import { cliEntry } from '../helpers/cli.js';
 import { waitingOn } from '../helpers/screens.js';
 import { tabGuard } from '../helpers/tab-guard.js';
-import { deleteOwnProject } from '../helpers/own-project.js';
+import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
 
 /**
@@ -667,12 +667,12 @@ test('grooming runs on Claude Code\'s own schedule in the grooming session: off 
     // Only this test's own tabs are closed. A tab it did not create at its
     // home is not its to close: that project and the bots folder stay where
     // they are, and the test fails naming the tab (#426).
-    const { closed, foreign } = guard.closeOwnAt([home]);
+    const { closed, foreign } = guard.closeOwnAt(placesOf([home], allSetups(), bots));
     const held = new Set(foreign.map((one) => one.home));
     let deleted = 0;
     const failedDeletes = [];
-    for (const setup of allSetups()) {
-      if (setup.path !== home || before.setups.has(setup.id) || held.has(setup.path)) continue;
+    for (const setup of projectsInBots(allSetups(), bots)) {
+      if (before.setups.has(setup.id) || held.has(setup.path)) continue;
       try {
         await deleteOwnProject(setup, bots);
         deleted += 1;
