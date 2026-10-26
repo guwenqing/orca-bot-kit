@@ -562,8 +562,32 @@ function bytesIfThere(file) {
   }
 }
 
+/** Where a file is once every link on its way is followed, or its path as given when it cannot be followed. */
+function whereItIs(file) {
+  try {
+    return realpathSync(file);
+  } catch {
+    return path.resolve(file);
+  }
+}
+
 /**
- * A copy of both harness configs, made before any test is loaded (#619): a run
+ * Every Claude Code record a run can write, with the name of its copy (#704):
+ * the home folder's .claude.json always, and CLAUDE_CONFIG_DIR's too when it is
+ * set and is another file. Orca starts a tab with CLAUDE_CONFIG_DIR set to a
+ * profile of its own, whose .claude.json is a copy and not a link, and both are
+ * written (tech notes, #700).
+ */
+function claudeConfigFiles() {
+  const home = path.join(os.homedir(), '.claude.json');
+  const files = [[home, 'claude.json']];
+  const own = claudeConfigFile();
+  if (process.env.CLAUDE_CONFIG_DIR && whereItIs(own) !== whereItIs(home)) files.push([own, 'claude-config-dir.json']);
+  return files;
+}
+
+/**
+ * A copy of every harness config, made before any test is loaded (#619): a run
  * that went wrong in them, with no copy to go back to, is a one-way door. The
  * copies go into a fresh folder of their own in the user's temp folder, which
  * on macOS is the user's alone, is outside any bots folder and outside the
@@ -581,7 +605,7 @@ function backUpConfigs() {
     return { why: `could not make a folder for it in ${os.tmpdir()} (${error.code ?? 'it could not be made'})` };
   }
   const files = [];
-  for (const [live, name] of [[claudeConfigFile(), 'claude.json'], [codexConfigFile(), 'config.toml']]) {
+  for (const [live, name] of [...claudeConfigFiles(), [codexConfigFile(), 'config.toml']]) {
     const copy = path.join(dir, name);
     try {
       const bytes = bytesIfThere(live);
@@ -1144,8 +1168,8 @@ async function run() {
   if (backup.why !== undefined) {
     process.stderr.write(
       `The config backup failed: it ${backup.why}.\n`
-      + 'No system test was run, and nothing was changed. A live run waits until both\n'
-      + 'harness configs can be backed up.\n',
+      + 'No system test was run, and nothing was changed. A live run waits until every\n'
+      + 'harness config can be backed up.\n',
     );
     return 1;
   }
