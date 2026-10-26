@@ -402,6 +402,22 @@ async function clockIn(dir, name, ...at) {
 }
 
 /**
+ * The runner's clock for a run that sets no clock of its own: a fixedClock at
+ * 12:00, by day, so the night cut (#689) never shortens its limit, whatever the
+ * real hour (#714). On the real clock, a run from 05:00 to 05:59 local time
+ * held less than 3600 s, and a CI machine's local time is UTC. It is loaded
+ * last, after NODE_OPTIONS and any `nodeArgs`, and stands aside when one of
+ * those set a clock already: a test's own clock is a class that extends the
+ * real Date, whose prototype is Function.prototype.
+ */
+const DAY_CLOCK = [
+  'if (Object.getPrototypeOf(globalThis.Date) === Function.prototype) {',
+  fixedClock(12, 0),
+  '}',
+  '',
+].join('\n');
+
+/**
  * A system test file that writes down what it saw of the gate, `<name>:<value>`,
  * in `ran.log` beside the repo: the value of OBK_SYSTEM_TESTS its process was
  * started with, or `unset`.
@@ -596,8 +612,12 @@ async function createRepo(t, {
   // fixture's system test files are spawned by the script and read it from there.
   const env = { ...bare, OBK_ORCA: orcaPath, [WORLD]: world };
 
+  // Every run of the runner here has DAY_CLOCK, on the runner's process alone.
+  const dayClock = path.join(box.root, 'day-clock.mjs');
+  await writeFile(dayClock, DAY_CLOCK);
+
   const runScript = (args, options) => node(
-    [path.join(repo, 'scripts', 'test-system.js'), ...args],
+    ['--import', pathToFileURL(dayClock).href, path.join(repo, 'scripts', 'test-system.js'), ...args],
     { cwd: options.cwd ?? repo, env: options.env ?? env },
   );
 
@@ -605,6 +625,8 @@ async function createRepo(t, {
     repo,
     orca,
     orcaPath,
+    /** The file URL of DAY_CLOCK, for each run of the runner to load last. */
+    dayClock: pathToFileURL(dayClock).href,
     /** The environment the script is run with: the fake Orca as the CLI. */
     env,
     /** The same environment with no override at all, so the built-in path is used. */
@@ -5477,7 +5499,8 @@ const inSeconds = (n) => new RegExp(`(?<![\\w.-])${n}[ -]?(?:s|secs?|seconds?)\\
  * from the repo. Answers its pid, when it started, what it has printed so far,
  * a way to send it a signal (to its own pid, never a group), and `done`: its
  * code, signal and streams, how long it ran in ms, and whether the outer bound
- * had to stop it. `nodeArgs` go to node before the script (a preload, say).
+ * had to stop it. `nodeArgs` go to node before the script (a preload, say),
+ * and the fixture's DAY_CLOCK after them.
  */
 function startRunner(fixture, args, { env = fixture.env, nodeArgs = [] } = {}) {
   const box = path.dirname(fixture.repo);
@@ -5487,7 +5510,7 @@ function startRunner(fixture, args, { env = fixture.env, nodeArgs = [] } = {}) {
   assert.ok(env.TMPDIR.startsWith(`${box}${path.sep}`), `every run here must have the sandbox's temp folder, got ${env.TMPDIR}`);
 
   const startedAt = Date.now();
-  const child = spawn(process.execPath, [...nodeArgs, path.join(fixture.repo, 'scripts', 'test-system.js'), ...args], {
+  const child = spawn(process.execPath, [...nodeArgs, '--import', fixture.dayClock, path.join(fixture.repo, 'scripts', 'test-system.js'), ...args], {
     cwd: fixture.repo,
     env,
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -6238,7 +6261,7 @@ describe('test-system: a hard time limit on the whole run (#653)', { concurrency
 //
 // The clock is a fixedClock preload on the runner's process alone, by node's
 // own `--import`: the tests it starts have the real clock. So every test here
-// passes at any real hour.
+// passes at any real hour. The fixture's DAY_CLOCK stands aside for it.
 
 /** startRunner, with the runner's clock standing at 2026-10-22 `at` ([h, m, s, ms]) local time. */
 async function startAt(fixture, at, args, options = {}) {
