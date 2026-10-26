@@ -552,11 +552,17 @@ const TEACH_FOOT = /Enter to .*· Esc to cancel/;
  */
 const setting = (name) => ({ name, fits: (row) => row.startsWith(name) && /^ +\S/.test(row.slice(name.length)) });
 
+/**
+ * Text Claude Code wraps at word breaks to the tab's width, on one row or
+ * more: its words, in order, and nothing else (#701). Claude Code 2.1.310
+ * holds the Teach form's description as one string (read in its code).
+ */
+const wrapped = (text) => ({ text });
+
 /** The Teach form's rows, from its title to its foot, with `foot`. */
 const teachForm = (foot) => [
   TEACH_TITLE,
-  'Claude Code reads this project, your recent Claude sessions, and optionally your shell history and other',
-  'repositories. Claude analyzes this data and customizes auto mode to make better decisions.',
+  wrapped('Claude Code reads this project, your recent Claude sessions, and optionally your shell history and other repositories. Claude analyzes this data and customizes auto mode to make better decisions.'),
   setting('How you use Claude here'),
   setting('Also scan shell history'),
   setting('Also scan your other repos'),
@@ -568,11 +574,12 @@ const teachForm = (foot) => [
  * The known shapes of the Teach screen, from its title to its foot, each as
  * captured live, with what answers it. Rows are compared trimmed, the pointer
  * `❯` taken out, so the pointer may sit on any one of them. A setting row
- * matches by its name, whatever its value.
+ * matches by its name, whatever its value, and the form's description by its
+ * words, on as many rows as the tab's width wraps it onto (#701).
  *
- * Claude Code 2.1.283's form (#261's live test, #416) and 2.1.302's (#604) are
- * answered with Esc, which cancels them (Not now), never a return, which is
- * Continue. Claude Code 2.1.289's numbered list (#489's live run 1) is
+ * Claude Code 2.1.283's form (#261's live test, #416) and 2.1.302's (#604),
+ * which 2.1.310 draws too (#701), are answered with Esc, which cancels them
+ * (Not now), never a return, which is Continue. Claude Code 2.1.289's numbered list (#489's live run 1) is
  * answered with "2. Not now", never "1. Yes" or "3. Don't show again" (the
  * architect's ruling on #489).
  */
@@ -599,10 +606,30 @@ const NOT_NOW_CHOICE = '2. Not now';
 const unpointed = (row) => row.replace('❯', ' ').trim();
 
 /** Whether a shape's row `want` is the screen's `row`, as unpointed gives it. */
-const fitsRow = (want, row) => (typeof want === 'string' ? row === want : want.fits(row));
+const fitsRow = (want, row) => (typeof want === 'string' ? row === want : want.text !== undefined ? row === want.text : want.fits(row));
 
 /** A shape's row as a refusal names it. */
-const shapeRow = (want) => (typeof want === 'string' ? want : `${want.name} and a value`);
+const shapeRow = (want) => (typeof want === 'string' ? want : want.text ?? `${want.name} and a value`);
+
+/**
+ * `block` with the first run of rows that is `shape`'s wrapped text, joined
+ * with single spaces, put on one row, unpointed; `block` as it is when there
+ * is no such run.
+ */
+function unwrapped(block, shape) {
+  const text = shape.rows.find((want) => want.text !== undefined)?.text;
+  if (text === undefined) return block;
+  for (let from = 0; from < block.length; from += 1) {
+    let joined = unpointed(block[from]);
+    for (let to = from; text.startsWith(joined); ) {
+      if (joined === text) return [...block.slice(0, from), text, ...block.slice(to + 1)];
+      to += 1;
+      if (to === block.length) break;
+      joined = `${joined} ${unpointed(block[to])}`;
+    }
+  }
+  return block;
+}
 
 /** The full-width rule Claude Code draws right above the screen's title: `─` in 2.1.289, `▔` in 2.1.283. */
 const ABOVE_TITLE = /^(?:─+|▔+)$/;
@@ -637,13 +664,14 @@ function teachScreen(rows) {
   const misfits = TEACH_SHAPES.map((shape) => {
     const pointers = block.filter((row) => row.includes('❯')).length;
     if (pointers !== 1) return `${pointers} rows with the pointer ❯, where ${shape.name} has one`;
-    const odd = block.find((row) => !shape.rows.some((want) => fitsRow(want, unpointed(row))));
+    const folded = unwrapped(block, shape);
+    const odd = folded.find((row) => !shape.rows.some((want) => fitsRow(want, unpointed(row))));
     if (odd !== undefined) return `a row ${shape.name} does not have: ${odd.trim()}`;
-    const missing = shape.rows.find((want) => !block.some((row) => fitsRow(want, unpointed(row))));
+    const missing = shape.rows.find((want) => !folded.some((row) => fitsRow(want, unpointed(row))));
     if (missing !== undefined) return `no row ${shapeRow(missing)}, which ${shape.name} has`;
-    if (block.length !== shape.rows.length) return `${block.length} rows, where ${shape.name} has ${shape.rows.length}`;
-    const moved = block.findIndex((row, at) => !fitsRow(shape.rows[at], unpointed(row)));
-    if (moved >= 0) return `the row ${block[moved].trim()} where ${shape.name} has ${shapeRow(shape.rows[moved])}`;
+    if (folded.length !== shape.rows.length) return `${folded.length} rows, where ${shape.name} has ${shape.rows.length}`;
+    const moved = folded.findIndex((row, at) => !fitsRow(shape.rows[at], unpointed(row)));
+    if (moved >= 0) return `the row ${folded[moved].trim()} where ${shape.name} has ${shapeRow(shape.rows[moved])}`;
     return undefined;
   });
   const fits = misfits.findIndex((misfit) => misfit === undefined);

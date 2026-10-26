@@ -327,7 +327,8 @@ selection on 1. Yes (seen live, not answered, in #489). The kit goes down to
 form again, with `Also scan shell history` on `false` and a foot that starts
 `←/→ to change` (seen live in #604), and later with it on `true` (#646). The
 values of its three settings can differ, and the kit sends it Esc whatever
-they are. Codex's hooks
+they are. On 2.1.310 it is the same form, its description wrapped to the
+tab's width, on one row in a wide tab (#701). Codex's hooks
 question matters most. The kit's hook is how the book learns which
 conversation the session is running, and until it is answered the
 conversation has not started. Codex's trust applies to the repository root,
@@ -344,7 +345,7 @@ permission rule can allow that one command, where it cannot allow keys sent
 into any tab. The same goes for Claude Code's `Teach auto mode` screen on a
 temporary session you made: answer it with `obk temp answer --bots <bots>
 --name <session>`. It answers only a shape in the table exactly as the kit
-knows it (Esc on the 2.1.283 and 2.1.302 forms, 2. Not now on the 2.1.289 list, the return
+knows it (Esc on the 2.1.283, 2.1.302 and 2.1.310 forms, 2. Not now on the 2.1.289 list, the return
 only after a second look), refuses any other screen, and checks that it went. The kit's
 default set allows it, as it allows `obk temp trust-hooks`.
 
