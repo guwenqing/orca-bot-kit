@@ -8,7 +8,7 @@
 // handed to Orca on the command line.
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -290,10 +290,61 @@ function argsIn(read) {
  * repo as git kind, which Orca gives no workspace at all, so no tab can be
  * created in it. `setup-update` turns it into the folder workspace a bot needs
  * and names the project in one go.
+ *
+ * Orca 1.4.236 and later register the top folder of the git repo that holds
+ * the folder they are given: for a bot home, the whole bots folder (#712). So
+ * for the time of `repo add` the home gets a `.git` of its own, which makes it
+ * its own top folder, and that `.git` goes straight after. One that was there
+ * before is the user's, and stays as it was.
  */
 export function makeProject(home, title) {
-  const setupId = orca(['repo', 'add', '--path', home]).repo.id;
+  const made = gitOfItsOwn(home);
+  let setupId;
+  try {
+    setupId = orca(['repo', 'add', '--path', home]).repo.id;
+  } finally {
+    if (made) rmSync(path.join(home, '.git'), { recursive: true, force: true });
+  }
   return asFolderProject(setupId, title);
+}
+
+/** The file inside a `.git` that says the kit made it for one `repo add`. */
+const KIT_GIT_MARK = 'obk-made-for-orca';
+
+/**
+ * Give `home` a `.git` of its own: true when this call made it, false when one
+ * is there already. The mkdir fails on anything already there, so the kit
+ * never takes over a `.git` it did not make, and the mark goes in before git
+ * fills it, so one left by a run that died is known as the kit's.
+ */
+function gitOfItsOwn(home) {
+  const git = path.join(home, '.git');
+  try {
+    mkdirSync(git);
+  } catch (error) {
+    if (error.code === 'EEXIST') return false;
+    throw error;
+  }
+  try {
+    writeFileSync(path.join(git, KIT_GIT_MARK), 'obk made this for one `orca repo add` and takes it away after.\n');
+    const result = spawnSync('git', ['init', '--quiet', home], { encoding: 'utf8' });
+    if (result.error) throw new Error(`could not run git: ${result.error.message}`);
+    if (result.status !== 0) throw new Error(`git init failed in ${home}: ${(result.stderr || '').trim()}`);
+  } catch (error) {
+    rmSync(git, { recursive: true, force: true });
+    throw error;
+  }
+  return true;
+}
+
+/**
+ * Take away the `.git` that a run which died during `makeProject` left in
+ * `home`. Only one that holds the kit's mark: any other is the user's.
+ */
+export function dropLeftGit(home) {
+  const git = path.join(home, '.git');
+  const stat = lstatSync(git, { throwIfNoEntry: false });
+  if (stat?.isDirectory() && existsSync(path.join(git, KIT_GIT_MARK))) rmSync(git, { recursive: true, force: true });
 }
 
 /** Make an existing registration a folder workspace called `title`. */

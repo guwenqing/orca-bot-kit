@@ -24,8 +24,21 @@ project → repo (`kind: "git" | "folder"`) → worktree (id = `<repoId>::<absPa
   tabs. Straight after `repo add` there is no worktree, and `orca terminal create --worktree path:<p>`
   fails with `selector_not_found`. **verified** (Orca 1.4.205, live)
 - `orca repo add` only accepts a path inside a git work tree; anywhere else it answers
-  `runtime_error: Not a valid git repository`. A folder inside a git repo is registered with its own
-  path and `kind: "git"`, whatever the repository root is. **verified** (live)
+  `runtime_error: Not a valid git repository`. Before Orca 1.4.236, a folder inside a git repo was
+  registered with its own path and `kind: "git"`, whatever the repository root is. **verified** (live)
+- **Orca 1.4.236 and later register the git top folder, not the folder given (#712).** Since
+  stablyai/orca commit `f6e9e649f4` (2026-10-19, #30657), the runtime's `repo.add` stores
+  `git rev-parse --show-toplevel` of the path, and finds an existing repo by either path. The CLI's
+  `repo add` sends no `kind`, so a bot home inside the bots repo becomes the bots folder root.
+  `project setup-update` refuses a new `--path` on a repo-backed setup ("must be changed by
+  re-importing the project"), and `setup-existing-folder` needs a project that exists already. So the
+  kit gives the bot home a `.git` of its own for the `repo add` call: its toplevel is then the home.
+  The kit makes that `.git` with an exclusive mkdir, puts the file `obk-made-for-orca` in it, and
+  removes it straight after; a later `obk up` removes one a dead run left, and only one with that file.
+  Seen live on 2026-10-26 (Orca 1.4.240): `repo add --path <T>/a/bots/b1` gave a repo at `<T>/a`;
+  with a `.git` in `<T>/b/bots/b2` it gave `<T>/b/bots/b2`; after `setup-update --kind folder` and the
+  `.git` removed, `terminal list --worktree path:<b2>` answered ok. **verified** (live, and in the
+  source at tag v1.4.240)
 - `orca repo add` is idempotent for one path string and answers with the same repo id, but it does not
   resolve symlinks: the same folder reached through a link becomes a second repo with a second project.
   Give it one canonical path (`realpath`). **verified** (live)

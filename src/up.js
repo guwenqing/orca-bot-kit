@@ -16,7 +16,7 @@ import { dropRemovedHooks, installHook } from './hooks.js';
 import { writePermissions } from './permissions.js';
 import { piTrouble } from './pi.js';
 import { addressOf, HARNESSES, harnessOf, isAddressOf, isShortPrompt, kitFolders, launchCommand, mailboxStep, reachesMail, sessionTrouble, startPrompt, workDirOf } from './launch.js';
-import { asFolderProject, coordinatorOf, findProject, harnessInTab, loadInWindow, makeMailbox, makeProject, openTab, QUESTION_ON_SCREEN, retitleTab, runMissing, screenRows, shellInTab, tabs, tabToTypeInto, TERMINAL_ENV, TIMED_OUT, tellWindow, typeIntoTab, useMailbox } from './orca.js';
+import { asFolderProject, coordinatorOf, dropLeftGit, findProject, harnessInTab, loadInWindow, makeMailbox, makeProject, openTab, QUESTION_ON_SCREEN, retitleTab, runMissing, screenRows, shellInTab, tabs, tabToTypeInto, TERMINAL_ENV, TIMED_OUT, tellWindow, typeIntoTab, useMailbox } from './orca.js';
 import { TAB_ENV } from './record.js';
 import { buildAgents, rulesStamp } from './rules.js';
 import { linkSkills } from './skills.js';
@@ -926,6 +926,7 @@ const setAside = (entry, which) => (which.ranOn === undefined
  * all, so no tab can be opened in it.
  */
 function orcaProject(home, title) {
+  dropLeftGit(home);
   const found = findProject(home);
   if (found === undefined) return ids(makeProject(home, title), 'made');
   return found.kind === 'folder' ? ids(found) : ids(asFolderProject(found.id, title), 'renamed');
