@@ -22,6 +22,10 @@
 //       still stays.
 //   C5  An Orca that registers the folder as given (before 1.4.240) works as
 //       before.
+//   C6  Two runs for the same bot at once do not break each other: the run
+//       held in `repo add` ends well, the other ends well or fails with a
+//       clear message, and the bot has one folder project, at its home, with
+//       no kit .git left there. A user's own .git stays as it was.
 //
 // How it is tested: the fake Orca registers the top folder by default, as
 // Orca 1.4.240 does; `repoAddAsGiven: true` makes it the older Orca. Its
@@ -364,6 +368,150 @@ test('C4 C3 up killed during repo add, then up again, leaves the user\'s own .gi
     (await projectsIn(box)).filter((project) => project.path === home),
     [{ path: home, kind: 'folder', displayName: 'Api Bot' }],
   );
+});
+
+// ------------------------------------------------------------------ C6
+
+/**
+ * Start `obk <args>` and leave it running, as run `name`: every Orca call it
+ * makes carries OBK_TEST_RUN=<name>, so a hold can pick that run's calls.
+ * `ended` settles with `{ code, signal, said }` when it exits. It is killed
+ * when the test ends, if it is still running then.
+ */
+function startObk(t, box, args, name) {
+  const child = spawn('obk', args, { cwd: box.cwd, env: { ...box.env, OBK_TEST_RUN: name }, stdio: ['ignore', 'pipe', 'pipe'] });
+  let said = '';
+  child.stdout.on('data', (chunk) => { said += chunk; });
+  child.stderr.on('data', (chunk) => { said += chunk; });
+  const ended = new Promise((resolve) => child.on('exit', (code, signal) => resolve({ code, signal, said })));
+  t.after(() => {
+    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+  });
+  return { child, ended };
+}
+
+/** How long run B is given to get going, or to end, while run A is held. */
+const B_HEAD_START_MS = 5000;
+
+/**
+ * Two runs at once (C6), in the order the review of #712 found:
+ *
+ *   1. Run A is held while its `repo add` is in progress.
+ *   2. Run B starts. With `holdB`, B's first `project setups` is held too,
+ *      the look that comes before a run makes a project. B is given
+ *      B_HEAD_START_MS to get there, or to end.
+ *   3. A's call is let go, and A is given up to 20 s to end.
+ *   4. B's call is let go, and both are waited for, up to 90 s.
+ *
+ * Whether B waits for A, and how, is the kit's own business: a B that waits
+ * before it calls Orca at all is never held, and goes on once A is done.
+ */
+async function overlap(t, box, first, second, { holdB }) {
+  const gateA = path.join(box.root, 'overlap-gate-a');
+  const gateB = path.join(box.root, 'overlap-gate-b');
+  const calls = await box.orca.calls();
+  await box.orca.set({
+    hold: [
+      { command: 'repo add', gate: gateA, from: orcaCallsOf(calls, 'repo add').length, when: { OBK_TEST_RUN: 'A' }, then: 'answer', ms: 60_000 },
+      ...(holdB ? [{ command: 'project setups', gate: gateB, from: orcaCallsOf(calls, 'project setups').length, when: { OBK_TEST_RUN: 'B' }, then: 'answer', ms: 60_000 }] : []),
+    ],
+  });
+  t.after(async () => {
+    for (const gate of [gateA, gateB]) await writeFile(`${gate}.go`, '').catch(() => {});
+  });
+
+  const a = startObk(t, box, first, 'A');
+  await Promise.race([
+    waitForFile(`${gateA}.held`, 30_000, `run A, obk ${first[0]}, never reached repo add`),
+    a.ended.then(({ code, signal, said }) => assert.fail(`run A ended (${code ?? signal}) before repo add: ${said}`)),
+  ]);
+
+  const b = startObk(t, box, second, 'B');
+  const until = Date.now() + B_HEAD_START_MS;
+  let bEnded = false;
+  b.ended.then(() => { bEnded = true; });
+  while (!bEnded && !existsSync(`${gateB}.held`) && Date.now() < until) await sleep(20);
+
+  await writeFile(`${gateA}.go`, '');
+  await Promise.race([a.ended, sleep(20_000)]);
+  await writeFile(`${gateB}.go`, '');
+
+  const bounded = (run, which) => Promise.race([
+    run.ended,
+    sleep(90_000).then(() => assert.fail(`run ${which} did not end within 90 s after the calls were let go`)),
+  ]);
+  const [endedA, endedB] = await Promise.all([bounded(a, 'A'), bounded(b, 'B')]);
+  await box.orca.set({ hold: null });
+  return { a: endedA, b: endedB };
+}
+
+/**
+ * A run that ended well, or one that had to wait too long and said so: exit 1
+ * and a message, not a crash. Which one, the test does not decide.
+ */
+function wellOrClearly(run, which) {
+  if (run.code === 0) return;
+  assert.equal(run.code, 1, `run ${which} ended with ${run.code ?? run.signal}: ${run.said}`);
+  assert.notEqual(run.said.trim(), '', `run ${which} failed and said nothing`);
+  assert.ok(!/^\s+at /m.test(run.said), `run ${which} crashed rather than said why:\n${run.said}`);
+}
+
+for (const holdB of [true, false]) {
+  const how = holdB ? 'the second held where it looks for the project' : 'the second let run';
+
+  test(`C6 two ups of a new bot at once (${how}): the first ends well, and the bot has one folder project, at its home, with no .git left`, async (t) => {
+    const box = await createSandbox(t);
+    const { home, fatherHome } = await fleetWithNewBot(box);
+    const up = ['up', '--bots', 'bots', '--bot', BOT];
+
+    const { a, b } = await overlap(t, box, up, up, { holdB });
+
+    assert.deepEqual(
+      await projectsIn(box),
+      [
+        { path: fatherHome, kind: 'folder', displayName: 'Bot Father' },
+        { path: home, kind: 'folder', displayName: 'Api Bot' },
+      ],
+      `one project for api-bot, at its home: none at the bots folder\nA: ${a.said}\nB: ${b.said}`,
+    );
+    assert.equal(a.code, 0, `run A, held at repo add, ends well: ${a.said}`);
+    wellOrClearly(b, 'B');
+    assert.equal(hasGitEntry(home), false, 'no .git is left in the bot home');
+  });
+}
+
+test('C6 C3 two ups of a new bot at once leave the user\'s own .git in its home as it was', async (t) => {
+  const box = await createSandbox(t);
+  const { home } = await fleetWithNewBot(box);
+  await usersOwnRepo(home, { commit: true });
+  const before = await repoState(home);
+  const up = ['up', '--bots', 'bots', '--bot', BOT];
+
+  const { a, b } = await overlap(t, box, up, up, { holdB: true });
+
+  assert.equal(a.code, 0, `run A ends well: ${a.said}`);
+  wellOrClearly(b, 'B');
+  assert.deepEqual(await repoState(home), before, 'the user\'s .git is as it was');
+  assert.deepEqual(
+    (await projectsIn(box)).filter((project) => project.path === home),
+    [{ path: home, kind: 'folder', displayName: 'Api Bot' }],
+  );
+});
+
+test('C6 init and up of Bot Father at once: init ends well, and Bot Father has one folder project, at its home, with no .git left', async (t) => {
+  const box = await createSandbox(t);
+  const home = botHomeOf(box.path('bots'));
+
+  const { a, b } = await overlap(t, box, initArgs, ['up', '--bots', 'bots', '--bot', 'bot-father'], { holdB: true });
+
+  assert.deepEqual(
+    await projectsIn(box),
+    [{ path: home, kind: 'folder', displayName: 'Bot Father' }],
+    `one project, at Bot Father's home: none at the bots folder\ninit: ${a.said}\nup: ${b.said}`,
+  );
+  assert.equal(a.code, 0, `init, held at repo add, ends well: ${a.said}`);
+  wellOrClearly(b, 'up');
+  assert.equal(hasGitEntry(home), false, 'no .git is left in the bot home');
 });
 
 // ------------------------------------------------------------------ C5
