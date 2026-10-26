@@ -101,7 +101,8 @@ export function installHook(home, harness, { bots, bot }) {
   const started = withKitHook(settings.hooks, file, mine);
   // The Claude Code mail hook and the Codex nudge hook went with the kit's
   // typed line (#555), so an entry of either is taken out.
-  const wanted = { ...settings, hooks: toolHooksOf(harness, bots, bot).reduce(withToolHook, withoutHooks(started, REMOVED_HOOKS)) };
+  const hooked = { ...settings, hooks: toolHooksOf(harness, bots, bot).reduce(withToolHook, withoutHooks(started, REMOVED_HOOKS)) };
+  const wanted = harness === 'claude' ? { ...hooked, skillOverrides: withTeachOff(settings.skillOverrides, file) } : hooked;
 
   // Compared as documents, not as text: how the user laid their file out is
   // theirs, and a run that changes nothing writes nothing.
@@ -277,6 +278,29 @@ function withKitHook(hooks, file, mine) {
   if (placed) return events;
   return { ...events, [EVENT]: [...(events[EVENT] ?? []), { hooks: [mine] }] };
 }
+
+/**
+ * The file's skill overrides with Claude Code's `auto-mode-setup` off, so no
+ * session of the bot stops on its "Teach auto mode about your environment?"
+ * form (#708, teach-form-off/R1). Claude Code 2.1.310 shows the form only when
+ * the merged settings leave that command on, and a project file counts (tech
+ * notes). Every other override is the user's and stays. A user who wants the
+ * command in the bot's sessions turns it on in `.claude/settings.local.json`,
+ * which wins over this file and which the kit never writes.
+ *
+ * Anything there that is not a mapping is theirs, and is refused rather than
+ * written over, as a `hooks` entry is.
+ */
+function withTeachOff(overrides, file) {
+  if (overrides === undefined) return { [TEACH_SKILL]: 'off' };
+  if (overrides === null || typeof overrides !== 'object' || Array.isArray(overrides)) {
+    throw new Error(`${file} has a skillOverrides entry that is not a mapping of skill names, and the kit turns Claude Code's ${TEACH_SKILL} off in there. Fix it or move it aside, then run the command again.`);
+  }
+  return { ...overrides, [TEACH_SKILL]: 'off' };
+}
+
+/** Claude Code's command behind its Teach auto mode form. */
+const TEACH_SKILL = 'auto-mode-setup';
 
 /** Each harness's kit hooks beside its session hook, as `toolHookOf` gives each. */
 const toolHooksOf = (harness, bots, bot, cli = ownCli()) =>

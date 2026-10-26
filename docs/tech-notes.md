@@ -570,6 +570,21 @@ Nothing in the kit's code, tests or skills stands in his way.
   matches the form's title, description, row names and foot exactly, and takes any value after each
   of the three settings. **verified** (live, the form with `true`, and Esc removing it; whether that
   Esc recorded a Not now, not seen)
+  **A project setting turns the form off (#708).** Read in the 2.1.310 binary: the form's gate first
+  asks whether the `auto-mode-setup` feature is on, and that is false when the merged settings hold
+  `skillOverrides["auto-mode-setup"] === "off"`; the code names `auto-mode-setup` as a built-in
+  command that `skillOverrides` may turn off. The merge takes the user, project and local files in
+  that order, so the bot's `.claude/settings.local.json` wins over its `.claude/settings.json`.
+  `skillOverrides` is not among the keys Claude Code strips from a repo's settings. Its other
+  conditions, read the same way: at least 5 startups, `autoModeEnvSetup.denials` at least 5 (it
+  counts up to 5), no `autoModeEnvSetup.dismissed`, no `dismissedAt` within 7 days, and no
+  `autoMode.environment` in user, flag or managed settings (Claude Code ignores `autoMode` in a
+  project or local file). Seen (2026-10-25, 2.1.310): in a scratch folder whose only setting was
+  that override in `.claude/settings.json`, `claude -p "/auto-mode-setup"` answered `Skill
+  "auto-mode-setup" is disabled via skillOverrides. Remove the override from your settings to run
+  it.`; `~/.claude.json` was unchanged. So the kit writes the override into each Claude Code bot's
+  `.claude/settings.json` beside its hook. **verified** (live, that a project file's override
+  reaches the merged settings; that the form then does not show, and that local wins, read in code)
 - Anything else: type nothing and raise it with the user, naming the bot, the tab and what is on screen.
 
 The kit's own code does not change user-level settings on its own initiative.

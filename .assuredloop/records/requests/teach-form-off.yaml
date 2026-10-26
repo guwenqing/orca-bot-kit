@@ -31,4 +31,5 @@ decisions: []
 tasks: []
 bindings:
   - { holder: teach-form-off/R1, link: from, target: teach-form-off/2026-10-26-owner-words.md, holder_sha256: d4d2572dbf73c121fff700f51afbcc5e986694295df6964de3f23986aabbee92, target_sha256: 7e454036129b1054d805bfff6948a379d514a17624e5ef058dd1120306d998bd }
+  - { holder: KIT-26, link: serves, target: teach-form-off/R1, holder_sha256: a5809b95bc69d9e2885558147b942979be71bdc2d6a8387cd2e57737fa21f42e, target_sha256: 57d7e278785b56ace13e4982cfc60811ea61a3938a33e2574debc1d612cbd36b, target_version: 2 }
 dispositions: []
