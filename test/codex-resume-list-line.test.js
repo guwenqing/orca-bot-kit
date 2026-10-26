@@ -11,7 +11,11 @@
 //   - `up`, `restart` and `unpause` share one path. When it resumes a Codex
 //     session (the book holds its conversation, and the launch line resumes it)
 //     and the harness came up in the new tab, the kit types exactly one line
-//     into that tab, LIST_LINE below, word for word, with a return.
+//     into that tab, `listLineOf` in helpers/cli.js, word for word, with a
+//     return. Since #709 the line asks the session to read its mail with the
+//     kit's own check, the one its built AGENTS.md names, and to do what the
+//     mail asks, mail it read just before the line included; it asks for "ok"
+//     only when there is none. Its CLI and bots folder are the sandbox's own.
 //   - Through the same gate as the mail notice: nothing is typed while Orca
 //     reports the tab blocked, while a question, form or menu is on its screen
 //     (#329, #416), or while the kit cannot tell whether the harness is there.
@@ -48,8 +52,9 @@
 // did before it, and that answer lets the line through. It costs a minute or
 // more of real time: the launch's own looks read the screen too.
 //
-// Every expected value here is the ruling's: the line's words, the keys of the
-// report, and Orca's own reason where it gave one.
+// Every expected value here is the ruling's: the line's words (#226, and #709
+// for what it asks), the keys of the report, and Orca's own reason where it
+// gave one.
 
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -59,16 +64,15 @@ import {
   botHomeOf,
   conversationOnRecord,
   createSandbox,
+  listLineOf,
   recordSession,
   sentInto,
   sessionIn,
   tabsOfBot,
   typedInto,
 } from './helpers/cli.js';
+import { agentsIn } from './helpers/rules.js';
 import { CLAUDE_FEEDBACK_PANEL, CLAUDE_FEEDBACK_PANEL_GONE, CLAUDE_TEACH_LIST, CLAUDE_TEACH_LIST_GONE, CODEX_UPDATE_OFFER } from './helpers/screens.js';
-
-/** The line the kit types, word for word, as the architect ruled it on #226. */
-const LIST_LINE = 'obk: this session was resumed in a new tab, and this line is only so Orca lists it. Reply "ok"; nothing else is asked.';
 
 const PROMPT = 'Read your AGENTS.md and keep the queue moving.';
 const BOT = 'api-bot';
@@ -152,7 +156,7 @@ async function assertListLineTyped(box, bots, entry, what, name = 'daily') {
   const typed = await typedIn(box, bots, name);
   assert.equal(typed.length, 2, `${what}: the launch line and then the list line, nothing else, got: ${JSON.stringify(typed)}`);
   assertCodexResumeLine(typed[0], `sess-${name}`, what);
-  assert.equal(typed[1], LIST_LINE, `${what}: the line is the ruled one, word for word`);
+  assert.equal(typed[1], listLineOf(box.cli, bots), `${what}: the line is the ruled one of #709, word for word`);
   assert.equal(sentInto(await liveTab(box, bots, name))[1].enter, true, `${what}: and it is submitted with a return`);
   assert.equal(entry.listLine, true, `${what}: the answer says the line was typed, got: ${JSON.stringify(entry)}`);
   assert.equal(entry.listLineTrouble, undefined, `${what}: and gives no trouble for it, got: ${JSON.stringify(entry)}`);
@@ -371,6 +375,58 @@ test('the plain report says under the tab that the line was typed, and when it w
   const refusedLines = refused.stdout.split('\n').filter((line) => /\bnot\b|n't\b/i.test(line) && /\btyped\b/i.test(line) && /\bOrca\b/.test(line) && /\blist/i.test(line));
   assert.equal(refusedLines.length, 1, `one line says the line was not typed, got:\n${refused.stdout}`);
   assert.ok(refusedLines[0].includes('agent-permission-prompt'), `and why, in Orca's words, on that line, got: ${refusedLines[0]}`);
+});
+
+// ------------------------------------------------------------- the mail check the line names (#709)
+
+// The line names the kit's own mail check as the bot's built AGENTS.md names
+// it, so a session runs the command its rules already allow. This reads the
+// command out of the built file and looks for it in the typed line; the line
+// pinned word for word above does not say where its command comes from.
+test('#709: the mail check the typed line names is the one api-bot\'s built AGENTS.md names, in backticks', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await closedWithConversation(box);
+
+  await run(box, 'up');
+
+  const rules = await agentsIn(bots, BOT);
+  const named = [...rules.matchAll(/`([^`\n]* message check --bots [^`\n]*)`/g)].map((found) => found[1]);
+  assert.ok(named.length > 0, `the premise: api-bot's AGENTS.md names the kit's mail check in backticks, got:\n${rules}`);
+  const typed = await typedIn(box, bots);
+  assert.equal(typed.length, 2, `the launch line and the list line, got: ${JSON.stringify(typed)}`);
+  assert.ok(
+    named.some((command) => typed[1].includes(`Read your mail with \`${command}\`, and do what it asks.`)),
+    `the line asks the session to read its mail with the command AGENTS.md names (${JSON.stringify(named)}), got: ${typed[1]}`,
+  );
+});
+
+// The CLI and the bots folder are each one shell word, quoted only when they
+// need it (#709, as AGENTS.md writes them). A bots folder with a space in its
+// path needs it: unquoted, the session's shell would read two words.
+test('#709: for a bots folder with a space in its path, the line names that folder in single quotes, so the command runs as written', async (t) => {
+  const box = await createSandbox(t);
+  const folder = 'my bots';
+  const bots = box.path(folder);
+  assert.equal((await box.run(['init', '--bots', folder, '--harness', 'claude'])).code, 0);
+  assert.equal((await box.run(['bot', 'create', '--bots', folder, '--name', BOT, '--harness', 'codex'])).code, 0);
+  const added = await box.run(['session', 'add', '--bots', folder, '--bot', BOT, '--name', 'daily', '--prompt', PROMPT]);
+  assert.equal(added.code, 0, added.stderr);
+  const first = await box.run(['up', '--bots', folder, '--bot', BOT, '--json']);
+  assert.equal(first.code, 0, first.stderr);
+  const tab = await liveTab(box, bots);
+  const heard = await recordSession(box, { bots, bot: BOT, tab: tab.tabId, session: 'sess-daily' });
+  assert.equal(heard.code, 0, `the hook report this test stands on: ${heard.stderr}`);
+  await conversationOnRecord(box, { harness: 'codex', cwd: botHomeOf(bots, BOT), id: 'sess-daily' });
+  await closeTab(box, tab.tabId);
+
+  const again = await box.run(['up', '--bots', folder, '--bot', BOT, '--json']);
+
+  assert.equal(again.code, 0, again.stderr);
+  const typed = await typedIn(box, bots);
+  assert.equal(typed.length, 2, `the launch line and the list line, got: ${JSON.stringify(typed)}`);
+  assertCodexResumeLine(typed[0], 'sess-daily', 'a bots folder with a space');
+  assert.equal(typed[1], listLineOf(box.cli, bots), 'the ruled line, word for word');
+  assert.ok(typed[1].includes(` message check --bots '${bots}'\``), `the folder in single quotes, got: ${typed[1]}`);
 });
 
 // ------------------------------------------------------------- never typed

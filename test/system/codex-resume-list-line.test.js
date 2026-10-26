@@ -9,7 +9,9 @@
 // 1.4.215) showed that a resumed Codex thread fires SessionStart only at its
 // first turn, and Orca lists the pane only then. So `up`, `restart` and
 // `unpause` now type one line, LIST_LINE, into a Codex session they have just
-// resumed. This test resumes one Codex session three times, once through each
+// resumed (its words since #709: helpers/cli.js listLineOf, with this
+// checkout's CLI and the throwaway bots folder). This test resumes one Codex
+// session three times, once through each
 // command, and after each it requires:
 //
 //   1. the command's `--json` entry for the tab says `listLine: true`;
@@ -22,7 +24,8 @@
 //
 // And it records, as a diagnostic, what the agent row shows as the agent's
 // name (the repro found `displayName` and `taskTitle` null) and what the
-// session answered (LIST_LINE asks for "ok"; the words are the model's, so
+// session answered (LIST_LINE asks it to read its mail and do what it asks,
+// and for "ok" when there is none, as here; the words are the model's, so
 // they are recorded, not required).
 //
 // The test types nothing into any tab. The session's one turn before the first
@@ -103,7 +106,7 @@ import test from '../helpers/system.js';
 import { setTimeout } from 'node:timers/promises';
 import { parse } from 'yaml';
 
-import { cliEntry } from '../helpers/cli.js';
+import { cliEntry, listLineOf } from '../helpers/cli.js';
 import { codexTrustArgs } from '../helpers/codex-trust.js';
 import { tabGuard } from '../helpers/tab-guard.js';
 import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
@@ -139,9 +142,6 @@ const LISTED_MS = 60000;
 
 /** How many rows `worktree ps` is asked for: the owner's machine has many projects, this test's is new. */
 const PS_LIMIT = 1000;
-
-/** The line the kit types into a Codex session it has just resumed, as the architect ruled it on #226. */
-const LIST_LINE = 'obk: this session was resumed in a new tab, and this line is only so Orca lists it. Reply "ok"; nothing else is asked.';
 
 /**
  * Ask Orca something and read its JSON. Never the blanket close, on any road.
@@ -351,6 +351,8 @@ test('a Codex session resumed by up, restart and unpause is among Orca\'s agents
   const homeOf = (bot) => path.join(bots, 'bots', bot);
   const homes = ['bot-father', BOT.name].map(homeOf);
   const home = homeOf(BOT.name);
+  /** The line the kit types into a Codex session it has just resumed (#226), in the words of #709: this checkout's CLI, this bots folder. */
+  const LIST_LINE = listLineOf(cliEntry, bots);
 
   // Registered before anything is created, so it runs however this test ends.
   t.after(async () => {

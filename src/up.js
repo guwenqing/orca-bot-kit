@@ -15,7 +15,7 @@ import { conversationsIn, hasConversation, heldAsUserTurn, transcriptsIn } from 
 import { dropRemovedHooks, installHook } from './hooks.js';
 import { writePermissions } from './permissions.js';
 import { piTrouble } from './pi.js';
-import { addressOf, HARNESSES, harnessOf, isAddressOf, isShortPrompt, kitFolders, launchCommand, mailboxStep, reachesMail, sessionTrouble, startPrompt, workDirOf } from './launch.js';
+import { addressOf, HARNESSES, harnessOf, isAddressOf, isShortPrompt, kitFolders, launchCommand, mailboxStep, ownCli, reachesMail, sessionTrouble, shellWord, startPrompt, workDirOf } from './launch.js';
 import { asFolderProject, coordinatorOf, dropLeftGit, findProject, harnessInTab, loadInWindow, makeMailbox, makeProject, openTab, QUESTION_ON_SCREEN, retitleTab, runMissing, screenRows, shellInTab, tabs, tabToTypeInto, TERMINAL_ENV, TIMED_OUT, tellWindow, typeIntoTab, useMailbox } from './orca.js';
 import { TAB_ENV } from './record.js';
 import { buildAgents, rulesStamp } from './rules.js';
@@ -435,7 +435,7 @@ async function bringUpSession(bots, home, live, session, bot, title) {
   // 0.157.1 (#226). So it is given one line, through the same gate as a mail
   // notice, which the owner allowed. A fresh start's first turn is its prompt.
   const list = harness === 'codex' && launch.resume !== undefined && tui.running === true
-    ? await typeListLine(home, session.name, made.tabId)
+    ? await typeListLine(home, session.name, made.tabId, { line: listLine(bots) })
     : undefined;
 
   return entry(made, {
@@ -505,8 +505,15 @@ async function shellNotReady(handle) {
     : `the shell is asking: ${last.trim()} (${wait})`;
 }
 
-/** The line a resumed Codex session is typed so Orca lists it, in the architect's words (#226). */
-const LIST_LINE = 'obk: this session was resumed in a new tab, and this line is only so Orca lists it. Reply "ok"; nothing else is asked.';
+/**
+ * The line a resumed Codex session is typed so Orca lists it, in the
+ * architect's words (#226). It names the kit's mail check as the bot's rules
+ * do, because a restart often comes for mail that is waiting (#630), and a line
+ * that asked for "ok" alone had the session drop the mail it had just read (#709).
+ */
+const listLine = (bots) => 'obk: this session was resumed in a new tab, and the kit types this line so Orca lists it.'
+  + ` Read your mail with \`${shellWord(ownCli())} message check --bots ${shellWord(bots)}\`, and do what it asks.`
+  + ' That includes mail you read just before this line. If there is none, reply "ok".';
 
 /**
  * How long a resumed Codex tab is given to be one the kit may type into: live,
@@ -518,15 +525,15 @@ const LIST_LOOK_MS = 2000;
 const LIST_ASK_MS = 500;
 
 /**
- * Type `line`, LIST_LINE unless told otherwise, into the tab `tabId` of
- * `session` once the gate every typed line goes through lets it:
+ * Type `line` into the tab `tabId` of `session` once the gate every typed
+ * line goes through lets it:
  * `{ typed: true }`, or `{ typed: false, why }` with the gate's last reason
  * once LIST_WAIT_MS is up. Nothing goes into a question, a form or a menu
  * (#329, #416), nor into a tab the kit cannot tell about. Each look and its
  * line are taken in the session's turn for a line (#482), unless the caller
  * says it holds the session's typing turn already (`held`).
  */
-export async function typeListLine(home, session, tabId, { line = LIST_LINE, held = false } = {}) {
+export async function typeListLine(home, session, tabId, { line, held = false }) {
   const until = Date.now() + LIST_WAIT_MS;
   for (;;) {
     let turn;

@@ -99,7 +99,7 @@ import test from '../helpers/system.js';
 import { setTimeout } from 'node:timers/promises';
 import { parse } from 'yaml';
 
-import { cliEntry } from '../helpers/cli.js';
+import { cliEntry, listLineOf } from '../helpers/cli.js';
 import { codexTrustArgs } from '../helpers/codex-trust.js';
 import { tabGuard } from '../helpers/tab-guard.js';
 import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
@@ -139,9 +139,6 @@ const NAMED_MS = 120000;
 
 /** How long the input line is given to be empty after the name is confirmed, and after the probe is taken back. */
 const EMPTY_MS = 15000;
-
-/** The line the kit types into a Codex session it has just resumed (src/up.js LIST_LINE, #226). */
-const LIST_LINE = 'obk: this session was resumed in a new tab, and this line is only so Orca lists it. Reply "ok"; nothing else is asked.';
 
 /**
  * Ask Orca something and read its JSON. Never the blanket close, on any road.
@@ -413,6 +410,8 @@ test('a Codex session the kit starts shows <bot>.<session> in its tab title afte
   const homeOf = (bot) => path.join(bots, 'bots', bot);
   const homes = ['bot-father', BOT.name].map(homeOf);
   const home = homeOf(BOT.name);
+  /** The line the kit types into a Codex session it has just resumed (src/up.js LIST_LINE, #226; its words are #709's): this checkout's CLI, this bots folder. */
+  const LIST_LINE = listLineOf(cliEntry, bots);
 
   // Registered before anything is created, so it runs however this test ends.
   t.after(async () => {

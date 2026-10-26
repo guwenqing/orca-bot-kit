@@ -40,6 +40,7 @@ import {
   conversationOnRecord,
   createSandbox,
   harnessChain,
+  listLineOf,
   nameOnLine,
   orcaCallsOf,
   recordSession,
@@ -104,21 +105,19 @@ function newTabOf(result, name = 'daily') {
   return found[0];
 }
 
-/** The one line the kit types after a Codex resume, so Orca lists the session (#226), as ruled. */
-const LIST_LINE = 'obk: this session was resumed in a new tab, and this line is only so Orca lists it. Reply "ok"; nothing else is asked.';
-
 /**
  * What was typed into the tab the book now gives `name`: the one line that
  * started it, with the token of its Claude address written as `bareLaunch`
- * writes it (#286). A Codex resume is followed by exactly LIST_LINE and nothing
- * else (#226); every other start is that one line alone.
+ * writes it (#286). A Codex resume is followed by exactly the list line and
+ * nothing else (#226; its words are #709's, helpers/cli.js listLineOf); every
+ * other start is that one line alone.
  */
 async function lineOf(box, bots, name = 'daily') {
   const entry = await sessionIn(bots, BOT, name);
   const terminal = (await tabsOfBot(box, bots, BOT)).find((one) => one.tabId === entry?.tab);
   assert.ok(terminal, `Orca should have ${name}'s tab ${entry?.tab}`);
   const typed = typedInto(terminal);
-  const after = / codex resume /.test(typed[0] ?? '') ? [LIST_LINE] : [];
+  const after = / codex resume /.test(typed[0] ?? '') ? [listLineOf(box.cli, bots)] : [];
   assert.deepEqual(typed.slice(1), after, `one line per tab the kit opens, and after a Codex resume the list line alone, got: ${JSON.stringify(typed)}`);
   return tokenless(typed[0]);
 }

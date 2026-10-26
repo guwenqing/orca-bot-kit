@@ -928,6 +928,20 @@ export const plainCli = (line) => line
 export const cliOnLine = (cli) => `OBK_CLI=${shellWord(cli)}`;
 
 /**
+ * The one line the kit types into a Codex session it has just resumed in a
+ * new tab, so Orca lists it (#226), in the architect's words of #709, word for
+ * word. It names the kit's own mail check as the bot's built AGENTS.md names
+ * it in "Writing to another session": `cli` is the CLI that ran the command,
+ * and `bots` the bots folder by its absolute path, each a `shellWord`, quoted
+ * only when it needs to be (rules-build.test.js). The backticks are part of
+ * the line. Before #709 the line asked for "ok" alone, and a session that read
+ * its mail just before it dropped the mail's work.
+ */
+export const listLineOf = (cli, bots) => 'obk: this session was resumed in a new tab, and the kit types this line so Orca lists it.'
+  + ` Read your mail with \`${shellWord(cli)} message check --bots ${shellWord(bots)}\`, and do what it asks.`
+  + ' That includes mail you read just before this line. If there is none, reply "ok".';
+
+/**
  * The step a launch line starts with, for a session that can have a mailbox
  * (#317): the kit's own CLI, run in the new tab before the harness, giving the
  * session its mailbox bound to that tab. Orca 1.4.210 lets a process in a tab
