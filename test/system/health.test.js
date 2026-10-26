@@ -67,7 +67,7 @@ import { setTimeout } from 'node:timers/promises';
 import { cliEntry } from '../helpers/cli.js';
 import { settingsInDb } from '../helpers/orca-db-copy.js';
 import { tabGuard } from '../helpers/tab-guard.js';
-import { deleteOwnProject } from '../helpers/own-project.js';
+import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
 
 /** The Orca CLI that works for a normal user (tech notes, section 1). */
@@ -251,12 +251,12 @@ test('health reports a tab Orca has lost, an Orca project no bot owns, and what 
     // Only this test's own tabs are closed. A tab it did not create at one of
     // its homes is not its to close: that project and the bots folder stay
     // where they are, and the test fails naming the tab (#426).
-    const { closed, foreign } = guard.closeOwnAt(homes);
+    const { closed, foreign } = guard.closeOwnAt(placesOf(homes, allSetups(), bots));
     const held = new Set(foreign.map((one) => one.home));
     let deleted = 0;
     const failedDeletes = [];
-    for (const setup of allSetups()) {
-      if (!homes.includes(setup.path) || before.setups.has(setup.id) || held.has(setup.path)) continue;
+    for (const setup of projectsInBots(allSetups(), bots)) {
+      if (before.setups.has(setup.id) || held.has(setup.path)) continue;
       try {
         await deleteOwnProject(setup, bots);
         deleted += 1;

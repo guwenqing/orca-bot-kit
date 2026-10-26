@@ -342,6 +342,23 @@ export function takeBotTurn(home) {
 const botLockFile = (home) => path.join(botLocks(home), `${encodeURIComponent(path.basename(realpathSync(home)))}.bot.lock`);
 
 /**
+ * The right to find or make the bot's Orca project (#712), held by `up` from
+ * its look for a `.git` a dead run left in the bot home until the project is
+ * there. Two runs of `up` for one bot then never take away the `.git` that
+ * the other is registering the home with. A lock goes with its process, so a
+ * run that died holds no turn.
+ */
+export function takeProjectTurn(home) {
+  const file = botLockFile(home).replace(/\.bot\.lock$/, '.project.lock');
+  try {
+    return lockOn(file, MAILBOX_WAIT_MS);
+  } catch (error) {
+    if (error instanceof LockNotWritable) throw error;
+    throw new Error(`waited ${MAILBOX_WAIT_MS / 1000} seconds for another run to finish making ${home}'s Orca project and it did not (${error.message}). Nothing was changed. Try again; if nothing is running, remove ${file}, which is where runs take their turn.`);
+  }
+}
+
+/**
  * One session's turn at its mailbox (#321): held by `session mailbox` for its
  * whole step, by `message check` in the session's own tab for its bind, read and
  * ack, and by `up` while it writes a new tab for the session into the book. So
