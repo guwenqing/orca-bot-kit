@@ -1,7 +1,7 @@
 schema: assuredloop/1
 request: teach-form-off
 tier: "1"
-status: open
+status: concluded
 sources:
   - file: 2026-10-26-owner-words.md
     kind: owner-words
