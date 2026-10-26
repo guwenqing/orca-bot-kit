@@ -332,16 +332,20 @@ function entriesSince(id, mark, since) {
 /**
  * What each entry is, for the reading below, in order: `{ kind: 'message',
  * role, text }` for a user's `input_text` or the model's `output_text`,
- * `{ kind: 'call', name, mailCheck }` for a tool call, `mailCheck` whether its
- * arguments name the kit's ` message check --bots ` (nothing else of them is
- * kept), and `{ kind: 'end' }` for the end of a turn.
+ * `{ kind: 'call', name, mailCheck }` for a tool call, `mailCheck` whether what
+ * it ran names the kit's ` message check --bots ` (nothing else of it is kept),
+ * and `{ kind: 'end' }` for the end of a turn. A tool call is in either of two
+ * shapes: older Codex writes a `function_call` with its `arguments`, and Codex
+ * 0.164.0 a `custom_tool_call` with its `input`, the script it ran (seen in
+ * this test's own run at 1eefd8b).
  */
 function eventsOf(entries) {
   return entries.flatMap((entry) => {
     if (entry?.type === 'event_msg' && ['task_complete', 'turn_complete', 'turn_aborted'].includes(entry.payload?.type)) return [{ kind: 'end' }];
     const item = entry?.type === 'response_item' ? entry.payload : undefined;
-    if (item?.type === 'function_call') {
-      return [{ kind: 'call', name: String(item.name), mailCheck: String(item.arguments ?? '').includes(' message check --bots ') }];
+    if (item?.type === 'function_call' || item?.type === 'custom_tool_call') {
+      const ran = item.type === 'function_call' ? item.arguments : item.input;
+      return [{ kind: 'call', name: String(item.name), mailCheck: String(ran ?? '').includes(' message check --bots ') }];
     }
     if (item?.type !== 'message' || !Array.isArray(item.content)) return [];
     const text = item.content
