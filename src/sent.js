@@ -8,11 +8,14 @@
 // has gone either way. Nothing here decides anything about it, and anything it
 // cannot read is silence (ADR 0022: a hook never disturbs the session).
 //
-// It reads the send from its fields, never from its wording. Seen on Claude
-// Code 2.1.283: a send to an in-process teammate answers with a `routing`
-// object, and one to another session without it; the input's `to` names the
-// target, as a session's name with an optional ` [xxxxxx]` reference, or as a
-// `uds:` socket path when answering a message, which no book can map.
+// It reads the send from its fields, never from its wording. Seen in the
+// transcripts of Claude Code 2.1.281 to 2.1.310 (#705): a send to another
+// session that went answers with a `msg_id` and with neither `routing` nor
+// `pin`. A send to a subagent or teammate inside the process has `routing` or
+// `pin`, or no `msg_id`. The transcript also has a `display`, but the copy the
+// model reads does not, and the hook may get either. The input's `to` names
+// the target, as a session's name with an optional ` [xxxxxx]` reference, or
+// as a `uds:` socket path when answering a message, which no book can map.
 
 import { readBook } from './book.js';
 import { botDir, botNames } from './bot.js';
@@ -28,9 +31,8 @@ export function sentWarning(bots, said) {
   if (said?.tool_name !== 'SendMessage') return undefined;
   const to = said.tool_input?.to;
   if (typeof to !== 'string') return undefined;
-  const result = resultOf(said);
-  // A teammate in the same session, or a send that did not go: not this.
-  if (result === undefined || result.success !== true || 'routing' in result) return undefined;
+  // A subagent or teammate in the same session, or a send that did not go: not this.
+  if (!wentToAnotherSession(resultOf(said))) return undefined;
   if (/^(uds|bridge):/.test(to)) return undefined;
 
   const name = to.replace(/\s*\[[^\]]*\]\s*$/, '').trim();
@@ -68,6 +70,12 @@ function roadTo(bots, meant, ask) {
     return `If you meant ${who}, ${ask} gives the road from your session: its mailbox, ${found.address}, by \`${shellWord(ownCli())} message send\`, not your own messaging.`;
   }
   return `If you meant ${who}, its session address is ${meant.address}; ${ask} says which road to take from your session.`;
+}
+
+/** Whether the send answered as one that went to another session. */
+function wentToAnotherSession(result) {
+  return result !== undefined && result.success === true && 'msg_id' in result
+    && !('routing' in result) && !('pin' in result);
 }
 
 /** What the send answered, as an object: Claude Code hands it over as one, or as its JSON. */
