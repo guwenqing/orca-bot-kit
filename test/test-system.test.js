@@ -3545,7 +3545,8 @@ describe('test-system: the Orca projects a run leaves behind (#536)', { concurre
 //
 // No live run starts without a fresh backup of both files. A confirmed run that
 // has Orca ready and a system test file to run first copies Claude Code's
-// record (CLAUDE_CONFIG_DIR's .claude.json, or <HOME>/.claude.json) and Codex's
+// record (<HOME>/.claude.json, and CLAUDE_CONFIG_DIR's as well when it is
+// another file, #704, below) and Codex's
 // config (CODEX_HOME's config.toml, or <HOME>/.codex/config.toml) into a folder
 // of its own, made fresh under the temp folder: `obk-config-backup-*`, mode
 // 0700, the copies `claude.json` and `config.toml`, each mode 0600 and byte for
@@ -3840,9 +3841,14 @@ describe('test-system: a backup of both harness configs before every live run (#
     await assertCopy(dirTwo, 'claude.json', second);
   });
 
-  test('CODEX_HOME and CLAUDE_CONFIG_DIR say which files are backed up, and the defaults under HOME are then not copied', async (t) => {
+  // Rewritten for #704: CLAUDE_CONFIG_DIR no longer stands in for HOME's
+  // .claude.json. Both are live, so both are copied, HOME's as claude.json and
+  // CLAUDE_CONFIG_DIR's as claude-config-dir.json. CODEX_HOME still replaces
+  // the default config.toml, as before.
+  test('CODEX_HOME says which config.toml is backed up, and the default under HOME is then not copied; with CLAUDE_CONFIG_DIR set, HOME\'s .claude.json is copied as well as its own (#704)', async (t) => {
     const codexInUse = codexConfig({ projects: ['/Users/owner/work/codex-home'] });
     const claudeInUse = claudeConfig(['/Users/owner/work/claude-dir']);
+    const claudeAtHome = claudeConfig(['/Users/owner/work/default-home']);
     const { fixture, env, files, home } = await withConfigs(t, () => ({
       codexHome: true,
       claudeDir: true,
@@ -3850,20 +3856,20 @@ describe('test-system: a backup of both harness configs before every live run (#
     }));
     const defaults = { codex: path.join(home, '.codex', 'config.toml'), claude: path.join(home, '.claude.json') };
     await write(path.dirname(defaults.codex), 'config.toml', codexConfig({ projects: ['/Users/owner/work/default-home'] }));
-    await write(home, '.claude.json', claudeConfig(['/Users/owner/work/default-home']));
+    await write(home, '.claude.json', claudeAtHome);
 
     const result = await fixture.confirmed({ env });
 
     assert.equal(result.code, 0, everything(result));
     const dir = await assertBackupFolder(result, env.TMPDIR);
+    await assertCopiesAre(dir, ['claude.json', 'claude-config-dir.json', 'config.toml']);
     await assertCopy(dir, 'config.toml', codexInUse);
-    await assertCopy(dir, 'claude.json', claudeInUse);
-    await assertCopiesAre(dir, ['claude.json', 'config.toml']);
+    await assertCopy(dir, 'claude.json', claudeAtHome);
+    await assertCopy(dir, 'claude-config-dir.json', claudeInUse);
     assertListed(result, files.codex, path.join(dir, 'config.toml'));
-    assertListed(result, files.claude, path.join(dir, 'claude.json'));
-    for (const file of Object.values(defaults)) {
-      assert.ok(!backupSaid(result).files.some((line) => line.includes(file)), `the default ${file} is not the one in use, and is not named, got:\n${backupSaid(result).files.join('\n')}`);
-    }
+    assertListed(result, defaults.claude, path.join(dir, 'claude.json'));
+    assertListed(result, files.claude, path.join(dir, 'claude-config-dir.json'));
+    assert.ok(!backupSaid(result).files.some((line) => line.includes(defaults.codex)), `the default ${defaults.codex} is not the one in use, and is not named, got:\n${backupSaid(result).files.join('\n')}`);
   });
 
   for (const missing of ['codex', 'claude']) {
@@ -4232,6 +4238,360 @@ describe('test-system: a backup of both harness configs before every live run (#
     assertCompared(result, dir, built.files.codex, 'notCompared', [/\bELOOP\b/]);
     assertCompared(result, dir, built.files.claude, 'same');
     assert.equal(await readlink(built.files.codex), built.files.codex, 'the loop is left as the run made it: nothing copied back');
+    assertNoSecrets(result);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Both of Claude's records are backed up when CLAUDE_CONFIG_DIR names another (#704)
+// ---------------------------------------------------------------------------
+//
+// Since an account switch, Orca starts tabs with CLAUDE_CONFIG_DIR set to a
+// profile folder that holds a .claude.json of its own: a copy, not a link.
+// Claude Code writes both. So a live run backs up, and compares after it,
+// every Claude record the run can write:
+//
+//   <HOME>/.claude.json               always, copied as claude.json
+//   <CLAUDE_CONFIG_DIR>/.claude.json  when CLAUDE_CONFIG_DIR is set and this
+//                                     is another file, copied as
+//                                     claude-config-dir.json
+//
+// Each is "not there" on its own. When the two paths are one file (the same
+// folder spelled another way, or a symlink to it), that file is backed up,
+// listed and compared once, as claude.json, by its HOME path. A copy of either
+// that fails stops the run before any test, as in #619. Nothing is copied
+// back. Codex's side, and the key check (#240), which reads one Claude file
+// only, do not change. Expected contents are the texts the tests wrote.
+
+/** Claude's record under HOME, and the profile's own, told apart by their projects. */
+const atHome = (more = []) => claudeConfig(['/Users/owner/work/home-account', ...more]);
+const inProfile = (more = []) => claudeConfig(['/Users/owner/work/profile-account', ...more]);
+
+/**
+ * A fixture with Claude's record in both places: `home`, <HOME>/.claude.json,
+ * and `dir`, <CLAUDE_CONFIG_DIR>/.claude.json, CLAUDE_CONFIG_DIR set to a
+ * folder of its own beside HOME, made even when its file is not there; and
+ * Codex's config, `codex`, under HOME. `before` is `{ home, dir, codex }`, each
+ * written when it is given. `during` is what the run's one system test (ALPHA)
+ * writes, by the same names, and its `removes` and `makes` name `home`, `dir`
+ * or `codex`. `beta` adds a second system test (BETA) that writes in ran.log
+ * if it runs. Answers the fixture, the env to run with, and the three live files.
+ */
+async function withTwoClaudes(t, { before = {}, during = {}, beta = false } = {}) {
+  const built = await withConfigs(t, () => ({ claudeDir: true }));
+  const files = { home: path.join(built.home, '.claude.json'), dir: built.files.claude, codex: built.files.codex };
+  await mkdir(path.dirname(files.dir), { recursive: true });
+  for (const which of ['home', 'dir', 'codex']) {
+    if (before[which] !== undefined) await write(path.dirname(files[which]), path.basename(files[which]), before[which]);
+  }
+  const writes = ['home', 'dir', 'codex'].filter((which) => during[which] !== undefined).map((which) => ({ file: files[which], text: during[which] }));
+  const removes = (during.removes ?? []).map((which) => files[which]);
+  const makes = (during.makes ?? []).map((which) => files[which]);
+  await write(built.fixture.repo, 'test/system/alpha.test.js', writesConfigs('ALPHA', { writes, removes, makes }));
+  if (beta) await write(built.fixture.repo, 'test/system/beta.test.js', tallies('BETA'));
+  return { fixture: built.fixture, env: built.env, files };
+}
+
+/**
+ * A fixture whose CLAUDE_CONFIG_DIR names HOME's own .claude.json by another
+ * road: `slash`, HOME spelled with a trailing slash; `folderLink`, a folder
+ * beside HOME that is a symlink to it; `fileLink`, a folder of its own whose
+ * .claude.json is a symlink to HOME's. Claude's record (`claude`) and Codex's
+ * config are under HOME, and the run's one system test (ALPHA) writes
+ * `during` into HOME's .claude.json. Answers the fixture, the env, HOME's
+ * .claude.json as `claude`, and `other`, the CLAUDE_CONFIG_DIR road to it.
+ */
+async function withOneClaudeTwoRoads(t, road, { claude, during }) {
+  const built = await withConfigs(t, () => ({ before: { claude, codex: codexConfig({}) }, during: { claude: during } }));
+  const box = path.dirname(built.fixture.repo);
+  let configDir;
+  if (road === 'slash') {
+    configDir = `${built.home}/`;
+  } else if (road === 'folderLink') {
+    configDir = path.join(box, 'claude-link');
+    await symlink(built.home, configDir);
+  } else {
+    configDir = path.join(box, 'claude-profile');
+    await mkdir(configDir);
+    await symlink(built.files.claude, path.join(configDir, '.claude.json'));
+  }
+  return {
+    fixture: built.fixture,
+    env: { ...built.env, CLAUDE_CONFIG_DIR: configDir },
+    claude: built.files.claude,
+    other: path.join(configDir, '.claude.json'),
+  };
+}
+
+describe('test-system: both of Claude\'s records are backed up when CLAUDE_CONFIG_DIR names another (#704)', { concurrency: true }, () => {
+  // Criteria 2 and 7.
+  test('with CLAUDE_CONFIG_DIR set to another folder, HOME\'s .claude.json is copied as claude.json and CLAUDE_CONFIG_DIR\'s as claude-config-dir.json, byte for byte, mode 0600, three lines said before any test, nothing copied back', async (t) => {
+    // CRLF line ends and no final newline, so a copy made as lines or as JSON is told apart.
+    const homeBefore = atHome().trimEnd().replace(/\n/g, '\r\n');
+    const dirBefore = inProfile();
+    const codexBefore = codexConfig({ projects: ['/Users/owner/work/app'] });
+    const homeDuring = atHome(['/Users/owner/work/home-new']);
+    const dirDuring = inProfile(['/Users/owner/work/profile-new']);
+    const { fixture, env, files } = await withTwoClaudes(t, {
+      before: { home: homeBefore, dir: dirBefore, codex: codexBefore },
+      during: { home: homeDuring, dir: dirDuring },
+    });
+    await chmod(files.home, 0o644);
+    await chmod(files.dir, 0o644);
+
+    const result = await fixture.confirmed({ env });
+
+    assert.equal(result.code, 0, everything(result));
+    const dir = await assertBackupFolder(result, env.TMPDIR);
+    await assertCopiesAre(dir, ['claude.json', 'claude-config-dir.json', 'config.toml']);
+    await assertCopy(dir, 'claude.json', homeBefore);
+    await assertCopy(dir, 'claude-config-dir.json', dirBefore);
+    await assertCopy(dir, 'config.toml', codexBefore);
+    assertListed(result, files.home, path.join(dir, 'claude.json'));
+    assertListed(result, files.dir, path.join(dir, 'claude-config-dir.json'));
+    assertListed(result, files.codex, path.join(dir, 'config.toml'));
+    assert.equal(backupSaid(result).files.length, 3, `one line per file under \`Config backup:\`, got:\n${backupSaid(result).files.join('\n')}`);
+    assert.ok(backupSaid(result).at < result.stdout.indexOf('ALPHA'), `the backup should be said before the tests' own output, got:\n${result.stdout}`);
+    assert.equal(await readFile(files.home, 'utf8'), homeDuring, 'HOME\'s .claude.json holds what the run left, not the backup');
+    assert.equal(await readFile(files.dir, 'utf8'), dirDuring, 'CLAUDE_CONFIG_DIR\'s .claude.json holds what the run left, not the backup');
+    assertNoSecrets(result);
+  });
+
+  // Criterion 3.
+  test('with CLAUDE_CONFIG_DIR set, a HOME .claude.json that is not there is said to be not there, has no copy, and the run goes on with CLAUDE_CONFIG_DIR\'s copied as claude-config-dir.json', async (t) => {
+    const dirBefore = inProfile();
+    const { fixture, env, files } = await withTwoClaudes(t, { before: { dir: dirBefore, codex: codexConfig({}) } });
+
+    const result = await fixture.confirmed({ env });
+
+    assert.equal(result.code, 0, everything(result));
+    assert.match(result.stdout, /ALPHA/, `the tests should run, got:\n${everything(result)}`);
+    const dir = await assertBackupFolder(result, env.TMPDIR);
+    await assertCopiesAre(dir, ['claude-config-dir.json', 'config.toml']);
+    await assertCopy(dir, 'claude-config-dir.json', dirBefore);
+    assertListed(result, files.home, null);
+    assertListed(result, files.dir, path.join(dir, 'claude-config-dir.json'));
+    assertCompared(result, dir, files.home, 'neither');
+    assertCompared(result, dir, files.dir, 'same');
+  });
+
+  // Criterion 3.
+  test('with CLAUDE_CONFIG_DIR set, its .claude.json that is not there is said to be not there, has no copy, and the run goes on with HOME\'s copied as claude.json', async (t) => {
+    const homeBefore = atHome();
+    const { fixture, env, files } = await withTwoClaudes(t, { before: { home: homeBefore, codex: codexConfig({}) } });
+
+    const result = await fixture.confirmed({ env });
+
+    assert.equal(result.code, 0, everything(result));
+    assert.match(result.stdout, /ALPHA/, `the tests should run, got:\n${everything(result)}`);
+    const dir = await assertBackupFolder(result, env.TMPDIR);
+    await assertCopiesAre(dir, ['claude.json', 'config.toml']);
+    await assertCopy(dir, 'claude.json', homeBefore);
+    assertListed(result, files.home, path.join(dir, 'claude.json'));
+    assertListed(result, files.dir, null);
+    assertCompared(result, dir, files.home, 'same');
+    assertCompared(result, dir, files.dir, 'neither');
+  });
+
+  // Criterion 3.
+  test('with CLAUDE_CONFIG_DIR set and neither .claude.json there, both are said to be not there, neither has a copy, and both are compared as not there', async (t) => {
+    const codexBefore = codexConfig({});
+    const { fixture, env, files } = await withTwoClaudes(t, { before: { codex: codexBefore } });
+
+    const result = await fixture.confirmed({ env });
+
+    assert.equal(result.code, 0, everything(result));
+    const dir = await assertBackupFolder(result, env.TMPDIR);
+    await assertCopiesAre(dir, ['config.toml']);
+    assertListed(result, files.home, null);
+    assertListed(result, files.dir, null);
+    assert.equal(backupSaid(result).files.length, 3, `one line per file under \`Config backup:\`, got:\n${backupSaid(result).files.join('\n')}`);
+    assertCompared(result, dir, files.home, 'neither');
+    assertCompared(result, dir, files.dir, 'neither');
+  });
+
+  // Criterion 4: one file by two roads is one backup, one line and one comparison.
+  for (const [road, what] of [
+    ['slash', 'HOME spelled with a trailing slash'],
+    ['folderLink', 'a folder that is a symlink to HOME'],
+    ['fileLink', 'a folder whose .claude.json is a symlink to HOME\'s'],
+  ]) {
+    test(`a CLAUDE_CONFIG_DIR that names HOME's own .claude.json (${what}) has it backed up once, as claude.json, listed once by its HOME path, and compared once`, async (t) => {
+      const claude = atHome();
+      const during = atHome(['/Users/owner/work/added-while-it-ran']);
+      const built = await withOneClaudeTwoRoads(t, road, { claude, during });
+
+      const result = await built.fixture.confirmed({ env: built.env });
+
+      assert.equal(result.code, 0, everything(result));
+      const dir = await assertBackupFolder(result, built.env.TMPDIR);
+      await assertCopiesAre(dir, ['claude.json', 'config.toml']);
+      await assertCopy(dir, 'claude.json', claude);
+      assertListed(result, built.claude, path.join(dir, 'claude.json'));
+      assert.equal(backupSaid(result).files.length, 2, `one line for Claude's one record and one for Codex's, got:\n${backupSaid(result).files.join('\n')}`);
+      assertCompared(result, dir, built.claude, 'changed', [path.join(dir, 'claude.json')]);
+      assert.equal(comparison(result, dir).length, 2, `one comparison line for Claude's one record and one for Codex's, got:\n${comparison(result, dir).join('\n')}`);
+      // The key check (#240) reads CLAUDE_CONFIG_DIR's road and may name it; the backup and the comparison do not.
+      if (road !== 'slash') {
+        const lines = [...backupSaid(result).files, ...comparison(result, dir)];
+        assert.ok(!lines.some((line) => line.includes(built.other)), `the road ${built.other} to the same file should not be listed or compared, got:\n${lines.join('\n')}`);
+      }
+      assert.equal(await readFile(built.claude, 'utf8'), during, 'the live file holds what the run left, not the backup');
+      assertNoSecrets(result, ['/Users/owner/work/added-while-it-ran']);
+    });
+  }
+
+  // Criterion 5: HOME's .claude.json is backed up even when CLAUDE_CONFIG_DIR's is good.
+  test('with CLAUDE_CONFIG_DIR set and its .claude.json good, a folder where HOME\'s .claude.json should be stops the run before any test: exit 1, HOME\'s named with why, no backup folder left, nothing changed', async (t) => {
+    const { fixture, env, files } = await withTwoClaudes(t, {
+      before: { dir: inProfile(), codex: codexConfig({}) },
+      during: { dir: inProfile(['/Users/owner/work/changed']) },
+      beta: true,
+    });
+    await write(path.dirname(files.home), '.claude.json/inside', 'a folder, not a file\n');
+    const was = { home: await snapshot(files.home), dir: await snapshot(files.dir), codex: await snapshot(files.codex) };
+
+    const result = await fixture.confirmed({ env });
+
+    // CLAUDE_CONFIG_DIR's file and config.toml may be copied first: the partial folder goes too.
+    await assertStoppedAtTheBackup(result, fixture, { names: [files.home], tmp: env.TMPDIR });
+    assert.deepEqual(await snapshot(files.home), was.home, 'the folder at HOME\'s .claude.json is as it was');
+    assert.deepEqual(await snapshot(files.dir), was.dir, 'CLAUDE_CONFIG_DIR\'s .claude.json is as it was');
+    assert.deepEqual(await snapshot(files.codex), was.codex, 'config.toml is as it was');
+  });
+
+  // Criterion 5.
+  test('with CLAUDE_CONFIG_DIR set and its .claude.json good, a HOME .claude.json that is a symlink loop stops the run before any test: ELOOP and HOME\'s named, no backup folder left, nothing changed', async (t) => {
+    const { fixture, env, files } = await withTwoClaudes(t, {
+      before: { dir: inProfile(), codex: codexConfig({}) },
+      during: { dir: inProfile(['/Users/owner/work/changed']) },
+      beta: true,
+    });
+    await loopAt(files.home);
+    const was = { dir: await snapshot(files.dir), codex: await snapshot(files.codex) };
+
+    const result = await fixture.confirmed({ env });
+
+    await assertStoppedAtTheBackup(result, fixture, { names: [files.home], code: /\bELOOP\b/, tmp: env.TMPDIR });
+    assert.equal(await readlink(files.home), files.home, 'the loop at HOME\'s .claude.json is left as it was');
+    assert.deepEqual(await snapshot(files.dir), was.dir, 'CLAUDE_CONFIG_DIR\'s .claude.json is as it was');
+    assert.deepEqual(await snapshot(files.codex), was.codex, 'config.toml is as it was');
+  });
+
+  // Criterion 5.
+  test('with HOME\'s .claude.json good, a CLAUDE_CONFIG_DIR .claude.json that cannot be read (mode 000) stops the run before any test: EACCES and its path named, no backup folder left, nothing changed', { skip: AS_ROOT }, async (t) => {
+    const { fixture, env, files } = await withTwoClaudes(t, {
+      before: { home: atHome(), dir: inProfile(), codex: codexConfig({}) },
+      during: { home: atHome(['/Users/owner/work/changed']) },
+      beta: true,
+    });
+    const was = { home: await snapshot(files.home), dir: await snapshot(files.dir), codex: await snapshot(files.codex) };
+    await chmod(files.dir, 0o000);
+    let result;
+    let modeAfter;
+    try {
+      result = await fixture.confirmed({ env });
+      modeAfter = (await stat(files.dir)).mode & 0o777;
+    } finally {
+      await chmod(files.dir, was.dir.mode);
+    }
+
+    // HOME's .claude.json and config.toml may be copied first: the partial folder goes too.
+    await assertStoppedAtTheBackup(result, fixture, { names: [files.dir], code: /\bEACCES\b/, tmp: env.TMPDIR });
+    assert.equal(modeAfter, 0o000, 'the live file\'s mode is left as it was');
+    assert.deepEqual(await snapshot(files.dir), was.dir, 'CLAUDE_CONFIG_DIR\'s .claude.json is as it was');
+    assert.deepEqual(await snapshot(files.home), was.home, 'HOME\'s .claude.json is as it was');
+    assert.deepEqual(await snapshot(files.codex), was.codex, 'config.toml is as it was');
+  });
+
+  // Criterion 5.
+  test('with HOME\'s .claude.json good, a CLAUDE_CONFIG_DIR .claude.json that is a symlink loop stops the run before any test: ELOOP and its path named, no backup folder left, nothing changed', async (t) => {
+    const { fixture, env, files } = await withTwoClaudes(t, {
+      before: { home: atHome(), codex: codexConfig({}) },
+      during: { home: atHome(['/Users/owner/work/changed']) },
+      beta: true,
+    });
+    await loopAt(files.dir);
+    const was = { home: await snapshot(files.home), codex: await snapshot(files.codex) };
+
+    const result = await fixture.confirmed({ env });
+
+    await assertStoppedAtTheBackup(result, fixture, { names: [files.dir], code: /\bELOOP\b/, tmp: env.TMPDIR });
+    assert.equal(await readlink(files.dir), files.dir, 'the loop at CLAUDE_CONFIG_DIR\'s .claude.json is left as it was');
+    assert.deepEqual(await snapshot(files.home), was.home, 'HOME\'s .claude.json is as it was');
+    assert.deepEqual(await snapshot(files.codex), was.codex, 'config.toml is as it was');
+  });
+
+  // Criteria 6 and 7.
+  test('with CLAUDE_CONFIG_DIR set, a run that changes only HOME\'s .claude.json has it said to have changed, with claude.json named, and CLAUDE_CONFIG_DIR\'s said to be the same; nothing copied back', async (t) => {
+    const during = atHome(['/Users/owner/work/added-while-it-ran']);
+    const { fixture, env, files } = await withTwoClaudes(t, {
+      before: { home: atHome(), dir: inProfile(), codex: codexConfig({}) },
+      during: { home: during },
+    });
+
+    const result = await fixture.confirmed({ env });
+
+    assert.equal(result.code, 0, `the comparison is a report, not a check:\n${everything(result)}`);
+    const dir = backupSaid(result).dir;
+    assertCompared(result, dir, files.home, 'changed', [path.join(dir, 'claude.json')]);
+    assertCompared(result, dir, files.dir, 'same');
+    assertCompared(result, dir, files.codex, 'same');
+    assert.equal(comparison(result, dir).length, 3, `one comparison line per file, got:\n${comparison(result, dir).join('\n')}`);
+    assert.equal(await readFile(files.home, 'utf8'), during, 'HOME\'s .claude.json holds what the run left, not the backup');
+    assertNoSecrets(result, ['/Users/owner/work/added-while-it-ran']);
+  });
+
+  // Criteria 6 and 7.
+  test('with CLAUDE_CONFIG_DIR set, a run that changes only CLAUDE_CONFIG_DIR\'s .claude.json has it said to have changed, with claude-config-dir.json named, and HOME\'s said to be the same; nothing copied back', async (t) => {
+    const during = inProfile(['/Users/owner/work/added-while-it-ran']);
+    const { fixture, env, files } = await withTwoClaudes(t, {
+      before: { home: atHome(), dir: inProfile(), codex: codexConfig({}) },
+      during: { dir: during },
+    });
+
+    const result = await fixture.confirmed({ env });
+
+    assert.equal(result.code, 0, `the comparison is a report, not a check:\n${everything(result)}`);
+    const dir = backupSaid(result).dir;
+    assertCompared(result, dir, files.dir, 'changed', [path.join(dir, 'claude-config-dir.json')]);
+    assertCompared(result, dir, files.home, 'same');
+    assertCompared(result, dir, files.codex, 'same');
+    assert.equal(await readFile(files.dir, 'utf8'), during, 'CLAUDE_CONFIG_DIR\'s .claude.json holds what the run left, not the backup');
+    assertNoSecrets(result, ['/Users/owner/work/added-while-it-ran']);
+  });
+
+  // Criteria 6 and 7.
+  test('with CLAUDE_CONFIG_DIR set, a HOME .claude.json that goes during the run is said to be gone, with claude.json named, and not put back, while CLAUDE_CONFIG_DIR\'s that appears is said to have appeared', async (t) => {
+    const { fixture, env, files } = await withTwoClaudes(t, {
+      before: { home: atHome(), codex: codexConfig({}) },
+      during: { removes: ['home'], dir: inProfile() },
+    });
+
+    const result = await fixture.confirmed({ env });
+
+    assert.equal(result.code, 0, `the comparison is a report, not a check:\n${everything(result)}`);
+    const dir = backupSaid(result).dir;
+    assertCompared(result, dir, files.home, 'gone', [path.join(dir, 'claude.json')]);
+    assertCompared(result, dir, files.dir, 'appeared');
+    assert.deepEqual(await snapshot(files.home), { none: true }, 'the backup is not copied back over HOME\'s .claude.json');
+    assertNoSecrets(result);
+  });
+
+  // Criterion 6.
+  test('with CLAUDE_CONFIG_DIR set, a HOME .claude.json that cannot be read after the run is said not to be compared, with why, while CLAUDE_CONFIG_DIR\'s is the same, and the exit code stays the tests\'', async (t) => {
+    const { fixture, env, files } = await withTwoClaudes(t, {
+      before: { home: atHome(), dir: inProfile(), codex: codexConfig({}) },
+      during: { removes: ['home'], makes: ['home'] },
+    });
+
+    const result = await fixture.confirmed({ env });
+
+    assert.equal(result.code, 0, everything(result));
+    const dir = backupSaid(result).dir;
+    assertCompared(result, dir, files.home, 'notCompared', [ERROR_CODE]);
+    assertCompared(result, dir, files.dir, 'same');
+    assert.ok((await stat(files.home)).isDirectory(), 'the folder the run left at HOME\'s .claude.json is left there: nothing copied back');
     assertNoSecrets(result);
   });
 });
