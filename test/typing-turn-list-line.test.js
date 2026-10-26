@@ -35,6 +35,7 @@ import {
   botHomeOf,
   conversationOnRecord,
   createSandbox,
+  listLineOf,
   recordSession,
   sentInto,
   sessionIn,
@@ -45,9 +46,6 @@ import { withTypingTurnHeld } from './helpers/typing-turn.js';
 
 /** The words the report gives for a line the turn kept out. */
 const TYPING = /the kit is typing into it/;
-
-/** The line the kit types, word for word, as the architect ruled it on #226. */
-const LIST_LINE = 'obk: this session was resumed in a new tab, and this line is only so Orca lists it. Reply "ok"; nothing else is asked.';
 
 const PROMPT = 'Read your AGENTS.md and keep the queue moving.';
 const BOT = 'api-bot';
@@ -134,7 +132,7 @@ async function assertListLineTyped(box, bots, entry, what, name = 'daily') {
   const typed = await typedIn(box, bots, name);
   assert.equal(typed.length, 2, `${what}: the launch line and then the list line, nothing else, got: ${JSON.stringify(typed)}`);
   assertCodexResumeLine(typed[0], name, what);
-  assert.equal(typed[1], LIST_LINE, `${what}: the ruled line, word for word`);
+  assert.equal(typed[1], listLineOf(box.cli, bots), `${what}: the ruled line of #709, word for word`);
   assert.equal(sentInto(await liveTab(box, bots, name))[1].enter, true, `${what}: submitted with a return`);
   assert.equal(entry.listLine, true, `${what}: the answer says it was typed, got: ${JSON.stringify(entry)}`);
   assert.equal(entry.listLineTrouble, undefined, `${what}: and gives no trouble, got: ${JSON.stringify(entry)}`);
