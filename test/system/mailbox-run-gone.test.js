@@ -68,7 +68,7 @@ import { cliEntry, spellingsOf } from '../helpers/cli.js';
 import { onlyTeachFormOf, questionOn } from '../helpers/screens.js';
 import { claudeTrustAt, trustScreenMet } from '../helpers/claude-trust.js';
 import { tabGuard } from '../helpers/tab-guard.js';
-import { deleteOwnProject } from '../helpers/own-project.js';
+import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
 
 /** The Orca CLI that works for a normal user (tech notes, section 1). */
@@ -261,12 +261,12 @@ test('a mailbox Run this Orca never made is named by health, and the restart it 
 
   // Registered before anything is created, so it runs however this test ends.
   t.after(async () => {
-    const { closed, foreign } = guard.closeOwnAt(homes);
+    const { closed, foreign } = guard.closeOwnAt(placesOf(homes, allSetups(), bots));
     const held = new Set(foreign.map((one) => one.home));
     let deleted = 0;
     const failedDeletes = [];
-    for (const setup of allSetups()) {
-      if (!homes.includes(setup.path) || before.setups.has(setup.id) || held.has(setup.path)) continue;
+    for (const setup of projectsInBots(allSetups(), bots)) {
+      if (before.setups.has(setup.id) || held.has(setup.path)) continue;
       try {
         await deleteOwnProject(setup, bots);
         deleted += 1;

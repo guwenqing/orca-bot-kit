@@ -6,6 +6,7 @@
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { mkdirSync } from 'node:fs';
 import test from 'node:test';
 
 import { createSandbox } from './helpers/cli.js';
@@ -20,6 +21,11 @@ function ask(box, args) {
 /** A folder project with one tab in it titled `title`, and the pane pid Orca's diagnostics give it. */
 function oneTab(box, title = 'Coder daily') {
   const home = box.path('bots', 'bots', 'coder');
+  // A git repo of its own, which Orca registers at its own path, whether it is
+  // Orca 1.4.240, which registers a repo's top folder, or an older one (#712).
+  mkdirSync(home, { recursive: true });
+  const repo = spawnSync('git', ['init', '--quiet', home], { env: { ...box.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' }, encoding: 'utf8' });
+  assert.equal(repo.status, 0, repo.stderr);
   const added = ask(box, ['repo', 'add', '--path', home]);
   ask(box, ['project', 'setup-update', '--setup', added.repo.id, '--kind', 'folder']);
   const made = ask(box, ['terminal', 'create', '--worktree', `path:${home}`, '--title', title]);

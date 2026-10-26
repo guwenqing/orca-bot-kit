@@ -51,6 +51,30 @@
 //               one failure this is worth testing.
 //   repoAddKind the kind `repo add` registers a folder as (Orca says "git" for
 //               a folder inside a git repo, which is why the kit must correct it)
+//   repoAddAsGiven  true: `repo add --path <p>` registers <p> itself, as Orca
+//               did up to 1.4.23x. Left out, it registers the top folder of the
+//               git repo <p> is in, as Orca 1.4.240 does (seen live, #712):
+//               `repo add --path <T>/a/bots/b1`, with only `<T>/a` a git repo,
+//               answered a repo at `<T>/a`. The top folder is what
+//               `git rev-parse --show-toplevel` gives in <p>, so a `.git` that
+//               git does not take as a repository (an empty folder, say) does
+//               not count, and the search goes on up. It is spelled as <p> is
+//               spelled: the ancestor of <p> that is that folder. A path in no
+//               git repo is refused `runtime_error`, "Not a valid git
+//               repository: <p>", and changes nothing. A setup at <p> or at the
+//               top folder is answered as the one Orca has, and nothing is made.
+//               What `project setup-update` and the rest do is the same either way.
+//   hold        { command, gate, from, then, ms } — the call of `command` after
+//               the `from` made before the hold was set (0 if left out) waits
+//               until a file is at `<gate>.go`. It writes its own pid to
+//               `<gate>.held` first, so a test knows the call is in progress and
+//               can kill the caller then. Once the file is there, `then: 'drop'`
+//               ends the call with no answer and nothing changed, as a call that
+//               never reached Orca's runtime; anything else lets it go on as it
+//               would have, from the world as it is by then: Orca carried out a
+//               call whose caller is gone. Either way it writes `<gate>.done`
+//               as it exits. Bounded: after `ms` (30 s if left out) with no
+//               file, it goes on as if dropped. Only that one call is held.
 //   reachable   false: the app answers but its runtime is not there
 //   status      an answer for `status` to print instead of its own (null counts)
 //   waitIdle    what `terminal wait --for tui-idle` finds in the tab:
@@ -518,7 +542,7 @@
 
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync, writeSync } from 'node:fs';
+import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync, writeSync } from 'node:fs';
 import path from 'node:path';
 
 import { foregroundOf, launchedIn, panePid, settingsFor } from './fake-ps.js';
@@ -681,6 +705,18 @@ if (aimedHere(state.runDuring)) {
   }
 }
 
+// One call held until the test lets it go, so the test can kill the caller
+// while the call is in progress (`hold`).
+if (aimedHere(state.hold) && state.hold.gate !== undefined && callsSoFar() === (state.hold.from ?? 0) + 1) {
+  const { gate } = state.hold;
+  process.on('exit', () => writeFileSync(`${gate}.done`, `${process.pid}\n`));
+  writeFileSync(`${gate}.held`, `${process.pid}\n`);
+  const until = Date.now() + (state.hold.ms ?? 30_000);
+  while (!existsSync(`${gate}.go`) && Date.now() < until) hangFor(10);
+  if (!existsSync(`${gate}.go`) || state.hold.then === 'drop') process.exit(1);
+  state = JSON.parse(readFileSync(stateFile, 'utf8'));
+}
+
 const planned = (state.fail ?? {})[command];
 if (
   planned
@@ -740,22 +776,50 @@ if (command === 'project setups') {
   ok({ setups: state.setups ?? [] });
 }
 
+/**
+ * The top folder of the git repo `target` is in, as `git rev-parse
+ * --show-toplevel` finds it there, spelled as `target` spells it; undefined
+ * when `target` is in no git repo. git alone decides what a repository is:
+ * a `.git` it does not take as one is passed over, as Orca passes it over.
+ */
+function topFolderOf(target) {
+  const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith('GIT_')));
+  const found = spawnSync('git', ['-C', target, 'rev-parse', '--show-toplevel'], {
+    encoding: 'utf8',
+    env: { ...env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' },
+  });
+  const top = (found.stdout ?? '').replace(/\n$/, '');
+  if (found.status !== 0 || top === '') return undefined;
+  for (let at = path.resolve(target); ; at = path.dirname(at)) {
+    try {
+      if (realpathSync(at) === realpathSync(top)) return at;
+    } catch {
+      // A part of the path that is not there is not the top folder.
+    }
+    if (path.dirname(at) === at) return top;
+  }
+}
+
 if (command === 'repo add') {
   const target = flag('--path');
   if (target === undefined) fail('missing_argument', 'repo add needs --path');
 
-  const already = setupAt(target);
+  // Orca 1.4.240 registers the git repo's top folder, not the folder given (#712).
+  const registered = state.repoAddAsGiven === true ? target : topFolderOf(target);
+  if (registered === undefined) fail('runtime_error', `Not a valid git repository: ${target}`);
+
+  const already = setupAt(target) ?? setupAt(registered);
   if (already) ok({ repo: { id: already.repoId, path: already.path, displayName: already.displayName, kind: already.kind } });
 
   const n = state.nextId ?? 1;
   state.nextId = n + 1;
   const repo = {
     id: `repo_${n}`,
-    path: target,
+    path: registered,
     // Orca registers a folder inside a git repo as a git repo. The kit has to
     // correct that, or `terminal create` finds no worktree (slice interface, 1).
     kind: state.repoAddKind ?? 'git',
-    displayName: path.basename(target),
+    displayName: path.basename(registered),
   };
   state.setups = [...(state.setups ?? []), {
     id: repo.id,

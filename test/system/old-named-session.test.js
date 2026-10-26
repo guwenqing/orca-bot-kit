@@ -82,7 +82,7 @@ import { parse, stringify } from 'yaml';
 import { addressPattern, cliEntry } from '../helpers/cli.js';
 import { waitingOn } from '../helpers/screens.js';
 import { tabGuard } from '../helpers/tab-guard.js';
-import { deleteOwnProject } from '../helpers/own-project.js';
+import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
 
 /**
@@ -406,12 +406,12 @@ test('a session under the old shared name is moved to an address of its own by a
     // Only this test's own tabs are closed. A tab it did not create at one of
     // its homes is not its to close: that project and the bots folder stay
     // where they are, and the test fails naming the tab (#426).
-    const { closed, foreign } = guard.closeOwnAt(homes);
+    const { closed, foreign } = guard.closeOwnAt(placesOf(homes, allSetups(), bots));
     const held = new Set(foreign.map((one) => one.home));
     let deleted = 0;
     const failedDeletes = [];
-    for (const setup of allSetups()) {
-      if (!homes.includes(setup.path) || before.setups.has(setup.id) || held.has(setup.path)) continue;
+    for (const setup of projectsInBots(allSetups(), bots)) {
+      if (before.setups.has(setup.id) || held.has(setup.path)) continue;
       try {
         await deleteOwnProject(setup, bots);
         deleted += 1;
