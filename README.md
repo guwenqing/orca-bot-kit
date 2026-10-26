@@ -394,6 +394,15 @@ address that is none of your bots folder's sessions, the hook tells it so, and
 names the address `obk message to` would have given. The message goes either
 way ([ADR 0032](docs/adr/0032-a-native-message-outside-the-fleet-is-warned-about.md)).
 
+A Claude bot's `.claude/settings.json` also gets
+`"skillOverrides": { "auto-mode-setup": "off" }`, so no session of the bot stops
+on Claude Code's `Teach auto mode about your environment?` form. Your other
+skill overrides are kept. The cost: `/auto-mode-setup` is off in that bot's
+sessions, and your own sessions outside the bots folder keep it. To use it in a
+bot's sessions, set `"auto-mode-setup": "on"` under `skillOverrides` in the bot's
+`.claude/settings.local.json`, which wins over the kit's entry. The kit never
+writes that file.
+
 So: kill a tab, or reboot, and `obk up` brings the session back with the
 conversation it was having, rather than starting a new one. Clear a session —
 `/clear` on Claude Code, `/new` on Codex — and the kit writes down the new id,

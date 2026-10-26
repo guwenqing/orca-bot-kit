@@ -151,12 +151,14 @@ export function prepareBots(bots, names, onlySession) {
   // and a bot folder the kit cannot write it into stops the run with nothing
   // opened anywhere. Only the harnesses a bot actually runs on; a bot with no
   // sessions gets none. The hooks of commands the kit no longer has go from
-  // every hooks file the bot has, of a harness it has left too (#613).
+  // every hooks file the bot has, of a harness it has left too (#613). That
+  // comes after the kit's own hooks, which take them out of the files they
+  // write anyway, so a file the kit refuses is left as the user wrote it (#708).
   for (const { bot, home } of running) {
-    dropRemovedHooks(home);
     for (const harness of new Set(awake(sessionsOf(bot, onlySession)).map((session) => harnessOf(session, bot.harness)))) {
       installHook(home, harness, { bots, bot: bot.name });
     }
+    dropRemovedHooks(home);
   }
 
   // And the permission rules the user allowed, beside the hook and for the same

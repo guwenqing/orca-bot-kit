@@ -1,0 +1,35 @@
+schema: assuredloop/1
+request: teach-form-off
+tier: "1"
+status: concluded
+sources:
+  - file: 2026-10-26-owner-words.md
+    kind: owner-words
+    sha256: 7e454036129b1054d805bfff6948a379d514a17624e5ef058dd1120306d998bd
+    taken: 2026-10-26T01:41Z
+requirements:
+  - id: R1
+    version: 1
+    sha256: d4d2572dbf73c121fff700f51afbcc5e986694295df6964de3f23986aabbee92
+    title: No session stops on Claude Code's Teach auto mode form
+  - id: R1
+    version: 2
+    sha256: 57d7e278785b56ace13e4982cfc60811ea61a3938a33e2574debc1d612cbd36b
+    title: No session stops on Claude Code's Teach auto mode form
+signoff:
+  - id: S1
+    file: 2026-10-26-signoff.md
+    sha256: adc9550da0c8e652d264c3853f370b27093c0b2b8391e215cfbf8cf8c737c06c
+    signed: 2026-10-26T01:44Z
+    source: the owner in the kit-dev architect session (Claude Code tab), 2026-10-25 local, answering the sign-off question for https://github.com/guwenqing/orca-bot-kit/issues/708
+    words: yes
+    presented: "R1 of requests/teach-form-off/request.md at 1d49036, quoted in full in the kit-dev architect session as option 1 (1 yes, 2 no), with its cost: /auto-mode-setup off in the bots' own sessions"
+    transcribed_by: kit-dev/architect
+    covers:
+      - { id: R1, version: 2, sha256: 57d7e278785b56ace13e4982cfc60811ea61a3938a33e2574debc1d612cbd36b }
+decisions: []
+tasks: []
+bindings:
+  - { holder: teach-form-off/R1, link: from, target: teach-form-off/2026-10-26-owner-words.md, holder_sha256: d4d2572dbf73c121fff700f51afbcc5e986694295df6964de3f23986aabbee92, target_sha256: 7e454036129b1054d805bfff6948a379d514a17624e5ef058dd1120306d998bd }
+  - { holder: KIT-26, link: serves, target: teach-form-off/R1, holder_sha256: a5809b95bc69d9e2885558147b942979be71bdc2d6a8387cd2e57737fa21f42e, target_sha256: 57d7e278785b56ace13e4982cfc60811ea61a3938a33e2574debc1d612cbd36b, target_version: 2 }
+dispositions: []
