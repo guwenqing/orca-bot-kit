@@ -27,6 +27,26 @@
 //      command: no user turn in the conversation's record holds it.
 //   5. Every wait that runs out prints the tab's screen.
 //
+// For #713 the kit writes `/rename <bot>.<session>` in one `orca terminal
+// send`, not one character a send. The architect requires this run, on Codex
+// 0.164.0, to show three things. It prints the version Codex wrote in the
+// conversation's record.
+//
+//   a. The one write runs as a command: 2 and 4 above.
+//   b. No paste-style input is left standing: after the name is confirmed in
+//      step 2, the tab's input line is empty, its placeholder or a bare `›`,
+//      with no draft from Orca, within EMPTY_MS. Otherwise it fails and
+//      prints the screen and the draft.
+//   c. What the kit's line check sees when text stands under the input line.
+//      After a and b, before the restart, the test writes into its own tab,
+//      in one `orca terminal send` with no enter, `/rename name-codex.main`
+//      and then Orca's mail notice as Orca writes it, with a made-up Run id,
+//      `run_probe713`. About 1 s later it reads the screen and Orca's draft
+//      and prints both whole, so the run's record holds the capture. Then it
+//      takes it all back, one backspace per character written, in one send,
+//      and checks that the input line is empty again and that no user turn in
+//      the record holds the notice. It never presses Enter there.
+//
 // Codex's records. This test only reads them, never writes them: the names
 // under `~/.codex/sessions` to find its own conversation's rollout by id, those
 // files alone, and `~/.codex/session_index.jsonl`, of which it keeps only the
@@ -42,9 +62,13 @@
 //     creates anything;
 //   - runs this checkout's `src/cli.js` by its full path, never the machine's
 //     `obk`;
-//   - types into no tab at all, and closes only its own, one by one
-//     (`--terminal <handle> --tab`), then deletes its own workspaces, whatever
-//     happened, and checks afterwards that it closed no tab it did not create;
+//   - types into its own throwaway Codex tab only, and only for c above: the
+//     command and Orca's notice in one write, then the backspaces that take
+//     them back, so the run records what the kit's line check sees (#713). It
+//     types into no other tab at all;
+//   - closes only its own tabs, one by one (`--terminal <handle> --tab`), then
+//     deletes its own workspaces, whatever happened, and checks afterwards
+//     that it closed no tab it did not create;
 //   - signals no process.
 //
 // `orca terminal close --worktree … --all` is never run here, and the helper
@@ -112,6 +136,9 @@ const READY_MS = 180000;
  * seconds and confirms for up to 10 s, and Codex retitles the tab after that.
  */
 const NAMED_MS = 120000;
+
+/** How long the input line is given to be empty after the name is confirmed, and after the probe is taken back. */
+const EMPTY_MS = 15000;
 
 /** The line the kit types into a Codex session it has just resumed (src/up.js LIST_LINE, #226). */
 const LIST_LINE = 'obk: this session was resumed in a new tab, and this line is only so Orca lists it. Reply "ok"; nothing else is asked.';
@@ -204,6 +231,47 @@ function rowsOf(handle) {
   return Array.isArray(tail) ? tail : undefined;
 }
 
+/** One read of the tab: its rendered rows (undefined when Orca gives none), and Orca's `draft`, when it gives one. */
+function readOf(handle) {
+  const answer = orca(['terminal', 'read', '--terminal', handle, '--screen']);
+  const shown = answer.ok === true ? answer.result?.terminal : undefined;
+  const rows = shown?.source === 'screen' && Array.isArray(shown.tail) ? shown.tail : undefined;
+  return { rows, draft: shown?.draft, error: answer.ok === true ? undefined : answer.error };
+}
+
+/** One read of the tab, every row and the draft, as text for the run's record or a failure. */
+function screenWithDraft(handle) {
+  const { rows, draft, error } = readOf(handle);
+  return [
+    `orca terminal read --terminal ${handle} --screen`,
+    `  draft: ${draft === undefined ? '(no draft key)' : JSON.stringify(draft)}${error === undefined ? '' : `; error: ${JSON.stringify(error)}`}`,
+    ...(rows ?? ['(no rendered screen)']).map((row) => `    ${row}`),
+  ].join('\n');
+}
+
+/**
+ * Codex's input line when it is empty: a bare `›`, or its placeholder. The
+ * rows the kit itself takes for an empty line (src/clear.js CODEX_EMPTY): the
+ * kit types nothing into a line that reads otherwise, so a run that got to the
+ * name typed into a line that read one of these.
+ */
+const CODEX_EMPTY = ['›', '› Ask Codex to do anything'];
+
+/** Whether the tab's input line, the lowest row starting with `›`, is empty, with no draft from Orca. */
+function inputLineEmpty(handle) {
+  const { rows, draft } = readOf(handle);
+  if (rows === undefined) return false;
+  if (draft !== undefined && draft !== '') return false;
+  const line = rows.findLast((row) => /^ *›/.test(row))?.replaceAll('\u00a0', ' ').trim();
+  return CODEX_EMPTY.includes(line);
+}
+
+/** Write `text` into this test's own tab exactly as given, in one send, with no `--enter`. */
+function sendKeys(handle, text) {
+  const sent = orca(['terminal', 'send', '--terminal', handle, '--text', text]);
+  assert.equal(sent.ok, true, `sending ${JSON.stringify(text)} into ${handle} failed: ${JSON.stringify(sent.error)}.${whatIsUp(handle)}`);
+}
+
 /** The tab's title as `orca terminal list` reports it now, or undefined when Orca does not list the tab. */
 const titleOf = (handle) => allTerminals().find((terminal) => terminal.handle === handle)?.title;
 
@@ -259,6 +327,19 @@ function nameLineOf(id) {
       return [];
     }
   }).at(-1);
+}
+
+/** The Codex version the conversation's record names in its first line (`cli_version`), or undefined. */
+function codexVersionOf(id) {
+  for (const file of rolloutFilesOf(id)) {
+    try {
+      const version = JSON.parse(readFileSync(file, 'utf8').split('\n')[0])?.payload?.cli_version;
+      if (typeof version === 'string') return version;
+    } catch {
+      // Not a record this test can read; the next file, if any.
+    }
+  }
+  return undefined;
 }
 
 /** The files of one conversation's record, found by its id in their names. Only names are read to find them. */
@@ -412,6 +493,39 @@ test('a Codex session the kit starts shows <bot>.<session> in its tab title afte
   t.diagnostic(`what the kit typed into ${BOT.title}, from its output:\n    ${renameInOutput(handle)}`);
   const asMessage = messagesSince(id).filter((message) => message.role === 'user' && message.text.includes('/rename'));
   assert.deepEqual(asMessage, [], `Codex took /rename as its own command, not as a line to the model: ${JSON.stringify(asMessage)}`);
+  t.diagnostic(`Codex's version in the conversation's record: ${JSON.stringify(codexVersionOf(id) ?? null)}`);
+
+  // b. No paste-style input left standing (#713): the kit's one write went in
+  // as a command, and the input line is empty again.
+  await until(
+    `${BOT.title}'s input line to be empty, with no draft, after the name was confirmed`,
+    EMPTY_MS,
+    async () => (inputLineEmpty(handle) ? true : undefined),
+    () => `\n  ${screenWithDraft(handle)}`,
+  );
+  t.diagnostic(`after the name was confirmed, the input line is empty:\n  ${screenWithDraft(handle)}`);
+
+  // c. What the kit's line check sees when text stands under the input line
+  // (#713): the command and Orca's notice in one write, into this test's own
+  // tab only, never with Enter, and all of it taken back.
+  assert.ok(!before.handles.has(handle), `the probe types only into this test's own tab, and ${handle} was open before the test`);
+  const probe = `/rename ${NAME}\nYou have 1 orchestration message. Run \`orca orchestration check --run run_probe713\`.\n`;
+  const probeMark = recordMark(id);
+  sendKeys(handle, probe);
+  try {
+    await setTimeout(1000);
+    t.diagnostic(`#713 probe, about 1 s after the one write of ${JSON.stringify(probe)}:\n  ${screenWithDraft(handle)}`);
+  } finally {
+    sendKeys(handle, '\x7f'.repeat([...probe].length));
+  }
+  await until(
+    `${BOT.title}'s input line to be empty again after the probe was taken back`,
+    EMPTY_MS,
+    async () => (inputLineEmpty(handle) ? true : undefined),
+    () => `\n  ${screenWithDraft(handle)}`,
+  );
+  const probeSent = messagesSince(id, probeMark).filter((message) => message.role === 'user' && message.text.includes('run_probe713'));
+  assert.deepEqual(probeSent, [], `the probe's write went to the model as a turn, so a newline in one write submitted the line: ${JSON.stringify(probeSent)}`);
 
   // 3. A restart: the conversation resumed in a new tab, and the kit's list
   // line gives it a turn. After that turn ends, the new tab's title names it.
