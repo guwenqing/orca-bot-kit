@@ -425,3 +425,36 @@ test('P2 up refuses a .claude/settings.json whose skillOverrides is not a mappin
     assert.deepEqual(await box.orca.terminals(), open, `${label}: and no tab opens for the bot it refused`);
   }
 });
+
+test('P2 up refuses a skillOverrides of null beside an old kit hook, and takes nothing out of the file first', async (t) => {
+  // The review of #708: the kit takes its removed hooks out of a bot's files on
+  // up (#555, #613), and the `Stop` `session mail` entry is one of them. A file
+  // that holds that entry and a `skillOverrides` that is not a mapping is
+  // refused as the one above is, and the refusal writes nothing: the old entry
+  // stays too, byte for byte, until the user puts the file right.
+  const box = await createSandbox(t);
+  const bots = await fleet(box);
+  await up(box);
+  const home = botHomeOf(bots, 'api-bot');
+  await box.orca.set({ terminals: (await box.orca.terminals()).filter((one) => one.worktreePath !== home) });
+  const file = hookFileOf(bots, 'api-bot', 'claude');
+  const held = JSON.parse(await readFile(file, 'utf8'));
+  const record = kitHooksIn(held)[0];
+  assert.ok(typeof record === 'string' && record.includes(' session record '), `the premise: the kit's record hook, got: ${record}`);
+  // The kit's old entry, as the kit before #555 wrote it beside its record hook.
+  const old = record.replace(' session record ', ' session mail ');
+  held.hooks.Stop = [...(held.hooks.Stop ?? []), { hooks: [{ type: 'command', command: old, timeout: 30 }] }];
+  held.skillOverrides = null;
+  const contents = `${JSON.stringify(held, null, 2)}\n`;
+  await writeFile(file, contents);
+  const open = await box.orca.terminals();
+
+  const result = await box.run(['up', '--bots', 'bots', '--bot', 'api-bot']);
+
+  assertCleanFailure(result);
+  assert.ok(result.stderr.includes(file), `the message should name the file, got: ${result.stderr}`);
+  assert.match(result.stderr, /skillOverrides/, `and name skillOverrides, got: ${result.stderr}`);
+  assert.match(result.stderr, /not a mapping/i, `and say it is not a mapping, got: ${result.stderr}`);
+  assert.equal(await readFile(file, 'utf8'), contents, 'the file is byte for byte as written, the old entry in it');
+  assert.deepEqual(await box.orca.terminals(), open, 'and no tab opens for the bot it refused');
+});
