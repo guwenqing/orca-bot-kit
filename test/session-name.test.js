@@ -33,19 +33,42 @@
 //          screen row that says "esc to interrupt". A question on the screen,
 //          or a reason Orca gives for a blocked tab, is waited out too. Still
 //          not idle at 30 s: nothing is typed.
-//       2. The input line is empty or shows its placeholder before the first
-//          character. Otherwise nothing is typed.
-//       3. It types `/rename <bot>.<session>` one character a send, gaps past
-//          Codex's paste-burst window, each character after a look through
-//          the typing gate. If the gate refuses partway, exactly the
-//          characters typed so far are taken back, that many backspaces (\x7f)
-//          in one send, and it stops.
-//       4. Then it reads the screen: the input line reads exactly
-//          `› /rename <bot>.<session>`, with no slash-menu row above it.
-//          Otherwise the text is taken back, one backspace per character, in
-//          one send, and it stops.
-//       5. The return is a send of its own: `\r`, without --enter.
-//       6. It confirms the name in session_index.jsonl, waiting up to 10 s.
+//       2. The input line is empty or shows its placeholder before the
+//          command goes in. Otherwise nothing is typed.
+//       3. The mailbox gate (#713). After the idle wait, the empty-line check
+//          and the typing turn, and immediately before the command goes in,
+//          it reads the session's own Orca mailbox: the Run the book names as
+//          `sessions.<session>.mailbox`, with `orchestration inbox --terminal
+//          run:<id> --limit <n>`, as `obk health` reads it. A letter that is
+//          unread (`read` 0) and has no delivery yet (`delivered_at` null)
+//          means Orca is about to type its notice into the tab, so nothing is
+//          typed into the tab at all, and it exits 0: the next turn end tries
+//          again. Letters that are read, or delivered (read or not), do not
+//          stop it. An inbox Orca refuses to answer: nothing is typed. A
+//          session with no mailbox in the book: it goes on as before.
+//       4. It types `/rename <bot>.<session>` as one write: the whole text in
+//          one `terminal send`, without --enter, not one character a send
+//          (#713: Orca's notice, one write of its own, joined a command typed
+//          a character at a time). Then a look through the typing gate. If
+//          the gate refuses, or anything stops it once the text went in, the
+//          text is taken back, exactly as many backspaces (\x7f) as the
+//          command has characters, in one send, and it stops.
+//       5. Then it reads the screen: the input line, the lowest row starting
+//          with `›`, reads exactly `› /rename <bot>.<session>`, or, where Orca
+//          gives a draft, the draft is exactly the command; no slash-menu row
+//          stands above the line; and the first non-blank row under the line
+//          is the same row, word for word, as the one that stood under the
+//          empty line at the last look before the write, or there is none
+//          when none stood there then. That row is Codex's footer: its status
+//          row, `  GPT-6.1-Sol default · <path> · …`, or a footer of one item
+//          a user set in `tui.status_line`, `  GPT-6-Luna medium`, with no
+//          ` · `. A blank row is not text. So Orca's notice between the line
+//          and the footer is refused, and so is a notice under a line that
+//          had nothing under it. Otherwise the text is taken back, one
+//          backspace per character, in one send, nothing is entered, and it
+//          stops.
+//       6. The return is a send of its own: `\r`, without --enter.
+//       7. It confirms the name in session_index.jsonl, waiting up to 10 s.
 //          Confirmed or not, it exits 0.
 //   - Nothing goes into any tab but the session's own.
 //   - One naming at a time per session: while one run for a session is at
@@ -62,13 +85,21 @@
 // the command name Codex closes its slash menu, so with the whole command
 // typed the screen has no menu rows and the input line shows the text.
 //
+// What Orca does with mail (#713, the cause on the issue): it writes its
+// notice, `\nYou have 1 orchestration message. Run \`orca orchestration check
+// --run <id>\`.\n`, into an idle Codex tab in one write, and Enter 500 ms
+// later, without looking at the input line. A letter it is about to ring for
+// is unread with no `delivered_at` in the Run's inbox.
+//
 // How Codex is played here. The fake Orca types nothing anywhere and runs no
 // hook. The hook is run the way Codex runs it, under the process chain a tab
 // really has (helpers/cli.js `throughAHarness`), and with the command alone,
 // without the `2>/dev/null || true` the installed line adds, so its own exit
 // code is what the test sees. Each send into the tab moves its screen on
 // (`nextScreens`, helpers/fake-orca.js), and the screens below are given in
-// order. Codex's own part after the return, the line in session_index.jsonl,
+// order. Orca's inbox for a Run is the fake's `inbox`, letters in Orca's own
+// words (helpers/fake-orca.js, as test/health-mail-unannounced.test.js gives
+// them). Codex's own part after the return, the line in session_index.jsonl,
 // is written by the test once the return has gone in.
 //
 // The fake Orca keeps no clock: a tab that goes idle in time is a `waitIdle`
@@ -83,6 +114,7 @@ import { appendFile, mkdir, readFile, rename, writeFile } from 'node:fs/promises
 import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import test, { describe, it } from 'node:test';
+import { parse, stringify } from 'yaml';
 
 import {
   bookOf,
@@ -106,12 +138,10 @@ import {
   CODEX_162_DRAFT,
   CODEX_162_IDLE,
   CODEX_162_PLACEHOLDER_DRAFT,
-  CODEX_162_SLASH,
   CODEX_ANSWERED,
   CODEX_DRAFT,
   CODEX_IDLE,
   CODEX_IDLE_EMPTY,
-  CODEX_SLASH_TYPED,
   CODEX_UPDATE_OFFER,
   CODEX_WORKING,
   codex162With,
@@ -132,8 +162,8 @@ const THREADS = {
   review: '0199c0de-4800-7000-8000-0000000e7e1e',
 };
 
-/** The command as the kit types it: one character a send, none with a return. */
-const typed = (command) => [...command].map((text) => ({ text, enter: false }));
+/** The command as the kit types it: the whole text in one send, with no return (#713). */
+const typed = (command) => [{ text: command, enter: false }];
 
 /** One backspace per character of `text`, as the one send that takes it back. */
 const backspaces = (text) => '\x7f'.repeat(text.length);
@@ -143,14 +173,13 @@ const renamed = (command = RENAME) => [...typed(command), { text: '\r', enter: f
 
 // ---------------------------------------------------------------- the screens
 //
-// Codex 0.160.0 as it shows `/rename` being typed. Reconstructions, but for the
-// rows they take from helpers/screens.js's captures: CODEX_ANSWERED's box,
-// answered turn, tip and status rows, and CODEX_SLASH_TYPED for "/" alone. The
-// popup's layout is live run 4's of #391 (helpers/screens.js), the popup above
-// the input line and the line a bare `›` while it is open. The words of the
-// `/rename` row after the command are made up here. With the whole command
-// typed, the menu closed and the line showing the text is read in Codex's
-// source, not seen live.
+// Codex 0.160.0 as it shows `/rename` once it is written. Reconstructions, but
+// for the rows they take from helpers/screens.js's captures: CODEX_ANSWERED's
+// box, answered turn, tip and status rows. The popup's layout is live run 4's
+// of #391 (helpers/screens.js), the popup above the input line and the line a
+// bare `›` while it is open. The words of the `/rename` row after the command
+// are made up here. With the whole command typed, the menu closed and the line
+// showing the text is read in Codex's source, not seen live.
 
 /** Codex's screen above its popup: the box and the answered turn (CODEX_ANSWERED, a capture). */
 const ABOVE_POPUP = CODEX_ANSWERED.slice(0, 11);
@@ -158,8 +187,13 @@ const ABOVE_POPUP = CODEX_ANSWERED.slice(0, 11);
 /** Codex's screen above its input line: the box, the answered turn and the tip row (CODEX_ANSWERED, a capture). */
 const ABOVE_INPUT = CODEX_ANSWERED.slice(0, 12);
 
-/** Codex's status row under its input line, as live run 4 of #391 showed it, the folder as Codex shortened it. */
-const STATUS = '  GPT-6-Luna medium · /private/var/folders/…/bots/api-b…';
+/**
+ * Codex's status row under its input line: CODEX_IDLE's, a capture, so that
+ * the row under the line after the write is the row that stood under the
+ * empty line before it (#713 review), as on a real screen. CODEX_IDLE is what
+ * the fake Orca shows a Codex tab no test changed.
+ */
+const STATUS = CODEX_IDLE[8];
 
 /** `/rename`'s row in the popup, selected. The words after the command are made up. */
 const RENAME_ROW = '› /rename  rename the current thread';
@@ -176,27 +210,28 @@ const popup = (rows, input = '›') => [...ABOVE_POPUP, ...rows, '', input, STAT
 /** Codex with no popup, its input line showing `text`. */
 const shown = (text) => [...ABOVE_INPUT, `› ${text}`, STATUS];
 
-/**
- * What Codex shows after each character of `command` but the last: "/" alone
- * is the popup of every command (CODEX_SLASH_TYPED), up to the space the
- * popup filtered to `/rename` over a bare `›`, and from the space on no popup
- * and the text in the input line. One screen per send, for `nextScreens`; the
- * screen after the last character is each test's to give.
- */
-function whileRenaming(command = RENAME) {
-  return [...command].slice(0, -1).map((_, at) => {
-    const sofar = command.slice(0, at + 1);
-    if (sofar === '/') return CODEX_SLASH_TYPED;
-    if (!sofar.includes(' ')) return popup([RENAME_ROW]);
-    return shown(sofar);
-  });
-}
-
 /** The whole command typed: no menu, and the input line reads it exactly. */
 const RENAME_TYPED = shown(RENAME);
 
-/** The screens a tab shows as the kit types `command`, then `after`. */
-const screensFor = (command, ...after) => [...whileRenaming(command), ...after];
+/** The screens a tab shows as the kit names daily: the command written in one send, then, after the return, the idle line. */
+const NAMING_SCREENS = [RENAME_TYPED, CODEX_IDLE];
+
+/**
+ * Orca's mail notice as it writes it into a tab (#713, seen in
+ * ~/.codex/session_index.jsonl on the owner's machine), its middle line as the
+ * screen shows it under the input line: two spaces, as Codex lines up the rows
+ * of its input under the pointer's text. The Run id is made up. A
+ * reconstruction, not a capture.
+ */
+const NOTICE = 'You have 1 orchestration message. Run `orca orchestration check --run run_x`.';
+const NOTICE_ROW = `  ${NOTICE}`;
+
+/**
+ * The whole command written, and Orca's notice under it before the status row:
+ * the screen of #713 on Codex 0.160.0's rows, `blank` rows between the line and
+ * the notice. A reconstruction, not a capture.
+ */
+const noticeUnder = (command = RENAME, blank = 0) => [...ABOVE_INPUT, `› ${command}`, ...Array(blank).fill(''), NOTICE_ROW, STATUS];
 
 /** Codex at work, with the popup and a bare input line below the at-work row. */
 const workingOver = (rows) => [...ABOVE_POPUP.slice(0, 9), WORKING_ROW, '', ...rows];
@@ -362,7 +397,7 @@ test('at a turn end, in an idle Codex session\'s tab, the kit types /rename <bot
   const box = await createSandbox(t);
   const bots = await running(box);
   const tab = await liveTab(box, bots);
-  await changeTab(box, tab.tabId, { nextScreens: screensFor(RENAME, RENAME_TYPED, CODEX_IDLE) });
+  await changeTab(box, tab.tabId, { nextScreens: NAMING_SCREENS });
   const others = Object.fromEntries(Object.entries(await typedEverywhere(box)).filter(([handle]) => handle !== tab.handle));
   const from = (await box.orca.calls()).length;
 
@@ -370,7 +405,7 @@ test('at a turn end, in an idle Codex session\'s tab, the kit types /rename <bot
 
   assertQuiet(result, 'the naming');
   assert.ok(played, 'the premise: the return went in, and Codex wrote its line');
-  assert.deepEqual(await sendsInto(box, tab.tabId), renamed(), 'the command a character a send, then the return as a send of its own, and nothing else');
+  assert.deepEqual(await sendsInto(box, tab.tabId), renamed(), 'the whole command in one send, then the return as a send of its own, and nothing else');
   const now = Object.fromEntries(Object.entries(await typedEverywhere(box)).filter(([handle]) => handle !== tab.handle));
   assert.deepEqual(now, others, 'no other tab, the bot\'s other session\'s among them, had anything typed into it');
   await assertSentOnlyInto(box, tab.handle, from, 'the naming');
@@ -381,7 +416,7 @@ test('the name is the tab\'s own session\'s: in review\'s tab the kit types /ren
   const bots = await running(box);
   const tab = await liveTab(box, bots, 'review');
   const command = `/rename ${BOT}.review`;
-  await changeTab(box, tab.tabId, { nextScreens: screensFor(command, shown(command), CODEX_IDLE) });
+  await changeTab(box, tab.tabId, { nextScreens: [shown(command), CODEX_IDLE] });
 
   const { result, played } = await nameHookPlaying(box, bots, tab, { thread: THREADS.review, name: `${BOT}.review` });
 
@@ -391,11 +426,14 @@ test('the name is the tab\'s own session\'s: in review\'s tab the kit types /ren
   assert.deepEqual(await sendsInto(box, (await liveTab(box, bots, 'daily')).tabId), [], 'nothing went into daily\'s tab');
 });
 
-test('each character of the command is its own send, each after a look through the typing gate, at least 60 ms apart', async (t) => {
+// #713, R2: one write. The whole command in one `terminal send` with no
+// --enter, after a look through the gate; then a look and a read of the
+// screen; then the return, a send of its own.
+test('#713: the command goes in as one send, with no --enter, after a look through the typing gate; then a look and a read of the screen, and the return as a send of its own', async (t) => {
   const box = await createSandbox(t);
   const bots = await running(box);
   const tab = await liveTab(box, bots);
-  await changeTab(box, tab.tabId, { nextScreens: screensFor(RENAME, RENAME_TYPED, CODEX_IDLE) });
+  await changeTab(box, tab.tabId, { nextScreens: NAMING_SCREENS });
   const from = (await box.orca.calls()).length;
 
   const { result, played } = await nameHookPlaying(box, bots, tab);
@@ -403,34 +441,26 @@ test('each character of the command is its own send, each after a look through t
   assertQuiet(result, 'the naming');
   assert.ok(played, 'the premise: the return went in');
   const calls = await callsSince(box, from);
-  const clock = (await box.orca.clock()).slice(from);
-  const keys = calls
-    .map((call, at) => ({ call, at }))
-    .filter(({ call }) => orcaCommand(call) === 'terminal send' && orcaFlag(call, '--terminal') === tab.handle)
-    .slice(0, RENAME.length);
+  const onTab = (call) => orcaFlag(call, '--terminal') === tab.handle;
+  const sends = calls.map((call, at) => ({ call, at })).filter(({ call }) => orcaCommand(call) === 'terminal send' && onTab(call));
   assert.deepEqual(
-    keys.map(({ call }) => ({ text: orcaFlag(call, '--text'), enter: call.args.includes('--enter') })),
-    typed(RENAME),
-    `the first ${RENAME.length} sends are the command, one character each, none with --enter`,
+    sends.map(({ call }) => ({ text: orcaFlag(call, '--text'), enter: call.args.includes('--enter') })),
+    [{ text: RENAME, enter: false }, { text: '\r', enter: false }],
+    'two sends into the tab: the whole command with no --enter, then the return',
   );
-  let since = -1;
-  for (const [n, { at }] of keys.entries()) {
-    const looks = calls.slice(since + 1, at).filter((call) => orcaCommand(call) === 'terminal wait'
-      && orcaFlag(call, '--terminal') === tab.handle && orcaFlag(call, '--for') === 'tui-idle');
-    assert.ok(looks.length > 0, `a look through the gate (terminal wait --for tui-idle on the tab) before character ${n + 1}, ${JSON.stringify(RENAME[n])}`);
-    since = at;
-  }
-  for (let n = 1; n < keys.length; n += 1) {
-    const gap = clock[keys[n].at].at - clock[keys[n - 1].at].at;
-    assert.ok(gap >= 60, `character ${n + 1} came ${gap} ms after the one before it, inside Codex's 60 ms paste-burst flush`);
-  }
+  const [write, enter] = sends.map(({ at }) => at);
+  const looks = (start, end) => calls.slice(start, end).filter((call) => orcaCommand(call) === 'terminal wait' && onTab(call) && orcaFlag(call, '--for') === 'tui-idle');
+  assert.ok(looks(0, write).length > 0, 'a look through the gate (terminal wait --for tui-idle on the tab) before the write');
+  assert.ok(looks(write + 1, enter).length > 0, 'a look through the gate between the write and the return');
+  const reads = calls.slice(write + 1, enter).filter((call) => orcaCommand(call) === 'terminal read' && onTab(call));
+  assert.ok(reads.length > 0, 'a read of the tab\'s screen between the write and the return');
 });
 
 test('Codex\'s input line empty, "›" alone with no placeholder: the command is typed and entered', async (t) => {
   const box = await createSandbox(t);
   const bots = await running(box);
   const tab = await liveTab(box, bots);
-  await changeTab(box, tab.tabId, { screen: CODEX_IDLE_EMPTY, nextScreens: screensFor(RENAME, RENAME_TYPED, CODEX_IDLE) });
+  await changeTab(box, tab.tabId, { screen: CODEX_IDLE_EMPTY, nextScreens: NAMING_SCREENS });
 
   const { result } = await nameHookPlaying(box, bots, tab);
 
@@ -442,7 +472,7 @@ test('a session Orca reports busy on the first two looks is named once a look fi
   const box = await createSandbox(t);
   const bots = await running(box);
   const tab = await liveTab(box, bots);
-  await changeTab(box, tab.tabId, { nextScreens: screensFor(RENAME, RENAME_TYPED, CODEX_IDLE) });
+  await changeTab(box, tab.tabId, { nextScreens: NAMING_SCREENS });
   await box.orca.set({ waitIdle: ['busy', 'busy', true] });
   const from = (await box.orca.calls()).length;
 
@@ -489,7 +519,7 @@ test('an older line names the thread and a newer one names it otherwise (the use
   const box = await createSandbox(t);
   const bots = await running(box);
   const tab = await liveTab(box, bots);
-  await changeTab(box, tab.tabId, { nextScreens: screensFor(RENAME, RENAME_TYPED, CODEX_IDLE) });
+  await changeTab(box, tab.tabId, { nextScreens: NAMING_SCREENS });
   await indexLine(box, THREADS.daily, NAME, new Date(Date.now() - 60_000));
   await indexLine(box, THREADS.daily, 'Follow live test instructions');
 
@@ -503,7 +533,7 @@ test('a line for another thread with the name does not count: the kit names this
   const box = await createSandbox(t);
   const bots = await running(box);
   const tab = await liveTab(box, bots);
-  await changeTab(box, tab.tabId, { nextScreens: screensFor(RENAME, RENAME_TYPED, CODEX_IDLE) });
+  await changeTab(box, tab.tabId, { nextScreens: NAMING_SCREENS });
   await indexLine(box, '0199c0de-4800-7000-8000-0000000071d0', NAME);
   await indexLine(box, THREADS.review, NAME);
 
@@ -564,11 +594,11 @@ for (const { what, run } of NOT_ITS_OWN) {
 
 // ------------------------------------------------- the input line before typing
 
-test('a draft in Codex\'s input line before the first character: nothing typed, and it exits 0 quietly', async (t) => {
+test('a draft in Codex\'s input line before the command goes in: nothing typed, and it exits 0 quietly', async (t) => {
   const box = await createSandbox(t);
   const bots = await running(box);
   const tab = await liveTab(box, bots);
-  await changeTab(box, tab.tabId, { screen: CODEX_DRAFT, nextScreens: screensFor(RENAME, RENAME_TYPED, CODEX_IDLE) });
+  await changeTab(box, tab.tabId, { screen: CODEX_DRAFT, nextScreens: NAMING_SCREENS });
   const before = await typedEverywhere(box);
 
   assertQuiet(await nameHook(box, bots, tab), 'a draft');
@@ -585,91 +615,302 @@ test('a run that typed nothing tries again at the next turn end: the draft gone,
   assertQuiet(await nameHook(box, bots, tab), 'the first turn end');
   assert.deepEqual(await sendsInto(box, tab.tabId), [], 'the premise: the first run typed nothing');
 
-  await changeTab(box, tab.tabId, { screen: CODEX_IDLE, nextScreens: screensFor(RENAME, RENAME_TYPED, CODEX_IDLE) });
+  await changeTab(box, tab.tabId, { screen: CODEX_IDLE, nextScreens: NAMING_SCREENS });
   const { result } = await nameHookPlaying(box, bots, tab);
 
   assertQuiet(result, 'the next turn end');
   assert.deepEqual(await sendsInto(box, tab.tabId), renamed());
 });
 
-// ------------------------------------------------- the gate while typing
+// ------------------------------------------------- the mailbox gate (#713)
+//
+// R1: after the idle wait, the empty-line check and the typing turn, and
+// immediately before the command goes in, the naming reads the session's own
+// Orca mailbox, the Run the book names as `sessions.<session>.mailbox`, with
+// `orchestration inbox --terminal run:<id> --limit <n>`. A letter unread and
+// not delivered yet means Orca is about to write its notice into the tab: the
+// naming types nothing into the tab at all, and exits 0 quietly. Read
+// letters, and delivered ones, read or not, do not stop it. An inbox Orca
+// refuses to answer: nothing typed. No mailbox in the book: it goes on as
+// before. How many letters it asks for (`--limit`) is the kit's.
+//
+// The letters are as test/health-mail-unannounced.test.js gives them: every
+// column Orca 1.4.225 gave in `orchestration inbox` (seen live, 2026-10-17),
+// the values of the columns that test did not write down standing in.
 
-test('a question that comes up after two characters: the typing stops, the two are taken back in one send, and nothing is entered', async (t) => {
+let sequence = 0;
+
+/** A time as Orca writes it: whole seconds, then Z. */
+const stamp = (ms) => new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
+
+/**
+ * One letter in a Run's mailbox, as `orchestration inbox` answers it, written
+ * a minute ago. `read` is 0 or 1; `delivered` puts a `delivered_at` on it, the
+ * time Orca rang for it.
+ */
+function letter(run, { read = 0, delivered = false } = {}) {
+  sequence += 1;
+  const at = Date.now() - 60_000;
+  return {
+    body: 'zq-body-quince-4410',
+    created_at: stamp(at),
+    delivered_at: delivered ? stamp(at + 1_000) : null,
+    delivery_contract: null,
+    from_handle: 'term_sender',
+    id: `msg_mail_${sequence}`,
+    payload: null,
+    pointer_enter_pending: 0,
+    pointer_process_incarnation: null,
+    pointer_pty_id: null,
+    priority: 'normal',
+    read,
+    run_id: run,
+    sender_pane_key: null,
+    sequence,
+    subject: 'zq-subject-plum-7731',
+    thread_id: null,
+    to_handle: `run:${run}`,
+    type: 'status',
+  };
+}
+
+/** Put letters into a Run's mailbox, beside any it holds. Answers the letters. */
+async function mailTo(box, run, ...letters) {
+  const inbox = (await box.orca.state()).inbox ?? {};
+  await box.orca.set({ inbox: { ...inbox, [run]: [...(inbox[run] ?? []), ...letters] } });
+  return letters;
+}
+
+/** The mailbox the book names for one of api-bot's sessions. */
+async function mailboxOf(bots, name) {
+  const { mailbox } = (await sessionIn(bots, BOT, name)) ?? {};
+  assert.ok(typeof mailbox === 'string' && /^run_/.test(mailbox), `the premise: the book names a mailbox for ${name}, got: ${mailbox}`);
+  return mailbox;
+}
+
+/** The `orchestration inbox` calls among `calls` that read the Run `run`. */
+const inboxReadsOf = (calls, run) => orcaCallsOf(calls, 'orchestration inbox').filter((call) => orcaFlag(call, '--terminal') === `run:${run}`);
+
+test('#713 R1: a letter in the session\'s own mailbox, unread and not delivered yet: nothing is typed into any tab, and it exits 0 quietly; once Orca has delivered it, the next turn end names the thread', async (t) => {
   const box = await createSandbox(t);
   const bots = await running(box);
   const tab = await liveTab(box, bots);
-  await changeTab(box, tab.tabId, { nextScreens: [CODEX_SLASH_TYPED, CODEX_UPDATE_OFFER] });
+  const run = await mailboxOf(bots, 'daily');
+  await changeTab(box, tab.tabId, { nextScreens: NAMING_SCREENS });
+  const [waiting] = await mailTo(box, run, letter(run));
+  const before = await typedEverywhere(box);
+  const from = (await box.orca.calls()).length;
 
-  assertQuiet(await nameHook(box, bots, tab), 'a question partway');
+  assertQuiet(await nameHook(box, bots, tab), 'a letter Orca is about to ring for');
 
-  assert.deepEqual(
-    await sendsInto(box, tab.tabId),
-    [...typed('/r'), { text: backspaces('/r'), enter: false }],
-    'the two characters typed, then exactly those two taken back, and nothing more',
-  );
+  assert.ok(inboxReadsOf(await callsSince(box, from), run).length > 0, 'the premise: the naming read the session\'s own mailbox, orchestration inbox --terminal run:<its mailbox>');
+  assert.deepEqual(await typedEverywhere(box), before, 'nothing is typed into any tab, not even a key taken back');
+
+  // Orca rings for it: the letter has its delivery now, and is still unread.
+  await box.orca.set({ inbox: { [run]: [{ ...waiting, delivered_at: stamp(Date.now()) }] } });
+  const { result, played } = await nameHookPlaying(box, bots, tab);
+
+  assertQuiet(result, 'the letter delivered');
+  assert.ok(played, 'the premise: the return went in, and Codex wrote its line');
+  assert.deepEqual(await sendsInto(box, tab.tabId), renamed(), 'the next turn end names the thread');
+});
+
+for (const { what, letters } of [
+  { what: 'a letter read, with no delivery', letters: (run) => [letter(run, { read: 1 })] },
+  { what: 'a letter delivered and not read', letters: (run) => [letter(run, { delivered: true })] },
+  { what: 'a letter read and delivered', letters: (run) => [letter(run, { read: 1, delivered: true })] },
+  { what: 'three letters, each read or delivered', letters: (run) => [letter(run, { read: 1 }), letter(run, { delivered: true }), letter(run, { read: 1, delivered: true })] },
+]) {
+  test(`#713 R1: ${what} in the session's own mailbox does not stop the naming: the command is entered, and Codex names the thread`, async (t) => {
+    const box = await createSandbox(t);
+    const bots = await running(box);
+    const tab = await liveTab(box, bots);
+    const run = await mailboxOf(bots, 'daily');
+    await changeTab(box, tab.tabId, { nextScreens: NAMING_SCREENS });
+    await mailTo(box, run, ...letters(run));
+    const from = (await box.orca.calls()).length;
+
+    const { result, played } = await nameHookPlaying(box, bots, tab);
+
+    assertQuiet(result, what);
+    assert.ok(played, 'the premise: the return went in, and Codex wrote its line');
+    assert.ok(inboxReadsOf(await callsSince(box, from), run).length > 0, 'the naming read the session\'s own mailbox');
+    assert.deepEqual(await sendsInto(box, tab.tabId), renamed());
+  });
+}
+
+test('#713 R1: the mailbox is read after every look through the gate before the write, and right before it', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await running(box);
+  const tab = await liveTab(box, bots);
+  const run = await mailboxOf(bots, 'daily');
+  await changeTab(box, tab.tabId, { nextScreens: NAMING_SCREENS });
+  await mailTo(box, run, letter(run, { read: 1, delivered: true }));
+  const from = (await box.orca.calls()).length;
+
+  const { result } = await nameHookPlaying(box, bots, tab);
+
+  assertQuiet(result, 'the naming');
+  assert.deepEqual(await sendsInto(box, tab.tabId), renamed(), 'the premise: the command and its return went in');
+  const calls = await callsSince(box, from);
+  const write = calls.findIndex((call) => orcaCommand(call) === 'terminal send' && orcaFlag(call, '--terminal') === tab.handle);
+  const read = calls.slice(0, write).findLastIndex((call) => orcaCommand(call) === 'orchestration inbox' && orcaFlag(call, '--terminal') === `run:${run}`);
+  assert.ok(read >= 0, 'the session\'s own mailbox was read before the write');
+  const looks = calls.slice(0, write).map((call, at) => ({ call, at }))
+    .filter(({ call }) => orcaCommand(call) === 'terminal wait' && orcaFlag(call, '--terminal') === tab.handle)
+    .map(({ at }) => at);
+  assert.ok(looks.length > 0, 'the premise: the naming looked through the gate before the write');
+  assert.deepEqual(looks.filter((at) => at > read), [], 'no look through the gate between the mailbox read and the write: the read is the last thing before it');
+});
+
+test('#713 R1: a letter that comes while the naming waits for the session to be idle stops it: nothing typed, and it exits 0 quietly', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await running(box);
+  const tab = await liveTab(box, bots);
+  const run = await mailboxOf(bots, 'daily');
+  await changeTab(box, tab.tabId, { tuiIdle: 'busy', nextScreens: NAMING_SCREENS });
+  const stop = codexRenames(box, tab.tabId);
+  const from = (await box.orca.calls()).length;
+
+  let early;
+  const hook = nameHook(box, bots, tab);
+  hook.then((result) => { early = result; });
+  const until = Date.now() + 20_000;
+  while (early === undefined && orcaCallsOf(await callsSince(box, from), 'terminal wait').length === 0 && Date.now() < until) await sleep(20);
+  if (early !== undefined) assertQuiet(early, 'the run, which ended before the tab went idle');
+  assert.ok(orcaCallsOf(await callsSince(box, from), 'terminal wait').length > 0, 'the premise: the hook is at work, waiting for its tab to be idle');
+  await mailTo(box, run, letter(run));
+  await changeTab(box, tab.tabId, { tuiIdle: undefined });
+  const result = await hook;
+  await stop();
+
+  assertQuiet(result, 'a letter while it waited');
+  assert.deepEqual(await sendsInto(box, tab.tabId), [], 'nothing typed: the mailbox is read when the command is about to go in, not when the hook starts');
+});
+
+test('#713 R1: a letter unread and not delivered in another session\'s mailbox does not stop the naming of this one', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await running(box);
+  const tab = await liveTab(box, bots);
+  const run = await mailboxOf(bots, 'daily');
+  const other = await mailboxOf(bots, 'review');
+  assert.notEqual(other, run, 'the premise: each session has a mailbox of its own');
+  await changeTab(box, tab.tabId, { nextScreens: NAMING_SCREENS });
+  await mailTo(box, other, letter(other));
+  const from = (await box.orca.calls()).length;
+
+  const { result } = await nameHookPlaying(box, bots, tab);
+
+  assertQuiet(result, 'review\'s letter');
+  assert.ok(inboxReadsOf(await callsSince(box, from), run).length > 0, 'the naming read daily\'s own mailbox');
+  assert.deepEqual(await sendsInto(box, tab.tabId), renamed(), 'daily is named');
+});
+
+test('#713 R1: a session with no mailbox in the book: the naming goes on as before', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await running(box);
+  const tab = await liveTab(box, bots);
+  const run = await mailboxOf(bots, 'daily');
+  // A letter waits in the Run, so a naming that read it anyway would stop.
+  await mailTo(box, run, letter(run));
+  const file = bookOf(bots, BOT);
+  const book = parse(await readFile(file, 'utf8'));
+  delete book.sessions.daily.mailbox;
+  await writeFile(`${file}.moving`, stringify(book));
+  await rename(`${file}.moving`, file);
+  assert.equal((await sessionIn(bots, BOT, 'daily')).mailbox, undefined, 'the premise: the book names no mailbox for daily');
+  await changeTab(box, tab.tabId, { nextScreens: NAMING_SCREENS });
+
+  const { result, played } = await nameHookPlaying(box, bots, tab);
+
+  assertQuiet(result, 'no mailbox');
+  assert.ok(played, 'the premise: the return went in, and Codex wrote its line');
+  assert.deepEqual(await sendsInto(box, tab.tabId), renamed());
+});
+
+for (const { what, misbehaving } of [
+  { what: 'refuses to answer the mailbox read', misbehaving: { fail: { 'orchestration inbox': { code: 'runtime_error', message: 'the orchestration runtime is restarting; try again in a moment' } } } },
+  { what: 'fails the mailbox read outright, with no JSON', misbehaving: { crash: { command: 'orchestration inbox', exitCode: 1, stdout: '', stderr: 'orca: something went wrong\n' } } },
+]) {
+  test(`#713 R1: Orca ${what}: nothing is typed into any tab, and it exits 0 quietly`, async (t) => {
+    const box = await createSandbox(t);
+    const bots = await running(box);
+    const tab = await liveTab(box, bots);
+    const run = await mailboxOf(bots, 'daily');
+    await changeTab(box, tab.tabId, { nextScreens: NAMING_SCREENS });
+    await box.orca.set(misbehaving);
+    const before = await typedEverywhere(box);
+    const from = (await box.orca.calls()).length;
+
+    assertQuiet(await nameHook(box, bots, tab), what);
+
+    assert.ok(inboxReadsOf(await callsSince(box, from), run).length > 0, 'the premise: the naming asked Orca for the session\'s own mailbox');
+    assert.deepEqual(await typedEverywhere(box), before, 'nothing is typed into any tab');
+  });
+}
+
+// ------------------------------------------------- the gate after the write
+//
+// #713: the command goes in as one write, so there is no partway. What comes
+// up once it is in, before the return, stops it: the whole command is taken
+// back, one backspace per character, in one send, and nothing is entered.
+
+/** The command written, then exactly as many backspaces as it has characters, in one send, and nothing more: no return. */
+const takenBack = (command = RENAME) => [...typed(command), { text: backspaces(command), enter: false }];
+
+test('a question that comes up after the write: the command is taken back in one send, and nothing is entered', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await running(box);
+  const tab = await liveTab(box, bots);
+  await changeTab(box, tab.tabId, { nextScreens: [CODEX_UPDATE_OFFER] });
+
+  assertQuiet(await nameHook(box, bots, tab), 'a question after the write');
+
+  assert.deepEqual(await sendsInto(box, tab.tabId), takenBack(), 'the command, then exactly its characters taken back, and nothing more');
 });
 
 // #491: a question drawn ABOVE the input line, with the input line's own
-// pointer below it, stops the typing as a question at the bottom does. The
+// pointer below it, stops the naming as a question at the bottom does. The
 // screen is Claude Code 2.1.289's Teach list as captured (helpers/screens.js
 // CLAUDE_TEACH_LIST). The naming types only into Codex, and no Codex question
 // above its input line has been seen; the gate reads the rows and not the
-// harness, and this capture is the one screen of the kind there is. The two
-// characters typed before it came are the presence: the path was typing.
-test('#491: the Teach list drawn above the input box comes up after two characters: the typing stops, the two are taken back in one send, and nothing is entered', async (t) => {
+// harness, and this capture is the one screen of the kind there is. The write
+// before it came is the presence: the path was typing.
+test('#491: the Teach list drawn above the input box comes up after the write: the command is taken back in one send, and nothing is entered', async (t) => {
   const box = await createSandbox(t);
   const bots = await running(box);
   const tab = await liveTab(box, bots);
-  await changeTab(box, tab.tabId, { nextScreens: [CODEX_SLASH_TYPED, CLAUDE_TEACH_LIST] });
+  await changeTab(box, tab.tabId, { nextScreens: [CLAUDE_TEACH_LIST] });
 
-  assertQuiet(await nameHook(box, bots, tab), 'the Teach list partway');
+  assertQuiet(await nameHook(box, bots, tab), 'the Teach list after the write');
 
-  assert.deepEqual(
-    await sendsInto(box, tab.tabId),
-    [...typed('/r'), { text: backspaces('/r'), enter: false }],
-    'the two characters typed, then exactly those two taken back, and nothing more',
-  );
+  assert.deepEqual(await sendsInto(box, tab.tabId), takenBack(), 'the command, then exactly its characters taken back, and nothing more');
 });
 
 // #502: Claude Code's panel of feedback drafts above the input box
 // (helpers/screens.js CLAUDE_FEEDBACK_PANEL, built on a capture) takes single
 // keys from the input line, and one of them sends a draft to Anthropic. It
-// stops the typing as a question does. The naming types only into Codex, and
+// stops the naming as a question does. The naming types only into Codex, and
 // Codex draws no such panel; the gate reads the rows and not the harness, as
-// the #491 test above says. The two characters typed before it came are the
-// presence: the path was typing.
-test('#502: the panel of feedback drafts comes up after two characters: the typing stops, the two are taken back in one send, and nothing is entered', async (t) => {
+// the #491 test above says. The write before it came is the presence: the
+// path was typing.
+test('#502: the panel of feedback drafts comes up after the write: the command is taken back in one send, and nothing is entered', async (t) => {
   const box = await createSandbox(t);
   const bots = await running(box);
   const tab = await liveTab(box, bots);
-  await changeTab(box, tab.tabId, { nextScreens: [CODEX_SLASH_TYPED, CLAUDE_FEEDBACK_PANEL] });
+  await changeTab(box, tab.tabId, { nextScreens: [CLAUDE_FEEDBACK_PANEL] });
 
-  assertQuiet(await nameHook(box, bots, tab), 'the panel partway');
+  assertQuiet(await nameHook(box, bots, tab), 'the panel after the write');
 
-  assert.deepEqual(
-    await sendsInto(box, tab.tabId),
-    [...typed('/r'), { text: backspaces('/r'), enter: false }],
-    'the two characters typed, then exactly those two taken back, and nothing more',
-  );
-});
-
-test('Codex at work after ten characters, past the space: the typing stops, the ten are taken back in one send, and nothing is entered', async (t) => {
-  const box = await createSandbox(t);
-  const bots = await running(box);
-  const tab = await liveTab(box, bots);
-  const sofar = RENAME.slice(0, 10);
-  await changeTab(box, tab.tabId, { nextScreens: [...whileRenaming().slice(0, 9), workingOver([`› ${sofar}`, STATUS])] });
-
-  assertQuiet(await nameHook(box, bots, tab), 'at work partway');
-
-  assert.deepEqual(
-    await sendsInto(box, tab.tabId),
-    [...typed(sofar), { text: backspaces(sofar), enter: false }],
-    'the ten characters typed, then exactly those ten taken back, and nothing more',
-  );
+  assert.deepEqual(await sendsInto(box, tab.tabId), takenBack(), 'the command, then exactly its characters taken back, and nothing more');
 });
 
 // ------------------------------------------------- the screen before Return
+//
+// #713, R3: besides the input line and the menu, the line check refuses text
+// that stands under the input line before Codex's status row: Orca's notice,
+// written into the tab while the command stood there, shows so. A blank row
+// there is not text.
 
 for (const { what, screen } of [
   { what: 'the slash menu still open above the input line, its /rename row selected', screen: popup([RENAME_ROW], `› ${RENAME}`) },
@@ -678,16 +919,92 @@ for (const { what, screen } of [
   { what: 'the input line short of the last character', screen: shown(RENAME.slice(0, -1)) },
   { what: 'the input line with text before the command', screen: shown(`fix the flaky test${RENAME}`) },
   { what: 'Codex at work, its row above the input line', screen: workingOver([`› ${RENAME}`, STATUS]) },
+  { what: '#713: Orca\'s notice under the input line, right above the status row', screen: noticeUnder() },
+  { what: '#713: Orca\'s notice under the input line, a blank row between them', screen: noticeUnder(RENAME, 1) },
+  {
+    what: '#713: the screen of the issue on Codex 0.162.0\'s rows, the line reading the command and the notice under it',
+    screen: [...CODEX_162_IDLE.slice(0, 5), `› ${RENAME}`, NOTICE_ROW, CODEX_162_IDLE[6]],
+  },
 ]) {
-  test(`after the last character, ${what}: no return, and the command is taken back, one backspace per character, in one send`, async (t) => {
+  test(`after the write, ${what}: no return, and the command is taken back, one backspace per character, in one send`, async (t) => {
     const box = await createSandbox(t);
     const bots = await running(box);
     const tab = await liveTab(box, bots);
-    await changeTab(box, tab.tabId, { nextScreens: screensFor(RENAME, screen, CODEX_IDLE) });
+    await changeTab(box, tab.tabId, { nextScreens: [screen, CODEX_IDLE] });
 
     assertQuiet(await nameHook(box, bots, tab), what);
 
-    assert.deepEqual(await sendsInto(box, tab.tabId), [...typed(RENAME), { text: backspaces(RENAME), enter: false }]);
+    assert.deepEqual(await sendsInto(box, tab.tabId), takenBack());
+  });
+}
+
+for (const { what, screen } of [
+  { what: 'an empty row between the input line and the status row', screen: [...ABOVE_INPUT, `› ${RENAME}`, '', STATUS] },
+  { what: 'a row of spaces between the input line and the status row', screen: [...ABOVE_INPUT, `› ${RENAME}`, '    ', STATUS] },
+]) {
+  test(`#713: after the write, ${what}: a blank row is not text, so the command is entered, and Codex names the thread`, async (t) => {
+    const box = await createSandbox(t);
+    const bots = await running(box);
+    const tab = await liveTab(box, bots);
+    await changeTab(box, tab.tabId, { nextScreens: [screen, CODEX_IDLE] });
+
+    const { result, played } = await nameHookPlaying(box, bots, tab);
+
+    assertQuiet(result, what);
+    assert.ok(played, 'the premise: the return went in, and Codex wrote its line');
+    assert.deepEqual(await sendsInto(box, tab.tabId), renamed(), 'the command in one send, then the return, and nothing taken back');
+  });
+}
+
+// #713 review: Codex lets a user set `tui.status_line` to one item, so its
+// footer can read `  GPT-6-Luna medium`, with no ` · `. The line check
+// compares the row under the line with the one that stood there at the last
+// look before the write, whatever it reads. The footer row is a
+// reconstruction: no screen with a one-item footer was captured.
+
+/** A footer of one item, as `tui.status_line = ["model-with-reasoning"]` would draw it. A reconstruction. */
+const ONE_ITEM_FOOTER = '  GPT-6-Luna medium';
+
+/** Codex idle, its placeholder in the input line, and `below` under it. A reconstruction on CODEX_ANSWERED's rows. */
+const idleWith = (below) => [...ABOVE_INPUT, '› Ask Codex to do anything', ...below];
+
+test('#713 review: a one-item footer, "  GPT-6-Luna medium", under the line before and after the write: the command is entered, and Codex names the thread', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await running(box);
+  const tab = await liveTab(box, bots);
+  await changeTab(box, tab.tabId, {
+    screen: idleWith([ONE_ITEM_FOOTER]),
+    nextScreens: [[...ABOVE_INPUT, `› ${RENAME}`, ONE_ITEM_FOOTER], idleWith([ONE_ITEM_FOOTER])],
+  });
+
+  const { result, played } = await nameHookPlaying(box, bots, tab);
+
+  assertQuiet(result, 'a one-item footer');
+  assert.ok(played, 'the premise: the return went in, and Codex wrote its line');
+  assert.deepEqual(await sendsInto(box, tab.tabId), renamed(), 'the command in one send, then the return, and nothing taken back');
+});
+
+for (const { what, before, after } of [
+  {
+    what: 'Orca\'s notice between the line and the one-item footer that stood under it before',
+    before: idleWith([ONE_ITEM_FOOTER]),
+    after: [...ABOVE_INPUT, `› ${RENAME}`, NOTICE_ROW, ONE_ITEM_FOOTER],
+  },
+  {
+    what: 'nothing under the line before the write, and Orca\'s notice under it after',
+    before: idleWith([]),
+    after: [...ABOVE_INPUT, `› ${RENAME}`, NOTICE_ROW],
+  },
+]) {
+  test(`#713 review: ${what}: no return, and the command is taken back, one backspace per character, in one send`, async (t) => {
+    const box = await createSandbox(t);
+    const bots = await running(box);
+    const tab = await liveTab(box, bots);
+    await changeTab(box, tab.tabId, { screen: before, nextScreens: [after, before] });
+
+    assertQuiet(await nameHook(box, bots, tab), what);
+
+    assert.deepEqual(await sendsInto(box, tab.tabId), takenBack());
   });
 }
 
@@ -698,31 +1015,22 @@ for (const { what, screen } of [
 // line's row reads `›` alone while it holds text; an empty line gives no
 // `draft`. The intent of #516 for the naming, as these tests hold it:
 //
-//   - Before the first key: a non-empty `draft` means the user's draft is in
-//     the line, and nothing is typed, even when the line's row reads `›` alone
-//     or the placeholder.
-//   - After typing, with a `draft`: it equals the command exactly, and no
+//   - Before the write: a non-empty `draft` means the user's draft is in the
+//     line, and nothing is typed, even when the line's row reads `›` alone or
+//     the placeholder.
+//   - After the write, with a `draft`: it equals the command exactly, and no
 //     slash-menu row stands right above the input line. Then the return goes
 //     in, as before.
-//   - A draft that is not exactly the command: the typed keys are taken back,
-//     one backspace each in one send, and no return.
+//   - A draft that is not exactly the command, one that holds more than the
+//     command on more lines (#713: Orca's notice joined to it) among them: the
+//     command is taken back, one backspace per character in one send, and no
+//     return.
 //   - With no `draft`, the screen is read as before: the tests above.
 //
 // No live read of `/rename` was made. The screens below are reconstructions on
-// the 0.162.0 captures: for "/" alone CODEX_162_SLASH; up to the space, the
-// popup's `/rename` row (RENAME_ROW, its words made up) right above a bare
-// `›`; from the space on, no popup, as Codex's source says, on the rows of the
-// live read with a draft (CODEX_162_DRAFT). Each comes with the draft so far.
-
-/** What Codex 0.162.0 shows after each character of `command` but the last, each read with the draft so far. Reconstructions. */
-function whileRenaming162(command = RENAME) {
-  return [...command].slice(0, -1).map((_, at) => {
-    const sofar = command.slice(0, at + 1);
-    if (sofar === '/') return CODEX_162_SLASH;
-    if (!sofar.includes(' ')) return { screen: codex162With([RENAME_ROW]), draft: sofar };
-    return { screen: CODEX_162_DRAFT.screen, draft: sofar };
-  });
-}
+// the 0.162.0 captures: with the whole command written, no popup, as Codex's
+// source says, on the rows of the live read with a draft (CODEX_162_DRAFT),
+// with the draft Orca would give.
 
 /** Codex 0.162.0 with no popup, its input line's row `›` alone, and `draft` in the line. A reconstruction on CODEX_162_DRAFT. */
 const drafted162 = (draft) => ({ screen: CODEX_162_DRAFT.screen, draft });
@@ -731,11 +1039,11 @@ for (const { start, what } of [
   { start: CODEX_162_DRAFT, what: 'the live read with the draft "hello" and the line\'s row "›" alone' },
   { start: CODEX_162_PLACEHOLDER_DRAFT, what: 'the draft "hello" and the line\'s row showing the placeholder (rebuilt pairing)' },
 ]) {
-  test(`#516: Codex 0.162.0 with a draft in its input line before the first key, ${what}: nothing typed, and it exits 0 quietly`, async (t) => {
+  test(`#516: Codex 0.162.0 with a draft in its input line before the write, ${what}: nothing typed, and it exits 0 quietly`, async (t) => {
     const box = await createSandbox(t);
     const bots = await running(box, { cliVersion: '0.162.0' });
     const tab = await liveTab(box, bots);
-    await changeTab(box, tab.tabId, { screen: start.screen, draft: start.draft, nextScreens: [...whileRenaming162(), drafted162(RENAME), CODEX_162_IDLE] });
+    await changeTab(box, tab.tabId, { screen: start.screen, draft: start.draft, nextScreens: [drafted162(RENAME), CODEX_162_IDLE] });
     const before = await typedEverywhere(box);
     const from = (await box.orca.calls()).length;
 
@@ -751,17 +1059,17 @@ for (const cliVersion of ['0.162.0', '0.160.0']) {
     const box = await createSandbox(t);
     const bots = await running(box, { cliVersion });
     const tab = await liveTab(box, bots);
-    await changeTab(box, tab.tabId, { screen: CODEX_162_IDLE, nextScreens: [...whileRenaming162(), drafted162(RENAME), CODEX_162_IDLE] });
+    await changeTab(box, tab.tabId, { screen: CODEX_162_IDLE, nextScreens: [drafted162(RENAME), CODEX_162_IDLE] });
 
     const { result, played } = await nameHookPlaying(box, bots, tab);
 
     assertQuiet(result, 'the naming');
     assert.ok(played, 'the premise: the return went in, and Codex wrote its line');
-    assert.deepEqual(await sendsInto(box, tab.tabId), renamed(), 'the command a character a send, then the return, and nothing taken back');
+    assert.deepEqual(await sendsInto(box, tab.tabId), renamed(), 'the command in one send, then the return, and nothing taken back');
   });
 }
 
-// The refusals once the command is typed. Side by side, since a naming that
+// The refusals once the command is written. Side by side, since a naming that
 // wrongly goes in waits about 10 s for Codex's line.
 describe('#516: Codex naming refusals with a draft once the command is typed, side by side', { concurrency: true }, () => {
   for (const { what, read } of [
@@ -772,16 +1080,24 @@ describe('#516: Codex naming refusals with a draft once the command is typed, si
     { what: `the draft "x${RENAME}" while the line's row reads "› ${RENAME}"`, read: { screen: shown(RENAME), draft: `x${RENAME}` } },
     // The right draft does not excuse a menu row right above the input line.
     { what: `the draft "${RENAME}" exactly and the /rename popup row right above the line`, read: { screen: codex162With([RENAME_ROW]), draft: RENAME } },
+    // #713: Orca's notice joined to the command in the draft.
+    { what: 'the draft the command, then Orca\'s notice on the lines after it', read: drafted162(`${RENAME}\n${NOTICE}\n`) },
+    { what: 'the draft the command, then Orca\'s notice on the next line, with no newline at its end', read: drafted162(`${RENAME}\n${NOTICE}`) },
+    // #713: the right draft does not excuse text under the input line on the screen.
+    {
+      what: `the draft "${RENAME}" exactly and Orca's notice under the line's bare "›", above the status row`,
+      read: { screen: [...CODEX_162_DRAFT.screen.slice(0, 6), NOTICE_ROW, CODEX_162_DRAFT.screen[6]], draft: RENAME },
+    },
   ]) {
-    it(`#516: on Codex 0.162.0, after the last character, ${what}: no return, and the command is taken back, one backspace per character, in one send`, async (t) => {
+    it(`#516: on Codex 0.162.0, after the write, ${what}: no return, and the command is taken back, one backspace per character, in one send`, async (t) => {
       const box = await createSandbox(t);
       const bots = await running(box, { cliVersion: '0.162.0' });
       const tab = await liveTab(box, bots);
-      await changeTab(box, tab.tabId, { screen: CODEX_162_IDLE, nextScreens: [...whileRenaming162(), read, CODEX_162_IDLE] });
+      await changeTab(box, tab.tabId, { screen: CODEX_162_IDLE, nextScreens: [read, CODEX_162_IDLE] });
 
       assertQuiet(await nameHook(box, bots, tab), what);
 
-      assert.deepEqual(await sendsInto(box, tab.tabId), [...typed(RENAME), { text: backspaces(RENAME), enter: false }]);
+      assert.deepEqual(await sendsInto(box, tab.tabId), takenBack());
     });
   }
 });
@@ -797,7 +1113,7 @@ test('a second run for the same session while the first is at work types nothing
   const box = await createSandbox(t);
   const bots = await running(box);
   const tab = await liveTab(box, bots);
-  await changeTab(box, tab.tabId, { tuiIdle: 'busy', nextScreens: screensFor(RENAME, RENAME_TYPED, CODEX_IDLE) });
+  await changeTab(box, tab.tabId, { tuiIdle: 'busy', nextScreens: NAMING_SCREENS });
   const stop = codexRenames(box, tab.tabId);
   const from = (await box.orca.calls()).length;
 
@@ -865,10 +1181,10 @@ for (const moved of [true, false]) {
       leafId: `${tab.leafId}_new`,
       ptyId: `${tab.ptyId}_new`,
       typed: tab.typed.slice(0, 1),
-      nextScreens: screensFor(RENAME, RENAME_TYPED, CODEX_IDLE),
+      nextScreens: NAMING_SCREENS,
     };
     await box.orca.set({ terminals: [...await box.orca.terminals(), other] });
-    await changeTab(box, tab.tabId, { tuiIdle: 'busy', nextScreens: screensFor(RENAME, RENAME_TYPED, CODEX_IDLE) });
+    await changeTab(box, tab.tabId, { tuiIdle: 'busy', nextScreens: NAMING_SCREENS });
     const stop = codexRenames(box, tab.tabId);
     const from = (await box.orca.calls()).length;
 
@@ -901,8 +1217,8 @@ for (const moved of [true, false]) {
 // tab. If, at any look while it waits or types, the book no longer holds the
 // hook's session_id as the session's conversation (a `/new` in the same tab
 // reported a new thread through `session record`), the run stops. Before the
-// first character nothing is typed; after some, exactly those are taken back
-// in one send of backspaces, and no return goes in. Either way it exits 0
+// write nothing is typed; after it, the command is taken back, one backspace
+// per character in one send, and no return goes in. Either way it exits 0
 // quietly. The contrast, the same run with the book left as it was, is the
 // moved-tab contrast above.
 
@@ -913,7 +1229,7 @@ test('a /new reports a new thread in the same tab while the hook waits for idle:
   const box = await createSandbox(t);
   const bots = await running(box);
   const tab = await liveTab(box, bots);
-  await changeTab(box, tab.tabId, { tuiIdle: 'busy', nextScreens: screensFor(RENAME, RENAME_TYPED, CODEX_IDLE) });
+  await changeTab(box, tab.tabId, { tuiIdle: 'busy', nextScreens: NAMING_SCREENS });
   const stop = codexRenames(box, tab.tabId);
   const from = (await box.orca.calls()).length;
 
@@ -935,33 +1251,29 @@ test('a /new reports a new thread in the same tab while the hook waits for idle:
   assert.deepEqual(await sendsInto(box, tab.tabId), [], 'nothing typed: the thread the hook ran for is no longer the session\'s');
 });
 
-test('a /new reports a new thread in the same tab after three characters: those three are taken back in one send, no return, and it exits 0 quietly', async (t) => {
-  // The report runs inside Orca's answer to the third character's send, as
-  // Codex's SessionStart hook would run between two of the kit's keys, under
-  // the process chain a tab has; the third character goes in after it.
+test('a /new reports a new thread in the same tab during the write: the command is taken back in one send, no return, and it exits 0 quietly', async (t) => {
+  // The report runs inside Orca's answer to the write, the command's one
+  // send, as Codex's SessionStart hook would run while the kit types, under
+  // the process chain a tab has; the command goes in after it.
   const box = await createSandbox(t);
   const bots = await running(box);
   const tab = await liveTab(box, bots);
-  await changeTab(box, tab.tabId, { nextScreens: screensFor(RENAME, RENAME_TYPED, CODEX_IDLE) });
+  await changeTab(box, tab.tabId, { nextScreens: NAMING_SCREENS });
   const report = [box.cli, 'session', 'record', '--bots', bots, '--bot', BOT].map(shellWord).join(' ');
   const chain = await harnessChain(box, report, { stdin: sessionStart({ session: NEW_THREAD, cwd: botHomeOf(bots, BOT) }) });
   const sendsSoFar = orcaCallsOf(await box.orca.calls(), 'terminal send').length;
-  await box.orca.set({ runDuring: { command: 'terminal send', argv: chain.argv, env: chain.env, on: sendsSoFar + 3 } });
+  await box.orca.set({ runDuring: { command: 'terminal send', argv: chain.argv, env: chain.env, on: sendsSoFar + 1 } });
   const stop = codexRenames(box, tab.tabId);
 
   const result = await nameHook(box, bots, tab);
   await stop();
 
   const ran = await box.orca.ranDuring();
-  assert.equal(ran.length, 1, `the premise: the report ran during the third send, got: ${JSON.stringify(ran)}`);
+  assert.equal(ran.length, 1, `the premise: the report ran during the write, got: ${JSON.stringify(ran)}`);
   assert.equal(ran[0].status, 0, `the premise: and without trouble: ${ran[0].stderr}`);
   assert.equal((await sessionIn(bots, BOT, 'daily')).session, NEW_THREAD, 'the premise: the book holds the new thread for daily');
   assertQuiet(result, 'a new thread while it typed');
-  assert.deepEqual(
-    await sendsInto(box, tab.tabId),
-    [...typed(RENAME.slice(0, 3)), { text: backspaces(RENAME.slice(0, 3)), enter: false }],
-    'the three characters typed, then exactly those three taken back, and nothing more: no return',
-  );
+  assert.deepEqual(await sendsInto(box, tab.tabId), takenBack(), 'the command, then exactly its characters taken back, and nothing more: no return');
 });
 
 // ------------------------------------------------- the typing turn
@@ -969,18 +1281,18 @@ test('a /new reports a new thread in the same tab after three characters: those 
 // The architect's ruling on #480 (2026-10-04): one typing turn per session, a
 // lock beside its mailbox turn (helpers/typing-turn.js), which any kit path
 // that types into the session's tab takes. The naming takes it once it has
-// found the session idle, just before its first character, and holds it until
+// found the session idle, just before the command goes in, and holds it until
 // its return is sent or its text is taken back. If anything else holds it, the
 // naming types nothing and exits 0 quietly, and tries again at the next turn
-// end. Its per-character looks ask Orca's tui-idle wait for 250 ms or less, so
-// the turn is held for seconds; the look before the first character, which
-// waits for idle, keeps its own wait.
+// end. Its look between the write and the return asks Orca's tui-idle wait
+// for 250 ms or less, so the turn is held for seconds; the look before the
+// write, which waits for idle, keeps its own wait.
 
 test('the session\'s typing turn held by something else: the naming types nothing and exits 0 quietly; once it is free, the next turn end names the thread', async (t) => {
   const box = await createSandbox(t);
   const bots = await running(box);
   const tab = await liveTab(box, bots);
-  await changeTab(box, tab.tabId, { nextScreens: screensFor(RENAME, RENAME_TYPED, CODEX_IDLE) });
+  await changeTab(box, tab.tabId, { nextScreens: NAMING_SCREENS });
 
   const held = await withTypingTurnHeld(bots, BOT, 'daily', () => nameHook(box, bots, tab));
 
@@ -997,7 +1309,7 @@ test('while the naming types, it holds the session\'s typing turn; once its retu
   const box = await createSandbox(t);
   const bots = await running(box);
   const tab = await liveTab(box, bots);
-  await changeTab(box, tab.tabId, { nextScreens: screensFor(RENAME, RENAME_TYPED, CODEX_IDLE) });
+  await changeTab(box, tab.tabId, { nextScreens: NAMING_SCREENS });
   assert.equal(typingTurnHeld(bots, BOT, 'daily'), false, 'the premise: nothing holds the turn before the run');
   const stop = codexRenames(box, tab.tabId);
 
@@ -1005,10 +1317,10 @@ test('while the naming types, it holds the session\'s typing turn; once its retu
   const run = nameHook(box, bots, tab);
   run.then((result) => { done = result; });
   const until = Date.now() + 20_000;
-  while (done === undefined && (await sendsInto(box, tab.tabId)).length === 0 && Date.now() < until) await sleep(20);
+  while (done === undefined && (await sendsInto(box, tab.tabId)).length === 0 && Date.now() < until) await sleep(10);
   if (done !== undefined) assertQuiet(done, 'the run, which ended before it typed');
-  const sofar = (await sendsInto(box, tab.tabId)).length;
-  assert.ok(sofar > 0 && sofar < RENAME.length, `the premise: the naming is partway through typing, ${sofar} send(s) in`);
+  const sofar = await sendsInto(box, tab.tabId);
+  assert.deepEqual(sofar, typed(RENAME), 'the premise: the naming is between its write and its return');
   const heldWhileTyping = typingTurnHeld(bots, BOT, 'daily');
   const result = await run;
   await stop();
@@ -1023,7 +1335,7 @@ test('another session\'s typing turn held does not stop the naming of this one',
   const box = await createSandbox(t);
   const bots = await running(box);
   const tab = await liveTab(box, bots);
-  await changeTab(box, tab.tabId, { nextScreens: screensFor(RENAME, RENAME_TYPED, CODEX_IDLE) });
+  await changeTab(box, tab.tabId, { nextScreens: NAMING_SCREENS });
 
   const { result } = await withTypingTurnHeld(bots, BOT, 'review', () => nameHookPlaying(box, bots, tab));
 
@@ -1041,7 +1353,7 @@ test('a nudge\'s line on its way into the tab for longer than 10 s: the naming w
   const box = await createSandbox(t);
   const bots = await running(box);
   const tab = await liveTab(box, bots);
-  await changeTab(box, tab.tabId, { nextScreens: screensFor(RENAME, RENAME_TYPED, CODEX_IDLE) });
+  await changeTab(box, tab.tabId, { nextScreens: NAMING_SCREENS });
 
   const started = Date.now();
   const result = await withLinesTurnHeld(bots, BOT, 'daily', () => nameHook(box, bots, tab));
@@ -1057,7 +1369,7 @@ test('a nudge\'s line on its way into the tab that finishes after about 2 s: the
   const box = await createSandbox(t);
   const bots = await running(box);
   const tab = await liveTab(box, bots);
-  await changeTab(box, tab.tabId, { nextScreens: screensFor(RENAME, RENAME_TYPED, CODEX_IDLE) });
+  await changeTab(box, tab.tabId, { nextScreens: NAMING_SCREENS });
 
   const { result, typedWhileHeld } = await withLinesTurnHeld(bots, BOT, 'daily', async (release) => {
     const run = nameHookPlaying(box, bots, tab);
@@ -1074,8 +1386,9 @@ test('a nudge\'s line on its way into the tab that finishes after about 2 s: the
 
 // From the review of 34a9caa: once the naming holds the typing turn (which
 // can wait up to 10 s for a line in flight), it looks once more, with no
-// further wait, before its first key: the book's tab and thread, idle with no
-// question and no at-work row, and the input line empty or its placeholder.
+// further wait, before the command goes in: the book's tab and thread, idle
+// with no question and no at-work row, and the input line empty or its
+// placeholder.
 // If any of these no longer holds, it types nothing and exits 0 quietly.
 // Each case below holds the line turn, waits until the naming wants the line
 // turn alone (so it holds the typing turn and is waiting for the line), sees
@@ -1099,7 +1412,7 @@ for (const { what, change } of [
     const box = await createSandbox(t);
     const bots = await running(box);
     const tab = await liveTab(box, bots);
-    await changeTab(box, tab.tabId, { nextScreens: screensFor(RENAME, RENAME_TYPED, CODEX_IDLE) });
+    await changeTab(box, tab.tabId, { nextScreens: NAMING_SCREENS });
     const stop = codexRenames(box, tab.tabId);
 
     const { result, reached } = await withLinesTurnHeld(bots, BOT, 'daily', async (release) => {
@@ -1124,11 +1437,11 @@ for (const { what, change } of [
   });
 }
 
-test('each look between the characters asks Orca\'s tui-idle wait for 250 ms or less', async (t) => {
+test('the look between the write and the return asks Orca\'s tui-idle wait for 250 ms or less', async (t) => {
   const box = await createSandbox(t);
   const bots = await running(box);
   const tab = await liveTab(box, bots);
-  await changeTab(box, tab.tabId, { nextScreens: screensFor(RENAME, RENAME_TYPED, CODEX_IDLE) });
+  await changeTab(box, tab.tabId, { nextScreens: NAMING_SCREENS });
   const from = (await box.orca.calls()).length;
 
   const { result } = await nameHookPlaying(box, bots, tab);
@@ -1137,64 +1450,68 @@ test('each look between the characters asks Orca\'s tui-idle wait for 250 ms or 
   assert.deepEqual(await sendsInto(box, tab.tabId), renamed(), 'the premise: the command and its return went in');
   const calls = await callsSince(box, from);
   const sendsAt = calls.map((call, at) => ({ call, at })).filter(({ call }) => orcaCommand(call) === 'terminal send' && orcaFlag(call, '--terminal') === tab.handle).map(({ at }) => at);
-  const between = calls.slice(sendsAt[0] + 1, sendsAt[RENAME.length - 1])
+  const between = calls.slice(sendsAt[0] + 1, sendsAt[1])
     .filter((call) => orcaCommand(call) === 'terminal wait' && orcaFlag(call, '--terminal') === tab.handle && orcaFlag(call, '--for') === 'tui-idle');
-  assert.ok(between.length >= RENAME.length - 1, `the premise: a look before each character after the first, got ${between.length}`);
+  assert.ok(between.length >= 1, `the premise: a look between the write and the return, got ${between.length}`);
   const asked = between.map((call) => orcaFlag(call, '--timeout-ms'));
   assert.deepEqual(
     asked.filter((ms) => !(Number(ms) > 0 && Number(ms) <= 250)),
     [],
-    `every look between characters gives --timeout-ms of 250 or less, got: ${JSON.stringify(asked)}`,
+    `every look between the write and the return gives --timeout-ms of 250 or less, got: ${JSON.stringify(asked)}`,
   );
 });
 
-// ------------------------------------------------- an error after some characters
+// ------------------------------------------------- an error once the command is in
 //
-// From the review of #480: any error once some characters are in (a refused
-// or failed `terminal send`, or a look Orca refuses) makes the run take back
-// exactly the characters typed so far, in one send of backspaces, and stop
-// with no return. It exits 0 quietly, even when the take-back itself fails.
+// From the review of #480, for one write (#713): any error once the command
+// went in (a refused or failed `terminal send` of the return, or a look Orca
+// refuses) makes the run take back the whole command, one backspace per
+// character in one send, and stop with no return. A write Orca refused put
+// nothing in, so nothing is taken back. It exits 0 quietly, even when the
+// take-back itself fails.
 
-/** The sends are some first characters of the command, then exactly those taken back in one send, and nothing more. Answers how many went in. */
-function assertTakenBack(sends, what) {
-  const keys = sends.filter((one) => !/^\x7f+$/.test(one.text));
-  const n = keys.length;
-  assert.ok(n >= 1 && n < RENAME.length, `${what}: the premise, some characters went in before the error, got: ${JSON.stringify(sends)}`);
-  assert.deepEqual(
-    sends,
-    [...typed(RENAME.slice(0, n)), { text: backspaces(RENAME.slice(0, n)), enter: false }],
-    `${what}: the ${n} character(s) typed, then exactly those taken back in one send, and no return`,
-  );
-  return n;
-}
-
-test('Orca refuses the third character\'s send and takes the ones after it: the two typed are taken back in one send, no return, and it exits 0 quietly', async (t) => {
+test('Orca refuses the write: nothing went in, nothing is taken back, no return, and it exits 0 quietly', async (t) => {
   const box = await createSandbox(t);
   const bots = await running(box);
   const tab = await liveTab(box, bots);
-  await changeTab(box, tab.tabId, { nextScreens: screensFor(RENAME, RENAME_TYPED, CODEX_IDLE) });
+  await changeTab(box, tab.tabId, { nextScreens: NAMING_SCREENS });
   const sendsSoFar = orcaCallsOf(await box.orca.calls(), 'terminal send').length;
-  await box.orca.set({ fail: { 'terminal send': { code: 'runtime_error', message: 'transient send failure', after: sendsSoFar + 2, times: 1 } } });
+  await box.orca.set({ fail: { 'terminal send': { code: 'runtime_error', message: 'transient send failure', after: sendsSoFar, times: 1 } } });
+  const stop = codexRenames(box, tab.tabId);
+  const from = (await box.orca.calls()).length;
+
+  const result = await nameHook(box, bots, tab);
+  await stop();
+
+  assertQuiet(result, 'a refused write');
+  const asked = orcaCallsOf(await callsSince(box, from), 'terminal send').map((call) => orcaFlag(call, '--text'));
+  assert.equal(asked[0], RENAME, `the premise: the write was asked for, the whole command in one send, got: ${JSON.stringify(asked)}`);
+  assert.deepEqual(await sendsInto(box, tab.tabId), [], 'nothing went in, so no backspaces and no return');
+});
+
+test('Orca refuses the return\'s send: the command is taken back in one send, no return, and it exits 0 quietly', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await running(box);
+  const tab = await liveTab(box, bots);
+  await changeTab(box, tab.tabId, { nextScreens: NAMING_SCREENS });
+  const sendsSoFar = orcaCallsOf(await box.orca.calls(), 'terminal send').length;
+  await box.orca.set({ fail: { 'terminal send': { code: 'runtime_error', message: 'transient send failure', after: sendsSoFar + 1, times: 1 } } });
   const stop = codexRenames(box, tab.tabId);
 
   const result = await nameHook(box, bots, tab);
   await stop();
 
-  assertQuiet(result, 'a refused send');
-  assert.deepEqual(
-    await sendsInto(box, tab.tabId),
-    [...typed('/r'), { text: backspaces('/r'), enter: false }],
-    'the two characters that went in, then exactly those two taken back in one send, and nothing more',
-  );
+  assertQuiet(result, 'a refused return');
+  assert.deepEqual(await sendsInto(box, tab.tabId), takenBack(), 'the command, then exactly its characters taken back in one send, and nothing more');
 });
 
-test('Orca refuses the third character\'s send and the take-back after it: no return, nothing more typed, and it exits 0 quietly', async (t) => {
+test('Orca refuses the return\'s send and the take-back after it: no return, nothing more typed, and it exits 0 quietly', async (t) => {
   const box = await createSandbox(t);
   const bots = await running(box);
   const tab = await liveTab(box, bots);
-  await changeTab(box, tab.tabId, { nextScreens: screensFor(RENAME, RENAME_TYPED, CODEX_IDLE) });
+  await changeTab(box, tab.tabId, { nextScreens: NAMING_SCREENS });
   const sendsSoFar = orcaCallsOf(await box.orca.calls(), 'terminal send').length;
-  await box.orca.set({ fail: { 'terminal send': { code: 'runtime_error', message: 'transient send failure', after: sendsSoFar + 2, times: 2 } } });
+  await box.orca.set({ fail: { 'terminal send': { code: 'runtime_error', message: 'transient send failure', after: sendsSoFar + 1, times: 2 } } });
   const stop = codexRenames(box, tab.tabId);
 
   const result = await nameHook(box, bots, tab);
@@ -1202,26 +1519,26 @@ test('Orca refuses the third character\'s send and the take-back after it: no re
 
   assertQuiet(result, 'a refused take-back');
   const sends = await sendsInto(box, tab.tabId);
-  assert.deepEqual(sends.slice(0, 2), typed('/r'), `the premise: two characters went in, got: ${JSON.stringify(sends)}`);
+  assert.deepEqual(sends.slice(0, 1), typed(RENAME), `the premise: the command went in, got: ${JSON.stringify(sends)}`);
   assert.deepEqual(
-    sends.slice(2).filter((one) => !/^\x7f+$/.test(one.text)),
+    sends.slice(1).filter((one) => !/^\x7f+$/.test(one.text)),
     [],
-    `after the error, nothing but backspaces: no more characters and no return, got: ${JSON.stringify(sends)}`,
+    `after the error, nothing but backspaces: no more text and no return, got: ${JSON.stringify(sends)}`,
   );
 });
 
-test('Orca takes the third key but does not answer its send in time: the take-back counts it, three backspaces in one send, no return, and it exits 0 quietly', async (t) => {
+test('Orca takes the write but does not answer it in time: the take-back counts the whole command, one backspace per character in one send, no return, and it exits 0 quietly', async (t) => {
   // From the review of 34a9caa: a send Orca does not answer in time may still
-  // have gone in, so the take-back counts its key; one Orca refused does not
-  // count (the test above). The input line was empty before the first key, so
-  // a backspace too many does no harm. Here Orca applies the third key, `e`,
-  // and holds its answer for 90 s.
+  // have gone in, so the take-back counts it; one Orca refused does not (the
+  // test above). The input line was empty before the write, so a backspace
+  // too many does no harm. Here Orca applies the write and holds its answer
+  // for 90 s.
   const box = await createSandbox(t);
   const bots = await running(box);
   const tab = await liveTab(box, bots);
-  await changeTab(box, tab.tabId, { nextScreens: screensFor(RENAME, RENAME_TYPED, CODEX_IDLE) });
+  await changeTab(box, tab.tabId, { nextScreens: NAMING_SCREENS });
   const sendsSoFar = orcaCallsOf(await box.orca.calls(), 'terminal send').length;
-  await box.orca.set({ hang: { command: 'terminal send', ms: 90_000, applied: true, from: sendsSoFar, after: 2, times: 1 } });
+  await box.orca.set({ hang: { command: 'terminal send', ms: 90_000, applied: true, from: sendsSoFar, after: 0, times: 1 } });
   const stop = codexRenames(box, tab.tabId);
 
   const started = Date.now();
@@ -1229,32 +1546,32 @@ test('Orca takes the third key but does not answer its send in time: the take-ba
   const took = Date.now() - started;
   await stop();
 
-  assertQuiet(result, 'a send not answered in time');
+  assertQuiet(result, 'a write not answered in time');
   assert.ok(took < 60_000, `the late answer does not hold the hook; it took ${took} ms`);
   assert.deepEqual(
     await sendsInto(box, tab.tabId),
-    [...typed('/re'), { text: backspaces('/re'), enter: false }],
-    'the three keys that went in, the late one among them, then three backspaces in one send, and nothing more',
+    takenBack(),
+    'the command that went in late, then exactly as many backspaces as it has characters, in one send, and nothing more',
   );
 });
 
-test('Orca refuses a look once some characters are in: exactly those are taken back in one send, no return, and it exits 0 quietly', async (t) => {
-  // Orca refuses the fifth tui-idle look the run makes, once: past the look
-  // before the first character, and before the last. The refusal is set before
-  // the run, so nothing writes Orca's world while the run types into it.
+test('Orca refuses the look after the write: the command is taken back in one send, no return, and it exits 0 quietly', async (t) => {
+  // Orca refuses every tui-idle look once the write has been asked for, and
+  // none before it. The refusal is set before the run, so nothing writes
+  // Orca's world while the run types into it.
   const box = await createSandbox(t);
   const bots = await running(box);
   const tab = await liveTab(box, bots);
-  await changeTab(box, tab.tabId, { nextScreens: screensFor(RENAME, RENAME_TYPED, CODEX_IDLE) });
-  const waitsSoFar = orcaCallsOf(await box.orca.calls(), 'terminal wait').length;
-  await box.orca.set({ fail: { 'terminal wait': { code: 'runtime_error', message: 'transient wait failure', after: waitsSoFar + 4, times: 1 } } });
+  await changeTab(box, tab.tabId, { nextScreens: NAMING_SCREENS });
+  const sendsSoFar = orcaCallsOf(await box.orca.calls(), 'terminal send').length;
+  await box.orca.set({ fail: { 'terminal wait': { code: 'runtime_error', message: 'transient wait failure', since: 'terminal send', sinceFrom: sendsSoFar } } });
   const stop = codexRenames(box, tab.tabId);
 
   const result = await nameHook(box, bots, tab);
   await stop();
 
   assertQuiet(result, 'a refused look');
-  assertTakenBack(await sendsInto(box, tab.tabId), 'a refused look');
+  assert.deepEqual(await sendsInto(box, tab.tabId), takenBack(), 'the command, then exactly its characters taken back in one send, and nothing more');
 });
 
 // ------------------------------------------------- the waits that run out
@@ -1266,7 +1583,7 @@ describe('the waits that run out, side by side', { concurrency: true }, () => {
     { what: 'Orca reports the session busy', setUp: (box) => box.orca.set({ waitIdle: 'busy' }) },
     { what: 'Orca calls it idle while its screen says "esc to interrupt"', setUp: (box, tab) => changeTab(box, tab.tabId, { screen: CODEX_WORKING }) },
     { what: 'a question of Codex\'s own is on its screen', setUp: (box, tab) => changeTab(box, tab.tabId, { screen: CODEX_UPDATE_OFFER }) },
-    // #491: a question drawn above the input line, as the partway test above says.
+    // #491: a question drawn above the input line, as the test after the write above says.
     { what: 'Claude Code 2.1.289\'s Teach list is on its screen, above the input box', setUp: (box, tab) => changeTab(box, tab.tabId, { screen: CLAUDE_TEACH_LIST }) },
     { what: 'Orca reports the tab blocked', setUp: (box) => box.orca.set({ waitIdle: 'blocked', blockedReason: 'agent-permission-prompt' }) },
   ]) {
@@ -1292,7 +1609,7 @@ describe('the waits that run out, side by side', { concurrency: true }, () => {
     const box = await createSandbox(t);
     const bots = await running(box);
     const tab = await liveTab(box, bots);
-    await changeTab(box, tab.tabId, { nextScreens: screensFor(RENAME, RENAME_TYPED, CODEX_IDLE) });
+    await changeTab(box, tab.tabId, { nextScreens: NAMING_SCREENS });
     const from = (await box.orca.calls()).length;
 
     const result = await nameHook(box, bots, tab);
@@ -1316,7 +1633,7 @@ describe('the waits that run out, side by side', { concurrency: true }, () => {
       const box = await createSandbox(t);
       const bots = await running(box);
       const tab = await liveTab(box, bots);
-      await changeTab(box, tab.tabId, { nextScreens: screensFor(RENAME, RENAME_TYPED, CODEX_IDLE) });
+      await changeTab(box, tab.tabId, { nextScreens: NAMING_SCREENS });
       await box.orca.set(misbehaving);
 
       const started = Date.now();
@@ -1335,7 +1652,7 @@ describe('the waits that run out, side by side', { concurrency: true }, () => {
     const box = await createSandbox(t);
     const bots = await running(box);
     const tab = await liveTab(box, bots);
-    await changeTab(box, tab.tabId, { nextScreens: screensFor(RENAME, RENAME_TYPED, CODEX_IDLE) });
+    await changeTab(box, tab.tabId, { nextScreens: NAMING_SCREENS });
     await box.orca.set({ hang: { command: 'terminal send', ms: 90_000, times: 1, from: orcaCallsOf(await box.orca.calls(), 'terminal send').length } });
 
     const started = Date.now();
@@ -1350,7 +1667,7 @@ describe('the waits that run out, side by side', { concurrency: true }, () => {
     const box = await createSandbox(t);
     const bots = await running(box);
     const tab = await liveTab(box, bots);
-    await changeTab(box, tab.tabId, { nextScreens: screensFor(RENAME, RENAME_TYPED, CODEX_IDLE) });
+    await changeTab(box, tab.tabId, { nextScreens: NAMING_SCREENS });
     await mkdir(path.dirname(indexFile(box)), { recursive: true });
     await appendFile(indexFile(box), '{"id":"0199c0de-4800-7000-8000-00000000da11","thread_na\n');
 
