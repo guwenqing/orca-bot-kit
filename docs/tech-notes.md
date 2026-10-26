@@ -947,6 +947,26 @@ Proved live on 2026-09-21 (Orca 1.4.205), in throwaway workspaces since removed:
   included; how much of that the turn was held was not measured. Codex prints nothing for a rename and draws typed text a
   cell at a time, so the tab's output does not show the command whole; `session_index.jsonl` is
   the record of it. The screen with the whole command typed was not captured.
+  **Orca's mail notice inside the kit's `/rename` (#713).** Seen in this machine's records
+  (2026-10-26, Orca 1.4.240, codex-cli 0.164.0): `session_index.jsonl` named two threads
+  `assure\nYou have 1 orchestration message. Run \`orca orchestration check --run run_bec0c716fbb4\`.`
+  (05:31:46Z) and `assuredloop.r\nYou have 1 … run_07d3f61eb931 …` (05:46:58Z), and four more on
+  2026-10-10. In `orchestration inbox`, each of those letters had `delivered_at` within 1 s of its
+  sending and stayed unread. The thread's rollout shows a turn ending 13 s before. Read in the
+  1.4.240 bundle: Orca's notice is `\nYou have N orchestration message(s). Run \`orca orchestration
+  check --run <id>\`.\n` in one plain write, and Enter 500 ms later. It goes into a tab that is idle
+  and settled, with no `check --wait` waiting on its mailbox, and Orca does not look at the input
+  line. So the notice joined the half-typed command, and Orca's Enter ran `/rename` with the notice
+  as part of the name. Since #713 the naming reads the session's mailbox last before it types, and
+  types nothing while a letter is unread with no `delivered_at`. It sends the command in one write,
+  and its line check refuses text between the input line and Codex's status row. **verified**
+  (records), **read in code** (Orca). Seen live (2026-10-26, `test/system/codex-thread-name.test.js`
+  after #713, Codex 0.164.0, Orca 1.4.240): the one-write `/rename name-codex.main` ran as a
+  command (the index named the thread so, and no user turn held it), and the input line was empty
+  after it. A probe wrote `/rename name-codex.main` and Orca's notice text in one send into the
+  test's own tab. Orca gave no draft, and the screen showed `› /rename name-codex.main`, then the
+  notice on the row under it, then the status row `  GPT-6.1-Sol xhigh · <path> · …`. No turn
+  started. **verified** (live, once)
   Read in the same source (`hooks/src/engine/command_runner.rs`), not seen live: Codex starts each
   command hook in a session of its own (`ProcessMode::NewSession`), and at the hook's timeout it
   kills the hook's whole process group. A hook still running when its Codex is killed hard can
