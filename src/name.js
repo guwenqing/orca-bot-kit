@@ -19,6 +19,7 @@ import { readBook, takeNameTurn, takeTypingTurn } from './book.js';
 import { botDir, readBot } from './bot.js';
 import { sessionToType, typeCommand } from './clear.js';
 import { harnessOf } from './launch.js';
+import { mailIn } from './orca.js';
 import { sessionsOf } from './up.js';
 
 /**
@@ -39,6 +40,9 @@ const DEADLINE_MS = 240_000;
 /** How long Codex is given to write the name down after the return. */
 const CONFIRM_MS = 10_000;
 const ASK_MS = 500;
+
+/** How many of a mailbox's newest letters are read, as `obk health` reads them. */
+const MAIL_READ = 100;
 
 /**
  * Name the thread that just ended a turn in the tab `tabId`, as Codex's Stop
@@ -85,8 +89,27 @@ export async function nameSession(bots, bot, said, tabId) {
       typing = takeTypingTurn(home, session, 0);
       if (typing === undefined) throw new Error(`${it.name}: nothing was typed, because the kit is typing into its tab already.`);
     };
+    // Orca types its notice into an idle tab, the input line or not, and a
+    // notice inside the command became the thread's name (#713). A letter not
+    // delivered yet is one Orca is about to ring for: name later. Read last
+    // of all before the write.
+    let footer;
+    const last = (ready) => {
+      footer = rowUnder(ready.rows);
+      const mailbox = entry.mailbox;
+      if (mailbox === undefined) return;
+      let letters;
+      try {
+        letters = mailIn(mailbox, MAIL_READ);
+      } catch (error) {
+        throw new Error(`${it.name}: nothing was typed, because its mailbox could not be read: ${error.message}`);
+      }
+      if (letters.some((letter) => !letter.read && letter.delivered_at == null)) {
+        throw new Error(`${it.name}: nothing was typed, because Orca has yet to tell it of mail.`);
+      }
+    };
     try {
-      await typeCommand(it, `/rename ${name}`, { check: renameWrong, deadline, before });
+      await typeCommand(it, `/rename ${name}`, { check: renameWrong(() => footer), deadline, before, last, whole: true });
     } finally {
       typing?.release();
     }
@@ -119,6 +142,12 @@ function nameOf(thread) {
   return name;
 }
 
+/** The first row with text under the input line, the lowest row Codex's pointer starts, or undefined. */
+function rowUnder(rows) {
+  const at = rows.findLastIndex((row) => /^ *›/.test(row));
+  return rows.slice(at + 1).find((row) => row.trim() !== '')?.trimEnd();
+}
+
 /**
  * Why the screen does not show `command` typed and ready, or undefined when it
  * does: the input line, the lowest row Codex's pointer starts, reads the
@@ -127,13 +156,18 @@ function nameOf(thread) {
  * `sync_command_popup`, rust-v0.160.0), so a menu still open means the line is
  * not what it seems. Where Orca gives a draft, the draft is the line's text:
  * Codex 0.162.0's line on the screen then reads its pointer alone (#516).
+ * Under the line, the first row with text is the one that stood there before
+ * the write, `footer()`: Codex's status row, whatever the user set it to show.
  */
-function renameWrong(rows, _harness, command, _version, draft) {
+const renameWrong = (footer) => (rows, _harness, command, _version, draft) => {
   const at = rows.findLastIndex((row) => /^ *›/.test(row));
   if (at < 0) return { why: 'its screen shows no input line' };
   const line = draft === undefined ? rows[at].replaceAll(' ', ' ').trim() : `› ${draft}`;
   if (line !== `› ${command}`) return { why: `its input line reads "${line}"` };
   const above = rows.slice(0, at).findLast((row) => row.trim() !== '');
   if (above !== undefined && /^ *(?:› +)?\/\S/.test(above)) return { why: `a menu of commands stands above its input line: "${above.trim()}"` };
+  // Any other row there is more of the line: Orca's notice, for one (#713).
+  const under = rowUnder(rows);
+  if (under !== footer()) return { why: `text stands under its input line: "${under?.trim()}"` };
   return undefined;
-}
+};

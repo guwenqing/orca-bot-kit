@@ -230,10 +230,12 @@ async function enter(it, verb, before = () => {}) {
  * runs just before the command is typed; `cannot` adds to a refusal what a
  * wrong screen means; `close`, `{ key, check }`, is one more key typed once
  * `check` passes, and its own check of the screen before the return; past
- * `deadline`, a time, what was typed is taken back and nothing is entered.
+ * `deadline`, a time, what was typed is taken back and nothing is entered;
+ * `whole` sends the command in one write and not a character a send; `last`
+ * runs after the last look, given it, with nothing between it and the first key.
  * Returns the command, the handle it went into, and when it was typed.
  */
-export async function typeCommand(it, command, { before = () => {}, check = menuWrong, cannot = () => '', close, deadline = Infinity } = {}) {
+export async function typeCommand(it, command, { before = () => {}, check = menuWrong, cannot = () => '', close, deadline = Infinity, whole = false, last = () => {} } = {}) {
   // Nothing may be in the input line before: no draft for the command to join.
   // Orca gives a draft in the line beside the screen, and the screen's line
   // then reads the pointer alone (#510, #516). Where it gives none, Codex's
@@ -262,6 +264,7 @@ export async function typeCommand(it, command, { before = () => {}, check = menu
   const ready = lookAt(it);
   if (ready.why !== undefined) throw new Error(`${it.name}: nothing was typed, because ${ready.why}.`);
   emptyLine(ready);
+  last(ready);
   const { handle } = ready;
   const typedAt = Date.now();
   // One character a send, each after a look through the gate, so nothing goes
@@ -297,22 +300,26 @@ export async function typeCommand(it, command, { before = () => {}, check = menu
     takeBack();
     throw new Error(`${it.name}: ${command} was being typed, and after ${sofar} ${look.why}, so what was typed was taken back and nothing was entered.`);
   };
-  const typeKey = (char) => {
+  const typeKey = (keys) => {
     try {
-      send(handle, char);
+      send(handle, keys);
     } catch (error) {
       // A send Orca did not answer in time may have gone in all the same.
       // Counted only where the line was empty before the first key, so the
       // one backspace too many can take nothing of the user's (#480 review).
-      if (error.code === TIMED_OUT && (it.harness === 'codex' || it.harness === 'pi')) typed += 1;
+      if (error.code === TIMED_OUT && (it.harness === 'codex' || it.harness === 'pi')) typed += [...keys].length;
       throw error;
     }
-    typed += 1;
+    typed += [...keys].length;
   };
   try {
-    for (const char of command) {
-      if (typed > 0) await lookAgain();
-      typeKey(char);
+    // Whole, a write Orca's own notice cannot land inside (#713).
+    if (whole) typeKey(command);
+    else {
+      for (const char of command) {
+        if (typed > 0) await lookAgain();
+        typeKey(char);
+      }
     }
     await lookAgain();
     let wrong = await typedWrong(handle, it.harness, command, version, check);

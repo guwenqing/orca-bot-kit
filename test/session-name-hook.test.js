@@ -49,7 +49,7 @@ import {
   tabsOfBot,
   throughAHarness,
 } from './helpers/cli.js';
-import { CODEX_ANSWERED, CODEX_IDLE, CODEX_SLASH_TYPED } from './helpers/screens.js';
+import { CODEX_ANSWERED, CODEX_IDLE } from './helpers/screens.js';
 
 /** The Codex bot, and a Claude Code bot beside it. */
 const CODEX_BOT = 'api-bot';
@@ -138,15 +138,11 @@ test('the installed line, run as Codex runs it at a turn end in the session\'s t
   const name = `${CODEX_BOT}.daily`;
   const command = `/rename ${name}`;
   const above = CODEX_ANSWERED.slice(0, 12);
-  const status = '  GPT-6-Luna medium · /private/var/folders/…/bots/api-b…';
-  const screens = [...command].slice(0, -1).map((_, at) => {
-    const sofar = command.slice(0, at + 1);
-    if (sofar === '/') return CODEX_SLASH_TYPED;
-    if (!sofar.includes(' ')) return [...CODEX_ANSWERED.slice(0, 11), '› /rename  rename the current thread', '', '›', status];
-    return [...above, `› ${sofar}`, status];
-  });
+  // The status row that stood under the empty line before the write (CODEX_IDLE's, what the fake shows), as on a real screen (#713 review).
+  const status = CODEX_IDLE[8];
+  // The command written in one send (#713), then the return.
   const state = await box.orca.terminals();
-  await box.orca.set({ terminals: state.map((one) => (one.tabId === tabId ? { ...one, nextScreens: [...screens, [...above, `› ${command}`, status], CODEX_IDLE] } : one)) });
+  await box.orca.set({ terminals: state.map((one) => (one.tabId === tabId ? { ...one, nextScreens: [[...above, `› ${command}`, status], CODEX_IDLE] } : one)) });
 
   // Codex, played: once the return is in, its `/rename` writes the name.
   const index = path.join(box.home, '.codex', 'session_index.jsonl');
@@ -175,7 +171,7 @@ test('the installed line, run as Codex runs it at a turn end in the session\'s t
   assert.equal(ran.code, 0, ran.stderr);
   assert.equal(ran.stdout, '', 'nothing on stdout: no decision for Codex');
   const sends = ((await box.orca.terminals()).find((one) => one.tabId === tabId)?.typed ?? []).slice(1).map(({ text, enter }) => ({ text, enter }));
-  assert.deepEqual(sends, [...[...command].map((text) => ({ text, enter: false })), { text: '\r', enter: false }], 'the command a character a send, then its return');
+  assert.deepEqual(sends, [{ text: command, enter: false }, { text: '\r', enter: false }], 'the whole command in one send, then its return (#713)');
 });
 
 test('a second up writes nothing new to the Codex hooks file', async (t) => {
