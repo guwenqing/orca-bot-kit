@@ -9,7 +9,7 @@ import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { setTimeout as pause } from 'node:timers/promises';
 
-import { forgetClaimed, forgetSession, MAILBOX_WAIT_MS, readBook, rememberSession, sessionIdsIn, tabIdsIn, takeLineTurn, takeMailboxTurn, TYPING_HELD, TYPING_WAIT_MS, updateBook, withUnclaimed } from './book.js';
+import { forgetClaimed, forgetSession, MAILBOX_WAIT_MS, readBook, rememberSession, sessionIdsIn, tabIdsIn, takeLineTurn, takeMailboxTurn, takeProjectTurn, TYPING_HELD, TYPING_WAIT_MS, updateBook, withUnclaimed } from './book.js';
 import { botDir, botNames, displayName, readBot } from './bot.js';
 import { conversationsIn, hasConversation, heldAsUserTurn, transcriptsIn } from './conversations.js';
 import { dropRemovedHooks, installHook } from './hooks.js';
@@ -926,10 +926,15 @@ const setAside = (entry, which) => (which.ranOn === undefined
  * all, so no tab can be opened in it.
  */
 function orcaProject(home, title) {
-  dropLeftGit(home);
-  const found = findProject(home);
-  if (found === undefined) return ids(makeProject(home, title), 'made');
-  return found.kind === 'folder' ? ids(found) : ids(asFolderProject(found.id, title), 'renamed');
+  const turn = takeProjectTurn(home);
+  try {
+    dropLeftGit(home);
+    const found = findProject(home);
+    if (found === undefined) return ids(makeProject(home, title), 'made');
+    return found.kind === 'folder' ? ids(found) : ids(asFolderProject(found.id, title), 'renamed');
+  } finally {
+    turn.release();
+  }
 }
 
 const ids = (setup, change) => ({ project: setup.projectId, setup: setup.id, change });
