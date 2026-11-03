@@ -20,7 +20,7 @@ import { eachLine, firstLine } from './lines.js';
 const claudeDir = (home) => path.join(homedir(), '.claude', 'projects', slug(home));
 
 /** The folder's name is the working directory with everything else turned into a dash. */
-const slug = (home) => home.replaceAll(/[^A-Za-z0-9]/g, '-');
+export const slug = (home) => home.replaceAll(/[^A-Za-z0-9]/g, '-');
 
 /**
  * Pi's sessions: one folder per working directory, named from its real path

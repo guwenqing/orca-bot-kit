@@ -294,11 +294,12 @@ const NO_DAEMON = '--no-daemon';
 
 // A string is shell text, so it is read as the shell will split it: `'--no-daemon'`
 // is the flag, and `'/tmp/a --no-daemon b'` is one path that merely says it.
-const setsNoDaemon = (session) => {
-  const extra = session.extra_args;
-  const words = Array.isArray(extra) ? extra.map(String) : set(extra) ? shellWords(String(extra)) : [];
-  return words.includes(NO_DAEMON);
-};
+const extraArgWords = (extra) => (Array.isArray(extra) ? extra.map(String) : set(extra) ? shellWords(String(extra)) : []);
+
+const setsNoDaemon = (session) => extraArgWords(session.extra_args).includes(NO_DAEMON);
+
+/** Whether the session's own extra arguments hold Claude Code's `--settings`. */
+const setsSettings = (session) => extraArgWords(session.extra_args).some((word) => word === '--settings' || word.startsWith('--settings='));
 
 /**
  * The words a shell makes of `text`: split on blanks outside quotes, quotes
@@ -412,7 +413,7 @@ const where = (session) => (set(session.name) ? `session ${session.name}` : 'thi
  * send would land on that list and answer it. A prompt given as an argument is
  * held by the harness until it is ready for it (tech notes, section 1).
  */
-export function launchCommand(session, { harness, home, workDir, prompt, promptFile: fromFile, resume, address, kit, sessionId, name }) {
+export function launchCommand(session, { harness, home, workDir, prompt, promptFile: fromFile, resume, address, kit, sessionId, name, memoryFolder }) {
   const trouble = sessionTrouble(session, harness, home);
   if (trouble !== undefined) throw new Error(trouble);
   // Pi is told which conversation it is, a new one too: the kit names it, and
@@ -440,6 +441,10 @@ export function launchCommand(session, { harness, home, workDir, prompt, promptF
     // The context window rides on the model name: `sonnet[1m]`.
     if (set(session.model)) words.push('--model', set(session.context) ? `${session.model}[${session.context}]` : session.model);
     if (set(session.effort)) words.push('--effort', String(session.effort));
+    // This one key and no other: `--settings` can carry rules, folders and
+    // hooks, which is why a user's extra argument may not use it (ADR 0054,
+    // ADR 0049). A hand-written one in bot.yaml is the user's, and wins.
+    if (memoryFolder !== undefined && !setsSettings(session)) words.push('--settings', JSON.stringify({ autoMemoryDirectory: memoryFolder }));
   } else if (harness === 'pi') {
     // Pi trusts none of the folder's own files (`.pi/`, `.agents/skills`), so it
     // shows no trust screen and runs nothing the kit has not looked at (#578).

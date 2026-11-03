@@ -146,10 +146,25 @@ export function findProject(home) {
  * names its CLI: a build's folder is written only inside its own CLI, so the
  * kit cannot tell it from the app (#551).
  */
-export const profilesDir = () => path.join(
-  process.env.OBK_ORCA_DATA || path.join(homedir(), 'Library', 'Application Support', 'orca'),
-  'profiles',
-);
+export const profilesDir = () => path.join(orcaData(), 'profiles');
+
+const orcaData = () => process.env.OBK_ORCA_DATA || path.join(homedir(), 'Library', 'Application Support', 'orca');
+
+/**
+ * The home of the Claude profile Orca routes a new Claude tab to, or undefined
+ * when it routes none. Orca writes the path to `selected-host`, with nothing
+ * in it when no profile is routed, and removes the file when it has no accounts
+ * (read in the bundle of Orca 1.4.245, tech notes, section 2).
+ */
+export function selectedClaudeProfile() {
+  let home;
+  try {
+    home = readFileSync(path.join(orcaData(), 'claude-profiles', 'selected-host'), 'utf8').replace(/\r?\n$/, '');
+  } catch {
+    return undefined;
+  }
+  return path.isAbsolute(home) ? home : undefined;
+}
 
 /**
  * Orca's own default launch arguments, per profile it keeps:
