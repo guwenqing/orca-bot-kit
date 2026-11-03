@@ -1818,27 +1818,52 @@ export function plainTrustOf(rows, folder) {
 }
 
 /**
+ * The words of `rows` in order, each with the row it stands in. Only line wrap
+ * goes: a blank row holds no word, and a row's own two ends are not judged. The
+ * split is on one space, so two spaces inside a row give an empty word, which no
+ * screen expects.
+ */
+const wordsIn = (rows) => rows.flatMap((row) => {
+  const text = row.trim();
+  return text === '' ? [] : text.split(' ').map((word) => ({ word, row: text }));
+});
+
+/**
  * Whether Claude Code's folder trust on a tab's rendered `rows` is the plain
  * one for `folder` and nothing else (the ruling on #451, comment 5961132572):
  * undefined when the test may answer it, or what makes it a screen left alone.
- * Every non-blank row from "Accessing workspace:" down is a row of the captured
- * plain screen, CLAUDE_TRUST, with `folder`, in either spelling of a macOS temp
- * path, where that screen shows its folder; and plainTrustOf holds. A row not
- * on that list is refused by name. See test/plain-trust.test.js.
+ *
+ * From "Accessing workspace:" to its end, the screen is compared whole, as words
+ * in order, with the captured plain screen, CLAUDE_TRUST, with `folder`, in one
+ * of the three spellings of a macOS temp path, where that screen shows its
+ * folder; and plainTrustOf holds. So a changed, added, removed or moved word, or
+ * an added row, is refused at any place, naming the row it stands in. Where the
+ * rows break is not compared: Claude Code wraps the same words elsewhere in a
+ * tab of another width, and line wrap is not part of what was ruled (the
+ * architect's ruling on #722, seen live at about 131 columns). plainTrustOf
+ * still wants the folder and the two choices as rows of their own, so a screen
+ * that wraps the folder row is refused. See test/plain-trust.test.js.
  */
 export function onlyPlainTrustOf(rows, folder) {
   const from = rows.findIndex((row) => /Accessing workspace:/.test(row));
   if (from < 0) return 'it has no "Accessing workspace:" row, so it is not the screen captured as the plain folder trust';
   const captured = CLAUDE_TRUST.slice(CLAUDE_TRUST.findIndex((row) => /Accessing workspace:/.test(row)));
-  const capturedFolder = captured[1].trim();
   const bare = folder.replace(/^\/private(?=\/)/, '');
-  const allowed = new Set([
-    ...captured.map((row) => row.trim()).filter((row) => row !== '' && row !== capturedFolder),
-    folder, bare, `/private${bare}`,
-  ]);
-  const odd = rows.slice(from).find((row) => row.trim() !== '' && !allowed.has(row.trim()));
-  if (odd !== undefined) return `it carries a row the plain folder trust does not, which this test has no ruling for: ${odd.trim()}`;
-  return plainTrustOf(rows, folder);
+  const seen = wordsIn(rows.slice(from));
+  let wanted = [];
+  let same = -1;
+  for (const spelling of new Set([folder, bare, `/private${bare}`])) {
+    const words = [...wordsIn(captured.slice(0, 1)), ...wordsIn([spelling]), ...wordsIn(captured.slice(2))].map(({ word }) => word);
+    let at = 0;
+    while (at < seen.length && at < words.length && seen[at].word === words[at]) at += 1;
+    if (at === seen.length && at === words.length) return plainTrustOf(rows, folder);
+    if (at > same) {
+      same = at;
+      wanted = words;
+    }
+  }
+  if (same < seen.length) return `it carries a row the plain folder trust does not, which this test has no ruling for: ${seen[same].row}`;
+  return `it ends before the plain folder trust does: it lacks "${wanted[same]}" and what comes after it`;
 }
 
 /** The row Claude Code puts above the rules a folder pre-approves (Claude Code, seen live on #555). */
