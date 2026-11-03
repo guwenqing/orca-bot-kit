@@ -93,8 +93,7 @@ function projectRoot(home) {
   // `--separate-git-dir` puts a repository's own git folder away from its top.
   const top = !linked ? revParse(home, '--show-toplevel') : path.basename(main) === '.git' ? path.dirname(main) : undefined;
   if (top === undefined) return undefined;
-  const root = realpathSync(top);
-  return lstatSync(path.join(root, '.git'), { throwIfNoEntry: false })?.isSymbolicLink() ? undefined : root;
+  return lstatSync(path.join(top, '.git'), { throwIfNoEntry: false })?.isSymbolicLink() ? undefined : top;
 }
 
 /** Whether `folder` or a folder above it holds a `.git` entry. */
