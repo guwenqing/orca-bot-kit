@@ -30,14 +30,16 @@ export function physicalMemoryFolder(home) {
   if (profile === undefined) return undefined;
   const projects = linkedFolder(path.join(profile, 'projects'));
   if (projects === undefined) return undefined;
+  const root = projectRoot(home);
+  if (root === undefined) return undefined;
+  // Claude Code reads a project's local settings from the top of its repository as well as from the bot's folder.
   const named = [
     path.join(home, '.claude', 'settings.json'),
     path.join(home, '.claude', 'settings.local.json'),
+    path.join(root, '.claude', 'settings.local.json'),
     path.join(profile, 'settings.json'),
   ];
   if (named.some(namesMemoryFolder)) return undefined;
-  const root = projectRoot(home);
-  if (root === undefined) return undefined;
   // Claude Code holds its project root in NFC, whatever form the disk has.
   const name = slug(root.normalize('NFC'));
   return name.length > LONGEST_SLUG ? undefined : path.join(projects, name, 'memory');
@@ -76,16 +78,23 @@ function namesMemoryFolder(file) {
  * The folder Claude Code keys memory by: the top of the git repository that
  * holds `home`, the main repository's for a linked worktree, since every
  * worktree of a repository shares one memory (tech notes, section 2). With no
- * repository, it is `home` itself. Undefined when a `.git` is on the way and
- * git cannot say what it is: Claude Code finds that one itself.
+ * repository, it is `home` itself. Undefined when the kit is not sure: a `.git`
+ * is on the way and git cannot say what it is, a linked worktree's shared git
+ * folder is not named `.git`, or the `.git` at the top is a link.
  */
 function projectRoot(home) {
   const shared = revParse(home, '--git-common-dir');
   if (shared === undefined) return gitOnTheWay(home) ? undefined : realpathSync(home);
-  const main = path.resolve(home, shared);
-  if (path.basename(main) === '.git') return realpathSync(path.dirname(main));
-  const top = revParse(home, '--show-toplevel');
-  return top === undefined ? undefined : realpathSync(top);
+  const own = revParse(home, '--git-dir');
+  if (own === undefined) return undefined;
+  const main = realpathSync(path.resolve(home, shared));
+  const linked = realpathSync(path.resolve(home, own)) !== main;
+  // Only a linked worktree tells its main repository by the shared git folder:
+  // `--separate-git-dir` puts a repository's own git folder away from its top.
+  const top = !linked ? revParse(home, '--show-toplevel') : path.basename(main) === '.git' ? path.dirname(main) : undefined;
+  if (top === undefined) return undefined;
+  const root = realpathSync(top);
+  return lstatSync(path.join(root, '.git'), { throwIfNoEntry: false })?.isSymbolicLink() ? undefined : root;
 }
 
 /** Whether `folder` or a folder above it holds a `.git` entry. */

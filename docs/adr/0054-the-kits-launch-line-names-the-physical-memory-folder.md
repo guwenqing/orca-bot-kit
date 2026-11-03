@@ -20,8 +20,8 @@ The kit adds it only when all of these hold. Otherwise the line is as it was:
 
 1. Orca's `claude-profiles/selected-host` file names a profile home.
 2. The `projects` entry of that home is a symbolic link that resolves.
-3. No `autoMemoryDirectory` key is in the bot's `.claude/settings.json` or `.claude/settings.local.json`, or in the profile's `settings.json`. A file that cannot be read or parsed counts as having the key.
-4. The slug has 200 characters or fewer. Past that, Claude Code adds a hash of its own, which the kit does not copy.
+3. No `autoMemoryDirectory` key is in the bot's `.claude/settings.json` or `.claude/settings.local.json`, in the project root's `.claude/settings.local.json`, or in the profile's `settings.json`. A file that cannot be read or parsed counts as having the key.
+4. The project root is sure, and its slug has 200 characters or fewer. Past 200, Claude Code adds a hash of its own, which the kit does not copy. The root is the top of the repository that holds the bot, and for a linked worktree the top of the main repository. With no repository, it is the bot's folder. The kit is not sure when git cannot say what a `.git` on the way is, when a linked worktree's shared git folder is not named `.git`, or when the `.git` at the top is a link.
 5. The session's own `extra_args` do not hold `--settings`.
 
 This does not change ADR 0049. `--settings` stays refused as a user's extra argument. The kit's line carries this one key and no other, and a test holds that.

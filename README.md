@@ -407,8 +407,8 @@ Under an Orca Claude account, the kit's line for a Claude session also carries
 `--settings` with one key, `autoMemoryDirectory`. It names the physical folder
 behind the account's linked `projects` folder, so a session saves its memory
 with no permission dialog. The memory is the same memory, and the kit writes no
-file for this. A bot or an account that names its own `autoMemoryDirectory`
-keeps it. A conversation that began before this keeps its old path until its
+file for this. A bot, its repository or an account that names its own
+`autoMemoryDirectory` keeps it. A conversation that began before this keeps its old path until its
 next `/clear`. After Orca brings a tab back by itself, a `/clear` before a
 restart brings the dialog back; `obk health` names such a session
 ([ADR 0054](docs/adr/0054-the-kits-launch-line-names-the-physical-memory-folder.md)).
