@@ -40,7 +40,7 @@ This does not change ADR 0049. `--settings` stays refused as a user's extra argu
 - Good: a new conversation of a session that the kit starts saves its memory with no dialog and no classifier call. The memory is in the same physical folder, so a session still loads it and grooming still finds it. The flag does not turn on memory for a session that has it off.
 - Bad: three limits.
   1. After a cold restore, Orca runs a bare `claude --resume <id>` with none of the kit's flags. A conversation born with the flag keeps the physical path and passes by the auto-mode classifier. But a `/clear` before any restart begins a conversation under the profile path, and the dialog returns. `obk health` names a session the kit did not start, and its restart.
-  2. A conversation born before this keeps the profile path until its next `/clear` or a new conversation. A restart does not help, because a conversation keeps the memory instructions it began with.
+  2. A conversation born before this keeps the profile path until the session restarts with the flag and then begins a new conversation. A restart alone does not help, because a conversation keeps the memory instructions it began with. A `/clear` alone does not help, because a process that started with no flag has none to give the new conversation.
   3. The kit depends on Orca's `selected-host` file. If Orca moves it, the kit adds nothing, and the dialog returns with no memory lost.
 - Revisit if: the first limit stops sessions in use; Claude Code stops the dialog for a memory folder under a link; or Orca stops linking `projects`.
   Confidence: high on what the flag does, from the live checks in the tech notes.
@@ -48,3 +48,4 @@ This does not change ADR 0049. `--settings` stays refused as a user's extra argu
 ## History
 
 - 2026-11-03: the first record (#722).
+- 2026-11-04: the second limit now names both steps, restart and then a new conversation (#724). The decision did not change.
