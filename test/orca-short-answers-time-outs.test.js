@@ -7,7 +7,8 @@
 // bind twice, or take a second batch nobody sees. Here Orca does the command
 // at once and holds its answer back for a minute (the fake's `hang` with
 // `applied: true`), past the twenty seconds the kit gives each mailbox call,
-// and the kit asks it once.
+// and the kit asks it once. The one exception is a consuming check (#735):
+// it is asked again with the same request id, which takes nothing new.
 //
 // Each case waits those twenty seconds out, so they run side by side.
 // `obk message send` gives Orca no time limit of its own, so a send that times
@@ -18,7 +19,7 @@ import { writeFile } from 'node:fs/promises';
 import test from 'node:test';
 import { stringify } from 'yaml';
 
-import { bookIn, bookOf, createSandbox, mailboxStep, sessionIn, sh } from './helpers/cli.js';
+import { bookIn, bookOf, createSandbox, mailboxStep, orcaFlag, sessionIn, sh } from './helpers/cli.js';
 import { acksOf, consumingChecks, modelOrca, ORCA_MODELS, shownCalls, takenCallsOf } from './helpers/orca-versions.js';
 
 /** How long Orca holds its answer back: far past the kit's own limit for a call. */
@@ -119,7 +120,7 @@ test('#729 10: a command that writes and that Orca does not answer in time is as
       assert.deepEqual(takenCallsOf(version, calls, 'orchestration run-create'), [], 'and made no Run in its place');
     }));
 
-    cases.push(t.test(`on Orca ${version}: a consuming check Orca did and did not answer is asked once`, { timeout: CASE_MS }, async (t) => {
+    cases.push(t.test(`on Orca ${version}: a consuming check Orca did and did not answer takes once: every repeat carries its request id (#735)`, { timeout: CASE_MS }, async (t) => {
       const box = await createSandbox(t);
       await fleetIn(box);
       await mailCoder(box);
@@ -129,8 +130,15 @@ test('#729 10: a command that writes and that Orca does not answer in time is as
 
       await gaveUp(() => check(box));
 
+      // #735: a read Orca did not answer is asked again while the check's hold
+      // lasts, with the same request id, which Orca answers from what it kept
+      // and takes nothing new. A repeat with no id, or a new one, would take a
+      // second batch nobody sees.
       const reads = consumingChecks(version, await callsSince(box, from));
-      assert.equal(reads.length, 1, `Orca was asked for the mail once, got:\n${shownCalls(reads)}`);
+      const ids = new Set(reads.map((call) => orcaFlag(call, '--retry-request')));
+      assert.ok(reads.length >= 1, `Orca was asked for the mail, got:\n${shownCalls(reads)}`);
+      assert.equal(ids.size, 1, `every read carries one and the same request id, got:\n${shownCalls(reads)}`);
+      assert.notEqual([...ids][0], undefined, `and it has one, got:\n${shownCalls(reads)}`);
     }));
 
     cases.push(t.test(`on Orca ${version}: an acknowledgement Orca did and did not answer is asked at most once`, { timeout: CASE_MS }, async (t) => {

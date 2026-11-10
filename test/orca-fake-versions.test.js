@@ -197,3 +197,150 @@ test('#729 a knob with `with` is aimed only at calls that carry that flag, and a
   assert.deepEqual(sent, { ...sent, ok: true, result: { status: 'queued' } });
   assert.equal((await box.orca.messages()).length, 2, 'the send was done all the same');
 });
+
+// ------------------------------------------------------------- request ids on check (#735)
+//
+// A consuming `check` given `--retry-request <uuid>` keeps its answer under
+// that id, and the same id again answers the kept answer and changes nothing
+// (read in Orca's source at tags v1.4.245, v1.4.246 and v1.4.255). The kit's
+// #735 tests rest on this, so the fake is held to it here.
+
+/** Two request ids of the shape Orca takes. */
+const FIRST_ID = '0d6f5c1e-7a2b-4c3d-9e8f-1a2b3c4d5e6f';
+const SECOND_ID = '9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d';
+
+/** A consuming check of term_a's Run with request id `id`, and `extra` flags. */
+const keyedCheck = (box, run, id, extra = []) => ask(box, ['orchestration', 'check', '--run', run, '--terminal', 'term_a', '--retry-request', id, ...extra]);
+
+/** What a check may change: the letters and their marks, and the deliveries. */
+const mailState = async (box) => {
+  const state = await box.orca.state();
+  return { messages: state.messages ?? [], deliveries: state.deliveries ?? [] };
+};
+
+for (const version of [undefined, ORCA_SHORT, ORCA_NO_FULL]) {
+  const named = version ?? 'as it always was';
+  // On 1.4.255 the full answer is asked for, as the kit asks; 1.4.245 knows no --full.
+  const full = version === ORCA_NO_FULL ? [] : ['--full'];
+
+  test(`#735 on the fake ${named}: the same request id answers the kept batch again and changes nothing; a new id is a new read`, async (t) => {
+    const box = await orcaWithTab(t, version);
+    const run = runIn(box, version);
+    mailTo(box, run, 3);
+
+    const first = keyedCheck(box, run, FIRST_ID, full);
+    const after = await mailState(box);
+    const again = keyedCheck(box, run, FIRST_ID, full);
+
+    assert.equal(first.ok, true, JSON.stringify(first));
+    assert.deepEqual(first.result.messages.map((message) => message.subject), ['note 1', 'note 2', 'note 3']);
+    assert.deepEqual(first.result.mutation, { requestId: FIRST_ID, replayed: false });
+    assert.equal(again.ok, true, JSON.stringify(again));
+    assert.deepEqual(again.result.messages.map((message) => message.id), first.result.messages.map((message) => message.id), 'the same letters');
+    assert.equal(again.result.deliveryId, first.result.deliveryId, 'under the same delivery');
+    assert.deepEqual(again.result.mutation, { requestId: FIRST_ID, replayed: true });
+    assert.deepEqual(await mailState(box), after, 'and nothing changed');
+
+    const fresh = keyedCheck(box, run, SECOND_ID, full).result;
+    if (version === ORCA_SHORT) {
+      assert.deepEqual(fresh.messages, [], 'on 1.4.255 the batch was acknowledged as handed over, so a new read finds none');
+    } else {
+      // An older Orca hands an unacknowledged delivery over again to any read.
+      assert.equal(fresh.deliveryId, first.result.deliveryId);
+      assert.equal(fresh.replayed, true);
+    }
+  });
+
+  test(`#735 on the fake ${named}: the same request id with other input is refused request_mismatch, and an id that is not a UUID invalid_argument, with nothing done`, async (t) => {
+    const box = await orcaWithTab(t, version);
+    const run = runIn(box, version);
+    mailTo(box, run, 2);
+    assert.equal(keyedCheck(box, run, FIRST_ID, full).ok, true);
+    mailTo(box, run, 1);
+    const before = await mailState(box);
+
+    const other = keyedCheck(box, run, FIRST_ID, [...full, '--types', 'status']);
+    const notUuid = keyedCheck(box, run, 'req-1', full);
+
+    assert.equal(other.ok, false);
+    assert.equal(other.exit, 1);
+    assert.equal(other.error.code, 'request_mismatch');
+    assert.equal(other.error.message, `Mutation request ${FIRST_ID} was already used with different input.`);
+    assert.equal(notUuid.ok, false);
+    assert.equal(notUuid.error.code, 'invalid_argument');
+    assert.match(notUuid.error.message, /--retry-request must be the UUID/);
+    assert.deepEqual(await mailState(box), before, 'nothing was taken or acknowledged');
+  });
+}
+
+test('#735 on the fake: flag order does not change the input, and a peek with a request id keeps nothing', async (t) => {
+  const box = await orcaWithTab(t, ORCA_SHORT);
+  const run = runIn(box, ORCA_SHORT);
+  mailTo(box, run, 2);
+
+  const peek = ask(box, ['orchestration', 'check', '--run', run, '--terminal', 'term_a', '--peek', '--retry-request', FIRST_ID, '--full']);
+  const read = keyedCheck(box, run, FIRST_ID, ['--full']);
+  const reordered = ask(box, ['orchestration', 'check', '--retry-request', FIRST_ID, '--terminal', 'term_a', '--run', run]);
+
+  assert.equal(peek.result.messages.length, 2, 'the peek is answered as ever');
+  assert.deepEqual(read.result.mutation, { requestId: FIRST_ID, replayed: false }, 'the read after it is new: the peek kept nothing');
+  assert.equal(read.result.messages.length, 2);
+  assert.equal(reordered.ok, true, 'the same flags in another order, and without --full, are the same input');
+  assert.deepEqual(reordered.result.messages.map((message) => message.id), read.result.messages.map((message) => message.id), 'answered in the short view from the kept answer');
+  assert.equal('mutation' in reordered.result, false, 'the short view carries no mutation');
+});
+
+test('#735 on the fake: a check whose answer a hang holds back is kept all the same; one that never reached Orca keeps nothing', async (t) => {
+  // Each first call is cut off by the caller after a second, as the kit's
+  // time limit cuts off a call that Orca does not answer.
+  const box = await orcaWithTab(t, ORCA_SHORT);
+  const run = runIn(box, ORCA_SHORT);
+  mailTo(box, run, 2);
+  const cutOff = (id) => spawnSync(box.orca.cli, ['orchestration', 'check', '--run', run, '--terminal', 'term_a', '--retry-request', id, '--full', '--json'], {
+    cwd: box.cwd, env: box.env, encoding: 'utf8', timeout: 1000,
+  });
+  const checksSoFar = async () => (await box.orca.calls()).filter((call) => call.args[1] === 'check').length;
+
+  await box.orca.set({ hang: { command: 'orchestration check', ms: 60_000, applied: true, from: await checksSoFar(), times: 1 } });
+  const late = cutOff(FIRST_ID);
+  const taken = (await box.orca.messages()).filter((message) => message.acked).length;
+  const again = keyedCheck(box, run, FIRST_ID, ['--full']).result;
+
+  assert.equal(late.error?.code, 'ETIMEDOUT', 'the premise: the caller gave up on the answer');
+  assert.equal(taken, 2, 'Orca took the batch all the same');
+  assert.deepEqual(again.messages.map((message) => message.subject), ['note 1', 'note 2'], 'the same id gives the batch the late call took');
+  assert.equal(again.mutation.replayed, true);
+
+  mailTo(box, run, 1);
+  await box.orca.set({ hang: { command: 'orchestration check', ms: 60_000, from: await checksSoFar(), times: 1 } });
+  const lost = cutOff(SECOND_ID);
+  const untaken = (await box.orca.messages()).filter((message) => !message.acked).map((message) => message.id);
+  const retried = keyedCheck(box, run, SECOND_ID, ['--full']).result;
+
+  assert.equal(lost.error?.code, 'ETIMEDOUT', 'the premise: the caller gave up on the answer');
+  assert.equal(untaken.length, 1, 'a call that never reached Orca took nothing: the third letter is still unread');
+  assert.deepEqual(retried.messages.map((message) => message.id), untaken, 'so the same id runs as a new read, and takes it');
+  assert.equal(retried.mutation.replayed, false);
+});
+
+test('#735 on the fake: an Orca that does not know --retry-request on check refuses it with nothing done, and names the first unknown flag', async (t) => {
+  const box = await orcaWithTab(t, ORCA_NO_FULL);
+  const run = runIn(box, ORCA_NO_FULL);
+  mailTo(box, run, 1);
+  await box.orca.set({ retryRequestUnknown: true });
+  const before = await mailState(box);
+
+  const refused = keyedCheck(box, run, FIRST_ID);
+  const both = ask(box, ['orchestration', 'check', '--run', run, '--terminal', 'term_a', '--retry-request', FIRST_ID, '--full']);
+  const untouched = await mailState(box);
+  const plain = ask(box, ['orchestration', 'check', '--run', run, '--terminal', 'term_a']);
+
+  assert.equal(refused.ok, false);
+  assert.equal(refused.exit, 1);
+  assert.equal(refused.error.code, 'invalid_argument');
+  assert.equal(refused.error.message, 'Unknown flag --retry-request for command: orchestration check');
+  assert.equal(both.error.message, 'Unknown flag --retry-request for command: orchestration check', 'the first unknown flag given is named');
+  assert.deepEqual(untouched, before, 'nothing was taken');
+  assert.equal(plain.ok, true, 'a check without the flag goes through');
+  assert.deepEqual(plain.result.messages.map((message) => message.subject), ['note 1']);
+});
