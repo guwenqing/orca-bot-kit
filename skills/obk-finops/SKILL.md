@@ -119,6 +119,9 @@ A usual shape: high effort for the session that orchestrates, medium for the
 ones doing the work, and the top of the range only for deep read-only
 analysis.
 
+A bot can also carry its own rule on the model each subagent gets: see "How
+its sessions choose a subagent's model" in the obk-bot-building skill.
+
 ## When a model is not up to the work
 
 The signs are in the work, not in the answers. The same instruction given
