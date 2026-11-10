@@ -14,14 +14,23 @@
 // This reads the system tests as text; it runs none of them. For each file in
 // test/system/ it holds:
 //
-//   - the file reads no `autoModeEnvSetup` itself: the word is not in its code.
-//     A comment does not count, and nor does a string that only names the key
-//     in a longer text, such as an assertion message. A string that is the key
-//     and nothing else counts, because it can only be there to read it, as in
-//     `held['autoModeEnvSetup']`;
+//   - the file reads no `autoModeEnvSetup` itself. A read is the key as a name
+//     in code (`held.autoModeEnvSetup`, `{ autoModeEnvSetup } = held`), or the
+//     key as a string in a subscript, before `in`, or before a `:`
+//     (`held['autoModeEnvSetup']`). A comment is no read, and nor is a string
+//     anywhere else: a message may name the key, alone or in a longer text,
+//     because a key name is no value. Without a parser the check cannot follow
+//     the key through a variable (`const key = '…'; held[key]`), so that read
+//     is not named;
 //   - a file that calls `autoModeState(` imports `autoModeState` and
-//     `sessionRecordFiles` from '../helpers/teach-record.js', and calls
-//     `sessionRecordFiles(`.
+//     `sessionRecordFiles` from '../helpers/teach-record.js', under their own
+//     names or another name the calls use, and calls `sessionRecordFiles(`;
+//   - each `autoModeState(` call gets the files that a `sessionRecordFiles(`
+//     call gave, so it looks at the records of the test's own session and not
+//     at a guessed list: its argument is `R.files` or `sessionRecordFiles(…).files`,
+//     or a name bound from one of them (`const { files } = R`, or
+//     `const files = R.files`), where `const R = sessionRecordFiles(…)`. The
+//     check reads no scopes: a name bound so anywhere in the file counts.
 //
 // A file that answers the Teach form and checks nothing after it is not named:
 // #745 does not ask it to add a check.
@@ -59,6 +68,7 @@ const READS = `it reads ${KEY} itself: only test/helpers/teach-record.js may`;
 const NO_STATE_IMPORT = `it calls autoModeState( but does not import autoModeState from '${HELPER}'`;
 const NO_FILES_IMPORT = `it calls autoModeState( but does not import sessionRecordFiles from '${HELPER}'`;
 const NO_FILES_CALL = 'it calls autoModeState( but does not call sessionRecordFiles( to find its own session\'s records';
+const NOT_OWN_RECORDS = 'it calls autoModeState( with files that no sessionRecordFiles( call gave: its own session\'s records are not what it looks at';
 
 /** Where the regular expression that would start at the `/` at `at` ends, its closing slash on the same line, or -1. */
 function regexEnd(source, at) {
@@ -186,29 +196,87 @@ function codeOf(source, { regex = true } = {}) {
   return out;
 }
 
-/** The names `code` imports from the helper as they are, not renamed. */
+/** A JavaScript name. */
+const NAME = '[A-Za-z_$][\\w$]*';
+
+/** `text` made safe to put in a regular expression. */
+const escaped = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** What `code` imports from the helper: each name it imports, mapped to the name the file uses for it. */
 function importedFromHelper(code) {
-  const names = new Set();
+  const names = new Map();
   const from = /\bimport\s*\{([^}]*)\}\s*from\s*(['"])\.\.\/helpers\/teach-record\.js\2/g;
   for (const [, list] of code.matchAll(from)) {
     for (const spec of list.split(',')) {
-      const name = spec.trim();
-      if (/^[A-Za-z_$][\w$]*$/.test(name)) names.add(name);
+      const parts = spec.trim().match(new RegExp(`^(${NAME})(?:\\s+as\\s+(${NAME}))?$`));
+      if (parts !== null) names.set(parts[1], parts[2] ?? parts[1]);
     }
   }
   return names;
 }
 
+/** True when `code` reads the key: as a name in code, or as a string in a subscript, before `in`, or before a `:`. */
+function readsKey(code) {
+  const asName = new RegExp(`(?<![\\w$'"\`])${KEY}(?![\\w$'"\`])`);
+  // A subscript follows a name, a `)`, a `]` or `?.`, so an array literal `['…']` is no read.
+  // A `:` counts after `{` or `,` only, as a key in a destructure, so a ternary's `? '…' :` is no read.
+  const asString = new RegExp(`(?:[\\w$)\\]]|\\?\\.)\\s*\\[\\s*(['"\`])${KEY}\\1\\s*\\]|(['"\`])${KEY}\\2\\s*\\bin\\b|[{,]\\s*(['"\`])${KEY}\\3\\s*:`);
+  return asName.test(code) || asString.test(code);
+}
+
+/** The text of the argument list of each call `name(` in `code`, trimmed; a `function name(` is no call. */
+function argumentsOf(code, name) {
+  const found = [];
+  const call = new RegExp(`(?<!\\bfunction\\s+)(?<![\\w$.])${escaped(name)}\\s*\\(`, 'g');
+  for (const match of code.matchAll(call)) {
+    let depth = 1;
+    let at = match.index + match[0].length;
+    const start = at;
+    for (; at < code.length && depth > 0; at += 1) {
+      if (code[at] === '(') depth += 1;
+      else if (code[at] === ')') depth -= 1;
+    }
+    found.push(code.slice(start, at - 1).trim());
+  }
+  return found;
+}
+
+/**
+ * The arguments that hand on the files a call of `filesName` gave: `R.files`
+ * and `filesName(…).files`, and each name bound from one of them, where
+ * `const R = filesName(…)` (`let` and `var` too, with or without `await`).
+ */
+function ownRecordsIn(code, filesName) {
+  // Its arguments may hold one level of parentheses, as in `sessionRecordFiles(path.join(a, b))`.
+  const callText = `${escaped(filesName)}\\s*\\([^()]*(?:\\([^()]*\\)[^()]*)*\\)`;
+  const results = [...code.matchAll(new RegExp(`\\b(?:const|let|var)\\s+(${NAME})\\s*=\\s*(?:await\\s+)?${callText}`, 'g'))].map(([, name]) => name);
+  const sources = [...results.map(escaped), callText].join('|');
+  const accepted = [new RegExp(`^(?:${sources})\\s*\\??\\.\\s*files$`)];
+  const names = new Set();
+  for (const [, list] of code.matchAll(new RegExp(`\\{([^{}]*)\\}\\s*=\\s*(?:await\\s+)?(?:${sources})(?![\\w$])`, 'g'))) {
+    for (const spec of list.split(',')) {
+      const parts = spec.trim().match(new RegExp(`^files(?:\\s*:\\s*(${NAME}))?$`));
+      if (parts !== null) names.add(parts[1] ?? 'files');
+    }
+  }
+  for (const [, name] of code.matchAll(new RegExp(`\\b(?:const|let|var)\\s+(${NAME})\\s*=\\s*(?:await\\s+)?(?:${sources})\\s*\\??\\.\\s*files(?![\\w$])`, 'g'))) names.add(name);
+  return (arg) => names.has(arg) || accepted.some((form) => form.test(arg));
+}
+
 /** What is wrong in one reading of a system test's code. */
 function troubleInCode(code) {
   const found = [];
-  if (new RegExp(`\\b${KEY}\\b`).test(code)) found.push(READS);
-  if (/(?<!\bfunction\s+)\bautoModeState\s*\(/.test(code)) {
-    const names = importedFromHelper(code);
-    if (!names.has('autoModeState')) found.push(NO_STATE_IMPORT);
-    if (!names.has('sessionRecordFiles')) found.push(NO_FILES_IMPORT);
-    if (!/\bsessionRecordFiles\s*\(/.test(code)) found.push(NO_FILES_CALL);
-  }
+  if (readsKey(code)) found.push(READS);
+  const names = importedFromHelper(code);
+  const stateName = names.get('autoModeState') ?? 'autoModeState';
+  const stateArgs = argumentsOf(code, stateName);
+  if (stateArgs.length === 0) return found;
+  if (!names.has('autoModeState')) found.push(NO_STATE_IMPORT);
+  if (!names.has('sessionRecordFiles')) found.push(NO_FILES_IMPORT);
+  const filesName = names.get('sessionRecordFiles') ?? 'sessionRecordFiles';
+  if (argumentsOf(code, filesName).length === 0) found.push(NO_FILES_CALL);
+  const own = ownRecordsIn(code, filesName);
+  if (!stateArgs.every(own)) found.push(NOT_OWN_RECORDS);
   return found;
 }
 
@@ -262,7 +330,7 @@ test('the check passes a system test that checks the Teach form through the help
 });
 
 test('the check names a system test that reads the key itself, and checks the Teach form without the helper', () => {
-  assert.deepEqual(teachTrouble(OWN_READ), [READS, NO_STATE_IMPORT, NO_FILES_IMPORT, NO_FILES_CALL]);
+  assert.deepEqual(teachTrouble(OWN_READ), [READS, NO_STATE_IMPORT, NO_FILES_IMPORT, NO_FILES_CALL, NOT_OWN_RECORDS]);
 });
 
 test('the check passes a system test that answers the Teach form and checks nothing after it', () => {
@@ -283,7 +351,7 @@ test('the check is not fooled by comments: a read in a comment is none, and an i
 
   const callInComment = THROUGH_HELPER.replace('  const found = sessionRecordFiles(home);\n', '  const found = {}; // sessionRecordFiles(home)\n');
   assert.notEqual(callInComment, THROUGH_HELPER, 'the premise: the case was rewritten');
-  assert.deepEqual(teachTrouble(callInComment), [NO_FILES_CALL]);
+  assert.deepEqual(teachTrouble(callInComment), [NO_FILES_CALL, NOT_OWN_RECORDS]);
 });
 
 test('the check names a read of the key in any shape of code: a property, a string key, a name taken out, or code inside a message', () => {
@@ -293,6 +361,7 @@ test('the check names a read of the key in any shape of code: a property, a stri
     'const held = JSON.parse(text)[`autoModeEnvSetup`];',
     'const { autoModeEnvSetup } = JSON.parse(text);',
     "const there = 'autoModeEnvSetup' in JSON.parse(text);",
+    "const { 'autoModeEnvSetup': held } = JSON.parse(text);",
     't.diagnostic(`stayed ${JSON.stringify(JSON.parse(text).autoModeEnvSetup)}`);',
   ];
   for (const read of reads) assert.deepEqual(teachTrouble(`${THROUGH_HELPER}${read}\n`), [READS], read);
@@ -303,7 +372,18 @@ test('the check is not fooled by strings: a string that names the key in a longe
   assert.deepEqual(teachTrouble(inStrings), []);
 
   const callOnlyInString = "import { autoModeState, sessionRecordFiles } from '../helpers/teach-record.js';\nconst was = autoModeState(files);\nt.diagnostic('sessionRecordFiles(home) found them');\n";
-  assert.deepEqual(teachTrouble(callOnlyInString), [NO_FILES_CALL], 'a call named in a string is no call');
+  assert.deepEqual(teachTrouble(callOnlyInString), [NO_FILES_CALL, NOT_OWN_RECORDS], 'a call named in a string is no call');
+});
+
+test('the check passes a string that is the key name and nothing else, where it is no read: a key name is no value', () => {
+  const names = [
+    "t.diagnostic('autoModeEnvSetup');",
+    'assert.equal(now, was, `autoModeEnvSetup`);',
+    'const key = "autoModeEnvSetup";',
+    "t.diagnostic(changed ? 'autoModeEnvSetup' : 'nothing');",
+    "assert.deepEqual(keys, ['autoModeEnvSetup']);",
+  ];
+  for (const name of names) assert.deepEqual(teachTrouble(`${THROUGH_HELPER}${name}\n`), [], name);
 });
 
 test('the check names a system test that takes the two functions from another helper, or under another name', () => {
@@ -313,7 +393,44 @@ test('the check names a system test that takes the two functions from another he
 
   const renamed = THROUGH_HELPER.replace('import { autoModeState, sessionRecordFiles }', 'import { autoModeState, sessionRecordFiles as recordFiles }');
   assert.notEqual(renamed, THROUGH_HELPER, 'the premise: the case was rewritten');
-  assert.deepEqual(teachTrouble(renamed), [NO_FILES_IMPORT]);
+  assert.deepEqual(teachTrouble(renamed), [NO_FILES_CALL, NOT_OWN_RECORDS], 'renamed in the import, but called by its own name');
+});
+
+test('the check passes the two functions imported under other names, when the calls use those names', () => {
+  const aliased = THROUGH_HELPER
+    .replace('import { autoModeState, sessionRecordFiles }', 'import { sessionRecordFiles as recordsOf, autoModeState as stateOf }')
+    .replace('sessionRecordFiles(home)', 'recordsOf(home)')
+    .replaceAll('autoModeState(files)', 'stateOf(files)');
+  assert.notEqual(aliased, THROUGH_HELPER, 'the premise: the case was rewritten');
+  assert.ok(!/autoModeState\(|sessionRecordFiles\(/.test(aliased), 'the premise: every call uses its alias');
+  assert.deepEqual(teachTrouble(aliased), []);
+});
+
+test('the check names an autoModeState( call that looks at a guessed list, not at the files sessionRecordFiles( gave', () => {
+  const guessed = THROUGH_HELPER.replaceAll('autoModeState(files)', "autoModeState(['/guessed/.claude.json'])");
+  assert.notEqual(guessed, THROUGH_HELPER, 'the premise: the case was rewritten');
+  assert.deepEqual(teachTrouble(guessed), [NOT_OWN_RECORDS]);
+
+  const oneGuessed = THROUGH_HELPER.replace('const now = autoModeState(files);', 'const now = autoModeState(guessedFiles);');
+  assert.notEqual(oneGuessed, THROUGH_HELPER, 'the premise: the case was rewritten');
+  assert.deepEqual(teachTrouble(oneGuessed), [NOT_OWN_RECORDS], 'one call of two on a guessed list');
+
+  const otherResult = THROUGH_HELPER.replace('  const { files } = found;\n', '  const { files } = guess;\n');
+  assert.notEqual(otherResult, THROUGH_HELPER, 'the premise: the case was rewritten');
+  assert.deepEqual(teachTrouble(otherResult), [NOT_OWN_RECORDS], 'files taken out of something that is not a sessionRecordFiles( result');
+});
+
+test('the check passes each way of handing on the files sessionRecordFiles( gave', () => {
+  const head = "import { autoModeState, sessionRecordFiles } from '../helpers/teach-record.js';\n";
+  const forms = [
+    'const found = sessionRecordFiles(home);\nconst was = autoModeState(found.files);',
+    'const found = sessionRecordFiles(home);\nconst was = autoModeState(found?.files);',
+    'const was = autoModeState(sessionRecordFiles(home).files);',
+    'const found = sessionRecordFiles(path.join(bots, name));\nconst { files: records } = found;\nconst was = autoModeState(records);',
+    'const found = await sessionRecordFiles(home, { env });\nconst records = found.files;\nconst was = autoModeState(records);',
+    'const { files, why } = sessionRecordFiles(home);\nconst was = autoModeState(files);',
+  ];
+  for (const form of forms) assert.deepEqual(teachTrouble(`${head}${form}\n`), [], form);
 });
 
 test('a misread slash never hides a read: a quote in a regular expression, or a division the check takes for one', () => {
