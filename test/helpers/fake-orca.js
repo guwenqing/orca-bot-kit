@@ -338,9 +338,12 @@
 //               never lists it. It changes nothing for a terminal that has not
 //               been closed, or for a close with no lag. Read in Orca 1.4.255's
 //               source: `terminal list` gives every pane in the window's graph
-//               `connected` (the pane connected and its pty live), so a row
-//               with `connected: false` and `orphaned: false` is a pane the
-//               window still draws whose process is gone. That row, held for
+//               `connected` (the pane's own flag and its pty live), so a row
+//               with `connected: false` and `orphaned: false` is a pane still
+//               in the window's graph. The row alone does not prove that its
+//               process ended: a pane whose own flag is false is listed so
+//               while its pty is live, which is why the kit also reads
+//               `diagnostics memory`. That row, held for
 //               minutes after the harness had stopped, is from the report in
 //               #733; a live probe on 2026-11-10 did not show it. That probe
 //               saw the closed tab listed `connected: true` for about 2 s, and

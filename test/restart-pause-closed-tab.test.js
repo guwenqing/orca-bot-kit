@@ -26,6 +26,7 @@ import {
   BOT,
   assertWaitRefusal,
   callCount,
+  closeRefused,
   closedSince,
   closesLinger,
   createdSince,
@@ -66,6 +67,33 @@ test('R4 obk restart --session still stops, and opens nothing, when the closed t
   assertWaitRefusal(result, builder.tabId);
   assert.deepEqual(await closedSince(box, from), [builder.handle], 'it asked for the close of builder\'s tab alone');
   assert.deepEqual(await createdSince(box, from), [], 'and opened nothing in the tab\'s place');
+});
+
+test('R4 obk restart stopped by a refused close still names the session closed before it and obk up, which brings it back', async (t) => {
+  // The same partial close as the whole-bot retire's in
+  // retire-closed-tab.test.js: builder's tab closes, then Orca refuses both
+  // forms of the close of ops's tab. A restart brings sessions back, so its
+  // message still points at up (the review of PR #740, point 1).
+  const box = await createSandbox(t);
+  const bots = await fleet(box, ['builder', 'ops']);
+  const builder = await liveTab(box, bots, 'builder');
+  const ops = await liveTab(box, bots, 'ops');
+  await reported(box, bots, builder, 'sess-builder');
+  await reported(box, bots, ops, 'sess-ops');
+  await closeRefused(box, ops.handle);
+  const from = await callCount(box);
+
+  const result = await box.run(['restart', '--bots', 'bots', '--bot', BOT]);
+
+  assert.deepEqual(
+    (await closedSince(box, from)).slice(0, 2),
+    [builder.handle, ops.handle],
+    'the premise: builder\'s tab is closed first, then the close of ops\'s tab is asked for',
+  );
+  assert.equal(result.code, 1, `the restart should stop, got exit ${result.code}:\n${result.stdout}${result.stderr}`);
+  assert.ok(result.stderr.includes('builder'), `the refusal should name builder, closed before it, got: ${result.stderr}`);
+  assert.ok(/\sup\s+--bots\b/.test(result.stderr), `and point at obk up, got: ${result.stderr}`);
+  assert.deepEqual(await createdSince(box, from), [], 'and opened nothing');
 });
 
 test('R4 obk pause still stops when the closed tab is still listed disconnected with no pty', async (t) => {

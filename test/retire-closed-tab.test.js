@@ -38,6 +38,7 @@ import {
   assertRetired,
   assertWaitRefusal,
   callCount,
+  closeRefused,
   closedSince,
   closesLinger,
   exists,
@@ -161,6 +162,41 @@ test('R3 the refusal of obk retire of a whole bot names the tab and the retire t
   assert.ok(/\bretire\b/.test(result.stderr), `the refusal should say to run the retire again, got: ${result.stderr}`);
   assert.ok(!NAMES_UP.test(result.stderr), `and not point at obk up, which brings a session back, got: ${result.stderr}`);
   assert.equal(await exists(botHomeOf(bots, BOT)), true, 'and the bot is not moved');
+});
+
+test('R3 a whole-bot retire stopped by a refused close names the session closed before it and the retire to run again, and not obk up', async (t) => {
+  // The review of PR #740, point 1: builder's tab closes, then Orca refuses
+  // both forms of the close of ops's tab. The kit stops there with builder
+  // already closed. For a retire, the next step is the same retire again, not
+  // an up that would bring builder back.
+  const box = await createSandbox(t);
+  const bots = await fleet(box, ['builder', 'ops']);
+  const builder = await liveTab(box, bots, 'builder');
+  const ops = await liveTab(box, bots, 'ops');
+  await reported(box, bots, builder, 'sess-builder');
+  await reported(box, bots, ops, 'sess-ops');
+  const setup = (await box.orca.setups()).find((one) => one.path === botHomeOf(bots, BOT));
+  assert.ok(setup, 'the premise: up made the bot an Orca project');
+  await closeRefused(box, ops.handle);
+  const from = await callCount(box);
+
+  const result = await retire(box);
+
+  assert.deepEqual(
+    (await closedSince(box, from)).slice(0, 2),
+    [builder.handle, ops.handle],
+    'the premise: builder\'s tab is closed first, then the close of ops\'s tab is asked for',
+  );
+  assert.equal(result.code, 1, `the retire should stop, got exit ${result.code}:\n${result.stdout}${result.stderr}`);
+  assert.equal(result.stdout, '', `a refusal prints nothing on stdout, got: ${result.stdout}`);
+  assert.ok(!/^\s+at /m.test(result.stderr), `expected a message, got a crash:\n${result.stderr}`);
+  assert.ok(result.stderr.includes('builder'), `the refusal should name builder, closed before it, got: ${result.stderr}`);
+  assert.ok(/\bretire\b/.test(result.stderr), `and say to run the retire again, got: ${result.stderr}`);
+  assert.ok(result.stderr.includes(BOT), `naming the bot, got: ${result.stderr}`);
+  assert.ok(!NAMES_UP.test(result.stderr), `and not point at obk up, which would bring builder back, got: ${result.stderr}`);
+  assert.equal(await exists(botHomeOf(bots, BOT)), true, 'the bot stays in bots/');
+  assert.equal(await exists(retiredHome(bots)), false, 'and is not moved under retired/');
+  assert.equal((await box.orca.setups()).some((one) => one.id === setup.id), true, 'and its Orca project is not deleted');
 });
 
 // ------------------------------------------------------------------ R5

@@ -129,7 +129,7 @@ export async function closeTabs(home, going, bots, name, again, { retiring = fal
       // A tab that would not close still holds its session, so nothing is
       // opened after this: two harnesses on one conversation is worse than a
       // restart that did not happen.
-      throw new Error(alsoClosed(error.message, closed, bots, name));
+      throw new Error(alsoClosed(error.message, closed, bots, name, retiring ? again : undefined));
     }
     closed.push({ bot: name, name: session, tabId: tab.tabId, terminal: tab.handle });
   }
@@ -194,11 +194,14 @@ const ASK_MS = 100;
  * place, and what it must not leave behind is a live harness (#733). Orca
  * 1.4.255 can go on listing a closed tab for minutes, `connected: false`,
  * after its process has ended: a pane its window still holds (tech notes,
- * section 1). So once the wait is over, a tab of the retire's counts as gone
- * when every row Orca lists for it says `connected: false` with the pty the
- * kit closed, and Orca holds no process for that pty. Anything the kit cannot
- * read is "cannot tell", and the retire stops as before, with the retire to
- * run again: the user wants the session gone, not back.
+ * section 1). That row alone does not prove the process ended, since a pane
+ * can say it is not connected while its pty is live, and so Orca's own list
+ * of live ptys is read too. Once the wait is over, a tab of the retire's
+ * counts as gone when every row Orca lists for it says `connected: false`
+ * with the pty the kit closed, and Orca holds no process for that pty.
+ * Anything the kit cannot read is "cannot tell", and the retire stops as
+ * before, with the retire to run again: the user wants the session gone, not
+ * back.
  */
 async function gone(home, closed, bots, bot, retire) {
   // Nothing closed is nothing to wait for, and a bot that has never been up has
@@ -261,10 +264,17 @@ function cannotComeBack(bots, bot, name, was) {
   ].join(' ');
 }
 
-/** What a failed close owes whoever is reading: the tabs that went before it. */
-function alsoClosed(why, closed, bots, bot) {
+/**
+ * What a failed close owes whoever is reading: the tabs that went before it.
+ * For a retire, given as the command to run again, the way on is that retire,
+ * not `up`: the user wants those sessions gone, not back (#733).
+ */
+function alsoClosed(why, closed, bots, bot, retireAgain) {
   if (closed.length === 0) return why;
 
   const one = closed.length === 1;
+  if (retireAgain !== undefined) {
+    return `${why} ${closed.map((tab) => tab.name).join(', ')} ${one ? 'was' : 'were'} closed before it, and nothing more was retired. Once that tab can be closed, run the same retire again: ${retireAgain}`;
+  }
   return `${why} ${closed.map((tab) => tab.name).join(', ')} ${one ? 'was' : 'were'} closed before it and nothing was opened in ${one ? 'its' : 'their'} place: ${shellWord(ownCli())} up --bots ${shellWord(bots)} --bot ${bot} brings ${one ? 'it' : 'them'} back with ${one ? 'its' : 'their'} conversation.`;
 }

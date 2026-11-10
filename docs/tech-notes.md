@@ -508,8 +508,10 @@ project → repo (`kind: "git" | "folder"`) → worktree (id = `<repoId>::<absPa
      with `connected` true only when the pane says it is connected and its pty is in Orca's live
      inventory. It also has one row for each connected pty that no pane holds, `orphaned: true`.
      A pty that is not connected and is held by no pane is not listed. So a row with
-     `connected: false, orphaned: false` is a pane that the window still holds after its process
-     ended. What keeps the pane in the graph for minutes is not known. **read in code**
+     `connected: false, orphaned: false` is a pane that the window still holds. The row alone does
+     not prove that its process ended: the pane's own flag can be false while its pty is live
+     (`connected: !c && e.connected`). In source 1 the process had ended, by `ps`. What keeps the
+     pane in the graph for minutes is not known. **read in code**
   3. Measured by a probe (2026-11-10, 02:31 EST, Orca 1.4.255, four plain shell tabs in a throwaway
      project, nobody using the window): after `close --tab` (answered `ptyKilled: false`), each tab
      was listed `connected: true`, first as itself and then `orphaned: true` under `pty:<ptyId>`.

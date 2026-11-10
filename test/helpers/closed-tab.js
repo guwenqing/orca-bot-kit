@@ -84,6 +84,18 @@ export async function closesLinger(box, closingAs) {
   await box.orca.set({ closeLag: FOREVER, ...(closingAs === undefined ? {} : { closingAs }) });
 }
 
+/**
+ * Orca refuses both forms of the close of this one tab, `--tab` and without
+ * it, in words that name no session (the fake's `refuseClose`). The code is
+ * the one the review of PR #740 reproduced; not a refusal seen live.
+ */
+export async function closeRefused(box, handle) {
+  const refusal = { code: 'permission_denied', message: 'the close was refused' };
+  await box.orca.set({
+    terminals: (await box.orca.terminals()).map((one) => (one.handle === handle ? { ...one, refuseClose: { tab: refusal, pane: refusal } } : one)),
+  });
+}
+
 /** How many calls the fake Orca has had so far. */
 export const callCount = async (box) => (await box.orca.calls()).length;
 
