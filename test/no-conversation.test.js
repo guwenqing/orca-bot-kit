@@ -42,6 +42,7 @@ import {
   harnessChain,
   listLineOf,
   restartLineOf,
+  unpauseLineOf,
   nameOnLine,
   orcaCallsOf,
   recordSession,
@@ -114,17 +115,21 @@ function newTabOf(result, name = 'daily') {
  * other start is that one line alone. With `restarted`, the tab is one a
  * restart opened after it closed the session's live tab: a resume there, on
  * either harness, is followed by exactly the restart line instead (#726,
- * helpers/cli.js restartLineOf).
+ * helpers/cli.js restartLineOf). With `unpaused`, the tab is one an unpause
+ * opened after it took the pause off: a resume there, on either harness, is
+ * followed by exactly the unpause line instead (#732, helpers/cli.js
+ * unpauseLineOf).
  */
-async function lineOf(box, bots, name = 'daily', { restarted = false } = {}) {
+async function lineOf(box, bots, name = 'daily', { restarted = false, unpaused = false } = {}) {
   const entry = await sessionIn(bots, BOT, name);
   const terminal = (await tabsOfBot(box, bots, BOT)).find((one) => one.tabId === entry?.tab);
   assert.ok(terminal, `Orca should have ${name}'s tab ${entry?.tab}`);
   const typed = typedInto(terminal);
   const resumed = / codex resume | --resume /.test(typed[0] ?? '');
   const after = restarted && resumed ? [restartLineOf(box.cli, bots)]
-    : / codex resume /.test(typed[0] ?? '') ? [listLineOf(box.cli, bots)] : [];
-  assert.deepEqual(typed.slice(1), after, `one line per tab the kit opens, and after a Codex resume the list line alone (after a restart's resume, the restart line alone), got: ${JSON.stringify(typed)}`);
+    : unpaused && resumed ? [unpauseLineOf(box.cli, bots)]
+      : / codex resume /.test(typed[0] ?? '') ? [listLineOf(box.cli, bots)] : [];
+  assert.deepEqual(typed.slice(1), after, `one line per tab the kit opens, and after a Codex resume the list line alone (after a restart's resume, the restart line alone; after an unpause's, the unpause line alone), got: ${JSON.stringify(typed)}`);
   return tokenless(typed[0]);
 }
 
@@ -352,7 +357,7 @@ for (const harness of ['claude', 'codex']) {
 
     const result = await ran(box, 'unpause', ['--json']);
 
-    assert.equal(await lineOf(box, bots), resumeLine(box, harness, conv(1)), 'the conversation it had, and no duty again');
+    assert.equal(await lineOf(box, bots, 'daily', { unpaused: true }), resumeLine(box, harness, conv(1)), 'the conversation it had, and no duty again');
     const entry = await sessionIn(bots, BOT, 'daily');
     assert.equal(entry.session, conv(1), 'the book still holds it');
     assert.equal('history' in entry, false, `nothing went into history, got: ${JSON.stringify(entry)}`);

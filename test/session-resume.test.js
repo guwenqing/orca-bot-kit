@@ -61,6 +61,7 @@ import {
   launchLine,
   listLineOf,
   restartLineOf,
+  unpauseLineOf,
   nameOnLine,
   orcaCallsOf,
   recordSession,
@@ -653,9 +654,14 @@ for (const [route, before, command] of ROUTES) {
 
       assert.notEqual(again.entry.tabId, first.entry.tabId, 'the session came back in a new tab, on a line the kit typed');
       // A restart that closed the live tab types the restart line after the launch line (#726).
+      // An unpause that took the pause off types the unpause line there (#732).
       let { typed } = again;
       if (command === 'restart') {
         assert.equal(typed.at(-1), restartLineOf(box.cli, bots), `the restart line follows the launch line, got: ${JSON.stringify(typed)}`);
+        typed = typed.slice(0, -1);
+      }
+      if (command === 'unpause') {
+        assert.equal(typed.at(-1), unpauseLineOf(box.cli, bots), `the unpause line follows the launch line, got: ${JSON.stringify(typed)}`);
         typed = typed.slice(0, -1);
       }
       await assertMovedToANewAddress(box, bots, typed, held);

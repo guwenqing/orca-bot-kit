@@ -14,7 +14,9 @@
 //     into that tab, `listLineOf` in helpers/cli.js, word for word, with a
 //     return. Since #726, a restart that closed the session's live tab types
 //     the restart line in its place (`restartLineOf`, restart-line.test.js):
-//     one line in all, never both. Since #709 the line asks the session to read its mail with the
+//     one line in all, never both. Since #732, an unpause that took the
+//     pause off types the unpause line in its place (`unpauseLineOf`,
+//     unpause-line.test.js), in the same way. Since #709 the line asks the session to read its mail with the
 //     kit's own check, the one its built AGENTS.md names, and to do what the
 //     mail asks, mail it read just before the line included; it asks for "ok"
 //     only when there is none. Its CLI and bots folder are the sandbox's own.
@@ -73,6 +75,7 @@ import {
   sessionIn,
   tabsOfBot,
   typedInto,
+  unpauseLineOf,
 } from './helpers/cli.js';
 import { agentsIn } from './helpers/rules.js';
 import { CLAUDE_FEEDBACK_PANEL, CLAUDE_FEEDBACK_PANEL_GONE, CLAUDE_TEACH_LIST, CLAUDE_TEACH_LIST_GONE, CODEX_UPDATE_OFFER } from './helpers/screens.js';
@@ -181,6 +184,21 @@ async function assertRestartLineTyped(box, bots, entry, what, name = 'daily') {
 }
 
 /**
+ * The unpause road since #732: the launch line, then exactly the unpause line
+ * with a return and nothing after it, in place of the list line, and the entry
+ * says the line was typed (`restartLine`, as on restart) and carries no list line.
+ */
+async function assertUnpauseLineTyped(box, bots, entry, what, name = 'daily') {
+  const typed = await typedIn(box, bots, name);
+  assert.equal(typed.length, 2, `${what}: the launch line and then the unpause line, nothing else, got: ${JSON.stringify(typed)}`);
+  assertCodexResumeLine(typed[0], `sess-${name}`, what);
+  assert.equal(typed[1], unpauseLineOf(box.cli, bots), `${what}: the line is the unpause line of #732, word for word, in place of the list line`);
+  assert.equal(sentInto(await liveTab(box, bots, name))[1].enter, true, `${what}: and it is submitted with a return`);
+  assert.equal(entry.restartLine, true, `${what}: the answer says the unpause line was typed, got: ${JSON.stringify(entry)}`);
+  assert.equal('listLine' in entry, false, `${what}: and carries no listLine key, got: ${JSON.stringify(entry)}`);
+}
+
+/**
  * The refused case: a Codex session was resumed and its harness came up, but
  * nothing was typed after the launch line, and the entry says so and why.
  */
@@ -218,7 +236,7 @@ test('restart: a Codex session with a conversation in the book comes back in a n
   await assertRestartLineTyped(box, bots, entry, 'restart');
 });
 
-test('unpause: a paused Codex session comes back with its conversation and the ruled line typed once', async (t) => {
+test('unpause: a paused Codex session comes back with its conversation and the unpause line typed once, in place of the list line (#732)', async (t) => {
   const box = await createSandbox(t);
   const bots = await madeBot(box);
   await running(box, bots);
@@ -227,7 +245,7 @@ test('unpause: a paused Codex session comes back with its conversation and the r
 
   const entry = entryOf(await run(box, 'unpause'));
 
-  await assertListLineTyped(box, bots, entry, 'unpause');
+  await assertUnpauseLineTyped(box, bots, entry, 'unpause');
 });
 
 test('restart of a bot with two Codex sessions: each new tab gets the restart line exactly once, and only its own (#726)', async (t) => {
@@ -464,7 +482,7 @@ test('a resumed Claude session gets no list line: on the restart road its launch
   assert.notEqual(entry.listLine, true, `got: ${JSON.stringify(entry)}`);
 });
 
-test('unpause of a bot with a Codex and a Claude session types the line into the Codex tab alone', async (t) => {
+test('unpause of a bot with a Codex and a Claude session types the unpause line into each tab, and the list line into neither (#732)', async (t) => {
   const box = await createSandbox(t);
   const bots = await madeBot(box, { sessions: ['daily'] });
   const added = await box.run(['session', 'add', '--bots', 'bots', '--bot', BOT, '--name', 'review', '--harness', 'claude', '--prompt', PROMPT]);
@@ -475,9 +493,9 @@ test('unpause of a bot with a Codex and a Claude session types the line into the
 
   const answer = await run(box, 'unpause');
 
-  await assertListLineTyped(box, bots, entryOf(answer, 'daily'), 'unpause, the Codex session');
+  await assertUnpauseLineTyped(box, bots, entryOf(answer, 'daily'), 'unpause, the Codex session');
   const review = await typedIn(box, bots, 'review');
-  assert.equal(review.length, 1, `the Claude session gets its launch line and nothing after it, got: ${JSON.stringify(review)}`);
+  assert.deepEqual(review.slice(1), [unpauseLineOf(box.cli, bots)], `the Claude session gets its launch line and then the unpause line of #732, got: ${JSON.stringify(review)}`);
   assert.ok(review[0].includes('--resume sess-review'), `the premise: Claude resumed, got: ${review[0]}`);
   assert.notEqual(entryOf(answer, 'review').listLine, true);
 });

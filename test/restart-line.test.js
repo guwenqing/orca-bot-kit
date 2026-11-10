@@ -21,6 +21,8 @@
 //       place of the list line: one line in all, never both. On the `up` and
 //       `unpause` roads nothing changes: a resumed Codex session still gets the
 //       list line, and a resumed Claude or Pi session still gets no line.
+//       Since #732 the `unpause` road types a line of its own, the unpause
+//       line (unpause-line.test.js); the restart line is still never typed there.
 //   R4. The restart line goes through the list line's gate, with the same 20 s
 //       cutoff: nothing is typed while Orca reports the tab blocked, while a
 //       question, a form or a menu of the harness is on its screen, or while
@@ -86,6 +88,7 @@ import {
   sessionIn,
   tabsOfBot,
   typedInto,
+  unpauseLineOf,
 } from './helpers/cli.js';
 import { fakePi, piLines, piSessionOnRecord } from './helpers/pi.js';
 import { CLAUDE_TEACH_LIST, PI_IDLE, PI_MODEL_SELECTOR } from './helpers/screens.js';
@@ -560,9 +563,9 @@ describe('R5 no restart line for a session the restart closed nothing of, starte
   });
 });
 
-// ------------------------------------------------------------- R3: up and unpause unchanged
+// ------------------------------------------------------------- R3: up unchanged, unpause its own line (#732)
 
-describe('R3 up and unpause are as they were', { concurrency: true }, () => {
+describe('R3 up is as it was, and unpause types its own line (#732), never the restart line', { concurrency: true }, () => {
   it('up of a closed tab: Codex gets the list line, Claude Code and Pi get nothing after the launch line, and no entry carries restartLine', LIMIT, async (t) => {
     const box = await createSandbox(t);
     const harnessOf = (name) => ({ daily: 'claude', review: 'codex', notes: 'pi' })[name];
@@ -584,7 +587,7 @@ describe('R3 up and unpause are as they were', { concurrency: true }, () => {
     }
   });
 
-  it('unpause of a Codex and a Claude session: the Codex tab gets the list line, the Claude tab nothing, and no entry carries restartLine', LIMIT, async (t) => {
+  it('unpause of a Codex and a Claude session: each tab gets the unpause line of #732, never the restart line or the list line', LIMIT, async (t) => {
     const box = await createSandbox(t);
     const harnessOf = (name) => (name === 'review' ? 'claude' : 'codex');
     const bots = await madeBot(box, { harness: 'codex', sessions: ['daily', 'review'], harnessOf });
@@ -596,11 +599,15 @@ describe('R3 up and unpause are as they were', { concurrency: true }, () => {
 
     const daily = await typedIn(box, bots, 'daily');
     assertResumeLine('codex', daily[0], ids.daily, 'unpause, the Codex session');
-    assert.deepEqual(daily.slice(1), [listLineOf(box.cli, bots)], `unpause, the Codex session gets the list line alone, got: ${JSON.stringify(daily)}`);
+    assert.deepEqual(daily.slice(1), [unpauseLineOf(box.cli, bots)], `unpause, the Codex session gets the unpause line alone (#732), got: ${JSON.stringify(daily)}`);
     const review = await typedIn(box, bots, 'review');
     assertResumeLine('claude', review[0], ids.review, 'unpause, the Claude session');
-    assert.equal(review.length, 1, `unpause, the Claude session gets nothing after its launch line, got: ${JSON.stringify(review)}`);
-    for (const name of ['daily', 'review']) assertNoRestartLineKey(entryOf(answer, name), `unpause, ${name}`);
+    assert.deepEqual(review.slice(1), [unpauseLineOf(box.cli, bots)], `unpause, the Claude session gets the unpause line alone (#732), got: ${JSON.stringify(review)}`);
+    for (const name of ['daily', 'review']) {
+      const entry = entryOf(answer, name);
+      assert.equal(entry.restartLine, true, `unpause, ${name}: the entry says the unpause line was typed (#732), got: ${JSON.stringify(entry)}`);
+      assert.equal('listLine' in entry, false, `unpause, ${name}: and carries no listLine key, got: ${JSON.stringify(entry)}`);
+    }
   });
 });
 
