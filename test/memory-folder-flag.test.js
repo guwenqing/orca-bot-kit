@@ -80,6 +80,7 @@ import {
   tokenless,
   tokenlessWord,
   typedInto,
+  unpauseLineOf,
 } from './helpers/cli.js';
 import { fakePi } from './helpers/pi.js';
 
@@ -146,14 +147,18 @@ async function fleetIn(box, { bots = 'bots', harness = 'claude', sessions = ['da
  * it. With `restarted`, the tab is one `obk restart` opened after it closed the
  * session's live tab and resumed the conversation: since #726 the restart line
  * (helpers/cli.js restartLineOf) follows the launch line there, and nothing else.
+ * With `unpaused`, the tab is one `obk unpause` opened after it took the pause
+ * off and resumed the conversation: since #732 the unpause line
+ * (helpers/cli.js unpauseLineOf) follows the launch line there, and nothing else.
  */
-async function lineOf(box, bots, name, bot = BOT, { restarted = false } = {}) {
+async function lineOf(box, bots, name, bot = BOT, { restarted = false, unpaused = false } = {}) {
   const entry = await sessionIn(bots, bot, name);
   assert.equal(typeof entry?.tab, 'string', `the book should hold a tab for ${bot}/${name}, got: ${JSON.stringify(entry)}`);
   const terminal = (await box.orca.terminals()).find((one) => one.tabId === entry.tab);
   assert.ok(terminal, `Orca should have ${bot}/${name}'s tab ${entry.tab}`);
   const typed = typedInto(terminal);
-  assert.deepEqual(typed.slice(1), restarted ? [restartLineOf(box.cli, bots)] : [], `one line per new session tab, and after a restart's resume the restart line alone, got: ${JSON.stringify(typed)}`);
+  const after = restarted ? [restartLineOf(box.cli, bots)] : unpaused ? [unpauseLineOf(box.cli, bots)] : [];
+  assert.deepEqual(typed.slice(1), after, `one line per new session tab, and after a restart's resume the restart line alone (after an unpause's resume, the unpause line alone), got: ${JSON.stringify(typed)}`);
   return typed[0];
 }
 
@@ -1156,7 +1161,7 @@ describe('the launch line names the physical memory folder (#722)', { concurrenc
 
     await ok(box, ['unpause', '--bots', 'bots', '--bot', BOT, '--session', 'daily']);
 
-    await assertResumeCarries(box, await lineOf(box, bots, 'daily'), memoryDirOf(profile.projects, bots), id);
+    await assertResumeCarries(box, await lineOf(box, bots, 'daily', BOT, { unpaused: true }), memoryDirOf(profile.projects, bots), id);
   });
 
   /** A session of the bot brought up, and the environment of a command run inside its tab. */

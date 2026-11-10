@@ -53,6 +53,7 @@ import {
   TAB_TITLES,
   tokenless,
   typedInto,
+  unpauseLineOf,
 } from './helpers/cli.js';
 
 /** The SETUP.md shipped with the kit under test: its package root is the repo root here. */
@@ -294,6 +295,8 @@ for (const name of Object.keys(COMMANDS)) {
   // half of the requirement, and it is expected to pass before the change.
   // Since #726 the idle tab a restart opens is typed the restart line after
   // its launch line; the waiting tab gets nothing after its launch line.
+  // Since #732 the idle tab an unpause opens is typed the unpause line the
+  // same way.
   test(`${name}: the kit types nothing more into a waiting tab than into an idle one`, async (t) => {
     const idle = await opened(t, name, UP_AND_IDLE);
     const blocked = await opened(t, name, BLOCKED);
@@ -311,7 +314,8 @@ for (const name of Object.keys(COMMANDS)) {
       ...entry,
       text: tokenless(entry.text).replaceAll(run.box.cli, '<cli>').replaceAll(run.box.path('bots'), '<bots>'),
     }));
-    const after = name === 'obk restart' ? [restartLineOf(idle.box.cli, idle.bots)] : [];
+    const after = name === 'obk restart' ? [restartLineOf(idle.box.cli, idle.bots)]
+      : name === 'obk unpause' ? [unpauseLineOf(idle.box.cli, idle.bots)] : [];
     assert.deepEqual(typedInto(idle.terminal).slice(1), after, `${name}: what an idle tab gets after its launch line`);
     const idleSent = sent(idle);
     assert.deepEqual(sent(blocked), idleSent.slice(0, idleSent.length - after.length), `${name}: and it goes in exactly as it does into an idle tab`);

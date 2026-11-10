@@ -18,7 +18,10 @@
 //      on the restart road, since #726, the kit types the restart line
 //      (helpers/cli.js restartLineOf) in place of LIST_LINE, so there the
 //      entry says `restartLine: true` and has no `listLine` key, and the
-//      line in 3. is the restart line;
+//      line in 3. is the restart line; on the unpause road, since #732, the
+//      kit types the unpause line (helpers/cli.js unpauseLineOf) in its place
+//      in the same way, so there too the entry says `restartLine: true` and
+//      has no `listLine` key, and the line in 3. is the unpause line;
 //   2. `orca worktree ps --json` lists the new tab's pane among the agents of
 //      the bot's project row within LISTED_MS of the command returning;
 //   3. the conversation holds LIST_LINE as the only user turn since the command
@@ -110,7 +113,7 @@ import test from '../helpers/system.js';
 import { setTimeout } from 'node:timers/promises';
 import { parse } from 'yaml';
 
-import { cliEntry, listLineOf, restartLineOf } from '../helpers/cli.js';
+import { cliEntry, listLineOf, restartLineOf, unpauseLineOf } from '../helpers/cli.js';
 import { codexTrustArgs } from '../helpers/codex-trust.js';
 import { tabGuard } from '../helpers/tab-guard.js';
 import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
@@ -359,6 +362,8 @@ test('a Codex session resumed by up, restart and unpause is among Orca\'s agents
   const LIST_LINE = listLineOf(cliEntry, bots);
   /** The line the kit types in its place on the restart road, which closed the live tab (#726). */
   const RESTART_LINE = restartLineOf(cliEntry, bots);
+  /** The line the kit types in its place on the unpause road, which took the pause off (#732). */
+  const UNPAUSE_LINE = unpauseLineOf(cliEntry, bots);
 
   // Registered before anything is created, so it runs however this test ends.
   t.after(async () => {
@@ -458,13 +463,14 @@ test('a Codex session resumed by up, restart and unpause is among Orca\'s agents
     assert.equal(entry.resumed, true, `${how}: the premise: the conversation was resumed, got: ${JSON.stringify(entry)}`);
 
     // 1. The kit says it typed its line. On the restart road that is the
-    // restart line, in place of the list line (#726).
-    const kitLine = how === 'restart' ? RESTART_LINE : LIST_LINE;
-    if (how === 'restart') {
+    // restart line, in place of the list line (#726); on the unpause road, the
+    // unpause line, reported under the same keys (#732).
+    const kitLine = how === 'restart' ? RESTART_LINE : how === 'unpause' ? UNPAUSE_LINE : LIST_LINE;
+    if (how === 'restart' || how === 'unpause') {
       assert.equal(
         entry.restartLine,
         true,
-        `${how}: the kit should have typed its restart line, and says ${JSON.stringify(entry.restartLine)}: ${entry.restartLineTrouble ?? 'no reason given'}.${whatIsUp(entry.terminal)}`,
+        `${how}: the kit should have typed its ${how} line, and says ${JSON.stringify(entry.restartLine)}: ${entry.restartLineTrouble ?? 'no reason given'}.${whatIsUp(entry.terminal)}`,
       );
       assert.equal('listLine' in entry, false, `${how}: and the entry carries no listLine key, got: ${JSON.stringify(entry)}`);
     } else {

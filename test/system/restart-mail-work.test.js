@@ -26,11 +26,14 @@
 //      tab, Orca has nowhere to ring, so the letter waits unread in the
 //      session's mailbox (read from the mailbox, as `obk health` reads it: the
 //      premise; its `delivered_at` is printed). Then `obk unpause`: a new tab, the
-//      conversation resumed, the kit's line typed. The letter asks for one
+//      conversation resumed, the kit's line typed. Since #732 that line, on the
+//      unpause road, is the unpause line (helpers/cli.js unpauseLineOf), which
+//      takes the place of the list line and asks for the mail check in the same
+//      words as the restart line. The letter asks for one
 //      small piece of work that shows on disk: WORD written into WORK_FILE in
 //      the bot's own folder. WORD is in no prompt and in no line the kit types.
 //      ASSERTED:
-//        a. the entry says `listLine: true`;
+//        a. the entry says `restartLine: true`, and has no `listLine` key;
 //        b. the session's own record (its Codex rollout) holds the kit's line,
 //           word for word, as a user turn since unpause began, and the only
 //           user turn that is not Codex's own context or Orca's mail notice;
@@ -125,7 +128,7 @@ import test from '../helpers/system.js';
 import { setTimeout } from 'node:timers/promises';
 import { parse } from 'yaml';
 
-import { cliEntry, listLineOf, restartLineOf } from '../helpers/cli.js';
+import { cliEntry, restartLineOf, unpauseLineOf } from '../helpers/cli.js';
 import { codexTrustArgs } from '../helpers/codex-trust.js';
 import { rolloutFilesOf } from '../helpers/codex-rollout.js';
 import { questionOn, waitingOn } from '../helpers/screens.js';
@@ -404,8 +407,8 @@ test('a Codex session resumed with mail waiting does the mail\'s work after the 
   const homes = ['bot-father', BOT.name].map(homeOf);
   const home = homeOf(BOT.name);
   const WORK_FILE = path.join(home, 'mail-work.txt');
-  /** The line the kit types into a Codex session it has just resumed, in the words of #709: this checkout's CLI, this bots folder. */
-  const LIST_LINE = listLineOf(cliEntry, bots);
+  /** The line the kit types into a session it has just taken off pause and resumed (#732): this checkout's CLI, this bots folder. */
+  const UNPAUSE_LINE = unpauseLineOf(cliEntry, bots);
   /** The line the kit types in its place on the restart road, which closed the live tab (#726). */
   const RESTART_LINE = restartLineOf(cliEntry, bots);
 
@@ -511,8 +514,9 @@ test('a Codex session resumed with mail waiting does the mail\'s work after the 
   // The premises: a new tab, and the conversation the book holds, resumed.
   assert.equal(back.created, true, `with mail: the premise: a new tab, got: ${JSON.stringify(back)}`);
   assert.equal(back.resumed, true, `with mail: the premise: the conversation was resumed, got: ${JSON.stringify(back)}`);
-  // 1a. The kit says it typed its line.
-  assert.equal(back.listLine, true, `with mail: the kit should have typed its line, and says ${JSON.stringify(back.listLine)}: ${back.listLineTrouble ?? 'no reason given'}.${whatIsUp(back.terminal)}`);
+  // 1a. The kit says it typed its line: on the unpause road, the unpause line in place of the list line (#732).
+  assert.equal(back.restartLine, true, `with mail: the kit should have typed its unpause line, and says ${JSON.stringify(back.restartLine)}: ${back.restartLineTrouble ?? 'no reason given'}.${whatIsUp(back.terminal)}`);
+  assert.equal('listLine' in back, false, `with mail: and the entry carries no listLine key, got: ${JSON.stringify(back)}`);
 
   // 1d. The letter's work, on disk.
   await until(
@@ -528,9 +532,9 @@ test('a Codex session resumed with mail waiting does the mail\'s work after the 
   await until(`with mail: ${BOT.title} to be idle after the letter's work`, ANSWER_MS, async () => (idleNow(back.terminal) ? true : undefined), () => whatIsUp(back.terminal), backScreen);
   const mailEvents = eventsOf(entriesSince(id, mailMark, mailBegan));
   for (const line of shortly(mailEvents)) t.diagnostic(`with mail: ${line}`);
-  const lineAt = mailEvents.findIndex((one) => one.kind === 'message' && one.role === 'user' && one.text.trim() === LIST_LINE);
-  assert.ok(lineAt >= 0, `with mail: the rollout holds the kit's line, word for word, as a user turn since unpause began:\n  ${LIST_LINE}\n  got:\n  ${shortly(mailEvents).join('\n  ')}`);
-  assert.deepEqual(typedTurns(mailEvents, mailbox), [LIST_LINE], 'with mail: the kit\'s line is the only line typed into the session since unpause began');
+  const lineAt = mailEvents.findIndex((one) => one.kind === 'message' && one.role === 'user' && one.text.trim() === UNPAUSE_LINE);
+  assert.ok(lineAt >= 0, `with mail: the rollout holds the kit's line, word for word, as a user turn since unpause began:\n  ${UNPAUSE_LINE}\n  got:\n  ${shortly(mailEvents).join('\n  ')}`);
+  assert.deepEqual(typedTurns(mailEvents, mailbox), [UNPAUSE_LINE], 'with mail: the kit\'s line is the only line typed into the session since unpause began');
   const userWithWord = mailEvents.filter((one) => one.kind === 'message' && one.role === 'user' && one.text.includes(WORD));
   assert.deepEqual(userWithWord.map((one) => one.text.slice(0, 200)), [], `with mail: no user turn holds ${WORD}: the kit typed none of the letter into the tab`);
   const noticeAt = mailEvents.findIndex((one) => one.kind === 'message' && one.role === 'user' && isNotice(one.text, mailbox));
