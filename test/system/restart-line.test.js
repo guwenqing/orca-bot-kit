@@ -25,9 +25,10 @@
 //      <TOKEN>'`, with a token of this run. A process with the token is not
 //      enough, because a foreground Bash call shows the same processes. So the
 //      test waits until the transcript shows the Bash call with
-//      `run_in_background: true`, its result naming a background task, and an
-//      answer after that result, while `ps` still shows a process with the
-//      token. Then it writes down that process and everything under it (the
+//      `run_in_background: true`, its result naming a background task, and the
+//      end of that turn (a `turn_duration` line after an `end_turn` or
+//      `stop_sequence` message, with no tool call between), while `ps` still
+//      shows a process with the token. Then it writes down that process and everything under it (the
 //      `sleep`). Without all of it, the run proves nothing and fails.
 //   3. `obk restart --json` for the session. ASSERTED: its tab entry has
 //      `created: true`, `resumed: true`, `restartLine: true` and no `listLine`
@@ -520,15 +521,29 @@ const resultText = (content) => (typeof content === 'string'
   ? content
   : Array.isArray(content) ? content.filter((block) => block?.type === 'text').map((block) => String(block.text)).join('\n') : '');
 
+/** The stop reasons that end a turn, as the last assistant message of a finished turn carries them. */
+const TURN_ENDS = ['end_turn', 'stop_sequence'];
+
 /**
  * How far the session got with the background launch of the shell that holds
  * `token`, from its transcript: `{ file, task, said }` once a Bash tool_use
  * whose command holds the token has `run_in_background: true`, its result is
- * no error and names a background task, and the session said something after
- * that result; otherwise `{ why }`, the step it has not reached. Claude Code
- * names the task in the result's `toolUseResult.backgroundTaskId` and in its
- * text, "Command running in background with ID: <id>", as a transcript on this
+ * no error and names a background task, and the turn that made the call has
+ * ended; otherwise `{ why }`, the step it has not reached. Claude Code names
+ * the task in the result's `toolUseResult.backgroundTaskId` and in its text,
+ * "Command running in background with ID: <id>", as a transcript on this
  * machine shows.
+ *
+ * Text after the result is not the end of the turn: another tool call can
+ * follow it. The end is the first `type: "system"`, `subtype: "turn_duration"`
+ * line after the result, which Claude Code writes when a turn ends, with an
+ * assistant message whose `stop_reason` is `"end_turn"` or `"stop_sequence"`
+ * between the result and that line, and no assistant tool_use after that
+ * message and before that line (seen in a Claude Code 2.1.322 transcript on
+ * this machine). Both stop reasons are taken: in that transcript, 540 finished
+ * turns end on `end_turn` and 45 on `stop_sequence`, each with text and a
+ * `turn_duration` line after it. `said` is the session's text in that turn
+ * after the result.
  */
 function launchOf(home, token) {
   const calls = conversationsOf(home).flatMap(({ file, lines }) => lines.flatMap((line) => (
@@ -548,8 +563,23 @@ function launchOf(home, token) {
   const named = lines[at].toolUseResult?.backgroundTaskId;
   const task = typeof named === 'string' && named !== '' ? named : /running in background with ID: (\S+?)\.?(?:\s|$)/i.exec(text)?.[1];
   if (task === undefined) return { why: `the result of the Bash call names no background task: ${JSON.stringify(text)}` };
-  const said = saidAfter(lines, at);
-  if (said === '') return { why: `the shell runs as task ${task}, and the session has not answered after it yet` };
+  const end = lines.findIndex((line, index) => index > at && line?.type === 'system' && line.subtype === 'turn_duration');
+  const turn = lines.slice(at + 1, end < 0 ? lines.length : end);
+  const stopped = turn.findLastIndex((line) => line?.type === 'assistant' && TURN_ENDS.includes(line.message?.stop_reason));
+  const reasons = turn.filter((line) => line?.type === 'assistant').map((line) => line.message?.stop_reason ?? null);
+  if (end < 0) {
+    return { why: `the shell runs as task ${task}, and no turn_duration line follows its result yet, so the turn has not ended (${stopped < 0 ? 'no' : 'an'} end_turn or stop_sequence message after the result; stop reasons after it: ${JSON.stringify(reasons)})` };
+  }
+  if (stopped < 0) {
+    return { why: `the shell runs as task ${task}, and the turn_duration line after its result has no end_turn or stop_sequence message before it (stop reasons after the result: ${JSON.stringify(reasons)})` };
+  }
+  const later = turn.slice(stopped + 1).filter((line) => line?.type === 'assistant' && Array.isArray(line.message?.content)
+    && line.message.content.some((block) => block?.type === 'tool_use'));
+  if (later.length > 0) {
+    return { why: `the shell runs as task ${task}, and a tool call follows the end_turn or stop_sequence message before the turn_duration line: ${JSON.stringify(later.map((line) => line.message.content.filter((block) => block?.type === 'tool_use').map((block) => block.name)))}` };
+  }
+  const said = saidAfter(lines.slice(0, end), at);
+  if (said === '') return { why: `the shell runs as task ${task}, and its turn ended with no text from the session after the result` };
   return { file, task, said };
 }
 
