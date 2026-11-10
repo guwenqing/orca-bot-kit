@@ -127,6 +127,22 @@ the bots folder moves. `obk session add` and `obk session change` say so when a
 work dir leads out of the bot home; take that back to the user rather than
 past them.
 
+## How its sessions choose a subagent's model
+
+A session runs on one model of its own, but the model of each subagent it starts
+can be chosen task by task. A bot that should choose carries its way of working
+for this as a rule unit of its own. The bot can decide that way of working, or
+the user can. Write it in their words as a unit in `rules/` of the bots folder,
+name it in that bot's `rules:` list, and run `obk rules build`: every session
+of the bot then reads it in its `AGENTS.md`. Another bot can carry another
+rule, or none. A bot with none works as before, and each subagent runs on what
+the harness gives it.
+
+The rule acts where the harness lets a session choose a model for a subagent,
+as Claude Code's Agent tool does with its `model`. Where the harness does not,
+nothing changes. The kit names no model and no table from a task to a model:
+any model in the rule is the bot's or the user's choice.
+
 ## Offer a line-up rather than a blank page
 
 Someone making their first bots does not know what a good set looks like, so
