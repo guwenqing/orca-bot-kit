@@ -15,6 +15,10 @@
 // command, and after each it requires:
 //
 //   1. the command's `--json` entry for the tab says `listLine: true`;
+//      on the restart road, since #726, the kit types the restart line
+//      (helpers/cli.js restartLineOf) in place of LIST_LINE, so there the
+//      entry says `restartLine: true` and has no `listLine` key, and the
+//      line in 3. is the restart line;
 //   2. `orca worktree ps --json` lists the new tab's pane among the agents of
 //      the bot's project row within LISTED_MS of the command returning;
 //   3. the conversation holds LIST_LINE as the only user turn since the command
@@ -106,7 +110,7 @@ import test from '../helpers/system.js';
 import { setTimeout } from 'node:timers/promises';
 import { parse } from 'yaml';
 
-import { cliEntry, listLineOf } from '../helpers/cli.js';
+import { cliEntry, listLineOf, restartLineOf } from '../helpers/cli.js';
 import { codexTrustArgs } from '../helpers/codex-trust.js';
 import { tabGuard } from '../helpers/tab-guard.js';
 import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
@@ -353,6 +357,8 @@ test('a Codex session resumed by up, restart and unpause is among Orca\'s agents
   const home = homeOf(BOT.name);
   /** The line the kit types into a Codex session it has just resumed (#226), in the words of #709: this checkout's CLI, this bots folder. */
   const LIST_LINE = listLineOf(cliEntry, bots);
+  /** The line the kit types in its place on the restart road, which closed the live tab (#726). */
+  const RESTART_LINE = restartLineOf(cliEntry, bots);
 
   // Registered before anything is created, so it runs however this test ends.
   t.after(async () => {
@@ -451,12 +457,23 @@ test('a Codex session resumed by up, restart and unpause is among Orca\'s agents
     assert.equal(entry.created, true, `${how}: the premise: a new tab, got: ${JSON.stringify(entry)}`);
     assert.equal(entry.resumed, true, `${how}: the premise: the conversation was resumed, got: ${JSON.stringify(entry)}`);
 
-    // 1. The kit says it typed its line.
-    assert.equal(
-      entry.listLine,
-      true,
-      `${how}: the kit should have typed its line, and says ${JSON.stringify(entry.listLine)}: ${entry.listLineTrouble ?? 'no reason given'}.${whatIsUp(entry.terminal)}`,
-    );
+    // 1. The kit says it typed its line. On the restart road that is the
+    // restart line, in place of the list line (#726).
+    const kitLine = how === 'restart' ? RESTART_LINE : LIST_LINE;
+    if (how === 'restart') {
+      assert.equal(
+        entry.restartLine,
+        true,
+        `${how}: the kit should have typed its restart line, and says ${JSON.stringify(entry.restartLine)}: ${entry.restartLineTrouble ?? 'no reason given'}.${whatIsUp(entry.terminal)}`,
+      );
+      assert.equal('listLine' in entry, false, `${how}: and the entry carries no listLine key, got: ${JSON.stringify(entry)}`);
+    } else {
+      assert.equal(
+        entry.listLine,
+        true,
+        `${how}: the kit should have typed its line, and says ${JSON.stringify(entry.listLine)}: ${entry.listLineTrouble ?? 'no reason given'}.${whatIsUp(entry.terminal)}`,
+      );
+    }
 
     // 2. Orca lists the pane among the project's agents, within LISTED_MS.
     const row = await until(
@@ -478,15 +495,15 @@ test('a Codex session resumed by up, restart and unpause is among Orca\'s agents
       ANSWER_MS,
       async () => {
         const seen = messagesSince(id, mark, began);
-        const at = seen.findIndex((message) => message.role === 'user' && message.text.trim() === LIST_LINE);
+        const at = seen.findIndex((message) => message.role === 'user' && message.text.trim() === kitLine);
         return at >= 0 && seen.slice(at + 1).some((message) => message.role === 'assistant') ? seen : undefined;
       },
       () => ` Messages since the command began: ${JSON.stringify(messagesSince(id, mark, began).map((message) => ({ role: message.role, text: message.text.slice(0, 80) })))}`,
     );
     for (const message of messages) t.diagnostic(`${how}: ${message.role}: ${JSON.stringify(message.text.slice(0, 80))}`);
     const typed = messages.filter((message) => message.role === 'user' && !codexOwn(message.text)).map((message) => message.text.trim());
-    assert.deepEqual(typed, [LIST_LINE], `${how}: the kit's line is the only line typed into the session since the command began`);
-    const answer = messages.slice(messages.findIndex((message) => message.text.trim() === LIST_LINE) + 1).find((message) => message.role === 'assistant');
+    assert.deepEqual(typed, [kitLine], `${how}: the kit's line is the only line typed into the session since the command began`);
+    const answer = messages.slice(messages.findIndex((message) => message.text.trim() === kitLine) + 1).find((message) => message.role === 'assistant');
     t.diagnostic(`${how}: the session answered ${JSON.stringify(answer.text.slice(0, 80))}${/\bok\b/i.test(answer.text) ? '' : ' (not "ok")'}`);
   }
 });

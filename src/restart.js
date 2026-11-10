@@ -69,7 +69,9 @@ export async function restartSessions(bots, { bot: name, session: onlySession } 
 
   const going = tabsToClose(bots, name, home, sessions.filter((session) => session.paused !== true), { quit: true });
   const closed = await closeTabs(home, going, bots, name, commandLine('restart', bots, name, onlySession));
-  return { closed, ...(await bringUp(bots, { bot: name, session: onlySession })) };
+  // The sessions whose tabs this closed are the ones the restart ended
+  // something of, and the ones told so once they are back (#726).
+  return { closed, ...(await bringUp(bots, { bot: name, session: onlySession, restarted: new Set(closed.map((tab) => tab.name)) })) };
 }
 
 /**

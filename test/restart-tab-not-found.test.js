@@ -56,6 +56,7 @@ import {
   orcaCommand,
   orcaFlag,
   recordSession,
+  restartLineOf,
   sessionIn,
   tabsOfBot,
   tokenless,
@@ -159,7 +160,7 @@ for (const [form, refusal] of TAB_NOT_FOUND) {
     );
     const after = await liveTab(box, bots, 'daily');
     assert.notEqual(after.tabId, before.tabId, 'a tab that comes back is a new tab');
-    assert.deepEqual(typedInto(after.terminal).map(tokenless), [resumeLine(box, 'sess-daily')], 'resuming the conversation the book held');
+    assert.deepEqual(typedInto(after.terminal).map(tokenless), [resumeLine(box, 'sess-daily'), restartLineOf(box.cli, bots)], 'resuming the conversation the book held, and told what the restart ended (#726)');
     const entry = await sessionIn(bots, BOT, 'daily');
     assert.equal(entry.tab, after.tabId, 'the book follows the session to its new tab');
     assert.equal(entry.session, 'sess-daily', 'and it is still the same conversation');
@@ -213,7 +214,7 @@ test('T1 after the close without --tab the kit waits for the listing to drop the
   assert.equal(creates(calls).length, 1, 'and the session comes back in a tab of its own');
   const after = await liveTab(box, bots, 'daily');
   assert.notEqual(after.tabId, before.tabId, 'the tab Orca was still listing is not the tab that came back');
-  assert.deepEqual(typedInto(after.terminal).map(tokenless), [resumeLine(box, 'sess-daily')], 'with the conversation the book held');
+  assert.deepEqual(typedInto(after.terminal).map(tokenless), [resumeLine(box, 'sess-daily'), restartLineOf(box.cli, bots)], 'with the conversation the book held, and told what the restart ended (#726)');
 });
 
 // ---------------------------------------------------------------------------

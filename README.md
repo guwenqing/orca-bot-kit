@@ -474,6 +474,18 @@ It closes the session's tab — one tab, by its own handle — and opens a new o
 with the conversation the book holds, so the session comes back as itself. With
 no `--session` it does that for every session of the bot.
 
+Closing the old tab ends the harness there, and the background shells it ran
+end with it: a timer, a watch, a long build. So once a session whose tab the
+restart closed is back with its conversation, the kit types one line into its
+new tab. A session whose tab was already closed, or that starts fresh, gets no
+line. The line says that its background shells
+ended, that the kit cannot tell which ones ran or whether a scheduled job still
+runs, and that it should look at its scheduled jobs before it makes one again.
+It also asks the session to read its mail and do what it asks. The line goes in
+only when the tab shows no question, form or menu, within 20 seconds. The
+report says under each tab whether the line went in. When it did not, it says
+why, and you tell the session yourself.
+
 What it will not do, in order of how much it would cost you. It closes only a
 tab your book names, so Bot Father's ops tab and anything you opened yourself
 are left alone. It will not close a tab whose conversation the book cannot name:

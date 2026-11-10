@@ -12,7 +12,9 @@
 //
 // This file is the list line: when `up` (and `restart`, `unpause`, the same
 // path) resumes a Codex session in a new tab, the kit types one line into it
-// so Orca lists it (codex-resume-list-line.test.js). Before it types, it takes
+// so Orca lists it (codex-resume-list-line.test.js). Since #726 a restart that
+// closed the session's live tab types the restart line in its place, through
+// the same turn (restart-line.test.js); the restart case below holds that. Before it types, it takes
 // the session's typing turn, waiting the same 5 s as the nudge:
 //
 //   - not got: nothing is typed after the launch line, the tab's `--json`
@@ -37,6 +39,7 @@ import {
   createSandbox,
   listLineOf,
   recordSession,
+  restartLineOf,
   sentInto,
   sessionIn,
   tabsOfBot,
@@ -190,14 +193,27 @@ describe('the list line and the typing turn, side by side', { concurrency: true 
     await assertListLineTyped(box, bots, entryOf(answered(result, 'up with the turn let go'), 'daily'), 'the turn let go');
   });
 
-  it('restart of two Codex sessions with only review\'s turn held: daily gets its list line, review gets nothing after its launch line', LIMIT, async (t) => {
+  it('restart of two Codex sessions with only review\'s turn held: daily gets its restart line (#726), review gets nothing after its launch line', LIMIT, async (t) => {
     const box = await createSandbox(t);
     const bots = await running(box, ['daily', 'review']);
 
     const result = await withTypingTurnHeld(bots, BOT, 'review', () => kit(box, 'restart'));
 
     const answer = answered(result, 'restart with review\'s turn held');
-    await assertListLineTyped(box, bots, entryOf(answer, 'daily'), 'review\'s turn is not daily\'s', 'daily');
-    await assertKeptOut(box, bots, entryOf(answer, 'review'), 'review\'s own turn held', 'review');
+    const daily = entryOf(answer, 'daily');
+    const dailyTyped = await typedIn(box, bots, 'daily');
+    assert.equal(dailyTyped.length, 2, `review's turn is not daily's: the launch line and then the restart line, nothing else, got: ${JSON.stringify(dailyTyped)}`);
+    assertCodexResumeLine(dailyTyped[0], 'daily', 'review\'s turn is not daily\'s');
+    assert.equal(dailyTyped[1], restartLineOf(box.cli, bots), 'review\'s turn is not daily\'s: the restart line of #726, word for word');
+    assert.equal(sentInto(await liveTab(box, bots, 'daily'))[1].enter, true, 'review\'s turn is not daily\'s: submitted with a return');
+    assert.equal(daily.restartLine, true, `review's turn is not daily's: the answer says it was typed, got: ${JSON.stringify(daily)}`);
+    assert.equal('listLine' in daily, false, `and carries no listLine key, got: ${JSON.stringify(daily)}`);
+    const review = entryOf(answer, 'review');
+    const reviewTyped = await typedIn(box, bots, 'review');
+    assert.equal(reviewTyped.length, 1, `review's own turn held: nothing may be typed after the launch line while the turn is held, got: ${JSON.stringify(reviewTyped)}`);
+    assertCodexResumeLine(reviewTyped[0], 'review', 'review\'s own turn held');
+    assert.equal(review.restartLine, false, `review's own turn held: the answer says the restart line was not typed, got: ${JSON.stringify(review)}`);
+    assert.match(String(review.restartLineTrouble), TYPING, `review's own turn held: and why, got: ${JSON.stringify(review)}`);
+    assert.equal('listLine' in review, false, `and carries no listLine key, got: ${JSON.stringify(review)}`);
   });
 });

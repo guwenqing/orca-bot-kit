@@ -49,7 +49,7 @@ const SECOND_LOOK_MS = 2000;
  * one bot and `session` one of its sessions, for a caller that wants one thing
  * back rather than the fleet.
  */
-export async function bringUp(bots, { bot: onlyBot, session: onlySession } = {}) {
+export async function bringUp(bots, { bot: onlyBot, session: onlySession, restarted } = {}) {
   const named = botsNamed(bots, onlyBot);
   if (onlySession !== undefined && onlyBot === undefined) {
     throw new Error('--session needs --bot: say which bot the session belongs to.');
@@ -72,7 +72,7 @@ export async function bringUp(bots, { bot: onlyBot, session: onlySession } = {})
     for (const session of sessionsOf(bot, onlySession)) {
       if (session.paused === true) paused.push({ bot: bot.name, session: session.name });
     }
-    const up = await bringUpBot(bots, home, bot, onlySession);
+    const up = await bringUpBot(bots, home, bot, onlySession, restarted);
     report.push(...up.tabs);
     if (up.project !== undefined) projects.push(up.project);
   }
@@ -230,7 +230,7 @@ export function sessionsOf(bot, onlySession) {
   return named;
 }
 
-async function bringUpBot(bots, home, bot, onlySession) {
+async function bringUpBot(bots, home, bot, onlySession, restarted) {
   const name = bot.name;
   const title = displayName(name);
   const sessions = awake(sessionsOf(bot, onlySession));
@@ -250,7 +250,7 @@ async function bringUpBot(bots, home, bot, onlySession) {
 
   const live = new Map(tabs(home).map((tab) => [tab.tabId, tab]));
   const report = [];
-  for (const session of sessions) report.push(await bringUpSession(bots, home, live, session, bot, title));
+  for (const session of sessions) report.push(await bringUpSession(bots, home, live, session, bot, title, restarted?.has(session.name) === true));
 
   // The ops tab, and the whole of what the kit knows about it: Bot Father's
   // project needs one tab that is not a session, for work across the fleet. Any
@@ -274,7 +274,7 @@ async function bringUpBot(bots, home, bot, onlySession) {
   return { tabs: report, project: change === undefined && windowTrouble === undefined ? undefined : project };
 }
 
-async function bringUpSession(bots, home, live, session, bot, title) {
+async function bringUpSession(bots, home, live, session, bot, title, restarted) {
   const harness = harnessOf(session, bot.harness);
   const book = readBook(home);
   const was = book.sessions[session.name];
@@ -431,11 +431,20 @@ async function bringUpSession(bots, home, live, session, bot, title) {
     ? undefined
     : await heldInRecord(home, session.name, harness, launch.prompt, { launched, running: tui.running === true });
 
+  // A session whose tab `obk restart` closed lost the background shells its
+  // harness ran there, and nothing else tells it (#726). So once it is resumed
+  // it is typed one line that says so, through the same gate, whatever its
+  // harness. For Codex that line is its first turn too, so it takes the place
+  // of the list line below.
+  const told = !restarted || launch.resume === undefined ? undefined
+    : tui.running === true ? await typeListLine(home, session.name, made.tabId, { line: restartLine(bots) })
+    : { typed: false, why: 'its harness did not come up in the new tab' };
+
   // A Codex session resumed here is not among Orca's agents until its first
   // turn: Codex fires its SessionStart then and not at the resume, seen live on
   // 0.157.1 (#226). So it is given one line, through the same gate as a mail
   // notice, which the owner allowed. A fresh start's first turn is its prompt.
-  const list = harness === 'codex' && launch.resume !== undefined && tui.running === true
+  const list = told === undefined && harness === 'codex' && launch.resume !== undefined && tui.running === true
     ? await typeListLine(home, session.name, made.tabId, { line: listLine(bots) })
     : undefined;
 
@@ -456,6 +465,8 @@ async function bringUpSession(bots, home, live, session, bot, title) {
     unclaimed: which.unclaimed,
     listLine: list?.typed,
     listLineTrouble: list?.why,
+    restartLine: told?.typed,
+    restartLineTrouble: told?.why,
   });
 }
 
@@ -515,6 +526,25 @@ async function shellNotReady(handle) {
 const listLine = (bots) => 'obk: this session was resumed in a new tab, and the kit types this line so Orca lists it.'
   + ` Read your mail with \`${shellWord(ownCli())} message check --bots ${shellWord(bots)}\`, and do what it asks.`
   + ' That includes mail you read just before this line. If there is none, reply "ok".';
+
+/**
+ * The line a session is typed once `obk restart` has resumed it in a new tab,
+ * in the architect's ruling (#726). It says only what the kit knows: the old
+ * tab's harness ended, and its background shells with it. The kit cannot tell
+ * which shells ran, nor whether a scheduled job survived (one was seen to), so
+ * the session looks before it makes a job again. The mail part is the list
+ * line's as #709 left it, but for its last sentence: "If nothing needs doing"
+ * where the list line says "If there is none". This line also asks the session
+ * to start its shells again, and a session with no mail must not reply "ok"
+ * and stop there (the architect's ruling on PR #731).
+ */
+const restartLine = (bots) => 'obk: obk restart closed this session\'s old tab and resumed the conversation in this new one.'
+  + ' Closing the old tab ended the harness there, and the background shells it ran ended with it.'
+  + ' The kit cannot tell which shells ran, or whether a scheduled job of the harness still runs.'
+  + ' Look at the harness\'s scheduled jobs before you make one again, so that only one of each runs.'
+  + ' Start again the shells you still need.'
+  + ` Read your mail with \`${shellWord(ownCli())} message check --bots ${shellWord(bots)}\`, and do what it asks.`
+  + ' That includes mail you read just before this line. If nothing needs doing, reply "ok".';
 
 /**
  * How long a resumed Codex tab is given to be one the kit may type into: live,
@@ -969,7 +999,7 @@ export const promptPath = (bots, bot, session) =>
 export const oldPromptPath = (bots, bot, session) =>
   path.join(`${bots}.prompts`, `${encodeURIComponent(bot)}.${encodeURIComponent(session)}.txt`);
 
-function entry(tab, { bot, name, created, running = false, blockedReason, promptReceived, promptFile, resumed, noConversation, harnessChanged, ranOn, unclaimed, noMailbox = false, listLine, listLineTrouble, notLaunched }) {
+function entry(tab, { bot, name, created, running = false, blockedReason, promptReceived, promptFile, resumed, noConversation, harnessChanged, ranOn, unclaimed, noMailbox = false, listLine, listLineTrouble, restartLine, restartLineTrouble, notLaunched }) {
   const made = { bot, name, title: tab.title, tabId: tab.tabId, terminal: tab.handle, created, harnessStarted: running };
   // A tab whose shell was not ready for the launch line, and why: nothing was
   // typed into it (#498).
@@ -981,6 +1011,8 @@ function entry(tab, { bot, name, created, running = false, blockedReason, prompt
   // and why not when it was not (#226).
   if (listLine !== undefined) made.listLine = listLine;
   if (listLineTrouble !== undefined) made.listLineTrouble = listLineTrouble;
+  if (restartLine !== undefined) made.restartLine = restartLine;
+  if (restartLineTrouble !== undefined) made.restartLineTrouble = restartLineTrouble;
   // The id the book held that had no conversation behind it, now in the history.
   if (noConversation !== undefined) made.noConversation = noConversation;
   // The id the book held that ran on another harness, the one this session

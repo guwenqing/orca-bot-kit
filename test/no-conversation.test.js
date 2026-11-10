@@ -41,6 +41,7 @@ import {
   createSandbox,
   harnessChain,
   listLineOf,
+  restartLineOf,
   nameOnLine,
   orcaCallsOf,
   recordSession,
@@ -110,15 +111,20 @@ function newTabOf(result, name = 'daily') {
  * started it, with the token of its Claude address written as `bareLaunch`
  * writes it (#286). A Codex resume is followed by exactly the list line and
  * nothing else (#226; its words are #709's, helpers/cli.js listLineOf); every
- * other start is that one line alone.
+ * other start is that one line alone. With `restarted`, the tab is one a
+ * restart opened after it closed the session's live tab: a resume there, on
+ * either harness, is followed by exactly the restart line instead (#726,
+ * helpers/cli.js restartLineOf).
  */
-async function lineOf(box, bots, name = 'daily') {
+async function lineOf(box, bots, name = 'daily', { restarted = false } = {}) {
   const entry = await sessionIn(bots, BOT, name);
   const terminal = (await tabsOfBot(box, bots, BOT)).find((one) => one.tabId === entry?.tab);
   assert.ok(terminal, `Orca should have ${name}'s tab ${entry?.tab}`);
   const typed = typedInto(terminal);
-  const after = / codex resume /.test(typed[0] ?? '') ? [listLineOf(box.cli, bots)] : [];
-  assert.deepEqual(typed.slice(1), after, `one line per tab the kit opens, and after a Codex resume the list line alone, got: ${JSON.stringify(typed)}`);
+  const resumed = / codex resume | --resume /.test(typed[0] ?? '');
+  const after = restarted && resumed ? [restartLineOf(box.cli, bots)]
+    : / codex resume /.test(typed[0] ?? '') ? [listLineOf(box.cli, bots)] : [];
+  assert.deepEqual(typed.slice(1), after, `one line per tab the kit opens, and after a Codex resume the list line alone (after a restart's resume, the restart line alone), got: ${JSON.stringify(typed)}`);
   return tokenless(typed[0]);
 }
 
@@ -365,7 +371,7 @@ for (const harness of ['claude', 'codex']) {
 
       const result = await ran(box, command, ['--json']);
 
-      assert.equal(await lineOf(box, bots), resumeLine(box, harness, conv(1)), `${command} resumes it`);
+      assert.equal(await lineOf(box, bots, 'daily', { restarted: command === 'restart' }), resumeLine(box, harness, conv(1)), `${command} resumes it`);
       assert.equal((await sessionIn(bots, BOT, 'daily')).session, conv(1));
       const tab = newTabOf(result);
       assert.equal(tab.resumed, true, `${command}: ${JSON.stringify(tab)}`);
