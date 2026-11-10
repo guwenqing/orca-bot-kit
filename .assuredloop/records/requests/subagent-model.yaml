@@ -1,0 +1,20 @@
+schema: assuredloop/1
+request: subagent-model
+tier: "1"
+status: open
+sources:
+  - file: 2026-11-10-owner-words.md
+    kind: owner-words
+    sha256: 27c596d1ff99415f28c28c1b798e68b947fe0b15038aaad5e19d5291af74c9ef
+    taken: 2026-11-10T03:14Z
+requirements:
+  - id: R1
+    version: 1
+    sha256: 842dd380981c88a9ff08e47240cf9e4a37be461cc328b0dabe8704b16ae92ca7
+    title: A model for a session's routine subagent work
+signoff: []
+decisions: []
+tasks: []
+bindings:
+  - { holder: subagent-model/R1, link: from, target: subagent-model/2026-11-10-owner-words.md, holder_sha256: 842dd380981c88a9ff08e47240cf9e4a37be461cc328b0dabe8704b16ae92ca7, target_sha256: 27c596d1ff99415f28c28c1b798e68b947fe0b15038aaad5e19d5291af74c9ef }
+dispositions: []
