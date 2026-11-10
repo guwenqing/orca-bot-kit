@@ -367,7 +367,8 @@ const promptLeft = (why, written, left) =>
 export async function retireTemp(bots, { tab, name }) {
   const caller = callerIn(bots, tab, 'retire');
   ownTemp(caller, name, 'retire', 'Nothing was retired.');
-  return { ...(await retireSession(bots, { bot: caller.bot, session: name })), maker: caller.session };
+  const again = `${shellWord(ownCli())} temp retire --bots ${shellWord(bots)} --name ${name}`;
+  return { ...(await retireSession(bots, { bot: caller.bot, session: name }, again)), maker: caller.session };
 }
 
 /**
