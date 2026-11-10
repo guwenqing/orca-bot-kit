@@ -193,3 +193,56 @@ for (const version of ORCA_MODELS) {
     assert.ok(acks.length <= 1, `Orca was asked to acknowledge the batch once at most, got:\n${shownCalls(acks)}`);
   });
 }
+
+// #735: only a consuming check that Orca did not answer in time is asked
+// again, and only with the same request id. Every other command that writes
+// is asked once, after an answer the kit cannot read too: Orca may have done it.
+for (const version of ORCA_MODELS) {
+  test(`#735 on Orca ${version}: a run-create, a run-use and an ack whose answer is not JSON are each asked once`, async (t) => {
+    const garbled = 'orca: something went wrong\n';
+    const cases = [
+      {
+        command: 'orchestration run-create',
+        async go(box, bots) {
+          const coder = await coderTab(box, bots);
+          await forgetMailbox(bots, 'coder', 'daily');
+          return { garbage: { command: 'orchestration run-create', text: garbled }, run: () => stepInCoderTab(box, coder) };
+        },
+        taken: (calls) => takenCallsOf(version, calls, 'orchestration run-create'),
+      },
+      {
+        command: 'orchestration run-use',
+        async go(box, bots) {
+          const coder = await coderTab(box, bots);
+          return { garbage: { command: 'orchestration run-use', text: garbled }, run: () => stepInCoderTab(box, coder) };
+        },
+        taken: (calls) => takenCallsOf(version, calls, 'orchestration run-use'),
+      },
+      {
+        command: 'orchestration check --ack',
+        async go(box) {
+          assert.equal((await send(box, 'the staging host')).code, 0);
+          return { garbage: { command: 'orchestration check', with: '--ack', text: garbled }, run: () => check(box) };
+        },
+        taken: (calls) => acksOf(version, calls),
+      },
+    ];
+    for (const one of cases) {
+      await t.test(one.command, async (t) => {
+        const box = await createSandbox(t);
+        const bots = await fleetIn(box);
+        const { garbage, run } = await one.go(box, bots);
+        await modelOrca(box, version);
+        await box.orca.set({ garbage });
+        const from = (await box.orca.calls()).length;
+
+        const ran = await run();
+
+        assertNoCrash(ran);
+        const taken = one.taken(await callsSince(box, from));
+        // On 1.4.255 the kit need not ack at all; when it does, it acks once.
+        assert.ok(one.command.endsWith('--ack') ? taken.length <= 1 : taken.length === 1, `${one.command} was asked once, got:\n${shownCalls(taken)}`);
+      });
+    }
+  });
+}
