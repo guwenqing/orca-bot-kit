@@ -146,6 +146,7 @@ import {
   CODEX_WORKING,
   codex162With,
 } from './helpers/screens.js';
+import { modelOrca, ORCA_MODELS } from './helpers/orca-versions.js';
 import { linesTurnWanted, typingTurnHeld, withLinesTurnHeld, withTypingTurnHeld } from './helpers/typing-turn.js';
 
 const BOT = 'api-bot';
@@ -736,6 +737,46 @@ for (const { what, letters } of [
     assert.ok(played, 'the premise: the return went in, and Codex wrote its line');
     assert.ok(inboxReadsOf(await callsSince(box, from), run).length > 0, 'the naming read the session\'s own mailbox');
     assert.deepEqual(await sendsInto(box, tab.tabId), renamed());
+  });
+}
+
+// The same gate on Orca 1.4.255 and on Orca 1.4.245 (#729). Orca 1.4.246 and
+// later answer `inbox` short unless given `--full`: each letter `{ id, type,
+// from, to, subject, handled, body }`, with no `read` and no `delivered_at`.
+// 1.4.245 and older take `--full` on `inbox` and answer as without it. The
+// fake models both (helpers/fake-orca.js, `orcaVersion`).
+for (const version of ORCA_MODELS) {
+  test(`#729 7 on Orca ${version}: a letter read and delivered does not stop the naming`, async (t) => {
+    const box = await createSandbox(t);
+    const bots = await running(box);
+    const tab = await liveTab(box, bots);
+    const run = await mailboxOf(bots, 'daily');
+    await changeTab(box, tab.tabId, { nextScreens: NAMING_SCREENS });
+    await mailTo(box, run, letter(run, { read: 1, delivered: true }));
+    await modelOrca(box, version);
+
+    const { result, played } = await nameHookPlaying(box, bots, tab);
+
+    assertQuiet(result, 'a letter read and delivered');
+    assert.ok(played, 'the return went in, and Codex wrote its line');
+    assert.deepEqual(await sendsInto(box, tab.tabId), renamed(), 'the command was entered');
+  });
+
+  test(`#729 7 on Orca ${version}: a letter unread and not delivered yet stops the naming`, async (t) => {
+    const box = await createSandbox(t);
+    const bots = await running(box);
+    const tab = await liveTab(box, bots);
+    const run = await mailboxOf(bots, 'daily');
+    await changeTab(box, tab.tabId, { nextScreens: NAMING_SCREENS });
+    await mailTo(box, run, letter(run));
+    await modelOrca(box, version);
+    const before = await typedEverywhere(box);
+    const from = (await box.orca.calls()).length;
+
+    assertQuiet(await nameHook(box, bots, tab), 'a letter Orca is about to ring for');
+
+    assert.ok(inboxReadsOf(await callsSince(box, from), run).length > 0, 'the premise: the naming read the session\'s own mailbox');
+    assert.deepEqual(await typedEverywhere(box), before, 'nothing is typed into any tab');
   });
 }
 

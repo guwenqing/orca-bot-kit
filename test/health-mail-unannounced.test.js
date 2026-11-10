@@ -84,6 +84,7 @@ import {
   snapshot,
   spellingsOf,
 } from './helpers/cli.js';
+import { modelOrca, ORCA_MODELS } from './helpers/orca-versions.js';
 import { CLAUDE_TEACH_FORM, CODEX_UPDATE_OFFER } from './helpers/screens.js';
 
 /** The kinds a finding can be: the ones before #630, and `mail`. */
@@ -795,3 +796,45 @@ test('#630 7: health names waiting mail and changes nothing: no file, no tab, no
     assert.ok(mailboxes.includes(orcaFlag(call, '--terminal')), `each read names a mailbox a book names, as run:<id>, got: ${call.args.join(' ')}`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// The finding on Orca 1.4.255 and on Orca 1.4.245 (#729)
+//
+// Orca 1.4.246 and later answer `inbox` short unless given `--full`: each
+// letter `{ id, type, from, to, subject, handled, body }`, with no `read`,
+// `delivered_at` or `created_at`. 1.4.245 and older take `--full` on `inbox`
+// and answer as without it. The fake models both (helpers/fake-orca.js,
+// `orcaVersion`). What 3 and 4 above pin holds on each.
+// ---------------------------------------------------------------------------
+
+for (const version of ORCA_MODELS) {
+  test(`#729 7 on Orca ${version}: waiting letters are named, with how many and the oldest one's time, and letters read or rung are not`, async (t) => {
+    const box = await createSandbox(t);
+    const bots = await seeded(box);
+    await botUp(box, 'api-bot', { sessions: ['daily', 'review'] });
+    const daily = await mailboxOf(bots, 'api-bot', 'daily');
+    const review = await mailboxOf(bots, 'api-bot', 'review');
+    const [, , oldestWaiting] = await mailTo(
+      box,
+      daily,
+      letter(daily, { age: 2 * HOUR }),
+      letter(daily, { age: 3 * HOUR }),
+      letter(daily, { age: 5 * HOUR }),
+      letter(daily, { age: 10 * MINUTE }),
+      letter(daily, { age: 26 * HOUR, read: 1 }),
+      letter(daily, { age: 30 * HOUR, delivered: true }),
+    );
+    await mailTo(box, review, letter(review, { age: 26 * HOUR, read: 1 }), letter(review, { age: 30 * HOUR, delivered: true }));
+    await modelOrca(box, version);
+
+    const answer = await found(box);
+
+    const finding = assertNamedMail(answer, box, bots, 'api-bot', 'daily', daily);
+    assert.ok(hasWord(finding.says, '3'), `it says 3 letters wait, got: ${finding.says}`);
+    assert.ok(
+      finding.says.includes(oldestWaiting.created_at),
+      `it gives the oldest waiting letter's created_at as Orca gave it, ${oldestWaiting.created_at}, got: ${finding.says}`,
+    );
+    assertNoMailFor(answer, review, 'review\'s letters were each read or rung');
+  });
+}

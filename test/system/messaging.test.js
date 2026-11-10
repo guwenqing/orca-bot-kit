@@ -864,6 +864,9 @@ test('a long, oddly formatted message arrives unchanged', async (t) => {
   const [message] = read.messages;
   assert.equal(message.subject, 'the long one');
   assert.equal(message.from, 'mail-claude/daily', 'the sender is a session of the fleet, so a reply has somewhere to go');
+  // Orca's created_at, as 1.4.255 wrote it live in `inbox --full`
+  // ("2026-11-10T03:42:04Z"); fractions of a second are let through (#729).
+  assert.match(String(message.at), /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?Z$/, `the message carries the time Orca gave it: ${JSON.stringify(message)}`);
   assert.ok(message.body.includes(sent.file), `the message names the file: ${message.body}`);
 
   // Read once and acknowledged: Orca replays a message until it is acked, so a

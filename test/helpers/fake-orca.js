@@ -258,7 +258,10 @@
 //               ones, and every call after them goes through again: a refusal
 //               that comes and goes, as `terminal_handle_stale` did live on
 //               1.4.209 (#294), where the same handle worked minutes later.
-//   reissue     { "<handle>": "<new handle>" } — once a call naming that handle
+//               With `with: "<flag>"` only a call that carries that flag
+//               fails: `{ "orchestration check": { with: "--ack" } }` refuses
+//               an acknowledgement and lets a plain read go through (#729).
+//   reissue    { "<handle>": "<new handle>" } — once a call naming that handle
 //               with `--terminal` has been refused, the next `terminal list`
 //               that reports its terminal hands it out under the new handle,
 //               and from then on it has only that one: the old handle is
@@ -402,7 +405,49 @@
 //               an orphaned tab in that project took about 1.5 s.
 //   crash       { command, exitCode, stdout, stderr } — no JSON, a bad exit code
 //   garbage     { command, text } — output that is not JSON at all
-//   runs        [{ id, objective, coordinator_handle, consumer_generation,
+//               `hang`, `crash`, `garbage`, `hold`, `runDuring` and
+//               `answerAs` take `with: "<flag>"` as `fail` does: aimed only at
+//               a call of the command that carries that flag (#729).
+//   answerAs    { command, result } — that command does what it does, and its
+//               ok answer carries `result` in place of the fake's own: an Orca
+//               that took the command and answered in a shape the kit does not
+//               know (#730: a `send` that Orca queued, with no message id the
+//               kit could read). A refusal is answered as ever.
+//   orcaVersion  which Orca's orchestration commands the fake answers as
+//               (#729). Left out, the fake answers as it always has: the full
+//               records below, and a `--full` it is given is let through and
+//               changes nothing. `status` gives it as the app's version. Two
+//               kinds, read in Orca's source at tags v1.4.245, v1.4.246 and
+//               v1.4.255 and in the 1.4.255 CLI bundle
+//               (out/cli/handlers/orchestration/), and in part seen live on
+//               the owner's 1.4.255 (2026-11-09, run-show, inbox, send):
+//                 older than '1.4.246'  no orchestration command but `inbox`
+//                               knows `--full`. `orchestration <cmd> ...
+//                               --full` is refused by the CLI's flag check
+//                               before it reaches the runtime, so nothing is
+//                               done: `invalid_argument`, "Unknown flag
+//                               --full for command: orchestration <cmd>",
+//                               exit 1. `inbox --full` answers as without it.
+//                               Everything else as the fake always answers.
+//                 '1.4.246' and later  every orchestration command takes
+//                               `--full`, which answers the full record as
+//                               before, and without it prints a short "agent
+//                               view" (Orca's agent-view.js,
+//                               `printOrchestrationResult`): `run-create` and
+//                               `run-use` give `{ runId, objective }`,
+//                               `run-show` `{ runId, objective, removedWork }`
+//                               (live), `send` `{ messageId }` (live), `check`
+//                               `{ messages }` with each message `{ id, type,
+//                               from, subject, body, priority }`, and `inbox`
+//                               `{ messages }` with each `{ id, type, from,
+//                               to, subject, handled, body }` (live), the body
+//                               cut to 200 characters. No `run`, `message`,
+//                               `from_handle`, `created_at`, `thread_id`,
+//                               `read` or `delivered_at` in any of them. And a
+//                               plain `check` acknowledges the batch it hands
+//                               over, in the same step; `check --ack` then
+//                               answers with no batch at all (see `check`).
+//   runs      [{ id, objective, coordinator_handle, consumer_generation,
 //               legacy, created_at, updated_at }] — the Run mailboxes
 //               `orchestration run-create` has made, in the words `run-show`
 //               answers with (Orca 1.4.209). A Run cannot be deleted; there is
@@ -620,7 +665,9 @@ function writeAll(text) {
 function ok(result) {
   // Whatever the command did is saved by now; only the answer is held back.
   if (hangsNow() && state.hang.applied === true) hangFor(state.hang.ms);
-  write({ id: `fake-${answered + 1}`, ok: true, result, _meta: { durationMs: 1 } });
+  // An Orca that did the command and answered in a shape of its own (`answerAs`).
+  const answer = aimedHere(state.answerAs) ? state.answerAs.result : result;
+  write({ id: `fake-${answered + 1}`, ok: true, result: answer, _meta: { durationMs: 1 } });
   process.exit(0);
 }
 
@@ -629,7 +676,12 @@ function fail(code, message, data = {}) {
   process.exit(1);
 }
 
-const aimedHere = (spec) => spec != null && (spec.command === undefined || spec.command === '*' || spec.command === command);
+const aimedHere = (spec) => spec != null
+  && (spec.command === undefined || spec.command === '*' || spec.command === command)
+  && carries(spec);
+
+/** Whether this call carries the flag a knob's `with` names, or the knob names none (#729). */
+const carries = (spec) => spec.with === undefined || args.includes(spec.with);
 
 /** Whether the `hang` is on for this call: aimed at it, and past its `since`. */
 const hangsNow = () => {
@@ -644,6 +696,32 @@ const hangsNow = () => {
 if (!args.includes('--json')) {
   process.stdout.write(`Orca ${command || '(no command)'}: human-readable output, not JSON\n`);
   process.exit(0);
+}
+
+// Which Orca's orchestration answers this fake gives (`orcaVersion`, #729).
+// Left out, neither of the two below: the fake as it always was.
+const modeled = state.orcaVersion;
+/** Whether version `a` is older than version `b`, part by part as numbers. */
+const olderThan = (a, b) => {
+  const [x, y] = [String(a).split('.').map(Number), String(b).split('.').map(Number)];
+  for (let i = 0; i < Math.max(x.length, y.length); i += 1) {
+    if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) < (y[i] ?? 0);
+  }
+  return false;
+};
+/** An Orca of 1.4.245 or older, which knows no `--full` on any orchestration command but `inbox`. */
+const knowsNoFull = modeled !== undefined && olderThan(modeled, '1.4.246');
+/** An Orca of 1.4.246 or later, which answers its orchestration commands short unless given `--full`. */
+const answersShort = modeled !== undefined && !knowsNoFull;
+const full = args.includes('--full');
+/** Whether this call gets the short agent view of 1.4.246 and later. */
+const short = answersShort && !full;
+
+// Orca 1.4.245's CLI checks a command's flags before it calls the runtime, so
+// an unknown `--full` is refused with nothing done (read in its source at tag
+// v1.4.245; `inbox` alone had the flag).
+if (knowsNoFull && full && command.startsWith('orchestration ') && command !== 'orchestration inbox') {
+  fail('invalid_argument', `Unknown flag --full for command: ${command}`, {});
 }
 
 if (aimedHere(state.crash)) {
@@ -739,6 +817,7 @@ if (held !== undefined) {
 const planned = (state.fail ?? {})[command];
 if (
   planned
+  && carries(planned)
   && callsSoFar() > (planned.after ?? 0)
   && (planned.times === undefined || callsSoFar() <= (planned.after ?? 0) + planned.times)
   && (planned.since === undefined || callsSoFar(planned.since) > (planned.sinceFrom ?? 0))
@@ -785,7 +864,7 @@ if (command === 'status') {
     process.exit(state.status != null && state.status.ok === false ? 1 : 0);
   }
   ok({
-    app: { running: true, version: '1.4.205' },
+    app: { running: true, version: modeled ?? '1.4.205' },
     runtime: { reachable: state.reachable !== false },
     capabilities: {},
   });
@@ -1536,7 +1615,16 @@ if (command === 'orchestration run-create') {
   state.runs = [...(state.runs ?? []), run];
   bind(run, coordinator);
   save();
+  // 1.4.246 and later, without --full: the Run's own fields at the top, and no
+  // `run` (run-handlers.js, `{ ...runFields(r.run), next: r.next }`). What
+  // Orca puts in `next` was not written down, so it is left out here.
+  if (short) ok(shortRun(run));
   ok({ run, terminal: coordinator });
+}
+
+/** A Run as the short agent view of 1.4.246 and later gives it (`runFields`). */
+function shortRun(run) {
+  return { runId: run.id, objective: run.objective, ...(run.legacy === true || run.legacy === 1 ? { legacy: true } : {}) };
 }
 
 if (command === 'orchestration run-use') {
@@ -1550,12 +1638,19 @@ if (command === 'orchestration run-use') {
   }
   bind(wanted, coordinatorFor());
   save();
+  if (short) ok(shortRun(wanted));
   ok({ run: wanted });
 }
 
 if (command === 'orchestration run-show') {
   const wanted = runNamed(flag('--id'));
   if (wanted === undefined) fail('run_not_found', `Run ${flag('--id')} was not found.`);
+  // 1.4.246 and later answer `removedWork` beside the Run, short or full (seen
+  // live on 1.4.255). What is in it was not written down, and the kit reads
+  // nothing of it: here it is always empty. The short answer has no
+  // `coordinator_handle` anywhere (live).
+  if (short) ok({ ...shortRun(wanted), removedWork: [] });
+  if (answersShort) ok({ run: wanted, removedWork: [] });
   ok({ run: wanted });
 }
 
@@ -1610,6 +1705,9 @@ if (command === 'orchestration send') {
   }
   save();
 
+  // 1.4.246 and later, without --full: the message's id alone, and Orca's
+  // warnings as plain strings (seen live on 1.4.255 for a send to a Run).
+  if (short) ok({ messageId: message.id, ...(warnings.length > 0 ? { warnings: warnings.map((one) => one.message) } : {}) });
   ok({ message: asOrca(message), ...(warnings.length > 0 ? { warnings } : {}) });
 }
 
@@ -1630,6 +1728,66 @@ function asOrca(message) {
     priority: message.priority,
     thread_id: message.threadId,
     created_at: message.at,
+  };
+}
+
+/**
+ * Orca 1.4.255's words when `--ack` is given to a check that has acknowledged
+ * its batch already (read in its source at tag v1.4.255).
+ */
+const ACK_NOT_NEEDED = 'A plain check already acknowledges the mail it shows, so --ack is not needed. Run check without --ack to read new mail.';
+
+/** Acknowledge one delivery and the messages in it, and mark them delivered, as 1.4.246 and later do. */
+function acknowledge(delivery) {
+  for (const message of state.messages ?? []) {
+    if (!delivery.messageIds.includes(message.id)) continue;
+    message.acked = true;
+    message.deliveredAt ??= new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+  }
+  delivery.acknowledged = true;
+}
+
+/** A sender's handle as the short agent view gives it: a `dispatch:` prefix cut. */
+const shortHandle = (handle) => (typeof handle === 'string' && handle.startsWith('dispatch:') ? handle.slice('dispatch:'.length) : handle);
+
+/**
+ * One message in a check's short answer (1.4.246 and later, without --full):
+ * no `from_handle`, `created_at` or `thread_id`, and `payload` only when there
+ * is one, which a message this fake keeps never has.
+ */
+function shortMessage(message) {
+  return {
+    id: message.id,
+    type: message.type,
+    from: shortHandle(message.from),
+    ...(message.subject ? { subject: message.subject } : {}),
+    ...(message.body ? { body: message.body } : {}),
+    priority: message.priority,
+  };
+}
+
+/**
+ * One message in a check's `--full` answer on 1.4.246 and later: every column
+ * of Orca's row but `read`, `sequence`, `sender_pane_key`, `pointer_*` and
+ * `answer_sender_snapshot` (read in its source at tag v1.4.255). What Orca
+ * writes in `delivery_contract` was not written down; null stands in, and the
+ * kit reads nothing of it.
+ */
+function fullRow(message) {
+  return {
+    id: message.id,
+    run_id: runIn(message.to) ?? null,
+    from_handle: message.from,
+    to_handle: message.to,
+    subject: message.subject,
+    body: message.body,
+    type: message.type,
+    priority: message.priority,
+    thread_id: message.threadId,
+    payload: null,
+    created_at: message.at,
+    delivered_at: message.deliveredAt ?? null,
+    delivery_contract: null,
   };
 }
 
@@ -1675,7 +1833,73 @@ if (command === 'orchestration check') {
   // delivery, names no delivery and changes nothing.
   if (args.includes('--peek')) {
     const waiting = mailIn().slice(0, 100);
+    if (short) ok({ messages: waiting.map(shortMessage) });
+    if (answersShort) ok({ runId: run, messages: waiting.map(fullRow), count: waiting.length, acknowledged: null });
     ok({ runId: run, messages: waiting.map(asOrca), count: waiting.length, acknowledged: null });
+  }
+
+  // Orca 1.4.246 and later (read in its source at tags v1.4.246 and v1.4.255):
+  // a plain read takes a batch and acknowledges it in the same step, so a
+  // reader that never acks is never handed the same mail twice. A delivery an
+  // older Orca left outstanding is handed over first, as a replay, and that
+  // handing over acknowledges it too. `--ack` acknowledges the delivery it
+  // names, one already acknowledged as a duplicate and not an error, and
+  // answers with no batch: newer mail waits for the next plain read. A
+  // delivery that is not this Run's is refused `stale_delivery`.
+  if (answersShort) {
+    const wanted = flag('--ack');
+    if (wanted !== undefined) {
+      const named = (state.deliveries ?? []).find((delivery) => delivery.run === run && delivery.id === wanted);
+      if (named === undefined) fail('stale_delivery', `${wanted} is not a delivery of ${run}`);
+      acknowledge(named);
+      save();
+      if (short) ok({ messages: [], acknowledged: wanted, next: ACK_NOT_NEEDED });
+      ok({
+        runId: run,
+        deliveryId: null,
+        messages: [],
+        count: 0,
+        replayed: false,
+        acknowledged: wanted,
+        timedOut: false,
+        cancelled: false,
+        connectionLost: false,
+        next: ACK_NOT_NEEDED,
+      });
+    }
+
+    let delivery = (state.deliveries ?? []).find((one) => one.run === run && !one.acknowledged);
+    const replayed = delivery !== undefined;
+    if (delivery === undefined) {
+      const batch = mailIn().filter((message) => !message.acked).slice(0, 50);
+      if (batch.length > 0) {
+        const n = state.nextId ?? 1;
+        state.nextId = n + 1;
+        delivery = { id: `delivery_${n}`, run, messageIds: batch.map((message) => message.id), acknowledged: false };
+        state.deliveries = [...(state.deliveries ?? []), delivery];
+      }
+    }
+    if (delivery !== undefined) acknowledge(delivery);
+    save();
+
+    const handed = delivery === undefined
+      ? []
+      : delivery.messageIds.map((id) => (state.messages ?? []).find((message) => message.id === id));
+    // Short: `deliveryId` is left out once the batch was acknowledged on read,
+    // which is every plain read; `replayed` only when it was one.
+    if (short) ok({ messages: handed.map(shortMessage), ...(replayed ? { replayed: true } : {}) });
+    ok({
+      runId: run,
+      deliveryId: delivery?.id ?? null,
+      messages: handed.map(fullRow),
+      count: handed.length,
+      replayed,
+      ...(delivery === undefined ? {} : { deliveryAcknowledged: true }),
+      acknowledged: null,
+      timedOut: false,
+      cancelled: false,
+      connectionLost: false,
+    });
   }
 
   // A delivery is the batch a plain read hands over: at most one outstanding
@@ -1737,6 +1961,23 @@ if (command === 'orchestration inbox') {
   const messages = [...((state.inbox ?? {})[run] ?? [])]
     .sort((a, b) => b.sequence - a.sequence)
     .slice(0, limit);
+  // 1.4.246 and later, without --full (seen live on 1.4.255): each letter as
+  // `{ id, type, from, to, subject, handled, body }`, the body cut to 200
+  // characters, and no `count`. Here `handled` is true for a letter whose
+  // `read` is 1; what else Orca counts in it was not written down.
+  if (short) {
+    ok({
+      messages: messages.map((one) => ({
+        id: one.id,
+        type: one.type,
+        from: shortHandle(one.from_handle),
+        to: one.to_handle,
+        ...(one.subject ? { subject: one.subject } : {}),
+        handled: one.read === 1,
+        ...(one.body ? { body: one.body.length > 200 ? `${one.body.slice(0, 200)}… (truncated; --full)` : one.body } : {}),
+      })),
+    });
+  }
   ok({ messages, count: messages.length });
 }
 

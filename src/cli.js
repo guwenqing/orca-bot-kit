@@ -1177,6 +1177,10 @@ const commands = {
       answer,
       lines: [
         `${'sent'.padEnd(9)}  ${where.padEnd(24)}  ${answer.subject}`,
+        // Orca took it, and its answer named no letter (#730).
+        ...(answer.id === undefined
+          ? ['             Orca queued it, and its answer gave no message id for it.']
+          : []),
         ...(answer.file === undefined
           ? []
           : [`             it was too long to travel as itself, so it went as a file:  ${answer.file}`]),
