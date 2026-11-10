@@ -1204,6 +1204,33 @@ export const pressEscape = (handle) =>
 export const TERMINAL_ENV = 'ORCA_TERMINAL_HANDLE';
 
 /**
+ * One `orca orchestration` command, answered in full. From 1.4.246 Orca prints
+ * a short answer for each of these unless it is given `--full`, and the short
+ * one leaves out what the kit reads: a Run's `id` and `coordinator_handle`, a
+ * letter's `from_handle`, `created_at`, `thread_id`, `read` and `delivered_at`,
+ * and a sent letter's `message` (#729, #730; read in the 1.4.246 and 1.4.255
+ * source, and seen live on 1.4.255). Orca 1.4.245 and older do not know the
+ * flag on any of them but `inbox`, and refuse it before they do anything, as
+ * `deleteProject` finds with `--force` (#528). Only that refusal sends the
+ * command again without it: one Orca took, or did not answer, is never sent a
+ * second time. Once refused, the rest of this run sends no `--full`.
+ */
+function orchestration(args, options) {
+  if (fullKnown) {
+    try {
+      return orca([...args, '--full'], options);
+    } catch (error) {
+      if (error.code !== 'invalid_argument' || !error.reason?.startsWith('Unknown flag --full for command: ')) throw error;
+      fullKnown = false;
+    }
+  }
+  return orca(args, options);
+}
+
+/** Whether this Orca may know `--full` on its orchestration commands: false once it has refused it. */
+let fullKnown = true;
+
+/**
  * A mailbox of one session's own: an Orca Run, which is a name and an inbox and
  * nothing else — it schedules nothing and runs nobody. The objective is what a
  * person sees in `orca orchestration run-list`, so it says whose it is.
@@ -1215,7 +1242,7 @@ export const TERMINAL_ENV = 'ORCA_TERMINAL_HANDLE';
  * tab and names no `--from` (tech notes, section 1; #317).
  */
 export const makeMailbox = (objective, options) =>
-  orca(['orchestration', 'run-create', '--objective', `obk ${objective}`], options).run.id;
+  orchestration(['orchestration', 'run-create', '--objective', `obk ${objective}`], options).run.id;
 
 /**
  * Bind a mailbox to the terminal `handle`, which makes it the Run's coordinator
@@ -1226,7 +1253,7 @@ export const makeMailbox = (objective, options) =>
  * tab may name no other (#317).
  */
 export const useMailbox = (id, handle, options) =>
-  orca(['orchestration', 'run-use', '--id', id, ...(handle === undefined ? [] : ['--from', handle])], options).run;
+  orchestration(['orchestration', 'run-use', '--id', id, ...(handle === undefined ? [] : ['--from', handle])], options).run;
 
 /**
  * The terminal a mailbox is bound to, or undefined when it has none. A closed
@@ -1234,7 +1261,7 @@ export const useMailbox = (id, handle, options) =>
  * nothing, only `run-use` does (tech notes, section 1).
  */
 export const coordinatorOf = (id, options) =>
-  orca(['orchestration', 'run-show', '--id', id], options).run.coordinator_handle ?? undefined;
+  orchestration(['orchestration', 'run-show', '--id', id], options).run.coordinator_handle ?? undefined;
 
 /**
  * Whether this Orca has no Run of that id at all, as when the book was written
@@ -1245,29 +1272,36 @@ export const coordinatorOf = (id, options) =>
  */
 export function runMissing(id, options) {
   try {
-    orca(['orchestration', 'run-show', '--id', id], options);
+    orchestration(['orchestration', 'run-show', '--id', id], options);
     return false;
   } catch (error) {
     return error.code === 'run_not_found';
   }
 }
 
-/** Queue one message. `to` and `from` are mailboxes, written `run:<id>`. */
+/**
+ * Queue one message. `to` and `from` are mailboxes, written `run:<id>`. Orca's
+ * whole answer comes back: the letter it queued is its `message`, where Orca
+ * says so. Once Orca has taken it, an answer the kit cannot read is no reason
+ * to say it was not sent (#730).
+ */
 export function postMessage({ to, from, subject, body, type = 'status', thread }) {
   const args = ['orchestration', 'send', '--to', to, '--subject', subject, '--body', body, '--type', type];
   if (from !== undefined) args.push('--from', from);
   if (thread !== undefined) args.push('--thread-id', thread);
-  return orca(args).message;
+  return orchestration(args);
 }
 
 /**
  * What is waiting in a mailbox: the oldest batch that has not been
- * acknowledged, or, peeking, whatever is unread without touching it. Read as
+ * acknowledged, or, peeking, whatever is unread without touching it. From
+ * Orca 1.4.246 a read that is not a peek acknowledges the batch it hands over,
+ * and says so with `deliveryAcknowledged: true` (#729). Read as
  * the terminal `handle` when one is given, which is how a read works from a tab
  * bound to another Run; otherwise as this process's own terminal.
  */
 export const readMailbox = (id, { peek = false, handle } = {}, options) =>
-  orca(['orchestration', 'check', '--run', id, ...as(handle), ...(peek ? ['--peek'] : [])], options);
+  orchestration(['orchestration', 'check', '--run', id, ...as(handle), ...(peek ? ['--peek'] : [])], options);
 
 /**
  * The newest `limit` messages in a mailbox, newest first, with every column
@@ -1278,11 +1312,14 @@ export const readMailbox = (id, { peek = false, handle } = {}, options) =>
  * cap in Orca, so the answer is taken whatever its size.
  */
 export const mailIn = (id, limit) =>
-  orca(['orchestration', 'inbox', '--terminal', `run:${id}`, '--limit', String(limit)], { whole: true }).messages ?? [];
+  orchestration(['orchestration', 'inbox', '--terminal', `run:${id}`, '--limit', String(limit)], { whole: true }).messages ?? [];
 
-/** Say a batch has been read. Orca answers with the batch after it. */
+/**
+ * Say a batch has been read. Up to Orca 1.4.245 Orca answers with the batch
+ * after it; from 1.4.246 with no batch, since its read acknowledged it (#729).
+ */
 export const ackMailbox = (id, delivery, handle, options) =>
-  orca(['orchestration', 'check', '--run', id, ...as(handle), '--ack', delivery], options);
+  orchestration(['orchestration', 'check', '--run', id, ...as(handle), '--ack', delivery], options);
 
 /** The reader of a `check`: the terminal named, or this process's own. */
 const as = (handle) => (handle === undefined ? [] : ['--terminal', handle]);
