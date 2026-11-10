@@ -60,6 +60,7 @@ import {
   harnessPartOf,
   launchLine,
   listLineOf,
+  restartLineOf,
   nameOnLine,
   orcaCallsOf,
   recordSession,
@@ -651,7 +652,13 @@ for (const [route, before, command] of ROUTES) {
       const again = await broughtUp(box, command);
 
       assert.notEqual(again.entry.tabId, first.entry.tabId, 'the session came back in a new tab, on a line the kit typed');
-      await assertMovedToANewAddress(box, bots, again.typed, held);
+      // A restart that closed the live tab types the restart line after the launch line (#726).
+      let { typed } = again;
+      if (command === 'restart') {
+        assert.equal(typed.at(-1), restartLineOf(box.cli, bots), `the restart line follows the launch line, got: ${JSON.stringify(typed)}`);
+        typed = typed.slice(0, -1);
+      }
+      await assertMovedToANewAddress(box, bots, typed, held);
     });
   }
 }

@@ -38,6 +38,7 @@ import {
   orcaCallsOf,
   orcaFlag,
   recordSession,
+  restartLineOf,
   sessionIn,
   skipGit,
   snapshot,
@@ -295,7 +296,7 @@ test('S5 a whole-bot restart with one session\'s shell in front and no conversat
   assert.notEqual(daily.tabId, before.daily.tabId);
   assert.notEqual(review.tabId, before.review.tabId);
   assert.deepEqual(typedInto(daily.terminal).map(tokenless), [freshLine(box, 'claude', 'daily')], 'daily had no conversation, so it starts fresh with its duty');
-  assert.deepEqual(typedInto(review.terminal).map(tokenless), [resumeLine(box, 'claude', conv(2), 'review')], 'review comes back as itself');
+  assert.deepEqual(typedInto(review.terminal).map(tokenless), [resumeLine(box, 'claude', conv(2), 'review'), restartLineOf(box.cli, bots)], 'review comes back as itself, and is told what the restart ended (#726)');
 });
 
 // ---------------------------------------------------------------------------

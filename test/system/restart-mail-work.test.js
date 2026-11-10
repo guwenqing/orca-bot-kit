@@ -39,8 +39,10 @@
 //        d. WORK_FILE holds WORD within ANSWER_MS of unpause returning.
 //   2. NO MAIL. The premise: the session's mailbox holds no unread letter.
 //      Then `obk restart --session main`: a new tab, the conversation resumed,
-//      the kit's line typed. ASSERTED:
-//        a. the entry says `listLine: true`;
+//      the kit's line typed. Since #726 that line, on the restart road, is the
+//      restart line (helpers/cli.js restartLineOf), which takes the place of
+//      the list line and asks for the mail check in the same words. ASSERTED:
+//        a. the entry says `restartLine: true`, and has no `listLine` key;
 //        b. the rollout holds the kit's line as the only typed user turn since
 //           restart began, an answer after it, and then the end of that turn;
 //        c. WORK_FILE is as case 1 left it, the same text and the same
@@ -123,7 +125,7 @@ import test from '../helpers/system.js';
 import { setTimeout } from 'node:timers/promises';
 import { parse } from 'yaml';
 
-import { cliEntry, listLineOf } from '../helpers/cli.js';
+import { cliEntry, listLineOf, restartLineOf } from '../helpers/cli.js';
 import { codexTrustArgs } from '../helpers/codex-trust.js';
 import { rolloutFilesOf } from '../helpers/codex-rollout.js';
 import { questionOn, waitingOn } from '../helpers/screens.js';
@@ -404,6 +406,8 @@ test('a Codex session resumed with mail waiting does the mail\'s work after the 
   const WORK_FILE = path.join(home, 'mail-work.txt');
   /** The line the kit types into a Codex session it has just resumed, in the words of #709: this checkout's CLI, this bots folder. */
   const LIST_LINE = listLineOf(cliEntry, bots);
+  /** The line the kit types in its place on the restart road, which closed the live tab (#726). */
+  const RESTART_LINE = restartLineOf(cliEntry, bots);
 
   // Registered before anything is created, so it runs however this test ends.
   t.after(async () => {
@@ -551,8 +555,9 @@ test('a Codex session resumed with mail waiting does the mail\'s work after the 
 
   assert.equal(again.created, true, `no mail: the premise: a new tab, got: ${JSON.stringify(again)}`);
   assert.equal(again.resumed, true, `no mail: the premise: the conversation was resumed, got: ${JSON.stringify(again)}`);
-  // 2a. The kit says it typed its line.
-  assert.equal(again.listLine, true, `no mail: the kit should have typed its line, and says ${JSON.stringify(again.listLine)}: ${again.listLineTrouble ?? 'no reason given'}.${whatIsUp(again.terminal)}`);
+  // 2a. The kit says it typed its line: on the restart road, the restart line in place of the list line (#726).
+  assert.equal(again.restartLine, true, `no mail: the kit should have typed its restart line, and says ${JSON.stringify(again.restartLine)}: ${again.restartLineTrouble ?? 'no reason given'}.${whatIsUp(again.terminal)}`);
+  assert.equal('listLine' in again, false, `no mail: and the entry carries no listLine key, got: ${JSON.stringify(again)}`);
 
   // 2b. The kit's line, an answer after it, and the end of that turn.
   const quietEvents = await until(
@@ -560,7 +565,7 @@ test('a Codex session resumed with mail waiting does the mail\'s work after the 
     ANSWER_MS,
     async () => {
       const seen = eventsOf(entriesSince(id, quietMark, quietBegan));
-      const at = seen.findIndex((one) => one.kind === 'message' && one.role === 'user' && one.text.trim() === LIST_LINE);
+      const at = seen.findIndex((one) => one.kind === 'message' && one.role === 'user' && one.text.trim() === RESTART_LINE);
       if (at < 0) return undefined;
       const answered = seen.findIndex((one, index) => index > at && one.kind === 'message' && one.role === 'assistant');
       return answered >= 0 && seen.some((one, index) => index > answered && one.kind === 'end') ? seen : undefined;
@@ -571,8 +576,8 @@ test('a Codex session resumed with mail waiting does the mail\'s work after the 
   await until(`no mail: ${BOT.title} to be idle after its answer`, ANSWER_MS, async () => (idleNow(again.terminal) ? true : undefined), () => whatIsUp(again.terminal), againScreen);
   const settled = eventsOf(entriesSince(id, quietMark, quietBegan));
   for (const line of shortly(settled)) t.diagnostic(`no mail: ${line}`);
-  assert.deepEqual(typedTurns(settled, mailbox), [LIST_LINE], 'no mail: the kit\'s line is the only line typed into the session since restart began');
-  const quietAt = quietEvents.findIndex((one) => one.kind === 'message' && one.role === 'user' && one.text.trim() === LIST_LINE);
+  assert.deepEqual(typedTurns(settled, mailbox), [RESTART_LINE], 'no mail: the kit\'s line is the only line typed into the session since restart began');
+  const quietAt = quietEvents.findIndex((one) => one.kind === 'message' && one.role === 'user' && one.text.trim() === RESTART_LINE);
   const quietAnswer = quietEvents.slice(quietAt + 1).find((one) => one.kind === 'message' && one.role === 'assistant');
   t.diagnostic(`no mail: the session answered ${JSON.stringify(quietAnswer.text.slice(0, 120))}${/\bok\b/i.test(quietAnswer.text) ? '' : ' (not "ok")'}`);
   t.diagnostic(`no mail: the session ran the kit's mail check: ${settled.some((one) => one.kind === 'call' && one.mailCheck)}; its tool calls: ${JSON.stringify(settled.filter((one) => one.kind === 'call').map((one) => one.name))}`);
