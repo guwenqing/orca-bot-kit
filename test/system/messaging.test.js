@@ -65,8 +65,9 @@
 //   - "Teach auto mode about your environment?", which comes after the
 //     session's first turn, at most once in a tab, only when it is the
 //     captured form (helpers/screens.js `onlyTeachFormOf`): Esc, never
-//     Continue, then the form gone and ~/.claude.json's autoModeEnvSetup as
-//     it was.
+//     Continue, then the form gone and autoModeEnvSetup as it was in
+//     ~/.claude.json and in the Orca profile's own .claude.json, which a tab
+//     writes under an Orca Claude account (helpers/teach-record.js, #738).
 //
 // The Claude tab's screen is looked at in the waits on it: while it comes up
 // (`readyForMail`), and in the first case's two waits for mail. A screen the
@@ -121,7 +122,6 @@
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
 import { mkdtemp, readdir, readFile, realpath, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -133,6 +133,7 @@ import { addressPattern, cliEntry } from '../helpers/cli.js';
 import { claudeTrustAt, trustScreenMet } from '../helpers/claude-trust.js';
 import { codexTrustArgs } from '../helpers/codex-trust.js';
 import { onlyTeachFormOf, questionOn, waitingOn } from '../helpers/screens.js';
+import { autoModeState, teachRecordFiles } from '../helpers/teach-record.js';
 import { tabGuard } from '../helpers/tab-guard.js';
 import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
@@ -313,16 +314,6 @@ const showsUp = (handle, word, within = ANSWER_MS, screen = undefined) => until(
 /** The title of Claude Code's "Teach auto mode" form (#416), as helpers/screens.js has it. */
 const TEACH_TITLE = 'Teach auto mode about your environment?';
 
-/** ~/.claude.json's autoModeEnvSetup, which only the Teach form's accept path changes (tech notes, section 1). */
-function autoModeState() {
-  try {
-    const held = JSON.parse(readFileSync(path.join(os.homedir(), '.claude.json'), 'utf8')).autoModeEnvSetup;
-    return held === undefined ? 'absent' : JSON.stringify(held);
-  } catch (error) {
-    return `unreadable (${error.message})`;
-  }
-}
-
 /** The bot folders whose Claude folder trust this test answered, and the tabs whose Teach form it answered. */
 const answered = { trust: new Set(), teach: new Set() };
 
@@ -337,8 +328,9 @@ const answered = { trust: new Set(), teach: new Set() };
  *     alone, then a wait for the screen to go.
  *   - The Teach form, at most once in the tab, when helpers/screens.js
  *     `onlyTeachFormOf` takes it: Esc into that tab alone, never Continue,
- *     then a wait for the form to go and a check that ~/.claude.json's
- *     autoModeEnvSetup is as it was.
+ *     then a wait for the form to go and a check that autoModeEnvSetup is
+ *     as it was in each record a tab here may write
+ *     (helpers/teach-record.js `teachRecordFiles`).
  *
  * A screen the helpers refuse, either screen asked again, and any other
  * question on the screen (helpers/screens.js `questionOn`) stop the run at
@@ -364,15 +356,16 @@ async function answerScreens(t, title, handle, home, bots) {
     assert.ok(!answered.teach.has(handle), `the Teach form came up again in ${title}, and this test answers it at most once:\n    ${rows.join('\n    ')}`);
     const wrong = onlyTeachFormOf(rows);
     assert.equal(wrong, undefined, `${title}'s Teach form is not the captured one, so this test answered nothing: ${wrong}.\n  what it showed:\n    ${rows.join('\n    ')}`);
-    const was = autoModeState();
+    const files = teachRecordFiles();
+    const was = autoModeState(files);
     const sent = orca(['terminal', 'send', '--terminal', handle, '--text', '\x1b']);
     assert.equal(sent.ok, true, `answering ${title}'s Teach form with Esc failed: ${JSON.stringify(sent.error)}`);
     answered.teach.add(handle);
     await until(`${title}'s Teach form to go after Esc`, 15000, async () => ((rowsOf(handle) ?? []).some((row) => row.trim() === TEACH_TITLE) ? undefined : true), () => whatIsUp(handle));
     await setTimeout(2000);
-    const now = autoModeState();
-    assert.equal(now, was, `Esc on ${title}'s Teach form taught nothing: ~/.claude.json's autoModeEnvSetup should be as it was (before: ${was}, after: ${now})`);
-    t.diagnostic(`answered ${title}'s Teach form with Esc; it went, and ~/.claude.json's autoModeEnvSetup stayed ${was}`);
+    const now = autoModeState(files);
+    assert.equal(now, was, `Esc on ${title}'s Teach form taught nothing: autoModeEnvSetup should be as it was in each record a tab here may write (before: ${was}; after: ${now})`);
+    t.diagnostic(`answered ${title}'s Teach form with Esc; it went, and autoModeEnvSetup stayed as it was: ${was}`);
     return;
   }
 
