@@ -49,12 +49,30 @@
 // `obk <bot>/<session>`, belonging to a bots folder that no longer exists. They
 // are listed by `orca orchestration run-list` and can be ignored.
 //
-// **It is attended.** A bot folder nobody has opened before asks questions
-// before the harness is running in it, and this test answers none of them —
-// answering them is the caller's job and not the kit's (PRD 6.5). On this
-// machine a first run asks for Claude Code's folder trust (the selection starts
-// on `No, exit`, so it takes a down-arrow and then return) and possibly a
-// harness update offer. The Codex bot's session is given its folder's trust at
+// **It answers two screens itself, and no other.** A bot folder nobody has
+// opened before asks questions before the harness is running in it, and
+// answering them is the caller's job and not the kit's (PRD 6.5). This test
+// answers two first-run screens of Claude Code itself, in the Claude bot's
+// tab, its own throwaway tab (see `answerScreens`):
+//
+//   - Claude Code's folder trust, once for each bot folder, only when
+//     helpers/claude-trust.js `claudeTrustAt` (#558) takes it: the plain
+//     trust, or the one that pre-approves exactly the kit's default rules for
+//     this throwaway bots folder, as the folder's own .claude/settings.json
+//     allows them. The kit writes those rules into every bot's
+//     .claude/settings.json, so a first run shows that form. The selection
+//     starts on `No, exit`, so the answer is a down-arrow and then return.
+//   - "Teach auto mode about your environment?", which comes after the
+//     session's first turn, at most once in a tab, only when it is the
+//     captured form (helpers/screens.js `onlyTeachFormOf`): Esc, never
+//     Continue, then the form gone and ~/.claude.json's autoModeEnvSetup as
+//     it was.
+//
+// The Claude tab's screen is looked at in the waits on it: while it comes up
+// (`readyForMail`), and in the first case's two waits for mail. A screen the
+// helpers refuse, and every other question in the Claude bot's tab, stops the
+// run at once with the screen in the failure message, and is never answered.
+// The Codex bot's session is given its folder's trust at
 // launch (#240, test/helpers/codex-trust.js), so Codex asks neither its
 // directory trust nor its hooks review, and writes nothing about this folder
 // into the user's own ~/.codex/config.toml. It also runs without Codex's sleep
@@ -66,7 +84,9 @@
 //
 // **Nothing here types at a bot.** Each one is given its whole part in its
 // start prompt, and the only lines that go into these tabs afterwards are the
-// launch line the kit types and Orca's own notice. That is what the
+// launch line the kit types and Orca's own notice. The keys that answer Claude
+// Code's folder trust go in before the harness runs at all, and are no line to
+// the bot. That is what the
 // product does — a fleet nobody is sitting over — and it is also the only way
 // these cases can be relied on to run: Orca gates a line typed into an agent's
 // tab as `agent_prompt_blocked`, and on one run of four it refused the re-issue
@@ -101,6 +121,7 @@
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { mkdtemp, readdir, readFile, realpath, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -109,8 +130,9 @@ import { setTimeout } from 'node:timers/promises';
 import { parse } from 'yaml';
 
 import { addressPattern, cliEntry } from '../helpers/cli.js';
+import { claudeTrustAt, trustScreenMet } from '../helpers/claude-trust.js';
 import { codexTrustArgs } from '../helpers/codex-trust.js';
-import { waitingOn } from '../helpers/screens.js';
+import { onlyTeachFormOf, questionOn, waitingOn } from '../helpers/screens.js';
 import { tabGuard } from '../helpers/tab-guard.js';
 import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
@@ -149,7 +171,8 @@ const ROUND_TRIP_MS = 480000;
 
 /**
  * How long a tab is given to get past the screens of its own. A first run has
- * two or three of them and a person answering them.
+ * two or three of them, and this test answers only Claude Code's folder trust
+ * and its Teach form (see `answerScreens`).
  */
 const READY_MS = 180000;
 
@@ -232,11 +255,14 @@ async function sessionIn(home, name) {
 /**
  * Keep asking until `look` gives something other than undefined, or the time
  * runs out. `note` is added to the message when it does, so a run left alone
- * says which screen was waiting rather than only that it waited.
+ * says which screen was waiting rather than only that it waited. `screen`, when
+ * given, is run before each look: the tab's own first-run screens, answered or
+ * stopped at.
  */
-async function until(what, within, look, note = () => '') {
+async function until(what, within, look, note = () => '', screen = async () => {}) {
   const stop = Date.now() + within;
   for (;;) {
+    await screen();
     const found = await look();
     if (found !== undefined) return found;
     assert.ok(Date.now() < stop, `gave up waiting for ${what} after ${within}ms.${note()}`);
@@ -250,6 +276,13 @@ function screenOf(handle) {
   return answer.ok === true ? JSON.stringify(answer.result) : '';
 }
 
+/** The rows the tab is rendering right now, or undefined when Orca rendered none. */
+function rowsOf(handle) {
+  const answer = orca(['terminal', 'read', '--terminal', handle, '--screen']);
+  const tail = answer.ok === true && answer.result?.terminal?.source === 'screen' ? answer.result.terminal.tail : undefined;
+  return Array.isArray(tail) ? tail.map(String) : undefined;
+}
+
 /**
  * What the tab is showing, for the message of a wait that ran out: Orca's own
  * word for whatever is waiting to be answered when it gave one, and then the
@@ -260,26 +293,100 @@ function whatIsUp(handle) {
   const blocked = answer.ok === true ? answer.result?.wait?.blockedReason : undefined;
   return [
     blocked === undefined ? '' : ` Orca says the tab is waiting on: ${blocked}.`,
-    ' This test answers nothing a tab asks; answer it in Orca and run again.',
+    ' This test answers no question a tab asks but Claude Code\'s folder trust and its Teach form, and those only through their helpers; answer it in Orca and run again.',
     `\n  orca terminal read --terminal ${handle} --screen\n  ${screenOf(handle).slice(0, 2000)}`,
   ].join('');
 }
 
-/** Wait for a word to show up on a tab's screen, whoever put it there. */
-const showsUp = (handle, word, within = ANSWER_MS) => until(
+/**
+ * Wait for a word to show up on a tab's screen, whoever put it there.
+ * `screen`, when given, is run before each look (see `answerScreens`).
+ */
+const showsUp = (handle, word, within = ANSWER_MS, screen = undefined) => until(
   `${word} to show up in ${handle}`,
   within,
   async () => (screenOf(handle).includes(word) ? true : undefined),
   () => whatIsUp(handle),
+  screen,
 );
+
+/** The title of Claude Code's "Teach auto mode" form (#416), as helpers/screens.js has it. */
+const TEACH_TITLE = 'Teach auto mode about your environment?';
+
+/** ~/.claude.json's autoModeEnvSetup, which only the Teach form's accept path changes (tech notes, section 1). */
+function autoModeState() {
+  try {
+    const held = JSON.parse(readFileSync(path.join(os.homedir(), '.claude.json'), 'utf8')).autoModeEnvSetup;
+    return held === undefined ? 'absent' : JSON.stringify(held);
+  } catch (error) {
+    return `unreadable (${error.message})`;
+  }
+}
+
+/** The bot folders whose Claude folder trust this test answered, and the tabs whose Teach form it answered. */
+const answered = { trust: new Set(), teach: new Set() };
+
+/**
+ * One look at the Claude bot's tab for its own first-run screens. This test
+ * answers two of them itself, in its own throwaway tab, and only when the
+ * suite's helpers take them:
+ *
+ *   - Claude Code's folder trust, once for each bot folder, when
+ *     helpers/claude-trust.js `claudeTrustAt` (#558) takes it for `home` and
+ *     the throwaway bots folder `bots`: a down-arrow and return into that tab
+ *     alone, then a wait for the screen to go.
+ *   - The Teach form, at most once in the tab, when helpers/screens.js
+ *     `onlyTeachFormOf` takes it: Esc into that tab alone, never Continue,
+ *     then a wait for the form to go and a check that ~/.claude.json's
+ *     autoModeEnvSetup is as it was.
+ *
+ * A screen the helpers refuse, either screen asked again, and any other
+ * question on the screen (helpers/screens.js `questionOn`) stop the run at
+ * once, with the screen in the failure message; none of them is answered.
+ */
+async function answerScreens(t, title, handle, home, bots) {
+  const rows = rowsOf(handle);
+  if (rows === undefined) return;
+
+  if (rows.some((row) => row.includes('Yes, I trust this folder'))) {
+    assert.ok(!answered.trust.has(home), `${title} asked Claude Code's folder trust for ${home} again, which this test answered once and answers no more:\n    ${rows.join('\n    ')}`);
+    const wrong = claudeTrustAt(rows, home, bots, cliEntry);
+    assert.equal(wrong, undefined, `${title}'s folder trust (${trustScreenMet(rows)}) is not one this test may answer, so it answered nothing: ${wrong}.\n  what it showed:\n    ${rows.join('\n    ')}`);
+    const sent = orca(['terminal', 'send', '--terminal', handle, '--text', '\x1b[B\r']);
+    assert.equal(sent.ok, true, `answering ${title}'s folder trust failed: ${JSON.stringify(sent.error)}`);
+    answered.trust.add(home);
+    await until(`${title}'s folder trust to go after it was answered`, 15000, async () => ((rowsOf(handle) ?? []).some((row) => row.includes('Yes, I trust this folder')) ? undefined : true), () => whatIsUp(handle));
+    t.diagnostic(`answered ${title}'s ${trustScreenMet(rows)}`);
+    return;
+  }
+
+  if (rows.some((row) => row.trim() === TEACH_TITLE)) {
+    assert.ok(!answered.teach.has(handle), `the Teach form came up again in ${title}, and this test answers it at most once:\n    ${rows.join('\n    ')}`);
+    const wrong = onlyTeachFormOf(rows);
+    assert.equal(wrong, undefined, `${title}'s Teach form is not the captured one, so this test answered nothing: ${wrong}.\n  what it showed:\n    ${rows.join('\n    ')}`);
+    const was = autoModeState();
+    const sent = orca(['terminal', 'send', '--terminal', handle, '--text', '\x1b']);
+    assert.equal(sent.ok, true, `answering ${title}'s Teach form with Esc failed: ${JSON.stringify(sent.error)}`);
+    answered.teach.add(handle);
+    await until(`${title}'s Teach form to go after Esc`, 15000, async () => ((rowsOf(handle) ?? []).some((row) => row.trim() === TEACH_TITLE) ? undefined : true), () => whatIsUp(handle));
+    await setTimeout(2000);
+    const now = autoModeState();
+    assert.equal(now, was, `Esc on ${title}'s Teach form taught nothing: ~/.claude.json's autoModeEnvSetup should be as it was (before: ${was}, after: ${now})`);
+    t.diagnostic(`answered ${title}'s Teach form with Esc; it went, and ~/.claude.json's autoModeEnvSetup stayed ${was}`);
+    return;
+  }
+
+  const question = questionOn(rows);
+  assert.equal(question, undefined, `${title} shows a screen this test does not answer, and it answers nothing; the run stops here:\n    ${rows.join('\n    ')}`);
+}
 
 /**
  * Wait until a tab can be written to at all: a TUI is up, Orca reports nothing
  * waiting to be answered on it, and its screen shows no question of the
  * harness's own. Orca called Codex's update offer idle with no reason, and a
  * return typed into it updated the machine (#329), so the screen is read as
- * well (helpers/screens.js, `waitingOn`). Nothing is typed here; this only
- * waits.
+ * well (helpers/screens.js, `waitingOn`). `screen`, when given, is run before
+ * each look (see `answerScreens`); nothing else is typed here.
  *
  * A bot whose part is to write to another has to wait for that one, and brought
  * up is not the same as ready. Seen live: the Claude bot sent the moment its own
@@ -290,7 +397,7 @@ const showsUp = (handle, word, within = ANSWER_MS) => until(
  * receiver still on a screen of its own is not one to write to yet, and the
  * order the bots come up in is only half of it.
  */
-async function readyForMail(handle, within = READY_MS) {
+async function readyForMail(handle, screen = async () => {}, within = READY_MS) {
   await until(
     `${handle} to be past the screens of its own`,
     within,
@@ -301,6 +408,7 @@ async function readyForMail(handle, within = READY_MS) {
       return waitingOn(orca, handle) === undefined ? true : undefined;
     },
     () => `${waitingOn(orca, handle) ?? ''}${whatIsUp(handle)}`,
+    screen,
   );
 }
 
@@ -463,7 +571,9 @@ const KIT = '"$OBK_CLI"';
 /**
  * The start prompts for the exchange: each bot's whole part, so that the only
  * lines ever typed into either tab are the launch line the kit types and
- * Orca's own notice. Nothing in this file drives a tab by hand.
+ * Orca's own notice. Nothing in this file drives a tab by hand: the only keys
+ * it sends into a tab answer Claude Code's folder trust, before the harness
+ * runs, and its Teach form, with Esc (see `answerScreens`).
  *
  * That is not only tidiness. Orca gates a line typed into an agent's tab —
  * `agent_prompt_blocked` — and on the third run of four it refused the re-issue
@@ -655,10 +765,13 @@ async function aFleet(t, label, promptFor) {
     // the moment its own harness is running, and the bot before it may still be
     // on a first-run screen of its own — in which case mail sent to it is mail
     // nobody learns about.
-    // The order these come up in is only half of what that needs.
-    await readyForMail(entry.terminal);
+    // The order these come up in is only half of what that needs. The Claude
+    // bot's own screens are answered here and in later waits on it (see
+    // `answerScreens`); the Codex bot was given its trust at launch.
+    const screen = bot.harness === 'claude' ? () => answerScreens(t, entry.title, entry.terminal, homeOf(bot.name), bots) : undefined;
+    await readyForMail(entry.terminal, screen);
 
-    tabs[bot.name] = entry;
+    tabs[bot.name] = { ...entry, screen };
   }
 
   return { bots, homeOf, tabs };
@@ -694,12 +807,14 @@ test('a Claude bot and a Codex bot exchange a message and a reply', async (t) =>
   //    mail and printed what was in it. Nobody asked it anything: Orca's notice
   //    is the whole wake-up, and the word it prints was only ever in the body
   //    of the message.
-  await showsUp(tabs['mail-codex'].terminal, QUESTION, ROUND_TRIP_MS);
+  //    The Claude tab's own screens are looked at in this wait too: its Teach
+  //    form comes after its first turn, the send (see `answerScreens`).
+  await showsUp(tabs['mail-codex'].terminal, QUESTION, ROUND_TRIP_MS, tabs['mail-claude'].screen);
 
   // 2. And the reply came back the other way under its own steam: the Codex bot
   //    looked the road up, sent it, the Claude bot got Orca's notice in its
   //    turn, and read it. The word is the Codex bot's own.
-  await showsUp(tabs['mail-claude'].terminal, PASSPHRASE, ROUND_TRIP_MS);
+  await showsUp(tabs['mail-claude'].terminal, PASSPHRASE, ROUND_TRIP_MS, tabs['mail-claude'].screen);
 });
 
 test('a busy receiver finishes what it was doing before it reads its mail', async (t) => {
