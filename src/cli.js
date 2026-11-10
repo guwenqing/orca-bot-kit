@@ -1984,6 +1984,7 @@ function harnessLines(tab, bots) {
       `             Look at it:  ${lookAt(tab.terminal)}`,
       ...ANSWER_IT,
       ...promptLines(tab),
+      ...restartLines(tab),
     ];
   }
 
@@ -2005,7 +2006,7 @@ function harnessLines(tab, bots) {
       ...ANSWER_IT,
     ];
 
-  lines.push(...promptLines(tab), ...listLines(tab));
+  lines.push(...promptLines(tab), ...listLines(tab), ...restartLines(tab));
   if (tab.unclaimed !== undefined) lines.push(...unclaimedLines(tab, bots));
   return lines;
 }
@@ -2017,6 +2018,16 @@ function harnessLines(tab, bots) {
 function listLines(tab) {
   if (tab.listLine === true) return ['             it was typed one line so Orca lists it among its agents: Codex tells Orca only at a first turn.'];
   if (tab.listLine === false) return [`             it was not typed the line that makes Orca list it (${tab.listLineTrouble}): Orca lists it at its next turn.`];
+  return [];
+}
+
+/**
+ * Whether a session `obk restart` resumed was typed the line that tells it what
+ * the restart ended (#726). When it was not, the caller is the one left to tell it.
+ */
+function restartLines(tab) {
+  if (tab.restartLine === true) return ['             it was typed one line that tells it what the restart ended: its background shells, and to look at its scheduled jobs and its mail.'];
+  if (tab.restartLine === false) return [`             it was not told what the restart ended (${tab.restartLineTrouble}): tell it yourself that its background shells ended, and to look at its scheduled jobs and its mail.`];
   return [];
 }
 

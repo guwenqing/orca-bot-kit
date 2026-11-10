@@ -12,7 +12,9 @@
 //     session (the book holds its conversation, and the launch line resumes it)
 //     and the harness came up in the new tab, the kit types exactly one line
 //     into that tab, `listLineOf` in helpers/cli.js, word for word, with a
-//     return. Since #709 the line asks the session to read its mail with the
+//     return. Since #726, a restart that closed the session's live tab types
+//     the restart line in its place (`restartLineOf`, restart-line.test.js):
+//     one line in all, never both. Since #709 the line asks the session to read its mail with the
 //     kit's own check, the one its built AGENTS.md names, and to do what the
 //     mail asks, mail it read just before the line included; it asks for "ok"
 //     only when there is none. Its CLI and bots folder are the sandbox's own.
@@ -66,6 +68,7 @@ import {
   createSandbox,
   listLineOf,
   recordSession,
+  restartLineOf,
   sentInto,
   sessionIn,
   tabsOfBot,
@@ -163,6 +166,21 @@ async function assertListLineTyped(box, bots, entry, what, name = 'daily') {
 }
 
 /**
+ * The restart road since #726: the launch line, then exactly the restart line
+ * with a return and nothing after it, in place of the list line, and the entry
+ * says the restart line was typed and carries no list line.
+ */
+async function assertRestartLineTyped(box, bots, entry, what, name = 'daily') {
+  const typed = await typedIn(box, bots, name);
+  assert.equal(typed.length, 2, `${what}: the launch line and then the restart line, nothing else, got: ${JSON.stringify(typed)}`);
+  assertCodexResumeLine(typed[0], `sess-${name}`, what);
+  assert.equal(typed[1], restartLineOf(box.cli, bots), `${what}: the line is the restart line of #726, word for word, in place of the list line`);
+  assert.equal(sentInto(await liveTab(box, bots, name))[1].enter, true, `${what}: and it is submitted with a return`);
+  assert.equal(entry.restartLine, true, `${what}: the answer says the restart line was typed, got: ${JSON.stringify(entry)}`);
+  assert.equal('listLine' in entry, false, `${what}: and carries no listLine key, got: ${JSON.stringify(entry)}`);
+}
+
+/**
  * The refused case: a Codex session was resumed and its harness came up, but
  * nothing was typed after the launch line, and the entry says so and why.
  */
@@ -188,7 +206,7 @@ test('up: a Codex session resumed in a new tab gets the ruled line typed once af
   await assertListLineTyped(box, bots, entry, 'up');
 });
 
-test('restart: a Codex session with a conversation in the book comes back in a new tab with the ruled line typed once', async (t) => {
+test('restart: a Codex session with a conversation in the book comes back in a new tab with the restart line typed once, in place of the list line (#726)', async (t) => {
   const box = await createSandbox(t);
   const bots = await madeBot(box);
   await running(box, bots);
@@ -197,7 +215,7 @@ test('restart: a Codex session with a conversation in the book comes back in a n
   const entry = entryOf(await run(box, 'restart'));
 
   assert.notEqual(entry.tabId, old.tabId, 'the premise: a new tab');
-  await assertListLineTyped(box, bots, entry, 'restart');
+  await assertRestartLineTyped(box, bots, entry, 'restart');
 });
 
 test('unpause: a paused Codex session comes back with its conversation and the ruled line typed once', async (t) => {
@@ -212,7 +230,7 @@ test('unpause: a paused Codex session comes back with its conversation and the r
   await assertListLineTyped(box, bots, entry, 'unpause');
 });
 
-test('restart of a bot with two Codex sessions: each new tab gets the line exactly once, and only its own', async (t) => {
+test('restart of a bot with two Codex sessions: each new tab gets the restart line exactly once, and only its own (#726)', async (t) => {
   const box = await createSandbox(t);
   const bots = await madeBot(box, { sessions: ['daily', 'review'] });
   await running(box, bots, { sessions: ['daily', 'review'] });
@@ -220,7 +238,7 @@ test('restart of a bot with two Codex sessions: each new tab gets the line exact
   const answer = await run(box, 'restart');
 
   for (const name of ['daily', 'review']) {
-    await assertListLineTyped(box, bots, entryOf(answer, name), `restart, ${name}`, name);
+    await assertRestartLineTyped(box, bots, entryOf(answer, name), `restart, ${name}`, name);
   }
 });
 
@@ -431,7 +449,7 @@ test('#709: for a bots folder with a space in its path, the line names that fold
 
 // ------------------------------------------------------------- never typed
 
-test('a resumed Claude session gets nothing typed after its launch line, and no list line is reported', async (t) => {
+test('a resumed Claude session gets no list line: on the restart road its launch line is followed by the restart line alone (#726), and no list line is reported', async (t) => {
   const box = await createSandbox(t);
   const bots = await madeBot(box, { harness: 'claude' });
   await running(box, bots, { harnessOf: () => 'claude' });
@@ -440,8 +458,9 @@ test('a resumed Claude session gets nothing typed after its launch line, and no 
 
   assert.equal(entry.resumed, true, `the premise: resumed, got: ${JSON.stringify(entry)}`);
   const typed = await typedIn(box, bots);
-  assert.equal(typed.length, 1, `the launch line and nothing after it, got: ${JSON.stringify(typed)}`);
+  assert.equal(typed.length, 2, `the launch line and the restart line, nothing else, got: ${JSON.stringify(typed)}`);
   assert.ok(typed[0].includes('--resume sess-daily'), `the premise: Claude resumed its conversation, got: ${typed[0]}`);
+  assert.equal(typed[1], restartLineOf(box.cli, bots), `the restart line of #726, not the list line, got: ${typed[1]}`);
   assert.notEqual(entry.listLine, true, `got: ${JSON.stringify(entry)}`);
 });
 
