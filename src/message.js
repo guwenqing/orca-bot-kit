@@ -203,19 +203,21 @@ export async function sendMessage(bots, { to: target, from: sender, tab, subject
   const shown = await loaded(to);
   // The Escape goes first, so the turn has ended when the letter is in.
   const interrupted = interrupt ? interruptBusy(to) : {};
-  const message = postMessage({
+  const posted = postMessage({
     to: road.address,
     from: `run:${from.mailbox}`,
     subject,
     body: written.body,
     thread,
   });
+  // Orca took it: sent, whatever else its answer says or leaves out (#730).
+  const message = posted?.message;
 
   return {
     ...answer,
     sent: true,
-    id: message.id,
-    thread: message.thread_id ?? thread,
+    id: message?.id ?? posted?.messageId,
+    thread: message?.thread_id ?? thread,
     file: written.file,
     ...interrupted,
     ...shown,
@@ -356,12 +358,14 @@ function mailOf(bots, who, peek, until) {
       trouble: `${who.bot}/${who.session} is not up, and its mailbox is bound to no tab, so there is nothing to read it as. Its mail waits until its tab is back: \`up\` brings it back, or \`unpause\` when it is paused.`,
     };
   }
-  // Orca hands mail over a batch at a time and replays the oldest until it is
-  // acknowledged; the acknowledgement answers with the next batch. So a read
-  // takes every batch in turn, or newer mail waits behind an older one (#299).
-  //
-  // A batch is given back once it is acknowledged, and not before: one this
-  // check stops short of acknowledging is handed over again to the next.
+  // Orca hands mail over a batch at a time, so a read takes every batch in
+  // turn, or newer mail waits behind an older one (#299). Up to 1.4.245 it
+  // replays the oldest until it is acknowledged, and the acknowledgement
+  // answers with the next batch: a batch this check stops short of
+  // acknowledging is handed over again to the next. From 1.4.246 a read
+  // acknowledges the batch it hands over and says so (`deliveryAcknowledged`),
+  // and an acknowledgement answers with no batch, so the next is read again
+  // (#729; read in the 1.4.246 and 1.4.255 source).
   const messages = [];
   const read = { bots, bot: who.bot, session: who.session, mailbox: who.mailbox, read: !peek, messages };
   let found = readMailbox(who.mailbox, { peek, handle }, timeLeft(until));
@@ -372,6 +376,24 @@ function mailOf(bots, who, peek, until) {
       return read;
     }
     const wait = timeLeft(until, false);
+    if (found.deliveryAcknowledged === true) {
+      // Read already, so shown whatever comes after.
+      messages.push(...batch);
+      if (wait === undefined) {
+        return { ...read, trouble: `${who.bot}/${who.session} has more mail than one check reads in ${HOLD_MS / 1000} seconds, so it stopped there. The rest is still waiting: check again.` };
+      }
+      try {
+        found = readMailbox(who.mailbox, { handle }, wait);
+      } catch (error) {
+        // A read Orca did not answer about may have taken the next batch all
+        // the same, and taken is read: that batch is not handed over again.
+        if (error.code === TIMED_OUT) {
+          return { ...read, trouble: `${error.message} Orca may have taken the next letters as read without the kit seeing them. The mail shown above is read.` };
+        }
+        return { ...read, trouble: `${error.message} The mail shown above is read, and the rest waits for the next check.` };
+      }
+      continue;
+    }
     if (wait === undefined) {
       return { ...read, trouble: `${who.bot}/${who.session} has more mail than one check reads in ${HOLD_MS / 1000} seconds, so it stopped there. The rest is still waiting: check again.` };
     }

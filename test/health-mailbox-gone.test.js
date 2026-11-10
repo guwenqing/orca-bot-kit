@@ -46,6 +46,7 @@ import {
   snapshot,
   spellingsOf,
 } from './helpers/cli.js';
+import { modelOrca, ORCA_MODELS } from './helpers/orca-versions.js';
 
 /** The kinds a finding can be. */
 const KINDS = ['orca', 'config', 'skill', 'session', 'leftover'];
@@ -400,3 +401,24 @@ test('#508 4: after the restart health names, the session has a mailbox Orca has
   assert.deepEqual(naming(after, gone), [], `nothing names the old Run any more, got: ${JSON.stringify(after.found, null, 2)}`);
   assert.deepEqual(naming(after, daily.mailbox), [], `nor the new one, got: ${JSON.stringify(after.found, null, 2)}`);
 });
+
+// The same on Orca 1.4.255 and on Orca 1.4.245 (#729). Orca 1.4.246 and later
+// answer `run-show` short unless given `--full`, and 1.4.245 and older refuse
+// `--full` on it with `invalid_argument`, which is not `run_not_found`. The
+// fake models both (helpers/fake-orca.js, `orcaVersion`).
+for (const version of ORCA_MODELS) {
+  test(`#729 on Orca ${version}: a session whose mailbox Orca does not have is named, and its sibling is not`, async (t) => {
+    const box = await createSandbox(t);
+    const bots = await seeded(box);
+    await botUp(box, 'api-bot', { sessions: ['daily', 'review'] });
+    const gone = await mailboxOf(bots, 'api-bot', 'daily');
+    const kept = await mailboxOf(bots, 'api-bot', 'review');
+    await goneFromOrca(box, gone);
+    await modelOrca(box, version);
+
+    const answer = await found(box);
+
+    assertNamedGone(answer, bots, 'api-bot', 'daily', gone);
+    assert.deepEqual(naming(answer, kept), [], 'review\'s mailbox is one Orca has: nothing names it');
+  });
+}
