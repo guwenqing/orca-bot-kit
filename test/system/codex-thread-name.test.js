@@ -18,9 +18,10 @@
 //   2. After that turn ends, within NAMED_MS, its tab's title in `orca
 //      terminal list` contains `name-codex.main`, and the newest line for its
 //      thread in session_index.jsonl names it so.
-//   3. `obk restart` of the session. After the turn the kit's list line starts
-//      (src/up.js LIST_LINE, #226) ends, the new tab's title again contains
-//      `name-codex.main`, within NAMED_MS.
+//   3. `obk restart` of the session. After the turn the kit's restart line
+//      starts (helpers/cli.js restartLineOf, #726; on the restart road it takes
+//      the place of the list line of #226) ends, the new tab's title again
+//      contains `name-codex.main`, within NAMED_MS.
 //   4. After each, it prints what the kit typed into the tab, if anything, as
 //      the tab's output shows it (`orca terminal read`, its stream), so the
 //      run's record holds it. It also checks Codex took `/rename` as its own
@@ -99,7 +100,7 @@ import test from '../helpers/system.js';
 import { setTimeout } from 'node:timers/promises';
 import { parse } from 'yaml';
 
-import { cliEntry, listLineOf } from '../helpers/cli.js';
+import { cliEntry, restartLineOf } from '../helpers/cli.js';
 import { codexTrustArgs } from '../helpers/codex-trust.js';
 import { tabGuard } from '../helpers/tab-guard.js';
 import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
@@ -410,8 +411,8 @@ test('a Codex session the kit starts shows <bot>.<session> in its tab title afte
   const homeOf = (bot) => path.join(bots, 'bots', bot);
   const homes = ['bot-father', BOT.name].map(homeOf);
   const home = homeOf(BOT.name);
-  /** The line the kit types into a Codex session it has just resumed (src/up.js LIST_LINE, #226; its words are #709's): this checkout's CLI, this bots folder. */
-  const LIST_LINE = listLineOf(cliEntry, bots);
+  /** The line the kit types into a session whose live tab `obk restart` closed and resumed (#726), in place of the list line of #226: this checkout's CLI, this bots folder. */
+  const RESTART_LINE = restartLineOf(cliEntry, bots);
 
   // Registered before anything is created, so it runs however this test ends.
   t.after(async () => {
@@ -526,28 +527,29 @@ test('a Codex session the kit starts shows <bot>.<session> in its tab title afte
   const probeSent = messagesSince(id, probeMark).filter((message) => message.role === 'user' && message.text.includes('run_probe713'));
   assert.deepEqual(probeSent, [], `the probe's write went to the model as a turn, so a newline in one write submitted the line: ${JSON.stringify(probeSent)}`);
 
-  // 3. A restart: the conversation resumed in a new tab, and the kit's list
-  // line gives it a turn. After that turn ends, the new tab's title names it.
+  // 3. A restart: the conversation resumed in a new tab, and the kit's restart
+  // line (#726) gives it a turn. After that turn ends, the new tab's title names it.
   const mark = recordMark(id);
   const answer = obkJson(['restart', '--bots', bots, '--bot', BOT.name, '--session', SESSION]);
   guard.closedByKit(answer.closed);
   const back = tabOf(answer, SESSION);
   assert.equal(back.created, true, `the premise: a new tab, got: ${JSON.stringify(back)}`);
   assert.equal(back.resumed, true, `the premise: the conversation was resumed, got: ${JSON.stringify(back)}`);
-  assert.equal(back.listLine, true, `the premise: the kit typed its list line, and says ${JSON.stringify(back.listLine)}: ${back.listLineTrouble ?? 'no reason given'}.${whatIsUp(back.terminal)}`);
+  assert.equal(back.restartLine, true, `the premise: the kit typed its restart line, and says ${JSON.stringify(back.restartLine)}: ${back.restartLineTrouble ?? 'no reason given'}.${whatIsUp(back.terminal)}`);
+  assert.equal('listLine' in back, false, `the premise: and the entry carries no listLine key, got: ${JSON.stringify(back)}`);
   await until(
-    `an answer after the kit's list line in Codex's record of ${id}`,
+    `an answer after the kit's restart line in Codex's record of ${id}`,
     ANSWER_MS,
     async () => {
       const seen = messagesSince(id, mark);
-      const at = seen.findIndex((message) => message.role === 'user' && message.text.trim() === LIST_LINE);
+      const at = seen.findIndex((message) => message.role === 'user' && message.text.trim() === RESTART_LINE);
       return at >= 0 && seen.slice(at + 1).some((message) => message.role === 'assistant') ? true : undefined;
     },
     () => ` Messages since the restart: ${JSON.stringify(messagesSince(id, mark).map((message) => ({ role: message.role, text: message.text.slice(0, 80) })))}.${whatIsUp(back.terminal)}`,
   );
   const restartTurnEnded = Date.now();
   const titleAfter = await until(
-    `the restarted tab's title to contain ${NAME} after the list line's turn`,
+    `the restarted tab's title to contain ${NAME} after the restart line's turn`,
     NAMED_MS,
     async () => {
       const now = titleOf(back.terminal);
@@ -555,7 +557,7 @@ test('a Codex session the kit starts shows <bot>.<session> in its tab title afte
     },
     () => ` session_index.jsonl's newest line for ${id}: ${JSON.stringify(nameLineOf(id) ?? null)}.${whatIsUp(back.terminal)}`,
   );
-  t.diagnostic(`after the restart: title ${JSON.stringify(titleAfter)}, ${Math.round((Date.now() - restartTurnEnded) / 1000)}s after the list line's answer was seen`);
+  t.diagnostic(`after the restart: title ${JSON.stringify(titleAfter)}, ${Math.round((Date.now() - restartTurnEnded) / 1000)}s after the restart line's answer was seen`);
   t.diagnostic(`session_index.jsonl's newest line for the thread after the restart: ${JSON.stringify(nameLineOf(id) ?? null)}`);
   t.diagnostic(`what the kit typed into the restarted tab, from its output:\n    ${renameInOutput(back.terminal)}`);
   const asMessageAfter = messagesSince(id, mark).filter((message) => message.role === 'user' && message.text.includes('/rename'));

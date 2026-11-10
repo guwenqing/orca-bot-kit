@@ -73,6 +73,7 @@ import {
   harnessPartOf,
   kitLaunchMark,
   recordSession,
+  restartLineOf,
   sessionIn,
   sh,
   snapshot,
@@ -140,14 +141,19 @@ async function fleetIn(box, { bots = 'bots', harness = 'claude', sessions = ['da
   }
 }
 
-/** The one line the kit typed into a session's tab, as the fake Orca received it. */
-async function lineOf(box, bots, name, bot = BOT) {
+/**
+ * The one line the kit typed into a session's tab, as the fake Orca received
+ * it. With `restarted`, the tab is one `obk restart` opened after it closed the
+ * session's live tab and resumed the conversation: since #726 the restart line
+ * (helpers/cli.js restartLineOf) follows the launch line there, and nothing else.
+ */
+async function lineOf(box, bots, name, bot = BOT, { restarted = false } = {}) {
   const entry = await sessionIn(bots, bot, name);
   assert.equal(typeof entry?.tab, 'string', `the book should hold a tab for ${bot}/${name}, got: ${JSON.stringify(entry)}`);
   const terminal = (await box.orca.terminals()).find((one) => one.tabId === entry.tab);
   assert.ok(terminal, `Orca should have ${bot}/${name}'s tab ${entry.tab}`);
   const typed = typedInto(terminal);
-  assert.equal(typed.length, 1, `one line per new session tab, got: ${JSON.stringify(typed)}`);
+  assert.deepEqual(typed.slice(1), restarted ? [restartLineOf(box.cli, bots)] : [], `one line per new session tab, and after a restart's resume the restart line alone, got: ${JSON.stringify(typed)}`);
   return typed[0];
 }
 
@@ -1136,7 +1142,7 @@ describe('the launch line names the physical memory folder (#722)', { concurrenc
 
     await ok(box, ['restart', '--bots', 'bots', '--bot', BOT, '--session', 'daily']);
 
-    await assertResumeCarries(box, await lineOf(box, bots, 'daily'), memoryDirOf(profile.projects, bots), id);
+    await assertResumeCarries(box, await lineOf(box, bots, 'daily', BOT, { restarted: true }), memoryDirOf(profile.projects, bots), id);
   });
 
   test('M14 obk unpause: the new tab\'s line has --resume and the pair', async (t) => {
@@ -1190,7 +1196,7 @@ describe('the launch line names the physical memory folder (#722)', { concurrenc
 
     await ok(box, ['restart', '--bots', 'bots', '--bot', BOT, '--session', 'daily']);
 
-    await assertResumeCarries(box, await lineOf(box, bots, 'daily'), memoryDirOf(profile.projects, bots), id);
+    await assertResumeCarries(box, await lineOf(box, bots, 'daily', BOT, { restarted: true }), memoryDirOf(profile.projects, bots), id);
   });
 
   test('M14 each start looks again: a profile gone after the first start is not on the restart\'s line', async (t) => {
@@ -1205,7 +1211,7 @@ describe('the launch line names the physical memory folder (#722)', { concurrenc
 
     await ok(box, ['restart', '--bots', 'bots', '--bot', BOT, '--session', 'daily']);
 
-    const line = await lineOf(box, bots, 'daily');
+    const line = await lineOf(box, bots, 'daily', BOT, { restarted: true });
     assert.ok(line.includes('--resume'), `the premise: a resume, got: ${line}`);
     assert.ok(!line.includes('--settings') && !line.includes(KEY), `nothing is kept from the first start, got: ${line}`);
   });

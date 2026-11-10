@@ -942,6 +942,24 @@ export const listLineOf = (cli, bots) => 'obk: this session was resumed in a new
   + ' That includes mail you read just before this line. If there is none, reply "ok".';
 
 /**
+ * The one line the kit types into a session that `obk restart` closed the live
+ * tab of and resumed in a new tab where the harness came up, on every harness
+ * (#726), in the architect's words, word for word. It tells the session that
+ * the close ended the harness's background shells, to look at its scheduled
+ * jobs before it makes one again, and to read its mail as `listLineOf` does:
+ * `cli` is the CLI that ran the command, and `bots` the bots folder by its
+ * absolute path, each a `shellWord`. The backticks are part of the line. On
+ * the restart road it takes the place of the list line for Codex.
+ */
+export const restartLineOf = (cli, bots) => 'obk: obk restart closed this session\'s old tab and resumed the conversation in this new one.'
+  + ' Closing the old tab ended the harness there, and the background shells it ran ended with it.'
+  + ' The kit cannot tell which shells ran, or whether a scheduled job of the harness still runs.'
+  + ' Look at the harness\'s scheduled jobs before you make one again, so that only one of each runs.'
+  + ' Start again the shells you still need.'
+  + ` Read your mail with \`${shellWord(cli)} message check --bots ${shellWord(bots)}\`, and do what it asks.`
+  + ' That includes mail you read just before this line. If nothing needs doing, reply "ok".';
+
+/**
  * The step a launch line starts with, for a session that can have a mailbox
  * (#317): the kit's own CLI, run in the new tab before the harness, giving the
  * session its mailbox bound to that tab. Orca 1.4.210 lets a process in a tab

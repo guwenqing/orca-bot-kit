@@ -24,7 +24,10 @@
 //
 // What it does after the close is `up`'s work, unchanged, and that is the point
 // of `--session <name>`, of the resume on the launch line and of the report:
-// the tests below read them against what `up` already does.
+// the tests below read them against what `up` already does. One thing more
+// since #726: a session whose live tab the restart closed and whose
+// conversation it resumed is typed the restart line after its launch line
+// (`restartLineOf`, restart-line.test.js).
 
 import assert from 'node:assert/strict';
 import { readFile, rm, writeFile } from 'node:fs/promises';
@@ -45,6 +48,7 @@ import {
   orcaCommand,
   orcaFlag,
   recordSession,
+  restartLineOf,
   sessionIn,
   tabsOfBot,
   TAB_TITLES,
@@ -150,8 +154,8 @@ test('R1 a session that is up is closed once, by its own handle, and comes back 
   assert.notEqual(after.tabId, before.tabId, 'a tab that comes back is a new tab');
   assert.deepEqual(
     typedInto(after.terminal).map(tokenless),
-    [resumeLine(box, 'sess-1')],
-    'and the line typed into it picks up the conversation the book held',
+    [resumeLine(box, 'sess-1'), restartLineOf(box.cli, bots)],
+    'and the line typed into it picks up the conversation the book held, and the restart line follows it (#726)',
   );
   const entry = await sessionIn(bots, 'api-bot', 'daily');
   assert.equal(entry.tab, after.tabId, 'the book follows the session to its new tab');
@@ -183,7 +187,7 @@ test('R2 with no --session every session of the bot is restarted', async (t) => 
   for (const [name, id] of [['daily', 'sess-daily'], ['review', 'sess-review']]) {
     const after = await liveTab(box, bots, 'api-bot', name);
     assert.notEqual(after.tabId, before[name].tabId, `${name} should be in a new tab`);
-    assert.deepEqual(typedInto(after.terminal).map(tokenless), [resumeLine(box, id, 'api-bot', name)], `${name} should come back as itself`);
+    assert.deepEqual(typedInto(after.terminal).map(tokenless), [resumeLine(box, id, 'api-bot', name), restartLineOf(box.cli, bots)], `${name} should come back as itself, and be told what the restart ended (#726)`);
   }
 });
 
@@ -230,7 +234,7 @@ test('R3 only the tabs the book names are closed: Bot Father keeps its ops tab',
   const came = await liveTab(box, bots, 'bot-father', 'daily');
   assert.notEqual(came.tabId, daily.tabId);
   assert.equal(came.terminal.title, TAB_TITLES.daily);
-  assert.deepEqual(typedInto(came.terminal).map(tokenless), [resumeLine(box, 'sess-bf', 'bot-father', 'daily')]);
+  assert.deepEqual(typedInto(came.terminal).map(tokenless), [resumeLine(box, 'sess-bf', 'bot-father', 'daily'), restartLineOf(box.cli, bots)]);
 });
 
 test('R4 Orca\'s whole-project close is never called, by this command or any other', async (t) => {
@@ -580,7 +584,7 @@ test('R14 a close the listing is slow to agree with still ends with the session 
 
   const after = await liveTab(box, bots, 'api-bot', 'daily');
   assert.notEqual(after.tabId, before.tabId, 'the tab Orca was still listing is not the tab that came back');
-  assert.deepEqual(typedInto(after.terminal).map(tokenless), [resumeLine(box, 'sess-1')], 'with the conversation the book held');
+  assert.deepEqual(typedInto(after.terminal).map(tokenless), [resumeLine(box, 'sess-1'), restartLineOf(box.cli, bots)], 'with the conversation the book held, and the restart line after it (#726)');
   const entry = await sessionIn(bots, 'api-bot', 'daily');
   assert.equal(entry.tab, after.tabId, 'and the book holds the new tab');
   assert.equal(entry.session, 'sess-1');
