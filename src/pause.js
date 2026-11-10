@@ -40,10 +40,14 @@ export async function pauseSessions(bots, { bot, session }) {
  */
 export async function unpauseSessions(bots, { bot, session }) {
   const home = fleetMember(bots, bot, 'unpause', session);
-  sessionsOf(readBot(home, bot), session);
+  const sessions = sessionsOf(readBot(home, bot), session);
 
   const changed = markPaused(bots, bot, session, false);
-  return { bot, session, changed, ...(await bringUp(bots, { bot, session })) };
+  // The sessions this took the pause off are told, once they are resumed, what
+  // their closed tab ended (#732). One still paused on its own is not brought
+  // up, so it is told nothing; nothing is told when nothing was paused.
+  const unpaused = changed ? new Set(sessions.map((one) => one.name)) : undefined;
+  return { bot, session, changed, ...(await bringUp(bots, { bot, session, unpaused })) };
 }
 
 /**

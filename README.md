@@ -528,7 +528,15 @@ effort and context go back to the new harness's defaults unless you give them
 too. A pause closes the tabs the way a restart does, with the
 same refusals, and one more: it also refuses a tab with only its shell in front
 whose conversation the book does not name. `obk up` leaves what is paused
-closed until `obk unpause` brings it back with its conversations. Retiring a
+closed until `obk unpause` brings it back with its conversations. The closed
+tab ended the background shells of each paused session, as a restart does. So
+the unpause tells each session it took off pause and resumed, in one typed
+line, as a restart does: its old tab is closed and its background shells
+ended, and it looks at its scheduled jobs and its mail. The report says under
+each tab whether the line went in. In the `--json` answer, `restartLine` means
+the same after an unpause as after a restart: `true` when the line went in, or
+`false` with the reason in `restartLineTrouble`, and then you tell the session
+yourself. Retiring a
 session takes it off the bot and keeps its conversations in the book under
 `retired`. Once its tab is closed, it stops what the session left running in
 its work dir: each of your processes whose working folder is there, and what

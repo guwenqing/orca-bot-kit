@@ -690,7 +690,7 @@ const commands = {
     const answer = { bots, bot, session, changed, created: [], completed: [], ...up };
     return {
       answer,
-      lines: tabLines(answer, `${changed ? 'Unpaused' : 'Not paused, so brought up as it is'}: ${what}. Your bots folder: ${bots}`),
+      lines: tabLines(answer, `${changed ? 'Unpaused' : 'Not paused, so brought up as it is'}: ${what}. Your bots folder: ${bots}`, 'pause'),
     };
   },
 
@@ -1918,7 +1918,7 @@ function settingsLine({ bot, session, running, settings, rules }) {
   return `${word.padEnd(9)}  ${who}  ${each.join('  ')}  rules ${rules.state}`;
 }
 
-function tabLines({ bots, created, completed, rules, skills, permissions = [], tabs, paused = [], projects = [], found = [] }, summary) {
+function tabLines({ bots, created, completed, rules, skills, permissions = [], tabs, paused = [], projects = [], found = [] }, summary, closedBy = 'restart') {
   const lines = [
     ...created.map((entry) => `created    ${entry}`),
     ...completed.map((entry) => `completed  ${entry}`),
@@ -1929,7 +1929,7 @@ function tabLines({ bots, created, completed, rules, skills, permissions = [], t
 
   for (const tab of tabs) {
     lines.push(`${tab.created ? 'opened' : 'found '}     ${tab.title}  tab ${tab.tabId}  terminal ${tab.terminal}`);
-    lines.push(...harnessLines(tab, bots));
+    lines.push(...harnessLines(tab, bots, closedBy));
     if (tab.noMailbox) {
       lines.push(`             it has no mailbox: ${noMailboxYet({ bots, bot: tab.bot, session: tab.name })}`);
     }
@@ -1962,7 +1962,7 @@ function tabLines({ bots, created, completed, rules, skills, permissions = [], t
  * The caller decides what to do next from these lines, so they say both what
  * was typed and what was seen afterwards, and never one in place of the other.
  */
-function harnessLines(tab, bots) {
+function harnessLines(tab, bots, closedBy) {
   if (!tab.created || tab.name === null) return [];
 
   // Nothing was typed into it, so there is nothing more to say about a harness
@@ -1988,7 +1988,7 @@ function harnessLines(tab, bots) {
       `             Look at it:  ${lookAt(tab.terminal)}`,
       ...ANSWER_IT,
       ...promptLines(tab),
-      ...restartLines(tab),
+      ...restartLines(tab, closedBy),
     ];
   }
 
@@ -2010,7 +2010,7 @@ function harnessLines(tab, bots) {
       ...ANSWER_IT,
     ];
 
-  lines.push(...promptLines(tab), ...listLines(tab), ...restartLines(tab));
+  lines.push(...promptLines(tab), ...listLines(tab), ...restartLines(tab, closedBy));
   if (tab.unclaimed !== undefined) lines.push(...unclaimedLines(tab, bots));
   return lines;
 }
@@ -2027,11 +2027,13 @@ function listLines(tab) {
 
 /**
  * Whether a session `obk restart` resumed was typed the line that tells it what
- * the restart ended (#726). When it was not, the caller is the one left to tell it.
+ * the restart ended (#726), or one `obk unpause` resumed, what the pause ended
+ * (#732): `closedBy` names which. When it was not, the caller is the one left
+ * to tell it.
  */
-function restartLines(tab) {
-  if (tab.restartLine === true) return ['             it was typed one line that tells it what the restart ended: its background shells, and to look at its scheduled jobs and its mail.'];
-  if (tab.restartLine === false) return [`             it was not told what the restart ended (${tab.restartLineTrouble}): tell it yourself that its background shells ended, and to look at its scheduled jobs and its mail.`];
+function restartLines(tab, closedBy) {
+  if (tab.restartLine === true) return [`             it was typed one line that tells it what the ${closedBy} ended: its background shells, and to look at its scheduled jobs and its mail.`];
+  if (tab.restartLine === false) return [`             it was not told what the ${closedBy} ended (${tab.restartLineTrouble}): tell it yourself that its background shells ended, and to look at its scheduled jobs and its mail.`];
   return [];
 }
 

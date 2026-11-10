@@ -49,7 +49,7 @@ const SECOND_LOOK_MS = 2000;
  * one bot and `session` one of its sessions, for a caller that wants one thing
  * back rather than the fleet.
  */
-export async function bringUp(bots, { bot: onlyBot, session: onlySession, restarted } = {}) {
+export async function bringUp(bots, { bot: onlyBot, session: onlySession, restarted, unpaused } = {}) {
   const named = botsNamed(bots, onlyBot);
   if (onlySession !== undefined && onlyBot === undefined) {
     throw new Error('--session needs --bot: say which bot the session belongs to.');
@@ -72,7 +72,7 @@ export async function bringUp(bots, { bot: onlyBot, session: onlySession, restar
     for (const session of sessionsOf(bot, onlySession)) {
       if (session.paused === true) paused.push({ bot: bot.name, session: session.name });
     }
-    const up = await bringUpBot(bots, home, bot, onlySession, restarted);
+    const up = await bringUpBot(bots, home, bot, onlySession, { restarted, unpaused });
     report.push(...up.tabs);
     if (up.project !== undefined) projects.push(up.project);
   }
@@ -230,7 +230,7 @@ export function sessionsOf(bot, onlySession) {
   return named;
 }
 
-async function bringUpBot(bots, home, bot, onlySession, restarted) {
+async function bringUpBot(bots, home, bot, onlySession, { restarted, unpaused } = {}) {
   const name = bot.name;
   const title = displayName(name);
   const sessions = awake(sessionsOf(bot, onlySession));
@@ -250,7 +250,10 @@ async function bringUpBot(bots, home, bot, onlySession, restarted) {
 
   const live = new Map(tabs(home).map((tab) => [tab.tabId, tab]));
   const report = [];
-  for (const session of sessions) report.push(await bringUpSession(bots, home, live, session, bot, title, restarted?.has(session.name) === true));
+  // Which command closed the session's old tab, when one did and the session
+  // is to be told what that ended (#726, #732).
+  const endedBy = (name) => (restarted?.has(name) ? 'restart' : unpaused?.has(name) ? 'unpause' : undefined);
+  for (const session of sessions) report.push(await bringUpSession(bots, home, live, session, bot, title, endedBy(session.name)));
 
   // The ops tab, and the whole of what the kit knows about it: Bot Father's
   // project needs one tab that is not a session, for work across the fleet. Any
@@ -274,7 +277,7 @@ async function bringUpBot(bots, home, bot, onlySession, restarted) {
   return { tabs: report, project: change === undefined && windowTrouble === undefined ? undefined : project };
 }
 
-async function bringUpSession(bots, home, live, session, bot, title, restarted) {
+async function bringUpSession(bots, home, live, session, bot, title, endedBy) {
   const harness = harnessOf(session, bot.harness);
   const book = readBook(home);
   const was = book.sessions[session.name];
@@ -432,12 +435,13 @@ async function bringUpSession(bots, home, live, session, bot, title, restarted) 
     : await heldInRecord(home, session.name, harness, launch.prompt, { launched, running: tui.running === true });
 
   // A session whose tab `obk restart` closed lost the background shells its
-  // harness ran there, and nothing else tells it (#726). So once it is resumed
-  // it is typed one line that says so, through the same gate, whatever its
-  // harness. For Codex that line is its first turn too, so it takes the place
-  // of the list line below.
-  const told = !restarted || launch.resume === undefined ? undefined
-    : tui.running === true ? await typeListLine(home, session.name, made.tabId, { line: restartLine(bots) })
+  // harness ran there, and nothing else tells it (#726). So does one that
+  // `obk unpause` took off pause: its old tab is closed (#732). So once it is
+  // resumed it is typed one line that says so, through the same gate, whatever
+  // its harness. For Codex that line is its first turn too, so it takes the
+  // place of the list line below.
+  const told = endedBy === undefined || launch.resume === undefined ? undefined
+    : tui.running === true ? await typeListLine(home, session.name, made.tabId, { line: (endedBy === 'unpause' ? unpauseLine : restartLine)(bots) })
     : { typed: false, why: 'its harness did not come up in the new tab' };
 
   // A Codex session resumed here is not among Orca's agents until its first
@@ -540,11 +544,28 @@ const listLine = (bots) => 'obk: this session was resumed in a new tab, and the 
  */
 const restartLine = (bots) => 'obk: obk restart closed this session\'s old tab and resumed the conversation in this new one.'
   + ' Closing the old tab ended the harness there, and the background shells it ran ended with it.'
-  + ' The kit cannot tell which shells ran, or whether a scheduled job of the harness still runs.'
+  + whatToDoAfterTheClose(bots);
+
+/**
+ * What the restart line and the unpause line both say after their first two
+ * sentences: what the kit cannot tell, and what the session does about it.
+ */
+const whatToDoAfterTheClose = (bots) => ' The kit cannot tell which shells ran, or whether a scheduled job of the harness still runs.'
   + ' Look at the harness\'s scheduled jobs before you make one again, so that only one of each runs.'
   + ' Start again the shells you still need.'
   + ` Read your mail with \`${shellWord(ownCli())} message check --bots ${shellWord(bots)}\`, and do what it asks.`
   + ' That includes mail you read just before this line. If nothing needs doing, reply "ok".';
+
+/**
+ * The line a session is typed once `obk unpause` has taken it off pause and
+ * resumed it in a new tab, in the architect's ruling (#732). Its first two
+ * sentences take the place of the restart line's: the kit cannot tell whether
+ * the pause closed the old tab or it was closed before, and the words are true
+ * either way. The rest is the restart line's, word for word.
+ */
+const unpauseLine = (bots) => 'obk: obk unpause took this session off pause and resumed its conversation in this new tab.'
+  + ' Its old tab is closed, which ended the harness there, and the background shells it ran ended with it.'
+  + whatToDoAfterTheClose(bots);
 
 /**
  * How long a resumed Codex tab is given to be one the kit may type into: live,
