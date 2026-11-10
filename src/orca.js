@@ -1329,9 +1329,37 @@ export function postMessage({ to, from, subject, body, type = 'status', thread }
  * and says so with `deliveryAcknowledged: true` (#729). Read as
  * the terminal `handle` when one is given, which is how a read works from a tab
  * bound to another Run; otherwise as this process's own terminal.
+ *
+ * A read given a `request` id carries it as `--retry-request`: Orca keeps its
+ * answer under that id, and the same read asked again with it answers the
+ * same batch and takes nothing new (#735). An Orca that refuses the flag as
+ * unknown did nothing, and is asked again without it, as for `--full`.
  */
-export const readMailbox = (id, { peek = false, handle } = {}, options) =>
-  orchestration(['orchestration', 'check', '--run', id, ...as(handle), ...(peek ? ['--peek'] : [])], options);
+export function readMailbox(id, { peek = false, handle, request } = {}, options) {
+  const args = ['orchestration', 'check', '--run', id, ...as(handle), ...(peek ? ['--peek'] : [])];
+  if (request !== undefined && retryKnown) {
+    try {
+      return orchestration([...args, '--retry-request', request], options);
+    } catch (error) {
+      if (error.code !== 'invalid_argument' || error.reason !== RETRY_UNKNOWN) throw error;
+      retryKnown = false;
+    }
+  }
+  return orchestration(args, options);
+}
+
+/** Orca's own words when its CLI does not know `--retry-request` on `check`: nothing was done. */
+const RETRY_UNKNOWN = 'Unknown flag --retry-request for command: orchestration check';
+
+/** Whether this Orca may know `--retry-request` on `check`: false once it has refused it. */
+let retryKnown = true;
+
+/**
+ * Whether a read given a request id still carries it. Once Orca has refused
+ * the flag, a read goes without it, and a read with no id is never asked again
+ * after a time-out: it would take another batch, not answer the first (#735).
+ */
+export const readsCarryRequest = () => retryKnown;
 
 /**
  * The newest `limit` messages in a mailbox, newest first, with every column

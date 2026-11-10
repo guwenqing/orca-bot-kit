@@ -539,6 +539,53 @@
 //               only when there is none does a read make a new one, of the
 //               oldest unread messages, at most 50. Written by the fake; a test
 //               may leave one outstanding to put a Run in that state.
+//   receipts    { "<request id>": { input, full, short } } — what `check
+//               --retry-request <id>` answered, kept under that id (#735). Read
+//               in Orca's source at tags v1.4.245, v1.4.246 and v1.4.255
+//               (orchestration-mutation-executor.ts, check-run.ts), not seen
+//               live. A check that is not a `--peek` (a plain read or an
+//               `--ack`) is a mutation to Orca, and given a request id, Orca
+//               keeps its answer under it. From 1.4.246 the receipt is written
+//               in the same step as the take; 1.4.245 writes it as the command
+//               ends. Here it is written in the same save as what the check
+//               changed, so a `hang` with `applied: true` keeps it, and a hang
+//               without `applied` (a call that never reached Orca's runtime)
+//               leaves none. Then:
+//                 the same id, same input   answers the kept answer, and takes,
+//                               acknowledges and records nothing: in full
+//                               with `mutation: { requestId, replayed: true }`,
+//                               or the kept short view. A first answer in full
+//                               carries `mutation` with `replayed: false`.
+//                 the same id, other input  refused `request_mismatch`,
+//                               "Mutation request <id> was already used with
+//                               different input.", with nothing done. The
+//                               input is the command and its flags, in any
+//                               order, without `--json`, `--full` and the id:
+//                               they only choose how the CLI prints.
+//                 an id with no receipt     runs as a new read, and keeps its
+//                               answer under the id.
+//                 a value that is not a UUID  refused by the CLI before the
+//                               runtime: `invalid_argument`, in Orca's words
+//                               ("--retry-request must be the UUID Orca
+//                               reported ..."), with nothing done.
+//               A `--peek` with an id is no mutation: it is answered as ever
+//               and keeps nothing. A check refused (a `fail`, a fence, an
+//               unknown flag) keeps nothing either. Orca keys a receipt by
+//               the caller too, but every local CLI is the same caller, so
+//               the fake keys it by the id alone. On 1.4.245 the kit's first
+//               try with `--full` is refused by the flag check, keeps nothing,
+//               and the same id without `--full` runs as new. Written by the
+//               fake. Only `check` is modelled; a `terminal send` with an id
+//               is typed as ever (see `terminals`).
+//   retryRequestUnknown  true: an Orca whose CLI does not know
+//               `--retry-request` on `orchestration check` (#735; not an Orca
+//               seen anywhere: every tag from 1.4.205 to 1.4.255 has it). A
+//               check that carries the flag is refused before the runtime,
+//               as an unknown `--full` is on 1.4.245: `invalid_argument`,
+//               "Unknown flag --retry-request for command: orchestration
+//               check", exit 1, nothing done. When a call carries both
+//               unknown flags, the first one given is named, as Orca's flag
+//               check goes through them in order.
 //   inbox       { "<run id>": [message, ...] } — what `orchestration inbox
 //               --terminal run:<id>` answers for that Run, each message in
 //               Orca's own words, as a test gives it (#630). Orca 1.4.225
@@ -741,9 +788,16 @@ const short = answersShort && !full;
 
 // Orca 1.4.245's CLI checks a command's flags before it calls the runtime, so
 // an unknown `--full` is refused with nothing done (read in its source at tag
-// v1.4.245; `inbox` alone had the flag).
-if (knowsNoFull && full && command.startsWith('orchestration ') && command !== 'orchestration inbox') {
-  fail('invalid_argument', `Unknown flag --full for command: ${command}`, {});
+// v1.4.245; `inbox` alone had the flag). The same for `--retry-request` on
+// `check` with `retryRequestUnknown` (#735). The CLI checks the flags in the
+// order they are given and names the first it does not know (src/cli/args.ts).
+const unknownFlags = [
+  ...(knowsNoFull && command.startsWith('orchestration ') && command !== 'orchestration inbox' ? ['--full'] : []),
+  ...(state.retryRequestUnknown === true && command === 'orchestration check' ? ['--retry-request'] : []),
+];
+const unknownFlag = args.find((arg) => unknownFlags.includes(arg));
+if (unknownFlag !== undefined) {
+  fail('invalid_argument', `Unknown flag ${unknownFlag} for command: ${command}`, {});
 }
 
 if (aimedHere(state.crash)) {
@@ -1827,7 +1881,41 @@ function fullRow(message) {
   };
 }
 
+/**
+ * The shape Orca's CLI takes as a request id, and its words for any other
+ * value (read in its source at tag v1.4.255,
+ * src/shared/orchestration/orchestration-retry-request-id.ts).
+ */
+const RETRY_REQUEST_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const RETRY_REQUEST_ID_GUIDANCE = '--retry-request must be the UUID Orca reported for the original request; pass it exactly as printed, or omit the flag to start a new request.';
+
+/**
+ * What Orca keeps a request id's input as: the command and its flags with
+ * their values, in any order, without the CLI's own `--json` and `--full` and
+ * without the id itself. Orca hashes the method and its parameters; `--json`
+ * and `--full` only choose how the CLI prints the answer.
+ */
+function requestInput() {
+  const given = [];
+  for (let at = words.length; at < args.length; at += 1) {
+    const name = args[at];
+    let value = true;
+    if (at + 1 < args.length && !args[at + 1].startsWith('--')) {
+      value = args[at + 1];
+      at += 1;
+    }
+    if (!['--json', '--full', '--retry-request'].includes(name)) given.push([name, value]);
+  }
+  given.sort(([a], [b]) => (a < b ? -1 : Number(a > b)));
+  return JSON.stringify([command, given]);
+}
+
 if (command === 'orchestration check') {
+  // A request id that is not a UUID is refused by the CLI before anything is
+  // asked of the runtime (#735).
+  const requestId = flag('--retry-request');
+  if (requestId !== undefined && !RETRY_REQUEST_ID.test(requestId)) fail('invalid_argument', RETRY_REQUEST_ID_GUIDANCE);
+
   // The reader is the terminal `--terminal` names, or else the caller's own.
   // Seen live on 1.4.209: `--terminal S` reads and acks as S from another tab
   // or from a shell with no Orca terminal, and the fence is judged against S's
@@ -1840,6 +1928,33 @@ if (command === 'orchestration check') {
   // it read whatever Run it names. On 1.4.210 a caller in a tab that names
   // another terminal is refused before any of that (`attested`).
   attested(flag('--terminal'));
+
+  // A check that is not a peek, given a request id, has its answer kept under
+  // that id (`receipts`, #735). The same id again answers what was kept, and
+  // takes and acknowledges nothing; with other input it is refused. Orca does
+  // this before it reads the Run, so a kept answer comes back as it was.
+  const keyed = requestId !== undefined && !args.includes('--peek');
+  const input = keyed ? requestInput() : undefined;
+  const kept = keyed ? (state.receipts ?? {})[requestId] : undefined;
+  if (kept !== undefined) {
+    if (kept.input !== input) fail('request_mismatch', `Mutation request ${requestId} was already used with different input.`);
+    ok(short ? kept.short : { ...kept.full, mutation: { requestId, replayed: true } });
+  }
+
+  /**
+   * Answer a check that took effect: in full, or `shortForm` for the short
+   * view, with its receipt saved in the same write as what it changed. From
+   * 1.4.246 Orca commits the receipt with the take; 1.4.245 writes it when the
+   * command ends. Either way, a `hang` with `applied: true` holds back only the
+   * answer, and the receipt is there.
+   */
+  const answerTaken = (fullForm, shortForm) => {
+    if (keyed) state.receipts = { ...(state.receipts ?? {}), [requestId]: { input, full: fullForm, short: shortForm } };
+    save();
+    if (short) ok(shortForm);
+    ok(keyed ? { ...fullForm, mutation: { requestId, replayed: false } } : fullForm);
+  };
+
   const reader = flag('--terminal') ?? caller;
   const boundTo = reader === undefined ? undefined : runHeldBy(reader)?.id;
   const run = flag('--run') ?? boundTo;
@@ -1888,9 +2003,7 @@ if (command === 'orchestration check') {
       const named = (state.deliveries ?? []).find((delivery) => delivery.run === run && delivery.id === wanted);
       if (named === undefined) fail('stale_delivery', `${wanted} is not a delivery of ${run}`);
       acknowledge(named);
-      save();
-      if (short) ok({ messages: [], acknowledged: wanted, next: ACK_NOT_NEEDED });
-      ok({
+      answerTaken({
         runId: run,
         deliveryId: null,
         messages: [],
@@ -1901,7 +2014,7 @@ if (command === 'orchestration check') {
         cancelled: false,
         connectionLost: false,
         next: ACK_NOT_NEEDED,
-      });
+      }, { messages: [], acknowledged: wanted, next: ACK_NOT_NEEDED });
     }
 
     let delivery = (state.deliveries ?? []).find((one) => one.run === run && !one.acknowledged);
@@ -1916,15 +2029,13 @@ if (command === 'orchestration check') {
       }
     }
     if (delivery !== undefined) acknowledge(delivery);
-    save();
 
     const handed = delivery === undefined
       ? []
       : delivery.messageIds.map((id) => (state.messages ?? []).find((message) => message.id === id));
     // Short: `deliveryId` is left out once the batch was acknowledged on read,
     // which is every plain read; `replayed` only when it was one.
-    if (short) ok({ messages: handed.map(shortMessage), ...(replayed ? { replayed: true } : {}) });
-    ok({
+    answerTaken({
       runId: run,
       deliveryId: delivery?.id ?? null,
       messages: handed.map(fullRow),
@@ -1935,7 +2046,7 @@ if (command === 'orchestration check') {
       timedOut: false,
       cancelled: false,
       connectionLost: false,
-    });
+    }, { messages: handed.map(shortMessage), ...(replayed ? { replayed: true } : {}) });
   }
 
   // A delivery is the batch a plain read hands over: at most one outstanding
@@ -1967,12 +2078,11 @@ if (command === 'orchestration check') {
       state.deliveries = [...(state.deliveries ?? []), delivery];
     }
   }
-  save();
 
   const handed = delivery === undefined
     ? []
     : delivery.messageIds.map((id) => (state.messages ?? []).find((message) => message.id === id));
-  ok({
+  answerTaken({
     runId: run,
     deliveryId: delivery?.id ?? null,
     messages: handed.map(asOrca),
