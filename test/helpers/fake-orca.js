@@ -326,6 +326,28 @@
 //               from the fake's world once the count runs out. It goes on
 //               answering `rename`, `wait` and `send` while it lags, because to
 //               anything that found it in a listing it is a tab like any other.
+//   closingAs  { connected, ptyLive } — how a terminal that `closeLag` keeps
+//               listed after its close looks while it lags (#733). `connected`
+//               is the `connected` that `terminal list` and `terminal show`
+//               give it from the close on, true or false; left out, they give
+//               no `connected`, as before. `ptyLive: false` takes its session
+//               out of `diagnostics memory` from the close on, as a pane whose
+//               process has ended; left out or true, `diagnostics memory` goes
+//               on listing it, as before. One terminal can carry a `closingAs`
+//               of its own, for that tab alone, in place of the state's; Orca
+//               never lists it. It changes nothing for a terminal that has not
+//               been closed, or for a close with no lag. Read in Orca 1.4.255's
+//               source: `terminal list` gives every pane in the window's graph
+//               `connected` (the pane's own flag and its pty live), so a row
+//               with `connected: false` and `orphaned: false` is a pane still
+//               in the window's graph. The row alone does not prove that its
+//               process ended: a pane whose own flag is false is listed so
+//               while its pty is live, which is why the kit also reads
+//               `diagnostics memory`. That row, held for
+//               minutes after the harness had stopped, is from the report in
+//               #733; a live probe on 2026-11-10 did not show it. That probe
+//               saw the closed tab listed `connected: true` for about 2 s, and
+//               `diagnostics memory` list its pty until its process ended.
 //   refuseClose  on one terminal, not on the state: { tab, pane }, each a
 //               { code, message } refusal. `terminal close --terminal <its
 //               handle> --tab` is answered ok:false with `tab`, and the same
@@ -1111,9 +1133,21 @@ if (command === 'worktree set') {
  * a test gave it, which only `terminal read` shows, and what a send into it is
  * seen to do, which only `terminal send` answers.
  */
-const asReported = ({ typed: _typed, notices: _notices, closingFor: _closingFor, foreground: _foreground, screen: _screen, screenSource: _screenSource, screenAfterSend: _screenAfterSend, nextScreens: _nextScreens, tuiIdle: _tuiIdle, thenScreen: _thenScreen, readsBeforeThen: _readsBeforeThen, submit: _submit, refuseClose: _refuseClose, afterMail: _afterMail, draft: _draft, ...rest }) => (rest.orphaned === true
-  ? { ...rest, ...identity(), tabId: `pty:${rest.ptyId}`, leafId: `pty:${rest.ptyId}`, orphaned: true }
-  : { ...rest, ...identity(), orphaned: false });
+const asReported = (terminal) => {
+  const { typed: _typed, notices: _notices, closingFor: _closingFor, closingAs: _closingAs, foreground: _foreground, screen: _screen, screenSource: _screenSource, screenAfterSend: _screenAfterSend, nextScreens: _nextScreens, tuiIdle: _tuiIdle, thenScreen: _thenScreen, readsBeforeThen: _readsBeforeThen, submit: _submit, refuseClose: _refuseClose, afterMail: _afterMail, draft: _draft, ...rest } = terminal;
+  return rest.orphaned === true
+    ? { ...rest, ...identity(), ...connectedOf(terminal), tabId: `pty:${rest.ptyId}`, leafId: `pty:${rest.ptyId}`, orphaned: true }
+    : { ...rest, ...identity(), ...connectedOf(terminal), orphaned: false };
+};
+
+/** How a closed terminal looks while `closeLag` keeps it listed: its own `closingAs`, or the state's (#733). */
+const closingAsOf = (terminal) => (terminal.closingFor === undefined ? undefined : terminal.closingAs ?? state.closingAs);
+
+/** The `connected` a closed terminal's `closingAs` gives it, or nothing, as before (#733). */
+const connectedOf = (terminal) => {
+  const connected = closingAsOf(terminal)?.connected;
+  return connected === undefined ? {} : { connected };
+};
 
 /** The `agentIdentity` a test gave every tab, or nothing when each tab says its own. */
 const identity = () => ('agentIdentity' in state ? { agentIdentity: state.agentIdentity } : {});
@@ -1244,8 +1278,8 @@ if (command === 'terminal close') {
 if (command === 'terminal show') {
   const terminal = (state.terminals ?? []).find((entry) => entry.handle === flag('--terminal'));
   if (!terminal) fail('terminal_not_found', `no terminal with handle ${flag('--terminal')}`);
-  const { typed: _typed, notices: _notices, closingFor: _closingFor, foreground: _foreground, screen: _screen, screenSource: _screenSource, screenAfterSend: _screenAfterSend, nextScreens: _nextScreens, tuiIdle: _tuiIdle, thenScreen: _thenScreen, readsBeforeThen: _readsBeforeThen, submit: _submit, refuseClose: _refuseClose, afterMail: _afterMail, draft: _draft, ...rest } = terminal;
-  ok({ terminal: { ...rest, ...identity(), orphaned: terminal.orphaned === true } });
+  const { typed: _typed, notices: _notices, closingFor: _closingFor, closingAs: _closingAs, foreground: _foreground, screen: _screen, screenSource: _screenSource, screenAfterSend: _screenAfterSend, nextScreens: _nextScreens, tuiIdle: _tuiIdle, thenScreen: _thenScreen, readsBeforeThen: _readsBeforeThen, submit: _submit, refuseClose: _refuseClose, afterMail: _afterMail, draft: _draft, ...rest } = terminal;
+  ok({ terminal: { ...rest, ...identity(), ...connectedOf(terminal), orphaned: terminal.orphaned === true } });
 }
 
 // What a tab shows. The answer is the one Orca 1.4.212 gave live, key for key
@@ -1553,6 +1587,8 @@ if (command === 'diagnostics memory') {
       worktrees.push(worktree);
     }
     if (foregroundOf(state, terminal, dir) === 'no-pid') continue;
+    // A closed tab whose process has ended, while the listing still lags (`closingAs`, #733).
+    if (closingAsOf(terminal)?.ptyLive === false) continue;
     worktree.memory += MEMORY;
     worktree.sessions.push({ sessionId: terminal.ptyId, paneKey: terminal.paneKey, pid: panePid(state, terminal), cpu: 0, memory: MEMORY });
   }
