@@ -1021,6 +1021,36 @@ function panePid(ptyId, readMs) {
   return { pane };
 }
 
+/**
+ * The ids of the ptys Orca holds a process for, from `diagnostics memory`, as
+ * a set, or undefined when the kit cannot tell (#733). Each session there is a
+ * pty of Orca's own registry, which drops a pty once its process has ended
+ * (read in the 1.4.255 bundle; seen live, the pty went from the answer as its
+ * pane process and shell ended). An Orca that refuses the command, or an
+ * answer in another shape, cannot tell. Nor can an answer with no worktree at
+ * all: Orca answers a snapshot that failed with an empty list (read in the
+ * 1.4.255 bundle), and the kit cannot tell that from a machine with no
+ * terminal.
+ */
+export function livePtys() {
+  let worktrees;
+  try {
+    worktrees = orca(['diagnostics', 'memory']).worktrees;
+  } catch {
+    return undefined;
+  }
+  if (!Array.isArray(worktrees) || worktrees.length === 0) return undefined;
+  const ids = new Set();
+  for (const worktree of worktrees) {
+    if (!Array.isArray(worktree?.sessions)) return undefined;
+    for (const session of worktree.sessions) {
+      if (typeof session?.sessionId !== 'string') return undefined;
+      ids.add(session.sessionId);
+    }
+  }
+  return ids;
+}
+
 /** The `lsof` and `stty` the kit asks, by their fixed paths, as `ps`. */
 export const LSOF = '/usr/sbin/lsof';
 const STTY = '/bin/stty';

@@ -1486,6 +1486,54 @@ test('the fake can refuse one tab\'s close with --tab, keep listing it, and clos
   assert.deepEqual(list().map((one) => one.handle), [again.handle], 'a tab whose closes were both refused is still there');
 });
 
+test('the fake can keep a closed tab listed as disconnected, with its pty gone from diagnostics, and only while it lags', async (t) => {
+  // #733: on Orca 1.4.255 a closed tab stayed listed for minutes as
+  // `connected: false, orphaned: false` after its harness had stopped
+  // (from the issue's report). `closingAs` gives a tab lagging under
+  // `closeLag` that look; left out, a lagging tab looks as it always did.
+  const box = await createSandbox(t);
+  await box.orca.set({ repoAddAsGiven: true });
+  const home = box.path('bots', 'bots', 'bot-father');
+  answer(ask(box, ['repo', 'add', '--path', home, '--json']));
+  const setup = (await box.orca.setups())[0];
+  answer(ask(box, ['project', 'setup-update', '--setup', setup.id, '--kind', 'folder', '--json']));
+  const create = () => answer(ask(box, ['terminal', 'create', '--worktree', `path:${home}`, '--title', 'Daily', '--json'])).result.terminal;
+  const list = () => answer(ask(box, ['terminal', 'list', '--worktree', `path:${home}`, '--json'])).result.terminals;
+  const close = (handle) => answer(ask(box, ['terminal', 'close', '--terminal', handle, '--tab', '--json']));
+  const ptys = () => answer(ask(box, ['diagnostics', 'memory', '--json'])).result.worktrees
+    .flatMap((worktree) => worktree.sessions).map((session) => session.sessionId);
+  await box.orca.set({ closeLag: 100000 });
+
+  // Left out: a lagging tab is listed with no `connected`, and its pty stays.
+  const plain = create();
+  close(plain.handle);
+  assert.equal('connected' in list().find((one) => one.handle === plain.handle), false, 'no closingAs, no connected key, as before');
+  assert.deepEqual(ptys(), [plain.ptyId], 'and diagnostics still lists its pty');
+
+  await box.orca.set({ closingAs: { connected: false, ptyLive: false } });
+  const gone = create();
+  const ownWay = create();
+  const open = create();
+  await box.orca.set({
+    terminals: (await box.orca.terminals()).map((one) => (one.handle === ownWay.handle ? { ...one, closingAs: { connected: true } } : one)),
+  });
+  close(gone.handle);
+  close(ownWay.handle);
+
+  const rows = Object.fromEntries(list().map((one) => [one.handle, one]));
+  assert.deepEqual(Object.keys(rows).sort(), [plain.handle, gone.handle, ownWay.handle, open.handle].sort(), 'every closed tab is still listed while it lags');
+  assert.equal(rows[gone.handle].connected, false, 'the closed tab is listed disconnected');
+  assert.equal(rows[gone.handle].orphaned, false, 'and not orphaned');
+  assert.equal(rows[gone.handle].tabId, gone.tabId, 'under its own tab id');
+  assert.equal(rows[ownWay.handle].connected, true, 'a tab\'s own closingAs wins over the state\'s');
+  assert.equal(rows[plain.handle].connected, false, 'the state\'s closingAs reaches a tab closed before it was set, as it lags');
+  assert.equal('connected' in rows[open.handle], false, 'a tab never closed is listed as before');
+  for (const row of Object.values(rows)) assert.equal('closingAs' in row, false, 'Orca never lists what the test told it');
+  assert.equal(answer(ask(box, ['terminal', 'show', '--terminal', gone.handle, '--json'])).result.terminal.connected, false, 'show says the same as list');
+
+  assert.deepEqual(ptys().sort(), [ownWay.ptyId, open.ptyId].sort(), 'diagnostics drops the ptys whose closingAs says ptyLive: false, and keeps the rest');
+});
+
 test('the fake can move one tab\'s screen on at the next key sent into it, and at no other send', async (t) => {
   // A question on screen that goes once a key answers it (#238's trust-hooks):
   // the kit reads the screen again after sending, and has to see it change.

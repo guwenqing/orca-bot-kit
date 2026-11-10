@@ -495,6 +495,31 @@ project → repo (`kind: "git" | "folder"`) → worktree (id = `<repoId>::<absPa
   tests were written, which is why they poll for the tab to go rather than list once. So anything that
   closes a tab and then lists must wait for the listing to catch up: a caller that believes the answer
   finds the tab it has just closed and takes it for one that is still live. **verified** (live)
+  **On Orca 1.4.255 a closed tab can stay listed for minutes, `connected: false` (#733).** Three
+  sources, kept apart:
+  1. Reported by Bot Father (2026-11-10, Orca 1.4.255, obk 0.36.0): `obk temp retire` refused three
+     times out of eleven retires that night, because the closed tab was still listed after the kit's
+     5 s wait. The harness process was gone (`ps`). `terminal list` listed the tab with
+     `connected: false`, `orphaned: false`, and its title changed to the work folder path. A few
+     minutes later the tab was off the listing, and `obk retire` finished. **seen by Bot Father**,
+     not reproduced.
+  2. Read in the 1.4.255 bundle (`out/main/index.js`, the `terminal list` class and
+     `buildTerminalSummary`): the listing has one row for each pane in the window's pane graph,
+     with `connected` true only when the pane says it is connected and its pty is in Orca's live
+     inventory. It also has one row for each connected pty that no pane holds, `orphaned: true`.
+     A pty that is not connected and is held by no pane is not listed. So a row with
+     `connected: false, orphaned: false` is a pane that the window still holds after its process
+     ended. What keeps the pane in the graph for minutes is not known. **read in code**
+  3. Measured by a probe (2026-11-10, 02:31 EST, Orca 1.4.255, four plain shell tabs in a throwaway
+     project, nobody using the window): after `close --tab` (answered `ptyKilled: false`), each tab
+     was listed `connected: true`, first as itself and then `orphaned: true` under `pty:<ptyId>`.
+     The listing dropped it at about 2.0 s. Its pane process and shell lived about 0.3 s more, and
+     `diagnostics memory` listed its pty until they ended. No row ever showed `connected: false`:
+     the state of source 1 did not show in the probe. **verified** (live, the timeline)
+  So, for a retire only, the kit takes a tab still listed after its wait as gone when the listing
+  says `connected: false` and `diagnostics memory` lists no session for its pty. Anything else,
+  `diagnostics memory` refused or unreadable included, still refuses. A restart and a pause keep
+  waiting for the tab to leave the listing, because `up` must not find it there.
 - Worktree selectors: `id:<repo-id>::<path>`, `name:<displayName>`, `path:<path>`, `active`.
 
 ### What a fresh kit-made tab asks, and the usual answer (verified live unless said otherwise)

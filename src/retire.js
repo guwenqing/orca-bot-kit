@@ -45,9 +45,11 @@ export const retiredDir = (bots) => path.join(bots, 'retired');
  * removed, and `processes` when it has a work dir: what `stopProcesses`
  * stopped and left of what it started there (#537). `retiredWith` holds one
  * `{ bot, session, maker, closed }` for each session that went with it,
- * deepest first, with its own `promptsLeft` and `processes`.
+ * deepest first, with its own `promptsLeft` and `processes`. `again` is the
+ * command the user ran, as they would run it again: what a refusal names, for
+ * this session and each that goes with it.
  */
-export async function retireSession(bots, { bot, session }) {
+export async function retireSession(bots, { bot, session }, again = commandLine('retire', bots, bot, session)) {
   const home = fleetMember(bots, bot, 'retire', session);
   const known = readBot(home, bot);
   const sessions = sessionsOf(known, session);
@@ -59,11 +61,11 @@ export async function retireSession(bots, { bot, session }) {
   let processes;
   try {
     for (const { name } of made) {
-      const { retiredWith: theirs, ...gone } = await retireSession(bots, { bot, session: name });
+      const { retiredWith: theirs, ...gone } = await retireSession(bots, { bot, session: name }, again);
       retiredWith.push(...theirs, { ...gone, maker: session });
     }
 
-    closed = await closeTabs(home, tabsToClose(bots, bot, home, sessions, { keepless: true }), bots, bot, commandLine('retire', bots, bot, session));
+    closed = await closeTabs(home, tabsToClose(bots, bot, home, sessions, { keepless: true }), bots, bot, again, { retiring: true });
     // Only once its tab is closed: its harness starts nothing more.
     const dir = workDirOf(sessions[0], home);
     if (dir !== undefined) processes = await stopProcesses([{ session, dir }]);
@@ -137,7 +139,7 @@ export async function retireBot(bots, { bot }) {
   // taken away with one of them still open. `closeTabs` waits until Orca agrees
   // they are gone.
   const booked = Object.keys(readBook(home).sessions).map((name) => ({ name }));
-  const closed = await closeTabs(home, tabsToClose(bots, bot, home, booked, { keepless: true }), bots, bot, commandLine('retire', bots, bot));
+  const closed = await closeTabs(home, tabsToClose(bots, bot, home, booked, { keepless: true }), bots, bot, commandLine('retire', bots, bot), { retiring: true });
   // Once their tabs are closed, and before the folder moves (#537).
   const dirs = known.sessions.flatMap((session) => {
     const dir = workDirOf(session, home);

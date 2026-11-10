@@ -34,7 +34,7 @@ import { setTimeout as pause } from 'node:timers/promises';
 import { bookFile, readBook } from './book.js';
 import { botDir, readBot } from './bot.js';
 import { ownCli, shellWord } from './launch.js';
-import { closeTab, closeTerminal, findProject, frontOfTab, orcaCli, tabs } from './orca.js';
+import { closeTab, closeTerminal, findProject, frontOfTab, livePtys, orcaCli, tabs } from './orca.js';
 import { botsNamed, bringUp, prepareBots, sessionsOf } from './up.js';
 
 /**
@@ -114,9 +114,11 @@ export function tabsToClose(bots, name, home, sessions, { keepless = false, quit
  * Close the tabs `tabsToClose` gave, one at a time by their own handles, and
  * wait until Orca's listing agrees they are gone. Returns one entry per tab.
  * `again` is the command that asked, as the user would run it again: what to do
- * once a tab Orca would not close has been closed by hand.
+ * once a tab Orca would not close has been closed by hand. With `retiring`, the
+ * caller starts no harness in the tabs' place, so a tab Orca still lists after
+ * the wait may count as gone once its process is shown to have ended (#733).
  */
-export async function closeTabs(home, going, bots, name, again) {
+export async function closeTabs(home, going, bots, name, again, { retiring = false } = {}) {
   const closed = [];
   for (const { name: session, tab } of going) {
     try {
@@ -130,7 +132,7 @@ export async function closeTabs(home, going, bots, name, again) {
     closed.push({ bot: name, name: session, tabId: tab.tabId, terminal: tab.handle });
   }
 
-  await gone(home, closed, bots, name);
+  await gone(home, closed, bots, name, retiring ? { again, ptys: new Map(going.map(({ tab }) => [tab.tabId, tab.ptyId])) } : undefined);
   return closed;
 }
 
@@ -185,8 +187,18 @@ const ASK_MS = 100;
  * A listing that never catches up is not something the kit can put right, so it
  * stops and says which tab it is waiting on. The conversation is in the book,
  * which is the way back to it.
+ *
+ * A retire, given as `retire: { again, ptys }`, starts nothing in the tabs'
+ * place, and what it must not leave behind is a live harness (#733). Orca
+ * 1.4.255 can go on listing a closed tab for minutes, `connected: false`,
+ * after its process has ended: a pane its window still holds (tech notes,
+ * section 1). So once the wait is over, a tab of the retire's counts as gone
+ * when every row Orca lists for it says `connected: false` with the pty the
+ * kit closed, and Orca holds no process for that pty. Anything the kit cannot
+ * read is "cannot tell", and the retire stops as before, with the retire to
+ * run again: the user wants the session gone, not back.
  */
-async function gone(home, closed, bots, bot) {
+async function gone(home, closed, bots, bot, retire) {
   // Nothing closed is nothing to wait for, and a bot that has never been up has
   // no Orca project to ask: Orca refuses the listing (tech notes, section 1).
   if (closed.length === 0) return;
@@ -194,16 +206,38 @@ async function gone(home, closed, bots, bot) {
   const ids = closed.map((tab) => tab.tabId);
 
   for (;;) {
-    const there = new Set(tabs(home).map((tab) => tab.tabId));
-    const left = ids.filter((id) => there.has(id));
+    const listed = tabs(home);
+    const there = new Set(listed.map((tab) => tab.tabId));
+    let left = ids.filter((id) => there.has(id));
     if (left.length === 0) return;
 
     if (Date.now() >= until) {
       const one = left.length === 1;
-      throw new Error(`Orca answered the close for ${one ? 'this tab' : 'these tabs'} and is still listing ${one ? 'it' : 'them'} ${SETTLED_MS / 1000} seconds later: ${left.join(', ')}. Nothing was opened in ${one ? 'its' : 'their'} place, because a tab that is on the way out is not a tab to start a harness in. The conversations are in the book: ${shellWord(ownCli())} up --bots ${shellWord(bots)} --bot ${bot} brings them back once Orca has caught up.`);
+      if (retire === undefined) {
+        throw new Error(`Orca answered the close for ${one ? 'this tab' : 'these tabs'} and is still listing ${one ? 'it' : 'them'} ${SETTLED_MS / 1000} seconds later: ${left.join(', ')}. Nothing was opened in ${one ? 'its' : 'their'} place, because a tab that is on the way out is not a tab to start a harness in. The conversations are in the book: ${shellWord(ownCli())} up --bots ${shellWord(bots)} --bot ${bot} brings them back once Orca has caught up.`);
+      }
+      left = stillRunning(listed, left, retire.ptys);
+      if (left.length === 0) return;
+      const few = left.length === 1;
+      throw new Error(`Orca answered the close for ${few ? 'this tab' : 'these tabs'} and is still listing ${few ? 'it' : 'them'} ${SETTLED_MS / 1000} seconds later, and the kit cannot tell that ${few ? 'its harness has' : 'their harnesses have'} stopped: ${left.join(', ')}. The retire stopped there. Once Orca has caught up, run the same retire again: ${retire.again}`);
     }
     await pause(ASK_MS);
   }
+}
+
+/**
+ * Of the tab ids `left`, the ones Orca's listing `listed` does not show to have
+ * ended: a tab ended when each row for it says `connected: false` with the pty
+ * `ptys` gives it, and `livePtys` reads and lacks that pty.
+ */
+function stillRunning(listed, left, ptys) {
+  const live = livePtys();
+  if (live === undefined) return left;
+  return left.filter((id) => {
+    const pty = ptys.get(id);
+    const ended = (tab) => tab.connected === false && tab.ptyId === pty;
+    return typeof pty !== 'string' || live.has(pty) || !listed.filter((tab) => tab.tabId === id).every(ended);
+  });
 }
 
 /**
