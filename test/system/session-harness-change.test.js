@@ -46,7 +46,9 @@
 //     the kit's default rules for this bots folder (#558).
 //   - Claude Code's "Teach auto mode about your environment?" form after the
 //     first turn, with Esc, at most once, only when `onlyTeachFormOf` takes
-//     it; ~/.claude.json's autoModeEnvSetup is then checked unchanged.
+//     it; autoModeEnvSetup is then checked unchanged in the .claude.json of
+//     the session's own config folder, which Claude Code's registry of live
+//     sessions names (helpers/teach-record.js `sessionRecordFiles`, #745).
 //
 // Codex is given its folder's trust at launch (#240, test/helpers/codex-trust.js):
 // the same `session change` call that moves the session gives it those extra
@@ -71,6 +73,7 @@ import { codexTrustArgs } from '../helpers/codex-trust.js';
 import { onlyTeachFormOf, waitingOn } from '../helpers/screens.js';
 import { claudeTrustAt, trustScreenMet } from '../helpers/claude-trust.js';
 import { tabGuard } from '../helpers/tab-guard.js';
+import { autoModeState, sessionRecordFiles } from '../helpers/teach-record.js';
 import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
 
@@ -328,15 +331,6 @@ test('Bot Father daily moves from Claude Code to Codex: session change --harness
   // Claude Code's "Teach auto mode" form, answered with Esc, at most once,
   // only when it is the captured one (see the header).
   const TEACH_TITLE = 'Teach auto mode about your environment?';
-  const claudeJson = path.join(os.homedir(), '.claude.json');
-  const autoModeState = () => {
-    try {
-      const held = JSON.parse(readFileSync(claudeJson, 'utf8')).autoModeEnvSetup;
-      return held === undefined ? 'absent' : JSON.stringify(held);
-    } catch (error) {
-      return `unreadable (${error.message})`;
-    }
-  };
   let taught = false;
   const teach = async (rows) => {
     if (!rows.some((row) => row.trim() === TEACH_TITLE)) return;
@@ -347,7 +341,10 @@ test('Bot Father daily moves from Claude Code to Codex: session change --harness
       undefined,
       `${daily.title}'s Teach form is not the captured one, so this test answered nothing: ${wrong}.\n  what it showed:\n    ${rows.join('\n    ')}`,
     );
-    const was = autoModeState();
+    const found = sessionRecordFiles(home);
+    assert.ok(found.files !== undefined, `this test cannot tell which record ${daily.title}'s session writes, so it answered nothing: ${found.why}`);
+    const { files } = found;
+    const was = autoModeState(files);
     const sent = orca(['terminal', 'send', '--terminal', handle, '--text', '\x1b']);
     assert.equal(sent.ok, true, `answering ${daily.title}'s Teach form with Esc failed: ${JSON.stringify(sent.error)}`);
     taught = true;
@@ -358,9 +355,9 @@ test('Bot Father daily moves from Claude Code to Codex: session change --harness
       () => whatIsUp(handle),
     );
     await setTimeout(2000);
-    const now = autoModeState();
-    assert.equal(now, was, `Esc on the Teach form taught nothing: ~/.claude.json's autoModeEnvSetup should be as it was (before: ${was}, after: ${now})`);
-    t.diagnostic(`answered ${daily.title}'s Teach form with Esc; it went, and ~/.claude.json's autoModeEnvSetup stayed ${was}`);
+    const now = autoModeState(files);
+    assert.equal(now, was, `Esc on ${daily.title}'s Teach form taught nothing: autoModeEnvSetup should be as it was in each record the session may write (before: ${was}; after: ${now})`);
+    t.diagnostic(`answered ${daily.title}'s Teach form with Esc; it went, and autoModeEnvSetup stayed as it was: ${was}`);
   };
 
   const claudeId = await until(

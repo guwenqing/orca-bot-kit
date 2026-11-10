@@ -63,8 +63,10 @@
 //     closes that tab as this test's own.
 //   - Claude Code's "Teach auto mode about your environment?" form, at most once
 //     in each tab, only when it is the captured form (`onlyTeachFormOf`): Esc;
-//     then the form goes and autoModeEnvSetup stays as it was in ~/.claude.json
-//     and in the Orca profile's own .claude.json, or the test fails.
+//     then the form goes and autoModeEnvSetup stays as it was in the
+//     .claude.json of the session's own config folder, which Claude Code's
+//     registry of live sessions names (helpers/teach-record.js
+//     `sessionRecordFiles`, #745), or the test fails.
 //
 // Any other question on the screen (`questionOn`) stops the run with the screen
 // in the message; it is never answered. A permission prompt for the background
@@ -117,6 +119,7 @@ import { atNight, namedThisRun } from '../helpers/night-gate.js';
 import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
 import { onlyTeachFormOf, questionOn, waitingOn } from '../helpers/screens.js';
 import { tabGuard } from '../helpers/tab-guard.js';
+import { autoModeState, sessionRecordFiles } from '../helpers/teach-record.js';
 import { RELOAD_LINE } from '../../src/orca.js';
 
 /** This file, as the runner names it in OBK_SYSTEM_NAMED. */
@@ -317,19 +320,6 @@ function claudeConfigDirs() {
   return dirs;
 }
 
-/** Claude Code's two records of the Teach form's choice: ~/.claude.json and the profile's own. Read only. */
-function autoModeState() {
-  const files = [path.join(os.homedir(), '.claude.json'), ...claudeConfigDirs().slice(1).map((dir) => path.join(dir, '.claude.json'))];
-  return files.map((file) => {
-    try {
-      const held = JSON.parse(readFileSync(file, 'utf8')).autoModeEnvSetup;
-      return held === undefined ? 'absent' : JSON.stringify(held);
-    } catch (error) {
-      return `unreadable (${error.code ?? error.message})`;
-    }
-  }).join(', ');
-}
-
 /** The tabs whose folder trust this test answered, and the tabs whose Teach form it answered. */
 const answered = { trust: new Set(), teach: new Set() };
 
@@ -359,14 +349,18 @@ async function lookAtScreen(t, { title, handle, home, bots }) {
     assert.ok(!answered.teach.has(handle), `the Teach form came up again in ${title}, and this test answers it at most once in each tab:\n    ${rows.join('\n    ')}`);
     const wrong = onlyTeachFormOf(rows);
     assert.equal(wrong, undefined, `${title}'s Teach form is not the captured one, so this test answered nothing: ${wrong}.\n  what it showed:\n    ${rows.join('\n    ')}`);
-    const was = autoModeState();
+    const found = sessionRecordFiles(home);
+    assert.ok(found.files !== undefined, `this test cannot tell which record ${title}'s session writes, so it answered nothing: ${found.why}`);
+    const { files } = found;
+    const was = autoModeState(files);
     const sent = orca(['terminal', 'send', '--terminal', handle, '--text', '\x1b']);
     assert.equal(sent.ok, true, `answering ${title}'s Teach form with Esc failed: ${JSON.stringify(sent.error)}`);
     answered.teach.add(handle);
     await until(`${title}'s Teach form to go after Esc`, 15000, async () => ((rowsOf(handle) ?? []).some((row) => row.trim() === TEACH_TITLE) ? undefined : true), () => whatIsUp(handle));
     await setTimeout(2000);
-    assert.equal(autoModeState(), was, `Esc on ${title}'s Teach form taught nothing: autoModeEnvSetup should be as it was`);
-    t.diagnostic(`answered ${title}'s (${handle}) Teach form with Esc; autoModeEnvSetup stayed ${was}`);
+    const now = autoModeState(files);
+    assert.equal(now, was, `Esc on ${title}'s Teach form taught nothing: autoModeEnvSetup should be as it was in each record the session may write (before: ${was}; after: ${now})`);
+    t.diagnostic(`answered ${title}'s (${handle}) Teach form with Esc; it went, and autoModeEnvSetup stayed as it was: ${was}`);
     return;
   }
 

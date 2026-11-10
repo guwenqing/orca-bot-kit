@@ -44,8 +44,10 @@
 //     no `--enter`; then the trust rows go, or the test fails.
 //   - Claude Code's "Teach auto mode about your environment?" form, at most
 //     once, only when it is the captured form (`onlyTeachFormOf`): Esc; then
-//     the form goes and ~/.claude.json's autoModeEnvSetup stays as it was, or
-//     the test fails.
+//     the form goes and autoModeEnvSetup stays as it was in the .claude.json
+//     of the session's own config folder, which Claude Code's
+//     registry of live sessions names (helpers/teach-record.js
+//     `sessionRecordFiles`, #745), or the test fails.
 //
 // Any other question on the screen (`questionOn`) stops the run, with the
 // screen in the failure message; it is never answered. The new tab after the
@@ -56,7 +58,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { readFileSync } from 'node:fs';
 import { mkdtemp, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -68,6 +69,7 @@ import { cliEntry, spellingsOf } from '../helpers/cli.js';
 import { onlyTeachFormOf, questionOn } from '../helpers/screens.js';
 import { claudeTrustAt, trustScreenMet } from '../helpers/claude-trust.js';
 import { tabGuard } from '../helpers/tab-guard.js';
+import { autoModeState, sessionRecordFiles } from '../helpers/teach-record.js';
 import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
 
@@ -171,16 +173,6 @@ function whatIsUp(handle) {
 /** The title of Claude Code's "Teach auto mode" form (#416), as helpers/screens.js has it. */
 const TEACH_TITLE = 'Teach auto mode about your environment?';
 
-/** ~/.claude.json's autoModeEnvSetup, which only the Teach form's accept path changes (tech notes, section 1). */
-function autoModeState() {
-  try {
-    const held = JSON.parse(readFileSync(path.join(os.homedir(), '.claude.json'), 'utf8')).autoModeEnvSetup;
-    return held === undefined ? 'absent' : JSON.stringify(held);
-  } catch (error) {
-    return `unreadable (${error.message})`;
-  }
-}
-
 /** The bot folders whose Claude folder trust this test answered, and the tabs whose Teach form it answered. */
 const answered = { trust: new Set(), teach: new Set() };
 
@@ -210,15 +202,18 @@ async function answerScreens(t, title, handle, home) {
     assert.ok(!answered.teach.has(handle), `the Teach form came up again in ${title}, and this test answers it at most once:\n    ${rows.join('\n    ')}`);
     const wrong = onlyTeachFormOf(rows);
     assert.equal(wrong, undefined, `${title}'s Teach form is not the captured one, so this test answered nothing: ${wrong}.\n  what it showed:\n    ${rows.join('\n    ')}`);
-    const was = autoModeState();
+    const found = sessionRecordFiles(home);
+    assert.ok(found.files !== undefined, `this test cannot tell which record ${title}'s session writes, so it answered nothing: ${found.why}`);
+    const { files } = found;
+    const was = autoModeState(files);
     const sent = orca(['terminal', 'send', '--terminal', handle, '--text', '\x1b']);
     assert.equal(sent.ok, true, `answering ${title}'s Teach form with Esc failed: ${JSON.stringify(sent.error)}`);
     answered.teach.add(handle);
     await until(`${title}'s Teach form to go after Esc`, 15000, async () => ((rowsOf(handle) ?? []).some((row) => row.trim() === TEACH_TITLE) ? undefined : true), () => whatIsUp(handle));
     await setTimeout(2000);
-    const now = autoModeState();
-    assert.equal(now, was, `Esc on ${title}'s Teach form taught nothing: ~/.claude.json's autoModeEnvSetup should be as it was (before: ${was}, after: ${now})`);
-    t.diagnostic(`answered ${title}'s Teach form with Esc; it went, and ~/.claude.json's autoModeEnvSetup stayed ${was}`);
+    const now = autoModeState(files);
+    assert.equal(now, was, `Esc on ${title}'s Teach form taught nothing: autoModeEnvSetup should be as it was in each record the session may write (before: ${was}; after: ${now})`);
+    t.diagnostic(`answered ${title}'s Teach form with Esc; it went, and autoModeEnvSetup stayed as it was: ${was}`);
     return;
   }
 
