@@ -475,8 +475,10 @@ with the conversation the book holds, so the session comes back as itself. With
 no `--session` it does that for every session of the bot.
 
 Closing the old tab ends the harness there, and the background shells it ran
-end with it: a timer, a watch, a long build. So once a session is back, the kit
-types one line into its new tab. The line says that its background shells
+end with it: a timer, a watch, a long build. So once a session whose tab the
+restart closed is back with its conversation, the kit types one line into its
+new tab. A session whose tab was already closed, or that starts fresh, gets no
+line. The line says that its background shells
 ended, that the kit cannot tell which ones ran or whether a scheduled job still
 runs, and that it should look at its scheduled jobs before it makes one again.
 It also asks the session to read its mail and do what it asks. The line goes in
