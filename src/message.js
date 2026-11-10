@@ -16,6 +16,7 @@
 // Escape a sender asks for with --interrupt. Orca gives no notice to a tab its
 // window has not loaded, so the send says when the receiver's is one (#579).
 
+import { randomUUID } from 'node:crypto';
 import { mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
@@ -24,7 +25,7 @@ import { setTimeout as pause } from 'node:timers/promises';
 import { MAILBOX_WAIT_MS, readBook, takeLineTurn, takeMailboxTurn, TYPING_HELD, TYPING_WAIT_MS } from './book.js';
 import { botDir, botNames, readBot } from './bot.js';
 import { harnessOf, isAddressOf, kitFolders, ownCli, reachesMail, SHELL_ENV, shellWord } from './launch.js';
-import { ackMailbox, coordinatorOf, isRunning, listedOrphaned, loadInWindow, postMessage, pressEscape, readMailbox, tabs, tabToTypeInto, TERMINAL_ENV, TIMED_OUT, useMailbox } from './orca.js';
+import { ackMailbox, coordinatorOf, isRunning, listedOrphaned, loadInWindow, postMessage, pressEscape, readMailbox, readsCarryRequest, tabs, tabToTypeInto, TERMINAL_ENV, TIMED_OUT, useMailbox } from './orca.js';
 
 /**
  * How much of a message travels as itself. Above this it is written to a file
@@ -365,10 +366,18 @@ function mailOf(bots, who, peek, until) {
   // acknowledging is handed over again to the next. From 1.4.246 a read
   // acknowledges the batch it hands over and says so (`deliveryAcknowledged`),
   // and an acknowledgement answers with no batch, so the next is read again
-  // (#729; read in the 1.4.246 and 1.4.255 source).
+  // (#729; read in the 1.4.246 and 1.4.255 source). So a read that is not a
+  // peek is asked again, under the same request id, when Orca does not answer
+  // it in time (#735).
   const messages = [];
   const read = { bots, bot: who.bot, session: who.session, mailbox: who.mailbox, read: !peek, messages };
-  let found = readMailbox(who.mailbox, { peek, handle }, timeLeft(until));
+  let found;
+  try {
+    found = peek ? readMailbox(who.mailbox, { peek, handle }, timeLeft(until)) : take(who.mailbox, handle, until, timeLeft(until));
+  } catch (error) {
+    if (peek || error.code !== TIMED_OUT) throw error;
+    return { ...read, trouble: `${error.message} Orca may have taken letters as read without the kit seeing them. Other mail waits for the next check.` };
+  }
   for (;;) {
     const batch = (found.messages ?? []).map((message) => asMessage(bots, message));
     if (peek || !found.deliveryId || batch.length === 0) {
@@ -383,7 +392,7 @@ function mailOf(bots, who, peek, until) {
         return { ...read, trouble: `${who.bot}/${who.session} has more mail than one check reads in ${HOLD_MS / 1000} seconds, so it stopped there. The rest is still waiting: check again.` };
       }
       try {
-        found = readMailbox(who.mailbox, { handle }, wait);
+        found = take(who.mailbox, handle, until, wait);
       } catch (error) {
         // A read Orca did not answer about may have taken the next batch all
         // the same, and taken is read: that batch is not handed over again.
@@ -414,6 +423,31 @@ function mailOf(bots, who, peek, until) {
       return { ...read, trouble: `${error.message} The mail shown above is read, and the rest waits for the next check.` };
     }
     messages.push(...batch);
+  }
+}
+
+/**
+ * Take the next batch of `mailbox`, read as `handle`, under a request id of
+ * its own, the first call given `options` (#735). Orca keeps the answer of a
+ * read under its id: the same read asked again with that id answers the same
+ * batch and takes nothing new, waits for the first if it is still running,
+ * and runs as new if the first never reached Orca (read in the 1.4.246 and
+ * 1.4.255 source). So a read Orca does not answer in time is asked again with
+ * the same id while the check's hold lasts, and a batch Orca took as read is
+ * shown once. No other call is asked again: a send, a bind or an ack Orca did
+ * not answer about is not sent twice (#734).
+ */
+function take(mailbox, handle, until, options) {
+  const request = randomUUID();
+  for (;;) {
+    try {
+      return readMailbox(mailbox, { handle, request }, options);
+    } catch (error) {
+      // A read that went without the id is not asked again (#734).
+      if (error.code !== TIMED_OUT || !readsCarryRequest()) throw error;
+      options = timeLeft(until, false);
+      if (options === undefined) throw error;
+    }
   }
 }
 
