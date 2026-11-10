@@ -22,9 +22,13 @@
 //      into the book, which a restart needs.
 //   2. THE PREMISE. One line typed into the session asks it to start one
 //      background shell with its own Bash tool: `sh -c 'sleep 600; echo
-//      <TOKEN>'`, with a token of this run. The test waits until `ps` shows a
-//      process with the token, and writes down that process and everything
-//      under it (the `sleep`). Without it, the run proves nothing and fails.
+//      <TOKEN>'`, with a token of this run. A process with the token is not
+//      enough, because a foreground Bash call shows the same processes. So the
+//      test waits until the transcript shows the Bash call with
+//      `run_in_background: true`, its result naming a background task, and an
+//      answer after that result, while `ps` still shows a process with the
+//      token. Then it writes down that process and everything under it (the
+//      `sleep`). Without all of it, the run proves nothing and fails.
 //   3. `obk restart --json` for the session. ASSERTED: its tab entry has
 //      `created: true`, `resumed: true`, `restartLine: true` and no `listLine`
 //      key, and its `closed` names the old tab.
@@ -51,6 +55,11 @@
 //     because the selection starts on "No, exit" (SETUP.md); then the trust rows
 //     go, or the test fails. The new tab after the restart may ask again, so it
 //     is looked at while `obk restart` runs, and answered the same way there.
+//     That tab is found by the book: the kit writes `sessions.daily.tab` before
+//     it starts the harness. The test records that one tab as its own in the
+//     tab guard before it answers any screen in it, and answers no screen in
+//     any other new tab. The record stays on a failure too, so the teardown
+//     closes that tab as this test's own.
 //   - Claude Code's "Teach auto mode about your environment?" form, at most once
 //     in each tab, only when it is the captured form (`onlyTeachFormOf`): Esc;
 //     then the form goes and autoModeEnvSetup stays as it was in ~/.claude.json
@@ -397,6 +406,24 @@ function typeInto(handle, text) {
   assert.equal(sent.ok, true, `orca terminal send --enter failed: ${JSON.stringify(sent.error)}${whatIsUp(handle)}`);
 }
 
+/**
+ * The handle of the tab `tabId` in the Orca project at `home`, or undefined
+ * when Orca lists no such tab there. An orphaned entry is listed under
+ * `pty:<ptyId>`, so its real id is asked of `terminal show`, as the kit does
+ * (src/orca.js `tabs`).
+ */
+function handleOfTab(home, tabId) {
+  for (const terminal of terminalsAt(home)) {
+    let id = terminal.tabId;
+    if (terminal.orphaned === true) {
+      const shown = orca(['terminal', 'show', '--terminal', terminal.handle]);
+      id = shown.ok === true ? shown.result?.terminal?.tabId : undefined;
+    }
+    if (id === tabId) return terminal.handle;
+  }
+  return undefined;
+}
+
 /** Every process on the machine, `{ pid, ppid, command }`, from one read of `ps`. It is a reader here and never a road to a signal. */
 function allProcesses() {
   const done = spawnSync('ps', ['-axww', '-o', 'pid=,ppid=,command='], { encoding: 'utf8' });
@@ -487,6 +514,44 @@ const saidAfter = (lines, from) => lines.slice(from + 1)
   .map((item) => String(item.text ?? ''))
   .filter((text) => text.trim() !== '')
   .join('\n');
+
+/** The text of a tool result's content: a string, or text blocks. */
+const resultText = (content) => (typeof content === 'string'
+  ? content
+  : Array.isArray(content) ? content.filter((block) => block?.type === 'text').map((block) => String(block.text)).join('\n') : '');
+
+/**
+ * How far the session got with the background launch of the shell that holds
+ * `token`, from its transcript: `{ file, task, said }` once a Bash tool_use
+ * whose command holds the token has `run_in_background: true`, its result is
+ * no error and names a background task, and the session said something after
+ * that result; otherwise `{ why }`, the step it has not reached. Claude Code
+ * names the task in the result's `toolUseResult.backgroundTaskId` and in its
+ * text, "Command running in background with ID: <id>", as a transcript on this
+ * machine shows.
+ */
+function launchOf(home, token) {
+  const calls = conversationsOf(home).flatMap(({ file, lines }) => lines.flatMap((line) => (
+    line?.type === 'assistant' && Array.isArray(line.message?.content) ? line.message.content : []
+  )).filter((use) => use?.type === 'tool_use' && use.name === 'Bash' && String(use.input?.command ?? '').includes(token))
+    .map((use) => ({ file, lines, use })));
+  if (calls.length === 0) return { why: `no Bash call whose command holds ${token}` };
+  const call = calls.find(({ use }) => use.input?.run_in_background === true);
+  if (call === undefined) return { why: `the Bash call with the token is not made in the background: ${JSON.stringify(calls.map(({ use }) => use.input))}` };
+  const { file, lines, use } = call;
+  const at = lines.findIndex((line) => line?.type === 'user' && Array.isArray(line.message?.content)
+    && line.message.content.some((block) => block?.type === 'tool_result' && block.tool_use_id === use.id));
+  if (at < 0) return { why: `the background Bash call ${use.id} has no result yet` };
+  const result = lines[at].message.content.find((block) => block?.type === 'tool_result' && block.tool_use_id === use.id);
+  const text = resultText(result.content);
+  if (result.is_error === true) return { why: `the background Bash call failed: ${JSON.stringify(text)}` };
+  const named = lines[at].toolUseResult?.backgroundTaskId;
+  const task = typeof named === 'string' && named !== '' ? named : /running in background with ID: (\S+?)\.?(?:\s|$)/i.exec(text)?.[1];
+  if (task === undefined) return { why: `the result of the Bash call names no background task: ${JSON.stringify(text)}` };
+  const said = saidAfter(lines, at);
+  if (said === '') return { why: `the shell runs as task ${task}, and the session has not answered after it yet` };
+  return { file, task, said };
+}
 
 /** Every string anywhere under a value. */
 function stringsIn(value) {
@@ -603,34 +668,69 @@ test('obk restart ends the background shells of the closed tab, and the resumed 
     'Then reply "started".',
   ].join(' '));
 
-  await until(
-    `ps to show a process with ${TOKEN}`,
+  // A process with the token is not enough: a foreground Bash call shows the
+  // same processes, and a restart while that call runs tests no background
+  // shell. So the transcript must show the call made in the background, its
+  // result naming a background task, and the turn ended with an answer, all
+  // while `ps` still shows the shell.
+  const launch = await until(
+    `the session to start the shell with ${TOKEN} in the background and end its turn, with ps showing it`,
     START_MS,
-    async () => (tokenTree(TOKEN).length > 0 ? true : undefined),
-    () => `\n  the conversation:${tailsOf(home)}${whatIsUp(first.handle)}`,
+    async () => {
+      const seen = launchOf(home, TOKEN);
+      return seen.said !== undefined && tokenTree(TOKEN).length > 0 ? seen : undefined;
+    },
+    () => `\n  the launch in the transcript: ${launchOf(home, TOKEN).why}\n  processes with the token: ${tokenTree(TOKEN).map(shownProcess).join('; ') || '(none)'}\n  the conversation:${tailsOf(home)}${whatIsUp(first.handle)}`,
     firstScreen,
   );
+  t.diagnostic(`the session started the shell in the background as task ${launch.task}, in ${launch.file}, and answered: ${JSON.stringify(launch.said.slice(0, 300))}`);
   // The shell's own `sleep` is under it, and it does not hold the token.
   const stop = Date.now() + CHILD_MS;
   while (!tokenTree(TOKEN).some((one) => /(^|\/)sleep 600\b/.test(one.command)) && Date.now() < stop) await setTimeout(500);
   const running = tokenTree(TOKEN);
-  assert.ok(running.length > 0, `the premise: the background shell with ${TOKEN} still runs before the restart`);
+  assert.ok(running.length > 0, `the premise: the background shell with ${TOKEN} still runs after the session's turn ended, before the restart`);
   t.diagnostic(`the background shell before the restart:\n    ${running.map(shownProcess).join('\n    ')}`);
 
   // ------------------------------------------------------------- 3. the restart
 
   gateStillOpen('obk restart of the throwaway session');
-  const known = new Set(terminalsAt(home).map((terminal) => terminal.handle));
+  const oldTab = entryInBook().tab;
+  assert.notEqual(oldTab, undefined, `the premise: the book names the session's tab before the restart, got: ${JSON.stringify(entryInBook())}`);
   // The new tab may stop on a first-run screen while the kit waits to type its
-  // line, so this test looks at every new tab in the bot's folder meanwhile.
-  const restarted = await obkJsonWhile(['restart', '--bots', bots, '--bot', BOT.name, '--session', 'daily'], RESTART_MS, async () => {
-    for (const terminal of terminalsAt(home)) {
-      if (known.has(terminal.handle)) continue;
-      await lookAtScreen(t, { title: terminal.title ?? `the new tab ${terminal.handle}`, handle: terminal.handle, home, bots });
+  // line. The kit writes the new tab into the book before it starts the harness
+  // there, so this test finds that one tab by the book, records it as its own,
+  // and answers screens in it and in no other tab.
+  let newTab;
+  const claimNewTab = () => {
+    if (newTab !== undefined) return newTab;
+    let id;
+    try {
+      id = entryInBook().tab;
+    } catch {
+      // The kit may be writing the book at this moment: the next look reads it again.
+      return undefined;
     }
-  });
+    if (id === undefined || id === oldTab) return undefined;
+    const handle = handleOfTab(home, id);
+    if (handle === undefined) return undefined;
+    guard.openedByKit({ tabs: [{ created: true, terminal: handle }] });
+    newTab = { id, handle };
+    t.diagnostic(`the book names the new tab ${id} (${handle}); this test records it as its own`);
+    return newTab;
+  };
+  let restarted;
+  try {
+    restarted = await obkJsonWhile(['restart', '--bots', bots, '--bot', BOT.name, '--session', 'daily'], RESTART_MS, async () => {
+      const own = claimNewTab();
+      if (own !== undefined) await lookAtScreen(t, { title: `${BOT.display} daily (${own.handle})`, handle: own.handle, home, bots });
+    });
+  } finally {
+    // On a failure too, so that the teardown closes the new tab as this test's own.
+    claimNewTab();
+  }
   guard.closedByKit(restarted.closed);
   const back = tabOf(restarted, 'daily');
+  if (newTab !== undefined) assert.equal(back.terminal, newTab.handle, `the tab the restart reports is the one the book named, got: ${JSON.stringify(back)}`);
   assert.ok((restarted.closed ?? []).some((entry) => entry.terminal === first.handle), `the restart closed the old tab ${first.handle}, got: ${JSON.stringify(restarted.closed)}`);
   assert.equal(back.created, true, `a new tab was opened for it, got: ${JSON.stringify(back)}`);
   assert.equal(back.resumed, true, `the conversation was resumed in it, got: ${JSON.stringify(back)}`);
