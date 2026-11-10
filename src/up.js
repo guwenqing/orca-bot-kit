@@ -533,7 +533,10 @@ const listLine = (bots) => 'obk: this session was resumed in a new tab, and the 
  * tab's harness ended, and its background shells with it. The kit cannot tell
  * which shells ran, nor whether a scheduled job survived (one was seen to), so
  * the session looks before it makes a job again. The mail part is the list
- * line's, kept as #709 left it.
+ * line's as #709 left it, but for its last sentence: "If nothing needs doing"
+ * where the list line says "If there is none". This line also asks the session
+ * to start its shells again, and a session with no mail must not reply "ok"
+ * and stop there (the architect's ruling on PR #731).
  */
 const restartLine = (bots) => 'obk: obk restart closed this session\'s old tab and resumed the conversation in this new one.'
   + ' Closing the old tab ended the harness there, and the background shells it ran ended with it.'
