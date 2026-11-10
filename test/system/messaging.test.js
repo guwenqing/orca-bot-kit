@@ -65,9 +65,10 @@
 //   - "Teach auto mode about your environment?", which comes after the
 //     session's first turn, at most once in a tab, only when it is the
 //     captured form (helpers/screens.js `onlyTeachFormOf`): Esc, never
-//     Continue, then the form gone and autoModeEnvSetup as it was in
-//     ~/.claude.json and in the Orca profile's own .claude.json, which a tab
-//     writes under an Orca Claude account (helpers/teach-record.js, #738).
+//     Continue, then the form gone and autoModeEnvSetup as it was in the
+//     .claude.json of the session's own config folder, which Claude Code's
+//     registry of live sessions names (helpers/teach-record.js
+//     `sessionRecordFiles`, #738).
 //
 // The Claude tab's screen is looked at in the waits on it: while it comes up
 // (`readyForMail`), and in the first case's two waits for mail. A screen the
@@ -133,7 +134,7 @@ import { addressPattern, cliEntry } from '../helpers/cli.js';
 import { claudeTrustAt, trustScreenMet } from '../helpers/claude-trust.js';
 import { codexTrustArgs } from '../helpers/codex-trust.js';
 import { onlyTeachFormOf, questionOn, waitingOn } from '../helpers/screens.js';
-import { autoModeState, teachRecordFiles } from '../helpers/teach-record.js';
+import { autoModeState, sessionRecordFiles } from '../helpers/teach-record.js';
 import { tabGuard } from '../helpers/tab-guard.js';
 import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
@@ -329,8 +330,8 @@ const answered = { trust: new Set(), teach: new Set() };
  *   - The Teach form, at most once in the tab, when helpers/screens.js
  *     `onlyTeachFormOf` takes it: Esc into that tab alone, never Continue,
  *     then a wait for the form to go and a check that autoModeEnvSetup is
- *     as it was in each record a tab here may write
- *     (helpers/teach-record.js `teachRecordFiles`).
+ *     as it was in each record the session may write
+ *     (helpers/teach-record.js `sessionRecordFiles`).
  *
  * A screen the helpers refuse, either screen asked again, and any other
  * question on the screen (helpers/screens.js `questionOn`) stop the run at
@@ -356,7 +357,9 @@ async function answerScreens(t, title, handle, home, bots) {
     assert.ok(!answered.teach.has(handle), `the Teach form came up again in ${title}, and this test answers it at most once:\n    ${rows.join('\n    ')}`);
     const wrong = onlyTeachFormOf(rows);
     assert.equal(wrong, undefined, `${title}'s Teach form is not the captured one, so this test answered nothing: ${wrong}.\n  what it showed:\n    ${rows.join('\n    ')}`);
-    const files = teachRecordFiles();
+    const found = sessionRecordFiles(home);
+    assert.ok(found.files !== undefined, `this test cannot tell which record ${title}'s session writes, so it answered nothing: ${found.why}`);
+    const { files } = found;
     const was = autoModeState(files);
     const sent = orca(['terminal', 'send', '--terminal', handle, '--text', '\x1b']);
     assert.equal(sent.ok, true, `answering ${title}'s Teach form with Esc failed: ${JSON.stringify(sent.error)}`);
@@ -364,7 +367,7 @@ async function answerScreens(t, title, handle, home, bots) {
     await until(`${title}'s Teach form to go after Esc`, 15000, async () => ((rowsOf(handle) ?? []).some((row) => row.trim() === TEACH_TITLE) ? undefined : true), () => whatIsUp(handle));
     await setTimeout(2000);
     const now = autoModeState(files);
-    assert.equal(now, was, `Esc on ${title}'s Teach form taught nothing: autoModeEnvSetup should be as it was in each record a tab here may write (before: ${was}; after: ${now})`);
+    assert.equal(now, was, `Esc on ${title}'s Teach form taught nothing: autoModeEnvSetup should be as it was in each record the session may write (before: ${was}; after: ${now})`);
     t.diagnostic(`answered ${title}'s Teach form with Esc; it went, and autoModeEnvSetup stayed as it was: ${was}`);
     return;
   }

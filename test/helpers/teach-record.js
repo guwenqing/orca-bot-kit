@@ -1,52 +1,99 @@
-// Claude Code's records of the Teach form's choice that a new Orca tab may
-// write, and one string that tells their `autoModeEnvSetup` apart without
-// holding any of it (#738).
+// Claude Code's records that a test's own session may write, and one string
+// that tells their `autoModeEnvSetup` apart without holding any of it (#738).
 //
 // A live test answers the "Teach auto mode about your environment?" form with
 // Esc, then checks that `autoModeEnvSetup` is as it was. Claude Code keeps it
-// in `.claude.json` under CLAUDE_CONFIG_DIR, or in `~/.claude.json` when that
-// is not set. Where Orca has a Claude account, Orca starts a new tab with
-// CLAUDE_CONFIG_DIR at the profile home that `claude-profiles/selected-host`
-// names (tech notes, section 2). So the check reads both files. It never
-// prints a value from either: only key names and a hash.
+// in `<CLAUDE_CONFIG_DIR>/.claude.json`, or in `~/.claude.json` when that is
+// not set. Which config folder a tab's session gets depends on Orca: its
+// `claude` wrapper may route it to an account's profile, restore the user's
+// own CLAUDE_CONFIG_DIR, or leave a pane's own value in place (Orca 1.4.255,
+// out/shared/claude-shell-function.js). So the test does not guess. It asks
+// Claude Code's registry of live sessions, `<config dir>/sessions/<pid>.json`,
+// which names each session's `cwd`. A test's session runs in a throwaway bot
+// folder of its own, so the folder whose registry lists that cwd is the
+// session's config folder. Nothing here prints a value from any file.
 
 import { createHash } from 'node:crypto';
-import { readFileSync, realpathSync } from 'node:fs';
+import { readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-/** Where `file` really is: its real path, or its real folder's when the file is not there yet. */
-function whereItIs(file) {
+/** Where `file` really is: its real path, or its resolved path when it is not there. */
+function realOrResolved(file) {
   try {
     return realpathSync(file);
   } catch {
-    try {
-      return path.join(realpathSync(path.dirname(file)), path.basename(file));
-    } catch {
-      return path.resolve(file);
-    }
+    return path.resolve(file);
   }
 }
 
-/**
- * Claude Code's records of the Teach form's choice that a new Orca tab here
- * may write: `<home>/.claude.json` first, then the `.claude.json` of the
- * profile home that `selected-host` names, when it names an absolute path and
- * that is another file. Reads only.
- */
-export function teachRecordFiles({ home = os.homedir(), orcaData = process.env.OBK_ORCA_DATA || path.join(home, 'Library', 'Application Support', 'orca') } = {}) {
-  const homeFile = path.join(home, '.claude.json');
-  const files = [homeFile];
-  let selected;
+/** True when `dir` is a folder, through a link too. */
+function isFolder(dir) {
   try {
-    selected = readFileSync(path.join(orcaData, 'claude-profiles', 'selected-host'), 'utf8').replace(/\r?\n$/, '');
+    return statSync(dir).isDirectory();
   } catch {
-    return files;
+    return false;
   }
-  if (!path.isAbsolute(selected)) return files;
-  const profileFile = path.join(selected, '.claude.json');
-  if (whereItIs(profileFile) !== whereItIs(homeFile)) files.push(profileFile);
-  return files;
+}
+
+/** True when a live-session entry in `dir/sessions/` has a cwd whose real path is `target`. */
+function listsCwd(dir, target) {
+  let names;
+  try {
+    names = readdirSync(path.join(dir, 'sessions')).filter((name) => name.endsWith('.json'));
+  } catch {
+    return false;
+  }
+  return names.some((name) => {
+    try {
+      const entry = JSON.parse(readFileSync(path.join(dir, 'sessions', name), 'utf8'));
+      return typeof entry?.cwd === 'string' && realOrResolved(entry.cwd) === target;
+    } catch {
+      return false;
+    }
+  });
+}
+
+/**
+ * Claude Code's records that the live session working in the folder `cwd`
+ * may write, found through its registry of live sessions: `{ files }`, or
+ * `{ why }` when no config folder looked at lists that cwd. The folders, in
+ * order: `<home>/.claude`, each `<orcaData>/claude-profiles/<name>/home`, and
+ * the absolute folders `env.CLAUDE_CONFIG_DIR` and
+ * `env.ORCA_CLAUDE_USER_CONFIG_DIR` name, each real folder once. Reads only.
+ */
+export function sessionRecordFiles(cwd, { home = os.homedir(), orcaData = process.env.OBK_ORCA_DATA || path.join(home, 'Library', 'Application Support', 'orca'), env = process.env } = {}) {
+  const homeDir = path.join(home, '.claude');
+  // The registry cannot tell whether the session ran with no CLAUDE_CONFIG_DIR or with one that names ~/.claude.
+  const candidates = [{ dir: homeDir, records: [path.join(home, '.claude.json'), path.join(homeDir, '.claude.json')] }];
+  let profiles = [];
+  try {
+    profiles = readdirSync(path.join(orcaData, 'claude-profiles')).sort();
+  } catch {
+    // No Orca profiles here.
+  }
+  for (const name of profiles) {
+    const dir = path.join(orcaData, 'claude-profiles', name, 'home');
+    if (isFolder(dir)) candidates.push({ dir, records: [path.join(dir, '.claude.json')] });
+  }
+  for (const name of ['CLAUDE_CONFIG_DIR', 'ORCA_CLAUDE_USER_CONFIG_DIR']) {
+    const dir = env[name];
+    if (typeof dir === 'string' && path.isAbsolute(dir)) candidates.push({ dir, records: [path.join(dir, '.claude.json')] });
+  }
+
+  const seen = new Set();
+  const looked = [];
+  const files = [];
+  const target = realOrResolved(cwd);
+  for (const { dir, records } of candidates) {
+    const real = realOrResolved(dir);
+    if (seen.has(real)) continue;
+    seen.add(real);
+    looked.push(dir);
+    if (listsCwd(dir, target)) files.push(...records);
+  }
+  if (files.length > 0) return { files };
+  return { why: `no Claude Code registry of live sessions lists a session in ${cwd}; the config folders looked at: ${looked.join(', ')}` };
 }
 
 /** The state of `autoModeEnvSetup` in one file, with no value of the file in it. */
