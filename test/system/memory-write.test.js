@@ -105,6 +105,7 @@ import { atNight, namedThisRun } from '../helpers/night-gate.js';
 import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
 import { onlyTeachFormOf, questionOn } from '../helpers/screens.js';
 import { tabGuard } from '../helpers/tab-guard.js';
+import { autoModeState, sessionRecordFiles } from '../helpers/teach-record.js';
 import { RELOAD_LINE } from '../../src/orca.js';
 
 /** This file, as the runner names it in OBK_SYSTEM_NAMED. */
@@ -251,18 +252,6 @@ function failOnDialog(handle, rows) {
   assert.fail(`the memory write stopped on Claude Code's dialog: the screen shows ${JSON.stringify(shown)}. This test sent Esc to its own tab${sent.ok === true ? '' : `, and Orca refused it: ${JSON.stringify(sent.error)}`}. So the kit's launch line did not keep the dialog away.\n  what it showed:\n    ${rows.join('\n    ')}`);
 }
 
-/** Claude Code's two records of the Teach form's choice: ~/.claude.json and the profile's own. Read only. */
-function autoModeState(profile) {
-  return [path.join(os.homedir(), '.claude.json'), path.join(profile, '.claude.json')].map((file) => {
-    try {
-      const held = JSON.parse(readFileSync(file, 'utf8')).autoModeEnvSetup;
-      return held === undefined ? 'absent' : JSON.stringify(held);
-    } catch (error) {
-      return `unreadable (${error.code ?? error.message})`;
-    }
-  }).join(', ');
-}
-
 /** The folder whose trust this test answered, and the tab whose Teach form it answered. */
 const answered = { trust: new Set(), teach: new Set() };
 
@@ -271,7 +260,7 @@ const answered = { trust: new Set(), teach: new Set() };
  * trust of `home` is answered once, the captured Teach form at most once with
  * Esc, and any other question stops the run with the screen in the message.
  */
-async function lookAtScreen(t, { title, handle, home, bots, profile }) {
+async function lookAtScreen(t, { title, handle, home, bots }) {
   const rows = rowsOf(handle);
   if (rows === undefined) return;
   failOnDialog(handle, rows);
@@ -292,14 +281,18 @@ async function lookAtScreen(t, { title, handle, home, bots, profile }) {
     assert.ok(!answered.teach.has(handle), `the Teach form came up again in ${title}, and this test answers it at most once:\n    ${rows.join('\n    ')}`);
     const wrong = onlyTeachFormOf(rows);
     assert.equal(wrong, undefined, `${title}'s Teach form is not the captured one, so this test answered nothing: ${wrong}.\n  what it showed:\n    ${rows.join('\n    ')}`);
-    const was = autoModeState(profile);
+    const found = sessionRecordFiles(home);
+    assert.ok(found.files !== undefined, `this test cannot tell which record ${title}'s session writes, so it answered nothing: ${found.why}`);
+    const { files } = found;
+    const was = autoModeState(files);
     const sent = orca(['terminal', 'send', '--terminal', handle, '--text', '\x1b']);
     assert.equal(sent.ok, true, `answering ${title}'s Teach form with Esc failed: ${JSON.stringify(sent.error)}`);
     answered.teach.add(handle);
     await until(`${title}'s Teach form to go after Esc`, 15000, async () => ((rowsOf(handle) ?? []).some((row) => row.trim() === TEACH_TITLE) ? undefined : true), () => whatIsUp(handle));
     await setTimeout(2000);
-    assert.equal(autoModeState(profile), was, `Esc on ${title}'s Teach form taught nothing: autoModeEnvSetup should be as it was`);
-    t.diagnostic(`answered ${title}'s Teach form with Esc; autoModeEnvSetup stayed ${was}`);
+    const now = autoModeState(files);
+    assert.equal(now, was, `Esc on ${title}'s Teach form taught nothing: autoModeEnvSetup should be as it was in each record the session may write (before: ${was}; after: ${now})`);
+    t.diagnostic(`answered ${title}'s Teach form with Esc; it went, and autoModeEnvSetup stayed as it was: ${was}`);
     return;
   }
 
@@ -493,7 +486,7 @@ test('a Claude session the kit starts under an Orca profile saves a memory file 
 
   // ------------------------------------------------------------- 2. the premise
 
-  const { profile, projects } = await profileOfATab(t, { bots, place });
+  const { projects } = await profileOfATab(t, { bots, place });
 
   // ------------------------------------------------------- 3. the seeded memory
 
@@ -532,7 +525,7 @@ test('a Claude session the kit starts under an Orca profile saves a memory file 
   const entry = tabOf(obkJson(['up', '--bots', bots, '--bot', BOT.name]), 'daily');
   assert.equal(entry.created, true, 'up opened the session\'s tab');
   assert.equal(entry.harnessStarted, true, `no claude came up in ${entry.title}: \`orca terminal read --terminal ${entry.terminal} --screen\``);
-  const tab = { title: entry.title, handle: entry.terminal, home, bots, profile };
+  const tab = { title: entry.title, handle: entry.terminal, home, bots };
   const screen = () => lookAtScreen(t, tab);
   const lines = () => linesOf(projects, home, entryInBook().session);
 

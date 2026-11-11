@@ -95,8 +95,11 @@
 // alone, by the architect's ruling after live run 3: with Esc, at most once,
 // only when every row from its title down is the captured form's
 // (helpers/screens.js `onlyTeachFormOf`, the pointer on any of its rows), and
-// it then shows the form gone and ~/.claude.json's autoModeEnvSetup unchanged,
-// or fails; any other form fails, printing its rows. Every
+// it then shows the form gone and autoModeEnvSetup unchanged in the
+// .claude.json of the session's own config folder, which Claude Code's
+// registry of live sessions names (helpers/teach-record.js
+// `sessionRecordFiles`, #745), or fails; any other form fails, printing its
+// rows. Every
 // wait says what the tab is showing when it runs out of patience, so a run left
 // alone names the screen that stopped it.
 //
@@ -118,6 +121,7 @@ import { codexTrustArgs } from '../helpers/codex-trust.js';
 import { onlyTeachFormOf, waitingOn } from '../helpers/screens.js';
 import { claudeTrustAt, trustScreenMet } from '../helpers/claude-trust.js';
 import { tabGuard } from '../helpers/tab-guard.js';
+import { autoModeState, sessionRecordFiles } from '../helpers/teach-record.js';
 import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
 
@@ -523,18 +527,10 @@ for (const bot of BOTS) {
     // and only when every row from its title down is the captured form's (the
     // architect's ruling on #391 after live run 3). Esc teaching nothing is
     // read in the 2.1.283 binary and not seen live, so the run shows it: the
-    // form gone, and ~/.claude.json's autoModeEnvSetup, which only the accept
-    // path clears (tech notes, section 1), as it was. Anything else fails.
+    // form gone, and autoModeEnvSetup, which only the accept path clears (tech
+    // notes, section 1), as it was in each record the session may write
+    // (helpers/teach-record.js). Anything else fails.
     const TEACH_TITLE = 'Teach auto mode about your environment?';
-    const claudeJson = path.join(os.homedir(), '.claude.json');
-    const autoModeState = () => {
-      try {
-        const held = JSON.parse(readFileSync(claudeJson, 'utf8')).autoModeEnvSetup;
-        return held === undefined ? 'absent' : JSON.stringify(held);
-      } catch (error) {
-        return `unreadable (${error.message})`;
-      }
-    };
     let taught = false;
     const teach = async (rows) => {
       if (bot.harness !== 'claude' || !rows.some((row) => row.trim() === TEACH_TITLE)) return;
@@ -545,7 +541,10 @@ for (const bot of BOTS) {
         undefined,
         `${entry.title}'s Teach form is not the captured one, so this test answered nothing: ${wrong}.\n  what it showed:\n    ${rows.join('\n    ')}`,
       );
-      const was = autoModeState();
+      const found = sessionRecordFiles(home);
+      assert.ok(found.files !== undefined, `this test cannot tell which record ${entry.title}'s session writes, so it answered nothing: ${found.why}`);
+      const { files } = found;
+      const was = autoModeState(files);
       const sent = orca(['terminal', 'send', '--terminal', handle, '--text', '\x1b']);
       assert.equal(sent.ok, true, `answering ${entry.title}'s Teach form with Esc failed: ${JSON.stringify(sent.error)}`);
       taught = true;
@@ -556,9 +555,9 @@ for (const bot of BOTS) {
         () => whatIsUp(handle),
       );
       await setTimeout(2000);
-      const now = autoModeState();
-      assert.equal(now, was, `Esc on the Teach form taught nothing: ~/.claude.json's autoModeEnvSetup should be as it was (before: ${was}, after: ${now})`);
-      t.diagnostic(`answered ${entry.title}'s Teach form with Esc; it went, and ~/.claude.json's autoModeEnvSetup stayed ${was}`);
+      const now = autoModeState(files);
+      assert.equal(now, was, `Esc on ${entry.title}'s Teach form taught nothing: autoModeEnvSetup should be as it was in each record the session may write (before: ${was}; after: ${now})`);
+      t.diagnostic(`answered ${entry.title}'s Teach form with Esc; it went, and autoModeEnvSetup stayed as it was: ${was}`);
     };
 
     // The kit's naming of a Codex thread (#480, #516). At each turn end the
