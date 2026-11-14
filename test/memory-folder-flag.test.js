@@ -36,7 +36,9 @@
 //   M9   what does not count as a hand-set key
 //   M10  the session's own `extra_args`; the report of `up` and `restart`
 //        names `--settings` under the tab of such a session
-//   M11  something that is not a plain folder at `<bot folder>/claude-memory`
+//   M11  something that is not a plain folder at `<bot folder>/claude-memory`:
+//        the session is refused (test/memory-folder-made.test.js, F9); a plain
+//        folder of the user's own gets the pair
 //   M12  Claude Code only: never on a Codex or a Pi line
 //   M13  each way the kit starts a session: resume, restart, unpause, temp make
 //   M14  the JSON holds only this key, and a session with memory off stays off
@@ -243,12 +245,11 @@ async function assertCarries(box, line, expected, name, { bots, bot } = {}) {
 }
 
 /**
- * The line is exactly today's. With `quiet`, the run also said nothing about
- * any of this, as it says nothing today for a folder a user named.
+ * The line is exactly today's, and the run said nothing about any of this, as
+ * it says nothing today for a folder a user named.
  */
-function assertTodaysLine(box, { result, line }, name, { bots, quiet = true } = {}) {
+function assertTodaysLine(box, { result, line }, name, { bots } = {}) {
   assert.equal(tokenless(line), bareLaunch(box, 'claude', BOT, name, { bots }), 'the launch line is exactly what it is today');
-  if (!quiet) return;
   const said = `${result.stdout}${result.stderr}`;
   assert.doesNotMatch(said, /autoMemory|selected-host|claude-profiles|memory folder/i, `no message about this, got:\n${said}`);
 }
@@ -274,7 +275,7 @@ const settingsFilesOf = (box, home, profile, root) => ({
  * no error. `change` is given the profile and the bot's home. With
  * `profile: false`, Orca has no profile at all in the sandbox.
  */
-async function controlThenCase(t, change, { profile: withProfile = true, quiet = true } = {}) {
+async function controlThenCase(t, change, { profile: withProfile = true } = {}) {
   const box = await createSandbox(t);
   const profile = withProfile ? await profileIn(box) : undefined;
   await fleetIn(box, { sessions: ['control', 'daily'] });
@@ -286,7 +287,7 @@ async function controlThenCase(t, change, { profile: withProfile = true, quiet =
   await change({ box, profile, home, bots, files: settingsFilesOf(box, home, profile, bots) });
 
   const brought = await upSession(box, 'daily');
-  assertTodaysLine(box, brought, 'daily', { quiet });
+  assertTodaysLine(box, brought, 'daily');
   return { box, profile, home, bots };
 }
 
@@ -1274,9 +1275,44 @@ describe('the launch line names the bot\'s own memory folder (#722, #752)', { co
     ['a link that leads nowhere', (at, { box }) => symlink(path.join(box.root, 'no-such-folder'), at)],
     ['a link to itself', (at) => symlink(at, at)],
   ];
+  /**
+   * The shape of a refused case: a control session is brought up first and
+   * has the pair. Then `change` changes one thing, and `up` of the next
+   * session refuses it: it exits 1, its report has `refused    <bot>
+   * <session>  not started: <why>` with the why naming the path, and no line
+   * is typed for it, so no line without the pair either.
+   */
+  async function controlThenRefused(t, change) {
+    const box = await createSandbox(t);
+    const profile = await profileIn(box);
+    await fleetIn(box, { sessions: ['control', 'daily'] });
+    const bots = box.path('bots');
+    const home = botHomeOf(bots, BOT);
+    const { line: control } = await upSession(box, 'control');
+    await assertCarries(box, control, ownOf(home), 'control');
+    await change({ box, profile, home, bots, files: settingsFilesOf(box, home, profile, bots) });
+
+    const result = await box.run(['up', '--bots', 'bots', '--bot', BOT, '--session', 'daily']);
+
+    assert.equal(result.code, 1, `up should exit 1 when it refused a session, got exit ${result.code}:\n${result.stdout}${result.stderr}`);
+    const lines = result.stdout.split('\n');
+    const at = lines.findIndex((line) => { const words = line.trim().split(/\s+/); return line.startsWith('refused') && words[1] === BOT && words[2] === 'daily'; });
+    assert.ok(at >= 0, `the report should have "refused    ${BOT} daily  not started: …", got:\n${result.stdout}`);
+    const block = [lines[at]];
+    for (const next of lines.slice(at + 1)) {
+      if (!/^\s/.test(next) || next.trim() === '') break;
+      block.push(next);
+    }
+    assert.ok(block.join('\n').includes('not started') && block.join('\n').includes(ownOf(home)), `the refused line says "not started" and names ${ownOf(home)}, got:\n${block.join('\n')}`);
+    assert.equal((await sessionIn(bots, BOT, 'daily'))?.tab, undefined, 'the book holds no tab for daily');
+    for (const terminal of await box.orca.terminals()) {
+      for (const text of typedInto(terminal)) assert.ok(!text.includes(`--bot ${BOT} --session daily`), `no line is typed for daily, got in ${terminal.handle}: ${text}`);
+    }
+  }
+
   for (const [label, put] of NOT_A_FOLDER) {
-    test(`M11 ${label} at <bot folder>/claude-memory: nothing is added`, async (t) => {
-      await controlThenCase(t, atTheFolder(put), { quiet: false });
+    test(`M11 ${label} at <bot folder>/claude-memory: the session is refused, so no line is typed without the pair`, async (t) => {
+      await controlThenRefused(t, atTheFolder(put));
     });
   }
 

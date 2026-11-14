@@ -17,23 +17,31 @@
 //   F3  a folder that is there gets nothing written in it: the user's own, or
 //       the kit's with the .gitignore deleted or changed
 //   F4  when the kit names no folder, it makes nothing: a key named by hand,
-//       `--settings` in the session's extra_args, a file or a link at the
-//       path, a Codex or a Pi session
+//       `--settings` in the session's extra_args, a Codex or a Pi session
 //   F5  git ignores what is in the folder; once the .gitignore is deleted, it
 //       does not
 //   F6  the kit moves, copies and deletes no note: a folder that is there keeps
 //       its files byte for byte across each start, and the folder that the
 //       bots shared is as it was
 //   F7  when the kit makes the folder and cannot write its .gitignore, it
-//       leaves no claude-memory behind and names no folder on that line; the
-//       next start, with the cause gone, makes both as usual
+//       leaves no claude-memory behind and does not start the session (F9);
+//       the next start, with the cause gone, makes both and starts it
 //   F8  the same when the .gitignore is made and its write then fails: no
 //       claude-memory is left, not even with an empty .gitignore
-//   F9  a start that names no folder because of F7's failure, or because a
-//       file or a link is at <bot folder>/claude-memory, says so: under the
-//       session's tab in the report, a line names that path. No such line for
-//       a session that got its folder, a folder named by hand, or a session
-//       with its own --settings
+//   F9  a Claude session that would get the kit's folder, when a file or a
+//       link is at <bot folder>/claude-memory or F7's failure happens, is
+//       refused: the kit opens no tab for it and types nothing. `up`,
+//       `restart`, `unpause`, `temp make` and `init` for Bot Father refuse it
+//       the same way. The report has `refused    <bot> <session>  not
+//       started: <why>`, the why names the path, `--json` has
+//       `refused: [{ bot, session, why }]` and no tab entry for it, and the
+//       command exits 1. Only that session is refused: a Codex or a Pi
+//       session, a Claude session with its own --settings, a bot with a
+//       folder named by hand and other bots start in the same run. A restart
+//       leaves the refused session's tab and harness running; an unpause takes
+//       the pause mark off; a `temp make` still writes the session down. The
+//       path is left as it was. No start prints the old notice "no memory
+//       folder of its bot's own:" any more
 //
 // The kit makes the folder before it types the launch line. The fake Orca does
 // not run the harness, so these tests read the folder when the kit's command
@@ -47,7 +55,7 @@
 // real harness. Nothing here reads the real Orca's data or a real profile.
 
 import assert from 'node:assert/strict';
-import { existsSync, lstatSync } from 'node:fs';
+import { existsSync, lstatSync, realpathSync } from 'node:fs';
 import { chmod, lstat, mkdir, readdir, readFile, readlink, rm, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { describe, test } from 'node:test';
@@ -55,6 +63,7 @@ import { pathToFileURL } from 'node:url';
 import { parse, stringify } from 'yaml';
 
 import {
+  bookIn,
   botHomeOf,
   conversationOnRecord,
   createSandbox,
@@ -206,6 +215,113 @@ async function inTabOf(box, bots, name) {
   const { tab } = await sessionIn(bots, BOT, name);
   const terminal = (await box.orca.terminals()).find((one) => one.tabId === tab);
   return { ...box.env, ORCA_TERMINAL_HANDLE: terminal.handle, ORCA_TAB_ID: terminal.tabId, ...kitLaunchMark(box, terminal) };
+}
+
+/** What the kit said before #752's refusal: no start says it any more. */
+const OLD_NOTICE = "no memory folder of its bot's own:";
+
+/**
+ * The refused lines of a plain report, each with the indented lines right
+ * under it: `{ words, text }`, where `words` are the words of the first line.
+ */
+function refusedIn(stdout) {
+  const lines = stdout.split('\n');
+  const found = [];
+  lines.forEach((line, at) => {
+    if (!line.startsWith('refused')) return;
+    const block = [line];
+    for (const next of lines.slice(at + 1)) {
+      if (!/^\s/.test(next) || next.trim() === '') break;
+      block.push(next);
+    }
+    found.push({ words: line.trim().split(/\s+/), text: block.join('\n') });
+  });
+  return found;
+}
+
+/**
+ * The report has the line `refused    <bot> <session>  not started: <why>`,
+ * and the why names `where`. The wording of the why is not held. The old
+ * notice is gone.
+ */
+function assertRefusedLine(stdout, { bot, session, where }) {
+  const ours = refusedIn(stdout).filter(({ words }) => words[1] === bot && words[2] === session);
+  assert.equal(ours.length, 1, `the report should have one line "refused    ${bot} ${session}  not started: …", got:\n${stdout}`);
+  assert.ok(ours[0].text.includes('not started'), `the refused line says "not started", got:\n${ours[0].text}`);
+  assert.ok(ours[0].text.includes(where), `the refused line names ${where}, got:\n${ours[0].text}`);
+  assert.ok(!stdout.includes(OLD_NOTICE), `no start prints "${OLD_NOTICE}" any more, got:\n${stdout}`);
+}
+
+/** The report has no refused line at all, and not the old notice. */
+function assertNoRefusedLine(stdout) {
+  assert.deepEqual(refusedIn(stdout), [], `the report should refuse no session, got:\n${stdout}`);
+  assert.ok(!stdout.includes(OLD_NOTICE), `no start prints "${OLD_NOTICE}" any more, got:\n${stdout}`);
+}
+
+/** A run of `obk` that refused a session: it exits 1. */
+async function refused(box, args, options) {
+  const result = await box.run(args, options);
+  assert.equal(result.code, 1, `obk ${args.join(' ')} should exit 1 when it refused a session, got exit ${result.code}:\n${result.stdout}${result.stderr}`);
+  return result;
+}
+
+/** What Orca holds now: each terminal's handle, with how many texts were typed into it. */
+async function terminalsNow(box) {
+  return new Map((await box.orca.terminals()).map((one) => [one.handle, (one.typed ?? []).length]));
+}
+
+/** Every tab that the book of any bot holds for a session, but for the session `except`, `[bot, session]`. */
+async function bookTabs(bots, except = []) {
+  const tabs = new Set();
+  for (const bot of await readdir(path.join(bots, 'bots'))) {
+    let book;
+    try {
+      book = await bookIn(bots, bot);
+    } catch {
+      continue;
+    }
+    for (const [name, entry] of Object.entries(book?.sessions ?? {})) {
+      if (bot === except[0] && name === except[1]) continue;
+      if (typeof entry?.tab === 'string') tabs.add(entry.tab);
+    }
+  }
+  return tabs;
+}
+
+/** The texts typed into Orca since `before` (from `terminalsNow`), each `{ handle, text }`. */
+async function typedSince(box, before) {
+  const texts = [];
+  for (const terminal of await box.orca.terminals()) {
+    for (const text of typedInto(terminal).slice(before.get(terminal.handle) ?? 0)) texts.push({ handle: terminal.handle, text });
+  }
+  return texts;
+}
+
+/** The session was started since `before`: a text typed since then names it, as the kit's launch line does. */
+const startedSince = async (box, before, bot, session) =>
+  (await typedSince(box, before)).some(({ text }) => text.includes(`--bot ${bot} --session ${session}`) || text.includes(` -n ${bot}.${session}.`));
+
+/**
+ * The kit did not start the session in the run after `before`: nothing typed
+ * since names it, and every tab Orca opened since is the book's tab of some
+ * other session, so no tab was opened for it. With `kept`, the tab it ran in,
+ * that tab is still open, the book still holds it, and nothing was typed into
+ * it, so its harness runs on.
+ */
+async function assertNotStarted(box, bots, { bot, session, before, kept, why }) {
+  for (const { handle, text } of await typedSince(box, before)) {
+    assert.ok(!text.includes(`--bot ${bot} --session ${session}`) && !text.includes(` -n ${bot}.${session}.`), `${why}: nothing typed names ${bot} ${session}, got in ${handle}: ${text}`);
+  }
+  const others = await bookTabs(bots, [bot, session]);
+  for (const one of await box.orca.terminals()) {
+    if (!before.has(one.handle)) assert.ok(others.has(one.tabId), `${why}: Orca's new tab ${one.tabId} should be the tab of another session in the book, not one opened for ${bot} ${session}`);
+  }
+  if (kept !== undefined) {
+    assert.equal((await sessionIn(bots, bot, session))?.tab, kept, `${why}: the book still holds ${bot} ${session}'s tab ${kept}`);
+    const old = (await box.orca.terminals()).find((one) => one.tabId === kept);
+    assert.ok(old, `${why}: ${bot} ${session}'s tab ${kept} is still open`);
+    assert.equal((old.typed ?? []).length, before.get(old.handle), `${why}: nothing was typed into ${bot} ${session}'s tab ${kept}, so its harness runs on`);
+  }
 }
 
 /**
@@ -409,52 +525,6 @@ describe('the kit makes a bot\'s memory folder with an ignore file, and moves no
     await assertMade(home, 'the Claude session of the same bot');
   });
 
-  const NOT_A_FOLDER = [
-    ['a file', async (at) => {
-      await writeFile(at, 'my own notes\n');
-    }],
-    ['a link to a folder elsewhere', async (at, { box }) => {
-      const target = path.join(box.root, 'elsewhere', 'notes');
-      await mkdir(target, { recursive: true });
-      await writeFile(path.join(target, 'MEMORY.md'), '- mine\n');
-      await symlink(target, at);
-      return target;
-    }],
-    ['a relative link to a folder in the bot folder', async (at, { home }) => {
-      await mkdir(path.join(home, 'notes'));
-      await symlink('notes', at);
-      return path.join(home, 'notes');
-    }],
-    ['a link that leads nowhere', async (at, { box }) => {
-      await symlink(path.join(box.root, 'no-such-folder'), at);
-      return path.join(box.root, 'no-such-folder');
-    }],
-  ];
-  for (const [label, put] of NOT_A_FOLDER) {
-    test(`F4 ${label} at <bot folder>/claude-memory: the kit leaves it and what it leads to as they were; another bot gets its folder`, async (t) => {
-      const world = await fleet(t);
-      const at = ownOf(world.home);
-      const target = await put(at, world);
-      const link = lstatSync(at).isSymbolicLink() ? await readlink(at) : undefined;
-      const before = link === undefined ? await readFile(at, 'utf8') : undefined;
-      const targetBefore = target !== undefined && existsSync(target) ? await snapshot(target) : undefined;
-
-      await up(world.box, BOT);
-      await up(world.box, OTHER);
-
-      if (link === undefined) {
-        assert.ok(lstatSync(at).isFile(), 'the file is still a file');
-        assert.equal(await readFile(at, 'utf8'), before, 'the file is as it was');
-      } else {
-        assert.ok(lstatSync(at).isSymbolicLink(), 'the link is still a link');
-        assert.equal(await readlink(at), link, 'the link leads where it led');
-      }
-      if (targetBefore !== undefined) assert.deepEqual(await snapshot(target), targetBefore, 'what the link leads to is as it was: no .gitignore in it');
-      if (target !== undefined && targetBefore === undefined) assert.ok(!existsSync(target), 'the folder a link leads to is not made');
-      await assertMade(world.other, 'the control');
-    });
-  }
-
   // ---------------------------------------------------------------- F5
 
   /** What `git status` lists in the bots repo, as paths from its top. */
@@ -564,16 +634,25 @@ describe('the kit makes a bot\'s memory folder with an ignore file, and moves no
     return typedInto(terminal)[0];
   }
 
-  /** The ways a start runs under the umask, each after the session's first start. */
+  /** The ways a start runs under the umask: an up of a new session, and a restart of one that runs. */
   const FAILING_WAYS = [
-    ['up of a new session', async ({ box }) => underUmask(box, ['up', '--bots', 'bots', '--bot', BOT, '--session', 'daily']), { first: false }],
+    ['up of a new session', async ({ box }) => underUmask(box, ['up', '--bots', 'bots', '--bot', BOT, '--session', 'daily']), {
+      first: false,
+      again: (box) => ok(box, ['up', '--bots', 'bots', '--bot', BOT, '--session', 'daily']),
+    }],
     ['obk restart', async ({ box, bots }) => {
       await reported(box, bots, 'daily');
       return underUmask(box, ['restart', '--bots', 'bots', '--bot', BOT, '--session', 'daily']);
-    }, { first: true }],
+    }, {
+      first: true,
+      again: async (box, bots) => {
+        await reported(box, bots, 'daily');
+        return ok(box, ['restart', '--bots', 'bots', '--bot', BOT, '--session', 'daily']);
+      },
+    }],
   ];
-  for (const [label, failing, { first }] of FAILING_WAYS) {
-    test(`F7 ${label}: the kit makes the folder and cannot write its .gitignore, so it leaves no claude-memory and names no folder on the line; a restart with the cause gone makes both`, { skip: AS_ROOT }, async (t) => {
+  for (const [label, failing, { first, again }] of FAILING_WAYS) {
+    test(`F7 ${label}: the kit makes the folder and cannot write its .gitignore, so it leaves no claude-memory, does not start the session and says so; a start with the cause gone makes both and starts it`, { skip: AS_ROOT }, async (t) => {
       const world = await fleet(t, { sessions: ['control', 'daily'] });
       const { box, bots, home } = world;
       // The premise: under umask 0222, mkdir goes through and the file write in the new folder does not.
@@ -586,25 +665,25 @@ describe('the kit makes a bot\'s memory folder with an ignore file, and moves no
       await rm(ownOf(home), { recursive: true });
       if (first) await up(box, BOT, 'daily');
       if (first) await rm(ownOf(home), { recursive: true });
+      const tab = first ? (await sessionIn(bots, BOT, 'daily')).tab : undefined;
+      const before = await terminalsNow(box);
 
       const ran = await failing(world);
 
       const said = `exit ${ran.code}\n${ran.stdout}${ran.stderr}`;
+      assert.equal(ran.code, 1, `the run exits 1 when it refused a session (the run said: ${said})`);
       assertNothingAt(home, `the kit could not write the .gitignore, so it leaves no folder it made (the run said: ${said})`);
-      const line = await lineIn(box, bots, 'daily');
-      assert.equal(typeof line, 'string', `a line was typed into daily's tab (the run said: ${said})`);
-      assert.ok(!line.includes('--settings') && !line.includes(KEY), `the line names no folder, got: ${line}`);
-      // F9: the report says so, under daily's tab, by the path.
-      assert.ok((await namingUnder(ran.stdout, bots, BOT, 'daily', ownOf(home))).length > 0, `a line under daily's tab names ${ownOf(home)}, got:\n${ran.stdout}`);
+      assertRefusedLine(ran.stdout, { bot: BOT, session: 'daily', where: ownOf(home) });
+      await assertNotStarted(box, bots, { bot: BOT, session: 'daily', before, kept: tab, why: 'a session the kit could not give its folder' });
 
       await locksWritableAgain(bots);
-      await reported(box, bots, 'daily');
-      const again = await ok(box, ['restart', '--bots', 'bots', '--bot', BOT, '--session', 'daily']);
+      const next = await again(box, bots);
 
       await assertMade(home, 'the next start, with the usual umask');
-      const next = await lineIn(box, bots, 'daily');
-      assert.ok(next.includes('--settings') && next.includes(KEY) && next.includes(ownOf(home)), `the next start names the folder, got: ${next}`);
-      assert.deepEqual(await namingUnder(again.stdout, bots, BOT, 'daily', ownOf(home)), [], `a session that got its folder has no such line, got:\n${again.stdout}`);
+      assertNoRefusedLine(next.stdout);
+      const line = await lineIn(box, bots, 'daily');
+      assert.ok(line.includes('--settings') && line.includes(KEY) && line.includes(ownOf(home)), `the next start names the folder, got: ${line}`);
+      assert.deepEqual(await namingUnder(next.stdout, bots, BOT, 'daily', ownOf(home)), [], `a session that got its folder has no line under its tab that names the path, got:\n${next.stdout}`);
     });
   }
 
@@ -615,10 +694,11 @@ describe('the kit makes a bot\'s memory folder with an ignore file, and moves no
   // the write fails and the process goes on). Through `obk` this cannot be
   // reached: the same limit stops the kit's book, its prompt file and the fake
   // Orca's own state before anything is typed. So this case calls the kit's
-  // own step, `madeMemoryFolder` of src/memory.js, the function `up`, `restart`,
-  // `unpause` and `temp make` call for a Claude line, in a child process under
-  // that limit, with the sandbox's environment. The next start goes through
-  // `obk up`, with no limit.
+  // own step, `memoryFolderAtStart` of src/memory.js, the step the kit takes at
+  // each start of a Claude session, in a child process under that limit, with
+  // the sandbox's environment. It gives `{ failed, code }` when the kit could
+  // not make the folder with its .gitignore. The next start calls the same
+  // step with no limit.
 
   /** Run `script`, an ES module, by node under `ulimit -f 0` with SIGXFSZ ignored; give back what it printed as JSON. */
   async function underNoFileSize(box, script) {
@@ -627,8 +707,14 @@ describe('the kit makes a bot\'s memory folder with an ignore file, and moves no
     return JSON.parse(ran.stdout);
   }
 
-  test('F8 the kit makes the folder and its .gitignore, and the write of "*" then fails: it names no folder and leaves no claude-memory, not even with an empty .gitignore; the next start makes both', { skip: AS_ROOT }, async (t) => {
-    const { box, bots, home } = await fleet(t);
+  /** What `memoryFolderAtStart(home)` of src/memory.js gives, called in a child by `run` (underNoFileSize, or a plain run). */
+  const atStartScript = (home) => `
+      import { memoryFolderAtStart } from ${JSON.stringify(pathToFileURL(path.join(repoRoot, 'src', 'memory.js')).href)};
+      process.stdout.write(JSON.stringify(memoryFolderAtStart(${JSON.stringify(home)})));
+    `;
+
+  test('F8 the kit makes the folder and its .gitignore, and the write of "*" then fails: the step at a start gives the path as failed and no folder, and leaves no claude-memory, not even with an empty .gitignore; the next start makes both', { skip: AS_ROOT }, async (t) => {
+    const { box, home } = await fleet(t);
     // The premise: under the limit, a file is made and the write into it fails, so an empty file is left.
     const probe = path.join(box.root, 'size-probe');
     const seen = await underNoFileSize(box, `
@@ -639,61 +725,217 @@ describe('the kit makes a bot\'s memory folder with an ignore file, and moves no
     `);
     assert.deepEqual(seen, { code: 'EFBIG', made: true, size: 0 }, 'the premise: under the limit the file is made, and the write into it fails with EFBIG');
     assertNothingAt(home, 'the premise: nothing is at the bot\'s claude-memory before the start');
+    const memory = path.join(realpathSync(home), FOLDER);
 
-    const first = await underNoFileSize(box, `
-      import { madeMemoryFolder } from ${JSON.stringify(pathToFileURL(path.join(repoRoot, 'src', 'memory.js')).href)};
-      process.stdout.write(JSON.stringify({ named: madeMemoryFolder(${JSON.stringify(home)}) ?? null }));
-    `);
+    const first = await underNoFileSize(box, atStartScript(home));
 
-    assert.equal(first.named, null, 'the kit names no folder when it could not write the .gitignore');
+    assert.equal(first.failed, memory, `the step gives the claude-memory path as failed, got: ${JSON.stringify(first)}`);
+    assert.equal(first.folder, undefined, `the step gives no folder to name, got: ${JSON.stringify(first)}`);
     assertNothingAt(home, `the kit could not write the .gitignore, so it leaves no folder it made (it holds: ${existsSync(ownOf(home)) ? JSON.stringify(await snapshot(ownOf(home))) : 'nothing'})`);
 
-    await up(box, BOT);
+    const ran = await sh(`exec ${shellWord(process.execPath)} --input-type=module -e ${shellWord(atStartScript(home))}`, { cwd: box.cwd, env: box.env });
+    assert.equal(ran.code, 0, `the next start should run to its end: ${ran.stdout}${ran.stderr}`);
+    const next = JSON.parse(ran.stdout);
 
+    assert.deepEqual(next, { folder: memory }, 'the next start, with no limit, gives the folder to name');
     await assertMade(home, 'the next start, with no limit');
-    const line = await lineIn(box, bots, 'daily');
-    assert.ok(line.includes('--settings') && line.includes(KEY) && line.includes(ownOf(home)), `the next start names the folder, got: ${line}`);
   });
 
   // ---------------------------------------------------------------- F9
 
-  /** What can be at `<bot folder>/claude-memory` that is not a plain folder. */
+  /** What can be at `<bot folder>/claude-memory` that is not a plain folder. Each gives back what a link leads to, if anything. */
   const NOT_A_PLAIN_FOLDER = [
-    ['a file', (at) => writeFile(at, 'my own notes\n')],
-    ['a link to a folder', async (at, { box }) => {
+    ['a file', async (at) => {
+      await writeFile(at, 'my own notes\n');
+    }],
+    ['a link to a folder elsewhere', async (at, { box }) => {
       const target = path.join(box.root, 'elsewhere', 'notes');
       await mkdir(target, { recursive: true });
+      await writeFile(path.join(target, 'MEMORY.md'), '- mine\n');
       await symlink(target, at);
+      return target;
     }],
-    ['a link that leads nowhere', (at, { box }) => symlink(path.join(box.root, 'no-such-folder'), at)],
+    ['a relative link to a folder in the bot folder', async (at, { home }) => {
+      await mkdir(path.join(home, 'notes'));
+      await symlink('notes', at);
+      return path.join(home, 'notes');
+    }],
+    ['a link that leads nowhere', async (at, { box }) => {
+      await symlink(path.join(box.root, 'no-such-folder'), at);
+      return path.join(box.root, 'no-such-folder');
+    }],
   ];
 
+  /** The session was started in the run after `before`, has a tab in the book, and the report has a tab line for it. */
+  async function assertStarted(box, bots, stdout, { bot, session, before, why }) {
+    assert.ok(await startedSince(box, before, bot, session), `${why}: ${bot} ${session} should be started in the same run`);
+    const { tab } = await sessionIn(bots, bot, session);
+    assert.equal(typeof tab, 'string', `${why}: the book holds a tab for ${bot} ${session}`);
+    underTab(stdout, tab);
+  }
+
   for (const [label, put] of NOT_A_PLAIN_FOLDER) {
-    test(`F9 ${label} at <bot folder>/claude-memory: the report of up names that path under the session's tab; a bot that got its folder has no such line`, async (t) => {
+    test(`F9 ${label} at <bot folder>/claude-memory: up of every bot refuses that one session, says why by the path and exits 1; it leaves the path as it was; another bot starts in the same run`, async (t) => {
       const world = await fleet(t);
       const { box, bots, home, other } = world;
-      await put(ownOf(home), world);
+      const at = ownOf(home);
+      const target = await put(at, world);
+      const link = lstatSync(at).isSymbolicLink() ? await readlink(at) : undefined;
+      const before = link === undefined ? await readFile(at, 'utf8') : undefined;
+      const targetBefore = target !== undefined && existsSync(target) ? await snapshot(target) : undefined;
+      const terminals = await terminalsNow(box);
 
-      const { stdout } = await up(box, BOT);
-      const control = await up(box, OTHER);
+      const { stdout } = await refused(box, ['up', '--bots', 'bots']);
 
-      assert.ok((await namingUnder(stdout, bots, BOT, 'daily', ownOf(home))).length > 0, `a line under ${BOT} daily's tab names ${ownOf(home)}, got:\n${stdout}`);
+      assertRefusedLine(stdout, { bot: BOT, session: 'daily', where: at });
+      assert.equal(refusedIn(stdout).length, 1, `only that session is refused, got:\n${stdout}`);
+      await assertNotStarted(box, bots, { bot: BOT, session: 'daily', before: terminals, why: label });
+      if (link === undefined) {
+        assert.ok(lstatSync(at).isFile(), 'the file is still a file');
+        assert.equal(await readFile(at, 'utf8'), before, 'the file is as it was');
+      } else {
+        assert.ok(lstatSync(at).isSymbolicLink(), 'the link is still a link');
+        assert.equal(await readlink(at), link, 'the link leads where it led');
+      }
+      if (targetBefore !== undefined) assert.deepEqual(await snapshot(target), targetBefore, 'what the link leads to is as it was: no .gitignore in it');
+      if (target !== undefined && targetBefore === undefined) assert.ok(!existsSync(target), 'the folder a link leads to is not made');
+      await assertStarted(box, bots, stdout, { bot: OTHER, session: 'daily', before: terminals, why: 'the control' });
       await assertMade(other, 'the control');
-      assert.deepEqual(await namingUnder(control.stdout, bots, OTHER, 'daily', ownOf(other)), [], `a session that got its folder has no such line, got:\n${control.stdout}`);
     });
   }
 
-  test('F9 a file put at <bot folder>/claude-memory after the first start: the report of restart names that path under the new tab', async (t) => {
-    const { box, bots, home } = await fleet(t);
-    await up(box, BOT);
-    await assertMade(home, 'the control: the first start made it');
+  test('F9 up --json with a file at <bot folder>/claude-memory: refused holds the bot, the session and a why that names the path; tabs holds no entry for it; it exits 1', async (t) => {
+    const { box, home } = await fleet(t);
+    await writeFile(ownOf(home), 'my own notes\n');
+
+    const { stdout } = await refused(box, ['up', '--bots', 'bots', '--json']);
+
+    const answer = JSON.parse(stdout);
+    assert.ok(Array.isArray(answer.refused), `the answer has a refused list, got: ${stdout}`);
+    const ours = answer.refused.filter((one) => one.bot === BOT && one.session === 'daily');
+    assert.equal(ours.length, 1, `refused holds ${BOT} daily once, got: ${JSON.stringify(answer.refused)}`);
+    assert.equal(answer.refused.length, 1, `refused holds that session alone, got: ${JSON.stringify(answer.refused)}`);
+    assert.equal(typeof ours[0].why, 'string', `the entry has a why, got: ${JSON.stringify(ours[0])}`);
+    assert.ok(ours[0].why.includes(ownOf(home)), `the why names ${ownOf(home)}, got: ${ours[0].why}`);
+    assert.deepEqual(answer.tabs.filter((one) => one.bot === BOT && one.name === 'daily'), [], `tabs holds no entry for the refused session, got: ${JSON.stringify(answer.tabs)}`);
+    assert.equal(answer.tabs.filter((one) => one.bot === OTHER && one.name === 'daily').length, 1, `the control: tabs holds ${OTHER} daily, got: ${JSON.stringify(answer.tabs)}`);
+  });
+
+  test('F9 up --json with nothing in the way: refused, if there, is empty, and it exits 0', async (t) => {
+    const { box } = await fleet(t);
+
+    const { stdout } = await ok(box, ['up', '--bots', 'bots', '--json']);
+
+    assert.deepEqual(JSON.parse(stdout).refused ?? [], [], `no session is refused, got: ${stdout}`);
+  });
+
+  test('F9 only the Claude session that would get the kit\'s folder is refused: a Codex and a Pi session of the bot, a Claude session with its own --settings, a bot with a folder named by hand and another bot all start in the same run', async (t) => {
+    const world = await fleet(t, { sessions: ['daily', ['coder', '--harness', 'codex'], 'keeper'] });
+    const { box, bots, home } = world;
+    await fakePi(box);
+    await ok(box, ['session', 'add', '--bots', 'bots', '--bot', BOT, '--name', 'runner', '--harness', 'pi']);
+    await botIn(box, { name: 'hand-bot' });
+    const hand = botHomeOf(bots, 'hand-bot');
+    await handEdit(home, 'keeper', ['--settings', '/srv/mine.json']);
+    await writeFile(ownOf(home), 'my own notes\n');
+    await addTo(path.join(hand, '.claude', 'settings.local.json'), { [KEY]: '/somewhere/of/my/own' });
+    await writeFile(ownOf(hand), 'my own notes\n');
+    const terminals = await terminalsNow(box);
+
+    const { stdout } = await refused(box, ['up', '--bots', 'bots']);
+
+    assertRefusedLine(stdout, { bot: BOT, session: 'daily', where: ownOf(home) });
+    assert.equal(refusedIn(stdout).length, 1, `only ${BOT} daily is refused, got:\n${stdout}`);
+    await assertNotStarted(box, bots, { bot: BOT, session: 'daily', before: terminals, why: 'the session that would get the kit\'s folder' });
+    for (const [bot, session, why] of [
+      [BOT, 'coder', 'a Codex session of the bot'],
+      [BOT, 'runner', 'a Pi session of the bot'],
+      [BOT, 'keeper', 'a Claude session with its own --settings'],
+      ['hand-bot', 'daily', 'a bot with a folder named by hand'],
+      [OTHER, 'daily', 'another bot'],
+    ]) {
+      await assertStarted(box, bots, stdout, { bot, session, before: terminals, why });
+    }
+  });
+
+  test('F9 restart of every session of the bot with a file at <bot folder>/claude-memory: the Claude session keeps its tab and harness, with no closed line; the other session restarts; it exits 1', async (t) => {
+    const { box, bots, home } = await fleet(t, { sessions: ['daily', 'keeper'] });
+    await handEdit(home, 'keeper', ['--settings', '/srv/mine.json']);
+    await up(box, BOT, 'daily');
+    await up(box, BOT, 'keeper');
+    await reported(box, bots, 'daily');
+    await reported(box, bots, 'keeper');
     await rm(ownOf(home), { recursive: true });
     await writeFile(ownOf(home), 'my own notes\n');
+    const daily = (await sessionIn(bots, BOT, 'daily')).tab;
+    const keeper = (await sessionIn(bots, BOT, 'keeper')).tab;
+    const terminals = await terminalsNow(box);
+
+    const { stdout } = await refused(box, ['restart', '--bots', 'bots', '--bot', BOT]);
+
+    assertRefusedLine(stdout, { bot: BOT, session: 'daily', where: ownOf(home) });
+    assert.equal(refusedIn(stdout).length, 1, `only daily is refused, got:\n${stdout}`);
+    await assertNotStarted(box, bots, { bot: BOT, session: 'daily', before: terminals, kept: daily, why: 'the refused session' });
+    const closed = stdout.split('\n').filter((line) => line.startsWith('closed'));
+    assert.deepEqual(closed.filter((line) => line.includes(`tab ${daily} `) || line.endsWith(`tab ${daily}`)), [], `no closed line for daily's tab ${daily}, got:\n${stdout}`);
+    assert.equal(closed.filter((line) => line.includes(`tab ${keeper} `) || line.endsWith(`tab ${keeper}`)).length, 1, `the control: keeper's tab ${keeper} is closed and restarted, got:\n${stdout}`);
+    await assertStarted(box, bots, stdout, { bot: BOT, session: 'keeper', before: terminals, why: 'the control' });
+  });
+
+  test('F9 unpause with a file at <bot folder>/claude-memory: the pause mark comes off, the session is not started, and it exits 1', async (t) => {
+    const { box, bots, home } = await fleet(t);
+    await up(box, BOT);
     await reported(box, bots, 'daily');
+    await ok(box, ['pause', '--bots', 'bots', '--bot', BOT, '--session', 'daily']);
+    await rm(ownOf(home), { recursive: true });
+    await writeFile(ownOf(home), 'my own notes\n');
+    const terminals = await terminalsNow(box);
 
-    const { stdout } = await ok(box, ['restart', '--bots', 'bots', '--bot', BOT, '--session', 'daily']);
+    const { stdout } = await refused(box, ['unpause', '--bots', 'bots', '--bot', BOT, '--session', 'daily']);
 
-    assert.ok((await namingUnder(stdout, bots, BOT, 'daily', ownOf(home))).length > 0, `a line under daily's new tab names ${ownOf(home)}, got:\n${stdout}`);
+    assertRefusedLine(stdout, { bot: BOT, session: 'daily', where: ownOf(home) });
+    await assertNotStarted(box, bots, { bot: BOT, session: 'daily', before: terminals, why: 'the unpaused session' });
+    const roster = await box.run(['roster', '--bots', 'bots', '--bot', BOT, '--json']);
+    assert.equal(roster.code, 0, roster.stderr);
+    const [entry] = JSON.parse(roster.stdout).roster;
+    assert.notEqual(entry.sessions.find((one) => one.name === 'daily')?.paused, true, `the pause mark is gone, got: ${roster.stdout}`);
+  });
+
+  test('F9 temp make with a file at <bot folder>/claude-memory: the session is made in bot.yaml and the book, and is not started; it exits 1', async (t) => {
+    const { box, bots, home } = await fleet(t);
+    await up(box, BOT);
+    await rm(ownOf(home), { recursive: true });
+    await writeFile(ownOf(home), 'my own notes\n');
+    const env = await inTabOf(box, bots, 'daily');
+    const terminals = await terminalsNow(box);
+
+    const { stdout } = await refused(box, ['temp', 'make', '--bots', 'bots', '--name', 'scout', '--prompt', 'Read the pull request.'], { env });
+
+    assertRefusedLine(stdout, { bot: BOT, session: 'scout', where: ownOf(home) });
+    await assertNotStarted(box, bots, { bot: BOT, session: 'scout', before: terminals, why: 'the temporary session' });
+    const written = parse(await readFile(path.join(home, 'bot.yaml'), 'utf8'));
+    assert.ok(written.sessions.some((one) => one.name === 'scout'), `bot.yaml holds scout, got: ${JSON.stringify(written.sessions)}`);
+    assert.notEqual(await sessionIn(bots, BOT, 'scout'), undefined, 'the book holds scout');
+  });
+
+  test('F9 init with a file at Bot Father\'s claude-memory: Bot Father\'s session is refused and not started; it exits 1', async (t) => {
+    const box = await createSandbox(t);
+    await profileIn(box);
+    await ok(box, ['init', '--bots', 'bots', '--harness', 'claude']);
+    const bots = box.path('bots');
+    const father = botHomeOf(bots, 'bot-father');
+    await assertMade(father, 'the control: the first init made it');
+    const { tab } = await sessionIn(bots, 'bot-father', 'daily');
+    await box.orca.set({ terminals: (await box.orca.terminals()).filter((one) => one.tabId !== tab) });
+    await rm(ownOf(father), { recursive: true });
+    await writeFile(ownOf(father), 'my own notes\n');
+    const terminals = await terminalsNow(box);
+
+    const { stdout } = await refused(box, ['init', '--bots', 'bots', '--harness', 'claude']);
+
+    assertRefusedLine(stdout, { bot: 'bot-father', session: 'daily', where: ownOf(father) });
+    await assertNotStarted(box, bots, { bot: 'bot-father', session: 'daily', before: terminals, why: 'Bot Father' });
+    assert.equal(await readFile(ownOf(father), 'utf8'), 'my own notes\n', 'the file is as it was');
   });
 
   const STAYS_SILENT = [
@@ -701,17 +943,20 @@ describe('the kit makes a bot\'s memory folder with an ignore file, and moves no
     ['the session\'s own --settings in extra_args', ({ home }) => handEdit(home, 'daily', ['--settings', '/srv/mine.json'])],
   ];
   for (const [label, change] of STAYS_SILENT) {
-    test(`F9 a file at <bot folder>/claude-memory and ${label}: the report names no such path under the tab; the same file with nothing else does`, async (t) => {
+    test(`F9 a file at <bot folder>/claude-memory and ${label}: the session starts with no refused line; the same file with nothing else is refused`, async (t) => {
       const world = await fleet(t, { sessions: ['daily', 'control'] });
       const { box, bots, home } = world;
       await writeFile(ownOf(home), 'my own notes\n');
-      const control = await up(box, BOT, 'control');
-      assert.ok((await namingUnder(control.stdout, bots, BOT, 'control', ownOf(home))).length > 0, `the control: a line under control's tab names ${ownOf(home)}, got:\n${control.stdout}`);
+      const control = await refused(box, ['up', '--bots', 'bots', '--bot', BOT, '--session', 'control']);
+      assertRefusedLine(control.stdout, { bot: BOT, session: 'control', where: ownOf(home) });
       await change(world);
+      const terminals = await terminalsNow(box);
 
       const { stdout } = await up(box, BOT, 'daily');
 
-      assert.deepEqual(await namingUnder(stdout, bots, BOT, 'daily', ownOf(home)), [], `nothing under daily's tab names ${ownOf(home)}, got:\n${stdout}`);
+      assertNoRefusedLine(stdout);
+      await assertStarted(box, bots, stdout, { bot: BOT, session: 'daily', before: terminals, why: label });
+      assert.equal(await readFile(ownOf(home), 'utf8'), 'my own notes\n', 'the file is as it was');
     });
   }
 });
