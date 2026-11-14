@@ -43,7 +43,7 @@ paragraphs:
     display: SP-10 (3:1, in The main text that the kit builds)
   - id: SP-11
     kind: approach
-    text_sha256: 676e0ef70824beb67ea29091b79536c04e70e44eb1e9f0b07a878cbe115665c4
+    text_sha256: fa37ecf12513e2389db2738d32c156f2e8904df8caa466c88745949958dd267a
     display: SP-11 (3:2, in The main text that the kit builds)
   - id: SP-12
     kind: note
