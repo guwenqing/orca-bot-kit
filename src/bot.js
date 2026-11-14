@@ -656,7 +656,7 @@ function botYaml(name, harness, charter, allow) {
  * another.
  */
 export const SESSION_FIELDS = [
-  'name', 'harness', 'model', 'effort', 'context', 'approval', 'prompt', 'prompt_file', 'work_dir', 'extra_args',
+  'name', 'harness', 'model', 'effort', 'context', 'approval', 'remote_control', 'prompt', 'prompt_file', 'work_dir', 'extra_args',
 ];
 
 /** Everything the top of a bot's own file can hold. */

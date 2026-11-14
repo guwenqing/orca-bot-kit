@@ -151,6 +151,21 @@ export const profilesDir = () => path.join(orcaData(), 'profiles');
 const orcaData = () => process.env.OBK_ORCA_DATA || path.join(homedir(), 'Library', 'Application Support', 'orca');
 
 /**
+ * The homes of every Claude profile Orca keeps, `claude-profiles/*\/home`: a
+ * tab can run under a profile that is not the caller's (tech notes, section 2).
+ */
+export function claudeProfileHomes() {
+  const dir = path.join(orcaData(), 'claude-profiles');
+  let names;
+  try {
+    names = readdirSync(dir, { withFileTypes: true }).filter((one) => one.isDirectory()).map((one) => one.name).sort();
+  } catch {
+    return [];
+  }
+  return names.map((name) => path.join(dir, name, 'home'));
+}
+
+/**
  * The home of the Claude profile Orca routes a new Claude tab to, or undefined
  * when it routes none. Orca writes the path to `selected-host`, with nothing
  * in it when no profile is routed, and removes the file when it has no accounts

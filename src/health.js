@@ -18,7 +18,8 @@
 // is, the one thing to go and look at, and a sentence naming it — so that
 // somebody who cannot read code knows what was found and where.
 
-import { existsSync, readdirSync, realpathSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import { homedir } from 'node:os';
 import path from 'node:path';
 
 import { bookFile, readBook, sessionIdsIn, tabIdsIn } from './book.js';
@@ -26,9 +27,9 @@ import { botDir, botNames, botsDir, readBot, tempRoles, unknownKeys } from './bo
 import { hasConversation, transcriptsIn } from './conversations.js';
 import { cutsTrouble } from './cuts.js';
 import { hookTrouble } from './hooks.js';
-import { APPROVALS, bypassFlags, harnessOf, HARNESSES, isAddressOf, lostToOwnSettings, ownCli, promptFile, sessionTrouble, set, setsSettings, SHELL_ENV, shellWord, workDirOf } from './launch.js';
+import { APPROVALS, bypassFlags, harnessOf, HARNESSES, isAddressOf, lostToOwnSettings, ownCli, promptFile, REMOTE_CONTROL, remoteControlOf, sessionTrouble, set, setsRemoteControl, setsSettings, SHELL_ENV, shellWord, workDirOf } from './launch.js';
 import { memoryFolderFor, sharedNotes } from './memory.js';
-import { frontOfTab, mailIn, orcaDefaultArgs, projects, runMissing, tabs, tabToTypeInto, wordsOfProcess } from './orca.js';
+import { claudeProfileHomes, frontOfTab, mailIn, orcaDefaultArgs, projects, runMissing, tabs, tabToTypeInto, wordsOfProcess } from './orca.js';
 import { permissionsTrouble } from './permissions.js';
 import { askPi } from './pi.js';
 import { processesIn } from './processes.js';
@@ -207,6 +208,7 @@ function aboutBot(bots, name, setups, sessions, pi) {
   return [
     ...unknownKeys(home, name).map(said('config')),
     ...sessionSettings(home, bot).map(said('config')),
+    ...remoteControlArgs(home, bot).map(said('config')),
     ...rolesTrouble(home, bot).map(said('config')),
     ...agentsTrouble(bots, home, bot).map(said('config')),
     ...hooksOf(bots, home, bot).map(said('config')),
@@ -298,6 +300,21 @@ function leftRunning(home, bot) {
     return [finding('process', bookFile(home), `The kit cannot tell whether anything still runs in the work dirs of ${bot.name}'s retired sessions: ${read.unreadable}.`, bot.name)];
   }
   return read.running.map((one) => finding('process', one.dir, `pid ${one.pid} still runs in the work dir of ${bot.name}/${one.session}, which was retired: ${one.command}. Nothing of the kit's stops it now. If it is not wanted, stop it yourself:  kill ${one.pid}`, bot.name));
+}
+
+/**
+ * A Claude session whose own extra arguments, written by hand in bot.yaml,
+ * carry Claude Code's `--remote-control` or `--rc`: a second switch beside the
+ * session's own, which `session add` and `session change` refuse (ADR 0059).
+ */
+function remoteControlArgs(home, bot) {
+  const file = path.join(home, 'bot.yaml');
+  return bot.sessions
+    .filter((session) => harnessOf(session, bot.harness) === 'claude' && setsRemoteControl(session))
+    .map((session) => ({
+      where: file,
+      says: `${bot.name}'s session ${session.name} carries Claude Code's own --remote-control or --rc in its extra_args in ${file}. The session's own setting is the only switch for Remote Control: take the argument out, and set the session with obk session change --remote-control on|off.`,
+    }));
 }
 
 /** A session the kit would refuse to start, in the words `up` refuses it with. */
@@ -441,8 +458,24 @@ function runningOn(bots, home, bot, book, handles, sessions) {
     const file = recordOf(harness, conversation);
     const settings = settingsInUse(harness, session, file, typeof entry.launched === 'string' ? entry.launched : undefined);
     const rules = { state: typeof entry.rules !== 'string' ? 'unknown' : entry.rules === stamp ? 'current' : 'older' };
-    sessions.push({ bot: bot.name, session: session.name, harness, running, conversation, settings, rules });
+    // Remote Control on Claude Code: what was asked, and what Claude Code's own
+    // registry says of the process in the tab (ADR 0058). A value sessionTrouble
+    // refuses is said there, and not here.
+    const asked = harness === 'claude' ? remoteControlOf(session) : undefined;
+    const remote = asked !== undefined && REMOTE_CONTROL.includes(asked.value)
+      ? { asked: asked.value, from: asked.from, ...remoteControlState(front.pid) }
+      : undefined;
+    sessions.push({ bot: bot.name, session: session.name, harness, running, conversation, settings, rules, ...(remote === undefined ? {} : { remote_control: remote }) });
     if (running !== 'yes') continue;
+
+    // The registry shows a handle, not a connection, so nothing here says
+    // connected: a failed or retrying connection keeps its handle.
+    if (remote?.asked === 'on' && remote.state === 'not enabled') {
+      found.push(finding('session', entry.tab, `Remote Control is not on for ${bot.name}'s session ${session.name}: Claude Code holds no Remote Control handle for it. Its tab says why, such as a login that cannot use Remote Control, no network, or an organization's policy. The session still runs.`, bot.name));
+    }
+    if (remote?.asked === 'off' && remote.state === 'enabled') {
+      found.push(finding('session', entry.tab, `${bot.name}'s session ${session.name} is set off, but Remote Control is enabled in it. This happens after Orca's cold restore: Orca brings a tab back with a bare claude --resume and none of the kit's line, and Claude Code turns Remote Control on again for a conversation that had it on before. ${restart} starts it on the kit's line, off. For an off that holds after a cold restore too, put "disableRemoteControl": true in ${path.join(home, '.claude', 'settings.local.json')}.`, bot.name));
+    }
 
     const off = Object.entries(settings).filter(([, one]) => one.state === 'mismatch');
     const parts = off.map(([name, one]) => `${name}: bot.yaml asks for ${one.configured}, and it runs on ${one.observed}`).join('; ');
@@ -470,6 +503,37 @@ function runningOn(bots, home, bot, book, handles, sessions) {
     }
   }
   return found;
+}
+
+/**
+ * What Claude Code's own registry says of Remote Control in the process `pid`:
+ * `{ state }`, with `why` when the state is unknown (ADR 0058). The entry is
+ * `sessions/<pid>.json` under the first config folder that has one for that
+ * pid: `$CLAUDE_CONFIG_DIR`, `~/.claude`, then each of Orca's Claude profiles,
+ * since a tab can run under a profile that is not the caller's. A
+ * `bridgeSessionId` that is a string is a Remote Control handle, which a failed
+ * or retrying connection keeps: enabled, not connected.
+ */
+function remoteControlState(pid) {
+  if (pid === undefined) return { state: 'unknown', why: 'the kit cannot see which process is in front of its tab' };
+  const dirs = [...new Set([process.env.CLAUDE_CONFIG_DIR, path.join(homedir(), '.claude'), ...claudeProfileHomes()].filter(set))];
+  for (const dir of dirs) {
+    const file = path.join(dir, 'sessions', `${pid}.json`);
+    if (!existsSync(file)) continue;
+    let entry;
+    try {
+      entry = JSON.parse(readFileSync(file, 'utf8'));
+    } catch (error) {
+      return { state: 'unknown', why: `its entry in Claude Code's registry, ${file}, cannot be read: ${error.code ?? error.message}` };
+    }
+    // Another process's entry under this name is not this one's.
+    if (entry === null || typeof entry !== 'object' || Number(entry.pid) !== Number(pid)) continue;
+    const bridge = entry.bridgeSessionId;
+    if (bridge === undefined || bridge === null) return { state: 'not enabled' };
+    if (typeof bridge === 'string' && bridge !== '') return { state: 'enabled' };
+    return { state: 'unknown', why: `its entry in Claude Code's registry, ${file}, has a bridgeSessionId the kit cannot read: ${JSON.stringify(bridge)}` };
+  }
+  return { state: 'unknown', why: `Claude Code's registry has no entry for its process ${pid}` };
 }
 
 /**

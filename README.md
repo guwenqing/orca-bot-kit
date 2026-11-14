@@ -256,6 +256,13 @@ session that is off is enabled (most often after Orca brought its tab back).
 Each connected session is an entry in your list at claude.ai/code. Entries of
 sessions that ended can stay there, offline, until you archive them there.
 
+When you upgrade to this version, a running session stays as it is. At its
+next start by the kit (`up` of a closed tab, `restart`, `unpause`, `temp make`),
+a Claude session starts with Remote Control on, unless you set it off first. A
+session whose `extra_args` in `bot.yaml` carry `--remote-control` or `--rc`
+gets a finding from `obk health`: remove the argument, and use
+`--remote-control on|off` instead.
+
 ## The rules a bot works by
 
 Each bot has one `AGENTS.md`, shared by all its sessions: its charter, then the
