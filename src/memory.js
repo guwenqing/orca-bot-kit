@@ -14,7 +14,7 @@
 // Claude Code's own default.
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmdirSync, statSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, rmdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 
@@ -72,12 +72,32 @@ export function madeMemoryFolder(home) {
   } catch {
     return undefined;
   }
+  const ignore = path.join(folder, '.gitignore');
+  let opened;
   try {
-    writeFileSync(path.join(folder, '.gitignore'), '*\n', { flag: 'wx' });
+    // Opened here with wx, so the kit knows the file is its own: one that
+    // another process made in the meantime refuses the open.
+    opened = openSync(ignore, 'wx');
+    writeFileSync(opened, '*\n');
+    closeSync(opened);
     return folder;
   } catch {
-    // A folder the kit made stays only with its ignore file (review of PR
-    // #762). rmdir takes it away only while it is empty, so no note goes.
+    // A folder the kit made stays only with its ignore file (reviews of PR
+    // #762). The kit takes back only its own ignore file, a write of which
+    // may have failed after the open, and then the folder, which rmdir takes
+    // only while it is empty, so no note goes.
+    if (opened !== undefined) {
+      try {
+        closeSync(opened);
+      } catch {
+        // Closed already, or not closable: the file is unlinked all the same.
+      }
+      try {
+        unlinkSync(ignore);
+      } catch {
+        // Then rmdir below fails too, and the folder is named nowhere.
+      }
+    }
     try {
       rmdirSync(folder);
     } catch {
