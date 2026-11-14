@@ -660,7 +660,7 @@ export const SESSION_FIELDS = [
 ];
 
 /** Everything the top of a bot's own file can hold. */
-const BOT_FIELDS = ['name', 'harness', 'charter', 'rules', 'skills', 'allow', 'sessions', 'paused', 'temp_roles', 'temp_approval'];
+const BOT_FIELDS = ['name', 'harness', 'charter', 'rules', 'skills', 'allow', 'sessions', 'paused', 'temp_roles', 'temp_approval', 'claude_cut', 'claude_keep'];
 
 /**
  * The keys in a bot's file that the kit does not know, and so that nothing

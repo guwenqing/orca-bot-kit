@@ -58,6 +58,9 @@ import { agentsIn, blockIn } from './helpers/rules.js';
 
 const BOT = 'api-bot';
 
+/** The tools the kit denies in every Claude Code bot's settings since #767 (request claude-session-trim, R1). */
+const DEFAULT_TOOL_CUTS = ['Artifact', 'ArtifactComments', 'ArtifactData', 'DesignSync'];
+
 /** A bots folder `init` made on Claude, with one more bot on `harness` and a daily session. */
 async function withBot(box, harness = 'claude') {
   assert.equal((await box.run(['init', '--bots', 'bots', '--harness', 'claude'])).code, 0);
@@ -140,7 +143,16 @@ test('S2 the hook, the other permissions keys, the user\'s own entries and their
   const allowed = withoutSendMessage(now.permissions.allow);
   assert.deepEqual(allowed.slice(0, theirs.permissions.allow.length), theirs.permissions.allow, 'theirs first, as they were');
   assertSameRules(allowed.slice(theirs.permissions.allow.length), [...defaultRules(box, bots), OWN_RULE], 'then the allowed ones and the defaults, once each');
-  for (const key of ['deny', 'ask', 'defaultMode', 'additionalDirectories']) {
+  // Since #767 (request claude-session-trim, R1) up also denies the four
+  // default tool cuts, after what is there: the user's own deny entry stays
+  // first, in its place, and the four follow it, once each.
+  assert.deepEqual(now.permissions.deny.slice(0, theirs.permissions.deny.length), theirs.permissions.deny, 'permissions.deny is the user\'s first, as it was');
+  assert.deepEqual(
+    [...now.permissions.deny.slice(theirs.permissions.deny.length)].sort(),
+    [...DEFAULT_TOOL_CUTS].sort(),
+    `then the four default tool cuts and nothing else, got: ${JSON.stringify(now.permissions.deny)}`,
+  );
+  for (const key of ['ask', 'defaultMode', 'additionalDirectories']) {
     assert.deepEqual(now.permissions[key], theirs.permissions[key], `permissions.${key} is the user's`);
   }
   assert.deepEqual(now.env, theirs.env);

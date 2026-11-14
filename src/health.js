@@ -24,6 +24,7 @@ import path from 'node:path';
 import { bookFile, readBook, sessionIdsIn, tabIdsIn } from './book.js';
 import { botDir, botNames, botsDir, readBot, tempRoles, unknownKeys } from './bot.js';
 import { hasConversation, transcriptsIn } from './conversations.js';
+import { cutsTrouble } from './cuts.js';
 import { hookTrouble } from './hooks.js';
 import { APPROVALS, bypassFlags, harnessOf, HARNESSES, isAddressOf, ownCli, promptFile, sessionTrouble, set, SHELL_ENV, shellWord, workDirOf } from './launch.js';
 import { frontOfTab, mailIn, orcaDefaultArgs, projects, runMissing, tabs, tabToTypeInto, wordsOfProcess } from './orca.js';
@@ -209,6 +210,7 @@ function aboutBot(bots, name, setups, sessions, pi) {
     ...agentsTrouble(bots, home, bot).map(said('config')),
     ...hooksOf(bots, home, bot).map(said('config')),
     ...permissionsTrouble(home, bot).map(said('config')),
+    ...cutsTrouble(bots, home, bot).map(said('config')),
     ...piReadiness(home, bot, pi).map(said('config')),
     ...skillsTrouble(bots, home, bot).map(said('skill')),
     ...inOrca(bots, home, bot, setups, sessions),

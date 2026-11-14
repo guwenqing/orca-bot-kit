@@ -15,6 +15,7 @@ import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 
 import { leadsOutside } from './bot.js';
+import { cutsOf, withCuts } from './cuts.js';
 import { ownCli, shellWord } from './launch.js';
 
 /**
@@ -102,7 +103,12 @@ export function installHook(home, harness, { bots, bot }) {
   // The Claude Code mail hook and the Codex nudge hook went with the kit's
   // typed line (#555), so an entry of either is taken out.
   const hooked = { ...settings, hooks: toolHooksOf(harness, bots, bot).reduce(withToolHook, withoutHooks(started, REMOVED_HOOKS)) };
-  const wanted = harness === 'claude' ? { ...hooked, skillOverrides: withTeachOff(settings.skillOverrides, file) } : hooked;
+  // A Claude Code bot's cuts go into the same file (request claude-session-trim,
+  // R1 and R2): read before anything is written, so a list the kit cannot
+  // follow leaves the file as it was.
+  const wanted = harness === 'claude'
+    ? withCuts({ ...hooked, skillOverrides: withTeachOff(settings.skillOverrides, file) }, cutsOf(bots, home), file)
+    : hooked;
 
   // Compared as documents, not as text: how the user laid their file out is
   // theirs, and a run that changes nothing writes nothing.
