@@ -15,3 +15,4 @@ Tier: 1 · Status: open
 Every Claude Code session that the kit starts, temporary sessions included, MUST start with Claude Code's Remote Control on, unless the user set it off for that session. When Remote Control cannot start, the session MUST still start, and `obk health` MUST say that Remote Control is off for it. Codex and Pi sessions do not change.
 
 "Set off" means off at a start and at a resume by the kit. It does not hold after Orca's cold restore. It does not hold either when the session's own extra arguments carry `--settings`, because that replaces the kit's settings.
+Signed off: 2026-11-14 owner, origin/2026-11-14-signoff.md

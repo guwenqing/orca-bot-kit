@@ -25,7 +25,17 @@ requirements:
     version: 3
     sha256: 4dffd4ab71549c31c01409765f3f9b57edb8d2b30df08f89366a5c36808ace97
     title: Remote Control is on for every Claude Code session, unless the user set it off
-signoff: []
+signoff:
+  - id: S1
+    file: 2026-11-14-signoff.md
+    sha256: 4023bfdc80435f8d91cb98548e72b2f164a016604c9a9416523082cd819df001
+    signed: 2026-11-14T19:22Z
+    source: the owner's message in the kit-dev/architect session, 2026-11-14 14:21 EST
+    words: yes it looks good
+    presented: R1 and its limit line, word for word, in the same session
+    transcribed_by: kit-dev/architect
+    covers:
+      - { id: R1, version: 3, sha256: 4dffd4ab71549c31c01409765f3f9b57edb8d2b30df08f89366a5c36808ace97 }
 decisions: []
 tasks: []
 bindings:
