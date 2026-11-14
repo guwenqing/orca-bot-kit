@@ -5,7 +5,7 @@ Tier: 2 · Status: open
 
 - 2026-11-14 the owner's words, snapshot origin/2026-11-14-owner-words.md
 
-The origin is the text of issue #751 (https://github.com/guwenqing/orca-bot-kit/issues/751), as it stood on 2026-11-14.
+The origin is the text of issue #751 (https://github.com/guwenqing/orca-bot-kit/issues/751), as it stood on 2026-11-14, with its three short quotations of Claude Code's text replaced by a description in square brackets (the issue's own boundary).
 
 ## Organized requirement
 
@@ -26,7 +26,7 @@ A user MAY keep any of them for one bot, by its name in that bot's `claude_keep`
 
 ### R2 The user's cut lists
 
-A user MAY cut more Claude Code tools and built-in skills, by name: for every bot in a `claude_cut` list in `defaults.yaml`, and for one bot in a `claude_cut` list in its `bot.yaml`. A name in the bot's `claude_keep` list MUST win over every cut list. The kit MUST keep every other entry of the files it writes the cuts into. `obk health` MUST name each cut name that the installed Claude Code does not have.
+A user MAY cut more Claude Code tools and built-in skills, by name: for every bot in a `claude_cut` list in `defaults.yaml`, and for one bot in a `claude_cut` list in its `bot.yaml`. A name in the bot's `claude_keep` list MUST win over every cut list. The tool `Workflow` and the skill `workflow-authoring` MUST go together or stay together: a cut or a keep of either one MUST apply to both, because without the skill Claude Code puts the skill's text into the tool's description. The kit MUST keep every other entry of the files it writes the cuts into. `obk health` MUST name each cut name that the installed Claude Code does not have.
 
 <!-- R3 from:2026-11-14-owner-words.md -->
 
@@ -47,5 +47,5 @@ The kit's rule units MUST carry these lines, word for word:
 - In `commit`, at the end of the first paragraph: "Commit to the bots repo on the branch that it is on. Do not make a branch in it."
 - In `scope`, after the paragraph on something else worth doing: "Notes, plans and decision records that the kit's skills or your role ask for count as asked for. Write them where they say."
 
-Out: Part 1; Codex and Pi sessions; the fleet's own rule lines and its own cut and keep lists, which Bot Father writes in the bots repo after this ships.
+Out: Part 1; the cuts of R1 and R2 and the role of R3 for Codex and Pi sessions, which these Claude Code switches and hooks do not reach (the R4 lines are in rule units that every session reads, Codex and Pi included, so they apply to all); the fleet's own rule lines and its own cut and keep lists, which Bot Father writes in the bots repo after this ships.
 Assumed: Claude Code leaves a denied tool's text, and a skill that is off, out of the request it sends (checked on 2.1.325; ADR 0055).

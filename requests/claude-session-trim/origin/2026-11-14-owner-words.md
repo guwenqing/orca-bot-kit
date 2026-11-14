@@ -1,7 +1,9 @@
 Source: standard input
-Fetched: 2026-11-14T18:29Z
-SHA-256: 092ee1496b9c519d64e543b9411218c4981b34cea8dc94ec7a92374f07b8f0e7
+Fetched: 2026-11-14T18:33Z
+SHA-256: c9e64cfdd77497560673eff868629cd22a9119473b6744528aefccdf41c4b5d3
 ---
+[Snapshot of the text of issue #751 (https://github.com/guwenqing/orca-bot-kit/issues/751) as it stood on 2026-11-14. Three short quotations of Claude Code's own text are replaced by a description in square brackets, by the issue's own boundary: no Claude Code text in this repo.]
+
 ## What happens
 
 A Claude Code session of the kit runs on Claude Code's own system prompt and on its full tool list. The kit puts its own text beside that: AGENTS.md, the start prompt and the permission rules. The kit's launch line passes none of Claude Code's flags for the system prompt or for the tool list (`src/launch.js`).
@@ -14,9 +16,9 @@ Four models reviewed the requests of two architect sessions of one fleet on 2026
   - the harness's feedback tool, which the rules forbid;
   - built-in skills that edit `settings.json` by hand, where permission rules are the kit's to write;
   - built-in review routes through a subagent, where the rules ask for a review by another company's model;
-  - "you don't check an inbox" for SendMessage, where the kit has a mailbox and `obk message check`;
-  - "if on the default branch, branch first", where a bots repo is shared on main;
-  - after a compaction, "continue without asking any further questions", and the role prompt is not given again.
+  - [a sentence of SendMessage's text on how messages arrive; quotation left out] for SendMessage, where the kit has a mailbox and `obk message check`;
+  - [a sentence of the Bash tool's text on git branches; quotation left out], where a bots repo is shared on main;
+  - after a compaction, [the harness's own instruction for the next turn; quotation left out], and the role prompt is not given again.
 - Text for tools that the session does not have, for example a browser section in a session with no browser tool.
 
 What I checked: Claude Code 2.1.325 has `--system-prompt`, `--append-system-prompt`, `--tools`, `--disallowedTools`, `--strict-mcp-config`, `--disable-slash-commands`, `--exclude-dynamic-system-prompt-sections` and `--system-prompt-snapshot` (`claude --help`). Not checked: what each of them does to an interactive session in a tab.
