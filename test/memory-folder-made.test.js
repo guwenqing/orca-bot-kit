@@ -27,6 +27,8 @@
 //   F7  when the kit makes the folder and cannot write its .gitignore, it
 //       leaves no claude-memory behind and names no folder on that line; the
 //       next start, with the cause gone, makes both as usual
+//   F8  the same when the .gitignore is made and its write then fails: no
+//       claude-memory is left, not even with an empty .gitignore
 //
 // The kit makes the folder before it types the launch line. The fake Orca does
 // not run the harness, so these tests read the folder when the kit's command
@@ -44,6 +46,7 @@ import { existsSync, lstatSync } from 'node:fs';
 import { chmod, lstat, mkdir, readdir, readFile, readlink, rm, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { describe, test } from 'node:test';
+import { pathToFileURL } from 'node:url';
 import { parse, stringify } from 'yaml';
 
 import {
@@ -53,6 +56,7 @@ import {
   git,
   kitLaunchMark,
   recordSession,
+  repoRoot,
   sessionIn,
   sh,
   shellWord,
@@ -572,4 +576,51 @@ describe('the kit makes a bot\'s memory folder with an ignore file, and moves no
       assert.ok(next.includes('--settings') && next.includes(KEY) && next.includes(ownOf(home)), `the next start names the folder, got: ${next}`);
     });
   }
+
+  // ---------------------------------------------------------------- F8
+
+  // A file-size limit of 0 lets the kit make the folder and open the
+  // .gitignore, and then stops the write itself (EFBIG; SIGXFSZ is ignored, so
+  // the write fails and the process goes on). Through `obk` this cannot be
+  // reached: the same limit stops the kit's book, its prompt file and the fake
+  // Orca's own state before anything is typed. So this case calls the kit's
+  // own step, `madeMemoryFolder` of src/memory.js, the function `up`, `restart`,
+  // `unpause` and `temp make` call for a Claude line, in a child process under
+  // that limit, with the sandbox's environment. The next start goes through
+  // `obk up`, with no limit.
+
+  /** Run `script`, an ES module, by node under `ulimit -f 0` with SIGXFSZ ignored; give back what it printed as JSON. */
+  async function underNoFileSize(box, script) {
+    const ran = await sh(`ulimit -f 0; trap '' XFSZ; exec ${shellWord(process.execPath)} --input-type=module -e ${shellWord(script)}`, { cwd: box.cwd, env: box.env });
+    assert.equal(ran.code, 0, `the child should run to its end: ${ran.stdout}${ran.stderr}`);
+    return JSON.parse(ran.stdout);
+  }
+
+  test('F8 the kit makes the folder and its .gitignore, and the write of "*" then fails: it names no folder and leaves no claude-memory, not even with an empty .gitignore; the next start makes both', { skip: AS_ROOT }, async (t) => {
+    const { box, bots, home } = await fleet(t);
+    // The premise: under the limit, a file is made and the write into it fails, so an empty file is left.
+    const probe = path.join(box.root, 'size-probe');
+    const seen = await underNoFileSize(box, `
+      import { existsSync, statSync, writeFileSync } from 'node:fs';
+      let code = null;
+      try { writeFileSync(${JSON.stringify(probe)}, '*\\n', { flag: 'wx' }); } catch (error) { code = error.code; }
+      process.stdout.write(JSON.stringify({ code, made: existsSync(${JSON.stringify(probe)}), size: existsSync(${JSON.stringify(probe)}) ? statSync(${JSON.stringify(probe)}).size : null }));
+    `);
+    assert.deepEqual(seen, { code: 'EFBIG', made: true, size: 0 }, 'the premise: under the limit the file is made, and the write into it fails with EFBIG');
+    assertNothingAt(home, 'the premise: nothing is at the bot\'s claude-memory before the start');
+
+    const first = await underNoFileSize(box, `
+      import { madeMemoryFolder } from ${JSON.stringify(pathToFileURL(path.join(repoRoot, 'src', 'memory.js')).href)};
+      process.stdout.write(JSON.stringify({ named: madeMemoryFolder(${JSON.stringify(home)}) ?? null }));
+    `);
+
+    assert.equal(first.named, null, 'the kit names no folder when it could not write the .gitignore');
+    assertNothingAt(home, `the kit could not write the .gitignore, so it leaves no folder it made (it holds: ${existsSync(ownOf(home)) ? JSON.stringify(await snapshot(ownOf(home))) : 'nothing'})`);
+
+    await up(box, BOT);
+
+    await assertMade(home, 'the next start, with no limit');
+    const line = await lineIn(box, bots, 'daily');
+    assert.ok(line.includes('--settings') && line.includes(KEY) && line.includes(ownOf(home)), `the next start names the folder, got: ${line}`);
+  });
 });
