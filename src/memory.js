@@ -14,7 +14,7 @@
 // Claude Code's own default.
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmdirSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 
@@ -65,13 +65,26 @@ export function physicalMemoryFolder(home) {
 export function madeMemoryFolder(home) {
   const folder = physicalMemoryFolder(home);
   if (folder === undefined || existsSync(folder)) return folder;
+  // mkdir refuses a folder that someone else made in the meantime, so the kit
+  // writes the ignore file only into a folder it made itself.
   try {
     mkdirSync(folder);
-    writeFileSync(path.join(folder, '.gitignore'), '*\n', { flag: 'wx' });
   } catch {
-    return existsSync(folder) ? folder : undefined;
+    return undefined;
   }
-  return folder;
+  try {
+    writeFileSync(path.join(folder, '.gitignore'), '*\n', { flag: 'wx' });
+    return folder;
+  } catch {
+    // A folder the kit made stays only with its ignore file (review of PR
+    // #762). rmdir takes it away only while it is empty, so no note goes.
+    try {
+      rmdirSync(folder);
+    } catch {
+      // Something was written into it at once; it is left, and named nowhere.
+    }
+    return undefined;
+  }
 }
 
 /**
