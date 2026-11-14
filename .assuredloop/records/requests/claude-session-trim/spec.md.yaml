@@ -39,11 +39,11 @@ paragraphs:
     display: SP-9 (3, The main text that the kit builds)
   - id: SP-10
     kind: rule
-    text_sha256: 0daed79bf4b6e226eeb0bf64c27415bc3c459f5d6179b3e836f39d8220ff423a
+    text_sha256: f7a9a91ab54f9c7e74abd88ce2559f9f3a46bbe7af5df8894d0cf14d07944007
     display: SP-10 (3:1, in The main text that the kit builds)
   - id: SP-11
     kind: approach
-    text_sha256: 009846b3668807dbc7957635745c991ca91b9adaec3f34c5b7fba814dc904160
+    text_sha256: f360f16ea1ee7427613a603f85f550624775e30785bbfbd2a5b896a3e12c3f6d
     display: SP-11 (3:2, in The main text that the kit builds)
   - id: SP-12
     kind: note
@@ -51,11 +51,11 @@ paragraphs:
     display: SP-12 (4, Where a rule unit goes)
   - id: SP-13
     kind: rule
-    text_sha256: c649a303f58cfadb58a2de3015108f809f97c87bdd2f201df2e5787b9071a7ee
+    text_sha256: 1bf890569a562ee26caea0852a386e52ac6424865f51f848f7651cbe2f1dad9a
     display: SP-13 (4:1, in Where a rule unit goes)
   - id: SP-14
     kind: approach
-    text_sha256: 97e68c70f2067f5388df2c49a5ace5e916af4cbf9518d7aa9e716ac8ec8e8691
+    text_sha256: 06ed6b93cb76d23359930f73b55a6d1d1bd8a7178702ffa95ae4620f4c5b36cc
     display: SP-14 (4:2, in Where a rule unit goes)
   - id: SP-15
     kind: note
