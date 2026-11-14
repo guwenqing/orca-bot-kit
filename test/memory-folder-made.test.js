@@ -41,7 +41,7 @@
 
 import assert from 'node:assert/strict';
 import { existsSync, lstatSync } from 'node:fs';
-import { mkdir, readFile, readlink, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, readdir, readFile, readlink, rm, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { describe, test } from 'node:test';
 import { parse, stringify } from 'yaml';
@@ -507,6 +507,23 @@ describe('the kit makes a bot\'s memory folder with an ignore file, and moves no
    */
   const underUmask = (box, args) => sh(`umask 0222; exec obk ${args.map(shellWord).join(' ')}`, { cwd: box.cwd, env: box.env });
 
+  /**
+   * Give the owner's write back to what the umask run made in the kit's
+   * folder of locks, `<bots>.locks`. The kit makes a session's lock file the
+   * first time it takes that session's turn, and under umask 0222 that file
+   * has mode 444, so the kit's next turn of the session is refused. That is
+   * the umask, not the memory folder, so the test undoes it before the next
+   * start. Nothing else is changed.
+   */
+  async function locksWritableAgain(bots) {
+    const locks = `${bots}.locks`;
+    for (const name of await readdir(locks, { recursive: true })) {
+      const file = path.join(locks, name);
+      const { mode } = await lstat(file);
+      if ((mode & 0o200) === 0) await chmod(file, mode | 0o200);
+    }
+  }
+
   /** The first line typed into a session's current tab. */
   async function lineIn(box, bots, name) {
     const { tab } = await sessionIn(bots, BOT, name);
@@ -546,6 +563,7 @@ describe('the kit makes a bot\'s memory folder with an ignore file, and moves no
       assert.equal(typeof line, 'string', `a line was typed into daily's tab (the run said: ${said})`);
       assert.ok(!line.includes('--settings') && !line.includes(KEY), `the line names no folder, got: ${line}`);
 
+      await locksWritableAgain(bots);
       await reported(box, bots, 'daily');
       await ok(box, ['restart', '--bots', 'bots', '--bot', BOT, '--session', 'daily']);
 
