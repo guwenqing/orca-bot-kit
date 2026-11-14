@@ -1,53 +1,60 @@
-// The launch line names the physical memory folder (#722).
+// The launch line names the bot's own memory folder (#722, #752).
 //
-// A Claude Code session started under an Orca Claude profile has
-// `CLAUDE_CONFIG_DIR=<orca data>/claude-profiles/<id>/home`, and in that folder
-// `projects` is a symbolic link to `~/.claude/projects`. Claude Code names its
-// memory folder through that link, and a write there stops on a permission
-// dialog that only a person can answer. Given the physical folder, the dialog
-// does not come. It is the same folder, so no memory is lost.
+// Claude Code keys its memory folder by the top of the git repository, so every
+// bot of a bots repo shared one folder, and a note of one bot steered all of
+// them (#752). Under an Orca profile, Claude Code also names that folder
+// through the profile's `projects` link, and a write there stops on a dialog
+// that only a person can answer (#722). So the kit's launch line for Claude
+// Code carries one more argument pair, `--settings <json>`, where the JSON is an
+// object with exactly one key (ADR 0056):
 //
-// So the kit's launch line for Claude Code carries one more argument pair,
-// `--settings <json>`, where the JSON is an object with exactly one key:
+//   autoMemoryDirectory: <real path of the bot folder>/claude-memory
 //
-//   autoMemoryDirectory: <real path of <profile home>/projects>/<slug>/memory
-//
-// `<slug>` is the project root with every character that is not an ASCII letter
-// or digit changed to `-`. The project root is the real path of the top of the
-// git repository that holds the bot folder; for a linked git worktree, the main
-// repository's top folder; with no repository, the real path of the bot folder.
-// A linked worktree of a shared git folder not named `.git`, and a `.git` that is
-// a symbolic link, leave the root not sure, and then nothing is added.
+// The real path: links on the way to the bot folder are resolved, and nothing
+// else changes in the text (no NFC step, no slug). Every session of a bot gets
+// the same value, temporary sessions too, whatever its work dir. Two bots get
+// two values, and Bot Father gets its own. The repository, the Orca profile and
+// the length of the path do not change it.
 //
 // What is held here, and the tests that hold each part:
 //
-//   M1   the pair, its value, and every other word as it is today
+//   M1   the pair, its value, and every other word as it is today; every
+//        session of a bot gets the same value; two bots get two; Bot Father
+//        gets its own
 //   M2   one shell word, in a path with spaces and shell characters
-//   M3   the slug, and the NFC form of a root stored in NFD
-//   M4   the real path of `projects`
-//   M5   the project root, and git that cannot answer
-//   M6   the slug's limit: 200 adds it, 201 does not
-//   M7   condition 1: `selected-host` holds a profile home
-//   M8   condition 2: `<profile home>/projects` is a symbolic link
-//   M9   condition 3: no `autoMemoryDirectory` key in the four settings files,
-//        the project root's `.claude/settings.local.json` among them
-//   M10  condition 3: what does not count as having the key
-//   M11  condition 5: the session's own `extra_args`
-//   M12  Orca's data folder, and that the kit's own environment names no profile
-//   M13  Claude Code only: never on a Codex or a Pi line
-//   M14  each way the kit starts a session: resume, restart, unpause, temp make
-//   M15  the kit writes no file for this
-//   M16  a session with memory off stays off, and the JSON holds no other key
+//   M3   the text of the value: the real path as it is, no slug, no NFC step
+//   M4   links on the way to the bot folder are resolved
+//   M5   the repository does not matter: a bots repo, a bot that is a repo of
+//        its own, a linked worktree (a bare repository's too), no repository,
+//        a `.git` link, a `.git` that git cannot read
+//   M6   no length limit
+//   M7   the Orca profile does not matter for the value
+//   M8   a hand-set key: the bot's `.claude/settings.json` and
+//        `.claude/settings.local.json`, the repository root's
+//        `.claude/settings.local.json`, the selected profile's `settings.json`,
+//        or `~/.claude/settings.json` with no profile selected
+//   M9   what does not count as a hand-set key
+//   M10  the session's own `extra_args`; the report of `up` and `restart`
+//        names `--settings` under the tab of such a session
+//   M11  something that is not a plain folder at `<bot folder>/claude-memory`
+//   M12  Claude Code only: never on a Codex or a Pi line
+//   M13  each way the kit starts a session: resume, restart, unpause, temp make
+//   M14  the JSON holds only this key, and a session with memory off stays off
+//   M15  the kit changes no settings file, no profile and no `projects` folder
 //
-// Condition 4 is M6. `--settings` stays refused as a user's extra argument:
-// test/extra-arg-scope.test.js holds that for `session add` (XS11),
-// `session change` (XS14) and `temp make` (XS18), so it is not repeated here.
-// test/core-is-core.test.js holds that no new command or setting came in.
+// test/memory-folder-made.test.js holds the folder and its `.gitignore`, which
+// the kit makes, and that it moves no note. test/health-memory-folder.test.js
+// holds what `obk health` says about it. `--settings` stays refused as a user's
+// extra argument: test/extra-arg-scope.test.js holds that for `session add`
+// (XS11), `session change` (XS14) and `temp make` (XS18), so it is not repeated
+// here. test/core-is-core.test.js holds that no new command or setting came in.
 //
 // A negative case here has its positive beside it: the same sandbox brings up a
 // control session first, which has the pair, then one thing is changed, and the
 // next session is brought up (`controlThenCase`). So an empty result cannot be a
-// kit that never adds the pair, or a fixture that never had one to add.
+// kit that never adds the pair, or a fixture that never had one to add. A case
+// that must not move the value has the same shape (`controlThenStill`): the
+// control's value, one change, and the next session's value is the same.
 //
 // Every run is in a sandbox (helpers/cli.js): its own HOME, a fake Orca, and a
 // fake harness on its own PATH, which writes down the argv a real harness would
@@ -86,6 +93,7 @@ import { fakePi } from './helpers/pi.js';
 
 const BOT = 'api-bot';
 const KEY = 'autoMemoryDirectory';
+const FOLDER = 'claude-memory';
 const AS_ROOT = process.getuid?.() === 0 ? 'root reads a file of mode 000, so it cannot be made unreadable here' : undefined;
 
 /** The names no line of the kit's may carry for this, in any case (the kit refuses `--settings` from a user for what else it can carry). */
@@ -96,6 +104,9 @@ const orcaDataOf = (box) => path.join(box.home, 'Library', 'Application Support'
 
 /** The real folder a profile's `projects` link leads to, unless a test says another. */
 const defaultProjectsOf = (box) => path.join(box.home, '.claude', 'projects');
+
+/** The user's own settings file under the sandbox's HOME. */
+const userSettingsOf = (box) => path.join(box.home, '.claude', 'settings.json');
 
 const selectedHostIn = (data) => path.join(data, 'claude-profiles', 'selected-host');
 
@@ -115,11 +126,8 @@ async function profileIn(box, { data = orcaDataOf(box), name = 'profile-one', pr
   return { data, home, projects, link, selected };
 }
 
-/** The slug as the requirement says: every character that is not an ASCII letter or digit changed to `-`. */
-const slugOf = (root) => root.replaceAll(/[^A-Za-z0-9]/g, '-');
-
-/** Where the value must lead: the real `projects` folder, the slug of the project root, and `memory`. */
-const memoryDirOf = (projects, root) => path.join(projects, slugOf(root), 'memory');
+/** Where the value must lead: the real bot folder, then `claude-memory`. The caller gives the real path. */
+const ownOf = (realHome) => path.join(realHome, FOLDER);
 
 /** A run of `obk` that must go through. */
 async function ok(box, args, options) {
@@ -133,12 +141,12 @@ async function ok(box, args, options) {
  * `name` or `[name, ...flags of session add]`. Nothing is brought up but Bot
  * Father, which `init` opens, so a test can change things first.
  */
-async function fleetIn(box, { bots = 'bots', harness = 'claude', sessions = ['daily'] } = {}) {
-  await ok(box, ['init', '--bots', bots, '--harness', 'claude']);
-  await ok(box, ['bot', 'create', '--bots', bots, '--name', BOT, '--harness', harness]);
+async function fleetIn(box, { bots = 'bots', harness = 'claude', sessions = ['daily'], bot = BOT, init = true } = {}) {
+  if (init) await ok(box, ['init', '--bots', bots, '--harness', 'claude']);
+  await ok(box, ['bot', 'create', '--bots', bots, '--name', bot, '--harness', harness]);
   for (const session of sessions) {
     const [name, ...flags] = [session].flat();
-    await ok(box, ['session', 'add', '--bots', bots, '--bot', BOT, '--name', name, ...flags]);
+    await ok(box, ['session', 'add', '--bots', bots, '--bot', bot, '--name', name, ...flags]);
   }
 }
 
@@ -234,60 +242,74 @@ async function assertCarries(box, line, expected, name, { bots, bot } = {}) {
   assert.deepEqual(withoutPair(argv), todaysArgv(box, name, { bots, bot }), 'with the pair taken out, every word is as it is today');
 }
 
-/** The line is exactly today's, and the run said nothing about any of this. */
-function assertTodaysLine(box, { result, line }, name, { bots } = {}) {
+/**
+ * The line is exactly today's. With `quiet`, the run also said nothing about
+ * any of this, as it says nothing today for a folder a user named.
+ */
+function assertTodaysLine(box, { result, line }, name, { bots, quiet = true } = {}) {
   assert.equal(tokenless(line), bareLaunch(box, 'claude', BOT, name, { bots }), 'the launch line is exactly what it is today');
+  if (!quiet) return;
   const said = `${result.stdout}${result.stderr}`;
   assert.doesNotMatch(said, /autoMemory|selected-host|claude-profiles|memory folder/i, `no message about this, got:\n${said}`);
 }
 
 /**
+ * The settings files where a user names a folder by hand. `root` is the
+ * repository root, which in the usual sandbox is the bots folder: `init` makes
+ * it a repository. `user` is `~/.claude/settings.json`, which counts only when
+ * no profile is selected.
+ */
+const settingsFilesOf = (box, home, profile, root) => ({
+  bot: path.join(home, '.claude', 'settings.json'),
+  local: path.join(home, '.claude', 'settings.local.json'),
+  profile: profile === undefined ? undefined : path.join(profile.home, 'settings.json'),
+  root: path.join(root, '.claude', 'settings.local.json'),
+  user: userSettingsOf(box),
+});
+
+/**
  * The shape of every negative case. A control session is brought up first and
  * has the pair. Then `change` changes one thing, and the next session is
  * brought up in the same sandbox, in the same folder: its line is today's, with
- * no error and no message. `change` is given the profile and the bot's home.
+ * no error. `change` is given the profile and the bot's home. With
+ * `profile: false`, Orca has no profile at all in the sandbox.
  */
-async function controlThenCase(t, change) {
+async function controlThenCase(t, change, { profile: withProfile = true, quiet = true } = {}) {
   const box = await createSandbox(t);
-  const profile = await profileIn(box);
+  const profile = withProfile ? await profileIn(box) : undefined;
   await fleetIn(box, { sessions: ['control', 'daily'] });
   const bots = box.path('bots');
-  const { line: control } = await upSession(box, 'control');
-  await assertCarries(box, control, memoryDirOf(profile.projects, bots), 'control');
-
   const home = botHomeOf(bots, BOT);
-  await change({ box, profile, home, files: settingsFilesOf(home, profile, bots) });
+  const { line: control } = await upSession(box, 'control');
+  await assertCarries(box, control, ownOf(home), 'control');
+
+  await change({ box, profile, home, bots, files: settingsFilesOf(box, home, profile, bots) });
 
   const brought = await upSession(box, 'daily');
-  assertTodaysLine(box, brought, 'daily');
+  assertTodaysLine(box, brought, 'daily', { quiet });
   return { box, profile, home, bots };
 }
 
-/** The positive of `controlThenCase`: the change does not stop the pair. */
-async function caseStillCarries(t, change) {
+/**
+ * A change that does not move the pair, in the shape of `controlThenCase`: the
+ * control is brought up first, then `change` changes one thing, and the next
+ * session of the same sandbox carries the same value as the control.
+ */
+async function controlThenStill(t, change, { profile: withProfile = true } = {}) {
   const box = await createSandbox(t);
-  const profile = await profileIn(box);
-  await fleetIn(box);
+  const profile = withProfile ? await profileIn(box) : undefined;
+  await fleetIn(box, { sessions: ['control', 'daily'] });
   const bots = box.path('bots');
   const home = botHomeOf(bots, BOT);
-  await change({ box, profile, home, files: settingsFilesOf(home, profile, bots) });
-  const { line } = await upSession(box, 'daily');
-  await assertCarries(box, line, memoryDirOf(profile.projects, bots), 'daily');
-}
+  const { line: control } = await upSession(box, 'control');
+  await assertCarries(box, control, ownOf(home), 'control');
 
-/**
- * The four settings files condition 3 names. `root` is the project root, which
- * in the usual sandbox is the bots folder: `init` makes it a repository. Claude
- * Code 2.1.317 reads local settings from the top of the git repository, and
- * merges the bot folder's own under that (its docs, "where Claude Code keeps the
- * local file in a git repository"), so a key there is the user's own folder.
- */
-const settingsFilesOf = (home, profile, root) => ({
-  bot: path.join(home, '.claude', 'settings.json'),
-  local: path.join(home, '.claude', 'settings.local.json'),
-  profile: path.join(profile.home, 'settings.json'),
-  root: path.join(root, '.claude', 'settings.local.json'),
-});
+  await change({ box, profile, home, bots, files: settingsFilesOf(box, home, profile, bots) });
+
+  const { line } = await upSession(box, 'daily');
+  await assertCarries(box, line, ownOf(home), 'daily');
+  return { box, profile, home, bots };
+}
 
 /** Add keys to a settings file, keeping what the kit wrote there. */
 async function addTo(file, keys) {
@@ -334,34 +356,76 @@ async function assertResumeCarries(box, line, expected, id) {
   assert.equal(argv[argv.indexOf('--resume') + 1], id, `the line resumes ${id}, got: ${line}`);
 }
 
-describe('the launch line names the physical memory folder (#722)', { concurrency: 8 }, () => {
+describe('the launch line names the bot\'s own memory folder (#722, #752)', { concurrency: 8 }, () => {
   // ---------------------------------------------------------------- M1 the pair
 
-  test('M1 a new Claude session under a linked profile gets the pair: the real projects folder, the slug of the repository top, memory; every other word is today\'s', async (t) => {
+  test('M1 a new Claude session gets the pair: the real bot folder, then claude-memory; every other word is today\'s', async (t) => {
     const box = await createSandbox(t);
-    const profile = await profileIn(box);
+    await profileIn(box);
     await fleetIn(box);
     const bots = box.path('bots');
 
     const { line } = await upSession(box, 'daily');
 
     // Written out from the requirement, not through the test's own helper.
-    const expected = `${defaultProjectsOf(box)}/${bots.replaceAll(/[^A-Za-z0-9]/g, '-')}/memory`;
-    assert.equal(memoryDirOf(profile.projects, bots), expected, 'the premise: the helper says what the requirement says');
+    const expected = `${bots}/bots/api-bot/claude-memory`;
+    assert.equal(ownOf(botHomeOf(bots, BOT)), expected, 'the premise: the helper says what the requirement says');
     await assertCarries(box, line, expected, 'daily');
-    assert.ok(!expected.includes(profile.home), `the value goes around the link, not through the profile: ${expected}`);
+  });
+
+  test('M1 every session of a bot gets the same value: a session with a work dir and settings of its own too', async (t) => {
+    const box = await createSandbox(t);
+    await profileIn(box);
+    await fleetIn(box, { sessions: ['daily', ['review', '--model', 'opus', '--work-dir', 'work/review']] });
+    const bots = box.path('bots');
+    await mkdir(path.join(botHomeOf(bots, BOT), 'work', 'review'), { recursive: true });
+
+    const { line: daily } = await upSession(box, 'daily');
+    const { line: review } = await upSession(box, 'review');
+
+    const expected = ownOf(botHomeOf(bots, BOT));
+    assert.equal(memoryDirIn(await argvOf(box, daily)), expected);
+    assert.equal(memoryDirIn(await argvOf(box, review)), expected, 'a session with a work dir of its own still gets its bot\'s folder, not one of the work dir');
+  });
+
+  test('M1 two bots of one bots repo get two values, each in its own bot folder', async (t) => {
+    const box = await createSandbox(t);
+    await profileIn(box);
+    await fleetIn(box);
+    await fleetIn(box, { bot: 'web-bot', init: false });
+    const bots = box.path('bots');
+
+    const { line: api } = await upSession(box, 'daily');
+    const { line: web } = await upSession(box, 'daily', { bot: 'web-bot' });
+
+    const apiValue = memoryDirIn(await argvOf(box, api));
+    const webValue = memoryDirIn(await argvOf(box, web));
+    assert.equal(apiValue, ownOf(botHomeOf(bots, BOT)));
+    assert.equal(webValue, ownOf(botHomeOf(bots, 'web-bot')));
+    assert.notEqual(apiValue, webValue, 'two bots never share a folder');
+  });
+
+  test('M1 Bot Father, which init brings up, gets its own value', async (t) => {
+    const box = await createSandbox(t);
+    await profileIn(box);
+    await ok(box, ['init', '--bots', 'bots', '--harness', 'claude']);
+    const bots = box.path('bots');
+
+    const line = await lineOf(box, bots, 'daily', 'bot-father');
+
+    assert.equal(memoryDirIn(await argvOf(box, line)), `${bots}/bots/bot-father/claude-memory`);
   });
 
   test('M1 the pair goes before the prompt separator, so a session with settings and a prompt still has its prompt as the last word', async (t) => {
     const box = await createSandbox(t);
-    const profile = await profileIn(box);
+    await profileIn(box);
     const prompt = 'Read your AGENTS.md.';
     await fleetIn(box, { sessions: [['daily', '--model', 'opus', '--effort', 'high', '--extra-arg=--verbose', '--prompt', prompt]] });
 
     const { line } = await upSession(box, 'daily');
 
     const argv = await argvOf(box, line);
-    assert.equal(memoryDirIn(argv), memoryDirOf(profile.projects, box.path('bots')));
+    assert.equal(memoryDirIn(argv), ownOf(botHomeOf(box.path('bots'), BOT)));
     assert.deepEqual(argv.slice(-2), ['--', prompt], `the prompt is last, after --, got: ${JSON.stringify(argv)}`);
     assert.deepEqual(
       withoutPair(argv),
@@ -372,14 +436,14 @@ describe('the launch line names the physical memory folder (#722)', { concurrenc
 
   test('M1 a long prompt that goes through a file keeps the pair before the separator', async (t) => {
     const box = await createSandbox(t);
-    const profile = await profileIn(box);
+    await profileIn(box);
     const prompt = `First line of a long prompt.\n${'And so on. '.repeat(30)}`;
     await fleetIn(box, { sessions: [['daily', `--prompt=${prompt}`]] });
 
     const { line } = await upSession(box, 'daily');
 
     const argv = await argvOf(box, line);
-    assert.equal(memoryDirIn(argv), memoryDirOf(profile.projects, box.path('bots')));
+    assert.equal(memoryDirIn(argv), ownOf(botHomeOf(box.path('bots'), BOT)));
     assert.equal(argv.at(-1).trim(), prompt.trim(), 'the prompt arrives whole');
   });
 
@@ -389,45 +453,43 @@ describe('the launch line names the physical memory folder (#722)', { concurrenc
   for (const [name, shell, flags] of SHELLS) {
     test(`M2 in ${name}, the JSON is one shell word in a path with spaces, quotes, a dollar and a backquote, and reaches the harness as written`, { skip: existsSync(shell) ? undefined : `no ${shell} here` }, async (t) => {
       const box = await createSandbox(t);
-      const projects = path.join(box.home, 'it\'s "my" $HOME `date` folder', 'projects');
-      const profile = await profileIn(box, { projects });
-      await fleetIn(box);
+      await profileIn(box);
+      const bots = path.join(box.root, 'it\'s "my" $HOME `date` folder', 'bots');
+      await mkdir(path.dirname(bots), { recursive: true });
+      await fleetIn(box, { bots });
 
-      const { line } = await upSession(box, 'daily');
+      const { line } = await upSession(box, 'daily', { bots, realBots: bots });
 
       const fake = await fakeProgram(box, 'claude', {});
       const ran = spawnSync(shell, [...flags, line], { cwd: box.cwd, env: box.env, encoding: 'utf8' });
       assert.equal(ran.status, 0, `the line should run in ${name}: ${line}\n${ran.stderr}`);
       const calls = await fake.calls();
       assert.equal(calls.length, 1, `the line should start the harness once in ${name}: ${line}`);
-      assert.equal(memoryDirIn(calls[0].args), memoryDirOf(profile.projects, box.path('bots')));
+      assert.equal(memoryDirIn(calls[0].args), ownOf(botHomeOf(bots, BOT)));
     });
   }
 
-  // --------------------------------------------------------------- M3 the slug
+  // -------------------------------------------------------- M3 the text itself
 
-  test('M3 the slug: each character that is not an ASCII letter or digit is one -, and letters keep their case', async (t) => {
+  test('M3 the value is the path as it is: spaces, an underscore, a dot, a letter outside ASCII and capitals stay; nothing is a slug', async (t) => {
     const box = await createSandbox(t);
-    const profile = await profileIn(box);
+    await profileIn(box);
     const name = 'My Bots_文.Z1';
     await fleetIn(box, { bots: name });
     const bots = box.path(name);
 
     const { line } = await upSession(box, 'daily', { bots: name, realBots: bots });
 
-    const argv = await argvOf(box, line);
-    // By hand: `/` `-`, `My`, space `-`, `Bots`, `_` `-`, `文` `-`, `.` `-`, `Z1`.
-    const tail = '-My-Bots---Z1';
-    assert.equal(memoryDirIn(argv), path.join(profile.projects, `${slugOf(box.cwd)}${tail}`, 'memory'));
+    assert.equal(memoryDirIn(await argvOf(box, line)), `${box.cwd}/My Bots_文.Z1/bots/api-bot/claude-memory`);
   });
 
-  // Claude Code holds its project root in NFC, so the slug is that of the NFC
-  // form: `e` + U+0301 is one character there, and gives one `-`, not two.
-  const NFD_NAME = 'cafe\u0301';
+  // The value is the real path, and no NFC step: a folder stored in NFD form
+  // keeps that form in the value, `e` and U+0301 as two characters.
+  const NFD_NAME = 'café';
   for (const [label, withRepo] of [['in a repository', true], ['with no repository', false]]) {
-    test(`M3 a project root stored in NFD form, ${label}: the slug is that of the NFC form`, async (t) => {
+    test(`M3 a bots folder stored in NFD form, ${label}: the value keeps the NFD form`, async (t) => {
       const box = await createSandbox(t);
-      const profile = await profileIn(box);
+      await profileIn(box);
       await fleetIn(box, { bots: NFD_NAME });
       const stored = await readdir(box.cwd);
       if (!stored.includes(NFD_NAME)) {
@@ -439,50 +501,17 @@ describe('the launch line names the physical memory folder (#722)', { concurrenc
 
       const { line } = await upSession(box, 'daily', { bots: NFD_NAME, realBots: bots });
 
-      // By hand: `/` `-`, `caf`, `é` `-`, and with no repository the bot folder's own `/bots/api-bot`.
-      const tail = withRepo ? '-caf-' : '-caf--bots-api-bot';
-      assert.equal(memoryDirIn(await argvOf(box, line)), path.join(profile.projects, `${slugOf(box.cwd)}${tail}`, 'memory'));
+      const value = memoryDirIn(await argvOf(box, line));
+      assert.equal(value, `${box.cwd}/café/bots/api-bot/claude-memory`);
+      assert.notEqual(value, value.normalize('NFC'), 'the premise: the NFC form is another text');
     });
   }
 
-  // -------------------------------------------------- M4 the real path of projects
+  // ----------------------------------------------- M4 links on the way resolved
 
-  const LINKS = [
-    ['a link to a link gives the final real path', async (box, real, link) => {
-      const middle = path.join(box.root, 'middle-link');
-      await symlink(real, middle);
-      await symlink(middle, link);
-    }],
-    ['a relative link gives the real path', async (box, real, link) => {
-      await symlink(path.relative(path.dirname(link), real), link);
-    }],
-    ['a link through a linked folder gives the real path', async (box, real, link) => {
-      const linkedParent = path.join(box.root, 'linked-parent');
-      await symlink(path.dirname(real), linkedParent);
-      await symlink(path.join(linkedParent, path.basename(real)), link);
-    }],
-  ];
-  for (const [label, makeLink] of LINKS) {
-    test(`M4 ${label}`, async (t) => {
-      const box = await createSandbox(t);
-      const real = path.join(box.root, 'somewhere', 'real-projects');
-      await mkdir(real, { recursive: true });
-      const profile = await profileIn(box);
-      await rm(profile.link);
-      await makeLink(box, real, profile.link);
-      await fleetIn(box);
-
-      const { line } = await upSession(box, 'daily');
-
-      await assertCarries(box, line, path.join(real, slugOf(box.path('bots')), 'memory'), 'daily');
-    });
-  }
-
-  // -------------------------------------------------------- M5 the project root
-
-  test('M5 a bots folder given through a link: the project root is its real path', async (t) => {
+  test('M4 a bots folder given through a link: the real path of the bot folder', async (t) => {
     const box = await createSandbox(t);
-    const profile = await profileIn(box);
+    await profileIn(box);
     const real = path.join(box.root, 'elsewhere', 'real-bots');
     await mkdir(real, { recursive: true });
     await symlink(real, box.path('linked-bots'));
@@ -490,12 +519,76 @@ describe('the launch line names the physical memory folder (#722)', { concurrenc
 
     const { line } = await upSession(box, 'daily', { bots: 'linked-bots', realBots: real });
 
-    assert.equal(memoryDirIn(await argvOf(box, line)), memoryDirOf(profile.projects, real));
+    assert.equal(memoryDirIn(await argvOf(box, line)), ownOf(botHomeOf(real, BOT)));
   });
 
-  test('M5 a linked git worktree: the project root is the main repository\'s top folder, not the worktree', async (t) => {
+  test('M4 a bots folder under a parent folder given through a relative link: the real path', async (t) => {
     const box = await createSandbox(t);
-    const profile = await profileIn(box);
+    await profileIn(box);
+    const realParent = path.join(box.root, 'elsewhere', 'real-parent');
+    await mkdir(realParent, { recursive: true });
+    await symlink(path.relative(box.cwd, realParent), box.path('linked-parent'));
+    const given = box.path('linked-parent', 'bots');
+    await mkdir(given);
+    await fleetIn(box, { bots: given });
+    const real = path.join(realParent, 'bots');
+
+    const { line } = await upSession(box, 'daily', { bots: given, realBots: real });
+
+    assert.equal(memoryDirIn(await argvOf(box, line)), ownOf(botHomeOf(real, BOT)));
+  });
+
+  test('M4 a bots folder given through a link to a link: the final real path', async (t) => {
+    const box = await createSandbox(t);
+    await profileIn(box);
+    const real = path.join(box.root, 'elsewhere', 'real-bots');
+    await mkdir(real, { recursive: true });
+    await symlink(real, path.join(box.root, 'middle-link'));
+    await symlink(path.join(box.root, 'middle-link'), box.path('linked-bots'));
+    await fleetIn(box, { bots: 'linked-bots' });
+
+    const { line } = await upSession(box, 'daily', { bots: 'linked-bots', realBots: real });
+
+    assert.equal(memoryDirIn(await argvOf(box, line)), ownOf(botHomeOf(real, BOT)));
+  });
+
+  // In a repository, the link leads to a folder inside the same repository.
+  for (const [label, withRepo] of [['in a repository', true], ['with no repository', false]]) {
+    test(`M4 a bot folder that is itself a link, ${label}: the real path of the bot folder`, async (t) => {
+      const box = await createSandbox(t);
+      await profileIn(box);
+      await fleetIn(box);
+      const bots = box.path('bots');
+      if (!withRepo) await rm(path.join(bots, '.git'), { recursive: true });
+      const home = botHomeOf(bots, BOT);
+      const real = withRepo ? path.join(bots, 'moved', BOT) : path.join(box.root, 'elsewhere', BOT);
+      await mkdir(path.dirname(real), { recursive: true });
+      await rename(home, real);
+      await symlink(real, home);
+
+      const { line } = await upSession(box, 'daily');
+
+      assert.equal(memoryDirIn(await argvOf(box, line)), ownOf(real));
+    });
+  }
+
+  // ---------------------------------------- M5 the repository does not matter
+
+  test('M5 a bots folder that is the repository: the bot folder, not the repository\'s top', async (t) => {
+    const box = await createSandbox(t);
+    await profileIn(box);
+    await fleetIn(box);
+    const bots = box.path('bots');
+    assert.equal((await git(['rev-parse', '--show-toplevel'], botHomeOf(bots, BOT))).stdout.trim(), bots, 'the premise: the bots folder is the repository\'s top');
+
+    const { line } = await upSession(box, 'daily');
+
+    assert.equal(memoryDirIn(await argvOf(box, line)), ownOf(botHomeOf(bots, BOT)));
+  });
+
+  test('M5 a linked git worktree: the bot folder in the worktree, not the main repository', async (t) => {
+    const box = await createSandbox(t);
+    await profileIn(box);
     const main = path.join(box.root, 'main repo');
     await repoWithCommit(main);
     const worktree = path.join(box.root, 'a-worktree');
@@ -505,112 +598,12 @@ describe('the launch line names the physical memory folder (#722)', { concurrenc
 
     const { line } = await upSession(box, 'daily', { bots: worktree, realBots: worktree });
 
-    assert.equal(memoryDirIn(await argvOf(box, line)), memoryDirOf(profile.projects, main));
+    assert.equal(memoryDirIn(await argvOf(box, line)), ownOf(botHomeOf(worktree, BOT)));
   });
 
-  test('M5 a repository around the bots folder: the project root is that repository\'s top, and not the bots folder', async (t) => {
+  test('M5 a linked worktree of a bare repository: the bot folder', async (t) => {
     const box = await createSandbox(t);
-    const profile = await profileIn(box);
-    const outer = path.join(box.root, 'outer');
-    const bots = path.join(outer, 'fleet', 'bots');
-    await mkdir(path.dirname(bots), { recursive: true });
-    await fleetIn(box, { bots });
-    await rm(path.join(bots, '.git'), { recursive: true });
-    await repoWithCommit(outer);
-
-    const { line } = await upSession(box, 'daily', { bots, realBots: bots });
-
-    assert.equal(memoryDirIn(await argvOf(box, line)), memoryDirOf(profile.projects, outer));
-  });
-
-  test('M5 a bot folder that is a repository of its own: the project root is the bot folder', async (t) => {
-    const box = await createSandbox(t);
-    const profile = await profileIn(box);
-    await fleetIn(box);
-    const bots = box.path('bots');
-    const home = botHomeOf(bots, BOT);
-    assert.equal((await git(['init', '--quiet'], home)).code, 0);
-
-    const { line } = await upSession(box, 'daily');
-
-    assert.equal(memoryDirIn(await argvOf(box, line)), memoryDirOf(profile.projects, home));
-  });
-
-  test('M5 no repository: the project root is the real path of the bot folder', async (t) => {
-    const box = await createSandbox(t);
-    const profile = await profileIn(box);
-    await fleetIn(box);
-    const bots = box.path('bots');
-    await rm(path.join(bots, '.git'), { recursive: true });
-    assert.notEqual((await git(['rev-parse', '--show-toplevel'], bots)).code, 0, 'the premise: no repository holds the bots folder');
-
-    const { line } = await upSession(box, 'daily');
-
-    assert.equal(memoryDirIn(await argvOf(box, line)), memoryDirOf(profile.projects, botHomeOf(bots, BOT)));
-  });
-
-  test('M5 no repository and a bots folder given through a link: the real path of the bot folder', async (t) => {
-    const box = await createSandbox(t);
-    const profile = await profileIn(box);
-    const real = path.join(box.root, 'elsewhere', 'real-bots');
-    await mkdir(real, { recursive: true });
-    await symlink(real, box.path('linked-bots'));
-    await fleetIn(box, { bots: 'linked-bots' });
-    await rm(path.join(real, '.git'), { recursive: true });
-
-    const { line } = await upSession(box, 'daily', { bots: 'linked-bots', realBots: real });
-
-    assert.equal(memoryDirIn(await argvOf(box, line)), memoryDirOf(profile.projects, botHomeOf(real, BOT)));
-  });
-
-  test('M5 no repository and a bot folder that is itself a link: the real path of the bot folder', async (t) => {
-    const box = await createSandbox(t);
-    const profile = await profileIn(box);
-    await fleetIn(box);
-    const bots = box.path('bots');
-    await rm(path.join(bots, '.git'), { recursive: true });
-    const home = botHomeOf(bots, BOT);
-    const real = path.join(box.root, 'elsewhere', BOT);
-    await mkdir(path.dirname(real), { recursive: true });
-    await rename(home, real);
-    await symlink(real, home);
-
-    const { line } = await upSession(box, 'daily');
-
-    assert.equal(memoryDirIn(await argvOf(box, line)), memoryDirOf(profile.projects, real));
-  });
-
-  // A repository whose git folder is kept elsewhere: the working folder is the
-  // project root, though that git folder is named `.git` and has a parent.
-  for (const [where, inner] of [['at', []], ['inside', ['fleet-bots']]]) {
-    test(`M5 a repository made with --separate-git-dir, the bots folder ${where} its top: the project root is its top, not the folder that holds the git folder`, async (t) => {
-      const box = await createSandbox(t);
-      const profile = await profileIn(box);
-      const fleet = path.join(box.root, 'fleet');
-      await mkdir(path.join(box.root, 'metadata'));
-      const made = await git(['init', '--quiet', '--separate-git-dir', path.join(box.root, 'metadata', '.git'), fleet], box.root);
-      assert.equal(made.code, 0, made.stderr);
-      const bots = path.join(fleet, ...inner);
-      await mkdir(bots, { recursive: true });
-      await fleetIn(box, { bots });
-      if (inner.length > 0) await rm(path.join(bots, '.git'), { recursive: true });
-
-      const { line } = await upSession(box, 'daily', { bots, realBots: bots });
-
-      await assertCarries(box, line, memoryDirOf(profile.projects, fleet), 'daily', { bots });
-    });
-  }
-
-  // A linked worktree whose shared git folder is not named `.git` has no main
-  // working folder to name, so the kit is not sure of the root. The control is
-  // a fleet in an ordinary repository, under the same profile.
-  test('M5 a linked worktree of a bare repository: the kit is not sure of the root, and nothing is added', async (t) => {
-    const box = await createSandbox(t);
-    const profile = await profileIn(box);
-    await fleetIn(box, { bots: 'plain-bots', sessions: ['control'] });
-    const { line: control } = await upSession(box, 'control', { bots: 'plain-bots', realBots: box.path('plain-bots') });
-    assert.equal(memoryDirIn(await argvOf(box, control)), memoryDirOf(profile.projects, box.path('plain-bots')), 'the control has the pair');
-
+    await profileIn(box);
     const seed = path.join(box.root, 'seed');
     await repoWithCommit(seed);
     const store = path.join(box.root, 'store.git');
@@ -623,16 +616,73 @@ describe('the launch line names the physical memory folder (#722)', { concurrenc
     const shared = await git(['rev-parse', '--git-common-dir'], bots);
     assert.equal(path.basename(shared.stdout.trim()), 'store.git', 'the premise: the shared git folder is not named .git');
 
-    const brought = await upSession(box, 'daily', { bots, realBots: bots });
+    const { line } = await upSession(box, 'daily', { bots, realBots: bots });
 
-    assertTodaysLine(box, brought, 'daily', { bots });
+    await assertCarries(box, line, ownOf(botHomeOf(bots, BOT)), 'daily', { bots });
   });
 
-  // Git follows a `.git` that is a symbolic link, but what Claude Code makes of
-  // such a root is not known, so the kit is not sure of it.
+  test('M5 a repository around the bots folder: the bot folder, not that repository\'s top', async (t) => {
+    const box = await createSandbox(t);
+    await profileIn(box);
+    const outer = path.join(box.root, 'outer');
+    const bots = path.join(outer, 'fleet', 'bots');
+    await mkdir(path.dirname(bots), { recursive: true });
+    await fleetIn(box, { bots });
+    await rm(path.join(bots, '.git'), { recursive: true });
+    await repoWithCommit(outer);
+
+    const { line } = await upSession(box, 'daily', { bots, realBots: bots });
+
+    assert.equal(memoryDirIn(await argvOf(box, line)), ownOf(botHomeOf(bots, BOT)));
+  });
+
+  test('M5 a bot folder that is a repository of its own: the bot folder', async (t) => {
+    const box = await createSandbox(t);
+    await profileIn(box);
+    await fleetIn(box);
+    const home = botHomeOf(box.path('bots'), BOT);
+    assert.equal((await git(['init', '--quiet'], home)).code, 0);
+
+    const { line } = await upSession(box, 'daily');
+
+    assert.equal(memoryDirIn(await argvOf(box, line)), ownOf(home));
+  });
+
+  test('M5 no repository: the real path of the bot folder', async (t) => {
+    const box = await createSandbox(t);
+    await profileIn(box);
+    await fleetIn(box);
+    const bots = box.path('bots');
+    await rm(path.join(bots, '.git'), { recursive: true });
+    assert.notEqual((await git(['rev-parse', '--show-toplevel'], bots)).code, 0, 'the premise: no repository holds the bots folder');
+
+    const { line } = await upSession(box, 'daily');
+
+    assert.equal(memoryDirIn(await argvOf(box, line)), ownOf(botHomeOf(bots, BOT)));
+  });
+
+  for (const [where, inner] of [['at', []], ['inside', ['fleet-bots']]]) {
+    test(`M5 a repository made with --separate-git-dir, the bots folder ${where} its top: the bot folder`, async (t) => {
+      const box = await createSandbox(t);
+      await profileIn(box);
+      const fleet = path.join(box.root, 'fleet');
+      await mkdir(path.join(box.root, 'metadata'));
+      const made = await git(['init', '--quiet', '--separate-git-dir', path.join(box.root, 'metadata', '.git'), fleet], box.root);
+      assert.equal(made.code, 0, made.stderr);
+      const bots = path.join(fleet, ...inner);
+      await mkdir(bots, { recursive: true });
+      await fleetIn(box, { bots });
+      if (inner.length > 0) await rm(path.join(bots, '.git'), { recursive: true });
+
+      const { line } = await upSession(box, 'daily', { bots, realBots: bots });
+
+      await assertCarries(box, line, ownOf(botHomeOf(bots, BOT)), 'daily', { bots });
+    });
+  }
+
   for (const [named, parts] of [['another name', ['elsewhere', 'real.git']], ['the name .git', ['elsewhere', '.git']]]) {
-    test(`M5 a .git at the project root that is a symbolic link to a git folder of ${named}: the kit is not sure of the root, and nothing is added`, async (t) => {
-      await controlThenCase(t, async ({ box }) => {
+    test(`M5 a .git at the bots folder that is a symbolic link to a git folder of ${named}: the bot folder`, async (t) => {
+      await controlThenStill(t, async ({ box }) => {
         const entry = box.path('bots', '.git');
         const real = path.join(box.root, ...parts);
         await mkdir(path.dirname(real), { recursive: true });
@@ -643,9 +693,7 @@ describe('the launch line names the physical memory folder (#722)', { concurrenc
     });
   }
 
-  // A `.git` entry at the bot folder or above it, and git cannot answer there:
-  // the kit cannot be sure of the project root, so it adds nothing. No `.git`
-  // entry at all is the no-repository case above, which gets the pair.
+  // A `.git` entry at the bot folder or above it, and git cannot answer there.
   const GARBAGE = 'this is not a git file\n';
   const GIT_CANNOT_ANSWER = [
     ['a .git file with garbage text at the bot folder, under a good repository', ({ home }) => writeFile(path.join(home, '.git'), GARBAGE)],
@@ -663,119 +711,118 @@ describe('the launch line names the physical memory folder (#722)', { concurrenc
     }],
   ];
   for (const [label, change] of GIT_CANNOT_ANSWER) {
-    test(`M5 ${label}: git cannot answer, and nothing is added`, async (t) => {
-      await controlThenCase(t, async (world) => {
+    test(`M5 ${label}: git cannot answer, and the pair names the bot folder`, async (t) => {
+      await controlThenStill(t, async (world) => {
         await change(world);
         assert.notEqual((await git(['rev-parse', '--show-toplevel'], world.home)).code, 0, 'the premise: git cannot answer at the bot folder');
       });
     });
   }
 
-  test('M5 a session\'s work dir that is a repository of its own changes nothing: the project root is what holds the bot folder', async (t) => {
+  test('M5 a session\'s work dir that is a repository of its own changes nothing: the bot folder, not the work dir', async (t) => {
     const box = await createSandbox(t);
-    const profile = await profileIn(box);
+    await profileIn(box);
     await fleetIn(box, { sessions: [['daily', '--work-dir', 'work/api']] });
-    const bots = box.path('bots');
-    const workDir = path.join(botHomeOf(bots, BOT), 'work', 'api');
+    const home = botHomeOf(box.path('bots'), BOT);
+    const workDir = path.join(home, 'work', 'api');
     await mkdir(workDir, { recursive: true });
     assert.equal((await git(['init', '--quiet'], workDir)).code, 0);
 
     const { line } = await upSession(box, 'daily');
 
-    assert.equal(memoryDirIn(await argvOf(box, line)), memoryDirOf(profile.projects, bots));
+    assert.equal(memoryDirIn(await argvOf(box, line)), ownOf(home));
   });
 
-  // ------------------------------------------------------- M6 the slug's limit
+  // ------------------------------------------------------- M6 no length limit
 
-  /**
-   * A bots folder whose real path, and so its slug, has `length` characters.
-   * The bot folder's own path is longer, so a kit that measures that fails at
-   * 200 as well.
-   */
-  async function botsOfLength(t, length) {
-    const box = await createSandbox(t);
-    const filler = length - box.cwd.length - 1;
-    assert.ok(filler > 0 && filler <= 255, `the premise: a folder name of ${filler} characters can be made`);
-    const name = 'x'.repeat(filler);
-    const bots = box.path(name);
-    assert.equal(slugOf(bots).length, length, 'the premise: the slug has the length the test says');
-    const profile = await profileIn(box);
-    await fleetIn(box, { bots: name });
-    return { box, profile, name, bots };
+  for (const length of [201, 400]) {
+    test(`M6 a bot folder whose real path has ${length} characters still gets the pair`, async (t) => {
+      const box = await createSandbox(t);
+      await profileIn(box);
+      const tail = `/bots/${BOT}`.length;
+      let rest = length - box.cwd.length - tail;
+      const parts = [];
+      while (rest > 0) {
+        const piece = Math.min(rest - 1, 200);
+        assert.ok(piece > 0, `the premise: a path of ${length} characters can be made here`);
+        parts.push('x'.repeat(piece));
+        rest -= piece + 1;
+      }
+      const bots = box.path(...parts);
+      await mkdir(path.dirname(bots), { recursive: true });
+      await fleetIn(box, { bots });
+      const home = botHomeOf(bots, BOT);
+      assert.equal(home.length, length, 'the premise: the bot folder has the length the test says');
+
+      const { line } = await upSession(box, 'daily', { bots, realBots: bots });
+
+      await assertCarries(box, line, ownOf(home), 'daily', { bots });
+    });
   }
 
-  test('M6 a slug of exactly 200 characters adds the pair', async (t) => {
-    const { box, profile, name, bots } = await botsOfLength(t, 200);
+  // ------------------------------------------- M7 the profile does not matter
 
-    const { line } = await upSession(box, 'daily', { bots: name, realBots: bots });
+  test('M7 with no Orca profile at all: the pair names the bot folder', async (t) => {
+    const box = await createSandbox(t);
+    await fleetIn(box);
+    assert.ok(!existsSync(path.join(orcaDataOf(box), 'claude-profiles')), 'the premise: Orca has no profiles here');
 
-    assert.equal(memoryDirIn(await argvOf(box, line)), memoryDirOf(profile.projects, bots));
+    const { line } = await upSession(box, 'daily');
+
+    await assertCarries(box, line, ownOf(botHomeOf(box.path('bots'), BOT)), 'daily');
   });
 
-  test('M6 a slug of 201 characters adds nothing, and the line is today\'s', async (t) => {
-    const { box, name, bots } = await botsOfLength(t, 201);
-
-    const brought = await upSession(box, 'daily', { bots: name, realBots: bots });
-
-    assertTodaysLine(box, brought, 'daily', { bots });
-  });
-
-  // ---------------------------------------------------- M7 selected-host
-
-  const NO_PROFILE = [
-    ['is not there (Orca has no accounts)', ({ profile }) => rm(profile.selected)],
-    ['is empty (Orca routes no profile)', ({ profile }) => writeFile(profile.selected, '')],
-    ['holds only a line end', ({ profile }) => writeFile(profile.selected, '\n')],
-    ['cannot be read: it is a folder', async ({ profile }) => {
+  const PROFILE_CHANGES = [
+    ['selected-host is not there', ({ profile }) => rm(profile.selected)],
+    ['selected-host is empty', ({ profile }) => writeFile(profile.selected, '')],
+    ['selected-host is a folder', async ({ profile }) => {
       await rm(profile.selected);
       await mkdir(profile.selected);
     }],
-    ['names a home that is not there', ({ box, profile }) => writeFile(profile.selected, path.join(box.root, 'no-such-profile', 'home'))],
-  ];
-  for (const [label, change] of NO_PROFILE) {
-    test(`M7 selected-host ${label}: nothing is added`, async (t) => {
-      await controlThenCase(t, change);
-    });
-  }
-
-  test('M7 selected-host cannot be read: mode 000, nothing is added', { skip: AS_ROOT }, async (t) => {
-    await controlThenCase(t, ({ profile }) => chmod(profile.selected, 0o000));
-  });
-
-  test('M7 selected-host ends in a line end: the path is still the profile home', async (t) => {
-    await caseStillCarries(t, ({ profile }) => writeFile(profile.selected, `${profile.home}\n`));
-  });
-
-  // ---------------------------------------------------- M8 projects is a link
-
-  const NOT_A_LINK = [
-    ['is a real folder', async ({ profile }) => {
+    ['selected-host names a home that is not there', ({ box, profile }) => writeFile(profile.selected, path.join(box.root, 'no-such-profile', 'home'))],
+    ['selected-host cannot be read: mode 000', ({ profile }) => chmod(profile.selected, 0o000), { skip: AS_ROOT }],
+    ['the profile\'s projects is a real folder', async ({ profile }) => {
       await rm(profile.link);
       await mkdir(profile.link);
     }],
-    ['is not there', ({ profile }) => rm(profile.link)],
-    ['is a link that leads nowhere', async ({ box, profile }) => {
+    ['the profile\'s projects is not there', ({ profile }) => rm(profile.link)],
+    ['the profile\'s projects is a link that leads nowhere', async ({ box, profile }) => {
       await rm(profile.link);
       await symlink(path.join(box.root, 'no-such-folder'), profile.link);
     }],
-    ['is a link to a link that leads nowhere', async ({ box, profile }) => {
-      const middle = path.join(box.root, 'middle-link');
-      await symlink(path.join(box.root, 'no-such-folder'), middle);
-      await rm(profile.link);
-      await symlink(middle, profile.link);
-    }],
-    ['is a link to itself', async ({ profile }) => {
+    ['the profile\'s projects is a link to itself', async ({ profile }) => {
       await rm(profile.link);
       await symlink(profile.link, profile.link);
     }],
+    ['Orca\'s data folder is gone', ({ profile }) => rm(profile.data, { recursive: true })],
+    ['OBK_ORCA_DATA names a folder with no selected-host', async ({ box }) => {
+      const lean = path.join(box.home, 'Library', 'Application Support', 'orca-lean');
+      await mkdir(lean, { recursive: true });
+      box.env.OBK_ORCA_DATA = lean;
+    }],
+    ['OBK_ORCA_DATA names another profile', async ({ box }) => {
+      const lean = await profileIn(box, { data: path.join(box.home, 'Library', 'Application Support', 'orca-lean'), projects: path.join(box.root, 'lean-projects') });
+      box.env.OBK_ORCA_DATA = lean.data;
+    }],
+    ['the kit\'s own CLAUDE_CONFIG_DIR names another profile', async ({ box }) => {
+      const other = await profileIn(box, { name: 'profile-two', projects: path.join(box.root, 'other-projects'), select: false });
+      box.env.CLAUDE_CONFIG_DIR = other.home;
+    }],
+    ['another profile is selected', async ({ box }) => {
+      await profileIn(box, { name: 'profile-two', projects: path.join(box.root, 'other-projects') });
+    }],
   ];
-  for (const [label, change] of NOT_A_LINK) {
-    test(`M8 <profile home>/projects ${label}: nothing is added`, async (t) => {
-      await controlThenCase(t, change);
+  for (const [label, change, options] of PROFILE_CHANGES) {
+    test(`M7 ${label}: the value is the same`, options ?? {}, async (t) => {
+      await controlThenStill(t, change);
     });
   }
 
-  // ---------------------------------------------------- M9 the settings files
+  test('M7 a profile selected after a start with none: the value is the same', async (t) => {
+    await controlThenStill(t, ({ box }) => profileIn(box), { profile: false });
+  });
+
+  // --------------------------------------------------- M8 a hand-set key
 
   const HAVING_THE_KEY = [
     ['holds the key with a path', (file) => addTo(file, { [KEY]: '/somewhere/of/my/own' })],
@@ -794,15 +841,14 @@ describe('the launch line names the physical memory folder (#722)', { concurrenc
     }, { skip: AS_ROOT }],
   ];
   // The kit writes its session hook into the bot's .claude/settings.json, so
-  // today `up` stops with an error when it cannot read or parse that file, and
-  // no line is typed (seen on this branch before the flag: "is not readable as
-  // JSON", EISDIR, EACCES). That is today's behaviour and stays. So those cases
-  // of the bot's own file cannot reach a launch line, and are not cases here.
+  // `up` stops with an error when it cannot read or parse that file, and no line
+  // is typed ("is not readable as JSON", EISDIR, EACCES). That stays. So those
+  // cases of the bot's own file cannot reach a launch line, and are not cases.
   const STOPS_THE_BRING_UP_TODAY = new Set(['cannot be parsed', 'is empty, and so cannot be parsed', 'cannot be read: it is a folder', 'cannot be read: mode 000']);
   for (const where of ['bot', 'local', 'profile', 'root']) {
     for (const [label, change, options] of HAVING_THE_KEY) {
       if (where === 'bot' && STOPS_THE_BRING_UP_TODAY.has(label)) continue;
-      test(`M9 the ${where} settings file ${label}: nothing is added`, options ?? {}, async (t) => {
+      test(`M8 the ${where} settings file ${label}: nothing is added`, options ?? {}, async (t) => {
         const { home } = await controlThenCase(t, ({ files }) => change(files[where]));
         // A hand-written key is still there after the bring-up.
         if (where === 'bot' && label.startsWith('holds the key')) {
@@ -813,7 +859,35 @@ describe('the launch line names the physical memory folder (#722)', { concurrenc
     }
   }
 
-  // ---------------------------------------------- M10 what does not count
+  // With no profile selected, the user level is ~/.claude/settings.json.
+  for (const [label, change, options] of HAVING_THE_KEY) {
+    test(`M8 no profile, and ~/.claude/settings.json ${label}: nothing is added`, options ?? {}, async (t) => {
+      await controlThenCase(t, ({ files }) => change(files.user), { profile: false });
+    });
+  }
+
+  const NO_LONGER_SELECTED = [
+    ['selected-host is taken away', ({ profile }) => rm(profile.selected)],
+    ['selected-host is emptied', ({ profile }) => writeFile(profile.selected, '')],
+  ];
+  for (const [label, unselect] of NO_LONGER_SELECTED) {
+    test(`M8 ${label}, and ~/.claude/settings.json holds the key: nothing is added`, async (t) => {
+      await controlThenCase(t, async (world) => {
+        await unselect(world);
+        await addTo(world.files.user, { [KEY]: '/somewhere/of/my/own' });
+      });
+    });
+  }
+
+  test('M8 OBK_ORCA_DATA names a selected profile whose settings.json holds the key: nothing is added', async (t) => {
+    await controlThenCase(t, async ({ box }) => {
+      const lean = await profileIn(box, { data: path.join(box.home, 'Library', 'Application Support', 'orca-lean'), projects: path.join(box.root, 'lean-projects') });
+      box.env.OBK_ORCA_DATA = lean.data;
+      await addTo(path.join(lean.home, 'settings.json'), { [KEY]: '/somewhere/of/my/own' });
+    });
+  });
+
+  // ---------------------------------------------- M9 what does not count
 
   const NOT_HAVING_THE_KEY = [
     ['holds other keys', (file) => addTo(file, { model: 'opus', theme: 'dark' })],
@@ -822,25 +896,25 @@ describe('the launch line names the physical memory folder (#722)', { concurrenc
   ];
   for (const where of ['bot', 'local', 'profile', 'root']) {
     for (const [label, change] of NOT_HAVING_THE_KEY) {
-      test(`M10 the ${where} settings file ${label}: the pair is added`, async (t) => {
-        await caseStillCarries(t, ({ files }) => change(files[where]));
+      test(`M9 the ${where} settings file ${label}: the pair is added`, async (t) => {
+        await controlThenStill(t, ({ files }) => change(files[where]));
       });
     }
   }
+  for (const [label, change] of NOT_HAVING_THE_KEY) {
+    test(`M9 no profile, and ~/.claude/settings.json ${label}: the pair is added`, async (t) => {
+      await controlThenStill(t, ({ files }) => change(files.user), { profile: false });
+    });
+  }
 
-  test('M10 the key in a settings file that is none of the four does not count: the sandbox\'s own ~/.claude/settings.json', async (t) => {
-    await caseStillCarries(t, ({ box }) => addTo(path.join(box.home, '.claude', 'settings.json'), { [KEY]: '/somewhere' }));
-  });
-
-  // Valid JSON that is not an object has no key, so it does not count (the
-  // architect's ruling on #722). In the bot's own .claude/settings.json it stops
-  // the bring-up with "is not readable as JSON", as an unparsable file does, so
-  // that file is not a case here (STOPS_THE_BRING_UP_TODAY above).
+  // Valid JSON that is not an object has no key, so it does not count. In the
+  // bot's own .claude/settings.json it stops the bring-up, as an unparsable file
+  // does, so that file is not a case here.
   const NOT_AN_OBJECT = [['null', 'null'], ['an array', '[]'], ['a number', '42'], ['a string', '"text"']];
   for (const where of ['local', 'profile', 'root']) {
     for (const [label, text] of NOT_AN_OBJECT) {
-      test(`M10 the ${where} settings file holds ${label}: it has no key, and the pair is added`, async (t) => {
-        await caseStillCarries(t, async ({ files }) => {
+      test(`M9 the ${where} settings file holds ${label}: it has no key, and the pair is added`, async (t) => {
+        await controlThenStill(t, async ({ files }) => {
           await mkdir(path.dirname(files[where]), { recursive: true });
           await writeFile(files[where], text);
         });
@@ -848,12 +922,38 @@ describe('the launch line names the physical memory folder (#722)', { concurrenc
     }
   }
 
-  // ------------------------- M9, M10 the project root's file, by where the root is
+  test('M9 with a profile selected, the key in ~/.claude/settings.json does not count: the pair is added', async (t) => {
+    await controlThenStill(t, ({ files }) => addTo(files.user, { [KEY]: '/somewhere/of/my/own' }));
+  });
 
-  // In each of these, the control proves the project root: its pair names it. The
-  // project root's settings.json is not on the list: Claude Code reads project
-  // settings from the bot folder alone. Nor is a local file that is neither the
-  // project root's nor the bot folder's.
+  test('M9 with a profile selected, ~/.claude/settings.json that cannot be parsed does not count: the pair is added', async (t) => {
+    await controlThenStill(t, async ({ files }) => {
+      await mkdir(path.dirname(files.user), { recursive: true });
+      await writeFile(files.user, '{ not json');
+    });
+  });
+
+  test('M9 the key in a profile that is not selected does not count: the pair is added', async (t) => {
+    await controlThenStill(t, async ({ box }) => {
+      const other = await profileIn(box, { name: 'profile-two', projects: path.join(box.root, 'other-projects'), select: false });
+      await addTo(path.join(other.home, 'settings.json'), { [KEY]: '/somewhere/of/my/own' });
+    });
+  });
+
+  test('M9 OBK_ORCA_DATA names another Orca data folder: the key in the default folder\'s selected profile does not count', async (t) => {
+    await controlThenStill(t, async ({ box, profile }) => {
+      const lean = await profileIn(box, { data: path.join(box.home, 'Library', 'Application Support', 'orca-lean'), projects: path.join(box.root, 'lean-projects') });
+      box.env.OBK_ORCA_DATA = lean.data;
+      await addTo(path.join(profile.home, 'settings.json'), { [KEY]: '/somewhere/of/my/own' });
+    });
+  });
+
+  // ------------------------- M8, M9 the repository root's file, by where the root is
+
+  // In each of these, the control proves the line has the pair before the
+  // change. The repository root's settings.json is not on the list: Claude Code
+  // reads project settings from the bot folder alone. Nor is a local file that
+  // is neither the repository root's nor the bot folder's.
   const ROOTS = [
     ['a linked worktree', async (box) => {
       const main = path.join(box.root, 'main repo');
@@ -888,14 +988,14 @@ describe('the launch line names the physical memory folder (#722)', { concurrenc
     }],
   ];
 
-  /** A sandbox laid out by `lay`, its control brought up, with the pair that names the project root. */
+  /** A sandbox laid out by `lay`, its control brought up, with the pair. */
   async function controlAt(t, lay) {
     const box = await createSandbox(t);
-    const profile = await profileIn(box);
+    await profileIn(box);
     const { bots, root, notListed } = await lay(box);
     const { line } = await upSession(box, 'control', { bots, realBots: bots });
-    const expected = memoryDirOf(profile.projects, root);
-    assert.equal(memoryDirIn(await argvOf(box, line)), expected, 'the control has the pair, and it names the project root');
+    const expected = ownOf(botHomeOf(bots, BOT));
+    assert.equal(memoryDirIn(await argvOf(box, line)), expected, 'the control has the pair');
     return { box, bots, root, notListed, expected, local: path.join(root, '.claude', 'settings.local.json') };
   }
 
@@ -907,20 +1007,20 @@ describe('the launch line names the physical memory folder (#722)', { concurrenc
   }
 
   for (const [where, lay] of ROOTS) {
-    test(`M9 ${where}: the key in the project root's settings.local.json: nothing is added`, async (t) => {
+    test(`M8 ${where}: the key in the repository root's settings.local.json: nothing is added`, async (t) => {
       const { box, bots, local } = await controlAt(t, lay);
       await addTo(local, { [KEY]: '/somewhere/of/my/own' });
       await nextOf(box, bots);
     });
 
-    test(`M9 ${where}: the project root's settings.local.json cannot be parsed: nothing is added`, async (t) => {
+    test(`M8 ${where}: the repository root's settings.local.json cannot be parsed: nothing is added`, async (t) => {
       const { box, bots, local } = await controlAt(t, lay);
       await mkdir(path.dirname(local), { recursive: true });
       await writeFile(local, '{ not json');
       await nextOf(box, bots);
     });
 
-    test(`M9 ${where}: the project root's settings.local.json cannot be read: nothing is added`, { skip: AS_ROOT }, async (t) => {
+    test(`M8 ${where}: the repository root's settings.local.json cannot be read: nothing is added`, { skip: AS_ROOT }, async (t) => {
       const { box, bots, local } = await controlAt(t, lay);
       await mkdir(path.dirname(local), { recursive: true });
       await writeFile(local, '{}\n');
@@ -928,41 +1028,82 @@ describe('the launch line names the physical memory folder (#722)', { concurrenc
       await nextOf(box, bots);
     });
 
-    test(`M10 ${where}: the project root's settings.local.json holds other keys: the pair is added`, async (t) => {
+    test(`M9 ${where}: the repository root's settings.local.json holds other keys: the pair is added`, async (t) => {
       const { box, bots, expected, local } = await controlAt(t, lay);
       await addTo(local, { model: 'opus' });
       await nextOf(box, bots, expected);
     });
 
-    test(`M10 ${where}: the project root's settings.local.json holds valid JSON that is not an object: the pair is added`, async (t) => {
-      const { box, bots, expected, local } = await controlAt(t, lay);
-      await mkdir(path.dirname(local), { recursive: true });
-      await writeFile(local, '[]');
-      await nextOf(box, bots, expected);
-    });
-
-    test(`M10 ${where}: the key in a local file that is not the project root's: the pair is added`, async (t) => {
+    test(`M9 ${where}: the key in a local file that is not the repository root's: the pair is added`, async (t) => {
       const { box, bots, expected, notListed } = await controlAt(t, lay);
       for (const file of notListed) await addTo(file, { [KEY]: '/somewhere/of/my/own' });
       await nextOf(box, bots, expected);
     });
   }
 
-  // Where the bot folder is itself the project root, this settings.json is the
-  // bot's own, which is on the list, so those two layouts are not cases here.
+  // Where the bot folder is itself the repository root, this settings.json is
+  // the bot's own, which is on the list, so those two layouts are not cases.
   for (const [where, lay] of [...ROOTS.slice(0, 2), ['a bots folder that is the repository', async (box) => {
     const bots = box.path('bots');
     await fleetIn(box, { sessions: ['control', 'daily'] });
     return { bots, root: bots, notListed: [] };
   }]]) {
-    test(`M10 ${where}: the key in the project root's settings.json does not count: the pair is added`, async (t) => {
+    test(`M9 ${where}: the key in the repository root's settings.json does not count: the pair is added`, async (t) => {
       const { box, bots, root, expected } = await controlAt(t, lay);
       await addTo(path.join(root, '.claude', 'settings.json'), { [KEY]: '/somewhere/of/my/own' });
       await nextOf(box, bots, expected);
     });
   }
 
-  // ---------------------------------------------- M11 the session's extra_args
+  // When the kit is not sure of the repository root, it does not look at a
+  // root's settings.local.json at all. Here the bots folder is the top that git
+  // would name, and the key there does not stop the pair.
+  const ROOT_NOT_SURE = [
+    ['a .git at the bots folder that is a symbolic link', async ({ box }) => {
+      const entry = box.path('bots', '.git');
+      const real = path.join(box.root, 'elsewhere', '.git');
+      await mkdir(path.dirname(real), { recursive: true });
+      await rename(entry, real);
+      await symlink(real, entry);
+    }],
+    ['a .git file with garbage text at the bots folder', async ({ box }) => {
+      await rm(box.path('bots', '.git'), { recursive: true });
+      await writeFile(box.path('bots', '.git'), GARBAGE);
+    }],
+    ['an empty .git folder at the bots folder', async ({ box }) => {
+      await rm(box.path('bots', '.git'), { recursive: true });
+      await mkdir(box.path('bots', '.git'));
+    }],
+  ];
+  for (const [label, change] of ROOT_NOT_SURE) {
+    test(`M9 ${label}: the kit is not sure of the root, so the key in the bots folder's settings.local.json is not looked at, and the pair is added`, async (t) => {
+      await controlThenStill(t, async (world) => {
+        await change(world);
+        await addTo(path.join(world.bots, '.claude', 'settings.local.json'), { [KEY]: '/somewhere/of/my/own' });
+      });
+    });
+  }
+
+  test('M9 a linked worktree of a bare repository: the kit is not sure of the root, so the key in the worktree\'s settings.local.json is not looked at, and the pair is added', async (t) => {
+    const box = await createSandbox(t);
+    await profileIn(box);
+    const seed = path.join(box.root, 'seed');
+    await repoWithCommit(seed);
+    const store = path.join(box.root, 'store.git');
+    assert.equal((await git(['clone', '--quiet', '--bare', seed, store], box.root)).code, 0);
+    const bots = path.join(box.root, 'a-worktree');
+    assert.equal((await git(['worktree', 'add', '--quiet', bots], store)).code, 0);
+    await fleetIn(box, { bots, sessions: ['control', 'daily'] });
+    const { line: control } = await upSession(box, 'control', { bots, realBots: bots });
+    const expected = ownOf(botHomeOf(bots, BOT));
+    assert.equal(memoryDirIn(await argvOf(box, control)), expected, 'the control has the pair');
+
+    await addTo(path.join(bots, '.claude', 'settings.local.json'), { [KEY]: '/somewhere/of/my/own' });
+
+    await nextOf(box, bots, expected);
+  });
+
+  // ---------------------------------------------- M10 the session's extra_args
 
   const USERS_OWN = [
     ['a list, --settings and its value', ['--settings', '/srv/mine.json'], ['--settings', '/srv/mine.json']],
@@ -975,14 +1116,15 @@ describe('the launch line names the physical memory folder (#722)', { concurrenc
     ['a string, the whole word in quotes', "'--settings=/srv/my file.json'", ['--settings=/srv/my file.json']],
   ];
   for (const [label, extra, words] of USERS_OWN) {
-    test(`M11 extra_args holds the user's own --settings, as ${label}: nothing is added, and theirs goes as written`, async (t) => {
+    test(`M10 extra_args holds the user's own --settings, as ${label}: nothing is added, and theirs goes as written`, async (t) => {
       const box = await createSandbox(t);
-      const profile = await profileIn(box);
+      await profileIn(box);
       await fleetIn(box, { sessions: ['control', 'daily'] });
       const bots = box.path('bots');
+      const home = botHomeOf(bots, BOT);
       const { line: control } = await upSession(box, 'control');
-      await assertCarries(box, control, memoryDirOf(profile.projects, bots), 'control');
-      await handEdit(botHomeOf(bots, BOT), 'daily', extra);
+      await assertCarries(box, control, ownOf(home), 'control');
+      await handEdit(home, 'daily', extra);
 
       const { line } = await upSession(box, 'daily');
 
@@ -1006,86 +1148,156 @@ describe('the launch line names the physical memory folder (#722)', { concurrenc
     ['one quoted word that merely says it, in a string', "--append-system-prompt '/tmp/a --settings b'"],
   ];
   for (const [label, extra] of NOT_THE_USERS_OWN) {
-    test(`M11 extra_args holds ${label}: the pair is added`, async (t) => {
+    test(`M10 extra_args holds ${label}: the pair is added`, async (t) => {
       const box = await createSandbox(t);
-      const profile = await profileIn(box);
+      await profileIn(box);
       await fleetIn(box);
-      const bots = box.path('bots');
-      await handEdit(botHomeOf(bots, BOT), 'daily', extra);
+      const home = botHomeOf(box.path('bots'), BOT);
+      await handEdit(home, 'daily', extra);
 
       const { line } = await upSession(box, 'daily');
 
-      assert.equal(memoryDirIn(await argvOf(box, line)), memoryDirOf(profile.projects, bots));
+      assert.equal(memoryDirIn(await argvOf(box, line)), ownOf(home));
     });
   }
 
-  // ------------------------------------------------- M12 Orca's data folder
-
-  test('M12 OBK_ORCA_DATA set: the selected-host there is read, not the one in the default folder', async (t) => {
+  test('M10 another session of the bot with its own --settings does not stop this one: the pair is added', async (t) => {
     const box = await createSandbox(t);
-    await profileIn(box, { projects: path.join(box.root, 'default-projects') });
-    const lean = await profileIn(box, {
-      data: path.join(box.home, 'Library', 'Application Support', 'orca-lean'),
-      projects: path.join(box.root, 'lean-projects'),
+    await profileIn(box);
+    await fleetIn(box, { sessions: ['daily', 'other'] });
+    const home = botHomeOf(box.path('bots'), BOT);
+    await handEdit(home, 'other', ['--settings', '/srv/mine.json']);
+
+    const { line } = await upSession(box, 'daily');
+
+    assert.equal(memoryDirIn(await argvOf(box, line)), ownOf(home));
+  });
+
+  // The kit names no folder for a session with its own `--settings`, and its
+  // report says so (the architect's ruling of 2026-11-14 on #752): under that
+  // session's tab line, a line names `--settings`. The wording is not held.
+
+  /**
+   * The lines of a plain report under the tab line of tab `tabId`: from the
+   * line that names `tab <tabId>` to the next line that does not start with
+   * a space. Gives back the lines under it, the tab line not among them.
+   */
+  function underTab(stdout, tabId) {
+    const lines = stdout.split('\n');
+    const at = lines.findIndex((line) => !/^\s/.test(line) && line.includes(`tab ${tabId}`));
+    assert.ok(at >= 0, `the report should have a line for tab ${tabId}, got:\n${stdout}`);
+    const under = [];
+    for (const line of lines.slice(at + 1)) {
+      if (!/^\s/.test(line)) break;
+      under.push(line);
+    }
+    return under;
+  }
+
+  const SAYS_SETTINGS = [
+    ['a list, --settings and its value', ['--settings', '/srv/mine.json']],
+    ['a string, --settings=value', '--verbose --settings=/srv/mine.json'],
+  ];
+  for (const [label, extra] of SAYS_SETTINGS) {
+    test(`M10 the report of up says it: under the tab of a session whose extra_args hold --settings, as ${label}, a line names --settings; under its sibling's tab, none`, async (t) => {
+      const box = await createSandbox(t);
+      await profileIn(box);
+      await fleetIn(box, { sessions: ['daily', 'keeper'] });
+      const bots = box.path('bots');
+      await handEdit(botHomeOf(bots, BOT), 'keeper', extra);
+
+      const { stdout } = await ok(box, ['up', '--bots', 'bots', '--bot', BOT]);
+
+      const keeper = underTab(stdout, (await sessionIn(bots, BOT, 'keeper')).tab);
+      const daily = underTab(stdout, (await sessionIn(bots, BOT, 'daily')).tab);
+      assert.ok(keeper.some((line) => line.includes('--settings')), `a line under keeper's tab names --settings, got:\n${stdout}`);
+      assert.deepEqual(daily.filter((line) => line.includes('--settings')), [], `nothing under daily's tab names --settings, got:\n${stdout}`);
     });
-    box.env.OBK_ORCA_DATA = lean.data;
-    await fleetIn(box);
+  }
 
-    const { line } = await upSession(box, 'daily');
-
-    assert.equal(memoryDirIn(await argvOf(box, line)), memoryDirOf(lean.projects, box.path('bots')));
-  });
-
-  test('M12 OBK_ORCA_DATA set to a folder with no selected-host: nothing is added, whatever the default folder holds', async (t) => {
+  test('M10 the report of restart says it: under the new tab of a session whose extra_args hold --settings, a line names --settings', async (t) => {
     const box = await createSandbox(t);
-    const profile = await profileIn(box);
-    await fleetIn(box, { sessions: ['control', 'daily'] });
-    const { line: control } = await upSession(box, 'control');
-    assert.equal(memoryDirIn(await argvOf(box, control)), memoryDirOf(profile.projects, box.path('bots')), 'the control, with OBK_ORCA_DATA unset');
+    await profileIn(box);
+    await fleetIn(box, { sessions: ['keeper'] });
+    const bots = box.path('bots');
+    await handEdit(botHomeOf(bots, BOT), 'keeper', ['--settings', '/srv/mine.json']);
+    await upSession(box, 'keeper');
+    await reported(box, bots, 'keeper');
 
-    const lean = path.join(box.home, 'Library', 'Application Support', 'orca-lean');
-    await mkdir(lean, { recursive: true });
-    box.env.OBK_ORCA_DATA = lean;
-    const brought = await upSession(box, 'daily');
+    const { stdout } = await ok(box, ['restart', '--bots', 'bots', '--bot', BOT, '--session', 'keeper']);
 
-    assertTodaysLine(box, brought, 'daily');
+    const under = underTab(stdout, (await sessionIn(bots, BOT, 'keeper')).tab);
+    assert.ok(under.some((line) => line.includes('--settings')), `a line under keeper's new tab names --settings, got:\n${stdout}`);
   });
 
-  test('M12 OBK_ORCA_DATA empty: the default folder is read', async (t) => {
+  test('M10 the report of restart for a session with no --settings of its own names none under its tab', async (t) => {
     const box = await createSandbox(t);
-    const profile = await profileIn(box);
-    box.env.OBK_ORCA_DATA = '';
+    await profileIn(box);
     await fleetIn(box);
+    const bots = box.path('bots');
+    await upSession(box, 'daily');
+    await reported(box, bots, 'daily');
 
-    const { line } = await upSession(box, 'daily');
+    const { stdout } = await ok(box, ['restart', '--bots', 'bots', '--bot', BOT, '--session', 'daily']);
 
-    assert.equal(memoryDirIn(await argvOf(box, line)), memoryDirOf(profile.projects, box.path('bots')));
+    const under = underTab(stdout, (await sessionIn(bots, BOT, 'daily')).tab);
+    assert.deepEqual(under.filter((line) => line.includes('--settings')), [], `nothing under daily's tab names --settings, got:\n${stdout}`);
   });
 
-  test('M12 the kit\'s own CLAUDE_CONFIG_DIR names no profile for this: the value follows selected-host', async (t) => {
-    const box = await createSandbox(t);
-    const selected = await profileIn(box, { projects: path.join(box.root, 'selected-projects') });
-    const other = await profileIn(box, { name: 'profile-two', projects: path.join(box.root, 'other-projects'), select: false });
-    box.env.CLAUDE_CONFIG_DIR = other.home;
-    await fleetIn(box);
+  // ----------------------------------- M11 not a plain folder at claude-memory
 
-    const { line } = await upSession(box, 'daily');
+  /** Replace what the control's start left at `<home>/claude-memory` with `put`. */
+  const atTheFolder = (put) => async (world) => {
+    const at = ownOf(world.home);
+    await rm(at, { recursive: true, force: true });
+    await put(at, world);
+  };
 
-    assert.equal(memoryDirIn(await argvOf(box, line)), memoryDirOf(selected.projects, box.path('bots')));
-  });
-
-  test('M12 with no selected-host, the kit\'s own CLAUDE_CONFIG_DIR does not stand in for it: nothing is added', async (t) => {
-    await controlThenCase(t, async ({ box, profile }) => {
-      box.env.CLAUDE_CONFIG_DIR = profile.home;
-      await rm(profile.selected);
+  const NOT_A_FOLDER = [
+    ['a file', (at) => writeFile(at, 'my own notes\n')],
+    ['an empty file', (at) => writeFile(at, '')],
+    ['a link to a folder outside the bot folder', async (at, { box }) => {
+      const target = path.join(box.root, 'elsewhere', 'notes');
+      await mkdir(target, { recursive: true });
+      await symlink(target, at);
+    }],
+    ['a relative link to a folder inside the bot folder', async (at, { home }) => {
+      await mkdir(path.join(home, 'notes'), { recursive: true });
+      await symlink('notes', at);
+    }],
+    ['a link to a file', async (at, { box }) => {
+      const target = path.join(box.root, 'elsewhere', 'notes.md');
+      await mkdir(path.dirname(target), { recursive: true });
+      await writeFile(target, 'notes\n');
+      await symlink(target, at);
+    }],
+    ['a link that leads nowhere', (at, { box }) => symlink(path.join(box.root, 'no-such-folder'), at)],
+    ['a link to itself', (at) => symlink(at, at)],
+  ];
+  for (const [label, put] of NOT_A_FOLDER) {
+    test(`M11 ${label} at <bot folder>/claude-memory: nothing is added`, async (t) => {
+      await controlThenCase(t, atTheFolder(put), { quiet: false });
     });
-  });
+  }
 
-  // ------------------------------------------------- M13 Claude Code only
+  const A_PLAIN_FOLDER = [
+    ['an empty folder of the user\'s own', (at) => mkdir(at)],
+    ['a folder of the user\'s own with notes and no .gitignore', async (at) => {
+      await mkdir(at);
+      await writeFile(path.join(at, 'MEMORY.md'), '- [A note](a-note.md)\n');
+    }],
+  ];
+  for (const [label, put] of A_PLAIN_FOLDER) {
+    test(`M11 ${label} at <bot folder>/claude-memory: the pair is added`, async (t) => {
+      await controlThenStill(t, atTheFolder(put));
+    });
+  }
 
-  test('M13 a Codex session\'s line never carries it; a Claude session of the same bot does', async (t) => {
+  // ------------------------------------------------- M12 Claude Code only
+
+  test('M12 a Codex session\'s line never carries it; a Claude session of the same bot does', async (t) => {
     const box = await createSandbox(t);
-    const profile = await profileIn(box);
+    await profileIn(box);
     await fleetIn(box, { harness: 'codex', sessions: ['daily', ['lead', '--harness', 'claude']] });
     const bots = box.path('bots');
 
@@ -1093,10 +1305,10 @@ describe('the launch line names the physical memory folder (#722)', { concurrenc
     const { line: lead } = await upSession(box, 'lead');
 
     assert.equal(line, bareLaunch(box, 'codex', BOT, 'daily'), 'the Codex line is exactly today\'s');
-    assert.equal(memoryDirIn(await argvOf(box, lead)), memoryDirOf(profile.projects, bots), 'the control: the Claude session of that bot has the pair');
+    assert.equal(memoryDirIn(await argvOf(box, lead)), ownOf(botHomeOf(bots, BOT)), 'the control: the Claude session of that bot has the pair');
   });
 
-  test('M13 a Codex session of a Claude bot is judged by its own harness: no pair', async (t) => {
+  test('M12 a Codex session of a Claude bot is judged by its own harness: no pair', async (t) => {
     const box = await createSandbox(t);
     await profileIn(box);
     await fleetIn(box, { sessions: [['review', '--harness', 'codex']] });
@@ -1106,9 +1318,9 @@ describe('the launch line names the physical memory folder (#722)', { concurrenc
     assert.equal(line, bareLaunch(box, 'codex', BOT, 'review'), 'the Codex line is exactly today\'s');
   });
 
-  test('M13 a Pi session\'s line never carries it; a Claude session of the same bot does', async (t) => {
+  test('M12 a Pi session\'s line never carries it; a Claude session of the same bot does', async (t) => {
     const box = await createSandbox(t);
-    const profile = await profileIn(box);
+    await profileIn(box);
     await fakePi(box);
     await fleetIn(box, { sessions: [['pilot', '--harness', 'pi'], 'lead'] });
 
@@ -1117,14 +1329,14 @@ describe('the launch line names the physical memory folder (#722)', { concurrenc
 
     assert.match(line, / pi --no-approve /, `the premise: this is a Pi line, got: ${line}`);
     assert.ok(!line.includes('--settings') && !line.includes(KEY), `a Pi line never carries it, got: ${line}`);
-    assert.equal(memoryDirIn(await argvOf(box, lead)), memoryDirOf(profile.projects, box.path('bots')), 'the control: the Claude session of that bot has the pair');
+    assert.equal(memoryDirIn(await argvOf(box, lead)), ownOf(botHomeOf(box.path('bots'), BOT)), 'the control: the Claude session of that bot has the pair');
   });
 
-  // ------------------------------------------- M14 each way a session is started
+  // ------------------------------------------- M13 each way a session is started
 
-  test('M14 a resume by up: the line has --resume and the pair', async (t) => {
+  test('M13 a resume by up: the line has --resume and the pair', async (t) => {
     const box = await createSandbox(t);
-    const profile = await profileIn(box);
+    await profileIn(box);
     await fleetIn(box);
     const bots = box.path('bots');
     await upSession(box, 'daily');
@@ -1134,12 +1346,12 @@ describe('the launch line names the physical memory folder (#722)', { concurrenc
 
     const { line } = await upSession(box, 'daily');
 
-    await assertResumeCarries(box, line, memoryDirOf(profile.projects, bots), id);
+    await assertResumeCarries(box, line, ownOf(botHomeOf(bots, BOT)), id);
   });
 
-  test('M14 obk restart: the new tab\'s line has --resume and the pair', async (t) => {
+  test('M13 obk restart: the new tab\'s line has --resume and the pair', async (t) => {
     const box = await createSandbox(t);
-    const profile = await profileIn(box);
+    await profileIn(box);
     await fleetIn(box);
     const bots = box.path('bots');
     await upSession(box, 'daily');
@@ -1147,12 +1359,12 @@ describe('the launch line names the physical memory folder (#722)', { concurrenc
 
     await ok(box, ['restart', '--bots', 'bots', '--bot', BOT, '--session', 'daily']);
 
-    await assertResumeCarries(box, await lineOf(box, bots, 'daily', BOT, { restarted: true }), memoryDirOf(profile.projects, bots), id);
+    await assertResumeCarries(box, await lineOf(box, bots, 'daily', BOT, { restarted: true }), ownOf(botHomeOf(bots, BOT)), id);
   });
 
-  test('M14 obk unpause: the new tab\'s line has --resume and the pair', async (t) => {
+  test('M13 obk unpause: the new tab\'s line has --resume and the pair', async (t) => {
     const box = await createSandbox(t);
-    const profile = await profileIn(box);
+    await profileIn(box);
     await fleetIn(box);
     const bots = box.path('bots');
     await upSession(box, 'daily');
@@ -1161,7 +1373,7 @@ describe('the launch line names the physical memory folder (#722)', { concurrenc
 
     await ok(box, ['unpause', '--bots', 'bots', '--bot', BOT, '--session', 'daily']);
 
-    await assertResumeCarries(box, await lineOf(box, bots, 'daily', BOT, { unpaused: true }), memoryDirOf(profile.projects, bots), id);
+    await assertResumeCarries(box, await lineOf(box, bots, 'daily', BOT, { unpaused: true }), ownOf(botHomeOf(bots, BOT)), id);
   });
 
   /** A session of the bot brought up, and the environment of a command run inside its tab. */
@@ -1172,47 +1384,36 @@ describe('the launch line names the physical memory folder (#722)', { concurrenc
     return { ...box.env, ORCA_TERMINAL_HANDLE: terminal.handle, ORCA_TAB_ID: terminal.tabId, ...kitLaunchMark(box, terminal) };
   }
 
-  test('M14 obk temp make: a Claude temporary session\'s line has the pair; a Codex one made by the same maker has none', async (t) => {
+  test('M13 obk temp make: a Claude temporary session\'s line has its bot\'s value, the maker\'s own; a Codex one made by the same maker has none', async (t) => {
     const box = await createSandbox(t);
-    const profile = await profileIn(box);
+    await profileIn(box);
     await fleetIn(box, { sessions: ['lead'] });
     const bots = box.path('bots');
     const env = await makerIn(box, bots, 'lead');
+    const lead = memoryDirIn(await argvOf(box, await lineOf(box, bots, 'lead')));
 
     await ok(box, ['temp', 'make', '--bots', 'bots', '--name', 'scout', '--prompt', 'Read the pull request.'], { env });
     await ok(box, ['temp', 'make', '--bots', 'bots', '--name', 'scout-codex', '--harness', 'codex', '--prompt', 'Read the pull request.'], { env });
 
     const argv = await argvOf(box, await lineOf(box, bots, 'scout'));
-    assert.equal(memoryDirIn(argv), memoryDirOf(profile.projects, bots));
+    assert.equal(memoryDirIn(argv), ownOf(botHomeOf(bots, BOT)));
+    assert.equal(memoryDirIn(argv), lead, 'the temporary session shares its maker\'s folder');
     assert.equal(argv.at(-2), '--', `the task is still last, after --, got: ${JSON.stringify(argv)}`);
     assert.ok(argv.at(-1).startsWith('Read the pull request.'), `the task is still last, got: ${JSON.stringify(argv)}`);
     const codex = await lineOf(box, bots, 'scout-codex');
     assert.ok(!codex.includes('--settings') && !codex.includes(KEY), `a Codex temporary session has none, got: ${codex}`);
   });
 
-  test('M14 each start looks again: a profile selected after the first start is on the restart\'s line', async (t) => {
+  test('M13 each start looks again: a key named by hand after the first start keeps it off the restart\'s line', async (t) => {
     const box = await createSandbox(t);
+    await profileIn(box);
     await fleetIn(box);
     const bots = box.path('bots');
-    const first = await upSession(box, 'daily');
-    assertTodaysLine(box, first, 'daily');
-    const id = await reported(box, bots, 'daily');
-    const profile = await profileIn(box);
-
-    await ok(box, ['restart', '--bots', 'bots', '--bot', BOT, '--session', 'daily']);
-
-    await assertResumeCarries(box, await lineOf(box, bots, 'daily', BOT, { restarted: true }), memoryDirOf(profile.projects, bots), id);
-  });
-
-  test('M14 each start looks again: a profile gone after the first start is not on the restart\'s line', async (t) => {
-    const box = await createSandbox(t);
-    const profile = await profileIn(box);
-    await fleetIn(box);
-    const bots = box.path('bots');
+    const home = botHomeOf(bots, BOT);
     const { line: first } = await upSession(box, 'daily');
-    assert.equal(memoryDirIn(await argvOf(box, first)), memoryDirOf(profile.projects, bots), 'the first start has the pair');
+    assert.equal(memoryDirIn(await argvOf(box, first)), ownOf(home), 'the first start has the pair');
     await reported(box, bots, 'daily');
-    await rm(profile.selected);
+    await addTo(path.join(home, '.claude', 'settings.local.json'), { [KEY]: '/somewhere/of/my/own' });
 
     await ok(box, ['restart', '--bots', 'bots', '--bot', BOT, '--session', 'daily']);
 
@@ -1221,60 +1422,25 @@ describe('the launch line names the physical memory folder (#722)', { concurrenc
     assert.ok(!line.includes('--settings') && !line.includes(KEY), `nothing is kept from the first start, got: ${line}`);
   });
 
-  // ----------------------------------------------- M15 the kit writes no file
-
-  test('M15 bringing a session up with the pair writes no file for it: the bot\'s .claude folder, the profile folder, selected-host and the real projects folder are as they were', async (t) => {
+  test('M13 each start looks again: a key named by hand and then taken away puts the pair back on the restart\'s line', async (t) => {
     const box = await createSandbox(t);
-    await fleetIn(box, { sessions: ['control', 'daily'] });
-    const bots = box.path('bots');
-    const home = botHomeOf(bots, BOT);
-    // With no profile, as the kit leaves the folder today.
-    await upSession(box, 'control');
-    const profile = await profileIn(box);
-    const before = {
-      bot: await snapshot(path.join(home, '.claude')),
-      profiles: await snapshot(path.join(profile.data, 'claude-profiles')),
-      projects: await snapshot(profile.projects),
-      selected: await readFile(profile.selected, 'utf8'),
-    };
-
-    const { line } = await upSession(box, 'daily');
-
-    assert.equal(memoryDirIn(await argvOf(box, line)), memoryDirOf(profile.projects, bots), 'the premise: this start had the pair');
-    assert.deepEqual(await snapshot(path.join(home, '.claude')), before.bot, 'the bot\'s .claude folder is as it was');
-    assert.ok(!existsSync(path.join(home, '.claude', 'settings.local.json')), 'no settings.local.json in the bot folder');
-    assert.ok(!existsSync(path.join(bots, '.claude', 'settings.local.json')), 'no settings.local.json in the bots folder');
-    const settings = await readFile(path.join(home, '.claude', 'settings.json'), 'utf8');
-    assert.ok(!settings.includes(KEY), `no ${KEY} in the bot's .claude/settings.json, got: ${settings}`);
-    assert.deepEqual(await snapshot(path.join(profile.data, 'claude-profiles')), before.profiles, 'the profile folder is as it was');
-    assert.equal(await readFile(profile.selected, 'utf8'), before.selected, 'selected-host is as it was');
-    assert.deepEqual(await snapshot(profile.projects), before.projects, 'the memory folder is not made: the kit only names it');
-  });
-
-  test('M15 a user\'s own settings files are not changed: local and profile byte for byte, and the bot\'s keeps its key', async (t) => {
-    const box = await createSandbox(t);
-    const profile = await profileIn(box);
+    await profileIn(box);
     await fleetIn(box);
     const bots = box.path('bots');
     const home = botHomeOf(bots, BOT);
-    const files = settingsFilesOf(home, profile, bots);
-    const localText = '{\n    "model": "mine",   "permissions": {}\n}\n';
-    const profileText = '{ "theme": "dark" }';
-    await writeFile(files.local, localText);
-    await writeFile(files.profile, profileText);
-    await addTo(files.bot, { model: 'mine' });
+    const local = path.join(home, '.claude', 'settings.local.json');
+    await addTo(local, { [KEY]: '/somewhere/of/my/own' });
+    const first = await upSession(box, 'daily');
+    assertTodaysLine(box, first, 'daily');
+    const id = await reported(box, bots, 'daily');
+    await rm(local);
 
-    const { line } = await upSession(box, 'daily');
+    await ok(box, ['restart', '--bots', 'bots', '--bot', BOT, '--session', 'daily']);
 
-    assert.equal(memoryDirIn(await argvOf(box, line)), memoryDirOf(profile.projects, bots), 'the premise: this start had the pair');
-    assert.equal(await readFile(files.local, 'utf8'), localText);
-    assert.equal(await readFile(files.profile, 'utf8'), profileText);
-    const after = JSON.parse(await readFile(files.bot, 'utf8'));
-    assert.equal(after.model, 'mine');
-    assert.ok(!Object.hasOwn(after, KEY), `no ${KEY} in the bot's .claude/settings.json, got: ${JSON.stringify(after)}`);
+    await assertResumeCarries(box, await lineOf(box, bots, 'daily', BOT, { restarted: true }), ownOf(home), id);
   });
 
-  // ------------------------------------------- M16 memory off stays off
+  // ----------------------------------------- M14 the JSON, and memory off stays off
 
   const MEMORY_OFF = [
     ['bot', 'autoMemoryEnabled: false', { autoMemoryEnabled: false }],
@@ -1283,20 +1449,20 @@ describe('the launch line names the physical memory folder (#722)', { concurrenc
     ['profile', 'CLAUDE_CODE_DISABLE_AUTO_MEMORY in env', { env: { CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' } }],
   ];
   for (const [where, label, keys] of MEMORY_OFF) {
-    test(`M16 the ${where} settings file says ${label}: the session gets only the pair, and the kit turns nothing on or off`, async (t) => {
+    test(`M14 the ${where} settings file says ${label}: the session gets only the pair, and the kit turns nothing on or off`, async (t) => {
       const box = await createSandbox(t);
       const profile = await profileIn(box);
       await fleetIn(box);
       const bots = box.path('bots');
       const home = botHomeOf(bots, BOT);
-      const file = settingsFilesOf(home, profile, bots)[where];
+      const file = settingsFilesOf(box, home, profile, bots)[where];
       await addTo(file, keys);
       const text = await readFile(file, 'utf8');
 
       const { line } = await upSession(box, 'daily');
 
       // memoryDirIn holds the JSON to the one key: not autoMemoryEnabled, not env.
-      await assertCarries(box, line, memoryDirOf(profile.projects, bots), 'daily');
+      await assertCarries(box, line, ownOf(home), 'daily');
       for (const name of NEVER_ON_THE_LINE) {
         assert.ok(!line.includes(name), `the kit never adds ${name} to the line, got: ${line}`);
       }
@@ -1308,4 +1474,62 @@ describe('the launch line names the physical memory folder (#722)', { concurrenc
       }
     });
   }
+
+  // ------------------------------- M15 no settings file, profile or projects changed
+
+  test('M15 bringing a session up with the pair changes no settings file: the bot\'s .claude folder, the profile folder, selected-host and the real projects folder are as they were', async (t) => {
+    const box = await createSandbox(t);
+    const profile = await profileIn(box);
+    await mkdir(path.join(profile.projects, 'some-project', 'memory'), { recursive: true });
+    await writeFile(path.join(profile.projects, 'some-project', 'memory', 'MEMORY.md'), '- a note\n');
+    await fleetIn(box, { sessions: ['control', 'daily'] });
+    const bots = box.path('bots');
+    const home = botHomeOf(bots, BOT);
+    await upSession(box, 'control');
+    const before = {
+      bot: await snapshot(path.join(home, '.claude')),
+      profiles: await snapshot(path.join(profile.data, 'claude-profiles')),
+      projects: await snapshot(profile.projects),
+      selected: await readFile(profile.selected, 'utf8'),
+    };
+
+    const { line } = await upSession(box, 'daily');
+
+    assert.equal(memoryDirIn(await argvOf(box, line)), ownOf(home), 'the premise: this start had the pair');
+    assert.deepEqual(await snapshot(path.join(home, '.claude')), before.bot, 'the bot\'s .claude folder is as it was');
+    assert.ok(!existsSync(path.join(home, '.claude', 'settings.local.json')), 'no settings.local.json in the bot folder');
+    assert.ok(!existsSync(path.join(bots, '.claude', 'settings.local.json')), 'no settings.local.json in the bots folder');
+    const settings = await readFile(path.join(home, '.claude', 'settings.json'), 'utf8');
+    assert.ok(!settings.includes(KEY), `no ${KEY} in the bot's .claude/settings.json, got: ${settings}`);
+    assert.deepEqual(await snapshot(path.join(profile.data, 'claude-profiles')), before.profiles, 'the profile folder is as it was');
+    assert.equal(await readFile(profile.selected, 'utf8'), before.selected, 'selected-host is as it was');
+    assert.deepEqual(await snapshot(profile.projects), before.projects, 'the real projects folder is as it was');
+  });
+
+  test('M15 a user\'s own settings files are not changed: local, profile and the user\'s own byte for byte, and the bot\'s keeps its key', async (t) => {
+    const box = await createSandbox(t);
+    const profile = await profileIn(box);
+    await fleetIn(box);
+    const bots = box.path('bots');
+    const home = botHomeOf(bots, BOT);
+    const files = settingsFilesOf(box, home, profile, bots);
+    const localText = '{\n    "model": "mine",   "permissions": {}\n}\n';
+    const profileText = '{ "theme": "dark" }';
+    const userText = '{ "theme": "light" }\n';
+    await writeFile(files.local, localText);
+    await writeFile(files.profile, profileText);
+    await mkdir(path.dirname(files.user), { recursive: true });
+    await writeFile(files.user, userText);
+    await addTo(files.bot, { model: 'mine' });
+
+    const { line } = await upSession(box, 'daily');
+
+    assert.equal(memoryDirIn(await argvOf(box, line)), ownOf(home), 'the premise: this start had the pair');
+    assert.equal(await readFile(files.local, 'utf8'), localText);
+    assert.equal(await readFile(files.profile, 'utf8'), profileText);
+    assert.equal(await readFile(files.user, 'utf8'), userText);
+    const after = JSON.parse(await readFile(files.bot, 'utf8'));
+    assert.equal(after.model, 'mine');
+    assert.ok(!Object.hasOwn(after, KEY), `no ${KEY} in the bot's .claude/settings.json, got: ${JSON.stringify(after)}`);
+  });
 });
