@@ -24,8 +24,9 @@ When the kit names the folder and nothing is at that path, the kit makes the fol
 The kit adds nothing, and makes nothing, when one of these holds:
 
 1. An `autoMemoryDirectory` key is in the bot's `.claude/settings.json` or `.claude/settings.local.json`, in the repository root's `.claude/settings.local.json`, or at the user level: the selected Orca profile's `settings.json`, or `~/.claude/settings.json` with no profile. A file that cannot be read or parsed counts as having the key. The repository root is the top of the repository that holds the bot, the main repository's for a linked worktree. When the kit is not sure of the root, it does not read that file.
-2. The session's own `extra_args` hold `--settings`.
+2. The session's own `extra_args` hold `--settings`, which replaces the kit's: Claude Code keeps only the last one on the line. `obk up`, `obk restart` and `obk health` name such a session and what it runs without.
 3. Something that is not a plain folder is at `<bot folder>/claude-memory`: a file, or a link.
+4. The kit cannot make the folder with its `.gitignore`. It then takes back only what it made: its own `.gitignore`, and the folder while it is empty. It tries again at the next start.
 
 The kit never moves, copies or deletes a note for this.
 
@@ -50,10 +51,12 @@ This does not change ADR 0049. `--settings` stays refused as a user's extra argu
 ## Consequences
 
 - Good: a Claude session that the kit starts loads the notes of its own bot, and not the notes of another bot. A memory write opens no dialog (seen in a fence, Claude Code 2.1.325, `-p` in auto mode). The notes stay out of git unless the user asks. The kit no longer needs the Orca profile or the repository for the folder.
-- Bad: a bot can still load the shared folder in three cases.
+- Bad: a bot can still load the shared folder in five cases.
   1. A conversation that began before this keeps its memory path until the session restarts with the flag and then begins a new conversation. A restart alone does not help, because a conversation keeps the memory instructions it began with. A `/clear` alone does not help, because a process that started with no flag has none to give the new conversation.
   2. After a cold restore, Orca runs a bare `claude --resume <id>` with none of the kit's flags. A `/clear` before a restart begins a conversation with no flag. It loads the shared folder, and the dialog of #722 returns. `obk health` names a session that the kit did not start.
   3. A folder that a user named by hand stays as the user set it, shared or not.
+  4. A session whose own extra arguments carry `--settings` gets no folder from the kit, because Claude Code keeps only the last `--settings` on the line. `obk up`, `obk restart` and `obk health` name it.
+  5. A file or a link at `claude-memory`, or a start at which the kit cannot make the folder with its `.gitignore`, gives that start no folder.
 - Bad: at the upgrade, a bot with no folder named by hand starts with no notes. The notes stay in the shared folder. `obk health` says so until the bot saves a note.
 - Bad: the notes are not in git by default, so git keeps no history or backup of them.
 - Bad: the kit now writes a folder and one file in each Claude bot's folder.
