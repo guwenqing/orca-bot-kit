@@ -1,8 +1,8 @@
 # ADR 0055: The kit trims what a Claude Code session is sent
 
 Date: 2026-11-14.
-Status: proposed. Open until the owner signs the request `claude-session-trim` (requests/claude-session-trim: R1 to R6, and its change spec). A GPT model reviews it before the owner signs (#751).
-Decided by: the owner, when they sign the request (not yet). The shape is kit-dev/architect's ruling for the owner (2026-11-14), on the facts and the candidates below. developer-751 wrote it.
+Status: accepted. The owner signed the request `claude-session-trim` (requests/claude-session-trim: R1 to R6, and its change spec) on 2026-11-14, after a GPT model reviewed it (#751).
+Decided by: the owner, by the sign-off of the request on 2026-11-14 (requests/claude-session-trim/origin/2026-11-14-signoff.md). The shape is kit-dev/architect's ruling for the owner, on the facts and the candidates below. developer-751 wrote it.
 
 ## Context
 
@@ -33,7 +33,9 @@ The Y size: the switches alone measured 73,418 (a cut of 51,403, against X's 50,
 
 What X gives that Y does not: no checked difference in what the model reads. The rules in the system text may be followed differently by the model; nothing here shows it either way, and Claude Code's own wrapper around `CLAUDE.md` already tells the model that those instructions override its defaults. Y puts the units whose test is clear (section 5) in the system text, and keeps the rest where subagents, the classifier, Codex and Pi read them.
 
-## Decision: Y
+## Decision
+
+The kit takes shape Y.
 
 ### 1. The order of the build
 
@@ -143,3 +145,4 @@ A real throwaway session shows the parts that only the account has, in its own t
 - 2026-11-14: proposed (#751).
 - 2026-11-14: second draft after the architect's ruling: Y added and recommended; the build order changed; the version rule, the user's settings and the night probes added.
 - 2026-11-14: third draft after the architect's rulings for the owner: Part 1 is built with the trim, with `text:` units and the fallback by unit in place of the version rule; chosen rule units go into the system text (section 5); no notice at the upgrade; Codex and Pi get every unit in `AGENTS.md` until their own system text is built.
+- 2026-11-14: accepted: the owner signed the request.
