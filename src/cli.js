@@ -1963,8 +1963,10 @@ function tabLines({ bots, created, completed, rules, skills, permissions = [], t
     if (tab.noMailbox) {
       lines.push(`             it has no mailbox: ${noMailboxYet({ bots, bot: tab.bot, session: tab.name })}`);
     }
-    if (tab.lost !== undefined) {
-      lines.push(`             its own --settings in bot.yaml replaces the kit's, so it runs without: ${tab.lost.join(', ')}`);
+    // Remote Control off has a line of its own (remoteControlLines).
+    const lost = (tab.lost ?? []).filter((one) => one !== REMOTE_CONTROL_LOST);
+    if (lost.length > 0) {
+      lines.push(`             its own --settings in bot.yaml replaces the kit's, so it runs without: ${lost.join(', ')}`);
     }
   }
   // A Claude session the kit did not start, because it could not give it its

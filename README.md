@@ -505,9 +505,10 @@ the old name. A `text:` name in a list is accepted, and
 Each Claude bot has a memory folder of its own, `claude-memory/` in the bot's
 folder. Claude Code alone would give every bot of one bots repository the same
 folder, so the notes of one bot would load in every bot. The kit's line for a
-Claude session carries `--settings` with one key, `autoMemoryDirectory`, which
+Claude session carries `--settings` with the key `autoMemoryDirectory`, which
 names that folder by its physical path, so a session saves its memory with no
-permission dialog. All sessions of a bot share the folder, temporary sessions
+permission dialog. For a session with Remote Control set off, the same
+`--settings` also carries `disableRemoteControl`. All sessions of a bot share the folder, temporary sessions
 too. The kit never moves, copies or deletes a note.
 
 The notes stay out of git. When the kit makes `claude-memory/`, it writes a
@@ -537,7 +538,7 @@ version and then begins a new conversation with `/clear`. A restart alone or a
 `/clear` alone does not change the folder. After Orca brings a tab back by
 itself, a `/clear` before a restart goes back to the shared folder and brings
 the permission dialog back; `obk health` names such a session
-([ADR 0056](docs/adr/0056-each-claude-bot-gets-a-memory-folder-of-its-own.md)).
+([ADR 0060](docs/adr/0060-each-claude-bot-gets-a-memory-folder-of-its-own-named-in-the-kits-one-settings.md)).
 
 When you upgrade from a version before this, the notes that your bots shared
 stay where they were, in Claude Code's folder for your bots repository under

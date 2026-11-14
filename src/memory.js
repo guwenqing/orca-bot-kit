@@ -1,5 +1,5 @@
 // The memory folder of a Claude bot: `claude-memory/` in the bot's own folder,
-// one for each bot and shared by its sessions (#752, ADR 0056).
+// one for each bot and shared by its sessions (#752, ADR 0060).
 //
 // Claude Code keys its memory by the top of the git repository, so every bot of
 // a bots repo would share one folder, and the notes of one bot would load in
@@ -121,7 +121,7 @@ export function memoryFolderAtStart(home) {
  * may start: it got its folder, or a folder named by hand is the reason it got
  * none. Without its own folder, a session writes its notes to the folder that
  * the bots shared, and R1 lets the kit name no folder only for the user's own
- * choice (#752, ADR 0056).
+ * choice (#752, ADR 0060).
  */
 export function memoryRefusal(made) {
   const why = 'Without its bot\'s own memory folder, a Claude Code session writes its notes to the folder that the bots shared.';

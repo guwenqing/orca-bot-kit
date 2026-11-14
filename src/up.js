@@ -319,7 +319,7 @@ async function bringUpSession(bots, home, live, session, bot, title, endedBy) {
 
   // A Claude session gets its bot's own memory folder, made here when it is not
   // there yet, or it does not start: without one, its notes go to the folder
-  // that the bots shared (#752, ADR 0056). Only this session is refused.
+  // that the bots shared (#752, ADR 0060). Only this session is refused.
   const memory = harness === 'claude' && !setsSettings(session) ? memoryFolderAtStart(home) : {};
   const why = memoryRefusal(memory);
   if (why !== undefined) return { refused: { bot: bot.name, session: session.name, why } };

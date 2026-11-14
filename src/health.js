@@ -253,7 +253,7 @@ function memoryFolderBlocked(home, bot) {
 }
 
 /**
- * The notes this bot's Claude sessions no longer load (#752, ADR 0056): the
+ * The notes this bot's Claude sessions no longer load (#752, ADR 0060): the
  * kit names a folder of the bot's own, that folder has no notes yet, and the
  * folder that the bots shared before has some. Said until the bot saves its
  * first note. The kit moves no note, so it only says where they are.
@@ -558,7 +558,7 @@ function remoteControlState(pid) {
     state: 'unknown',
     why: stale === 0
       ? `Claude Code's registry has no entry for its process ${pid}`
-      : `Claude Code's registry has only entries that an earlier process with the pid ${pid} left: their start time is not this process's`,
+      : `Claude Code's registry has no entry that matches its process ${pid}: each entry with that pid has another start time, or none`,
   };
 }
 
