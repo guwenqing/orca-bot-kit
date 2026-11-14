@@ -207,6 +207,7 @@ import { cliEntry } from '../helpers/cli.js';
 import { codexTrustArgs } from '../helpers/codex-trust.js';
 import { assertSameRules, codexDefaultLines, codexDefaultRules, defaultRules, isSendMessage } from '../helpers/permissions.js';
 import { questionOn } from '../helpers/screens.js';
+import { inboxLetters } from '../helpers/inbox.js';
 import { tabGuard } from '../helpers/tab-guard.js';
 import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
 
@@ -430,24 +431,9 @@ const INBOX_LIMIT = 100;
  * Runs named here is dropped before anything can print it.
  */
 function inboxOf(runs) {
-  const asked = `orca orchestration inbox --json --limit ${INBOX_LIMIT}`;
-  // Not through `orca()`, whose failures print Orca's output: here that output
-  // is everybody's mail.
-  const done = spawnSync(ORCA, ['orchestration', 'inbox', '--json', '--limit', String(INBOX_LIMIT)], { encoding: 'utf8' });
-  assert.equal(done.error, undefined, `could not run ${ORCA}: ${done.error?.code}`);
-  let answer;
-  try {
-    answer = JSON.parse(done.stdout);
-  } catch {
-    assert.fail(`${asked} exited ${done.status} and did not answer JSON (${done.stdout.length} characters on stdout, ${done.stderr.length} on stderr; not shown, as they may hold other people's mail)`);
-  }
-  assert.equal(
-    answer?.ok,
-    true,
-    `${asked} was refused: error code ${JSON.stringify(answer?.error?.code ?? null)} (Orca's message is not shown, as it may quote other people's mail)`,
-  );
-  const all = answer.result?.messages;
-  assert.ok(Array.isArray(all), `the inbox should answer a list of messages, and answered ${all === undefined ? 'none' : typeof all}`);
+  // With --full, and printing none of Orca's output: it is everybody's mail
+  // (helpers/inbox.js, #748).
+  const all = inboxLetters(ORCA, { limit: INBOX_LIMIT });
   const ours = {};
   for (const [name, run] of Object.entries(runs)) {
     ours[name] = all

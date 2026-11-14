@@ -130,6 +130,7 @@ import { parse } from 'yaml';
 
 import { cliEntry, restartLineOf, unpauseLineOf } from '../helpers/cli.js';
 import { codexTrustArgs } from '../helpers/codex-trust.js';
+import { inboxLetters } from '../helpers/inbox.js';
 import { rolloutFilesOf } from '../helpers/codex-rollout.js';
 import { questionOn, waitingOn } from '../helpers/screens.js';
 import { tabGuard } from '../helpers/tab-guard.js';
@@ -289,16 +290,13 @@ function noQuestionOn(title, handle) {
 /**
  * The letters in a session's mailbox, `run_<id>` as the book holds it, newest
  * first, as `{ read, delivered }`: whether Orca marked it read, and whether
- * Orca delivered a notice for it. Read with `orca orchestration inbox`, the
- * way `obk health` reads a mailbox (src/orca.js mailIn; tech notes, #630):
- * Orca asks no reader for it, and it marks nothing read or delivered. No
- * subject and no body is kept.
+ * Orca delivered a notice for it. Read with `orca orchestration inbox --full`
+ * through helpers/inbox.js (#748), the way `obk health` reads a mailbox
+ * (src/orca.js mailIn; tech notes, #630): Orca asks no reader for it, and it
+ * marks nothing read or delivered. No subject and no body is kept.
  */
 function lettersIn(mailbox) {
-  const answer = orca(['orchestration', 'inbox', '--terminal', `run:${mailbox}`, '--limit', String(MAIL_LIMIT)]);
-  assert.equal(answer.ok, true, `orca orchestration inbox for run:${mailbox} failed: ${JSON.stringify(answer.error)}`);
-  const messages = answer.result?.messages;
-  assert.ok(Array.isArray(messages), `orca orchestration inbox answers a list under result.messages, got the keys ${JSON.stringify(Object.keys(answer.result ?? {}))}`);
+  const messages = inboxLetters(ORCA, { terminal: `run:${mailbox}`, limit: MAIL_LIMIT });
   return messages.map((one) => ({ read: one?.read === 1 || one?.read === true, delivered: one?.delivered_at != null }));
 }
 

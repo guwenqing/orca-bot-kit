@@ -124,6 +124,7 @@ import { parse } from 'yaml';
 
 import { claudeTrustAt, trustScreenMet } from '../helpers/claude-trust.js';
 import { cliEntry } from '../helpers/cli.js';
+import { inboxLetters } from '../helpers/inbox.js';
 import { onlyTeachFormOf, questionOn, waitingOn } from '../helpers/screens.js';
 import { tabGuard } from '../helpers/tab-guard.js';
 import { autoModeState, sessionRecordFiles } from '../helpers/teach-record.js';
@@ -377,12 +378,9 @@ function worktreeShow(home) {
   return record;
 }
 
-/** The letter in a Run's mailbox, by its subject, as Orca's inbox answers it, or undefined when it is not there. */
+/** The letter in a Run's mailbox, by its subject, as Orca's inbox answers it with --full (helpers/inbox.js, #748), or undefined when it is not there. */
 function letterIn(mailbox, subject) {
-  const answer = orca(['orchestration', 'inbox', '--terminal', `run:${mailbox}`, '--limit', '20']);
-  assert.equal(answer.ok, true, `orca orchestration inbox --terminal run:${mailbox} was refused: ${JSON.stringify(answer.error?.code ?? null)}`);
-  const messages = answer.result?.messages;
-  assert.ok(Array.isArray(messages), `the inbox should answer a list of messages, and answered ${messages === undefined ? 'none' : typeof messages}`);
+  const messages = inboxLetters(ORCA, { terminal: `run:${mailbox}`, limit: 20 });
   return messages.find((message) => message?.run_id === mailbox && message?.subject === subject);
 }
 
