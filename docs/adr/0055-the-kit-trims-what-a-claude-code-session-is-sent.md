@@ -39,7 +39,8 @@ What X gives that Y does not: no checked difference. The rules in the system tex
 
 1. The trim of tools and built-in skills. In the fence it gives all of Y's saving, more than X's, and needs no record, no recipe of text and no restart rule.
 2. The role after a compaction, through the kit's SessionStart hook.
-3. The kit-built Part 1, only if its value earns its machinery (section 4).
+3. The kit's new lines in its rule units, where the owner's answers to the disagreements add one (exact words signed by the owner). They need no Part 1.
+4. The kit-built Part 1: decided as a question of its own, after the night probes and the first weeks of the trim (section 4).
 
 ### 2. The trim of tools and built-in skills
 
@@ -55,6 +56,8 @@ The kit's SessionStart hook already gives the start prompt again after a `/clear
 
 ### 4. Part 1: the kit-built main text
 
+Recommended: decide it after the night probes and the first weeks of the trim, not with them. No answer to a disagreement needs it: each disagreement has an option without it.
+
 What it adds beyond the switches, on the architect's record: the Chrome section (4,107 characters, unless `--no-chrome` removes it), a model-tier paragraph of the Fable model (685), one bullet on a billed cloud review (498), and two bullets of the Environment section (326). That is about 1.5k, or 5.6k with the Chrome section, and about 14 sentences. More units come in only if the owner answers a disagreement by cutting one (the largest are two Fable-only sections of 1.6k and 1.7k).
 
 Its machinery, if built:
@@ -62,7 +65,7 @@ Its machinery, if built:
 - **Whose text ships: none.** Every Claude Code transcript records the system prompt that the conversation runs on, as a list of sections, with the version and the model. The kit reads the newest record of the harness's own text from the bot's own transcripts, for the same version, model and memory folder. The Memory section names the memory folder, so a record made before a change of that folder (#752) is not used.
 - **The recipe names cuts by hash.** A unit is a whole section of the record or one bullet line in it. The recipe holds the sha256 of each unit it cuts, and no words. A unit that the recipe does not name stays. A test holds that no recipe holds a phrase, and that no safety unit is named.
 - **The text reaches the session** by `--system-prompt-file`, from a file in the kit's prompts folder beside the bots repo, never in the bots repo. The snapshot stays on: it keeps the text through Orca's bare resume (checked). Part 1 changes only with a harness or kit upgrade; it reaches a running session after a restart and the next compaction. The fallback reaches a running session the same way: a launch with no text file gets the harness's own text, but a bare resume of a conversation keeps its recorded Part 1 until its next compaction (checked). So a session whose recipe stops applying runs on its old Part 1 until then; the restart and the compaction are one step, and `obk health` names a session that still waits for it.
-- **The version rule.** Seen on this machine: four Claude Code versions in eight days. Candidates: (a) a recipe applies to its exact version only; cost: after each update the fleet runs on the harness's own main text until a kit release. (b) The newest recipe applies to its version and any newer one when every unit it names is found in the record; cost: a new unit of a new version stays in until a kit release, which is the safe direction. Chosen: (b). Any unit not found, no record for the version and model, or no recipe: the session gets the harness's own main text, and `obk health` says why.
+- **The version rule.** Seen on this machine: four Claude Code versions in eight days. Candidates: (a) a recipe applies to its exact version only; cost: after each update the fleet runs on the harness's own main text until a kit release. (b) The newest recipe applies to its version and any newer one when every unit it names is found in the record; cost: a new unit of a new version stays in until a kit release, which is the safe direction. Chosen: (b). The main text differs by model (Fable 5.2 has sections that Opus 5.5 does not), so the recipe names its cuts for each model, and the rule counts only the cuts for the session's model. Any unit not found, no record for the version and model, or no recipe: the session gets the harness's own main text, and `obk health` says why.
 - **Guards for the switches.** A tool name that the version does not have prints a warning, and the session starts (checked). A skill name that it does not have is ignored (checked). `obk health` compares the cut names with the tools of the record and names one that is gone, so a renamed tool is seen.
 
 ### 5. What a user sets
@@ -94,7 +97,7 @@ A real throwaway session shows the parts that only the account has, in its own t
 ### 10. The build issues, after the owner signs
 
 1. The tool and skill trim: the kit's default cuts, the user's list, the per-bot list, and what `obk up` and `obk health` say.
-2. The role after a compaction.
+2. The role after a compaction, and the kit's new lines in its rule units.
 3. Part 1, if the owner wants it after the trim: the record, the hash recipe, the version rule, the fallback.
 
 ## Alternatives considered
