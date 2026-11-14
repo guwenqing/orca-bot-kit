@@ -520,19 +520,28 @@ function runningOn(bots, home, bot, book, handles, sessions) {
 const START_SLACK = 3;
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 /**
  * A registry entry's `procStart` in whole seconds since the epoch, or
  * undefined when it is not one. Claude Code writes it as `ps -o lstart=`
  * prints it in UTC and the C locale, `Sat Nov 14 22:28:50 2026` (ADR 0058).
+ * A field out of range, a day its month does not have, or a weekday that is
+ * not its date's makes it none: Date.UTC would roll such a field over into
+ * another time, which could be the live process's own.
  */
 function startWritten(text) {
   if (typeof text !== 'string') return undefined;
-  const at = /^(?:Sun|Mon|Tue|Wed|Thu|Fri|Sat) +([A-Z][a-z]{2}) +(\d{1,2}) +(\d{2}):(\d{2}):(\d{2}) +(\d{4})$/.exec(text.trim());
-  const month = at === null ? -1 : MONTHS.indexOf(at[1]);
-  if (month === -1) return undefined;
-  const [day, hours, minutes, seconds, year] = at.slice(2).map(Number);
-  return Date.UTC(year, month, day, hours, minutes, seconds) / 1000;
+  const at = /^([A-Z][a-z]{2}) +([A-Z][a-z]{2}) +(\d{1,2}) +(\d{2}):(\d{2}):(\d{2}) +(\d{4})$/.exec(text.trim());
+  if (at === null) return undefined;
+  const [weekday, month] = [WEEKDAYS.indexOf(at[1]), MONTHS.indexOf(at[2])];
+  const [day, hours, minutes, seconds, year] = at.slice(3).map(Number);
+  const time = new Date(Date.UTC(year, month, day, hours, minutes, seconds));
+  const exact = weekday !== -1 && month !== -1
+    && time.getUTCFullYear() === year && time.getUTCMonth() === month && time.getUTCDate() === day
+    && time.getUTCHours() === hours && time.getUTCMinutes() === minutes && time.getUTCSeconds() === seconds
+    && time.getUTCDay() === weekday;
+  return exact ? time.getTime() / 1000 : undefined;
 }
 
 /**
