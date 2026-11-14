@@ -188,9 +188,10 @@
 // It answers a fourth question (#755): when one process started. Claude Code
 // writes that time into its registry entry as `procStart`, and health compares
 // it with the live process's, so an entry left by an older process that had
-// the same pid does not count. The kit asks, one pid per call, with TZ=UTC and
-// LC_ALL=C in the environment, as Claude Code 2.1.325 asks it when it writes
-// procStart (read in its binary),
+// the same pid does not count. Claude Code 2.1.325 asks it this way, one pid
+// per call, with TZ=UTC and LC_ALL=C in the environment, when it writes
+// procStart (read in its binary); a test asks it so to see what Claude Code
+// wrote (the kit itself reads the elapsed time below),
 //
 //   <ps> -o lstart= -p <pid>
 //
@@ -212,6 +213,24 @@
 // state.json, an object keyed by pid, each value a line of text, makes this
 // read of that pid fail: the text on stderr, nothing on stdout, exit 1,
 // whether or not the fake knows the pid. `psErrors` does not touch this read.
+//
+// It answers the same question a second way (#755): how long ago one process
+// started. The kit asks, one pid per call, with no environment of its own,
+//
+//   <ps> -o etime= -p <pid>
+//
+// and gets one line: the time from that same start (`psStarts`, the default,
+// or `startedAt`) to now, by the fake's own clock, in `[[dd-]hh:]mm:ss`, with
+// the whole seconds truncated. Measured on macOS 27.0.1, 2026-11-14: `00:00`
+// for a shell just started, `03:16:21` past an hour, `01-07:04:43` and
+// `22-06:14:10` past a day, the days two digits at least, and nothing before
+// or after but the newline. It is digits alone, so TZ and the locale do not
+// change it: `22-06:14:10` both with TZ and LC_ALL unset and with
+// TZ=Asia/Shanghai LC_ALL=fr_FR.UTF-8, where lstart read `sam. 24 oct.
+// 00:15:30 2026`. `null`, `psStartErrors` and a pid the fake does not know
+// answer as for lstart above. A start after now is a test that chose its time
+// wrong, since the real ps cannot be asked about a process that has not
+// started: the fake says so on stderr and exits 70.
 //
 // And one way it answers nothing at all (#298): `ps` in state.json set to
 // 'not-permitted' is a `ps` that does not start, as inside Codex's
@@ -267,6 +286,25 @@ export function lstartOf(ms) {
 
 /** The argv the kit may hand `ps` to read when one process started (#755), but for the pid on the end. */
 export const PS_START = ['-o', 'lstart=', '-p'];
+
+/** The argv the kit may hand `ps` to read how long ago one process started (#755), but for the pid on the end. */
+export const PS_ELAPSED = ['-o', 'etime=', '-p'];
+
+/**
+ * A time since a start as `ps -o etime=` prints it, `[[dd-]hh:]mm:ss`, from
+ * ms: whole seconds, truncated; the hours only past an hour, the days only
+ * past a day, and the days two digits at least.
+ */
+export function etimeOf(ms) {
+  const all = Math.floor(ms / 1000);
+  const two = (n) => String(n).padStart(2, '0');
+  const days = Math.floor(all / 86400);
+  const hours = Math.floor((all % 86400) / 3600);
+  const clock = `${two(Math.floor((all % 3600) / 60))}:${two(all % 60)}`;
+  if (days > 0) return `${two(days)}-${two(hours)}:${clock}`;
+  if (hours > 0) return `${two(hours)}:${clock}`;
+  return clock;
+}
 
 /**
  * A start time as `ps -o lstart=` prints it (#755): in the zone TZ names, or in
@@ -670,14 +708,15 @@ export function runPs() {
   const read = asks(PS_READ);
   const environment = asks(PS_ENVIRONMENT);
   const start = asks(PS_START);
-  if (!read && !environment && !start) {
+  const elapsed = asks(PS_ELAPSED);
+  if (!read && !environment && !start && !elapsed) {
     process.stderr.write(`fake ps: ${args.join(' ')} is not a read of one pid; the kit asks ps nothing else\n`);
     process.exit(70);
   }
   const pid = Number(args.at(-1));
 
-  if (start) {
-    // When one process started (#755): see the top.
+  if (start || elapsed) {
+    // When one process started, or how long ago (#755): see the top.
     const failure = state.psStartErrors?.[String(pid)];
     if (typeof failure === 'string') {
       process.stderr.write(`${failure}\n`);
@@ -687,7 +726,20 @@ export function runPs() {
     const listed = tableOf(state).find((row) => row.pid === pid);
     if (!tab && listed === undefined) process.exit(1);
     const at = tab ? tabStartOf(state, pid) : listed.startedAt;
-    process.stdout.write(at === null ? '\n' : `${lstartInZone(at)}\n`);
+    if (at === null) {
+      process.stdout.write('\n');
+      process.exit(0);
+    }
+    if (start) {
+      process.stdout.write(`${lstartInZone(at)}\n`);
+      process.exit(0);
+    }
+    const now = Date.now();
+    if (at > now) {
+      process.stderr.write(`fake ps: process ${pid} starts at ${new Date(at).toISOString()}, after now (${new Date(now).toISOString()}); a test must give a start in the past\n`);
+      process.exit(70);
+    }
+    process.stdout.write(`${etimeOf(now - at)}\n`);
     process.exit(0);
   }
 

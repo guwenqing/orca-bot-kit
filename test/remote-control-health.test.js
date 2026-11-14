@@ -18,17 +18,21 @@
 //   RH1a The entry must be the live process's own, not one an older process
 //        with the same pid left behind (the review of #755). Claude Code
 //        writes `procStart` in each entry: the process's start time as
-//        `ps -o lstart=` prints it in UTC. Health reads the live process's
-//        start time with `ps -o lstart= -p <pid>`, with TZ=UTC and LC_ALL=C in
-//        its environment, as Claude Code 2.1.325 reads it when it writes
-//        procStart, and compares the two with runs of blanks taken as one
-//        and the ends trimmed. An entry whose pid matches and whose
-//        procStart is missing or differs is stale: health skips it and goes
-//        on to the next folder; the first entry that matches both counts. No
-//        entry that matches both is `unknown`, with a why. A start time the
-//        kit cannot read (ps fails or prints nothing) is `unknown`, with a
-//        why: the kit cannot tell its entry from a stale one, and it does not
-//        fall back to the pid alone.
+//        `ps -o lstart=` prints it with TZ=UTC and LC_ALL=C, as Claude Code
+//        2.1.325 reads it (ADR 0058), for example `Sat Nov 14 22:28:50 2026`,
+//        with two blanks before a one-digit day. Health reads how long ago the
+//        live process started, `ps -o etime= -p <pid>`, with no environment of
+//        its own, takes now minus that as its start, reads procStart as that
+//        UTC, C-locale text, and counts the entry when the two agree within
+//        the truncation of whole seconds on both sides: a few seconds, never
+//        a minute. The kit's own TZ and locale do not change the result. An
+//        entry whose pid matches and whose procStart is missing, is not a
+//        readable time, or is another start is stale: health skips it and
+//        goes on to the next folder; the first entry that matches both
+//        counts. No entry that matches both is `unknown`, with a why. A start
+//        time the kit cannot read (ps fails or prints nothing) is `unknown`,
+//        with a why: the kit cannot tell its entry from a stale one, and it
+//        does not fall back to the pid alone.
 //   RH2  The state, from the entry's `bridgeSessionId`: a string that is not
 //        empty is `enabled`; `null`, or no such key, is `not enabled`; any other
 //        type is `unknown`; and no entry, or one that cannot be read or parsed,
@@ -78,7 +82,7 @@ import { parse, stringify } from 'yaml';
 
 import { createSandbox } from './helpers/cli.js';
 import { defaultConfigDir, listInRegistry, livePidOf } from './helpers/claude-registry.js';
-import { lstartOf, tabStartOf } from './helpers/fake-ps.js';
+import { PS_ELAPSED, PS_START, lstartOf, tabStartOf } from './helpers/fake-ps.js';
 import { botYamlOf } from './helpers/skills.js';
 
 const BOT = 'api-bot';
@@ -147,6 +151,17 @@ async function liveStartOf(box, pid) {
 /** A start time an hour before the live harness's: an older process that had the same pid. */
 async function staleStartOf(box, pid) {
   return lstartOf(tabStartOf(await box.orca.state(), pid) - 3600 * 1000);
+}
+
+/**
+ * Make the harness `pid` start `ago` ms before now, on a whole second, or with
+ * `late` 999 ms into that second, and return the start in ms. The kit reads it
+ * as now minus `ps -o etime=`, so it must be in the past.
+ */
+async function startedAgo(box, pid, ago, { late = false } = {}) {
+  const at = Math.floor((Date.now() - ago) / 1000) * 1000 + (late ? 999 : 0);
+  await box.orca.set({ psStarts: { [pid]: at } });
+  return at;
 }
 
 /**
@@ -438,17 +453,17 @@ for (const [label, change] of [
     assertUnknown(remote);
     assert.equal(remote.asked, 'on');
     assert.deepEqual(remoteFindings(answer), [], 'no finding: the kit cannot tell its entry from a stale one');
-    // The premise: health asked ps when the process started.
-    const asked = (await box.ps.calls()).some(({ args }) => JSON.stringify(args) === JSON.stringify(['-o', 'lstart=', '-p', String(live)]));
-    assert.ok(asked, 'health asks ps -o lstart= -p <pid> for the harness');
+    // The premise: health asked ps when, or how long ago, the process started.
+    const asked = (await box.ps.calls()).some(({ args }) => [PS_ELAPSED, PS_START].some((shape) => JSON.stringify(args) === JSON.stringify([...shape, String(live)])));
+    assert.ok(asked, 'health asks ps -o etime= -p <pid> for the harness');
   });
 }
 
 for (const [label, env] of [
-  ['in UTC: with TZ set to another zone', { TZ: 'Asia/Tokyo' }],
-  ['in the C locale: with LC_ALL set to another locale', { LC_ALL: 'de_DE.UTF-8' }],
+  ['with TZ set to another zone', { TZ: 'Asia/Tokyo' }],
+  ['with LC_ALL set to another locale', { LC_ALL: 'de_DE.UTF-8' }],
 ]) {
-  test(`RH1a the start time is read ${label}, the live entry still counts and the stale one does not`, async (t) => {
+  test(`RH1a the kit run ${label}: the live entry still counts and the stale one does not`, async (t) => {
     // The real ps prints lstart in the zone TZ sets, with the names of the
     // locale LC_ALL sets; the fake does too (helpers/fake-ps.js). Claude Code
     // writes procStart with TZ=UTC and LC_ALL=C.
@@ -462,20 +477,131 @@ for (const [label, env] of [
   });
 }
 
-for (const [label, written] of [
-  ['one blank before a one-digit day, where ps prints two', 'Sun Nov 1 20:27:58 2026'],
-  ['blanks at both ends and two between words', '  Sun  Nov  1 20:27:58  2026 '],
-]) {
-  test(`RH1a procStart and ps's start time are compared with runs of blanks as one and the ends trimmed: ${label}`, async (t) => {
+/** A zone ahead of UTC and one behind it, each with another locale for every locale setting. */
+const ELSEWHERE = [
+  ['in Asia/Shanghai and fr_FR.UTF-8', { TZ: 'Asia/Shanghai', LC_ALL: 'fr_FR.UTF-8', LANG: 'fr_FR.UTF-8', LC_TIME: 'fr_FR.UTF-8' }],
+  ['in America/New_York and de_DE.UTF-8', { TZ: 'America/New_York', LC_ALL: 'de_DE.UTF-8', LANG: 'de_DE.UTF-8', LC_TIME: 'de_DE.UTF-8' }],
+];
+
+for (const [label, env] of ELSEWHERE) {
+  test(`RH1a the kit run ${label}: the live entry, not enabled, counts and a stale enabled one minutes older does not`, async (t) => {
+    // procStart is UTC and C-locale text, whatever zone and locale the kit runs in.
     const box = await createSandbox(t);
     const bots = await fleetIn(box);
     const live = await livePidOf(box, bots, BOT, 'daily');
-    // Sun Nov 1 2026, 20:27:58 UTC: ps prints `Sun Nov  1 20:27:58 2026`.
+    const start = await startedAgo(box, live, 40 * 60_000);
+    await registered(box, bots, BRIDGE, { procStart: lstartOf(start - 5 * 60_000) });
+    await registered(box, bots, null, { configDir: profileHome(box), procStart: lstartOf(start) });
+
+    const { answer } = await health(box, { env });
+
+    assert.deepEqual(sessionOf(answer).remote_control, { asked: 'on', from: 'kit default', state: 'not enabled' });
+    const found = remoteFindings(answer);
+    assert.equal(found.length, 1, `one finding about Remote Control, got: ${JSON.stringify(answer.found, null, 2)}`);
+    assert.ok(found[0].says.includes(`Remote Control is not on for ${BOT}'s session daily`), `got: ${found[0].says}`);
+  });
+
+  test(`RH1a the kit run ${label}: the live entry, enabled, counts and a stale not-enabled one minutes older does not`, async (t) => {
+    const box = await createSandbox(t);
+    const bots = await fleetIn(box);
+    const live = await livePidOf(box, bots, BOT, 'daily');
+    const start = await startedAgo(box, live, 40 * 60_000);
+    await registered(box, bots, null, { procStart: lstartOf(start - 5 * 60_000) });
+    await registered(box, bots, BRIDGE, { configDir: profileHome(box), procStart: lstartOf(start) });
+
+    const { answer } = await health(box, { env });
+
+    assert.deepEqual(sessionOf(answer).remote_control, { asked: 'on', from: 'kit default', state: 'enabled' });
+    assert.deepEqual(remoteFindings(answer), []);
+  });
+}
+
+for (const [label, written] of [
+  ['two blanks before a one-digit day, as ps prints it', 'Sun Nov  1 20:27:58 2026'],
+  ['one blank before a one-digit day, where ps prints two', 'Sun Nov 1 20:27:58 2026'],
+  ['blanks at both ends and two between words', '  Sun  Nov  1 20:27:58  2026 '],
+]) {
+  test(`RH1a procStart is read with runs of blanks as one and the ends trimmed: ${label}`, async (t) => {
+    const box = await createSandbox(t);
+    const bots = await fleetIn(box);
+    const live = await livePidOf(box, bots, BOT, 'daily');
+    // Sun Nov 1 2026, 20:27:58 UTC, in the past: ps prints lstart `Sun Nov  1 20:27:58 2026`.
     await box.orca.set({ psStarts: { [live]: Date.UTC(2026, 10, 1, 20, 27, 58) } });
-    await registered(box, bots, null, { procStart: 'Sun Nov  1 20:27:59 2026' });
+    await registered(box, bots, null, { procStart: 'Sun Nov  1 20:26:58 2026' });
     await registered(box, bots, BRIDGE, { configDir: profileHome(box), procStart: written });
 
-    assert.equal((await stateOf(box)).state, 'enabled', 'the first entry is a second off and stale; the second is the live one');
+    assert.equal((await stateOf(box)).state, 'enabled', 'the first entry is a minute off and stale; the second is the live one');
+  });
+}
+
+// The kit's start is now minus an elapsed time truncated to a second, and
+// procStart is truncated to a second too: the live entry must count at any
+// point in its second, at every length of elapsed time ps prints
+// (`mm:ss`, `hh:mm:ss`, `dd-hh:mm:ss`), and one a minute off must not.
+for (const [label, ago] of [
+  ['3 seconds', 3_000],
+  ['5 minutes', 5 * 60_000],
+  ['2 hours', 2 * 3600_000 + 5 * 60_000],
+  ['3 days', 3 * 86400_000 + 3600_000],
+  ['120 days', 120 * 86400_000],
+]) {
+  test(`RH1a a live process started ${label} ago, late in its second: its entry counts, and one a minute older under the same pid does not`, async (t) => {
+    const box = await createSandbox(t);
+    const bots = await fleetIn(box);
+    const live = await livePidOf(box, bots, BOT, 'daily');
+    const start = await startedAgo(box, live, ago, { late: true });
+    await registered(box, bots, BRIDGE, { procStart: lstartOf(start - 60_000) });
+    await registered(box, bots, null, { configDir: profileHome(box), procStart: lstartOf(start) });
+
+    assert.equal((await stateOf(box)).state, 'not enabled', 'the first entry is a minute older and stale; the second is the live one');
+  });
+}
+
+for (const [label, off] of [['a minute earlier', -60_000], ['a minute later', 60_000]]) {
+  test(`RH1a an entry whose procStart is ${label} than the live process's start, alone: unknown, with a why, and no finding`, async (t) => {
+    const box = await createSandbox(t);
+    const bots = await fleetIn(box);
+    const live = await livePidOf(box, bots, BOT, 'daily');
+    const start = await startedAgo(box, live, 10 * 60_000);
+    await registered(box, bots, null, { procStart: lstartOf(start + off) });
+
+    const { answer } = await health(box);
+
+    assertUnknown(sessionOf(answer).remote_control);
+    assert.deepEqual(remoteFindings(answer), []);
+  });
+}
+
+// A procStart that is not a readable time is not this process's start.
+for (const [label, written] of [
+  ['garbage text', () => 'not a time at all'],
+  ['an empty string', () => ''],
+  ['a number: the start in ms', (start) => start],
+  ['an object', (start) => ({ at: lstartOf(start) })],
+  ['a boolean', () => true],
+]) {
+  test(`RH1a an entry whose procStart is ${label} is skipped: the live one after it counts`, async (t) => {
+    const box = await createSandbox(t);
+    const bots = await fleetIn(box);
+    const live = await livePidOf(box, bots, BOT, 'daily');
+    const start = await startedAgo(box, live, 10 * 60_000);
+    await registered(box, bots, BRIDGE, { procStart: written(start) });
+    await registered(box, bots, null, { configDir: profileHome(box), procStart: lstartOf(start) });
+
+    assert.equal((await stateOf(box)).state, 'not enabled');
+  });
+
+  test(`RH1a an entry whose procStart is ${label}, alone: unknown, with a why, and no finding`, async (t) => {
+    const box = await createSandbox(t);
+    const bots = await fleetIn(box);
+    const live = await livePidOf(box, bots, BOT, 'daily');
+    const start = await startedAgo(box, live, 10 * 60_000);
+    await registered(box, bots, null, { procStart: written(start) });
+
+    const { answer } = await health(box);
+
+    assertUnknown(sessionOf(answer).remote_control);
+    assert.deepEqual(remoteFindings(answer), []);
   });
 }
 
@@ -738,7 +864,8 @@ test('RH0 the premise: the registry entry is written as <pid>.json, with the pid
 
   assert.equal(written.pid, pid);
   assert.equal(written.bridgeSessionId, BRIDGE);
-  // And its procStart is what ps answers for that process, read as health reads it.
+  // And its procStart is what ps answers for that process, read as Claude Code
+  // reads it when it writes procStart: lstart, with TZ=UTC and LC_ALL=C.
   const read = spawnSync(box.ps.cli, ['-o', 'lstart=', '-p', String(pid)], { env: { ...box.env, TZ: 'UTC', LC_ALL: 'C' }, encoding: 'utf8' });
   assert.equal(read.status, 0, read.stderr);
   assert.equal(read.stdout.trim().replace(/\s+/g, ' '), written.procStart.trim().replace(/\s+/g, ' '));
