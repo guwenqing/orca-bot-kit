@@ -512,6 +512,30 @@ function runningOn(bots, home, bot, book, handles, sessions) {
 }
 
 /**
+ * How far, in seconds, the start that `startOfProcess` reads may come after
+ * the one in `procStart`: both truncate to the second, so up to two, and one
+ * more for a slow `ps`. A pid given out again within that time of the earlier
+ * process's start is not a case that happens.
+ */
+const START_SLACK = 3;
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/**
+ * A registry entry's `procStart` in whole seconds since the epoch, or
+ * undefined when it is not one. Claude Code writes it as `ps -o lstart=`
+ * prints it in UTC and the C locale, `Sat Nov 14 22:28:50 2026` (ADR 0058).
+ */
+function startWritten(text) {
+  if (typeof text !== 'string') return undefined;
+  const at = /^(?:Sun|Mon|Tue|Wed|Thu|Fri|Sat) +([A-Z][a-z]{2}) +(\d{1,2}) +(\d{2}):(\d{2}):(\d{2}) +(\d{4})$/.exec(text.trim());
+  const month = at === null ? -1 : MONTHS.indexOf(at[1]);
+  if (month === -1) return undefined;
+  const [day, hours, minutes, seconds, year] = at.slice(2).map(Number);
+  return Date.UTC(year, month, day, hours, minutes, seconds) / 1000;
+}
+
+/**
  * What Claude Code's own registry says of Remote Control in the process `pid`:
  * `{ state }`, with `why` when the state is unknown (ADR 0058). The entry is
  * `sessions/<pid>.json` under the first config folder that has one for this
@@ -545,7 +569,8 @@ function remoteControlState(pid) {
     if (entry === null || typeof entry !== 'object' || Number(entry.pid) !== Number(pid)) continue;
     start ??= startOfProcess(pid) ?? null;
     if (start === null) return { state: 'unknown', why: `the kit cannot read when its process ${pid} started, so it cannot tell its entry in Claude Code's registry from one an earlier process left` };
-    if (typeof entry.procStart !== 'string' || entry.procStart.trim().replace(/\s+/g, ' ') !== start) {
+    const written = startWritten(entry.procStart);
+    if (written === undefined || start - written < -1 || start - written > START_SLACK) {
       stale += 1;
       continue;
     }

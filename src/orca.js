@@ -1147,18 +1147,22 @@ function ttyMode(pid, left) {
 }
 
 /**
- * When the process `pid` started, as `ps -o lstart=` gives it with runs of
- * blanks as one, or undefined when it cannot be read. A pid with its start
+ * When the process `pid` started, in whole seconds since the epoch, or
+ * undefined when it cannot be read. It is now less the time the process has
+ * run, as `ps -o etime=` prints it, `[[dd-]hh:]mm:ss`: digits only, the same
+ * in every locale and time zone, so the child needs no environment of its own
+ * (`lstart` follows the locale). Both sides truncate to the second, so the
+ * value can be up to two seconds after the true start. A pid with its start
  * time is one process: the system gives a pid out again, never with the same
  * start time.
  */
 export function startOfProcess(pid) {
-  // In UTC and the C locale, as Claude Code writes `procStart` in its registry
-  // (read in the 2.1.325 binary), so the two can be compared as text.
-  const asked = spawnSync(PS, ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8', env: { ...process.env, TZ: 'UTC', LC_ALL: 'C' } });
+  const asked = spawnSync(PS, ['-o', 'etime=', '-p', String(pid)], { encoding: 'utf8' });
   if (asked.error || asked.status !== 0) return undefined;
-  const start = asked.stdout.trim().replace(/\s+/g, ' ');
-  return start === '' ? undefined : start;
+  const ran = /^\s*(?:(?:(\d+)-)?(\d+):)?(\d+):(\d+)\s*$/.exec(asked.stdout);
+  if (ran === null) return undefined;
+  const [days, hours, minutes, seconds] = ran.slice(1).map((part) => Number(part ?? 0));
+  return Math.floor(Date.now() / 1000) - (((days * 24 + hours) * 60 + minutes) * 60 + seconds);
 }
 
 /**
