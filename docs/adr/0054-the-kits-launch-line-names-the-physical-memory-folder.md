@@ -1,7 +1,7 @@
 # ADR 0054: The kit's launch line names the physical memory folder
 
 Date: 2026-11-03.
-Status: accepted.
+Status: superseded by [ADR 0056](0056-each-claude-bot-gets-a-memory-folder-of-its-own.md).
 Decided by: the architect, on 2026-11-03, for the flag on the launch line over a key in a bot's files, and for tier 0 (#722); developer-722, for the conditions. The architect or the owner may overrule.
 
 ## Context
