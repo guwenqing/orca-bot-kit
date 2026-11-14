@@ -62,7 +62,7 @@ project → repo (`kind: "git" | "folder"`) → worktree (id = `<repoId>::<absPa
   owed on the first release with the guard.
 - **A removed project stays in the window's sidebar until the window is rebuilt.** `setup-delete`
   sends the window nothing, so the row keeps its old name. The `project.update` call the kit makes
-  after a change (ADR 0046) makes the window re-read, and the row stays, now under "Unknown": the
+  after a change (ADR 0057) makes the window re-read, and the row stays, now under "Unknown": the
   sidebar builds its rows from the window's own list of workspaces, which a re-read does not prune
   (read in the bundle). Orca's menu item View › Force Reload (`Force Reload\t⌘⇧R` as the menu draws
   it; the name is localized, the shortcut is `app.forceReload` and the user may change it) rebuilds
@@ -270,7 +270,7 @@ project → repo (`kind: "git" | "folder"`) → worktree (id = `<repoId>::<absPa
   under it and lined up with it (`  GPT-6-Luna medium · <path>`), and a wrapped draft or echo goes on
   in rows lined up the same way. So the kit takes the lowest pointer row on the screen, which is the
   input line whenever that is up, and counts a question only when that row is a numbered choice with
-  another numbered choice lined up beside it (ADR 0046). Claude Code's trust list does not count; what
+  another numbered choice lined up beside it (ADR 0057). Claude Code's trust list does not count; what
   keeps the nudge out of it is Orca naming no agent in that tab. **verified** (live, 2026-09-26)
   **A slash command typed, and a harness at work (#391).** Seen live on 2026-10-03 in
   `test/system/session-clear.test.js`, runs 2 to 5 (Claude Code 2.1.288, Codex 0.160.0):
@@ -371,7 +371,7 @@ project → repo (`kind: "git" | "folder"`) → worktree (id = `<repoId>::<absPa
   `satisfied:true` for 20 s. So the kit takes a harness to be in a tab when the foreground is not its
   shell (a busy one included), and the mail nudge types only when the process in front is the one
   Orca names. When the pid or the group cannot be read it says it cannot tell and
-  types nothing (ADR 0046). `diagnostics memory` is a diagnostics command and may change.
+  types nothing (ADR 0057). `diagnostics memory` is a diagnostics command and may change.
   **verified** (live, 2026-09-24, Orca 1.4.209, macOS 26.6.2, Claude Code 2.1.281, Codex 0.156.1, #232)
 - **Orca's runtime says who is in front of a tab, from outside any sandbox: `terminal.inspectProcess`.**
   Its CLI does not offer it; Orca's own runtime client does (`call('terminal.inspectProcess', {
@@ -386,7 +386,7 @@ project → repo (`kind: "git" | "folder"`) → worktree (id = `<repoId>::<absPa
   null`, `hasChildProcesses: false`; `less` gave `foregroundProcess: "less"`, `hasChildProcesses:
   true`; a `node` program gave `"node"`. `terminal.isRunningAgent` took more than 5 s on that `node`
   program and timed out, and it guesses from titles and output as well. The kit asks
-  `inspectProcess` where `ps` cannot read a tab (ADR 0046, #298). **verified** (live, 2026-09-26, Orca
+  `inspectProcess` where `ps` cannot read a tab (ADR 0057, #298). **verified** (live, 2026-09-26, Orca
   1.4.212, for the shell, `less` and `node`, and in #298's attended system test for an idle Claude Code,
   which was named in front).
   **On macOS it cannot see a harness that is running a command.** `ps` prints `??` for a process with
@@ -401,10 +401,10 @@ project → repo (`kind: "git" | "folder"`) → worktree (id = `<repoId>::<absPa
   reported as stablyai/orca#23245; its proposed fix, stablyai/orca#23251, was still open on 2026-10-03
   and is not in Orca 1.4.219. From #350 until #555 the kit's answer was a Codex sender's own hook,
   which read the tab with `ps` outside the sandbox (section 3). Since #555 the kit types no mail
-  nudge, and a Codex sender's `--interrupt` presses nothing into such a tab (ADR 0046). **verified** (live)
+  nudge, and a Codex sender's `--interrupt` presses nothing into such a tab (ADR 0057). **verified** (live)
 - **Orca's runtime client answers in well under a second, even on a loaded machine.** The kit runs it
   as Orca's binary with `ELECTRON_RUN_AS_NODE=1` and `src/orca-runtime.cjs`, gives the client 2 s
-  (`CLIENT_WAIT_MS`) and ends it at 3 s (`CLIENT_KILL_MS`) (ADR 0046). On 2026-09-27 (#384; Orca
+  (`CLIENT_WAIT_MS`) and ends it at 3 s (`CLIENT_KILL_MS`) (ADR 0057). On 2026-09-27 (#384; Orca
   1.4.214, macOS, 10 cores) a throwaway probe run through `scripts/test-system.js` made its own folder
   project and one plain shell tab. It ran the client exactly as the kit does, with its own bounds
   raised to 30 s so that slow calls showed rather than being cut off, and timed each call to the end
@@ -436,7 +436,7 @@ project → repo (`kind: "git" | "folder"`) → worktree (id = `<repoId>::<absPa
   variable, so a reader should look for one whole word it knows. That answers the reading half of
   #261's open question on macOS. #318 uses the marker only to report in `obk health` which sessions
   the kit's launch line did not start, never to decide what is typed into a tab. Whether the mail
-  nudge may rest on it was #261's to settle, as below, and ADR 0046 records it. **verified** (live)
+  nudge may rest on it was #261's to settle, as below, and ADR 0057 records it. **verified** (live)
   **#261 settles it: the kit types into a harness under another name when it carries the launch
   mark.** When the program in front of a tab is not named as the agent Orca names, the kit reads
   its environment and parent with `ps`. It types only when that process carries this tab's
@@ -823,6 +823,7 @@ Proved live on 2026-09-21 (Orca 1.4.205), in throwaway workspaces since removed:
 - Hooks: project settings in `<project>/.claude/settings.json`, read out of the folder the session starts in. A hook there runs with nothing in user-level settings, and needs no approval of its own: once the folder is trusted, it runs. The hook input is JSON on stdin — `{ session_id, transcript_path, cwd, hook_event_name, source }` — and `source` is `startup`, `resume`, `clear` or `compact`. **verified** (live, 2.1.278): `/clear` gives `source: "clear"` with a **new** `session_id`; `--resume <id>` gives `source: "resume"` with the **same** id.
 - A SessionStart hook can put text into the session: print `{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"…"}}` on stdout and the session has it. **verified** (live: a session answered from text only the hook gave it, including straight after `/clear`).
 - **The registry of live sessions** is `~/.claude/sessions/<pid>.json`: `{ pid, sessionId, cwd, startedAt, procStart, status, name, messagingSocketPath, … }`. It maps a **live process** to the conversation it is having **now**, and holds nothing about a conversation that process had before — so it can say which conversation a running harness is in, and never which one it was in earlier. **verified** (read on this machine, 2.1.278)
+- **Remote Control (#755).** Read on 2026-11-14 in the docs (`remote-control`, `settings-reference`) and in the 2.1.325 binary, without running it; **not checked live** unless said. `claude --remote-control [name]` starts an interactive session with Remote Control on; the name is optional, so the kit puts the flag directly after `claude`, where the next word is always one of its own flags. No flag turns it off for one session. On a resume, Claude Code sets `replBridgeEnabled: true` for a conversation that has a stored `bridgeSessionId` and is not a fork, whatever `remoteControlAtStartup` says, so `remoteControlAtStartup: false` does not keep a resumed session off. `disableRemoteControl: true` in the merged settings (which include `--settings`) makes the bridge start refuse before it makes a handle (`managed_disabled`), on a fresh start and on that resume path; the tab and `claude doctor` then call it the organization's policy. Claude Code reads only the last `--settings` on a line. The registry entry gets `bridgeSessionId` when the Remote Control handle is installed and `null` when it goes; a failed or retrying connection keeps the handle, so the field means "enabled", not "connected". Still to check live, at night, each with a backup first: whether the flag asks a one-time consent question; whether a session with the flag starts under `disableRemoteControl`; whether `--resume` with the flag reuses the remote entry; whether a clean `/exit` archives it; what `bridgeSessionId` does through a failure, a retry and a reconnect; whether the kit's `--settings` off beats the user's own auto-connect; on to off through `restart`, `unpause` and a cold restore; a turn and a `/clear` sent from the device; and a fork made from claude.ai/code.
 - **A hook runs as a child of the harness process.** Measured live (2.1.278): the hook command's process has `claude` as its parent, and `claude`'s parent is the shell the launch line ran in. So the process tree, not an environment variable, is what says which conversation a hook belongs to — everything a session starts inherits the session's environment, `ORCA_TAB_ID` included. **verified** (live)
 - Cross-session messaging (docs: code.claude.com/docs/en/cross-session-messaging, min 2.1.224): addressed by session name; works across folders; a busy receiver reads between tool calls; an idle receiver starts a turn. Two classes: bypassing (`bypassPermissions`) and prompting (everything else). Same class delivers without asking; a bypassing sender to a prompting receiver is held (dialog expires after 5 min). Sender gets a delivery notice (held, delivered, denied, expired, refused). Rate limits and duplicate suppression are built in. Registry: `~/.claude/sessions/<pid>.json`, where the entry carries the name beside the session id. **verified** (docs)
 - **Two config dirs, two registries, no road between them (#700).** Seen live on 2026-10-25 (Claude Code 2.1.310, Orca 1.4.238), after the owner switched the Claude account in Orca: Orca starts each new Claude tab with `CLAUDE_CONFIG_DIR` set to a profile of its own, `~/Library/Application Support/orca/claude-profiles/<account>/home`, which links most of `~/.claude` but not `sessions/`, and keeps its own `.claude.json` and `settings.json`. A session registers in `sessions/` under its own config dir, and its ListAgents and SendMessage see only that registry: a session started after the switch listed only the one other session started after it, and a send to a long-lived session in `~/.claude/sessions` answered `No agent named '<address>' is reachable.` The sockets stay in `/tmp/cc-socks/<pid>.sock` for both. So the kit names the native road only to a session the sender's own registry lists live, and the mailbox otherwise. **verified** (live). Not checked: whether Claude Code skips a registry entry whose process has ended; the kit does. Seen again on 2026-11-10 (Claude Code 2.1.322, Orca 1.4.255, kit-dev developer-738's own tab, which the kit started): the session ran with `CLAUDE_CONFIG_DIR` at the profile that `selected-host` names. Its start changed that profile's `.claude.json` at 05:15, and `~/.claude.json` stayed as last changed on 2026-11-05 (compared by modification time only). So a check of what a tab's session wrote reads the profile's `.claude.json` too (#738). **verified** (live, once)

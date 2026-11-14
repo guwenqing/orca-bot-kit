@@ -1,7 +1,7 @@
 # ADR 0046: Orca is the host
 
 Date: 2026-10-16.
-Status: accepted.
+Status: superseded by [ADR 0057](0057-orca-is-the-host.md).
 Decided by: the owner, in his design session of 2026-09-19, and on 2026-09-20 for the plain folder; the architect, for #232 and PR #260, for the sentences marked so; the owner on 2026-09-24 for calling Orca's runtime through Orca's own client (#224), with the architect deciding how the user is told, for the sentences marked so; the architect, for #329, for the kit's own reading of a tab's screen before it types into it, for the sentences marked so; the architect, for #298, for asking Orca's runtime who is in front of a tab where `ps` cannot read it, for the sentences marked so; the owner on 2026-09-26 for Orca's own Force Reload after a removal (#343), with the architect deciding how the menu item is found, for the sentences marked so; the architect, for #261, for recognising the harness the kit launched by its launch mark, for the sentences marked so; the owner on 2026-10-11 for fleet mail that types no line into the receiver's tab, with one Escape for urgent mail (#555), as [ADR 0042](0042-messaging-transport.md) records; the architect, for #575, for taking the kit's mail nudge and the Codex nudge hook out of this record. The owner may overrule the architect's sentences. Consulted: the coordinator, who researched Orca. A sentence marked (proposed) is not decided yet.
 Supersedes: [ADR 0034](0034-orca-is-the-host.md).
 
