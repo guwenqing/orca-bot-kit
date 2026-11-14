@@ -39,11 +39,11 @@ paragraphs:
     display: SP-9 (3, The main text that the kit builds)
   - id: SP-10
     kind: rule
-    text_sha256: f7a9a91ab54f9c7e74abd88ce2559f9f3a46bbe7af5df8894d0cf14d07944007
+    text_sha256: 844c45a1daf45e7639c1a0b219c87e4818184d0e8e592b9515399a52fd26c8a3
     display: SP-10 (3:1, in The main text that the kit builds)
   - id: SP-11
     kind: approach
-    text_sha256: f360f16ea1ee7427613a603f85f550624775e30785bbfbd2a5b896a3e12c3f6d
+    text_sha256: 676e0ef70824beb67ea29091b79536c04e70e44eb1e9f0b07a878cbe115665c4
     display: SP-11 (3:2, in The main text that the kit builds)
   - id: SP-12
     kind: note
