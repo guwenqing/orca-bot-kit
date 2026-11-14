@@ -1147,6 +1147,21 @@ function ttyMode(pid, left) {
 }
 
 /**
+ * When the process `pid` started, as `ps -o lstart=` gives it with runs of
+ * blanks as one, or undefined when it cannot be read. A pid with its start
+ * time is one process: the system gives a pid out again, never with the same
+ * start time.
+ */
+export function startOfProcess(pid) {
+  // In UTC and the C locale, as Claude Code writes `procStart` in its registry
+  // (read in the 2.1.325 binary), so the two can be compared as text.
+  const asked = spawnSync(PS, ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8', env: { ...process.env, TZ: 'UTC', LC_ALL: 'C' } });
+  if (asked.error || asked.status !== 0) return undefined;
+  const start = asked.stdout.trim().replace(/\s+/g, ' ');
+  return start === '' ? undefined : start;
+}
+
+/**
  * The process `pid` as `ps -E` gives it, word by word: its command, its
  * arguments, then its environment as `NAME=value` words. Undefined when it
  * cannot be read. macOS gives a same-user harness's environment this way (tech

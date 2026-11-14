@@ -29,7 +29,7 @@ import { cutsTrouble } from './cuts.js';
 import { hookTrouble } from './hooks.js';
 import { APPROVALS, bypassFlags, harnessOf, HARNESSES, isAddressOf, lostToOwnSettings, ownCli, promptFile, REMOTE_CONTROL, remoteControlOf, sessionTrouble, set, setsRemoteControl, setsSettings, SHELL_ENV, shellWord, workDirOf } from './launch.js';
 import { memoryFolderFor, sharedNotes } from './memory.js';
-import { claudeProfileHomes, frontOfTab, mailIn, orcaDefaultArgs, projects, runMissing, tabs, tabToTypeInto, wordsOfProcess } from './orca.js';
+import { claudeProfileHomes, frontOfTab, startOfProcess, mailIn, orcaDefaultArgs, projects, runMissing, tabs, tabToTypeInto, wordsOfProcess } from './orca.js';
 import { permissionsTrouble } from './permissions.js';
 import { askPi } from './pi.js';
 import { processesIn } from './processes.js';
@@ -226,7 +226,8 @@ function aboutBot(bots, name, setups, sessions, pi) {
 
 /**
  * Each session whose own `--settings` replaces the kit's, and what it runs
- * without for that (#752): Claude Code keeps only the last `--settings`.
+ * without for that (#752, ADR 0058): Claude Code keeps only the last
+ * `--settings`.
  */
 function ownSettings(home, bot) {
   const file = path.join(home, 'bot.yaml');
@@ -474,7 +475,12 @@ function runningOn(bots, home, bot, book, handles, sessions) {
       found.push(finding('session', entry.tab, `Remote Control is not on for ${bot.name}'s session ${session.name}: Claude Code holds no Remote Control handle for it. Its tab says why, such as a login that cannot use Remote Control, no network, or an organization's policy. The session still runs.`, bot.name));
     }
     if (remote?.asked === 'off' && remote.state === 'enabled') {
-      found.push(finding('session', entry.tab, `${bot.name}'s session ${session.name} is set off, but Remote Control is enabled in it. This happens after Orca's cold restore: Orca brings a tab back with a bare claude --resume and none of the kit's line, and Claude Code turns Remote Control on again for a conversation that had it on before. ${restart} starts it on the kit's line, off. For an off that holds after a cold restore too, put "disableRemoteControl": true in ${path.join(home, '.claude', 'settings.local.json')}.`, bot.name));
+      const hardOff = `put "disableRemoteControl": true in ${path.join(home, '.claude', 'settings.local.json')}`;
+      // A restart sends the session's own --settings again, so it is no way off.
+      const why = setsSettings(session)
+        ? `Its own --settings in ${path.join(home, 'bot.yaml')} replaces the kit's, which is where the kit's off rides, so a restart does not turn it off. Take --settings out of its extra_args, or ${hardOff}.`
+        : `This happens after Orca's cold restore: Orca brings a tab back with a bare claude --resume and none of the kit's line, and Claude Code turns Remote Control on again for a conversation that had it on before. ${restart} starts it on the kit's line, off. For an off that holds after a cold restore too, ${hardOff}.`;
+      found.push(finding('session', entry.tab, `${bot.name}'s session ${session.name} is set off, but Remote Control is enabled in it. ${why}`, bot.name));
     }
 
     const off = Object.entries(settings).filter(([, one]) => one.state === 'mismatch');
@@ -508,15 +514,24 @@ function runningOn(bots, home, bot, book, handles, sessions) {
 /**
  * What Claude Code's own registry says of Remote Control in the process `pid`:
  * `{ state }`, with `why` when the state is unknown (ADR 0058). The entry is
- * `sessions/<pid>.json` under the first config folder that has one for that
- * pid: `$CLAUDE_CONFIG_DIR`, `~/.claude`, then each of Orca's Claude profiles,
- * since a tab can run under a profile that is not the caller's. A
+ * `sessions/<pid>.json` under the first config folder that has one for this
+ * process: `$CLAUDE_CONFIG_DIR`, `~/.claude`, then each of Orca's Claude
+ * profiles, since a tab can run under a profile that is not the caller's. An
+ * entry is this process's when its `pid` and its `procStart` match: a killed
+ * session can leave an entry that a later process with the same pid finds,
+ * and only the start time tells them apart. With no start time to compare,
+ * the state is unknown, never a guess from the pid alone. A
  * `bridgeSessionId` that is a string is a Remote Control handle, which a failed
  * or retrying connection keeps: enabled, not connected.
  */
 function remoteControlState(pid) {
   if (pid === undefined) return { state: 'unknown', why: 'the kit cannot see which process is in front of its tab' };
   const dirs = [...new Set([process.env.CLAUDE_CONFIG_DIR, path.join(homedir(), '.claude'), ...claudeProfileHomes()].filter(set))];
+  // Read once, and only when an entry names the pid: the start time is what
+  // tells this process's entry from one an earlier process with the same pid
+  // left behind.
+  let start;
+  let stale = 0;
   for (const dir of dirs) {
     const file = path.join(dir, 'sessions', `${pid}.json`);
     if (!existsSync(file)) continue;
@@ -528,12 +543,23 @@ function remoteControlState(pid) {
     }
     // Another process's entry under this name is not this one's.
     if (entry === null || typeof entry !== 'object' || Number(entry.pid) !== Number(pid)) continue;
+    start ??= startOfProcess(pid) ?? null;
+    if (start === null) return { state: 'unknown', why: `the kit cannot read when its process ${pid} started, so it cannot tell its entry in Claude Code's registry from one an earlier process left` };
+    if (typeof entry.procStart !== 'string' || entry.procStart.trim().replace(/\s+/g, ' ') !== start) {
+      stale += 1;
+      continue;
+    }
     const bridge = entry.bridgeSessionId;
     if (bridge === undefined || bridge === null) return { state: 'not enabled' };
     if (typeof bridge === 'string' && bridge !== '') return { state: 'enabled' };
     return { state: 'unknown', why: `its entry in Claude Code's registry, ${file}, has a bridgeSessionId the kit cannot read: ${JSON.stringify(bridge)}` };
   }
-  return { state: 'unknown', why: `Claude Code's registry has no entry for its process ${pid}` };
+  return {
+    state: 'unknown',
+    why: stale === 0
+      ? `Claude Code's registry has no entry for its process ${pid}`
+      : `Claude Code's registry has only entries that an earlier process with the pid ${pid} left: their start time is not this process's`,
+  };
 }
 
 /**
