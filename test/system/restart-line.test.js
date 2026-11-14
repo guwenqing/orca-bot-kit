@@ -119,6 +119,7 @@ import { atNight, namedThisRun } from '../helpers/night-gate.js';
 import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
 import { onlyTeachFormOf, questionOn, waitingOn } from '../helpers/screens.js';
 import { tabGuard } from '../helpers/tab-guard.js';
+import { RC_OFF, withBotFatherOff } from '../helpers/remote-control-off.js';
 import { autoModeState, sessionRecordFiles } from '../helpers/teach-record.js';
 import { RELOAD_LINE } from '../../src/orca.js';
 
@@ -658,10 +659,10 @@ test('obk restart ends the background shells of the closed tab, and the resumed 
 
   // ----------------------------------------------------- 1. the throwaway fleet
 
-  obkJson(['init', '--bots', bots, '--harness', 'claude']);
+  obkJson(withBotFatherOff(['init', '--bots', bots, '--harness', 'claude']));
   obkJson(['bot', 'create', '--bots', bots, '--name', BOT.name, '--harness', 'claude', '--charter', `${BOT.display} exists for one system test run and owns nothing.`]);
   const prompt = 'You are a system test\'s throwaway bot and you own nothing. Run no command now. Reply "ready", and then wait for the next line.';
-  obkJson(['session', 'add', '--bots', bots, '--bot', BOT.name, '--name', 'daily', '--model', 'claude-haiku-5-5', '--effort', 'low', `--prompt=${prompt}`]);
+  obkJson(['session', 'add', '--bots', bots, '--bot', BOT.name, '--name', 'daily', '--model', 'claude-haiku-5-5', '--effort', 'low', `--prompt=${prompt}`, ...RC_OFF]);
 
   gateStillOpen('obk up of the throwaway session');
   const opened = tabOf(obkJson(['up', '--bots', bots, '--bot', BOT.name]), 'daily');

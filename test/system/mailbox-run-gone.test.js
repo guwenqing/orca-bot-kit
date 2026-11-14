@@ -69,6 +69,7 @@ import { cliEntry, spellingsOf } from '../helpers/cli.js';
 import { onlyTeachFormOf, questionOn } from '../helpers/screens.js';
 import { claudeTrustAt, trustScreenMet } from '../helpers/claude-trust.js';
 import { tabGuard } from '../helpers/tab-guard.js';
+import { RC_OFF, withBotFatherOff } from '../helpers/remote-control-off.js';
 import { autoModeState, sessionRecordFiles } from '../helpers/teach-record.js';
 import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
@@ -285,9 +286,9 @@ test('a mailbox Run this Orca never made is named by health, and the restart it 
 
   // 1. A throwaway fleet with one Claude session, brought up by this checkout,
   //    so its tab's step gives it a real mailbox.
-  obkJson(['init', '--bots', bots, '--harness', 'claude']);
+  obkJson(withBotFatherOff(['init', '--bots', bots, '--harness', 'claude']));
   obkJson(['bot', 'create', '--bots', bots, '--name', BOT.name, '--harness', 'claude', '--charter', `${BOT.display} exists for one system test run and owns nothing.`]);
-  obkJson(['session', 'add', '--bots', bots, '--bot', BOT.name, '--name', 'daily', '--prompt=You are a system test\'s bot and own nothing. Do not run any command or use any tool. Say nothing and wait.']);
+  obkJson(['session', 'add', '--bots', bots, '--bot', BOT.name, '--name', 'daily', '--prompt=You are a system test\'s bot and own nothing. Do not run any command or use any tool. Say nothing and wait.', ...RC_OFF]);
   const opened = tabOf(obkJson(['up', '--bots', bots, '--bot', BOT.name]), 'daily');
   assert.equal(opened.created, true);
   const real = (await book()).sessions?.daily?.mailbox;

@@ -73,6 +73,7 @@ test('R1 --role developer:deep takes that option\'s model, effort and context, o
   const [line] = typedInto(await liveTab(box, bots, 'developer-1'));
   const fake = await fakeProgram(box, 'claude', {});
   const argv = await argvOf(box, line, fake);
+  assert.equal(argv[0], '--remote-control', `Remote Control is on, by the kit's default, got: ${JSON.stringify(argv)}`);
   assert.deepEqual(
     argv.slice(4, -1),
     ['--model', 'claude-fable-5-1[1m]', '--effort', 'max', ...memoryArgs(bots, BOT), '--'],
@@ -301,5 +302,5 @@ test('R5 a maker whose approval is null gives the kit\'s default, auto, and chos
   const [line] = typedInto(await liveTab(box, bots, 'developer-1'));
   const fake = await fakeProgram(box, 'claude', {});
   const argv = await argvOf(box, line, fake);
-  assert.deepEqual(argv.slice(0, 2), ['--permission-mode', 'auto'], `Claude Code is launched in auto, got: ${JSON.stringify(argv)}`);
+  assert.deepEqual(argv.slice(0, 3), ['--remote-control', '--permission-mode', 'auto'], `Claude Code is launched in auto, got: ${JSON.stringify(argv)}`);
 });

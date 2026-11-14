@@ -134,6 +134,7 @@ import { inboxLetters } from '../helpers/inbox.js';
 import { rolloutFilesOf } from '../helpers/codex-rollout.js';
 import { questionOn, waitingOn } from '../helpers/screens.js';
 import { tabGuard } from '../helpers/tab-guard.js';
+import { withBotFatherOff } from '../helpers/remote-control-off.js';
 import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
 import { atNight, namedThisRun } from '../helpers/night-gate.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
@@ -447,7 +448,7 @@ test('a Codex session resumed with mail waiting does the mail\'s work after the 
   });
 
   gateStillOpen('obk init');
-  obkJson(['init', '--bots', bots, '--harness', 'claude']);
+  obkJson(withBotFatherOff(['init', '--bots', bots, '--harness', 'claude']));
   obkJson([
     'bot', 'create', '--bots', bots, '--name', BOT.name, '--harness', 'codex',
     '--charter', `${BOT.name} exists for one system test run and owns nothing.`,

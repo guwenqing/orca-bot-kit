@@ -145,6 +145,7 @@ import { parse } from 'yaml';
 import { cliEntry } from '../helpers/cli.js';
 import { questionOn, waitingOn } from '../helpers/screens.js';
 import { tabGuard } from '../helpers/tab-guard.js';
+import { withBotFatherOff } from '../helpers/remote-control-off.js';
 import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
 import { atNight, namedThisRun } from '../helpers/night-gate.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
@@ -604,7 +605,7 @@ test('a Pi session starts from its bot\'s AGENTS.md and skills, and takes a skil
   });
 
   gateStillOpen('obk init');
-  obkJson(['init', '--bots', bots, '--harness', 'claude']);
+  obkJson(withBotFatherOff(['init', '--bots', bots, '--harness', 'claude']));
   obkJson(['bot', 'create', '--bots', bots, '--name', PI, '--harness', 'pi', '--charter', `Pi RS exists for one system test run and owns nothing. Its probe word is ${PROBE}.`]);
   obkJson(['bot', 'create', '--bots', bots, '--name', SENDER, '--harness', 'pi', '--charter', 'Pi RS Sender exists for one system test run and owns nothing.']);
   for (const bot of [PI, SENDER]) piFolders.push(piFolderNameOf(homeOf(bot)));

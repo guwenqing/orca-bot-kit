@@ -67,6 +67,7 @@ import { setTimeout } from 'node:timers/promises';
 import { cliEntry } from '../helpers/cli.js';
 import { settingsInDb } from '../helpers/orca-db-copy.js';
 import { tabGuard } from '../helpers/tab-guard.js';
+import { withBotFatherOff } from '../helpers/remote-control-off.js';
 import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
 
@@ -284,7 +285,7 @@ test('health reports a tab Orca has lost, an Orca project no bot owns, and what 
 
   // Bot Father, really up: an Orca project and two real tabs, one of them with
   // Claude Code typed into it. Nothing here answers what that tab asks.
-  const daily = tabOf(obkJson(['init', '--bots', bots, '--harness', 'claude']), 'daily');
+  const daily = tabOf(obkJson(withBotFatherOff(['init', '--bots', bots, '--harness', 'claude'])), 'daily');
   assert.equal(daily.created, true);
 
   // And a bot with no sessions at all, so bringing it up makes its Orca project

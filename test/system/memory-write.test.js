@@ -131,6 +131,7 @@ import { atNight, namedThisRun } from '../helpers/night-gate.js';
 import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
 import { onlyTeachFormOf, questionOn } from '../helpers/screens.js';
 import { tabGuard } from '../helpers/tab-guard.js';
+import { RC_OFF, withBotFatherOff } from '../helpers/remote-control-off.js';
 import { autoModeState, sessionRecordFiles } from '../helpers/teach-record.js';
 import { RELOAD_LINE } from '../../src/orca.js';
 
@@ -517,7 +518,7 @@ test('two Claude bots of one bots folder each read only their own bot\'s memory 
 
   // ----------------------------------------------------- 1. the throwaway fleet
 
-  const initialised = obkJson(['init', '--bots', bots, '--harness', 'claude']);
+  const initialised = obkJson(withBotFatherOff(['init', '--bots', bots, '--harness', 'claude']));
   const fatherTab = (initialised.tabs ?? []).find((entry) => entry.created === true);
   assert.ok(fatherTab !== undefined, `the premise: init opened Bot Father's tab, got: ${JSON.stringify(initialised.tabs)}`);
   const place = allTerminals().find((terminal) => terminal.handle === fatherTab.terminal)?.worktreePath;

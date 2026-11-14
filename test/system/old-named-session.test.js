@@ -82,6 +82,7 @@ import { parse, stringify } from 'yaml';
 import { addressPattern, cliEntry } from '../helpers/cli.js';
 import { waitingOn } from '../helpers/screens.js';
 import { tabGuard } from '../helpers/tab-guard.js';
+import { RC_OFF, withBotFatherOff } from '../helpers/remote-control-off.js';
 import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
 
@@ -437,13 +438,13 @@ test('a session under the old shared name is moved to an address of its own by a
     assert.deepEqual(failedDeletes, [], 'projects this test could not remove, left in Orca');
   });
 
-  obkJson(['init', '--bots', bots, '--harness', 'claude']);
+  obkJson(withBotFatherOff(['init', '--bots', bots, '--harness', 'claude']));
   obkJson([
     'bot', 'create', '--bots', bots, '--name', BOT.name, '--harness', 'claude',
     '--charter', `${BOT.display} exists for one system test run and owns nothing.`,
   ]);
-  obkJson(['session', 'add', '--bots', bots, '--bot', BOT.name, '--name', 'daily', `--prompt=${START_PROMPT}`]);
-  obkJson(['session', 'add', '--bots', bots, '--bot', BOT.name, '--name', 'sender', `--prompt=${SENDER_PROMPT}`]);
+  obkJson(['session', 'add', '--bots', bots, '--bot', BOT.name, '--name', 'daily', `--prompt=${START_PROMPT}`, ...RC_OFF]);
+  obkJson(['session', 'add', '--bots', bots, '--bot', BOT.name, '--name', 'sender', `--prompt=${SENDER_PROMPT}`, ...RC_OFF]);
 
   const opened = obkJson(['up', '--bots', bots, '--bot', BOT.name]);
   const daily = tabOf(opened, 'daily');

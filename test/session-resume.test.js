@@ -325,6 +325,7 @@ for (const [approval, codexFlags, claudeFlags] of [
     const again = await up(box);
 
     assert.deepEqual(tokenlessArgv(await argvOf(box, again.typed[0], fake)), [
+      '--remote-control',
       ...claudeFlags,
       '-n', `api-bot.daily.${TOKEN}`,
       ...memoryArgs(bots, 'api-bot'),

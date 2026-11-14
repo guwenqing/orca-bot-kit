@@ -1752,6 +1752,179 @@ test('every system test takes its `test` from test/helpers/system.js or test/hel
   assert.ok(noOrca.includes('codex-update-offer.test.js'), `codex-update-offer.test.js should take its \`test\` from test/helpers/system-no-orca.js; the files on it are: ${JSON.stringify(noOrca)}`);
 });
 
+// Remote Control off in every throwaway fleet (#755). Since #755 the kit starts
+// each Claude Code session with Remote Control on, unless its entry in bot.yaml
+// says off. A session with it on connects to the claude.ai account of whoever
+// runs the live tests, and leaves an entry in that account's list of sessions.
+// So each Claude session a system test makes is set off, with the words of
+// test/helpers/remote-control-off.js. This reads each system test as code,
+// comments taken out, and runs none of them:
+//
+//   - each array of words that starts `'init'` and names `'--harness',
+//     'claude'` is handed straight to `withBotFatherOff(`, which sets Bot
+//     Father's daily session off before init starts it. An init that names
+//     `'codex'` or `'pi'` as its harness needs nothing. Any other init is named;
+//   - each array that starts `'session', 'add'` or `'temp', 'make'` holds
+//     `RC_OFF` as code, unless it shows that its session is not a Claude one: it
+//     names `'--harness', 'codex'` or `'pi'`, or spreads `...codexTrustArgs(`
+//     as a word of its own (not inside a condition), or, for a session add,
+//     its `--bot` is made in the same file by a `'bot', 'create'` array that
+//     names `'--harness', 'codex'` or `'pi'`;
+//   - a file that names `RC_OFF` or `withBotFatherOff` loads the helper.
+//
+// test/system/remote-control.test.js is let off the second rule alone: it adds
+// one session with Remote Control on, because it tests the setting itself.
+//
+// What it cannot see: words built some other way than one array literal
+// (pushed on later, or kept in a variable first); a condition that puts RC_OFF
+// on the wrong harness, since `...(bot.harness === 'claude' ? RC_OFF : [])` is
+// taken at its word; a Claude session given codexTrustArgs; a temp make that a
+// session runs from its prompt; a `session change` that moves a session to
+// Claude; a bot.yaml written by hand; and a `[` or `]` inside a string, which
+// can end an array early or late.
+
+const offHelper = path.join(repoRoot, 'test', 'helpers', 'remote-control-off.js');
+
+/** The one system test let off the rule for session add and temp make. */
+const RC_PROBE = path.join(systemTestsDir, 'remote-control.test.js');
+
+/** Each array literal in `code` whose first words are `words`: where it starts, its line, and its text. */
+function wordArrays(code, words) {
+  const head = new RegExp(String.raw`\[\s*${words.map((word) => `'${word}'`).join(String.raw`\s*,\s*`)}\s*[,\]]`, 'g');
+  return [...code.matchAll(head)].map((match) => {
+    let depth = 0;
+    let end = match.index;
+    for (; end < code.length; end += 1) {
+      if (code[end] === '[') depth += 1;
+      else if (code[end] === ']' && --depth === 0) break;
+    }
+    return { at: match.index, line: code.slice(0, match.index).split('\n').length, text: code.slice(match.index, end + 1) };
+  });
+}
+
+/** The word after `flag` in an array's text, as it is written there. */
+const valueIn = (text, flag) => text.match(new RegExp(String.raw`'${flag}'\s*,\s*([^,\]]+?)\s*[,\]]`))?.[1];
+
+/** Whether an array's text names a harness other than Claude Code as a literal. */
+const namesOtherHarness = (text) => /'--harness'\s*,\s*'(?:codex|pi)'/.test(text);
+
+/**
+ * Why a system test may start a Claude Code session with Remote Control on, one
+ * reason each with its line: empty when it shows none. `file` is where it sits.
+ */
+function remoteControlTrouble(source, file) {
+  const code = codeOf(source);
+  const reasons = [];
+
+  for (const init of wordArrays(code, ['init'])) {
+    if (namesOtherHarness(init.text) || /withBotFatherOff\(\s*$/.test(code.slice(0, init.at))) continue;
+    reasons.push(`line ${init.line}: an obk init that is not handed to withBotFatherOff, so Bot Father starts with Remote Control on`);
+  }
+
+  if (file !== RC_PROBE) {
+    const otherBots = new Set(wordArrays(code, ['bot', 'create'])
+      .filter((made) => namesOtherHarness(made.text))
+      .map((made) => valueIn(made.text, '--name'))
+      .filter((name) => name !== undefined));
+    for (const [words, what] of [[['session', 'add'], 'session add'], [['temp', 'make'], 'temp make']]) {
+      for (const one of wordArrays(code, words)) {
+        if (/(?<!['"`])\bRC_OFF\b(?!['"`])/.test(one.text) || namesOtherHarness(one.text) || /\.\.\.codexTrustArgs\(/.test(one.text)) continue;
+        if (what === 'session add' && otherBots.has(valueIn(one.text, '--bot'))) continue;
+        reasons.push(`line ${one.line}: a ${what} with no RC_OFF that does not show its session is not a Claude one`);
+      }
+    }
+  }
+
+  if (/\bRC_OFF\b|\bwithBotFatherOff\b/.test(code) && !relativeLoadsOf(code, file).includes(offHelper)) {
+    reasons.push('it names RC_OFF or withBotFatherOff, and does not load them from test/helpers/remote-control-off.js');
+  }
+  return reasons;
+}
+
+test('the check for Remote Control off sees an init, a session add or a temp make that leaves a Claude session on, and passes one that is off or not on Claude', () => {
+  const top = path.join(systemTestsDir, 'a.test.js');
+  const loads = "import { RC_OFF, withBotFatherOff } from '../helpers/remote-control-off.js';\n";
+
+  for (const [what, body] of [
+    ['an init handed to the helper', "obkJson(withBotFatherOff(['init', '--bots', bots, '--harness', 'claude']));"],
+    ['an init across lines', "obkJson(withBotFatherOff([\n  'init', '--bots', bots, '--harness', 'claude',\n]));"],
+    ['an init on Codex', "obkJson(['init', '--bots', bots, '--harness', 'codex']);"],
+    ['a Claude session add, off', "obkJson(['session', 'add', '--bots', bots, '--bot', BOT, '--name', 'daily', ...RC_OFF]);"],
+    ['a session add in a loop, off for Claude', "obkJson([\n  'session', 'add', '--bots', bots, '--bot', bot.name,\n  ...(bot.harness === 'codex' ? codexTrustArgs(bots) : []),\n  ...(bot.harness === 'claude' ? RC_OFF : []),\n]);"],
+    ['a session add naming Pi', "obkJson(['session', 'add', '--bots', bots, '--bot', bot, '--harness', 'pi']);"],
+    ['a session add given Codex trust', "obkJson(['session', 'add', '--bots', bots, '--bot', PEER, ...codexTrustArgs(bots)]);"],
+    ['a session add on a bot made on Pi', "obkJson(['bot', 'create', '--bots', bots, '--name', BOT, '--harness', 'pi']);\nobkJson(['session', 'add', '--bots', bots, '--bot', BOT, '--name', 'one']);"],
+    ['a Claude temp make, off', "obkJson(['temp', 'make', '--bots', bots, '--name', DEV, '--prompt', TASK, ...RC_OFF], inTab(lead));"],
+    ['a temp make naming Codex', "obkJson(['temp', 'make', '--bots', bots, '--name', REVIEW, '--harness', 'codex']);"],
+    ['the words in a comment', "// obkJson(['init', '--bots', bots, '--harness', 'claude']);\n/* ['temp', 'make', '--bots', bots] */"],
+  ]) {
+    assert.deepEqual(remoteControlTrouble(`${loads}${body}\n`, top), [], `should pass: ${what}`);
+  }
+
+  for (const [what, body] of [
+    ['a plain init on Claude', "obkJson(['init', '--bots', bots, '--harness', 'claude']);"],
+    ['an init with its harness in a variable', "obkJson(['init', '--bots', bots, '--harness', HARNESS]);"],
+    ['a Claude session add', "obkJson(['session', 'add', '--bots', bots, '--bot', BOT, '--name', 'daily']);"],
+    ['a session add in a loop, off for no one', "obkJson([\n  'session', 'add', '--bots', bots, '--bot', bot.name,\n  ...(bot.harness === 'codex' ? codexTrustArgs(bots) : []),\n]);"],
+    ['a session add on a bot made on Claude', "obkJson(['bot', 'create', '--bots', bots, '--name', BOT, '--harness', 'claude']);\nobkJson(['session', 'add', '--bots', bots, '--bot', BOT, '--name', 'one']);"],
+    ['a session add on a bot made on a harness in a variable', "obkJson(['bot', 'create', '--bots', bots, '--name', BOT.name, '--harness', BOT.harness]);\nobkJson(['session', 'add', '--bots', bots, '--bot', BOT.name]);"],
+    ['a session add with RC_OFF only in a string', "obkJson(['session', 'add', '--bots', bots, '--bot', BOT, 'RC_OFF']);"],
+    ['a Claude temp make', "obkJson(['temp', 'make', '--bots', bots, '--name', DEV, '--prompt', TASK], inTab(lead));"],
+    ['a temp make from a role', "obkJson(['temp', 'make', '--bots', bots, '--role', 'developer', '--name', '1']);"],
+  ]) {
+    assert.notDeepEqual(remoteControlTrouble(`${loads}${body}\n`, top), [], `should be seen: ${what}`);
+  }
+
+  assert.notDeepEqual(
+    remoteControlTrouble("obkJson(withBotFatherOff(['init', '--bots', bots, '--harness', 'claude']));\n", top),
+    [],
+    'the helper named and not loaded',
+  );
+  assert.notDeepEqual(
+    remoteControlTrouble("import { RC_OFF } from './helpers/remote-control-off.js';\nobkJson(['session', 'add', '--bots', bots, ...RC_OFF]);\n", top),
+    [],
+    'a helper of the same name somewhere else',
+  );
+  assert.deepEqual(
+    remoteControlTrouble("const { RC_OFF } = await import('../../helpers/remote-control-off.js');\nobkJson(['session', 'add', '--bots', bots, ...RC_OFF]);\n", path.join(systemTestsDir, 'group', 'b.test.js')),
+    [],
+    'the helper, from a folder down',
+  );
+
+  const plainAdd = "obkJson(['session', 'add', '--bots', bots, '--bot', 'obk-rc-probe', '--name', 'daily']);\n";
+  assert.deepEqual(remoteControlTrouble(`${loads}${plainAdd}`, RC_PROBE), [], 'the probe may add its session with Remote Control on');
+  assert.notDeepEqual(remoteControlTrouble(`${loads}${plainAdd}`, top), [], 'and no other file may');
+  assert.notDeepEqual(
+    remoteControlTrouble(`${loads}obkJson(['init', '--bots', bots, '--harness', 'claude']);\n`, RC_PROBE),
+    [],
+    'the probe still sets Bot Father off',
+  );
+});
+
+test('every system test starts each Claude Code session with Remote Control off (#755)', async () => {
+  const tree = await snapshot(systemTestsDir);
+  const files = Object.keys(tree).filter((rel) => rel.endsWith('.js') && tree[rel].startsWith('file:'));
+  assert.ok(files.length > 0, 'there should be system tests to check');
+
+  const found = [];
+  let inits = 0;
+  for (const rel of files.sort()) {
+    const file = path.join(systemTestsDir, rel);
+    const source = await readFile(file, 'utf8');
+    inits += wordArrays(codeOf(source), ['init']).length;
+    for (const why of remoteControlTrouble(source, file)) found.push(`test/system/${rel}: ${why}`);
+  }
+  // Nearly every system test makes a fleet with obk init; finding none means
+  // the check has stopped seeing them, not that they have stopped.
+  assert.ok(inits > 0, 'no obk init was found in the system tests, so the check sees nothing');
+  assert.deepEqual(
+    found,
+    [],
+    'these start a Claude Code session with Remote Control on, which connects to the claude.ai account of whoever runs them;'
+    + ` set it off with test/helpers/remote-control-off.js:\n  ${found.join('\n  ')}`,
+  );
+});
+
 // What the floor needs (#533): the release's floor job installs only what a
 // user installs, `npm ci --omit=dev`, and runs the test files its script
 // names. A file there that imports a dev dependency fails to load, and only

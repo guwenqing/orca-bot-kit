@@ -103,6 +103,7 @@ import { parse } from 'yaml';
 import { cliEntry, restartLineOf } from '../helpers/cli.js';
 import { codexTrustArgs } from '../helpers/codex-trust.js';
 import { tabGuard } from '../helpers/tab-guard.js';
+import { withBotFatherOff } from '../helpers/remote-control-off.js';
 import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
 
@@ -446,7 +447,7 @@ test('a Codex session the kit starts shows <bot>.<session> in its tab title afte
     assert.deepEqual(failedDeletes, [], 'projects this test could not remove, left in Orca');
   });
 
-  obkJson(['init', '--bots', bots, '--harness', 'claude']);
+  obkJson(withBotFatherOff(['init', '--bots', bots, '--harness', 'claude']));
   obkJson([
     'bot', 'create', '--bots', bots, '--name', BOT.name, '--harness', 'codex',
     '--charter', `${BOT.name} exists for one system test run and owns nothing.`,

@@ -426,6 +426,7 @@ for (const [approval, codexFlags, claudeFlags] of LEVELS) {
 
     const argv = await argvOf(box, typed, fake);
     assert.deepEqual(argv.map((word, at) => (argv[at - 1] === '-n' ? tokenlessWord(word) : word)), [
+      '--remote-control',
       ...claudeFlags,
       '-n', `api-bot.daily.${TOKEN}`,
       '--model', 'sonnet',

@@ -101,6 +101,7 @@ import { cliEntry, shellWord, spellingsOf } from '../helpers/cli.js';
 import { codexTrustArgs } from '../helpers/codex-trust.js';
 import { waitingOn } from '../helpers/screens.js';
 import { tabGuard } from '../helpers/tab-guard.js';
+import { RC_OFF, withBotFatherOff } from '../helpers/remote-control-off.js';
 import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
 
@@ -531,7 +532,7 @@ test('a session Orca brought back without the kit\'s launch line is named by hea
     assert.deepEqual(failedDeletes, [], 'projects this test could not remove, left in Orca');
   });
 
-  obkJson(['init', '--bots', bots, '--harness', 'claude']);
+  obkJson(withBotFatherOff(['init', '--bots', bots, '--harness', 'claude']));
   for (const bot of BOTS) {
     obkJson([
       'bot', 'create', '--bots', bots, '--name', bot.name, '--harness', bot.harness,
@@ -540,6 +541,7 @@ test('a session Orca brought back without the kit\'s launch line is named by hea
     obkJson([
       'session', 'add', '--bots', bots, '--bot', bot.name, '--name', 'daily', `--prompt=${startPromptFor(bot)}`,
       ...(bot.harness === 'codex' ? codexTrustArgs(bots) : []),
+      ...(bot.harness === 'claude' ? RC_OFF : []),
     ]);
   }
 

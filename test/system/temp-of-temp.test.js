@@ -73,6 +73,7 @@ import { cliEntry } from '../helpers/cli.js';
 import { codexTrustArgs } from '../helpers/codex-trust.js';
 import { questionOn } from '../helpers/screens.js';
 import { tabGuard } from '../helpers/tab-guard.js';
+import { RC_OFF, withBotFatherOff } from '../helpers/remote-control-off.js';
 import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
 
@@ -309,18 +310,18 @@ test('a Claude temporary session makes a Codex one of its own, answers its first
   // ---------------------------------------------------------------------------
   // The fleet: Bot Father, and nest-bot on Claude Code with one long-lived
   // session, lead.
-  obkJson(['init', '--bots', bots, '--harness', 'claude']);
+  obkJson(withBotFatherOff(['init', '--bots', bots, '--harness', 'claude']));
   obkJson([
     'bot', 'create', '--bots', bots, '--name', BOT, '--harness', 'claude',
     '--charter', `${BOT} exists for one system test run and owns nothing.`,
   ]);
-  obkJson(['session', 'add', '--bots', bots, '--bot', BOT, '--name', LEAD, '--prompt', 'You are a system test\'s session and you own nothing. Say nothing and wait.']);
+  obkJson(['session', 'add', '--bots', bots, '--bot', BOT, '--name', LEAD, '--prompt', 'You are a system test\'s session and you own nothing. Say nothing and wait.', ...RC_OFF]);
   const leadTab = openedIn(obkJson(['up', '--bots', bots, '--bot', BOT]), 'up');
   const lead = { tabId: sessionIn(home, LEAD).tab, handle: leadTab.terminal };
   assert.equal(typeof lead.tabId, 'string', `the premise: the book holds lead's tab, got: ${JSON.stringify(sessionIn(home, LEAD))}`);
 
   // 1. lead makes dev, on its own Claude Code.
-  const devMade = obkJson(['temp', 'make', '--bots', bots, '--name', DEV, '--prompt', TASK], inTab(lead));
+  const devMade = obkJson(['temp', 'make', '--bots', bots, '--name', DEV, '--prompt', TASK, ...RC_OFF], inTab(lead));
   assert.equal(devMade.maker, LEAD, `dev is lead's: ${JSON.stringify(devMade)}`);
   const dev = { tabId: sessionIn(home, DEV).tab, handle: openedIn(devMade, 'temp make of dev').terminal };
   assert.equal(sessionIn(home, DEV).temporary?.maker, LEAD, `the book has dev as lead's: ${JSON.stringify(sessionIn(home, DEV))}`);

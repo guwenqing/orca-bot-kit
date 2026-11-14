@@ -27,6 +27,7 @@ import { setTimeout } from 'node:timers/promises';
 
 import { cliEntry, sessionTabIds } from '../helpers/cli.js';
 import { tabGuard } from '../helpers/tab-guard.js';
+import { withBotFatherOff } from '../helpers/remote-control-off.js';
 import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
 
@@ -187,7 +188,7 @@ test('Bot Father comes up in the real Orca, and nothing else is touched', async 
   // 1. init: the folder is seeded and Bot Father appears in Orca. This is also
   // where a kit that started the tab with `--command claude` would fail: Orca
   // times out waiting for the handle and the tab never becomes live.
-  const init = obkJson(['init', '--bots', bots, '--harness', 'claude']);
+  const init = obkJson(withBotFatherOff(['init', '--bots', bots, '--harness', 'claude']));
 
   const setups = allSetups().filter((setup) => setup.path === home);
   assert.equal(setups.length, 1, `Orca should hold one workspace for ${home}, got ${JSON.stringify(setups)}`);
