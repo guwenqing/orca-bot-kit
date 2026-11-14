@@ -423,9 +423,10 @@ one applies to both. A cut or a keep reaches a session when it starts again.
 The kit found no way to ask Claude Code which names it knows, so `obk health`
 goes by the records of your fleet's Claude Code sessions. It names a cut that is not
 one of the kit's defaults and is in no record of the fleet, and a kept name
-that the bot's newest record does not hold. A real name with no record yet is
-named too, and a tool that a new Claude Code renamed is not seen while older
-records hold the old name. A `text:` name in a list is accepted, and
+that the bot's newest record does not hold. A bot with no record yet gets no
+finding for a kept name. A real cut name that no record holds yet is named too,
+and a tool that a new Claude Code renamed is not seen while older records hold
+the old name. A `text:` name in a list is accepted, and
 `obk health` says that the kit does not cut units of the main text yet.
 
 Under an Orca Claude account, the kit's line for a Claude session also carries
