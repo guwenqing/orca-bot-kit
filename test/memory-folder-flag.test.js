@@ -232,7 +232,7 @@ function withoutPair(argv) {
 
 /** The arguments of today's line for a session with nothing set: after the pid, the CLI and the harness word. */
 const todaysArgv = (box, name, { bots, bot = BOT } = {}) =>
-  harnessPartOf(bareLaunch(box, 'claude', bot, name, { bots })).split(' ').slice(3);
+  harnessPartOf(bareLaunch(box, 'claude', bot, name, { bots, memory: false })).split(' ').slice(3);
 
 /**
  * The line carries the pair with this value, and nothing else has moved: with
@@ -249,7 +249,7 @@ async function assertCarries(box, line, expected, name, { bots, bot } = {}) {
  * it says nothing today for a folder a user named.
  */
 function assertTodaysLine(box, { result, line }, name, { bots } = {}) {
-  assert.equal(tokenless(line), bareLaunch(box, 'claude', BOT, name, { bots }), 'the launch line is exactly what it is today');
+  assert.equal(tokenless(line), bareLaunch(box, 'claude', BOT, name, { bots, memory: false }), 'the launch line is exactly what it is today');
   const said = `${result.stdout}${result.stderr}`;
   assert.doesNotMatch(said, /autoMemory|selected-host|claude-profiles|memory folder/i, `no message about this, got:\n${said}`);
 }

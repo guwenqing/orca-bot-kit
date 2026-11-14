@@ -61,6 +61,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { realpathSync } from 'node:fs';
 import { access, chmod, constants, lstat, mkdir, mkdtemp, readFile, readdir, readlink, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -1095,6 +1096,33 @@ export const withoutSandbox = (box, text) => [box.root, box.root.replaceAll("'",
 export const CODEX_NETWORK = '-c sandbox_workspace_write.network_access=true';
 
 /**
+ * A bot's memory folder as the kit names it on a Claude launch line (KIT-51,
+ * ADR 0056): `claude-memory` in the real path of the bot folder. On macOS a
+ * temporary folder under /var is /private/var, so the real path is taken.
+ */
+export function memoryFolderOf(bots, bot) {
+  const home = path.resolve(botHomeOf(bots, bot));
+  let real;
+  try {
+    real = realpathSync(home);
+  } catch {
+    real = path.join(realpathSync(path.resolve(bots)), 'bots', bot);
+  }
+  return path.join(real, 'claude-memory');
+}
+
+/**
+ * The two words a Claude launch line carries for the bot's memory folder, as
+ * the harness receives them: `--settings` and a JSON object of the one key
+ * `autoMemoryDirectory`. They come after `-n`, `--model` and `--effort`, and
+ * before the user's extra arguments, a resume and the prompt.
+ */
+export const memoryArgs = (bots, bot) => ['--settings', JSON.stringify({ autoMemoryDirectory: memoryFolderOf(bots, bot) })];
+
+/** `memoryArgs` as the kit types them on the line: each one shell word. */
+export const memoryWords = (bots, bot) => memoryArgs(bots, bot).map(shellWord).join(' ');
+
+/**
  * The launch command a session with nothing set is started with. Every session
  * carries an explicit approval flag (ADR 0015), so a user's global harness
  * defaults cannot leak into a bot, and `auto` is what a session that named no
@@ -1105,13 +1133,17 @@ export const CODEX_NETWORK = '-c sandbox_workspace_write.network_access=true';
  * by default, and a resume through it was seen to fail. In front of all of it, the
  * step that gives the session its mailbox (#317), which names the bot and the
  * session on either harness; `bots` is the sandbox's own folder unless given.
+ * A Claude line ends with the bot's memory folder (`memoryArgs`), as every
+ * Claude line does unless a folder is named by hand or the session carries its
+ * own `--settings`; `memory: false` gives the line without it.
  */
-export function bareLaunch(box, harness, bot, session, { bots } = {}) {
+export function bareLaunch(box, harness, bot, session, { bots, memory = true } = {}) {
   if (bot === undefined || session === undefined) {
     throw new Error('bareLaunch: name the bot and the session; the line\'s mailbox step names them (#317)');
   }
+  const folder = memory ? ` ${memoryWords(bots ?? box.path('bots'), bot)}` : '';
   return launchLine(box, harness === 'claude'
-    ? `claude --permission-mode auto -n ${bot}.${session}.${TOKEN}`
+    ? `claude --permission-mode auto -n ${bot}.${session}.${TOKEN}${folder}`
     : `codex --approve-for-me --no-daemon ${CODEX_NETWORK} ${kitAddDirs(bots ?? box.path('bots'), bot).map(shellWord).join(' ')}`, { bots, bot, session });
 }
 

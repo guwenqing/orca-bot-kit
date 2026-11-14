@@ -38,7 +38,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { createSandbox, fakeProgram, settingValuesOf, typedInto } from './helpers/cli.js';
+import { createSandbox, fakeProgram, memoryArgs, settingValuesOf, typedInto } from './helpers/cli.js';
 import {
   answerIn,
   argvOf,
@@ -75,8 +75,8 @@ test('R1 --role developer:deep takes that option\'s model, effort and context, o
   const argv = await argvOf(box, line, fake);
   assert.deepEqual(
     argv.slice(4, -1),
-    ['--model', 'claude-fable-5-1[1m]', '--effort', 'max', '--'],
-    `the option's settings reach Claude Code, got: ${JSON.stringify(argv)}`,
+    ['--model', 'claude-fable-5-1[1m]', '--effort', 'max', ...memoryArgs(bots, BOT), '--'],
+    `the option's settings reach Claude Code, and then the bot's memory folder, got: ${JSON.stringify(argv)}`,
   );
 });
 
