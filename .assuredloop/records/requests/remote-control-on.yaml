@@ -12,6 +12,10 @@ requirements:
     version: 1
     sha256: 85dab4bcdeeafd3e80048c9a4d6071c9a967547df7d8c1d6e206683d0c9a8e26
     title: Remote Control is on for every Claude Code session, unless the user set it off
+  - id: R1
+    version: 2
+    sha256: 51a56cae4de2d817a4b83b1e3fe9a8939bbe4e9e10de7a5f9c3b19ad2727b5b6
+    title: Remote Control is on for every Claude Code session, unless the user set it off
 signoff: []
 decisions: []
 tasks: []
