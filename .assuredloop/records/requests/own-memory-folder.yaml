@@ -20,7 +20,17 @@ requirements:
     version: 3
     sha256: a3348a9d8ad7406ac12d07d94b427797883e55dc1a9d5945a59d81d0cf7948e9
     title: Each Claude bot gets a memory folder of its own
-signoff: []
+signoff:
+  - id: S1
+    file: 2026-11-14-signoff.md
+    sha256: 89849126d77534246e6f0c8810f7b654dae9dd43c525e0635abc34c5c5f40e82
+    signed: 2026-11-14T19:49Z
+    source: the owner's message in the kit-dev/architect session, 2026-11-14 14:48 EST
+    words: sure then I sign both
+    presented: R1 of own-memory-folder, word for word as on branch 752-own-memory-folder at 47d145b, in the architect's message in that session, after a plain explanation (the folder claude-memory inside the bot folder, out of git by default, no note moved, copied or deleted, the health line). The Assumed and Out lines were given in plain words in part, not word for word. The same message presented R1 to R6 of claude-session-trim; 'both' names these two requests.
+    transcribed_by: kit-dev/architect
+    covers:
+      - { id: R1, version: 3, sha256: a3348a9d8ad7406ac12d07d94b427797883e55dc1a9d5945a59d81d0cf7948e9 }
 decisions: []
 tasks: []
 bindings:
