@@ -71,4 +71,4 @@ The kit's own units are placed: `talk` and `profiles` are `main`; `limits` is `b
 
 Out: the system text of Codex and Pi sessions, which the next issue builds; the fleet's own rule lines, its placements and its cut and keep lists, which Bot Father writes in the bots repo after this ships.
 Assumed: Claude Code leaves a denied tool's text, and a skill that is off, out of the request it sends; it reads only `CLAUDE.md` when `CLAUDE.md` is a file; it takes a system text and an appended text from its launch line; and it records the text a conversation runs on (all checked on 2.1.325; ADR 0055).
-Signed off: 2026-11-14 owner, origin/2026-11-14-signoff.md
+Signed off: 2026-11-14 owner, origin/2026-11-14-signoff-2.md

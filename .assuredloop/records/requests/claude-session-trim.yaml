@@ -100,6 +100,21 @@ signoff:
       - { id: R4, version: 1, sha256: e9d409ca5db377d0be3aa9cd73189a9f84b80301701ea0e790d15e26ebed2714 }
       - { id: R5, version: 6, sha256: ea6130efb649b80513acd6d09c777da47d30746393e8a956315aa2538e852da5 }
       - { id: R6, version: 3, sha256: e78b94d3c7171684751ada27de206a28e419efaa65fae86e4a9efe9a6a6ee48f }
+  - id: S2
+    file: 2026-11-14-signoff-2.md
+    sha256: 029c4fcd3303b56b0db72b7a86085e2e847387070dcc05dc2bfb5cf57b5b17de
+    signed: 2026-11-14T23:21Z
+    source: the owner's message in the kit-dev/architect session, 2026-11-14 18:20 EST
+    words: sign
+    presented: "The signed last sentence of R2 and the text that takes its place (R2 version 5), word for word as on branch slice-767-tool-skill-cuts at f3e0e24, in the architect's message in that session, after a plain explanation with the two limits of the check. The other sentences of R2, and R1 and R3 to R6, were not shown again: they are unchanged since the sign-off of 2026-11-14 14:48 EST"
+    transcribed_by: kit-dev/architect
+    covers:
+      - { id: R1, version: 3, sha256: cdb920ffe44ac1fed43e68099c8338c310a6fe894000069bc593280d1fc262c8 }
+      - { id: R2, version: 5, sha256: 8533fc880af2cdb57dfeaed0dd1ed5a95ddcf08c4ff5376eaf5e02bb1af64fb2 }
+      - { id: R3, version: 1, sha256: e55e9a3e6574b18d1b9233d6d9a7a119b17f5ba837d5ab32c7e75814dd331f12 }
+      - { id: R4, version: 1, sha256: e9d409ca5db377d0be3aa9cd73189a9f84b80301701ea0e790d15e26ebed2714 }
+      - { id: R5, version: 6, sha256: ea6130efb649b80513acd6d09c777da47d30746393e8a956315aa2538e852da5 }
+      - { id: R6, version: 3, sha256: e78b94d3c7171684751ada27de206a28e419efaa65fae86e4a9efe9a6a6ee48f }
 decisions: []
 tasks: []
 bindings:
