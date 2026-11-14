@@ -21,7 +21,7 @@ In all three, the trim of tools and built-in skills is the same switches (sectio
 | Checked fact or measure | X | Y | Z |
 |---|---|---|---|
 | Request size, architect (fence, characters; before: 124,821) | 74,026 | 73,418 | not measured; about Y |
-| Of the saving, from the tool and skill switches | 50.4k of 50.8k | all but Part 1 | as Y |
+| The saving, and where it comes from | 50,795: the switches, less the kit text that X adds | 51,403, all from the switches (the same tool list as X; no Part 1) | about Y |
 | A changed rule reaches a running session | restart, then a compaction or a new conversation | at its next `/clear` or compaction, with no restart, as today | fleet units as Y; kit units as X |
 | The role after a compaction | in the system text | sent again by the hook, once, after a build step (a probe hook, seen for `/compact` and for an automatic compaction) | as Y |
 | Subagents get the rules and the charter | no (Claude Code's subagent text and the brief only) | yes, through `AGENTS.md` | the charter and the fleet units; not the kit units |
@@ -37,7 +37,7 @@ What X gives that Y does not: no checked difference. The rules in the system tex
 
 ### 1. The order of the build
 
-1. The trim of tools and built-in skills. It gives almost all the saving, and needs no record, no recipe of text and no restart rule.
+1. The trim of tools and built-in skills. In the fence it gives all of Y's saving, more than X's, and needs no record, no recipe of text and no restart rule.
 2. The role after a compaction, through the kit's SessionStart hook.
 3. The kit-built Part 1, only if its value earns its machinery (section 4).
 
@@ -59,9 +59,9 @@ What it adds beyond the switches, on the architect's record: the Chrome section 
 
 Its machinery, if built:
 
-- **Whose text ships: none.** Every Claude Code transcript records the system prompt that the conversation runs on, as a list of sections, with the version and the model. The kit reads the newest record of the harness's own text for the version and model from the bot's own transcripts.
+- **Whose text ships: none.** Every Claude Code transcript records the system prompt that the conversation runs on, as a list of sections, with the version and the model. The kit reads the newest record of the harness's own text from the bot's own transcripts, for the same version, model and memory folder. The Memory section names the memory folder, so a record made before a change of that folder (#752) is not used.
 - **The recipe names cuts by hash.** A unit is a whole section of the record or one bullet line in it. The recipe holds the sha256 of each unit it cuts, and no words. A unit that the recipe does not name stays. A test holds that no recipe holds a phrase, and that no safety unit is named.
-- **The text reaches the session** by `--system-prompt-file`, from a file in the kit's prompts folder beside the bots repo, never in the bots repo. The snapshot stays on: it keeps the text through Orca's bare resume (checked). Part 1 changes only with a harness or kit upgrade; it reaches a running session after a restart and the next compaction.
+- **The text reaches the session** by `--system-prompt-file`, from a file in the kit's prompts folder beside the bots repo, never in the bots repo. The snapshot stays on: it keeps the text through Orca's bare resume (checked). Part 1 changes only with a harness or kit upgrade; it reaches a running session after a restart and the next compaction. The fallback reaches a running session the same way: a launch with no text file gets the harness's own text, but a bare resume of a conversation keeps its recorded Part 1 until its next compaction (checked). So a session whose recipe stops applying runs on its old Part 1 until then; the restart and the compaction are one step, and `obk health` names a session that still waits for it.
 - **The version rule.** Seen on this machine: four Claude Code versions in eight days. Candidates: (a) a recipe applies to its exact version only; cost: after each update the fleet runs on the harness's own main text until a kit release. (b) The newest recipe applies to its version and any newer one when every unit it names is found in the record; cost: a new unit of a new version stays in until a kit release, which is the safe direction. Chosen: (b). Any unit not found, no record for the version and model, or no recipe: the session gets the harness's own main text, and `obk health` says why.
 - **Guards for the switches.** A tool name that the version does not have prints a warning, and the session starts (checked). A skill name that it does not have is ignored (checked). `obk health` compares the cut names with the tools of the record and names one that is gone, so a renamed tool is seen.
 
@@ -69,7 +69,8 @@ Its machinery, if built:
 
 - **On at the upgrade, or a user turns it on.** (a) On for every user at the upgrade: smaller requests at once; cost: a tool that a user's bot relies on (a page through Artifact) is gone after an update, and the release notes and `obk up` must say so. (b) A user turns it on for a fleet: no surprise; cost: most users never turn it on. Recommended: (a) for the kit's own default cuts, and (b) for the rest, which is the user's list.
 - **Two owners of the cut list.** A cut that rests on a kit unit, or on a thing that no session in a kit tab can use, is the kit's default: the Artifact tools and DesignSync (the kit's `limits`: publishing gets a yes), `update-config` and `fewer-permission-prompts` (the kit's `limits`: permission rules are the kit's to write), `init` (the kit builds `AGENTS.md`), `keybindings-help` and `plugin-authoring` (the terminal and the hooks are not the session's). A cut that rests on a fleet unit of this user's is the user's: SendFeedback (`mail-check`), the review skills and ReportFindings (`cross-review`; the kit's own `review` unit agrees with Claude Code there), PushNotification (`alert`), plan mode (`self-driven`), and the rest of the judgment's cuts.
-- **One mechanism for the user's list and for each bot.** Candidates: (a) a list in `defaults.yaml` for every bot and in `bot.yaml` for one bot, as `rules` and `skills` are today, with a second list in `bot.yaml` that keeps one that the defaults cut; (b) a rule unit names the cuts that rest on it, in its front matter, so a bot that carries `mail-check` loses SendFeedback; (c) the session's `extra_args` with `--disallowedTools`, which exists today. (c) cannot keep what a default cuts and is written once per session. (b) ties each cut to its reason, but a cut that rests on no unit (a bot with no browser) has no home. Recommended: (a). It answers the per-bot verdicts (a research bot keeps the browser, kit-dev cuts `run`, `claude-code-guide` for some bots). A cut per role (AskUserQuestion only for temporary sessions) would need the same list on a `temp_roles` option; it is left out until the owner asks for it.
+- **One mechanism for the user's list and for each bot.** Candidates: (a) a list in `defaults.yaml` for every bot and in `bot.yaml` for one bot, as `rules` and `skills` are today, with a second list in `bot.yaml` that keeps one that the defaults cut; (b) a rule unit names the cuts that rest on it, in its front matter, so a bot that carries `mail-check` loses SendFeedback; (c) the session's `extra_args` with `--disallowedTools`, which exists today. (c) cannot keep what a default cuts and is written once per session. (b) ties each cut to its reason, but a cut that rests on no unit (a bot with no browser) has no home. Recommended: (a). It answers the per-bot verdicts (a research bot keeps the browser, kit-dev cuts `run`, `claude-code-guide` for some bots). AskUserQuestion follows the same lists: cut for every session by default, and kept by a bot that uses it. A cut per role would need the same list on a `temp_roles` option; it is left out until the owner asks for it.
+- **Use before a cut.** A cut goes on a list only after each bot's calls of the tool or skill in the last 30 days are counted from its transcripts, by names and counts only. A bot that used it keeps it, and its list says so. The counts for this fleet are in the design work, not here.
 - Each of these is a new setting a user can use, so each is the owner's to sign.
 
 ### 6. Codex and Pi
@@ -78,7 +79,7 @@ This decision is for Claude Code only. Y changes nothing in `AGENTS.md`, so Code
 
 ### 7. The memory folder (#752)
 
-With Y the memory section of Claude Code's text stays as it is, so this decision needs nothing from #752. If Part 1 is built, the record comes from the bot's own transcripts, so its memory folder is the bot's own.
+With Y the memory section of Claude Code's text stays as it is, so this decision needs nothing from #752. If Part 1 is built, it depends on #752: a record names the memory folder that its conversation ran with, and today every bot shares one folder. So the record is chosen by version, model and memory folder (section 4), and after #752 changes a bot's folder, the bot runs on the harness's own text until a conversation with the new folder is recorded.
 
 ### 8. The checks that a session still works
 
