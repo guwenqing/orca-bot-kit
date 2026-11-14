@@ -35,4 +35,5 @@ decisions: []
 tasks: []
 bindings:
   - { holder: own-memory-folder/R1, link: from, target: own-memory-folder/2026-11-14-owner-words.md, holder_sha256: b5bc51b28e4c6066025a9912ab73a222d5746e3e837e54838591908e4c09ffe6, target_sha256: dccd5729ad70f1348a9a07f8f11a11762b03e3f65788f9684c4087e0fff4a8b0 }
+  - { holder: KIT-51, link: serves, target: own-memory-folder/R1, holder_sha256: 56e7ccda54d01dc1cf3011e2de34a280112159d262a47b8a4a732a63c3d82371, target_sha256: a3348a9d8ad7406ac12d07d94b427797883e55dc1a9d5945a59d81d0cf7948e9, target_version: 3 }
 dispositions: []
