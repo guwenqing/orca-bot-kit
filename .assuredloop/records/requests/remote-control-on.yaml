@@ -1,0 +1,20 @@
+schema: assuredloop/1
+request: remote-control-on
+tier: "1"
+status: open
+sources:
+  - file: 2026-11-14-owner-words.md
+    kind: owner-words
+    sha256: 16ab70f5445a019f2755fddfcdcc1807d9adfe0cabe3826c14ed4c6880056862
+    taken: 2026-11-14T18:50Z
+requirements:
+  - id: R1
+    version: 1
+    sha256: 85dab4bcdeeafd3e80048c9a4d6071c9a967547df7d8c1d6e206683d0c9a8e26
+    title: Remote Control is on for every Claude Code session, unless the user set it off
+signoff: []
+decisions: []
+tasks: []
+bindings:
+  - { holder: remote-control-on/R1, link: from, target: remote-control-on/2026-11-14-owner-words.md, holder_sha256: 85dab4bcdeeafd3e80048c9a4d6071c9a967547df7d8c1d6e206683d0c9a8e26, target_sha256: 16ab70f5445a019f2755fddfcdcc1807d9adfe0cabe3826c14ed4c6880056862 }
+dispositions: []
