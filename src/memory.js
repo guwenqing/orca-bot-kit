@@ -30,9 +30,9 @@ const INDEX = 'MEMORY.md';
 /**
  * The memory folder for a Claude session of the bot at `home`, read only:
  * `{ folder }` to name; `{ blocked }`, the path, when a file or a link is
- * there, so the kit names none and says so; or `{}` when the bot, its
+ * there, so the session does not start; or `{}` when the bot, its
  * repository or the user names a folder of their own, which is theirs and
- * needs no word. It makes nothing; `madeMemoryFolder` does.
+ * needs no word. It makes nothing; `memoryFolderAtStart` does.
  */
 export function memoryFolderFor(home) {
   let bot;
@@ -65,7 +65,7 @@ export const physicalMemoryFolder = (home) => memoryFolderFor(home).folder;
 /**
  * The memory folder for a Claude session of the bot at `home`, made with its
  * `.gitignore` when nothing is there yet: what `memoryFolderFor` says, or
- * `{ failed, code }` when the kit could not make it, so it names none at this
+ * `{ failed, code }` when the kit could not make it, so the session does not
  * start. A folder that is there is left as it is.
  */
 export function memoryFolderAtStart(home) {
@@ -114,18 +114,20 @@ export function memoryFolderAtStart(home) {
   }
 }
 
-/** The folder to name at a start, made when it is not there yet, or undefined when the kit names none. */
-export const madeMemoryFolder = (home) => memoryFolderAtStart(home).folder;
-
 /**
- * Why a Claude session got no memory folder of its bot's own at this start,
- * in words for the launch report, from what `memoryFolderAtStart` gave; undefined
- * when it got one, or when a folder named by hand is the reason.
+ * Why the kit does not start a Claude session at this start, in words for the
+ * report, from what `memoryFolderAtStart` gave: a file or a link is where the
+ * bot's folder goes, or the kit could not make it. Undefined when the session
+ * may start: it got its folder, or a folder named by hand is the reason it got
+ * none. Without its own folder, a session writes its notes to the folder that
+ * the bots shared, and R1 lets the kit name no folder only for the user's own
+ * choice (#752, ADR 0056).
  */
-export function noMemoryFolderWhy(made) {
-  const after = "This session's notes go to the folder that the bots shared until the kit starts it again with a folder.";
-  if (made.blocked !== undefined) return `${made.blocked} is a file or a link, not a folder, so the kit names none. ${after}`;
-  if (made.failed !== undefined) return `the kit could not make ${made.failed} with its .gitignore (${made.code ?? 'unknown error'}), so it names none at this start. ${after}`;
+export function memoryRefusal(made) {
+  const why = 'Without its bot\'s own memory folder, a Claude Code session writes its notes to the folder that the bots shared.';
+  const own = 'or name a memory folder of your own with autoMemoryDirectory, then start it again.';
+  if (made.blocked !== undefined) return `${made.blocked} is a file or a link, not a folder. ${why} Remove the file or the link, ${own}`;
+  if (made.failed !== undefined) return `the kit could not make ${made.failed} with its .gitignore (${made.code ?? 'unknown error'}). ${why} Repair the folder, ${own}`;
   return undefined;
 }
 

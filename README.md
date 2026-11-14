@@ -419,13 +419,20 @@ there. A `claude-memory/` folder that you made yourself gets no `.gitignore`
 from the kit.
 
 A bot, its repository or your user-level settings that name their own
-`autoMemoryDirectory` keep it, and the kit then makes no folder. So does a
-`claude-memory` in the bot folder that is a file or a link; the launch report
-and `obk health` name it. When the kit cannot make the folder with its
-`.gitignore`, it names none for that start, leaves nothing behind, says so in
-the launch report, and tries again at the next start. In both cases the
-session's notes go to the folder that the bots shared until the kit starts it
-again with a folder. A conversation that
+`autoMemoryDirectory` keep it, and the kit then makes no folder.
+
+The kit does not start a Claude session without its bot's folder, because its
+notes would then go to the folder that the bots shared. When a file or a link
+is at `claude-memory` in the bot folder, or the kit cannot make the folder with
+its `.gitignore`, `obk up`, `obk restart`, `obk unpause`, `obk temp make` and
+`obk init` leave that session closed. The report has a `refused` line that
+says why and what to do, and the command exits with 1. The bot's other
+sessions and your other bots start as usual. A session that `obk restart`
+refuses keeps its tab. After a failed creation, the kit leaves nothing behind
+and tries again at the next start. `obk health` names a file or a link at that
+path before you start.
+
+A conversation that
 began before this keeps its old folder until the session restarts under this
 version and then begins a new conversation with `/clear`. A restart alone or a
 `/clear` alone does not change the folder. After Orca brings a tab back by

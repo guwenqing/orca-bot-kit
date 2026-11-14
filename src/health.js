@@ -235,15 +235,16 @@ function ownSettings(home, bot) {
 }
 
 /**
- * A file or a link where the kit would make this bot's memory folder, so its
- * Claude sessions get none and their notes go to the folder that the bots
- * shared (#752). Never silent; the kit touches neither.
+ * A file or a link where the kit would make this bot's memory folder, so the
+ * kit does not start its Claude sessions: without the folder, their notes go
+ * to the folder that the bots shared (#752). Said before the next start; the
+ * kit touches neither.
  */
 function memoryFolderBlocked(home, bot) {
   const named = bot.sessions.some((session) => harnessOf(session, bot.harness) === 'claude' && !setsSettings(session));
   const { blocked } = named ? memoryFolderFor(home) : {};
   if (blocked === undefined) return [];
-  return [finding('config', blocked, `${bot.name}'s Claude sessions get no memory folder of their own: ${blocked} is a file or a link, not a folder, so the kit names none, and their notes go to the folder that the bots shared. Move it aside, and the next start of a session makes the folder.`, bot.name)];
+  return [finding('config', blocked, `${bot.name}'s Claude sessions have no memory folder of their own: ${blocked} is a file or a link, not a folder, so the kit does not start them. Without the folder, their notes go to the folder that the bots shared. Move it aside, and the next start of a session makes the folder.`, bot.name)];
 }
 
 /**

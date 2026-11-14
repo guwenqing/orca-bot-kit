@@ -517,7 +517,8 @@ async function run(argv) {
   process.stdout.write(values.json ? `${JSON.stringify(answer, null, 2)}\n` : `${lines.join('\n')}\n`);
   // A session whose tab was opened and not launched is a command that stopped
   // short, whichever command opened it (#498).
-  return answer?.tabs?.some((tab) => tab.launched === false) ? 1 : code;
+  // A session the kit did not start (#752) fails the run as well.
+  return answer?.tabs?.some((tab) => tab.launched === false) || answer?.refused?.length > 0 ? 1 : code;
 }
 
 /**
@@ -636,19 +637,19 @@ const commands = {
     const seeded = initBots(bots, values.harness);
     // The typed path was for making the folder and naming it in a refusal; from
     // here on it is the fleet, and the fleet is its real path (#164).
-    const { tabs, rules, skills, permissions, paused, projects } = await bringUp(sameFleet(seeded.bots), { bot: BOT_FATHER });
+    const { tabs, refused, rules, skills, permissions, paused, projects } = await bringUp(sameFleet(seeded.bots), { bot: BOT_FATHER });
     // Setup is the other place the PRD asks for Orca's own launch arguments to
     // be looked at (6.5), and the one where the user is still standing in front
     // of the fleet they are making. Only that one check: a folder init has just
     // made has nothing else to say about itself.
-    const answer = { bots: seeded.bots, created: seeded.created, completed: seeded.completed, rules, skills, permissions, tabs, paused, projects, found: orcaSettingFindings() };
+    const answer = { bots: seeded.bots, created: seeded.created, completed: seeded.completed, rules, skills, permissions, tabs, refused, paused, projects, found: orcaSettingFindings() };
     return { answer, lines: tabLines(answer, `Bot Father is up in Orca. Your bots folder: ${seeded.bots}`) };
   },
 
   async up(bots, values) {
     refuseWhenOrcaIsDown();
-    const { tabs, rules, skills, permissions, paused, projects } = await bringUp(bots, { bot: values.bot, session: values.session });
-    const answer = { bots, created: [], completed: [], rules, skills, permissions, tabs, paused, projects };
+    const { tabs, refused, rules, skills, permissions, paused, projects } = await bringUp(bots, { bot: values.bot, session: values.session });
+    const answer = { bots, created: [], completed: [], rules, skills, permissions, tabs, refused, paused, projects };
     const up = [...new Set(tabs.map((tab) => tab.bot))];
     const summary = up.length === 0
       ? `Nothing was brought up in Orca. Your bots folder: ${bots}`
@@ -676,8 +677,8 @@ const commands = {
 
   async restart(bots, values) {
     refuseWhenOrcaIsDown();
-    const { closed, tabs, rules, skills, permissions, paused, projects } = await restartSessions(bots, { bot: values.bot, session: values.session });
-    const answer = { bots, created: [], completed: [], rules, skills, permissions, tabs, paused, projects, closed };
+    const { closed, tabs, refused, rules, skills, permissions, paused, projects } = await restartSessions(bots, { bot: values.bot, session: values.session });
+    const answer = { bots, created: [], completed: [], rules, skills, permissions, tabs, refused, paused, projects, closed };
     const what = values.session === undefined ? values.bot : `${values.bot} ${values.session}`;
     return {
       answer,
@@ -771,10 +772,10 @@ const commands = {
     if (values.context !== undefined) given.context = asNumberOrText(values.context);
     if (values['extra-arg'] !== undefined) given.extra_args = values['extra-arg'];
     const made = await makeTemp(bots, { tab, ...given });
-    const { tabs, rules, skills, permissions, paused, projects } = made.up;
+    const { tabs, refused, rules, skills, permissions, paused, projects } = made.up;
     const answer = {
       bots, bot: made.bot, session: made.session, maker: made.maker, ...(made.role === undefined ? {} : { role: made.role }), settings: made.settings, chosen: made.chosen,
-      created: [], completed: [], rules, skills, permissions, tabs, paused, projects,
+      created: [], completed: [], rules, skills, permissions, tabs, refused, paused, projects,
     };
     const retire = `${shellWord(ownCli())} temp retire --bots ${shellWord(bots)} --name ${made.session}`;
     return {
@@ -782,9 +783,11 @@ const commands = {
       lines: [
         ...(made.role === undefined ? [] : [`role       ${made.role.name}:${made.role.option}${made.role.for === undefined ? '' : `, for ${made.role.for}`}. Its options: ${optionsLine(made.role.options)}`]),
         ...Object.entries(made.chosen).map(([setting, one]) => `${setting.padEnd(9)}  ${one.value === undefined ? `the ${one.from}` : `${one.value}, from ${one.from === 'flag' ? `--${setting}` : `the ${one.from}`}`}`),
-        ...tabLines(answer, tabs.some((one) => one.launched === false)
-          ? `${made.bot}/${made.session}, a temporary session of ${made.maker}'s, is in bot.yaml and the book, and was not launched. Restart it once its tab is ready, or retire it:  ${retire}`
-          : `Made ${made.bot}/${made.session}, a temporary session of ${made.maker}'s, working in work/${made.session}. Retire it when its work is done:  ${retire}`),
+        ...tabLines(answer, refused.length > 0
+          ? `${made.bot}/${made.session}, a temporary session of ${made.maker}'s, is in bot.yaml and the book, and was not started. Start it once its memory folder is right:  ${shellWord(ownCli())} up --bots ${shellWord(bots)} --bot ${made.bot} --session ${made.session}  or retire it:  ${retire}`
+          : tabs.some((one) => one.launched === false)
+            ? `${made.bot}/${made.session}, a temporary session of ${made.maker}'s, is in bot.yaml and the book, and was not launched. Restart it once its tab is ready, or retire it:  ${retire}`
+            : `Made ${made.bot}/${made.session}, a temporary session of ${made.maker}'s, working in work/${made.session}. Retire it when its work is done:  ${retire}`),
       ],
     };
   },
@@ -1938,7 +1941,7 @@ function settingsLine({ bot, session, running, settings, rules }) {
   return `${word.padEnd(9)}  ${who}  ${each.join('  ')}  rules ${rules.state}`;
 }
 
-function tabLines({ bots, created, completed, rules, skills, permissions = [], tabs, paused = [], projects = [], found = [] }, summary, closedBy = 'restart') {
+function tabLines({ bots, created, completed, rules, skills, permissions = [], tabs, refused = [], paused = [], projects = [], found = [] }, summary, closedBy = 'restart') {
   const lines = [
     ...created.map((entry) => `created    ${entry}`),
     ...completed.map((entry) => `completed  ${entry}`),
@@ -1953,13 +1956,13 @@ function tabLines({ bots, created, completed, rules, skills, permissions = [], t
     if (tab.noMailbox) {
       lines.push(`             it has no mailbox: ${noMailboxYet({ bots, bot: tab.bot, session: tab.name })}`);
     }
-    if (tab.noMemoryFolder !== undefined) {
-      lines.push(`             no memory folder of its bot's own: ${tab.noMemoryFolder}`);
-    }
     if (tab.lost !== undefined) {
       lines.push(`             its own --settings in bot.yaml replaces the kit's, so it runs without: ${tab.lost.join(', ')}`);
     }
   }
+  // A Claude session the kit did not start, because it could not give it its
+  // bot's own memory folder (#752).
+  for (const one of refused) lines.push(`${'refused'.padEnd(9)}  ${one.bot} ${one.session}  not started: ${one.why}`);
   for (const one of paused) {
     const what = one.session === undefined ? one.bot : `${one.bot} ${one.session}`;
     const back = one.session === undefined ? '' : ` --session ${one.session}`;
