@@ -200,6 +200,29 @@ test('the call carries --full and --json, and the terminal and limit it was give
   assert.equal(orcaFlag(call, '--limit'), '7');
 });
 
+// A whole-machine list with --full carries every body in full, and Orca puts
+// no cap on a body (docs/tech-notes.md, #630). Node's spawnSync takes at most
+// 1 MB of stdout unless told otherwise, and then fails ENOBUFS. The kit's own
+// read takes the answer whatever its size (src/orca.js, `whole: true`).
+test('an answer well above 1 MB comes back as the whole list, each body whole: 100 letters of 12,000 characters', async (t) => {
+  const letters = Array.from({ length: 100 }, (_, n) => letter({
+    read: n % 2,
+    body: `letter ${n} `.padEnd(12_000, String.fromCharCode(97 + (n % 26))),
+  }));
+  assert.ok(letters.every((one) => one.body.length === 12_000), 'the premise: each body is 12,000 characters');
+  assert.ok(JSON.stringify(letters).length > 1.1 * 1024 * 1024, 'the premise: the answer is well above 1 MB');
+  const box = await orcaWith(t, '1.4.255', letters);
+
+  let answered;
+  assert.doesNotThrow(() => {
+    answered = inboxLetters(box.orca.cli, { terminal: `run:${RUN}`, limit: 100, env: box.env });
+  }, 'a large answer is read whole, not refused');
+
+  assert.equal(answered.length, 100, 'every letter comes back');
+  assert.ok(answered.every((one) => one.body.length === 12_000), 'each body comes back whole');
+  assert.deepEqual(answered, [...letters].reverse(), 'every letter, every column, newest first');
+});
+
 test('the limit reaches Orca: of three letters, a limit of 2 answers the two newest', async (t) => {
   const [oldest, middle, newest] = [letter(), letter({ read: 1 }), letter()];
   const box = await orcaWith(t, '1.4.255', [oldest, middle, newest]);

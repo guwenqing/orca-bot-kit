@@ -37,10 +37,16 @@ export function inboxLetters(cli, { terminal, limit, env = process.env } = {}) {
   return messages;
 }
 
-/** One inbox call, as Orca's JSON answer. Fails, printing none of the output, when there is no JSON. */
+/**
+ * One inbox call, as Orca's JSON answer. Fails, printing none of the output,
+ * when there is no JSON. The answer is taken whatever its size, as the kit's
+ * `whole` read takes it (src/orca.js): with `--full` each body comes whole, so
+ * a list of the whole machine can pass spawnSync's 1 MB default (review of
+ * PR #749).
+ */
 function ask(cli, args, env) {
   const asked = `orca ${args.join(' ')} --json`;
-  const done = spawnSync(cli, [...args, '--json'], { encoding: 'utf8', env });
+  const done = spawnSync(cli, [...args, '--json'], { encoding: 'utf8', env, maxBuffer: Infinity });
   if (done.error !== undefined) assert.fail(`could not run ${asked}: ${done.error.code}`);
   try {
     return JSON.parse(done.stdout);
