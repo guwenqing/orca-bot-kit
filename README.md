@@ -452,7 +452,9 @@ So: kill a tab, or reboot, and `obk up` brings the session back with the
 conversation it was having, rather than starting a new one. Clear a session —
 `/clear` on Claude Code, `/new` on Codex — and the kit writes down the new id,
 keeps the old one, and gives the session its start prompt again, because that
-prompt is what tells one session's duty from another's.
+prompt is what tells one session's duty from another's. A compaction of a
+Claude Code session keeps its id, but the start prompt drops out of the
+context, so the kit gives the prompt again after a compaction too, once.
 
 Ask the kit to clear or compact a session, rather than typing into its tab:
 

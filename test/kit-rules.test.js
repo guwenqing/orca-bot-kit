@@ -29,17 +29,27 @@ const NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/;
  * this is a technique, and a technique belongs in a skill. It holds for every
  * unit, the applies: code ones included, which a new bot does not carry and the
  * size guard below therefore never sees.
+ *
+ * It was 12. It is 18 because of the six rule lines of request
+ * claude-session-trim, R4, signed on 2026-11-14: they took the limits and mail
+ * units past 12, and every bot must carry them word for word.
  */
-const MAX_BODY_LINES = 12;
+const MAX_BODY_LINES = 18;
 const MAX_LINE = 100;
 
 /** All Codex reads of an instructions file (tech notes, section 3). */
 const CODEX_CAP = 32 * 1024;
 
 /**
- * What the kit's own contribution to a bot's instructions may take: a quarter
- * of the file a Codex session will read, leaving the other three quarters for
- * the charter its owner writes and the units they add.
+ * What the kit's own contribution to a bot's instructions may take: 9 KiB of
+ * the 32 KiB a Codex session will read, leaving the rest for the charter its
+ * owner writes and the units they add.
+ *
+ * It was a quarter of that file, 8 KiB. It is 9 KiB because of the six rule
+ * lines of request claude-session-trim, R4, signed on 2026-11-14, which every
+ * bot must carry word for word and which took a new bot's file past 8 KiB. The
+ * extra KiB is deliberate: it gives back about the room the file had under its
+ * ceiling before R4.
  *
  * This is a ceiling with room in it and not a ratchet at today's total, and the
  * room is deliberate. The number it replaced counted the bodies in rules/,
@@ -47,7 +57,7 @@ const CODEX_CAP = 32 * 1024;
  * inside it was no answer to whether every bot should carry a rule for ever —
  * and it was read as one anyway, twice in two slices (issue #140). A number
  * that measures the real file cannot be read that way: nobody concludes that a
- * rule earns its place on every turn from a file being under 8 KiB. That
+ * rule earns its place on every turn from a file being under 9 KiB. That
  * question is settled where the unit is written and reviewed. What a test can
  * catch is the kit crowding a bot's owner out of their own instructions file,
  * and that is what this catches.
@@ -57,7 +67,7 @@ const CODEX_CAP = 32 * 1024;
  * implementer's to word, and a ratchet here would make rewording them a failing
  * test in someone else's subject.
  */
-const KIT_SHARE = CODEX_CAP / 4;
+const KIT_SHARE = 9 * 1024;
 
 /** Everything in rules/, whatever it is: the shape test needs to see the strays too. */
 async function entries() {
