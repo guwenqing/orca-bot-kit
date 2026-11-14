@@ -15,7 +15,7 @@ paragraphs:
     display: SP-3 (1, The trim)
   - id: SP-4
     kind: rule
-    text_sha256: 6e066041a3863956f0a576984c4688fbbe49dd3e2171aa60539ccf19438ab75e
+    text_sha256: 2562f5e06f13684f4f068ed93635025dad37df23861314d36047bdf7f5a4af9c
     display: SP-4 (1:1, in The trim)
   - id: SP-5
     kind: approach

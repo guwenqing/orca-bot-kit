@@ -20,7 +20,7 @@ The kit MUST keep these tools and built-in skills of Claude Code out of every Cl
 - the tools `Artifact`, `ArtifactComments`, `ArtifactData` and `DesignSync`;
 - the skills `artifact-design`, `artifact-diagramming`, `artifact-capabilities`, `update-config`, `fewer-permission-prompts`, `init`, `keybindings-help` and `plugin-authoring`.
 
-A user MAY keep any of them for one bot, by its name in that bot's `claude_keep` list in `bot.yaml`. `obk up` MUST say, once, what the upgrade cuts and how to keep one.
+A user MAY keep any of them for one bot, by its name in that bot's `claude_keep` list in `bot.yaml`. The kit MUST say, once, at the first command that starts a Claude Code session after the upgrade, what the upgrade cuts and how to keep one.
 
 <!-- R2 from:2026-11-14-owner-words.md -->
 
