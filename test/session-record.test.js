@@ -319,7 +319,7 @@ test('a session with nothing to say is told nothing when it comes back new', asy
   assert.equal((await sessionIn(bots, 'api-bot', 'daily')).session, 'sess-2', 'the id was still written down');
 });
 
-for (const source of ['startup', 'resume', 'compact']) {
+for (const source of ['startup', 'resume']) {
   test(`the first id a session reports, on ${source}, is told nothing`, async (t) => {
     // The session `up` just started already has its duty: it went in on the
     // launch line, as the harness's own prompt argument. Handing it over again

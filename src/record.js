@@ -34,11 +34,21 @@ export { SHELL_ENV };
 const CLEARED = 'clear';
 
 /**
+ * What Claude Code calls a session it compacted. A compaction keeps the
+ * conversation and its id, but the first message, which carried the start
+ * prompt, is gone from the context, and the summary holds only the model's own
+ * account of it (tech notes, section 2). The hook fires once for it, so the
+ * prompt handed back is in the context once (claude-session-trim R3, ADR 0055).
+ */
+const COMPACTED = 'compact';
+
+/**
  * Write down the session a harness reports, and answer with what the harness is
  * to read back, or undefined when there is nothing to say to it.
  *
  * A cleared session is told its duty again, because the start prompt is the
- * only thing that tells one session of a bot from another (PRD 6.4). A session
+ * only thing that tells one session of a bot from another (PRD 6.4). So is a
+ * compacted one, which keeps its id but no longer holds the prompt. A session
  * that started or resumed has already been told, on the line that launched it.
  *
  * Two things say a session was cleared, and either is enough.
@@ -97,7 +107,7 @@ export async function recordSession(bots, name, said, tabId, shellPid) {
     const [session, was] = found;
     // The harness's own word for it, or — for the harness that has no word — an
     // id that is not the one this tab had, which is the same thing said twice.
-    cleared = said.source === CLEARED || (was.session !== undefined && was.session !== id);
+    cleared = said.source === CLEARED || said.source === COMPACTED || (was.session !== undefined && was.session !== id);
     // A first report with something unclaimed beside it is the third case: the
     // kit cannot tell whether this conversation is the one the launch line spoke
     // to or a later one, and a session left without its duty is the failure this
