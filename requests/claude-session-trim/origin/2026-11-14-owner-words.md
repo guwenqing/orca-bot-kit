@@ -1,9 +1,7 @@
 Source: standard input
-Fetched: 2026-11-14T18:33Z
-SHA-256: c9e64cfdd77497560673eff868629cd22a9119473b6744528aefccdf41c4b5d3
+Fetched: 2026-11-14T18:34Z
+SHA-256: 39f8813beffd09db220929966ff841eeee15b3b2924b3be052141e780667e48f
 ---
-[Snapshot of the text of issue #751 (https://github.com/guwenqing/orca-bot-kit/issues/751) as it stood on 2026-11-14. Three short quotations of Claude Code's own text are replaced by a description in square brackets, by the issue's own boundary: no Claude Code text in this repo.]
-
 ## What happens
 
 A Claude Code session of the kit runs on Claude Code's own system prompt and on its full tool list. The kit puts its own text beside that: AGENTS.md, the start prompt and the permission rules. The kit's launch line passes none of Claude Code's flags for the system prompt or for the tool list (`src/launch.js`).
@@ -16,9 +14,9 @@ Four models reviewed the requests of two architect sessions of one fleet on 2026
   - the harness's feedback tool, which the rules forbid;
   - built-in skills that edit `settings.json` by hand, where permission rules are the kit's to write;
   - built-in review routes through a subagent, where the rules ask for a review by another company's model;
-  - [a sentence of SendMessage's text on how messages arrive; quotation left out] for SendMessage, where the kit has a mailbox and `obk message check`;
-  - [a sentence of the Bash tool's text on git branches; quotation left out], where a bots repo is shared on main;
-  - after a compaction, [the harness's own instruction for the next turn; quotation left out], and the role prompt is not given again.
+  - the SendMessage text, which says that a session has no inbox to check, where the kit has a mailbox and `obk message check`;
+  - a tool text that tells a session to make a branch before it commits on the default branch, where a bots repo is shared on main;
+  - after a compaction, an instruction to go on with no more questions to the user, and the role prompt is not given again.
 - Text for tools that the session does not have, for example a browser section in a session with no browser tool.
 
 What I checked: Claude Code 2.1.325 has `--system-prompt`, `--append-system-prompt`, `--tools`, `--disallowedTools`, `--strict-mcp-config`, `--disable-slash-commands`, `--exclude-dynamic-system-prompt-sections` and `--system-prompt-snapshot` (`claude --help`). Not checked: what each of them does to an interactive session in a tab.
@@ -74,4 +72,5 @@ A design, and no change to the kit's core. It delivers:
 Filed by kit-dev/architect.
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
 

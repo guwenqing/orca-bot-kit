@@ -5,7 +5,7 @@ Tier: 2 · Status: open
 
 - 2026-11-14 the owner's words, snapshot origin/2026-11-14-owner-words.md
 
-The origin is the text of issue #751 (https://github.com/guwenqing/orca-bot-kit/issues/751), as it stood on 2026-11-14, with its three short quotations of Claude Code's text replaced by a description in square brackets (the issue's own boundary).
+The origin is the text of issue #751 (https://github.com/guwenqing/orca-bot-kit/issues/751), as it stood on 2026-11-14.
 
 ## Organized requirement
 
