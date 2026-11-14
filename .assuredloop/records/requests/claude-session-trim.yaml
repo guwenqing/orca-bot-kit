@@ -76,6 +76,10 @@ requirements:
     version: 3
     sha256: f8d77049d155aea661c40e2449e25cb2ab8095c42a52f27663db1e5ff638c924
     title: The user's cut lists
+  - id: R2
+    version: 4
+    sha256: b685f16b5dbc064e23cb307c7a0f54b120f68aa65fa916dc63117c67b76cb370
+    title: The user's cut lists
 signoff:
   - id: S1
     file: 2026-11-14-signoff.md
@@ -95,10 +99,10 @@ signoff:
 decisions: []
 tasks: []
 bindings:
-  - { holder: claude-session-trim/SP-4, link: serves, target: claude-session-trim/R1, holder_sha256: 165c08cdb65e96b163d5827a44bf4ba86c24c37a45b5b03168855c80bccfbb76, target_sha256: cdb920ffe44ac1fed43e68099c8338c310a6fe894000069bc593280d1fc262c8, target_version: 3 }
-  - { holder: claude-session-trim/SP-4, link: serves, target: claude-session-trim/R2, holder_sha256: 165c08cdb65e96b163d5827a44bf4ba86c24c37a45b5b03168855c80bccfbb76, target_sha256: f8d77049d155aea661c40e2449e25cb2ab8095c42a52f27663db1e5ff638c924, target_version: 3 }
-  - { holder: claude-session-trim/SP-4, link: builds-on, target: KIT-26, holder_sha256: 165c08cdb65e96b163d5827a44bf4ba86c24c37a45b5b03168855c80bccfbb76, target_sha256: a5809b95bc69d9e2885558147b942979be71bdc2d6a8387cd2e57737fa21f42e }
-  - { holder: claude-session-trim/SP-5, link: builds-on, target: claude-session-trim/SP-4, holder_sha256: e7f07a3e85249174aa51fb46e77132ebc0d80b12636472c166657560c5161e65, target_sha256: 165c08cdb65e96b163d5827a44bf4ba86c24c37a45b5b03168855c80bccfbb76 }
+  - { holder: claude-session-trim/SP-4, link: serves, target: claude-session-trim/R1, holder_sha256: e5869ca8256be2a009395d19f9242378e181b4c85737ac3c2ae8d9af956ef429, target_sha256: cdb920ffe44ac1fed43e68099c8338c310a6fe894000069bc593280d1fc262c8, target_version: 3 }
+  - { holder: claude-session-trim/SP-4, link: serves, target: claude-session-trim/R2, holder_sha256: e5869ca8256be2a009395d19f9242378e181b4c85737ac3c2ae8d9af956ef429, target_sha256: b685f16b5dbc064e23cb307c7a0f54b120f68aa65fa916dc63117c67b76cb370, target_version: 4 }
+  - { holder: claude-session-trim/SP-4, link: builds-on, target: KIT-26, holder_sha256: e5869ca8256be2a009395d19f9242378e181b4c85737ac3c2ae8d9af956ef429, target_sha256: a5809b95bc69d9e2885558147b942979be71bdc2d6a8387cd2e57737fa21f42e }
+  - { holder: claude-session-trim/SP-5, link: builds-on, target: claude-session-trim/SP-4, holder_sha256: e7f07a3e85249174aa51fb46e77132ebc0d80b12636472c166657560c5161e65, target_sha256: e5869ca8256be2a009395d19f9242378e181b4c85737ac3c2ae8d9af956ef429 }
   - { holder: claude-session-trim/SP-7, link: serves, target: claude-session-trim/R3, holder_sha256: 3a984d7778d27d36ba1ae28292515524dadf8867f3847870c3a2d1c767c3ec0d, target_sha256: e55e9a3e6574b18d1b9233d6d9a7a119b17f5ba837d5ab32c7e75814dd331f12, target_version: 1 }
   - { holder: claude-session-trim/SP-7, link: builds-on, target: KIT-26, holder_sha256: 3a984d7778d27d36ba1ae28292515524dadf8867f3847870c3a2d1c767c3ec0d, target_sha256: a5809b95bc69d9e2885558147b942979be71bdc2d6a8387cd2e57737fa21f42e }
   - { holder: claude-session-trim/SP-8, link: builds-on, target: claude-session-trim/SP-7, holder_sha256: 6648e361dd09e563320e73ce2a9c8bfdc908291763c338e4c568cb9d739c0812, target_sha256: 3a984d7778d27d36ba1ae28292515524dadf8867f3847870c3a2d1c767c3ec0d }

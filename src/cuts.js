@@ -10,9 +10,9 @@
 // each name that a list cuts, and takes the kit's entry out for each name the
 // bot keeps. Every other entry of the file stays as the user wrote it.
 //
-// Claude Code gives no list of the tools and skills that it knows, so health
-// goes by the fleet's own Claude Code records: each conversation lists the
-// tools and skills that it had in its first lines.
+// The kit found no way to ask Claude Code which tools and skills it knows, so
+// health goes by the fleet's own Claude Code records: each conversation's
+// record lists the tools and skills that it had.
 
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
@@ -52,8 +52,8 @@ const TOGETHER = ['Workflow', 'workflow-authoring'];
 const isTool = (name) => /^[A-Z]/.test(name) || name.startsWith('mcp__');
 const isText = (name) => name.startsWith(TEXT);
 
-/** How many lines of a conversation are read for its names: they come first. */
-const OPENING_LINES = 400;
+/** The kinds of record line that list names, looked for before a line is parsed. */
+const LISTING = ['"skill_listing"', '"deferred_tools_delta"', '"api-request-shape"'];
 
 /** The bot's own Claude Code settings, beside its hook. */
 const SETTINGS = '.claude/settings.json';
@@ -172,23 +172,23 @@ export function cutsTrouble(bots, home, bot) {
 
   // Names against the records.
   if (cuts.added.length > 0) {
-    const seen = fleetNames(bots);
+    const seen = fleetNames(bots, cuts.added);
     for (const name of cuts.added.filter((one) => !seen.has(one))) {
       found.push({
         where: path.join(home, 'bot.yaml'),
-        says: `${bot.name} cuts ${name}, which is not seen in any Claude Code record of this fleet. Check the name: Claude Code gives no list of the names that it knows.`,
+        says: `${bot.name} cuts ${name}, which is not seen in any Claude Code record of this fleet. Check the name: the kit found no way to ask Claude Code which names it knows.`,
       });
     }
   }
   if (cuts.kept.length > 0) {
     const newest = transcriptsIn('claude', home).filter((one) => !one.subagent).at(-1);
     if (newest !== undefined) {
-      const held = namesOf(newest.file);
+      const held = namesOf(newest.file, cuts.kept);
       const before = settingsWrittenAfter(file, newest.at);
       for (const name of cuts.kept.filter((one) => !held.has(one))) {
         found.push({
           where: path.join(home, 'bot.yaml'),
-          says: `${bot.name} keeps ${name}, which is not in the newest Claude Code record of ${bot.name}.${before ? ' That record is older than the bot\'s settings: start the session again, then look again.' : ' Check the name: Claude Code gives no list of the names that it knows.'}`,
+          says: `${bot.name} keeps ${name}, which is not in the newest Claude Code record of ${bot.name}.${before ? ' That record is older than the bot\'s settings: start the session again, then look again.' : ' Check the name: the kit found no way to ask Claude Code which names it knows.'}`,
         });
       }
     }
@@ -205,10 +205,15 @@ function settingsWrittenAfter(file, at) {
   }
 }
 
-/** Every tool and skill name the Claude Code records of every bot of the fleet hold. */
-function fleetNames(bots) {
+/**
+ * The names of `wanted` that the Claude Code records of every bot of the fleet
+ * hold. Each record is read whole, and the reading stops once every name is
+ * seen: a fleet's records ran to 7 GB on this machine.
+ */
+function fleetNames(bots, wanted) {
   const seen = new Set();
   for (const name of botNames(bots)) {
+    if (wanted.every((one) => seen.has(one))) break;
     let home;
     try {
       home = botDir(bots, name);
@@ -217,29 +222,31 @@ function fleetNames(bots) {
       continue;
     }
     for (const one of transcriptsIn('claude', home)) {
-      for (const held of namesOf(one.file)) seen.add(held);
+      if (wanted.every((want) => seen.has(want))) break;
+      for (const held of namesOf(one.file, wanted.filter((want) => !seen.has(want)))) seen.add(held);
     }
   }
   return seen;
 }
 
-/** The tool and skill names in the first lines of one conversation's record. */
-function namesOf(file) {
+/**
+ * The names of `wanted` that one conversation's record lists, anywhere in it.
+ * The reading stops once every name is found.
+ */
+function namesOf(file, wanted) {
   const names = new Set();
-  let count = 0;
+  if (wanted.length === 0) return names;
   try {
     eachLine(file, (line) => {
-      count += 1;
-      if (line !== undefined) {
-        let record;
-        try {
-          record = JSON.parse(line);
-        } catch {
-          record = undefined;
-        }
-        for (const name of listed(record)) names.add(name);
+      if (line === undefined || !LISTING.some((kind) => line.includes(kind))) return false;
+      let record;
+      try {
+        record = JSON.parse(line);
+      } catch {
+        return false;
       }
-      return count >= OPENING_LINES;
+      for (const name of listed(record)) if (wanted.includes(name)) names.add(name);
+      return wanted.every((want) => names.has(want));
     });
   } catch {
     // An unreadable record shows no names.

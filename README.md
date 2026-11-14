@@ -420,8 +420,8 @@ file. Taking a name out of a `claude_cut` list does not give it back; keep it
 instead. `Workflow` and `workflow-authoring` go together: a cut or a keep of
 one applies to both. A cut or a keep reaches a session when it starts again.
 
-Claude Code gives no list of the names that it knows, so `obk health` goes by
-the records of your fleet's Claude Code sessions. It names a cut that is not
+The kit found no way to ask Claude Code which names it knows, so `obk health`
+goes by the records of your fleet's Claude Code sessions. It names a cut that is not
 one of the kit's defaults and is in no record of the fleet, and a kept name
 that the bot's newest record does not hold. A real name with no record yet is
 named too, and a tool that a new Claude Code renamed is not seen while older

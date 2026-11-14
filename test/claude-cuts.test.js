@@ -197,11 +197,16 @@ async function filesNaming(bots, bot, needles) {
  * The first line carries the start time. The lines after it carry the names:
  * `skills` in a skill listing, `deferred` in a deferred tools delta, and
  * `shaped` in a request shape. Field names and name lists only.
+ *
+ * `pad` puts that many plain filler lines between the first line and the
+ * names, so the names sit deep in the record: a name anywhere in a record
+ * counts, not only in its first lines (the review of #767).
  */
-async function claudeRecord(box, bots, bot, { id, at, skills = [], deferred = [], shaped = [] }) {
+async function claudeRecord(box, bots, bot, { id, at, skills = [], deferred = [], shaped = [], pad = 0 }) {
   const home = await realpath(botHomeOf(bots, bot));
   const file = path.join(box.home, '.claude', 'projects', home.replaceAll(/[^A-Za-z0-9]/g, '-'), `${id}.jsonl`);
   const lines = [{ type: 'user', timestamp: at.toISOString(), message: { content: 'x' } }];
+  for (let line = 0; line < pad; line += 1) lines.push({ type: 'user', timestamp: at.toISOString(), message: { content: 'x' } });
   if (skills.length > 0) lines.push({ type: 'attachment', attachment: { type: 'skill_listing', names: skills } });
   if (deferred.length > 0) lines.push({ type: 'attachment', attachment: { type: 'deferred_tools_delta', addedNames: deferred } });
   if (shaped.length > 0) lines.push({ type: 'api-request-shape', shape: { tools: shaped.map((name) => ({ name })) } });
@@ -853,6 +858,60 @@ describe('claude cuts', { concurrency: 4 }, () => {
     for (const name of ['Artifact', 'update-config', 'house-notes']) {
       assert.deepEqual(naming(found, name, notNewest('api-bot')), [], `got: ${show(found)}`);
     }
+  });
+
+  // ================================================================ P9 c1, c2: names deep in a record
+  //
+  // The review of #767 found that health read only the first 400 lines of a
+  // record. A name anywhere in a record counts. These records put 450 filler
+  // lines before the names.
+
+  const DEEP = 450;
+
+  test('P9c1 a user cut that a record of another bot holds only after line 400 is not named', async (t) => {
+    const box = await createSandbox(t);
+    const bots = await fleet(box, { bots: [{ bot: 'api-bot' }, { bot: 'web-bot' }] });
+    await editBotYaml(bots, 'api-bot', { claude_cut: ['late-skill', 'LateTool', 'LateShapedTool', 'never-held-skill'] });
+    await ok(box, ['up', '--bots', 'bots']);
+    const file = await claudeRecord(box, bots, 'web-bot', {
+      id: 'rec-web',
+      at: hoursAgo(1),
+      pad: DEEP,
+      skills: ['late-skill'],
+      deferred: ['LateTool'],
+      shaped: ['LateShapedTool'],
+    });
+    const lines = (await readFile(file, 'utf8')).split('\n');
+    assert.ok(lines.findIndex((line) => line.includes('late-skill')) >= 400, 'the premise: the names are after line 400');
+
+    const found = await findings(box);
+
+    assert.deepEqual(naming(found, 'late-skill', NOT_SEEN), [], `a skill in a skill listing deep in the record, got: ${show(found)}`);
+    assert.deepEqual(naming(found, 'LateTool', NOT_SEEN), [], `a tool in a deferred tools delta deep in the record, got: ${show(found)}`);
+    assert.deepEqual(naming(found, 'LateShapedTool', NOT_SEEN), [], `a tool in a request shape deep in the record, got: ${show(found)}`);
+    assert.ok(naming(found, 'never-held-skill', NOT_SEEN).length >= 1, `the premise: a name in no record is still named, got: ${show(found)}`);
+  });
+
+  test('P9c2 a kept name that the newest record holds only after line 400 is not named', async (t) => {
+    const box = await createSandbox(t);
+    const bots = await fleet(box);
+    await editBotYaml(bots, 'api-bot', { claude_keep: ['Artifact', 'ArtifactData', 'update-config'] });
+    await up(box);
+    await claudeRecord(box, bots, 'api-bot', { id: 'rec-old', at: hoursAgo(2), skills: ['some-other-skill'], shaped: ['SomeOtherTool'] });
+    await claudeRecord(box, bots, 'api-bot', {
+      id: 'rec-new',
+      at: hoursAgo(1),
+      pad: DEEP,
+      skills: ['update-config'],
+      deferred: ['ArtifactData'],
+      shaped: ['Artifact'],
+    });
+
+    const found = await findings(box);
+
+    assert.deepEqual(naming(found, 'Artifact', notNewest('api-bot')), [], `a tool in a request shape deep in the newest record, got: ${show(found)}`);
+    assert.deepEqual(naming(found, 'ArtifactData', notNewest('api-bot')), [], `a tool in a deferred tools delta deep in the newest record, got: ${show(found)}`);
+    assert.deepEqual(naming(found, 'update-config', notNewest('api-bot')), [], `a skill in a skill listing deep in the newest record, got: ${show(found)}`);
   });
 
   // ================================================================ P9 d
