@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 
 import { addSession, allowedNow, allowRules, botDir, changeBot, changeSession, createBot, disallowRules, displayName, leadsOutside, readBot, refuseCodexOutside, SESSION_FIELDS, setRoleCaps, setTempApproval } from './bot.js';
-import { COMMANDS } from './commands.js';
+import { COMMANDS, KEPT_BACK } from './commands.js';
 import { addCommand, groomCommand, grooming, upCommand } from './groom.js';
 import { checkHealth, orcaSettingFindings } from './health.js';
 import { initBots } from './init.js';
@@ -35,6 +35,29 @@ import { addSource, fetchSources } from './sources.js';
 import { answerSession, answerTemp, listRoles, makeTemp, optionsLine, retireTemp, trustHooks, trustSessionHooks } from './temp.js';
 import { readUsage } from './usage.js';
 import { BOT_FATHER, bringUp, ownMailbox } from './up.js';
+
+/** Names in one list, as a sentence says them: "a, b and c". */
+function listed(names) {
+  return names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
+}
+
+/**
+ * Text wrapped at spaces into lines of no more than `width` characters. A
+ * no-break space holds words on one line, and prints as a plain space.
+ */
+function wrapped(text, width = 76) {
+  const lines = [];
+  let line = '';
+  for (const word of text.split(' ')) {
+    if (line && line.length + 1 + word.length > width) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = line ? `${line} ${word}` : word;
+    }
+  }
+  return [...lines, line].join('\n').replaceAll('\u00a0', ' ');
+}
 
 const USAGE = `obk — Orca Bot Kit.
 
@@ -332,10 +355,7 @@ Usage:
   obk --version             Print the kit's version.
   obk --help                Print this text.
 
-Every command is safe to run again. Most only add what is missing; the ones
-that close a tab or take something away say so above. Every bot is allowed
-the kit's commands by default, except obk permission, retire, pause and init,
-which keep the user's yes.
+${wrapped(`Every command is safe to run again. Most only add what is missing; the ones that close a tab or take something away say so above. Every bot is allowed the kit's commands by default, except ${listed(KEPT_BACK.map((command) => `obk ${command}`.replaceAll(' ', '\u00a0')))}, which keep the user's yes.`)}
 Add --json to any of them for the same answer as JSON.
 
 For another build of Orca, OBK_ORCA names its CLI, and OBK_ORCA_DATA the full
