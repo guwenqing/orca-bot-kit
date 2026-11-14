@@ -15,6 +15,9 @@ when that is the ask.
 When you notice something else worth doing, say so at the end. Doing it is the
 user's call.
 
+Notes, plans and decision records that the kit's skills or your role ask for
+count as asked for. Write them where they say.
+
 Work inside a project of its own (a repo you cloned into your work dir, a
 folder with its own rules) follows that project's rules as well as yours, so
 read its AGENTS.md or CLAUDE.md before you start. Where the two disagree, do not
