@@ -299,7 +299,17 @@ const extraArgWords = (extra) => (Array.isArray(extra) ? extra.map(String) : set
 const setsNoDaemon = (session) => extraArgWords(session.extra_args).includes(NO_DAEMON);
 
 /** Whether the session's own extra arguments hold Claude Code's `--settings`. */
-const setsSettings = (session) => extraArgWords(session.extra_args).some((word) => word === '--settings' || word.startsWith('--settings='));
+export const setsSettings = (session) => extraArgWords(session.extra_args).some((word) => word === '--settings' || word.startsWith('--settings='));
+
+/**
+ * What a session runs without because its own `--settings` replaces the
+ * kit's: Claude Code keeps only the last one on the line. Empty when the
+ * session is not on Claude Code or carries no `--settings` of its own.
+ * `obk up`, `obk restart` and `obk health` name these, so the loss is never
+ * silent (#752, ADR 0056).
+ */
+export const lostToOwnSettings = (session, harness) =>
+  harness === 'claude' && setsSettings(session) ? ["its bot's own memory folder"] : [];
 
 /**
  * The words a shell makes of `text`: split on blanks outside quotes, quotes
@@ -442,7 +452,7 @@ export function launchCommand(session, { harness, home, workDir, prompt, promptF
     if (set(session.model)) words.push('--model', set(session.context) ? `${session.model}[${session.context}]` : session.model);
     if (set(session.effort)) words.push('--effort', String(session.effort));
     // This one key and no other: `--settings` can carry rules, folders and
-    // hooks, which is why a user's extra argument may not use it (ADR 0054,
+    // hooks, which is why a user's extra argument may not use it (ADR 0056,
     // ADR 0049). A hand-written one in bot.yaml is the user's, and wins.
     if (memoryFolder !== undefined && !setsSettings(session)) words.push('--settings', JSON.stringify({ autoMemoryDirectory: memoryFolder }));
   } else if (harness === 'pi') {

@@ -1953,6 +1953,9 @@ function tabLines({ bots, created, completed, rules, skills, permissions = [], t
     if (tab.noMailbox) {
       lines.push(`             it has no mailbox: ${noMailboxYet({ bots, bot: tab.bot, session: tab.name })}`);
     }
+    if (tab.lost !== undefined) {
+      lines.push(`             its own --settings in bot.yaml replaces the kit's, so it runs without: ${tab.lost.join(', ')}`);
+    }
   }
   for (const one of paused) {
     const what = one.session === undefined ? one.bot : `${one.bot} ${one.session}`;
