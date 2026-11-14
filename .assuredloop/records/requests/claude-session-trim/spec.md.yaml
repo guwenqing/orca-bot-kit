@@ -1,0 +1,67 @@
+schema: assuredloop/1
+file: requests/claude-session-trim/spec.md
+paragraphs:
+  - id: SP-1
+    kind: note
+    text_sha256: 32ee45919dbef16833e5b4509a130a0d9abe4d70a93cabac2c331d799b2064f5
+    display: "SP-1 (0, Change spec: the kit trims what a Claude Code session is sent)"
+  - id: SP-2
+    kind: note
+    text_sha256: dc9d356bc2fe0d15a4b8f869da7a96312be3fcb5337d7611e19a5991d225f381
+    display: "SP-2 (0:1, in Change spec: the kit trims what a Claude Code session is sent)"
+  - id: SP-3
+    kind: note
+    text_sha256: 0d3fab789f6db483cc60290c4f248dd9bca28887a3f8e64467c90737cd7cabd4
+    display: SP-3 (1, The trim)
+  - id: SP-4
+    kind: rule
+    text_sha256: 2aecc1be67731a8f4ea1b7efefd79e881aae69d9550eab06258855e60922d66c
+    display: SP-4 (1:1, in The trim)
+  - id: SP-5
+    kind: approach
+    text_sha256: e7f07a3e85249174aa51fb46e77132ebc0d80b12636472c166657560c5161e65
+    display: SP-5 (1:2, in The trim)
+  - id: SP-6
+    kind: note
+    text_sha256: e0617672e320e7c9aa41cc64a6c7871423ae85dc552e422dfc07f79e67c7b7f0
+    display: SP-6 (2, The role after a compaction)
+  - id: SP-7
+    kind: rule
+    text_sha256: 3a984d7778d27d36ba1ae28292515524dadf8867f3847870c3a2d1c767c3ec0d
+    display: SP-7 (2:1, in The role after a compaction)
+  - id: SP-8
+    kind: approach
+    text_sha256: 6648e361dd09e563320e73ce2a9c8bfdc908291763c338e4c568cb9d739c0812
+    display: SP-8 (2:2, in The role after a compaction)
+  - id: SP-9
+    kind: note
+    text_sha256: fc80fde1123c79c06121898e18209a61ba7ca51c0aa00911e1ab81b0f46f8cc7
+    display: SP-9 (3, The main text that the kit builds)
+  - id: SP-10
+    kind: rule
+    text_sha256: 90bdbaa849d74c92d43c0b27cfec81714ce60c26c940eba93f5c0fdfd110b675
+    display: SP-10 (3:1, in The main text that the kit builds)
+  - id: SP-11
+    kind: approach
+    text_sha256: d07a391e981f0cff5db63e58f8cace64d07998c3513e0b338bf0bf50a7f7530b
+    display: SP-11 (3:2, in The main text that the kit builds)
+  - id: SP-12
+    kind: note
+    text_sha256: 934194c53a21690d2dceb900c811dcc22a89b9ea67d856a2b9d384c9cc166cca
+    display: SP-12 (4, Where a rule unit goes)
+  - id: SP-13
+    kind: rule
+    text_sha256: 1bf890569a562ee26caea0852a386e52ac6424865f51f848f7651cbe2f1dad9a
+    display: SP-13 (4:1, in Where a rule unit goes)
+  - id: SP-14
+    kind: approach
+    text_sha256: 06ed6b93cb76d23359930f73b55a6d1d1bd8a7178702ffa95ae4620f4c5b36cc
+    display: SP-14 (4:2, in Where a rule unit goes)
+  - id: SP-15
+    kind: note
+    text_sha256: 7a702b8b7bfb749bb64b83fbee70b71c5a0c3fc0ad98fc2c525715630c5911c5
+    display: SP-15 (5, Section 6.6, with `CLAUDE.md` built for a bot with a `main` unit)
+  - id: SP-16
+    kind: rule
+    text_sha256: 24e31ac281c7a7efa6880f036cdff7dc1a0e3936997ccc107a842b660a2ec6bc
+    display: SP-16 (5:1, in Section 6.6, with `CLAUDE.md` built for a bot with a `main` unit)
