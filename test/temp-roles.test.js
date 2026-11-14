@@ -75,7 +75,7 @@ test('R1 --role developer:deep takes that option\'s model, effort and context, o
   const argv = await argvOf(box, line, fake);
   assert.equal(argv[0], '--remote-control', `Remote Control is on, by the kit's default, got: ${JSON.stringify(argv)}`);
   assert.deepEqual(
-    argv.slice(4, -1),
+    argv.slice(5, -1),
     ['--model', 'claude-fable-5-1[1m]', '--effort', 'max', ...memoryArgs(bots, BOT), '--'],
     `the option's settings reach Claude Code, and then the bot's memory folder, got: ${JSON.stringify(argv)}`,
   );

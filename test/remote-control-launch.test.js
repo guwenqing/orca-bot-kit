@@ -16,10 +16,12 @@
 //        after it is always a flag: the `-n` address is the remote title.
 //   RL2  Off: no `--remote-control`, and the kit's `--settings` JSON carries
 //        `"disableRemoteControl": true`.
-//   RL3  The kit sends one `--settings` pair at most. Its JSON holds
-//        `autoMemoryDirectory` when the launch has a memory folder (#722), and
-//        `disableRemoteControl: true` when the session is off. With neither,
-//        no `--settings` at all.
+//   RL3  The kit sends one `--settings` pair at most (ADR 0060). Its JSON holds
+//        `autoMemoryDirectory`, the bot's own memory folder, unless a user
+//        named a memory folder by hand (#752), and `disableRemoteControl: true`
+//        when the session is off. With neither, no `--settings` at all. So an
+//        on session's JSON is the memory folder alone, and an off session's
+//        is the memory folder and the off key.
 //   RL4  The session's own extra_args hold `--settings` or `--settings=…`: the
 //        kit sends no `--settings` of its own, on or off. An on session still
 //        gets `--remote-control`.
@@ -48,6 +50,8 @@ import {
   conversationOnRecord,
   createSandbox,
   fakeProgram,
+  memoryArgs,
+  memoryFolderOf,
   recordSession,
   sessionIn,
   sh,
@@ -155,11 +159,24 @@ function withoutSettingsPair(argv) {
   return at < 0 ? [...argv] : [...argv.slice(0, at), ...argv.slice(at + 2)];
 }
 
-/** The words of a line with nothing set: after the pid, the CLI and `claude`. */
+/**
+ * The words of a line with nothing set, after the pid, the CLI and `claude`,
+ * and before the memory folder's `--settings` pair, which `kitJson` and
+ * `memoryArgs` give.
+ */
 const bareArgv = (box) => {
-  const line = bareLaunch(box, 'claude', BOT, 'daily');
+  const line = bareLaunch(box, 'claude', BOT, 'daily', { memory: false });
   return line.slice(line.indexOf(' claude ') + ' claude '.length).split(' ');
 };
+
+/**
+ * The kit's `--settings` JSON for daily (ADR 0060): the bot's own memory
+ * folder, and for a session set off `"disableRemoteControl": true` as well.
+ */
+const kitJson = (bots, { off = false } = {}) => ({
+  [MEMORY_KEY]: memoryFolderOf(bots, BOT),
+  ...(off ? { [OFF_KEY]: true } : {}),
+});
 
 /** The argv with the token of the address written as `bareLaunch` writes it. */
 const tokenlessArgv = (argv) => argv.map((word, at) => (argv[at - 1] === '-n' ? tokenlessWord(word) : word));
@@ -173,9 +190,11 @@ function assertNoRemoteControl(line, what) {
 // ------------------------------------------------------------- a memory folder (#722)
 
 /**
- * An Orca Claude profile as Orca keeps one in the sandbox, so the launch has a
- * memory folder: its home has `projects` as a link to `~/.claude/projects`,
- * and `selected-host` names it (test/memory-folder-flag.test.js, M1).
+ * An Orca Claude profile as Orca keeps one in the sandbox: its home has
+ * `projects` as a link to `~/.claude/projects`, and `selected-host` names it
+ * (test/memory-folder-flag.test.js, M1). Since #752 every launch has a memory
+ * folder, profile or not; the cases under a profile show that it changes
+ * nothing here.
  */
 async function withProfile(box) {
   const data = path.join(box.home, 'Library', 'Application Support', 'orca');
@@ -204,7 +223,7 @@ for (const [label, keys] of [['no remote_control: the kit\'s default', {}], ['re
       assert.equal(argv[1], flag, `the next one is the approval flag, so --remote-control takes no value, got: ${JSON.stringify(argv)}`);
       assert.ok(argv[1].startsWith('-'), 'the word after --remote-control is a flag');
       assert.equal(countOf(argv, RC), 1, `once, got: ${JSON.stringify(argv)}`);
-      assert.equal(argv.filter(isSettingsWord).length, 0, `with no memory folder and on, no --settings at all, got: ${JSON.stringify(argv)}`);
+      assert.deepEqual(settingsJsonIn(argv), kitJson(bots), `on, so the kit's --settings holds the memory folder alone, got: ${JSON.stringify(argv)}`);
     });
   }
 }
@@ -226,12 +245,12 @@ test('RL1 an on session with every setting and a prompt keeps every word where i
 
   const argv = tokenlessArgv(await argvOf(box, await upLine(box, bots)));
 
-  assert.deepEqual(argv, [...bareArgv(box), '--model', 'opus[1m]', '--effort', 'xhigh', '--verbose', '--', prompt]);
+  assert.deepEqual(argv, [...bareArgv(box), '--model', 'opus[1m]', '--effort', 'xhigh', ...memoryArgs(bots, BOT), '--verbose', '--', prompt]);
 });
 
 // ------------------------------------------------------------- RL2 off
 
-test('RL2 remote_control: off: no --remote-control, and the kit\'s --settings JSON is exactly { "disableRemoteControl": true }', async (t) => {
+test('RL2 remote_control: off: no --remote-control, and the kit\'s --settings JSON is exactly the memory folder and "disableRemoteControl": true', async (t) => {
   const box = await createSandbox(t);
   const bots = await fleetIn(box, { keys: { remote_control: 'off' } });
 
@@ -240,7 +259,7 @@ test('RL2 remote_control: off: no --remote-control, and the kit\'s --settings JS
   const argv = await argvOf(box, line);
   assert.equal(countOf(argv, RC), 0, `no --remote-control, got: ${JSON.stringify(argv)}`);
   assert.ok(!argv.some((word) => word.startsWith(`${RC}=`) || word === '--rc'), `no form of it, got: ${JSON.stringify(argv)}`);
-  assert.deepEqual(settingsJsonIn(argv), { [OFF_KEY]: true });
+  assert.deepEqual(settingsJsonIn(argv), kitJson(bots, { off: true }));
   assert.deepEqual(
     tokenlessArgv(withoutSettingsPair(argv)),
     bareArgv(box).filter((word) => word !== RC),
@@ -255,9 +274,24 @@ test('RL2 remote_control: off with every setting and a prompt: the pair goes bef
 
   const argv = await argvOf(box, await upLine(box, bots));
 
-  assert.deepEqual(settingsJsonIn(argv), { [OFF_KEY]: true });
+  assert.deepEqual(settingsJsonIn(argv), kitJson(bots, { off: true }));
   assert.deepEqual(argv.slice(-2), ['--', prompt], `the prompt is last, after --, got: ${JSON.stringify(argv)}`);
   assert.equal(countOf(argv, RC), 0);
+});
+
+test('RL2 remote_control: off, with a memory folder named by hand: the kit\'s --settings JSON is exactly { "disableRemoteControl": true }', async (t) => {
+  // A user who named a folder by hand gets no autoMemoryDirectory from the kit
+  // (ADR 0060), so the off key is the one key the kit still needs.
+  const box = await createSandbox(t);
+  const bots = await fleetIn(box, { keys: { remote_control: 'off' } });
+  const local = path.join(botHomeOf(bots, BOT), '.claude', 'settings.local.json');
+  await mkdir(path.dirname(local), { recursive: true });
+  await writeFile(local, `${JSON.stringify({ [MEMORY_KEY]: '/somewhere/of/my/own' })}\n`);
+
+  const argv = await argvOf(box, await upLine(box, bots));
+
+  assert.equal(countOf(argv, RC), 0, `no --remote-control, got: ${JSON.stringify(argv)}`);
+  assert.deepEqual(settingsJsonIn(argv), { [OFF_KEY]: true });
 });
 
 // ------------------------------------------------------------- RL3 one --settings, with the memory folder
@@ -295,7 +329,7 @@ for (const [label, extra] of [
   ['--settings <json>', ['--settings', '{"model":"opus"}']],
 ]) {
   for (const memory of [false, true]) {
-    const where = memory ? ', with a memory folder' : '';
+    const where = memory ? ', under an Orca profile' : '';
     test(`RL4 own ${label} in bot.yaml${where}, on: --remote-control still goes on, and the kit sends no --settings of its own`, async (t) => {
       const box = await createSandbox(t);
       if (memory) await withProfile(box);
@@ -372,7 +406,7 @@ for (const [label, extra] of OWN_RC) {
     const argv = await argvOf(box, await upLine(box, bots));
 
     assert.equal(argv[0], '--permission-mode', `the kit's own --remote-control is left out, got: ${JSON.stringify(argv)}`);
-    assert.deepEqual(settingsJsonIn(argv), { [OFF_KEY]: true });
+    assert.deepEqual(settingsJsonIn(argv), kitJson(bots, { off: true }));
   });
 }
 
@@ -413,7 +447,7 @@ test('RL6 an on session resumed by the kit: --remote-control first, the approval
 
   assert.deepEqual(argv.slice(0, 2), [RC, '--permission-mode'], `got: ${JSON.stringify(argv)}`);
   assert.equal(argv[argv.indexOf('--resume') + 1], 'sess-1');
-  assert.equal(argv.filter(isSettingsWord).length, 0);
+  assert.deepEqual(settingsJsonIn(argv), kitJson(bots), 'on, so the kit\'s --settings holds the memory folder alone');
 });
 
 test('RL6 an off session resumed by the kit: no --remote-control, disableRemoteControl: true, and --resume with the id', async (t) => {
@@ -423,7 +457,7 @@ test('RL6 an off session resumed by the kit: no --remote-control, disableRemoteC
   const argv = await argvOf(box, await resumedLine(box, bots));
 
   assert.equal(countOf(argv, RC), 0, `got: ${JSON.stringify(argv)}`);
-  assert.deepEqual(settingsJsonIn(argv), { [OFF_KEY]: true });
+  assert.deepEqual(settingsJsonIn(argv), kitJson(bots, { off: true }));
   assert.equal(argv[argv.indexOf('--resume') + 1], 'sess-1');
 });
 
@@ -445,7 +479,7 @@ test('RL6 a session set off after it ran on, then resumed by the kit, is off on 
 
   assert.equal(argv[argv.indexOf('--resume') + 1], 'sess-1', `the premise: a resume, got: ${JSON.stringify(argv)}`);
   assert.equal(countOf(argv, RC), 0);
-  assert.deepEqual(settingsJsonIn(argv), { [OFF_KEY]: true });
+  assert.deepEqual(settingsJsonIn(argv), kitJson(bots, { off: true }));
 });
 
 // ------------------------------------------------------------- RL7 Codex is as it was

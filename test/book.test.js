@@ -113,7 +113,7 @@ test('init ignores nothing of the user\'s: everything it seeds is waiting to be 
   // init writes is theirs to commit, and nothing the kit does keeps one out.
   // One folder is ignored by design: a bot's claude-memory, which the kit makes
   // with a .gitignore of `*`, so a note never reaches a push, the .gitignore
-  // itself included (KIT-51, ADR 0056). Everything in it is ignored, and
+  // itself included (KIT-51, ADR 0060). Everything in it is ignored, and
   // nothing else is.
   const box = await createSandbox(t);
   const bots = box.path('bots');
@@ -142,7 +142,7 @@ test('init ignores nothing of the user\'s: everything it seeds is waiting to be 
   }
 });
 
-/** What is in a bot's memory folder, `bots/<bot>/claude-memory/`, which git ignores by design (KIT-51, ADR 0056). */
+/** What is in a bot's memory folder, `bots/<bot>/claude-memory/`, which git ignores by design (KIT-51, ADR 0060). */
 const inMemoryFolder = (rel) => /^bots\/[^/]+\/claude-memory\//.test(rel);
 
 /**

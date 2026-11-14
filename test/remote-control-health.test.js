@@ -53,13 +53,15 @@
 //   RH6  A hand-written `--remote-control` or `--rc` in a session's extra_args
 //        is a finding of category `config` that names `<bot>'s session <name>`
 //        and `--remote-control on|off`. It needs no harness running.
-//   RH6a A Claude session set off whose own extra_args carry --settings (two
-//        words, `--settings=<x>`, or in one string of shell text) is a finding
-//        of category `config`: "<bot>'s session <name> carries its own
+//   RH6a A Claude session whose own extra_args carry --settings (two words,
+//        `--settings=<x>`, or in one string of shell text) is a finding of
+//        category `config`: "<bot>'s session <name> carries its own
 //        --settings in <bot.yaml>, which replaces the kit's, so it runs
-//        without: Remote Control off. To give it back, take --settings out of
-//        its extra_args." It needs no harness running. A session set on with
-//        its own --settings, or set off without one, gets none.
+//        without: <what>. To give it back, take --settings out of its
+//        extra_args." <what> is "its bot's own memory folder" (ADR 0060), and
+//        then ", Remote Control off" when the session is set off. It needs no
+//        harness running. A session set off without its own --settings gets
+//        none.
 //   RH7  Health never says "connected" about Remote Control: the registry
 //        shows a handle, not a connection.
 //
@@ -673,7 +675,7 @@ for (const [label, extra] of [
   });
 }
 
-test('RH6a only the session set off gets it: a session set on with its own --settings, and one set off without, get none', async (t) => {
+test('RH6a only the session set off names Remote Control off: a session set on with its own --settings names the memory folder alone, and one set off without gets none', async (t) => {
   const box = await createSandbox(t);
   const bots = await fleetIn(box, { keys: { remote_control: 'off', extra_args: ['--settings', 'my-settings.json'] }, up: false });
   for (const name of ['night', 'plain']) await ok(box, ['session', 'add', '--bots', 'bots', '--bot', BOT, '--name', name]);
@@ -683,8 +685,22 @@ test('RH6a only the session set off gets it: a session set on with its own --set
   const { answer } = await health(box);
 
   const found = ownSettingsFindings(answer);
-  assert.equal(found.length, 1, `one finding, for daily alone, got: ${JSON.stringify(answer.found, null, 2)}`);
-  assert.ok(found[0].says.startsWith(`${BOT}'s session daily `), `got: ${found[0].says}`);
+  const of = (name) => found.filter((one) => one.says.startsWith(`${BOT}'s session ${name} `));
+  assert.equal(found.length, 2, `two findings, for daily and night, got: ${JSON.stringify(answer.found, null, 2)}`);
+  assert.equal(of('daily').length, 1, `one for daily, got: ${JSON.stringify(found, null, 2)}`);
+  assert.equal(of('night').length, 1, `one for night, got: ${JSON.stringify(found, null, 2)}`);
+  assert.equal(of('plain').length, 0, `none for plain, which is off with no --settings of its own, got: ${JSON.stringify(found, null, 2)}`);
+  assert.match(
+    of('daily')[0].says,
+    /, so it runs without: its bot's own memory folder, Remote Control off\. To give it back, take --settings out of its extra_args\.$/,
+    'daily is set off, so it runs without the memory folder and without Remote Control off',
+  );
+  assert.match(
+    of('night')[0].says,
+    /, so it runs without: its bot's own memory folder\. To give it back, take --settings out of its extra_args\.$/,
+    'night is set on, so it runs without the memory folder alone',
+  );
+  assert.ok(!of('night')[0].says.includes('Remote Control'), `night's finding says nothing of Remote Control, got: ${of('night')[0].says}`);
 });
 
 // ------------------------------------------------------------- RH7 never "connected"

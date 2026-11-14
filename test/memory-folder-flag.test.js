@@ -5,10 +5,14 @@
 // them (#752). Under an Orca profile, Claude Code also names that folder
 // through the profile's `projects` link, and a write there stops on a dialog
 // that only a person can answer (#722). So the kit's launch line for Claude
-// Code carries one more argument pair, `--settings <json>`, where the JSON is an
-// object with exactly one key (ADR 0056):
+// Code carries one more argument pair, `--settings <json>`. For a session with
+// Remote Control on, as every session here is, the JSON is an object with
+// exactly one key (ADR 0060):
 //
 //   autoMemoryDirectory: <real path of the bot folder>/claude-memory
+//
+// A session set off gets `"disableRemoteControl": true` after that key, in the
+// same object (test/remote-control-launch.test.js holds that).
 //
 // The real path: links on the way to the bot folder are resolved, and nothing
 // else changes in the text (no NFC step, no slug). Every session of a bot gets
