@@ -39,6 +39,8 @@ const CLEARED = 'clear';
  * prompt, is gone from the context, and the summary holds only the model's own
  * account of it (tech notes, section 2). The hook fires once for it, so the
  * prompt handed back is in the context once (claude-session-trim R3, ADR 0055).
+ * It counts for a Claude Code session only: Codex says it too, and R3 does not
+ * cover Codex.
  */
 const COMPACTED = 'compact';
 
@@ -107,7 +109,9 @@ export async function recordSession(bots, name, said, tabId, shellPid) {
     const [session, was] = found;
     // The harness's own word for it, or — for the harness that has no word — an
     // id that is not the one this tab had, which is the same thing said twice.
-    cleared = said.source === CLEARED || said.source === COMPACTED || (was.session !== undefined && was.session !== id);
+    const settings = bot.sessions.find((entry) => entry.name === session);
+    const compacted = said.source === COMPACTED && settings !== undefined && harnessOf(settings, bot.harness) === 'claude';
+    cleared = said.source === CLEARED || compacted || (was.session !== undefined && was.session !== id);
     // A first report with something unclaimed beside it is the third case: the
     // kit cannot tell whether this conversation is the one the launch line spoke
     // to or a later one, and a session left without its duty is the failure this

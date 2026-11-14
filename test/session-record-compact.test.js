@@ -240,3 +240,92 @@ test('a compaction in a tab of another bot gives nothing and changes neither boo
   assert.equal(await readFile(bookOf(bots, 'one-bot'), 'utf8'), books.one, 'the bot it was called for keeps its book');
   assert.equal(await readFile(bookOf(bots, 'two-bot'), 'utf8'), books.two, 'and the bot that owns the tab is not reached into');
 });
+
+// R3 covers a Claude Code session only. Codex reports `source: compact` too, so
+// the compact answer goes to a session whose harness is Claude Code: the
+// session's own harness when it has one, else the bot's. A new id and a clear
+// stay as they are on every harness.
+
+/** Start the session in `tab` under `id`, compact it under the same id, and give the book before and the answer. */
+async function startThenCompact(box, bots, tab, id = 'sess-A') {
+  await recordSession(box, { bots, bot: 'api-bot', tab, session: id, source: 'startup' });
+  const book = await readFile(bookOf(bots, 'api-bot'), 'utf8');
+  const daily = await sessionIn(bots, 'api-bot', 'daily');
+  const ran = await recordSession(box, { bots, bot: 'api-bot', tab, session: id, source: 'compact' });
+  return { book, daily, ran };
+}
+
+test('a compaction of a Codex bot\'s session under the same id gives nothing and leaves the book as it was', async (t) => {
+  const box = await createSandbox(t);
+  const { bots, tabs } = await fleet(box, { harness: 'codex', sessions: [['daily', ['--prompt', PROMPT]]] });
+
+  const { book, daily, ran } = await startThenCompact(box, bots, tabs.daily.tabId);
+
+  assert.equal(ran.code, 0, ran.stderr);
+  assert.equal(ran.stdout, '', `R3 asks for no answer to a Codex compaction, got: ${ran.stdout}`);
+  const after = await sessionIn(bots, 'api-bot', 'daily');
+  assert.equal(after.session, 'sess-A');
+  assert.equal('history' in after, false, `got: ${JSON.stringify(after.history)}`);
+  assert.equal(after.rules, daily.rules, 'the rules stamp is as it was');
+  assert.equal(await readFile(bookOf(bots, 'api-bot'), 'utf8'), book, 'the book is exactly as it was');
+});
+
+test('a compaction of a Codex session on a Claude Code bot gives nothing', async (t) => {
+  // The session's own harness wins over the bot's.
+  const box = await createSandbox(t);
+  const { bots, tabs } = await fleet(box, {
+    harness: 'claude',
+    sessions: [['daily', ['--prompt', PROMPT, '--harness', 'codex']]],
+  });
+
+  const { book, ran } = await startThenCompact(box, bots, tabs.daily.tabId);
+
+  assert.equal(ran.code, 0, ran.stderr);
+  assert.equal(ran.stdout, '', `the session runs on Codex, so it gets no answer, got: ${ran.stdout}`);
+  assert.equal(await readFile(bookOf(bots, 'api-bot'), 'utf8'), book, 'the book is exactly as it was');
+});
+
+test('a compaction of a Claude Code session on a Codex bot gives the start prompt', async (t) => {
+  const box = await createSandbox(t);
+  const { bots, tabs } = await fleet(box, {
+    harness: 'codex',
+    sessions: [['daily', ['--prompt', PROMPT, '--harness', 'claude']]],
+  });
+
+  const { ran } = await startThenCompact(box, bots, tabs.daily.tabId);
+
+  assert.equal(answerOf(ran), PROMPT, 'the session runs on Claude Code, so R3 holds for it');
+  const after = await sessionIn(bots, 'api-bot', 'daily');
+  assert.equal(after.session, 'sess-A');
+  assert.equal('history' in after, false, `got: ${JSON.stringify(after.history)}`);
+});
+
+for (const source of ['startup', 'resume', 'compact']) {
+  test(`a Codex session that reports a new id, on ${source}, still gets the start prompt`, async (t) => {
+    // Codex's `/new` reaches the hook as a new id. The id rule holds whatever
+    // the source word is.
+    const box = await createSandbox(t);
+    const { bots, tabs } = await fleet(box, { harness: 'codex', sessions: [['daily', ['--prompt', PROMPT]]] });
+    const tab = tabs.daily.tabId;
+    await recordSession(box, { bots, bot: 'api-bot', tab, session: 'sess-A', source: 'startup' });
+
+    const ran = await recordSession(box, { bots, bot: 'api-bot', tab, session: 'sess-B', source });
+
+    assert.equal(answerOf(ran), PROMPT);
+    const after = await sessionIn(bots, 'api-bot', 'daily');
+    assert.equal(after.session, 'sess-B');
+    assert.deepEqual(after.history.map((old) => [old.session, old.ended]), [['sess-A', source]]);
+  });
+}
+
+test('a Codex session that reports a clear still gets the start prompt', async (t) => {
+  const box = await createSandbox(t);
+  const { bots, tabs } = await fleet(box, { harness: 'codex', sessions: [['daily', ['--prompt', PROMPT]]] });
+  const tab = tabs.daily.tabId;
+  await recordSession(box, { bots, bot: 'api-bot', tab, session: 'sess-A', source: 'startup' });
+
+  const ran = await recordSession(box, { bots, bot: 'api-bot', tab, session: 'sess-B', source: 'clear' });
+
+  assert.equal(answerOf(ran), PROMPT);
+  assert.equal((await sessionIn(bots, 'api-bot', 'daily')).session, 'sess-B');
+});
