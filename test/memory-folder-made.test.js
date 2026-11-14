@@ -24,6 +24,9 @@
 //   F6  the kit moves, copies and deletes no note: a folder that is there keeps
 //       its files byte for byte across each start, and the folder that the
 //       bots shared is as it was
+//   F7  when the kit makes the folder and cannot write its .gitignore, it
+//       leaves no claude-memory behind and names no folder on that line; the
+//       next start, with the cause gone, makes both as usual
 //
 // The kit makes the folder before it types the launch line. The fake Orca does
 // not run the harness, so these tests read the folder when the kit's command
@@ -51,7 +54,10 @@ import {
   kitLaunchMark,
   recordSession,
   sessionIn,
+  sh,
+  shellWord,
   snapshot,
+  typedInto,
 } from './helpers/cli.js';
 import { fakePi } from './helpers/pi.js';
 
@@ -79,6 +85,8 @@ async function profileIn(box) {
 }
 
 const ownOf = (home) => path.join(home, FOLDER);
+
+const AS_ROOT = process.getuid?.() === 0 ? 'root writes into a folder of mode 555, so the write cannot be made to fail here' : undefined;
 
 /** A run of `obk` that must go through. */
 async function ok(box, args, options) {
@@ -485,6 +493,65 @@ describe('the kit makes a bot\'s memory folder with an ignore file, and moves no
       await start(world);
 
       assert.deepEqual(await snapshot(at), before, `after ${label}, the folder is as it was`);
+    });
+  }
+
+  // ---------------------------------------------------------------- F7
+
+  /**
+   * Run `obk <args>` through a real shell under umask 0222. A folder the kit
+   * makes then has mode 555: its mkdir goes through, and a file written into
+   * that new folder is refused (EACCES). Files the kit writes into folders
+   * that are already there still go through. The sandbox's own environment
+   * is kept, so it is the sandbox's `obk` on PATH.
+   */
+  const underUmask = (box, args) => sh(`umask 0222; exec obk ${args.map(shellWord).join(' ')}`, { cwd: box.cwd, env: box.env });
+
+  /** The first line typed into a session's current tab. */
+  async function lineIn(box, bots, name) {
+    const { tab } = await sessionIn(bots, BOT, name);
+    const terminal = (await box.orca.terminals()).find((one) => one.tabId === tab);
+    assert.ok(terminal, `Orca should have ${BOT}/${name}'s tab ${tab}`);
+    return typedInto(terminal)[0];
+  }
+
+  /** The ways a start runs under the umask, each after the session's first start. */
+  const FAILING_WAYS = [
+    ['up of a new session', async ({ box }) => underUmask(box, ['up', '--bots', 'bots', '--bot', BOT, '--session', 'daily']), { first: false }],
+    ['obk restart', async ({ box, bots }) => {
+      await reported(box, bots, 'daily');
+      return underUmask(box, ['restart', '--bots', 'bots', '--bot', BOT, '--session', 'daily']);
+    }, { first: true }],
+  ];
+  for (const [label, failing, { first }] of FAILING_WAYS) {
+    test(`F7 ${label}: the kit makes the folder and cannot write its .gitignore, so it leaves no claude-memory and names no folder on the line; a restart with the cause gone makes both`, { skip: AS_ROOT }, async (t) => {
+      const world = await fleet(t, { sessions: ['control', 'daily'] });
+      const { box, bots, home } = world;
+      // The premise: under umask 0222, mkdir goes through and the file write in the new folder does not.
+      const probe = path.join(box.root, 'umask-probe');
+      const tried = await sh(`umask 0222; mkdir ${shellWord(probe)} && : > ${shellWord(path.join(probe, '.gitignore'))}`, { cwd: box.cwd, env: box.env });
+      assert.ok(existsSync(probe) && !existsSync(path.join(probe, '.gitignore')) && tried.code !== 0, `the premise: umask 0222 lets mkdir through and stops the file write, got code ${tried.code}: ${tried.stderr}`);
+      // The control: a start of the same bot with the usual umask makes the folder, and so the bot's other folders are there.
+      await up(box, BOT, 'control');
+      await assertMade(home, 'the control');
+      await rm(ownOf(home), { recursive: true });
+      if (first) await up(box, BOT, 'daily');
+      if (first) await rm(ownOf(home), { recursive: true });
+
+      const ran = await failing(world);
+
+      const said = `exit ${ran.code}\n${ran.stdout}${ran.stderr}`;
+      assertNothingAt(home, `the kit could not write the .gitignore, so it leaves no folder it made (the run said: ${said})`);
+      const line = await lineIn(box, bots, 'daily');
+      assert.equal(typeof line, 'string', `a line was typed into daily's tab (the run said: ${said})`);
+      assert.ok(!line.includes('--settings') && !line.includes(KEY), `the line names no folder, got: ${line}`);
+
+      await reported(box, bots, 'daily');
+      await ok(box, ['restart', '--bots', 'bots', '--bot', BOT, '--session', 'daily']);
+
+      await assertMade(home, 'the next start, with the usual umask');
+      const next = await lineIn(box, bots, 'daily');
+      assert.ok(next.includes('--settings') && next.includes(KEY) && next.includes(ownOf(home)), `the next start names the folder, got: ${next}`);
     });
   }
 });
