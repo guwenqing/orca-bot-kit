@@ -96,10 +96,10 @@ Each line is a check a developer can run. Issues turn these into acceptance test
 
 ## [PRD-6] 5. What we are not doing
 
-<!-- KIT-17 scope -->
+<!-- KIT-17 scope serves:remote-control-on/R1 -->
 
 - No process framework in this repo other than AssuredLoop, for now: no OpenSpec or the like. This repo uses AssuredLoop to keep its requests and its spec, this PRD; AGENTS.md says how. [decided by the owner, 2026-10-03, #474]
-- No Codex-desktop integration; no sidebar, phone or remote work — Orca does that. [decided]
+- No Codex-desktop integration; no sidebar, phone or remote work — Orca does that. [decided] Changed by the owner on 2026-11-14 (#755): one exception, Claude Code's own Remote Control, which is on for every Claude Code session the kit starts unless the user set it off for that session (6.4). [decided]
 - No Claude handoff / "consult Claude" skill; Claude is a first-class harness. [decided]
 - No panel discussion yet. [decided]
 - No process or phases in the skills; no research-plan-implement. [decided]
@@ -132,9 +132,9 @@ Each line is a check a developer can run. Issues turn these into acceptance test
 
 ### [PRD-9] 6.2 Host
 
-<!-- KIT-22 rule serves:bot-father-harness-choice/R1 -->
+<!-- KIT-22 rule serves:bot-father-harness-choice/R1 serves:remote-control-on/R1 -->
 
-- Orca. A bot is an Orca project; a session is a tab. Naming, ordering, phone and remote access are Orca's. [decided] → ADR 0046
+- Orca. A bot is an Orca project; a session is a tab. Naming, ordering, phone and remote access are Orca's. [decided] → ADR 0046 Changed by the owner on 2026-11-14 (#755): a Claude Code session can also be reached from the phone or claude.ai/code through Claude Code's own Remote Control, as 6.4 says. [decided]
 - A bot's Orca project is a folder workspace; many tabs share it. Proven live: a git-kind registration of a folder inside the bots repo gets no worktree and cannot host tabs. So a bot's project shows no git status in Orca. [decided by the coordinator on evidence]
 - Everything is in the book except one special tab. A session's Orca tab id and the bot's Orca project id live in the book with the session. The only exception is Bot Father's ops tab for whole-fleet maintenance. The kit does not track it at all: no id, no title matching, no session id, no history, not seen by grooming. The kit only makes sure it exists: if Bot Father's Orca project has no tab besides the ones in the book, `obk up` creates one (and sets its title). Nothing more. [decided]
 - The kit always tries to set a tab's title to the name in the book, and never reads or relies on what a tab is currently called; the tab id is the key. [decided] (Observed: titles can change even with Orca's dynamic title option off, because the program in the tab writes its own title.)
@@ -160,12 +160,13 @@ Each line is a check a developer can run. Issues turn these into acceptance test
 
 ### [PRD-11] 6.4 Bots and sessions
 
-<!-- KIT-26 rule serves:teach-form-off/R1 -->
+<!-- KIT-26 rule serves:teach-form-off/R1 serves:remote-control-on/R1 -->
 
 - Sessions of one bot share the bot home. One bot may have several sessions. [decided]
 - Every session starts at the bot home. A per-session work dir is an instruction only and is always a plain folder; the kit creates it and adds the note to the start prompt automatically. It has nothing to do with git worktrees. When a bot clones a repo into its work dir and works on it, it honours that repo's own rules; whether it clones, uses a worktree there, or does something else is for the user to say. [decided]
   Changed by the owner on 2026-09-24 (#241): it honours both that repo's rules and its own. Where they conflict it does not pick one: it raises the conflict with the user or whoever gave the work, names both texts, and holds the conflicting part until it is settled. Fleet review looks for such conflicts; nothing settles them automatically, and neither side's rules are changed without their owner. [decided]
 - Each session sets: harness, model, effort, context window, approval level, start prompt. [decided]
+- Every Claude Code session that the kit starts, temporary sessions included, starts with Claude Code's Remote Control on, unless the user set it off for that session. A temporary session takes its maker's setting unless told otherwise. When Remote Control cannot start, the session still starts, and `obk health` says that Remote Control is off for it. Codex and Pi sessions do not change. "Set off" means off at a start and at a resume by the kit. It does not hold after Orca's cold restore. It does not hold either when the session's own extra arguments carry `--settings`, because that replaces the kit's settings; the kit's report and `obk health` name such a session. With Remote Control on, a person who holds the user's claude.ai account can read and drive the session from claude.ai/code or the Claude app. README says what that allows, and how Claude Code's own `disableRemoteControl` setting keeps it off everywhere. [decided by the owner, 2026-11-14, #755]
 - The kit never hardcodes a model id; empty means the harness default. Init asks once for the harness. [decided]
 - Approval levels: `auto` (default; the harness's real auto mode), `ask`, `dangerously-skip` (only when the user asks for it in plain words). [decided] → ADR 0015
 - A bot or a session may run on Pi (`@earendil-works/pi-coding-agent`): `bot create --harness pi` and `session add --harness pi` make one, and `up` opens it in an Orca tab with its model, effort, name and start prompt. Pi asks before no tool call and has no rule for each command, so every Pi session counts as `dangerously-skip`, and the kit refuses `auto` and `ask` for a Pi session and says why. The owner's words: "yes I accept your proposal", answering "count every Pi session as dangerously-skip. The kit refuses --approval auto or ask for Pi, and says why." [decided by the owner, 2026-10-10, #547; slice 1 is #578] A temporary session may run on Pi as well: `obk temp make` takes Pi from `--harness pi`, a role's option or the maker's own harness, and the session gets its tab, work dir, mailbox, model, effort, name and start prompt. Since a Pi session runs as `dangerously-skip`, a maker whose own approval is narrower is refused unless the user allowed that level for the bot's temporary sessions with `obk permission approval --temps`. `obk temp retire` retires it as any other, and `obk temp answer` answers a first-run screen Pi shows, or says what it is. [decided by the owner, 2026-10-10, #547; slice 3 is #648] `obk health` knows a Pi session as it knows a Claude Code or Codex session: a tab that is gone or has only the shell in front, mail Orca has not told it of, its model and thinking level against `bot.yaml` from Pi's own record, a conversation in the book that Pi has no record of, Pi conversations the book does not hold, and a Pi that cannot run it (Pi does not run, can use no model, or cannot use the session's model, as `pi --list-models` answers). It never asks for Pi's credentials, and gives no hook or permission-rule finding for Pi, which has neither. [decided by the owner, 2026-10-10, #547; slice 5 is #660]
