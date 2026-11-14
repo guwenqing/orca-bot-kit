@@ -1,0 +1,20 @@
+schema: assuredloop/1
+request: own-memory-folder
+tier: "1"
+status: open
+sources:
+  - file: 2026-11-14-owner-words.md
+    kind: owner-words
+    sha256: dccd5729ad70f1348a9a07f8f11a11762b03e3f65788f9684c4087e0fff4a8b0
+    taken: 2026-11-14T18:24Z
+requirements:
+  - id: R1
+    version: 1
+    sha256: b5bc51b28e4c6066025a9912ab73a222d5746e3e837e54838591908e4c09ffe6
+    title: Each Claude bot gets a memory folder of its own
+signoff: []
+decisions: []
+tasks: []
+bindings:
+  - { holder: own-memory-folder/R1, link: from, target: own-memory-folder/2026-11-14-owner-words.md, holder_sha256: b5bc51b28e4c6066025a9912ab73a222d5746e3e837e54838591908e4c09ffe6, target_sha256: dccd5729ad70f1348a9a07f8f11a11762b03e3f65788f9684c4087e0fff4a8b0 }
+dispositions: []
