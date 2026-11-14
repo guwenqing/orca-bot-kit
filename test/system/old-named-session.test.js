@@ -82,7 +82,7 @@ import { parse, stringify } from 'yaml';
 import { addressPattern, cliEntry } from '../helpers/cli.js';
 import { waitingOn } from '../helpers/screens.js';
 import { tabGuard } from '../helpers/tab-guard.js';
-import { RC_OFF, withBotFatherOff } from '../helpers/remote-control-off.js';
+import { RC_OFF, hardRemoteControlOff, withBotFatherOff } from '../helpers/remote-control-off.js';
 import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
 
@@ -497,6 +497,10 @@ test('a session under the old shared name is moved to an address of its own by a
   book.sessions.daily.address = bare;
   await writeFile(bookAt(home), stringify(book));
 
+  // The line typed by hand carries none of the kit's off for Remote Control
+  // (#755), so Claude Code's own hard off goes into the folder's local settings
+  // first.
+  hardRemoteControlOff(home);
   sendLine(daily.terminal, `claude --resume ${id} -n ${bare}`);
   const old = await until(
     `a Claude Code under ${bare} to be having ${id}`,

@@ -135,7 +135,7 @@ import { cliEntry, shellWord } from '../helpers/cli.js';
 import { codexTrustArgs, projectTrust } from '../helpers/codex-trust.js';
 import { waitingOn } from '../helpers/screens.js';
 import { tabGuard } from '../helpers/tab-guard.js';
-import { RC_OFF, withBotFatherOff } from '../helpers/remote-control-off.js';
+import { RC_OFF, hardRemoteControlOff, withBotFatherOff } from '../helpers/remote-control-off.js';
 import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
 
@@ -1054,6 +1054,11 @@ test('a harness the session starts for itself does not become the session\'s con
     // Two agents' work, so it is given the patience for two. What says it is
     // done is its codeword in lower case, which is in no prompt and no question:
     // a word the line carries would be answered by the echo of the line.
+    //
+    // The child `claude -p` starts in this folder with none of the kit's line,
+    // so none of its off for Remote Control (#755). It reads the folder's local
+    // settings as any start does, so Claude Code's own hard off goes there first.
+    if (bot.harness === 'claude') hardRemoteControlOff(home);
     const since = Date.now();
     await answers(
       entry.terminal,

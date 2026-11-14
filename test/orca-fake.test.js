@@ -438,6 +438,62 @@ test('the fake ps reads one pid and does nothing else', async (t) => {
   assert.equal((await box.ps.calls()).length, 5, 'and every call is on the record, the refused ones too');
 });
 
+test('the fake ps reads when one process started, as ps -o lstart= prints it in the zone TZ names and the locale LC_ALL names, and in no other shape', async (t) => {
+  // #755: health compares the live harness's start time with the procStart
+  // Claude Code writes in its registry entry, in UTC. Seen on this machine: the
+  // same process read `Wed Nov 11 15:27:58 2026` with TZ unset (EST) and
+  // `Wed Nov 11 20:27:58 2026` with TZ=UTC. Claude Code 2.1.325 runs that read
+  // with LC_ALL=C and TZ=UTC (read in its binary), and so does the kit.
+  const box = await createSandbox(t);
+  const { handle, ptyId } = oneTab(box);
+  answer(ask(box, ['terminal', 'send', '--terminal', handle, '--text', 'claude -n a.b', '--enter', '--json']));
+  const panes = answer(ask(box, ['diagnostics', 'memory', '--json'])).result.worktrees.flatMap((worktree) => worktree.sessions);
+  const login = psLine(ps(box, panes.find((one) => one.sessionId === ptyId).pid));
+  const harness = login.tpgid;
+  const start = (pid, env = {}) => spawnSync(box.ps.cli, ['-o', 'lstart=', '-p', String(pid)], { env: { ...box.env, TZ: 'UTC', LC_ALL: 'C', ...env }, encoding: 'utf8' });
+  const said = (done) => ({ status: done.status, stdout: done.stdout, stderr: done.stderr });
+
+  // Left unset, a time the pid gives, the same at every read, for every process of the tab.
+  const first = start(harness);
+  assert.equal(first.status, 0, first.stderr);
+  assert.match(first.stdout, /^(Sun|Mon|Tue|Wed|Thu|Fri|Sat) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) [ \d]\d \d\d:\d\d:\d\d \d{4}\n$/);
+  assert.deepEqual(said(start(harness)), said(first), 'the same at every read');
+  for (const pid of [login.pid, login.pid + 1]) assert.equal(start(pid).status, 0, `pid ${pid} of the tab`);
+
+  // Set by a test: printed in UTC with TZ=UTC, a one-digit day after a space, and in the zone TZ names otherwise.
+  await box.orca.set({ psStarts: { [harness]: Date.UTC(2026, 10, 11, 20, 27, 58) } });
+  assert.deepEqual(said(start(harness)), { status: 0, stdout: 'Wed Nov 11 20:27:58 2026\n', stderr: '' });
+  assert.deepEqual(said(start(harness, { TZ: 'America/New_York' })), { status: 0, stdout: 'Wed Nov 11 15:27:58 2026\n', stderr: '' });
+  // The names follow LC_ALL: the C locale's with C, POSIX or none, another locale's otherwise.
+  assert.equal(start(harness, { LC_ALL: 'POSIX' }).stdout, 'Wed Nov 11 20:27:58 2026\n');
+  const german = start(harness, { LC_ALL: 'de_DE.UTF-8' });
+  assert.equal(german.status, 0, german.stderr);
+  assert.notEqual(german.stdout, 'Wed Nov 11 20:27:58 2026\n', `another locale gives other names, got ${JSON.stringify(german.stdout)}`);
+  assert.match(german.stdout, / 11 20:27:58 2026\n$/, 'and the same time');
+  await box.orca.set({ psStarts: { [harness]: Date.UTC(2026, 10, 1, 20, 27, 58) } });
+  assert.equal(start(harness).stdout, 'Sun Nov  1 20:27:58 2026\n');
+  // `null`: a ps that prints nothing but an empty line.
+  await box.orca.set({ psStarts: { [harness]: null } });
+  assert.deepEqual(said(start(harness)), { status: 0, stdout: '\n', stderr: '' });
+
+  // A process of the table a test set: its own startedAt.
+  await box.orca.set({ processes: [{ pid: 61234, startedAt: Date.UTC(2026, 9, 9, 14, 26, 20) }] });
+  assert.equal(start(61234).stdout, 'Fri Oct  9 14:26:20 2026\n');
+
+  // A pid that is not there: nothing, exit 1. An error a test set: the text on stderr, exit 1.
+  assert.deepEqual(said(start(99999)), { status: 1, stdout: '', stderr: '' });
+  await box.orca.set({ psStartErrors: { [harness]: 'ps: sysctl failed' } });
+  assert.deepEqual(said(start(harness)), { status: 1, stdout: '', stderr: 'ps: sysctl failed\n' });
+  // psErrors is the first read's alone.
+  await box.orca.set({ psStartErrors: {}, psStarts: {}, psErrors: { [harness]: 'ps: malloc failed' } });
+  assert.equal(start(harness).status, 0, 'psErrors does not touch the start-time read');
+
+  for (const argv of [['-o', 'lstart=', '-p', '-1'], ['-o', 'lstart=,pid=', '-p', String(harness)], ['-o', 'lstart', '-p', String(harness)], ['-p', String(harness), '-o', 'lstart=']]) {
+    const refused = spawnSync(box.ps.cli, argv, { env: box.env, encoding: 'utf8' });
+    assert.equal(refused.status, 70, `${argv.join(' ')} is not a read of one pid`);
+  }
+});
+
 test('the fake ps reads one process\'s environment the way macOS prints it, and in no other shape', async (t) => {
   // Measured on Orca 1.4.210 (#318, tech notes section 1): `ps -E -ww -o
   // command= -p <pid>` prints the command and its arguments, then every

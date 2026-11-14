@@ -20,13 +20,23 @@
 //   `git init`, and the `daily` entry is then given `remote_control: off`.
 //   Bot Father gets the same file init would write, plus that one key. Init
 //   then finds everything there: its `created` and `completed` are empty.
+// - hardRemoteControlOff(home): the kit's off rides only on its own launch
+//   line, as `"disableRemoteControl": true` in its `--settings`. A test that
+//   starts Claude Code by hand in a bot's folder (a bare `claude`, `claude
+//   --resume <id>` to stand in for Orca's cold restore, or a `claude -p` child)
+//   does not get that line, and runs on the settings of whoever runs it, which
+//   can have Claude Code's own auto-connect on. So before such a start the test
+//   writes Claude Code's own hard off, `"disableRemoteControl": true`, into the
+//   bot's `.claude/settings.local.json`, which Claude Code reads for a session
+//   started in that folder. The kit never writes that file (ADR 0058), so here
+//   it belongs to the test. Anything already in it stays.
 //
 // test/repo-guards.test.js checks that every system test uses these, except
 // that test/system/remote-control.test.js adds its own session with Remote
 // Control on, because it tests the setting itself.
 
 import assert from 'node:assert/strict';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { parse, parseDocument } from 'yaml';
 
@@ -72,4 +82,34 @@ function seedBotFatherOff(bots) {
     { ...was, sessions: was.sessions.map((one) => (one.name === DAILY_SESSION ? { ...one, remote_control: 'off' } : one)) },
     `${file} should be init's own bot.yaml with remote_control: off on ${DAILY_SESSION}, and is:\n${text}`,
   );
+}
+
+/**
+ * Write Claude Code's own hard off for Remote Control, `"disableRemoteControl":
+ * true`, into `<home>/.claude/settings.local.json`, before a test starts Claude
+ * Code in `home` without the kit's launch line. A file already there is kept:
+ * the key is merged into it, and a file that is not a JSON object is refused
+ * rather than written over. Gives back the file's path.
+ */
+export function hardRemoteControlOff(home) {
+  const file = path.join(home, '.claude', 'settings.local.json');
+  const source = existsSync(file) ? readFileSync(file, 'utf8') : undefined;
+  let was = {};
+  if (source !== undefined) {
+    try {
+      was = JSON.parse(source);
+    } catch (error) {
+      throw new Error(`${file} is not JSON, so Remote Control's hard off is not written into it (${error.message}):\n${source}`);
+    }
+    if (was === null || typeof was !== 'object' || Array.isArray(was)) {
+      throw new Error(`${file} does not hold a JSON object, so Remote Control's hard off is not written into it:\n${source}`);
+    }
+  }
+  mkdirSync(path.dirname(file), { recursive: true });
+  writeFileSync(file, `${JSON.stringify({ ...was, disableRemoteControl: true }, null, 2)}\n`);
+
+  // The file says what it said before, plus the one key, and nothing else.
+  const text = readFileSync(file, 'utf8');
+  assert.deepEqual(JSON.parse(text), { ...was, disableRemoteControl: true }, `${file} should hold what it held before with "disableRemoteControl": true, and is:\n${text}`);
+  return file;
 }

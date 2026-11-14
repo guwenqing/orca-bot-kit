@@ -15,6 +15,20 @@
 //          2. ~/.claude/sessions;
 //          3. <Orca data>/claude-profiles/*/home/sessions;
 //        and the first entry found counts.
+//   RH1a The entry must be the live process's own, not one an older process
+//        with the same pid left behind (the review of #755). Claude Code
+//        writes `procStart` in each entry: the process's start time as
+//        `ps -o lstart=` prints it in UTC. Health reads the live process's
+//        start time with `ps -o lstart= -p <pid>`, with TZ=UTC and LC_ALL=C in
+//        its environment, as Claude Code 2.1.325 reads it when it writes
+//        procStart, and compares the two with runs of blanks taken as one
+//        and the ends trimmed. An entry whose pid matches and whose
+//        procStart is missing or differs is stale: health skips it and goes
+//        on to the next folder; the first entry that matches both counts. No
+//        entry that matches both is `unknown`, with a why. A start time the
+//        kit cannot read (ps fails or prints nothing) is `unknown`, with a
+//        why: the kit cannot tell its entry from a stale one, and it does not
+//        fall back to the pid alone.
 //   RH2  The state, from the entry's `bridgeSessionId`: a string that is not
 //        empty is `enabled`; `null`, or no such key, is `not enabled`; any other
 //        type is `unknown`; and no entry, or one that cannot be read or parsed,
@@ -31,10 +45,21 @@
 //        but Remote Control is enabled in it", names the cold restore, names
 //        obk restart, and names `"disableRemoteControl": true` in
 //        `.claude/settings.local.json` as the hard off. Unknown gives none; on
-//        and enabled, or off and not enabled, give none.
+//        and enabled, or off and not enabled, give none. For a session set off
+//        whose own extra_args carry --settings, the off-and-enabled finding
+//        names its own --settings as the reason and the hard off, and does
+//        not give obk restart as the way to turn it off: a restart still
+//        sends its own --settings (the review of #755).
 //   RH6  A hand-written `--remote-control` or `--rc` in a session's extra_args
 //        is a finding of category `config` that names `<bot>'s session <name>`
 //        and `--remote-control on|off`. It needs no harness running.
+//   RH6a A Claude session set off whose own extra_args carry --settings (two
+//        words, `--settings=<x>`, or in one string of shell text) is a finding
+//        of category `config`: "<bot>'s session <name> carries its own
+//        --settings in <bot.yaml>, which replaces the kit's, so it runs
+//        without: Remote Control off. To give it back, take --settings out of
+//        its extra_args." It needs no harness running. A session set on with
+//        its own --settings, or set off without one, gets none.
 //   RH7  Health never says "connected" about Remote Control: the registry
 //        shows a handle, not a connection.
 //
@@ -43,6 +68,7 @@
 // (helpers/fake-ps.js). Nothing here reads the real ~/.claude or the real Orca.
 
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
@@ -50,6 +76,7 @@ import { parse, stringify } from 'yaml';
 
 import { createSandbox } from './helpers/cli.js';
 import { defaultConfigDir, listInRegistry, livePidOf } from './helpers/claude-registry.js';
+import { lstartOf, tabStartOf } from './helpers/fake-ps.js';
 import { botYamlOf } from './helpers/skills.js';
 
 const BOT = 'api-bot';
@@ -87,9 +114,14 @@ async function fleetIn(box, { keys = {}, codex = false, up = true } = {}) {
   return bots;
 }
 
-/** Claude Code's registry entry for the process `pid`, with `bridge` as its bridgeSessionId, or no such key when it is `absent`. */
-const entryFor = (box, pid, bridge) => ({
+/**
+ * Claude Code's registry entry for the process `pid`, with `bridge` as its
+ * bridgeSessionId, or no such key when it is ABSENT, and `procStart` as the
+ * process's start time, or no such key when it is ABSENT.
+ */
+const entryFor = (box, pid, bridge, procStart = ABSENT) => ({
   pid,
+  ...(procStart === ABSENT ? {} : { procStart }),
   sessionId: '0199b2c0-0318-4444-8888-aaaaaaaaaaaa',
   cwd: box.cwd,
   startedAt: Date.UTC(2026, 10, 14, 1, 0, 0),
@@ -101,10 +133,29 @@ const entryFor = (box, pid, bridge) => ({
 
 const ABSENT = Symbol('absent');
 
-/** Write daily's registry entry into `configDir`'s registry, for the pid of the harness in front of its tab. */
-async function registered(box, bots, bridge, { configDir = defaultConfigDir(box), pid } = {}) {
+/**
+ * The start time of the harness in front of daily's tab, as Claude Code writes
+ * it into its entry as `procStart`: `ps -o lstart=` in UTC, which is what the
+ * fake ps answers for that process (helpers/fake-ps.js).
+ */
+async function liveStartOf(box, pid) {
+  return lstartOf(tabStartOf(await box.orca.state(), pid));
+}
+
+/** A start time an hour before the live harness's: an older process that had the same pid. */
+async function staleStartOf(box, pid) {
+  return lstartOf(tabStartOf(await box.orca.state(), pid) - 3600 * 1000);
+}
+
+/**
+ * Write daily's registry entry into `configDir`'s registry, for the pid of the
+ * harness in front of its tab. Its `procStart` is that harness's start time,
+ * unless `procStart` says otherwise (ABSENT leaves the key out).
+ */
+async function registered(box, bots, bridge, { configDir = defaultConfigDir(box), pid, procStart } = {}) {
   const live = await livePidOf(box, bots, BOT, 'daily');
-  await listInRegistry(box, 'unused', { pid: live, configDir, entry: entryFor(box, pid ?? live, bridge) });
+  const start = procStart === undefined ? await liveStartOf(box, live) : procStart;
+  await listInRegistry(box, 'unused', { pid: live, configDir, entry: entryFor(box, pid ?? live, bridge, start) });
   return live;
 }
 
@@ -206,7 +257,7 @@ test('RH1 an entry for another pid, another session\'s harness, does not count f
   const box = await createSandbox(t);
   const bots = await fleetIn(box);
   const live = await livePidOf(box, bots, BOT, 'daily');
-  await listInRegistry(box, 'unused', { pid: live + 1000, entry: entryFor(box, live + 1000, BRIDGE) });
+  await listInRegistry(box, 'unused', { pid: live + 1000, entry: entryFor(box, live + 1000, BRIDGE, await liveStartOf(box, live)) });
 
   assertUnknown(await stateOf(box));
 });
@@ -289,6 +340,142 @@ test('RH1 the first entry found counts: ~/.claude before an Orca profile', async
 
   assert.equal((await stateOf(box)).state, 'enabled');
 });
+
+// ------------------------------------------------------------- RH1a a stale entry under the same pid
+
+test('RH1a a stale entry (same pid, another procStart) in ~/.claude does not count: the live one in an Orca profile does, not enabled, with its finding', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await fleetIn(box);
+  const live = await livePidOf(box, bots, BOT, 'daily');
+  await registered(box, bots, BRIDGE, { procStart: await staleStartOf(box, live) });
+  await registered(box, bots, null, { configDir: profileHome(box) });
+
+  const { answer } = await health(box);
+
+  assert.deepEqual(sessionOf(answer).remote_control, { asked: 'on', from: 'kit default', state: 'not enabled' });
+  const found = remoteFindings(answer);
+  assert.equal(found.length, 1, `one finding about Remote Control, got: ${JSON.stringify(answer.found, null, 2)}`);
+  assert.equal(found[0].kind, 'session');
+  assert.ok(found[0].says.includes(`Remote Control is not on for ${BOT}'s session daily`), `got: ${found[0].says}`);
+});
+
+test('RH1a the reverse: a stale entry of null in ~/.claude does not count, the live one in an Orca profile is enabled', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await fleetIn(box);
+  const live = await livePidOf(box, bots, BOT, 'daily');
+  await registered(box, bots, null, { procStart: await staleStartOf(box, live) });
+  await registered(box, bots, BRIDGE, { configDir: profileHome(box) });
+
+  const { answer } = await health(box);
+
+  assert.deepEqual(sessionOf(answer).remote_control, { asked: 'on', from: 'kit default', state: 'enabled' });
+  assert.deepEqual(remoteFindings(answer), []);
+});
+
+test('RH1a a stale entry in CLAUDE_CONFIG_DIR does not count either: the live one in ~/.claude does', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await fleetIn(box);
+  const live = await livePidOf(box, bots, BOT, 'daily');
+  const configDir = path.join(box.root, 'claude-config');
+  await registered(box, bots, null, { configDir, procStart: await staleStartOf(box, live) });
+  await registered(box, bots, BRIDGE);
+
+  assert.equal((await stateOf(box, { env: { CLAUDE_CONFIG_DIR: configDir } })).state, 'enabled');
+});
+
+test('RH1a an entry with no procStart is skipped: the live one after it counts', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await fleetIn(box);
+  await registered(box, bots, BRIDGE, { procStart: ABSENT });
+  await registered(box, bots, null, { configDir: profileHome(box) });
+
+  assert.equal((await stateOf(box)).state, 'not enabled');
+});
+
+test('RH1a only stale entries, one with another procStart and one with none: unknown, with a why, and no finding', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await fleetIn(box);
+  const live = await livePidOf(box, bots, BOT, 'daily');
+  await registered(box, bots, BRIDGE, { procStart: await staleStartOf(box, live) });
+  await registered(box, bots, null, { configDir: profileHome(box), procStart: ABSENT });
+
+  const { answer } = await health(box);
+
+  const remote = sessionOf(answer).remote_control;
+  assertUnknown(remote);
+  assert.equal(remote.asked, 'on');
+  assert.deepEqual(remoteFindings(answer), []);
+});
+
+test('RH1a one stale entry of null alone: unknown, with a why, and not the finding that Remote Control is not on', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await fleetIn(box);
+  const live = await livePidOf(box, bots, BOT, 'daily');
+  await registered(box, bots, null, { procStart: await staleStartOf(box, live) });
+
+  const { answer } = await health(box);
+
+  assertUnknown(sessionOf(answer).remote_control);
+  assert.deepEqual(remoteFindings(answer), []);
+});
+
+for (const [label, change] of [
+  ['ps fails on it', (pid) => ({ psStartErrors: { [pid]: 'ps: sysctl failed' } })],
+  ['ps prints nothing for it', (pid) => ({ psStarts: { [pid]: null } })],
+]) {
+  test(`RH1a the live process's start time cannot be read (${label}): unknown, with a why, and no finding, though a valid-looking entry is there`, async (t) => {
+    const box = await createSandbox(t);
+    const bots = await fleetIn(box);
+    // The entry is written with the start time the fake gives before the change.
+    const live = await registered(box, bots, null);
+    await box.orca.set(change(live));
+
+    const { answer } = await health(box);
+
+    const remote = sessionOf(answer).remote_control;
+    assertUnknown(remote);
+    assert.equal(remote.asked, 'on');
+    assert.deepEqual(remoteFindings(answer), [], 'no finding: the kit cannot tell its entry from a stale one');
+    // The premise: health asked ps when the process started.
+    const asked = (await box.ps.calls()).some(({ args }) => JSON.stringify(args) === JSON.stringify(['-o', 'lstart=', '-p', String(live)]));
+    assert.ok(asked, 'health asks ps -o lstart= -p <pid> for the harness');
+  });
+}
+
+for (const [label, env] of [
+  ['in UTC: with TZ set to another zone', { TZ: 'Asia/Tokyo' }],
+  ['in the C locale: with LC_ALL set to another locale', { LC_ALL: 'de_DE.UTF-8' }],
+]) {
+  test(`RH1a the start time is read ${label}, the live entry still counts and the stale one does not`, async (t) => {
+    // The real ps prints lstart in the zone TZ sets, with the names of the
+    // locale LC_ALL sets; the fake does too (helpers/fake-ps.js). Claude Code
+    // writes procStart with TZ=UTC and LC_ALL=C.
+    const box = await createSandbox(t);
+    const bots = await fleetIn(box);
+    const live = await livePidOf(box, bots, BOT, 'daily');
+    await registered(box, bots, BRIDGE, { procStart: await staleStartOf(box, live) });
+    await registered(box, bots, null, { configDir: profileHome(box) });
+
+    assert.equal((await stateOf(box, { env })).state, 'not enabled');
+  });
+}
+
+for (const [label, written] of [
+  ['one blank before a one-digit day, where ps prints two', 'Sun Nov 1 20:27:58 2026'],
+  ['blanks at both ends and two between words', '  Sun  Nov  1 20:27:58  2026 '],
+]) {
+  test(`RH1a procStart and ps's start time are compared with runs of blanks as one and the ends trimmed: ${label}`, async (t) => {
+    const box = await createSandbox(t);
+    const bots = await fleetIn(box);
+    const live = await livePidOf(box, bots, BOT, 'daily');
+    // Sun Nov 1 2026, 20:27:58 UTC: ps prints `Sun Nov  1 20:27:58 2026`.
+    await box.orca.set({ psStarts: { [live]: Date.UTC(2026, 10, 1, 20, 27, 58) } });
+    await registered(box, bots, null, { procStart: 'Sun Nov  1 20:27:59 2026' });
+    await registered(box, bots, BRIDGE, { configDir: profileHome(box), procStart: written });
+
+    assert.equal((await stateOf(box)).state, 'enabled', 'the first entry is a second off and stale; the second is the live one');
+  });
+}
 
 // ------------------------------------------------------------- RH4 the text
 
@@ -402,6 +589,24 @@ test('RH5 no entry at all: unknown, and no finding about Remote Control', async 
   assert.equal(sessionOf(answer).remote_control?.state, 'unknown');
 });
 
+test('RH5 asked off and enabled, with its own --settings in extra_args: the finding names its own --settings and the hard off, and does not give obk restart as the way to turn it off', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await fleetIn(box, { keys: { remote_control: 'off', extra_args: ['--settings', 'my-settings.json'] } });
+  await registered(box, bots, BRIDGE);
+
+  const { answer } = await health(box);
+
+  const found = remoteFindings(answer).filter((one) => one.kind === 'session');
+  assert.equal(found.length, 1, `one session finding about Remote Control, got: ${JSON.stringify(answer.found, null, 2)}`);
+  const { says } = found[0];
+  assert.ok(says.includes(`${BOT}'s session daily is set off, but Remote Control is enabled in it`), `got: ${says}`);
+  assert.ok(says.includes('--settings'), `it names its own --settings as the reason, got: ${says}`);
+  assert.ok(says.includes('"disableRemoteControl": true'), `it names the hard off, got: ${says}`);
+  assert.ok(says.includes(path.join('.claude', 'settings.local.json')), `it names where the hard off goes, got: ${says}`);
+  assert.doesNotMatch(says, / restart --bots /, `a restart still sends its own --settings, so it is not the way to turn it off, got: ${says}`);
+  assert.doesNotMatch(says, /connected/i, `got: ${says}`);
+});
+
 // ------------------------------------------------------------- RH6 a hand-written --remote-control or --rc
 
 for (const [label, extra, keys] of [
@@ -431,6 +636,55 @@ test('RH6 --remote-control-session-name-prefix in extra_args is not --remote-con
   const { answer } = await health(box);
 
   assert.deepEqual((answer.found ?? []).filter((one) => (one.says ?? '').includes('--remote-control on|off')), []);
+});
+
+// ------------------------------------------------------------- RH6a its own --settings on a session set off
+
+/** The config findings that say a session carries its own --settings. */
+const ownSettingsFindings = (answer) => (answer.found ?? []).filter((one) => (one.says ?? '').includes('carries its own --settings in'));
+
+/** Write `keys` into the entry of the session `name` in api-bot's bot.yaml. */
+async function withKeys(bots, name, keys) {
+  const file = botYamlOf(bots, BOT);
+  const doc = parse(await readFile(file, 'utf8'));
+  doc.sessions = doc.sessions.map((one) => (one.name === name ? { ...one, ...keys } : one));
+  await writeFile(file, stringify(doc));
+}
+
+for (const [label, extra] of [
+  ['--settings and its value as two words', ['--settings', 'my-settings.json']],
+  ['--settings=<file>', ['--settings=my-settings.json']],
+  ['--settings in a string of shell text', '--verbose --settings my-settings.json'],
+]) {
+  test(`RH6a a session set off with its own ${label} in extra_args: a config finding says it runs without Remote Control off, with no harness running`, async (t) => {
+    const box = await createSandbox(t);
+    await fleetIn(box, { keys: { remote_control: 'off', extra_args: extra }, up: false });
+
+    const { answer } = await health(box);
+
+    const found = ownSettingsFindings(answer);
+    assert.equal(found.length, 1, `one finding, got: ${JSON.stringify(answer.found, null, 2)}`);
+    const { kind, says } = found[0];
+    assert.equal(kind, 'config');
+    assert.match(says, new RegExp(`^${BOT}'s session daily carries its own --settings in \\S*bot\\.yaml, which replaces the kit's`), `got: ${says}`);
+    assert.ok(says.includes('Remote Control off'), `it lists Remote Control off as what it runs without, got: ${says}`);
+    assert.ok(says.includes('take --settings out of its extra_args'), `got: ${says}`);
+    assert.doesNotMatch(says, /connected/i, `got: ${says}`);
+  });
+}
+
+test('RH6a only the session set off gets it: a session set on with its own --settings, and one set off without, get none', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await fleetIn(box, { keys: { remote_control: 'off', extra_args: ['--settings', 'my-settings.json'] }, up: false });
+  for (const name of ['night', 'plain']) await ok(box, ['session', 'add', '--bots', 'bots', '--bot', BOT, '--name', name]);
+  await withKeys(bots, 'night', { remote_control: 'on', extra_args: ['--settings', 'my-settings.json'] });
+  await withKeys(bots, 'plain', { remote_control: 'off' });
+
+  const { answer } = await health(box);
+
+  const found = ownSettingsFindings(answer);
+  assert.equal(found.length, 1, `one finding, for daily alone, got: ${JSON.stringify(answer.found, null, 2)}`);
+  assert.ok(found[0].says.startsWith(`${BOT}'s session daily `), `got: ${found[0].says}`);
 });
 
 // ------------------------------------------------------------- RH7 never "connected"
@@ -468,4 +722,8 @@ test('RH0 the premise: the registry entry is written as <pid>.json, with the pid
 
   assert.equal(written.pid, pid);
   assert.equal(written.bridgeSessionId, BRIDGE);
+  // And its procStart is what ps answers for that process, read as health reads it.
+  const read = spawnSync(box.ps.cli, ['-o', 'lstart=', '-p', String(pid)], { env: { ...box.env, TZ: 'UTC', LC_ALL: 'C' }, encoding: 'utf8' });
+  assert.equal(read.status, 0, read.stderr);
+  assert.equal(read.stdout.trim().replace(/\s+/g, ' '), written.procStart.trim().replace(/\s+/g, ' '));
 });

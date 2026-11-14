@@ -1770,10 +1770,21 @@ test('every system test takes its `test` from test/helpers/system.js or test/hel
 //     as a word of its own (not inside a condition), or, for a session add,
 //     its `--bot` is made in the same file by a `'bot', 'create'` array that
 //     names `'--harness', 'codex'` or `'pi'`;
-//   - a file that names `RC_OFF` or `withBotFatherOff` loads the helper.
+//   - a file that starts Claude Code by hand, without the kit's launch line,
+//     calls `hardRemoteControlOff(` as code. The kit's off rides only on its
+//     launch line, so a bare start runs on the settings of whoever runs the
+//     test, and the helper writes Claude Code's own hard off into the bot's
+//     `.claude/settings.local.json` first. A start by hand is a string that
+//     starts a command line with `claude` and then a flag (`claude --resume
+//     <id>`, `claude -p …`) or a typed return (`claude\r`), or a plain
+//     `'claude'` typed into a tab with `typeInto(` or `sendLine(`, spawned with
+//     `spawn(`, `spawnSync(`, `execFile(`, `execFileSync(`, `exec(` or
+//     `execSync(`, or given to Orca as a tab's `'--command'`;
+//   - a file that names `RC_OFF`, `withBotFatherOff` or `hardRemoteControlOff`
+//     loads the helper.
 //
-// test/system/remote-control.test.js is let off the second rule alone: it adds
-// one session with Remote Control on, because it tests the setting itself.
+// test/system/remote-control.test.js is let off the second and third rules: it
+// adds one session with Remote Control on, because it tests the setting itself.
 //
 // What it cannot see: words built some other way than one array literal
 // (pushed on later, or kept in a variable first); a condition that puts RC_OFF
@@ -1781,7 +1792,14 @@ test('every system test takes its `test` from test/helpers/system.js or test/hel
 // taken at its word; a Claude session given codexTrustArgs; a temp make that a
 // session runs from its prompt; a `session change` that moves a session to
 // Claude; a bot.yaml written by hand; and a `[` or `]` inside a string, which
-// can end an array early or late.
+// can end an array early or late. For a start by hand: one built from parts
+// (`['claude', '--resume'].join(' ')`, `'cla' + 'ude'`) or kept in a variable
+// first and then typed, a plain `claude` with no flag given in a prompt for a
+// session to run, a start made inside a helper outside test/system/, and an
+// alias or a link by another name. The third rule is per file, not per start:
+// it does not see a helper call that comes after the start, runs in another
+// branch, or names another folder than the one the start runs in. A prompt that
+// only says `claude -p …` and a message that quotes a start are taken as starts.
 
 const offHelper = path.join(repoRoot, 'test', 'helpers', 'remote-control-off.js');
 
@@ -1804,6 +1822,21 @@ function wordArrays(code, words) {
 
 /** The word after `flag` in an array's text, as it is written there. */
 const valueIn = (text, flag) => text.match(new RegExp(String.raw`'${flag}'\s*,\s*([^,\]]+?)\s*[,\]]`))?.[1];
+
+/**
+ * The line of each start of Claude Code in `code` that is made by hand, not by
+ * the kit's launch line: a command line that starts with `claude` and a flag or
+ * a typed return, or a plain `'claude'` typed, spawned or made a tab's command.
+ */
+function bareClaudeStarts(code) {
+  const starts = [
+    /(?<![\w.-])claude(?:\s+-|\\[rn])/g,
+    /\b(?:typeInto|sendLine|spawn|spawnSync|execFile|execFileSync|exec|execSync)\(\s*(?:[^,()]*,\s*)?(['"`])claude\1/g,
+    /'--command'\s*,\s*(['"`])claude\1/g,
+  ];
+  const lines = starts.flatMap((start) => [...code.matchAll(start)].map((match) => code.slice(0, match.index).split('\n').length));
+  return [...new Set(lines)].sort((a, b) => a - b);
+}
 
 /** Whether an array's text names a harness other than Claude Code as a literal. */
 const namesOtherHarness = (text) => /'--harness'\s*,\s*'(?:codex|pi)'/.test(text);
@@ -1833,10 +1866,15 @@ function remoteControlTrouble(source, file) {
         reasons.push(`line ${one.line}: a ${what} with no RC_OFF that does not show its session is not a Claude one`);
       }
     }
+    if (!/(?<![\w'"`])hardRemoteControlOff\(/.test(code)) {
+      for (const line of bareClaudeStarts(code)) {
+        reasons.push(`line ${line}: a start of Claude Code by hand, without the kit's launch line, in a file that never calls hardRemoteControlOff, so it runs on the user's own Remote Control setting`);
+      }
+    }
   }
 
-  if (/\bRC_OFF\b|\bwithBotFatherOff\b/.test(code) && !relativeLoadsOf(code, file).includes(offHelper)) {
-    reasons.push('it names RC_OFF or withBotFatherOff, and does not load them from test/helpers/remote-control-off.js');
+  if (/\bRC_OFF\b|\bwithBotFatherOff\b|\bhardRemoteControlOff\b/.test(code) && !relativeLoadsOf(code, file).includes(offHelper)) {
+    reasons.push('it names RC_OFF, withBotFatherOff or hardRemoteControlOff, and does not load them from test/helpers/remote-control-off.js');
   }
   return reasons;
 }
@@ -1901,6 +1939,52 @@ test('the check for Remote Control off sees an init, a session add or a temp mak
   );
 });
 
+test('the check for Remote Control off sees a start of Claude Code by hand in a file that never writes the hard off, and passes one that does', () => {
+  const top = path.join(systemTestsDir, 'a.test.js');
+  const loads = "import { hardRemoteControlOff } from '../helpers/remote-control-off.js';\n";
+  const starts = [
+    ['a bare resume typed', 'sendLine(handle, `claude --resume ${id}`);'],
+    ['a resume with a name typed', 'sendLine(daily.terminal, `claude --resume ${id} -n ${bare}`);'],
+    ['a resume kept as a line for later', 'const BOTS = [{ resumes: (id) => `claude --resume ${id}` }];'],
+    ['a plain claude typed', "typeInto(stranger.handle, 'claude');"],
+    ['a plain claude with its return, sent', "orca(['terminal', 'send', '--terminal', handle, '--text', 'claude\\r']);"],
+    ['a child in print mode', "const child = () => 'claude -p \\'reply with the single word ok\\' --permission-mode auto';"],
+    ['a claude spawned', "spawnSync('claude', ['-p', 'ok'], { cwd: home });"],
+    ['a claude by its path', "sendLine(handle, `${os.homedir()}/.local/bin/claude --resume ${id}`);"],
+    ['a claude as a tab command', "orca(['terminal', 'create', '--worktree', `path:${home}`, '--command', 'claude']);"],
+  ];
+  for (const [what, body] of starts) {
+    assert.notDeepEqual(remoteControlTrouble(`${loads}${body}\n`, top), [], `should be seen: ${what}`);
+    assert.deepEqual(remoteControlTrouble(`${loads}hardRemoteControlOff(home);\n${body}\n`, top), [], `should pass with the hard off: ${what}`);
+  }
+
+  for (const [what, body] of [
+    ['a harness named claude', "obkJson(['bot', 'create', '--bots', bots, '--name', BOT, '--harness', 'codex']);\nconst harness = bot === CLAUDE ? 'claude' : 'codex';"],
+    ['a message that names claude', "assert.ok(up, `no claude came up in ${entry.title}`);"],
+    ['a wait whose words start with claude', "await until(`claude to be in front of ${READER.title}`, READY_MS, find);"],
+    ['the folder of its settings', "const dir = path.join(os.homedir(), '.claude', 'projects');"],
+    ['a link named claude to something else', "const link = path.join(linkDir, 'claude');"],
+    ['a start in a comment', "// sendLine(handle, `claude --resume ${id}`);\n/* typeInto(handle, 'claude'); */"],
+  ]) {
+    assert.deepEqual(remoteControlTrouble(`${body}\n`, top), [], `should pass: ${what}`);
+  }
+
+  const typed = 'sendLine(handle, `claude --resume ${id}`);\n';
+  assert.notDeepEqual(remoteControlTrouble(`${loads}'hardRemoteControlOff(home)';\n${typed}`, top), [], 'the helper named only in a string');
+  assert.notDeepEqual(remoteControlTrouble(`hardRemoteControlOff(home);\n${typed}`, top), [], 'the helper called and not loaded');
+  assert.deepEqual(remoteControlTrouble(typed, RC_PROBE), [], 'the probe is let off');
+  assert.deepEqual(
+    remoteControlTrouble(`${loads}hardRemoteControlOff(home);\n${typed}\n\ntypeInto(stranger.handle, 'claude');\n`, top),
+    [],
+    'one call covers every start in the file',
+  );
+  assert.equal(
+    remoteControlTrouble(`${loads}\n${typed}`, top).filter((why) => why.startsWith('line 3:')).length,
+    1,
+    'the reason names the line of the start',
+  );
+});
+
 test('every system test starts each Claude Code session with Remote Control off (#755)', async () => {
   const tree = await snapshot(systemTestsDir);
   const files = Object.keys(tree).filter((rel) => rel.endsWith('.js') && tree[rel].startsWith('file:'));
@@ -1908,15 +1992,19 @@ test('every system test starts each Claude Code session with Remote Control off 
 
   const found = [];
   let inits = 0;
+  let bare = 0;
   for (const rel of files.sort()) {
     const file = path.join(systemTestsDir, rel);
     const source = await readFile(file, 'utf8');
     inits += wordArrays(codeOf(source), ['init']).length;
+    bare += bareClaudeStarts(codeOf(source)).length;
     for (const why of remoteControlTrouble(source, file)) found.push(`test/system/${rel}: ${why}`);
   }
   // Nearly every system test makes a fleet with obk init; finding none means
   // the check has stopped seeing them, not that they have stopped.
   assert.ok(inits > 0, 'no obk init was found in the system tests, so the check sees nothing');
+  // And a few stand in for Orca's cold restore with a bare `claude --resume`.
+  assert.ok(bare > 0, 'no start of Claude Code by hand was found in the system tests, so that rule sees nothing');
   assert.deepEqual(
     found,
     [],

@@ -49,7 +49,7 @@ import {
   snapshot,
   spellingsOf,
 } from './helpers/cli.js';
-import { PS_ENVIRONMENT, PS_READ } from './helpers/fake-ps.js';
+import { PS_ENVIRONMENT, PS_READ, PS_START } from './helpers/fake-ps.js';
 
 /** The kinds a finding can be. */
 const KINDS = ['orca', 'config', 'skill', 'session', 'leftover'];
@@ -567,8 +567,9 @@ test('K6 health reads a session Orca resumed and changes nothing: no file, no ta
     'the only things health asks Orca are the ones that tell it something',
   );
   for (const { args } of (await box.ps.calls()).slice(read)) {
-    const shape = [PS_READ, PS_ENVIRONMENT].find((one) => one.every((word, at) => args[at] === word));
-    assert.ok(shape !== undefined && args.length === shape.length + 1, `ps ${args.join(' ')}: one of the two reads the kit may make`);
+    // PS_START: when the harness started, which health compares with its Claude registry entry (#755).
+    const shape = [PS_READ, PS_ENVIRONMENT, PS_START].find((one) => one.every((word, at) => args[at] === word));
+    assert.ok(shape !== undefined && args.length === shape.length + 1, `ps ${args.join(' ')}: one of the three reads the kit may make`);
     assert.match(args.at(-1), /^[1-9]\d*$/, `ps ${args.join(' ')}: of one positive pid`);
   }
 });

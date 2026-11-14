@@ -8,8 +8,8 @@
 //
 //   <ps> -o pid=,ppid=,tpgid=,comm= -p <pid>
 //
-// and nothing else but the environment and table reads further down (#318,
-// #537). Any other shape is refused here with exit 70, the way the
+// and nothing else but the environment, table and start-time reads further
+// down (#318, #537, #755). Any other shape is refused here with exit 70, the way the
 // fake Orca falls over on a close it must never be asked for: `ps` is a reader
 // for the kit and never a road to a `kill` (AGENTS.md, 2026-09-20), and a call
 // with other flags is a call that was not thought through. Every call, refused
@@ -185,6 +185,34 @@
 // the kit starts `ps`, `lsof` and `kill` as its own children. So a table can
 // list the retire itself, in a work dir, under the process that started it.
 //
+// It answers a fourth question (#755): when one process started. Claude Code
+// writes that time into its registry entry as `procStart`, and health compares
+// it with the live process's, so an entry left by an older process that had
+// the same pid does not count. The kit asks, one pid per call, with TZ=UTC and
+// LC_ALL=C in the environment, as Claude Code 2.1.325 asks it when it writes
+// procStart (read in its binary),
+//
+//   <ps> -o lstart= -p <pid>
+//
+// and gets one line: the start time in `ps`'s own form, `Wed Nov 11 20:27:58
+// 2026`, with a space before a one-digit day, as in the table above. The real
+// `ps` prints it in the local time zone, which TZ sets: the same process read
+// `Wed Nov 11 15:27:58 2026` with TZ unset (EST) and `Wed Nov 11 20:27:58 2026`
+// with TZ=UTC, on this machine. The fake prints it in the zone TZ names when TZ
+// is set and not empty, and in UTC when it is not, so a run is the same on
+// every machine. The day and month names follow LC_ALL as `ps` follows the
+// locale: those of the locale it names (`de_DE.UTF-8` gives German names),
+// and the C locale's, `Wed Nov`, when it is not set or is C or POSIX. It knows the tab's processes above, for the front a tab has
+// now, and the table's processes (their `startedAt`). A tab process's start
+// time is `psStarts` in state.json, an object keyed by pid, each value ms since
+// the epoch; left out, it is a time on 2026-10-10 that the pid gives, as for
+// the table (`tabStartOf` gives it to a test). A value of `null` there is a
+// `ps` that prints an empty line and exits 0. A pid the fake does not know
+// prints nothing and exits 1, as the first read does. `psStartErrors` in
+// state.json, an object keyed by pid, each value a line of text, makes this
+// read of that pid fail: the text on stderr, nothing on stdout, exit 1,
+// whether or not the fake knows the pid. `psErrors` does not touch this read.
+//
 // And one way it answers nothing at all (#298): `ps` in state.json set to
 // 'not-permitted' is a `ps` that does not start, as inside Codex's
 // `workspace-write` sandbox, where /bin/ps gave `Operation not permitted` and
@@ -237,8 +265,41 @@ export function lstartOf(ms) {
     + `${two(at.getUTCHours())}:${two(at.getUTCMinutes())}:${two(at.getUTCSeconds())} ${at.getUTCFullYear()}`;
 }
 
+/** The argv the kit may hand `ps` to read when one process started (#755), but for the pid on the end. */
+export const PS_START = ['-o', 'lstart=', '-p'];
+
+/**
+ * A start time as `ps -o lstart=` prints it (#755): in the zone TZ names, or in
+ * UTC when TZ is not set; with the day and month names of the locale LC_ALL
+ * names, or the C locale's when LC_ALL is not set or is C or POSIX.
+ */
+function lstartInZone(ms) {
+  const zone = process.env.TZ === undefined || process.env.TZ === '' ? 'UTC' : process.env.TZ;
+  const locale = process.env.LC_ALL;
+  const c = locale === undefined || locale === '' || locale === 'C' || locale === 'POSIX';
+  const tag = c ? 'en-US' : locale.replace(/\..*$/, '').replace('_', '-');
+  let parts;
+  try {
+    parts = new Intl.DateTimeFormat(tag, {
+      timeZone: zone, weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+    }).formatToParts(new Date(ms));
+  } catch {
+    // A zone or a locale Intl does not know: UTC and C, as Node falls back.
+    return lstartOf(ms);
+  }
+  const part = (type) => parts.find((one) => one.type === type)?.value ?? '';
+  return `${part('weekday')} ${part('month')} ${part('day').padStart(2, ' ')} ${part('hour')}:${part('minute')}:${part('second')} ${part('year')}`;
+}
+
 /** The start time of an entry that gives none: 2026-10-10 08:00:00 UTC, plus one second for each pid mod 3600. */
 const defaultStart = (pid) => Date.UTC(2026, 9, 10, 8, 0, 0) + (Number(pid) % 3600) * 1000;
+
+/**
+ * When a tab's process `pid` started, in ms since the epoch, as the fake ps
+ * answers `-o lstart= -p <pid>` for it: `psStarts[pid]` in state.json, or the
+ * pid's default. `null` is what a test set for a ps that prints nothing.
+ */
+export const tabStartOf = (state, pid) => (Object.hasOwn(state.psStarts ?? {}, String(pid)) ? state.psStarts[String(pid)] : defaultStart(pid));
 
 /** When the fake kill was first called, in ms since the epoch, or undefined before that. */
 function firstSignalAt() {
@@ -608,11 +669,27 @@ export function runPs() {
     && /^[1-9]\d*$/.test(args[shape.length]);
   const read = asks(PS_READ);
   const environment = asks(PS_ENVIRONMENT);
-  if (!read && !environment) {
+  const start = asks(PS_START);
+  if (!read && !environment && !start) {
     process.stderr.write(`fake ps: ${args.join(' ')} is not a read of one pid; the kit asks ps nothing else\n`);
     process.exit(70);
   }
   const pid = Number(args.at(-1));
+
+  if (start) {
+    // When one process started (#755): see the top.
+    const failure = state.psStartErrors?.[String(pid)];
+    if (typeof failure === 'string') {
+      process.stderr.write(`${failure}\n`);
+      process.exit(1);
+    }
+    const tab = (state.terminals ?? []).some((terminal) => processesOf(state, terminal, dir).some((one) => one.pid === pid));
+    const listed = tableOf(state).find((row) => row.pid === pid);
+    if (!tab && listed === undefined) process.exit(1);
+    const at = tab ? tabStartOf(state, pid) : listed.startedAt;
+    process.stdout.write(at === null ? '\n' : `${lstartInZone(at)}\n`);
+    process.exit(0);
+  }
 
   // An error of ps's own for this pid, which a test set (see the top).
   const error = state.psErrors?.[String(pid)];
