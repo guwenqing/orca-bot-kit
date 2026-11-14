@@ -403,35 +403,38 @@ bot's sessions, set `"auto-mode-setup": "on"` under `skillOverrides` in the bot'
 `.claude/settings.local.json`, which wins over the kit's entry. The kit never
 writes that file.
 
-Each Claude bot has a memory folder of its own. Claude Code alone would give
-every bot of one bots repository the same folder, so the notes of one bot would
-load in every bot. The kit's line for a Claude session carries `--settings`
-with one key, `autoMemoryDirectory`. It names
-`<projects>/<slug of the bot folder>/memory`, beside the bot's own
-transcripts, where `<projects>` is the physical folder behind the Orca
-account's `projects`, or `~/.claude/projects` with no Orca account. All
-sessions of a bot share the folder, temporary sessions too. A physical path
-means a session saves its memory with no permission dialog. The kit writes no
-file for this, and it never moves, copies or deletes a note.
+Each Claude bot has a memory folder of its own, `claude-memory/` in the bot's
+folder. Claude Code alone would give every bot of one bots repository the same
+folder, so the notes of one bot would load in every bot. The kit's line for a
+Claude session carries `--settings` with one key, `autoMemoryDirectory`, which
+names that folder by its physical path, so a session saves its memory with no
+permission dialog. All sessions of a bot share the folder, temporary sessions
+too. The kit never moves, copies or deletes a note.
 
-A bot, its repository or an account that names its own `autoMemoryDirectory`
-keeps it. A bot folder whose slug (its path, with each character that is not a
-letter or a digit made `-`) is longer than 200 characters gets no folder of its
-own, and shares Claude Code's default folder. A conversation that began before
-this keeps its old folder until the session restarts under this version and
-then begins a new conversation with `/clear`. A restart alone or a `/clear`
-alone does not change the folder. After Orca brings a tab back by itself, a
-`/clear` before a restart goes back to the shared folder and brings the dialog
-back; `obk health` names such a session
+The notes stay out of git. When the kit makes `claude-memory/`, it writes a
+`.gitignore` in it that holds `*`, because a note can hold your words or
+private facts, and a push would publish them. To keep a bot's notes in git,
+delete that `.gitignore`; the kit does not write it again while the folder is
+there. A `claude-memory/` folder that you made yourself gets no `.gitignore`
+from the kit.
+
+A bot, its repository or your user-level settings that name their own
+`autoMemoryDirectory` keep it, and the kit then makes no folder. So does a
+`claude-memory` in the bot folder that is a file or a link. A conversation that
+began before this keeps its old folder until the session restarts under this
+version and then begins a new conversation with `/clear`. A restart alone or a
+`/clear` alone does not change the folder. After Orca brings a tab back by
+itself, a `/clear` before a restart goes back to the shared folder and brings
+the permission dialog back; `obk health` names such a session
 ([ADR 0056](docs/adr/0056-each-claude-bot-gets-a-memory-folder-of-its-own.md)).
 
 When you upgrade from a version before this, the notes that your bots shared
-stay where they were, in the folder of your bots repository. A bot then starts
-with no notes. `obk health` names each bot whose own folder is empty while the
-shared folder has notes, and names both folders. To keep a bot's notes, copy
-the ones that belong to it into its own folder, and make its `MEMORY.md` list
-them; Bot Father can do this with you. To keep a bot on the shared folder, name
-that folder as `autoMemoryDirectory` in the bot's `.claude/settings.local.json`.
+stay where they were, in Claude Code's folder for your bots repository under
+`~/.claude/projects`. A bot then starts with no notes. `obk health` names each
+bot whose own folder has no notes while the shared folder has some, and names
+both folders. To keep a bot's notes, copy the ones that belong to it into its
+`claude-memory/`, and make its `MEMORY.md` list them; Bot Father can do this
+with you.
 
 So: kill a tab, or reboot, and `obk up` brings the session back with the
 conversation it was having, rather than starting a new one. Clear a session —

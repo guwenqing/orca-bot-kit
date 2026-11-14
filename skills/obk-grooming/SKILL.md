@@ -156,9 +156,8 @@ report and nothing to send.
 
 On Claude Code, a bot's memory is on when its `.claude/settings.json` turns it
 on. It lives in the folder that the bot's settings name as
-`autoMemoryDirectory`, or else in the folder of its own that the kit names on
-its launch line, `<projects>/<slug of the bot folder>/memory`: a `MEMORY.md`
-index and a file per memory. Codex's memories are the user's,
+`autoMemoryDirectory`, or else in `claude-memory/` in the bot folder, which
+the kit names on its launch line: a `MEMORY.md` index and a file per memory. Codex's memories are the user's,
 shared by every Codex session, and not one bot's to be groomed: say that a Codex
 bot has them on, and leave the store alone.
 
