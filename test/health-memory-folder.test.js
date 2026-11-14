@@ -31,6 +31,12 @@
 //   HS1  a finding for each Claude session whose own extra_args carry
 //        `--settings`: it names the bot, the session and `--settings`; none for
 //        a Codex or Pi session with it, none for a Claude session without it
+//   HC1  a finding for a bot that has a Claude session without its own
+//        `--settings`, no folder named by hand, and a file or a link at
+//        `<real bot folder>/claude-memory`: it names the bot and that path;
+//        none for a plain folder or nothing there, a folder named by hand, a
+//        bot with only Codex or Pi sessions, or one whose every Claude
+//        session carries `--settings`
 //
 // A finding is read from `obk health --json`: `found` is a list of
 // `{ kind, bot, where, says }`. These tests hold the bot's name, the session's
@@ -564,7 +570,9 @@ describe('obk health names a bot whose own memory folder is empty while the shar
 
       await put(world.own, world);
 
-      assertNoNotice(await found(world.box), BOT, `${label} at the bot's claude-memory`);
+      // HC1 gives this bot a finding that names its claude-memory; none names the shared notes.
+      const naming = (await found(world.box)).filter((one) => textOf(one).includes(tailOf(BOT)) && textOf(one).includes(world.shared));
+      assert.deepEqual(naming, [], `${label} at the bot's claude-memory: no finding names the shared notes for it, got: ${show(naming)}`);
     });
   }
 
@@ -717,5 +725,104 @@ describe('obk health names a bot whose own memory folder is empty while the shar
     await handEdit(home, { keeper: [] });
 
     assert.deepEqual(settingsFindings(await found(box), 'keeper'), [], 'no --settings, no finding');
+  });
+
+  // ---------------------------------------------------------------- HC1
+
+  /** The findings that name `where`. */
+  const naming = (findings, where) => findings.filter((one) => textOf(one).includes(where));
+
+  /** The one finding that names `where`, and names the bot. */
+  function assertPathNotice(findings, { bot, where }) {
+    const said = naming(findings, where);
+    assert.equal(said.length, 1, `one finding should name ${where}, got: ${show(findings)}`);
+    const [one] = said;
+    assert.ok(one.bot === bot || textOf(one).replaceAll(where, '').includes(bot), `the finding should name the bot ${bot}, got: ${show(one)}`);
+    return one;
+  }
+
+  const NOT_A_PLAIN_FOLDER = [
+    ['a file', (at) => writeFile(at, 'my own notes\n')],
+    ['a link to a folder', async (at, { box }) => {
+      const target = path.join(box.root, 'elsewhere', 'notes');
+      await mkdir(target, { recursive: true });
+      await symlink(target, at);
+    }],
+    ['a link to a file', async (at, { box }) => {
+      const target = path.join(box.root, 'elsewhere', 'notes.md');
+      await mkdir(path.dirname(target), { recursive: true });
+      await writeFile(target, 'notes\n');
+      await symlink(target, at);
+    }],
+    ['a link that leads nowhere', (at, { box }) => symlink(path.join(box.root, 'no-such-folder'), at)],
+    ['a link to itself', (at) => symlink(at, at)],
+  ];
+  for (const [label, put] of NOT_A_PLAIN_FOLDER) {
+    test(`HC1 ${label} at <bot folder>/claude-memory: one finding names the bot and that path; health changes nothing there`, async (t) => {
+      const world = await usual(t, { seedShared: false });
+      assert.deepEqual(naming(await found(world.box), world.own), [], 'the control: nothing there, no finding names the path');
+      await put(world.own, world);
+      const before = await snapshot(world.home);
+
+      assertPathNotice(await found(world.box), { bot: BOT, where: world.own });
+      assert.deepEqual(await snapshot(world.home), before, 'health changes nothing in the bot folder');
+    });
+  }
+
+  test('HC1 the finding ends when the file gives way to a plain folder', async (t) => {
+    const world = await usual(t, { seedShared: false });
+    await writeFile(world.own, 'my own notes\n');
+    assertPathNotice(await found(world.box), { bot: BOT, where: world.own });
+
+    await rm(world.own);
+    await mkdir(world.own);
+
+    assert.deepEqual(naming(await found(world.box), world.own), [], 'a plain folder gets no such finding');
+  });
+
+  const SILENT = [
+    ['a folder named by hand in the bot\'s settings.local.json', async ({ home }) => {
+      await mkdir(path.join(home, '.claude'), { recursive: true });
+      const file = path.join(home, '.claude', 'settings.local.json');
+      await writeFile(file, `${JSON.stringify({ [KEY]: '/somewhere/of/my/own' })}\n`);
+    }],
+    ['a folder named by hand in the selected profile\'s settings.json', ({ profile }) => writeFile(path.join(profile.home, 'settings.json'), `${JSON.stringify({ [KEY]: '/somewhere/of/my/own' })}\n`)],
+    ['--settings in the extra_args of every Claude session of the bot', ({ home }) => handEdit(home, { daily: ['--settings', '/srv/mine.json'], other: '--settings=/srv/mine.json' })],
+  ];
+  for (const [label, change] of SILENT) {
+    test(`HC1 a file at <bot folder>/claude-memory and ${label}: no finding names the path`, async (t) => {
+      const world = await usual(t, { seedShared: false, sessions: ['daily', 'other'] });
+      await writeFile(world.own, 'my own notes\n');
+      assertPathNotice(await found(world.box), { bot: BOT, where: world.own });
+
+      await change(world);
+
+      assert.deepEqual(naming(await found(world.box), world.own), [], `${label}: the kit would name no folder in any case, so no finding`);
+    });
+  }
+
+  test('HC1 one Claude session with its own --settings and one without: the finding stays', async (t) => {
+    const world = await usual(t, { seedShared: false, sessions: ['daily', 'other'] });
+    await writeFile(world.own, 'my own notes\n');
+    await handEdit(world.home, { other: ['--settings', '/srv/mine.json'] });
+
+    assertPathNotice(await found(world.box), { bot: BOT, where: world.own });
+  });
+
+  test('HC1 a bot with only Codex sessions, a bot with only Pi sessions and a Claude bot whose every session runs on Codex: no finding; a Claude bot beside them gets one', async (t) => {
+    const world = await usual(t, { seedShared: false });
+    const { box, bots } = world;
+    await fakePi(box);
+    await botIn(box, { name: 'codex-bot', harness: 'codex' });
+    await botIn(box, { name: 'pi-bot', harness: 'pi' });
+    await botIn(box, { name: 'review-bot', sessions: [['review', '--harness', 'codex']] });
+    for (const bot of ['codex-bot', 'pi-bot', 'review-bot', BOT]) await writeFile(ownOf(botHomeOf(bots, bot)), 'my own notes\n');
+
+    const findings = await found(box);
+
+    for (const bot of ['codex-bot', 'pi-bot', 'review-bot']) {
+      assert.deepEqual(naming(findings, ownOf(botHomeOf(bots, bot))), [], `${bot} has no Claude session the kit would name a folder for`);
+    }
+    assertPathNotice(findings, { bot: BOT, where: world.own });
   });
 });

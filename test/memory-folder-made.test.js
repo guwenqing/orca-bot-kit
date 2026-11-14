@@ -29,6 +29,11 @@
 //       next start, with the cause gone, makes both as usual
 //   F8  the same when the .gitignore is made and its write then fails: no
 //       claude-memory is left, not even with an empty .gitignore
+//   F9  a start that names no folder because of F7's failure, or because a
+//       file or a link is at <bot folder>/claude-memory, says so: under the
+//       session's tab in the report, a line names that path. No such line for
+//       a session that got its folder, a folder named by hand, or a session
+//       with its own --settings
 //
 // The kit makes the folder before it types the launch line. The fake Orca does
 // not run the harness, so these tests read the folder when the kit's command
@@ -141,6 +146,29 @@ function assertNothingAt(home, why) {
     there = false;
   }
   assert.equal(there, false, `${why}: nothing should be at ${ownOf(home)}`);
+}
+
+/**
+ * The lines of a plain report under the tab line of tab `tabId`: from the
+ * line that names `tab <tabId>` to the next line that does not start with a
+ * space. Gives back the lines under it, the tab line not among them.
+ */
+function underTab(stdout, tabId) {
+  const lines = stdout.split('\n');
+  const at = lines.findIndex((line) => !/^\s/.test(line) && line.includes(`tab ${tabId}`));
+  assert.ok(at >= 0, `the report should have a line for tab ${tabId}, got:\n${stdout}`);
+  const under = [];
+  for (const line of lines.slice(at + 1)) {
+    if (!/^\s/.test(line)) break;
+    under.push(line);
+  }
+  return under;
+}
+
+/** The lines under a session's current tab in a report that name `where`. The wording is not held. */
+async function namingUnder(stdout, bots, bot, session, where) {
+  const { tab } = await sessionIn(bots, bot, session);
+  return underTab(stdout, tab).filter((line) => line.includes(where));
 }
 
 /** Add keys to a settings file, keeping what the kit wrote there. */
@@ -566,14 +594,17 @@ describe('the kit makes a bot\'s memory folder with an ignore file, and moves no
       const line = await lineIn(box, bots, 'daily');
       assert.equal(typeof line, 'string', `a line was typed into daily's tab (the run said: ${said})`);
       assert.ok(!line.includes('--settings') && !line.includes(KEY), `the line names no folder, got: ${line}`);
+      // F9: the report says so, under daily's tab, by the path.
+      assert.ok((await namingUnder(ran.stdout, bots, BOT, 'daily', ownOf(home))).length > 0, `a line under daily's tab names ${ownOf(home)}, got:\n${ran.stdout}`);
 
       await locksWritableAgain(bots);
       await reported(box, bots, 'daily');
-      await ok(box, ['restart', '--bots', 'bots', '--bot', BOT, '--session', 'daily']);
+      const again = await ok(box, ['restart', '--bots', 'bots', '--bot', BOT, '--session', 'daily']);
 
       await assertMade(home, 'the next start, with the usual umask');
       const next = await lineIn(box, bots, 'daily');
       assert.ok(next.includes('--settings') && next.includes(KEY) && next.includes(ownOf(home)), `the next start names the folder, got: ${next}`);
+      assert.deepEqual(await namingUnder(again.stdout, bots, BOT, 'daily', ownOf(home)), [], `a session that got its folder has no such line, got:\n${again.stdout}`);
     });
   }
 
@@ -623,4 +654,64 @@ describe('the kit makes a bot\'s memory folder with an ignore file, and moves no
     const line = await lineIn(box, bots, 'daily');
     assert.ok(line.includes('--settings') && line.includes(KEY) && line.includes(ownOf(home)), `the next start names the folder, got: ${line}`);
   });
+
+  // ---------------------------------------------------------------- F9
+
+  /** What can be at `<bot folder>/claude-memory` that is not a plain folder. */
+  const NOT_A_PLAIN_FOLDER = [
+    ['a file', (at) => writeFile(at, 'my own notes\n')],
+    ['a link to a folder', async (at, { box }) => {
+      const target = path.join(box.root, 'elsewhere', 'notes');
+      await mkdir(target, { recursive: true });
+      await symlink(target, at);
+    }],
+    ['a link that leads nowhere', (at, { box }) => symlink(path.join(box.root, 'no-such-folder'), at)],
+  ];
+
+  for (const [label, put] of NOT_A_PLAIN_FOLDER) {
+    test(`F9 ${label} at <bot folder>/claude-memory: the report of up names that path under the session's tab; a bot that got its folder has no such line`, async (t) => {
+      const world = await fleet(t);
+      const { box, bots, home, other } = world;
+      await put(ownOf(home), world);
+
+      const { stdout } = await up(box, BOT);
+      const control = await up(box, OTHER);
+
+      assert.ok((await namingUnder(stdout, bots, BOT, 'daily', ownOf(home))).length > 0, `a line under ${BOT} daily's tab names ${ownOf(home)}, got:\n${stdout}`);
+      await assertMade(other, 'the control');
+      assert.deepEqual(await namingUnder(control.stdout, bots, OTHER, 'daily', ownOf(other)), [], `a session that got its folder has no such line, got:\n${control.stdout}`);
+    });
+  }
+
+  test('F9 a file put at <bot folder>/claude-memory after the first start: the report of restart names that path under the new tab', async (t) => {
+    const { box, bots, home } = await fleet(t);
+    await up(box, BOT);
+    await assertMade(home, 'the control: the first start made it');
+    await rm(ownOf(home), { recursive: true });
+    await writeFile(ownOf(home), 'my own notes\n');
+    await reported(box, bots, 'daily');
+
+    const { stdout } = await ok(box, ['restart', '--bots', 'bots', '--bot', BOT, '--session', 'daily']);
+
+    assert.ok((await namingUnder(stdout, bots, BOT, 'daily', ownOf(home))).length > 0, `a line under daily's new tab names ${ownOf(home)}, got:\n${stdout}`);
+  });
+
+  const STAYS_SILENT = [
+    ['a folder named by hand in the bot\'s settings.local.json', ({ home }) => addTo(path.join(home, '.claude', 'settings.local.json'), { [KEY]: '/somewhere/of/my/own' })],
+    ['the session\'s own --settings in extra_args', ({ home }) => handEdit(home, 'daily', ['--settings', '/srv/mine.json'])],
+  ];
+  for (const [label, change] of STAYS_SILENT) {
+    test(`F9 a file at <bot folder>/claude-memory and ${label}: the report names no such path under the tab; the same file with nothing else does`, async (t) => {
+      const world = await fleet(t, { sessions: ['daily', 'control'] });
+      const { box, bots, home } = world;
+      await writeFile(ownOf(home), 'my own notes\n');
+      const control = await up(box, BOT, 'control');
+      assert.ok((await namingUnder(control.stdout, bots, BOT, 'control', ownOf(home))).length > 0, `the control: a line under control's tab names ${ownOf(home)}, got:\n${control.stdout}`);
+      await change(world);
+
+      const { stdout } = await up(box, BOT, 'daily');
+
+      assert.deepEqual(await namingUnder(stdout, bots, BOT, 'daily', ownOf(home)), [], `nothing under daily's tab names ${ownOf(home)}, got:\n${stdout}`);
+    });
+  }
 });
