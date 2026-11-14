@@ -26,7 +26,7 @@ import { botDir, botNames, botsDir, readBot, tempRoles, unknownKeys } from './bo
 import { hasConversation, transcriptsIn } from './conversations.js';
 import { hookTrouble } from './hooks.js';
 import { APPROVALS, bypassFlags, harnessOf, HARNESSES, isAddressOf, lostToOwnSettings, ownCli, promptFile, sessionTrouble, set, setsSettings, SHELL_ENV, shellWord, workDirOf } from './launch.js';
-import { sharedNotes } from './memory.js';
+import { memoryFolderFor, sharedNotes } from './memory.js';
 import { frontOfTab, mailIn, orcaDefaultArgs, projects, runMissing, tabs, tabToTypeInto, wordsOfProcess } from './orca.js';
 import { permissionsTrouble } from './permissions.js';
 import { askPi } from './pi.js';
@@ -216,6 +216,7 @@ function aboutBot(bots, name, setups, sessions, pi) {
     ...leftRunning(home, bot),
     ...ownSettings(home, bot),
     ...notesLeftShared(home, bot),
+    ...memoryFolderBlocked(home, bot),
   ];
 }
 
@@ -231,6 +232,18 @@ function ownSettings(home, bot) {
       ? []
       : [finding('config', file, `${bot.name}'s session ${session.name} carries its own --settings in ${file}, which replaces the kit's, so it runs without: ${lost.join(', ')}. To give it back, take --settings out of its extra_args.`, bot.name)];
   });
+}
+
+/**
+ * A file or a link where the kit would make this bot's memory folder, so its
+ * Claude sessions get none and their notes go to the folder that the bots
+ * shared (#752). Never silent; the kit touches neither.
+ */
+function memoryFolderBlocked(home, bot) {
+  const named = bot.sessions.some((session) => harnessOf(session, bot.harness) === 'claude' && !setsSettings(session));
+  const { blocked } = named ? memoryFolderFor(home) : {};
+  if (blocked === undefined) return [];
+  return [finding('config', blocked, `${bot.name}'s Claude sessions get no memory folder of their own: ${blocked} is a file or a link, not a folder, so the kit names none, and their notes go to the folder that the bots shared. Move it aside, and the next start of a session makes the folder.`, bot.name)];
 }
 
 /**

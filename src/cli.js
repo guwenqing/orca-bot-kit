@@ -1953,6 +1953,9 @@ function tabLines({ bots, created, completed, rules, skills, permissions = [], t
     if (tab.noMailbox) {
       lines.push(`             it has no mailbox: ${noMailboxYet({ bots, bot: tab.bot, session: tab.name })}`);
     }
+    if (tab.noMemoryFolder !== undefined) {
+      lines.push(`             no memory folder of its bot's own: ${tab.noMemoryFolder}`);
+    }
     if (tab.lost !== undefined) {
       lines.push(`             its own --settings in bot.yaml replaces the kit's, so it runs without: ${tab.lost.join(', ')}`);
     }

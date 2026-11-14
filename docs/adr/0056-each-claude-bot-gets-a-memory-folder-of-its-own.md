@@ -25,8 +25,8 @@ The kit adds nothing, and makes nothing, when one of these holds:
 
 1. An `autoMemoryDirectory` key is in the bot's `.claude/settings.json` or `.claude/settings.local.json`, in the repository root's `.claude/settings.local.json`, or at the user level: the selected Orca profile's `settings.json`, or `~/.claude/settings.json` with no profile. A file that cannot be read or parsed counts as having the key. The repository root is the top of the repository that holds the bot, the main repository's for a linked worktree. When the kit is not sure of the root, it does not read that file.
 2. The session's own `extra_args` hold `--settings`, which replaces the kit's: Claude Code keeps only the last one on the line. `obk up`, `obk restart` and `obk health` name such a session and what it runs without.
-3. Something that is not a plain folder is at `<bot folder>/claude-memory`: a file, or a link.
-4. The kit cannot make the folder with its `.gitignore`. It then takes back only what it made: its own `.gitignore`, and the folder while it is empty. It tries again at the next start.
+3. Something that is not a plain folder is at `<bot folder>/claude-memory`: a file, or a link. A link could lead out of the bot folder. The launch report and `obk health` name it.
+4. The kit cannot make the folder with its `.gitignore`. It then takes back only what it made: its own `.gitignore`, and the folder while it is empty. It says so in the launch report, and tries again at the next start.
 
 The kit never moves, copies or deletes a note for this.
 

@@ -28,21 +28,19 @@ export const MEMORY_FOLDER = 'claude-memory';
 const INDEX = 'MEMORY.md';
 
 /**
- * The folder to name for a Claude session of the bot at `home`, or undefined
- * when the kit names none: the bot, its repository or the user names a folder
- * of their own, or something that is not a plain folder is at the path. It
- * makes nothing; `madeMemoryFolder` does.
+ * The memory folder for a Claude session of the bot at `home`, read only:
+ * `{ folder }` to name; `{ blocked }`, the path, when a file or a link is
+ * there, so the kit names none and says so; or `{}` when the bot, its
+ * repository or the user names a folder of their own, which is theirs and
+ * needs no word. It makes nothing; `madeMemoryFolder` does.
  */
-export function physicalMemoryFolder(home) {
+export function memoryFolderFor(home) {
   let bot;
   try {
     bot = realpathSync(home);
   } catch {
-    return undefined;
+    return {};
   }
-  const folder = path.join(bot, MEMORY_FOLDER);
-  const there = lstatSync(folder, { throwIfNoEntry: false });
-  if (there !== undefined && !there.isDirectory()) return undefined;
   // Claude Code reads a project's local settings from the top of its repository
   // as well as from the bot's folder, and the user's from the profile Orca
   // routes the tab to, or from the user's own folder with none.
@@ -54,23 +52,32 @@ export function physicalMemoryFolder(home) {
     ...(root === undefined ? [] : [path.join(root, '.claude', 'settings.local.json')]),
     profile === undefined ? path.join(homedir(), '.claude', 'settings.json') : path.join(profile, 'settings.json'),
   ];
-  return named.some(namesMemoryFolder) ? undefined : folder;
+  if (named.some(namesMemoryFolder)) return {};
+  const folder = path.join(bot, MEMORY_FOLDER);
+  // A link could lead out of the bot folder, and a file is no folder.
+  const there = lstatSync(folder, { throwIfNoEntry: false });
+  return there !== undefined && !there.isDirectory() ? { blocked: folder } : { folder };
 }
 
+/** The folder to name for a Claude session of the bot at `home`, or undefined when the kit names none. */
+export const physicalMemoryFolder = (home) => memoryFolderFor(home).folder;
+
 /**
- * The folder to name for a Claude session of the bot at `home`, made with its
- * `.gitignore` when nothing is there yet; undefined when the kit names none or
- * cannot make it. A folder that is there is left as it is.
+ * The memory folder for a Claude session of the bot at `home`, made with its
+ * `.gitignore` when nothing is there yet: what `memoryFolderFor` says, or
+ * `{ failed, code }` when the kit could not make it, so it names none at this
+ * start. A folder that is there is left as it is.
  */
-export function madeMemoryFolder(home) {
-  const folder = physicalMemoryFolder(home);
-  if (folder === undefined || existsSync(folder)) return folder;
+export function memoryFolderAtStart(home) {
+  const found = memoryFolderFor(home);
+  const { folder } = found;
+  if (folder === undefined || existsSync(folder)) return found;
   // mkdir refuses a folder that someone else made in the meantime, so the kit
   // writes the ignore file only into a folder it made itself.
   try {
     mkdirSync(folder);
-  } catch {
-    return undefined;
+  } catch (error) {
+    return { failed: folder, code: error.code };
   }
   const ignore = path.join(folder, '.gitignore');
   let opened;
@@ -80,8 +87,8 @@ export function madeMemoryFolder(home) {
     opened = openSync(ignore, 'wx');
     writeFileSync(opened, '*\n');
     closeSync(opened);
-    return folder;
-  } catch {
+    return found;
+  } catch (error) {
     // A folder the kit made stays only with its ignore file (reviews of PR
     // #762). The kit takes back only its own ignore file, a write of which
     // may have failed after the open, and then the folder, which rmdir takes
@@ -103,8 +110,23 @@ export function madeMemoryFolder(home) {
     } catch {
       // Something was written into it at once; it is left, and named nowhere.
     }
-    return undefined;
+    return { failed: folder, code: error.code };
   }
+}
+
+/** The folder to name at a start, made when it is not there yet, or undefined when the kit names none. */
+export const madeMemoryFolder = (home) => memoryFolderAtStart(home).folder;
+
+/**
+ * Why a Claude session got no memory folder of its bot's own at this start,
+ * in words for the launch report, from what `memoryFolderAtStart` gave; undefined
+ * when it got one, or when a folder named by hand is the reason.
+ */
+export function noMemoryFolderWhy(made) {
+  const after = "This session's notes go to the folder that the bots shared until the kit starts it again with a folder.";
+  if (made.blocked !== undefined) return `${made.blocked} is a file or a link, not a folder, so the kit names none. ${after}`;
+  if (made.failed !== undefined) return `the kit could not make ${made.failed} with its .gitignore (${made.code ?? 'unknown error'}), so it names none at this start. ${after}`;
+  return undefined;
 }
 
 /**

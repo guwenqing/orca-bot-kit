@@ -420,9 +420,12 @@ from the kit.
 
 A bot, its repository or your user-level settings that name their own
 `autoMemoryDirectory` keep it, and the kit then makes no folder. So does a
-`claude-memory` in the bot folder that is a file or a link. When the kit cannot
-make the folder with its `.gitignore`, it names none for that start, leaves
-nothing behind, and tries again at the next start. A conversation that
+`claude-memory` in the bot folder that is a file or a link; the launch report
+and `obk health` name it. When the kit cannot make the folder with its
+`.gitignore`, it names none for that start, leaves nothing behind, says so in
+the launch report, and tries again at the next start. In both cases the
+session's notes go to the folder that the bots shared until the kit starts it
+again with a folder. A conversation that
 began before this keeps its old folder until the session restarts under this
 version and then begins a new conversation with `/clear`. A restart alone or a
 `/clear` alone does not change the folder. After Orca brings a tab back by

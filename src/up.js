@@ -14,7 +14,7 @@ import { botDir, botNames, displayName, readBot } from './bot.js';
 import { conversationsIn, hasConversation, heldAsUserTurn, transcriptsIn } from './conversations.js';
 import { dropRemovedHooks, installHook } from './hooks.js';
 import { writePermissions } from './permissions.js';
-import { madeMemoryFolder } from './memory.js';
+import { memoryFolderAtStart, noMemoryFolderWhy } from './memory.js';
 import { piTrouble } from './pi.js';
 import { addressOf, HARNESSES, harnessOf, isAddressOf, isShortPrompt, kitFolders, launchCommand, lostToOwnSettings, mailboxStep, ownCli, reachesMail, sessionTrouble, setsSettings, shellWord, startPrompt, workDirOf } from './launch.js';
 import { asFolderProject, coordinatorOf, dropLeftGit, findProject, harnessInTab, loadInWindow, makeMailbox, makeProject, openTab, QUESTION_ON_SCREEN, retitleTab, runMissing, screenRows, shellInTab, tabs, tabToTypeInto, TERMINAL_ENV, TIMED_OUT, tellWindow, typeIntoTab, useMailbox } from './orca.js';
@@ -460,6 +460,7 @@ async function bringUpSession(bots, home, live, session, bot, title, endedBy) {
     // then, and whatever it said is on the tab's screen, not in this report.
     noMailbox: lacksMailbox(home, session, harness),
     lost: lostToOwnSettings(session, harness),
+    noMemoryFolder: launch.noMemoryFolder,
     ...tui,
     promptReceived,
     promptFile: launch.promptFile,
@@ -654,6 +655,8 @@ function launchFor(bots, bot, session, harness, home, workDir, resume, held, fre
   const address = harness !== 'claude' ? undefined
     : resume !== undefined && isAddressOf(bot.name, session.name, held) ? held
     : addressOf(bot.name, session.name);
+  // Made here, before the line is typed, and only for a line that carries it.
+  const memory = harness === 'claude' && !setsSettings(session) ? memoryFolderAtStart(home) : {};
   const line = launchCommand(session, {
     harness,
     home,
@@ -663,8 +666,7 @@ function launchFor(bots, bot, session, harness, home, workDir, resume, held, fre
     resume,
     address,
     kit: kitFolders(bots, bot.name),
-    // Made here, before the line is typed, and only for a line that carries it.
-    ...(harness === 'claude' && !setsSettings(session) ? { memoryFolder: madeMemoryFolder(home) } : {}),
+    ...(memory.folder === undefined ? {} : { memoryFolder: memory.folder }),
     // A new Pi conversation's id, and the name its tab and session list show,
     // `<bot>.<session>` as a Codex thread is named (#480).
     ...(harness === 'pi' ? { sessionId: resume === undefined ? fresh : undefined, name: `${bot.name}.${session.name}` } : {}),
@@ -672,7 +674,8 @@ function launchFor(bots, bot, session, harness, home, workDir, resume, held, fre
   // The session's mailbox first, from inside its own tab (#317), and the
   // harness whatever became of it.
   const command = reachesMail(session, harness) ? `${mailboxStep(bots, bot.name, session.name)}; ${line}` : line;
-  return { resume, prompt, promptFile, command, address };
+  // Why it got no folder of its bot's own, said in the report, never silent (#752).
+  return { resume, prompt, promptFile, command, address, noMemoryFolder: noMemoryFolderWhy(memory) };
 }
 
 /**
@@ -1022,7 +1025,7 @@ export const promptPath = (bots, bot, session) =>
 export const oldPromptPath = (bots, bot, session) =>
   path.join(`${bots}.prompts`, `${encodeURIComponent(bot)}.${encodeURIComponent(session)}.txt`);
 
-function entry(tab, { bot, name, created, running = false, blockedReason, promptReceived, promptFile, resumed, noConversation, harnessChanged, ranOn, unclaimed, noMailbox = false, lost = [], listLine, listLineTrouble, restartLine, restartLineTrouble, notLaunched }) {
+function entry(tab, { bot, name, created, running = false, blockedReason, promptReceived, promptFile, resumed, noConversation, harnessChanged, ranOn, unclaimed, noMailbox = false, lost = [], noMemoryFolder, listLine, listLineTrouble, restartLine, restartLineTrouble, notLaunched }) {
   const made = { bot, name, title: tab.title, tabId: tab.tabId, terminal: tab.handle, created, harnessStarted: running };
   // A tab whose shell was not ready for the launch line, and why: nothing was
   // typed into it (#498).
@@ -1050,6 +1053,7 @@ function entry(tab, { bot, name, created, running = false, blockedReason, prompt
   // What the session runs without because its own --settings replaces the
   // kit's (#752).
   if (lost.length > 0) made.lost = lost;
+  if (noMemoryFolder !== undefined) made.noMemoryFolder = noMemoryFolder;
   // Conversations the harness still has in this bot's folder that no session
   // claims: the caller is told, because the kit will not pick one.
   if (unclaimed !== undefined && unclaimed.length > 0) made.unclaimed = unclaimed;
