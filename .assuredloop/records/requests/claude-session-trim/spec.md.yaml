@@ -1,0 +1,35 @@
+schema: assuredloop/1
+file: requests/claude-session-trim/spec.md
+paragraphs:
+  - id: SP-1
+    kind: note
+    text_sha256: 32ee45919dbef16833e5b4509a130a0d9abe4d70a93cabac2c331d799b2064f5
+    display: "SP-1 (0, Change spec: the kit trims what a Claude Code session is sent)"
+  - id: SP-2
+    kind: note
+    text_sha256: 285d4cc440ef290de75030ff91757199dc4689080a0646ea3a3fb024bc51988d
+    display: "SP-2 (0:1, in Change spec: the kit trims what a Claude Code session is sent)"
+  - id: SP-3
+    kind: note
+    text_sha256: 0d3fab789f6db483cc60290c4f248dd9bca28887a3f8e64467c90737cd7cabd4
+    display: SP-3 (1, The trim)
+  - id: SP-4
+    kind: rule
+    text_sha256: 8275e974b7eb63eab53d6ada7e852fb0c126522988dd71fef32a9cc4b3f9aaaf
+    display: SP-4 (1:1, in The trim)
+  - id: SP-5
+    kind: approach
+    text_sha256: e7f07a3e85249174aa51fb46e77132ebc0d80b12636472c166657560c5161e65
+    display: SP-5 (1:2, in The trim)
+  - id: SP-6
+    kind: note
+    text_sha256: e0617672e320e7c9aa41cc64a6c7871423ae85dc552e422dfc07f79e67c7b7f0
+    display: SP-6 (2, The role after a compaction)
+  - id: SP-7
+    kind: rule
+    text_sha256: 3a984d7778d27d36ba1ae28292515524dadf8867f3847870c3a2d1c767c3ec0d
+    display: SP-7 (2:1, in The role after a compaction)
+  - id: SP-8
+    kind: approach
+    text_sha256: 6648e361dd09e563320e73ce2a9c8bfdc908291763c338e4c568cb9d739c0812
+    display: SP-8 (2:2, in The role after a compaction)
