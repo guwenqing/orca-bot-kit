@@ -16,6 +16,10 @@ requirements:
     version: 2
     sha256: c1ecad6ab3ceef6ad36c66a4ae142a9980ba8772a25de5c04e76d0d6529be743
     title: Each Claude bot gets a memory folder of its own
+  - id: R1
+    version: 3
+    sha256: a3348a9d8ad7406ac12d07d94b427797883e55dc1a9d5945a59d81d0cf7948e9
+    title: Each Claude bot gets a memory folder of its own
 signoff: []
 decisions: []
 tasks: []
