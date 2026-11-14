@@ -605,6 +605,54 @@ for (const [label, written] of [
   });
 }
 
+// A procStart in the shape of a time, but with a field out of range, a date
+// that does not exist, or a weekday that is not its date's, is not a readable
+// time either. Each one, with its fields rolled over (as Date.UTC does), comes
+// to the live process's start to the second, so it must not count as that start.
+// The live starts are fixed times in the past: Sun Nov 1, Thu Oct 1 and
+// Wed Sep 30 2026, each at 12:30:20 UTC.
+const NOV_1 = Date.UTC(2026, 10, 1, 12, 30, 20);
+for (const [label, at, written] of [
+  ['hour 36 of the day before', NOV_1, 'Sat Oct 31 36:30:20 2026'],
+  ['minute 90 of the hour before', NOV_1, 'Sun Nov  1 11:90:20 2026'],
+  ['second 80 of the minute before', NOV_1, 'Sun Nov  1 12:29:80 2026'],
+  ['Sep 31, a day that does not exist, for Oct 1', Date.UTC(2026, 9, 1, 12, 30, 20), 'Thu Sep 31 12:30:20 2026'],
+  ['day 0 of October, for Sep 30', Date.UTC(2026, 8, 30, 12, 30, 20), 'Wed Oct  0 12:30:20 2026'],
+  ['Mon on a date and time that are exact, where the date is a Sunday', NOV_1, 'Mon Nov  1 12:30:20 2026'],
+]) {
+  test(`RH1a an entry whose procStart has ${label} is skipped: the live one after it counts, not enabled, with its finding`, async (t) => {
+    const box = await createSandbox(t);
+    const bots = await fleetIn(box);
+    const live = await livePidOf(box, bots, BOT, 'daily');
+    await box.orca.set({ psStarts: { [live]: at } });
+    await registered(box, bots, BRIDGE, { procStart: written });
+    await registered(box, bots, null, { configDir: profileHome(box), procStart: lstartOf(at) });
+
+    const { answer } = await health(box);
+
+    assert.deepEqual(sessionOf(answer).remote_control, { asked: 'on', from: 'kit default', state: 'not enabled' });
+    const found = remoteFindings(answer);
+    assert.equal(found.length, 1, `one finding about Remote Control, got: ${JSON.stringify(answer.found, null, 2)}`);
+    assert.equal(found[0].kind, 'session');
+    assert.ok(found[0].says.includes(`Remote Control is not on for ${BOT}'s session daily`), `got: ${found[0].says}`);
+  });
+
+  test(`RH1a an entry whose procStart has ${label}, alone: unknown, with a why, and no finding`, async (t) => {
+    const box = await createSandbox(t);
+    const bots = await fleetIn(box);
+    const live = await livePidOf(box, bots, BOT, 'daily');
+    await box.orca.set({ psStarts: { [live]: at } });
+    await registered(box, bots, null, { procStart: written });
+
+    const { answer } = await health(box);
+
+    const remote = sessionOf(answer).remote_control;
+    assertUnknown(remote);
+    assert.equal(remote.asked, 'on');
+    assert.deepEqual(remoteFindings(answer), []);
+  });
+}
+
 // ------------------------------------------------------------- RH4 the text
 
 /** The plain line health gives one session: the one that names `<bot> <session>` and the session's settings. */
