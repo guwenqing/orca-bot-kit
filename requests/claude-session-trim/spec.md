@@ -52,7 +52,7 @@ On the sources `startup` and `clear` only, not `resume` or `compact`, the kit's 
 
 <!-- SP-14 approach builds-on:SP-13 -->
 
-The kit appends the placed units with `--append-system-prompt-file`, which Claude Code adds after its own main text or after the kit's (checked). The kit's SessionStart hook reads its parent process's launch line, which is the Claude Code process (checked in print mode and in an interactive session). On every source (`startup`, `resume`, `clear` and `compact`), it gives the `main` units as context when the line has no appended text. On a bare resume the recorded text may hold them too, so they can be there twice until the next compaction (ADR 0055, section 5).
+The kit appends the placed units with `--append-system-prompt-file`, which Claude Code adds after its own main text or after the kit's (checked). The kit's SessionStart hook reads its parent process's launch line, which is the Claude Code process (checked in print mode and in an interactive session). On every source (`startup`, `resume`, `clear` and `compact`), it gives the `main` units as context, whatever the line says: `ps` joins the words of the line with spaces, so the flag cannot be told from the same words inside another option's value (#776 review). So a `main` unit is in a main session twice, once in the system text and once as context. The line's reading feeds only the book's note and `obk health`, which names a session whose line appends nothing (ADR 0055, section 5).
 
 <!-- SP-15 note -->
 

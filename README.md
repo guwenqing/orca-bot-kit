@@ -291,10 +291,15 @@ What this costs you:
   can say one thing in `CLAUDE.md` and an older thing in the system text. So
   keep `both` for rules that rarely change. `obk rules build` and `obk health`
   name each session whose system text is older than its bot's units.
-- When Orca brings a tab back by itself, the session has no appended text. The
-  kit's hook then gives it its `main` units as context at each start, resume,
-  `/clear` and compaction, and `obk health` names the session until
-  `obk restart`.
+- The kit's hook gives a Claude Code session its `main` units as context at
+  each start, resume, `/clear` and compaction, whatever its launch line says,
+  so no session loses one. So a `main` unit is in a main session twice: once
+  in the system text and once as context. Keep `main` units short. The kit's
+  own `main` units are `talk` and `profiles`, whose two files are 602 bytes
+  together.
+- When Orca brings a tab back by itself, the session has no appended text, and
+  the hook's context is where its `main` units come from. `obk health` names
+  the session until `obk restart`.
 
 ## The skills a bot uses
 

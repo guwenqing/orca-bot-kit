@@ -142,10 +142,10 @@ export async function recordSession(bots, name, said, tabId, shellPid) {
   const duty = cleared ? startPrompt(settings, { home, workDir: workDirOf(settings, home) }) : undefined;
   // The guard (R6): a Claude Code session whose launch line appends nothing,
   // as after Orca's own resume of a tab or a launch by an older kit, would load
-  // a CLAUDE.md without its main units. So it is given them here, on every
-  // source. When the line cannot be read they are given too: twice is better
-  // than none.
-  const main = onClaude && launched?.file !== true ? guardText(bots, bot) : undefined;
+  // a CLAUDE.md without its main units. A line read through ps cannot prove
+  // that it appends, so every Claude Code session is given them here, on every
+  // source, whatever its line says: twice is better than none.
+  const main = onClaude ? guardText(bots, bot) : undefined;
   const context = [duty, main].filter((part) => part !== undefined && part !== '');
   if (context.length === 0) return undefined;
 
@@ -166,7 +166,8 @@ const APPEND_FLAG = '--append-system-prompt-file';
  * `ps` joins the words of the line with spaces, so a word cannot be told from
  * the words inside another option's value. Only the flag followed by a path
  * to `<bots>.prompts/<bot>/system-<sum>.md` counts. Anything else is no
- * appended text, and the hook gives the main units: twice is better than none.
+ * appended text. The reading feeds only the book's note and obk health: the
+ * hook gives the main units whatever it says, since it cannot prove a flag.
  *
  * The hook runs through a shell or straight from the harness, so the harness
  * is the parent, or the parent's parent when the parent is a shell.

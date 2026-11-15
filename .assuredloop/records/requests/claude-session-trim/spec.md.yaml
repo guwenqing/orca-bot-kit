@@ -55,7 +55,7 @@ paragraphs:
     display: SP-13 (4:1, in Where a rule unit goes)
   - id: SP-14
     kind: approach
-    text_sha256: 06ed6b93cb76d23359930f73b55a6d1d1bd8a7178702ffa95ae4620f4c5b36cc
+    text_sha256: d3c25688cc3e160ef3049a56d9f00e6f114e62fdb13586fe6953c3cdefbcef42
     display: SP-14 (4:2, in Where a rule unit goes)
   - id: SP-15
     kind: note
