@@ -16,11 +16,11 @@ import { dropRemovedHooks, installHook } from './hooks.js';
 import { writePermissions } from './permissions.js';
 import { memoryFolderAtStart, memoryRefusal } from './memory.js';
 import { piTrouble } from './pi.js';
-import { addressOf, HARNESSES, harnessOf, isAddressOf, isShortPrompt, kitFolders, launchCommand, lostToOwnSettings, mailboxStep, ownCli, reachesMail, remoteControlLaunched, sessionTrouble, setsSettings, shellWord, startPrompt, workDirOf } from './launch.js';
+import { addressOf, claudeTextFolder, HARNESSES, harnessOf, isAddressOf, isShortPrompt, kitFolders, launchCommand, lostToOwnSettings, mailboxStep, ownCli, reachesMail, remoteControlLaunched, sessionTrouble, setsSettings, shellWord, startPrompt, workDirOf } from './launch.js';
 import { asFolderProject, coordinatorOf, dropLeftGit, findProject, harnessInTab, loadInWindow, makeMailbox, makeProject, openTab, QUESTION_ON_SCREEN, retitleTab, runMissing, screenRows, shellInTab, tabs, tabToTypeInto, TERMINAL_ENV, TIMED_OUT, tellWindow, typeIntoTab, useMailbox } from './orca.js';
 import { TAB_ENV } from './record.js';
 import { buildAgents, currentSystemFile, rulesStamp } from './rules.js';
-import { mainTextFor, pruneMainFiles, shapeOf } from './main-text.js';
+import { mainTextFor, pruneMainFiles, pruneOriginals, shapeOf } from './main-text.js';
 import { linkSkills } from './skills.js';
 
 /** The one bot with a tab beside its sessions: the ops tab (PRD 6.2). */
@@ -673,16 +673,25 @@ function systemOption(bots, bot) {
  * own main text, and health says why.
  */
 function mainOption(bots, home, bot, shape) {
-  const prompts = kitFolders(bots, bot.name).prompts;
+  const text = claudeTextFolder(bots, bot.name);
   let built;
   try {
-    built = mainTextFor(bots, home, prompts, shape);
+    built = mainTextFor(bots, home, text, shape);
   } catch {
     return {};
   }
+  // Originals and notes of a shape that no session has any more fit no
+  // launch: they go, as main files that no session names do. A book that
+  // cannot be read names any of them: then none goes.
+  let entries;
+  try {
+    entries = Object.values(readBook(home).sessions ?? {});
+  } catch {
+    entries = undefined;
+  }
+  if (entries !== undefined) pruneOriginals(text, entries.map((entry) => entry?.shape), shape);
   if (built.file === undefined) return {};
-  const named = Object.values(readBook(home).sessions ?? {}).map((entry) => entry?.main).filter((name) => typeof name === 'string');
-  pruneMainFiles(prompts, named, path.basename(built.file));
+  if (entries !== undefined) pruneMainFiles(text, entries.map((entry) => entry?.main).filter((name) => typeof name === 'string'), path.basename(built.file));
   return { mainFile: built.file };
 }
 

@@ -11,14 +11,15 @@
 //
 // Only Claude Code's own main text is a source. The kit's hook notes a
 // conversation that started or cleared on the kit's own launch line with no
-// system text on it but the kit's appended file (record.js). The kit reads the
-// first record of a noted conversation only, and takes the appended section
-// out after it checks it by its sum.
+// system text on it but the kit's appended file (record.js), with the model it
+// should run on. The kit reads the first record of a noted conversation only,
+// takes it only when the record ran on that model, and takes the appended
+// section out after it checks it by its sum.
 //
 // A saved original fits only a launch that is the same as the one it was
 // recorded under: the same Claude Code version, the same launch words that do
-// not change from one conversation to the next, and the same tool and skill
-// cuts. A flag, a model or a tool cut changes the main text, so a source of
+// not change from one conversation to the next, the same tool and skill cuts,
+// and the same Claude Code settings. A flag, a model or a tool cut changes the main text, so a source of
 // another launch could give a session a text that its tools do not match.
 
 import { spawnSync } from 'node:child_process';
@@ -30,9 +31,9 @@ import { fileURLToPath } from 'node:url';
 import { claudeTranscript } from './conversations.js';
 import { readBook } from './book.js';
 import { cutsOf } from './cuts.js';
-import { harnessOf, kitFolders, launchShape, setsSettings } from './launch.js';
+import { claudeTextFolder, harnessOf, launchShape, setsSettings } from './launch.js';
 import { eachLine } from './lines.js';
-import { physicalMemoryFolder } from './memory.js';
+import { claudeSettingsFiles, physicalMemoryFolder } from './memory.js';
 
 /** The recipe, beside this file. */
 const RECIPE_FILE = path.join(path.dirname(fileURLToPath(import.meta.url)), 'claude-text-recipe.json');
@@ -113,25 +114,26 @@ export function claudeVersion() {
   return version;
 }
 
-/** The kit's folders for the bot's main text, in its prompts folder beside the bots repo. */
-export const textFolders = (prompts) => ({
-  sources: path.join(prompts, 'sources'),
-  originals: path.join(prompts, 'originals'),
+/** The folders of the bot's notes and saved originals, in its main text folder `text`. */
+export const textFolders = (text) => ({
+  sources: path.join(text, 'sources'),
+  originals: path.join(text, 'originals'),
 });
 
-/** The bot's main files, by name. */
-export const mainFilesIn = (prompts) => namesIn(prompts).filter((name) => MAIN_NAME.test(name));
+/** The bot's main files in its main text folder `text`, by name. */
+export const mainFilesIn = (text) => namesIn(text).filter((name) => MAIN_NAME.test(name));
 
 /**
  * Note the conversation `id` as a source, under the launch shape `shape`, with
- * the name of the kit's appended file its line carried (or null for none).
- * Called by the hook on a start or a clear only.
+ * the name of the kit's appended file its line carried (or null for none), and
+ * `model`, the model it should run on. Called by the hook on a start or a
+ * clear only. With no model, nothing is noted: the record cannot be checked.
  */
-export function noteSource(prompts, id, { shape, appended }) {
-  if (typeof id !== 'string' || !SAFE_ID.test(id) || typeof shape !== 'string') return;
-  const { sources } = textFolders(prompts);
+export function noteSource(text, id, { shape, appended, model }) {
+  if (typeof id !== 'string' || !SAFE_ID.test(id) || typeof shape !== 'string' || typeof model !== 'string' || model === '') return;
+  const { sources } = textFolders(text);
   mkdirSync(sources, { recursive: true });
-  writeFileSync(path.join(sources, `${id}.json`), `${JSON.stringify({ conversation: id, shape, appended: appended ?? null, at: new Date().toISOString() })}\n`);
+  writeFileSync(path.join(sources, `${id}.json`), `${JSON.stringify({ conversation: id, shape, appended: appended ?? null, model, at: new Date().toISOString() })}\n`);
 }
 
 /**
@@ -146,23 +148,29 @@ const textCutsOf = (bots, home) => cutsOf(bots, home).text;
  * main text. With `write`, the original is saved, the notes it came from go,
  * and the main file is written; without it, nothing is written (health).
  */
-export function mainTextFor(bots, home, prompts, shape, { write = true } = {}) {
+export function mainTextFor(bots, home, text, shape, { write = true } = {}) {
   const recipe = readRecipe();
   if (recipe === undefined) return { why: 'the kit\'s recipe could not be read' };
   if (typeof shape !== 'string') return { why: 'the kit has not launched it with a launch it can match yet' };
 
-  const { sources, originals } = textFolders(prompts);
+  const { sources, originals } = textFolders(text);
   // Without a note or a saved original nothing can fit, and Claude Code is not asked.
   if (namesIn(sources).length === 0 && namesIn(originals).length === 0) {
-    return { why: 'no conversation of the bot started on the kit\'s line is on record yet: its next start records one, and the start after it gets the kit\'s text' };
+    return { why: `no conversation of the bot on the kit's line is on record yet. ${RECORDS}` };
   }
   const installed = claudeVersion();
   if (installed.version === undefined) return { why: installed.why };
 
-  const original = originalFor(home, prompts, shape, installed.version, write);
+  const { original, declined } = originalFor(home, text, shape, installed.version, write);
+  if (original === undefined && declined !== undefined) {
+    return {
+      why: `its noted conversation ${declined.conversation} ran on ${declined.ran}, not on ${declined.expected}, the model it started with or its line names, so the kit does not build from it. A model named on the line by its full id, as the record names it (${declined.ran}), lets a clear record a source. ${RECORDS}`,
+      version: installed.version,
+    };
+  }
   if (original === undefined) {
     return {
-      why: `no conversation of Claude Code ${installed.version} with this session's launch is on record yet: its next start records one, and the start after it gets the kit's text`,
+      why: `no conversation of Claude Code ${installed.version} with this session's launch is on record yet. ${RECORDS}`,
       version: installed.version,
     };
   }
@@ -174,45 +182,53 @@ export function mainTextFor(bots, home, prompts, shape, { write = true } = {}) {
     return { why: error.message };
   }
   const built = buildMainText(original.sections, { recipe, cut });
-  const file = path.join(prompts, `main-${checksum(built.text)}.md`);
+  const file = path.join(text, `main-${checksum(built.text)}.md`);
   if (write) {
-    mkdirSync(prompts, { recursive: true });
+    mkdirSync(text, { recursive: true });
     if (!existsSync(file) || readFileSync(file, 'utf8') !== built.text) writeFileSync(file, built.text);
   }
   return { file, text: built.text, version: installed.version };
 }
 
 /**
- * The saved original for the shape and version, or one read from the newest
- * noted conversation that fits, saved when `write` is set. Undefined when
- * none fits.
+ * What a session of the shape and version is built from: `{ original }`, the
+ * saved original, or one read from the newest noted conversation that fits,
+ * saved when `write` is set. With none, `{ declined }` names the newest note of
+ * the version that its record's model did not fit, or `{}`.
  */
-function originalFor(home, prompts, shape, version, write) {
-  const { sources, originals } = textFolders(prompts);
+function originalFor(home, text, shape, version, write) {
+  const { sources, originals } = textFolders(text);
   const saved = path.join(originals, `${version}-${shape}.json`);
   const kept = readJson(saved);
-  if (Array.isArray(kept?.sections) && kept.sections.every((one) => typeof one === 'string')) return kept;
+  if (Array.isArray(kept?.sections) && kept.sections.every((one) => typeof one === 'string')) return { original: kept };
 
   let real;
   try {
     real = realpathSync(home);
   } catch {
-    return undefined;
+    return {};
   }
   const notes = namesIn(sources)
     .map((name) => readJson(path.join(sources, name)))
     .filter((note) => note?.shape === shape && typeof note.conversation === 'string' && SAFE_ID.test(note.conversation))
     .sort((a, b) => String(b.at).localeCompare(String(a.at)));
+  let declined;
   for (const note of notes) {
     const record = firstRecord(claudeTranscript(real, note.conversation));
     if (record === undefined || record.version !== version) continue;
+    // A record of another model than the one the session should run on: a
+    // switch of model before its first request, such as /model before a clear.
+    if (typeof note.model !== 'string' || record.model !== note.model) {
+      declined ??= { conversation: note.conversation, expected: note.model ?? 'no model', ran: record.model ?? 'no model it names' };
+      continue;
+    }
     const sections = withoutAppended(record.sections, note.appended);
     if (sections === undefined) continue;
-    const original = { version, shape, model: record.model ?? null, conversation: note.conversation, sections };
-    if (write) save(prompts, saved, original, shape);
-    return original;
+    const original = { version, shape, model: record.model, conversation: note.conversation, sections };
+    if (write) save(text, saved, original, shape);
+    return { original };
   }
-  return undefined;
+  return declined === undefined ? {} : { declined };
 }
 
 /**
@@ -228,8 +244,8 @@ function withoutAppended(sections, appended) {
 }
 
 /** Save an original, and take away the notes of its shape and the originals of its shape for other versions. */
-function save(prompts, file, original, shape) {
-  const { sources, originals } = textFolders(prompts);
+function save(text, file, original, shape) {
+  const { sources, originals } = textFolders(text);
   mkdirSync(originals, { recursive: true });
   writeFileSync(file, `${JSON.stringify(original)}\n`);
   for (const name of namesIn(originals)) {
@@ -286,13 +302,31 @@ function modelIn(line) {
 }
 
 /**
+ * Take away the bot's saved originals and notes of a launch shape that no
+ * session's book entry has and that is not `current`: no launch fits them
+ * now, and the folder would only grow.
+ */
+export function pruneOriginals(text, shapes, current) {
+  const kept = new Set([...shapes, current].filter((one) => typeof one === 'string'));
+  const { sources, originals } = textFolders(text);
+  for (const name of namesIn(originals)) {
+    const shape = /-([0-9a-f]{16})\.json$/.exec(name)?.[1];
+    if (shape !== undefined && !kept.has(shape)) rmSync(path.join(originals, name), { force: true });
+  }
+  for (const name of namesIn(sources)) {
+    const shape = readJson(path.join(sources, name))?.shape;
+    if (!kept.has(shape)) rmSync(path.join(sources, name), { force: true });
+  }
+}
+
+/**
  * Take away the bot's main files that no session's book entry names and that
  * are not `current`. A session runs on the file its line named until it
  * starts again, so a named file stays.
  */
-export function pruneMainFiles(prompts, named, current) {
-  for (const name of mainFilesIn(prompts)) {
-    if (name !== current && !named.includes(name)) rmSync(path.join(prompts, name), { force: true });
+export function pruneMainFiles(text, named, current) {
+  for (const name of mainFilesIn(text)) {
+    if (name !== current && !named.includes(name)) rmSync(path.join(text, name), { force: true });
   }
 }
 
@@ -300,10 +334,10 @@ export function pruneMainFiles(prompts, named, current) {
  * Health's findings on the saved originals of the bot: each recipe unit that
  * an original of a model the recipe names it for does not hold.
  */
-export function unitsNotFound(prompts, botName) {
+export function unitsNotFound(text, botName) {
   const recipe = readRecipe();
   if (recipe === undefined) return [];
-  const { originals } = textFolders(prompts);
+  const { originals } = textFolders(text);
   const found = [];
   for (const name of namesIn(originals)) {
     const original = readJson(path.join(originals, name));
@@ -327,10 +361,47 @@ export function unitsNotFound(prompts, botName) {
  */
 export function shapeOf(bots, home, session, memoryFolder) {
   try {
-    return launchShape(session, { home, memoryFolder, cuts: cutsOf(bots, home) });
+    const named = typeof session.model === 'string' && session.model !== '';
+    return launchShape(session, { home, memoryFolder, cuts: cutsOf(bots, home), settings: claudeSettingsFiles(home).map((file) => settingsSum(file, { named })) });
   } catch {
     return undefined;
   }
+}
+
+/**
+ * A sum of what a Claude Code settings file says, for the launch shape: a
+ * hand-named memory folder, an output style or a deny rule changes the main
+ * text, so a change of the file is another shape. Its allow and ask rules are
+ * left out: they leave the main text as it is (fenced probe, 2.1.325), and
+ * they change most often, by obk permission allow and by a person's answer to
+ * a prompt. With `named`, a model on the line, the file's default model is left
+ * out too: /model writes it in the user's file, and a line's model wins over it
+ * (fenced probe, 2.1.325). A file that is not there, or says nothing else, is
+ * "none"; one that cannot be read as JSON is summed as it stands.
+ */
+function settingsSum(file, { named }) {
+  let text;
+  try {
+    text = readFileSync(file, 'utf8');
+  } catch (error) {
+    return error.code === 'ENOENT' || error.code === 'ENOTDIR' ? 'none' : `unread:${error.code}`;
+  }
+  let settings;
+  try {
+    settings = JSON.parse(text);
+  } catch {
+    return unitHash(text);
+  }
+  if (settings === null || typeof settings !== 'object' || Array.isArray(settings)) return unitHash(text);
+  const { permissions, model, ...rest } = settings;
+  if (!named && model !== undefined) rest.model = model;
+  if (permissions !== null && typeof permissions === 'object' && !Array.isArray(permissions)) {
+    const { allow, ask, ...kept } = permissions;
+    if (Object.keys(kept).length > 0) rest.permissions = kept;
+  } else if (permissions !== undefined) {
+    rest.permissions = permissions;
+  }
+  return Object.keys(rest).length === 0 ? 'none' : unitHash(JSON.stringify(rest));
 }
 
 /**
@@ -346,7 +417,7 @@ export function mainTextTrouble(bots, home, bot) {
   } catch {
     return [];
   }
-  const prompts = kitFolders(bots, bot.name).prompts;
+  const text = claudeTextFolder(bots, bot.name);
   const said = [];
   for (const [name, entry] of Object.entries(book.sessions ?? {})) {
     const own = entry?.own_text === true;
@@ -360,7 +431,7 @@ export function mainTextTrouble(bots, home, bot) {
     const shape = shapeOf(bots, home, session, setsSettings(session) ? undefined : physicalMemoryFolder(home));
     let built;
     try {
-      built = mainTextFor(bots, home, prompts, shape, { write: false });
+      built = mainTextFor(bots, home, text, shape, { write: false });
     } catch (error) {
       built = { why: error.message };
     }
@@ -369,17 +440,18 @@ export function mainTextTrouble(bots, home, bot) {
         ? `${bot.name}/${name} runs on Claude Code's own main text, not the one the kit builds, because ${built.why}.`
         : `${bot.name}/${name} runs on Claude Code's own main text, and the kit's main text is ready for it: obk restart starts it on the kit's text.`);
     } else if (built.file !== undefined && path.basename(built.file) !== main) {
-      said.push(`${bot.name}/${name}'s main text is older than the one the kit builds now: it came from ${path.join(prompts, main)}. It gets the new text after obk restart and its next compaction.`);
+      said.push(`${bot.name}/${name}'s main text is older than the one the kit builds now: it came from ${path.join(text, main)}. It gets the new text after obk restart: at once in a new conversation, and in a resumed one after its next compaction or clear.`);
     }
   }
   return said;
 }
 
-/** The files of the bot's main text in `prompts`: its sources, its originals and its main files. */
-export const textFilesOf = (prompts) => [
-  ...Object.values(textFolders(prompts)).filter((folder) => existsSync(folder)),
-  ...mainFilesIn(prompts).map((name) => path.join(prompts, name)),
-];
+/**
+ * What tells a user when a session records a source, and when it gets the
+ * kit's text after that. A resume keeps its conversation's recorded text
+ * until its next compaction (tech notes, the snapshot).
+ */
+const RECORDS = 'A new conversation on the kit\'s line records one: a first start, or a clear (obk session clear). A resume records nothing. After that the session gets the kit\'s text at its next start: at once in a new conversation, and in a resumed one after its next compaction or clear';
 
 function namesIn(dir) {
   try {

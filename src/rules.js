@@ -23,7 +23,7 @@ import { parse } from 'yaml';
 import { readBook } from './book.js';
 import { botDir, botNames, displayName, readBot, refuseOutside } from './bot.js';
 import { dropRemovedHooks } from './hooks.js';
-import { harnessOf, kitFolders, ownCli, runsOnPi, shellWord } from './launch.js';
+import { claudeTextFolder, harnessOf, kitFolders, ownCli, runsOnPi, shellWord } from './launch.js';
 
 /** The kit's own units, inside the installed package. */
 const KIT_RULES = fileURLToPath(new URL('../rules', import.meta.url));
@@ -518,6 +518,13 @@ function writeSystem(bots, home, name, text) {
   } catch (error) {
     return { trouble: `${file} could not be written (${error.message}), so this bot's CLAUDE.md keeps every unit, and its Claude sessions start with no appended system text; the kit's hook gives them the main units as context.` };
   }
+  // The kit's own copy, for a launch when the units cannot be built. One that
+  // cannot be written leaves the older copy, which is still the kit's text.
+  try {
+    keepSystemText(bots, name, text);
+  } catch {
+    // The file the line names is written; only the fallback is older.
+  }
   // A book that cannot be read may name any of them: then none is removed.
   const named = namedSystems(home);
   if (named === undefined) return { system: file };
@@ -569,8 +576,9 @@ export function systemFilesKept(bots, home, bot) {
 /**
  * The system file a Claude Code session of this bot is launched with: the
  * current one, when the build wrote it. When its units cannot be built now (a
- * build that failed leaves the older CLAUDE.md in place), the newest one the
- * last build wrote, so that the session still has its main units. None when
+ * build that failed leaves the older CLAUDE.md in place), the last one the
+ * build wrote, from the kit's own copy, so that the session still has its
+ * main units. None when
  * the current one could not be written (CLAUDE.md then keeps every unit) or
  * there is none, and the kit's hook then gives the main units as context.
  */
@@ -579,27 +587,54 @@ export function currentSystemFile(bots, bot) {
   try {
     ({ system } = blockFor(bots, bot));
   } catch {
-    return newestSystemFile(bots, bot.name);
+    return lastSystemFile(bots, bot.name);
   }
   if (system === '') return undefined;
   const file = systemFileOf(bots, bot.name, system);
   return existsSync(file) ? file : undefined;
 }
 
-/** The bot's system file that was written last, or undefined. */
-function newestSystemFile(bots, name) {
-  const dir = kitFolders(bots, name).prompts;
-  let newest;
-  for (const entry of namesOf(dir).filter((one) => SYSTEM_NAME.test(one))) {
-    const at = path.join(dir, entry);
-    try {
-      const when = statSync(at).mtimeMs;
-      if (newest === undefined || when > newest.when) newest = { at, when };
-    } catch {
-      // Gone between the listing and the look.
-    }
+/**
+ * The kit's own copy of the bot's last system text, in the bot's main text
+ * folder, which no launch line names. The prompts folder, where the system
+ * file the line names is, may be written by a Codex session of the bot, so a
+ * file there is never taken on its own word: when the units cannot be built
+ * now, the kit's copy is what the session gets.
+ */
+const keptSystemPath = (bots, name) => path.join(claudeTextFolder(bots, name), 'system.md');
+
+function keepSystemText(bots, name, text) {
+  const file = keptSystemPath(bots, name);
+  mkdirSync(path.dirname(file), { recursive: true });
+  if (!existsSync(file) || readFileSync(file, 'utf8') !== text) writeFileSync(file, text);
+}
+
+/** The kit's copy of the bot's last system text, or undefined. */
+function keptSystemText(bots, name) {
+  try {
+    const text = readFileSync(keptSystemPath(bots, name), 'utf8');
+    return text === '' ? undefined : text;
+  } catch {
+    return undefined;
   }
-  return newest?.at;
+}
+
+/**
+ * The system file of the bot's last system text, written again from the kit's
+ * copy, so that what the line names is the kit's text. Undefined with no copy,
+ * or when the file cannot be written.
+ */
+function lastSystemFile(bots, name) {
+  const text = keptSystemText(bots, name);
+  if (text === undefined) return undefined;
+  const file = systemFileOf(bots, name, text);
+  try {
+    mkdirSync(path.dirname(file), { recursive: true });
+    if (!existsSync(file) || readFileSync(file, 'utf8') !== text) writeFileSync(file, text);
+  } catch {
+    return undefined;
+  }
+  return file;
 }
 
 /**
@@ -611,12 +646,7 @@ export function guardText(bots, bot) {
   try {
     return blockFor(bots, bot).main;
   } catch {
-    const file = newestSystemFile(bots, bot.name);
-    try {
-      return file === undefined ? undefined : readFileSync(file, 'utf8');
-    } catch {
-      return undefined;
-    }
+    return keptSystemText(bots, bot.name);
   }
 }
 

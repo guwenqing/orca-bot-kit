@@ -590,13 +590,18 @@ function harnessWords(session, { harness, home, workDir, resume, address, kit, s
  * The launch of a Claude Code session, as far as it shapes the main text that
  * Claude Code records (R5): the kit's launch words without what changes from
  * one conversation to the next (the address, a resume, the prompt and the
- * kit's own text files), the user's extra arguments, and `cuts`, the bot's
- * tool and skill cuts. Two launches of one shape get the same main text from
- * the same Claude Code version.
+ * kit's own text files), the user's extra arguments, `cuts`, the bot's tool
+ * and skill cuts, and `settings`, a sum of each Claude Code settings file the
+ * session reads. Two launches of one shape get the same main text from the
+ * same Claude Code version.
  */
-export function launchShape(session, { home, memoryFolder, cuts }) {
-  const words = [...harnessWords(session, { harness: 'claude', home, memoryFolder }), ...(Array.isArray(session.extra_args) ? session.extra_args.map(String) : [])];
-  const text = JSON.stringify({ words, tools: [...cuts.tools].sort(), skills: [...cuts.skills].sort() });
+export function launchShape(session, { home, memoryFolder, cuts, settings = [] }) {
+  // A hand-written string of extra words goes to the shell as it stands, so it
+  // goes into the shape as it stands.
+  const extra = Array.isArray(session.extra_args) ? session.extra_args.map(String)
+    : typeof session.extra_args === 'string' ? [session.extra_args] : [];
+  const words = [...harnessWords(session, { harness: 'claude', home, memoryFolder }), ...extra];
+  const text = JSON.stringify({ words, tools: [...cuts.tools].sort(), skills: [...cuts.skills].sort(), settings });
   return createHash('sha256').update(text).digest('hex').slice(0, 16);
 }
 
@@ -669,6 +674,14 @@ export const kitFolders = (bots, bot) => ({
   prompts: path.join(`${bots}.prompts`, bot),
   locks: path.join(`${bots}.locks`, bot),
 });
+
+/**
+ * The kit's folder for a Claude Code bot's main text (R5): its notes, its
+ * saved originals, its main files and the kit's copy of its system text. It is
+ * not one of the kit folders, so no launch line names it: a Codex session of
+ * the bot, whose sandbox may write the kit folders, cannot write here.
+ */
+export const claudeTextFolder = (bots, bot) => path.join(`${bots}.claude-text`, bot);
 
 /** Whether `target` is the folder at `home` or something inside it. */
 const inside = (home, target) => target === home || target.startsWith(home + path.sep);

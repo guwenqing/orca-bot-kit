@@ -16,7 +16,7 @@ import { spawnSync } from 'node:child_process';
 import { forgetClaimed, readBook, rememberSession, sessionIdsIn, updateBook, withUnclaimed } from './book.js';
 import { botDir, readBot } from './bot.js';
 import { conversationsIn } from './conversations.js';
-import { harnessOf, kitFolders, SHELL_ENV, startPrompt, workDirOf } from './launch.js';
+import { claudeTextFolder, harnessOf, kitFolders, SHELL_ENV, startPrompt, workDirOf } from './launch.js';
 import { noteSource } from './main-text.js';
 import { currentSystemFile, guardText, isClaudeBot, rulesStamp } from './rules.js';
 
@@ -146,10 +146,16 @@ export async function recordSession(bots, name, said, tabId, shellPid) {
   // the kit's appended file, records Claude Code's own main text: the kit
   // notes the conversation as a source of the main text it builds (R5). A
   // resume keeps an older text, and a compaction keeps the conversation.
+  // The note keeps the model the conversation should run on, which the build
+  // checks against its record: at a start, the one Claude Code says it started
+  // with; at a clear, which Claude Code gives no model for, the one the line
+  // names, since a switch of model in the session would not show on the line.
   if (onClaude && (said.source === STARTED || said.source === CLEARED) && launched?.source === true
     && (launched.file === true || currentSystemFile(bots, bot) === undefined)) {
+    const named = bot.sessions.find((entry) => entry.name === told)?.model;
+    const model = said.source === STARTED && typeof said.model === 'string' && said.model !== '' ? said.model : named;
     try {
-      noteSource(kitFolders(bots, bot.name).prompts, id, { shape, appended: launched.name ?? null });
+      noteSource(claudeTextFolder(bots, bot.name), id, { shape, appended: launched.name ?? null, model: typeof model === 'string' ? model : undefined });
     } catch {
       // A note that cannot be written is a source the kit does not get; the
       // session goes on.
@@ -196,7 +202,7 @@ const APPEND_TEXT = '--append-system-prompt';
  * `ps` joins the words of the line with spaces, so a word cannot be told from
  * the words inside another option's value. Only the flag followed by a path
  * to `<bots>.prompts/<bot>/system-<sum>.md` counts. Anything else is no
- * appended text. The reading feeds only the book's note and obk health: the
+ * appended text. The main file is in `<bots>.claude-text/<bot>/`. The reading feeds only the book's note and obk health: the
  * hook gives the main units whatever it says, since it cannot prove a flag.
  *
  * The hook runs through a shell or straight from the harness, so the harness
@@ -212,14 +218,18 @@ export function appendedText(pid, botName) {
   // The kit puts the start prompt after `--`, and a prompt may name the flag.
   const end = line.indexOf(' -- ');
   const options = end < 0 ? line : line.slice(0, end);
-  const folder = `\\.prompts/${botName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/`;
+  const escaped = botName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const folder = `\\.prompts/${escaped}/`;
+  const textFolder = `\\.claude-text/${escaped}/`;
   const flag = new RegExp(`(?:^| )${APPEND_FLAG}[= ]/(?:[^\\n]*?)${folder}(system-[0-9a-f]{16}\\.md)(?= |$)`).exec(options);
-  const main = new RegExp(`(?:^| )${MAIN_FLAG}[= ]/(?:[^\\n]*?)${folder}(main-[0-9a-f]{16}\\.md)(?= |$)`).exec(options);
+  const main = new RegExp(`(?:^| )${MAIN_FLAG}[= ]/(?:[^\\n]*?)${textFolder}(main-[0-9a-f]{16}\\.md)(?= |$)`).exec(options);
   // A source of Claude Code's own main text (R5): no system text on the line,
-  // and no appended text but the kit's own file. The words are counted
-  // anywhere in the options, so a value that holds them only stops a note.
-  const appends = options.split(APPEND_TEXT).length - 1;
-  const source = !options.includes(SYSTEM_TEXT) && appends === (flag === null ? 0 : 1);
+  // and no appended text but the kit's own file. The words are counted on the
+  // whole line, the prompt included: the first ` -- ` may be inside an option's
+  // value, so it does not prove where the options end. A value or a prompt
+  // that holds the words only stops a note.
+  const appends = line.split(APPEND_TEXT).length - 1;
+  const source = !line.includes(SYSTEM_TEXT) && appends === (flag === null ? 0 : 1);
   return {
     ...(flag === null ? {} : { file: true, name: flag[1] }),
     ...(main === null ? {} : { main: main[1] }),
