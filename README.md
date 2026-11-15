@@ -594,7 +594,7 @@ What this costs you:
 - A bot that keeps the `Artifact` tool gets the tool's paragraph twice: once
   in the kit's text, and once from Claude Code, which adds it for the tool.
 - `obk health` names a session that runs on Claude Code's own main text, and
-  why; a session whose main text is older than the one the kit builds now; a
+  why (a paused one only once it starts again); a session whose main text is older than the one the kit builds now; a
   recipe part that a saved copy of a model it is named for does not hold; and a
   `text:` name that the recipe does not know.
 

@@ -354,6 +354,9 @@ export function mainTextTrouble(bots, home, bot) {
     if (!own && main === undefined) continue;
     const session = bot.sessions.find((one) => one.name === name);
     if (session === undefined || harnessOf(session, bot.harness) !== 'claude') continue;
+    // A paused bot or session runs nothing, so it runs on no main text: it is
+    // named again once it is unpaused and starts.
+    if (bot.paused === true || session.paused === true) continue;
     const shape = shapeOf(bots, home, session, setsSettings(session) ? undefined : physicalMemoryFolder(home));
     let built;
     try {
