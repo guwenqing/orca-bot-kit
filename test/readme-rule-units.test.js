@@ -67,7 +67,15 @@ function listIn(text) {
   const stop = table.findIndex((line) => !line.startsWith('|'));
   const rows = stop === -1 ? table : table.slice(0, stop);
 
-  const names = rows.map((row) => /^\|\s*`([^`]+)`\s*\|/.exec(row)).filter((found) => found !== null).map((found) => found[1]);
+  // The table opens with an empty header row and its separator; every row after
+  // them is a unit, so a row that names none is a fault, not something to skip.
+  assert.ok(rows.length >= 2, `the table should open with a header row and a separator row, got:\n${rows.join('\n')}`);
+  assert.match(rows[1], /^\|(\s*:?-+:?\s*\|)+\s*$/, `the second row of the table should be its separator, got: ${rows[1]}`);
+  const names = rows.slice(2).map((row) => {
+    const found = /^\|\s*`([^`|]+)`\s*\|/.exec(row);
+    assert.ok(found !== null, `each row of the table should begin with one backticked unit name, got: ${row}`);
+    return found[1];
+  });
   return { word, names };
 }
 
