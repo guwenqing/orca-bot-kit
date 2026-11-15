@@ -4,19 +4,20 @@
 //
 // What the kit does, as the brief gives it:
 //
-//   - The SessionStart hook, on `startup` and `clear` only, notes a
+//   - The SessionStart hook, on `startup` and `clear` only, reads the whole
+//     launch line and notes a
 //     conversation as a source when the session's launch line holds no
 //     `--system-prompt` or `--system-prompt-file` and no appended text but the
 //     kit's own `--append-system-prompt-file <bots>.prompts/<bot>/system-<sum>.md`.
-//     The note is `<bots>.prompts/<bot>/sources/<conversation-id>.json`.
+//     The note is `<bots>.claude-text/<bot>/sources/<conversation-id>.json`.
 //   - At each launch of a Claude Code session, the kit asks `claude --version`
 //     for the installed version. A noted conversation fits when it was noted
 //     under the session's launch shape and the FIRST `prompt_snapshot` record
 //     of its transcript has that version, and the record's last section is the
 //     kit's appended text. The kit saves the record's other sections as
-//     `<bots>.prompts/<bot>/originals/<version>-<shape>.json` and builds from
+//     `<bots>.claude-text/<bot>/originals/<version>-<shape>.json` and builds from
 //     that copy: the recipe's drop and cut units out, the rest joined with a
-//     blank line, written to `<bots>.prompts/<bot>/main-<sum>.md`. The line
+//     blank line, written to `<bots>.claude-text/<bot>/main-<sum>.md`. The line
 //     names it with `--system-prompt-file`, directly before the appended file.
 //     No fit: the line is as it was.
 //   - The launch shape is what the session's launch words hold that does not
@@ -42,13 +43,24 @@
 //       a compaction; a record whose last section is not the kit's text is no
 //       source; the main file is outside the bots repo.
 //   T4. The saved original: kept by version and shape, and a later launch
-//       builds from it when the record is gone.
-//   T5. The fit: another model, another extra argument, another tool cut or
-//       another version does not fit; a `text:` cut does, and keeps the shape.
+//       builds from it when the record is gone; one of a shape no session
+//       has any more goes at a later launch.
+//   T5. The fit: another model, another extra argument, another tool cut,
+//       another memory folder named by hand, a change of a Claude Code
+//       settings file the session reads, or another version does not fit; a
+//       `text:` cut does, and keeps the shape.
 //   T6. The book: own_text and main, and a resume keeps both.
 //   T7. Health. A paused session or bot is not running, so health names
 //       nothing of its main text until it is unpaused and starts.
 //   T8. Retire.
+//   T9. The folders: sources, originals and main files are in
+//       `<bots>.claude-text/<bot>/`, which no Codex launch line names.
+//   T10. With units that cannot be built now, the line and the hook use the
+//       kit's own copy of its last system text, never the newest
+//       `system-*.md` by time.
+//   T11. The model of a note: a start keeps the hook input's model, a clear
+//       the line's; a record of another model is no source, and health names
+//       both models. A clear on a line with no model is no note.
 //
 // No text of Claude Code is in this file: the sections are made up. A fake
 // `claude` on the sandbox's PATH answers `--version` in every test, so the real
@@ -59,7 +71,7 @@
 
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { access, appendFile, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { access, appendFile, mkdir, readdir, readFile, realpath, rm, utimes, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { describe, test } from 'node:test';
 import { parse, stringify } from 'yaml';
@@ -70,13 +82,16 @@ import {
   createSandbox,
   fakeProgram,
   harnessWordsOf,
+  kitDirsOf,
   launchLineInTab,
   recordSession,
   repoRoot,
   sessionIn,
+  sessionStart,
   SYSTEM_FLAG,
   tabsOfBot,
 } from './helpers/cli.js';
+import { addRules, mainUnitsText } from './helpers/rules.js';
 
 // ---------------------------------------------------------------- the texts
 
@@ -159,8 +174,10 @@ async function editBotYaml(bots, change) {
 // ---------------------------------------------------------------- the kit's folders
 
 const promptsOf = (bots) => path.join(`${bots}.prompts`, BOT);
-const sourceOf = (bots, id) => path.join(promptsOf(bots), 'sources', `${id}.json`);
-const originalsOf = (bots) => path.join(promptsOf(bots), 'originals');
+/** The kit's folder for the bot's main text, beside the bots folder: its sources, originals and main files (#769). */
+const textOf = (bots) => path.join(`${bots}.claude-text`, BOT);
+const sourceOf = (bots, id) => path.join(textOf(bots), 'sources', `${id}.json`);
+const originalsOf = (bots) => path.join(textOf(bots), 'originals');
 
 /** The names in a folder, or none when it is not there. */
 async function namesIn(dir) {
@@ -173,8 +190,8 @@ async function namesIn(dir) {
 }
 
 /** The bot's main files, `main-<hex>.md` in its prompts folder, by full path. */
-const mainFiles = async (bots) => (await namesIn(promptsOf(bots)))
-  .filter((name) => /^main-[0-9a-f]{16}\.md$/.test(name)).map((name) => path.join(promptsOf(bots), name));
+const mainFiles = async (bots) => (await namesIn(textOf(bots)))
+  .filter((name) => /^main-[0-9a-f]{16}\.md$/.test(name)).map((name) => path.join(textOf(bots), name));
 
 // ---------------------------------------------------------------- the lines
 
@@ -233,6 +250,12 @@ function withBefore(words, extra) {
   return [...words.slice(0, at), ...extra, ...words.slice(at)];
 }
 
+/** The words of `words` without the appended file's flag and its value: a bare resume's line. */
+function withoutSystem(words) {
+  const at = words.indexOf(SYSTEM_FLAG);
+  return at < 0 ? words : words.filter((word, index) => index !== at && index !== at + 1);
+}
+
 /** The words of `words` without the main file's flag and its value. */
 function withoutMain(words) {
   const at = words.indexOf(MAIN_FLAG);
@@ -248,16 +271,21 @@ async function transcriptOf(box, bots, id) {
 }
 
 /** Run the kit's hook in a session's tab; `line` is the words its harness carries (the tab's launch line when left out). */
-async function hook(box, bots, { session, source, line, name = 'daily' }) {
+async function hook(box, bots, { session, source, line, name = 'daily', model = MODEL }) {
   const tab = (await liveTab(box, bots, name)).tabId;
-  const ran = await recordSession(box, {
-    bots,
-    bot: BOT,
-    tab,
+  // The SessionStart input, with the model the session runs on, as Claude Code
+  // gives it (the architect's ruling on #783); `model: null` leaves it out.
+  const input = JSON.parse(sessionStart({
     session,
     source,
     cwd: await realpath(botHomeOf(bots, BOT)),
     transcript: await transcriptOf(box, bots, session),
+  }));
+  const ran = await recordSession(box, {
+    bots,
+    bot: BOT,
+    tab,
+    stdin: `${JSON.stringify(model === null ? input : { ...input, model })}\n`,
     ...(line === undefined ? {} : { line }),
   });
   assert.equal(ran.code, 0, `the hook must never fail the session: ${ran.stderr}`);
@@ -297,20 +325,20 @@ async function noted(box, { id = 'conv-1', sections = SECTIONS, model = MODEL, v
   const bots = await started(box, options);
   const words = await wordsOf(box, bots);
   const { text } = await appendedOf(words);
-  await hook(box, bots, { session: id, source: 'startup' });
+  await hook(box, bots, { session: id, source: 'startup', model });
   assert.ok(await exists(sourceOf(bots, id)), `the premise: the start on the kit's line is noted at ${sourceOf(bots, id)}`);
   await onRecord(box, bots, id, [{ sections: [...sections, text], version }], { model });
   return { bots, words, appended: text };
 }
 
 /**
- * The control for a test that expects no main file: a clear on the kit's line
+ * The control for a test that expects no main file: a start on the kit's line
  * then notes a new conversation, its record fits, and the next restart gives
  * a main file. So the test cannot pass only because nothing is built at all.
  */
 async function thenAFit(box, bots, why) {
   const { text } = await appendedOf(await wordsOf(box, bots));
-  await hook(box, bots, { session: 'conv-fit', source: 'clear' });
+  await hook(box, bots, { session: 'conv-fit', source: 'startup' });
   await onRecord(box, bots, 'conv-fit', [[...SECTIONS, text]]);
   await restart(box);
   const main = assertMainNamed(await wordsOf(box, bots), `the control after ${why}: a fitting record`);
@@ -369,7 +397,8 @@ describe('T1 no fitting record', () => {
 describe('T2 the note', () => {
   test('T2 a start and a clear on the kit\'s line are noted; a resume and a compaction are not', async (t) => {
     const box = await createSandbox(t);
-    const bots = await started(box);
+    // The line names the model, so a clear is a source (the architect's ruling on #783).
+    const bots = await started(box, { daily: ['--model', MODEL] });
 
     await hook(box, bots, { session: 'conv-start', source: 'startup' });
     await hook(box, bots, { session: 'conv-clear', source: 'clear' });
@@ -390,7 +419,7 @@ describe('T2 the note', () => {
       'own-append': withBefore(words, ['--append-system-prompt', 'Answer every question in rhyme.']),
       'own-system': withBefore(words, ['--system-prompt', 'You are a lighthouse keeper.']),
       'own-system-file': withBefore(words, [MAIN_FLAG, path.join(box.root, 'elsewhere', 'own-text.md')]),
-      'kit-main': withBefore(words, [MAIN_FLAG, path.join(promptsOf(bots), 'main-0123456789abcdef.md')]),
+      'kit-main': withBefore(words, [MAIN_FLAG, path.join(textOf(bots), 'main-0123456789abcdef.md')]),
     };
 
     for (const [id, line] of Object.entries(lines)) await hook(box, bots, { session: id, source: 'startup', line });
@@ -401,6 +430,44 @@ describe('T2 the note', () => {
     }
     await hook(box, bots, { session: 'kit-line', source: 'startup' });
     assert.ok(await exists(sourceOf(bots, 'kit-line')), 'the control: the kit\'s own line is noted');
+  });
+});
+
+describe('T2 the whole launch line', () => {
+  /** The kit's line with `extra` put in directly before its prompt separator `--`. */
+  function beforePrompt(words, extra) {
+    const at = words.indexOf('--');
+    assert.ok(at > 0, `the premise: the kit's line has a prompt after --, got: ${show(words)}`);
+    return [...words.slice(0, at), ...extra, ...words.slice(at)];
+  }
+
+  test('T2 a --settings value that holds " -- ", then a real --system-prompt: the start is not noted', async (t) => {
+    const box = await createSandbox(t);
+    const bots = await started(box);
+    const words = await wordsOf(box, bots);
+    const line = beforePrompt(words, [
+      '--settings', JSON.stringify({ env: { DOC_NOTE: 'A note -- with a separator' } }),
+      '--system-prompt', 'CUSTOM',
+    ]);
+
+    await hook(box, bots, { session: 'conv-1', source: 'startup', line });
+
+    assert.equal(await exists(sourceOf(bots, 'conv-1')), false, `a replaced text after a " -- " in a value is still read, got a note for: ${show(line)}`);
+    await hook(box, bots, { session: 'conv-kit', source: 'startup' });
+    assert.ok(await exists(sourceOf(bots, 'conv-kit')), 'the control: the kit\'s own line is noted');
+  });
+
+  test('T2 a prompt after the kit\'s " -- " that names --system-prompt: the start is not noted, the safe way', async (t) => {
+    const box = await createSandbox(t);
+    const bots = await started(box);
+    const words = await wordsOf(box, bots);
+    const at = words.indexOf('--');
+    assert.ok(at > 0 && at === words.length - 2, `the premise: the kit's line ends with -- and its prompt, got: ${show(words)}`);
+    const line = [...words.slice(0, -1), 'Read the notes on --system-prompt before you start.'];
+
+    await hook(box, bots, { session: 'conv-1', source: 'startup', line });
+
+    assert.equal(await exists(sourceOf(bots, 'conv-1')), false, `the whole line is read, its prompt too, got a note for: ${show(line)}`);
   });
 });
 
@@ -417,7 +484,7 @@ describe('T3 the build', () => {
     const main = assertMainNamed(words, 'after a noted record');
     assert.equal(await readFile(main, 'utf8'), SECTIONS.join('\n\n'), 'the main file is the harness\'s sections joined by a blank line, the kit\'s appended text out');
     const real = await realpath(main);
-    assert.equal(path.dirname(real), await realpath(promptsOf(bots)), `the main file is in the bot's prompts folder beside the bots repo, got: ${main}`);
+    assert.equal(path.dirname(real), await realpath(textOf(bots)), `the main file is in the bot's main text folder beside the bots repo, got: ${main}`);
     assert.ok(!real.startsWith(`${await realpath(bots)}${path.sep}`), `the main file is outside the bots repo, got: ${main}`);
     assert.match(path.basename(main), /^main-[0-9a-f]{16}\.md$/);
     await appendedOf(words);
@@ -496,6 +563,23 @@ describe('T4 the saved original', () => {
     assert.equal(path.basename(again), path.basename(first), 'the same text, so the same file');
   });
 
+  test('T4 a saved original of a shape that no session has any more goes at a later launch; one a session has stays', async (t) => {
+    const box = await createSandbox(t);
+    const { bots } = await noted(box);
+    await restart(box);
+    assertMainNamed(await wordsOf(box, bots), 'the premise: the first build');
+    const old = `${V}-${(await sessionIn(bots, BOT, 'daily')).shape}.json`;
+    await restart(box);
+    assert.deepEqual(await namesIn(originalsOf(bots)), [old], 'the control: the original of the session\'s shape stays at a later launch');
+
+    await ok(box, ['session', 'change', '--bots', 'bots', '--bot', BOT, '--session', 'daily', '--extra-arg=--verbose']);
+    await restart(box);
+    await restart(box);
+
+    assert.notEqual(`${V}-${(await sessionIn(bots, BOT, 'daily')).shape}.json`, old, 'the premise: the session has another shape now');
+    assert.ok(!(await namesIn(originalsOf(bots))).includes(old), `the original of the old shape is gone, got: ${show(await namesIn(originalsOf(bots)))}`);
+  });
+
   test('T4 a record of a conversation that ran on the kit\'s main text is no source', async (t) => {
     const box = await createSandbox(t);
     const { bots } = await noted(box);
@@ -521,8 +605,8 @@ describe('T4 the saved original', () => {
 
 describe('T5 the fit', () => {
   /** A noted record, then a change, then a restart: the change's line and the shapes before and after. */
-  async function changed(box, change) {
-    const { bots } = await noted(box);
+  async function changed(box, change, options = {}) {
+    const { bots } = await noted(box, options);
     const before = (await sessionIn(bots, BOT, 'daily')).shape;
     assert.equal(typeof before, 'string', `the premise: up wrote the shape into the book, got: ${show(await sessionIn(bots, BOT, 'daily'))}`);
     await change(bots);
@@ -547,6 +631,162 @@ describe('T5 the fit', () => {
     assert.notEqual(after, before, 'the shape changed');
     assert.deepEqual(await mainFiles(bots), []);
   });
+
+  /** The Claude Code settings files a session of the bot reads, each by who writes it. */
+  const SETTINGS = {
+    'the bot\'s .claude/settings.local.json': (box, bots) => path.join(botHomeOf(bots, BOT), '.claude', 'settings.local.json'),
+    'the repository root\'s .claude/settings.local.json': (box, bots) => path.join(bots, '.claude', 'settings.local.json'),
+    'the user\'s ~/.claude/settings.json': (box) => path.join(box.home, '.claude', 'settings.json'),
+  };
+
+  /** Put `keys` into a settings file, as a user edits it: what it held stays. */
+  async function setIn(file, keys) {
+    let held = {};
+    try {
+      held = JSON.parse(await readFile(file, 'utf8'));
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+    }
+    await mkdir(path.dirname(file), { recursive: true });
+    await writeFile(file, `${JSON.stringify({ ...held, ...keys }, null, 2)}\n`);
+  }
+
+  /** Note a start on the session's current line, and put its record on file with the kit's appended text last. */
+  async function noteNow(box, bots, id) {
+    const { text } = await appendedOf(await wordsOf(box, bots));
+    await hook(box, bots, { session: id, source: 'startup' });
+    assert.ok(await exists(sourceOf(bots, id)), `the premise: the start on the kit's line is noted at ${sourceOf(bots, id)}`);
+    await onRecord(box, bots, id, [[...SECTIONS, text]]);
+  }
+
+  test('T5 a memory folder the user names by hand does not fit a record of the kit\'s folder, and is another shape', async (t) => {
+    const box = await createSandbox(t);
+    const { bots, words, before, after } = await changed(box, (bots) => setIn(
+      SETTINGS['the bot\'s .claude/settings.local.json'](box, bots),
+      { autoMemoryDirectory: path.join(box.root, 'own-memory', 'first') },
+    ));
+
+    assertOwnText(words, 'a memory folder named by hand');
+    assert.notEqual(after, before, 'the shape changed');
+    assert.deepEqual(await mainFiles(bots), []);
+  });
+
+  test('T5 a change of the memory folder the user names by hand does not fit a record of the folder before, and is another shape', async (t) => {
+    const box = await createSandbox(t);
+    const bots = await started(box);
+    // A conversation the book knows, so the restart can close the tab.
+    await hook(box, bots, { session: 'conv-0', source: 'startup' });
+    await onRecord(box, bots, 'conv-0', []);
+    const local = SETTINGS['the bot\'s .claude/settings.local.json'](box, bots);
+    await setIn(local, { autoMemoryDirectory: path.join(box.root, 'own-memory', 'first') });
+    await restart(box);
+    await noteNow(box, bots, 'conv-first');
+    await restart(box);
+    assertMainNamed(await wordsOf(box, bots), 'the premise: a record under the first folder fits');
+    const before = (await sessionIn(bots, BOT, 'daily')).shape;
+
+    await setIn(local, { autoMemoryDirectory: path.join(box.root, 'own-memory', 'second') });
+    await restart(box);
+
+    assertOwnText(await wordsOf(box, bots), 'another memory folder named by hand');
+    assert.notEqual((await sessionIn(bots, BOT, 'daily')).shape, before, 'the shape changed');
+  });
+
+  for (const [which, fileOf] of Object.entries(SETTINGS)) {
+    test(`T5 a change of ${which} that names no memory folder does not fit, and is another shape`, async (t) => {
+      const box = await createSandbox(t);
+      const { bots, words, before, after } = await changed(box, (bots) => setIn(fileOf(box, bots), { outputStyle: 'Explanatory' }));
+
+      assertOwnText(words, `a change of ${which}`);
+      assert.notEqual(after, before, 'the shape changed');
+      assert.deepEqual(await mainFiles(bots), []);
+    });
+  }
+
+  test('T5 a change of only permissions.allow in the bot\'s .claude/settings.local.json keeps the shape and the main file', async (t) => {
+    // A fenced probe on 2.1.325: allow and ask do not change the main text, so the shape leaves them out.
+    const box = await createSandbox(t);
+    const { bots, words, before, after } = await changed(box, (bots) => setIn(
+      SETTINGS['the bot\'s .claude/settings.local.json'](box, bots),
+      { permissions: { allow: ['Bash(ls:*)'] } },
+    ));
+
+    const main = assertMainNamed(words, 'a change of permissions.allow');
+    assert.equal(after, before, 'the shape is the same');
+    assert.equal(await readFile(main, 'utf8'), SECTIONS.join('\n\n'));
+  });
+
+  test('T5 a change of permissions.deny in the bot\'s .claude/settings.local.json does not fit, and is another shape', async (t) => {
+    const box = await createSandbox(t);
+    const { bots, words, before, after } = await changed(box, (bots) => setIn(
+      SETTINGS['the bot\'s .claude/settings.local.json'](box, bots),
+      { permissions: { deny: ['Bash(rm:*)'] } },
+    ));
+
+    assertOwnText(words, 'a change of permissions.deny');
+    assert.notEqual(after, before, 'the shape changed');
+    assert.deepEqual(await mainFiles(bots), []);
+  });
+
+  /** Set keys of daily's entry in the bot's bot.yaml, as a user edits the file by hand. */
+  async function handSet(bots, keys) {
+    const file = botYamlOf(bots);
+    const doc = parse(await readFile(file, 'utf8'));
+    doc.sessions = doc.sessions.map((one) => (one.name === 'daily' ? { ...one, ...keys } : one));
+    await writeFile(file, stringify(doc));
+    const entry = parse(await readFile(file, 'utf8')).sessions.find((one) => one.name === 'daily');
+    for (const [key, value] of Object.entries(keys)) assert.deepEqual(entry[key], value, `the premise: bot.yaml holds ${key} as written`);
+  }
+
+  test('T5 another extra_args string, which the kit types as shell text, does not fit, and is another shape', async (t) => {
+    const box = await createSandbox(t);
+    const bots = await started(box);
+    // A conversation the book knows, so the restart can close the tab.
+    await hook(box, bots, { session: 'conv-0', source: 'startup' });
+    await onRecord(box, bots, 'conv-0', []);
+    await handSet(bots, { extra_args: '--verbose' });
+    await restart(box);
+    await noteNow(box, bots, 'conv-1');
+    await restart(box);
+    assertMainNamed(await wordsOf(box, bots), 'the premise: a record under extra_args "--verbose" fits');
+    const before = (await sessionIn(bots, BOT, 'daily')).shape;
+
+    await handSet(bots, { extra_args: '--no-chrome' });
+    await restart(box);
+
+    assertOwnText(await wordsOf(box, bots), 'another extra_args string');
+    assert.notEqual((await sessionIn(bots, BOT, 'daily')).shape, before, 'the shape changed');
+  });
+
+  /** The settings files where a user may set Claude Code's default model. */
+  const MODEL_SETTINGS = {
+    'the user\'s ~/.claude/settings.json': SETTINGS['the user\'s ~/.claude/settings.json'],
+    'the bot\'s .claude/settings.local.json': SETTINGS['the bot\'s .claude/settings.local.json'],
+  };
+
+  for (const [which, fileOf] of Object.entries(MODEL_SETTINGS)) {
+    test(`T5 for a session that names its model, a change of only model in ${which} keeps the shape and the main file`, async (t) => {
+      const box = await createSandbox(t);
+      const { words, before, after } = await changed(
+        box,
+        (bots) => setIn(fileOf(box, bots), { model: 'claude-default-model-3' }),
+        { daily: ['--model', MODEL] },
+      );
+
+      const main = assertMainNamed(words, `a default model in ${which}, under the session's own`);
+      assert.equal(after, before, 'the shape is the same');
+      assert.equal(await readFile(main, 'utf8'), SECTIONS.join('\n\n'));
+    });
+
+    test(`T5 for a session that names no model, a change of only model in ${which} is another shape, and does not fit`, async (t) => {
+      const box = await createSandbox(t);
+      const { bots, words, before, after } = await changed(box, (bots) => setIn(fileOf(box, bots), { model: 'claude-default-model-3' }));
+
+      assertOwnText(words, `a default model in ${which}, with none of the session's own`);
+      assert.notEqual(after, before, 'the shape changed');
+      assert.deepEqual(await mainFiles(bots), []);
+    });
+  }
 
   test('T5 another tool cut does not fit, and is another shape', async (t) => {
     const box = await createSandbox(t);
@@ -603,7 +843,7 @@ describe('T6 the book', () => {
     assert.equal(entry.own_text, true, `got: ${show(entry)}`);
     assert.equal(entry.main, undefined, `no main file, got: ${show(entry)}`);
 
-    await hook(box, bots, { session: 'conv-1', source: 'resume', line: withBefore(words, [MAIN_FLAG, path.join(promptsOf(bots), 'main-0123456789abcdef.md')]) });
+    await hook(box, bots, { session: 'conv-1', source: 'resume', line: withBefore(words, [MAIN_FLAG, path.join(textOf(bots), 'main-0123456789abcdef.md')]) });
     const resumed = await sessionIn(bots, BOT, 'daily');
     assert.equal(resumed.own_text, true, `a resume keeps own_text, got: ${show(resumed)}`);
     assert.equal(resumed.main, undefined, `and notes no main file, got: ${show(resumed)}`);
@@ -693,6 +933,16 @@ describe('T7 health', () => {
     });
   }
 
+  test('T7 the sentence for a session with no fitting record says a resume records nothing, and names a start and obk session clear', async (t) => {
+    const box = await createSandbox(t);
+    const bots = await started(box);
+    await hook(box, bots, { session: 'conv-1', source: 'startup' });
+
+    const found = await findings(box);
+
+    assert.ok(aboutSession(found, 'daily', 'resume', 'clear').length >= 1, `got: ${show(found)}`);
+  });
+
   test('T7 a session on its own text whose record now fits is told to restart', async (t) => {
     const box = await createSandbox(t);
     await noted(box);
@@ -753,6 +1003,147 @@ describe('T7 health', () => {
   });
 });
 
+// ================================================================ T9
+
+describe('T9 the folders', () => {
+  test('T9 no Codex launch line names the main text folder: a Codex session of the same bot gets --add-dir for messages, prompts and locks only', async (t) => {
+    const box = await createSandbox(t);
+    const { bots } = await noted(box, { more: [['nightly', ['--harness', 'codex']]] });
+    await restart(box);
+    assertMainNamed(await wordsOf(box, bots), 'the premise: the Claude Code session gets the kit\'s main text');
+    assert.ok(await exists(textOf(bots)), `the premise: the main text folder is there, ${textOf(bots)}`);
+    await hook(box, bots, { session: 'conv-night', source: 'startup', name: 'nightly' });
+    await conversationOnRecord(box, { harness: 'codex', cwd: botHomeOf(bots, BOT), id: 'conv-night' });
+
+    await restart(box, 'nightly');
+
+    const words = await wordsOf(box, bots, 'nightly');
+    assert.equal(words[0], 'codex', `the premise: nightly starts on Codex, got: ${show(words)}`);
+    const text = `${bots}.claude-text`;
+    assert.deepEqual(words.filter((word) => word.includes(text)), [], `no word of the Codex line names ${text}, got: ${show(words)}`);
+    const added = words.flatMap((word, at) => (words[at - 1] === '--add-dir' ? [path.resolve(word)] : []));
+    assert.deepEqual(added.sort(), kitDirsOf(bots, BOT).map((dir) => path.resolve(dir)).sort(), `--add-dir for messages, prompts and locks, got: ${show(words)}`);
+  });
+});
+
+// ================================================================ T10
+
+describe('T10 units that cannot be built now', () => {
+  test('T10 the line and the hook use the kit\'s own copy of its last system text, not the newest system file in the prompts folder', async (t) => {
+    const box = await createSandbox(t);
+    const bots = await started(box);
+    await hook(box, bots, { session: 'conv-0', source: 'startup' });
+    await onRecord(box, bots, 'conv-0', []);
+    const { file: kitFile, text: kitText } = await appendedOf(await wordsOf(box, bots));
+    const main = await mainUnitsText(bots, BOT);
+    assert.ok(kitText.includes(main), 'the premise: the kit\'s system text holds the main units');
+    const tab = (await liveTab(box, bots)).tabId;
+
+    // A unit with a placement the kit refuses: the bot's units cannot be built now.
+    await mkdir(path.join(bots, 'rules'), { recursive: true });
+    await writeFile(path.join(bots, 'rules', 'crooked.md'), '---\ntitle: Crooked Unit\nplacement: sideways\n---\n\nA unit with a placement no one knows.\n');
+    await addRules(botYamlOf(bots), 'crooked');
+    // And a system file the kit did not write, newer than the kit's.
+    const PLANTED = '## Planted Unit\n\nA text that the kit never wrote.\n';
+    const planted = path.join(promptsOf(bots), 'system-0123456789abcdef.md');
+    await writeFile(planted, PLANTED);
+    const later = new Date(Date.now() + 60_000);
+    await utimes(planted, later, later);
+
+    await box.run(['restart', '--bots', 'bots', '--bot', BOT, '--session', 'daily']);
+
+    const after = await liveTab(box, bots);
+    assert.notEqual(after.tabId, tab, 'the premise: the session was started again in a new tab');
+    const named = valueOf(await wordsOf(box, bots), SYSTEM_FLAG);
+    assert.equal(typeof named, 'string', 'the line still appends the kit\'s system text');
+    assert.notEqual(path.resolve(named), planted, `the line does not name the planted file, got: ${named} (the kit's was ${kitFile})`);
+    assert.equal(await readFile(path.resolve(named), 'utf8'), kitText, 'the line names a file with the kit\'s last system text');
+
+    const ran = await hook(box, bots, { session: 'conv-2', source: 'startup', line: withoutSystem(await wordsOf(box, bots)) });
+    const context = ran.stdout === '' ? undefined : JSON.parse(ran.stdout).hookSpecificOutput?.additionalContext;
+    assert.equal(typeof context, 'string', `the hook gives the main units as context, got: ${ran.stdout}`);
+    assert.ok(context.includes(main), `the context holds the kit's main units, got:\n${context}`);
+    assert.ok(!context.includes('A text that the kit never wrote.'), `and not the planted text, got:\n${context}`);
+  });
+});
+
+// ================================================================ T11
+
+describe('T11 the model of a note', () => {
+  const OTHER = 'claude-other-model-2';
+
+  test('T11 a start notes the model of the hook input: a record of that model fits, though bot.yaml names the model by a short name', async (t) => {
+    const box = await createSandbox(t);
+    const bots = await started(box, { daily: ['--model', 'opus'] });
+    const { text } = await appendedOf(await wordsOf(box, bots));
+    await hook(box, bots, { session: 'conv-1', source: 'startup', model: MODEL });
+    await onRecord(box, bots, 'conv-1', [[...SECTIONS, text]], { model: MODEL });
+
+    await restart(box);
+
+    const main = assertMainNamed(await wordsOf(box, bots), 'a start of the hook input\'s model');
+    assert.equal(await readFile(main, 'utf8'), SECTIONS.join('\n\n'));
+  });
+
+  /** daily on the line's model MODEL, started (no record to build from), then cleared with `model` in the hook input and a record of `recorded`. */
+  async function cleared(box, { model, recorded }) {
+    const bots = await started(box, { daily: ['--model', MODEL] });
+    const { text } = await appendedOf(await wordsOf(box, bots));
+    await hook(box, bots, { session: 'conv-0', source: 'startup', model: MODEL });
+    await onRecord(box, bots, 'conv-0', []);
+    await hook(box, bots, { session: 'conv-2', source: 'clear', model });
+    await onRecord(box, bots, 'conv-2', [[...SECTIONS, text]], { model: recorded });
+    await restart(box);
+    return bots;
+  }
+
+  test('T11 a clear notes the model the line names: a record of that model fits', async (t) => {
+    const box = await createSandbox(t);
+    const bots = await cleared(box, { model: MODEL, recorded: MODEL });
+
+    const main = assertMainNamed(await wordsOf(box, bots), 'a clear on the line\'s model');
+    assert.equal(await readFile(main, 'utf8'), SECTIONS.join('\n\n'));
+  });
+
+  test('T11 a clear whose record names another model than the line (a /model switch, then a clear) gives no main file', async (t) => {
+    const box = await createSandbox(t);
+    const bots = await cleared(box, { model: OTHER, recorded: OTHER });
+
+    assertOwnText(await wordsOf(box, bots), 'a clear after a /model switch');
+    assert.deepEqual(await mainFiles(bots), []);
+  });
+
+  test('T11 with no model on the line, a start with a model in the hook input is a source, and a clear is no note', async (t) => {
+    const box = await createSandbox(t);
+    const bots = await started(box);
+    const { text } = await appendedOf(await wordsOf(box, bots));
+
+    await hook(box, bots, { session: 'conv-1', source: 'startup', model: MODEL });
+    await hook(box, bots, { session: 'conv-2', source: 'clear', model: MODEL });
+
+    assert.ok(await exists(sourceOf(bots, 'conv-1')), 'the start is noted');
+    assert.equal(await exists(sourceOf(bots, 'conv-2')), false, 'the clear is not noted: no model on the line to hold it to');
+    await onRecord(box, bots, 'conv-1', [[...SECTIONS, text]], { model: MODEL });
+    await onRecord(box, bots, 'conv-2', []);
+    await restart(box);
+    assertMainNamed(await wordsOf(box, bots), 'the start is a source');
+  });
+
+  test('T11 health names both models when the build declined a note for its model', async (t) => {
+    const box = await createSandbox(t);
+    const bots = await started(box);
+    const { text } = await appendedOf(await wordsOf(box, bots));
+    await hook(box, bots, { session: 'conv-1', source: 'startup', model: MODEL });
+    await onRecord(box, bots, 'conv-1', [[...SECTIONS, text]], { model: OTHER });
+    await restart(box);
+    assertOwnText(await wordsOf(box, bots), 'the premise: the record is of another model than the note');
+
+    const found = await findings(box);
+
+    assert.ok(aboutSession(found, 'daily', MODEL, OTHER).length >= 1, `one finding names ${MODEL} and ${OTHER}, got: ${show(found)}`);
+  });
+});
+
 // ================================================================ T8
 
 describe('T8 retire', () => {
@@ -765,11 +1156,11 @@ describe('T8 retire', () => {
     const mains = await mainFiles(bots);
     assert.equal(mains.length, 1, 'the premise: a main file');
     assert.equal((await namesIn(originalsOf(bots))).length, 1, 'the premise: an original');
-    assert.ok((await namesIn(path.join(promptsOf(bots), 'sources'))).length >= 1, 'the premise: a source');
+    assert.ok((await namesIn(path.join(textOf(bots), 'sources'))).length >= 1, 'the premise: a source');
 
     await ok(box, ['retire', '--bots', 'bots', '--bot', BOT]);
 
-    assert.equal(await exists(path.join(promptsOf(bots), 'sources')), false, 'sources/ is gone');
+    assert.equal(await exists(path.join(textOf(bots), 'sources')), false, 'sources/ is gone');
     assert.equal(await exists(originalsOf(bots)), false, 'originals/ is gone');
     for (const file of mains) assert.equal(await exists(file), false, `${file} is gone`);
   });
