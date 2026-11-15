@@ -28,7 +28,9 @@
 //   P5.  Every other entry of the file stays; a second up changes nothing.
 //   P6.  A keep takes the cut entry out, and leaves the rest.
 //   P7.  Only Claude Code sessions get cuts.
-//   P8.  `text:` names: accepted, never written, and named by health.
+//   P8.  `text:` names: accepted, never written to the settings file. Health
+//        names a name the recipe does not know (#769), and no longer says
+//        that the kit does not cut them.
 //   P9.  Health findings: a missing cut (a), a kept name still cut (b), names
 //        against the fleet's Claude Code records (c1, c2), and none for a bot
 //        with no cut list trouble (d).
@@ -75,7 +77,7 @@ const TEACH = { 'auto-mode-setup': 'off' };
 /** `skillOverrides` as the kit writes it for a bot with the defaults only. */
 const DEFAULT_OVERRIDES = { ...TEACH, ...Object.fromEntries(DEFAULT_SKILLS.map((name) => [name, 'off'])) };
 
-/** The health text of c1, c2 and P8, as the brief gives it. */
+/** The health text of c1 and c2, as the brief gives it, and the P8 text that #769 took out. */
 const NOT_SEEN = 'not seen in any Claude Code record of this fleet';
 const notNewest = (bot) => `not in the newest Claude Code record of ${bot}`;
 const START_AGAIN = 'start the session again';
@@ -244,6 +246,9 @@ const names = (text, name) => new RegExp(`(^|[^A-Za-z0-9_-])${escape(name)}($|[^
 /** The findings whose sentence names `name` and holds every one of `phrases`. */
 const naming = (found, name, ...phrases) => found.filter((one) => typeof one.says === 'string'
   && names(one.says, name) && phrases.every((phrase) => one.says.includes(phrase)));
+
+/** The findings whose sentence holds `phrase`. */
+const saying = (found, phrase) => found.filter((one) => typeof one.says === 'string' && one.says.includes(phrase));
 
 /** Whether a finding points at `file`: as where it is, or in what it says. */
 const pointsAt = (one, file) => one.where === file || (typeof one.says === 'string' && one.says.includes(file));
@@ -660,11 +665,11 @@ describe('claude cuts', { concurrency: 4 }, () => {
 
   // ================================================================ P8
 
-  test('P8 text: names are accepted in both lists, never written to the settings file, and named by health', async (t) => {
+  test('P8 text: names are accepted in both lists and never written to the settings file; health names only the ones the recipe does not know', async (t) => {
     const box = await createSandbox(t);
     const bots = await fleet(box);
-    await defaultsCut(bots, ['text:product-channels']);
-    await editBotYaml(bots, 'api-bot', { claude_cut: ['text:fast-mode'], claude_keep: ['text:ultrareview'] });
+    await defaultsCut(bots, ['text:product-channels', 'text:no-such-unit']);
+    await editBotYaml(bots, 'api-bot', { claude_cut: ['text:fast-mode', 'text:not-a-unit'], claude_keep: ['text:ultrareview', 'text:never-heard-of'] });
 
     await up(box);
     // A record of the bot that holds none of the names, so c2 could apply.
@@ -675,9 +680,12 @@ describe('claude cuts', { concurrency: 4 }, () => {
     assert.ok(denyOf(JSON.parse(text)).includes('Artifact'), `the premise: the other cuts were written, got:\n${text}`);
 
     const found = await findings(box);
-    assert.ok(naming(found, 'text:fast-mode', NO_TEXT_CUTS).length >= 1, `health names text:fast-mode as not cut yet, got: ${show(found)}`);
-    assert.ok(naming(found, 'text:product-channels', NO_TEXT_CUTS).length >= 1, `and text:product-channels from defaults.yaml, got: ${show(found)}`);
+    assert.deepEqual(saying(found, NO_TEXT_CUTS), [], `the kit cuts text: units now (#769), got: ${show(found)}`);
+    for (const name of ['text:no-such-unit', 'text:not-a-unit', 'text:never-heard-of']) {
+      assert.ok(naming(found, name, 'recipe').length >= 1, `health names ${name}, which the recipe does not know, got: ${show(found)}`);
+    }
     for (const name of ['text:fast-mode', 'text:product-channels', 'text:ultrareview']) {
+      assert.deepEqual(naming(found, name, 'recipe'), [], `${name} is a unit of the recipe, got: ${show(found)}`);
       assert.deepEqual(naming(found, name, NOT_SEEN), [], `${name} gets no finding about the records of the fleet, got: ${show(found)}`);
       assert.deepEqual(naming(found, name, notNewest('api-bot')), [], `${name} gets no finding about the newest record, got: ${show(found)}`);
     }
