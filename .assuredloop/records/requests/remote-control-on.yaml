@@ -1,7 +1,7 @@
 schema: assuredloop/1
 request: remote-control-on
 tier: "1"
-status: open
+status: concluded
 sources:
   - file: 2026-11-14-owner-words.md
     kind: owner-words
