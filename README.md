@@ -508,8 +508,9 @@ folder, so the notes of one bot would load in every bot. The kit's line for a
 Claude session carries `--settings` with the key `autoMemoryDirectory`, which
 names that folder by its physical path, so a session saves its memory with no
 permission dialog. For a session with Remote Control set off, the same
-`--settings` also carries `disableRemoteControl`. All sessions of a bot share the folder, temporary sessions
-too. The kit never moves, copies or deletes a note.
+`--settings` also carries `disableRemoteControl`. All sessions of a bot share
+the folder, temporary sessions too. The kit never moves, copies or deletes a
+note.
 
 The notes stay out of git. When the kit makes `claude-memory/`, it writes a
 `.gitignore` in it that holds `*`, because a note can hold your words or

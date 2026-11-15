@@ -87,7 +87,7 @@ paragraphs:
     display: KIT-21 (6.2, [PRD-9] 6.2 Host)
   - id: KIT-22
     kind: rule
-    text_sha256: 732654e06693587f0a0634e0ea966a056c5f5c541ade58d5d28f637d65f22884
+    text_sha256: bd3ae33ecb3a1d711a6fa2d2da9d9c5ff3e1901cc4a0d390ef92f9d3f973ba83
     display: KIT-22 (6.2:1, in [PRD-9] 6.2 Host)
   - id: KIT-23
     kind: note
@@ -111,7 +111,7 @@ paragraphs:
     display: KIT-52 (6.4:2, in [PRD-11] 6.4 Bots and sessions)
   - id: KIT-51
     kind: rule
-    text_sha256: e5c2bbefbb6c3c26e1025d7bd570319ccca4ace49eac9d801cc467f6cbf5e39b
+    text_sha256: 8ef399b20d747bf94dc30489da03c61b7d8186a6f6146eb17d1b11c8c660b334
     display: KIT-51 (6.4:3, in [PRD-11] 6.4 Bots and sessions)
   - id: KIT-27
     kind: note
