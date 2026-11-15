@@ -39,12 +39,13 @@
 //   P7. No session loses a unit: Claude Code with Codex, Claude Code with Pi,
 //       a session that moves to another harness, and a main unit added when
 //       the bot's prompts folder cannot be written (named by up).
-//   P8. The guard: the SessionStart hook reads its harness's launch line; with
-//       no flag on it, on every source, its answer holds the main units, and
-//       health names the session. With the flag, no main unit. The flag is
-//       an option of the line: the same words in the prompt after `--` are
-//       prose, and the line is bare; so are they inside another option's
-//       value before `--`. The start prompt of a clear and a compaction
+//   P8. The guard (the architect's ruling, option B): the SessionStart hook
+//       gives a Claude Code session its main units as context on every
+//       source, whatever its launch line says: with the flag, with no flag,
+//       and with the flag's words in the prompt or inside another option's
+//       value; each main unit once. The hook still reads the launch line for
+//       the book: health names a session whose line has no flag, and not one
+//       whose line has it. The start prompt of a clear and a compaction
 //       stays.
 //   P9. Older system text: the hook notes which appended file a session read;
 //       health and rules build name a session whose file is not the current
@@ -377,12 +378,36 @@ function assertHolds(context, units, why) {
   }
 }
 
-/** The context holds none of the units: neither title nor body. */
-function assertHoldsNone(context, units, why) {
-  if (context === undefined) return;
-  for (const { title, text } of units) {
-    assert.ok(!context.includes(text), `${why}: the context should not hold ${title}, got:\n${context}`);
+/** How many times `part` is in `text`. */
+const timesIn = (text, part) => text.split(part).length - 1;
+
+/** The context holds each unit, title and body, and each title once: not twice. */
+function assertHoldsOnce(context, units, why) {
+  assertHolds(context, units, why);
+  for (const { title } of units) {
+    assert.equal(timesIn(context, title), 1, `${why}: the title ${title} should be in the context once, got it ${timesIn(context, title)} times:\n${context}`);
   }
+}
+
+/**
+ * Three launch lines for a session's tab, as the words its harness carries:
+ * the kit's own line, with the flag and the bot's current appended file; a
+ * line with no flag whose `--settings` value (the user's own, in place of the
+ * kit's) names the flag and that same file; and a bare line, with no flag.
+ */
+async function threeLines(box, tab) {
+  const flagged = harnessWordsOf(await launchLineInTab(box, tab));
+  const flagAt = flagged.indexOf(SYSTEM_FLAG);
+  assert.ok(flagAt > 0 && typeof flagged[flagAt + 1] === 'string', `the premise: the kit's line has the flag and a path, got: ${show(flagged)}`);
+  const file = flagged[flagAt + 1];
+  const bare = flagged.filter((word, at) => at !== flagAt && at !== flagAt + 1);
+  const settingsAt = bare.indexOf('--settings');
+  const rest = bare.filter((word, at) => settingsAt < 0 || (at !== settingsAt && at !== settingsAt + 1));
+  const end = rest.indexOf('--');
+  const head = end < 0 ? rest : rest.slice(0, end);
+  const tail = end < 0 ? [] : rest.slice(end);
+  const settings = [...head, '--settings', JSON.stringify({ env: { DOC_NOTE: `Use ${SYSTEM_FLAG} ${file} for the next run` } }), ...tail];
+  return { flagged, settings, bare, file };
 }
 
 const NO_SYSTEM = 'no appended system text';
@@ -927,7 +952,7 @@ describe('rule placement', { concurrency: 4 }, () => {
     });
   }
 
-  test('P8 with the flag on its line the hook gives no main unit, on any source; a clear and a compaction still get the start prompt alone', async (t) => {
+  test('P8 with the flag on its line the hook gives the main units too, on any source; a clear and a compaction still get the start prompt', async (t) => {
     const box = await createSandbox(t);
     const bots = await fleet(box);
     await up(box);
@@ -941,10 +966,12 @@ describe('rule placement', { concurrency: 4 }, () => {
     const compacted = await hook(box, { bots, tab, session: 'sess-A', source: 'compact' });
     const cleared = await hook(box, { bots, tab, session: 'sess-B', source: 'clear' });
 
-    assertHoldsNone(started.context, units, 'startup');
-    assertHoldsNone(resumed.context, units, 'resume');
-    assert.equal(compacted.context, DUTY, 'a compaction gets the start prompt, and nothing more');
-    assert.equal(cleared.context, DUTY, 'a clear gets the start prompt, and nothing more');
+    assertHolds(started.context, units, 'startup with the flag');
+    assertHolds(resumed.context, units, 'resume with the flag');
+    assertHolds(compacted.context, units, 'compaction with the flag');
+    assertHolds(cleared.context, units, 'clear with the flag');
+    assert.ok(compacted.context.includes(DUTY), `a compaction gets the start prompt, got:\n${compacted.context}`);
+    assert.ok(cleared.context.includes(DUTY), `a clear gets the start prompt, got:\n${cleared.context}`);
     const found = await findings(box);
     assert.deepEqual(namingSession(found, 'api-bot', 'daily', NO_SYSTEM), [], 'health has no such finding');
   });
@@ -999,6 +1026,47 @@ describe('rule placement', { concurrency: 4 }, () => {
 
     assertHolds(without.context, units, `the premise: a line with no flag (${plain.join(' ')})`);
     assertHolds(withValue.context, units, `a line with no flag whose --settings value names it (${named.join(' ')})`);
+  });
+
+  for (const [shape, label] of [
+    ['flagged', 'the kit\'s line, with the flag and its own appended file'],
+    ['settings', 'a line with no flag whose --settings value names the flag and the bot\'s current appended file'],
+    ['bare', 'a bare line, with no flag'],
+  ]) {
+    test(`P8 ${label}: the hook gives each main unit exactly once on startup, resume, compaction and clear; a clear and a compaction keep the start prompt`, async (t) => {
+      const box = await createSandbox(t);
+      const bots = await fleet(box);
+      await up(box);
+      const tab = (await liveTab(box, bots, 'api-bot', 'daily')).tabId;
+      const lines = await threeLines(box, tab);
+      assert.equal(path.resolve(lines.file), await theAppended(bots, 'api-bot'), 'the premise: the kit\'s line names the current appended file');
+      const { main } = await placed();
+      const units = await bodiesIn(bots, 'api-bot', main);
+
+      for (const [source, session] of [['startup', 'sess-A'], ['resume', 'sess-A'], ['compact', 'sess-A'], ['clear', 'sess-B']]) {
+        const { context } = await hook(box, { bots, tab, session, source, line: lines[shape] });
+        assertHoldsOnce(context, units, `${label}, on ${source} (${lines[shape].join(' ')})`);
+        if (source === 'clear' || source === 'compact') {
+          assert.ok(context.includes(DUTY), `the start prompt is still in the answer on ${source}, got:\n${context}`);
+        }
+      }
+    });
+  }
+
+  test('P8 health names a session whose line has no flag as running with no appended system text, and not one whose line has the flag', async (t) => {
+    const box = await createSandbox(t);
+    const bots = await fleet(box, { made: [{ bot: 'api-bot', sessions: [['daily', ['--prompt', DUTY]], ['nightly', ['--prompt', DUTY]]] }] });
+    await up(box);
+    const daily = (await liveTab(box, bots, 'api-bot', 'daily')).tabId;
+    const nightly = (await liveTab(box, bots, 'api-bot', 'nightly')).tabId;
+    await assertNamesAppended(await launchLineInTab(box, daily), bots, 'api-bot', 'the premise: daily\'s line has the flag');
+
+    await hook(box, { bots, tab: daily, session: 'sess-day', source: 'startup' });
+    await hook(box, { bots, tab: nightly, session: 'sess-night', source: 'startup', line: (await threeLines(box, nightly)).bare });
+
+    const found = await findings(box);
+    assert.ok(namingSession(found, 'api-bot', 'nightly', NO_SYSTEM).length >= 1, `health names nightly, whose line has no flag (${NO_SYSTEM}), got: ${show(found)}`);
+    assert.deepEqual(namingSession(found, 'api-bot', 'daily', NO_SYSTEM), [], 'and not daily, whose line has the flag');
   });
 
   // ================================================================ P9
