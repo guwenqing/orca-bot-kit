@@ -1,8 +1,8 @@
 # ADR 0055: The kit trims what a Claude Code session is sent
 
 Date: 2026-11-14.
-Status: accepted. The owner signed the request `claude-session-trim` (requests/claude-session-trim: R1 to R6, and its change spec) on 2026-11-14, after a GPT model reviewed it (#751).
-Decided by: the owner, by the sign-off of the request on 2026-11-14 (requests/claude-session-trim/origin/2026-11-14-signoff.md). The shape is kit-dev/architect's ruling for the owner, on the facts and the candidates below. developer-751 wrote it.
+Status: accepted. The owner signed the request `claude-session-trim` (requests/archive/claude-session-trim: R1 to R6, and its change spec) on 2026-11-14, after a GPT model reviewed it (#751).
+Decided by: the owner, by the sign-off of the request on 2026-11-14 (requests/archive/claude-session-trim/origin/2026-11-14-signoff.md). The shape is kit-dev/architect's ruling for the owner, on the facts and the candidates below. developer-751 wrote it.
 
 ## Context
 
