@@ -557,8 +557,44 @@ one of the kit's defaults and is in no record of the fleet, and a kept name
 that the bot's newest record does not hold. A bot with no record yet gets no
 finding for a kept name. A real cut name that no record holds yet is named too,
 and a tool that a new Claude Code renamed is not seen while older records hold
-the old name. A `text:` name in a list is accepted, and
-`obk health` says that the kit does not cut units of the main text yet.
+the old name.
+
+The kit also builds the main system text of a Claude Code session from Claude
+Code's own, and cuts some parts of it. The kit ships no word of that text. Each
+conversation's transcript records the main text it runs on, as a list of
+sections. When a session starts or clears on the kit's own launch line, with no
+system text on it but the kit's appended file, the kit's hook notes the
+conversation. At the session's next start, the kit reads the first record of a
+noted conversation, takes its own appended text out, and keeps a copy of that
+original in `<bots>.prompts/<bot>/originals/`, beside the bots folder. It then
+cuts the parts that its recipe names, writes the text to
+`<bots>.prompts/<bot>/main-<sum>.md`, and the launch line gives it with
+`--system-prompt-file`. The recipe names each part by a hash of its text and a
+`text:` name. A part is a whole section or one line. By default the kit cuts
+`text:ultrareview`, `text:product-channels`, `text:fast-mode`,
+`text:no-planning-documents` and `text:drop-old-cautions`. The recipe also
+knows `text:login-tip`, which you may cut. Cut or keep a part by its `text:`
+name in the same `claude_cut` and `claude_keep` lists; a part that a keep names
+later comes back from the saved copy. A part that the recipe does not name
+stays, so a new Claude Code version keeps every part the recipe does not know.
+
+What this costs you:
+
+- A saved copy fits only a launch like the one it came from: the same Claude
+  Code version, model, approval, extra arguments, memory folder and tool and
+  skill cuts. A flag such as `--no-chrome`, or a tool cut, changes the text. So
+  after a Claude Code update, or a change of these, a session runs on Claude
+  Code's own main text for one start, and the start after it gets the kit's.
+- Your own Claude Code settings outside the bots folder, such as an output
+  style, are not part of that match. Restart the bot's sessions after you
+  change one.
+- A session that the kit did not start, or a start with your own
+  `--system-prompt`, `--system-prompt-file` or `--append-system-prompt`, is
+  never a source.
+- `obk health` names a session that runs on Claude Code's own main text, and
+  why; a session whose main text is older than the one the kit builds now; a
+  recipe part that a saved copy of a model it is named for does not hold; and a
+  `text:` name that the recipe does not know.
 
 Each Claude bot has a memory folder of its own, `claude-memory/` in the bot's
 folder. Claude Code alone would give every bot of one bots repository the same

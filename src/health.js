@@ -27,14 +27,15 @@ import { botDir, botNames, botsDir, readBot, tempRoles, unknownKeys } from './bo
 import { hasConversation, transcriptsIn } from './conversations.js';
 import { cutsTrouble } from './cuts.js';
 import { hookTrouble } from './hooks.js';
-import { APPROVALS, bypassFlags, harnessOf, HARNESSES, isAddressOf, lostToOwnSettings, ownCli, promptFile, REMOTE_CONTROL, remoteControlOf, sessionTrouble, set, setsRemoteControl, setsSettings, SHELL_ENV, shellWord, workDirOf } from './launch.js';
+import { APPROVALS, bypassFlags, harnessOf, HARNESSES, isAddressOf, kitFolders, lostToOwnSettings, ownCli, promptFile, REMOTE_CONTROL, remoteControlOf, sessionTrouble, set, setsRemoteControl, setsSettings, SHELL_ENV, shellWord, workDirOf } from './launch.js';
 import { memoryFolderFor, sharedNotes } from './memory.js';
 import { claudeProfileHomes, frontOfTab, startOfProcess, mailIn, orcaDefaultArgs, projects, runMissing, tabs, tabToTypeInto, wordsOfProcess } from './orca.js';
 import { permissionsTrouble } from './permissions.js';
 import { askPi } from './pi.js';
 import { processesIn } from './processes.js';
 import { TAB_ENV } from './record.js';
-import { agentsTrouble, rulesStamp, systemFilesKept, systemTrouble } from './rules.js';
+import { agentsTrouble, isClaudeBot, rulesStamp, systemFilesKept, systemTrouble } from './rules.js';
+import { mainTextTrouble, textFilesOf, unitsNotFound } from './main-text.js';
 import { settingsInUse } from './settings.js';
 import { skillsTrouble } from './skills.js';
 import { readSources, sourcesDir } from './sources.js';
@@ -149,6 +150,8 @@ function leftBeside(bots) {
       const home = botDir(bots, name);
       // The system text of a Claude Code bot, and each older one its book names (R6).
       for (const file of systemFilesKept(bots, home, readBot(home, name))) owned.add(file);
+      // Its main text's notes, originals and files (R5), which its launches read.
+      for (const file of textFilesOf(kitFolders(bots, name).prompts)) owned.add(file);
       for (const session of readBot(home, name).sessions) {
         owned.add(promptPath(bots, name, session.name));
         // The file a session names as its own prompt, which the kit reads to
@@ -214,6 +217,9 @@ function aboutBot(bots, name, setups, sessions, pi) {
     ...rolesTrouble(home, bot).map(said('config')),
     ...agentsTrouble(bots, home, bot).map(said('config')),
     ...systemTrouble(bots, home, bot).map((says) => finding('session', path.join(home, 'sessions.yaml'), says, name)),
+    // The main text the kit builds from Claude Code's own (R5).
+    ...(isClaudeBot(bot) ? mainTextTrouble(bots, home, bot) : []).map((says) => finding('session', path.join(home, 'sessions.yaml'), says, name)),
+    ...(isClaudeBot(bot) ? unitsNotFound(kitFolders(bots, name).prompts, name) : []).map(said('config')),
     ...hooksOf(bots, home, bot).map(said('config')),
     ...permissionsTrouble(home, bot).map(said('config')),
     ...cutsTrouble(bots, home, bot).map(said('config')),

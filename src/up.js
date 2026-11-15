@@ -20,6 +20,7 @@ import { addressOf, HARNESSES, harnessOf, isAddressOf, isShortPrompt, kitFolders
 import { asFolderProject, coordinatorOf, dropLeftGit, findProject, harnessInTab, loadInWindow, makeMailbox, makeProject, openTab, QUESTION_ON_SCREEN, retitleTab, runMissing, screenRows, shellInTab, tabs, tabToTypeInto, TERMINAL_ENV, TIMED_OUT, tellWindow, typeIntoTab, useMailbox } from './orca.js';
 import { TAB_ENV } from './record.js';
 import { buildAgents, currentSystemFile, rulesStamp } from './rules.js';
+import { mainTextFor, pruneMainFiles, shapeOf } from './main-text.js';
 import { linkSkills } from './skills.js';
 
 /** The one bot with a tab beside its sessions: the ops tab (PRD 6.2). */
@@ -381,6 +382,9 @@ async function bringUpSession(bots, home, live, session, bot, title, endedBy) {
       // Only Claude Code answers to an address. One left from a Claude run
       // before a move to another harness would draw mail to nobody (#565).
       if (harness !== 'claude') delete entry.address;
+      // The launch shape, which the hook notes a source under (R5).
+      if (launch.shape !== undefined) entry.shape = launch.shape;
+      else delete entry.shape;
       held = entry.session;
       // Before the line is typed, so the hook finds no id here and takes the one
       // it reports for a start rather than a clear, which would tell the duty twice.
@@ -663,6 +667,26 @@ function systemOption(bots, bot) {
 }
 
 /**
+ * The main text the kit built for a launch of `shape`, when it can build one
+ * (R5): its file, for `--system-prompt-file`. Older main files that no
+ * session's book entry names go. With none, the session runs on Claude Code's
+ * own main text, and health says why.
+ */
+function mainOption(bots, home, bot, shape) {
+  const prompts = kitFolders(bots, bot.name).prompts;
+  let built;
+  try {
+    built = mainTextFor(bots, home, prompts, shape);
+  } catch {
+    return {};
+  }
+  if (built.file === undefined) return {};
+  const named = Object.values(readBook(home).sessions ?? {}).map((entry) => entry?.main).filter((name) => typeof name === 'string');
+  pruneMainFiles(prompts, named, path.basename(built.file));
+  return { mainFile: built.file };
+}
+
+/**
  * The line that starts this session: resuming `resume`, or, with none, a fresh
  * start carrying its duty, naming `memoryFolder` when there is one. Returns
  * `{ resume, prompt, promptFile, command, address }`.
@@ -680,6 +704,7 @@ function launchFor(bots, bot, session, harness, home, workDir, resume, held, fre
   const address = harness !== 'claude' ? undefined
     : resume !== undefined && isAddressOf(bot.name, session.name, held) ? held
     : addressOf(bot.name, session.name);
+  const shape = harness === 'claude' ? shapeOf(bots, home, session, memoryFolder) : undefined;
   const line = launchCommand(session, {
     harness,
     home,
@@ -690,8 +715,9 @@ function launchFor(bots, bot, session, harness, home, workDir, resume, held, fre
     address,
     kit: kitFolders(bots, bot.name),
     ...(memoryFolder === undefined ? {} : { memoryFolder }),
-    // The bot's system text, as the build wrote it (R6).
-    ...(harness === 'claude' ? systemOption(bots, bot) : {}),
+    // The bot's system text, as the build wrote it (R6), and the main text
+    // the kit builds from Claude Code's own (R5).
+    ...(harness === 'claude' ? { ...systemOption(bots, bot), ...mainOption(bots, home, bot, shape) } : {}),
     // A new Pi conversation's id, and the name its tab and session list show,
     // `<bot>.<session>` as a Codex thread is named (#480).
     ...(harness === 'pi' ? { sessionId: resume === undefined ? fresh : undefined, name: `${bot.name}.${session.name}` } : {}),
@@ -699,7 +725,7 @@ function launchFor(bots, bot, session, harness, home, workDir, resume, held, fre
   // The session's mailbox first, from inside its own tab (#317), and the
   // harness whatever became of it.
   const command = reachesMail(session, harness) ? `${mailboxStep(bots, bot.name, session.name)}; ${line}` : line;
-  return { resume, prompt, promptFile, command, address };
+  return { resume, prompt, promptFile, command, address, shape };
 }
 
 /**

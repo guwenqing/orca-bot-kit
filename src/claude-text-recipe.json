@@ -1,0 +1,65 @@
+{
+ "drop": [
+  {
+   "hash": "26490c16e8c5f06ef2a56bba74407d3aca7db0526deddb0868364a3011c3417c"
+  }
+ ],
+ "units": [
+  {
+   "name": "text:ultrareview",
+   "hash": "a88dc2dbcf481ce762c6a85ed60a2f325632658089f4b076bb7740962d9ff663",
+   "owner": "kit",
+   "models": [
+    "claude-fable-5-2",
+    "claude-opus-5-5",
+    "claude-haiku-5-5"
+   ]
+  },
+  {
+   "name": "text:product-channels",
+   "hash": "465985bc2156eec3f1bf4814cd9d85af3e4e13eb9522be611a4c1a32b39547ed",
+   "owner": "kit",
+   "models": [
+    "claude-fable-5-2",
+    "claude-opus-5-5",
+    "claude-haiku-5-5"
+   ]
+  },
+  {
+   "name": "text:fast-mode",
+   "hash": "0ae4fa6881d79392cf5346936ee88c0a3bc3ac616a922a644a2dc4bf283dea98",
+   "owner": "kit",
+   "models": [
+    "claude-fable-5-2",
+    "claude-opus-5-5",
+    "claude-haiku-5-5"
+   ]
+  },
+  {
+   "name": "text:no-planning-documents",
+   "hash": "635611b0c245b2bd533d719229886e21479a122f5feb7564109fabbfedae51be",
+   "owner": "kit",
+   "models": [
+    "claude-fable-5-2"
+   ]
+  },
+  {
+   "name": "text:drop-old-cautions",
+   "hash": "89ceab77c711902c14cfe32335c6e63d690ec7c6a88b5d4ca73707dd6b1b0a02",
+   "owner": "kit",
+   "models": [
+    "claude-fable-5-2"
+   ]
+  },
+  {
+   "name": "text:login-tip",
+   "hash": "202b1fd300d4eb4b5cac09b9ca20644e810f50ba4a469693460e9746958513da",
+   "owner": "user",
+   "models": [
+    "claude-fable-5-2",
+    "claude-opus-5-5",
+    "claude-haiku-5-5"
+   ]
+  }
+ ]
+}
