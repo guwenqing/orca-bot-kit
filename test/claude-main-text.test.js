@@ -46,7 +46,8 @@
 //   T5. The fit: another model, another extra argument, another tool cut or
 //       another version does not fit; a `text:` cut does, and keeps the shape.
 //   T6. The book: own_text and main, and a resume keeps both.
-//   T7. Health.
+//   T7. Health. A paused session or bot is not running, so health names
+//       nothing of its main text until it is unpaused and starts.
 //   T8. Retire.
 //
 // No text of Claude Code is in this file: the sections are made up. A fake
@@ -661,6 +662,36 @@ describe('T7 health', () => {
     assert.deepEqual(said.filter((one) => one.says.includes('obk restart')), [], `a restart would not help yet, got: ${show(said)}`);
     assert.deepEqual(aboutSession(found, 'daily', 'claude --version'), [], `claude answered, got: ${show(found)}`);
   });
+
+  /** Health's sentences on api-bot/<session>'s main text: its own text, a restart for the kit's text, or an older main file. */
+  const mainTextOf = (found, session) => found.filter((one) => typeof one.says === 'string'
+    && one.says.startsWith(`${BOT}/${session}`) && one.says.includes('main text'));
+
+  for (const [what, scope] of [['a paused session', ['--session', 'daily']], ['a paused bot', []]]) {
+    test(`T7 ${what} on its own text is not named while paused, and is named again once unpaused and started`, async (t) => {
+      const box = await createSandbox(t);
+      const bots = await started(box, { more: [['review', []]] });
+      await hook(box, bots, { session: 'conv-1', source: 'startup' });
+      await onRecord(box, bots, 'conv-1', []);
+      await hook(box, bots, { session: 'conv-r', source: 'startup', name: 'review' });
+      await onRecord(box, bots, 'conv-r', []);
+      assert.equal(mainTextOf(await findings(box), 'daily').length, 1, 'the premise: health names daily running on its own text');
+
+      await ok(box, ['pause', '--bots', 'bots', '--bot', BOT, ...scope]);
+      const found = await findings(box);
+
+      assert.deepEqual(mainTextOf(found, 'daily'), [], `paused, daily is not running, got: ${show(found)}`);
+      if (scope.length > 0) assert.equal(mainTextOf(found, 'review').length, 1, `review is not paused, and is still named, got: ${show(found)}`);
+      else assert.deepEqual(mainTextOf(found, 'review'), [], `the whole bot is paused, review too, got: ${show(found)}`);
+
+      await ok(box, ['unpause', '--bots', 'bots', '--bot', BOT, ...scope]);
+      await hook(box, bots, { session: 'conv-1', source: 'resume' });
+      const again = await findings(box);
+
+      assert.equal(mainTextOf(again, 'daily').length, 1, `unpaused and started, daily is named again, got: ${show(again)}`);
+      assert.ok(mainTextOf(again, 'daily')[0].says.includes('runs on Claude Code\'s own main text'), `as running on its own text, got: ${show(again)}`);
+    });
+  }
 
   test('T7 a session on its own text whose record now fits is told to restart', async (t) => {
     const box = await createSandbox(t);

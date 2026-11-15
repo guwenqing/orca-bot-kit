@@ -443,8 +443,9 @@ test('P11 health does not call a paused session\'s missing tab lost, and still r
   const result = await box.run(['health', '--bots', 'bots', '--json']);
 
   const answer = JSON.parse(result.stdout);
-  // Each session whose start the hook recorded runs on Claude Code's own main text, and health says why (#769).
-  const sessions = withoutOwnMainText(answer.found, 'api-bot', ['daily', 'review']).filter((one) => one.kind === 'session' && one.bot === 'api-bot');
+  // review is not paused, and its start was recorded: it runs on Claude Code's own main text, and health
+  // says why (#769). daily is paused, so health names nothing of it.
+  const sessions = withoutOwnMainText(answer.found, 'api-bot', ['review']).filter((one) => one.kind === 'session' && one.bot === 'api-bot');
   const words = (one) => `${one.where} ${one.says}`;
   assert.equal(sessions.length, 1, `one lost session, review's, got: ${JSON.stringify(sessions, null, 2)}`);
   assert.ok(words(sessions[0]).includes(tabs.review.tabId), `it names review's tab, got: ${JSON.stringify(sessions[0])}`);
@@ -465,10 +466,9 @@ test('P11 a paused bot\'s closed tabs are no finding of health\'s', async (t) =>
 
   const result = await box.run(['health', '--bots', 'bots', '--json']);
 
-  const { found } = JSON.parse(result.stdout);
-  assert.deepEqual(withoutOwnMainText(found, 'api-bot', ['daily']), [], `a pause is not a fault, got: ${result.stdout}`);
-  // Health ends in 1 when it has a finding: here only daily's own main text, if it is still named.
-  assert.equal(result.code, found.length === 0 ? 0 : 1, `got: ${result.stdout}`);
+  // Paused, daily is not running, so health does not name its main text either (#769).
+  assert.deepEqual(JSON.parse(result.stdout).found, [], `a pause is not a fault, got: ${result.stdout}`);
+  assert.equal(result.code, 0);
 });
 
 // ---------------------------------------------------------------- unpausing
