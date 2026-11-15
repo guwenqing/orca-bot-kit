@@ -328,7 +328,8 @@ test('a Claude session the kit starts has Remote Control on by the kit\'s defaul
     setups: new Set(allSetups().map((setup) => setup.id)),
   };
 
-  const bots = await realpath(await mkdtemp(path.join(os.tmpdir(), 'obk-system-remote-control-')));
+  // A short name, so the folder row on Claude Code's folder trust screen does not wrap (#755 live run).
+  const bots = await realpath(await mkdtemp(path.join(os.tmpdir(), 'obk-system-rc-')));
   const homeOf = (bot) => path.join(bots, 'bots', bot);
   const homes = ['bot-father', BOT.name].map(homeOf);
   const home = homeOf(BOT.name);
