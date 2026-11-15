@@ -14,7 +14,8 @@
 // Retiring a whole bot also removes the bot's appended system text file,
 // `<bots>.prompts/<bot>/system-<sum>.md` (#768). One it cannot remove is named
 // in `promptsLeft` the same way, because the user must remove it by hand (the
-// architect's ruling on #776).
+// architect's ruling on #776). So is the bot's `sources` folder of source notes
+// (#769): a locked prompts folder keeps it, and promptsLeft names it by its path.
 //
 // A file cannot be removed when its folder cannot be written: here the bot's
 // prompts folder is made read-only for the run and given its mode back after.
@@ -225,8 +226,11 @@ test('PL6 a session with no prompt file retires with nothing left, even when the
 /**
  * api-bot with daily and review, both on a long duty so both have a prompt
  * file, up. `system` is the bot's appended system text file (#768), the one
- * `system-<sum>.md` the bring-up left in its prompts folder; `left` is every
- * file a locked retire of the bot leaves, by full path, in name order.
+ * `system-<sum>.md` the bring-up left in its prompts folder; `sources` is the
+ * folder of source notes that daily's start left there (#769); `left` is every
+ * file and folder a locked retire of the bot leaves, by full path, in name
+ * order. The locked prompts folder keeps the sources folder: its notes can go,
+ * the folder itself cannot.
  */
 async function botRunning(box) {
   const bots = await madeBot(box, [['daily', '--prompt', LONG_DUTY], ['review', '--prompt', LONG_DUTY]]);
@@ -240,7 +244,9 @@ async function botRunning(box) {
   const systems = (await readdir(promptsOf(bots))).filter((name) => /^system-[0-9a-f]+\.md$/.test(name));
   assert.equal(systems.length, 1, `bringing a Claude Code bot up should have left one system-<sum>.md in ${promptsOf(bots)}, got: ${JSON.stringify(systems)}`);
   const system = path.join(promptsOf(bots), systems[0]);
-  return { bots, setup, prompts, system, left: [...prompts, system].sort(), retired: path.join(bots, 'retired', 'api-bot') };
+  const sources = path.join(promptsOf(bots), 'sources');
+  assert.ok(await exists(sources), `daily's start on the kit's line should have left a source note in ${sources}`);
+  return { bots, setup, prompts, system, sources, left: [...prompts, system, sources].sort(), retired: path.join(bots, 'retired', 'api-bot') };
 }
 
 test('PL7 a bot whose prompt files cannot be removed is still retired in full, and the run ends in 0', { skip: NEEDS_A_USER }, async (t) => {
@@ -261,7 +267,7 @@ test('PL7 a bot whose prompt files cannot be removed is still retired in full, a
   for (const file of left) assert.ok(await exists(file), `${file} could not be removed, so it is still there`);
 });
 
-test('PL8 the text names every prompt file the bot\'s retirement left, its system file included, each with a command that removes it', { skip: NEEDS_A_USER }, async (t) => {
+test('PL8 the text names every prompt file the bot\'s retirement left, its system file and its sources folder included, each with a command that removes it', { skip: NEEDS_A_USER }, async (t) => {
   const box = await createSandbox(t);
   const { bots, left } = await botRunning(box);
 
@@ -274,7 +280,7 @@ test('PL8 the text names every prompt file the bot\'s retirement left, its syste
   assert.match(saidBy(result), DENIED, `and say why they could not be removed, got:\n${saidBy(result)}`);
 });
 
-test('PL9 --json: every prompt file the bot\'s retirement left, its system file included, is in promptsLeft, and the move is named', { skip: NEEDS_A_USER }, async (t) => {
+test('PL9 --json: every prompt file the bot\'s retirement left, its system file and its sources folder included, is in promptsLeft, and the move is named', { skip: NEEDS_A_USER }, async (t) => {
   const box = await createSandbox(t);
   const { bots, left, retired } = await botRunning(box);
 

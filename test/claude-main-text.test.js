@@ -729,6 +729,8 @@ describe('T8 retire', () => {
     const box = await createSandbox(t);
     const { bots } = await noted(box);
     await restart(box);
+    // The save spends the notes of its shape, so a later start on a line with no main file leaves a new one.
+    await hook(box, bots, { session: 'conv-3', source: 'startup', line: withoutMain(await wordsOf(box, bots)) });
     const mains = await mainFiles(bots);
     assert.equal(mains.length, 1, 'the premise: a main file');
     assert.equal((await namesIn(originalsOf(bots))).length, 1, 'the premise: an original');
