@@ -227,7 +227,7 @@ bot or in one bot's `bot.yaml`, as `kit:<name>` for one of the kit's or a bare
 name for one of yours. Codex reads at most 32 KiB of an instructions file and
 says nothing when it stops, so the build tells you when a bot's file goes over.
 
-Nine units suit every bot, whatever it does:
+Eleven units suit every bot, whatever it does:
 
 | | |
 |---|---|
@@ -236,9 +236,11 @@ Nine units suit every bot, whatever it does:
 | `scope` | changing what the work needs and leaving the rest |
 | `evidence` | what you saw, what you worked out, and not inventing either |
 | `finishing` | the check you can run, run on the real thing, reported as it came |
+| `commit` | committing your own work to the bots repo often, file by file; pushing is the user's call |
 | `limits` | the charter, what needs a yes, no quiet substitutes |
 | `talk` | answer first, short, real names |
 | `mail` | asking the kit for the road to another session; mail is queued |
+| `temporary` | making a temporary session of your own for a helper, and retiring it when its work is done |
 | `profiles` | the few lines the fleet keeps on each bot, for choosing who to hand work to |
 
 Two more are for bots that write code: `tests-first`, a failing test first and
