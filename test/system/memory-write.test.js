@@ -14,8 +14,10 @@
 // person can answer: "Do you want to create …", "via a symlink" (#722). So the
 // kit's launch line carries
 // `--settings {"autoMemoryDirectory":"<real bot folder>/claude-memory"}`, and
-// the kit makes that folder with a `.gitignore` of `*` when it is not there
-// (ADR 0056; test/memory-folder-flag.test.js and
+// the kit makes that folder with a `.gitignore` of `*` when it is not there.
+// This test's sessions have Remote Control off (#755), so that one object also
+// holds `"disableRemoteControl": true` after the memory key
+// (ADR 0060; test/memory-folder-flag.test.js and
 // test/memory-folder-made.test.js hold the rules against the fake). This test
 // shows what the fake cannot: that the line does its work in real tabs.
 //
@@ -131,6 +133,7 @@ import { atNight, namedThisRun } from '../helpers/night-gate.js';
 import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
 import { onlyTeachFormOf, questionOn } from '../helpers/screens.js';
 import { tabGuard } from '../helpers/tab-guard.js';
+import { RC_OFF, withBotFatherOff } from '../helpers/remote-control-off.js';
 import { autoModeState, sessionRecordFiles } from '../helpers/teach-record.js';
 import { RELOAD_LINE } from '../../src/orca.js';
 
@@ -162,7 +165,7 @@ const TEACH_TITLE = 'Teach auto mode about your environment?';
 const BOT_A = { name: 'memory-write', display: 'Memory Write' };
 const BOT_B = { name: 'memory-other', display: 'Memory Other' };
 
-/** The name of a bot's own memory folder, inside its bot folder (ADR 0056). */
+/** The name of a bot's own memory folder, inside its bot folder (ADR 0060). */
 const FOLDER = 'claude-memory';
 
 /** What the kit's .gitignore in that folder holds, exactly. */
@@ -517,7 +520,7 @@ test('two Claude bots of one bots folder each read only their own bot\'s memory 
 
   // ----------------------------------------------------- 1. the throwaway fleet
 
-  const initialised = obkJson(['init', '--bots', bots, '--harness', 'claude']);
+  const initialised = obkJson(withBotFatherOff(['init', '--bots', bots, '--harness', 'claude']));
   const fatherTab = (initialised.tabs ?? []).find((entry) => entry.created === true);
   assert.ok(fatherTab !== undefined, `the premise: init opened Bot Father's tab, got: ${JSON.stringify(initialised.tabs)}`);
   const place = allTerminals().find((terminal) => terminal.handle === fatherTab.terminal)?.worktreePath;
@@ -561,7 +564,7 @@ test('two Claude bots of one bots folder each read only their own bot\'s memory 
 
   for (const [bot, prompt] of [[BOT_A, promptA], [BOT_B, promptB]]) {
     obkJson(['bot', 'create', '--bots', bots, '--name', bot.name, '--harness', 'claude', '--charter', `${bot.display} exists for one system test run and owns nothing.`]);
-    obkJson(['session', 'add', '--bots', bots, '--bot', bot.name, '--name', 'daily', '--model', 'claude-haiku-5-5', '--effort', 'low', `--prompt=${prompt}`]);
+    obkJson(['session', 'add', '--bots', bots, '--bot', bot.name, '--name', 'daily', '--model', 'claude-haiku-5-5', '--effort', 'low', `--prompt=${prompt}`, ...RC_OFF]);
     obkJson(['permission', 'approval', '--bots', bots, '--bot', bot.name, '--session', 'daily', '--approval', 'auto']);
   }
   const ownA = path.join(homeA, FOLDER);

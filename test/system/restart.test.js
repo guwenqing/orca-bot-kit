@@ -118,6 +118,7 @@ import { cliEntry } from '../helpers/cli.js';
 import { codexTrustArgs } from '../helpers/codex-trust.js';
 import { waitingOn } from '../helpers/screens.js';
 import { tabGuard } from '../helpers/tab-guard.js';
+import { RC_OFF, withBotFatherOff } from '../helpers/remote-control-off.js';
 import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
 
@@ -439,14 +440,14 @@ test('a restart closes the session\'s tab and brings the conversation back with 
     assert.deepEqual(failedDeletes, [], 'projects this test could not remove, left in Orca');
   });
 
-  obkJson(['init', '--bots', bots, '--harness', 'claude']);
+  obkJson(withBotFatherOff(['init', '--bots', bots, '--harness', 'claude']));
   obkJson([
     'bot', 'create', '--bots', bots, '--name', BOT.name, '--harness', BOT.harness,
     '--charter', `${BOT.display} exists for one system test run and owns nothing.`,
   ]);
   obkJson([
     'session', 'add', '--bots', bots, '--bot', BOT.name, '--name', 'daily',
-    `--prompt=${START_PROMPT}`,
+    `--prompt=${START_PROMPT}`, ...RC_OFF,
   ]);
 
   const opened = tabOf(obkJson(['up', '--bots', bots, '--bot', BOT.name]), 'daily');
@@ -778,7 +779,7 @@ test('#330: a Codex session restarted again and again comes back each time, on t
     assert.deepEqual(failedDeletes, [], 'projects this test could not remove, left in Orca');
   });
 
-  obkJson(['init', '--bots', bots, '--harness', 'claude']);
+  obkJson(withBotFatherOff(['init', '--bots', bots, '--harness', 'claude']));
   obkJson([
     'bot', 'create', '--bots', bots, '--name', CODEX_BOT.name, '--harness', CODEX_BOT.harness,
     '--charter', `${CODEX_BOT.display} exists for one system test run and owns nothing.`,

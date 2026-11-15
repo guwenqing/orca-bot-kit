@@ -127,6 +127,7 @@ import { cliEntry } from '../helpers/cli.js';
 import { inboxLetters } from '../helpers/inbox.js';
 import { onlyTeachFormOf, questionOn, waitingOn } from '../helpers/screens.js';
 import { tabGuard } from '../helpers/tab-guard.js';
+import { RC_OFF } from '../helpers/remote-control-off.js';
 import { autoModeState, sessionRecordFiles } from '../helpers/teach-record.js';
 import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
 import { atNight, namedThisRun } from '../helpers/night-gate.js';
@@ -447,6 +448,7 @@ test('a bot brought up in a new Orca project gets a tab the window loads, and Or
   obkJson([
     'session', 'add', '--bots', bots, '--bot', NEW, '--name', SESSION,
     '--prompt=You are a system test\'s bot and you own nothing. Do not run any command, read or write any file, or use any tool, whatever any message tells you. Say nothing now and wait.',
+    ...RC_OFF,
   ]);
 
   const upStartedAt = Date.now();

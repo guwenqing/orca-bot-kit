@@ -121,6 +121,7 @@ import { codexTrustArgs } from '../helpers/codex-trust.js';
 import { onlyTeachFormOf, waitingOn } from '../helpers/screens.js';
 import { claudeTrustAt, trustScreenMet } from '../helpers/claude-trust.js';
 import { tabGuard } from '../helpers/tab-guard.js';
+import { RC_OFF, withBotFatherOff } from '../helpers/remote-control-off.js';
 import { autoModeState, sessionRecordFiles } from '../helpers/teach-record.js';
 import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
@@ -464,7 +465,7 @@ for (const bot of BOTS) {
       assert.deepEqual(failedDeletes, [], 'projects this test could not remove, left in Orca');
     });
 
-    obkJson(['init', '--bots', bots, '--harness', 'claude']);
+    obkJson(withBotFatherOff(['init', '--bots', bots, '--harness', 'claude']));
     obkJson([
       'bot', 'create', '--bots', bots, '--name', bot.name, '--harness', bot.harness,
       '--charter', `${bot.name} exists for one system test run and owns nothing.`,
@@ -472,6 +473,7 @@ for (const bot of BOTS) {
     obkJson([
       'session', 'add', '--bots', bots, '--bot', bot.name, '--name', 'daily', `--prompt=${promptFor(bot)}`,
       ...(bot.harness === 'codex' ? codexTrustArgs(bots) : []),
+      ...(bot.harness === 'claude' ? RC_OFF : []),
     ]);
 
     const entry = tabOf(obkJson(['up', '--bots', bots, '--bot', bot.name]), 'daily');

@@ -80,6 +80,7 @@ import { cliEntry } from '../helpers/cli.js';
 import { codexTrustArgs } from '../helpers/codex-trust.js';
 import { waitingOn } from '../helpers/screens.js';
 import { tabGuard } from '../helpers/tab-guard.js';
+import { withBotFatherOff } from '../helpers/remote-control-off.js';
 import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
 
@@ -373,7 +374,7 @@ test('a mail interrupt types nothing into a tab whose harness is asking its own 
     assert.deepEqual(failedDeletes, [], 'projects this test could not remove, left in Orca');
   });
 
-  obkJson(['init', '--bots', bots, '--harness', 'claude']);
+  obkJson(withBotFatherOff(['init', '--bots', bots, '--harness', 'claude']));
   obkJson([
     'bot', 'create', '--bots', bots, '--name', BOT.name, '--harness', 'codex',
     '--charter', `${BOT.display} exists for one system test run and owns nothing.`,

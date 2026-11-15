@@ -10,6 +10,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { createSandbox, fakeProgram, git } from './helpers/cli.js';
+import { tabStartOf } from './helpers/fake-ps.js';
 import { CLAUDE_IDLE, CODEX_IDLE, CODEX_NEW_MENU, CODEX_UPDATE_OFFER, questionOn } from './helpers/screens.js';
 
 /** Call the fake Orca the way the kit would. */
@@ -436,6 +437,147 @@ test('the fake ps reads one pid and does nothing else', async (t) => {
     assert.equal(refused.status, 70, `${argv.join(' ')} is not a read of one pid`);
   }
   assert.equal((await box.ps.calls()).length, 5, 'and every call is on the record, the refused ones too');
+});
+
+test('the fake ps reads when one process started, as ps -o lstart= prints it in the zone TZ names and the locale LC_ALL names, and in no other shape', async (t) => {
+  // #755: health compares the live harness's start time with the procStart
+  // Claude Code writes in its registry entry, in UTC. Seen on this machine: the
+  // same process read `Wed Nov 11 15:27:58 2026` with TZ unset (EST) and
+  // `Wed Nov 11 20:27:58 2026` with TZ=UTC. Claude Code 2.1.325 runs that read
+  // with LC_ALL=C and TZ=UTC (read in its binary) when it writes procStart; a
+  // test reads it so to write the procStart Claude Code would.
+  const box = await createSandbox(t);
+  const { handle, ptyId } = oneTab(box);
+  answer(ask(box, ['terminal', 'send', '--terminal', handle, '--text', 'claude -n a.b', '--enter', '--json']));
+  const panes = answer(ask(box, ['diagnostics', 'memory', '--json'])).result.worktrees.flatMap((worktree) => worktree.sessions);
+  const login = psLine(ps(box, panes.find((one) => one.sessionId === ptyId).pid));
+  const harness = login.tpgid;
+  const start = (pid, env = {}) => spawnSync(box.ps.cli, ['-o', 'lstart=', '-p', String(pid)], { env: { ...box.env, TZ: 'UTC', LC_ALL: 'C', ...env }, encoding: 'utf8' });
+  const said = (done) => ({ status: done.status, stdout: done.stdout, stderr: done.stderr });
+
+  // Left unset, a time the pid gives, the same at every read, for every process of the tab.
+  const first = start(harness);
+  assert.equal(first.status, 0, first.stderr);
+  assert.match(first.stdout, /^(Sun|Mon|Tue|Wed|Thu|Fri|Sat) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) [ \d]\d \d\d:\d\d:\d\d \d{4}\n$/);
+  assert.deepEqual(said(start(harness)), said(first), 'the same at every read');
+  for (const pid of [login.pid, login.pid + 1]) assert.equal(start(pid).status, 0, `pid ${pid} of the tab`);
+
+  // Set by a test: printed in UTC with TZ=UTC, a one-digit day after a space, and in the zone TZ names otherwise.
+  await box.orca.set({ psStarts: { [harness]: Date.UTC(2026, 10, 11, 20, 27, 58) } });
+  assert.deepEqual(said(start(harness)), { status: 0, stdout: 'Wed Nov 11 20:27:58 2026\n', stderr: '' });
+  assert.deepEqual(said(start(harness, { TZ: 'America/New_York' })), { status: 0, stdout: 'Wed Nov 11 15:27:58 2026\n', stderr: '' });
+  // The names follow LC_ALL: the C locale's with C, POSIX or none, another locale's otherwise.
+  assert.equal(start(harness, { LC_ALL: 'POSIX' }).stdout, 'Wed Nov 11 20:27:58 2026\n');
+  const german = start(harness, { LC_ALL: 'de_DE.UTF-8' });
+  assert.equal(german.status, 0, german.stderr);
+  assert.notEqual(german.stdout, 'Wed Nov 11 20:27:58 2026\n', `another locale gives other names, got ${JSON.stringify(german.stdout)}`);
+  assert.match(german.stdout, / 11 20:27:58 2026\n$/, 'and the same time');
+  await box.orca.set({ psStarts: { [harness]: Date.UTC(2026, 10, 1, 20, 27, 58) } });
+  assert.equal(start(harness).stdout, 'Sun Nov  1 20:27:58 2026\n');
+  // `null`: a ps that prints nothing but an empty line.
+  await box.orca.set({ psStarts: { [harness]: null } });
+  assert.deepEqual(said(start(harness)), { status: 0, stdout: '\n', stderr: '' });
+
+  // A process of the table a test set: its own startedAt.
+  await box.orca.set({ processes: [{ pid: 61234, startedAt: Date.UTC(2026, 9, 9, 14, 26, 20) }] });
+  assert.equal(start(61234).stdout, 'Fri Oct  9 14:26:20 2026\n');
+
+  // A pid that is not there: nothing, exit 1. An error a test set: the text on stderr, exit 1.
+  assert.deepEqual(said(start(99999)), { status: 1, stdout: '', stderr: '' });
+  await box.orca.set({ psStartErrors: { [harness]: 'ps: sysctl failed' } });
+  assert.deepEqual(said(start(harness)), { status: 1, stdout: '', stderr: 'ps: sysctl failed\n' });
+  // psErrors is the first read's alone.
+  await box.orca.set({ psStartErrors: {}, psStarts: {}, psErrors: { [harness]: 'ps: malloc failed' } });
+  assert.equal(start(harness).status, 0, 'psErrors does not touch the start-time read');
+
+  for (const argv of [['-o', 'lstart=', '-p', '-1'], ['-o', 'lstart=,pid=', '-p', String(harness)], ['-o', 'lstart', '-p', String(harness)], ['-p', String(harness), '-o', 'lstart=']]) {
+    const refused = spawnSync(box.ps.cli, argv, { env: box.env, encoding: 'utf8' });
+    assert.equal(refused.status, 70, `${argv.join(' ')} is not a read of one pid`);
+  }
+});
+
+test('the fake ps reads how long ago one process started, as ps -o etime= prints it, the same in every zone and locale, and in no other shape', async (t) => {
+  // #755: the kit reads the live harness's start as now minus `ps -o etime=`,
+  // with no environment of its own. Measured on macOS 27.0.1, 2026-11-14:
+  // `00:00`, `03:16:21`, `01-07:04:43`, `22-06:14:10`, nothing else on the
+  // line, and the same text with TZ=Asia/Shanghai LC_ALL=fr_FR.UTF-8.
+  const box = await createSandbox(t);
+  const { handle, ptyId } = oneTab(box);
+  answer(ask(box, ['terminal', 'send', '--terminal', handle, '--text', 'claude -n a.b', '--enter', '--json']));
+  const panes = answer(ask(box, ['diagnostics', 'memory', '--json'])).result.worktrees.flatMap((worktree) => worktree.sessions);
+  const login = psLine(ps(box, panes.find((one) => one.sessionId === ptyId).pid));
+  const harness = login.tpgid;
+  const elapsed = (pid, env = {}) => spawnSync(box.ps.cli, ['-o', 'etime=', '-p', String(pid)], { env: { ...box.env, ...env }, encoding: 'utf8' });
+  const said = (done) => ({ status: done.status, stdout: done.stdout, stderr: done.stderr });
+  /** Seconds in `[[dd-]hh:]mm:ss`. */
+  const secondsIn = (text) => {
+    const found = /^(?:(\d+)-)?(?:(\d\d):)?(\d\d):(\d\d)\n$/.exec(text);
+    assert.ok(found, `[[dd-]hh:]mm:ss and a newline, got ${JSON.stringify(text)}`);
+    const [, days, hours, minutes, seconds] = found;
+    return ((Number(days ?? 0) * 24 + Number(hours ?? 0)) * 60 + Number(minutes)) * 60 + Number(seconds);
+  };
+
+  /** Read the time since `at` for `pid`, and check it is the whole seconds from `at` to the read, truncated. */
+  const readSince = (pid, at, label, env = {}) => {
+    const before = Date.now();
+    const read = elapsed(pid, env);
+    const after = Date.now();
+    assert.equal(read.status, 0, `${label}: ${read.stderr}`);
+    assert.equal(read.stderr, '', label);
+    const low = Math.floor((before - at) / 1000);
+    const high = Math.floor((after - at) / 1000);
+    const seconds = secondsIn(read.stdout);
+    assert.ok(seconds >= low && seconds <= high, `${label}: ${JSON.stringify(read.stdout)} should be the whole seconds from the start to the read, ${low} to ${high}`);
+    return read.stdout;
+  };
+
+  // Each shape, against the fake's own clock.
+  for (const [label, ago, shape] of [
+    ['under a minute: mm:ss', 7_400, /^00:\d\d\n$/],
+    ['under an hour: mm:ss', 5 * 60_000 + 100, /^\d\d:\d\d\n$/],
+    ['past an hour: hh:mm:ss', 3 * 3600_000 + 16 * 60_000 + 21_100, /^\d\d:\d\d:\d\d\n$/],
+    ['past a day: dd-hh:mm:ss, the days two digits', 86400_000 + 7 * 3600_000 + 100, /^01-07:\d\d:\d\d\n$/],
+    ['past a hundred days: ddd-hh:mm:ss', 120 * 86400_000 + 100, /^120-00:\d\d:\d\d\n$/],
+  ]) {
+    const at = Date.now() - ago;
+    await box.orca.set({ psStarts: { [harness]: at } });
+    assert.match(readSince(harness, at, label), shape, label);
+    // The same in another zone and another locale: digits alone.
+    const elsewhere = readSince(harness, at, `${label}, with TZ and the locale set`, { TZ: 'Asia/Shanghai', LC_ALL: 'fr_FR.UTF-8', LANG: 'fr_FR.UTF-8', LC_TIME: 'fr_FR.UTF-8' });
+    assert.match(elsewhere, shape, `${label}, with TZ and the locale set`);
+  }
+
+  // Left unset, the pid's own default start (tabStartOf).
+  await box.orca.set({ psStarts: {} });
+  readSince(harness, tabStartOf(await box.orca.state(), harness), 'the default start');
+  for (const pid of [login.pid, login.pid + 1]) assert.equal(elapsed(pid).status, 0, `pid ${pid} of the tab`);
+
+  // A process of the table a test set: its own startedAt.
+  const tableStart = Date.now() - 65_100;
+  await box.orca.set({ processes: [{ pid: 61234, startedAt: tableStart }] });
+  assert.match(readSince(61234, tableStart, 'a process of the table'), /^01:\d\d\n$/);
+
+  // `null`: a ps that prints nothing but an empty line.
+  await box.orca.set({ psStarts: { [harness]: null } });
+  assert.deepEqual(said(elapsed(harness)), { status: 0, stdout: '\n', stderr: '' });
+  // A pid that is not there: nothing, exit 1. An error a test set: the text on stderr, exit 1.
+  assert.deepEqual(said(elapsed(99999)), { status: 1, stdout: '', stderr: '' });
+  await box.orca.set({ psStarts: {}, psStartErrors: { [harness]: 'ps: sysctl failed' } });
+  assert.deepEqual(said(elapsed(harness)), { status: 1, stdout: '', stderr: 'ps: sysctl failed\n' });
+  // psErrors is the first read's alone.
+  await box.orca.set({ psStartErrors: {}, psErrors: { [harness]: 'ps: malloc failed' } });
+  assert.equal(elapsed(harness).status, 0, 'psErrors does not touch the elapsed-time read');
+  // A start after now is a test that chose its time wrong: said, exit 70.
+  await box.orca.set({ psErrors: {}, psStarts: { [harness]: Date.now() + 3600_000 } });
+  const ahead = elapsed(harness);
+  assert.equal(ahead.status, 70);
+  assert.equal(ahead.stdout, '');
+  assert.match(ahead.stderr, /after now/);
+
+  for (const argv of [['-o', 'etime=', '-p', '-1'], ['-o', 'etime=,pid=', '-p', String(harness)], ['-o', 'etime', '-p', String(harness)], ['-p', String(harness), '-o', 'etime='], ['-o', 'etimes=', '-p', String(harness)]]) {
+    const refused = spawnSync(box.ps.cli, argv, { env: box.env, encoding: 'utf8' });
+    assert.equal(refused.status, 70, `${argv.join(' ')} is not a read of one pid`);
+  }
 });
 
 test('the fake ps reads one process\'s environment the way macOS prints it, and in no other shape', async (t) => {

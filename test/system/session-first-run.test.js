@@ -100,6 +100,7 @@ import {
 } from '../helpers/screens.js';
 import { claudeTrustAt, trustScreenMet } from '../helpers/claude-trust.js';
 import { tabGuard } from '../helpers/tab-guard.js';
+import { RC_OFF, withBotFatherOff } from '../helpers/remote-control-off.js';
 import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
 
@@ -487,7 +488,7 @@ test('a long-lived session\'s first-run screens answered through the kit: Codex\
 
   // ---------------------------------------------------------------------------
   // 1. The fleet.
-  obkJson(['init', '--bots', bots, '--harness', 'claude']);
+  obkJson(withBotFatherOff(['init', '--bots', bots, '--harness', 'claude']));
   obkJson([
     'bot', 'create', '--bots', bots, '--name', CODEX_BOT, '--harness', 'codex',
     '--charter', `${CODEX_BOT} exists for one system test run and owns nothing.`,
@@ -506,6 +507,7 @@ test('a long-lived session\'s first-run screens answered through the kit: Codex\
   obkJson([
     'session', 'add', '--bots', bots, '--bot', CLAUDE_BOT, '--name', CLAUDE_SESSION,
     '--prompt', `You are a system test's session and you own nothing. Do not run any command, read or write any file, or use any tool. Reply now with ${READY_WORD} and nothing else, then wait.`,
+    ...RC_OFF,
   ]);
   // session add no longer takes --approval: the kit sets it through permission approval.
   obkJson(['permission', 'approval', '--bots', bots, '--bot', CLAUDE_BOT, '--session', CLAUDE_SESSION, '--approval', 'ask']);

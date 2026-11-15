@@ -140,7 +140,7 @@ This makes the folder a git repository, seeds it, writes Bot Father, and opens
 its two tabs in Orca: the management tab where they will talk to it, and an ops
 tab, which is a plain shell for work across the whole fleet.
 
-Read everything it prints. Three parts of it matter to them:
+Read everything it prints. Four parts of it matter to them:
 
 - **what it created** — say it in a sentence, not as a file listing;
 - **the permission rules it wrote**: the kit's default set, so auto mode does
@@ -157,6 +157,14 @@ Read everything it prints. Three parts of it matter to them:
   them plainly what it is doing and that it is theirs to change in Orca's
   settings. Say it even if it sounds like a small thing: it decides what every
   bot on this machine is allowed to do.
+- **Remote Control, when Bot Father runs on `claude`.** Every Claude Code
+  session that the kit starts has Claude Code's Remote Control on, Bot Father
+  included. Tell them plainly: anyone who holds their claude.ai account can
+  read and drive these sessions from claude.ai/code or the Claude app, and
+  Anthropic stores the connected transcripts. Tell them how to turn one off:
+  `obk session change ... --remote-control off`, then `obk restart` of that
+  session. Point them to README, "Reaching a Claude session from your phone",
+  for the hard off and for what off does not cover.
 
 `init` is safe to run again. It adds what is missing and leaves everything else,
 their own edits included.
