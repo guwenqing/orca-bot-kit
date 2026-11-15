@@ -188,19 +188,6 @@ export function sh(text, options) {
 export const FAKE_CLAUDE_VERSION = '2.1.325';
 
 /**
- * The health finding that a Claude Code session runs on Claude Code's own main
- * text, and why (#769, R5): what every Claude Code session whose start the
- * kit's hook recorded gets, until a record of its launch can be built from.
- */
-export const OWN_MAIN_TEXT = 'runs on Claude Code\'s own main text, not the one the kit builds, because';
-
-/** Whether a finding is that one, about `<bot>/<session>`. */
-export const isOwnMainText = (one, bot, session) => typeof one?.says === 'string' && one.says.startsWith(`${bot}/${session} ${OWN_MAIN_TEXT}`);
-
-/** The findings, without that one for each of `sessions` of `bot`; every other finding stays. */
-export const withoutOwnMainText = (found, bot, sessions) => found.filter((one) => !sessions.some((session) => isOwnMainText(one, bot, session)));
-
-/**
  * Build a sandbox for one test. Cleaned up when the test ends.
  * Returns { root, cwd, home, env, path, run, orca }.
  */

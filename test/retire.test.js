@@ -41,7 +41,6 @@ import {
   tabsOfBot,
   tokenless,
   typedInto,
-  withoutOwnMainText,
 } from './helpers/cli.js';
 import { addSkills, botYamlOf, commonSkill, treeIn } from './helpers/skills.js';
 
@@ -239,8 +238,7 @@ test('RS4 the kit\'s own start-prompt file for the session is deleted', async (t
 test('RS5 afterwards roster does not list it, and health reports nothing about it', async (t) => {
   const box = await createSandbox(t);
   const { daily, prompt } = await twoSessionsRunning(box);
-  // Each session whose start the hook recorded runs on Claude Code's own main text, and health says why (#769).
-  assert.deepEqual(withoutOwnMainText(await findings(box), 'api-bot', ['daily', 'review']), [], 'the fleet starts clean, or the check after means nothing');
+  assert.deepEqual(await findings(box), [], 'the fleet starts clean, or the check after means nothing');
 
   const result = await retire(box, '--bot', 'api-bot', '--session', 'daily');
 
@@ -253,7 +251,7 @@ test('RS5 afterwards roster does not list it, and health reports nothing about i
     [],
     `no lost tab, no leftover prompt, nothing about daily, got: ${JSON.stringify(found, null, 2)}`,
   );
-  assert.deepEqual(withoutOwnMainText(found, 'api-bot', ['review']), [], 'and the fleet is as clean as it was');
+  assert.deepEqual(found, [], 'and the fleet is as clean as it was');
 });
 
 test('RS6 usage does not report the retired session\'s conversations as nobody\'s', async (t) => {
@@ -394,8 +392,7 @@ test('RB2 the bot\'s folder moves to retired/ with its book, charter and memory 
 test('RB3 afterwards roster and up do not know the bot, and health reports no leftover of it', async (t) => {
   const box = await createSandbox(t);
   const { bots, setup } = await botRunning(box);
-  // daily's start was recorded, so it runs on Claude Code's own main text, and health says why (#769).
-  assert.deepEqual(withoutOwnMainText(await findings(box), 'api-bot', ['daily']), [], 'the fleet starts clean, or the check after means nothing');
+  assert.deepEqual(await findings(box), [], 'the fleet starts clean, or the check after means nothing');
 
   const result = await retire(box, '--bot', 'api-bot');
 

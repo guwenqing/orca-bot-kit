@@ -68,12 +68,17 @@ test('the session the harness reported sits in the book beside the tab, and the 
   // that the line named no main text of the kit's (#769, R5): each allowed
   // with that value only.
   const LISTED = ['address', 'launched', 'launched_with', 'mailbox', 'rules', 'session', 'tab'];
-  const MAIN_TEXT = ['own_text', 'shape'];
+  // `launched_model` is the model the kit put on the line at the launch, or none.
+  const MAIN_TEXT = ['launched_model', 'own_text', 'shape'];
   const keys = Object.keys(book.sessions.daily).sort();
   assert.deepEqual(keys.filter((key) => LISTED.includes(key)), LISTED, `got: ${JSON.stringify(book.sessions.daily)}`);
   if ('shape' in book.sessions.daily) {
     const { shape } = book.sessions.daily;
     assert.ok(typeof shape === 'string' && shape !== '', `shape is the launch shape, a string, got: ${JSON.stringify(shape)}`);
+  }
+  if ('launched_model' in book.sessions.daily) {
+    const model = book.sessions.daily.launched_model;
+    assert.ok(model === null || (typeof model === 'string' && model !== ''), `launched_model is a model or none, got: ${JSON.stringify(model)}`);
   }
   if ('own_text' in book.sessions.daily) {
     assert.equal(book.sessions.daily.own_text, true, `own_text is true or not there, got: ${JSON.stringify(book.sessions.daily)}`);

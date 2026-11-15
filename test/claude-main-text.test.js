@@ -43,8 +43,9 @@
 //       a compaction; a record whose last section is not the kit's text is no
 //       source; the main file is outside the bots repo.
 //   T4. The saved original: kept by version and shape, and a later launch
-//       builds from it when the record is gone; one of a shape no session
-//       has any more goes at a later launch.
+//       builds from it when the record is gone. At a later launch, an
+//       original or a note of another version goes, and a note with no
+//       record goes once it is a week old.
 //   T5. The fit: another model, another extra argument, another tool cut,
 //       another memory folder named by hand, a change of a Claude Code
 //       settings file the session reads, or another version does not fit; a
@@ -563,21 +564,55 @@ describe('T4 the saved original', () => {
     assert.equal(path.basename(again), path.basename(first), 'the same text, so the same file');
   });
 
-  test('T4 a saved original of a shape that no session has any more goes at a later launch; one a session has stays', async (t) => {
+  test('T4 at a later launch, a saved original of another version goes; one of the installed version stays, also of a shape no session has', async (t) => {
+    // A temporary role between two temporary sessions has a shape that no book entry holds.
     const box = await createSandbox(t);
     const { bots } = await noted(box);
     await restart(box);
     assertMainNamed(await wordsOf(box, bots), 'the premise: the first build');
-    const old = `${V}-${(await sessionIn(bots, BOT, 'daily')).shape}.json`;
-    await restart(box);
-    assert.deepEqual(await namesIn(originalsOf(bots)), [old], 'the control: the original of the session\'s shape stays at a later launch');
+    const { shape } = await sessionIn(bots, BOT, 'daily');
+    const saved = path.join(originalsOf(bots), `${V}-${shape}.json`);
+    assert.ok(await exists(saved), `the premise: the original is saved at ${saved}`);
+    const foreign = `${shape.slice(0, -1)}${shape.endsWith('0') ? '1' : '0'}`;
+    const older = `2.1.300-${shape}.json`;
+    const unheld = `${V}-${foreign}.json`;
+    const copy = await readFile(saved, 'utf8');
+    await writeFile(path.join(originalsOf(bots), older), copy);
+    await writeFile(path.join(originalsOf(bots), unheld), copy);
 
-    await ok(box, ['session', 'change', '--bots', 'bots', '--bot', BOT, '--session', 'daily', '--extra-arg=--verbose']);
-    await restart(box);
     await restart(box);
 
-    assert.notEqual(`${V}-${(await sessionIn(bots, BOT, 'daily')).shape}.json`, old, 'the premise: the session has another shape now');
-    assert.ok(!(await namesIn(originalsOf(bots))).includes(old), `the original of the old shape is gone, got: ${show(await namesIn(originalsOf(bots)))}`);
+    const names = await namesIn(originalsOf(bots));
+    assert.ok(!names.includes(older), `the original of another version is gone, got: ${show(names)}`);
+    assert.ok(names.includes(`${V}-${shape}.json`), `the session's own stays, got: ${show(names)}`);
+    assert.ok(names.includes(unheld), `one of the installed version stays, though no session has its shape, got: ${show(names)}`);
+  });
+
+  test('T4 at a later launch, a note whose first record is of another version goes; one of the installed version stays; one with no record goes once a week old', async (t) => {
+    const box = await createSandbox(t);
+    const bots = await started(box, { more: [['nightly', ['--model', 'sonnet']]] });
+    const { text } = await appendedOf(await wordsOf(box, bots));
+    // nightly: a note of the installed version, of a shape daily's launch does not use.
+    await hook(box, bots, { session: 'conv-night', source: 'startup', name: 'nightly' });
+    await onRecord(box, bots, 'conv-night', [[...LATER, text]]);
+    // daily: a note whose first record is of another version, then one with no record at all.
+    await hook(box, bots, { session: 'conv-old', source: 'startup' });
+    await onRecord(box, bots, 'conv-old', [{ sections: [...SECTIONS, text], version: '2.1.300' }]);
+    await hook(box, bots, { session: 'conv-none', source: 'startup' });
+    for (const id of ['conv-night', 'conv-old', 'conv-none']) assert.ok(await exists(sourceOf(bots, id)), `the premise: ${id} is noted`);
+
+    await restart(box);
+
+    assert.equal(await exists(sourceOf(bots, 'conv-old')), false, 'the note of another version is gone');
+    assert.ok(await exists(sourceOf(bots, 'conv-night')), 'the note of the installed version stays');
+    assert.ok(await exists(sourceOf(bots, 'conv-none')), 'a note with no record, under a week old, stays');
+
+    const note = JSON.parse(await readFile(sourceOf(bots, 'conv-none'), 'utf8'));
+    await writeFile(sourceOf(bots, 'conv-none'), `${JSON.stringify({ ...note, at: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString() })}\n`);
+    await restart(box);
+
+    assert.equal(await exists(sourceOf(bots, 'conv-none')), false, 'a note with no record, a week old, is gone');
+    assert.ok(await exists(sourceOf(bots, 'conv-night')), 'the note of the installed version still stays');
   });
 
   test('T4 a record of a conversation that ran on the kit\'s main text is no source', async (t) => {
@@ -788,6 +823,83 @@ describe('T5 the fit', () => {
     });
   }
 
+  /**
+   * daily launched with a settings file of the user's own on its line, by
+   * `extra` (the file's path given), and a fitting record of that launch
+   * saved as an original. Gives back the bots folder, the file and the shape.
+   */
+  async function ownSettingsFile(box, extra) {
+    const bots = await started(box);
+    // A conversation the book knows, so the restart can close the tab.
+    await hook(box, bots, { session: 'conv-0', source: 'startup' });
+    await onRecord(box, bots, 'conv-0', []);
+    const file = path.join(box.root, 'own-settings', 'daily.json');
+    await setIn(file, { outputStyle: 'Concise' });
+    await handSet(bots, { extra_args: extra(file) });
+    await restart(box);
+    await noteNow(box, bots, 'conv-1');
+    await restart(box);
+    assertMainNamed(await wordsOf(box, bots), 'the premise: a record under the user\'s own settings file fits');
+    return { bots, file, before: (await sessionIn(bots, BOT, 'daily')).shape };
+  }
+
+  const OUTPUT_STYLE = ['outputStyle', { outputStyle: 'Explanatory' }];
+  const MEMORY_DIR = ['autoMemoryDirectory', { autoMemoryDirectory: '/srv/own-memory' }];
+
+  /** How extra_args names the file: as a list, or as one string of shell text; and the changes each is tried with. */
+  const SETTINGS_FORMS = {
+    'two words, --settings <file>': [(file) => ['--settings', file], [OUTPUT_STYLE, MEMORY_DIR], true],
+    'one word, --settings=<file>': [(file) => [`--settings=${file}`], [OUTPUT_STYLE, MEMORY_DIR], true],
+    'one string, --settings <file>': [(file) => `--settings ${file}`, [OUTPUT_STYLE], false],
+    'one string, --settings=<file>': [(file) => `--settings=${file}`, [OUTPUT_STYLE], false],
+  };
+
+  for (const [form, [extra, changes, allowToo]] of Object.entries(SETTINGS_FORMS)) {
+    for (const [change, keys] of changes) {
+      test(`T5 a change of ${change} in a settings file the line names (${form}) does not fit, and is another shape`, async (t) => {
+        const box = await createSandbox(t);
+        const { bots, file, before } = await ownSettingsFile(box, extra);
+
+        await setIn(file, keys);
+        await restart(box);
+
+        assertOwnText(await wordsOf(box, bots), `a change of ${change} in the line's settings file`);
+        assert.notEqual((await sessionIn(bots, BOT, 'daily')).shape, before, 'the shape changed');
+      });
+    }
+
+    if (!allowToo) continue;
+    test(`T5 a change of only permissions.allow in a settings file the line names (${form}) keeps the shape and the main file`, async (t) => {
+      const box = await createSandbox(t);
+      const { bots, file, before } = await ownSettingsFile(box, extra);
+
+      await setIn(file, { permissions: { allow: ['Bash(ls:*)'] } });
+      await restart(box);
+
+      assertMainNamed(await wordsOf(box, bots), 'a change of permissions.allow in the line\'s settings file');
+      assert.equal((await sessionIn(bots, BOT, 'daily')).shape, before, 'the shape is the same');
+    });
+  }
+
+  test('T5 an extra_args string that names --settings with a quote: no main file though a record was noted, and health says the kit cannot tell the settings file', async (t) => {
+    const box = await createSandbox(t);
+    const bots = await started(box);
+    await hook(box, bots, { session: 'conv-0', source: 'startup' });
+    await onRecord(box, bots, 'conv-0', []);
+    const file = path.join(box.root, 'own-settings', 'daily.json');
+    await setIn(file, { outputStyle: 'Concise' });
+    await handSet(bots, { extra_args: `--settings "${file}"` });
+    await restart(box);
+    await noteNow(box, bots, 'conv-1');
+
+    await restart(box);
+
+    assertOwnText(await wordsOf(box, bots), 'a settings file the kit cannot tell');
+    assert.deepEqual(await mainFiles(bots), []);
+    const found = await findings(box);
+    assert.ok(aboutSession(found, 'daily', 'settings file').length >= 1, `got: ${show(found)}`);
+  });
+
   test('T5 another tool cut does not fit, and is another shape', async (t) => {
     const box = await createSandbox(t);
     const { bots, words, before, after } = await changed(box, (bots) => editBotYaml(bots, { claude_cut: ['WebFetch'] }));
@@ -890,81 +1002,112 @@ describe('T7 health', () => {
     assert.ok(aboutSession(found, 'daily', 'claude --version').length >= 1, `got: ${show(found)}`);
   });
 
-  test('T7 a session on its own text with no fitting record yet is named with the version, and not told to restart', async (t) => {
+  /** `obk health --json` whole: its findings, its sessions, and its exit code. */
+  async function healthOf(box) {
+    const result = await box.run(['health', '--bots', 'bots', '--json']);
+    let answer;
+    try {
+      answer = JSON.parse(result.stdout);
+    } catch (error) {
+      return assert.fail(`health --json should print JSON, got (${error.message}):\n${result.stdout}${result.stderr}`);
+    }
+    assert.ok(Array.isArray(answer.found) && Array.isArray(answer.sessions), `health answers with findings and sessions, got: ${result.stdout}`);
+    return { found: answer.found, sessions: answer.sessions, code: result.code };
+  }
+
+  /** The entry of `sessions` for api-bot's `session`, or undefined. */
+  const entryOf = (sessions, session) => sessions.find((one) => one.bot === BOT && one.session === session);
+
+  /** The `main_text` of api-bot's `session` in health's sessions, with the premise that the entry is there. */
+  function mainTextIn(sessions, session, why) {
+    const entry = entryOf(sessions, session);
+    assert.ok(entry, `${why}: health's sessions should list ${BOT}/${session}, got: ${show(sessions)}`);
+    return entry.main_text;
+  }
+
+  /** Health's findings on api-bot/<session>'s main text: its own text, a restart for the kit's text, or an older main file. */
+  const mainTextOf = (found, session) => found.filter((one) => typeof one.says === 'string'
+    && one.says.startsWith(`${BOT}/${session}`) && one.says.includes('main text'));
+
+  /** The text line of `obk health` for api-bot's `session`. */
+  async function textLineOf(box, session) {
+    const result = await box.run(['health', '--bots', 'bots']);
+    const line = result.stdout.split('\n').find((one) => one.includes(`${BOT} ${session} `));
+    assert.equal(typeof line, 'string', `health should print a line for ${BOT} ${session}, got:\n${result.stdout}`);
+    return line;
+  }
+
+  test('T7 no fitting record yet is a normal wait: no finding, exit 0, and main_text own, whose why names a resume and a clear', async (t) => {
     const box = await createSandbox(t);
     const bots = await started(box);
     await hook(box, bots, { session: 'conv-1', source: 'startup' });
 
-    const found = await findings(box);
+    const { found, sessions, code } = await healthOf(box);
 
-    const said = aboutSession(found, 'daily', V);
-    assert.ok(said.length >= 1, `health names daily with ${V}, got: ${show(found)}`);
-    assert.deepEqual(said.filter((one) => one.says.includes('obk restart')), [], `a restart would not help yet, got: ${show(said)}`);
-    assert.deepEqual(aboutSession(found, 'daily', 'claude --version'), [], `claude answered, got: ${show(found)}`);
+    assert.deepEqual(mainTextOf(found, 'daily'), [], `no finding, got: ${show(found)}`);
+    const text = mainTextIn(sessions, 'daily', 'a session on its own text');
+    assert.equal(text?.state, 'own', `got: ${show(text)}`);
+    assert.ok(typeof text.why === 'string' && text.why.includes('resume') && text.why.includes('clear'), `the why says a resume records nothing, and names a start and a clear, got: ${show(text)}`);
+    assert.deepEqual(found, [], `nothing else is wrong, got: ${show(found)}`);
+    assert.equal(code, 0);
+    const line = await textLineOf(box, 'daily');
+    assert.ok(line.endsWith(`main text own: ${text.why}`), `the line ends with the state and the why, got: ${line}`);
   });
 
-  /** Health's sentences on api-bot/<session>'s main text: its own text, a restart for the kit's text, or an older main file. */
-  const mainTextOf = (found, session) => found.filter((one) => typeof one.says === 'string'
-    && one.says.startsWith(`${BOT}/${session}`) && one.says.includes('main text'));
+  test('T7 the kit\'s text ready for a restart is a normal wait: no finding, and main_text own, whose why names obk restart', async (t) => {
+    const box = await createSandbox(t);
+    await noted(box);
+
+    const { found, sessions, code } = await healthOf(box);
+
+    assert.deepEqual(mainTextOf(found, 'daily'), [], `no finding, got: ${show(found)}`);
+    const text = mainTextIn(sessions, 'daily', 'a session whose record now fits');
+    assert.equal(text?.state, 'own', `got: ${show(text)}`);
+    assert.ok(typeof text.why === 'string' && text.why.includes('obk restart') && text.why.includes('compaction'), `the why names obk restart, and a resumed conversation's next compaction, got: ${show(text)}`);
+    assert.deepEqual(found, [], `nothing else is wrong, got: ${show(found)}`);
+    assert.equal(code, 0);
+  });
 
   for (const [what, scope] of [['a paused session', ['--session', 'daily']], ['a paused bot', []]]) {
-    test(`T7 ${what} on its own text is not named while paused, and is named again once unpaused and started`, async (t) => {
+    test(`T7 ${what} on its own text has no main_text while paused, and has it again once unpaused and started`, async (t) => {
       const box = await createSandbox(t);
       const bots = await started(box, { more: [['review', []]] });
       await hook(box, bots, { session: 'conv-1', source: 'startup' });
       await onRecord(box, bots, 'conv-1', []);
       await hook(box, bots, { session: 'conv-r', source: 'startup', name: 'review' });
       await onRecord(box, bots, 'conv-r', []);
-      assert.equal(mainTextOf(await findings(box), 'daily').length, 1, 'the premise: health names daily running on its own text');
+      assert.equal(mainTextIn((await healthOf(box)).sessions, 'daily', 'the premise')?.state, 'own', 'the premise: daily runs on its own text');
 
       await ok(box, ['pause', '--bots', 'bots', '--bot', BOT, ...scope]);
-      const found = await findings(box);
+      const { found, sessions } = await healthOf(box);
 
-      assert.deepEqual(mainTextOf(found, 'daily'), [], `paused, daily is not running, got: ${show(found)}`);
-      if (scope.length > 0) assert.equal(mainTextOf(found, 'review').length, 1, `review is not paused, and is still named, got: ${show(found)}`);
-      else assert.deepEqual(mainTextOf(found, 'review'), [], `the whole bot is paused, review too, got: ${show(found)}`);
+      assert.equal(entryOf(sessions, 'daily')?.main_text, undefined, `paused, daily is not running, got: ${show(sessions)}`);
+      assert.deepEqual(mainTextOf(found, 'daily'), [], `and no finding, got: ${show(found)}`);
+      if (scope.length > 0) assert.equal(mainTextIn(sessions, 'review', 'review is not paused')?.state, 'own', `review still has its main_text, got: ${show(sessions)}`);
+      else assert.equal(entryOf(sessions, 'review')?.main_text, undefined, `the whole bot is paused, review too, got: ${show(sessions)}`);
 
       await ok(box, ['unpause', '--bots', 'bots', '--bot', BOT, ...scope]);
       await hook(box, bots, { session: 'conv-1', source: 'resume' });
-      const again = await findings(box);
 
-      assert.equal(mainTextOf(again, 'daily').length, 1, `unpaused and started, daily is named again, got: ${show(again)}`);
-      assert.ok(mainTextOf(again, 'daily')[0].says.includes('runs on Claude Code\'s own main text'), `as running on its own text, got: ${show(again)}`);
+      assert.equal(mainTextIn((await healthOf(box)).sessions, 'daily', 'unpaused and started')?.state, 'own', 'daily has its main_text again');
     });
   }
 
-  test('T7 the sentence for a session with no fitting record says a resume records nothing, and names a start and obk session clear', async (t) => {
-    const box = await createSandbox(t);
-    const bots = await started(box);
-    await hook(box, bots, { session: 'conv-1', source: 'startup' });
-
-    const found = await findings(box);
-
-    assert.ok(aboutSession(found, 'daily', 'resume', 'clear').length >= 1, `got: ${show(found)}`);
-  });
-
-  test('T7 a session on its own text whose record now fits is told to restart', async (t) => {
-    const box = await createSandbox(t);
-    await noted(box);
-
-    const found = await findings(box);
-
-    assert.ok(aboutSession(found, 'daily', 'obk restart').length >= 1, `got: ${show(found)}`);
-  });
-
-  test('T7 a session that cleared on the kit\'s current main file is not told to restart', async (t) => {
+  test('T7 a session that cleared on the kit\'s current main file has main_text kit, and no finding', async (t) => {
     const box = await createSandbox(t);
     const { bots } = await noted(box);
     await restart(box);
     assertMainNamed(await wordsOf(box, bots), 'the premise: the kit gives its main text');
     await hook(box, bots, { session: 'conv-2', source: 'clear' });
 
-    const found = await findings(box);
+    const { found, sessions } = await healthOf(box);
 
-    assert.deepEqual(aboutSession(found, 'daily', 'obk restart'), [], `got: ${show(found)}`);
+    assert.deepEqual(mainTextIn(sessions, 'daily', 'a session on the kit\'s text'), { state: 'kit' });
+    assert.deepEqual(mainTextOf(found, 'daily'), [], `got: ${show(found)}`);
+    assert.ok((await textLineOf(box, 'daily')).endsWith('main text kit'), 'the line ends with the state');
   });
 
-  test('T7 a session whose noted main file is not the current one is named, with a restart and the next compaction', async (t) => {
+  test('T7 a session whose noted main file is not the current one has main_text older, whose why names the next compaction', async (t) => {
     const box = await createSandbox(t);
     const { bots } = await noted(box);
     await restart(box);
@@ -976,9 +1119,12 @@ describe('T7 health', () => {
     await hook(box, bots, { session: 'conv-2', source: 'clear', line: words.map((word, index) => (index === at + 1 ? older : word)) });
     assert.equal(path.basename(String((await sessionIn(bots, BOT, 'daily')).main)), path.basename(older), 'the premise: the book notes the older main file');
 
-    const found = await findings(box);
+    const { found, sessions } = await healthOf(box);
 
-    assert.ok(aboutSession(found, 'daily', 'obk restart', 'compaction').length >= 1, `got: ${show(found)}`);
+    const text = mainTextIn(sessions, 'daily', 'a session on an older main file');
+    assert.equal(text?.state, 'older', `got: ${show(text)}`);
+    assert.ok(typeof text.why === 'string' && text.why.includes('compaction'), `got: ${show(text)}`);
+    assert.deepEqual(mainTextOf(found, 'daily'), [], `no finding, got: ${show(found)}`);
   });
 
   test('T7 each recipe unit that a saved original of a model it is named for does not hold is named, with the model', async (t) => {
@@ -1110,6 +1256,27 @@ describe('T11 the model of a note', () => {
     const bots = await cleared(box, { model: OTHER, recorded: OTHER });
 
     assertOwnText(await wordsOf(box, bots), 'a clear after a /model switch');
+    assert.deepEqual(await mainFiles(bots), []);
+  });
+
+  test('T11 a clear keeps the model of the launch, not the model bot.yaml names at the clear', async (t) => {
+    const OPUS = 'claude-opus-test-9';
+    const FABLE = 'claude-fable-test-9';
+    const box = await createSandbox(t);
+    const bots = await started(box, { daily: ['--model', OPUS] });
+    const { text } = await appendedOf(await wordsOf(box, bots));
+    await hook(box, bots, { session: 'conv-0', source: 'startup', model: OPUS });
+    await onRecord(box, bots, 'conv-0', []);
+    // bot.yaml names Fable now, with no restart: the session still runs the launch's Opus.
+    await ok(box, ['session', 'change', '--bots', 'bots', '--bot', BOT, '--session', 'daily', '--model', FABLE]);
+    // A /model switch to Fable, then a clear: its record is Fable's.
+    await hook(box, bots, { session: 'conv-2', source: 'clear', model: FABLE });
+    await onRecord(box, bots, 'conv-2', [[...SECTIONS, text]], { model: FABLE });
+    await ok(box, ['session', 'change', '--bots', 'bots', '--bot', BOT, '--session', 'daily', '--model', OPUS]);
+
+    await restart(box);
+
+    assertOwnText(await wordsOf(box, bots), 'the only record is Fable\'s, and the launch was Opus');
     assert.deepEqual(await mainFiles(bots), []);
   });
 
