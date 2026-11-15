@@ -23,23 +23,28 @@
 //       Codex-only, Pi-only or Codex-with-Pi bot keeps the link. The link
 //       turns into the file, and back. A hand edit of AGENTS.md reaches
 //       CLAUDE.md at the next build, and health names CLAUDE.md as older
-//       until then. A CLAUDE.md of the user's own, a hand-edited one and one
-//       with a line added at its end are conflicts: CLAUDE.md is left as it
-//       is, and the build, up and health name it (the architect's ruling).
+//       until then. A CLAUDE.md of the user's own, a hand-edited one, one
+//       with a line added at its end and one with only the sentence of its
+//       begin marker edited are conflicts: CLAUDE.md is left as it is, and
+//       the build, up and health name it (the architect's ruling).
 //   P5. The appended file: the main and both units, at its path, named by a
 //       checksum of its content; none for a bot with no Claude Code session.
 //       Older files go, but for the ones a book entry names (a temporary
 //       session's, a paused session's), and health calls none of those a
-//       leftover.
+//       leftover. A file a book entry names stays also when the book cannot
+//       be read.
 //   P6. Every kit launch of a Claude Code session (up, a resume, temp make)
 //       names the current appended file, as one shell word, a bots folder
 //       with a space included. A Codex or Pi line never carries the flag.
 //   P7. No session loses a unit: Claude Code with Codex, Claude Code with Pi,
-//       and a session that moves to another harness.
+//       a session that moves to another harness, and a main unit added when
+//       the bot's prompts folder cannot be written (named by up).
 //   P8. The guard: the SessionStart hook reads its harness's launch line; with
 //       no flag on it, on every source, its answer holds the main units, and
-//       health names the session. With the flag, no main unit. The start
-//       prompt of a clear and a compaction stays.
+//       health names the session. With the flag, no main unit. The flag is
+//       an option of the line: the same words in the prompt after `--` are
+//       prose, and the line is bare. The start prompt of a clear and a
+//       compaction stays.
 //   P9. Older system text: the hook notes which appended file a session read;
 //       health and rules build name a session whose file is not the current
 //       one. A resume keeps what was noted.
@@ -51,13 +56,14 @@
 // helpers/fake-ps.js).
 
 import assert from 'node:assert/strict';
-import { appendFile, lstat, mkdir, readdir, readFile, readlink, realpath, rm, utimes, writeFile } from 'node:fs/promises';
+import { appendFile, chmod, lstat, mkdir, readdir, readFile, readlink, realpath, rm, utimes, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { describe, test } from 'node:test';
 import { parse, stringify } from 'yaml';
 
 import {
   bareLaunch,
+  bookOf,
   botHomeOf,
   conversationOnRecord,
   createSandbox,
@@ -574,6 +580,18 @@ describe('rule placement', { concurrency: 4 }, () => {
       await writeFile(file, text.replace(CHARTER, 'Api Bot keeps the records, as I now say.'));
     }],
     ['a kit-built one with a line added at its end', (file) => appendFile(file, 'A line I added to CLAUDE.md.\n')],
+    ['a kit-built one with only the sentence of its begin marker edited', async (file) => {
+      const lines = (await readFile(file, 'utf8')).split('\n');
+      const at = lines.findIndex((line) => line.startsWith('<!-- obk:rules'));
+      assert.ok(at >= 0, `the premise: the built CLAUDE.md has the kit's begin marker, got:\n${lines.join('\n')}`);
+      const sums = lines[at].match(/\b[0-9a-f]{16}\b/g) ?? [];
+      assert.equal(sums.length, 2, `the premise: the begin marker carries two 16-hex sums, got: ${lines[at]}`);
+      const edited = `${lines[at].slice(0, lines[at].lastIndexOf(sums[1]) + sums[1].length)} — a sentence of my own, typed by hand. -->`;
+      assert.notEqual(edited, lines[at], 'the premise: the sentence changed');
+      assert.deepEqual(edited.match(/\b[0-9a-f]{16}\b/g), sums, 'the premise: both sums are kept as they were');
+      lines[at] = edited;
+      await writeFile(file, lines.join('\n'));
+    }],
   ]) {
     test(`P4 P5 CLAUDE.md as ${label} is a conflict: left as it is, named by rules build, up and health, and the appended file holds main and both`, async (t) => {
       const box = await createSandbox(t);
@@ -693,6 +711,31 @@ describe('rule placement', { concurrency: 4 }, () => {
     assert.equal(files.length, 2, `and the current one is there beside it, got: ${show(files)}`);
     const leftovers = (await findings(box)).filter((one) => one.kind === 'leftover' && files.some((file) => pointsAt(one, file)));
     assert.deepEqual(leftovers, [], 'health calls neither file a leftover');
+  });
+
+  test('P5 an older appended file that a book entry names is kept when the book cannot be read', async (t) => {
+    const box = await createSandbox(t);
+    const bots = await fleet(box);
+    await up(box);
+    const old = await theAppended(bots, 'api-bot', 'after up');
+    const daily = await liveTab(box, bots, 'api-bot', 'daily');
+    await assertNamesAppended(await lineOf(box, bots, 'api-bot', 'daily'), bots, 'api-bot', 'the premise: daily\'s line');
+    await hook(box, { bots, tab: daily.tabId, session: 'sess-day', source: 'startup' });
+    await writeUnitFile(bots, 'beacon', { title: 'Beacon Watch', placement: 'main', body: 'Light the beacon on the cliff when a sail is seen at dusk.' });
+    await addRules(botYamlOf(bots, 'api-bot'), 'beacon');
+    await build(box); // a session on the older file may be named, and its exit code is the kit's
+    const kept = await appendedFiles(bots, 'api-bot');
+    assert.ok(kept.includes(old) && kept.length === 2, `the premise: the book names the older file, so the build kept it beside the new one, got: ${show(kept)}`);
+    const book = bookOf(bots, 'api-bot');
+    await chmod(book, 0o000);
+    try {
+      await build(box); // whether it names the book it cannot read is the kit's
+
+      const files = await appendedFiles(bots, 'api-bot');
+      assert.ok(files.includes(old), `the file daily's book entry names is kept, also when the book cannot be read, got: ${show(files)}`);
+    } finally {
+      await chmod(book, 0o644);
+    }
   });
 
   // ================================================================ P6
@@ -824,6 +867,39 @@ describe('rule placement', { concurrency: 4 }, () => {
     );
   });
 
+  test('P7 a main unit added when the prompts folder cannot be written still reaches the Claude Code session, and up names the failure', async (t) => {
+    const box = await createSandbox(t);
+    const bots = await fleet(box, { made: [{ bot: 'api-bot', sessions: [['daily']] }] });
+    await buildOk(box);
+    await theAppended(bots, 'api-bot', 'the premise: the good build wrote the appended file');
+    const beacon = { title: 'Beacon Watch', placement: 'main', body: 'Light the beacon on the cliff when a sail is seen at dusk.' };
+    await writeUnitFile(bots, 'beacon', beacon);
+    await addRules(botYamlOf(bots, 'api-bot'), 'beacon');
+    const folder = promptsOf(bots, 'api-bot');
+    await chmod(folder, 0o555);
+    try {
+      const answer = json(await box.run(['up', '--bots', 'bots', '--bot', 'api-bot', '--json']));
+
+      const entry = rulesEntry(answer, 'api-bot');
+      assert.ok(String(entry.trouble).includes(folder), `up names what it could not write in ${folder}, got: ${show(entry)}`);
+      const [unit] = await bodiesIn(bots, 'api-bot', [beacon.title]);
+      const line = await lineOf(box, bots, 'api-bot', 'daily');
+      const named = systemOn(line);
+      const appended = named === undefined ? '' : await readFile(path.resolve(named), 'utf8');
+      const tab = (await liveTab(box, bots, 'api-bot', 'daily')).tabId;
+      const { context } = await hook(box, { bots, tab, session: 'sess-A', source: 'startup' });
+      const roads = {
+        'CLAUDE.md': await readFile(claudeOf(bots, 'api-bot'), 'utf8'),
+        [`the appended file the line names (${named})`]: appended,
+        'the hook\'s context': context ?? '',
+      };
+      const reached = Object.keys(roads).filter((road) => roads[road].includes(unit.title) && roads[road].includes(unit.text));
+      assert.ok(reached.length >= 1, `the main unit ${unit.title} should reach the session by at least one road, and reached none:\n${show(roads)}`);
+    } finally {
+      await chmod(folder, 0o755);
+    }
+  });
+
   // ================================================================ P8
 
   // The upgrade case: an older kit launched the session, so its line has no
@@ -870,6 +946,29 @@ describe('rule placement', { concurrency: 4 }, () => {
     assert.equal(cleared.context, DUTY, 'a clear gets the start prompt, and nothing more');
     const found = await findings(box);
     assert.deepEqual(namingSession(found, 'api-bot', 'daily', NO_SYSTEM), [], 'health has no such finding');
+  });
+
+  test('P8 a line with no flag whose prompt after -- names the flag in prose is bare: the hook gives the main units, as for the line without that prose', async (t) => {
+    const box = await createSandbox(t);
+    const bots = await fleet(box);
+    await up(box);
+    const tab = (await liveTab(box, bots, 'api-bot', 'daily')).tabId;
+    const launched = harnessWordsOf(await launchLineInTab(box, tab));
+    const flagAt = launched.indexOf(SYSTEM_FLAG);
+    assert.ok(flagAt > 0, `the premise: the kit's line has the flag, got: ${show(launched)}`);
+    const options = launched.filter((word, at) => at !== flagAt && at !== flagAt + 1);
+    const end = options.indexOf('--');
+    const head = end < 0 ? options : options.slice(0, end);
+    const plain = [...head, '--', 'Read the harbour notes before you start.'];
+    const prose = [...head, '--', `Read the harbour notes on ${SYSTEM_FLAG} before you start.`];
+    const { main } = await placed();
+    const units = await bodiesIn(bots, 'api-bot', main);
+
+    const without = await hook(box, { bots, tab, session: 'sess-A', source: 'startup', line: plain });
+    const withProse = await hook(box, { bots, tab, session: 'sess-B', source: 'startup', line: prose });
+
+    assertHolds(without.context, units, `the premise: a line with no flag (${plain.join(' ')})`);
+    assertHolds(withProse.context, units, `a line with no flag whose prompt names it in prose (${prose.join(' ')})`);
   });
 
   // ================================================================ P9

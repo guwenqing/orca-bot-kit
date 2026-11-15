@@ -121,10 +121,16 @@ test('every unit carries the three frontmatter keys the compiler reads', async (
     const { data } = parts(unit);
 
     assert.deepEqual(
-      Object.keys(data ?? {}).sort(),
+      Object.keys(data ?? {}).filter((key) => key !== 'placement').sort(),
       ['applies', 'name', 'title'],
-      `${unit.file} should carry exactly name, title and applies`,
+      `${unit.file} should carry exactly name, title and applies, and placement or not`,
     );
+    if ('placement' in data) {
+      assert.ok(
+        ['all', 'main', 'both'].includes(data.placement),
+        `${unit.file}: placement should be all, main or both, got ${JSON.stringify(data.placement)}`,
+      );
+    }
     assert.equal(data.name, unit.basename, `${unit.file}: name should be the file's basename, got ${JSON.stringify(data.name)}`);
     assert.match(
       String(data.name),
