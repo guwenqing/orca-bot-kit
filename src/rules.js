@@ -542,6 +542,12 @@ function namedSystems(home) {
   }
 }
 
+/** Every system file of the bot `name`, as its retire removes them. */
+export function systemFilesOf(bots, name) {
+  const dir = kitFolders(bots, name).prompts;
+  return namesOf(dir).filter((entry) => SYSTEM_NAME.test(entry)).map((entry) => path.join(dir, entry));
+}
+
 /**
  * The system files of the bot `name` that the kit keeps: its current one and
  * every one a book entry names. Health calls none of them a leftover.
