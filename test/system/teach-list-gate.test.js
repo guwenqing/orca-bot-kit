@@ -144,6 +144,7 @@ import {
 } from '../helpers/screens.js';
 import { claudeTrustAt, trustScreenMet } from '../helpers/claude-trust.js';
 import { tabGuard } from '../helpers/tab-guard.js';
+import { RC_OFF, withBotFatherOff } from '../helpers/remote-control-off.js';
 import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
 
@@ -567,15 +568,15 @@ test('the kit types no mail interrupt and no skills reload into a tab showing Cl
   // ---------------------------------------------------------------------------
   // 1. The fleet: Bot Father, and gate-bot on Claude Code with target and
   // listed at `ask` and sender on Codex.
-  obkJson(['init', '--bots', bots, '--harness', 'claude']);
+  obkJson(withBotFatherOff(['init', '--bots', bots, '--harness', 'claude']));
   obkJson([
     'bot', 'create', '--bots', bots, '--name', BOT, '--harness', 'claude',
     '--charter', `${BOT} exists for one system test run and owns nothing.`,
   ]);
-  obkJson(['session', 'add', '--bots', bots, '--bot', BOT, '--name', TARGET, `--prompt=${TASK}`]);
+  obkJson(['session', 'add', '--bots', bots, '--bot', BOT, '--name', TARGET, `--prompt=${TASK}`, ...RC_OFF]);
   // #527: a session's approval is set by `obk permission approval`, not by session add.
   obkJson(['permission', 'approval', '--bots', bots, '--bot', BOT, '--session', TARGET, '--approval', 'ask']);
-  obkJson(['session', 'add', '--bots', bots, '--bot', BOT, '--name', LISTED, `--prompt=${TASK}`]);
+  obkJson(['session', 'add', '--bots', bots, '--bot', BOT, '--name', LISTED, `--prompt=${TASK}`, ...RC_OFF]);
   obkJson(['permission', 'approval', '--bots', bots, '--bot', BOT, '--session', LISTED, '--approval', 'ask']);
   obkJson(['session', 'add', '--bots', bots, '--bot', BOT, '--name', SENDER, '--harness', 'codex', `--prompt=${SENDER_TASK}`, ...codexTrustArgs(bots)]);
 

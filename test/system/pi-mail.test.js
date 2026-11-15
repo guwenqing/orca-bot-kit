@@ -139,6 +139,7 @@ import { cliEntry } from '../helpers/cli.js';
 import { codexTrustArgs } from '../helpers/codex-trust.js';
 import { questionOn, waitingOn } from '../helpers/screens.js';
 import { tabGuard } from '../helpers/tab-guard.js';
+import { withBotFatherOff } from '../helpers/remote-control-off.js';
 import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
 import { atNight, namedThisRun } from '../helpers/night-gate.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
@@ -627,7 +628,7 @@ test('a Pi session gets fleet mail: Orca\'s notice in its tab, its own check, a 
   });
 
   gateStillOpen('obk init');
-  obkJson(['init', '--bots', bots, '--harness', 'claude']);
+  obkJson(withBotFatherOff(['init', '--bots', bots, '--harness', 'claude']));
   obkJson(['bot', 'create', '--bots', bots, '--name', PI, '--harness', 'pi', '--charter', 'Pi Mail exists for one system test run and owns nothing.']);
   obkJson(['bot', 'create', '--bots', bots, '--name', CODEX, '--harness', 'codex', '--charter', 'Pi Codex exists for one system test run and owns nothing.']);
   for (const session of ['idle', 'busy']) {

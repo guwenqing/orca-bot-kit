@@ -115,6 +115,7 @@ import { parse } from 'yaml';
 import { cliEntry } from '../helpers/cli.js';
 import { waitingOn } from '../helpers/screens.js';
 import { tabGuard } from '../helpers/tab-guard.js';
+import { RC_OFF, hardRemoteControlOff, withBotFatherOff } from '../helpers/remote-control-off.js';
 import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
 
@@ -716,7 +717,7 @@ test('grooming runs on Claude Code\'s own schedule in the grooming session: off 
   // The fleet: Bot Father on Claude Code, and the grooming session the user adds
   // like any other, with the model and effort it is to run at. No `--harness`:
   // Bot Father's own is Claude Code, and the session takes it.
-  const init = openedBy(obkJson(['init', '--bots', bots, '--harness', 'claude']));
+  const init = openedBy(obkJson(withBotFatherOff(['init', '--bots', bots, '--harness', 'claude'])));
   const daily = tabOf(init, 'daily');
   assert.equal(
     daily.harnessStarted,
@@ -727,7 +728,7 @@ test('grooming runs on Claude Code\'s own schedule in the grooming session: off 
 
   obkJson([
     'session', 'add', '--bots', bots, '--bot', 'bot-father', '--name', 'grooming',
-    '--model', MODEL, '--effort', EFFORT,
+    '--model', MODEL, '--effort', EFFORT, ...RC_OFF,
   ]);
 
   // 5. Nothing before --on, from the first moment: a session that exists and is
@@ -1128,6 +1129,9 @@ test('grooming runs on Claude Code\'s own schedule in the grooming session: off 
   );
 
   const resumedBeforeBare = resumesIn(linesOf(home, cleared)).length;
+  // The bare line carries none of the kit's off for Remote Control (#755), so
+  // Claude Code's own hard off goes into the folder's local settings first.
+  hardRemoteControlOff(home);
   sendLine(handle, `claude --resume ${cleared}`);
   await until(
     `a new Claude Code process to resume ${cleared} from the bare command`,

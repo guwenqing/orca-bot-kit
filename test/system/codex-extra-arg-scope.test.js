@@ -97,6 +97,7 @@ import { rolloutFilesOf } from '../helpers/codex-rollout.js';
 import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
 import { waitingOn } from '../helpers/screens.js';
 import { tabGuard } from '../helpers/tab-guard.js';
+import { withBotFatherOff } from '../helpers/remote-control-off.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
 
 /** The Orca CLI that works for a normal user (tech notes, section 1). */
@@ -327,7 +328,7 @@ test('#567 obk session add refuses --add-dir and -c sandbox_workspace_write.writ
   for (const dir of Object.values(folders)) await mkdir(dir);
 
   // The fleet. No --approval anywhere: every session is at the kit's default, `auto`.
-  obkJson(['init', '--bots', bots, '--harness', 'claude']);
+  obkJson(withBotFatherOff(['init', '--bots', bots, '--harness', 'claude']));
   obkJson(['bot', 'create', '--bots', bots, '--name', BOT, '--harness', 'codex', '--charter', `${BOT} exists for one system test run and owns nothing.`]);
   const botYaml = path.join(home, 'bot.yaml');
 

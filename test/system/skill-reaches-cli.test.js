@@ -120,6 +120,7 @@ import { cliEntry, repoRoot, spellingsOf } from '../helpers/cli.js';
 import { questionOn, waitingOn } from '../helpers/screens.js';
 import { codeOf, startsBareObk } from '../helpers/shell-command.js';
 import { tabGuard } from '../helpers/tab-guard.js';
+import { RC_OFF, withBotFatherOff } from '../helpers/remote-control-off.js';
 import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
 
@@ -492,7 +493,7 @@ test('a Claude bot that follows the obk-bot-building skill reaches the CLI that 
   });
 
   // 1. The fleet.
-  obkJson(['init', '--bots', bots, '--harness', 'claude']);
+  obkJson(withBotFatherOff(['init', '--bots', bots, '--harness', 'claude']));
   obkJson([
     'bot', 'create', '--bots', bots, '--name', READER.name, '--harness', 'claude',
     '--charter', `${READER.name} looks after this throwaway bots folder when asked, for one system test run.`,
@@ -504,7 +505,7 @@ test('a Claude bot that follows the obk-bot-building skill reaches the CLI that 
   await writeFile(readerYaml, withSkill);
   obkJson(['skills', 'build', '--bots', bots, '--bot', READER.name]);
   assert.ok(existsSync(path.join(reader, '.claude', 'skills', 'obk-bot-building', 'SKILL.md')), 'the premise: the skill is linked in reader-bot\'s folder for Claude Code');
-  obkJson(['session', 'add', '--bots', bots, '--bot', READER.name, '--name', 'daily', `--prompt=${startPrompt}`]);
+  obkJson(['session', 'add', '--bots', bots, '--bot', READER.name, '--name', 'daily', `--prompt=${startPrompt}`, ...RC_OFF]);
 
   const entry = tabOf(obkJson(['up', '--bots', bots, '--bot', READER.name]), 'daily');
   assert.equal(entry.created, true, 'the premise: up opened reader-bot\'s tab');

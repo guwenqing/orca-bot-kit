@@ -76,6 +76,11 @@ export async function makeTemp(bots, { tab, ...given }) {
 
   const maker = bot.sessions.find((session) => session.name === caller.session);
   const { settings, chosen } = settingsFor(bot, maker, role?.option ?? {}, given);
+  // Said first, before the approval a Pi temp is judged on: the flag itself
+  // cannot work on another harness than Claude Code (ADR 0058).
+  if (chosen.harness.value !== 'claude' && set(given.remote_control)) {
+    throw new Error(`${name} would run on ${chosen.harness.value}, and Remote Control is a Claude Code setting. Leave --remote-control out of this temp make. Nothing was made.`);
+  }
   const onPi = chosen.harness.value === 'pi';
   // A blank --approval names no level, so on Pi it is judged as left out (the review of PR #651).
   const asked = onPi && !set(given.approval) ? undefined : given.approval;
@@ -195,6 +200,16 @@ function settingsFor(bot, maker, option, given) {
       // A session's approval is never left to the harness (ADR 0015).
       ['kit default', field === 'approval' ? DEFAULT_APPROVAL : undefined],
     );
+  }
+  // Remote Control is Claude Code's alone (ADR 0058): a Claude temp takes the
+  // flag, then a Claude maker's, then the kit's default, on, which is not
+  // written down. On another harness a flag is kept, so that the session's
+  // own check refuses it rather than it being dropped.
+  if (harness === 'claude') {
+    pick('remote_control', ['flag', given.remote_control], ['maker', same ? maker?.remote_control : undefined], ['kit default', 'on']);
+    if (chosen.remote_control.from === 'kit default') delete settings.remote_control;
+  } else if (given.remote_control !== undefined) {
+    settings.remote_control = given.remote_control;
   }
   return { settings, chosen };
 }

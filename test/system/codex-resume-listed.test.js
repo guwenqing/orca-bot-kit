@@ -127,6 +127,7 @@ import { cliEntry, shellWord } from '../helpers/cli.js';
 import { codexTrustArgs } from '../helpers/codex-trust.js';
 import { waitingOn } from '../helpers/screens.js';
 import { tabGuard } from '../helpers/tab-guard.js';
+import { RC_OFF, withBotFatherOff } from '../helpers/remote-control-off.js';
 import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
 
@@ -560,7 +561,7 @@ test('a resumed Codex session, with a resumed Claude one as the control: is it a
   await writeFile(logger, LOGGER);
   const loggerCommand = `${shellWord(process.execPath)} ${shellWord(logger)} ${shellWord(log)} 2>/dev/null || true`;
 
-  obkJson(['init', '--bots', bots, '--harness', 'claude']);
+  obkJson(withBotFatherOff(['init', '--bots', bots, '--harness', 'claude']));
   for (const bot of BOTS) {
     obkJson([
       'bot', 'create', '--bots', bots, '--name', bot.name, '--harness', bot.harness,
@@ -569,6 +570,7 @@ test('a resumed Codex session, with a resumed Claude one as the control: is it a
     obkJson([
       'session', 'add', '--bots', bots, '--bot', bot.name, '--name', SESSION, `--prompt=${promptOf(bot.ready)}`,
       ...(bot.harness === 'codex' ? codexTrustArgs(bots) : []),
+      ...(bot.harness === 'claude' ? RC_OFF : []),
     ]);
     await addLogger(homeOf(bot.name), bot.harness, loggerCommand);
   }

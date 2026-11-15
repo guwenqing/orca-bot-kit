@@ -46,6 +46,7 @@ import { parse } from 'yaml';
 import { cliEntry, HOOK_FILES, kitHooksIn, spellingsOf } from '../helpers/cli.js';
 import { codexTrustArgs } from '../helpers/codex-trust.js';
 import { tabGuard } from '../helpers/tab-guard.js';
+import { RC_OFF, withBotFatherOff } from '../helpers/remote-control-off.js';
 import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
 
@@ -249,7 +250,7 @@ test('two bots on the two harnesses come up in the real Orca, and nothing else i
   });
 
   // 1. The bots folder, and Bot Father with it.
-  obkJson(['init', '--bots', bots, '--harness', 'claude']);
+  obkJson(withBotFatherOff(['init', '--bots', bots, '--harness', 'claude']));
 
   // 2. One bot per harness, each with a start prompt and a work dir.
   for (const bot of BOTS) {
@@ -261,6 +262,7 @@ test('two bots on the two harnesses come up in the real Orca, and nothing else i
       'session', 'add', '--bots', bots, '--bot', bot.name, '--name', 'daily',
       '--prompt', promptOf(bot.display, cliNoteOf(homeOf(bot.name))), '--work-dir', 'work/notes',
       ...(bot.harness === 'codex' ? codexTrustArgs(bots) : []),
+      ...(bot.harness === 'claude' ? RC_OFF : []),
     ]);
   }
 
@@ -273,8 +275,10 @@ test('two bots on the two harnesses come up in the real Orca, and nothing else i
     // The Codex session carries the launch-time trust it was added with (#240):
     // a new input, so the entry holds it too, and the check is no looser.
     const extra = bot.harness === 'codex' ? { extra_args: codexTrustArgs(bots).map((arg) => arg.slice('--extra-arg='.length)) } : {};
+    // The Claude session carries the Remote Control off it was added with (#755).
+    const off = bot.harness === 'claude' ? { remote_control: 'off' } : {};
     assert.deepEqual(config.sessions, [
-      { name: 'daily', approval: 'auto', prompt: config.sessions[0].prompt, work_dir: 'work/notes', ...extra },
+      { name: 'daily', approval: 'auto', prompt: config.sessions[0].prompt, work_dir: 'work/notes', ...extra, ...off },
     ]);
     assert.equal(config.sessions[0].prompt.trim(), promptOf(bot.display, cliNoteOf(home)));
 

@@ -1172,7 +1172,7 @@ export const CODEX_NETWORK = '-c sandbox_workspace_write.network_access=true';
 
 /**
  * A bot's memory folder as the kit names it on a Claude launch line (KIT-51,
- * ADR 0056): `claude-memory` in the real path of the bot folder. On macOS a
+ * ADR 0060): `claude-memory` in the real path of the bot folder. On macOS a
  * temporary folder under /var is /private/var, so the real path is taken.
  */
 export function memoryFolderOf(bots, bot) {
@@ -1188,9 +1188,12 @@ export function memoryFolderOf(bots, bot) {
 
 /**
  * The two words a Claude launch line carries for the bot's memory folder, as
- * the harness receives them: `--settings` and a JSON object of the one key
- * `autoMemoryDirectory`. They come after `-n`, `--model` and `--effort`, and
- * before the user's extra arguments, a resume and the prompt.
+ * the harness receives them: `--settings` and a JSON object. For a session with
+ * Remote Control on, which is every session that did not set it off, the object
+ * holds only `autoMemoryDirectory`. A session set off gets the same one
+ * `--settings` with `"disableRemoteControl": true` after that key (ADR 0060),
+ * which these words do not give. They come after `-n`, `--model` and
+ * `--effort`, and before the user's extra arguments, a resume and the prompt.
  */
 export const memoryArgs = (bots, bot) => ['--settings', JSON.stringify({ autoMemoryDirectory: memoryFolderOf(bots, bot) })];
 
@@ -1208,6 +1211,8 @@ export const memoryWords = (bots, bot) => memoryArgs(bots, bot).map(shellWord).j
  * by default, and a resume through it was seen to fail. In front of all of it, the
  * step that gives the session its mailbox (#317), which names the bot and the
  * session on either harness; `bots` is the sandbox's own folder unless given.
+ * A Claude session with nothing set has Remote Control on (#755): the word
+ * `--remote-control` comes first after `claude`, before the approval flag.
  * A Claude line ends with the bot's memory folder (`memoryArgs`), as every
  * Claude line does unless a folder is named by hand or the session carries its
  * own `--settings`; `memory: false` gives the line without it. After the
@@ -1220,7 +1225,7 @@ export function bareLaunch(box, harness, bot, session, { bots, memory = true } =
   }
   const folder = memory ? ` ${memoryWords(bots ?? box.path('bots'), bot)}` : '';
   return launchLine(box, harness === 'claude'
-    ? `claude --permission-mode auto -n ${bot}.${session}.${TOKEN}${folder} ${SYSTEM_FLAG} ${SYSTEM}`
+    ? `claude --remote-control --permission-mode auto -n ${bot}.${session}.${TOKEN}${folder} ${SYSTEM_FLAG} ${SYSTEM}`
     : `codex --approve-for-me --no-daemon ${CODEX_NETWORK} ${kitAddDirs(bots ?? box.path('bots'), bot).map(shellWord).join(' ')}`, { bots, bot, session });
 }
 

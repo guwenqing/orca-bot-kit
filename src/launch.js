@@ -36,6 +36,9 @@ const APPROVAL = {
 
 export const APPROVALS = Object.keys(APPROVAL.claude);
 
+/** The values of a Claude session's `remote_control` (ADR 0058). */
+export const REMOTE_CONTROL = ['on', 'off'];
+
 /**
  * How a permission bypass is spelled on a harness: the flags the
  * `dangerously-skip` level puts on the launch line, and the same ones Orca's
@@ -51,7 +54,7 @@ export const approvalRank = (level) => ['ask', 'auto', 'dangerously-skip'].index
 /**
  * The harness flags that set approval or permissions, or widen what a session
  * may write or run, which only `obk permission approval` may change, not an
- * extra argument (ADR 0051, ADR 0049). Codex's short flags take their value
+ * extra argument (ADR 0051, ADR 0059). Codex's short flags take their value
  * glued on too. Pi's `--approve` and `-a` make it trust the folder's own
  * files, which the kit's `--no-approve` keeps it from (#578).
  */
@@ -70,7 +73,7 @@ const APPROVAL_FLAGS = {
 /**
  * The Codex `-c` keys an extra argument may set, with any value or with only
  * the values named. Every other key is refused: Codex 0.163.0's config has
- * dozens that widen a session, and more in each release (ADR 0049).
+ * dozens that widen a session, and more in each release (ADR 0059).
  */
 const CONFIG_KEYS = {
   model: true,
@@ -112,7 +115,7 @@ const CONFIG_KEYS = {
 /**
  * The one trust a `-c` may give: one folder, an absolute path in a TOML basic
  * string, trusted. It is what the kit's own answer to Codex's trust screen
- * gives, for that run only and with nothing written to config.toml (ADR 0049).
+ * gives, for that run only and with nothing written to config.toml (ADR 0059).
  */
 const TRUST = /^\{[ \t]*"([^"\\\x00-\x1f\x7f]*)"[ \t]*=[ \t]*\{[ \t]*trust_level[ \t]*=[ \t]*"trusted"[ \t]*\}[ \t]*\}$/;
 
@@ -133,7 +136,7 @@ function allowedConfig(setting) {
 /**
  * Refuse extra arguments that set a session's approval or permissions on
  * `harness`, or widen what it may write or run, before anything is written,
- * naming the command that does it (ADR 0051, ADR 0049).
+ * naming the command that does it (ADR 0051, ADR 0059).
  * `args` is a list, or, as a user may write `extra_args` by hand, one string
  * of shell text. The kit types such a string into the tab's shell as it
  * stands, so the guard takes it only when it can be sure of the words the
@@ -146,6 +149,10 @@ export function refuseApprovalArgs(harness, args) {
   }
   for (let at = 0; at < words.length; at += 1) {
     const arg = words[at];
+    // Not a widening, but a second switch beside the session's own (ADR 0059).
+    if (harness === 'claude' && isRemoteControlArg(arg)) {
+      throw new Error(`--extra-arg=${arg} turns on Claude Code's Remote Control, and the session's own setting is the only switch for it. Remove the argument, and set the session with --remote-control on|off instead: on is the kit's default, and off keeps it off. Nothing was changed.`);
+    }
     if ((APPROVAL_FLAGS[harness] ?? []).some((flag) => arg === flag
       || arg.startsWith(`${flag}=`)
       || (/^-[asCp]$/.test(flag) && arg.startsWith(flag) && !arg.startsWith('--')))) {
@@ -158,7 +165,7 @@ export function refuseApprovalArgs(harness, args) {
           : arg.startsWith('-c') && !arg.startsWith('--') ? arg.slice(2).replace(/^=/, '')
             : undefined;
     if (setting !== undefined && !allowedConfig(setting)) {
-      throw new Error(`--extra-arg=-c ${setting} sets a Codex setting that an extra argument may not set: the kit takes -c only for the model, the display, the network switch and a few settings that narrow (ADR 0049). Set the others in your own ~/.codex/config.toml; the session's approval and sandbox change only through obk permission approval, after the user's yes. Nothing was changed.`);
+      throw new Error(`--extra-arg=-c ${setting} sets a Codex setting that an extra argument may not set: the kit takes -c only for the model, the display, the network switch and a few settings that narrow (ADR 0059). Set the others in your own ~/.codex/config.toml; the session's approval and sandbox change only through obk permission approval, after the user's yes. Nothing was changed.`);
     }
   }
 }
@@ -302,14 +309,50 @@ const setsNoDaemon = (session) => extraArgWords(session.extra_args).includes(NO_
 export const setsSettings = (session) => extraArgWords(session.extra_args).some((word) => word === '--settings' || word.startsWith('--settings='));
 
 /**
+ * Claude Code's own switches for Remote Control. As extra arguments they are
+ * refused: the session's `remote_control` is the only switch (ADR 0058,
+ * ADR 0059). `--remote-control-session-name-prefix` is not one of them.
+ */
+const REMOTE_CONTROL_ARGS = ['--remote-control', '--rc'];
+const isRemoteControlArg = (word) => REMOTE_CONTROL_ARGS.some((flag) => word === flag || word.startsWith(`${flag}=`));
+
+/** Whether the session's own extra arguments, written by hand in bot.yaml, hold `--remote-control` or `--rc`. */
+export const setsRemoteControl = (session) => extraArgWords(session.extra_args).some(isRemoteControlArg);
+
+/**
+ * A Claude session's Remote Control, and where that came from: `{ value, from }`
+ * with `value` on or off, and `from` the session or the kit's default, which
+ * is on (ADR 0058). `sessionTrouble` has already refused any other value.
+ */
+export const remoteControlOf = (session) => (set(session.remote_control)
+  ? { value: String(session.remote_control), from: 'session' }
+  : { value: 'on', from: 'kit default' });
+
+/**
+ * What a Claude session's launch line does with Remote Control, for the
+ * launch report: as `remoteControlOf`, except that an on session whose own
+ * extra arguments carry the flag is on by that argument, not the kit's.
+ */
+export const remoteControlLaunched = (session) => {
+  const remote = remoteControlOf(session);
+  return remote.value === 'on' && setsRemoteControl(session) ? { value: 'on', from: 'extra argument' } : remote;
+};
+
+/** How the launch report and `obk health` name the off that a session's own `--settings` loses. */
+export const REMOTE_CONTROL_LOST = 'Remote Control off';
+
+/**
  * What a session runs without because its own `--settings` replaces the
- * kit's: Claude Code keeps only the last one on the line. Empty when the
- * session is not on Claude Code or carries no `--settings` of its own.
- * `obk up`, `obk restart` and `obk health` name these, so the loss is never
- * silent (#752, ADR 0056).
+ * kit's: Claude Code keeps only the last one on the line. That is always its
+ * bot's own memory folder, and Remote Control off when the session is set
+ * off. Empty when the session is not on Claude Code or carries no
+ * `--settings` of its own. `obk up`, `obk restart` and `obk health` name
+ * these, so the loss is never silent (#752, ADR 0058, ADR 0060).
  */
 export const lostToOwnSettings = (session, harness) =>
-  harness === 'claude' && setsSettings(session) ? ["its bot's own memory folder"] : [];
+  harness === 'claude' && setsSettings(session)
+    ? ["its bot's own memory folder", ...(remoteControlOf(session).value === 'off' ? [REMOTE_CONTROL_LOST] : [])]
+    : [];
 
 /**
  * The words a shell makes of `text`: split on blanks outside quotes, quotes
@@ -374,6 +417,14 @@ export function sessionTrouble(session, harness, home) {
   if (!HARNESSES.includes(harness)) {
     return `${where(session)} runs on ${harness}, and the harnesses are ${HARNESSES.join(' and ')}.`;
   }
+  // Remote Control is Claude Code's alone (ADR 0058), and it takes on or off:
+  // YAML 1.2 reads both as text, and a `true` or `yes` is not taken as either.
+  if (set(session.remote_control) && harness !== 'claude') {
+    return `${where(session)} runs on ${harness} and sets remote_control, and Remote Control is a Claude Code setting. Leave remote_control out of this session.`;
+  }
+  if (set(session.remote_control) && !REMOTE_CONTROL.includes(session.remote_control)) {
+    return `${where(session)} sets remote_control to ${session.remote_control}, and it takes on or off.`;
+  }
   if (set(session.approval) && !APPROVALS.includes(session.approval)) {
     return `${where(session)} is set to approval ${session.approval}, and the levels are ${APPROVALS.join(', ')}.`;
   }
@@ -433,6 +484,12 @@ export function launchCommand(session, { harness, home, workDir, prompt, promptF
   }
 
   const words = [harness];
+  // Remote Control on: directly after `claude`, where the next word is always
+  // the approval flag, so its optional name never takes a word of the kit's.
+  // No name: the `-n` address is the remote title too (ADR 0058). A user's own
+  // in bot.yaml stands in for it.
+  const remote = harness === 'claude' ? remoteControlOf(session).value : undefined;
+  if (remote === 'on' && !setsRemoteControl(session)) words.push('--remote-control');
   // Codex resumes through a subcommand, which has to come first; Claude Code
   // resumes through a flag, which goes with the session id at the end. Both
   // take every other flag exactly as a fresh session does.
@@ -451,10 +508,17 @@ export function launchCommand(session, { harness, home, workDir, prompt, promptF
     // The context window rides on the model name: `sonnet[1m]`.
     if (set(session.model)) words.push('--model', set(session.context) ? `${session.model}[${session.context}]` : session.model);
     if (set(session.effort)) words.push('--effort', String(session.effort));
-    // This one key and no other: `--settings` can carry rules, folders and
-    // hooks, which is why a user's extra argument may not use it (ADR 0056,
-    // ADR 0049). A hand-written one in bot.yaml is the user's, and wins.
-    if (memoryFolder !== undefined && !setsSettings(session)) words.push('--settings', JSON.stringify({ autoMemoryDirectory: memoryFolder }));
+    // These keys and no other: `--settings` can carry rules, folders and
+    // hooks, which is why a user's extra argument may not use it (ADR 0060,
+    // ADR 0059). Off is `disableRemoteControl`, which also holds at a resume,
+    // where `remoteControlAtStartup` does not (ADR 0058). Claude Code reads
+    // only the last `--settings`, so a hand-written one in bot.yaml is the
+    // user's, wins, and the kit sends none.
+    const kitSettings = {
+      ...(memoryFolder === undefined ? {} : { autoMemoryDirectory: memoryFolder }),
+      ...(remote === 'off' ? { disableRemoteControl: true } : {}),
+    };
+    if (Object.keys(kitSettings).length > 0 && !setsSettings(session)) words.push('--settings', JSON.stringify(kitSettings));
     // The bot's main and both units, appended to whatever main text the
     // session runs on, so that no session loses a main unit (R6, ADR 0055).
     // A resume carries it too: the process reads it once, as it starts.

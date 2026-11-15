@@ -67,7 +67,7 @@ paragraphs:
     display: KIT-16 (5, [PRD-6] 5. What we are not doing)
   - id: KIT-17
     kind: scope
-    text_sha256: dbcf3a7e4e93406b062cab78e2631efa9725792b386359595b2dfb8ae2a7bde8
+    text_sha256: 3714d0013b07ef2b7fae1abc88873c889cce3538781526493de68aeb8dbc6749
     display: KIT-17 (5:1, in [PRD-6] 5. What we are not doing)
   - id: KIT-18
     kind: note
@@ -87,7 +87,7 @@ paragraphs:
     display: KIT-21 (6.2, [PRD-9] 6.2 Host)
   - id: KIT-22
     kind: rule
-    text_sha256: 8b0be10bb1f440db370b39306db4bab91331385238091712aeb0da22c3726dc2
+    text_sha256: bd3ae33ecb3a1d711a6fa2d2da9d9c5ff3e1901cc4a0d390ef92f9d3f973ba83
     display: KIT-22 (6.2:1, in [PRD-9] 6.2 Host)
   - id: KIT-23
     kind: note
@@ -103,7 +103,7 @@ paragraphs:
     display: KIT-25 (6.4, [PRD-11] 6.4 Bots and sessions)
   - id: KIT-26
     kind: rule
-    text_sha256: a5809b95bc69d9e2885558147b942979be71bdc2d6a8387cd2e57737fa21f42e
+    text_sha256: 505018f090d70ef3f315505848c0f1e1dc2c2ad666b65de057e3af0e13668186
     display: KIT-26 (6.4:1, in [PRD-11] 6.4 Bots and sessions)
   - id: KIT-52
     kind: rule
@@ -111,7 +111,7 @@ paragraphs:
     display: KIT-52 (6.4:2, in [PRD-11] 6.4 Bots and sessions)
   - id: KIT-51
     kind: rule
-    text_sha256: e5c2bbefbb6c3c26e1025d7bd570319ccca4ace49eac9d801cc467f6cbf5e39b
+    text_sha256: 8ef399b20d747bf94dc30489da03c61b7d8186a6f6146eb17d1b11c8c660b334
     display: KIT-51 (6.4:3, in [PRD-11] 6.4 Bots and sessions)
   - id: KIT-27
     kind: note

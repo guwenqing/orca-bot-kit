@@ -245,7 +245,7 @@ for (const [harness, settings, fresh] of [
   [
     'claude',
     ['--approval', 'ask', '--model', 'opus', '--context', '1m', '--effort', 'xhigh', '--extra-arg=--verbose'],
-    (bots) => ['--permission-mode', 'manual', '-n', `api-bot.daily.${TOKEN}`, '--model', 'opus[1m]', '--effort', 'xhigh', ...memoryArgs(bots, 'api-bot'), SYSTEM_FLAG, SYSTEM, '--verbose'],
+    (bots) => ['--remote-control', '--permission-mode', 'manual', '-n', `api-bot.daily.${TOKEN}`, '--model', 'opus[1m]', '--effort', 'xhigh', ...memoryArgs(bots, 'api-bot'), SYSTEM_FLAG, SYSTEM, '--verbose'],
   ],
   [
     'codex',
@@ -331,6 +331,7 @@ for (const [approval, codexFlags, claudeFlags] of [
     const again = await up(box);
 
     assert.deepEqual(tokenlessArgv(await argvOf(box, again.typed[0], fake)), [
+      '--remote-control',
       ...claudeFlags,
       '-n', `api-bot.daily.${TOKEN}`,
       ...memoryArgs(bots, 'api-bot'),
@@ -603,7 +604,7 @@ async function assertMovedToANewAddress(box, bots, typed, held) {
   const [line] = typed;
   assert.deepEqual(
     typed.map(tokenless),
-    [launchLine(box, `claude --permission-mode auto -n api-bot.daily.${TOKEN} ${memoryWords(bots, 'api-bot')} ${SYSTEM_FLAG} ${SYSTEM} --resume sess-1`, { bot: 'api-bot', session: 'daily' })],
+    [launchLine(box, `claude --remote-control --permission-mode auto -n api-bot.daily.${TOKEN} ${memoryWords(bots, 'api-bot')} ${SYSTEM_FLAG} ${SYSTEM} --resume sess-1`, { bot: 'api-bot', session: 'daily' })],
     `the line resumes the conversation under an address of the kit's kind, got: ${line}`,
   );
   const address = nameOnLine(line);
@@ -631,7 +632,7 @@ for (const [label, held, made] of HELD) {
     }
     assert.deepEqual(
       again.typed.map(systemless),
-      [launchLine(box, `claude --permission-mode auto -n ${held} ${memoryWords(bots, 'api-bot')} ${SYSTEM_FLAG} ${SYSTEM} --resume sess-1`, { bot: 'api-bot', session: 'daily' })],
+      [launchLine(box, `claude --remote-control --permission-mode auto -n ${held} ${memoryWords(bots, 'api-bot')} ${SYSTEM_FLAG} ${SYSTEM} --resume sess-1`, { bot: 'api-bot', session: 'daily' })],
       'the line carries the address the book held',
     );
     assert.equal((await sessionIn(bots, 'api-bot', 'daily')).address, held, 'and the book\'s address is as it was');
@@ -702,7 +703,7 @@ test('a session moved to a new address keeps it on its next resume', async (t) =
 
   assert.deepEqual(
     again.typed.map(systemless),
-    [launchLine(box, `claude --permission-mode auto -n ${address} ${memoryWords(bots, 'api-bot')} ${SYSTEM_FLAG} ${SYSTEM} --resume sess-1`, { bot: 'api-bot', session: 'daily' })],
+    [launchLine(box, `claude --remote-control --permission-mode auto -n ${address} ${memoryWords(bots, 'api-bot')} ${SYSTEM_FLAG} ${SYSTEM} --resume sess-1`, { bot: 'api-bot', session: 'daily' })],
     'the line carries the address the first resume gave it',
   );
   assert.equal((await sessionIn(bots, 'api-bot', 'daily')).address, address, 'and the book still holds it');

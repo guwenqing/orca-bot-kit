@@ -129,7 +129,8 @@ that file and the rule units, `CLAUDE.md` beside it (a symlink to it, or for a
 Claude Code bot a file built from it; see below), and a `.gitignore` for `work/`.
 `session add` writes one session into `bot.yaml`: its harness (the bot's unless
 it says otherwise), model, effort, context window, start prompt,
-work dir and any extra arguments for the harness, and the approval level. A start prompt is either text
+work dir and any extra arguments for the harness, the approval level, and, on
+Claude Code, whether Remote Control is on (see below). A start prompt is either text
 (`--prompt`) or, when it is long, a file in the bot home the session points at
 (`--prompt-file prompts/reviewer.md`), and it reaches the harness as written,
 apart from two things the kit does on purpose: blank space at either end is
@@ -145,7 +146,7 @@ words, `dangerously-skip`
 or that widens what the session may write or run, such as `--add-dir`, Claude
 Code's `--settings` or Codex's `--profile`. On Codex, `-c` passes only for a
 short list of keys known to be safe, such as `model_reasoning_effort`
-([ADR 0049](docs/adr/0049-extra-arguments-that-widen-a-session-are-refused.md)).
+([ADR 0059](docs/adr/0059-extra-arguments-that-widen-a-session-are-refused.md)).
 A Codex session's work dir stays in its bot folder: Codex may write in its work
 dir, so `session add` and `session change` refuse one outside the bot folder for
 a Codex session
@@ -189,6 +190,85 @@ project per bot, a tab per session, each started at the bot home with its own
 launch command and its start prompt. It only ever adds — it never closes a tab —
 so run it after a restart, or whenever something is missing. `--bot` and
 `--session` bring up one thing rather than the fleet.
+
+## Reaching a Claude session from your phone
+
+Every Claude Code session that the kit starts, temporary sessions included,
+starts with Claude Code's own
+[Remote Control](https://code.claude.com/docs/en/remote-control) on. You can
+then open it from claude.ai/code or the Claude app, under its address
+(`<bot>.<session>.<token>`). Codex and Pi sessions do not change
+([ADR 0058](docs/adr/0058-remote-control-is-on-for-every-claude-code-session.md)).
+
+Read this before you keep it on. Anyone who holds your claude.ai account can,
+for each connected session: read the conversation; type prompts, which run on
+your machine at the session's approval level (in `auto`, that includes commands
+and file edits); answer its permission prompts; attach files; change its model
+and effort; clear, compact or end it; stop its subagents; rename it (fleet mail
+to it by name then fails until its next launch by the kit); change its MCP
+servers; and fork it into a new session on your machine that the kit does not
+manage. While a session is connected, Anthropic stores its transcript, tool
+activity included. Turning a session off later does not delete what is stored.
+Claude Code's Trusted Devices, which you turn on yourself, limits this to
+devices you enrol.
+
+Turn it off for one session with `--remote-control off`, and back on with
+`--remote-control on`:
+
+```sh
+obk session change --bots /path/to/my-bots --bot api-bot --session daily --remote-control off
+obk restart        --bots /path/to/my-bots --bot api-bot --session daily
+```
+
+`session add` and `temp make` take the same flag. A temporary session takes its
+maker's setting unless you give one. The setting is `remote_control: on|off` on
+the session in `bot.yaml`. With no setting, a session is on. Claude Code's own
+`--remote-control` and `--rc` are refused as extra arguments: the setting is the
+only switch. `obk up`, `obk restart`, `obk unpause` and `obk temp make` say for
+each Claude session they start whether it is on or off, and why.
+
+Off puts `"disableRemoteControl": true` in the kit's `--settings` on the
+session's launch line. It holds at every start and resume by the kit, and over
+your own `remoteControlAtStartup: true`. The session's tab and `claude doctor`
+then say that Remote Control is disabled by your organization's policy. That is
+Claude Code's wording for this key; here it means that you set the session off.
+
+Off does not hold in two cases:
+
+- After Orca brings a tab back by itself, it runs a bare `claude --resume`
+  without the kit's line. A conversation that was once connected then
+  reconnects, until the kit next starts the session.
+- A session whose own extra arguments in `bot.yaml` carry `--settings` replaces
+  the kit's `--settings`, so the kit's off goes with it. `obk up` and
+  `obk health` say so.
+
+For an off that holds in every case, for a whole bot or fleet, put Claude Code's
+own `"disableRemoteControl": true` in the bot's, or the bots repo's,
+`.claude/settings.local.json`. The kit never writes that file.
+
+`obk health` shows, for each running Claude session, what was asked and what
+Claude Code's own registry says: `enabled`, `not enabled`, or `unknown`.
+`enabled` means that Claude Code holds a Remote Control handle for the session;
+the kit cannot see whether it is connected at this moment. Health gives a
+finding when a session that is on is not enabled (its tab says why), and when a
+session that is off is enabled (most often after Orca brought its tab back).
+
+Each connected session is an entry in your list at claude.ai/code. Entries of
+sessions that ended can stay there, offline, until you archive them there.
+
+The kit turns Remote Control on or off on the launch line, and reports what
+Claude Code's registry says. It does not test Remote Control itself, which is
+Claude Code's feature. So the kit's tests do not cover whether a session
+connects, what your list at claude.ai/code shows, or a prompt, a clear or a
+fork sent from another device. Its live test checks only that a Claude session
+starts from the kit's line, with Remote Control on and with it off.
+
+When you upgrade to this version, a running session stays as it is. At its
+next start by the kit (`up` of a closed tab, `restart`, `unpause`, `temp make`),
+a Claude session starts with Remote Control on, unless you set it off first. A
+session whose `extra_args` in `bot.yaml` carry `--remote-control` or `--rc`
+gets a finding from `obk health`: remove the argument, and use
+`--remote-control on|off` instead.
 
 ## The rules a bot works by
 
@@ -475,10 +555,12 @@ the old name. A `text:` name in a list is accepted, and
 Each Claude bot has a memory folder of its own, `claude-memory/` in the bot's
 folder. Claude Code alone would give every bot of one bots repository the same
 folder, so the notes of one bot would load in every bot. The kit's line for a
-Claude session carries `--settings` with one key, `autoMemoryDirectory`, which
+Claude session carries `--settings` with the key `autoMemoryDirectory`, which
 names that folder by its physical path, so a session saves its memory with no
-permission dialog. All sessions of a bot share the folder, temporary sessions
-too. The kit never moves, copies or deletes a note.
+permission dialog. For a session with Remote Control set off, the same
+`--settings` also carries `disableRemoteControl`. All sessions of a bot share
+the folder, temporary sessions too. The kit never moves, copies or deletes a
+note.
 
 The notes stay out of git. When the kit makes `claude-memory/`, it writes a
 `.gitignore` in it that holds `*`, because a note can hold your words or
@@ -507,7 +589,7 @@ version and then begins a new conversation with `/clear`. A restart alone or a
 `/clear` alone does not change the folder. After Orca brings a tab back by
 itself, a `/clear` before a restart goes back to the shared folder and brings
 the permission dialog back; `obk health` names such a session
-([ADR 0056](docs/adr/0056-each-claude-bot-gets-a-memory-folder-of-its-own.md)).
+([ADR 0060](docs/adr/0060-each-claude-bot-gets-a-memory-folder-of-its-own-named-in-the-kits-one-settings.md)).
 
 When you upgrade from a version before this, the notes that your bots shared
 stay where they were, in Claude Code's folder for your bots repository under

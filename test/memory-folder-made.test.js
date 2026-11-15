@@ -6,7 +6,7 @@
 // folder and writes `<bot folder>/claude-memory/.gitignore` holding exactly `*`
 // and a line end, before the session starts. So git ignores the notes. A user
 // who wants them in git deletes that file, and the kit never writes it again
-// (ADR 0056).
+// (ADR 0060).
 //
 // What is held here, from requirement R1 of own-memory-folder:
 //

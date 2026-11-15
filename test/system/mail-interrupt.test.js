@@ -161,6 +161,7 @@ import { rolloutFilesOf } from '../helpers/codex-rollout.js';
 import { onlyTeachFormOf, questionOn, waitingOn } from '../helpers/screens.js';
 import { autoModeState, sessionRecordFiles } from '../helpers/teach-record.js';
 import { tabGuard } from '../helpers/tab-guard.js';
+import { RC_OFF, withBotFatherOff } from '../helpers/remote-control-off.js';
 import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
 import { atNight, namedThisRun } from '../helpers/night-gate.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
@@ -733,10 +734,10 @@ test('one road and one signal: a busy receiver gets nothing typed without --inte
   });
 
   gateStillOpen('obk init');
-  obkJson(['init', '--bots', bots, '--harness', 'claude']);
+  obkJson(withBotFatherOff(['init', '--bots', bots, '--harness', 'claude']));
   obkJson(['bot', 'create', '--bots', bots, '--name', CLAUDE, '--harness', 'claude', '--charter', 'Mail Claude exists for one system test run and owns nothing.']);
   obkJson(['bot', 'create', '--bots', bots, '--name', CODEX, '--harness', 'codex', '--charter', 'Mail Codex exists for one system test run and owns nothing.']);
-  for (const session of ['idle', 'busy']) obkJson(['session', 'add', '--bots', bots, '--bot', CLAUDE, '--name', session, `--prompt=${promptOf(bots, CLAUDE, session)}`]);
+  for (const session of ['idle', 'busy']) obkJson(['session', 'add', '--bots', bots, '--bot', CLAUDE, '--name', session, `--prompt=${promptOf(bots, CLAUDE, session)}`, ...RC_OFF]);
   for (const session of ['idle', 'busy']) obkJson(['session', 'add', '--bots', bots, '--bot', CODEX, '--name', session, `--prompt=${promptOf(bots, CODEX, session)}`, ...codexTrustArgs(bots)]);
 
   /** One session up, idle once its start turn is over when `wait`, and its conversation and mailbox in the book. */

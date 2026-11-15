@@ -135,6 +135,7 @@ import { cliEntry, shellWord } from '../helpers/cli.js';
 import { codexTrustArgs, projectTrust } from '../helpers/codex-trust.js';
 import { waitingOn } from '../helpers/screens.js';
 import { tabGuard } from '../helpers/tab-guard.js';
+import { RC_OFF, hardRemoteControlOff, withBotFatherOff } from '../helpers/remote-control-off.js';
 import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
 
@@ -689,7 +690,7 @@ test('a cleared session gets a new id, keeps the old one, and is told its duty a
     assert.deepEqual(failedDeletes, [], 'projects this test could not remove, left in Orca');
   });
 
-  obkJson(['init', '--bots', bots, '--harness', 'claude']);
+  obkJson(withBotFatherOff(['init', '--bots', bots, '--harness', 'claude']));
 
   for (const bot of BOTS) {
     obkJson([
@@ -700,6 +701,7 @@ test('a cleared session gets a new id, keeps the old one, and is told its duty a
       'session', 'add', '--bots', bots, '--bot', bot.name, '--name', 'daily',
       `--prompt=${startPromptFor(bot)}`,
       ...(bot.harness === 'codex' ? codexTrustArgs(bots) : []),
+      ...(bot.harness === 'claude' ? RC_OFF : []),
     ]);
   }
 
@@ -851,7 +853,7 @@ test('a session whose tab was closed comes back with its conversation', async (t
     assert.deepEqual(failedDeletes, [], 'projects this test could not remove, left in Orca');
   });
 
-  obkJson(['init', '--bots', bots, '--harness', 'claude']);
+  obkJson(withBotFatherOff(['init', '--bots', bots, '--harness', 'claude']));
 
   for (const bot of BOTS) {
     obkJson([
@@ -862,6 +864,7 @@ test('a session whose tab was closed comes back with its conversation', async (t
       'session', 'add', '--bots', bots, '--bot', bot.name, '--name', 'daily',
       `--prompt=${startPromptFor(bot)}`,
       ...(bot.harness === 'codex' ? codexTrustArgs(bots) : []),
+      ...(bot.harness === 'claude' ? RC_OFF : []),
     ]);
   }
 
@@ -1014,7 +1017,7 @@ test('a harness the session starts for itself does not become the session\'s con
     assert.deepEqual(failedDeletes, [], 'projects this test could not remove, left in Orca');
   });
 
-  obkJson(['init', '--bots', bots, '--harness', 'claude']);
+  obkJson(withBotFatherOff(['init', '--bots', bots, '--harness', 'claude']));
 
   for (const bot of CHILDREN) {
     obkJson([
@@ -1027,6 +1030,7 @@ test('a harness the session starts for itself does not become the session\'s con
       + ' When anyone asks for your codeword, give it in exactly the form they ask for, and nothing else.'
       + ' Say nothing now and wait.',
       ...(bot.harness === 'codex' ? codexTrustArgs(bots) : []),
+      ...(bot.harness === 'claude' ? RC_OFF : []),
     ]);
     // #527: a session's approval is set by `obk permission approval`, not by session add.
     if (bot.approval !== undefined) {
@@ -1050,6 +1054,11 @@ test('a harness the session starts for itself does not become the session\'s con
     // Two agents' work, so it is given the patience for two. What says it is
     // done is its codeword in lower case, which is in no prompt and no question:
     // a word the line carries would be answered by the echo of the line.
+    //
+    // The child `claude -p` starts in this folder with none of the kit's line,
+    // so none of its off for Remote Control (#755). It reads the folder's local
+    // settings as any start does, so Claude Code's own hard off goes there first.
+    if (bot.harness === 'claude') hardRemoteControlOff(home);
     const since = Date.now();
     await answers(
       entry.terminal,
@@ -1186,7 +1195,7 @@ test('a Codex conversation that ran before the hooks file was trusted is written
     assert.deepEqual(failedDeletes, [], 'projects this test could not remove, left in Orca');
   });
 
-  obkJson(['init', '--bots', bots, '--harness', 'claude']);
+  obkJson(withBotFatherOff(['init', '--bots', bots, '--harness', 'claude']));
   obkJson([
     'bot', 'create', '--bots', bots, '--name', 'untrusted-codex', '--harness', 'codex',
     '--charter', 'Untrusted Codex exists for one system test run and owns nothing.',

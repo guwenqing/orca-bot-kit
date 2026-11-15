@@ -101,6 +101,7 @@ import { cliEntry, shellWord, spellingsOf } from '../helpers/cli.js';
 import { codexTrustArgs } from '../helpers/codex-trust.js';
 import { waitingOn } from '../helpers/screens.js';
 import { tabGuard } from '../helpers/tab-guard.js';
+import { RC_OFF, hardRemoteControlOff, withBotFatherOff } from '../helpers/remote-control-off.js';
 import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
 
@@ -531,7 +532,7 @@ test('a session Orca brought back without the kit\'s launch line is named by hea
     assert.deepEqual(failedDeletes, [], 'projects this test could not remove, left in Orca');
   });
 
-  obkJson(['init', '--bots', bots, '--harness', 'claude']);
+  obkJson(withBotFatherOff(['init', '--bots', bots, '--harness', 'claude']));
   for (const bot of BOTS) {
     obkJson([
       'bot', 'create', '--bots', bots, '--name', bot.name, '--harness', bot.harness,
@@ -540,6 +541,7 @@ test('a session Orca brought back without the kit\'s launch line is named by hea
     obkJson([
       'session', 'add', '--bots', bots, '--bot', bot.name, '--name', 'daily', `--prompt=${startPromptFor(bot)}`,
       ...(bot.harness === 'codex' ? codexTrustArgs(bots) : []),
+      ...(bot.harness === 'claude' ? RC_OFF : []),
     ]);
   }
 
@@ -601,6 +603,10 @@ test('a session Orca brought back without the kit\'s launch line is named by hea
       async () => (isShell(inFront(entry.terminal)?.name) ? true : undefined),
       () => whatIsUp(entry.terminal),
     );
+    // The bare resume carries none of the kit's off for Remote Control (#755),
+    // so Claude Code's own hard off goes into the folder's local settings first.
+    // It also holds for the stranger's `claude` in the same folder, below.
+    if (bot.harness === 'claude') hardRemoteControlOff(home);
     typeInto(entry.terminal, bot.resumes(first, bots));
     const restored = await until(
       `${bot.harness} to be back in front of ${entry.title} after \`${bot.resumes(first, bots)}\``,
@@ -695,6 +701,8 @@ test('a session Orca brought back without the kit\'s launch line is named by hea
   assert.equal(made.ok, true, `orca terminal create failed: ${JSON.stringify(made.error)}`);
   const stranger = made.result.terminal;
   const since = Date.now();
+  // Written again, so the stranger's start is off whatever happened above.
+  hardRemoteControlOff(home);
   typeInto(stranger.handle, 'claude');
   await answers(stranger.handle, 'Reply with the word pelican written in capital letters, and nothing else.', 'PELICAN');
 

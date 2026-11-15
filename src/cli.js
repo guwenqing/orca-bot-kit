@@ -18,7 +18,7 @@ import { addCommand, groomCommand, grooming, upCommand } from './groom.js';
 import { checkHealth, orcaSettingFindings } from './health.js';
 import { initBots } from './init.js';
 import { nameSession } from './name.js';
-import { APPROVALS, harnessOf, HARNESSES, ownCli, refuseApprovalArgs, shellWord, workDirOf } from './launch.js';
+import { APPROVALS, harnessOf, HARNESSES, ownCli, refuseApprovalArgs, REMOTE_CONTROL_LOST, shellWord, workDirOf } from './launch.js';
 import { checkMail, lookUp, noMailboxYet, sendMessage, sessionInTab } from './message.js';
 import { orcaCli, orcaTrouble, RELOAD_LINE, TERMINAL_ENV } from './orca.js';
 import { allowIn, beyondDefaults, botDefaults, isRunRule, refuseBroad, refuseNoCodexForm, runsOnClaude, runsOnCodex, takeBack, writePermissions } from './permissions.js';
@@ -72,7 +72,7 @@ Usage:
                             opened in Orca until you run obk up.
   obk session add --bots <path> --bot <bot> --name <session>
                   [--harness claude|codex|pi] [--model <m>] [--effort <e>]
-                  [--context <c>]
+                  [--context <c>] [--remote-control on|off]
                   [--prompt <text> | --prompt-file <path>] [--work-dir <path>]
                   [--extra-arg=<arg>]
                             Add a session to a bot. Anything left out is the
@@ -81,6 +81,9 @@ Usage:
                             Pi is dangerously-skip, the one level Pi has. A long
                             start prompt lives in a file in the bot home, and
                             --prompt-file names it.
+                            A Claude Code session starts with Remote Control
+                            on: anyone with your claude.ai account can then
+                            drive it. --remote-control off keeps it off.
                             A value of your own that starts with a dash is
                             given glued to its flag, so its dashes are not read
                             as ours: --prompt='- a bullet', and
@@ -113,6 +116,7 @@ Usage:
   obk session change --bots <path> --bot <bot> --session <session>
                   [--harness claude|codex|pi]
                   [--model <m>] [--effort <e>] [--context <c>]
+                  [--remote-control on|off]
                   [--prompt <text> | --prompt-file <path>] [--work-dir <path>]
                   [--extra-arg=<arg>]
                             Change a session's settings. What you leave out
@@ -147,7 +151,8 @@ Usage:
   obk temp make --bots <path> --name <session> [--role <role>[:<option>]]
                 (--prompt <text> | --prompt-file <path>) [--harness claude|codex|pi]
                 [--model <m>] [--effort <e>] [--context <c>]
-                [--approval ${APPROVALS.join('|')}] [--extra-arg=<arg>]...
+                [--approval ${APPROVALS.join('|')}] [--remote-control on|off]
+                [--extra-arg=<arg>]...
                             Run in a session's own tab: make a temporary
                             session of that session's bot for a piece of work,
                             and bring it up. A temporary session makes one at
@@ -766,7 +771,7 @@ const commands = {
     const tab = callerTab(bots, true);
     refuseWhenOrcaIsDown();
     const given = { name: values.name };
-    for (const [flag, key] of [['harness', 'harness'], ['model', 'model'], ['effort', 'effort'], ['approval', 'approval'], ['prompt', 'prompt'], ['prompt-file', 'prompt_file'], ['role', 'role']]) {
+    for (const [flag, key] of [['harness', 'harness'], ['model', 'model'], ['effort', 'effort'], ['approval', 'approval'], ['remote-control', 'remote_control'], ['prompt', 'prompt'], ['prompt-file', 'prompt_file'], ['role', 'role']]) {
       if (values[flag] !== undefined) given[key] = values[flag];
     }
     if (values.context !== undefined) given.context = asNumberOrText(values.context);
@@ -782,7 +787,7 @@ const commands = {
       answer,
       lines: [
         ...(made.role === undefined ? [] : [`role       ${made.role.name}:${made.role.option}${made.role.for === undefined ? '' : `, for ${made.role.for}`}. Its options: ${optionsLine(made.role.options)}`]),
-        ...Object.entries(made.chosen).map(([setting, one]) => `${setting.padEnd(9)}  ${one.value === undefined ? `the ${one.from}` : `${one.value}, from ${one.from === 'flag' ? `--${setting}` : `the ${one.from}`}`}`),
+        ...Object.entries(made.chosen).map(([setting, one]) => `${setting.padEnd(9)}  ${one.value === undefined ? `the ${one.from}` : `${one.value}, from ${one.from === 'flag' ? `--${setting.replaceAll('_', '-')}` : `the ${one.from}`}`}`),
         ...tabLines(answer, refused.length > 0
           ? `${made.bot}/${made.session}, a temporary session of ${made.maker}'s, is in bot.yaml and the book, and was not started. Start it once its memory folder is right:  ${shellWord(ownCli())} up --bots ${shellWord(bots)} --bot ${made.bot} --session ${made.session}  or retire it:  ${retire}`
           : tabs.some((one) => one.launched === false)
@@ -1929,7 +1934,7 @@ const foundLines = (found) =>
  * What one running session runs on, in a line: each setting's state, with what
  * was asked for and what the harness recorded, and its rules.
  */
-function settingsLine({ bot, session, running, settings, rules }) {
+function settingsLine({ bot, session, running, settings, rules, remote_control: remote }) {
   const each = Object.entries(settings).map(([name, one]) => {
     const values = [
       ...(one.configured === undefined ? [] : [`asked ${one.configured}`]),
@@ -1941,7 +1946,9 @@ function settingsLine({ bot, session, running, settings, rules }) {
   const [word, who] = running === 'yes'
     ? ['running', `${bot} ${session}`]
     : ['unsure', `${bot} ${session}  cannot tell whether its harness is running:`];
-  return `${word.padEnd(9)}  ${who}  ${each.join('  ')}  rules ${rules.state}`;
+  // Claude Code's Remote Control: a handle in its registry, not a connection (ADR 0058).
+  const remoteText = remote === undefined ? '' : `  remote control ${remote.state} (asked ${remote.asked})`;
+  return `${word.padEnd(9)}  ${who}  ${each.join('  ')}  rules ${rules.state}${remoteText}`;
 }
 
 function tabLines({ bots, created, completed, rules, skills, permissions = [], tabs, refused = [], paused = [], projects = [], found = [] }, summary, closedBy = 'restart') {
@@ -1959,8 +1966,10 @@ function tabLines({ bots, created, completed, rules, skills, permissions = [], t
     if (tab.noMailbox) {
       lines.push(`             it has no mailbox: ${noMailboxYet({ bots, bot: tab.bot, session: tab.name })}`);
     }
-    if (tab.lost !== undefined) {
-      lines.push(`             its own --settings in bot.yaml replaces the kit's, so it runs without: ${tab.lost.join(', ')}`);
+    // Remote Control off has a line of its own (remoteControlLines).
+    const lost = (tab.lost ?? []).filter((one) => one !== REMOTE_CONTROL_LOST);
+    if (lost.length > 0) {
+      lines.push(`             its own --settings in bot.yaml replaces the kit's, so it runs without: ${lost.join(', ')}`);
     }
   }
   // A Claude session the kit did not start, because it could not give it its
@@ -2011,7 +2020,7 @@ function harnessLines(tab, bots, closedBy) {
   // What the line that was typed in asked for, and where the kit got it: the
   // session the book holds, one the harness itself still had on record, or a new
   // one — and if a new one, whether anything was known about an older one.
-  const how = howLines(tab);
+  const how = [...howLines(tab), ...remoteControlLines(tab)];
 
   if (!tab.harnessStarted) {
     return [
@@ -2045,6 +2054,19 @@ function harnessLines(tab, bots, closedBy) {
   lines.push(...promptLines(tab), ...listLines(tab), ...restartLines(tab, closedBy));
   if (tab.unclaimed !== undefined) lines.push(...unclaimedLines(tab, bots));
   return lines;
+}
+
+/**
+ * What the launch line did with Claude Code's Remote Control, and where that
+ * came from (ADR 0058). Whether the session then connected is for obk health.
+ */
+function remoteControlLines(tab) {
+  const remote = tab.remote_control;
+  if (remote === undefined) return [];
+  if (remote.from === 'extra argument') return ['             remote control: on, by its own extra argument in bot.yaml'];
+  if (remote.value === 'on') return [`             remote control: on, ${remote.from === 'session' ? 'set for this session' : "the kit's default"} (--remote-control is on the launch line)`];
+  if (tab.lost?.includes(REMOTE_CONTROL_LOST)) return ["             remote control: off was asked for this session, but its own --settings replaces the kit's, so Claude Code's own settings decide"];
+  return ["             remote control: off, set for this session (the kit's --settings turns it off)"];
 }
 
 /**
