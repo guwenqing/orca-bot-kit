@@ -99,7 +99,7 @@ export async function recordSession(bots, name, said, tabId, shellPid) {
   // What the Claude Code process above this hook was launched with: whether it
   // appends the bot's system text, and which file (R6). Read before the book
   // is held, as the rest of what goes into it.
-  const launched = isClaudeBot(bot) ? appendedText(process.pid) : undefined;
+  const launched = isClaudeBot(bot) ? appendedText(process.pid, bot.name) : undefined;
 
   let cleared = false;
   let told;
@@ -157,18 +157,21 @@ export async function recordSession(bots, name, said, tabId, shellPid) {
 /** The appended-text flag of a launch line. */
 const APPEND_FLAG = '--append-system-prompt-file';
 
-/** The name of the kit's system file, with its checksum. */
-const SYSTEM_SUM = /system-[0-9a-f]{16}\.md/;
-
 /**
  * What the Claude Code process above the hook appends: `{ file: true, name }`
- * when its launch line has the appended-text flag, `{}` when it has none, and
- * undefined when the line cannot be read.
+ * when its launch line has the appended-text flag with this bot's own system
+ * file as its value, `{}` when it has not, and undefined when the line cannot
+ * be read.
+ *
+ * `ps` joins the words of the line with spaces, so a word cannot be told from
+ * the words inside another option's value. Only the flag followed by a path
+ * to `<bots>.prompts/<bot>/system-<sum>.md` counts. Anything else is no
+ * appended text, and the hook gives the main units: twice is better than none.
  *
  * The hook runs through a shell or straight from the harness, so the harness
  * is the parent, or the parent's parent when the parent is a shell.
  */
-export function appendedText(pid = process.pid) {
+export function appendedText(pid, botName) {
   const tree = processTree();
   const mine = tree?.get(pid);
   const parent = mine === undefined ? undefined : tree.get(mine.ppid);
@@ -178,10 +181,9 @@ export function appendedText(pid = process.pid) {
   // The kit puts the start prompt after `--`, and a prompt may name the flag.
   const end = line.indexOf(' -- ');
   const options = end < 0 ? line : line.slice(0, end);
-  const flag = new RegExp(`(?:^| )${APPEND_FLAG}(?:=| )`).exec(options);
-  if (flag === null) return {};
-  const sum = SYSTEM_SUM.exec(options.slice(flag.index));
-  return { file: true, ...(sum === null ? {} : { name: sum[0] }) };
+  const own = `\\.prompts/${botName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/(system-[0-9a-f]{16}\\.md)`;
+  const flag = new RegExp(`(?:^| )${APPEND_FLAG}[= ]/(?:[^\\n]*?)${own}(?= |$)`).exec(options);
+  return flag === null ? {} : { file: true, name: flag[1] };
 }
 
 /** The launch line of the process `pid`, or undefined when ps cannot tell. */
