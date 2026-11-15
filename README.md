@@ -403,6 +403,32 @@ bot's sessions, set `"auto-mode-setup": "on"` under `skillOverrides` in the bot'
 `.claude/settings.local.json`, which wins over the kit's entry. The kit never
 writes that file.
 
+The same file also cuts some of Claude Code's tools and built-in skills, so
+each request of a fleet session is smaller. By default the kit cuts the tools
+`Artifact`, `ArtifactComments`, `ArtifactData` and `DesignSync`, and the skills
+`artifact-design`, `artifact-diagramming`, `artifact-capabilities`,
+`update-config`, `fewer-permission-prompts`, `init`, `keybindings-help` and
+`plugin-authoring`. A cut tool is a `permissions.deny` entry with its name, and
+a cut skill is `"off"` under `skillOverrides`. Your other entries are kept. A
+session in that bot does not have them, and your own sessions outside the bots
+folder keep them. To cut more, name them in a `claude_cut` list: in
+`defaults.yaml` for every bot, or in a bot's `bot.yaml` for that bot. A name
+that starts with a capital letter or with `mcp__` is a tool; any other name is
+a skill. To keep one, name it in the bot's `claude_keep` list in `bot.yaml`. A
+keep wins over every cut list, and `obk up` then takes the kit's cut out of the
+file. Taking a name out of a `claude_cut` list does not give it back; keep it
+instead. `Workflow` and `workflow-authoring` go together: a cut or a keep of
+one applies to both. A cut or a keep reaches a session when it starts again.
+
+The kit found no way to ask Claude Code which names it knows, so `obk health`
+goes by the records of your fleet's Claude Code sessions. It names a cut that is not
+one of the kit's defaults and is in no record of the fleet, and a kept name
+that the bot's newest record does not hold. A bot with no record yet gets no
+finding for a kept name. A real cut name that no record holds yet is named too,
+and a tool that a new Claude Code renamed is not seen while older records hold
+the old name. A `text:` name in a list is accepted, and
+`obk health` says that the kit does not cut units of the main text yet.
+
 Each Claude bot has a memory folder of its own, `claude-memory/` in the bot's
 folder. Claude Code alone would give every bot of one bots repository the same
 folder, so the notes of one bot would load in every bot. The kit's line for a

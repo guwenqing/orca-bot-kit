@@ -238,7 +238,18 @@ test('the user\'s own claude settings survive, and the file is still JSON', asyn
     theirs.permissions.allow,
     `the user's own allow entries are the user's, first and in their order, got: ${JSON.stringify(now.permissions)}`,
   );
-  assert.deepEqual(Object.keys(now.permissions), Object.keys(theirs.permissions), 'and the kit adds no other permissions key');
+  // Since #767 (request claude-session-trim, R1) up also writes deny, with the
+  // four default tool cuts and nothing else. It adds no other key.
+  assert.deepEqual(
+    Object.keys(now.permissions).sort(),
+    [...Object.keys(theirs.permissions), 'deny'].sort(),
+    `and the kit adds no permissions key but deny, got: ${JSON.stringify(now.permissions)}`,
+  );
+  assert.deepEqual(
+    [...now.permissions.deny].sort(),
+    ['Artifact', 'ArtifactComments', 'ArtifactData', 'DesignSync'].sort(),
+    `deny holds the four default tool cuts and nothing else, got: ${JSON.stringify(now.permissions.deny)}`,
+  );
   assert.deepEqual(now.env, theirs.env, 'and so is anything else they put in the file');
   assert.deepEqual(now.hooks.PreToolUse, theirs.hooks.PreToolUse, 'a hook of theirs on another event is untouched');
   assert.ok(

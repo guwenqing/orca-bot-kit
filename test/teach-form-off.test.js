@@ -59,6 +59,20 @@ import { CLAUDE_TEACH_FORM_302 } from './helpers/screens.js';
 /** The one entry R1 names, as the literal it names. */
 const OFF = { 'auto-mode-setup': 'off' };
 
+/**
+ * What the kit's `skillOverrides` holds beside it since #767 (request
+ * claude-session-trim, R1): the eight default skill cuts, each "off". A check
+ * of the kit's mapping is exact, so it is this and the Teach entry, and
+ * nothing else of the kit's.
+ */
+const DEFAULT_SKILL_CUTS = Object.fromEntries([
+  'artifact-design', 'artifact-diagramming', 'artifact-capabilities', 'update-config',
+  'fewer-permission-prompts', 'init', 'keybindings-help', 'plugin-authoring',
+].map((name) => [name, 'off']));
+
+/** The kit's whole `skillOverrides` for a Claude Code bot with no cut or keep list of its own. */
+const KIT = { ...OFF, ...DEFAULT_SKILL_CUTS };
+
 /** `obk <args>` that must work. */
 async function ok(box, args, options) {
   const result = await box.run(args, options);
@@ -150,7 +164,7 @@ test('P1 up writes skillOverrides auto-mode-setup "off" into a Claude Code bot\'
   const held = await claudeSettingsWithHook(bots);
   assert.deepEqual(
     held.skillOverrides,
-    OFF,
+    KIT,
     `the file the kit writes its hook into should turn the Teach form off, got: ${JSON.stringify(held.skillOverrides)}`,
   );
 });
@@ -164,7 +178,7 @@ test('P1 up gives Bot Father, seeded on Claude Code by init, the same setting', 
   await ok(box, ['up', '--bots', 'bots']);
 
   const held = await claudeSettingsWithHook(bots, 'bot-father');
-  assert.deepEqual(held.skillOverrides, OFF, `got: ${JSON.stringify(held.skillOverrides)}`);
+  assert.deepEqual(held.skillOverrides, KIT, `got: ${JSON.stringify(held.skillOverrides)}`);
 });
 
 test('P1 P4 a Codex bot with a Claude Code session gets the setting in .claude/settings.json and none in .codex/hooks.json', async (t) => {
@@ -174,7 +188,7 @@ test('P1 P4 a Codex bot with a Claude Code session gets the setting in .claude/s
   await up(box);
 
   const claude = await claudeSettingsWithHook(bots);
-  assert.deepEqual(claude.skillOverrides, OFF, `the Claude Code session's file, got: ${JSON.stringify(claude.skillOverrides)}`);
+  assert.deepEqual(claude.skillOverrides, KIT, `the Claude Code session's file, got: ${JSON.stringify(claude.skillOverrides)}`);
   const codex = await hooksIn(bots, 'api-bot', 'codex');
   assert.ok(codex !== undefined, `the premise: the kit wrote ${hookFileOf(bots, 'api-bot', 'codex')}`);
   assert.equal(
@@ -199,14 +213,14 @@ test('P1 a temporary Claude Code session of a Codex bot gets the setting in the 
   await ok(box, ['temp', 'make', '--bots', 'bots', '--name', 'drafter', '--harness', 'claude', '--prompt', 'Write down what the PR changes.'], { env: inTab });
 
   const held = await claudeSettingsWithHook(bots);
-  assert.deepEqual(held.skillOverrides, OFF, `got: ${JSON.stringify(held.skillOverrides)}`);
+  assert.deepEqual(held.skillOverrides, KIT, `got: ${JSON.stringify(held.skillOverrides)}`);
 });
 
 // ---------------------------------------------------------------- P2
 
 for (const [label, theirOverrides, expected] of [
-  ['no skillOverrides of theirs', undefined, OFF],
-  ['skillOverrides entries of theirs', { 'some-skill': 'name-only', 'other-skill': 'on' }, { 'some-skill': 'name-only', 'other-skill': 'on', ...OFF }],
+  ['no skillOverrides of theirs', undefined, KIT],
+  ['skillOverrides entries of theirs', { 'some-skill': 'name-only', 'other-skill': 'on' }, { 'some-skill': 'name-only', 'other-skill': 'on', ...KIT }],
 ]) {
   test(`P2 up keeps everything the user had in .claude/settings.json, with ${label}`, async (t) => {
     const box = await createSandbox(t);
@@ -244,7 +258,7 @@ test('P3 a second up leaves .claude/settings.json byte for byte as the first lef
 
   await up(box);
   const first = await readFile(file, 'utf8');
-  assert.deepEqual(JSON.parse(first).skillOverrides, OFF, `the first up writes the setting, got: ${JSON.stringify(JSON.parse(first).skillOverrides)}`);
+  assert.deepEqual(JSON.parse(first).skillOverrides, KIT, `the first up writes the setting, got: ${JSON.stringify(JSON.parse(first).skillOverrides)}`);
   await up(box);
   const second = await readFile(file, 'utf8');
 
@@ -265,7 +279,7 @@ test('P3 a second up keeps a skillOverrides entry the user added after the first
 
   assert.deepEqual(
     (await hooksIn(bots, 'api-bot', 'claude')).skillOverrides,
-    { ...OFF, 'some-skill': 'name-only' },
+    { ...KIT, 'some-skill': 'name-only' },
     `got: ${JSON.stringify((await hooksIn(bots, 'api-bot', 'claude')).skillOverrides)}`,
   );
 });
@@ -308,7 +322,7 @@ test('P5 the setting goes into the bot\'s own file and nothing reaches user-leve
 
   await ok(box, ['up', '--bots', 'bots']);
 
-  assert.deepEqual((await claudeSettingsWithHook(bots)).skillOverrides, OFF, 'the bot\'s own file has it');
+  assert.deepEqual((await claudeSettingsWithHook(bots)).skillOverrides, KIT, 'the bot\'s own file has it');
   await assertHomeUntouched(box);
 });
 
@@ -328,7 +342,7 @@ test('P6 up types no key for this: each Claude Code tab gets its launch line alo
     assert.ok(sends[0].text.includes(TAB_SHELL), `that send is the launch line, got: ${JSON.stringify(sends[0])}`);
     assert.ok(!/auto-mode/.test(sends[0].text), `and it carries nothing of the setting, got: ${sends[0].text}`);
   }
-  assert.deepEqual((await claudeSettingsWithHook(bots)).skillOverrides, OFF, 'the setting does it, in the file');
+  assert.deepEqual((await claudeSettingsWithHook(bots)).skillOverrides, KIT, 'the setting does it, in the file');
 });
 
 test('P6 a second up types nothing into a tab that shows the Teach form', async (t) => {
@@ -362,7 +376,7 @@ for (const theirValue of ['on', 'name-only']) {
 
     assert.deepEqual(
       (await claudeSettingsWithHook(bots)).skillOverrides,
-      { 'auto-mode-setup': 'off', 'some-skill': 'name-only' },
+      { ...KIT, 'some-skill': 'name-only' },
     );
   });
 }
@@ -377,7 +391,7 @@ test('P7 up leaves the user\'s .claude/settings.local.json byte for byte as they
 
   await up(box);
 
-  assert.deepEqual((await claudeSettingsWithHook(bots)).skillOverrides, OFF, 'the kit\'s entry goes in the project file');
+  assert.deepEqual((await claudeSettingsWithHook(bots)).skillOverrides, KIT, 'the kit\'s entry goes in the project file');
   assert.equal(await readFile(local, 'utf8'), theirs, 'and the local file, which wins over it, is the user\'s');
 });
 
@@ -388,7 +402,7 @@ test('P7 up writes no .claude/settings.local.json where the user has none', asyn
 
   await up(box);
 
-  assert.deepEqual((await claudeSettingsWithHook(bots)).skillOverrides, OFF, 'the kit\'s entry goes in the project file');
+  assert.deepEqual((await claudeSettingsWithHook(bots)).skillOverrides, KIT, 'the kit\'s entry goes in the project file');
   assert.equal(await exists(local), false, `and no ${local} appears`);
 });
 
