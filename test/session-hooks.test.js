@@ -528,6 +528,10 @@ for (const [label, contents] of Object.entries(NOT_THE_KIT_S_TO_TOUCH)) {
     const box = await createSandbox(t);
     await seeded(box);
     const bots = await withBot(box, 'api-bot', 'claude', [['daily']]);
+    // The bot's rules built first: up builds them before it reads the hooks
+    // file, and a Claude Code bot's first build turns CLAUDE.md into a file
+    // (#768). The refusal is about what up writes after that.
+    assert.equal((await box.run(['rules', 'build', '--bots', 'bots'])).code, 0);
     const file = hookFileOf(bots, 'api-bot', 'claude');
     await mkdir(path.dirname(file), { recursive: true });
     await writeFile(file, contents);

@@ -214,6 +214,21 @@
 // 'no-pid') is a tab holding the harness it was launched with, which the
 // runtime sees.
 
+// And one more (#768): the command line of a process outside Orca's tabs,
+// which the kit's SessionStart hook reads to see whether its harness was
+// launched with the appended system text. The harness stand-ins of
+// helpers/cli.js (`recordSession`, `throughATab`) are real processes; each
+// writes its pid and the words its launch line gave it to ps-args.log in the
+// fake Orca's directory, `{ pid, command }` per line, and carries the same
+// words in its own argv, so a bare `ps` sees them too. For such a pid this
+// fake answers, with the command and its arguments on one line, any of
+//
+//   <ps> [-E] [-w|-ww] -o command= -p <pid>      (or -o args=, or -wwo …)
+//
+// with `-E` adding the variables a launched harness carries. For a tab's own
+// process it gives the command part of what `ps -E` gives above. A pid it
+// knows neither way: nothing, exit 1.
+
 import { appendFileSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
@@ -541,6 +556,52 @@ function environmentOf(state, terminal, row, dir) {
   }
 }
 
+/** Whether `args` asks for one process's command line: `[-E] [-w|-ww] -o command=|args= -p <pid>`, `-wwo` too. */
+function commandReadOf(args) {
+  if (args.length < 3 || args.at(-2) !== '-p' || !/^[1-9]\d*$/.test(args.at(-1))) return false;
+  const flags = args.slice(0, -2).join(' ');
+  return /^(?:-E )?(?:-w{1,2} )?(?:-o |-w{1,2}o )(?:command|args)=$/.test(flags);
+}
+
+/** The command lines the harness stand-ins wrote down, by pid; the last one for a pid wins. */
+function standInCommands(dir) {
+  const known = new Map();
+  try {
+    for (const line of readFileSync(path.join(dir, 'ps-args.log'), 'utf8').split('\n')) {
+      if (line === '') continue;
+      const { pid, command } = JSON.parse(line);
+      known.set(Number(pid), command);
+    }
+  } catch {
+    // No stand-in has written anything yet.
+  }
+  return known;
+}
+
+/** Answer a command-line read (see the top), and exit. */
+function answerCommandRead(state, dir, args) {
+  const pid = Number(args.at(-1));
+  const withEnvironment = args[0] === '-E';
+  const standIn = standInCommands(dir).get(pid);
+  if (standIn !== undefined) {
+    const kits = withEnvironment ? [...USERS.slice(0, 2), `OBK_TAB_SHELL=${process.ppid}`, ...USERS.slice(2)] : [];
+    process.stdout.write(`${[standIn, ...kits].join(' ')}\n`);
+    process.exit(0);
+  }
+  for (const terminal of state.terminals ?? []) {
+    const found = processesOf(state, terminal, dir).find((one) => one.pid === pid);
+    if (found === undefined) continue;
+    const line = environmentOf(state, terminal, found, dir);
+    if (line === undefined) {
+      process.stderr.write(`ps: cannot read the environment of process ${pid}\n`);
+      process.exit(1);
+    }
+    process.stdout.write(`${withEnvironment ? line : line.replace(/ TERM=.*$/, '')}\n`);
+    process.exit(0);
+  }
+  process.exit(1);
+}
+
 /** Run as `ps`: read the fake Orca's world and answer for one pid. */
 export function runPs() {
   const asked = Date.now();
@@ -608,6 +669,8 @@ export function runPs() {
     && /^[1-9]\d*$/.test(args[shape.length]);
   const read = asks(PS_READ);
   const environment = asks(PS_ENVIRONMENT);
+  const commandRead = !read && commandReadOf(args);
+  if (commandRead) answerCommandRead(state, dir, args);
   if (!read && !environment) {
     process.stderr.write(`fake ps: ${args.join(' ')} is not a read of one pid; the kit asks ps nothing else\n`);
     process.exit(70);

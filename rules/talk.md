@@ -2,6 +2,7 @@
 name: talk
 title: How you answer
 applies: all
+placement: main
 ---
 
 Start with the answer. Detail after it.

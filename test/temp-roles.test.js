@@ -38,7 +38,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { createSandbox, fakeProgram, memoryArgs, settingValuesOf, typedInto } from './helpers/cli.js';
+import { createSandbox, fakeProgram, memoryArgs, settingValuesOf, SYSTEM, SYSTEM_FLAG, systemlessArgv, typedInto } from './helpers/cli.js';
 import {
   answerIn,
   argvOf,
@@ -72,10 +72,10 @@ test('R1 --role developer:deep takes that option\'s model, effort and context, o
   );
   const [line] = typedInto(await liveTab(box, bots, 'developer-1'));
   const fake = await fakeProgram(box, 'claude', {});
-  const argv = await argvOf(box, line, fake);
+  const argv = systemlessArgv(await argvOf(box, line, fake));
   assert.deepEqual(
     argv.slice(4, -1),
-    ['--model', 'claude-fable-5-1[1m]', '--effort', 'max', ...memoryArgs(bots, BOT), '--'],
+    ['--model', 'claude-fable-5-1[1m]', '--effort', 'max', ...memoryArgs(bots, BOT), SYSTEM_FLAG, SYSTEM, '--'],
     `the option's settings reach Claude Code, and then the bot's memory folder, got: ${JSON.stringify(argv)}`,
   );
 });

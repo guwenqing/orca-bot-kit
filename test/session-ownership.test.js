@@ -40,8 +40,10 @@ import {
   conversationOnRecord,
   createSandbox,
   fakeProgram,
+  harnessWordsOf,
   hooksIn,
   kitHooksIn,
+  launchLineInTab,
   recordSession,
   sessionIn,
   sessionStart,
@@ -80,10 +82,14 @@ async function hookCommandOf(bots, harness) {
  * first, which is the case the review found.
  */
 async function reportThroughAHarness(box, { bots, harness, tab }, { session, source = 'startup', nested = false }) {
+  // The harness carries the words of the launch line the kit typed into its
+  // tab, as a real one does (#768): the hook reads them.
+  const line = await launchLineInTab(box, tab.tabId);
   const ran = await throughAHarness(box, await hookCommandOf(bots, harness), {
     tab: tab.tabId,
     stdin: sessionStart({ session, source }),
     nested,
+    line: line === undefined ? [] : harnessWordsOf(line),
   });
   assert.equal(ran.code, 0, `the hook must never fail the session: ${ran.stderr}`);
   assert.equal(ran.stderr, '', `and never say anything on the way out: ${ran.stderr}`);

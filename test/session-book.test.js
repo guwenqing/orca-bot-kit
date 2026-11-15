@@ -62,10 +62,15 @@ test('the session the harness reported sits in the book beside the tab, and the 
   // stamp of AGENTS.md as the session last read it (#272). `launched_with` is
   // the extra_args the kit launched the session with, written with `launched`
   // (#506).
-  assert.deepEqual(
-    Object.keys(book.sessions.daily).sort(),
-    ['address', 'launched', 'launched_with', 'mailbox', 'rules', 'session', 'tab'],
-    `got: ${JSON.stringify(book.sessions.daily)}`,
+  // And on Claude Code the hook notes which appended system text the session
+  // read (#768, R6): at most one key more, whose value names that file.
+  const LISTED = ['address', 'launched', 'launched_with', 'mailbox', 'rules', 'session', 'tab'];
+  const keys = Object.keys(book.sessions.daily).sort();
+  assert.deepEqual(keys.filter((key) => LISTED.includes(key)), LISTED, `got: ${JSON.stringify(book.sessions.daily)}`);
+  const more = keys.filter((key) => !LISTED.includes(key));
+  assert.ok(
+    more.length <= 1 && more.every((key) => /system-[0-9a-f]+\.md/.test(JSON.stringify(book.sessions.daily[key]))),
+    `nothing else but the note of the appended file, got: ${JSON.stringify(book.sessions.daily)}`,
   );
   assert.equal(book.sessions.daily.tab, tabs.daily.tabId);
   assert.equal(book.sessions.daily.session, 'sess-1');

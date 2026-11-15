@@ -1866,6 +1866,9 @@ function rulesLines(rules, bots) {
         ? []
         : [`${'linked'.padEnd(9)}  ${path.relative(bots, entry.linked)} -> AGENTS.md`]),
       ...(entry.trouble === undefined ? [] : [`             ${entry.trouble}`]),
+      // A session still on older system text, or on none: said, and no failure
+      // of the build (R6).
+      ...(entry.older ?? []).map((says) => `             ${says}`),
       // Codex reads no more than this of an instructions file, and says nothing
       // when it stops reading (tech notes, section 3).
       ...(entry.bytes > CODEX_CAP

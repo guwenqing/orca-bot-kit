@@ -423,7 +423,7 @@ const where = (session) => (set(session.name) ? `session ${session.name}` : 'thi
  * send would land on that list and answer it. A prompt given as an argument is
  * held by the harness until it is ready for it (tech notes, section 1).
  */
-export function launchCommand(session, { harness, home, workDir, prompt, promptFile: fromFile, resume, address, kit, sessionId, name, memoryFolder }) {
+export function launchCommand(session, { harness, home, workDir, prompt, promptFile: fromFile, resume, address, kit, sessionId, name, memoryFolder, systemFile }) {
   const trouble = sessionTrouble(session, harness, home);
   if (trouble !== undefined) throw new Error(trouble);
   // Pi is told which conversation it is, a new one too: the kit names it, and
@@ -455,6 +455,10 @@ export function launchCommand(session, { harness, home, workDir, prompt, promptF
     // hooks, which is why a user's extra argument may not use it (ADR 0056,
     // ADR 0049). A hand-written one in bot.yaml is the user's, and wins.
     if (memoryFolder !== undefined && !setsSettings(session)) words.push('--settings', JSON.stringify({ autoMemoryDirectory: memoryFolder }));
+    // The bot's main and both units, appended to whatever main text the
+    // session runs on, so that no session loses a main unit (R6, ADR 0055).
+    // A resume carries it too: the process reads it once, as it starts.
+    if (systemFile !== undefined) words.push('--append-system-prompt-file', systemFile);
   } else if (harness === 'pi') {
     // Pi trusts none of the folder's own files (`.pi/`, `.agents/skills`), so it
     // shows no trust screen and runs nothing the kit has not looked at (#578).

@@ -284,9 +284,16 @@ test('the clone still holds everything else the repo carried', async (t) => {
       );
     }
 
-    // CLAUDE.md is a link to AGENTS.md beside it (PRD 6.6), and still is.
-    const target = await readlink(path.join(botHomeOf(clone, bot), 'CLAUDE.md'));
-    assert.equal(path.basename(target), 'AGENTS.md', `${bot}'s CLAUDE.md should still be the link to AGENTS.md`);
+    // CLAUDE.md is a link to AGENTS.md beside it (PRD 6.6), and still is,
+    // for a bot with no Claude Code session. A Claude Code bot's CLAUDE.md is
+    // a regular file the kit builds (#768), carried as it is, as checked above.
+    const claudeMd = path.join(botHomeOf(clone, bot), 'CLAUDE.md');
+    if (harness === 'claude') {
+      assert.equal((await lstat(claudeMd)).isFile(), true, `${bot}'s CLAUDE.md is a Claude Code bot's built file, and a file in the clone`);
+    } else {
+      const target = await readlink(claudeMd);
+      assert.equal(path.basename(target), 'AGENTS.md', `${bot}'s CLAUDE.md should still be the link to AGENTS.md`);
+    }
   }
 });
 

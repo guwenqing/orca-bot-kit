@@ -34,21 +34,30 @@
 // own, read out of the bot's own hook file. Every test that says a report is
 // not written also shows, in the same sandbox, the tab's own harness being
 // written, so that the refusal cannot pass because nothing works at all.
+//
+// A restored Claude Code harness also carries none of the launch line's words,
+// so it has no appended system text (#768, R6): the hook gives it the bot's
+// main units, on every source. Where a Claude test here pinned the duty alone,
+// or nothing, it now says the duty, or nothing of it, and the main units.
 
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { parse } from 'yaml';
 
 import {
   bookOf,
   createSandbox,
+  harnessWordsOf,
   hooksIn,
   kitHooksIn,
+  launchLineInTab,
   sessionIn,
   sessionStart,
   throughAHarness,
   throughATab,
 } from './helpers/cli.js';
+import { kitUnit } from './helpers/rules.js';
 
 /** What the sessions here are told to do, and are told again after a clear. */
 const DUTY = 'Read your AGENTS.md and keep the queue moving.';
@@ -97,12 +106,25 @@ async function fromTheTab(box, bot, { session, source = 'startup', shape = 'tab'
  * session's first conversation, reported by its harness with the marker.
  */
 async function recordedBeforeTheRestart(box, bot, session) {
+  // The kit's harness carries the words of its launch line (#768).
+  const line = await launchLineInTab(box, bot.tab);
   const ran = await throughAHarness(box, await hookCommandOf(bot.bots, bot.harness), {
     tab: bot.tab,
     stdin: sessionStart({ session, source: 'startup' }),
+    line: line === undefined ? [] : harnessWordsOf(line),
   });
   assert.equal(ran.code, 0, ran.stderr);
   assert.equal((await sessionIn(bot.bots, 'api-bot', 'daily')).session, session, 'the premise: the kit\'s own tab was recorded');
+}
+
+/**
+ * What a restored Claude tab's hook answers with besides the duty: the bot's
+ * main units, the kit's `talk` among them, because a harness Orca restored
+ * carries no appended system text (#768, R6).
+ */
+async function assertMainUnitsIn(said, why) {
+  const talk = await kitUnit('talk');
+  assert.ok(typeof said === 'string' && said.includes(talk.title), `${why}: the main unit ${talk.title} is in the answer, got: ${said}`);
 }
 
 /** The book, byte for byte. */
@@ -165,7 +187,8 @@ test('a /clear in a Claude tab Orca restored is written to the book, and the ses
 
   const cleared = await fromTheTab(box, bot, { session: 'sess-2', source: 'clear' });
 
-  assert.equal(dutyIn(cleared), DUTY, 'the cleared session is told its duty again');
+  assert.ok(String(dutyIn(cleared)).includes(DUTY), `the cleared session is told its duty again, got: ${dutyIn(cleared)}`);
+  await assertMainUnitsIn(dutyIn(cleared), 'a restored Claude tab has no appended system text');
   const daily = await sessionIn(bot.bots, 'api-bot', 'daily');
   assert.equal(daily.session, 'sess-2', `the book names the conversation the session is in now, got: ${JSON.stringify(daily)}`);
   assert.deepEqual(
@@ -202,7 +225,8 @@ test('a restored tab\'s harness that runs the hook with no shell between them is
 
   const cleared = await fromTheTab(box, bot, { session: 'sess-2', source: 'clear', direct: true });
 
-  assert.equal(dutyIn(cleared), DUTY, 'the cleared session is told its duty again');
+  assert.ok(String(dutyIn(cleared)).includes(DUTY), `the cleared session is told its duty again, got: ${dutyIn(cleared)}`);
+  await assertMainUnitsIn(dutyIn(cleared), 'a restored Claude tab has no appended system text');
   assert.equal((await sessionIn(bot.bots, 'api-bot', 'daily')).session, 'sess-2', 'and the book names its new conversation');
 });
 
@@ -217,8 +241,18 @@ for (const harness of ['claude', 'codex']) {
 
     const resumed = await fromTheTab(box, bot, { session: 'sess-1', source: 'resume' });
 
-    assert.equal(resumed.stdout, '', `a resume is told nothing, got: ${resumed.stdout}`);
-    assert.equal(await bookText(bot), before, 'and the book is exactly as it was');
+    if (harness === 'claude') {
+      // Not its duty again; but the main units, which a restored Claude
+      // harness lacks (#768), and the book keeps its conversation and history.
+      assert.ok(!String(dutyIn(resumed)).includes(DUTY), `a resume is not told its duty, got: ${resumed.stdout}`);
+      await assertMainUnitsIn(dutyIn(resumed), 'a restored Claude tab has no appended system text');
+      const was = parse(before).sessions.daily;
+      const daily = await sessionIn(bot.bots, 'api-bot', 'daily');
+      assert.deepEqual([daily.session, daily.tab, daily.history], [was.session, was.tab, was.history], 'the book still names the same conversation, with the same history');
+    } else {
+      assert.equal(resumed.stdout, '', `a resume is told nothing, got: ${resumed.stdout}`);
+      assert.equal(await bookText(bot), before, 'and the book is exactly as it was');
+    }
 
     await assertTheTabsOwnStillCounts(box, bot);
   });

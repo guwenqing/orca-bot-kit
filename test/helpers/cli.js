@@ -1050,7 +1050,82 @@ export const TOKEN = '<token>';
  * the tests of the address itself (session-address, session-resume, message-to).
  */
 export const tokenlessWord = (word) => word.replace(/^([^ .]+\.[^ .]+\.)[a-z0-9]{8}$/, `$1${TOKEN}`);
-export const tokenless = (line) => line.replace(/( -n )([^ ]+)/, (all, flag, word) => `${flag}${tokenlessWord(word)}`);
+export const tokenless = (line) => systemless(line.replace(/( -n )([^ ]+)/, (all, flag, word) => `${flag}${tokenlessWord(word)}`));
+
+/**
+ * The flag that names a Claude Code session's appended system text, a file the
+ * kit builds from its bot's `main` and `both` rule units (#768, request
+ * claude-session-trim, R6). Every kit launch of a Claude Code session carries
+ * it; no Codex or Pi line does.
+ */
+export const SYSTEM_FLAG = '--append-system-prompt-file';
+
+/**
+ * What `tokenless` (and `systemless`) write in place of the path after
+ * `SYSTEM_FLAG`, so a line can be pinned whole, as `bareLaunch` spells it.
+ * The file's name carries a checksum of its content, so which file it is, and
+ * that it is the bot's current one, is for test/rule-placement.test.js.
+ */
+export const SYSTEM = '<system>';
+
+/** One shell word as the kit writes it: bare, or in single quotes with `'\''` inside. */
+const SHELL_WORD = String.raw`(?:'(?:[^']|'\\'')*'|[^\s']+)+`;
+
+/** A line with the path after `SYSTEM_FLAG`, one shell word, written `SYSTEM`. A line without the flag is left as it is. */
+export const systemless = (line) => line.replace(new RegExp(`( ${SYSTEM_FLAG} )${SHELL_WORD}`, 'g'), `$1${SYSTEM}`);
+
+/** The same for the arguments a harness was handed: the word after `SYSTEM_FLAG` is `SYSTEM`. */
+export const systemlessArgv = (argv) => argv.map((word, at) => (argv[at - 1] === SYSTEM_FLAG ? SYSTEM : word));
+
+/**
+ * A shell line split into the words a shell hands a program, for the lines the
+ * kit writes: words bare or in single quotes (with `'\''` for a quote inside),
+ * a backslash outside quotes taken as escaping the next character. Enough for
+ * `shellWord`'s spellings; not a shell.
+ */
+export function shellWordsOf(line) {
+  const words = [];
+  let word;
+  for (let at = 0; at < line.length; at += 1) {
+    const char = line[at];
+    if (/\s/.test(char)) {
+      if (word !== undefined) words.push(word);
+      word = undefined;
+    } else if (char === "'") {
+      const end = line.indexOf("'", at + 1);
+      if (end < 0) throw new Error(`shellWordsOf: an open quote in ${line}`);
+      word = (word ?? '') + line.slice(at + 1, end);
+      at = end;
+    } else if (char === '\\' && at + 1 < line.length) {
+      word = (word ?? '') + line[at + 1];
+      at += 1;
+    } else {
+      word = (word ?? '') + char;
+    }
+  }
+  if (word !== undefined) words.push(word);
+  return words;
+}
+
+/**
+ * What the harness a launch line starts is handed: the harness word and its
+ * arguments, without the mailbox step and the `NAME=value` words in front.
+ */
+export function harnessWordsOf(line) {
+  const words = shellWordsOf(harnessPartOf(line));
+  const at = words.findIndex((word) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(word));
+  return at < 0 ? [] : words.slice(at);
+}
+
+/**
+ * The last launch line the kit typed into the tab `tabId`, as the fake Orca
+ * holds it, or undefined when the kit typed none there (a tab Orca restored,
+ * a tab no session owns).
+ */
+export async function launchLineInTab(box, tabId) {
+  const terminal = (await box.orca.terminals()).find((one) => one.tabId === tabId);
+  return (terminal?.typed ?? []).map((entry) => entry.text).filter((text) => text.includes(`${TAB_SHELL} `)).at(-1);
+}
 
 /** The name a Claude launch line carries after `-n`, as the kit typed it, or undefined for a line with none. */
 export const nameOnLine = (line) => / -n ([^ ]+)/.exec(line)?.[1];
@@ -1135,7 +1210,9 @@ export const memoryWords = (bots, bot) => memoryArgs(bots, bot).map(shellWord).j
  * session on either harness; `bots` is the sandbox's own folder unless given.
  * A Claude line ends with the bot's memory folder (`memoryArgs`), as every
  * Claude line does unless a folder is named by hand or the session carries its
- * own `--settings`; `memory: false` gives the line without it.
+ * own `--settings`; `memory: false` gives the line without it. After the
+ * memory folder, every Claude line carries the bot's appended system text
+ * (#768): `SYSTEM_FLAG` and `SYSTEM`, which `tokenless` writes for its path.
  */
 export function bareLaunch(box, harness, bot, session, { bots, memory = true } = {}) {
   if (bot === undefined || session === undefined) {
@@ -1143,7 +1220,7 @@ export function bareLaunch(box, harness, bot, session, { bots, memory = true } =
   }
   const folder = memory ? ` ${memoryWords(bots ?? box.path('bots'), bot)}` : '';
   return launchLine(box, harness === 'claude'
-    ? `claude --permission-mode auto -n ${bot}.${session}.${TOKEN}${folder}`
+    ? `claude --permission-mode auto -n ${bot}.${session}.${TOKEN}${folder} ${SYSTEM_FLAG} ${SYSTEM}`
     : `codex --approve-for-me --no-daemon ${CODEX_NETWORK} ${kitAddDirs(bots ?? box.path('bots'), bot).map(shellWord).join(' ')}`, { bots, bot, session });
 }
 
@@ -1265,7 +1342,8 @@ export const sessionStart = ({
 const CHAIN = {
   'tab-shell.cjs': `
     const { spawnSync } = require('node:child_process');
-    const ran = spawnSync(process.execPath, [process.env.OBK_TEST_HARNESS], {
+    const words = JSON.parse(process.env.OBK_TEST_HARNESS_ARGS || '[]');
+    const ran = spawnSync(process.execPath, [process.env.OBK_TEST_HARNESS, ...words], {
       stdio: 'inherit',
       env: { ...process.env, OBK_TAB_SHELL: String(process.pid) },
     });
@@ -1273,6 +1351,11 @@ const CHAIN = {
   `,
   'harness.cjs': `
     const { spawnSync } = require('node:child_process');
+    const { appendFileSync } = require('node:fs');
+    // The words its launch line gave it, for the fake ps to answer (#768).
+    if (process.env.OBK_TEST_PS_ARGS && process.argv.length > 2) {
+      appendFileSync(process.env.OBK_TEST_PS_ARGS, JSON.stringify({ pid: process.pid, command: process.argv.slice(2).join(' ') }) + '\\n');
+    }
     // A session that starts a harness of its own: the same environment, one
     // generation further from the tab's shell.
     if (process.env.OBK_TEST_NESTED === '1') {
@@ -1298,7 +1381,7 @@ const CHAIN = {
  * writer inside a run, and what it starts has to be the chain and not the hook
  * command on its own, or the kit rightly ignores the report.
  */
-export async function harnessChain(box, command, { stdin = '', nested = false } = {}) {
+export async function harnessChain(box, command, { stdin = '', nested = false, line } = {}) {
   const dir = path.join(box.root, 'harness');
   await mkdir(dir, { recursive: true });
   for (const [name, body] of Object.entries(CHAIN)) {
@@ -1311,6 +1394,8 @@ export async function harnessChain(box, command, { stdin = '', nested = false } 
       OBK_TEST_HARNESS: path.join(dir, 'harness.cjs'),
       OBK_TEST_HOOK: command,
       OBK_TEST_PAYLOAD: stdin,
+      OBK_TEST_HARNESS_ARGS: JSON.stringify(line ?? []),
+      OBK_TEST_PS_ARGS: psArgsLog(box),
       ...(nested ? { OBK_TEST_NESTED: '1' } : {}),
     },
   };
@@ -1325,8 +1410,8 @@ export async function harnessChain(box, command, { stdin = '', nested = false } 
  * Answers like `box.run`: the hook's own exit code, stdout and stderr, because
  * every process in the chain passes them straight through.
  */
-export async function throughAHarness(box, command, { env, tab, stdin = '', nested = false } = {}) {
-  const chain = await harnessChain(box, command, { stdin, nested });
+export async function throughAHarness(box, command, { env, tab, stdin = '', nested = false, line } = {}) {
+  const chain = await harnessChain(box, command, { stdin, nested, line });
   const [program, ...rest] = chain.argv;
 
   return capture(program, rest, {
@@ -1349,6 +1434,9 @@ const TAB_STEP = `
   const plan = JSON.parse(process.env.OBK_TEST_CHAIN);
   const at = Number(process.argv[2]);
   process.title = plan[at];
+  if (process.env.OBK_TEST_PS_ARGS && ['claude', 'codex', 'pi'].includes(plan[at])) {
+    require('node:fs').appendFileSync(process.env.OBK_TEST_PS_ARGS, JSON.stringify({ pid: process.pid, command: plan[at] }) + '\\n');
+  }
   if (at + 1 < plan.length) {
     const ran = spawnSync(process.execPath, [__filename, String(at + 1)], { stdio: 'inherit' });
     process.exit(ran.status ?? 0);
@@ -1421,6 +1509,7 @@ export async function throughATab(box, command, { tab, stdin = '', harness = 'cl
       OBK_TEST_CHAIN: JSON.stringify(plan),
       OBK_TEST_HOOK: direct ? `exec ${command}` : command,
       OBK_TEST_PAYLOAD: stdin,
+      OBK_TEST_PS_ARGS: psArgsLog(box),
     },
   });
 }
@@ -1436,8 +1525,14 @@ export async function throughATab(box, command, { tab, stdin = '', harness = 'cl
  * `nested` is a harness the session started for itself. `raw` runs the command
  * on its own, with no chain at all, which is how a test reaches the case of a
  * report whose owner cannot be established.
+ *
+ * The harness process carries the words of its launch line (#768): `line`, a
+ * launch line or the harness's words as a list, or by default the last launch
+ * line the kit typed into `tab`, as a real harness carries the line that
+ * started it. `null` gives it none. The kit's hook reads them off the process
+ * (with a bare `ps`, or through the fake ps, which answers for it).
  */
-export function recordSession(box, { bots, bot, tab, env, stdin, raw = false, nested = false, ...payload }) {
+export async function recordSession(box, { bots, bot, tab, env, stdin, raw = false, nested = false, line, ...payload }) {
   const args = ['session', 'record', '--bots', bots, '--bot', bot];
   const input = stdin ?? sessionStart(payload);
   if (raw) {
@@ -1446,8 +1541,13 @@ export function recordSession(box, { bots, bot, tab, env, stdin, raw = false, ne
       stdin: input,
     });
   }
-  return throughAHarness(box, [box.cli, ...args].map(shellWord).join(' '), { env, tab, stdin: input, nested });
+  const typed = line === undefined && tab !== undefined ? await launchLineInTab(box, tab) : line;
+  const words = typed === undefined || typed === null ? [] : Array.isArray(typed) ? typed : harnessWordsOf(typed);
+  return throughAHarness(box, [box.cli, ...args].map(shellWord).join(' '), { env, tab, stdin: input, nested, line: words });
 }
+
+/** Where the harness stand-ins write the words they carry, for the fake ps (helpers/fake-ps.js). */
+const psArgsLog = (box) => path.join(box.root, FAKE_ORCA_DIR, 'ps-args.log');
 
 /**
  * Leave a conversation on the harness's own record, the way the harness does

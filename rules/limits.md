@@ -2,6 +2,7 @@
 name: limits
 title: What needs a yes
 applies: all
+placement: both
 ---
 
 Your charter says what you own and what to ask about first. Inside it, act.

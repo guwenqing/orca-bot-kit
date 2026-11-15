@@ -33,7 +33,7 @@ import { permissionsTrouble } from './permissions.js';
 import { askPi } from './pi.js';
 import { processesIn } from './processes.js';
 import { TAB_ENV } from './record.js';
-import { agentsTrouble, rulesStamp } from './rules.js';
+import { agentsTrouble, rulesStamp, systemFilesKept, systemTrouble } from './rules.js';
 import { settingsInUse } from './settings.js';
 import { skillsTrouble } from './skills.js';
 import { readSources, sourcesDir } from './sources.js';
@@ -146,6 +146,8 @@ function leftBeside(bots) {
   for (const name of botNames(bots)) {
     try {
       const home = botDir(bots, name);
+      // The system text of a Claude Code bot, and each older one its book names (R6).
+      for (const file of systemFilesKept(bots, home, readBot(home, name))) owned.add(file);
       for (const session of readBot(home, name).sessions) {
         owned.add(promptPath(bots, name, session.name));
         // The file a session names as its own prompt, which the kit reads to
@@ -209,6 +211,7 @@ function aboutBot(bots, name, setups, sessions, pi) {
     ...sessionSettings(home, bot).map(said('config')),
     ...rolesTrouble(home, bot).map(said('config')),
     ...agentsTrouble(bots, home, bot).map(said('config')),
+    ...systemTrouble(bots, home, bot).map((says) => finding('session', path.join(home, 'sessions.yaml'), says, name)),
     ...hooksOf(bots, home, bot).map(said('config')),
     ...permissionsTrouble(home, bot).map(said('config')),
     ...cutsTrouble(bots, home, bot).map(said('config')),

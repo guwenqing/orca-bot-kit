@@ -15,14 +15,15 @@
 // for one of the kit's or a bare name for one of theirs.
 
 import { createHash } from 'node:crypto';
-import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse } from 'yaml';
 
+import { readBook } from './book.js';
 import { botDir, botNames, displayName, readBot, refuseOutside } from './bot.js';
 import { dropRemovedHooks } from './hooks.js';
-import { ownCli, runsOnPi, shellWord } from './launch.js';
+import { harnessOf, kitFolders, ownCli, runsOnPi, shellWord } from './launch.js';
 
 /** The kit's own units, inside the installed package. */
 const KIT_RULES = fileURLToPath(new URL('../rules', import.meta.url));
@@ -100,7 +101,32 @@ function agentsInto(bots, home, bot) {
     return { bot: bot.name, file, state: 'conflict', trouble: error.message };
   }
 
-  return { bot: bot.name, file, state, units: built.units, bytes: statSync(file).size, ...claudeMd(home, file) };
+  // A Claude Code bot's main units leave the file its Claude sessions load and
+  // go into their system text instead, built in this same step (R6).
+  const claude = isClaudeBot(bot) ? claudeFile(home, file, built.claude) : claudeMd(home, file);
+  const system = isClaudeBot(bot) ? writeSystem(bots, home, bot.name, built.system) : {};
+  const older = systemTrouble(bots, home, bot);
+  const trouble = [claude.trouble, system.trouble].filter((one) => one !== undefined);
+  return {
+    bot: bot.name, file, state, units: built.units, bytes: statSync(file).size, ...claude, ...system,
+    ...(trouble.length === 0 ? {} : { trouble: trouble.join(' ') }),
+    ...(older.length === 0 ? {} : { older }),
+  };
+}
+
+/**
+ * Whether a session of this bot runs on Claude Code, the harness whose system
+ * text the kit builds (R6): a session in bot.yaml, or an option of a role its
+ * temporary sessions are made in.
+ */
+export function isClaudeBot(bot) {
+  if (bot.sessions.some((session) => harnessOf(session, bot.harness) === 'claude')) return true;
+  const roles = bot.temp_roles;
+  if (roles === null || typeof roles !== 'object' || Array.isArray(roles)) return false;
+  return Object.values(roles).some((role) => {
+    const options = Array.isArray(role) ? role : Array.isArray(role?.options) ? role.options : [];
+    return options.some((option) => option !== null && typeof option === 'object' && (option.harness ?? bot.harness) === 'claude');
+  });
 }
 
 /**
@@ -145,15 +171,23 @@ export function buildRules(bots, { bot: onlyBot } = {}) {
  */
 export function blockFor(bots, bot) {
   const units = unitsFor(bots, bot);
-  const parts = [`# ${displayName(bot.name)}`];
+  const head = [`# ${displayName(bot.name)}`];
 
   const charter = typeof bot.charter === 'string' ? bot.charter.trim() : '';
-  if (charter !== '') parts.push('## Charter', charter);
-  for (const unit of units) {
-    parts.push(`## ${unit.title}`, unit.body.replaceAll(KIT_WORD, shellWord(ownCli())).replaceAll(BOTS_WORD, shellWord(bots)));
-  }
+  if (charter !== '') head.push('## Charter', charter);
+  const section = (unit) => [`## ${unit.title}`, unit.body.replaceAll(KIT_WORD, shellWord(ownCli())).replaceAll(BOTS_WORD, shellWord(bots))];
+  const text = (chosen) => chosen.flatMap(section).join('\n\n');
 
-  return { body: parts.join('\n\n'), units: units.map((unit) => unit.name) };
+  return {
+    body: [...head, ...units.flatMap(section)].join('\n\n'),
+    // What a Claude Code session loads from CLAUDE.md, what the kit appends to
+    // its system text, and what the hook gives a session whose launch line
+    // appends nothing (R6).
+    claude: [...head, ...units.filter((unit) => unit.placement !== 'main').flatMap(section)].join('\n\n'),
+    system: text(units.filter((unit) => unit.placement !== 'all')),
+    main: text(units.filter((unit) => unit.placement === 'main')),
+    units: units.map((unit) => unit.name),
+  };
 }
 
 /**
@@ -184,6 +218,13 @@ function kitDefaults(bots) {
 const fileOf = (bots, ref) => (ref.startsWith(KIT)
   ? path.join(KIT_RULES, `${ref.slice(KIT.length)}.md`)
   : path.join(bots, 'rules', `${ref}.md`));
+
+/**
+ * Where a unit goes (R6): `all` in the instruction file only, `main` in a
+ * Claude Code session's system text and not in the file it loads, `both` in
+ * both, from one source.
+ */
+const PLACEMENTS = ['all', 'main', 'both'];
 
 /** A unit file is frontmatter and then the rule. The compiler reads a title and a body. */
 const FRONTMATTER = /^---\n([\s\S]*?)\n---(?:\n([\s\S]*))?$/;
@@ -219,12 +260,18 @@ function readUnit(bots, ref) {
     throw new Error(`${file} has no title, and a unit is written into AGENTS.md under its title.`);
   }
 
+  const placement = data.placement ?? 'all';
+  if (!PLACEMENTS.includes(placement)) {
+    throw new Error(`${file} has the placement ${JSON.stringify(data.placement)}, and a unit's placement is all, main or both. Fix it, then build again: nothing was built for this bot.`);
+  }
+
   return {
     // The kit's units name themselves; one of the user's is named by its file.
     name: typeof data.name === 'string' ? data.name : path.basename(file, '.md'),
     title: title.trim(),
     body: (found[2] ?? '').trim(),
     applies: data.applies,
+    placement,
   };
 }
 
@@ -353,7 +400,240 @@ function claudeMd(home, file) {
   }
 
   if (sameFile(link, file)) return {};
+  // The kit's own built file, of a bot that no longer runs a Claude Code
+  // session, goes back to the link.
+  if (claudeState(link, file) === 'kit-file') {
+    try {
+      unlinkSync(link);
+      symlinkSync(AGENTS, link);
+      return { linked: link };
+    } catch (error) {
+      return { trouble: `${link} could not be linked to AGENTS.md (${error.message}), so Claude Code may not read this bot's rules.` };
+    }
+  }
   return { trouble: claudeMdTrouble(link) };
+}
+
+/**
+ * The begin line of the block in a CLAUDE.md the kit built: the block's own
+ * checksum, as in AGENTS.md, and a checksum of the whole file, taken with a
+ * row of zeros in its own place. So the rest of the file stays AGENTS.md word
+ * for word, and a hand edit anywhere in it is seen.
+ */
+const CLAUDE_BEGIN = /^<!-- obk:rules ([0-9a-f]{16}) file ([0-9a-f]{16}) .*-->$/;
+const UNSUMMED = '0'.repeat(16);
+const claudeBegin = (sum, whole) =>
+  `<!-- obk:rules ${sum} file ${whole} — built by obk from AGENTS.md without the units placed main; write your own text in AGENTS.md, below the end marker. -->`;
+
+/** Whether `text` is a CLAUDE.md the kit built and nobody changed since. */
+function kitBuilt(text) {
+  const lines = text.split('\n');
+  const at = lines.findIndex((line) => CLAUDE_BEGIN.test(line));
+  if (at < 0) return false;
+  const [, sum, whole] = CLAUDE_BEGIN.exec(lines[at]);
+  lines[at] = claudeBegin(sum, UNSUMMED);
+  return whole === checksum(lines.join('\n'));
+}
+
+/**
+ * What a Claude Code bot's CLAUDE.md should say: its AGENTS.md word for word,
+ * with the kit's block holding `claude`, the block without the main units.
+ */
+function claudeText(agents, claude) {
+  const lines = readFileSync(agents, 'utf8').split('\n');
+  const found = blockIn(agents, lines);
+  const before = found === undefined ? [] : lines.slice(0, found.at);
+  const after = found === undefined ? lines : lines.slice(found.to + 1);
+  const sum = checksum(claude);
+  const text = (whole) => [...before, claudeBegin(sum, whole), ...claude.split('\n'), END, ...after].join('\n');
+  return text(checksum(text(UNSUMMED)));
+}
+
+/** The same, or undefined when AGENTS.md cannot be read as the kit writes it. */
+function claudeTextOrNone(agents, claude) {
+  try {
+    return claudeText(agents, claude);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * What is at CLAUDE.md now: nothing, the kit's link to AGENTS.md, a file the
+ * kit built and nobody changed, or something of the user's.
+ */
+function claudeState(link, agents) {
+  const stat = lstatSync(link, { throwIfNoEntry: false });
+  if (stat === undefined) return 'absent';
+  if (stat.isSymbolicLink()) return sameFile(link, agents) ? 'kit-link' : 'theirs';
+  if (!stat.isFile()) return 'theirs';
+  return kitBuilt(readFileSync(link, 'utf8')) ? 'kit-file' : 'theirs';
+}
+
+/** Why a CLAUDE.md the kit will not write matters, and what to do. */
+const claudeConflict = (link) =>
+  `${link} holds lines the kit did not write, so the kit leaves it as it is, and this bot's Claude sessions read it, not the rules built now. Move your lines into AGENTS.md, below the kit's block, and take them out of CLAUDE.md or delete it; the next build writes it again.`;
+
+/**
+ * Build a Claude Code bot's CLAUDE.md as a file (R6): the kit's link to
+ * AGENTS.md is replaced, its own file is written again when the text changed,
+ * and anything else is the user's and stays, named as a conflict.
+ */
+function claudeFile(home, agents, claude) {
+  const link = path.join(home, CLAUDE);
+  const wanted = claudeText(agents, claude);
+  const state = claudeState(link, agents);
+  if (state === 'theirs') return { trouble: claudeConflict(link) };
+  if (state === 'kit-file' && readFileSync(link, 'utf8') === wanted) return {};
+  try {
+    refuseOutside(home, link);
+    // Never written through the link: that would write into AGENTS.md.
+    if (state === 'kit-link') unlinkSync(link);
+    writeFileSync(link, wanted);
+  } catch (error) {
+    return { trouble: `${link} could not be written (${error.message}), so this bot's Claude sessions may not read its rules.` };
+  }
+  return { claudeBuilt: link };
+}
+
+/** The file of a Claude Code bot's system text, named by a checksum of `text`. */
+export const systemFileOf = (bots, name, text) => path.join(kitFolders(bots, name).prompts, `system-${checksum(text)}.md`);
+
+/** The checksum a system file's name carries. */
+const SYSTEM_NAME = /^system-([0-9a-f]{16})\.md$/;
+
+/**
+ * Write the bot's system text where its launch line names it, and take away
+ * its older files that no entry of its book names (R6).
+ */
+function writeSystem(bots, home, name, text) {
+  if (text === '') return {};
+  const file = systemFileOf(bots, name, text);
+  try {
+    mkdirSync(path.dirname(file), { recursive: true });
+    if (!existsSync(file) || readFileSync(file, 'utf8') !== text) writeFileSync(file, text);
+  } catch (error) {
+    return { trouble: `${file} could not be written (${error.message}), so this bot's Claude sessions start without their main units in the system text; the kit's hook gives them as context.` };
+  }
+  const kept = new Set([path.basename(file), ...namedSystems(home)]);
+  for (const entry of namesOf(path.dirname(file))) {
+    if (SYSTEM_NAME.test(entry) && !kept.has(entry)) rmSync(path.join(path.dirname(file), entry), { force: true });
+  }
+  return { system: file };
+}
+
+/** The system files the book's entries name, by file name. */
+function namedSystems(home) {
+  try {
+    return Object.values(readBook(home).sessions ?? {})
+      .map((entry) => entry?.system)
+      .filter((name) => typeof name === 'string' && SYSTEM_NAME.test(name));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * The system files of the bot `name` that the kit keeps: its current one and
+ * every one a book entry names. Health calls none of them a leftover.
+ */
+export function systemFilesKept(bots, home, bot) {
+  const kept = namedSystems(home).map((name) => path.join(kitFolders(bots, bot.name).prompts, name));
+  try {
+    const { system } = blockFor(bots, bot);
+    if (system !== '') kept.push(systemFileOf(bots, bot.name, system));
+  } catch {
+    // A bot whose units cannot be read keeps what its book names.
+  }
+  return kept;
+}
+
+/**
+ * The system file a Claude Code session of this bot is launched with: the
+ * current one, when the build wrote it. When its units cannot be built now (a
+ * build that failed leaves the older CLAUDE.md in place), the newest one the
+ * last build wrote, so that the session still has its main units. None when
+ * there is none, and the kit's hook then gives the main units as context.
+ */
+export function currentSystemFile(bots, bot) {
+  let system;
+  try {
+    ({ system } = blockFor(bots, bot));
+  } catch {
+    return newestSystemFile(bots, bot.name);
+  }
+  if (system === '') return undefined;
+  const file = systemFileOf(bots, bot.name, system);
+  return existsSync(file) ? file : newestSystemFile(bots, bot.name);
+}
+
+/** The bot's system file that was written last, or undefined. */
+function newestSystemFile(bots, name) {
+  const dir = kitFolders(bots, name).prompts;
+  let newest;
+  for (const entry of namesOf(dir).filter((one) => SYSTEM_NAME.test(one))) {
+    const at = path.join(dir, entry);
+    try {
+      const when = statSync(at).mtimeMs;
+      if (newest === undefined || when > newest.when) newest = { at, when };
+    } catch {
+      // Gone between the listing and the look.
+    }
+  }
+  return newest?.at;
+}
+
+/**
+ * The text the kit's hook gives a Claude Code session whose launch line
+ * appends nothing: the bot's main units, or, when its units cannot be built
+ * now, the text of its newest system file.
+ */
+export function guardText(bots, bot) {
+  try {
+    return blockFor(bots, bot).main;
+  } catch {
+    const file = newestSystemFile(bots, bot.name);
+    try {
+      return file === undefined ? undefined : readFileSync(file, 'utf8');
+    } catch {
+      return undefined;
+    }
+  }
+}
+
+/** The names in a folder; none when it cannot be read. */
+function namesOf(dir) {
+  try {
+    return readdirSync(dir);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * The sessions of the bot whose system text is older than its units, and the
+ * sessions noted as launched with no appended text: one sentence for each.
+ */
+export function systemTrouble(bots, home, bot) {
+  if (!isClaudeBot(bot)) return [];
+  let book;
+  let current;
+  try {
+    book = readBook(home);
+    const { system } = blockFor(bots, bot);
+    current = system === '' ? undefined : `system-${checksum(system)}.md`;
+  } catch {
+    return [];
+  }
+  return Object.entries(book.sessions ?? {}).flatMap(([session, entry]) => {
+    const said = [];
+    if (entry?.bare === true) {
+      said.push(`${bot.name}/${session} runs with no appended system text: its launch line has no --append-system-prompt-file, as after Orca's own resume of a tab. The kit's hook gives it its main units as context; obk restart ends this.`);
+    } else if (typeof entry?.system === 'string' && current !== undefined && entry.system !== current) {
+      said.push(`${bot.name}/${session}'s system text is older than its bot's units: it came from ${path.join(kitFolders(bots, bot.name).prompts, path.basename(entry.system))}. It gets the new text after a restart and its next compaction.`);
+    }
+    return said;
+  });
 }
 
 /** Why a `CLAUDE.md` that is not this bot's `AGENTS.md` matters, in one sentence. */
@@ -421,6 +701,18 @@ export function agentsTrouble(bots, home, bot) {
   // section 2); the link is what makes it certain, which is why the build makes
   // one (PRD 6.6).
   const link = path.join(home, CLAUDE);
+  if (isClaudeBot(bot) && built !== undefined) {
+    const state = claudeState(link, file);
+    if (state === 'theirs') {
+      trouble.push({ where: link, says: claudeConflict(link) });
+    } else if (state !== 'kit-file' || readFileSync(link, 'utf8') !== claudeTextOrNone(file, built.claude)) {
+      trouble.push({
+        where: link,
+        says: `${link} is not this bot's AGENTS.md without its main units, so its Claude sessions read older text. obk rules build writes it, and obk up does too before it starts a session.`,
+      });
+    }
+    return trouble;
+  }
   if (lstatSync(link, { throwIfNoEntry: false }) === undefined) {
     trouble.push({
       where: link,
