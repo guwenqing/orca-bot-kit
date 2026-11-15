@@ -429,17 +429,50 @@ and a tool that a new Claude Code renamed is not seen while older records hold
 the old name. A `text:` name in a list is accepted, and
 `obk health` says that the kit does not cut units of the main text yet.
 
-Under an Orca Claude account, the kit's line for a Claude session also carries
-`--settings` with one key, `autoMemoryDirectory`. It names the physical folder
-behind the account's linked `projects` folder, so a session saves its memory
-with no permission dialog. The memory is the same memory, and the kit writes no
-file for this. A bot, its repository or an account that names its own
-`autoMemoryDirectory` keeps it. A conversation that began before this keeps its old path until the
-session restarts under this version and then begins a new conversation with
-`/clear`. A restart alone or a `/clear` alone does not change the path. After
-Orca brings a tab back by itself, a `/clear` before a
-restart brings the dialog back; `obk health` names such a session
-([ADR 0054](docs/adr/0054-the-kits-launch-line-names-the-physical-memory-folder.md)).
+Each Claude bot has a memory folder of its own, `claude-memory/` in the bot's
+folder. Claude Code alone would give every bot of one bots repository the same
+folder, so the notes of one bot would load in every bot. The kit's line for a
+Claude session carries `--settings` with one key, `autoMemoryDirectory`, which
+names that folder by its physical path, so a session saves its memory with no
+permission dialog. All sessions of a bot share the folder, temporary sessions
+too. The kit never moves, copies or deletes a note.
+
+The notes stay out of git. When the kit makes `claude-memory/`, it writes a
+`.gitignore` in it that holds `*`, because a note can hold your words or
+private facts, and a push would publish them. To keep a bot's notes in git,
+delete that `.gitignore`; the kit does not write it again while the folder is
+there. A `claude-memory/` folder that you made yourself gets no `.gitignore`
+from the kit.
+
+A bot, its repository or your user-level settings that name their own
+`autoMemoryDirectory` keep it, and the kit then makes no folder.
+
+The kit does not start a Claude session without its bot's folder, because its
+notes would then go to the folder that the bots shared. When a file or a link
+is at `claude-memory` in the bot folder, or the kit cannot make the folder with
+its `.gitignore`, `obk up`, `obk restart`, `obk unpause`, `obk temp make` and
+`obk init` leave that session closed. The report has a `refused` line that
+says why and what to do, and the command exits with 1. The bot's other
+sessions and your other bots start as usual. A session that `obk restart`
+refuses keeps its tab. After a failed creation, the kit leaves nothing behind
+and tries again at the next start. `obk health` names a file or a link at that
+path before you start.
+
+A conversation that
+began before this keeps its old folder until the session restarts under this
+version and then begins a new conversation with `/clear`. A restart alone or a
+`/clear` alone does not change the folder. After Orca brings a tab back by
+itself, a `/clear` before a restart goes back to the shared folder and brings
+the permission dialog back; `obk health` names such a session
+([ADR 0056](docs/adr/0056-each-claude-bot-gets-a-memory-folder-of-its-own.md)).
+
+When you upgrade from a version before this, the notes that your bots shared
+stay where they were, in Claude Code's folder for your bots repository under
+`~/.claude/projects`. A bot then starts with no notes. `obk health` names each
+bot whose own folder has no notes while the shared folder has some, and names
+both folders. To keep a bot's notes, copy the ones that belong to it into its
+`claude-memory/`, and make its `MEMORY.md` list them; Bot Father can do this
+with you.
 
 So: kill a tab, or reboot, and `obk up` brings the session back with the
 conversation it was having, rather than starting a new one. Clear a session —

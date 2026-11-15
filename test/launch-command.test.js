@@ -45,6 +45,8 @@ import {
   fakeProgram,
   kitAddDirs,
   launchLine,
+  memoryArgs,
+  memoryWords,
   sh,
   tabsOfBot,
   TOKEN,
@@ -61,8 +63,16 @@ import { addSession } from './helpers/permissions.js';
  * pinned lines below: `withKit` writes them in for the sandbox's api-bot.
  */
 const KIT = '<kit dirs>';
-const withKit = (box, text) => text.replace(KIT, kitAddDirs(box.path('bots'), 'api-bot').join(' '));
+/**
+ * Where a Claude line's memory folder goes (KIT-51, ADR 0056), in the pinned
+ * lines below: `withKit` writes in `--settings` and its JSON for api-bot.
+ */
+const MEMORY = '<memory>';
+const withKit = (box, text) => text
+  .replace(KIT, kitAddDirs(box.path('bots'), 'api-bot').join(' '))
+  .replace(MEMORY, memoryWords(box.path('bots'), 'api-bot'));
 const kitArgs = (box) => kitAddDirs(box.path('bots'), 'api-bot');
+const memoryOf = (box) => memoryArgs(box.path('bots'), 'api-bot');
 
 /** Whose mailbox step `launchOf`'s line starts with: its one bot and session. */
 const API_DAILY = { bot: 'api-bot', session: 'daily' };
@@ -92,27 +102,27 @@ async function launchOf(box, harness, settings, { bot = 'api-bot', workDir } = {
 }
 
 const CLAUDE = [
-  ['nothing set at all', [], `claude --permission-mode auto -n api-bot.daily.${TOKEN}`],
-  ['approval auto', ['--approval', 'auto'], `claude --permission-mode auto -n api-bot.daily.${TOKEN}`],
-  ['approval ask', ['--approval', 'ask'], `claude --permission-mode manual -n api-bot.daily.${TOKEN}`],
-  ['approval dangerously-skip', ['--approval', 'dangerously-skip'], `claude --dangerously-skip-permissions -n api-bot.daily.${TOKEN}`],
-  ['a model', ['--model', 'sonnet'], `claude --permission-mode auto -n api-bot.daily.${TOKEN} --model sonnet`],
-  ['an effort', ['--effort', 'high'], `claude --permission-mode auto -n api-bot.daily.${TOKEN} --effort high`],
+  ['nothing set at all', [], `claude --permission-mode auto -n api-bot.daily.${TOKEN} <memory>`],
+  ['approval auto', ['--approval', 'auto'], `claude --permission-mode auto -n api-bot.daily.${TOKEN} <memory>`],
+  ['approval ask', ['--approval', 'ask'], `claude --permission-mode manual -n api-bot.daily.${TOKEN} <memory>`],
+  ['approval dangerously-skip', ['--approval', 'dangerously-skip'], `claude --dangerously-skip-permissions -n api-bot.daily.${TOKEN} <memory>`],
+  ['a model', ['--model', 'sonnet'], `claude --permission-mode auto -n api-bot.daily.${TOKEN} --model sonnet <memory>`],
+  ['an effort', ['--effort', 'high'], `claude --permission-mode auto -n api-bot.daily.${TOKEN} --effort high <memory>`],
   [
     // `[1m]` is a glob to the tab's zsh, so the model has to stay quoted.
     'a model with a context window',
     ['--model', 'sonnet', '--context', '1m'],
-    `claude --permission-mode auto -n api-bot.daily.${TOKEN} --model 'sonnet[1m]'`,
+    `claude --permission-mode auto -n api-bot.daily.${TOKEN} --model 'sonnet[1m]' <memory>`,
   ],
   [
     'extra args',
     ['--extra-arg=--verbose', '--extra-arg=--debug'],
-    `claude --permission-mode auto -n api-bot.daily.${TOKEN} --verbose --debug`,
+    `claude --permission-mode auto -n api-bot.daily.${TOKEN} <memory> --verbose --debug`,
   ],
   [
     'a start prompt, last of all',
     ['--prompt', 'Read your AGENTS.md.'],
-    `claude --permission-mode auto -n api-bot.daily.${TOKEN} -- 'Read your AGENTS.md.'`,
+    `claude --permission-mode auto -n api-bot.daily.${TOKEN} <memory> -- 'Read your AGENTS.md.'`,
   ],
   [
     'everything at once',
@@ -120,7 +130,7 @@ const CLAUDE = [
       '--approval', 'ask', '--model', 'opus', '--context', '1m', '--effort', 'xhigh',
       '--extra-arg=--verbose', '--prompt', 'Read your AGENTS.md.',
     ],
-    `claude --permission-mode manual -n api-bot.daily.${TOKEN} --model 'opus[1m]' --effort xhigh --verbose -- 'Read your AGENTS.md.'`,
+    `claude --permission-mode manual -n api-bot.daily.${TOKEN} --model 'opus[1m]' --effort xhigh <memory> --verbose -- 'Read your AGENTS.md.'`,
   ],
 ];
 
@@ -259,7 +269,7 @@ test('Claude never gets --add-dir, wherever its work dir is', async (t) => {
   const argv = await argvOf(box, typed, fake);
   assertNoteLast(
     argv.map((word, at) => (argv[at - 1] === '-n' ? tokenlessWord(word) : word)),
-    ['--permission-mode', 'auto', '-n', `api-bot.daily.${TOKEN}`],
+    ['--permission-mode', 'auto', '-n', `api-bot.daily.${TOKEN}`, ...memoryOf(box)],
     outside,
   );
 });
@@ -301,9 +311,14 @@ for (const harness of ['claude', 'codex']) {
     const calls = await fake.calls();
     assert.equal(calls.length, 1, `the line should start ${harness} once, got: ${typed}`);
     // On Codex the kit's own three --add-dir (#534) sit between the model and
-    // the extra arguments; they are taken out here, as they are pinned elsewhere.
+    // the extra arguments, and on Claude Code the memory folder's --settings
+    // pair (KIT-51); they are taken out here, as they are pinned elsewhere.
     const kit = harness === 'codex' ? kitArgs(box) : [];
-    const args = calls[0].args.filter((word, at, all) => !(kit.includes(word) && (word === '--add-dir' ? kit.includes(all[at + 1]) : all[at - 1] === '--add-dir')));
+    const [flag, folder] = memoryOf(box);
+    const args = calls[0].args
+      .filter((word, at, all) => !(kit.includes(word) && (word === '--add-dir' ? kit.includes(all[at + 1]) : all[at - 1] === '--add-dir')))
+      .filter((word, at, all) => harness !== 'claude' || !((word === flag && all[at + 1] === folder) || (word === folder && all[at - 1] === flag)));
+    if (harness === 'claude') assert.deepEqual(calls[0].args.filter((word) => word === flag), [flag], `the line carries the memory folder's --settings once, got: ${JSON.stringify(calls[0].args)}`);
     assert.deepEqual(args.slice(-3), ['my model', '--note', 'it\'s a "quoted" one']);
   });
 }
@@ -321,7 +336,7 @@ test('a model with a context window reaches the harness as one word, unglobbed',
   const { args } = (await fake.calls())[0];
   assert.deepEqual(
     args.map((word, at) => (args[at - 1] === '-n' ? tokenlessWord(word) : word)),
-    ['--permission-mode', 'auto', '-n', `api-bot.daily.${TOKEN}`, '--model', 'sonnet[1m]'],
+    ['--permission-mode', 'auto', '-n', `api-bot.daily.${TOKEN}`, '--model', 'sonnet[1m]', ...memoryOf(box)],
   );
 });
 
@@ -415,6 +430,7 @@ for (const [approval, codexFlags, claudeFlags] of LEVELS) {
       '-n', `api-bot.daily.${TOKEN}`,
       '--model', 'sonnet',
       '--effort', 'high',
+      ...memoryOf(box),
       '--verbose',
       '--', 'Read your AGENTS.md.',
     ]);

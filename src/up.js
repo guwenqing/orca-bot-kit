@@ -14,9 +14,9 @@ import { botDir, botNames, displayName, readBot } from './bot.js';
 import { conversationsIn, hasConversation, heldAsUserTurn, transcriptsIn } from './conversations.js';
 import { dropRemovedHooks, installHook } from './hooks.js';
 import { writePermissions } from './permissions.js';
-import { physicalMemoryFolder } from './memory.js';
+import { memoryFolderAtStart, memoryRefusal } from './memory.js';
 import { piTrouble } from './pi.js';
-import { addressOf, HARNESSES, harnessOf, isAddressOf, isShortPrompt, kitFolders, launchCommand, mailboxStep, ownCli, reachesMail, sessionTrouble, shellWord, startPrompt, workDirOf } from './launch.js';
+import { addressOf, HARNESSES, harnessOf, isAddressOf, isShortPrompt, kitFolders, launchCommand, lostToOwnSettings, mailboxStep, ownCli, reachesMail, sessionTrouble, setsSettings, shellWord, startPrompt, workDirOf } from './launch.js';
 import { asFolderProject, coordinatorOf, dropLeftGit, findProject, harnessInTab, loadInWindow, makeMailbox, makeProject, openTab, QUESTION_ON_SCREEN, retitleTab, runMissing, screenRows, shellInTab, tabs, tabToTypeInto, TERMINAL_ENV, TIMED_OUT, tellWindow, typeIntoTab, useMailbox } from './orca.js';
 import { TAB_ENV } from './record.js';
 import { buildAgents, rulesStamp } from './rules.js';
@@ -43,7 +43,9 @@ const SECOND_LOOK_MS = 2000;
  * is open in its project — and one rules entry and one skills entry per bot.
  * `projects` has one entry per Orca project this run made or renamed, and per
  * project Orca's window may not have loaded, with what went wrong as
- * `windowTrouble` (#676).
+ * `windowTrouble` (#676). `refused` has `{ bot, session, why }` for each
+ * Claude session it did not start, because it could not give it its bot's own
+ * memory folder (#752).
  *
  * With no name it is every bot in the folder, in name order. `bot` brings up
  * one bot and `session` one of its sessions, for a caller that wants one thing
@@ -67,6 +69,7 @@ export async function bringUp(bots, { bot: onlyBot, session: onlySession, restar
   const { running, rules, skills, permissions } = prepareBots(bots, names, onlySession);
 
   const report = [];
+  const refused = [];
   const projects = [];
   for (const { bot, home } of running) {
     for (const session of sessionsOf(bot, onlySession)) {
@@ -74,6 +77,7 @@ export async function bringUp(bots, { bot: onlyBot, session: onlySession, restar
     }
     const up = await bringUpBot(bots, home, bot, onlySession, { restarted, unpaused });
     report.push(...up.tabs);
+    refused.push(...up.refused);
     if (up.project !== undefined) projects.push(up.project);
   }
 
@@ -84,6 +88,7 @@ export async function bringUp(bots, { bot: onlyBot, session: onlySession, restar
   const started = new Set(running.map(({ bot }) => bot.name));
   return {
     tabs: report,
+    refused,
     rules: rules.map((entry) => (started.has(entry.bot) ? entry : {
       ...entry,
       trouble: `${entry.trouble} Its sessions were not started: a bot comes up with its rules or not at all.`,
@@ -253,7 +258,13 @@ async function bringUpBot(bots, home, bot, onlySession, { restarted, unpaused } 
   // Which command closed the session's old tab, when one did and the session
   // is to be told what that ended (#726, #732).
   const endedBy = (name) => (restarted?.has(name) ? 'restart' : unpaused?.has(name) ? 'unpause' : undefined);
-  for (const session of sessions) report.push(await bringUpSession(bots, home, live, session, bot, title, endedBy(session.name)));
+  // A session the kit does not start has no tab to report, only why (#752).
+  const refused = [];
+  for (const session of sessions) {
+    const one = await bringUpSession(bots, home, live, session, bot, title, endedBy(session.name));
+    if (one.refused === undefined) report.push(one);
+    else refused.push(one.refused);
+  }
 
   // The ops tab, and the whole of what the kit knows about it: Bot Father's
   // project needs one tab that is not a session, for work across the fleet. Any
@@ -274,7 +285,7 @@ async function bringUpBot(bots, home, bot, onlySession, { restarted, unpaused } 
     ...(change === undefined ? {} : { change }),
     ...(windowTrouble === undefined ? {} : { windowTrouble }),
   };
-  return { tabs: report, project: change === undefined && windowTrouble === undefined ? undefined : project };
+  return { tabs: report, refused, project: change === undefined && windowTrouble === undefined ? undefined : project };
 }
 
 async function bringUpSession(bots, home, live, session, bot, title, endedBy) {
@@ -306,6 +317,13 @@ async function bringUpSession(bots, home, live, session, bot, title, endedBy) {
   // anything, so a session the kit cannot start leaves no tab behind.
   const workDir = workDirOf(session, home);
 
+  // A Claude session gets its bot's own memory folder, made here when it is not
+  // there yet, or it does not start: without one, its notes go to the folder
+  // that the bots shared (#752, ADR 0056). Only this session is refused.
+  const memory = harness === 'claude' && !setsSettings(session) ? memoryFolderAtStart(home) : {};
+  const why = memoryRefusal(memory);
+  if (why !== undefined) return { refused: { bot: bot.name, session: session.name, why } };
+
   // Which conversation this session is. A session the kit can name is picked up
   // where it left off, with the conversation it had: the tab is gone, but the
   // harness still has the session. Its duty was given to it once and is not
@@ -316,7 +334,7 @@ async function bringUpSession(bots, home, live, session, bot, title, endedBy) {
   // A Pi session is told which conversation to be, and a new one is named here:
   // the book is where that name is kept (ADR 0012, tech notes, section 6).
   const fresh = harness === 'pi' ? randomUUID() : undefined;
-  const launchOf = (chosen) => launchFor(bots, bot, session, harness, home, workDir, chosen.resume, was?.address, fresh);
+  const launchOf = (chosen) => launchFor(bots, bot, session, harness, home, workDir, chosen.resume, was?.address, fresh, memory.folder);
   let launch = launchOf(which);
 
   // A work dir is a plain folder, made for the session before it is told about
@@ -459,6 +477,7 @@ async function bringUpSession(bots, home, live, session, bot, title, endedBy) {
     // Asked once the tab is up: the step at the head of the line has run by
     // then, and whatever it said is on the tab's screen, not in this report.
     noMailbox: lacksMailbox(home, session, harness),
+    lost: lostToOwnSettings(session, harness),
     ...tui,
     promptReceived,
     promptFile: launch.promptFile,
@@ -638,9 +657,10 @@ function lookAndType(home, tabId, line, until) {
 
 /**
  * The line that starts this session: resuming `resume`, or, with none, a fresh
- * start carrying its duty. Returns `{ resume, prompt, promptFile, command, address }`.
+ * start carrying its duty, naming `memoryFolder` when there is one. Returns
+ * `{ resume, prompt, promptFile, command, address }`.
  */
-function launchFor(bots, bot, session, harness, home, workDir, resume, held, fresh) {
+function launchFor(bots, bot, session, harness, home, workDir, resume, held, fresh, memoryFolder) {
   const prompt = resume === undefined ? startPrompt(session, { home, workDir }) : undefined;
   // Anything longer than a line goes to the harness out of a file, rather than
   // through the tab's shell a character at a time.
@@ -662,7 +682,7 @@ function launchFor(bots, bot, session, harness, home, workDir, resume, held, fre
     resume,
     address,
     kit: kitFolders(bots, bot.name),
-    ...(harness === 'claude' ? { memoryFolder: physicalMemoryFolder(home) } : {}),
+    ...(memoryFolder === undefined ? {} : { memoryFolder }),
     // A new Pi conversation's id, and the name its tab and session list show,
     // `<bot>.<session>` as a Codex thread is named (#480).
     ...(harness === 'pi' ? { sessionId: resume === undefined ? fresh : undefined, name: `${bot.name}.${session.name}` } : {}),
@@ -1020,7 +1040,7 @@ export const promptPath = (bots, bot, session) =>
 export const oldPromptPath = (bots, bot, session) =>
   path.join(`${bots}.prompts`, `${encodeURIComponent(bot)}.${encodeURIComponent(session)}.txt`);
 
-function entry(tab, { bot, name, created, running = false, blockedReason, promptReceived, promptFile, resumed, noConversation, harnessChanged, ranOn, unclaimed, noMailbox = false, listLine, listLineTrouble, restartLine, restartLineTrouble, notLaunched }) {
+function entry(tab, { bot, name, created, running = false, blockedReason, promptReceived, promptFile, resumed, noConversation, harnessChanged, ranOn, unclaimed, noMailbox = false, lost = [], listLine, listLineTrouble, restartLine, restartLineTrouble, notLaunched }) {
   const made = { bot, name, title: tab.title, tabId: tab.tabId, terminal: tab.handle, created, harnessStarted: running };
   // A tab whose shell was not ready for the launch line, and why: nothing was
   // typed into it (#498).
@@ -1045,6 +1065,9 @@ function entry(tab, { bot, name, created, running = false, blockedReason, prompt
   // A session that should have a mailbox and has none: the step in its tab
   // did not make one, and nothing in this run would (#317).
   if (noMailbox) made.noMailbox = true;
+  // What the session runs without because its own --settings replaces the
+  // kit's (#752).
+  if (lost.length > 0) made.lost = lost;
   // Conversations the harness still has in this bot's folder that no session
   // claims: the caller is told, because the kit will not pick one.
   if (unclaimed !== undefined && unclaimed.length > 0) made.unclaimed = unclaimed;

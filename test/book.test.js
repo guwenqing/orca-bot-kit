@@ -104,13 +104,17 @@ test('the book is committed like any other file: nothing is ignored', async (t) 
   );
 });
 
-test('init ignores nothing of the user\'s: everything it seeds is waiting to be committed', async (t) => {
+test('init ignores nothing of the user\'s: everything it seeds is waiting to be committed, but for the bot\'s claude-memory, which git ignores by design', async (t) => {
   // This said "init seeds no .gitignore" while the kit ignored nothing at all.
   // It ignores one thing now — the skill links it makes inside a bot are its own
   // to make on each machine and never the repo's to carry (issue #136, and
   // clone-carries-no-kit-links.test.js) — so what is pinned here is what has
   // been true throughout and is the point of it: every file of the user's that
   // init writes is theirs to commit, and nothing the kit does keeps one out.
+  // One folder is ignored by design: a bot's claude-memory, which the kit makes
+  // with a .gitignore of `*`, so a note never reaches a push, the .gitignore
+  // itself included (KIT-51, ADR 0056). Everything in it is ignored, and
+  // nothing else is.
   const box = await createSandbox(t);
   const bots = box.path('bots');
 
@@ -118,14 +122,28 @@ test('init ignores nothing of the user\'s: everything it seeds is waiting to be 
 
   const waiting = await git(['status', '--porcelain', '--untracked-files=all'], bots);
   assert.equal(waiting.code, 0, waiting.stderr);
+  const memory = [];
   for (const [rel, kind] of Object.entries(await snapshot(bots, skipGit))) {
     if (kind === 'dir' || madeOnThisMachine(rel)) continue;
+    if (inMemoryFolder(rel)) {
+      memory.push(rel);
+      continue;
+    }
     assert.ok(
       waiting.stdout.includes(rel),
       `${rel} is the user's and should be waiting to be committed, and git says:\n${waiting.stdout}`,
     );
   }
+  assert.deepEqual(memory, ['bots/bot-father/claude-memory/.gitignore'], 'init made Bot Father\'s claude-memory, with its .gitignore and nothing else');
+  for (const rel of memory) {
+    assert.ok(!waiting.stdout.includes(rel), `${rel} is not waiting to be committed, and git says:\n${waiting.stdout}`);
+    const ignored = await git(['check-ignore', '--quiet', rel], bots);
+    assert.equal(ignored.code, 0, `git ignores ${rel}: ${ignored.stderr}`);
+  }
 });
+
+/** What is in a bot's memory folder, `bots/<bot>/claude-memory/`, which git ignores by design (KIT-51, ADR 0056). */
+const inMemoryFolder = (rel) => /^bots\/[^/]+\/claude-memory\//.test(rel);
 
 /**
  * What the kit makes on this machine, rather than what the repo carries: the

@@ -33,7 +33,8 @@ import { setTimeout as pause } from 'node:timers/promises';
 
 import { bookFile, readBook } from './book.js';
 import { botDir, readBot } from './bot.js';
-import { ownCli, shellWord } from './launch.js';
+import { harnessOf, ownCli, setsSettings, shellWord } from './launch.js';
+import { memoryFolderAtStart, memoryRefusal } from './memory.js';
 import { closeTab, closeTerminal, findProject, frontOfTab, livePtys, orcaCli, tabs } from './orca.js';
 import { botsNamed, bringUp, prepareBots, sessionsOf } from './up.js';
 
@@ -67,11 +68,28 @@ export async function restartSessions(bots, { bot: name, session: onlySession } 
     throw new Error(`${name} would not come up again as it is, so nothing was closed. ${prepared.rules[0].trouble}`);
   }
 
-  const going = tabsToClose(bots, name, home, sessions.filter((session) => session.paused !== true), { quit: true });
+  const awake = sessions.filter((session) => session.paused !== true);
+  const kept = keptForMemory(home, known, awake);
+  const going = tabsToClose(bots, name, home, awake, { quit: true }).filter((tab) => !kept.some((one) => one.session === tab.name));
   const closed = await closeTabs(home, going, bots, name, commandLine('restart', bots, name, onlySession));
   // The sessions whose tabs this closed are the ones the restart ended
   // something of, and the ones told so once they are back (#726).
-  return { closed, ...(await bringUp(bots, { bot: name, session: onlySession, restarted: new Set(closed.map((tab) => tab.name)) })) };
+  const up = await bringUp(bots, { bot: name, session: onlySession, restarted: new Set(closed.map((tab) => tab.name)) });
+  // A kept session that had no tab open was refused by up as well: said once.
+  return { closed, ...up, refused: [...kept, ...up.refused.filter((one) => !kept.some((own) => own.session === one.session))] };
+}
+
+/**
+ * The Claude sessions of the bot that the kit would not start again, because
+ * it cannot give them their bot's own memory folder: `{ bot, session, why }`
+ * for each (#752). Asked, and the folder made, before any tab is closed, so a
+ * refused session keeps the tab it is in. Only those sessions are kept.
+ */
+function keptForMemory(home, bot, sessions) {
+  const claude = sessions.filter((session) => harnessOf(session, bot.harness) === 'claude' && !setsSettings(session));
+  if (claude.length === 0) return [];
+  const why = memoryRefusal(memoryFolderAtStart(home));
+  return why === undefined ? [] : claude.map((session) => ({ bot: bot.name, session: session.name, why }));
 }
 
 /**

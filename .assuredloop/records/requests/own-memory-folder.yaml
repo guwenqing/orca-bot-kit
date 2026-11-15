@@ -1,0 +1,39 @@
+schema: assuredloop/1
+request: own-memory-folder
+tier: "1"
+status: concluded
+sources:
+  - file: 2026-11-14-owner-words.md
+    kind: owner-words
+    sha256: dccd5729ad70f1348a9a07f8f11a11762b03e3f65788f9684c4087e0fff4a8b0
+    taken: 2026-11-14T18:24Z
+requirements:
+  - id: R1
+    version: 1
+    sha256: b5bc51b28e4c6066025a9912ab73a222d5746e3e837e54838591908e4c09ffe6
+    title: Each Claude bot gets a memory folder of its own
+  - id: R1
+    version: 2
+    sha256: c1ecad6ab3ceef6ad36c66a4ae142a9980ba8772a25de5c04e76d0d6529be743
+    title: Each Claude bot gets a memory folder of its own
+  - id: R1
+    version: 3
+    sha256: a3348a9d8ad7406ac12d07d94b427797883e55dc1a9d5945a59d81d0cf7948e9
+    title: Each Claude bot gets a memory folder of its own
+signoff:
+  - id: S1
+    file: 2026-11-14-signoff.md
+    sha256: 89849126d77534246e6f0c8810f7b654dae9dd43c525e0635abc34c5c5f40e82
+    signed: 2026-11-14T19:49Z
+    source: the owner's message in the kit-dev/architect session, 2026-11-14 14:48 EST
+    words: sure then I sign both
+    presented: R1 of own-memory-folder, word for word as on branch 752-own-memory-folder at 47d145b, in the architect's message in that session, after a plain explanation (the folder claude-memory inside the bot folder, out of git by default, no note moved, copied or deleted, the health line). The Assumed and Out lines were given in plain words in part, not word for word. The same message presented R1 to R6 of claude-session-trim; 'both' names these two requests.
+    transcribed_by: kit-dev/architect
+    covers:
+      - { id: R1, version: 3, sha256: a3348a9d8ad7406ac12d07d94b427797883e55dc1a9d5945a59d81d0cf7948e9 }
+decisions: []
+tasks: []
+bindings:
+  - { holder: own-memory-folder/R1, link: from, target: own-memory-folder/2026-11-14-owner-words.md, holder_sha256: b5bc51b28e4c6066025a9912ab73a222d5746e3e837e54838591908e4c09ffe6, target_sha256: dccd5729ad70f1348a9a07f8f11a11762b03e3f65788f9684c4087e0fff4a8b0 }
+  - { holder: KIT-51, link: serves, target: own-memory-folder/R1, holder_sha256: 56e7ccda54d01dc1cf3011e2de34a280112159d262a47b8a4a732a63c3d82371, target_sha256: a3348a9d8ad7406ac12d07d94b427797883e55dc1a9d5945a59d81d0cf7948e9, target_version: 3 }
+dispositions: []

@@ -26,7 +26,8 @@ import { botDir, botNames, botsDir, readBot, tempRoles, unknownKeys } from './bo
 import { hasConversation, transcriptsIn } from './conversations.js';
 import { cutsTrouble } from './cuts.js';
 import { hookTrouble } from './hooks.js';
-import { APPROVALS, bypassFlags, harnessOf, HARNESSES, isAddressOf, ownCli, promptFile, sessionTrouble, set, SHELL_ENV, shellWord, workDirOf } from './launch.js';
+import { APPROVALS, bypassFlags, harnessOf, HARNESSES, isAddressOf, lostToOwnSettings, ownCli, promptFile, sessionTrouble, set, setsSettings, SHELL_ENV, shellWord, workDirOf } from './launch.js';
+import { memoryFolderFor, sharedNotes } from './memory.js';
 import { frontOfTab, mailIn, orcaDefaultArgs, projects, runMissing, tabs, tabToTypeInto, wordsOfProcess } from './orca.js';
 import { permissionsTrouble } from './permissions.js';
 import { askPi } from './pi.js';
@@ -215,7 +216,50 @@ function aboutBot(bots, name, setups, sessions, pi) {
     ...skillsTrouble(bots, home, bot).map(said('skill')),
     ...inOrca(bots, home, bot, setups, sessions),
     ...leftRunning(home, bot),
+    ...ownSettings(home, bot),
+    ...notesLeftShared(home, bot),
+    ...memoryFolderBlocked(home, bot),
   ];
+}
+
+/**
+ * Each session whose own `--settings` replaces the kit's, and what it runs
+ * without for that (#752): Claude Code keeps only the last `--settings`.
+ */
+function ownSettings(home, bot) {
+  const file = path.join(home, 'bot.yaml');
+  return bot.sessions.flatMap((session) => {
+    const lost = lostToOwnSettings(session, harnessOf(session, bot.harness));
+    return lost.length === 0
+      ? []
+      : [finding('config', file, `${bot.name}'s session ${session.name} carries its own --settings in ${file}, which replaces the kit's, so it runs without: ${lost.join(', ')}. To give it back, take --settings out of its extra_args.`, bot.name)];
+  });
+}
+
+/**
+ * A file or a link where the kit would make this bot's memory folder, so the
+ * kit does not start its Claude sessions: without the folder, their notes go
+ * to the folder that the bots shared (#752). Said before the next start; the
+ * kit touches neither.
+ */
+function memoryFolderBlocked(home, bot) {
+  const named = bot.sessions.some((session) => harnessOf(session, bot.harness) === 'claude' && !setsSettings(session));
+  const { blocked } = named ? memoryFolderFor(home) : {};
+  if (blocked === undefined) return [];
+  return [finding('config', blocked, `${bot.name}'s Claude sessions have no memory folder of their own: ${blocked} is a file or a link, not a folder, so the kit does not start them. Without the folder, their notes go to the folder that the bots shared. Move it aside, and the next start of a session makes the folder.`, bot.name)];
+}
+
+/**
+ * The notes this bot's Claude sessions no longer load (#752, ADR 0056): the
+ * kit names a folder of the bot's own, that folder has no notes yet, and the
+ * folder that the bots shared before has some. Said until the bot saves its
+ * first note. The kit moves no note, so it only says where they are.
+ */
+function notesLeftShared(home, bot) {
+  const named = bot.sessions.some((session) => harnessOf(session, bot.harness) === 'claude' && !setsSettings(session));
+  const notes = named ? sharedNotes(home) : undefined;
+  if (notes === undefined) return [];
+  return [finding('leftover', notes.shared, `${bot.name}'s Claude sessions keep their memory in ${notes.own}, which holds no notes yet. The notes that the bots shared before are in ${notes.shared}. The kit moved none of them. To give ${bot.name} its notes, copy the ones that belong to it into ${notes.own} and list them in its MEMORY.md. This ends when ${bot.name} saves its first note.`, bot.name)];
 }
 
 /**

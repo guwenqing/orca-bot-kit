@@ -1,54 +1,80 @@
-// A system test, and the live check for #722: a Claude session the kit starts
-// under an Orca Claude profile saves an auto-memory file with no permission
-// dialog, in the physical memory folder, and still reads what that folder held.
-// Against the real Orca and real Claude Code on this machine. Run it alone with
+// A system test, and the live check for #722 and #752: two Claude bots of one
+// bots folder, which the kit starts under an Orca Claude profile, each read only
+// the notes of their own bot's memory folder, and a memory write lands in that
+// folder with no permission dialog. Against the real Orca and real Claude Code
+// on this machine. Run it alone with
 // `npm run test:system -- --yes test/system/memory-write.test.js`, between
-// midnight and 6 am local time; `npm test` cannot, and no CI machine could.
+// midnight and 6 am local time, and only on the architect's go word; `npm test`
+// cannot, and no CI machine could.
 //
-// Under a profile, Orca starts a tab with CLAUDE_CONFIG_DIR at
-// `<orca data>/claude-profiles/<id>/home`, where `projects` is a symbolic link
-// to `~/.claude/projects`. Claude Code names its memory folder through that
-// link, and a write there stops on a dialog that only a person can answer: "Do
-// you want to create …", "via a symlink". So the kit's launch line carries
-// `--settings {"autoMemoryDirectory":"<real projects>/<slug>/memory"}`
-// (test/memory-folder-flag.test.js holds the rules against the fake). This test
-// shows the one thing the fake cannot: that the line does its work in a real tab.
+// Claude Code keys its own memory folder by the top of the git repository, so
+// every bot of a bots repo shared one folder, under the profile's `projects`
+// (#752). Under a profile, Claude Code also names that folder through the
+// profile's `projects` link, and a write there stops on a dialog that only a
+// person can answer: "Do you want to create …", "via a symlink" (#722). So the
+// kit's launch line carries
+// `--settings {"autoMemoryDirectory":"<real bot folder>/claude-memory"}`, and
+// the kit makes that folder with a `.gitignore` of `*` when it is not there
+// (ADR 0056; test/memory-folder-flag.test.js and
+// test/memory-folder-made.test.js hold the rules against the fake). This test
+// shows what the fake cannot: that the line does its work in real tabs.
 //
 // The steps:
 //
 //   1. A throwaway fleet, by this checkout's CLI. `obk init` brings up Bot
-//      Father, which gives the run a project in Orca.
+//      Father, which gives the run a project in Orca. The bots folder is a git
+//      repository, so Claude Code's own default would be one folder for every
+//      bot in it.
 //   2. THE PREMISE. A plain tab of the test's own in that project writes down
 //      its CLAUDE_CONFIG_DIR. When that is not an Orca profile whose `projects`
 //      is a symbolic link, or `selected-host` names another profile, the test
-//      FAILS here and starts no session, because the run would prove nothing.
-//   3. The memory folder is seeded, before the session starts:
-//      `<real projects>/<slug of the throwaway repo>/memory/MEMORY.md` holds
-//      CODEWORD, which no prompt holds. This test made that folder, and it was
-//      not there before.
-//   4. One Claude session, approval `auto`, model `claude-haiku-5-5`, effort
-//      `low`, brought up with `obk up`. Its start prompt asks it to save a new
+//      FAILS here and starts no session, because the run would prove nothing
+//      about the dialog.
+//   3. Two bots, A and B, each with one Claude session, approval `auto`, model
+//      `claude-haiku-5-5`, effort `low`. Nothing of theirs is up yet. Then two
+//      folders are seeded. This test made each, and neither was there before:
+//        - bot A's own folder, `<A's folder>/claude-memory/MEMORY.md`, holds
+//          CODEWORD. It has no `.gitignore`: it is a folder of the user's own;
+//        - the folder that the bots shared, `<real projects>/<slug of the
+//          throwaway bots folder>/memory/MEMORY.md`, holds SHARED.
+//      No prompt holds SHARED or CODEWORD. Nothing is at B's
+//      `<B's folder>/claude-memory`.
+//   4. Bot A, brought up with `obk up`. Its start prompt asks it to save a new
 //      auto-memory file, FILE, with one word, WORD, with the Write tool, in the
 //      memory folder its instructions name, not to change MEMORY.md, and to
-//      answer with the codeword.
-//   5. ASSERTED:
-//        a. FILE appears at the physical folder, holding WORD, within ANSWER_MS;
-//        b. its transcript has a Write call whose `file_path` is that physical
-//           path, not the path through the profile, and the call did not fail;
+//      answer with the codeword. ASSERTED:
+//        a. FILE appears in A's own folder, holding WORD, within ANSWER_MS;
+//        b. its transcript has a Write call whose `file_path` is that path, and
+//           the call did not fail;
 //        c. the tab's screen never showed "Do you want to create" or "via a
 //           symlink". Every look at the screen checks. Such a dialog stays up
 //           until someone answers it, so a look cannot miss it. If it shows,
 //           the test sends Esc to its own tab, and fails at once;
-//        d. the session's answer in its transcript holds CODEWORD: it read what
-//           the folder held, so no memory is lost;
-//        e. MEMORY.md is as it was seeded, and the folder holds it and FILE,
-//           and nothing else.
+//        d. the session's answer holds CODEWORD, and not SHARED: it read its own
+//           bot's folder, and not the shared one;
+//        e. A's folder holds MEMORY.md as seeded and FILE, and nothing else: the
+//           kit wrote no `.gitignore` into a folder that was there.
+//   5. Bot B, of the same bots folder, brought up the same way. ASSERTED, as
+//      soon as `obk up` returns: the kit made B's `claude-memory` as a plain
+//      folder, with a `.gitignore` that holds exactly `*` and a line end. Its
+//      start prompt asks it to save FILE_B, with WORD_B, in the memory folder
+//      its instructions name, and to answer with the codeword its memory holds,
+//      or with NO_CODE when it holds none. ASSERTED:
+//        a. FILE_B appears in B's own folder: B's first memory write lands
+//           there;
+//        b. the Write call goes to that path and did not fail;
+//        c. no dialog, as for A;
+//        d. B's answer holds NO_CODE, and neither CODEWORD nor SHARED: a note of
+//           bot A, and a note of the shared folder, do not reach bot B;
+//        e. the `.gitignore` is as the kit wrote it; A's folder and the shared
+//           folder are as they were.
 //
 // Printed as diagnostics, never failed on: the commit, the Claude Code version
-// in the transcript, whether Orca still has the kit's line in the tab's text
-// (the line goes by as Claude Code takes the screen), and the tool calls.
+// in each transcript, whether Orca still has the kit's line in a tab's text
+// (the line goes by as Claude Code takes the screen), the tool calls, and what
+// else B's folder holds.
 //
-// **Nobody answers anything by hand.** The test answers its own tab's first-run
+// **Nobody answers anything by hand.** The test answers its own tabs' first-run
 // screens, as mailbox-run-gone.test.js does, and only through the allowlists:
 // Claude Code's folder trust when it is the plain one or the one the kit's
 // default rules bring up (helpers/claude-trust.js `claudeTrustAt`, which ends in
@@ -59,14 +85,14 @@
 //
 // **The night gate.** helpers/system.js runs this test only in a run that names
 // its file, between midnight and 6 am local time (#689). It reads the gate again
-// before `obk up`, which opens the session's tab (#687).
+// before each `obk up`, which opens a session's tab (#687).
 //
 // The machine it runs on is someone's working machine, with their own tabs open.
 // So this test, like the ones beside it:
 //
 //   - works in a throwaway bots folder under the system temp directory,
 //     `<tmp>/obk-system-memory-write-*`; the probe's file is beside it, and goes
-//     with it;
+//     with it, and so do both bots' `claude-memory` folders, which are inside it;
 //   - writes down every terminal and project Orca already had, before it creates
 //     anything;
 //   - runs this checkout's `src/cli.js` by its full path, never the machine's
@@ -78,14 +104,14 @@
 //     .claude.json. The runner (scripts/test-system.js) backs up both before any
 //     test, and takes the run's keys out after it.
 //
-// **What it writes under the real ~/.claude/projects.** The seeded folder
-// `<real projects>/<slug>`, whose name holds this run's throwaway name. The
-// teardown removes that one folder, by its exact path, and only when this run
-// made it; `removeSeededFolder` refuses any other path. Claude Code's own
-// transcript folders for the throwaway bots stay there, as they do for every
-// system test here.
+// **What it writes under the real ~/.claude/projects.** One folder: the seeded
+// shared folder `<real projects>/<slug of the throwaway bots folder>`, whose
+// name holds this run's throwaway name. The teardown removes that one folder,
+// by its exact path, and only when this run made it; `removeSeededFolder`
+// refuses any other path. Claude Code's own transcript folders for the
+// throwaway bots stay there, as they do for every system test here.
 //
-// It takes a few minutes: one start and one turn.
+// It takes a few minutes: two starts and two turns.
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -132,7 +158,15 @@ const DIALOG_WORDS = ['Do you want to create', 'via a symlink'];
 /** The title of Claude Code's "Teach auto mode" form (#416), as helpers/screens.js has it. */
 const TEACH_TITLE = 'Teach auto mode about your environment?';
 
-const BOT = { name: 'memory-write', display: 'Memory Write' };
+/** Bot A, whose own folder is seeded, and bot B, whose own folder is not there until the kit starts its session. */
+const BOT_A = { name: 'memory-write', display: 'Memory Write' };
+const BOT_B = { name: 'memory-other', display: 'Memory Other' };
+
+/** The name of a bot's own memory folder, inside its bot folder (ADR 0056). */
+const FOLDER = 'claude-memory';
+
+/** What the kit's .gitignore in that folder holds, exactly. */
+const IGNORE_ALL = '*\n';
 
 /** The start of every throwaway bots folder of this test. */
 const RUN_PREFIX = 'obk-system-memory-write-';
@@ -300,8 +334,8 @@ async function lookAtScreen(t, { title, handle, home, bots }) {
   assert.equal(question, undefined, `${title} shows a screen this test does not know, and it answers nothing; the run stops here:\n    ${rows.join('\n    ')}`);
 }
 
-/** The slug as the requirement says: every character that is not an ASCII letter or digit changed to `-`. */
-const slugOf = (root) => root.replaceAll(/[^A-Za-z0-9]/g, '-');
+/** The slug as Claude Code makes it: the folder in NFC, each character that is not an ASCII letter or digit changed to `-`. */
+const slugOf = (root) => root.normalize('NFC').replaceAll(/[^A-Za-z0-9]/g, '-');
 
 /** A premise that does not hold: this run would prove nothing, and it says so as a failure. */
 function premise(holds, why) {
@@ -316,7 +350,7 @@ function premise(holds, why) {
  */
 async function profileOfATab(t, { bots, place }) {
   const file = `${bots}.probe-config-dir`;
-  const answer = orca(['terminal', 'create', '--worktree', `path:${place}`, '--title', `${BOT.display} probe`]);
+  const answer = orca(['terminal', 'create', '--worktree', `path:${place}`, '--title', `${BOT_A.display} probe`]);
   assert.equal(answer.ok, true, `opening the probe's tab failed: ${JSON.stringify(answer.error)}`);
   const { handle } = answer.result.terminal;
 
@@ -419,7 +453,8 @@ function commitRun() {
   return done.status === 0 ? done.stdout.trim() : `(git rev-parse HEAD failed: ${done.stderr.trim()})`;
 }
 
-test('a Claude session the kit starts under an Orca profile saves a memory file in the physical folder with no dialog, and reads what that folder held', async (t) => {
+
+test('two Claude bots of one bots folder each read only their own bot\'s memory folder, and a memory write lands there with no dialog', async (t) => {
   t.diagnostic(`the commit this run ran: ${commitRun()}`);
   const before = {
     handles: new Set(allTerminals().map((terminal) => terminal.handle)),
@@ -428,11 +463,14 @@ test('a Claude session the kit starts under an Orca profile saves a memory file 
 
   const bots = await realpath(await mkdtemp(path.join(os.tmpdir(), RUN_PREFIX)));
   const homeOf = (bot) => path.join(bots, 'bots', bot);
-  const home = homeOf(BOT.name);
-  const homes = [homeOf('bot-father'), home];
-  const bookFile = path.join(home, 'sessions.yaml');
-  const entryInBook = () => (existsSync(bookFile) ? parse(readFileSync(bookFile, 'utf8'))?.sessions?.daily ?? {} : {});
-  /** Set once this run has made the folder under the real projects folder. */
+  const homeA = homeOf(BOT_A.name);
+  const homeB = homeOf(BOT_B.name);
+  const homes = [homeOf('bot-father'), homeA, homeB];
+  const entryInBook = (home) => {
+    const file = path.join(home, 'sessions.yaml');
+    return existsSync(file) ? parse(readFileSync(file, 'utf8'))?.sessions?.daily ?? {} : {};
+  };
+  /** Set once this run has made the shared folder under the real projects folder. */
   let seeded;
 
   // Registered before anything is created, so it runs however this test ends.
@@ -464,6 +502,7 @@ test('a Claude session the kit starts under an Orca profile saves a memory file 
       }
     }
     assert.deepEqual(foreign, [], `tabs this test did not create are open at its homes, so it closed only its own and left those projects and ${bots} in place`);
+    // Both bots' claude-memory folders are inside the bots folder, and go with it.
     await removeBotsFolderAndSiblings(bots);
 
     const { closedNotOurs, goneElsewhere } = guard.verdict(before.handles);
@@ -483,33 +522,24 @@ test('a Claude session the kit starts under an Orca profile saves a memory file 
   assert.ok(fatherTab !== undefined, `the premise: init opened Bot Father's tab, got: ${JSON.stringify(initialised.tabs)}`);
   const place = allTerminals().find((terminal) => terminal.handle === fatherTab.terminal)?.worktreePath;
   assert.equal(typeof place, 'string', `the premise: Orca lists Bot Father's tab ${fatherTab.terminal}`);
+  premise(existsSync(path.join(bots, '.git')), `The throwaway bots folder ${bots} is not a git repository, so Claude Code's own default would not be one folder for its bots.`);
 
   // ------------------------------------------------------------- 2. the premise
 
   const { projects } = await profileOfATab(t, { bots, place });
 
-  // ------------------------------------------------------- 3. the seeded memory
+  // ------------------------------------------------ 3. the bots, and the seeds
 
   const token = randomBytes(5).toString('hex');
   const CODEWORD = `heron${token}`;
+  const SHARED = `osprey${token}`;
+  const NO_CODE = `nocode${token}`;
   const WORD = `lantern${token}`;
+  const WORD_B = `compass${token}`;
   const FILE = `obk_test_note_${token}.md`;
+  const FILE_B = `obk_test_note_b_${token}.md`;
 
-  const slug = slugOf(bots);
-  premise(slug.length <= 200, `The slug of the throwaway bots folder has ${slug.length} characters, and the kit adds nothing above 200.`);
-  const folder = path.join(projects, slug);
-  assert.ok(!existsSync(folder), `${folder} is there before this run made it, so it is not this run's, and the test stops here`);
-  const memory = path.join(folder, 'memory');
-  await mkdir(memory, { recursive: true });
-  seeded = { folder, projects };
-  const memoryIndex = path.join(memory, 'MEMORY.md');
-  const seed = `- The codeword of this project is ${CODEWORD}.\n`;
-  await writeFile(memoryIndex, seed);
-  const physical = path.join(memory, FILE);
-
-  // ----------------------------------------------------------- 4. the session
-
-  const prompt = [
+  const promptA = [
     'You are a system test\'s throwaway bot and you own nothing.',
     'Your instructions name your auto memory folder, and its MEMORY.md holds a codeword.',
     'Do exactly these three things and nothing else.',
@@ -517,70 +547,173 @@ test('a Claude session the kit starts under an Orca profile saves a memory file 
     'Second, do not change MEMORY.md, and run no command.',
     'Third, answer with the codeword from MEMORY.md, and stop.',
   ].join(' ');
-  obkJson(['bot', 'create', '--bots', bots, '--name', BOT.name, '--harness', 'claude', '--charter', `${BOT.display} exists for one system test run and owns nothing.`]);
-  obkJson(['session', 'add', '--bots', bots, '--bot', BOT.name, '--name', 'daily', '--model', 'claude-haiku-5-5', '--effort', 'low', `--prompt=${prompt}`]);
-  obkJson(['permission', 'approval', '--bots', bots, '--bot', BOT.name, '--session', 'daily', '--approval', 'auto']);
+  const promptB = [
+    'You are a system test\'s throwaway bot and you own nothing.',
+    'Your instructions name your auto memory folder.',
+    'Do exactly these three things and nothing else.',
+    `First, with the Write tool, write a new file named ${FILE_B} in that memory folder. The file holds one word: ${WORD_B}.`,
+    'Second, change no other file, and run no command.',
+    `Third, if the memory you were given at the start holds a codeword, answer with that codeword. If it holds none, answer with the word ${NO_CODE}. Then stop.`,
+  ].join(' ');
+  for (const prompt of [promptA, promptB]) {
+    assert.ok(!prompt.includes(CODEWORD) && !prompt.includes(SHARED), 'the premise: no prompt holds either codeword');
+  }
 
-  gateStillOpen('obk up of the throwaway session');
-  const entry = tabOf(obkJson(['up', '--bots', bots, '--bot', BOT.name]), 'daily');
-  assert.equal(entry.created, true, 'up opened the session\'s tab');
-  assert.equal(entry.harnessStarted, true, `no claude came up in ${entry.title}: \`orca terminal read --terminal ${entry.terminal} --screen\``);
-  const tab = { title: entry.title, handle: entry.terminal, home, bots };
-  const screen = () => lookAtScreen(t, tab);
-  const lines = () => linesOf(projects, home, entryInBook().session);
+  for (const [bot, prompt] of [[BOT_A, promptA], [BOT_B, promptB]]) {
+    obkJson(['bot', 'create', '--bots', bots, '--name', bot.name, '--harness', 'claude', '--charter', `${bot.display} exists for one system test run and owns nothing.`]);
+    obkJson(['session', 'add', '--bots', bots, '--bot', bot.name, '--name', 'daily', '--model', 'claude-haiku-5-5', '--effort', 'low', `--prompt=${prompt}`]);
+    obkJson(['permission', 'approval', '--bots', bots, '--bot', bot.name, '--session', 'daily', '--approval', 'auto']);
+  }
+  const ownA = path.join(homeA, FOLDER);
+  const ownB = path.join(homeB, FOLDER);
+  for (const own of [ownA, ownB]) {
+    assert.ok(!existsSync(own), `the premise: nothing is at ${own} before its bot's session starts`);
+  }
 
-  // Orca may still have the line in the tab's text: said, not failed.
-  const typed = orca(['terminal', 'read', '--terminal', entry.terminal]);
-  const text = JSON.stringify(typed.result ?? {});
-  t.diagnostic(text.includes('--settings') && text.includes('autoMemoryDirectory')
-    ? 'the tab\'s text shows the kit\'s line with --settings and autoMemoryDirectory'
-    : 'the kit\'s line is no longer in what Orca reads of the tab; the file and the transcript below are the proof');
+  // A's own folder: a folder of the user's own, with no .gitignore.
+  await mkdir(ownA);
+  const indexA = path.join(ownA, 'MEMORY.md');
+  const seedA = `- The codeword of this project is ${CODEWORD}.\n`;
+  await writeFile(indexA, seedA);
+  const physical = path.join(ownA, FILE);
+  const physicalB = path.join(ownB, FILE_B);
 
-  // ----------------------------------------------------------- 5. what it did
+  // The folder that the bots shared, by Claude Code's own default.
+  const sharedTop = path.join(projects, slugOf(bots));
+  assert.ok(!existsSync(sharedTop), `${sharedTop} is there before this run made it, so it is not this run's, and the test stops here`);
+  const sharedMemory = path.join(sharedTop, 'memory');
+  await mkdir(sharedMemory, { recursive: true });
+  seeded = { folder: sharedTop, projects };
+  const sharedIndex = path.join(sharedMemory, 'MEMORY.md');
+  const sharedSeed = `- The codeword of this project is ${SHARED}.\n`;
+  await writeFile(sharedIndex, sharedSeed);
 
-  // a. The file, at the physical folder, holding the word.
+  /** Bring up `bot`'s session with `obk up`. Gives back its tab, a look at its screen, and its transcript. */
+  function upOf(bot, home) {
+    gateStillOpen(`obk up of the throwaway session of ${bot.name}`);
+    const entry = tabOf(obkJson(['up', '--bots', bots, '--bot', bot.name]), 'daily');
+    assert.equal(entry.created, true, `up opened ${bot.name}'s tab`);
+    assert.equal(entry.harnessStarted, true, `no claude came up in ${entry.title}: \`orca terminal read --terminal ${entry.terminal} --screen\``);
+    const tab = { title: entry.title, handle: entry.terminal, home, bots };
+
+    // Orca may still have the line in the tab's text: said, not failed.
+    const typed = orca(['terminal', 'read', '--terminal', entry.terminal]);
+    const text = JSON.stringify(typed.result ?? {});
+    t.diagnostic(text.includes('--settings') && text.includes('autoMemoryDirectory')
+      ? `${bot.name}'s tab text shows the kit's line with --settings and autoMemoryDirectory`
+      : `${bot.name}: the kit's line is no longer in what Orca reads of the tab; the files and the transcript are the proof`);
+
+    return { tab, screen: () => lookAtScreen(t, tab), lines: () => linesOf(projects, home, entryInBook(home).session) };
+  }
+
+  /** The one Write call for `file`: to `where`, and it did not fail. */
+  function assertOneWrite(now, file, where) {
+    const uses = toolUses(now);
+    t.diagnostic(`the session's tool calls: ${uses.map((use) => use.name).join(', ') || '(none)'}`);
+    t.diagnostic(`Claude Code version the transcript records: ${now.map((line) => line.version).find((one) => typeof one === 'string') ?? '(none recorded)'}`);
+    const writes = uses.filter((use) => use.name === 'Write' && path.basename(String(use.input?.file_path ?? '')) === file);
+    assert.equal(writes.length, 1, `one Write call for ${file}, got: ${JSON.stringify(writes)}\n  the conversation:\n${tailOf(now)}`);
+    assert.equal(writes[0].input.file_path, where, 'the Write goes to the bot\'s own claude-memory, not the shared folder, and not a path through the profile');
+    const result = toolResults(now).find((one) => one.tool_use_id === writes[0].id);
+    assert.notEqual(result, undefined, `the Write call has its result:\n${tailOf(now)}`);
+    assert.notEqual(result.is_error, true, `the Write call did not fail: ${JSON.stringify(result)}`);
+  }
+
+  // --------------------------------------------------------------- 4. bot A
+
+  const a = upOf(BOT_A, homeA);
+
+  // a. The file, in A's own folder, holding the word.
   await until(
-    `${FILE} to appear in ${memory}`,
+    `${FILE} to appear in ${ownA}`,
     ANSWER_MS,
     async () => (existsSync(physical) ? true : undefined),
-    () => `\n  the conversation:\n${tailOf(lines())}${whatIsUp(tab.handle)}`,
-    screen,
+    () => `\n  the conversation:\n${tailOf(a.lines())}${whatIsUp(a.tab.handle)}`,
+    a.screen,
   );
   await until(
     `${physical} to hold ${WORD}`,
     30000,
     async () => (readFileSync(physical, 'utf8').trim() === WORD ? true : undefined),
     () => `\n  it holds: ${readFileSync(physical, 'utf8')}`,
-    screen,
+    a.screen,
   );
 
-  // d. The answer, with the codeword it can have only from the seeded folder.
+  // d. The answer, with the codeword it can have only from A's own folder.
   await until(
-    `the session to answer with the codeword ${CODEWORD}`,
+    `${BOT_A.name}'s session to answer with the codeword ${CODEWORD}`,
     ANSWER_MS,
-    async () => (saidBySession(lines()).includes(CODEWORD) ? true : undefined),
-    () => `\n  the conversation:\n${tailOf(lines())}${whatIsUp(tab.handle)}`,
-    screen,
+    async () => (saidBySession(a.lines()).includes(CODEWORD) ? true : undefined),
+    () => `\n  the conversation:\n${tailOf(a.lines())}${whatIsUp(a.tab.handle)}`,
+    a.screen,
   );
-  assert.ok(!prompt.includes(CODEWORD), 'the premise: the prompt does not hold the codeword');
+  assert.ok(!saidBySession(a.lines()).includes(SHARED), `${BOT_A.name} read the folder that the bots shared: its answer holds ${SHARED}\n  the conversation:\n${tailOf(a.lines())}`);
 
-  // b. The Write call: to the physical path, and it did not fail.
-  const now = lines();
-  const uses = toolUses(now);
-  t.diagnostic(`the session's tool calls: ${uses.map((use) => use.name).join(', ') || '(none)'}`);
-  t.diagnostic(`Claude Code version the transcript records: ${now.map((line) => line.version).find((one) => typeof one === 'string') ?? '(none recorded)'}`);
-  const writes = uses.filter((use) => use.name === 'Write' && path.basename(String(use.input?.file_path ?? '')) === FILE);
-  assert.equal(writes.length, 1, `one Write call for ${FILE}, got: ${JSON.stringify(writes)}\n  the conversation:\n${tailOf(now)}`);
-  assert.equal(writes[0].input.file_path, physical, 'the Write goes to the physical path, not the path through the profile');
-  const result = toolResults(now).find((one) => one.tool_use_id === writes[0].id);
-  assert.notEqual(result, undefined, `the Write call has its result:\n${tailOf(now)}`);
-  assert.notEqual(result.is_error, true, `the Write call did not fail: ${JSON.stringify(result)}`);
+  // b. The Write call: to A's own folder, and it did not fail.
+  assertOneWrite(a.lines(), FILE, physical);
 
   // c. The dialog, on the screen as the work ends: every look before this one checked too.
-  const last = rowsOf(tab.handle);
-  if (last !== undefined) failOnDialog(tab.handle, last);
+  const lastA = rowsOf(a.tab.handle);
+  if (lastA !== undefined) failOnDialog(a.tab.handle, lastA);
 
-  // e. The folder holds what was seeded, and the new file, and nothing else.
-  assert.equal(readFileSync(memoryIndex, 'utf8'), seed, 'MEMORY.md is as it was seeded');
-  assert.deepEqual((await readdir(memory)).sort(), ['MEMORY.md', FILE].sort(), 'the memory folder holds MEMORY.md and the new file');
+  // e. A's folder holds what was seeded, and the new file, and nothing else: no .gitignore from the kit.
+  assert.equal(readFileSync(indexA, 'utf8'), seedA, 'A\'s MEMORY.md is as it was seeded');
+  assert.deepEqual((await readdir(ownA)).sort(), ['MEMORY.md', FILE].sort(), 'A\'s folder holds MEMORY.md and the new file, and the kit wrote nothing into it');
+
+  // --------------------------------------------------------------- 5. bot B
+
+  assert.ok(!existsSync(ownB), `the premise: nothing is at ${ownB} before ${BOT_B.name}'s session starts`);
+  const b = upOf(BOT_B, homeB);
+
+  // The kit made B's folder, with its .gitignore, before the session started.
+  assert.ok(lstatSync(ownB).isDirectory() && !lstatSync(ownB).isSymbolicLink(), `the kit made ${ownB} as a plain folder`);
+  const ignoreB = path.join(ownB, '.gitignore');
+  assert.equal(readFileSync(ignoreB, 'utf8'), IGNORE_ALL, `the kit wrote ${ignoreB} with exactly "*" and a line end`);
+
+  // a. The file, in B's own folder: its first memory write.
+  await until(
+    `${FILE_B} to appear in ${ownB}`,
+    ANSWER_MS,
+    async () => (existsSync(physicalB) ? true : undefined),
+    () => `\n  the conversation:\n${tailOf(b.lines())}${whatIsUp(b.tab.handle)}`,
+    b.screen,
+  );
+  await until(
+    `${physicalB} to hold ${WORD_B}`,
+    30000,
+    async () => (readFileSync(physicalB, 'utf8').trim() === WORD_B ? true : undefined),
+    () => `\n  it holds: ${readFileSync(physicalB, 'utf8')}`,
+    b.screen,
+  );
+
+  // d. The answer: no codeword, neither A's nor the shared folder's.
+  await until(
+    `${BOT_B.name}'s session to answer`,
+    ANSWER_MS,
+    async () => {
+      const said = saidBySession(b.lines());
+      return [NO_CODE, CODEWORD, SHARED].some((word) => said.includes(word)) ? said : undefined;
+    },
+    () => `\n  the conversation:\n${tailOf(b.lines())}${whatIsUp(b.tab.handle)}`,
+    b.screen,
+  );
+  const saidB = saidBySession(b.lines());
+  assert.ok(!saidB.includes(CODEWORD), `a note of ${BOT_A.name} reached ${BOT_B.name}: its answer holds ${CODEWORD}\n  the conversation:\n${tailOf(b.lines())}`);
+  assert.ok(!saidB.includes(SHARED), `the folder that the bots shared reached ${BOT_B.name}: its answer holds ${SHARED}\n  the conversation:\n${tailOf(b.lines())}`);
+  assert.ok(saidB.includes(NO_CODE), `${BOT_B.name} answered that its memory holds no codeword, ${NO_CODE}\n  the conversation:\n${tailOf(b.lines())}`);
+
+  // b. The Write call: to B's own folder, and it did not fail.
+  assertOneWrite(b.lines(), FILE_B, physicalB);
+
+  // c. The dialog, as for A.
+  const lastB = rowsOf(b.tab.handle);
+  if (lastB !== undefined) failOnDialog(b.tab.handle, lastB);
+  t.diagnostic(`${BOT_B.name}'s memory folder holds: ${(await readdir(ownB)).sort().join(', ')}`);
+
+  // e. The .gitignore as the kit wrote it; A's folder and the shared folder as they were.
+  assert.equal(readFileSync(ignoreB, 'utf8'), IGNORE_ALL, `${ignoreB} is as the kit wrote it`);
+  assert.equal(readFileSync(indexA, 'utf8'), seedA, 'A\'s MEMORY.md is as it was seeded');
+  assert.deepEqual((await readdir(ownA)).sort(), ['MEMORY.md', FILE].sort(), 'A\'s folder still holds MEMORY.md and A\'s file, and nothing of B\'s');
+  assert.equal(readFileSync(sharedIndex, 'utf8'), sharedSeed, 'the shared MEMORY.md is as it was seeded');
+  assert.deepEqual(await readdir(sharedMemory), ['MEMORY.md'], 'the shared memory folder holds only what was seeded');
 });

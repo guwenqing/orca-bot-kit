@@ -60,6 +60,8 @@ import {
   harnessPartOf,
   launchLine,
   listLineOf,
+  memoryArgs,
+  memoryWords,
   restartLineOf,
   unpauseLineOf,
   nameOnLine,
@@ -149,9 +151,13 @@ function settingsOnly(argv) {
 /**
  * The arguments a bare launch line hands its harness: the line without the
  * mailbox step, `OBK_TAB_SHELL=…` and `OBK_CLI=…` in front of it and without
- * the harness word itself.
+ * the harness word itself. A Claude line ends with its memory folder's two
+ * words, as the harness receives them (KIT-51).
  */
-const bareArgvOf = (box, harness) => harnessPartOf(bareLaunch(box, harness, 'api-bot', 'daily')).split(' ').slice(3);
+const bareArgvOf = (box, harness) => [
+  ...harnessPartOf(bareLaunch(box, harness, 'api-bot', 'daily', { memory: false })).split(' ').slice(3),
+  ...(harness === 'claude' ? memoryArgs(box.path('bots'), 'api-bot') : []),
+];
 
 /** Arguments with the token of the name after `-n` written the way `bareLaunch` writes it. */
 const tokenlessArgv = (argv) => argv.map((word, at) => (argv[at - 1] === '-n' ? tokenlessWord(word) : word));
@@ -233,7 +239,7 @@ for (const [harness, settings, fresh] of [
   [
     'claude',
     ['--approval', 'ask', '--model', 'opus', '--context', '1m', '--effort', 'xhigh', '--extra-arg=--verbose'],
-    () => ['--permission-mode', 'manual', '-n', `api-bot.daily.${TOKEN}`, '--model', 'opus[1m]', '--effort', 'xhigh', '--verbose'],
+    (bots) => ['--permission-mode', 'manual', '-n', `api-bot.daily.${TOKEN}`, '--model', 'opus[1m]', '--effort', 'xhigh', ...memoryArgs(bots, 'api-bot'), '--verbose'],
   ],
   [
     'codex',
@@ -321,6 +327,7 @@ for (const [approval, codexFlags, claudeFlags] of [
     assert.deepEqual(tokenlessArgv(await argvOf(box, again.typed[0], fake)), [
       ...claudeFlags,
       '-n', `api-bot.daily.${TOKEN}`,
+      ...memoryArgs(bots, 'api-bot'),
       '--resume', 'sess-1',
     ]);
   });
@@ -589,7 +596,7 @@ async function assertMovedToANewAddress(box, bots, typed, held) {
   const [line] = typed;
   assert.deepEqual(
     typed.map(tokenless),
-    [launchLine(box, `claude --permission-mode auto -n api-bot.daily.${TOKEN} --resume sess-1`, { bot: 'api-bot', session: 'daily' })],
+    [launchLine(box, `claude --permission-mode auto -n api-bot.daily.${TOKEN} ${memoryWords(bots, 'api-bot')} --resume sess-1`, { bot: 'api-bot', session: 'daily' })],
     `the line resumes the conversation under an address of the kit's kind, got: ${line}`,
   );
   const address = nameOnLine(line);
@@ -617,7 +624,7 @@ for (const [label, held, made] of HELD) {
     }
     assert.deepEqual(
       again.typed,
-      [launchLine(box, `claude --permission-mode auto -n ${held} --resume sess-1`, { bot: 'api-bot', session: 'daily' })],
+      [launchLine(box, `claude --permission-mode auto -n ${held} ${memoryWords(bots, 'api-bot')} --resume sess-1`, { bot: 'api-bot', session: 'daily' })],
       'the line carries the address the book held',
     );
     assert.equal((await sessionIn(bots, 'api-bot', 'daily')).address, held, 'and the book\'s address is as it was');
@@ -688,7 +695,7 @@ test('a session moved to a new address keeps it on its next resume', async (t) =
 
   assert.deepEqual(
     again.typed,
-    [launchLine(box, `claude --permission-mode auto -n ${address} --resume sess-1`, { bot: 'api-bot', session: 'daily' })],
+    [launchLine(box, `claude --permission-mode auto -n ${address} ${memoryWords(bots, 'api-bot')} --resume sess-1`, { bot: 'api-bot', session: 'daily' })],
     'the line carries the address the first resume gave it',
   );
   assert.equal((await sessionIn(bots, 'api-bot', 'daily')).address, address, 'and the book still holds it');

@@ -1,57 +1,171 @@
-// The physical memory folder of a Claude session, when the path Claude Code
-// would use leads through a link (#722, ADR 0054).
+// The memory folder of a Claude bot: `claude-memory/` in the bot's own folder,
+// one for each bot and shared by its sessions (#752, ADR 0056).
 //
-// Orca starts a Claude tab with CLAUDE_CONFIG_DIR at a profile of its own,
-// where `projects` is a link to `~/.claude/projects`. Claude Code names its
-// memory folder through that link, and a write there stops on a dialog that
-// only a person can answer (tech notes, section 2). Named by its real path, the
-// same folder has no dialog. Whenever the answer is not sure, there is no
-// answer, and the session runs as it did: a dialog costs a wait, and a wrong
-// folder costs the session its memory.
+// Claude Code keys its memory by the top of the git repository, so every bot of
+// a bots repo would share one folder, and the notes of one bot would load in
+// every bot. So the kit names a folder in each bot's own folder on the launch
+// line, by its physical path: a memory write to a path named as it lands opens
+// no dialog (#722, tech notes, section 2). The kit makes the folder with a
+// `.gitignore` of `*`, because a note can hold the user's words, and a push
+// would publish it. It writes that file only when it makes the folder, so a
+// user who deletes it keeps the notes in git.
+//
+// Whenever the answer is not sure, there is no answer, and the session runs on
+// Claude Code's own default.
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, lstatSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, rmdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import path from 'node:path';
 
 import { slug } from './conversations.js';
 import { selectedClaudeProfile } from './orca.js';
 
-/** The longest slug Claude Code uses as it is. Past this it adds a hash of its own. */
-const LONGEST_SLUG = 200;
+/** The folder's name in the bot folder. Not `memory`: a bot may keep a `memory.md` of its own there, and a disk that ignores case takes it for `MEMORY.md`. */
+export const MEMORY_FOLDER = 'claude-memory';
+
+/** The index Claude Code keeps in a memory folder, and writes with the first note. */
+const INDEX = 'MEMORY.md';
 
 /**
- * The folder to name for a session of the bot at `home`, or undefined when the
- * kit should name none: no profile is routed, its `projects` is no link, the
- * bot or the profile names a folder of its own, the project root is not sure,
- * or the slug is too long.
+ * The memory folder for a Claude session of the bot at `home`, read only:
+ * `{ folder }` to name; `{ blocked }`, the path, when a file or a link is
+ * there, so the session does not start; or `{}` when the bot, its
+ * repository or the user names a folder of their own, which is theirs and
+ * needs no word. It makes nothing; `memoryFolderAtStart` does.
  */
-export function physicalMemoryFolder(home) {
+export function memoryFolderFor(home) {
+  let bot;
+  try {
+    bot = realpathSync(home);
+  } catch {
+    return {};
+  }
+  // Claude Code reads a project's local settings from the top of its repository
+  // as well as from the bot's folder, and the user's from the profile Orca
+  // routes the tab to, or from the user's own folder with none.
   const profile = selectedClaudeProfile();
-  if (profile === undefined) return undefined;
-  const projects = linkedFolder(path.join(profile, 'projects'));
-  if (projects === undefined) return undefined;
   const root = projectRoot(home);
-  if (root === undefined) return undefined;
-  // Claude Code reads a project's local settings from the top of its repository as well as from the bot's folder.
   const named = [
     path.join(home, '.claude', 'settings.json'),
     path.join(home, '.claude', 'settings.local.json'),
-    path.join(root, '.claude', 'settings.local.json'),
-    path.join(profile, 'settings.json'),
+    ...(root === undefined ? [] : [path.join(root, '.claude', 'settings.local.json')]),
+    profile === undefined ? path.join(homedir(), '.claude', 'settings.json') : path.join(profile, 'settings.json'),
   ];
-  if (named.some(namesMemoryFolder)) return undefined;
-  // Claude Code holds its project root in NFC, whatever form the disk has.
-  const name = slug(root.normalize('NFC'));
-  return name.length > LONGEST_SLUG ? undefined : path.join(projects, name, 'memory');
+  if (named.some(namesMemoryFolder)) return {};
+  const folder = path.join(bot, MEMORY_FOLDER);
+  // A link could lead out of the bot folder, and a file is no folder.
+  const there = lstatSync(folder, { throwIfNoEntry: false });
+  return there !== undefined && !there.isDirectory() ? { blocked: folder } : { folder };
 }
 
-/** The real path of the folder the link `entry` leads to, or undefined when it is not such a link. */
-function linkedFolder(entry) {
+/** The folder to name for a Claude session of the bot at `home`, or undefined when the kit names none. */
+export const physicalMemoryFolder = (home) => memoryFolderFor(home).folder;
+
+/**
+ * The memory folder for a Claude session of the bot at `home`, made with its
+ * `.gitignore` when nothing is there yet: what `memoryFolderFor` says, or
+ * `{ failed, code }` when the kit could not make it, so the session does not
+ * start. A folder that is there is left as it is.
+ */
+export function memoryFolderAtStart(home) {
+  const found = memoryFolderFor(home);
+  const { folder } = found;
+  if (folder === undefined || existsSync(folder)) return found;
+  // mkdir refuses a folder that someone else made in the meantime, so the kit
+  // writes the ignore file only into a folder it made itself.
   try {
-    if (!lstatSync(entry).isSymbolicLink()) return undefined;
-    return statSync(entry).isDirectory() ? realpathSync(entry) : undefined;
+    mkdirSync(folder);
+  } catch (error) {
+    return { failed: folder, code: error.code };
+  }
+  const ignore = path.join(folder, '.gitignore');
+  let opened;
+  try {
+    // Opened here with wx, so the kit knows the file is its own: one that
+    // another process made in the meantime refuses the open.
+    opened = openSync(ignore, 'wx');
+    writeFileSync(opened, '*\n');
+    closeSync(opened);
+    return found;
+  } catch (error) {
+    // A folder the kit made stays only with its ignore file (reviews of PR
+    // #762). The kit takes back only its own ignore file, a write of which
+    // may have failed after the open, and then the folder, which rmdir takes
+    // only while it is empty, so no note goes.
+    if (opened !== undefined) {
+      try {
+        closeSync(opened);
+      } catch {
+        // Closed already, or not closable: the file is unlinked all the same.
+      }
+      try {
+        unlinkSync(ignore);
+      } catch {
+        // Then rmdir below fails too, and the folder is named nowhere.
+      }
+    }
+    try {
+      rmdirSync(folder);
+    } catch {
+      // Something was written into it at once; it is left, and named nowhere.
+    }
+    return { failed: folder, code: error.code };
+  }
+}
+
+/**
+ * Why the kit does not start a Claude session at this start, in words for the
+ * report, from what `memoryFolderAtStart` gave: a file or a link is where the
+ * bot's folder goes, or the kit could not make it. Undefined when the session
+ * may start: it got its folder, or a folder named by hand is the reason it got
+ * none. Without its own folder, a session writes its notes to the folder that
+ * the bots shared, and R1 lets the kit name no folder only for the user's own
+ * choice (#752, ADR 0056).
+ */
+export function memoryRefusal(made) {
+  const why = 'Without its bot\'s own memory folder, a Claude Code session writes its notes to the folder that the bots shared.';
+  const own = 'or name a memory folder of your own with autoMemoryDirectory, then start it again.';
+  if (made.blocked !== undefined) return `${made.blocked} is a file or a link, not a folder. ${why} Remove the file or the link, ${own}`;
+  if (made.failed !== undefined) return `the kit could not make ${made.failed} with its .gitignore (${made.code ?? 'unknown error'}). ${why} Repair the folder, ${own}`;
+  return undefined;
+}
+
+/**
+ * The notes the bots shared before #752, when the bot at `home` has none of its
+ * own yet: `{ own, shared }`, or undefined. The shared folder is Claude Code's
+ * default from before: under the real projects folder, the `memory` folder of
+ * the first folder above the bot folder, nearest first, whose index exists.
+ * Read only.
+ */
+export function sharedNotes(home) {
+  const own = physicalMemoryFolder(home);
+  if (own === undefined || existsSync(path.join(own, INDEX))) return undefined;
+  const projects = projectsFolder();
+  if (projects === undefined) return undefined;
+  for (let at = path.dirname(path.dirname(own)); ; at = path.dirname(at)) {
+    const shared = path.join(projects, slug(at.normalize('NFC')), 'memory');
+    if (isFile(path.join(shared, INDEX))) return { own, shared };
+    if (path.dirname(at) === at) return undefined;
+  }
+}
+
+/** The real path of the projects folder Claude Code used: the selected profile's, or the user's own with none. */
+function projectsFolder() {
+  const profile = selectedClaudeProfile();
+  const entry = profile === undefined ? path.join(homedir(), '.claude', 'projects') : path.join(profile, 'projects');
+  try {
+    return realpathSync(entry);
   } catch {
     return undefined;
+  }
+}
+
+function isFile(file) {
+  try {
+    return statSync(file).isFile();
+  } catch {
+    return false;
   }
 }
 
@@ -75,10 +189,10 @@ function namesMemoryFolder(file) {
 }
 
 /**
- * The folder Claude Code keys memory by: the top of the git repository that
- * holds `home`, the main repository's for a linked worktree, since every
- * worktree of a repository shares one memory (tech notes, section 2). With no
- * repository, it is `home` itself. Undefined when the kit is not sure: a `.git`
+ * The project root whose `.claude/settings.local.json` Claude Code reads: the
+ * top of the git repository that holds `home`, the main repository's for a
+ * linked worktree (tech notes, section 2). With no repository, it is `home`
+ * itself. Undefined when the kit is not sure: a `.git`
  * is on the way and git cannot say what it is, a linked worktree's shared git
  * folder is not named `.git`, or the `.git` at the top is a link.
  */
