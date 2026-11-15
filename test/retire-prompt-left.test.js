@@ -34,6 +34,7 @@ import {
   createSandbox,
   recordSession,
   sessionIn,
+  sessionStart,
   tabsOfBot,
 } from './helpers/cli.js';
 import { botYamlOf } from './helpers/skills.js';
@@ -238,7 +239,10 @@ async function botRunning(box) {
   const bots = await madeBot(box, [['daily', '--prompt', LONG_DUTY], ['review', '--prompt', LONG_DUTY]]);
   await up(box);
   const daily = await liveTab(box, bots, 'api-bot', 'daily');
-  await recordSession(box, { bots, bot: 'api-bot', tab: daily.tabId, session: 'sess-daily' });
+  // A start's input names the model, as Claude Code's does (2.1.325); with
+  // none on the line either, the start would be no source (#769).
+  const start = { ...JSON.parse(sessionStart({ session: 'sess-daily' })), model: 'claude-test-model-1' };
+  await recordSession(box, { bots, bot: 'api-bot', tab: daily.tabId, stdin: `${JSON.stringify(start)}\n` });
   const [setup] = (await box.orca.setups()).filter((one) => one.path === botHomeOf(bots, 'api-bot'));
   assert.ok(setup, 'up should have made the bot an Orca project');
   const prompts = [promptOf(bots, 'daily'), promptOf(bots, 'review')].sort();
