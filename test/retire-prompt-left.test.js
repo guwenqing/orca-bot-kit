@@ -11,11 +11,16 @@
 // When nothing was left, there is no `promptsLeft` and no word about it. A
 // prompt file that is not there is nothing to remove, not a file left.
 //
+// Retiring a whole bot also removes the bot's appended system text file,
+// `<bots>.prompts/<bot>/system-<sum>.md` (#768). One it cannot remove is named
+// in `promptsLeft` the same way, because the user must remove it by hand (the
+// architect's ruling on #776).
+//
 // A file cannot be removed when its folder cannot be written: here the bot's
 // prompts folder is made read-only for the run and given its mode back after.
 
 import assert from 'node:assert/strict';
-import { chmod, readFile, stat } from 'node:fs/promises';
+import { chmod, readdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 import { parse } from 'yaml';
@@ -217,7 +222,12 @@ test('PL6 a session with no prompt file retires with nothing left, even when the
 
 // ------------------------------------------------------------ retiring a bot
 
-/** api-bot with daily and review, both on a long duty so both have a prompt file, up. */
+/**
+ * api-bot with daily and review, both on a long duty so both have a prompt
+ * file, up. `system` is the bot's appended system text file (#768), the one
+ * `system-<sum>.md` the bring-up left in its prompts folder; `left` is every
+ * file a locked retire of the bot leaves, by full path, in name order.
+ */
 async function botRunning(box) {
   const bots = await madeBot(box, [['daily', '--prompt', LONG_DUTY], ['review', '--prompt', LONG_DUTY]]);
   await up(box);
@@ -227,12 +237,15 @@ async function botRunning(box) {
   assert.ok(setup, 'up should have made the bot an Orca project');
   const prompts = [promptOf(bots, 'daily'), promptOf(bots, 'review')].sort();
   for (const prompt of prompts) assert.ok(await exists(prompt), `bringing the bot up should have left ${prompt}`);
-  return { bots, setup, prompts, retired: path.join(bots, 'retired', 'api-bot') };
+  const systems = (await readdir(promptsOf(bots))).filter((name) => /^system-[0-9a-f]+\.md$/.test(name));
+  assert.equal(systems.length, 1, `bringing a Claude Code bot up should have left one system-<sum>.md in ${promptsOf(bots)}, got: ${JSON.stringify(systems)}`);
+  const system = path.join(promptsOf(bots), systems[0]);
+  return { bots, setup, prompts, system, left: [...prompts, system].sort(), retired: path.join(bots, 'retired', 'api-bot') };
 }
 
 test('PL7 a bot whose prompt files cannot be removed is still retired in full, and the run ends in 0', { skip: NEEDS_A_USER }, async (t) => {
   const box = await createSandbox(t);
-  const { bots, setup, prompts, retired } = await botRunning(box);
+  const { bots, setup, left, retired } = await botRunning(box);
 
   const result = await retireLocked(box, bots, '--bot', 'api-bot');
 
@@ -245,25 +258,25 @@ test('PL7 a bot whose prompt files cannot be removed is still retired in full, a
     stringsIn(parse(await readFile(path.join(retired, 'sessions.yaml'), 'utf8'))).includes('sess-daily'),
     'with its book, which still knows the conversation',
   );
-  for (const prompt of prompts) assert.ok(await exists(prompt), `${prompt} could not be removed, so it is still there`);
+  for (const file of left) assert.ok(await exists(file), `${file} could not be removed, so it is still there`);
 });
 
-test('PL8 the text names every prompt file the bot\'s retirement left, each with a command that removes it', { skip: NEEDS_A_USER }, async (t) => {
+test('PL8 the text names every prompt file the bot\'s retirement left, its system file included, each with a command that removes it', { skip: NEEDS_A_USER }, async (t) => {
   const box = await createSandbox(t);
-  const { bots, prompts } = await botRunning(box);
+  const { bots, left } = await botRunning(box);
 
   const result = await retireLocked(box, bots, '--bot', 'api-bot');
 
   assert.equal(result.code, 0, saidBy(result));
-  for (const prompt of prompts) {
-    assert.ok(removeLineFor(result, prompt), `a line should name ${prompt} with a command that removes it, got:\n${saidBy(result)}`);
+  for (const file of left) {
+    assert.ok(removeLineFor(result, file), `a line should name ${file} with a command that removes it, got:\n${saidBy(result)}`);
   }
   assert.match(saidBy(result), DENIED, `and say why they could not be removed, got:\n${saidBy(result)}`);
 });
 
-test('PL9 --json: every prompt file the bot\'s retirement left is in promptsLeft, and the move is named', { skip: NEEDS_A_USER }, async (t) => {
+test('PL9 --json: every prompt file the bot\'s retirement left, its system file included, is in promptsLeft, and the move is named', { skip: NEEDS_A_USER }, async (t) => {
   const box = await createSandbox(t);
-  const { bots, prompts, retired } = await botRunning(box);
+  const { bots, left, retired } = await botRunning(box);
 
   const result = await retireLocked(box, bots, '--bot', 'api-bot', '--json');
 
@@ -271,37 +284,37 @@ test('PL9 --json: every prompt file the bot\'s retirement left is in promptsLeft
   const answer = answerIn(result);
   assert.equal(answer.moved, retired, `the bot was moved, got: ${JSON.stringify(answer)}`);
   assert.ok(Array.isArray(answer.promptsLeft), `the answer should carry promptsLeft, got: ${JSON.stringify(answer)}`);
-  assert.deepEqual(answer.promptsLeft.map((one) => one.file).sort(), prompts);
+  assert.deepEqual(answer.promptsLeft.map((one) => one.file).sort(), left);
   for (const { reason } of answer.promptsLeft) {
     assert.equal(typeof reason, 'string');
     assert.match(reason, DENIED, `the reason is the error's message, got: ${reason}`);
   }
 });
 
-test('PL10 a bot whose prompt files can all be removed has them removed, and --json carries no promptsLeft', async (t) => {
+test('PL10 a bot whose prompt files can all be removed has them removed, its system file included, and --json carries no promptsLeft', async (t) => {
   const box = await createSandbox(t);
-  const { bots, prompts, retired } = await botRunning(box);
+  const { bots, left, retired } = await botRunning(box);
 
   const result = await retire(box, '--bot', 'api-bot', '--json');
 
   assert.equal(result.code, 0, saidBy(result));
-  for (const prompt of prompts) assert.equal(await exists(prompt), false, `${prompt} should be gone`);
+  for (const file of left) assert.equal(await exists(file), false, `${file} should be gone`);
   const answer = answerIn(result);
   assert.equal(answer.moved, retired, `the bot was moved, got: ${JSON.stringify(answer)}`);
   assert.equal('promptsLeft' in answer, false, `nothing was left, got: ${JSON.stringify(answer)}`);
   assert.equal(await exists(botHomeOf(bots, 'api-bot')), false);
 });
 
-test('PL11 a bot whose prompt files can all be removed gets no line telling the user to remove one', async (t) => {
+test('PL11 a bot whose prompt files can all be removed gets no line telling the user to remove one, its system file included', async (t) => {
   const box = await createSandbox(t);
-  const { prompts } = await botRunning(box);
+  const { left } = await botRunning(box);
 
   const result = await retire(box, '--bot', 'api-bot');
 
   assert.equal(result.code, 0, saidBy(result));
-  for (const prompt of prompts) {
-    assert.equal(await exists(prompt), false, `${prompt} should be gone`);
-    assert.equal(removeLineFor(result, prompt), undefined, `nothing to remove by hand, got:\n${saidBy(result)}`);
+  for (const file of left) {
+    assert.equal(await exists(file), false, `${file} should be gone`);
+    assert.equal(removeLineFor(result, file), undefined, `nothing to remove by hand, got:\n${saidBy(result)}`);
   }
   assert.doesNotMatch(saidBy(result), DENIED, `and no failure to report, got:\n${saidBy(result)}`);
 });
