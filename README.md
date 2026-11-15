@@ -256,6 +256,13 @@ session that is off is enabled (most often after Orca brought its tab back).
 Each connected session is an entry in your list at claude.ai/code. Entries of
 sessions that ended can stay there, offline, until you archive them there.
 
+The kit turns Remote Control on or off on the launch line, and reports what
+Claude Code's registry says. It does not test Remote Control itself, which is
+Claude Code's feature. So the kit's tests do not cover whether a session
+connects, what your list at claude.ai/code shows, or a prompt, a clear or a
+fork sent from another device. Its live test checks only that a Claude session
+starts from the kit's line, with Remote Control on and with it off.
+
 When you upgrade to this version, a running session stays as it is. At its
 next start by the kit (`up` of a closed tab, `restart`, `unpause`, `temp make`),
 a Claude session starts with Remote Control on, unless you set it off first. A
