@@ -606,6 +606,9 @@ describe('T4 the saved original', () => {
     assert.equal(await exists(sourceOf(bots, 'conv-old')), false, 'the note of another version is gone');
     assert.ok(await exists(sourceOf(bots, 'conv-night')), 'the note of the installed version stays');
     assert.ok(await exists(sourceOf(bots, 'conv-none')), 'a note with no record, under a week old, stays');
+    // The restart started daily fresh (conv-none has nothing to resume): its start, as the hook reports it.
+    await hook(box, bots, { session: 'conv-after', source: 'startup' });
+    await onRecord(box, bots, 'conv-after', []);
 
     const note = JSON.parse(await readFile(sourceOf(bots, 'conv-none'), 'utf8'));
     await writeFile(sourceOf(bots, 'conv-none'), `${JSON.stringify({ ...note, at: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString() })}\n`);
@@ -881,20 +884,26 @@ describe('T5 the fit', () => {
     });
   }
 
-  test('T5 an extra_args string that names --settings with a quote: no main file though a record was noted, and health says the kit cannot tell the settings file', async (t) => {
+  test('T5 an extra_args string that names --settings with a quote: no main file, not even from a record that fit before, and health says the kit cannot tell the settings file', async (t) => {
     const box = await createSandbox(t);
     const bots = await started(box);
+    const { text } = await appendedOf(await wordsOf(box, bots));
+    // A note and a record that fit the launch before the quote.
     await hook(box, bots, { session: 'conv-0', source: 'startup' });
-    await onRecord(box, bots, 'conv-0', []);
+    assert.ok(await exists(sourceOf(bots, 'conv-0')), 'the premise: the start before the quote is noted');
+    await onRecord(box, bots, 'conv-0', [[...SECTIONS, text]]);
     const file = path.join(box.root, 'own-settings', 'daily.json');
     await setIn(file, { outputStyle: 'Concise' });
     await handSet(bots, { extra_args: `--settings "${file}"` });
-    await restart(box);
-    await noteNow(box, bots, 'conv-1');
 
     await restart(box);
 
-    assertOwnText(await wordsOf(box, bots), 'a settings file the kit cannot tell');
+    assertOwnText(await wordsOf(box, bots), 'a settings file the kit cannot tell, at the first launch');
+    // A start and a record under the quoted launch.
+    await hook(box, bots, { session: 'conv-1', source: 'startup' });
+    await onRecord(box, bots, 'conv-1', [[...SECTIONS, text]]);
+    await restart(box);
+    assertOwnText(await wordsOf(box, bots), 'a settings file the kit cannot tell, after a start and a record');
     assert.deepEqual(await mainFiles(bots), []);
     const found = await findings(box);
     assert.ok(aboutSession(found, 'daily', 'settings file').length >= 1, `got: ${show(found)}`);
