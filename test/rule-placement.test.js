@@ -43,8 +43,9 @@
 //       no flag on it, on every source, its answer holds the main units, and
 //       health names the session. With the flag, no main unit. The flag is
 //       an option of the line: the same words in the prompt after `--` are
-//       prose, and the line is bare. The start prompt of a clear and a
-//       compaction stays.
+//       prose, and the line is bare; so are they inside another option's
+//       value before `--`. The start prompt of a clear and a compaction
+//       stays.
 //   P9. Older system text: the hook notes which appended file a session read;
 //       health and rules build name a session whose file is not the current
 //       one. A resume keeps what was noted.
@@ -969,6 +970,35 @@ describe('rule placement', { concurrency: 4 }, () => {
 
     assertHolds(without.context, units, `the premise: a line with no flag (${plain.join(' ')})`);
     assertHolds(withProse.context, units, `a line with no flag whose prompt names it in prose (${prose.join(' ')})`);
+  });
+
+  test('P8 a line with no flag whose --settings value names the flag is bare: the hook gives the main units, as for the line with that value worded otherwise', async (t) => {
+    const box = await createSandbox(t);
+    const bots = await fleet(box);
+    await up(box);
+    const tab = (await liveTab(box, bots, 'api-bot', 'daily')).tabId;
+    const launched = harnessWordsOf(await launchLineInTab(box, tab));
+    const flagAt = launched.indexOf(SYSTEM_FLAG);
+    assert.ok(flagAt > 0, `the premise: the kit's line has the flag, got: ${show(launched)}`);
+    // An older kit's line: no flag. A --settings of the user's own takes the
+    // place of the kit's, as a hand-written extra argument does.
+    const settingsAt = launched.indexOf('--settings');
+    const options = launched.filter((word, at) => at !== flagAt && at !== flagAt + 1
+      && (settingsAt < 0 || (at !== settingsAt && at !== settingsAt + 1)));
+    const end = options.indexOf('--');
+    const head = end < 0 ? options : options.slice(0, end);
+    const tail = end < 0 ? [] : options.slice(end);
+    const withNote = (note) => [...head, '--settings', JSON.stringify({ env: { DOC_NOTE: note } }), ...tail];
+    const plain = withNote('Use the listed option for the next run');
+    const named = withNote(`Use ${SYSTEM_FLAG} for the next run`);
+    const { main } = await placed();
+    const units = await bodiesIn(bots, 'api-bot', main);
+
+    const without = await hook(box, { bots, tab, session: 'sess-A', source: 'startup', line: plain });
+    const withValue = await hook(box, { bots, tab, session: 'sess-B', source: 'startup', line: named });
+
+    assertHolds(without.context, units, `the premise: a line with no flag (${plain.join(' ')})`);
+    assertHolds(withValue.context, units, `a line with no flag whose --settings value names it (${named.join(' ')})`);
   });
 
   // ================================================================ P9
