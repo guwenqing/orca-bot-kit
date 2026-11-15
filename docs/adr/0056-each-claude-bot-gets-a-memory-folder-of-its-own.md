@@ -1,7 +1,7 @@
 # ADR 0056: Each Claude bot gets a memory folder of its own, in its bot folder
 
 Date: 2026-11-14.
-Status: accepted.
+Status: superseded by [ADR 0060](0060-each-claude-bot-gets-a-memory-folder-of-its-own-named-in-the-kits-one-settings.md).
 Decided by: the architect, on 2026-11-03, for the flag on the launch line and its one key (#722); the owner, on 2026-11-14, for the folder inside the bot's own folder (#752); the architect, on 2026-11-14, for the folder's name, the ignore file, the notice of `obk health`, and the refused start when the kit cannot give the folder (#752); the owner, for requirement R1 of `requests/archive/own-memory-folder/`. The architect or the owner may overrule.
 Supersedes: [ADR 0054](0054-the-kits-launch-line-names-the-physical-memory-folder.md).
 

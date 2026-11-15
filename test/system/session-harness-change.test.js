@@ -73,6 +73,7 @@ import { codexTrustArgs } from '../helpers/codex-trust.js';
 import { onlyTeachFormOf, waitingOn } from '../helpers/screens.js';
 import { claudeTrustAt, trustScreenMet } from '../helpers/claude-trust.js';
 import { tabGuard } from '../helpers/tab-guard.js';
+import { withBotFatherOff } from '../helpers/remote-control-off.js';
 import { autoModeState, sessionRecordFiles } from '../helpers/teach-record.js';
 import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
@@ -301,7 +302,7 @@ test('Bot Father daily moves from Claude Code to Codex: session change --harness
 
   // ---------------------------------------------------------------------------
   // 1. Bot Father daily on Claude Code, with one turn on its record.
-  const daily = tabOf(obkJson(['init', '--bots', bots, '--harness', 'claude']), 'daily');
+  const daily = tabOf(obkJson(withBotFatherOff(['init', '--bots', bots, '--harness', 'claude'])), 'daily');
   assert.equal(daily.harnessStarted, true, `no claude came up in ${daily.title}: \`orca terminal read --terminal ${daily.terminal} --screen\``);
   const handle = daily.terminal;
 
@@ -382,6 +383,13 @@ test('Bot Father daily moves from Claude Code to Codex: session change --harness
 
   // ---------------------------------------------------------------------------
   // 2. The move. It writes bot.yaml only: the tab and the book are as they were.
+  //    Bot Father daily was set Remote Control off for this test's own sake
+  //    (helpers/remote-control-off.js), and the kit refuses that setting on a
+  //    Codex session (#755). So it is taken out first, while daily is still on
+  //    Claude Code. That too writes bot.yaml only, and restarts nothing.
+  const unset = obk(['session', 'change', '--bots', bots, '--bot', 'bot-father', '--session', 'daily', '--remote-control=']);
+  assert.equal(unset.status, 0, `session change --remote-control= should go through: ${unset.stdout}${unset.stderr}`);
+  assert.equal('remote_control' in entryIn(home, 'daily'), false, `bot.yaml should give daily no remote_control, got: ${JSON.stringify(entryIn(home, 'daily'))}`);
   const tabsBefore = terminalsAt(home).map((terminal) => terminal.handle).sort();
   const changed = obk([
     'session', 'change', '--bots', bots, '--bot', 'bot-father', '--session', 'daily', '--harness', 'codex',

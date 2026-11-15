@@ -96,6 +96,7 @@ import { addressPattern, cliEntry } from '../helpers/cli.js';
 import { waitingOn } from '../helpers/screens.js';
 import { claudeTrustAt, trustScreenMet } from '../helpers/claude-trust.js';
 import { tabGuard } from '../helpers/tab-guard.js';
+import { RC_OFF, withBotFatherOff } from '../helpers/remote-control-off.js';
 import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
 
@@ -443,15 +444,15 @@ test('a Claude session\'s native message to a session of another bots folder is 
   };
 
   // Fleet B: the receiver, live before anything is sent to it.
-  obkJson(['init', '--bots', botsB, '--harness', 'claude']);
+  obkJson(withBotFatherOff(['init', '--bots', botsB, '--harness', 'claude']));
   obkJson(['bot', 'create', '--bots', botsB, '--name', 'receiver', '--harness', 'claude', '--charter', 'Receiver exists for one system test run and owns nothing.']);
-  obkJson(['session', 'add', '--bots', botsB, '--bot', 'receiver', '--name', 'daily', `--prompt=${QUIET}`]);
+  obkJson(['session', 'add', '--bots', botsB, '--bot', 'receiver', '--name', 'daily', `--prompt=${QUIET}`, ...RC_OFF]);
   const outside = (await live(botsB, receiver, 'receiver', 'daily')).address;
 
   // Fleet A: the peer first, live before the sender is told to write to it.
-  obkJson(['init', '--bots', botsA, '--harness', 'claude']);
+  obkJson(withBotFatherOff(['init', '--bots', botsA, '--harness', 'claude']));
   obkJson(['bot', 'create', '--bots', botsA, '--name', 'sender', '--harness', 'claude', '--charter', 'Sender exists for one system test run and owns nothing.']);
-  obkJson(['session', 'add', '--bots', botsA, '--bot', 'sender', '--name', 'peer', `--prompt=${QUIET}`]);
+  obkJson(['session', 'add', '--bots', botsA, '--bot', 'sender', '--name', 'peer', `--prompt=${QUIET}`, ...RC_OFF]);
   const inside = (await live(botsA, sender, 'sender', 'peer')).address;
 
   // The premise: B's address is in none of fleet A's books, and A's peer's is.
@@ -459,7 +460,7 @@ test('a Claude session\'s native message to a session of another bots folder is 
   assert.ok(addressesIn(botsA).includes(inside), `${inside} is fleet A's own`);
 
   // The sender, whose start prompt holds the two messages and nothing else.
-  obkJson(['session', 'add', '--bots', botsA, '--bot', 'sender', '--name', 'daily', `--prompt=${senderPrompt({ inside, outside })}`]);
+  obkJson(['session', 'add', '--bots', botsA, '--bot', 'sender', '--name', 'daily', `--prompt=${senderPrompt({ inside, outside })}`, ...RC_OFF]);
   const lines = () => linesOf(sender, sessionIn(sender, 'daily').session);
 
   // Everything from the sender's start to the warning, kept so the

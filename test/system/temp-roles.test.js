@@ -90,6 +90,7 @@ import { rolloutFilesOf, turnSettingsIn } from '../helpers/codex-rollout.js';
 import { questionOn } from '../helpers/screens.js';
 import { claudeTrustAt, trustScreenMet } from '../helpers/claude-trust.js';
 import { tabGuard } from '../helpers/tab-guard.js';
+import { RC_OFF, withBotFatherOff } from '../helpers/remote-control-off.js';
 import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
 
@@ -342,12 +343,12 @@ test('temporary sessions made from a Claude role and a Codex role run on the mod
   // 1. The fleet: Bot Father, and role-bot on Claude Code with one long-lived
   // session, lead, and the two roles written into its bot.yaml by hand, as the
   // user would.
-  obkJson(['init', '--bots', bots, '--harness', 'claude']);
+  obkJson(withBotFatherOff(['init', '--bots', bots, '--harness', 'claude']));
   obkJson([
     'bot', 'create', '--bots', bots, '--name', BOT, '--harness', 'claude',
     '--charter', `${BOT} exists for one system test run and owns nothing.`,
   ]);
-  obkJson(['session', 'add', '--bots', bots, '--bot', BOT, '--name', LEAD, '--prompt', 'You are a system test\'s session and you own nothing. Say nothing and wait.']);
+  obkJson(['session', 'add', '--bots', bots, '--bot', BOT, '--name', LEAD, '--prompt', 'You are a system test\'s session and you own nothing. Say nothing and wait.', ...RC_OFF]);
   const leadTab = openedIn(obkJson(['up', '--bots', bots, '--bot', BOT]), 'up');
   const lead = { tabId: sessionIn(home, LEAD).tab, handle: leadTab.terminal };
   assert.equal(typeof lead.tabId, 'string', `the premise: the book holds lead's tab, got: ${JSON.stringify(sessionIn(home, LEAD))}`);
@@ -361,7 +362,7 @@ test('temporary sessions made from a Claude role and a Codex role run on the mod
 
   // ---------------------------------------------------------------------------
   // 2a. lead makes developer-1 from the Claude role, naming no model or effort.
-  const devMade = obkJson(['temp', 'make', '--bots', bots, '--role', 'developer', '--name', '1', '--prompt', TASK], inTab(lead));
+  const devMade = obkJson(['temp', 'make', '--bots', bots, '--role', 'developer', '--name', '1', '--prompt', TASK, ...RC_OFF], inTab(lead));
   assert.equal(devMade.session, DEVELOPER, `--role developer --name 1 makes ${DEVELOPER}: ${JSON.stringify(devMade)}`);
   assert.equal(devMade.maker, LEAD, `${DEVELOPER} is lead's: ${JSON.stringify(devMade)}`);
   const developer = { handle: openedIn(devMade, `temp make of ${DEVELOPER}`).terminal };

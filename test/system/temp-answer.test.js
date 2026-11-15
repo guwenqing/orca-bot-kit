@@ -109,6 +109,7 @@ import {
 } from '../helpers/screens.js';
 import { claudeTrustAt, trustScreenMet } from '../helpers/claude-trust.js';
 import { tabGuard } from '../helpers/tab-guard.js';
+import { RC_OFF, withBotFatherOff } from '../helpers/remote-control-off.js';
 import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
 
@@ -562,12 +563,12 @@ test('a maker answers its Claude temporary session\'s Teach auto mode form with 
   // ---------------------------------------------------------------------------
   // 1. The fleet: Bot Father, and answer-bot on Claude Code with one
   // long-lived session, lead, brought up.
-  obkJson(['init', '--bots', bots, '--harness', 'claude']);
+  obkJson(withBotFatherOff(['init', '--bots', bots, '--harness', 'claude']));
   obkJson([
     'bot', 'create', '--bots', bots, '--name', BOT, '--harness', 'claude',
     '--charter', `${BOT} exists for one system test run and owns nothing.`,
   ]);
-  obkJson(['session', 'add', '--bots', bots, '--bot', BOT, '--name', LEAD, '--prompt', 'You are a system test\'s session and you own nothing. Say nothing and wait.']);
+  obkJson(['session', 'add', '--bots', bots, '--bot', BOT, '--name', LEAD, '--prompt', 'You are a system test\'s session and you own nothing. Say nothing and wait.', ...RC_OFF]);
   const leadTab = openedIn(obkJson(['up', '--bots', bots, '--bot', BOT]), 'up');
   const lead = { tabId: sessionIn(home, LEAD).tab, handle: leadTab.terminal };
   assert.equal(typeof lead.tabId, 'string', `the premise: the book holds lead's tab, got: ${JSON.stringify(sessionIn(home, LEAD))}`);
@@ -582,7 +583,7 @@ test('a maker answers its Claude temporary session\'s Teach auto mode form with 
   // ---------------------------------------------------------------------------
   // 2. lead makes helper, a Claude temporary session with one short turn to
   // take, at `ask`, out of auto mode, where the Teach form does not come.
-  const made = obkJson(['temp', 'make', '--bots', bots, '--name', HELPER, '--approval', 'ask', '--prompt', TASK], inTab(lead));
+  const made = obkJson(['temp', 'make', '--bots', bots, '--name', HELPER, '--approval', 'ask', '--prompt', TASK, ...RC_OFF], inTab(lead));
   assert.equal(made.session, HELPER, `temp make makes ${HELPER}: ${JSON.stringify(made)}`);
   assert.equal(made.maker, LEAD, `${HELPER} is lead's: ${JSON.stringify(made)}`);
   const handle = openedIn(made, `temp make of ${HELPER}`).terminal;

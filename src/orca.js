@@ -1,4 +1,4 @@
-// Every call the kit makes to Orca goes through here (ADR 0046). Orca's CLI
+// Every call the kit makes to Orca goes through here (ADR 0057). Orca's CLI
 // changes often, so the kit reads `--json` and never the human text, and keeps
 // the parsing in one place.
 //
@@ -149,6 +149,21 @@ export function findProject(home) {
 export const profilesDir = () => path.join(orcaData(), 'profiles');
 
 const orcaData = () => process.env.OBK_ORCA_DATA || path.join(homedir(), 'Library', 'Application Support', 'orca');
+
+/**
+ * The homes of every Claude profile Orca keeps, `claude-profiles/*\/home`: a
+ * tab can run under a profile that is not the caller's (tech notes, section 2).
+ */
+export function claudeProfileHomes() {
+  const dir = path.join(orcaData(), 'claude-profiles');
+  let names;
+  try {
+    names = readdirSync(dir, { withFileTypes: true }).filter((one) => one.isDirectory()).map((one) => one.name).sort();
+  } catch {
+    return [];
+  }
+  return names.map((name) => path.join(dir, name, 'home'));
+}
 
 /**
  * The home of the Claude profile Orca routes a new Claude tab to, or undefined
@@ -407,7 +422,7 @@ const CLIENT_KILL_MS = 3000;
  *
  * Orca's window re-reads only when its runtime says the projects changed, and
  * `setup-update` and `setup-delete` do not say so. `project.update` with no
- * changes does, and Orca's CLI does not offer it (ADR 0046). The caller prints
+ * changes does, and Orca's CLI does not offer it (ADR 0057). The caller prints
  * `RELOAD_LINE` either way. It does not take a removed project out of the
  * sidebar: `reloadWindow` does.
  */
@@ -441,7 +456,7 @@ export function loadInWindow(home, options) {
  * runtime's answer, or undefined when there is none to be had.
  *
  * It goes through Orca's own runtime client out of the installed app, run by
- * Orca's binary the way its `bin/orca` runs its CLI (ADR 0046). None of that is
+ * Orca's binary the way its `bin/orca` runs its CLI (ADR 0057). None of that is
  * Orca's published interface, so anything that goes wrong is a quiet
  * undefined: it never throws and is never tried twice.
  */
@@ -478,7 +493,7 @@ const RELOAD_KILL_MS = 5000;
 
 /**
  * Have Orca's window force-reload itself, after a project was removed: true
- * only when it did (#343, ADR 0046).
+ * only when it did (#343, ADR 0057).
  *
  * The window keeps a removed project in its sidebar until it is rebuilt, and
  * `tellWindow` only relabels the row "Unknown" (stablyai/orca#23224; once a
@@ -721,7 +736,7 @@ const ON_A_CHOICE = /^( *[›❯] +)\d+\. /;
  * Whether the rows of a rendered screen hold a question of the harness's own.
  *
  * Every one seen is a numbered list of choices with the harness's pointer on
- * one (tech notes, section 1; ADR 0046). The same pointer starts the harness's
+ * one (tech notes, section 1; ADR 0057). The same pointer starts the harness's
  * input line and its echo of the user's past turns, and the input line is the
  * lowest of them whenever it is on screen, so the lowest pointer row is asked
  * about: a question counts while it stands in the input line's place, or
@@ -935,7 +950,7 @@ export const PS = '/bin/ps';
  *
  * `ps` is asked first. Where it cannot read the tab, as inside Codex's
  * sandbox, where it does not start at all, Orca's runtime is asked instead
- * (#298, ADR 0046). `readMs` bounds each call: a number, or a function that
+ * (#298, ADR 0057). `readMs` bounds each call: a number, or a function that
  * says what is left of a wait, asked before each one (#498). A `ps` that runs
  * out of it ends the look, `late`, with no runtime asked after it.
  */
@@ -975,7 +990,7 @@ function frontByOrca(handle, readMs) {
  * Who holds the terminal of the pane `ptyId`, as `ps` says it.
  *
  * Orca gives the pane's pid in `diagnostics memory` and nowhere else, and `ps`
- * gives that pid's terminal's foreground process group (ADR 0046).
+ * gives that pid's terminal's foreground process group (ADR 0057).
  * On macOS the pane is `login` with the shell as its child, so the shell is in
  * front when the group is the pane's own or that of a child of a `login` pane.
  * `diagnostics memory` is a diagnostics command and may change, so everything
@@ -1129,6 +1144,25 @@ function ttyMode(pid, left) {
   // A line editor also turns off the literal-next key, which a question read
   // with echo off (`read -s -k 1`) leaves on, as Orca's own test has it.
   return { lineEditor: !icanon && !echo && /(?:^|[;\s])lnext\s*=\s*<undef>(?:;|\s|$)/.test(read.stdout) };
+}
+
+/**
+ * When the process `pid` started, in whole seconds since the epoch, or
+ * undefined when it cannot be read. It is now less the time the process has
+ * run, as `ps -o etime=` prints it, `[[dd-]hh:]mm:ss`: digits only, the same
+ * in every locale and time zone, so the child needs no environment of its own
+ * (`lstart` follows the locale). Both sides truncate to the second, so the
+ * value can be up to two seconds after the true start. A pid with its start
+ * time is one process: the system gives a pid out again, never with the same
+ * start time.
+ */
+export function startOfProcess(pid) {
+  const asked = spawnSync(PS, ['-o', 'etime=', '-p', String(pid)], { encoding: 'utf8' });
+  if (asked.error || asked.status !== 0) return undefined;
+  const ran = /^\s*(?:(?:(\d+)-)?(\d+):)?(\d+):(\d+)\s*$/.exec(asked.stdout);
+  if (ran === null) return undefined;
+  const [days, hours, minutes, seconds] = ran.slice(1).map((part) => Number(part ?? 0));
+  return Math.floor(Date.now() / 1000) - (((days * 24 + hours) * 60 + minutes) * 60 + seconds);
 }
 
 /**

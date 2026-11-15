@@ -209,6 +209,7 @@ import { assertSameRules, codexDefaultLines, codexDefaultRules, defaultRules, is
 import { questionOn } from '../helpers/screens.js';
 import { inboxLetters } from '../helpers/inbox.js';
 import { tabGuard } from '../helpers/tab-guard.js';
+import { RC_OFF, withBotFatherOff } from '../helpers/remote-control-off.js';
 import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
 
 /**
@@ -1268,7 +1269,7 @@ for (const harness of HARNESSES) {
       assert.deepEqual(failedDeletes, [], 'projects this test could not remove, left in Orca');
     });
 
-    obkJson(['init', '--bots', bots, '--harness', 'claude']);
+    obkJson(withBotFatherOff(['init', '--bots', bots, '--harness', 'claude']));
     obkJson([
       'bot', 'create', '--bots', bots, '--name', PEN_PAL.name, '--harness', 'codex',
       '--charter', `${PEN_PAL.display} exists for one system test run and owns nothing.`,
@@ -1316,6 +1317,7 @@ for (const harness of HARNESSES) {
     obkJson([
       'session', 'add', '--bots', bots, '--bot', harness.bot, '--name', 'daily', `--prompt=${botPrompt(kit, harness)}`,
       ...harness.sessionArgs, ...(harness.name === 'codex' ? codexTrustArgs(bots) : []),
+      ...(harness.name === 'claude' ? RC_OFF : []),
     ]);
 
     // 3. Up: the pen pal first, whose mailbox the reply goes to, then the bot.

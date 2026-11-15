@@ -104,6 +104,7 @@ import { codexTrustArgs } from '../helpers/codex-trust.js';
 import { rolloutFilesOf, sleepCallsIn } from '../helpers/codex-rollout.js';
 import { waitingOn } from '../helpers/screens.js';
 import { tabGuard } from '../helpers/tab-guard.js';
+import { withBotFatherOff } from '../helpers/remote-control-off.js';
 import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
 
@@ -329,7 +330,7 @@ test('a GPT-6 Codex bot told to wait sleeps in its turn; a notice to it is obser
     assert.deepEqual(failedDeletes, [], 'projects this test could not remove, left in Orca');
   });
 
-  obkJson(['init', '--bots', bots, '--harness', 'claude']);
+  obkJson(withBotFatherOff(['init', '--bots', bots, '--harness', 'claude']));
   for (const bot of [SLEEPER, AWAKE]) {
     obkJson([
       'bot', 'create', '--bots', bots, '--name', bot.name, '--harness', 'codex',

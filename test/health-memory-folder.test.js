@@ -4,7 +4,7 @@
 //
 // Since #752 the kit names one memory folder for each Claude bot on its launch
 // line: `<real bot folder>/claude-memory` (test/memory-folder-flag.test.js holds
-// that, and when the kit names none; ADR 0056). Before #752 every bot of a bots
+// that, and when the kit names none; ADR 0060). Before #752 every bot of a bots
 // repo used Claude Code's default, the folder of the repository's top under
 // `projects`. The kit moves no note. So at the upgrade a bot starts with an
 // empty folder, and its old notes stay in the shared one. `obk health` says so,
@@ -122,7 +122,7 @@ async function botIn(box, { bots = 'bots', name = BOT, harness = 'claude', sessi
 /**
  * Change sessions' `extra_args` in bot.yaml, the way a user editing that file
  * by hand does: `session add`, `session change` and `temp make` refuse
- * `--settings` (ADR 0049), so a user gets it there only by hand.
+ * `--settings` (ADR 0059), so a user gets it there only by hand.
  */
 async function handEdit(home, extras) {
   const file = path.join(home, 'bot.yaml');

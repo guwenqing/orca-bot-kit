@@ -78,6 +78,7 @@ import test from '../helpers/system.js';
 import { cliEntry } from '../helpers/cli.js';
 import { questionOn } from '../helpers/screens.js';
 import { tabGuard } from '../helpers/tab-guard.js';
+import { withBotFatherOff } from '../helpers/remote-control-off.js';
 import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
 
@@ -325,7 +326,7 @@ test('obk health knows a Pi session: its settings from Pi\'s record, an id Pi ha
     assert.deepEqual(failedDeletes, [], 'projects this test could not remove, left in Orca');
   });
 
-  obkJson(['init', '--bots', bots, '--harness', 'claude']);
+  obkJson(withBotFatherOff(['init', '--bots', bots, '--harness', 'claude']));
   obkJson(['bot', 'create', '--bots', bots, '--name', BOT, '--harness', 'pi', '--charter', 'Pi Health exists for one system test run and owns nothing.']);
   const prompt = 'You are a system test\'s bot and you own nothing. Run no command and read no file. Answer only: OK. Then wait.';
   obkJson(['session', 'add', '--bots', bots, '--bot', BOT, '--name', SESSION, '--model', PI_MODEL, '--effort', PI_THINKING, `--prompt=${prompt}`]);

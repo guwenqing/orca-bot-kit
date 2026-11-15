@@ -134,6 +134,7 @@ import { parse } from 'yaml';
 import { cliEntry } from '../helpers/cli.js';
 import { questionOn } from '../helpers/screens.js';
 import { tabGuard } from '../helpers/tab-guard.js';
+import { RC_OFF, withBotFatherOff } from '../helpers/remote-control-off.js';
 import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
 import { atNight, namedThisRun } from '../helpers/night-gate.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
@@ -527,12 +528,12 @@ test('a maker makes a temporary session on Pi, finds no first-run screen of Pi\'
   // long-lived session, lead, at the kit's default approval; the bot's
   // temporary sessions allowed dangerously-skip, by the kit's own command.
   gateStillOpen('obk init');
-  obkJson(['init', '--bots', bots, '--harness', 'claude']);
+  obkJson(withBotFatherOff(['init', '--bots', bots, '--harness', 'claude']));
   obkJson([
     'bot', 'create', '--bots', bots, '--name', BOT, '--harness', 'claude',
     '--charter', `${BOT} exists for one system test run and owns nothing.`,
   ]);
-  obkJson(['session', 'add', '--bots', bots, '--bot', BOT, '--name', LEAD, '--prompt', 'You are a system test\'s session and you own nothing. Say nothing and wait.']);
+  obkJson(['session', 'add', '--bots', bots, '--bot', BOT, '--name', LEAD, '--prompt', 'You are a system test\'s session and you own nothing. Say nothing and wait.', ...RC_OFF]);
   obkJson(['permission', 'approval', '--bots', bots, '--bot', BOT, '--temps', '--approval', 'dangerously-skip']);
   assert.equal(botYamlOf(home).temp_approval, 'dangerously-skip', `the premise: the bot's temporary sessions may run at dangerously-skip: ${JSON.stringify(botYamlOf(home))}`);
   gateStillOpen(`step 1, obk up of ${BOT}`);

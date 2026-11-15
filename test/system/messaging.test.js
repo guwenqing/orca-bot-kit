@@ -136,6 +136,7 @@ import { codexTrustArgs } from '../helpers/codex-trust.js';
 import { onlyTeachFormOf, questionOn, waitingOn } from '../helpers/screens.js';
 import { autoModeState, sessionRecordFiles } from '../helpers/teach-record.js';
 import { tabGuard } from '../helpers/tab-guard.js';
+import { RC_OFF, withBotFatherOff } from '../helpers/remote-control-off.js';
 import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
 
@@ -728,7 +729,7 @@ async function aFleet(t, label, promptFor) {
   // Registered before anything is created, so it runs however the test ends.
   cleanUpAfter(t, { before, bots, homes });
 
-  obkJson(['init', '--bots', bots, '--harness', 'claude']);
+  obkJson(withBotFatherOff(['init', '--bots', bots, '--harness', 'claude']));
 
   const tabs = {};
   for (const bot of BOTS) {
@@ -740,6 +741,7 @@ async function aFleet(t, label, promptFor) {
       'session', 'add', '--bots', bots, '--bot', bot.name, '--name', 'daily',
       `--prompt=${promptFor(bots, bot)}`,
       ...(bot.harness === 'codex' ? codexTrustArgs(bots) : []),
+      ...(bot.harness === 'claude' ? RC_OFF : []),
     ]);
 
     const entry = tabOf(obkJson(['up', '--bots', bots, '--bot', bot.name]), 'daily');

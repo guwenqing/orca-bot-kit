@@ -164,6 +164,7 @@ import { rolloutFilesOf, turnSettingsIn } from '../helpers/codex-rollout.js';
 import { waitingOn } from '../helpers/screens.js';
 import { claudeTrustAt, trustScreenMet } from '../helpers/claude-trust.js';
 import { tabGuard } from '../helpers/tab-guard.js';
+import { RC_OFF, withBotFatherOff } from '../helpers/remote-control-off.js';
 import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
 
@@ -558,7 +559,7 @@ test('a grooming job with --run-on codex starts one Codex run at its fire, on th
   // ---------------------------------------------------------------------------
   // The fleet: Bot Father on Claude Code, and its grooming session, added as
   // the obk-grooming skill says, on Claude Code, which holds the schedule.
-  const init = openedBy(obkJson(['init', '--bots', bots, '--harness', 'claude']));
+  const init = openedBy(obkJson(withBotFatherOff(['init', '--bots', bots, '--harness', 'claude'])));
   const daily = tabOf(init, 'daily');
   assert.equal(daily.harnessStarted, true, `no claude came up in ${daily.title}: \`orca terminal read --terminal ${daily.terminal} --screen\``);
 
@@ -605,7 +606,7 @@ test('a grooming job with --run-on codex starts one Codex run at its fire, on th
   // #527: permission rules are written by `obk permission allow`, not `bot change --allow`.
   obkJson(['permission', 'allow', '--bots', bots, '--bot', 'bot-father', '--rule', trustRule]);
 
-  obkJson(['session', 'add', '--bots', bots, '--bot', 'bot-father', '--name', 'grooming', '--model', MODEL, '--effort', EFFORT]);
+  obkJson(['session', 'add', '--bots', bots, '--bot', 'bot-father', '--name', 'grooming', '--model', MODEL, '--effort', EFFORT, ...RC_OFF]);
   const opened = tabOf(openedBy(obkJson(['up', '--bots', bots, '--bot', 'bot-father'])), 'grooming');
   assert.equal(opened.created, true, 'up opened a tab for the grooming session');
   assert.equal(opened.harnessStarted, true, `no claude came up in ${opened.title}: \`orca terminal read --terminal ${opened.terminal} --screen\``);

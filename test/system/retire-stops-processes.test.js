@@ -81,6 +81,7 @@ import { parse } from 'yaml';
 
 import { cliEntry } from '../helpers/cli.js';
 import { tabGuard } from '../helpers/tab-guard.js';
+import { RC_OFF, withBotFatherOff } from '../helpers/remote-control-off.js';
 import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
 import { stubbornProgram } from '../helpers/stubborn.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
@@ -328,17 +329,17 @@ test('temp retire stops the real processes a temporary session left in its work 
   // ---------------------------------------------------------------------------
   // 1. The fleet: Bot Father, and stop-bot on Claude Code with lead, which
   // makes dev.
-  obkJson(['init', '--bots', bots, '--harness', 'claude']);
+  obkJson(withBotFatherOff(['init', '--bots', bots, '--harness', 'claude']));
   obkJson([
     'bot', 'create', '--bots', bots, '--name', BOT, '--harness', 'claude',
     '--charter', `${BOT} exists for one system test run and owns nothing.`,
   ]);
-  obkJson(['session', 'add', '--bots', bots, '--bot', BOT, '--name', LEAD, '--prompt', 'You are a system test\'s session and you own nothing. Say nothing and wait.']);
+  obkJson(['session', 'add', '--bots', bots, '--bot', BOT, '--name', LEAD, '--prompt', 'You are a system test\'s session and you own nothing. Say nothing and wait.', ...RC_OFF]);
   const leadTab = openedIn(obkJson(['up', '--bots', bots, '--bot', BOT]), 'up');
   const lead = { tabId: sessionIn(home, LEAD).tab, handle: leadTab.terminal };
   assert.equal(typeof lead.tabId, 'string', `the premise: the book holds lead's tab, got: ${JSON.stringify(sessionIn(home, LEAD))}`);
 
-  const devMade = obkJson(['temp', 'make', '--bots', bots, '--name', DEV, '--prompt', TASK], inTab(lead));
+  const devMade = obkJson(['temp', 'make', '--bots', bots, '--name', DEV, '--prompt', TASK, ...RC_OFF], inTab(lead));
   const dev = { tabId: sessionIn(home, DEV).tab, handle: openedIn(devMade, 'temp make of dev').terminal };
   assert.equal(sessionIn(home, DEV).temporary?.maker, LEAD, `the premise: the book has dev as lead's: ${JSON.stringify(sessionIn(home, DEV))}`);
   const work = path.join(home, 'work', DEV);

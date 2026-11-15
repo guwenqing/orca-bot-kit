@@ -16,7 +16,7 @@ import { dropRemovedHooks, installHook } from './hooks.js';
 import { writePermissions } from './permissions.js';
 import { memoryFolderAtStart, memoryRefusal } from './memory.js';
 import { piTrouble } from './pi.js';
-import { addressOf, HARNESSES, harnessOf, isAddressOf, isShortPrompt, kitFolders, launchCommand, lostToOwnSettings, mailboxStep, ownCli, reachesMail, sessionTrouble, setsSettings, shellWord, startPrompt, workDirOf } from './launch.js';
+import { addressOf, HARNESSES, harnessOf, isAddressOf, isShortPrompt, kitFolders, launchCommand, lostToOwnSettings, mailboxStep, ownCli, reachesMail, remoteControlLaunched, sessionTrouble, setsSettings, shellWord, startPrompt, workDirOf } from './launch.js';
 import { asFolderProject, coordinatorOf, dropLeftGit, findProject, harnessInTab, loadInWindow, makeMailbox, makeProject, openTab, QUESTION_ON_SCREEN, retitleTab, runMissing, screenRows, shellInTab, tabs, tabToTypeInto, TERMINAL_ENV, TIMED_OUT, tellWindow, typeIntoTab, useMailbox } from './orca.js';
 import { TAB_ENV } from './record.js';
 import { buildAgents, rulesStamp } from './rules.js';
@@ -319,7 +319,7 @@ async function bringUpSession(bots, home, live, session, bot, title, endedBy) {
 
   // A Claude session gets its bot's own memory folder, made here when it is not
   // there yet, or it does not start: without one, its notes go to the folder
-  // that the bots shared (#752, ADR 0056). Only this session is refused.
+  // that the bots shared (#752, ADR 0060). Only this session is refused.
   const memory = harness === 'claude' && !setsSettings(session) ? memoryFolderAtStart(home) : {};
   const why = memoryRefusal(memory);
   if (why !== undefined) return { refused: { bot: bot.name, session: session.name, why } };
@@ -478,6 +478,7 @@ async function bringUpSession(bots, home, live, session, bot, title, endedBy) {
     // then, and whatever it said is on the tab's screen, not in this report.
     noMailbox: lacksMailbox(home, session, harness),
     lost: lostToOwnSettings(session, harness),
+    remoteControl: harness === 'claude' ? remoteControlLaunched(session) : undefined,
     ...tui,
     promptReceived,
     promptFile: launch.promptFile,
@@ -1040,7 +1041,7 @@ export const promptPath = (bots, bot, session) =>
 export const oldPromptPath = (bots, bot, session) =>
   path.join(`${bots}.prompts`, `${encodeURIComponent(bot)}.${encodeURIComponent(session)}.txt`);
 
-function entry(tab, { bot, name, created, running = false, blockedReason, promptReceived, promptFile, resumed, noConversation, harnessChanged, ranOn, unclaimed, noMailbox = false, lost = [], listLine, listLineTrouble, restartLine, restartLineTrouble, notLaunched }) {
+function entry(tab, { bot, name, created, running = false, blockedReason, promptReceived, promptFile, resumed, noConversation, harnessChanged, ranOn, unclaimed, noMailbox = false, lost = [], remoteControl, listLine, listLineTrouble, restartLine, restartLineTrouble, notLaunched }) {
   const made = { bot, name, title: tab.title, tabId: tab.tabId, terminal: tab.handle, created, harnessStarted: running };
   // A tab whose shell was not ready for the launch line, and why: nothing was
   // typed into it (#498).
@@ -1066,8 +1067,10 @@ function entry(tab, { bot, name, created, running = false, blockedReason, prompt
   // did not make one, and nothing in this run would (#317).
   if (noMailbox) made.noMailbox = true;
   // What the session runs without because its own --settings replaces the
-  // kit's (#752).
+  // kit's (#752), and what the line does with Remote Control on Claude Code
+  // (ADR 0058).
   if (lost.length > 0) made.lost = lost;
+  if (remoteControl !== undefined) made.remote_control = remoteControl;
   // Conversations the harness still has in this bot's folder that no session
   // claims: the caller is told, because the kit will not pick one.
   if (unclaimed !== undefined && unclaimed.length > 0) made.unclaimed = unclaimed;

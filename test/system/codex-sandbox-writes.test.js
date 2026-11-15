@@ -118,6 +118,7 @@ import { rolloutFilesOf } from '../helpers/codex-rollout.js';
 import { waitingOn } from '../helpers/screens.js';
 import { inboxLetters } from '../helpers/inbox.js';
 import { tabGuard } from '../helpers/tab-guard.js';
+import { withBotFatherOff } from '../helpers/remote-control-off.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
 
 /**
@@ -698,7 +699,7 @@ test('#534 a Codex session at auto sends a long fleet message, makes and retires
 
   // The fleet. No --approval anywhere: every session is at the kit's default,
   // `auto`, which for Codex is the workspace-write sandbox.
-  obkJson(['init', '--bots', bots, '--harness', 'claude']);
+  obkJson(withBotFatherOff(['init', '--bots', bots, '--harness', 'claude']));
   for (const bot of [SENDER, PEER]) {
     obkJson([
       'bot', 'create', '--bots', bots, '--name', bot, '--harness', 'codex',
