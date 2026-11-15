@@ -35,7 +35,7 @@ const HEADER = `# What Orca calls this bot on this machine, and where each of it
 # launch line, as bot.yaml's extra_args gave them then.
 #
 # \`shape\` is a sum of what a Claude Code session's last launch line holds that
-# its main text depends on. \`main\` is the main text file the kit gave the
+# its main text depends on, and \`launched_model\` the model that line named. \`main\` is the main text file the kit gave the
 # session, and \`own_text\` says it runs on Claude Code's own main text, as its
 # hook last read the line.
 #

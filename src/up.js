@@ -382,9 +382,13 @@ async function bringUpSession(bots, home, live, session, bot, title, endedBy) {
       // Only Claude Code answers to an address. One left from a Claude run
       // before a move to another harness would draw mail to nobody (#565).
       if (harness !== 'claude') delete entry.address;
-      // The launch shape, which the hook notes a source under (R5).
+      // The launch shape, which the hook notes a source under (R5), and the
+      // model this line names, which a clear's note takes: both of the same
+      // launch, whatever bot.yaml says by the time of the clear.
       if (launch.shape !== undefined) entry.shape = launch.shape;
       else delete entry.shape;
+      if (launch.shape !== undefined && typeof session.model === 'string' && session.model !== '') entry.launched_model = session.model;
+      else delete entry.launched_model;
       held = entry.session;
       // Before the line is typed, so the hook finds no id here and takes the one
       // it reports for a start rather than a clear, which would tell the duty twice.
@@ -680,17 +684,21 @@ function mainOption(bots, home, bot, shape) {
   } catch {
     return {};
   }
-  // Originals and notes of a shape that no session has any more fit no
-  // launch: they go, as main files that no session names do. A book that
-  // cannot be read names any of them: then none goes.
+  // Originals and notes of another Claude Code version fit no launch: they go.
+  try {
+    pruneOriginals(home, text, built.version);
+  } catch {
+    // What cannot be removed now goes at a later launch.
+  }
+  if (built.file === undefined) return {};
+  // Main files that no session names go. A book that cannot be read may name
+  // any of them: then none goes.
   let entries;
   try {
     entries = Object.values(readBook(home).sessions ?? {});
   } catch {
     entries = undefined;
   }
-  if (entries !== undefined) pruneOriginals(text, entries.map((entry) => entry?.shape), shape);
-  if (built.file === undefined) return {};
   if (entries !== undefined) pruneMainFiles(text, entries.map((entry) => entry?.main).filter((name) => typeof name === 'string'), path.basename(built.file));
   return { mainFile: built.file };
 }

@@ -145,18 +145,19 @@ const textCutsOf = (bots, home) => cutsOf(bots, home).text;
 /**
  * The bot's main text for a launch of shape `shape`: `{ file, text }` when the
  * kit can build it, or `{ why }` when the session runs on Claude Code's own
- * main text. With `write`, the original is saved, the notes it came from go,
+ * main text, with `wait` when that is the normal wait for a first record of
+ * the version or the launch, which asks nothing of the user. With `write`, the original is saved, the notes it came from go,
  * and the main file is written; without it, nothing is written (health).
  */
 export function mainTextFor(bots, home, text, shape, { write = true } = {}) {
   const recipe = readRecipe();
   if (recipe === undefined) return { why: 'the kit\'s recipe could not be read' };
-  if (typeof shape !== 'string') return { why: 'the kit has not launched it with a launch it can match yet' };
+  if (typeof shape !== 'string') return { why: 'the kit cannot tell what its launch gives Claude Code: its cut lists cannot be read, or its extra arguments name a settings file in a way the kit cannot read (quoted, escaped or expanded)' };
 
   const { sources, originals } = textFolders(text);
   // Without a note or a saved original nothing can fit, and Claude Code is not asked.
   if (namesIn(sources).length === 0 && namesIn(originals).length === 0) {
-    return { why: `no conversation of the bot on the kit's line is on record yet. ${RECORDS}` };
+    return { why: `no conversation of the bot on the kit's line is on record yet. ${RECORDS}`, wait: true };
   }
   const installed = claudeVersion();
   if (installed.version === undefined) return { why: installed.why };
@@ -172,6 +173,7 @@ export function mainTextFor(bots, home, text, shape, { write = true } = {}) {
     return {
       why: `no conversation of Claude Code ${installed.version} with this session's launch is on record yet. ${RECORDS}`,
       version: installed.version,
+      wait: true,
     };
   }
 
@@ -301,21 +303,40 @@ function modelIn(line) {
   }
 }
 
+/** How long a note may wait for its conversation's first record. */
+const NOTE_DAYS = 7;
+
 /**
- * Take away the bot's saved originals and notes of a launch shape that no
- * session's book entry has and that is not `current`: no launch fits them
- * now, and the folder would only grow.
+ * Take away the bot's saved originals of any Claude Code version but
+ * `version`, the installed one: they fit no launch now. An original of the
+ * installed version stays whatever its shape, so a temporary session of a
+ * role finds its role's original between two sessions. And take away each
+ * note whose conversation's first record is of another version, or that has
+ * waited more than a week with no record: neither can fit a launch of the
+ * installed version. A note of the installed version stays, for a later
+ * session of its shape. So the folder holds the originals and notes of one
+ * version, and drops them at the next.
  */
-export function pruneOriginals(text, shapes, current) {
-  const kept = new Set([...shapes, current].filter((one) => typeof one === 'string'));
+export function pruneOriginals(home, text, version) {
+  if (typeof version !== 'string') return;
   const { sources, originals } = textFolders(text);
   for (const name of namesIn(originals)) {
-    const shape = /-([0-9a-f]{16})\.json$/.exec(name)?.[1];
-    if (shape !== undefined && !kept.has(shape)) rmSync(path.join(originals, name), { force: true });
+    if (!name.startsWith(`${version}-`)) rmSync(path.join(originals, name), { force: true });
   }
+  let real;
+  try {
+    real = realpathSync(home);
+  } catch {
+    return;
+  }
+  const old = Date.now() - NOTE_DAYS * 24 * 60 * 60 * 1000;
   for (const name of namesIn(sources)) {
-    const shape = readJson(path.join(sources, name))?.shape;
-    if (!kept.has(shape)) rmSync(path.join(sources, name), { force: true });
+    const note = readJson(path.join(sources, name));
+    const record = typeof note?.conversation === 'string' && SAFE_ID.test(note.conversation)
+      ? firstRecord(claudeTranscript(real, note.conversation))
+      : undefined;
+    const stale = record === undefined ? !(Date.parse(note?.at) > old) : record.version !== version;
+    if (stale) rmSync(path.join(sources, name), { force: true });
   }
 }
 
@@ -362,10 +383,37 @@ export function unitsNotFound(text, botName) {
 export function shapeOf(bots, home, session, memoryFolder) {
   try {
     const named = typeof session.model === 'string' && session.model !== '';
-    return launchShape(session, { home, memoryFolder, cuts: cutsOf(bots, home), settings: claudeSettingsFiles(home).map((file) => settingsSum(file, { named })) });
+    const namedFiles = settingsNamedIn(session, home);
+    // Extra arguments whose settings file the kit cannot tell give no shape:
+    // no saved original fits such a launch.
+    if (namedFiles === undefined) return undefined;
+    const files = [...claudeSettingsFiles(home), ...namedFiles];
+    return launchShape(session, { home, memoryFolder, cuts: cutsOf(bots, home), settings: files.map((file) => settingsSum(file, { named })) });
   } catch {
     return undefined;
   }
+}
+
+/**
+ * The settings files that the user's extra arguments name with `--settings`,
+ * as `--settings <file>` or `--settings=<file>`, from the bot folder: Claude
+ * Code reads them as it reads its own. A value that is JSON itself is in the
+ * launch words already. A string of extra arguments is split at its spaces,
+ * as the shell splits a plain one. A string that names `--settings` and holds
+ * a quote, an escape or an expansion cannot be split so: then undefined, as
+ * the file it names is not known.
+ */
+function settingsNamedIn(session, home) {
+  const string = typeof session.extra_args === 'string' ? session.extra_args : undefined;
+  if (string !== undefined && string.includes('--settings') && /['"\\$`]/.test(string)) return undefined;
+  const words = Array.isArray(session.extra_args) ? session.extra_args.map(String)
+    : string !== undefined ? string.split(/\s+/).filter(Boolean) : [];
+  const files = [];
+  words.forEach((word, at) => {
+    const value = word === '--settings' ? words[at + 1] : word.startsWith('--settings=') ? word.slice('--settings='.length) : undefined;
+    if (typeof value === 'string' && value !== '' && !value.trimStart().startsWith('{')) files.push(path.resolve(home, value));
+  });
+  return files;
 }
 
 /**
@@ -405,20 +453,24 @@ function settingsSum(file, { named }) {
 }
 
 /**
- * Health's sentences on the main text of the bot's Claude Code sessions: each
- * session noted on Claude Code's own main text, with why, or with a restart
- * when the kit's text is ready for it; and each session whose noted main file
- * is not the one the kit builds now.
+ * Health's word on the main text of the bot's Claude Code sessions (R5):
+ * `found`, a sentence for each session that runs on Claude Code's own main
+ * text for a reason the user must act on; and `states`, by session, what each
+ * one runs on, for its line in health's report, which fails nothing: `kit`,
+ * `older` (a main file older than the one the kit builds now, with how it gets
+ * the new one), or `own`, with why, when that is the normal wait for a first
+ * record, or the kit's text is ready for its restart.
  */
 export function mainTextTrouble(bots, home, bot) {
   let book;
   try {
     book = readBook(home);
   } catch {
-    return [];
+    return { found: [], states: {} };
   }
   const text = claudeTextFolder(bots, bot.name);
-  const said = [];
+  const found = [];
+  const states = {};
   for (const [name, entry] of Object.entries(book.sessions ?? {})) {
     const own = entry?.own_text === true;
     const main = typeof entry?.main === 'string' ? path.basename(entry.main) : undefined;
@@ -435,15 +487,20 @@ export function mainTextTrouble(bots, home, bot) {
     } catch (error) {
       built = { why: error.message };
     }
-    if (own) {
-      said.push(built.file === undefined
-        ? `${bot.name}/${name} runs on Claude Code's own main text, not the one the kit builds, because ${built.why}.`
-        : `${bot.name}/${name} runs on Claude Code's own main text, and the kit's main text is ready for it: obk restart starts it on the kit's text.`);
+    if (own && built.file !== undefined) {
+      states[name] = { state: 'own', why: 'the kit\'s main text is ready for it: after obk restart it runs on the kit\'s text, at once in a new conversation, and in a resumed one after its next compaction or clear' };
+    } else if (own && built.wait === true) {
+      states[name] = { state: 'own', why: built.why };
+    } else if (own) {
+      states[name] = { state: 'own', why: built.why };
+      found.push(`${bot.name}/${name} runs on Claude Code's own main text, not the one the kit builds, because ${built.why}.`);
     } else if (built.file !== undefined && path.basename(built.file) !== main) {
-      said.push(`${bot.name}/${name}'s main text is older than the one the kit builds now: it came from ${path.join(text, main)}. It gets the new text after obk restart: at once in a new conversation, and in a resumed one after its next compaction or clear.`);
+      states[name] = { state: 'older', why: `it came from ${path.join(text, main)}, and it gets the new text after obk restart: at once in a new conversation, and in a resumed one after its next compaction or clear` };
+    } else {
+      states[name] = { state: 'kit' };
     }
   }
-  return said;
+  return { found, states };
 }
 
 /**

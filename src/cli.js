@@ -1934,7 +1934,7 @@ const foundLines = (found) =>
  * What one running session runs on, in a line: each setting's state, with what
  * was asked for and what the harness recorded, and its rules.
  */
-function settingsLine({ bot, session, running, settings, rules, remote_control: remote }) {
+function settingsLine({ bot, session, running, settings, rules, remote_control: remote, main_text: main }) {
   const each = Object.entries(settings).map(([name, one]) => {
     const values = [
       ...(one.configured === undefined ? [] : [`asked ${one.configured}`]),
@@ -1948,7 +1948,9 @@ function settingsLine({ bot, session, running, settings, rules, remote_control: 
     : ['unsure', `${bot} ${session}  cannot tell whether its harness is running:`];
   // Claude Code's Remote Control: a handle in its registry, not a connection (ADR 0058).
   const remoteText = remote === undefined ? '' : `  remote control ${remote.state} (asked ${remote.asked})`;
-  return `${word.padEnd(9)}  ${who}  ${each.join('  ')}  rules ${rules.state}${remoteText}`;
+  // The main text a Claude Code session runs on (R5), and why when it is not the kit's own.
+  const mainText = main === undefined ? '' : `  main text ${main.state}${main.why === undefined ? '' : `: ${main.why}`}`;
+  return `${word.padEnd(9)}  ${who}  ${each.join('  ')}  rules ${rules.state}${remoteText}${mainText}`;
 }
 
 function tabLines({ bots, created, completed, rules, skills, permissions = [], tabs, refused = [], paused = [], projects = [], found = [] }, summary, closedBy = 'restart') {

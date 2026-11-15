@@ -208,15 +208,18 @@ function aboutBot(bots, name, setups, sessions, pi) {
   }
 
   const said = (kind) => ({ where, says }) => finding(kind, where, says, name);
-  return [
+  // The main text the kit builds from Claude Code's own (R5): what each
+  // session runs on goes on its line, and only what the user must act on is a
+  // finding.
+  const text = isClaudeBot(bot) ? mainTextTrouble(bots, home, bot) : { found: [], states: {} };
+  const all = [
     ...unknownKeys(home, name).map(said('config')),
     ...sessionSettings(home, bot).map(said('config')),
     ...remoteControlArgs(home, bot).map(said('config')),
     ...rolesTrouble(home, bot).map(said('config')),
     ...agentsTrouble(bots, home, bot).map(said('config')),
     ...systemTrouble(bots, home, bot).map((says) => finding('session', path.join(home, 'sessions.yaml'), says, name)),
-    // The main text the kit builds from Claude Code's own (R5).
-    ...(isClaudeBot(bot) ? mainTextTrouble(bots, home, bot) : []).map((says) => finding('session', path.join(home, 'sessions.yaml'), says, name)),
+    ...text.found.map((says) => finding('session', path.join(home, 'sessions.yaml'), says, name)),
     ...(isClaudeBot(bot) ? unitsNotFound(claudeTextFolder(bots, name), name) : []).map(said('config')),
     ...hooksOf(bots, home, bot).map(said('config')),
     ...permissionsTrouble(home, bot).map(said('config')),
@@ -229,6 +232,10 @@ function aboutBot(bots, name, setups, sessions, pi) {
     ...notesLeftShared(home, bot),
     ...memoryFolderBlocked(home, bot),
   ];
+  for (const entry of sessions) {
+    if (entry.bot === name && text.states[entry.session] !== undefined) entry.main_text = text.states[entry.session];
+  }
+  return all;
 }
 
 /**

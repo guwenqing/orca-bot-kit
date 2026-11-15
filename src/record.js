@@ -109,6 +109,7 @@ export async function recordSession(bots, name, said, tabId, shellPid) {
   let told;
   let onClaude = false;
   let shape;
+  let launchedModel;
 
   await updateBook(home, (book) => {
     const found = sessionAt(book, tabId);
@@ -134,6 +135,7 @@ export async function recordSession(bots, name, said, tabId, shellPid) {
     onClaude = settings !== undefined && harnessOf(settings, bot.harness) === 'claude';
     const system = onClaude ? { ...systemNote(was, launched, said.source), ...textNote(was, launched, said.source) } : {};
     shape = typeof was.shape === 'string' ? was.shape : undefined;
+    launchedModel = typeof was.launched_model === 'string' ? was.launched_model : undefined;
     book.sessions[session] = withUnclaimed({ ...withoutSystem(rules === undefined ? now : { ...now, rules }), ...system }, unclaimed);
     forgetClaimed(book);
     if (uncertain) cleared = true;
@@ -149,11 +151,12 @@ export async function recordSession(bots, name, said, tabId, shellPid) {
   // The note keeps the model the conversation should run on, which the build
   // checks against its record: at a start, the one Claude Code says it started
   // with; at a clear, which Claude Code gives no model for, the one the line
-  // names, since a switch of model in the session would not show on the line.
+  // named, as the book has it from the same launch as the shape: a switch of
+  // model in the session would not show on the line, and bot.yaml may have
+  // changed since.
   if (onClaude && (said.source === STARTED || said.source === CLEARED) && launched?.source === true
     && (launched.file === true || currentSystemFile(bots, bot) === undefined)) {
-    const named = bot.sessions.find((entry) => entry.name === told)?.model;
-    const model = said.source === STARTED && typeof said.model === 'string' && said.model !== '' ? said.model : named;
+    const model = said.source === STARTED && typeof said.model === 'string' && said.model !== '' ? said.model : launchedModel;
     try {
       noteSource(claudeTextFolder(bots, bot.name), id, { shape, appended: launched.name ?? null, model: typeof model === 'string' ? model : undefined });
     } catch {

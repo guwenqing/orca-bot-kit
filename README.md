@@ -584,15 +584,18 @@ What this costs you:
 
 - A saved copy fits only a launch like the one it came from: the same Claude
   Code version, model, approval, extra arguments, tool and skill cuts, and
-  Claude Code settings files (the bot's, its repository's local one and your
-  own). A flag such as `--no-chrome`, a tool cut, an output style or a memory
+  Claude Code settings files (the bot's, its repository's local one, your own,
+  and a file that the bot's `extra_args` name with `--settings`). A flag such as `--no-chrome`, a tool cut, an output style or a memory
   folder changes the text. The allow and ask rules of a settings file are not
   part of the match, because they do not change the text. Nor is a settings
   file's default model, which `/model` writes, for a session whose line names
   its model. Any other change of those files makes the bot record its text
   again: an output style, a memory folder, a deny rule or a hook.
-- A saved copy of a launch that no session has any more is removed at the
-  bot's next launch.
+- A saved copy fits one Claude Code version, and Claude Code often gets a new
+  one. So after each new version, the first start of each launch runs on Claude
+  Code's own text. A temporary session that is the first of its launch on a
+  version stays on that text for its whole life. Saved copies and notes of an
+  older version are removed at the bot's next launch.
 - After a Claude Code update, or a change of these, a session runs on Claude
   Code's own main text until a new conversation records the new text. A new
   conversation on the kit's line records one: a first start, or a clear
@@ -600,9 +603,10 @@ What this costs you:
   the kit's text at its next start: at once in a new conversation, and in a
   resumed one after its next compaction or clear.
 - The match does not see your account, the tab's environment, or a change of
-  Claude Code's text with no new version. After such a change, remove
-  `<bots>.claude-text/<bot>/originals/`: the next new conversation records the
-  text again.
+  Claude Code's text with no new version. After such a change, remove both
+  `originals/` and `sources/` in `<bots>.claude-text/<bot>/`: a note that is
+  left there can build the text again with no new conversation. The next new
+  conversation records the text again.
 - The kit asks `claude --version` itself. A tab whose shell finds another
   `claude`, or a Claude Code that updates itself between that question and the
   start, can run on a text recorded by another version.
@@ -616,14 +620,16 @@ What this costs you:
 - To put a bot back on Claude Code's own main text, name every recipe part in
   its `claude_keep` list: the text is then the original, with only a boundary
   mark taken out. To run on Claude Code's own text until a new conversation
-  records it again, remove the bot's `originals/` folder.
+  records it again, remove the bot's `originals/` and `sources/` folders.
 - A bot that keeps the `Artifact` tool gets the tool's paragraph twice: once
   in the kit's text, and once from Claude Code, which adds it for the tool.
-- `obk health` names a session that runs on Claude Code's own main text, and
-  why (a paused one only once it starts again); a session whose main text is
-  older than the one the kit builds now; a recipe part that a saved copy of a
-  model it is named for does not hold; and a `text:` name that the recipe does
-  not know.
+- Each session's line in `obk health` says what main text it runs on: `kit`,
+  `older` (with how it gets the new one), or `own`, with why. A paused session
+  shows it once it starts again. The wait for a first record does not fail
+  health. Health gives a finding when the user must act: a record of another
+  model, a Claude Code version that the kit cannot read, a recipe part that a
+  saved copy of a model it is named for does not hold, and a `text:` name that
+  the recipe does not know.
 
 Each Claude bot has a memory folder of its own, `claude-memory/` in the bot's
 folder. Claude Code alone would give every bot of one bots repository the same
