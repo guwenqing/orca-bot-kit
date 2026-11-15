@@ -53,6 +53,7 @@ import {
   tokenless,
   typedInto,
 } from './helpers/cli.js';
+import { hookContext, mainUnitsText } from './helpers/rules.js';
 
 const BOT = 'api-bot';
 const PROMPT = 'Read your AGENTS.md and keep the queue moving.';
@@ -79,6 +80,21 @@ async function started(box, harness, sessions = ['daily']) {
     home: botHomeOf(bots, BOT),
     tabs: Object.fromEntries(JSON.parse(up.stdout).tabs.map((entry) => [entry.name, entry])),
   };
+}
+
+/** What the hook handed the session: its additionalContext, or undefined when it printed nothing. */
+function answerIn(run) {
+  if (run.stdout === '') return undefined;
+  return JSON.parse(run.stdout).hookSpecificOutput.additionalContext;
+}
+
+/**
+ * The whole answer a report of daily's own gets (#768, the architect's ruling
+ * B): on Claude Code the duty, when it is handed over, then the bot's main
+ * units; on Codex the duty alone, undefined when there is none.
+ */
+async function answerFor(harness, bots, duty) {
+  return harness === 'claude' ? hookContext(duty, await mainUnitsText(bots, BOT)) : duty;
 }
 
 /** Each session's duty: daily's is PROMPT, and any other's names the session. */
@@ -333,7 +349,7 @@ for (const harness of ['claude', 'codex']) {
     const first = await reported(box, bots, back.tabId, conv(2));
 
     assert.equal(first.code, 0, first.stderr);
-    assert.equal(first.stdout, '', `the launch line gave the session its duty, so the hook hands it nothing, got: ${first.stdout}`);
+    assert.equal(answerIn(first), await answerFor(harness, bots, undefined), `the launch line gave the session its duty, so the hook hands it no duty (a Claude Code session its main units alone), got: ${first.stdout}`);
     const entry = await sessionIn(bots, BOT, 'daily');
     assert.equal(entry.session, conv(2), `the book takes the session's own id, got: ${JSON.stringify(entry)}`);
     await assertMovedToHistory(bots, conv(1), { from, to });
@@ -341,6 +357,7 @@ for (const harness of ['claude', 'codex']) {
     const cleared = await reported(box, bots, back.tabId, conv(3), 'clear');
     assert.equal(cleared.code, 0, cleared.stderr);
     assert.ok(cleared.stdout.includes(PROMPT), `after a clear the hook does hand the duty over, got: ${cleared.stdout}`);
+    assert.equal(answerIn(cleared), await answerFor(harness, bots, PROMPT), 'the duty once, and on Claude Code the main units after it');
   });
 }
 
@@ -505,7 +522,7 @@ for (const harness of ['claude', 'codex']) {
     const own = await reported(box, bots, back.tabId, conv(3));
 
     assert.equal(own.code, 0, own.stderr);
-    assert.equal(own.stdout, '', `the launch line gave the session its duty, so the hook hands it nothing, got: ${own.stdout}`);
+    assert.equal(answerIn(own), await answerFor(harness, bots, undefined), `the launch line gave the session its duty, so the hook hands it no duty (a Claude Code session its main units alone), got: ${own.stdout}`);
     const entry = await sessionIn(bots, BOT, 'daily');
     assert.equal(entry.session, conv(3), `the book takes the new tab's own id, got: ${JSON.stringify(entry)}`);
     const history = Array.isArray(entry.history) ? entry.history : [];
@@ -519,6 +536,7 @@ for (const harness of ['claude', 'codex']) {
     const cleared = await reported(box, bots, back.tabId, conv(4), 'clear');
     assert.equal(cleared.code, 0, cleared.stderr);
     assert.ok(cleared.stdout.includes(PROMPT), `after a clear the hook does hand the duty over, got: ${cleared.stdout}`);
+    assert.equal(answerIn(cleared), await answerFor(harness, bots, PROMPT), 'the duty once, and on Claude Code the main units after it');
   });
 
   // Covers the same race when B does have a conversation on record: the run,

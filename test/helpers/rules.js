@@ -108,6 +108,48 @@ export async function kitUnits() {
   return units.sort((one, other) => (one.name < other.name ? -1 : 1));
 }
 
+/** The titles of the units placed `main` (#768, R6) in the unit files of `dir`, by their front matter. */
+async function mainTitlesIn(dir) {
+  let names;
+  try {
+    names = (await readdir(dir)).filter((name) => name.endsWith('.md'));
+  } catch (error) {
+    if (error.code === 'ENOENT') return [];
+    throw error;
+  }
+  const titles = [];
+  for (const name of names) {
+    const found = /^---\n([\s\S]*?)\n---/.exec(await readFile(path.join(dir, name), 'utf8'));
+    const data = found === null ? null : parse(found[1]);
+    if (data?.placement === 'main' && typeof data.title === 'string') titles.push(data.title);
+  }
+  return titles;
+}
+
+/**
+ * The text the kit's SessionStart hook gives a Claude Code session of `bot`
+ * for its `main` units (#768, R6; the architect's ruling B: at every start,
+ * resume, clear and compaction): each main unit's section as the bot's
+ * AGENTS.md holds it, `## <title>`, a blank line and the body, in the order
+ * of the file, a blank line between two sections. The main units are the
+ * kit's and the bots folder's own (`<bots>/rules/`) whose front matter says
+ * `placement: main`.
+ */
+export async function mainUnitsText(bots, bot) {
+  const titles = [...await mainTitlesIn(path.join(repoRoot, 'rules')), ...await mainTitlesIn(path.join(bots, 'rules'))];
+  const body = blockIn(await agentsIn(bots, bot)).body;
+  const main = sectionsIn(body).filter((section) => titles.includes(section.heading));
+  assert.ok(main.length > 0, `the premise: ${bot}'s AGENTS.md holds main units, got the headings ${JSON.stringify(headingsIn(body))}`);
+  return main.map((section) => `## ${section.heading}\n\n${section.body}`).join('\n\n');
+}
+
+/**
+ * The whole context the hook gives a Claude Code session of a bot: the start
+ * prompt when the event gives one (a clear, a compaction, a new id), then the
+ * bot's main units, a blank line between the two.
+ */
+export const hookContext = (prompt, main) => [prompt, main].filter((part) => part !== undefined).join('\n\n');
+
 /** The units every bot carries without anyone asking, in the order they belong in. */
 export const defaultUnits = async () => (await kitUnits()).filter((unit) => unit.applies === 'all');
 

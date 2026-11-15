@@ -11,8 +11,13 @@
 // context.
 //
 // A resume keeps the conversation and its first message, so it still gets
-// nothing. A clear still gets the prompt. The book keeps the same id and the
-// same history, because a compaction ends no conversation.
+// no start prompt. A clear still gets the prompt. The book keeps the same id
+// and the same history, because a compaction ends no conversation.
+//
+// Since #768 (R6, the architect's ruling B) the hook also gives a Claude Code
+// session its bot's main units, on every event: after the start prompt when
+// there is one, alone on a resume. Each answer here is pinned whole, the main
+// units' exact text included (helpers/rules.js, mainUnitsText and hookContext).
 
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
@@ -26,6 +31,7 @@ import {
   sessionIn,
   tabsOfBot,
 } from './helpers/cli.js';
+import { hookContext, mainUnitsText } from './helpers/rules.js';
 
 const PROMPT = 'Read your AGENTS.md and keep the queue moving.';
 
@@ -85,7 +91,7 @@ test('a compaction under the same id gives back the same start prompt that a cle
   const afterCompact = answerOf(compacted);
   assert.notEqual(afterCompact, undefined, 'a compacted session lost its start prompt and must get it back');
   assert.equal(afterCompact, answerOf(cleared), 'the text is the same one a clear gives');
-  assert.equal(afterCompact, held, 'and it is the start prompt once, with its work-dir note');
+  assert.equal(afterCompact, hookContext(held, await mainUnitsText(bots, 'api-bot')), 'and it is the start prompt once, with its work-dir note, then the main units');
 });
 
 test('the first id a session reports, on compact, gets the start prompt with its work-dir note, and the id is written down', async (t) => {
@@ -100,7 +106,7 @@ test('the first id a session reports, on compact, gets the start prompt with its
 
   const ran = await recordSession(box, { bots, bot: 'api-bot', tab: tabs.daily.tabId, session: 'sess-A', source: 'compact' });
 
-  assert.equal(answerOf(ran), held, 'the start prompt once, with its work-dir note');
+  assert.equal(answerOf(ran), hookContext(held, await mainUnitsText(bots, 'api-bot')), 'the start prompt once, with its work-dir note, then the main units');
   const daily = await sessionIn(bots, 'api-bot', 'daily');
   assert.equal(daily.session, 'sess-A', 'the id is written down');
   assert.equal('history' in daily, false, `there is no old id to keep, got: ${JSON.stringify(daily.history)}`);
@@ -116,10 +122,10 @@ test('a compaction answer names the event the harness sent', async (t) => {
     bots, bot: 'api-bot', tab, session: 'sess-A', source: 'compact', event: 'SessionResumed',
   });
 
-  assert.equal(answerOf(ran, 'SessionResumed'), PROMPT);
+  assert.equal(answerOf(ran, 'SessionResumed'), hookContext(PROMPT, await mainUnitsText(bots, 'api-bot')));
 });
 
-test('a resume under the same id after a startup gives nothing', async (t) => {
+test('a resume under the same id after a startup gives no start prompt: the main units alone', async (t) => {
   const box = await createSandbox(t);
   const { bots, tabs } = await fleet(box, { sessions: [['daily', ['--prompt', PROMPT]]] });
   const tab = tabs.daily.tabId;
@@ -127,11 +133,10 @@ test('a resume under the same id after a startup gives nothing', async (t) => {
 
   const ran = await recordSession(box, { bots, bot: 'api-bot', tab, session: 'sess-A', source: 'resume' });
 
-  assert.equal(ran.code, 0, ran.stderr);
-  assert.equal(ran.stdout, '', `a resumed session still holds its start prompt, got: ${ran.stdout}`);
+  assert.equal(answerOf(ran), await mainUnitsText(bots, 'api-bot'), 'a resumed session still holds its start prompt, so it gets the main units alone');
 });
 
-test('a resume after a compaction gives nothing', async (t) => {
+test('a resume after a compaction gives no start prompt: the main units alone', async (t) => {
   // The compaction already put the prompt back once. A resume of that
   // conversation keeps it, so a second copy would be the prompt twice.
   const box = await createSandbox(t);
@@ -142,8 +147,7 @@ test('a resume after a compaction gives nothing', async (t) => {
 
   const ran = await recordSession(box, { bots, bot: 'api-bot', tab, session: 'sess-A', source: 'resume' });
 
-  assert.equal(ran.code, 0, ran.stderr);
-  assert.equal(ran.stdout, '', `got: ${ran.stdout}`);
+  assert.equal(answerOf(ran), await mainUnitsText(bots, 'api-bot'), 'no second copy of the start prompt: the main units alone');
 });
 
 test('a clear still gives the start prompt', async (t) => {
@@ -154,7 +158,7 @@ test('a clear still gives the start prompt', async (t) => {
 
   const ran = await recordSession(box, { bots, bot: 'api-bot', tab, session: 'sess-B', source: 'clear' });
 
-  assert.equal(answerOf(ran), PROMPT);
+  assert.equal(answerOf(ran), hookContext(PROMPT, await mainUnitsText(bots, 'api-bot')));
   assert.equal((await sessionIn(bots, 'api-bot', 'daily')).session, 'sess-B');
 });
 
@@ -198,8 +202,9 @@ test('two compactions in a row each give the start prompt', async (t) => {
   const first = await recordSession(box, { bots, bot: 'api-bot', tab, session: 'sess-A', source: 'compact' });
   const second = await recordSession(box, { bots, bot: 'api-bot', tab, session: 'sess-A', source: 'compact' });
 
-  assert.equal(answerOf(first), PROMPT, 'the first compaction');
-  assert.equal(answerOf(second), PROMPT, 'the second compaction');
+  const main = await mainUnitsText(bots, 'api-bot');
+  assert.equal(answerOf(first), hookContext(PROMPT, main), 'the first compaction');
+  assert.equal(answerOf(second), hookContext(PROMPT, main), 'the second compaction');
   const daily = await sessionIn(bots, 'api-bot', 'daily');
   assert.equal(daily.session, 'sess-A');
   assert.equal('history' in daily, false, `got: ${JSON.stringify(daily.history)}`);
@@ -294,7 +299,7 @@ test('a compaction of a Claude Code session on a Codex bot gives the start promp
 
   const { ran } = await startThenCompact(box, bots, tabs.daily.tabId);
 
-  assert.equal(answerOf(ran), PROMPT, 'the session runs on Claude Code, so R3 holds for it');
+  assert.equal(answerOf(ran), hookContext(PROMPT, await mainUnitsText(bots, 'api-bot')), 'the session runs on Claude Code, so R3 holds for it, and it gets its main units');
   const after = await sessionIn(bots, 'api-bot', 'daily');
   assert.equal(after.session, 'sess-A');
   assert.equal('history' in after, false, `got: ${JSON.stringify(after.history)}`);

@@ -54,6 +54,7 @@ import {
   tokenless,
   typedInto,
 } from './helpers/cli.js';
+import { hookContext, mainUnitsText } from './helpers/rules.js';
 
 /** A bots folder with one bot on `harness`, one session, brought up. */
 async function started(box, harness = 'claude', settings = []) {
@@ -263,7 +264,8 @@ test('the tab\'s own harness is still believed after a clear, and is handed its 
 
   const cleared = await reportThroughAHarness(box, bot, { session: 'sess-2', source: 'clear' });
 
-  assert.equal(JSON.parse(cleared.stdout).hookSpecificOutput.additionalContext, prompt);
+  // The duty, then the bot's main units (#768, the architect's ruling B).
+  assert.equal(JSON.parse(cleared.stdout).hookSpecificOutput.additionalContext, hookContext(prompt, await mainUnitsText(bot.bots, 'api-bot')));
   const daily = await sessionIn(bot.bots, 'api-bot', 'daily');
   assert.equal(daily.session, 'sess-2');
   assert.deepEqual(daily.history.map((old) => old.session), ['sess-1']);
