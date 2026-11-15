@@ -1,6 +1,7 @@
 // A system test: Remote Control on for a Claude Code session the kit starts,
-// and off once the session is set off (#755), against the real Claude Code in
-// the real Orca on this machine. Run it alone with
+// off once the session is set off, and a session that still starts when
+// Remote Control cannot (#755), against the real Claude Code in the real Orca
+// on this machine. Run it alone with
 // `npm run test:system -- --yes test/system/remote-control.test.js`;
 // `npm test` cannot, and no CI machine could.
 //
@@ -31,10 +32,21 @@
 //      session. Its report says off, set for this session. Health gives the
 //      session `running: yes`, `asked: off` and from the session. The state
 //      (`not enabled` when off as asked) and health's findings are noted only.
+//   4. `obk session change --remote-control on`, then Claude Code's own hard
+//      off written into the bot's `.claude/settings.local.json`
+//      (helpers/remote-control-off.js `hardRemoteControlOff`), so Remote
+//      Control cannot start, and `obk restart` of the session. The kit's line
+//      still asks for on: its report says on, set for this session. Health
+//      gives the session `running: yes`, `asked: on` and from the session. This
+//      checks R1's promise for the kit's line: the session still starts when
+//      Remote Control cannot. The state (`not enabled` expected) and health's
+//      findings (one expected: on was asked and it is not enabled) are noted
+//      only.
 //
 // **It connects to an account.** Step 2 starts a session with Remote Control
 // on, so the claude.ai account of whoever runs it gets an entry for
-// `obk-rc-probe` in its list of sessions. The kit cannot take it away. The test
+// `obk-rc-probe` in its list of sessions (step 4 asks for on too, but Remote
+// Control cannot start there). The kit cannot take it away. The test
 // prints one line at its end that says so; archive those entries at
 // claude.ai/code. It prints nothing about the account: no name, no plan and
 // no list of sessions.
@@ -88,7 +100,7 @@ import { cliEntry } from '../helpers/cli.js';
 import { onlyTeachFormOf, questionOn } from '../helpers/screens.js';
 import { claudeTrustAt, trustScreenMet } from '../helpers/claude-trust.js';
 import { tabGuard } from '../helpers/tab-guard.js';
-import { withBotFatherOff } from '../helpers/remote-control-off.js';
+import { hardRemoteControlOff, withBotFatherOff } from '../helpers/remote-control-off.js';
 import { autoModeState, sessionRecordFiles } from '../helpers/teach-record.js';
 import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
@@ -287,8 +299,9 @@ const BOT = { name: 'obk-rc-probe', display: 'Obk Rc Probe' };
 const SESSION = 'daily';
 const TITLE = `${BOT.display} ${SESSION}`;
 
-/** The report's line for a Claude session left on by the kit's default, and for one set off (#755). */
+/** The report's line for a Claude session left on by the kit's default, for one set on, and for one set off (#755). */
 const ON_LINE = '             remote control: on, the kit\'s default (--remote-control is on the launch line)';
+const ON_SESSION_LINE = '             remote control: on, set for this session (--remote-control is on the launch line)';
 const OFF_LINE = '             remote control: off, set for this session (the kit\'s --settings turns it off)';
 
 /** The states health gives a Claude session's Remote Control. */
@@ -309,7 +322,7 @@ function healthOfProbe(bots) {
   return { entry: entries[0], about };
 }
 
-test('a Claude session the kit starts has Remote Control on by the kit\'s default, and off once it is set off and restarted', async (t) => {
+test('a Claude session the kit starts has Remote Control on by the kit\'s default, off once it is set off and restarted, and still starts when it is set on and Remote Control cannot start', async (t) => {
   const before = {
     handles: new Set(allTerminals().map((terminal) => terminal.handle)),
     setups: new Set(allSetups().map((setup) => setup.id)),
@@ -447,4 +460,49 @@ test('a Claude session the kit starts has Remote Control on by the kit\'s defaul
   assert.equal(offAsked.from, 'session', `set for this session, got: ${JSON.stringify(offAsked)}`);
   // What Remote Control itself did is Claude Code's part: noted, never a failure.
   t.diagnostic(`Remote Control in ${TITLE} after the restart: health says ${offAsked.state}${offAsked.state === 'unknown' ? `, because ${offAsked.why}` : ''} (not enabled expected); its findings about it (none expected): ${JSON.stringify(off.about.map((one) => one.says))}`);
+
+  // ---------------------------------------------------------------------------
+  // 4. Set on again, with Remote Control unable to start, and restarted: the
+  //    kit's line still asks for on, and the session must still start (R1).
+  const changeOn = obk(['session', 'change', '--bots', bots, '--bot', BOT.name, '--session', SESSION, '--remote-control', 'on']);
+  assert.equal(changeOn.status, 0, `session change --remote-control on should go through: ${changeOn.stdout}${changeOn.stderr}`);
+  assert.equal((await entryInBotYaml()).remote_control, 'on', `bot.yaml gives ${SESSION} remote_control: on, got: ${JSON.stringify(await entryInBotYaml())}`);
+
+  // Claude Code's own hard off, in the bot's .claude/settings.local.json, which
+  // Claude Code reads for a session started in this folder. The kit never
+  // writes that file, so here it is the test's. The kit's line still carries
+  // --remote-control: the report line below says so.
+  hardRemoteControlOff(home);
+
+  const restartedOn = obkReport(['restart', '--bots', bots, '--bot', BOT.name, '--session', SESSION]);
+  assert.deepEqual(restartedOn.closed.map((tab) => tab.terminal), [back.terminal], `the restart closes ${TITLE}'s own tab and nothing else:\n  ${restartedOn.lines.join('\n  ')}`);
+  const again = restartedOn.opened.find((tab) => tab.title === TITLE);
+  assert.ok(again !== undefined, `the restart should have opened ${TITLE} again, and said:\n  ${restartedOn.lines.join('\n  ')}`);
+  assert.deepEqual(remoteControlLines(linesAbout(restartedOn, TITLE)), [ON_SESSION_LINE], `the restart's report on ${TITLE} says Remote Control is on, set for this session:\n  ${restartedOn.lines.join('\n  ')}`);
+
+  // A restart resumes the conversation the book names, so it makes no new one:
+  // the book already names it, and there is no new hook write to wait for. The
+  // same folder, trusted in step 2, so it should ask nothing. It is looked at
+  // for ten seconds all the same, and answered the same way.
+  for (const stop = Date.now() + 10000; Date.now() < stop;) {
+    await answerScreens(t, TITLE, again.terminal, home);
+    await setTimeout(2000);
+  }
+
+  // As in step 3: health is asked again until claude is in front of the tab
+  // and its registry entry is in, or the time runs out; what it said last is
+  // what counts.
+  let blocked;
+  for (const stop = Date.now() + STATE_MS; ;) {
+    blocked = healthOfProbe(bots);
+    if ((blocked.entry.running === 'yes' && blocked.entry.remote_control?.state !== 'unknown') || Date.now() >= stop) break;
+    await answerScreens(t, TITLE, again.terminal, home);
+    await setTimeout(3000);
+  }
+  assert.equal(blocked.entry.running, 'yes', `health gives ${TITLE} running: yes after the restart with Remote Control unable to start, so Claude Code took the launch line with --remote-control and started all the same (R1), got: ${JSON.stringify(blocked.entry)}`);
+  const blockedAsked = blocked.entry.remote_control;
+  assert.equal(blockedAsked?.asked, 'on', `health gives ${TITLE} asked: on, got: ${JSON.stringify(blockedAsked)}`);
+  assert.equal(blockedAsked.from, 'session', `set for this session, got: ${JSON.stringify(blockedAsked)}`);
+  // What Remote Control itself did is Claude Code's part: noted, never a failure.
+  t.diagnostic(`Remote Control in ${TITLE} after the restart with Claude Code's hard off: health says ${blockedAsked.state}${blockedAsked.state === 'unknown' ? `, because ${blockedAsked.why}` : ''} (not enabled expected); its findings about it (one expected: on was asked and it is not enabled): ${JSON.stringify(blocked.about.map((one) => one.says))}`);
 });
