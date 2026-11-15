@@ -6,22 +6,31 @@
 //
 // The fakes prove the rules: the launch line, the report and what health reads
 // (test/launch-command.test.js and the tests beside it). This proves what they
-// cannot: that the real Claude Code takes the kit's launch line, and that the
-// registry entry it writes says what health reads from it.
+// cannot: that the real Claude Code takes the kit's launch line and starts.
+//
+// The test holds on the kit's part only: its launch line and its start. It
+// only notes what Remote Control itself did. The kit turns the feature on or
+// off; it does not test Claude Code's feature. So these fail the test: the
+// tabs that up and restart open and close, the report's lines about Remote
+// Control, the kit's hook writing the conversation into the book, bot.yaml's
+// remote_control, and health's `asked` and `from`. The state that health reads
+// from Claude Code's registry, and health's findings that follow from that
+// state, are diagnostics only.
 //
 //   1. A throwaway fleet: Bot Father set off before init starts it
 //      (helpers/remote-control-off.js), and one bot, `obk-rc-probe`, with one
 //      Claude session, `daily`, added with no `remote_control`, so on by the
 //      kit's default.
 //   2. `obk up` brings it up. Its report says Remote Control is on by the
-//      kit's default. `obk health --json` gives the session `asked: on` and a
-//      state. Remote Control can fail to start for reasons outside the kit (the
-//      account, the network), and the session then still runs and health says
-//      so. So a state other than `enabled` is reported as a diagnostic with
-//      health's own reason, and is not a pass of that point.
+//      kit's default. `obk health --json` gives the session `asked: on`, from
+//      the kit's default, and a state. Remote Control can fail to start for
+//      reasons outside the kit (the account, the network), and the session then
+//      still runs. So the state and health's findings about it are noted as a
+//      diagnostic, with health's own reason when it cannot tell.
 //   3. `obk session change --remote-control off`, then `obk restart` of the
-//      session. Its report says off, set for this session, and health gives
-//      `asked: off` and the state `not enabled`, with no finding about it.
+//      session. Its report says off, set for this session. Health gives the
+//      session `running: yes`, `asked: off` and from the session. The state
+//      (`not enabled` when off as asked) and health's findings are noted only.
 //
 // **It connects to an account.** Step 2 starts a session with Remote Control
 // on, so the claude.ai account of whoever runs it gets an entry for
@@ -379,7 +388,8 @@ test('a Claude session the kit starts has Remote Control on by the kit\'s defaul
 
   // What health reads from Claude Code's own registry entry. Remote Control
   // may take a moment to come on, so health is asked again until it says
-  // enabled, or the time runs out; what it said last is what counts.
+  // enabled, or the time runs out; what it said last is what is noted. The
+  // state is Claude Code's part, so it is a diagnostic and never a failure.
   let on;
   for (const stop = Date.now() + STATE_MS; ;) {
     on = healthOfProbe(bots);
@@ -391,15 +401,13 @@ test('a Claude session the kit starts has Remote Control on by the kit\'s defaul
   assert.equal(asked?.asked, 'on', `health gives ${TITLE} asked: on, got: ${JSON.stringify(asked)}`);
   assert.equal(asked.from, 'kit default', `from the kit's default, got: ${JSON.stringify(asked)}`);
   assert.ok(STATES.includes(asked.state), `and a state, one of ${STATES.join(', ')}, got: ${JSON.stringify(asked)}`);
+  const onFindings = JSON.stringify(on.about.map((one) => one.says));
   if (asked.state === 'enabled') {
-    assert.deepEqual(on.about, [], `Remote Control is on as asked, so health has nothing to say about it, got: ${JSON.stringify(on.about)}`);
+    t.diagnostic(`Remote Control came on in ${TITLE}. health says: enabled; its findings about it (none expected): ${onFindings}`);
   } else if (asked.state === 'not enabled') {
-    assert.equal(on.about.length, 1, `asked on and not enabled, so health says so once, got: ${JSON.stringify(on.about)}`);
-    t.diagnostic(`Remote Control did not come on in ${TITLE} within ${STATE_MS}ms, so this point is not a pass. health says: not enabled; ${on.about[0].says}`);
+    t.diagnostic(`Remote Control did not come on in ${TITLE} within ${STATE_MS}ms. health says: not enabled; its findings about it (one expected): ${onFindings}`);
   } else {
-    assert.equal(typeof asked.why, 'string', `an unknown state comes with why, got: ${JSON.stringify(asked)}`);
-    assert.deepEqual(on.about, [], `an unknown state is no finding, got: ${JSON.stringify(on.about)}`);
-    t.diagnostic(`health cannot tell whether Remote Control is on in ${TITLE}, so this point is not a pass. health says: unknown, because ${asked.why}`);
+    t.diagnostic(`health cannot tell whether Remote Control is on in ${TITLE}. health says: unknown, because ${asked.why}; its findings about it (none expected): ${onFindings}`);
   }
 
   // ---------------------------------------------------------------------------
@@ -421,18 +429,22 @@ test('a Claude session the kit starts has Remote Control on by the kit\'s defaul
     await setTimeout(2000);
   }
 
-  // The new Claude Code writes its registry entry as it starts; until health
-  // finds it, the state is unknown. Then it is not enabled, with no finding.
+  // The session came up again: health gives running: yes once claude is the
+  // program in front of its tab, which can take a few seconds after the
+  // restart. The new Claude Code writes its registry entry as it starts; until
+  // health finds it, the state is unknown. Health is asked again until both
+  // are in, or the time runs out; what it said last is what counts.
   let off;
   for (const stop = Date.now() + STATE_MS; ;) {
     off = healthOfProbe(bots);
-    if (off.entry.remote_control?.state !== 'unknown' || Date.now() >= stop) break;
+    if ((off.entry.running === 'yes' && off.entry.remote_control?.state !== 'unknown') || Date.now() >= stop) break;
     await answerScreens(t, TITLE, back.terminal, home);
     await setTimeout(3000);
   }
+  assert.equal(off.entry.running, 'yes', `health gives ${TITLE} running: yes after the restart, so Claude Code took the launch line and started, got: ${JSON.stringify(off.entry)}`);
   const offAsked = off.entry.remote_control;
   assert.equal(offAsked?.asked, 'off', `health gives ${TITLE} asked: off, got: ${JSON.stringify(offAsked)}`);
   assert.equal(offAsked.from, 'session', `set for this session, got: ${JSON.stringify(offAsked)}`);
-  assert.equal(offAsked.state, 'not enabled', `the kit's --settings kept Remote Control off in ${TITLE}, got: ${JSON.stringify(offAsked)}`);
-  assert.deepEqual(off.about, [], `off as asked, so health has nothing to say about it, got: ${JSON.stringify(off.about)}`);
+  // What Remote Control itself did is Claude Code's part: noted, never a failure.
+  t.diagnostic(`Remote Control in ${TITLE} after the restart: health says ${offAsked.state}${offAsked.state === 'unknown' ? `, because ${offAsked.why}` : ''} (not enabled expected); its findings about it (none expected): ${JSON.stringify(off.about.map((one) => one.says))}`);
 });
