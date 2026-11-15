@@ -2,6 +2,7 @@
 name: profiles
 title: What the fleet knows about each bot
 applies: all
+placement: main
 ---
 
 Each bot has a few lines of profile in `profiles/` at the top of the bots

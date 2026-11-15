@@ -51,17 +51,17 @@ paragraphs:
     display: SP-12 (4, Where a rule unit goes)
   - id: SP-13
     kind: rule
-    text_sha256: 1bf890569a562ee26caea0852a386e52ac6424865f51f848f7651cbe2f1dad9a
+    text_sha256: decb7b64440ec4a9dd3bc90c41acfebffb24eada51e485db0584d3de90457c77
     display: SP-13 (4:1, in Where a rule unit goes)
   - id: SP-14
     kind: approach
-    text_sha256: 06ed6b93cb76d23359930f73b55a6d1d1bd8a7178702ffa95ae4620f4c5b36cc
+    text_sha256: d3c25688cc3e160ef3049a56d9f00e6f114e62fdb13586fe6953c3cdefbcef42
     display: SP-14 (4:2, in Where a rule unit goes)
   - id: SP-15
     kind: note
-    text_sha256: 7a702b8b7bfb749bb64b83fbee70b71c5a0c3fc0ad98fc2c525715630c5911c5
-    display: SP-15 (5, Section 6.6, with `CLAUDE.md` built for a bot with a `main` unit)
+    text_sha256: b4f2554a8a44cc6db7221e674f739dcc129c6b040e315d16b6883095f00ae61e
+    display: SP-15 (5, Section 6.6, with `CLAUDE.md` built for a bot with a Claude Code session)
   - id: SP-16
     kind: rule
-    text_sha256: 24e31ac281c7a7efa6880f036cdff7dc1a0e3936997ccc107a842b660a2ec6bc
-    display: SP-16 (5:1, in Section 6.6, with `CLAUDE.md` built for a bot with a `main` unit)
+    text_sha256: f896aecb8b8751f5e6a4513fac5e65ae58f0c2037c4bcc5f40481a29c9ab77c6
+    display: SP-16 (5:1, in Section 6.6, with `CLAUDE.md` built for a bot with a Claude Code session)

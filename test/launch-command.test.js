@@ -48,6 +48,9 @@ import {
   memoryArgs,
   memoryWords,
   sh,
+  SYSTEM,
+  SYSTEM_FLAG,
+  systemlessArgv,
   tabsOfBot,
   TOKEN,
   tokenless,
@@ -65,14 +68,16 @@ import { addSession } from './helpers/permissions.js';
 const KIT = '<kit dirs>';
 /**
  * Where a Claude line's memory folder goes (KIT-51, ADR 0060), in the pinned
- * lines below: `withKit` writes in `--settings` and its JSON for api-bot.
+ * lines below: `withKit` writes in `--settings` and its JSON for api-bot, and
+ * after them the appended system text's flag and `SYSTEM` (#768), which
+ * `tokenless` and `systemlessArgv` write for its path.
  */
 const MEMORY = '<memory>';
 const withKit = (box, text) => text
   .replace(KIT, kitAddDirs(box.path('bots'), 'api-bot').join(' '))
-  .replace(MEMORY, memoryWords(box.path('bots'), 'api-bot'));
+  .replace(MEMORY, `${memoryWords(box.path('bots'), 'api-bot')} ${SYSTEM_FLAG} ${SYSTEM}`);
 const kitArgs = (box) => kitAddDirs(box.path('bots'), 'api-bot');
-const memoryOf = (box) => memoryArgs(box.path('bots'), 'api-bot');
+const memoryOf = (box) => [...memoryArgs(box.path('bots'), 'api-bot'), SYSTEM_FLAG, SYSTEM];
 
 /** Whose mailbox step `launchOf`'s line starts with: its one bot and session. */
 const API_DAILY = { bot: 'api-bot', session: 'daily' };
@@ -268,7 +273,7 @@ test('Claude never gets --add-dir, wherever its work dir is', async (t) => {
   assert.ok(tokenless(typed).startsWith(`${bareLaunch(box, 'claude', 'api-bot', 'daily')} -- `), `got: ${typed}`);
   const argv = await argvOf(box, typed, fake);
   assertNoteLast(
-    argv.map((word, at) => (argv[at - 1] === '-n' ? tokenlessWord(word) : word)),
+    systemlessArgv(argv.map((word, at) => (argv[at - 1] === '-n' ? tokenlessWord(word) : word))),
     ['--remote-control', '--permission-mode', 'auto', '-n', `api-bot.daily.${TOKEN}`, ...memoryOf(box)],
     outside,
   );
@@ -317,7 +322,9 @@ for (const harness of ['claude', 'codex']) {
     const [flag, folder] = memoryOf(box);
     const args = calls[0].args
       .filter((word, at, all) => !(kit.includes(word) && (word === '--add-dir' ? kit.includes(all[at + 1]) : all[at - 1] === '--add-dir')))
-      .filter((word, at, all) => harness !== 'claude' || !((word === flag && all[at + 1] === folder) || (word === folder && all[at - 1] === flag)));
+      .filter((word, at, all) => harness !== 'claude' || !((word === flag && all[at + 1] === folder) || (word === folder && all[at - 1] === flag)))
+      // And on Claude Code the appended system text's pair (#768), pinned elsewhere too.
+      .filter((word, at, all) => harness !== 'claude' || !(word === SYSTEM_FLAG || all[at - 1] === SYSTEM_FLAG));
     if (harness === 'claude') assert.deepEqual(calls[0].args.filter((word) => word === flag), [flag], `the line carries the memory folder's --settings once, got: ${JSON.stringify(calls[0].args)}`);
     assert.deepEqual(args.slice(-3), ['my model', '--note', 'it\'s a "quoted" one']);
   });
@@ -335,7 +342,7 @@ test('a model with a context window reaches the harness as one word, unglobbed',
   assert.equal(ran.code, 0, `${typed}\n${ran.stderr}`);
   const { args } = (await fake.calls())[0];
   assert.deepEqual(
-    args.map((word, at) => (args[at - 1] === '-n' ? tokenlessWord(word) : word)),
+    systemlessArgv(args.map((word, at) => (args[at - 1] === '-n' ? tokenlessWord(word) : word))),
     ['--remote-control', '--permission-mode', 'auto', '-n', `api-bot.daily.${TOKEN}`, '--model', 'sonnet[1m]', ...memoryOf(box)],
   );
 });
@@ -425,7 +432,7 @@ for (const [approval, codexFlags, claudeFlags] of LEVELS) {
     ]);
 
     const argv = await argvOf(box, typed, fake);
-    assert.deepEqual(argv.map((word, at) => (argv[at - 1] === '-n' ? tokenlessWord(word) : word)), [
+    assert.deepEqual(systemlessArgv(argv.map((word, at) => (argv[at - 1] === '-n' ? tokenlessWord(word) : word))), [
       '--remote-control',
       ...claudeFlags,
       '-n', `api-bot.daily.${TOKEN}`,

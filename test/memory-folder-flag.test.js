@@ -90,6 +90,9 @@ import {
   sessionIn,
   sh,
   snapshot,
+  SYSTEM,
+  SYSTEM_FLAG,
+  systemlessArgv,
   tokenless,
   tokenlessWord,
   typedInto,
@@ -227,11 +230,12 @@ function memoryDirIn(argv) {
   return parsed[KEY];
 }
 
-/** The argv with the pair taken out, and the token of the name written the way `bareLaunch` writes it. */
+/** The argv with the pair taken out, and the token of the name and the appended system text's path written the way `bareLaunch` writes them. */
 function withoutPair(argv) {
   const at = argv.indexOf('--settings');
   const left = at < 0 ? [...argv] : [...argv.slice(0, at), ...argv.slice(at + 2)];
-  return left.map((word, index) => (left[index - 1] === '-n' ? tokenlessWord(word) : word));
+  // The appended system text's path (#768) as `bareLaunch` writes it.
+  return systemlessArgv(left.map((word, index) => (left[index - 1] === '-n' ? tokenlessWord(word) : word)));
 }
 
 /** The arguments of today's line for a session with nothing set: after the pid, the CLI and the harness word. */
@@ -432,9 +436,11 @@ describe('the launch line names the bot\'s own memory folder (#722, #752)', { co
     const argv = await argvOf(box, line);
     assert.equal(memoryDirIn(argv), ownOf(botHomeOf(box.path('bots'), BOT)));
     assert.deepEqual(argv.slice(-2), ['--', prompt], `the prompt is last, after --, got: ${JSON.stringify(argv)}`);
+    // The appended system text's pair (#768) comes after the kit's settings, before the user's extra arguments.
+    const system = [SYSTEM_FLAG, SYSTEM];
     assert.deepEqual(
       withoutPair(argv),
-      [...todaysArgv(box, 'daily'), '--model', 'opus', '--effort', 'high', '--verbose', '--', prompt],
+      [...todaysArgv(box, 'daily').filter((word) => !system.includes(word)), '--model', 'opus', '--effort', 'high', ...system, '--verbose', '--', prompt],
       'the session\'s own settings are as they are today',
     );
   });
@@ -1136,7 +1142,8 @@ describe('the launch line names the bot\'s own memory folder (#722, #752)', { co
       assert.ok(!line.includes(KEY), `the user's hand edit wins, got: ${line}`);
       const argv = await argvOf(box, line);
       assert.deepEqual(
-        argv.map((word, index) => (argv[index - 1] === '-n' ? tokenlessWord(word) : word)),
+        // The appended system text's path (#768) as `bareLaunch` writes it.
+        systemlessArgv(argv.map((word, index) => (argv[index - 1] === '-n' ? tokenlessWord(word) : word))),
         [...todaysArgv(box, 'daily'), ...words],
         'the line is today\'s, with the user\'s words and nothing of the kit\'s',
       );

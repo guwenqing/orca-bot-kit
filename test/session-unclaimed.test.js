@@ -30,6 +30,11 @@
 // line spoke to, and a session without its duty is the failure this slice exists
 // to prevent.
 //
+// Since #768 (R6, the architect's ruling B) the hook also gives a Claude Code
+// session its bot's main units, on every report of its own: after the duty
+// when it is handed one, alone when it is not. A Codex session gets none. The
+// answers here are pinned whole for each harness (`answerFor`).
+//
 // Both harnesses' records are files under the user's home directory, and HOME is
 // inside every sandbox, so the tests here plant them: a conversation the kit
 // never heard about, sitting where the harness would have left it.
@@ -49,6 +54,7 @@ import {
   tabsOfBot,
   typedInto,
 } from './helpers/cli.js';
+import { hookContext, mainUnitsText } from './helpers/rules.js';
 
 /** A bots folder with one bot on `harness` and the sessions named, brought up. */
 async function started(box, harness, sessions = ['daily'], settings = []) {
@@ -148,6 +154,15 @@ function dutyIn(ran) {
 }
 
 /**
+ * The whole answer a session of api-bot on `harness` gets for a report of its
+ * own: on Claude Code the duty (when it is handed one) and then the bot's main
+ * units (#768, ruling B); on Codex the duty alone, undefined when there is none.
+ */
+async function answerFor(harness, bots, duty) {
+  return harness === 'claude' ? hookContext(duty, await mainUnitsText(bots, 'api-bot')) : duty;
+}
+
+/**
  * The session's tab is closed and the fleet comes back up, the way a user gets a
  * tab back. Every relaunch writes a new `launched`, which is what made the note
  * lose what an earlier scan had found (round 4, finding 1).
@@ -215,7 +230,7 @@ for (const harness of ['claude', 'codex']) {
       `nothing the kit never recorded may become this session's history: ${JSON.stringify(daily)}`,
     );
     assert.deepEqual(await unclaimedIn(bots), ['the-lost-one'], `got: ${JSON.stringify(daily)}`);
-    assert.equal(dutyIn(ran), DUTY, 'and a session the kit cannot be sure about is handed its duty');
+    assert.equal(dutyIn(ran), await answerFor(harness, bots, DUTY), 'and a session the kit cannot be sure about is handed its duty');
   });
 
   test(`a child ${harness}'s conversation never reaches the session's history`, async (t) => {
@@ -254,7 +269,7 @@ for (const harness of ['claude', 'codex']) {
       ['the-childs', 'the-parents-own'],
       `both are conversations of this folder that nobody claims: ${JSON.stringify(daily)}`,
     );
-    assert.equal(dutyIn(ran), DUTY);
+    assert.equal(dutyIn(ran), await answerFor(harness, bots, DUTY));
   });
 
   test(`two unrecorded ${harness} sessions reporting in reverse order keep their own conversation`, async (t) => {
@@ -298,11 +313,11 @@ for (const harness of ['claude', 'codex']) {
         `${name} should hold the two nobody claims, and only those: ${JSON.stringify(now.sessions[name])}`,
       );
     }
-    assert.equal(dutyIn(second), DUTY, 'and both are handed their duty');
-    assert.equal(dutyIn(first), DUTY);
+    assert.equal(dutyIn(second), await answerFor(harness, bots, DUTY), 'and both are handed their duty');
+    assert.equal(dutyIn(first), await answerFor(harness, bots, DUTY));
   });
 
-  test(`a first ${harness} report with nothing unclaimed beside it is told nothing`, async (t) => {
+  test(`a first ${harness} report with nothing unclaimed beside it is told no duty`, async (t) => {
     // The ordinary first report. The records hold this conversation and no other,
     // so there is nothing the kit is unsure about: the id goes in, no note is
     // written, and the session already has the duty its launch line carried.
@@ -316,7 +331,7 @@ for (const harness of ['claude', 'codex']) {
     });
 
     assert.equal(ran.code, 0, ran.stderr);
-    assert.equal(ran.stdout, '', `it has its duty already: ${ran.stdout}`);
+    assert.equal(dutyIn(ran), await answerFor(harness, bots, undefined), `it has its duty already; a Claude Code session gets its main units alone, got: ${ran.stdout}`);
     const daily = await sessionIn(bots, 'api-bot', 'daily');
     assert.equal(daily.session, 'sess-1');
     assert.equal('history' in daily, false, `and nothing came before it: ${JSON.stringify(daily)}`);

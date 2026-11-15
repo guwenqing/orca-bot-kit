@@ -44,6 +44,13 @@
 //
 // The answer echoes the event it was sent rather than naming one itself.
 //
+// Since #768 (R6, the architect's ruling B) the hook also gives a Claude Code
+// session its bot's main units, on every event: after the start prompt when
+// there is one, alone when there is none. So a first start and a resume of a
+// Claude Code session print the main units and no start prompt. Each answer
+// here is pinned whole, the main units' exact text included (helpers/rules.js,
+// mainUnitsText and hookContext).
+//
 // The rule over all of it is that it runs inside the user's own session and
 // must never disturb it (ADR 0022). Every input a harness should not send, and
 // every one it might, ends the same way: exit 0, nothing printed, the book as
@@ -63,6 +70,7 @@ import {
   tabsOfBot,
   typedInto,
 } from './helpers/cli.js';
+import { hookContext, mainUnitsText } from './helpers/rules.js';
 
 /** A bots folder holding one bot on `harness` with the sessions given, brought up. */
 async function fleet(box, { bot = 'api-bot', harness = 'claude', sessions = [['daily', []]] } = {}) {
@@ -232,7 +240,7 @@ test('a session that comes back under a new id is handed its start prompt again'
 
   const ran = await recordSession(box, { bots, bot: 'api-bot', tab: tabs.daily.tabId, session: 'sess-2', source: 'clear' });
 
-  assert.equal(answerOf(ran), prompt);
+  assert.equal(answerOf(ran), hookContext(prompt, await mainUnitsText(bots, 'api-bot')));
 });
 
 test('a harness that says it cleared is handed the prompt back, whatever the book held', async (t) => {
@@ -247,7 +255,7 @@ test('a harness that says it cleared is handed the prompt back, whatever the boo
 
   const ran = await recordSession(box, { bots, bot: 'api-bot', tab: tabs.daily.tabId, session: 'sess-2', source: 'clear' });
 
-  assert.equal(answerOf(ran), prompt);
+  assert.equal(answerOf(ran), hookContext(prompt, await mainUnitsText(bots, 'api-bot')));
 });
 
 test('a new id under any source at all is a session that came back with nothing', async (t) => {
@@ -261,7 +269,7 @@ test('a new id under any source at all is a session that came back with nothing'
 
   const ran = await recordSession(box, { bots, bot: 'api-bot', tab: tabs.daily.tabId, session: 'sess-2', source: 'startup' });
 
-  assert.equal(answerOf(ran), prompt);
+  assert.equal(answerOf(ran), hookContext(prompt, await mainUnitsText(bots, 'api-bot')));
 });
 
 test('the answer is about the event the harness sent, not one of the kit\'s own', async (t) => {
@@ -277,7 +285,7 @@ test('the answer is about the event the harness sent, not one of the kit\'s own'
     bots, bot: 'api-bot', tab: tabs.daily.tabId, session: 'sess-2', event: 'SessionResumed',
   });
 
-  assert.equal(answerOf(ran, 'SessionResumed'), prompt);
+  assert.equal(answerOf(ran, 'SessionResumed'), hookContext(prompt, await mainUnitsText(bots, 'api-bot')));
 });
 
 test('the prompt handed back carries the work-dir note too', async (t) => {
@@ -293,7 +301,7 @@ test('the prompt handed back carries the work-dir note too', async (t) => {
 
   const ran = await recordSession(box, { bots, bot: 'api-bot', tab: tabs.daily.tabId, session: 'sess-2', source: 'clear' });
 
-  assert.equal(answerOf(ran), held);
+  assert.equal(answerOf(ran), hookContext(held, await mainUnitsText(bots, 'api-bot')));
 });
 
 test('a session with a work dir and no prompt still gets its note back', async (t) => {
@@ -307,20 +315,19 @@ test('a session with a work dir and no prompt still gets its note back', async (
   assert.ok(said !== undefined && said.includes(path.join('work', 'api')), `got: ${JSON.stringify(said)}`);
 });
 
-test('a session with nothing to say is told nothing when it comes back new', async (t) => {
+test('a session with no start prompt is told no start prompt when it comes back new: the main units alone', async (t) => {
   const box = await createSandbox(t);
   const { bots, tabs } = await fleet(box);
   await recordSession(box, { bots, bot: 'api-bot', tab: tabs.daily.tabId, session: 'sess-1', source: 'startup' });
 
   const ran = await recordSession(box, { bots, bot: 'api-bot', tab: tabs.daily.tabId, session: 'sess-2', source: 'clear' });
 
-  assert.equal(ran.code, 0, ran.stderr);
-  assert.equal(ran.stdout, '', `a session that was never given a duty has none to be given back: ${ran.stdout}`);
+  assert.equal(answerOf(ran), await mainUnitsText(bots, 'api-bot'), 'a session that was never given a duty has none to be given back; its main units it gets');
   assert.equal((await sessionIn(bots, 'api-bot', 'daily')).session, 'sess-2', 'the id was still written down');
 });
 
 for (const source of ['startup', 'resume']) {
-  test(`the first id a session reports, on ${source}, is told nothing`, async (t) => {
+  test(`the first id a session reports, on ${source}, is told no start prompt: the main units alone`, async (t) => {
     // The session `up` just started already has its duty: it went in on the
     // launch line, as the harness's own prompt argument. Handing it over again
     // would be the same instruction twice in a session already carrying it out.
@@ -330,12 +337,11 @@ for (const source of ['startup', 'resume']) {
 
     const ran = await recordSession(box, { bots, bot: 'api-bot', tab: tabs.daily.tabId, session: 'sess-1', source });
 
-    assert.equal(ran.code, 0, ran.stderr);
-    assert.equal(ran.stdout, '', `nothing to say on ${source}, got: ${ran.stdout}`);
+    assert.equal(answerOf(ran), await mainUnitsText(bots, 'api-bot'), `no start prompt on ${source}: the main units alone`);
     assert.equal((await sessionIn(bots, 'api-bot', 'daily')).session, 'sess-1', 'the id is written down all the same');
   });
 
-  test(`a session reporting the same id again, on ${source}, is told nothing`, async (t) => {
+  test(`a session reporting the same id again, on ${source}, is told no start prompt: the main units alone`, async (t) => {
     // It never lost the conversation, so it never lost the duty.
     const box = await createSandbox(t);
     const prompt = 'Read your AGENTS.md and keep the queue moving.';
@@ -344,8 +350,7 @@ for (const source of ['startup', 'resume']) {
 
     const ran = await recordSession(box, { bots, bot: 'api-bot', tab: tabs.daily.tabId, session: 'sess-1', source });
 
-    assert.equal(ran.code, 0, ran.stderr);
-    assert.equal(ran.stdout, '', `nothing to say on ${source}, got: ${ran.stdout}`);
+    assert.equal(answerOf(ran), await mainUnitsText(bots, 'api-bot'), `no start prompt on ${source}: the main units alone`);
   });
 }
 

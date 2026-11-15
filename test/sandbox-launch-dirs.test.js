@@ -40,6 +40,7 @@ import {
   sh,
   tabsOfBot,
   typedInto,
+  systemless,
   withoutSandbox,
   workDirByHand,
 } from './helpers/cli.js';
@@ -179,7 +180,9 @@ test('SL5 a Claude launch line names none of the kit\'s folders and carries no -
   const line = await launchOf(box, bots, 'api-bot');
 
   assert.ok(!withoutSandbox(box, line).includes('--add-dir'), `Claude gets no --add-dir, got: ${line}`);
-  for (const dir of kitDirsOf(bots, 'api-bot')) assert.ok(!line.includes(dir), `Claude's line does not name ${dir}, got: ${line}`);
+  // The one kit file a Claude line names is the bot's appended system text, in
+  // its prompts folder (#768); written `<system>` here, as the line is pinned.
+  for (const dir of kitDirsOf(bots, 'api-bot')) assert.ok(!systemless(line).includes(dir), `Claude's line does not name ${dir}, got: ${line}`);
 });
 
 test('SL6 the three folders of a Codex session\'s bot are on disk before its launch line is typed', async (t) => {

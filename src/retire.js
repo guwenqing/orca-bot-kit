@@ -32,6 +32,7 @@ import { shellWord, workDirOf } from './launch.js';
 import { fleetMember } from './pause.js';
 import { stopProcesses } from './processes.js';
 import { closeTabs, commandLine, tabsToClose } from './restart.js';
+import { systemFilesOf } from './rules.js';
 import { unlinkSkills } from './skills.js';
 import { oldPromptPath, promptPath, sessionsOf } from './up.js';
 
@@ -168,7 +169,8 @@ export async function retireBot(bots, { bot }) {
   }
 
   const names = new Set([...known.sessions, ...booked].map((session) => session.name));
-  const left = removePrompts([...names].flatMap((name) => promptFiles(bots, bot, name)));
+  // And its system text files (R6): no session of the bot is left to read them.
+  const left = removePrompts([...[...names].flatMap((name) => promptFiles(bots, bot, name)), ...systemFilesOf(bots, bot)]);
   unlinkSkills(home);
   mkdirSync(retiredDir(bots), { recursive: true });
   renameSync(botDir(bots, bot), moved);

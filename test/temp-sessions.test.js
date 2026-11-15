@@ -67,6 +67,9 @@ import {
   sh,
   skipGit,
   snapshot,
+  SYSTEM,
+  SYSTEM_FLAG,
+  systemlessArgv,
   tabsOfBot,
   typedInto,
 } from './helpers/cli.js';
@@ -360,12 +363,12 @@ test('TM3 the made session is started on the maker\'s settings with the task as 
   const typed = typedInto(await liveTab(box, bots, BOT, 'scout'));
   assert.equal(typed.length, 1, `one launch line is typed into the new tab, got: ${JSON.stringify(typed)}`);
   const fake = await fakeProgram(box, 'claude', {});
-  const argv = await argvOf(box, typed[0], fake);
+  const argv = systemlessArgv(await argvOf(box, typed[0], fake));
   assert.deepEqual(argv.slice(0, 4), ['--remote-control', '--permission-mode', 'manual', '-n'], `got: ${JSON.stringify(argv)}`);
   assert.match(argv[4], addressPattern(BOT, 'scout'));
   assert.deepEqual(
     argv.slice(5, -1),
-    ['--model', 'opus[1m]', '--effort', 'xhigh', ...memoryArgs(bots, BOT), '--'],
+    ['--model', 'opus[1m]', '--effort', 'xhigh', ...memoryArgs(bots, BOT), SYSTEM_FLAG, SYSTEM, '--'],
     `planner's model, context and effort, the bot's memory folder, and none of the maker's extra arguments, got: ${JSON.stringify(argv)}`,
   );
   const prompt = argv.at(-1);

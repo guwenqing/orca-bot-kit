@@ -55,6 +55,9 @@ import {
   recordSession,
   sessionIn,
   sh,
+  SYSTEM,
+  SYSTEM_FLAG,
+  systemlessArgv,
   tabsOfBot,
   tokenless,
   tokenlessWord,
@@ -162,11 +165,13 @@ function withoutSettingsPair(argv) {
 /**
  * The words of a line with nothing set, after the pid, the CLI and `claude`,
  * and before the memory folder's `--settings` pair, which `kitJson` and
- * `memoryArgs` give.
+ * `memoryArgs` give. The appended system text's pair (#768), `SYSTEM_FLAG`
+ * and `SYSTEM`, comes after the memory folder, so it is not among them.
  */
 const bareArgv = (box) => {
   const line = bareLaunch(box, 'claude', BOT, 'daily', { memory: false });
-  return line.slice(line.indexOf(' claude ') + ' claude '.length).split(' ');
+  const words = line.slice(line.indexOf(' claude ') + ' claude '.length).split(' ');
+  return words.filter((word, at) => word !== SYSTEM_FLAG && words[at - 1] !== SYSTEM_FLAG);
 };
 
 /**
@@ -243,9 +248,9 @@ test('RL1 an on session with every setting and a prompt keeps every word where i
   const prompt = 'Read your AGENTS.md.';
   const bots = await fleetIn(box, { flags: ['--model', 'opus', '--context', '1m', '--effort', 'xhigh', '--extra-arg=--verbose', '--prompt', prompt] });
 
-  const argv = tokenlessArgv(await argvOf(box, await upLine(box, bots)));
+  const argv = systemlessArgv(tokenlessArgv(await argvOf(box, await upLine(box, bots))));
 
-  assert.deepEqual(argv, [...bareArgv(box), '--model', 'opus[1m]', '--effort', 'xhigh', ...memoryArgs(bots, BOT), '--verbose', '--', prompt]);
+  assert.deepEqual(argv, [...bareArgv(box), '--model', 'opus[1m]', '--effort', 'xhigh', ...memoryArgs(bots, BOT), SYSTEM_FLAG, SYSTEM, '--verbose', '--', prompt]);
 });
 
 // ------------------------------------------------------------- RL2 off
@@ -261,8 +266,8 @@ test('RL2 remote_control: off: no --remote-control, and the kit\'s --settings JS
   assert.ok(!argv.some((word) => word.startsWith(`${RC}=`) || word === '--rc'), `no form of it, got: ${JSON.stringify(argv)}`);
   assert.deepEqual(settingsJsonIn(argv), kitJson(bots, { off: true }));
   assert.deepEqual(
-    tokenlessArgv(withoutSettingsPair(argv)),
-    bareArgv(box).filter((word) => word !== RC),
+    systemlessArgv(tokenlessArgv(withoutSettingsPair(argv))),
+    [...bareArgv(box).filter((word) => word !== RC), SYSTEM_FLAG, SYSTEM],
     'with the pair taken out, the line is the on line without --remote-control',
   );
 });

@@ -125,8 +125,8 @@ obk up          --bots /path/to/my-bots
 ```
 
 `bot create` writes the bot's folder — `bot.yaml`, the `AGENTS.md` built from
-that file and the rule units, `CLAUDE.md` as a symlink to it, and a `.gitignore`
-for `work/`.
+that file and the rule units, `CLAUDE.md` beside it (a symlink to it, or for a
+Claude Code bot a file built from it; see below), and a `.gitignore` for `work/`.
 `session add` writes one session into `bot.yaml`: its harness (the bot's unless
 it says otherwise), model, effort, context window, start prompt,
 work dir and any extra arguments for the harness, the approval level, and, on
@@ -339,6 +339,55 @@ name), `title` (the heading it gets in `AGENTS.md`) and `applies` (`all` or
 `code`); the body is the rule text and nothing else.
 [`test/kit-rules.test.js`](test/kit-rules.test.js) holds that shape, and the
 size the always-on set may reach.
+
+A unit may also carry `placement`: `all`, `main` or `both`. A unit with none is
+`all`, and any other value stops the build of its bot, which then writes
+nothing. `all` is in the instruction file only. `main` is for a rule that only
+shapes how the main session talks or arranges its work: a Claude Code session
+gets it in its system text and as context, and its helpers and the
+permission check do not (checked on Claude Code 2.1.325).
+`both` is for the owner's hard limits: in the instruction file and in the
+system text, from one source. The kit's `talk` and `profiles` are `main`, and
+`limits` is `both`. `AGENTS.md` always holds every unit, and a Codex or Pi
+session reads every unit there.
+
+For a bot with a Claude Code session, `CLAUDE.md` is then a file that the kit
+builds in the same step as `AGENTS.md`: `AGENTS.md` word for word, with the
+`main` units left out of the kit's block. A bot with no Claude Code session
+keeps `CLAUDE.md` as a link to `AGENTS.md`. The `main` and `both` units go into
+a file beside your bots folder, in `<bots>.prompts/<bot>/`, and the kit's
+launch line for each Claude Code session appends it with
+`--append-system-prompt-file`.
+
+What this costs you:
+
+- A hand edit of `AGENTS.md` reaches `CLAUDE.md`, and so a Claude Code session,
+  at the next build: `obk up`, `obk rules build`, `obk restart` or
+  `obk temp make`. Before, the link made it reach at once. `obk health` names a
+  `CLAUDE.md` that is older than its `AGENTS.md`.
+- A line added to `CLAUDE.md` by hand, or by a session, stops the kit from
+  writing it. `obk rules build`, `obk up` and `obk health` name it until the
+  line moves into `AGENTS.md`, below the kit's block, and is taken out of
+  `CLAUDE.md`.
+- A changed `main` or `both` unit reaches a running session's system text only
+  after a restart and the session's next compaction. Until then a `both` unit
+  can say one thing in `CLAUDE.md` and an older thing in the system text. So
+  keep `both` for rules that rarely change. `obk rules build` and `obk health`
+  name each session whose system text is older than its bot's units.
+- The kit's hook gives a Claude Code session its `main` units as context at
+  each start, resume, `/clear` and compaction, whatever its launch line says,
+  so no session loses one. So a `main` unit is in a main session twice: once
+  in the system text and once as context. Keep `main` units short. The kit's
+  own `main` units are `talk` and `profiles`, whose two files are 602 bytes
+  together.
+- When Orca brings a tab back by itself, the session has no appended text, and
+  the hook's context is where its `main` units come from. `obk health` names
+  the session until `obk restart`.
+- A Claude Code session that the kit did not start in its own tab gets no
+  `main` unit: a session started by hand in a bot folder, or a `claude -p` that
+  a script or a session runs there. It loads a `CLAUDE.md` without the `main`
+  units, and the kit's hook gives it nothing. Start a bot's sessions with the
+  kit.
 
 ## The skills a bot uses
 

@@ -40,6 +40,7 @@ import {
   sessionStart,
   tabsOfBot,
 } from './helpers/cli.js';
+import { mainUnitsText } from './helpers/rules.js';
 
 /** A bots folder with one Claude bot and the sessions named, not yet brought up. */
 async function written(box, sessions = ['daily']) {
@@ -204,9 +205,17 @@ test('a crowd of writers all keep their change, and the book stays readable', as
     source: 'startup',
   })));
 
+  // Each is a first start of a Claude Code session with no start prompt: it is
+  // told no duty, and gets its bot's main units alone (#768, the architect's
+  // ruling B).
+  const main = await mainUnitsText(bots, 'api-bot');
   for (const [at, ran] of reported.entries()) {
     assert.equal(ran.code, 0, `${names[at]}: ${ran.stderr}`);
-    assert.equal(ran.stdout, '', `${names[at]} should have said nothing: ${ran.stdout}`);
+    assert.equal(
+      ran.stdout === '' ? undefined : JSON.parse(ran.stdout).hookSpecificOutput?.additionalContext,
+      main,
+      `${names[at]} should have said no duty, and its main units alone: ${ran.stdout}`,
+    );
   }
   const text = await readFile(bookOf(bots, 'api-bot'), 'utf8');
   const after = parse(text);

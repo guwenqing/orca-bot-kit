@@ -444,8 +444,14 @@ const FALLBACKS = [
   { name: 'call never settles', app: { client: 'never-settles' }, calls: 1, loads: 1 },
 ];
 
-/** A run's output with everything that differs between two sandboxes taken out. */
-const withoutTheSandbox = (box, text) => text.split(box.root).join('<root>');
+/**
+ * A run's output with everything that differs between two sandboxes taken out:
+ * the sandbox's folder, and the checksum in the name of a bot's appended
+ * system text file, `<bots>.prompts/<bot>/system-<sum>.md` (#768), which
+ * covers unit text that names each sandbox's own bots folder.
+ */
+const withoutTheSandbox = (box, text) => text.split(box.root).join('<root>')
+  .replace(/(\.prompts\/[^/"\s]+\/system-)[0-9a-f]{16}(\.md)/g, '$1<sum>$2');
 
 /** `up` of a new bot in a fresh sandbox whose Orca app is `app` (null: none). */
 async function upOfANewBot(t, app, json) {

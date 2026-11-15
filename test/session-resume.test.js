@@ -69,6 +69,10 @@ import {
   recordSession,
   sessionIn,
   sh,
+  SYSTEM,
+  SYSTEM_FLAG,
+  systemless,
+  systemlessArgv,
   tabsOfBot,
   TOKEN,
   tokenless,
@@ -155,12 +159,14 @@ function settingsOnly(argv) {
  * words, as the harness receives them (KIT-51).
  */
 const bareArgvOf = (box, harness) => [
-  ...harnessPartOf(bareLaunch(box, harness, 'api-bot', 'daily', { memory: false })).split(' ').slice(3),
-  ...(harness === 'claude' ? memoryArgs(box.path('bots'), 'api-bot') : []),
+  ...harnessPartOf(bareLaunch(box, harness, 'api-bot', 'daily', { memory: false })).split(' ').slice(3)
+    .filter((word) => word !== SYSTEM_FLAG && word !== SYSTEM),
+  // After the memory folder, the appended system text's pair (#768).
+  ...(harness === 'claude' ? [...memoryArgs(box.path('bots'), 'api-bot'), SYSTEM_FLAG, SYSTEM] : []),
 ];
 
 /** Arguments with the token of the name after `-n` written the way `bareLaunch` writes it. */
-const tokenlessArgv = (argv) => argv.map((word, at) => (argv[at - 1] === '-n' ? tokenlessWord(word) : word));
+const tokenlessArgv = (argv) => systemlessArgv(argv.map((word, at) => (argv[at - 1] === '-n' ? tokenlessWord(word) : word)));
 
 /**
  * The launch arguments with the resume words taken out, whichever harness's
@@ -239,7 +245,7 @@ for (const [harness, settings, fresh] of [
   [
     'claude',
     ['--approval', 'ask', '--model', 'opus', '--context', '1m', '--effort', 'xhigh', '--extra-arg=--verbose'],
-    (bots) => ['--remote-control', '--permission-mode', 'manual', '-n', `api-bot.daily.${TOKEN}`, '--model', 'opus[1m]', '--effort', 'xhigh', ...memoryArgs(bots, 'api-bot'), '--verbose'],
+    (bots) => ['--remote-control', '--permission-mode', 'manual', '-n', `api-bot.daily.${TOKEN}`, '--model', 'opus[1m]', '--effort', 'xhigh', ...memoryArgs(bots, 'api-bot'), SYSTEM_FLAG, SYSTEM, '--verbose'],
   ],
   [
     'codex',
@@ -329,6 +335,7 @@ for (const [approval, codexFlags, claudeFlags] of [
       ...claudeFlags,
       '-n', `api-bot.daily.${TOKEN}`,
       ...memoryArgs(bots, 'api-bot'),
+      SYSTEM_FLAG, SYSTEM,
       '--resume', 'sess-1',
     ]);
   });
@@ -597,7 +604,7 @@ async function assertMovedToANewAddress(box, bots, typed, held) {
   const [line] = typed;
   assert.deepEqual(
     typed.map(tokenless),
-    [launchLine(box, `claude --remote-control --permission-mode auto -n api-bot.daily.${TOKEN} ${memoryWords(bots, 'api-bot')} --resume sess-1`, { bot: 'api-bot', session: 'daily' })],
+    [launchLine(box, `claude --remote-control --permission-mode auto -n api-bot.daily.${TOKEN} ${memoryWords(bots, 'api-bot')} ${SYSTEM_FLAG} ${SYSTEM} --resume sess-1`, { bot: 'api-bot', session: 'daily' })],
     `the line resumes the conversation under an address of the kit's kind, got: ${line}`,
   );
   const address = nameOnLine(line);
@@ -624,8 +631,8 @@ for (const [label, held, made] of HELD) {
       return;
     }
     assert.deepEqual(
-      again.typed,
-      [launchLine(box, `claude --remote-control --permission-mode auto -n ${held} ${memoryWords(bots, 'api-bot')} --resume sess-1`, { bot: 'api-bot', session: 'daily' })],
+      again.typed.map(systemless),
+      [launchLine(box, `claude --remote-control --permission-mode auto -n ${held} ${memoryWords(bots, 'api-bot')} ${SYSTEM_FLAG} ${SYSTEM} --resume sess-1`, { bot: 'api-bot', session: 'daily' })],
       'the line carries the address the book held',
     );
     assert.equal((await sessionIn(bots, 'api-bot', 'daily')).address, held, 'and the book\'s address is as it was');
@@ -695,8 +702,8 @@ test('a session moved to a new address keeps it on its next resume', async (t) =
   const again = await up(box);
 
   assert.deepEqual(
-    again.typed,
-    [launchLine(box, `claude --remote-control --permission-mode auto -n ${address} ${memoryWords(bots, 'api-bot')} --resume sess-1`, { bot: 'api-bot', session: 'daily' })],
+    again.typed.map(systemless),
+    [launchLine(box, `claude --remote-control --permission-mode auto -n ${address} ${memoryWords(bots, 'api-bot')} ${SYSTEM_FLAG} ${SYSTEM} --resume sess-1`, { bot: 'api-bot', session: 'daily' })],
     'the line carries the address the first resume gave it',
   );
   assert.equal((await sessionIn(bots, 'api-bot', 'daily')).address, address, 'and the book still holds it');

@@ -19,7 +19,7 @@ import { piTrouble } from './pi.js';
 import { addressOf, HARNESSES, harnessOf, isAddressOf, isShortPrompt, kitFolders, launchCommand, lostToOwnSettings, mailboxStep, ownCli, reachesMail, remoteControlLaunched, sessionTrouble, setsSettings, shellWord, startPrompt, workDirOf } from './launch.js';
 import { asFolderProject, coordinatorOf, dropLeftGit, findProject, harnessInTab, loadInWindow, makeMailbox, makeProject, openTab, QUESTION_ON_SCREEN, retitleTab, runMissing, screenRows, shellInTab, tabs, tabToTypeInto, TERMINAL_ENV, TIMED_OUT, tellWindow, typeIntoTab, useMailbox } from './orca.js';
 import { TAB_ENV } from './record.js';
-import { buildAgents, rulesStamp } from './rules.js';
+import { buildAgents, currentSystemFile, rulesStamp } from './rules.js';
 import { linkSkills } from './skills.js';
 
 /** The one bot with a tab beside its sessions: the ops tab (PRD 6.2). */
@@ -656,6 +656,12 @@ function lookAndType(home, tabId, line, until) {
   return undefined;
 }
 
+/** The file of the bot's system text, when the build wrote it. */
+function systemOption(bots, bot) {
+  const systemFile = currentSystemFile(bots, bot);
+  return systemFile === undefined ? {} : { systemFile };
+}
+
 /**
  * The line that starts this session: resuming `resume`, or, with none, a fresh
  * start carrying its duty, naming `memoryFolder` when there is one. Returns
@@ -684,6 +690,8 @@ function launchFor(bots, bot, session, harness, home, workDir, resume, held, fre
     address,
     kit: kitFolders(bots, bot.name),
     ...(memoryFolder === undefined ? {} : { memoryFolder }),
+    // The bot's system text, as the build wrote it (R6).
+    ...(harness === 'claude' ? systemOption(bots, bot) : {}),
     // A new Pi conversation's id, and the name its tab and session list show,
     // `<bot>.<session>` as a Codex thread is named (#480).
     ...(harness === 'pi' ? { sessionId: resume === undefined ? fresh : undefined, name: `${bot.name}.${session.name}` } : {}),

@@ -17,7 +17,7 @@ import { forgetClaimed, readBook, rememberSession, sessionIdsIn, updateBook, wit
 import { botDir, readBot } from './bot.js';
 import { conversationsIn } from './conversations.js';
 import { harnessOf, SHELL_ENV, startPrompt, workDirOf } from './launch.js';
-import { rulesStamp } from './rules.js';
+import { guardText, isClaudeBot, rulesStamp } from './rules.js';
 
 /** Where Orca says which tab a program is running in (tech notes, section 1). */
 export const TAB_ENV = 'ORCA_TAB_ID';
@@ -96,9 +96,14 @@ export async function recordSession(bots, name, said, tabId, shellPid) {
   // notes which ones it read: Claude Code's `/clear` (tech notes, section 2),
   // and Codex's `/new`, seen here as a new id (#391).
   const stamp = rulesStamp(home);
+  // What the Claude Code process above this hook was launched with: whether it
+  // appends the bot's system text, and which file (R6). Read before the book
+  // is held, as the rest of what goes into it.
+  const launched = isClaudeBot(bot) ? appendedText(process.pid, bot.name) : undefined;
 
   let cleared = false;
   let told;
+  let onClaude = false;
 
   await updateBook(home, (book) => {
     const found = sessionAt(book, tabId);
@@ -121,23 +126,95 @@ export async function recordSession(bots, name, said, tabId, shellPid) {
 
     const rules = cleared ? stamp : undefined;
     const now = rememberSession(was, id, said.source);
-    book.sessions[session] = withUnclaimed(rules === undefined ? now : { ...now, rules }, unclaimed);
+    onClaude = settings !== undefined && harnessOf(settings, bot.harness) === 'claude';
+    const system = onClaude ? systemNote(was, launched, said.source) : {};
+    book.sessions[session] = withUnclaimed({ ...withoutSystem(rules === undefined ? now : { ...now, rules }), ...system }, unclaimed);
     forgetClaimed(book);
     if (uncertain) cleared = true;
     return book;
   });
 
-  if (!cleared || told === undefined) return undefined;
+  if (told === undefined) return undefined;
 
   const settings = bot.sessions.find((entry) => entry.name === told);
   if (settings === undefined) return undefined;
 
-  const duty = startPrompt(settings, { home, workDir: workDirOf(settings, home) });
-  if (duty === undefined) return undefined;
+  const duty = cleared ? startPrompt(settings, { home, workDir: workDirOf(settings, home) }) : undefined;
+  // The guard (R6): a Claude Code session whose launch line appends nothing,
+  // as after Orca's own resume of a tab or a launch by an older kit, would load
+  // a CLAUDE.md without its main units. A line read through ps cannot prove
+  // that it appends, so every Claude Code session is given them here, on every
+  // source, whatever its line says: twice is better than none.
+  const main = onClaude ? guardText(bots, bot) : undefined;
+  const context = [duty, main].filter((part) => part !== undefined && part !== '');
+  if (context.length === 0) return undefined;
 
   // The harness's own way of putting text into a session, answered on the event
   // it asked about: what it reads back is added to what the session knows.
-  return { hookSpecificOutput: { hookEventName: said.hook_event_name, additionalContext: duty } };
+  return { hookSpecificOutput: { hookEventName: said.hook_event_name, additionalContext: context.join('\n\n') } };
+}
+
+/** The appended-text flag of a launch line. */
+const APPEND_FLAG = '--append-system-prompt-file';
+
+/**
+ * What the Claude Code process above the hook appends: `{ file: true, name }`
+ * when its launch line has the appended-text flag with this bot's own system
+ * file as its value, `{}` when it has not, and undefined when the line cannot
+ * be read.
+ *
+ * `ps` joins the words of the line with spaces, so a word cannot be told from
+ * the words inside another option's value. Only the flag followed by a path
+ * to `<bots>.prompts/<bot>/system-<sum>.md` counts. Anything else is no
+ * appended text. The reading feeds only the book's note and obk health: the
+ * hook gives the main units whatever it says, since it cannot prove a flag.
+ *
+ * The hook runs through a shell or straight from the harness, so the harness
+ * is the parent, or the parent's parent when the parent is a shell.
+ */
+export function appendedText(pid, botName) {
+  const tree = processTree();
+  const mine = tree?.get(pid);
+  const parent = mine === undefined ? undefined : tree.get(mine.ppid);
+  if (parent === undefined) return undefined;
+  const line = argsOf(isShell(parent.command) ? parent.ppid : mine.ppid);
+  if (line === undefined) return undefined;
+  // The kit puts the start prompt after `--`, and a prompt may name the flag.
+  const end = line.indexOf(' -- ');
+  const options = end < 0 ? line : line.slice(0, end);
+  const own = `\\.prompts/${botName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/(system-[0-9a-f]{16}\\.md)`;
+  const flag = new RegExp(`(?:^| )${APPEND_FLAG}[= ]/(?:[^\\n]*?)${own}(?= |$)`).exec(options);
+  return flag === null ? {} : { file: true, name: flag[1] };
+}
+
+/** The launch line of the process `pid`, or undefined when ps cannot tell. */
+function argsOf(pid) {
+  if (!Number.isInteger(pid)) return undefined;
+  const listed = spawnSync('ps', ['-o', 'args=', '-p', String(pid)], { encoding: 'utf8' });
+  if (listed.error !== undefined || listed.status !== 0) return undefined;
+  const line = listed.stdout.trim();
+  return line === '' ? undefined : line;
+}
+
+/** A book entry without the notes of its system text. */
+function withoutSystem(entry) {
+  const { system, bare, ...rest } = entry;
+  return rest;
+}
+
+/**
+ * What the book notes of a Claude Code session's system text (R6): `bare`
+ * when its launch line appends nothing, and the file its recorded text came
+ * from. A start, a clear and a compaction record the process's text; a resume
+ * keeps the conversation's older one, so its note stays as it was. A line that
+ * cannot be read changes nothing.
+ */
+function systemNote(was, launched, source) {
+  const before = typeof was.system === 'string' ? { system: was.system } : {};
+  if (launched === undefined) return { ...before, ...(was.bare === true ? { bare: true } : {}) };
+  if (launched.file !== true) return { ...before, bare: true };
+  const recorded = source === 'resume' ? was.system : launched.name ?? was.system;
+  return typeof recorded === 'string' ? { system: recorded } : {};
 }
 
 /** The session of this bot that owns `tabId`, with what the book holds for it. */
