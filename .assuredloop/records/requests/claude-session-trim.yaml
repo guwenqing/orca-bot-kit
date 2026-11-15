@@ -146,6 +146,6 @@ bindings:
   - { holder: KIT-53, link: serves, target: claude-session-trim/R6, holder_sha256: decb7b64440ec4a9dd3bc90c41acfebffb24eada51e485db0584d3de90457c77, target_sha256: e78b94d3c7171684751ada27de206a28e419efaa65fae86e4a9efe9a6a6ee48f, target_version: 3 }
   - { holder: KIT-53, link: builds-on, target: KIT-30, holder_sha256: decb7b64440ec4a9dd3bc90c41acfebffb24eada51e485db0584d3de90457c77, target_sha256: f896aecb8b8751f5e6a4513fac5e65ae58f0c2037c4bcc5f40481a29c9ab77c6 }
 dispositions:
-  - { source: claude-session-trim/SP-13, disposition: incorporated, spec: KIT-53, source_sha256: 1bf890569a562ee26caea0852a386e52ac6424865f51f848f7651cbe2f1dad9a, spec_sha256: 1bf890569a562ee26caea0852a386e52ac6424865f51f848f7651cbe2f1dad9a }
-  - { source: claude-session-trim/SP-16, disposition: incorporated, spec: KIT-30, source_sha256: 24e31ac281c7a7efa6880f036cdff7dc1a0e3936997ccc107a842b660a2ec6bc, spec_sha256: 24e31ac281c7a7efa6880f036cdff7dc1a0e3936997ccc107a842b660a2ec6bc }
+  - { source: claude-session-trim/SP-13, disposition: incorporated, spec: KIT-53, source_sha256: decb7b64440ec4a9dd3bc90c41acfebffb24eada51e485db0584d3de90457c77, spec_sha256: decb7b64440ec4a9dd3bc90c41acfebffb24eada51e485db0584d3de90457c77 }
+  - { source: claude-session-trim/SP-16, disposition: incorporated, spec: KIT-30, source_sha256: f896aecb8b8751f5e6a4513fac5e65ae58f0c2037c4bcc5f40481a29c9ab77c6, spec_sha256: f896aecb8b8751f5e6a4513fac5e65ae58f0c2037c4bcc5f40481a29c9ab77c6 }
   - { source: claude-session-trim/SP-7, disposition: incorporated, spec: KIT-52, source_sha256: 3a984d7778d27d36ba1ae28292515524dadf8867f3847870c3a2d1c767c3ec0d, spec_sha256: 3a984d7778d27d36ba1ae28292515524dadf8867f3847870c3a2d1c767c3ec0d }
