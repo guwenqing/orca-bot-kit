@@ -102,9 +102,12 @@ function agentsInto(bots, home, bot) {
   }
 
   // A Claude Code bot's main units leave the file its Claude sessions load and
-  // go into their system text instead, built in this same step (R6).
-  const claude = isClaudeBot(bot) ? claudeFile(home, file, built.claude) : claudeMd(home, file);
+  // go into their system text instead, built in this same step (R6). The system
+  // file is written first: when it cannot be, CLAUDE.md keeps every unit, so
+  // that no session loses one.
   const system = isClaudeBot(bot) ? writeSystem(bots, home, bot.name, built.system) : {};
+  const loaded = system.trouble === undefined ? built.claude : built.body;
+  const claude = isClaudeBot(bot) ? claudeFile(home, file, loaded) : claudeMd(home, file);
   const older = systemTrouble(bots, home, bot);
   const trouble = [claude.trouble, system.trouble].filter((one) => one !== undefined);
   return {
@@ -430,8 +433,8 @@ function kitBuilt(text) {
   const lines = text.split('\n');
   const at = lines.findIndex((line) => CLAUDE_BEGIN.test(line));
   if (at < 0) return false;
-  const [, sum, whole] = CLAUDE_BEGIN.exec(lines[at]);
-  lines[at] = claudeBegin(sum, UNSUMMED);
+  const [, , whole] = CLAUDE_BEGIN.exec(lines[at]);
+  lines[at] = lines[at].replace(/^(<!-- obk:rules [0-9a-f]{16} file )[0-9a-f]{16}/, `$1${UNSUMMED}`);
   return whole === checksum(lines.join('\n'));
 }
 
@@ -513,23 +516,29 @@ function writeSystem(bots, home, name, text) {
     mkdirSync(path.dirname(file), { recursive: true });
     if (!existsSync(file) || readFileSync(file, 'utf8') !== text) writeFileSync(file, text);
   } catch (error) {
-    return { trouble: `${file} could not be written (${error.message}), so this bot's Claude sessions start without their main units in the system text; the kit's hook gives them as context.` };
+    return { trouble: `${file} could not be written (${error.message}), so this bot's CLAUDE.md keeps every unit, and its Claude sessions start with no appended system text; the kit's hook gives them the main units as context.` };
   }
-  const kept = new Set([path.basename(file), ...namedSystems(home)]);
+  // A book that cannot be read may name any of them: then none is removed.
+  const named = namedSystems(home);
+  if (named === undefined) return { system: file };
+  const kept = new Set([path.basename(file), ...named]);
   for (const entry of namesOf(path.dirname(file))) {
     if (SYSTEM_NAME.test(entry) && !kept.has(entry)) rmSync(path.join(path.dirname(file), entry), { force: true });
   }
   return { system: file };
 }
 
-/** The system files the book's entries name, by file name. */
+/**
+ * The system files the book's entries name, by file name, or undefined when
+ * the book is there but cannot be read.
+ */
 function namedSystems(home) {
   try {
     return Object.values(readBook(home).sessions ?? {})
       .map((entry) => entry?.system)
       .filter((name) => typeof name === 'string' && SYSTEM_NAME.test(name));
   } catch {
-    return [];
+    return undefined;
   }
 }
 
@@ -538,7 +547,10 @@ function namedSystems(home) {
  * every one a book entry names. Health calls none of them a leftover.
  */
 export function systemFilesKept(bots, home, bot) {
-  const kept = namedSystems(home).map((name) => path.join(kitFolders(bots, bot.name).prompts, name));
+  const dir = kitFolders(bots, bot.name).prompts;
+  // A book that cannot be read may name any of them: then all are kept.
+  const named = namedSystems(home) ?? namesOf(dir).filter((name) => SYSTEM_NAME.test(name));
+  const kept = named.map((name) => path.join(dir, name));
   try {
     const { system } = blockFor(bots, bot);
     if (system !== '') kept.push(systemFileOf(bots, bot.name, system));
@@ -553,6 +565,7 @@ export function systemFilesKept(bots, home, bot) {
  * current one, when the build wrote it. When its units cannot be built now (a
  * build that failed leaves the older CLAUDE.md in place), the newest one the
  * last build wrote, so that the session still has its main units. None when
+ * the current one could not be written (CLAUDE.md then keeps every unit) or
  * there is none, and the kit's hook then gives the main units as context.
  */
 export function currentSystemFile(bots, bot) {
@@ -564,7 +577,7 @@ export function currentSystemFile(bots, bot) {
   }
   if (system === '') return undefined;
   const file = systemFileOf(bots, bot.name, system);
-  return existsSync(file) ? file : newestSystemFile(bots, bot.name);
+  return existsSync(file) ? file : undefined;
 }
 
 /** The bot's system file that was written last, or undefined. */

@@ -175,9 +175,12 @@ export function appendedText(pid = process.pid) {
   if (parent === undefined) return undefined;
   const line = argsOf(isShell(parent.command) ? parent.ppid : mine.ppid);
   if (line === undefined) return undefined;
-  const at = line.indexOf(APPEND_FLAG);
-  if (at < 0) return {};
-  const sum = SYSTEM_SUM.exec(line.slice(at));
+  // The kit puts the start prompt after `--`, and a prompt may name the flag.
+  const end = line.indexOf(' -- ');
+  const options = end < 0 ? line : line.slice(0, end);
+  const flag = new RegExp(`(?:^| )${APPEND_FLAG}(?:=| )`).exec(options);
+  if (flag === null) return {};
+  const sum = SYSTEM_SUM.exec(options.slice(flag.index));
   return { file: true, ...(sum === null ? {} : { name: sum[0] }) };
 }
 
