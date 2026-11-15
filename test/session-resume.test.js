@@ -141,7 +141,8 @@ const onRecord = (box, harness, bots, id) =>
 async function argvOf(box, line, fake) {
   const ran = await sh(line, { cwd: box.cwd, env: box.env });
   assert.equal(ran.code, 0, `the line should run: ${line}\n${ran.stderr}`);
-  const calls = await fake.calls();
+  // The kit asks `claude --version` at each Claude Code launch (#769); that call is not the line's.
+  const calls = (await fake.calls()).filter((call) => !(call.args.length === 1 && call.args[0] === '--version'));
   assert.equal(calls.length, 1, `the line should start the harness once, and only once: ${line}`);
   return calls[0].args;
 }

@@ -38,6 +38,7 @@ import {
   botHomeOf,
   createSandbox,
   recordSession,
+  withoutOwnMainText,
 } from './helpers/cli.js';
 
 // ------------------------------------------------------------------ the shapes
@@ -155,10 +156,13 @@ function noneNaming(findings, what, why) {
 
 /**
  * The one "does not name" finding for api-bot, and it names `what`. There is one
- * such finding per bot however many conversations it lists (H27).
+ * such finding per bot however many conversations it lists (H27). `ownText`
+ * names the live Claude Code sessions whose start the hook recorded: each
+ * runs on Claude Code's own main text, and health says why (#769), so that
+ * one finding of theirs is left out of the count.
  */
-function theNotNamedFinding(answer, what, why) {
-  const mine = ofApi(answer, 'session');
+function theNotNamedFinding(answer, what, why, ownText = []) {
+  const mine = withoutOwnMainText(ofApi(answer, 'session'), 'api-bot', ownText);
   assert.equal(mine.length, 1, `${why}: one finding for what the book does not name, got: ${JSON.stringify(answer.found, null, 2)}`);
   assert.ok(wordsOf(mine[0]).includes(what), `${why}: it should name ${what}, got: ${wordsOf(mine[0])}`);
   return mine;
@@ -191,7 +195,7 @@ for (const [now, then] of DIRECTIONS) {
 
     const answer = await found(box);
 
-    const mine = theNotNamedFinding(answer, orphan, `the ${then} conversation no session, live or retired, ever had`);
+    const mine = theNotNamedFinding(answer, orphan, `the ${then} conversation no session, live or retired, ever had`, now === 'claude' ? ['daily'] : []);
     noneNaming(mine, olds, 'the book names it as the retired session\'s conversation');
     noneNaming(mine, dailys, 'the book names it as daily\'s conversation');
     noneNaming(answer.found, olds, 'nothing else reports the retired session\'s conversation either');

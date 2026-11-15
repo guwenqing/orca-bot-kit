@@ -516,6 +516,15 @@ async function coreSettings() {
       scripts.push({ file, text });
     } else if (file.endsWith('.applescript')) {
       for (const match of text.matchAll(/system attribute/g)) unread.push(`${file}:${lineAt(text, match.index)}: an AppleScript system attribute, which this check cannot read`);
+    } else if (file.endsWith('.json')) {
+      // Data, such as the main text recipe (#769): JSON runs nothing and reads
+      // nothing, so it takes nothing from the environment. What a module does
+      // with it is that module's to show. A file that does not parse is no data.
+      try {
+        JSON.parse(text);
+      } catch (error) {
+        unread.push(`${file}: a .json file that is not JSON (${error.message}), which this check cannot read`);
+      }
     } else {
       unread.push(`${file}: a kind of file this check cannot read for what it takes from the environment`);
     }

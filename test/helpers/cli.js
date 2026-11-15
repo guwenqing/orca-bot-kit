@@ -184,6 +184,22 @@ export function sh(text, options) {
   return capture('/bin/sh', ['-c', text], options);
 }
 
+/** The version the sandbox's default fake `claude` gives for `claude --version` (#769). */
+export const FAKE_CLAUDE_VERSION = '2.1.325';
+
+/**
+ * The health finding that a Claude Code session runs on Claude Code's own main
+ * text, and why (#769, R5): what every Claude Code session whose start the
+ * kit's hook recorded gets, until a record of its launch can be built from.
+ */
+export const OWN_MAIN_TEXT = 'runs on Claude Code\'s own main text, not the one the kit builds, because';
+
+/** Whether a finding is that one, about `<bot>/<session>`. */
+export const isOwnMainText = (one, bot, session) => typeof one?.says === 'string' && one.says.startsWith(`${bot}/${session} ${OWN_MAIN_TEXT}`);
+
+/** The findings, without that one for each of `sessions` of `bot`; every other finding stays. */
+export const withoutOwnMainText = (found, bot, sessions) => found.filter((one) => !sessions.some((session) => isOwnMainText(one, bot, session)));
+
 /**
  * Build a sandbox for one test. Cleaned up when the test ends.
  * Returns { root, cwd, home, env, path, run, orca }.
@@ -301,6 +317,15 @@ export async function createSandbox(t) {
   const fakeOsascript = path.join(bin, 'fake-osascript');
   await writeFile(fakeOsascript, osascriptScript(fakeDir));
   await chmod(fakeOsascript, 0o755);
+
+  // A fake `claude` (#769): the kit asks `claude --version` at each Claude
+  // Code launch and in health, and a sandbox must never run the real one on
+  // this machine, nor find none in CI. It answers every call with the version
+  // and exits 0. A test that is about the harness puts its own fake in its
+  // place (fakeProgram), which logs each call.
+  const fakeClaude = path.join(bin, 'claude');
+  await writeFile(fakeClaude, `#!/bin/sh\nprintf '%s\\n' '${FAKE_CLAUDE_VERSION} (Claude Code)'\n`);
+  await chmod(fakeClaude, 0o755);
 
   // The suite is often run from an Orca tab of its own, and Orca puts that
   // tab's variables in everything started there. None of them names a terminal
