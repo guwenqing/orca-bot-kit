@@ -127,11 +127,11 @@ paragraphs:
     display: KIT-29 (6.6, [PRD-13] 6.6 Rules and `AGENTS.md`)
   - id: KIT-30
     kind: rule
-    text_sha256: 24e31ac281c7a7efa6880f036cdff7dc1a0e3936997ccc107a842b660a2ec6bc
+    text_sha256: f896aecb8b8751f5e6a4513fac5e65ae58f0c2037c4bcc5f40481a29c9ab77c6
     display: KIT-30 (6.6:1, in [PRD-13] 6.6 Rules and `AGENTS.md`)
   - id: KIT-53
     kind: rule
-    text_sha256: 1bf890569a562ee26caea0852a386e52ac6424865f51f848f7651cbe2f1dad9a
+    text_sha256: decb7b64440ec4a9dd3bc90c41acfebffb24eada51e485db0584d3de90457c77
     display: KIT-53 (6.6:2, in [PRD-13] 6.6 Rules and `AGENTS.md`)
   - id: KIT-31
     kind: note

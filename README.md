@@ -344,7 +344,8 @@ A unit may also carry `placement`: `all`, `main` or `both`. A unit with none is
 `all`, and any other value stops the build of its bot, which then writes
 nothing. `all` is in the instruction file only. `main` is for a rule that only
 shapes how the main session talks or arranges its work: a Claude Code session
-gets it in its system text, and its helpers and the permission check do not.
+gets it in its system text and as context, and its helpers and the
+permission check do not (checked on Claude Code 2.1.325).
 `both` is for the owner's hard limits: in the instruction file and in the
 system text, from one source. The kit's `talk` and `profiles` are `main`, and
 `limits` is `both`. `AGENTS.md` always holds every unit, and a Codex or Pi
@@ -382,6 +383,11 @@ What this costs you:
 - When Orca brings a tab back by itself, the session has no appended text, and
   the hook's context is where its `main` units come from. `obk health` names
   the session until `obk restart`.
+- A Claude Code session that the kit did not start in its own tab gets no
+  `main` unit: a session started by hand in a bot folder, or a `claude -p` that
+  a script or a session runs there. It loads a `CLAUDE.md` without the `main`
+  units, and the kit's hook gives it nothing. Start a bot's sessions with the
+  kit.
 
 ## The skills a bot uses
 
