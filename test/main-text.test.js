@@ -378,4 +378,13 @@ describe('the shipped recipe', () => {
     const units = new Set(recipe.units.map((unit) => unit.name));
     assert.deepEqual(names.filter((name) => units.has(name)), [], 'no back name is a unit\'s name');
   });
+
+  test('names text:web-search alone as a part that comes back, for each model the recipe names; the Chrome section guards safety, so the recipe does not name it', async () => {
+    const recipe = await shippedRecipe();
+
+    // R5: a recipe names no unit that guards safety, and the Chrome section does (the architect, #784).
+    assert.deepEqual((recipe.back ?? []).map((part) => part.name), ['text:web-search']);
+    const models = [...new Set(recipe.units.flatMap((unit) => unit.models))].sort();
+    assert.deepEqual([...recipe.back[0].models].sort(), models, 'it comes back for each model the recipe names');
+  });
 });
