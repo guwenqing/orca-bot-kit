@@ -152,7 +152,7 @@ const textCutsOf = (bots, home) => cutsOf(bots, home).text;
 export function mainTextFor(bots, home, text, shape, { write = true } = {}) {
   const recipe = readRecipe();
   if (recipe === undefined) return { why: 'the kit\'s recipe could not be read' };
-  if (typeof shape !== 'string') return { why: 'the kit cannot tell what its launch gives Claude Code: its cut lists cannot be read, or its extra arguments name a settings file in a way the kit cannot read (quoted, escaped or expanded)' };
+  if (typeof shape !== 'string') return { why: 'the kit cannot tell what its launch gives Claude Code: its cut lists cannot be read, or its extra arguments name a settings file in a way the kit cannot read (with a character the shell may expand, such as a quote, ~ or *)' };
 
   const { sources, originals } = textFolders(text);
   // Without a note or a saved original nothing can fit, and Claude Code is not asked.
@@ -399,13 +399,14 @@ export function shapeOf(bots, home, session, memoryFolder) {
  * as `--settings <file>` or `--settings=<file>`, from the bot folder: Claude
  * Code reads them as it reads its own. A value that is JSON itself is in the
  * launch words already. A string of extra arguments is split at its spaces,
- * as the shell splits a plain one. A string that names `--settings` and holds
- * a quote, an escape or an expansion cannot be split so: then undefined, as
- * the file it names is not known.
+ * as the shell splits a plain one. A string that names `--settings` is read
+ * only when every character in it is plain: any other (a quote, an escape, a
+ * `~`, a wildcard or another expansion) can make the shell name another file,
+ * so then undefined, as the file it names is not known.
  */
 function settingsNamedIn(session, home) {
   const string = typeof session.extra_args === 'string' ? session.extra_args : undefined;
-  if (string !== undefined && string.includes('--settings') && /['"\\$`]/.test(string)) return undefined;
+  if (string !== undefined && string.includes('--settings') && !/^[A-Za-z0-9 ._\/=:,+@%-]*$/.test(string)) return undefined;
   const words = Array.isArray(session.extra_args) ? session.extra_args.map(String)
     : string !== undefined ? string.split(/\s+/).filter(Boolean) : [];
   const files = [];

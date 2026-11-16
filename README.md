@@ -585,8 +585,13 @@ What this costs you:
 - A saved copy fits only a launch like the one it came from: the same Claude
   Code version, model, approval, extra arguments, tool and skill cuts, and
   Claude Code settings files (the bot's, its repository's local one, your own,
-  and a file that the bot's `extra_args` name with `--settings`). A flag such as `--no-chrome`, a tool cut, an output style or a memory
-  folder changes the text. The allow and ask rules of a settings file are not
+  and a file that the bot's `extra_args` name with `--settings`). A flag such
+  as `--no-chrome`, a tool cut, an output style or a memory folder changes the
+  text. When `extra_args` is one string that names `--settings` with a
+  character the shell may expand, such as a quote, `~`, `*` or `$`, the kit
+  cannot tell the file. No saved copy then fits: the session runs on Claude
+  Code's own text, and `obk health` says why. Give the file as a list item, or
+  as a plain path. The allow and ask rules of a settings file are not
   part of the match, because they do not change the text. Nor is a settings
   file's default model, which `/model` writes, for a session whose line names
   its model. Any other change of those files makes the bot record its text
