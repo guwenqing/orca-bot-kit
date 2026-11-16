@@ -61,5 +61,34 @@
     "claude-haiku-5-5"
    ]
   }
+ ],
+ "back": [
+  {
+   "name": "text:web-search",
+   "hash": "41631e7eb968f40d46914227690b35bd65ce2763eaf02779831ae7ca14370b66",
+   "models": [
+    "claude-fable-5-2",
+    "claude-opus-5-5",
+    "claude-haiku-5-5"
+   ]
+  },
+  {
+   "name": "text:chrome",
+   "hash": "e2f9e7f17ce6231d03b2205a9a202d2922b112598f004432b80a140e07c4a4cf",
+   "models": [
+    "claude-fable-5-2",
+    "claude-opus-5-5",
+    "claude-haiku-5-5"
+   ]
+  },
+  {
+   "name": "text:artifact-tool",
+   "hash": "a10decafc036c19012ef01ee89ee922a3f8ceab11db61e3a393e690baa94cb21",
+   "models": [
+    "claude-fable-5-2",
+    "claude-opus-5-5",
+    "claude-haiku-5-5"
+   ]
+  }
  ]
 }

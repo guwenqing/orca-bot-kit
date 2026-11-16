@@ -152,10 +152,16 @@ export function cutsTrouble(bots, home, bot) {
   }
 
   // A text: name the recipe does not know cuts nothing (R2).
-  const known = new Set((readRecipe()?.units ?? []).map((unit) => unit.name));
+  const recipe = readRecipe();
+  const known = new Set((recipe?.units ?? []).map((unit) => unit.name));
+  // A part that Claude Code adds by itself is out of the kit's text whatever a
+  // list says, and the session gets it from Claude Code (ADR 0061).
+  const back = new Set((recipe?.back ?? []).map((unit) => unit.name));
   const found = cuts.textNamed.filter((name) => !known.has(name)).map((name) => ({
     where: path.join(home, 'bot.yaml'),
-    says: `${bot.name}'s cut or keep lists name ${name}, which the kit's recipe of Claude Code's main text does not know, so it changes nothing. Check the name.`,
+    says: back.has(name)
+      ? `${bot.name}'s cut or keep lists name ${name}, a part that Claude Code adds by itself after the kit's main text, so a list does not change it. The session gets it from Claude Code while it has the part's tool.`
+      : `${bot.name}'s cut or keep lists name ${name}, which the kit's recipe of Claude Code's main text does not know, so it changes nothing. Check the name.`,
   }));
 
   // A file that is not there or cannot be read is the hook's check to name.

@@ -56,27 +56,39 @@ const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
  * of a section. Every other section and line stays, in its order. The rest is
  * joined with a blank line, as Claude Code joins the sections it sends.
  * `found` holds the cut names it found, `missing` the cut names of the recipe
- * it did not find. The sections given are not changed.
+ * it did not find. The recipe's `back` units, the parts that Claude Code adds
+ * by itself after a replaced main text, go out too, whatever `cut` holds: the
+ * session gets each from Claude Code (ADR 0061). `back` holds the names of
+ * those it took out. The sections given are not changed.
  */
 export function buildMainText(sections, { recipe, cut }) {
   const drop = new Set(recipe.drop.map((entry) => entry.hash));
   const named = new Map(recipe.units.filter((unit) => cut.includes(unit.name)).map((unit) => [unit.hash, unit.name]));
+  const comes = new Map((recipe.back ?? []).map((unit) => [unit.hash, unit.name]));
   const found = [];
+  const back = [];
   const seen = (name) => {
     if (!found.includes(name)) found.push(name);
+  };
+  const out = (hash) => {
+    if (comes.has(hash)) {
+      if (!back.includes(comes.get(hash))) back.push(comes.get(hash));
+      return true;
+    }
+    return drop.has(hash);
   };
 
   const kept = [];
   for (const section of sections) {
     const whole = unitHash(section);
-    if (drop.has(whole)) continue;
+    if (out(whole)) continue;
     if (named.has(whole)) {
       seen(named.get(whole));
       continue;
     }
     const lines = section.split('\n').filter((line) => {
       const one = unitHash(line);
-      if (drop.has(one)) return false;
+      if (out(one)) return false;
       if (!named.has(one)) return true;
       seen(named.get(one));
       return false;
@@ -85,14 +97,33 @@ export function buildMainText(sections, { recipe, cut }) {
   }
   const known = new Set(named.values());
   const missing = cut.filter((name) => known.has(name) && !found.includes(name));
-  return { text: kept.join('\n\n'), found, missing };
+  return { text: kept.join('\n\n'), found, missing, back };
+}
+
+/**
+ * What a session's record on the kit's main file shows (ADR 0061): `sections`
+ * are a record's `prompt_snapshot` sections, `main` the file's text, `back`
+ * the names of the parts the build took out because Claude Code adds them by
+ * itself. Undefined when the record is not of that file. Else `twice`, each
+ * part after the file that the file also holds, by its size and sum, and
+ * `without`, each name of `back` that no part after the file is. Sums and
+ * sizes only: no word of Claude Code's text.
+ */
+export function partsTrouble(sections, { main, back, recipe }) {
+  if (!Array.isArray(sections) || sections[0] !== main) return undefined;
+  const after = sections.slice(1);
+  const twice = after.filter((part) => part !== '' && main.includes(part)).map((part) => ({ size: part.length, sum: unitHash(part).slice(0, 16) }));
+  const held = new Set(after.flatMap((part) => [unitHash(part), ...part.split('\n').map(unitHash)]));
+  const hashOf = new Map((recipe?.back ?? []).map((unit) => [unit.name, unit.hash]));
+  const without = back.filter((name) => !held.has(hashOf.get(name)));
+  return { twice, without };
 }
 
 /** The kit's recipe, or undefined when it cannot be read. */
 export function readRecipe() {
   try {
     const recipe = JSON.parse(readFileSync(RECIPE_FILE, 'utf8'));
-    return Array.isArray(recipe?.drop) && Array.isArray(recipe?.units) ? recipe : undefined;
+    return Array.isArray(recipe?.drop) && Array.isArray(recipe?.units) && (recipe.back === undefined || Array.isArray(recipe.back)) ? recipe : undefined;
   } catch {
     return undefined;
   }
@@ -189,7 +220,7 @@ export function mainTextFor(bots, home, text, shape, { write = true } = {}) {
     mkdirSync(text, { recursive: true });
     if (!existsSync(file) || readFileSync(file, 'utf8') !== built.text) writeFileSync(file, built.text);
   }
-  return { file, text: built.text, version: installed.version };
+  return { file, text: built.text, back: built.back, version: installed.version };
 }
 
 /**
@@ -488,9 +519,52 @@ export function mainTextTrouble(bots, home, bot) {
       states[name] = { state: 'older', why: `it came from ${path.join(text, main)}, and it gets the new text after obk restart: at once in a new conversation, and in a resumed one after its next compaction or clear` };
     } else {
       states[name] = { state: 'kit' };
+      found.push(...partsFound(home, `${bot.name}/${name}`, entry.session, built));
     }
   }
   return { found, states };
+}
+
+/**
+ * Health's findings on what a session on the kit's main file got (ADR 0061),
+ * from the first record of its conversation that is of that file: a part it
+ * has two times, and a part the build took out that Claude Code did not add.
+ * A record is evidence here only, never a source. Sums, sizes and the kit's
+ * names: no word of Claude Code's text.
+ */
+function partsFound(home, who, conversation, built) {
+  if (typeof conversation !== 'string' || typeof built.text !== 'string') return [];
+  let real;
+  try {
+    real = realpathSync(home);
+  } catch {
+    return [];
+  }
+  const sections = recordOf(claudeTranscript(real, conversation), built.text);
+  const seen = partsTrouble(sections, { main: built.text, back: built.back ?? [], recipe: readRecipe() });
+  if (seen === undefined) return [];
+  return [
+    ...seen.twice.map((part) => `${who} gets a part of Claude Code's main text two times (${part.size} characters, sum ${part.sum}): Claude Code adds it by itself after the kit's main text, and the kit's text holds it too. A newer kit may name it; until then the session runs with it twice.`),
+    ...seen.without.map((name) => `${who} runs without ${name}: the kit takes it out of its main text because Claude Code adds it by itself, and this time Claude Code did not. A newer kit may change the recipe's sums for this Claude Code version.`),
+  ];
+}
+
+/** The sections of the first `prompt_snapshot` of a transcript whose first section is `main`, or undefined. */
+function recordOf(file, main) {
+  if (!existsSync(file)) return undefined;
+  let sections;
+  try {
+    eachLine(file, (line) => {
+      if (line === undefined) return false;
+      if (!line.includes('"prompt_snapshot"')) return false;
+      const record = snapshotIn(line);
+      if (record?.sections[0] === main) sections = record.sections;
+      return sections !== undefined;
+    });
+  } catch {
+    return undefined;
+  }
+  return sections;
 }
 
 /**

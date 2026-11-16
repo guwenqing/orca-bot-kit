@@ -623,17 +623,24 @@ What this costs you:
   never a source. A clear of a session that names no model is not a source.
 - To put a bot back on Claude Code's own main text, name every recipe part in
   its `claude_keep` list: the text is then the original, with only a boundary
-  mark taken out. To run on Claude Code's own text until a new conversation
+  mark and the parts that Claude Code adds by itself taken out. To run on Claude Code's own text until a new conversation
   records it again, remove the bot's `originals/` and `sources/` folders.
-- A bot that keeps the `Artifact` tool gets the tool's paragraph twice: once
-  in the kit's text, and once from Claude Code, which adds it for the tool.
+- Claude Code adds some parts of its text by itself after a replaced main
+  text, each for a tool that the session has. The kit's text does not hold
+  them, so the session gets each one time, from Claude Code. The recipe names
+  them: `text:web-search`, `text:chrome` and `text:artifact-tool`. A cut or
+  keep list does not change them. Their sums can change with a Claude Code
+  version. `test/system/claude-added-parts-live.test.js` gives the new sums,
+  and `obk health` shows when a session has a part two times, or runs without
+  one.
 - Each session's line in `obk health` says what main text it runs on: `kit`,
   `older` (with how it gets the new one), or `own`, with why. A paused session
   shows it once it starts again. The wait for a first record does not fail
   health. Health gives a finding when the user must act: a record of another
   model, a Claude Code version that the kit cannot read, a recipe part that a
-  saved copy of a model it is named for does not hold, and a `text:` name that
-  the recipe does not know.
+  saved copy of a model it is named for does not hold, a `text:` name that
+  the recipe does not know, and a session that has a part of Claude Code's
+  text two times, or runs without a part that Claude Code adds by itself.
 
 Each Claude bot has a memory folder of its own, `claude-memory/` in the bot's
 folder. Claude Code alone would give every bot of one bots repository the same
