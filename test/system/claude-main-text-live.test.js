@@ -75,7 +75,7 @@
 //                cuts), as a whole section or as a line, by sha256, and hold
 //                no unit the kit cuts;
 //             3. each `back` part that FIRST's own text held is not in the main
-//                file, and is in a section after it;
+//                file, and the sections after it hold it exactly one time;
 //             4. the last section is the kit's appended text.
 //           A section after the main file that the file also holds is printed,
 //           with its size and sum, and fails nothing: the session has it two
@@ -466,7 +466,8 @@ function toolNamesOf(lines) {
  * neither a unit of `units` nor in a section that is one; `held`, the names of
  * `units` that those sections hold, as a whole section, as a line, or as a
  * section of `own` inside one of them; and for each unit of `back` that `own`
- * holds, whether the first section holds it, and whether a later one does.
+ * holds, whether the first section holds it, and how many times the later
+ * sections but the appended one hold it.
  */
 function onMain(sections, mainText, own, units, back) {
   const [head = '', ...rest] = sections;
@@ -483,7 +484,15 @@ function onMain(sections, mainText, own, units, back) {
   const holds = (texts, unit) => linesOf(texts).has(unit.hash)
     || own.some((section) => unitHash(section) === unit.hash && texts.some((text) => text.includes(section)));
   const held = units.filter((unit) => holds(kept, unit)).map((unit) => unit.name);
-  const backs = back.filter((unit) => holds(own, unit)).map((unit) => ({ name: unit.name, inMain: holds([head], unit), after: holds(added, unit) }));
+  // How many times `texts` hold `unit`: a whole section of `own` as a section or
+  // inside one, or a line unit as a line.
+  const times = (texts, unit) => {
+    const whole = own.find((section) => unitHash(section) === unit.hash);
+    return texts.reduce((sum, text) => sum + (whole !== undefined
+      ? (unitHash(text) === unit.hash ? 1 : text.split(whole).length - 1)
+      : text.split('\n').filter((line) => unitHash(line) === unit.hash).length), 0);
+  };
+  const backs = back.filter((unit) => holds(own, unit)).map((unit) => ({ name: unit.name, inMain: holds([head], unit), after: times(added, unit) }));
   return {
     isMain: sha(head) === sha(mainText),
     added: added.map((text) => ({ size: text.length, sum: sum16(text), inMain: mainText.includes(text) })),
@@ -721,11 +730,11 @@ test('a later session of a launch runs on the main text that the kit built from 
   t.diagnostic(`sizes in characters: Claude Code's own main text ${ownBody.join('\n\n').length}, the kit's main text ${mainText.length}, the appended text ${(secondRecord.sections.at(-1) ?? '').length}`);
   t.diagnostic(`the sections Claude Code added after ${mainName} in ${SECOND}'s record: ${kit.added.map((one) => `${one.size} characters, sum ${one.sum}, in the main file ${one.inMain}`).join('; ') || '(none)'}`);
   t.diagnostic(`the parts ${SECOND} has two times, a known cost that fails nothing: ${kit.added.filter((one) => one.inMain).map((one) => `${one.size} characters, sum ${one.sum}`).join('; ') || '(none)'}`);
-  t.diagnostic(`the back parts ${FIRST}'s own text held: ${kit.backs.map((one) => `${one.name} in the main file ${one.inMain}, after it ${one.after}`).join('; ') || '(none)'}`);
+  t.diagnostic(`the back parts ${FIRST}'s own text held: ${kit.backs.map((one) => `${one.name} in the main file ${one.inMain}, ${one.after} times after it`).join('; ') || '(none)'}`);
   assert.ok(kit.isMain, `the first section of ${SECOND}'s first record is ${mainName}, by sha256: ${(secondRecord.sections[0] ?? '').length} characters recorded, ${mainText.length} in the file`);
   assert.deepEqual(kit.lacking, [], `the main file and the sections after it hold every part of ${FIRST}'s own text but the units the kit cuts: the indexes of ${FIRST}'s own sections with a part that is in neither`);
   assert.deepEqual(kit.held, [], `${SECOND}'s first record holds none of the units the kit cuts, of those ${FIRST}'s own text held`);
-  assert.deepEqual(kit.backs.filter((one) => one.inMain || !one.after).map((one) => one.name), [], `each back part that ${FIRST}'s own text held is not in ${mainName}, and Claude Code adds it after the file`);
+  assert.deepEqual(kit.backs.filter((one) => one.inMain || one.after !== 1).map((one) => one.name), [], `each back part that ${FIRST}'s own text held is not in ${mainName}, and Claude Code adds it after the file exactly one time`);
   assert.equal(sum16(secondRecord.sections.at(-1) ?? ''), appendedSum, `the last section of ${SECOND}'s first record is the kit's appended text, by the sum in ${note.appended}`);
 
   // g. The control: the same check on FIRST's first record gives the other answer.
