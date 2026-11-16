@@ -33,6 +33,7 @@
 // i64` — which is why the kit refuses it first.
 
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
@@ -329,6 +330,29 @@ for (const harness of ['claude', 'codex']) {
     assert.deepEqual(args.slice(-3), ['my model', '--note', 'it\'s a "quoted" one']);
   });
 }
+
+test('an extra_args word that starts with = is typed quoted, so zsh does not take it for a command\'s path; a word with = inside stays bare', async (t) => {
+  // zsh expands a word that starts with `=` to the path of the command of that
+  // name on PATH (`=name`), and fails when there is none.
+  const box = await createSandbox(t);
+  const fake = await fakeProgram(box, 'claude', {});
+
+  const typed = await launchOf(box, 'claude', [
+    // --settings itself goes in by hand only (session add refuses it), so a word of our own carries the value.
+    '--extra-arg=--note', '--extra-arg==custom-settings.json',
+    '--extra-arg=--flag=x.json', '--extra-arg=a=b',
+  ]);
+
+  assert.ok(typed.includes(` '=custom-settings.json'`), `the word that starts with = is quoted, got: ${typed}`);
+  assert.ok(!/ =custom-settings\.json/.test(typed), `and is not bare, got: ${typed}`);
+  assert.ok(typed.includes(' --flag=x.json ') || typed.endsWith(' --flag=x.json'), `a word with = inside stays bare, got: ${typed}`);
+  assert.ok(typed.includes(' a=b ') || typed.endsWith(' a=b'), `and so does a=b, got: ${typed}`);
+  const ran = spawnSync('/bin/zsh', ['-f', '-c', typed], { cwd: box.cwd, env: box.env, encoding: 'utf8' });
+  assert.equal(ran.status, 0, `the line should run in zsh: ${typed}\n${ran.stderr}`);
+  const calls = (await fake.calls()).filter((call) => !(call.args.length === 1 && call.args[0] === '--version'));
+  assert.equal(calls.length, 1, `zsh should start the harness once: ${typed}`);
+  assert.ok(calls[0].args.includes('=custom-settings.json'), `the harness gets the word as it was given, got: ${JSON.stringify(calls[0].args)}`);
+});
 
 test('a model with a context window reaches the harness as one word, unglobbed', async (t) => {
   // `sonnet[1m]` is a glob pattern to zsh. Unquoted it would be swallowed or

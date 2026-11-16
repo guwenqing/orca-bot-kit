@@ -902,9 +902,10 @@ export const launchLineEnv = (box) => ({ OBK_TAB_SHELL: String(process.pid), OBK
  * One word of a shell line as the kit writes it: bare when it holds nothing a
  * shell would read as more than letters, and otherwise in single quotes, with
  * each quote inside written `'\''`. The same form the kit has always given a
- * bots folder in its hook.
+ * bots folder in its hook. A word that starts with `=` is quoted too: zsh
+ * would expand it to the path of a command (#769).
  */
-export const shellWord = (text) => (/^[A-Za-z0-9,._+:@%/=-]+$/.test(text)
+export const shellWord = (text) => (/^[A-Za-z0-9,._+:@%/=-]+$/.test(text) && !text.startsWith('=')
   ? text
   : `'${text.replaceAll("'", "'\\''")}'`);
 

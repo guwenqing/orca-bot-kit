@@ -899,6 +899,7 @@ describe('T5 the fit', () => {
       const dir = path.join(box.root, 'own-settings');
       return { file: path.join(dir, 'custom-settings-daily.json'), extra: `--settings ${dir}/custom-settings-*.json` };
     },
+    'a word that starts with =': (box) => ({ file: path.join(box.root, 'own-settings', 'daily.json'), extra: '--settings =custom-settings.json' }),
     'a ? wildcard': (box) => {
       const dir = path.join(box.root, 'own-settings');
       return { file: path.join(dir, 'custom-settings-daily.json'), extra: `--settings ${dir}/custom-settings-dail?.json` };
