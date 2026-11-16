@@ -63,15 +63,21 @@
 //        d. the book has SECOND on that main file, as the hook read it from
 //           the real process's launch line, and not `own_text`;
 //        e. it answers with its word;
-//        f. its transcript's first `prompt_snapshot`: the last section is the
-//           kit's appended text, and the sections before it, joined with a
-//           blank line, are the main file's text (by sha256), as the tech notes
-//           say a replaced text is recorded. It holds none of the units that
-//           FIRST's own text held and the kit cuts: no section, and no line;
+//        f. its transcript's first `prompt_snapshot`, the first record of the
+//           main file. After the main file, Claude Code adds some parts by
+//           itself, and the kit's file leaves them out (#784, ADR 0061). So:
+//             1. its first section is the main file (by sha256);
+//             2. no section after it, but the appended one, is in the main
+//                file (by equality of text; printed only as true or false);
+//             3. the main file and those added sections hold every part of
+//                FIRST's own text but the units the kit cuts (the recipe's
+//                drop units and the bot's `text:` cuts), as a whole section or
+//                as a line, by sha256, and hold no unit the kit cuts;
+//             4. the last section is the kit's appended text;
 //        g. THE CONTROL, in the same run: the same check on FIRST's first
-//           `prompt_snapshot` gives the other answer. Its text is not the main
-//           file's, and it holds at least one of the bot's `text:` cuts, not
-//           only the recipe's drop unit. So the check of f. can fail.
+//           `prompt_snapshot` gives the other answer. Its first section is not
+//           the main file, and it holds at least one of the bot's `text:`
+//           cuts, not only the recipe's drop unit. So the check of f. can fail.
 //   6. `obk health`: SECOND's line ends with `main text kit`, and health's JSON
 //      has its `main_text` as `{ state: 'kit' }`.
 //
@@ -445,22 +451,35 @@ function toolNamesOf(lines) {
 }
 
 /**
- * The names of the units in `units` that `sections` hold, as a whole section
- * or as one line of a section, by the sha256 of their text (src/main-text.js).
+ * The check of step 5f, on one first record, in sums, sizes and names only:
+ * whether its first section is the main file; for each later section but the
+ * appended one, its size, its sum and whether the main file holds its text;
+ * `lacking`, the index of each section of `own` (Claude Code's own text) with
+ * a line that neither the first section nor a later one holds, and that is
+ * neither a unit of `units` nor in a section that is one; and `held`, the names
+ * of `units` that those sections hold, as a whole section, as a line, or as a
+ * section of `own` inside one of them.
  */
-function unitsIn(sections, units) {
-  const held = new Set(sections.flatMap((section) => [unitHash(section), ...section.split('\n').map(unitHash)]));
-  return units.filter((unit) => held.has(unit.hash)).map((unit) => unit.name);
-}
-
-/**
- * The check of step 5f, on one first record: whether the sections before the
- * appended one, joined with a blank line, are the main file's text, and which
- * of `units` they hold. Gives back sums and names only.
- */
-function againstMain(sections, mainText, units) {
-  const body = sections.slice(0, -1).join('\n\n');
-  return { same: sha(body) === sha(mainText), size: body.length, held: unitsIn(sections.slice(0, -1), units) };
+function onMain(sections, mainText, own, units) {
+  const [head = '', ...rest] = sections;
+  const added = rest.slice(0, -1);
+  const kept = [head, ...added];
+  const taken = new Set(units.map((unit) => unit.hash));
+  const lines = new Set(kept.flatMap((text) => text.split('\n').map(unitHash)));
+  const lacking = own
+    .map((section, at) => ({ section, at }))
+    .filter(({ section }) => !taken.has(unitHash(section))
+      && section.split('\n').some((line) => !taken.has(unitHash(line)) && !lines.has(unitHash(line))))
+    .map(({ at }) => at);
+  const held = units.filter((unit) => lines.has(unit.hash)
+    || kept.some((text) => unitHash(text) === unit.hash)
+    || own.some((section) => unitHash(section) === unit.hash && kept.some((text) => text.includes(section)))).map((unit) => unit.name);
+  return {
+    isMain: sha(head) === sha(mainText),
+    added: added.map((text) => ({ size: text.length, sum: sum16(text), inMain: mainText.includes(text) })),
+    lacking,
+    held,
+  };
 }
 
 /** The commit of the checkout this test runs from, or why it could not be read. */
@@ -683,21 +702,23 @@ test('a later session of a launch runs on the main text that the kit built from 
   // e. It answers.
   await answers(SECOND, second);
 
-  // f. Its first record holds the kit's text, and none of the units the kit cuts.
+  // f. Its first record: the main file, the parts Claude Code adds by itself, and no unit the kit cuts.
   const secondRecord = await recorded(SECOND, second);
   const secondLines = second.lines();
   t.diagnostic(`${SECOND}'s transcript: model ${modelOf(secondLines) ?? '(none named)'}, versions ${versionsOf(secondLines).join(', ') || '(none recorded)'}, first record of ${secondRecord.version ?? '(no version)'}, ${secondRecord.sections.length} sections`);
-  const ownHeld = unitsIn(ownBody, taken);
-  const kit = againstMain(secondRecord.sections, mainText, taken.filter((unit) => ownHeld.includes(unit.name)));
-  t.diagnostic(`sizes in characters: Claude Code's own main text ${ownBody.join('\n\n').length}, the kit's main text ${mainText.length}, ${SECOND}'s recorded main text ${kit.size}, the appended text ${(secondRecord.sections.at(-1) ?? '').length}`);
+  const kit = onMain(secondRecord.sections, mainText, ownBody, taken);
+  t.diagnostic(`sizes in characters: Claude Code's own main text ${ownBody.join('\n\n').length}, the kit's main text ${mainText.length}, the appended text ${(secondRecord.sections.at(-1) ?? '').length}`);
+  t.diagnostic(`the sections Claude Code added after ${mainName} in ${SECOND}'s record: ${kit.added.map((one) => `${one.size} characters, sum ${one.sum}, in the main file ${one.inMain}`).join('; ') || '(none)'}`);
+  assert.ok(kit.isMain, `the first section of ${SECOND}'s first record is ${mainName}, by sha256: ${(secondRecord.sections[0] ?? '').length} characters recorded, ${mainText.length} in the file`);
+  assert.deepEqual(kit.added.filter((one) => one.inMain).map((one) => one.sum), [], `no section that Claude Code added after the main file is in ${mainName}: the session gets no part two times`);
+  assert.deepEqual(kit.lacking, [], `the main file and the added sections hold every part of ${FIRST}'s own text but the units the kit cuts: the indexes of ${FIRST}'s own sections with a part that is in neither`);
+  assert.deepEqual(kit.held, [], `${SECOND}'s first record holds none of the units the kit cuts, of those ${FIRST}'s own text held`);
   assert.equal(sum16(secondRecord.sections.at(-1) ?? ''), appendedSum, `the last section of ${SECOND}'s first record is the kit's appended text, by the sum in ${note.appended}`);
-  assert.ok(kit.same, `${SECOND}'s first record, but its appended section, joined with a blank line, is ${mainName}'s text, by sha256: ${kit.size} characters recorded, ${mainText.length} in the file`);
-  assert.deepEqual(kit.held, [], `${SECOND}'s first record holds none of the units that ${FIRST}'s own text held and the kit cuts`);
 
   // g. The control: the same check on FIRST's first record gives the other answer.
-  const control = againstMain(firstRecord.sections, mainText, taken);
+  const control = onMain(firstRecord.sections, mainText, ownBody, taken);
   t.diagnostic(`the units the kit takes out that ${FIRST}'s own text held: ${control.held.join(', ') || '(none)'}; that it did not hold: ${taken.map((unit) => unit.name).filter((name) => !control.held.includes(name)).join(', ') || '(none)'}`);
-  assert.equal(control.same, false, `the control: ${FIRST}'s own first record is not ${mainName}'s text, so the check of ${SECOND}'s record can fail`);
+  assert.equal(control.isMain, false, `the control: the first section of ${FIRST}'s own first record is not ${mainName}, so the check of ${SECOND}'s record can fail`);
   assert.ok(control.held.some((name) => cut.includes(name)), `the control: ${FIRST}'s own first record holds at least one of the bot's text cuts (${cut.join(', ')}), so the check that ${SECOND}'s holds none can fail`);
 
   for (const [name, lines] of [[FIRST, firstLines], [SECOND, secondLines]]) {
