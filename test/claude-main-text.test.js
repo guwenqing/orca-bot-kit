@@ -66,8 +66,10 @@
 //       the line's; a record of another model is no source, and health names
 //       both models. A clear on a line with no model is no note.
 //   T12. The parts that Claude Code adds by itself after a replaced text
-//       (#784, ADR 0061): health reads the first record of a session on the
-//       kit's main file and names a part it holds two times, by size and sum;
+//       (#784, ADR 0061): health reads the first record of the main file in
+//       the conversation of a session on the kit's main file (the first
+//       snapshot whose first section is that file) and names a part it holds
+//       two times, by size and sum;
 //       and a part that comes back is never named as a recipe unit that a
 //       saved original lacks.
 //
@@ -1405,15 +1407,31 @@ describe('T12 the parts that Claude Code adds by itself (#784)', () => {
     assert.deepEqual(mainTextIn(sessions, 'daily', 'a session on the kit\'s text'), { state: 'kit' });
   });
 
-  test('T12 a first record that is not of the main file is not read, even when a later record of it holds a part two times', async (t) => {
+  test('T12 a conversation that began on Claude Code\'s own text, then a record of the main file with a part two times: health names the part, from that first record of the main file', async (t) => {
+    // A resume on the kit's line keeps the conversation's own text until a
+    // compaction, whose next request records the kit's text (tech notes, the
+    // snapshot): that later record is the first one of the main file.
     const box = await createSandbox(t);
     const { bots, mainText, appended } = await onKitFile(box);
-    await onRecord(box, bots, 'conv-2', [[...SECTIONS, appended], [mainText, SECTIONS[1], appended]]);
+    const part = SECTIONS[1];
+    await onRecord(box, bots, 'conv-2', [[...SECTIONS, appended], [mainText, part, appended]]);
 
     const { found, sessions } = await healthOf(box);
 
-    assert.deepEqual(twiceOf(found), [], `got: ${show(found)}`);
+    const said = twiceOf(found);
+    assert.equal(said.length, 1, `one finding of a part two times, got: ${show(found)}`);
+    assert.ok(said[0].says.includes(sha(part).slice(0, 16)), `it gives the part's sum, got: ${said[0].says}`);
     assert.deepEqual(mainTextIn(sessions, 'daily', 'a session on the kit\'s text'), { state: 'kit' });
+  });
+
+  test('T12 two records of the main file, the first with no part two times and the second with one: no finding, since only the first record of the main file counts', async (t) => {
+    const box = await createSandbox(t);
+    const { bots, mainText, appended } = await onKitFile(box);
+    await onRecord(box, bots, 'conv-2', [[mainText, appended], [mainText, SECTIONS[1], appended]]);
+
+    const { found } = await healthOf(box);
+
+    assert.deepEqual(twiceOf(found), [], `got: ${show(found)}`);
   });
 
   test('T12 a part that comes back is never named as a recipe unit that a saved original lacks', async (t) => {
