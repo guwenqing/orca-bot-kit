@@ -458,12 +458,19 @@ export function mainTextTrouble(bots, home, bot) {
     // named again once it is unpaused and starts.
     if (bot.paused === true || session.paused === true) continue;
     // The user's own --settings: their choice, which health names once, with
-    // what the session runs without (ownSettings).
-    if (setsSettings(session)) {
+    // what the session runs without (ownSettings). Only for a session that the
+    // book has on its own text: one whose launch named the kit's main file runs
+    // on it until it restarts, whatever bot.yaml says now.
+    if (own && setsSettings(session)) {
       states[name] = { state: 'own', why: 'its extra arguments carry its own --settings, so the kit does not build its main text' };
       continue;
     }
-    const shape = shapeOf(bots, home, session, setsSettings(session) ? undefined : physicalMemoryFolder(home));
+    // A session on the kit's main file is judged by the launch the book
+    // recorded for it, which holds until it restarts; one on its own text by
+    // the launch it would get now.
+    const shape = !own && typeof entry.shape === 'string'
+      ? entry.shape
+      : shapeOf(bots, home, session, setsSettings(session) ? undefined : physicalMemoryFolder(home));
     let built;
     try {
       built = mainTextFor(bots, home, text, shape, { write: false });
