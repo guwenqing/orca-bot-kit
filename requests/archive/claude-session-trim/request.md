@@ -1,5 +1,5 @@
 # The kit trims what a Claude Code session is sent
-Tier: 2 · Status: open
+Tier: 2 · Status: concluded
 
 ## Owner's words and dialog
 
@@ -72,3 +72,28 @@ The kit's own units are placed: `talk` and `profiles` are `main`; `limits` is `b
 Out: the system text of Codex and Pi sessions, which the next issue builds; the fleet's own rule lines, its placements and its cut and keep lists, which Bot Father writes in the bots repo after this ships.
 Assumed: Claude Code leaves a denied tool's text, and a skill that is off, out of the request it sends; it reads only `CLAUDE.md` when `CLAUDE.md` is a file; it takes a system text and an appended text from its launch line; and it records the text a conversation runs on (all checked on 2.1.325; ADR 0055).
 Signed off: 2026-11-14 owner, origin/2026-11-14-signoff-2.md
+
+## Outcome
+
+Concluded 2026-11-15 with al conclude, on the working tree at 75c6c1a.
+
+- R1 The kit's default cuts, version 3, signed in S2:
+  - SP-4 rule: incorporated as KIT-54
+  - KIT-54 rule: in docs/prd/prd.md, serves it
+- R2 The user's cut lists, version 5, signed in S2:
+  - SP-4 rule: incorporated as KIT-54
+  - KIT-54 rule: in docs/prd/prd.md, serves it
+- R3 The role after a compaction, version 1, signed in S2:
+  - SP-7 rule: incorporated as KIT-52
+  - KIT-52 rule: in docs/prd/prd.md, serves it
+- R4 The kit's new rule lines, version 1, signed in S2:
+  - no change paragraph and no spec paragraph serves it
+- R5 Part 1: the main text that the kit builds, version 6, signed in S2:
+  - SP-10 rule: incorporated as KIT-55
+  - KIT-55 rule: in docs/prd/prd.md, serves it
+- R6 Where a rule unit goes, version 3, signed in S2:
+  - SP-13 rule: incorporated as KIT-53
+  - SP-16 rule: incorporated as KIT-30
+  - KIT-30 rule: in docs/prd/prd.md, serves it
+  - KIT-53 rule: in docs/prd/prd.md, serves it
+- Not known: whether the code, tests and documents do what the paragraphs say; whether the work has ended: the tool does not take a merged task or a reconciled spec as evidence of that.

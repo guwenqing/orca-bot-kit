@@ -14,13 +14,16 @@
 // Retiring a whole bot also removes the bot's appended system text file,
 // `<bots>.prompts/<bot>/system-<sum>.md` (#768). One it cannot remove is named
 // in `promptsLeft` the same way, because the user must remove it by hand (the
-// architect's ruling on #776).
+// architect's ruling on #776). The bot's main text folder,
+// `<bots>.claude-text/<bot>/` (#769), with its `sources` folder of source
+// notes, is not in the prompts folder: a locked prompts folder does not keep
+// it, and retire removes it.
 //
 // A file cannot be removed when its folder cannot be written: here the bot's
 // prompts folder is made read-only for the run and given its mode back after.
 
 import assert from 'node:assert/strict';
-import { chmod, readdir, readFile, stat } from 'node:fs/promises';
+import { chmod, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 import { parse } from 'yaml';
@@ -31,6 +34,7 @@ import {
   createSandbox,
   recordSession,
   sessionIn,
+  sessionStart,
   tabsOfBot,
 } from './helpers/cli.js';
 import { botYamlOf } from './helpers/skills.js';
@@ -225,14 +229,20 @@ test('PL6 a session with no prompt file retires with nothing left, even when the
 /**
  * api-bot with daily and review, both on a long duty so both have a prompt
  * file, up. `system` is the bot's appended system text file (#768), the one
- * `system-<sum>.md` the bring-up left in its prompts folder; `left` is every
- * file a locked retire of the bot leaves, by full path, in name order.
+ * `system-<sum>.md` the bring-up left in its prompts folder; `sources` is the
+ * folder of source notes that daily's start left in the bot's main text folder
+ * (#769); `left` is every file a locked retire of the bot leaves, by full
+ * path, in name order. The lock is on the prompts folder only, so the sources
+ * folder is not among them.
  */
 async function botRunning(box) {
   const bots = await madeBot(box, [['daily', '--prompt', LONG_DUTY], ['review', '--prompt', LONG_DUTY]]);
   await up(box);
   const daily = await liveTab(box, bots, 'api-bot', 'daily');
-  await recordSession(box, { bots, bot: 'api-bot', tab: daily.tabId, session: 'sess-daily' });
+  // A start's input names the model, as Claude Code's does (2.1.325); with
+  // none on the line either, the start would be no source (#769).
+  const start = { ...JSON.parse(sessionStart({ session: 'sess-daily' })), model: 'claude-test-model-1' };
+  await recordSession(box, { bots, bot: 'api-bot', tab: daily.tabId, stdin: `${JSON.stringify(start)}\n` });
   const [setup] = (await box.orca.setups()).filter((one) => one.path === botHomeOf(bots, 'api-bot'));
   assert.ok(setup, 'up should have made the bot an Orca project');
   const prompts = [promptOf(bots, 'daily'), promptOf(bots, 'review')].sort();
@@ -240,16 +250,19 @@ async function botRunning(box) {
   const systems = (await readdir(promptsOf(bots))).filter((name) => /^system-[0-9a-f]+\.md$/.test(name));
   assert.equal(systems.length, 1, `bringing a Claude Code bot up should have left one system-<sum>.md in ${promptsOf(bots)}, got: ${JSON.stringify(systems)}`);
   const system = path.join(promptsOf(bots), systems[0]);
-  return { bots, setup, prompts, system, left: [...prompts, system].sort(), retired: path.join(bots, 'retired', 'api-bot') };
+  const sources = path.join(`${bots}.claude-text`, 'api-bot', 'sources');
+  assert.ok(await exists(sources), `daily's start on the kit's line should have left a source note in ${sources}`);
+  return { bots, setup, prompts, system, sources, left: [...prompts, system].sort(), retired: path.join(bots, 'retired', 'api-bot') };
 }
 
 test('PL7 a bot whose prompt files cannot be removed is still retired in full, and the run ends in 0', { skip: NEEDS_A_USER }, async (t) => {
   const box = await createSandbox(t);
-  const { bots, setup, left, retired } = await botRunning(box);
+  const { bots, setup, sources, left, retired } = await botRunning(box);
 
   const result = await retireLocked(box, bots, '--bot', 'api-bot');
 
   assert.equal(result.code, 0, `prompt files left are no reason to fail, got:\n${saidBy(result)}`);
+  assert.equal(await exists(sources), false, `the lock is on the prompts folder only, so ${sources} is removed`);
   assert.deepEqual(await tabsOfBot(box, bots, 'api-bot'), [], 'every tab of the bot is closed');
   assert.equal((await box.orca.setups()).some((one) => one.id === setup.id), false, 'its Orca project is removed');
   assert.equal(await exists(botHomeOf(bots, 'api-bot')), false, 'the bot is gone from bots/');
@@ -318,3 +331,32 @@ test('PL11 a bot whose prompt files can all be removed gets no line telling the 
   }
   assert.doesNotMatch(saidBy(result), DENIED, `and no failure to report, got:\n${saidBy(result)}`);
 });
+
+// ------------------------------------------------- a folder by a prompt file's name
+
+// Retire removes a prompt file, never a folder that only shares its name: the
+// kit removes a folder whole only for its main text's own folders (#769). So
+// a folder of the user's at `<bots>.prompts/<bot>/<session>.txt`, with a file
+// in it, is still there after the retirement, whether retire names it as left
+// or not.
+for (const [what, args] of [['a session', ['--bot', 'api-bot', '--session', 'daily']], ['a bot', ['--bot', 'api-bot']]]) {
+  test(`PL12 retiring ${what} leaves a folder at the path of a prompt file, and the file in it`, async (t) => {
+    const box = await createSandbox(t);
+    const bots = await madeBot(box, [['daily', '--prompt', LONG_DUTY], ['review']]);
+    await up(box);
+    const daily = await liveTab(box, bots, 'api-bot', 'daily');
+    await recordSession(box, { bots, bot: 'api-bot', tab: daily.tabId, session: 'sess-daily' });
+    const prompt = promptOf(bots, 'daily');
+    assert.ok(await exists(prompt), `the premise: bringing daily up left its start prompt at ${prompt}`);
+    await rm(prompt);
+    await mkdir(prompt);
+    const inside = path.join(prompt, 'notes.md');
+    await writeFile(inside, 'A note of the user\'s own.\n');
+
+    const result = await retire(box, ...args);
+
+    assert.equal(result.code, 0, saidBy(result));
+    assert.ok(await exists(prompt) && (await stat(prompt)).isDirectory(), `the folder at ${prompt} is still there, got:\n${saidBy(result)}`);
+    assert.equal(await readFile(inside, 'utf8'), 'A note of the user\'s own.\n', 'and the file in it, as it was');
+  });
+}

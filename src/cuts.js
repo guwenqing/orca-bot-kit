@@ -23,6 +23,7 @@ import { transcriptsIn } from './conversations.js';
 import { readSettings } from './hooks.js';
 import { harnessOf } from './launch.js';
 import { eachLine } from './lines.js';
+import { readRecipe } from './main-text.js';
 
 /** R1's tools. */
 export const DEFAULT_TOOLS = ['Artifact', 'ArtifactComments', 'ArtifactData', 'DesignSync'];
@@ -38,6 +39,9 @@ export const DEFAULT_SKILLS = [
   'keybindings-help',
   'plugin-authoring',
 ];
+
+/** R1's units of the main text, which the kit cuts when it builds that text (R5). */
+export const DEFAULT_TEXT = ['text:ultrareview', 'text:product-channels', 'text:fast-mode', 'text:no-planning-documents', 'text:drop-old-cautions'];
 
 /** A unit of the main text, which the kit cuts only when it builds that text (R5). */
 const TEXT = 'text:';
@@ -84,7 +88,8 @@ const together = (names) => [...new Set(names.flatMap((name) => (TOGETHER.includ
 /**
  * What the bot at `home` cuts and keeps: the tools and skills to cut, the
  * tools and skills it keeps, the names a user's list cuts beyond the default
- * ones, and each `text:` name its cut lists hold.
+ * ones, the `text:` units it cuts (the default ones and the user's, less its
+ * keeps), and every `text:` name its lists hold.
  */
 export function cutsOf(bots, home) {
   const own = path.join(home, 'bot.yaml');
@@ -97,7 +102,8 @@ export function cutsOf(bots, home) {
     skills: named(cut).filter((name) => !isTool(name)),
     kept: named(keep),
     added: named(together(userCut)).filter((name) => !keep.includes(name) && !DEFAULT_TOOLS.includes(name) && !DEFAULT_SKILLS.includes(name)),
-    text: [...new Set(userCut.filter(isText))],
+    text: [...new Set([...DEFAULT_TEXT, ...userCut.filter(isText)])].filter((name) => !keep.includes(name)),
+    textNamed: [...new Set([...userCut, ...keep].filter(isText))],
   };
 }
 
@@ -145,9 +151,11 @@ export function cutsTrouble(bots, home, bot) {
     return [{ where: path.join(home, 'bot.yaml'), says: error.message }];
   }
 
-  const found = cuts.text.map((name) => ({
+  // A text: name the recipe does not know cuts nothing (R2).
+  const known = new Set((readRecipe()?.units ?? []).map((unit) => unit.name));
+  const found = cuts.textNamed.filter((name) => !known.has(name)).map((name) => ({
     where: path.join(home, 'bot.yaml'),
-    says: `${bot.name}'s cut lists name ${name}, and the kit does not cut text: units yet, so ${bot.name}'s sessions still get it.`,
+    says: `${bot.name}'s cut or keep lists name ${name}, which the kit's recipe of Claude Code's main text does not know, so it changes nothing. Check the name.`,
   }));
 
   // A file that is not there or cannot be read is the hook's check to name.

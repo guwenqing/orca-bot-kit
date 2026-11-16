@@ -64,10 +64,26 @@ test('the session the harness reported sits in the book beside the tab, and the 
   // (#506).
   // And on Claude Code the hook notes which appended system text the session
   // read (#768, R6): at most one key more, whose value names that file.
+  // `shape` is the launch shape `up` writes, and `own_text` the hook's note
+  // that the line named no main text of the kit's (#769, R5): each allowed
+  // with that value only.
   const LISTED = ['address', 'launched', 'launched_with', 'mailbox', 'rules', 'session', 'tab'];
+  // `launched_model` is the model the kit put on the line at the launch, or none.
+  const MAIN_TEXT = ['launched_model', 'own_text', 'shape'];
   const keys = Object.keys(book.sessions.daily).sort();
   assert.deepEqual(keys.filter((key) => LISTED.includes(key)), LISTED, `got: ${JSON.stringify(book.sessions.daily)}`);
-  const more = keys.filter((key) => !LISTED.includes(key));
+  if ('shape' in book.sessions.daily) {
+    const { shape } = book.sessions.daily;
+    assert.ok(typeof shape === 'string' && shape !== '', `shape is the launch shape, a string, got: ${JSON.stringify(shape)}`);
+  }
+  if ('launched_model' in book.sessions.daily) {
+    const model = book.sessions.daily.launched_model;
+    assert.ok(model === null || (typeof model === 'string' && model !== ''), `launched_model is a model or none, got: ${JSON.stringify(model)}`);
+  }
+  if ('own_text' in book.sessions.daily) {
+    assert.equal(book.sessions.daily.own_text, true, `own_text is true or not there, got: ${JSON.stringify(book.sessions.daily)}`);
+  }
+  const more = keys.filter((key) => !LISTED.includes(key) && !MAIN_TEXT.includes(key));
   assert.ok(
     more.length <= 1 && more.every((key) => /system-[0-9a-f]+\.md/.test(JSON.stringify(book.sessions.daily[key]))),
     `nothing else but the note of the appended file, got: ${JSON.stringify(book.sessions.daily)}`,

@@ -62,8 +62,9 @@
 //        category `config`: "<bot>'s session <name> carries its own
 //        --settings in <bot.yaml>, which replaces the kit's, so it runs
 //        without: <what>. To give it back, take --settings out of its
-//        extra_args." <what> is "its bot's own memory folder" (ADR 0060), and
-//        then ", Remote Control off" when the session is set off. It needs no
+//        extra_args." <what> is "its bot's own memory folder, the kit's
+//        main text" (ADR 0060, #769), and then ", Remote Control off" when
+//        the session is set off. It needs no
 //        harness running. A session set off without its own --settings gets
 //        none.
 //   RH7  Health never says "connected" about Remote Control: the registry
@@ -866,13 +867,13 @@ test('RH6a only the session set off names Remote Control off: a session set on w
   assert.equal(of('plain').length, 0, `none for plain, which is off with no --settings of its own, got: ${JSON.stringify(found, null, 2)}`);
   assert.match(
     of('daily')[0].says,
-    /, so it runs without: its bot's own memory folder, Remote Control off\. To give it back, take --settings out of its extra_args\.$/,
-    'daily is set off, so it runs without the memory folder and without Remote Control off',
+    /, so it runs without: its bot's own memory folder, the kit's main text, Remote Control off\. To give it back, take --settings out of its extra_args\.$/,
+    'daily is set off, so it runs without the memory folder, the kit\'s main text and Remote Control off',
   );
   assert.match(
     of('night')[0].says,
-    /, so it runs without: its bot's own memory folder\. To give it back, take --settings out of its extra_args\.$/,
-    'night is set on, so it runs without the memory folder alone',
+    /, so it runs without: its bot's own memory folder, the kit's main text\. To give it back, take --settings out of its extra_args\.$/,
+    'night is set on, so it runs without the memory folder and the kit\'s main text',
   );
   assert.ok(!of('night')[0].says.includes('Remote Control'), `night's finding says nothing of Remote Control, got: ${of('night')[0].says}`);
 });

@@ -184,6 +184,9 @@ export function sh(text, options) {
   return capture('/bin/sh', ['-c', text], options);
 }
 
+/** The version the sandbox's default fake `claude` gives for `claude --version` (#769). */
+export const FAKE_CLAUDE_VERSION = '2.1.325';
+
 /**
  * Build a sandbox for one test. Cleaned up when the test ends.
  * Returns { root, cwd, home, env, path, run, orca }.
@@ -301,6 +304,15 @@ export async function createSandbox(t) {
   const fakeOsascript = path.join(bin, 'fake-osascript');
   await writeFile(fakeOsascript, osascriptScript(fakeDir));
   await chmod(fakeOsascript, 0o755);
+
+  // A fake `claude` (#769): the kit asks `claude --version` at each Claude
+  // Code launch and in health, and a sandbox must never run the real one on
+  // this machine, nor find none in CI. It answers every call with the version
+  // and exits 0. A test that is about the harness puts its own fake in its
+  // place (fakeProgram), which logs each call.
+  const fakeClaude = path.join(bin, 'claude');
+  await writeFile(fakeClaude, `#!/bin/sh\nprintf '%s\\n' '${FAKE_CLAUDE_VERSION} (Claude Code)'\n`);
+  await chmod(fakeClaude, 0o755);
 
   // The suite is often run from an Orca tab of its own, and Orca puts that
   // tab's variables in everything started there. None of them names a terminal
@@ -890,9 +902,10 @@ export const launchLineEnv = (box) => ({ OBK_TAB_SHELL: String(process.pid), OBK
  * One word of a shell line as the kit writes it: bare when it holds nothing a
  * shell would read as more than letters, and otherwise in single quotes, with
  * each quote inside written `'\''`. The same form the kit has always given a
- * bots folder in its hook.
+ * bots folder in its hook. A word that starts with `=` is quoted too: zsh
+ * would expand it to the path of a command (#769).
  */
-export const shellWord = (text) => (/^[A-Za-z0-9,._+:@%/=-]+$/.test(text)
+export const shellWord = (text) => (/^[A-Za-z0-9,._+:@%/=-]+$/.test(text) && !text.startsWith('=')
   ? text
   : `'${text.replaceAll("'", "'\\''")}'`);
 

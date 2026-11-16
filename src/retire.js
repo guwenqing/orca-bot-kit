@@ -28,7 +28,7 @@ import path from 'node:path';
 import { readBook, tabIdsIn, updateBook } from './book.js';
 import { botDir, dropSession, readBot } from './bot.js';
 import { deleteProject, findProject, projects, reloadWindow, tabs } from './orca.js';
-import { shellWord, workDirOf } from './launch.js';
+import { claudeTextFolder, shellWord, workDirOf } from './launch.js';
 import { fleetMember } from './pause.js';
 import { stopProcesses } from './processes.js';
 import { closeTabs, commandLine, tabsToClose } from './restart.js';
@@ -169,8 +169,13 @@ export async function retireBot(bots, { bot }) {
   }
 
   const names = new Set([...known.sessions, ...booked].map((session) => session.name));
-  // And its system text files (R6): no session of the bot is left to read them.
-  const left = removePrompts([...[...names].flatMap((name) => promptFiles(bots, bot, name)), ...systemFilesOf(bots, bot)]);
+  // And its system text files (R6), and the folder of its main text (R5):
+  // no session of the bot is left to read them. Only that folder goes with
+  // what is in it; a prompt file is a file.
+  const left = removePrompts([
+    ...[...names].flatMap((name) => promptFiles(bots, bot, name)),
+    ...systemFilesOf(bots, bot),
+  ], [claudeTextFolder(bots, bot)]);
   unlinkSkills(home);
   mkdirSync(retiredDir(bots), { recursive: true });
   renameSync(botDir(bots, bot), moved);
@@ -186,10 +191,10 @@ const promptFiles = (bots, bot, session) => [promptPath(bots, bot, session), old
  * file, reason }] }`, or nothing when every one went. One that is not there is
  * nothing to remove.
  */
-function removePrompts(files) {
-  const promptsLeft = files.flatMap((file) => {
+function removePrompts(files, folders = []) {
+  const promptsLeft = [...files.map((file) => [file, false]), ...folders.map((folder) => [folder, true])].flatMap(([file, recursive]) => {
     try {
-      rmSync(file, { force: true });
+      rmSync(file, { force: true, recursive });
       return [];
     } catch (error) {
       return [{ file, reason: error.message }];

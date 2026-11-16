@@ -10,7 +10,7 @@
 // The text goes into the tab's ordinary shell, so every word is quoted the way
 // a shell needs it. `claude --model sonnet[1m]` would be a glob to zsh.
 
-import { randomInt } from 'node:crypto';
+import { createHash, randomInt } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -351,7 +351,7 @@ export const REMOTE_CONTROL_LOST = 'Remote Control off';
  */
 export const lostToOwnSettings = (session, harness) =>
   harness === 'claude' && setsSettings(session)
-    ? ["its bot's own memory folder", ...(remoteControlOf(session).value === 'off' ? [REMOTE_CONTROL_LOST] : [])]
+    ? ["its bot's own memory folder", "the kit's main text", ...(remoteControlOf(session).value === 'off' ? [REMOTE_CONTROL_LOST] : [])]
     : [];
 
 /**
@@ -474,7 +474,7 @@ const where = (session) => (set(session.name) ? `session ${session.name}` : 'thi
  * send would land on that list and answer it. A prompt given as an argument is
  * held by the harness until it is ready for it (tech notes, section 1).
  */
-export function launchCommand(session, { harness, home, workDir, prompt, promptFile: fromFile, resume, address, kit, sessionId, name, memoryFolder, systemFile }) {
+export function launchCommand(session, { harness, home, workDir, prompt, promptFile: fromFile, resume, address, kit, sessionId, name, memoryFolder, systemFile, mainFile }) {
   const trouble = sessionTrouble(session, harness, home);
   if (trouble !== undefined) throw new Error(trouble);
   // Pi is told which conversation it is, a new one too: the kit names it, and
@@ -483,6 +483,30 @@ export function launchCommand(session, { harness, home, workDir, prompt, promptF
     throw new Error(`${where(session)} runs on Pi, and a Pi session is started with the id the book gives it, so the kit names one before it launches. None was given.`);
   }
 
+  const words = harnessWords(session, { harness, home, workDir, resume, address, kit, sessionId, name, memoryFolder, systemFile, mainFile });
+
+  return [
+    // The shell's own pid, so the session's hook can tell the harness this line
+    // starts — the shell's child — from anything the session starts later inside
+    // the tab. `$$` is the shell's, and it is not quoted for that reason.
+    `${SHELL_ENV}=$$`,
+    `${CLI_ENV}=${quoted(ownCli())}`,
+    ...words.map(quoted),
+    ...extraWords(session.extra_args),
+    ...resumeWords(harness, resume),
+    // `--` first: a prompt of the user's own may start with a dash — a
+    // Markdown bullet does — and both harnesses would read it as an option of
+    // theirs and refuse to start.
+    ...promptWords(prompt, fromFile),
+  ].join(' ');
+}
+
+/**
+ * The words that start the harness, before the user's extra arguments, a
+ * resume and the prompt: the harness, its approval and every flag the kit
+ * sets.
+ */
+function harnessWords(session, { harness, home, workDir, resume, address, kit, sessionId, name, memoryFolder, systemFile, mainFile }) {
   const words = [harness];
   // Remote Control on: directly after `claude`, where the next word is always
   // the approval flag, so its optional name never takes a word of the kit's.
@@ -519,6 +543,9 @@ export function launchCommand(session, { harness, home, workDir, prompt, promptF
       ...(remote === 'off' ? { disableRemoteControl: true } : {}),
     };
     if (Object.keys(kitSettings).length > 0 && !setsSettings(session)) words.push('--settings', JSON.stringify(kitSettings));
+    // The main text the kit built from Claude Code's own (R5, ADR 0055),
+    // directly before the appended units, which follow it.
+    if (mainFile !== undefined) words.push('--system-prompt-file', mainFile);
     // The bot's main and both units, appended to whatever main text the
     // session runs on, so that no session loses a main unit (R6, ADR 0055).
     // A resume carries it too: the process reads it once, as it starts.
@@ -556,21 +583,26 @@ export function launchCommand(session, { harness, home, workDir, prompt, promptF
     // other bot's: a session never gets to write another bot's mail.
     if (kit !== undefined) for (const folder of Object.values(kit)) words.push('--add-dir', folder);
   }
+  return words;
+}
 
-  return [
-    // The shell's own pid, so the session's hook can tell the harness this line
-    // starts — the shell's child — from anything the session starts later inside
-    // the tab. `$$` is the shell's, and it is not quoted for that reason.
-    `${SHELL_ENV}=$$`,
-    `${CLI_ENV}=${quoted(ownCli())}`,
-    ...words.map(quoted),
-    ...extraWords(session.extra_args),
-    ...resumeWords(harness, resume),
-    // `--` first: a prompt of the user's own may start with a dash — a
-    // Markdown bullet does — and both harnesses would read it as an option of
-    // theirs and refuse to start.
-    ...promptWords(prompt, fromFile),
-  ].join(' ');
+/**
+ * The launch of a Claude Code session, as far as it shapes the main text that
+ * Claude Code records (R5): the kit's launch words without what changes from
+ * one conversation to the next (the address, a resume, the prompt and the
+ * kit's own text files), the user's extra arguments, `cuts`, the bot's tool
+ * and skill cuts, and `settings`, a sum of each Claude Code settings file the
+ * session reads. Two launches of one shape get the same main text from the
+ * same Claude Code version.
+ */
+export function launchShape(session, { home, memoryFolder, cuts, settings = [] }) {
+  // A hand-written string of extra words goes to the shell as it stands, so it
+  // goes into the shape as it stands.
+  const extra = Array.isArray(session.extra_args) ? session.extra_args.map(String)
+    : typeof session.extra_args === 'string' ? [session.extra_args] : [];
+  const words = [...harnessWords(session, { harness: 'claude', home, memoryFolder }), ...extra];
+  const text = JSON.stringify({ words, tools: [...cuts.tools].sort(), skills: [...cuts.skills].sort(), settings });
+  return createHash('sha256').update(text).digest('hex').slice(0, 16);
 }
 
 /**
@@ -643,6 +675,14 @@ export const kitFolders = (bots, bot) => ({
   locks: path.join(`${bots}.locks`, bot),
 });
 
+/**
+ * The kit's folder for a Claude Code bot's main text (R5): its notes, its
+ * saved originals, its main files and the kit's copy of its system text. It is
+ * not one of the kit folders, so no launch line names it: a Codex session of
+ * the bot, whose sandbox may write the kit folders, cannot write here.
+ */
+export const claudeTextFolder = (bots, bot) => path.join(`${bots}.claude-text`, bot);
+
 /** Whether `target` is the folder at `home` or something inside it. */
 const inside = (home, target) => target === home || target.startsWith(home + path.sep);
 
@@ -663,7 +703,9 @@ function extraWords(extra) {
 export const SHELL_ENV = 'OBK_TAB_SHELL';
 
 /** A word as a shell needs it. Anything a shell would read as more than a word is quoted. */
-const quoted = (word) => (/^[A-Za-z0-9,._+:@%/=-]+$/.test(word) ? word : `'${word.replaceAll("'", `'\\''`)}'`);
+// A word that starts with = is quoted too: zsh takes a bare =name for the
+// path of the command name on PATH.
+const quoted = (word) => (/^[A-Za-z0-9,._+:@%/-][A-Za-z0-9,._+:@%/=-]*$/.test(word) ? word : `'${word.replaceAll("'", `'\\''`)}'`);
 
 /** The same, for anything else of the kit's that has to build a shell line. */
 export const shellWord = quoted;

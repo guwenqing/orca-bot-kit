@@ -109,10 +109,18 @@ paragraphs:
     kind: rule
     text_sha256: 3a984d7778d27d36ba1ae28292515524dadf8867f3847870c3a2d1c767c3ec0d
     display: KIT-52 (6.4:2, in [PRD-11] 6.4 Bots and sessions)
+  - id: KIT-54
+    kind: rule
+    text_sha256: 9dac3cbaac3bb90610cc6fdf04ce332c78caa20452bb13c6499ef6385b97b284
+    display: KIT-54 (6.4:3, in [PRD-11] 6.4 Bots and sessions)
+  - id: KIT-55
+    kind: rule
+    text_sha256: 90bdbaa849d74c92d43c0b27cfec81714ce60c26c940eba93f5c0fdfd110b675
+    display: KIT-55 (6.4:4, in [PRD-11] 6.4 Bots and sessions)
   - id: KIT-51
     kind: rule
     text_sha256: 8ef399b20d747bf94dc30489da03c61b7d8186a6f6146eb17d1b11c8c660b334
-    display: KIT-51 (6.4:3, in [PRD-11] 6.4 Bots and sessions)
+    display: KIT-51 (6.4:5, in [PRD-11] 6.4 Bots and sessions)
   - id: KIT-27
     kind: note
     text_sha256: f75354a5984e3af787fd900755a8e32e7f19d0a64649a91ab8b0f41e20f622e1

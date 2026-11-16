@@ -41,22 +41,28 @@ export function memoryFolderFor(home) {
   } catch {
     return {};
   }
-  // Claude Code reads a project's local settings from the top of its repository
-  // as well as from the bot's folder, and the user's from the profile Orca
-  // routes the tab to, or from the user's own folder with none.
+  if (claudeSettingsFiles(home).some(namesMemoryFolder)) return {};
+  const folder = path.join(bot, MEMORY_FOLDER);
+  // A link could lead out of the bot folder, and a file is no folder.
+  const there = lstatSync(folder, { throwIfNoEntry: false });
+  return there !== undefined && !there.isDirectory() ? { blocked: folder } : { folder };
+}
+
+/**
+ * The settings files a Claude session of the bot at `home` reads. Claude Code
+ * reads a project's local settings from the top of its repository as well as
+ * from the bot's folder, and the user's from the profile Orca routes the tab
+ * to, or from the user's own folder with none.
+ */
+export function claudeSettingsFiles(home) {
   const profile = selectedClaudeProfile();
   const root = projectRoot(home);
-  const named = [
+  return [
     path.join(home, '.claude', 'settings.json'),
     path.join(home, '.claude', 'settings.local.json'),
     ...(root === undefined ? [] : [path.join(root, '.claude', 'settings.local.json')]),
     profile === undefined ? path.join(homedir(), '.claude', 'settings.json') : path.join(profile, 'settings.json'),
   ];
-  if (named.some(namesMemoryFolder)) return {};
-  const folder = path.join(bot, MEMORY_FOLDER);
-  // A link could lead out of the bot folder, and a file is no folder.
-  const there = lstatSync(folder, { throwIfNoEntry: false });
-  return there !== undefined && !there.isDirectory() ? { blocked: folder } : { folder };
 }
 
 /** The folder to name for a Claude session of the bot at `home`, or undefined when the kit names none. */

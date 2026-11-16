@@ -16,8 +16,9 @@ import { spawnSync } from 'node:child_process';
 import { forgetClaimed, readBook, rememberSession, sessionIdsIn, updateBook, withUnclaimed } from './book.js';
 import { botDir, readBot } from './bot.js';
 import { conversationsIn } from './conversations.js';
-import { harnessOf, SHELL_ENV, startPrompt, workDirOf } from './launch.js';
-import { guardText, isClaudeBot, rulesStamp } from './rules.js';
+import { claudeTextFolder, harnessOf, kitFolders, SHELL_ENV, startPrompt, workDirOf } from './launch.js';
+import { noteSource } from './main-text.js';
+import { currentSystemFile, guardText, isClaudeBot, rulesStamp } from './rules.js';
 
 /** Where Orca says which tab a program is running in (tech notes, section 1). */
 export const TAB_ENV = 'ORCA_TAB_ID';
@@ -32,6 +33,9 @@ export { SHELL_ENV };
 
 /** What a harness calls a session the user cleared, when it has a word for it. */
 const CLEARED = 'clear';
+
+/** What Claude Code calls a session that started. */
+const STARTED = 'startup';
 
 /**
  * What Claude Code calls a session it compacted. A compaction keeps the
@@ -104,6 +108,8 @@ export async function recordSession(bots, name, said, tabId, shellPid) {
   let cleared = false;
   let told;
   let onClaude = false;
+  let shape;
+  let launchedModel;
 
   await updateBook(home, (book) => {
     const found = sessionAt(book, tabId);
@@ -127,7 +133,9 @@ export async function recordSession(bots, name, said, tabId, shellPid) {
     const rules = cleared ? stamp : undefined;
     const now = rememberSession(was, id, said.source);
     onClaude = settings !== undefined && harnessOf(settings, bot.harness) === 'claude';
-    const system = onClaude ? systemNote(was, launched, said.source) : {};
+    const system = onClaude ? { ...systemNote(was, launched, said.source), ...textNote(was, launched, said.source) } : {};
+    shape = typeof was.shape === 'string' ? was.shape : undefined;
+    launchedModel = typeof was.launched_model === 'string' ? was.launched_model : undefined;
     book.sessions[session] = withUnclaimed({ ...withoutSystem(rules === undefined ? now : { ...now, rules }), ...system }, unclaimed);
     forgetClaimed(book);
     if (uncertain) cleared = true;
@@ -135,6 +143,27 @@ export async function recordSession(bots, name, said, tabId, shellPid) {
   });
 
   if (told === undefined) return undefined;
+
+  // A start or a clear on the kit's own line, with no system text on it but
+  // the kit's appended file, records Claude Code's own main text: the kit
+  // notes the conversation as a source of the main text it builds (R5). A
+  // resume keeps an older text, and a compaction keeps the conversation.
+  // The note keeps the model the conversation should run on, which the build
+  // checks against its record: at a start, the one Claude Code says it started
+  // with; at a clear, which Claude Code gives no model for, the one the line
+  // named, as the book has it from the same launch as the shape: a switch of
+  // model in the session would not show on the line, and bot.yaml may have
+  // changed since.
+  if (onClaude && (said.source === STARTED || said.source === CLEARED) && launched?.source === true
+    && (launched.file === true || currentSystemFile(bots, bot) === undefined)) {
+    const model = said.source === STARTED && typeof said.model === 'string' && said.model !== '' ? said.model : launchedModel;
+    try {
+      noteSource(claudeTextFolder(bots, bot.name), id, { shape, appended: launched.name ?? null, model: typeof model === 'string' ? model : undefined });
+    } catch {
+      // A note that cannot be written is a source the kit does not get; the
+      // session goes on.
+    }
+  }
 
   const settings = bot.sessions.find((entry) => entry.name === told);
   if (settings === undefined) return undefined;
@@ -157,16 +186,26 @@ export async function recordSession(bots, name, said, tabId, shellPid) {
 /** The appended-text flag of a launch line. */
 const APPEND_FLAG = '--append-system-prompt-file';
 
+/** The flag that names the kit's main text on a launch line (R5). */
+const MAIN_FLAG = '--system-prompt-file';
+
+/** The words of any flag that replaces Claude Code's main text, or appends to it. */
+const SYSTEM_TEXT = '--system-prompt';
+const APPEND_TEXT = '--append-system-prompt';
+
 /**
- * What the Claude Code process above the hook appends: `{ file: true, name }`
- * when its launch line has the appended-text flag with this bot's own system
- * file as its value, `{}` when it has not, and undefined when the line cannot
- * be read.
+ * What the launch line of the Claude Code process above the hook gives it:
+ * `file: true` and `name` when the line has the appended-text flag with this
+ * bot's own system file as its value; `main`, the kit's main file, when the
+ * line names one with `--system-prompt-file` (R5); and `source`, whether the
+ * line has no system text on it but the kit's appended file, so that the
+ * conversation records Claude Code's own main text. Undefined when the line
+ * cannot be read.
  *
  * `ps` joins the words of the line with spaces, so a word cannot be told from
  * the words inside another option's value. Only the flag followed by a path
  * to `<bots>.prompts/<bot>/system-<sum>.md` counts. Anything else is no
- * appended text. The reading feeds only the book's note and obk health: the
+ * appended text. The main file is in `<bots>.claude-text/<bot>/`. The reading feeds only the book's note and obk health: the
  * hook gives the main units whatever it says, since it cannot prove a flag.
  *
  * The hook runs through a shell or straight from the harness, so the harness
@@ -182,9 +221,23 @@ export function appendedText(pid, botName) {
   // The kit puts the start prompt after `--`, and a prompt may name the flag.
   const end = line.indexOf(' -- ');
   const options = end < 0 ? line : line.slice(0, end);
-  const own = `\\.prompts/${botName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/(system-[0-9a-f]{16}\\.md)`;
-  const flag = new RegExp(`(?:^| )${APPEND_FLAG}[= ]/(?:[^\\n]*?)${own}(?= |$)`).exec(options);
-  return flag === null ? {} : { file: true, name: flag[1] };
+  const escaped = botName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const folder = `\\.prompts/${escaped}/`;
+  const textFolder = `\\.claude-text/${escaped}/`;
+  const flag = new RegExp(`(?:^| )${APPEND_FLAG}[= ]/(?:[^\\n]*?)${folder}(system-[0-9a-f]{16}\\.md)(?= |$)`).exec(options);
+  const main = new RegExp(`(?:^| )${MAIN_FLAG}[= ]/(?:[^\\n]*?)${textFolder}(main-[0-9a-f]{16}\\.md)(?= |$)`).exec(options);
+  // A source of Claude Code's own main text (R5): no system text on the line,
+  // and no appended text but the kit's own file. The words are counted on the
+  // whole line, the prompt included: the first ` -- ` may be inside an option's
+  // value, so it does not prove where the options end. A value or a prompt
+  // that holds the words only stops a note.
+  const appends = line.split(APPEND_TEXT).length - 1;
+  const source = !line.includes(SYSTEM_TEXT) && appends === (flag === null ? 0 : 1);
+  return {
+    ...(flag === null ? {} : { file: true, name: flag[1] }),
+    ...(main === null ? {} : { main: main[1] }),
+    source,
+  };
 }
 
 /** The launch line of the process `pid`, or undefined when ps cannot tell. */
@@ -198,8 +251,21 @@ function argsOf(pid) {
 
 /** A book entry without the notes of its system text. */
 function withoutSystem(entry) {
-  const { system, bare, ...rest } = entry;
+  const { system, bare, main, own_text: own, ...rest } = entry;
   return rest;
+}
+
+/**
+ * What the book notes of a Claude Code session's main text (R5): `main`, the
+ * kit's main file its line names, or `own_text` when the line names none, so
+ * that the session runs on Claude Code's own main text. A resume keeps the
+ * conversation's older text, so its note stays as it was, as does a line that
+ * cannot be read.
+ */
+function textNote(was, launched, source) {
+  const before = { ...(typeof was.main === 'string' ? { main: was.main } : {}), ...(was.own_text === true ? { own_text: true } : {}) };
+  if (launched === undefined || source === 'resume') return before;
+  return typeof launched.main === 'string' ? { main: launched.main } : { own_text: true };
 }
 
 /**
