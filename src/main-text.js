@@ -395,7 +395,7 @@ export function unitsNotFound(text, botName) {
     const original = readJson(path.join(originals, name));
     if (!Array.isArray(original?.sections) || typeof original.model !== 'string') continue;
     const held = new Set(original.sections.flatMap((section) => [unitHash(section), ...section.split('\n').map(unitHash)]));
-    for (const unit of recipe.units) {
+    for (const unit of [...recipe.units, ...(recipe.back ?? [])]) {
       if (!unit.models.includes(original.model) || held.has(unit.hash)) continue;
       found.push({
         where: path.join(originals, name),
@@ -517,36 +517,49 @@ export function mainTextTrouble(bots, home, bot) {
       found.push(`${bot.name}/${name} runs on Claude Code's own main text, not the one the kit builds, because ${built.why}.`);
     } else if (built.file !== undefined && path.basename(built.file) !== main) {
       states[name] = { state: 'older', why: `it came from ${path.join(text, main)}, and it gets the new text after obk restart: at once in a new conversation, and in a resumed one after its next compaction or clear` };
+      const seen = partsFound(home, entry.session, readText(path.join(text, main)), []);
+      if (seen.twice.length > 0) states[name].twice = seen.twice;
     } else {
+      // The file the book names for the session, which is what it runs on.
+      const seen = partsFound(home, entry.session, readText(path.join(text, main)), built.back ?? []);
       states[name] = { state: 'kit' };
-      found.push(...partsFound(home, `${bot.name}/${name}`, entry.session, built));
+      if (seen.twice.length > 0) states[name].twice = seen.twice;
+      if (seen.without.length > 0) states[name].without = seen.without;
     }
   }
   return { found, states };
 }
 
 /**
- * Health's findings on what a session on the kit's main file got (ADR 0061),
- * from the first record of its conversation that is of that file: a part it
- * has two times, and a part the build took out that Claude Code did not add.
- * A record is evidence here only, never a source. Sums, sizes and the kit's
- * names: no word of Claude Code's text.
+ * What a session on a main file of the kit got (ADR 0061), from the first
+ * record of its conversation that is of that file: `twice`, each part it has
+ * two times, by size and sum, and `without`, each name of `back`, the parts
+ * the build took out, that Claude Code did not add. Both are known states for
+ * the session's line, not findings: a part that guards safety stays in the
+ * kit's file even when Claude Code adds it too, and a session without a
+ * part's tool lacks the part rightly. A record is evidence here only, never a
+ * source. Sums, sizes and the kit's names: no word of Claude Code's text.
  */
-function partsFound(home, who, conversation, built) {
-  if (typeof conversation !== 'string' || typeof built.text !== 'string') return [];
+function partsFound(home, conversation, main, back) {
+  const none = { twice: [], without: [] };
+  if (typeof conversation !== 'string' || typeof main !== 'string') return none;
   let real;
   try {
     real = realpathSync(home);
   } catch {
-    return [];
+    return none;
   }
-  const sections = recordOf(claudeTranscript(real, conversation), built.text);
-  const seen = partsTrouble(sections, { main: built.text, back: built.back ?? [], recipe: readRecipe() });
-  if (seen === undefined) return [];
-  return [
-    ...seen.twice.map((part) => `${who} gets a part of Claude Code's main text two times (${part.size} characters, sum ${part.sum}): Claude Code adds it by itself after the kit's main text, and the kit's text holds it too. A newer kit may name it; until then the session runs with it twice.`),
-    ...seen.without.map((name) => `${who} runs without ${name}: the kit takes it out of its main text because Claude Code adds it by itself, and this time Claude Code did not. A newer kit may change the recipe's sums for this Claude Code version.`),
-  ];
+  const sections = recordOf(claudeTranscript(real, conversation), main);
+  return partsTrouble(sections, { main, back, recipe: readRecipe() }) ?? none;
+}
+
+/** A file's text, or undefined when it cannot be read. */
+function readText(file) {
+  try {
+    return readFileSync(file, 'utf8');
+  } catch {
+    return undefined;
+  }
 }
 
 /** The sections of the first `prompt_snapshot` of a transcript whose first section is `main`, or undefined. */
