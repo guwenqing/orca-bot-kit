@@ -40,7 +40,11 @@
 //      ~/.claude/projects. When the tab's Claude Code writes its transcripts to
 //      another folder, the test FAILS here and starts no session.
 //   3. Three Claude bots, one for each model that the recipe names
-//      (src/claude-text-recipe.json, `units[].models`). Each has two sessions,
+//      (src/claude-text-recipe.json, `units[].models`), and a fourth on
+//      claude-haiku-5-5 that keeps the Artifact tool (`claude_keep:
+//      [Artifact]` in its bot.yaml), named `ap-haiku-5-5-artifact`, with
+//      `claude-haiku-5-5+keep:Artifact` in place of the model in what it
+//      prints. Each has two sessions,
 //      FIRST and SECOND, of one launch shape: effort `low`, approval `auto`,
 //      Remote Control off. Each start prompt asks for one random word and
 //      nothing else.
@@ -68,6 +72,10 @@
 //          but the last is printed so;
 //        - the Claude Code version and the model of each record, and the
 //          version the kit reads;
+//        - for the Artifact bot, each section of its own text that the plain
+//          claude-haiku-5-5 bot's own text lacks, by sha256; or a line that
+//          says its own text lacks the Artifact paragraph, when the account
+//          or Claude Code gives it no Artifact tool. That is no failure;
 //        - one line for a machine to read:
 //          `added-parts <model> <version> <JSON list>`, each item
 //          `{ sha256, size, own_index, in_main, recipe }`.
@@ -114,19 +122,19 @@
 // transcript folders for the throwaway bots stay there, as they do for every
 // system test here.
 //
-// It takes several minutes: six starts and six short turns.
+// It takes several minutes: eight starts and eight short turns.
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { existsSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { mkdtemp, readdir, realpath, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from '../helpers/system.js';
 import { setTimeout } from 'node:timers/promises';
-import { parse } from 'yaml';
+import { parse, stringify } from 'yaml';
 
 import { cliEntry, shellWord } from '../helpers/cli.js';
 import { claudeTrustAt, trustScreenMet } from '../helpers/claude-trust.js';
@@ -164,6 +172,9 @@ const TEACH_TITLE = 'Teach auto mode about your environment?';
 /** Each bot's two sessions of one launch shape. */
 const FIRST = 'first';
 const SECOND = 'second';
+
+/** The model of the bot that keeps the Artifact tool. */
+const ARTIFACT_MODEL = 'claude-haiku-5-5';
 
 /** The start of every throwaway bots folder of this test. */
 const RUN_PREFIX = 'obk-system-added-parts-live-';
@@ -469,8 +480,10 @@ test('for each model the recipe names, the parts that Claude Code adds by itself
   const models = [...new Set(recipe.units.flatMap((unit) => unit.models))];
   assert.ok(models.length > 0, 'the premise: the recipe names at least one model');
   t.diagnostic(`the models the recipe names: ${models.join(', ')}`);
-  const botOf = (model) => ({ model, name: `ap-${model.replace(/^claude-/, '')}` });
-  const fleet = models.map(botOf);
+  const botOf = (model) => ({ model, name: `ap-${model.replace(/^claude-/, '')}`, label: model });
+  // One more bot keeps the Artifact tool, so a run shows whether its paragraph comes back (the architect, #784).
+  const artifact = { model: ARTIFACT_MODEL, name: `ap-${ARTIFACT_MODEL.replace(/^claude-/, '')}-artifact`, label: `${ARTIFACT_MODEL}+keep:Artifact`, keep: ['Artifact'] };
+  const fleet = [...models.map(botOf), artifact];
 
   const bots = await realpath(await mkdtemp(path.join(os.tmpdir(), RUN_PREFIX)));
   const homeOf = (bot) => path.join(bots, 'bots', bot.name);
@@ -536,7 +549,14 @@ test('for each model the recipe names, the parts that Claude Code adds by itself
       obkJson(['session', 'add', '--bots', bots, '--bot', bot.name, '--name', name, '--model', bot.model, '--effort', 'low', `--prompt=${promptOf(bot, name)}`, ...RC_OFF]);
       obkJson(['permission', 'approval', '--bots', bots, '--bot', bot.name, '--session', name, '--approval', 'auto']);
     }
+    if (bot.keep !== undefined) {
+      // The bot's keep list, as a user writes it in bot.yaml, before its first up.
+      const file = path.join(homeOf(bot), 'bot.yaml');
+      writeFileSync(file, stringify({ ...(parse(readFileSync(file, 'utf8')) ?? {}), claude_keep: bot.keep }));
+    }
   }
+  /** The sums of each bot's own text, by bot name, for the Artifact bot's line below. */
+  const ownOf = {};
 
   // ------------------------------------------------------ 4. each bot in turn
 
@@ -604,7 +624,8 @@ test('for each model the recipe names, the parts that Claude Code adds by itself
     t.diagnostic(`${of}: ${FIRST}'s record: model ${modelOf(firstLines) ?? '(none named)'}, the note's model ${note.model}, first record of ${firstRecord.version ?? '(no version)'}, versions ${versionsOf(firstLines).join(', ') || '(none recorded)'}, ${firstRecord.sections.length} sections, last section the kit's appended text: ${sum16(firstRecord.sections.at(-1) ?? '') === appendedSum}`);
     const own = firstRecord.sections.slice(0, -1);
     const ownSums = own.map(sha);
-    own.forEach((section, at) => t.diagnostic(`own ${bot.model} ${at} ${section.length} ${ownSums[at]} ${namesText(recipeNamesOf(section, recipe))}`));
+    ownOf[bot.name] = ownSums;
+    own.forEach((section, at) => t.diagnostic(`own ${bot.label} ${at} ${section.length} ${ownSums[at]} ${namesText(recipeNamesOf(section, recipe))}`));
 
     // b. SECOND: the kit's main file, and what Claude Code adds after it.
     const second = upOf(SECOND);
@@ -629,9 +650,18 @@ test('for each model the recipe names, the parts that Claude Code adds by itself
       const sum = sha(section);
       const ownIndex = ownSums.indexOf(sum);
       const names = recipeNamesOf(section, recipe);
-      t.diagnostic(`added ${bot.model} ${at} ${section.length} ${sum} in_main=${mainText.includes(section)} own_index=${ownIndex === -1 ? 'none' : ownIndex} ${namesText(names)}`);
+      t.diagnostic(`added ${bot.label} ${at} ${section.length} ${sum} in_main=${mainText.includes(section)} own_index=${ownIndex === -1 ? 'none' : ownIndex} ${namesText(names)}`);
       return { sha256: sum, size: section.length, own_index: ownIndex === -1 ? null : ownIndex, in_main: mainText.includes(section), recipe: names };
     });
-    t.diagnostic(`added-parts ${bot.model} ${version} ${JSON.stringify(parts)}`);
+    t.diagnostic(`added-parts ${bot.label} ${version} ${JSON.stringify(parts)}`);
+  }
+
+  // The Artifact bot's own text against the plain bot's of the same model: what keeping Artifact adds to it.
+  const plain = ownOf[botOf(ARTIFACT_MODEL).name];
+  const kept = ownOf[artifact.name];
+  if (plain !== undefined && kept !== undefined) {
+    const extra = kept.map((sum, at) => [sum, at]).filter(([sum]) => !plain.includes(sum));
+    if (extra.length === 0) t.diagnostic(`artifact ${artifact.label}: its own text holds no section that the plain ${ARTIFACT_MODEL} bot's lacks, so it lacks the Artifact paragraph: this account or Claude Code gives the session no Artifact tool`);
+    for (const [sum, at] of extra) t.diagnostic(`artifact ${artifact.label}: own section ${at} is not in the plain bot's own text: ${sum}`);
   }
 });
