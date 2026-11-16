@@ -49,7 +49,10 @@
 //   T5. The fit: another model, another extra argument, another tool cut,
 //       another memory folder named by hand, a change of a Claude Code
 //       settings file the session reads, or another version does not fit; a
-//       `text:` cut does, and keeps the shape.
+//       `text:` cut does, and keeps the shape. extra_args that name
+//       --settings, in any form, give no shape: the session runs on its own
+//       text, health's main_text names its --settings, and the own-settings
+//       finding lists the kit's main text.
 //   T6. The book: own_text and main, and a resume keeps both.
 //   T7. Health. A paused session or bot is not running, so health names
 //       nothing of its main text until it is unpaused and starts.
@@ -367,6 +370,33 @@ const aboutSession = (found, session, ...phrases) => found.filter((one) => typeo
 
 /** The findings whose sentence holds every one of `phrases`. */
 const saying = (found, ...phrases) => found.filter((one) => typeof one.says === 'string' && phrases.every((phrase) => one.says.includes(phrase)));
+
+/** `obk health --json` whole: its findings, its sessions, and its exit code. */
+async function healthOf(box) {
+  const result = await box.run(['health', '--bots', 'bots', '--json']);
+  let answer;
+  try {
+    answer = JSON.parse(result.stdout);
+  } catch (error) {
+    return assert.fail(`health --json should print JSON, got (${error.message}):\n${result.stdout}${result.stderr}`);
+  }
+  assert.ok(Array.isArray(answer.found) && Array.isArray(answer.sessions), `health answers with findings and sessions, got: ${result.stdout}`);
+  return { found: answer.found, sessions: answer.sessions, code: result.code };
+}
+
+/** The entry of `sessions` for api-bot's `session`, or undefined. */
+const entryOf = (sessions, session) => sessions.find((one) => one.bot === BOT && one.session === session);
+
+/** The `main_text` of api-bot's `session` in health's sessions, with the premise that the entry is there. */
+function mainTextIn(sessions, session, why) {
+  const entry = entryOf(sessions, session);
+  assert.ok(entry, `${why}: health's sessions should list ${BOT}/${session}, got: ${show(sessions)}`);
+  return entry.main_text;
+}
+
+/** Health's findings on api-bot/<session>'s main text: its own text, a restart for the kit's text, or an older main file. */
+const mainTextOf = (found, session) => found.filter((one) => typeof one.says === 'string'
+  && one.says.startsWith(`${BOT}/${session}`) && one.says.includes('main text'));
 
 /** The shipped recipe. */
 const shippedRecipe = async () => JSON.parse(await readFile(path.join(repoRoot, 'src', 'claude-text-recipe.json'), 'utf8'));
@@ -826,110 +856,45 @@ describe('T5 the fit', () => {
     });
   }
 
-  /**
-   * daily launched with a settings file of the user's own on its line, by
-   * `extra` (the file's path given), and a fitting record of that launch
-   * saved as an original. Gives back the bots folder, the file and the shape.
-   */
-  async function ownSettingsFile(box, extra) {
-    const bots = await started(box);
-    // A conversation the book knows, so the restart can close the tab.
-    await hook(box, bots, { session: 'conv-0', source: 'startup' });
-    await onRecord(box, bots, 'conv-0', []);
-    const file = path.join(box.root, 'own-settings', 'daily.json');
-    await setIn(file, { outputStyle: 'Concise' });
-    await handSet(bots, { extra_args: extra(file) });
-    await restart(box);
-    await noteNow(box, bots, 'conv-1');
-    await restart(box);
-    assertMainNamed(await wordsOf(box, bots), 'the premise: a record under the user\'s own settings file fits');
-    return { bots, file, before: (await sessionIn(bots, BOT, 'daily')).shape };
-  }
-
-  const OUTPUT_STYLE = ['outputStyle', { outputStyle: 'Explanatory' }];
-  const MEMORY_DIR = ['autoMemoryDirectory', { autoMemoryDirectory: '/srv/own-memory' }];
-
-  /** How extra_args names the file: as a list, or as one string of shell text; and the changes each is tried with. */
-  const SETTINGS_FORMS = {
-    'two words, --settings <file>': [(file) => ['--settings', file], [OUTPUT_STYLE, MEMORY_DIR], true],
-    'one word, --settings=<file>': [(file) => [`--settings=${file}`], [OUTPUT_STYLE, MEMORY_DIR], true],
-    'one string, --settings <file>': [(file) => `--settings ${file}`, [OUTPUT_STYLE], false],
-    'one string, --settings=<file>': [(file) => `--settings=${file}`, [OUTPUT_STYLE], false],
+  /** extra_args that name --settings, in each form the kit may meet. Each gives the words, from a settings file's path. */
+  const OWN_SETTINGS = {
+    'a list, --settings <file>': (file) => ['--settings', file],
+    'a list, --settings=<file>': (file) => [`--settings=${file}`],
+    'a list, --settings with inline JSON': () => ['--settings', '{"env":{}}'],
+    'a string, --settings <file>': (file) => `--settings ${file}`,
   };
 
-  for (const [form, [extra, changes, allowToo]] of Object.entries(SETTINGS_FORMS)) {
-    for (const [change, keys] of changes) {
-      test(`T5 a change of ${change} in a settings file the line names (${form}) does not fit, and is another shape`, async (t) => {
-        const box = await createSandbox(t);
-        const { bots, file, before } = await ownSettingsFile(box, extra);
-
-        await setIn(file, keys);
-        await restart(box);
-
-        assertOwnText(await wordsOf(box, bots), `a change of ${change} in the line's settings file`);
-        assert.notEqual((await sessionIn(bots, BOT, 'daily')).shape, before, 'the shape changed');
-      });
-    }
-
-    if (!allowToo) continue;
-    test(`T5 a change of only permissions.allow in a settings file the line names (${form}) keeps the shape and the main file`, async (t) => {
-      const box = await createSandbox(t);
-      const { bots, file, before } = await ownSettingsFile(box, extra);
-
-      await setIn(file, { permissions: { allow: ['Bash(ls:*)'] } });
-      await restart(box);
-
-      assertMainNamed(await wordsOf(box, bots), 'a change of permissions.allow in the line\'s settings file');
-      assert.equal((await sessionIn(bots, BOT, 'daily')).shape, before, 'the shape is the same');
-    });
-  }
-
-  /**
-   * extra_args strings that name --settings in a way the kit cannot read as a
-   * path: the shell expands a quote, a ~ or a wildcard to the real file. Each
-   * gives the settings file's path, and the string.
-   */
-  const UNREADABLE_SETTINGS = {
-    'a quote': (box) => {
-      const file = path.join(box.root, 'own-settings', 'daily.json');
-      return { file, extra: `--settings "${file}"` };
-    },
-    'a ~ for the home folder': (box) => ({ file: path.join(box.home, 'custom-settings.json'), extra: '--settings ~/custom-settings.json' }),
-    'a * wildcard': (box) => {
-      const dir = path.join(box.root, 'own-settings');
-      return { file: path.join(dir, 'custom-settings-daily.json'), extra: `--settings ${dir}/custom-settings-*.json` };
-    },
-    'a word that starts with =': (box) => ({ file: path.join(box.root, 'own-settings', 'daily.json'), extra: '--settings =custom-settings.json' }),
-    'a ? wildcard': (box) => {
-      const dir = path.join(box.root, 'own-settings');
-      return { file: path.join(dir, 'custom-settings-daily.json'), extra: `--settings ${dir}/custom-settings-dail?.json` };
-    },
-  };
-
-  for (const [what, given] of Object.entries(UNREADABLE_SETTINGS)) {
-    test(`T5 an extra_args string that names --settings with ${what}: no main file, not even from a record that fit before, and health says the kit cannot tell the settings file`, async (t) => {
+  for (const [form, extra] of Object.entries(OWN_SETTINGS)) {
+    test(`T5 extra_args that name --settings (${form}): no main file, not even from a record that fit before; main_text own, whose why names its --settings; no main-text finding; the own-settings finding names the kit's main text`, async (t) => {
       const box = await createSandbox(t);
       const bots = await started(box);
       const { text } = await appendedOf(await wordsOf(box, bots));
-      // A note and a record that fit the launch before the string.
+      // A note and a record that fit the launch before the setting.
       await hook(box, bots, { session: 'conv-0', source: 'startup' });
-      assert.ok(await exists(sourceOf(bots, 'conv-0')), 'the premise: the start before the string is noted');
+      assert.ok(await exists(sourceOf(bots, 'conv-0')), 'the premise: the start before the setting is noted');
       await onRecord(box, bots, 'conv-0', [[...SECTIONS, text]]);
-      const { file, extra } = given(box);
+      const file = path.join(box.root, 'own-settings', 'daily.json');
       await setIn(file, { outputStyle: 'Concise' });
-      await handSet(bots, { extra_args: extra });
+      await handSet(bots, { extra_args: extra(file) });
 
       await restart(box);
 
-      assertOwnText(await wordsOf(box, bots), `a settings file named with ${what}, at the first launch`);
+      assertOwnText(await wordsOf(box, bots), `its own --settings (${form}), at the first launch`);
       // A start and a record under that launch.
       await hook(box, bots, { session: 'conv-1', source: 'startup' });
       await onRecord(box, bots, 'conv-1', [[...SECTIONS, text]]);
       await restart(box);
-      assertOwnText(await wordsOf(box, bots), `a settings file named with ${what}, after a start and a record`);
+      assertOwnText(await wordsOf(box, bots), `its own --settings (${form}), after a start and a record`);
       assert.deepEqual(await mainFiles(bots), []);
-      const found = await findings(box);
-      assert.ok(aboutSession(found, 'daily', 'settings file').length >= 1, `got: ${show(found)}`);
+      const { found, sessions } = await healthOf(box);
+      const state = mainTextIn(sessions, 'daily', `its own --settings (${form})`);
+      assert.equal(state?.state, 'own', `main_text is own, got: ${show(state)}`);
+      assert.ok(typeof state.why === 'string' && state.why.includes('--settings'), `its why names its own --settings, got: ${show(state)}`);
+      assert.deepEqual(mainTextOf(found, 'daily'), [], `no finding on its main text: it is no new failing finding, got: ${show(found)}`);
+      const own = found.filter((one) => typeof one.says === 'string'
+        && one.says.startsWith(`${BOT}'s session daily `) && one.says.includes('carries its own --settings'));
+      assert.equal(own.length, 1, `one own-settings finding for daily, got: ${show(found)}`);
+      assert.ok(own[0].says.includes('the kit\'s main text'), `it lists the kit's main text as what it runs without, got: ${own[0].says}`);
     });
   }
 
@@ -1034,33 +999,6 @@ describe('T7 health', () => {
 
     assert.ok(aboutSession(found, 'daily', 'claude --version').length >= 1, `got: ${show(found)}`);
   });
-
-  /** `obk health --json` whole: its findings, its sessions, and its exit code. */
-  async function healthOf(box) {
-    const result = await box.run(['health', '--bots', 'bots', '--json']);
-    let answer;
-    try {
-      answer = JSON.parse(result.stdout);
-    } catch (error) {
-      return assert.fail(`health --json should print JSON, got (${error.message}):\n${result.stdout}${result.stderr}`);
-    }
-    assert.ok(Array.isArray(answer.found) && Array.isArray(answer.sessions), `health answers with findings and sessions, got: ${result.stdout}`);
-    return { found: answer.found, sessions: answer.sessions, code: result.code };
-  }
-
-  /** The entry of `sessions` for api-bot's `session`, or undefined. */
-  const entryOf = (sessions, session) => sessions.find((one) => one.bot === BOT && one.session === session);
-
-  /** The `main_text` of api-bot's `session` in health's sessions, with the premise that the entry is there. */
-  function mainTextIn(sessions, session, why) {
-    const entry = entryOf(sessions, session);
-    assert.ok(entry, `${why}: health's sessions should list ${BOT}/${session}, got: ${show(sessions)}`);
-    return entry.main_text;
-  }
-
-  /** Health's findings on api-bot/<session>'s main text: its own text, a restart for the kit's text, or an older main file. */
-  const mainTextOf = (found, session) => found.filter((one) => typeof one.says === 'string'
-    && one.says.startsWith(`${BOT}/${session}`) && one.says.includes('main text'));
 
   /** The text line of `obk health` for api-bot's `session`. */
   async function textLineOf(box, session) {
