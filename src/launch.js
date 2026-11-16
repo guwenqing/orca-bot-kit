@@ -703,7 +703,9 @@ function extraWords(extra) {
 export const SHELL_ENV = 'OBK_TAB_SHELL';
 
 /** A word as a shell needs it. Anything a shell would read as more than a word is quoted. */
-const quoted = (word) => (/^[A-Za-z0-9,._+:@%/=-]+$/.test(word) ? word : `'${word.replaceAll("'", `'\\''`)}'`);
+// A word that starts with = is quoted too: zsh takes a bare =name for the
+// path of the command name on PATH.
+const quoted = (word) => (/^[A-Za-z0-9,._+:@%/-][A-Za-z0-9,._+:@%/=-]*$/.test(word) ? word : `'${word.replaceAll("'", `'\\''`)}'`);
 
 /** The same, for anything else of the kit's that has to build a shell line. */
 export const shellWord = quoted;
