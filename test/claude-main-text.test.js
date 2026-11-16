@@ -884,30 +884,53 @@ describe('T5 the fit', () => {
     });
   }
 
-  test('T5 an extra_args string that names --settings with a quote: no main file, not even from a record that fit before, and health says the kit cannot tell the settings file', async (t) => {
-    const box = await createSandbox(t);
-    const bots = await started(box);
-    const { text } = await appendedOf(await wordsOf(box, bots));
-    // A note and a record that fit the launch before the quote.
-    await hook(box, bots, { session: 'conv-0', source: 'startup' });
-    assert.ok(await exists(sourceOf(bots, 'conv-0')), 'the premise: the start before the quote is noted');
-    await onRecord(box, bots, 'conv-0', [[...SECTIONS, text]]);
-    const file = path.join(box.root, 'own-settings', 'daily.json');
-    await setIn(file, { outputStyle: 'Concise' });
-    await handSet(bots, { extra_args: `--settings "${file}"` });
+  /**
+   * extra_args strings that name --settings in a way the kit cannot read as a
+   * path: the shell expands a quote, a ~ or a wildcard to the real file. Each
+   * gives the settings file's path, and the string.
+   */
+  const UNREADABLE_SETTINGS = {
+    'a quote': (box) => {
+      const file = path.join(box.root, 'own-settings', 'daily.json');
+      return { file, extra: `--settings "${file}"` };
+    },
+    'a ~ for the home folder': (box) => ({ file: path.join(box.home, 'custom-settings.json'), extra: '--settings ~/custom-settings.json' }),
+    'a * wildcard': (box) => {
+      const dir = path.join(box.root, 'own-settings');
+      return { file: path.join(dir, 'custom-settings-daily.json'), extra: `--settings ${dir}/custom-settings-*.json` };
+    },
+    'a ? wildcard': (box) => {
+      const dir = path.join(box.root, 'own-settings');
+      return { file: path.join(dir, 'custom-settings-daily.json'), extra: `--settings ${dir}/custom-settings-dail?.json` };
+    },
+  };
 
-    await restart(box);
+  for (const [what, given] of Object.entries(UNREADABLE_SETTINGS)) {
+    test(`T5 an extra_args string that names --settings with ${what}: no main file, not even from a record that fit before, and health says the kit cannot tell the settings file`, async (t) => {
+      const box = await createSandbox(t);
+      const bots = await started(box);
+      const { text } = await appendedOf(await wordsOf(box, bots));
+      // A note and a record that fit the launch before the string.
+      await hook(box, bots, { session: 'conv-0', source: 'startup' });
+      assert.ok(await exists(sourceOf(bots, 'conv-0')), 'the premise: the start before the string is noted');
+      await onRecord(box, bots, 'conv-0', [[...SECTIONS, text]]);
+      const { file, extra } = given(box);
+      await setIn(file, { outputStyle: 'Concise' });
+      await handSet(bots, { extra_args: extra });
 
-    assertOwnText(await wordsOf(box, bots), 'a settings file the kit cannot tell, at the first launch');
-    // A start and a record under the quoted launch.
-    await hook(box, bots, { session: 'conv-1', source: 'startup' });
-    await onRecord(box, bots, 'conv-1', [[...SECTIONS, text]]);
-    await restart(box);
-    assertOwnText(await wordsOf(box, bots), 'a settings file the kit cannot tell, after a start and a record');
-    assert.deepEqual(await mainFiles(bots), []);
-    const found = await findings(box);
-    assert.ok(aboutSession(found, 'daily', 'settings file').length >= 1, `got: ${show(found)}`);
-  });
+      await restart(box);
+
+      assertOwnText(await wordsOf(box, bots), `a settings file named with ${what}, at the first launch`);
+      // A start and a record under that launch.
+      await hook(box, bots, { session: 'conv-1', source: 'startup' });
+      await onRecord(box, bots, 'conv-1', [[...SECTIONS, text]]);
+      await restart(box);
+      assertOwnText(await wordsOf(box, bots), `a settings file named with ${what}, after a start and a record`);
+      assert.deepEqual(await mainFiles(bots), []);
+      const found = await findings(box);
+      assert.ok(aboutSession(found, 'daily', 'settings file').length >= 1, `got: ${show(found)}`);
+    });
+  }
 
   test('T5 another tool cut does not fit, and is another shape', async (t) => {
     const box = await createSandbox(t);
