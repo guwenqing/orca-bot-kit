@@ -34,6 +34,7 @@
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
@@ -331,23 +332,33 @@ for (const harness of ['claude', 'codex']) {
   });
 }
 
-test('an extra_args word that starts with = is typed quoted, so zsh does not take it for a command\'s path; a word with = inside stays bare', async (t) => {
-  // zsh expands a word that starts with `=` to the path of the command of that
-  // name on PATH (`=name`), and fails when there is none.
-  const box = await createSandbox(t);
-  const fake = await fakeProgram(box, 'claude', {});
+// zsh expands a word that starts with `=` to the path of the command of that
+// name on PATH (`=name`), and fails when there is none.
+const EQUALS_WORDS = [
+  // --settings itself goes in by hand only (session add refuses it), so a word of our own carries the value.
+  '--extra-arg=--note', '--extra-arg==custom-settings.json',
+  '--extra-arg=--flag=x.json', '--extra-arg=a=b',
+];
 
-  const typed = await launchOf(box, 'claude', [
-    // --settings itself goes in by hand only (session add refuses it), so a word of our own carries the value.
-    '--extra-arg=--note', '--extra-arg==custom-settings.json',
-    '--extra-arg=--flag=x.json', '--extra-arg=a=b',
-  ]);
+test('an extra_args word that starts with = is typed quoted, so zsh does not take it for a command\'s path; a word with = inside stays bare', async (t) => {
+  const box = await createSandbox(t);
+
+  const typed = await launchOf(box, 'claude', EQUALS_WORDS);
 
   assert.ok(typed.includes(` '=custom-settings.json'`), `the word that starts with = is quoted, got: ${typed}`);
   assert.ok(!/ =custom-settings\.json/.test(typed), `and is not bare, got: ${typed}`);
   assert.ok(typed.includes(' --flag=x.json ') || typed.endsWith(' --flag=x.json'), `a word with = inside stays bare, got: ${typed}`);
   assert.ok(typed.includes(' a=b ') || typed.endsWith(' a=b'), `and so does a=b, got: ${typed}`);
-  const ran = spawnSync('/bin/zsh', ['-f', '-c', typed], { cwd: box.cwd, env: box.env, encoding: 'utf8' });
+});
+
+const ZSH = '/bin/zsh';
+test('in zsh, a line with an extra_args word that starts with = runs, and the harness gets the word as it was given', { skip: existsSync(ZSH) ? undefined : `no ${ZSH} here` }, async (t) => {
+  const box = await createSandbox(t);
+  const fake = await fakeProgram(box, 'claude', {});
+
+  const typed = await launchOf(box, 'claude', EQUALS_WORDS);
+
+  const ran = spawnSync(ZSH, ['-f', '-c', typed], { cwd: box.cwd, env: box.env, encoding: 'utf8' });
   assert.equal(ran.status, 0, `the line should run in zsh: ${typed}\n${ran.stderr}`);
   const calls = (await fake.calls()).filter((call) => !(call.args.length === 1 && call.args[0] === '--version'));
   assert.equal(calls.length, 1, `zsh should start the harness once: ${typed}`);
