@@ -923,6 +923,38 @@ describe('T5 the fit', () => {
     assert.deepEqual(mainTextOf(unset.found, 'daily'), [], `no finding on its main text, got: ${show(unset.found)}`);
   });
 
+  test('T5 health\'s main_text is of the recorded launch: --settings put into extra_args, then taken out, with no restart, leaves a session on an older main file older', async (t) => {
+    const box = await createSandbox(t);
+    const { bots } = await noted(box);
+    await restart(box);
+    const words = await wordsOf(box, bots);
+    const current = assertMainNamed(words, 'the premise: the kit gives its main text');
+    const older = path.join(path.dirname(current), 'main-0123456789abcdef.md');
+    await writeFile(older, 'An older main text.');
+    const at = words.indexOf(MAIN_FLAG);
+    await hook(box, bots, { session: 'conv-2', source: 'clear', line: words.map((word, index) => (index === at + 1 ? older : word)) });
+    assert.equal(path.basename(String((await sessionIn(bots, BOT, 'daily')).main)), path.basename(older), 'the premise: the book notes the older main file');
+    const before = mainTextIn((await healthOf(box)).sessions, 'daily', 'the premise');
+    assert.equal(before?.state, 'older', `the premise: the session runs on an older main file, got: ${show(before)}`);
+    assert.ok(typeof before.why === 'string' && before.why.includes('compaction'), `the premise: its why names the next compaction, got: ${show(before)}`);
+    const file = path.join(box.root, 'own-settings', 'daily.json');
+    await setIn(file, { outputStyle: 'Concise' });
+
+    await handSet(bots, { extra_args: ['--settings', file] });
+
+    const set = await healthOf(box);
+    assert.deepEqual(mainTextIn(set.sessions, 'daily', 'its own --settings in bot.yaml, no restart'), before,
+      'until its restart, the session still runs on the older main file, with the same why');
+    assert.deepEqual(mainTextOf(set.found, 'daily'), [], `no finding on its main text, got: ${show(set.found)}`);
+
+    await handSet(bots, { extra_args: undefined });
+
+    const unset = await healthOf(box);
+    assert.deepEqual(mainTextIn(unset.sessions, 'daily', 'its own --settings taken out again, no restart'), before,
+      'the session still runs on the older main file, with the same why');
+    assert.deepEqual(mainTextOf(unset.found, 'daily'), [], `no finding on its main text, got: ${show(unset.found)}`);
+  });
+
   test('T5 another tool cut does not fit, and is another shape', async (t) => {
     const box = await createSandbox(t);
     const { bots, words, before, after } = await changed(box, (bots) => editBotYaml(bots, { claude_cut: ['WebFetch'] }));
