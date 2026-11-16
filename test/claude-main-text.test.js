@@ -898,6 +898,31 @@ describe('T5 the fit', () => {
     });
   }
 
+  test('T5 health\'s main_text is of the recorded launch: --settings put into extra_args, then taken out, with no restart, leaves a session on the kit\'s main file kit', async (t) => {
+    const box = await createSandbox(t);
+    const { bots } = await noted(box);
+    await restart(box);
+    assertMainNamed(await wordsOf(box, bots), 'the premise: the kit gives its main text');
+    await hook(box, bots, { session: 'conv-2', source: 'clear' });
+    assert.deepEqual(mainTextIn((await healthOf(box)).sessions, 'daily', 'the premise'), { state: 'kit' }, 'the premise: the session runs on the kit\'s main file');
+    const file = path.join(box.root, 'own-settings', 'daily.json');
+    await setIn(file, { outputStyle: 'Concise' });
+
+    await handSet(bots, { extra_args: ['--settings', file] });
+
+    const set = await healthOf(box);
+    assert.deepEqual(mainTextIn(set.sessions, 'daily', 'its own --settings in bot.yaml, no restart'), { state: 'kit' },
+      'until its restart, the session still runs on the kit\'s main file');
+    assert.deepEqual(mainTextOf(set.found, 'daily'), [], `no finding on its main text, got: ${show(set.found)}`);
+
+    await handSet(bots, { extra_args: undefined });
+
+    const unset = await healthOf(box);
+    assert.deepEqual(mainTextIn(unset.sessions, 'daily', 'its own --settings taken out again, no restart'), { state: 'kit' },
+      'the session still runs on the kit\'s main file');
+    assert.deepEqual(mainTextOf(unset.found, 'daily'), [], `no finding on its main text, got: ${show(unset.found)}`);
+  });
+
   test('T5 another tool cut does not fit, and is another shape', async (t) => {
     const box = await createSandbox(t);
     const { bots, words, before, after } = await changed(box, (bots) => editBotYaml(bots, { claude_cut: ['WebFetch'] }));
