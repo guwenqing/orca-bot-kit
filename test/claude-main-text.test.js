@@ -65,6 +65,13 @@
 //   T11. The model of a note: a start keeps the hook input's model, a clear
 //       the line's; a record of another model is no source, and health names
 //       both models. A clear on a line with no model is no note.
+//   T12. The parts that Claude Code adds by itself after a replaced text
+//       (#784, ADR 0061): health reads the first record of the main file in
+//       the conversation of a session on the kit's main file (the first
+//       snapshot whose first section is that file). A part it holds two
+//       times goes on the session's line and in main_text's `twice`, by size
+//       and sum, and fails nothing. A part that comes back is a recipe unit
+//       like any other: health names it when a saved original lacks it.
 //
 // No text of Claude Code is in this file: the sections are made up. A fake
 // `claude` on the sandbox's PATH answers `--version` in every test, so the real
@@ -397,6 +404,14 @@ function mainTextIn(sessions, session, why) {
 /** Health's findings on api-bot/<session>'s main text: its own text, a restart for the kit's text, or an older main file. */
 const mainTextOf = (found, session) => found.filter((one) => typeof one.says === 'string'
   && one.says.startsWith(`${BOT}/${session}`) && one.says.includes('main text'));
+
+/** The text line of `obk health` for api-bot's `session`. */
+async function textLineOf(box, session) {
+  const result = await box.run(['health', '--bots', 'bots']);
+  const line = result.stdout.split('\n').find((one) => one.includes(`${BOT} ${session} `));
+  assert.equal(typeof line, 'string', `health should print a line for ${BOT} ${session}, got:\n${result.stdout}`);
+  return line;
+}
 
 /** The shipped recipe. */
 const shippedRecipe = async () => JSON.parse(await readFile(path.join(repoRoot, 'src', 'claude-text-recipe.json'), 'utf8'));
@@ -1057,14 +1072,6 @@ describe('T7 health', () => {
     assert.ok(aboutSession(found, 'daily', 'claude --version').length >= 1, `got: ${show(found)}`);
   });
 
-  /** The text line of `obk health` for api-bot's `session`. */
-  async function textLineOf(box, session) {
-    const result = await box.run(['health', '--bots', 'bots']);
-    const line = result.stdout.split('\n').find((one) => one.includes(`${BOT} ${session} `));
-    assert.equal(typeof line, 'string', `health should print a line for ${BOT} ${session}, got:\n${result.stdout}`);
-    return line;
-  }
-
   test('T7 no fitting record yet is a normal wait: no finding, exit 0, and main_text own, whose why names a resume and a clear', async (t) => {
     const box = await createSandbox(t);
     const bots = await started(box);
@@ -1336,6 +1343,159 @@ describe('T11 the model of a note', () => {
     const found = await findings(box);
 
     assert.ok(aboutSession(found, 'daily', MODEL, OTHER).length >= 1, `one finding names ${MODEL} and ${OTHER}, got: ${show(found)}`);
+  });
+});
+
+// ================================================================ T12
+
+describe('T12 the parts that Claude Code adds by itself (#784)', () => {
+  /**
+   * daily on the kit's main file: a noted record, a restart on the kit's line,
+   * and a clear, so the book has `main` and the conversation conv-2. Gives back
+   * the bots folder, the main file's text and the appended text.
+   */
+  async function onKitFile(box) {
+    const { bots, appended } = await noted(box);
+    await restart(box);
+    const main = assertMainNamed(await wordsOf(box, bots), 'the premise: the kit gives its main text');
+    await hook(box, bots, { session: 'conv-2', source: 'clear' });
+    const entry = await sessionIn(bots, BOT, 'daily');
+    assert.equal(path.basename(String(entry.main)), path.basename(main), `the premise: the book has daily on the main file, got: ${show(entry)}`);
+    assert.equal(entry.session, 'conv-2', `the premise: the book has daily's conversation conv-2, got: ${show(entry)}`);
+    return { bots, mainText: await readFile(main, 'utf8'), appended };
+  }
+
+  /** A part as health's JSON gives it: its size, and the first 16 hex of its sha256. */
+  const partOf = (text) => ({ size: text.length, sum: sha(text).slice(0, 16) });
+
+  /** The words of the health line for parts two times, as the architect gives them (#785). */
+  const twiceWords = (parts) => `${parts.length} ${parts.length === 1 ? 'part' : 'parts'} two times (${parts.map((part) => `${part.length} characters, sum ${sha(part).slice(0, 16)}`).join('; ')})`;
+
+  /** A part two times fails nothing: no finding says it (#785). */
+  const assertNoTwiceFinding = (found) => assert.deepEqual(saying(found, 'two times'), [], `a part two times is on the session's line, not a finding, got: ${show(found)}`);
+
+  test('T12 a first record of the main file, then a section the file also holds: main_text kit has it in twice, by size and 16-hex sum; the line says main text kit, 1 part two times; health exits 0, and no finding says it', async (t) => {
+    const box = await createSandbox(t);
+    const { bots, mainText, appended } = await onKitFile(box);
+    const part = SECTIONS[1];
+    assert.ok(mainText.includes(part), 'the premise: the main file holds the part');
+    await onRecord(box, bots, 'conv-2', [[mainText, part, appended]]);
+
+    const { found, sessions, code } = await healthOf(box);
+    const line = await textLineOf(box, 'daily');
+
+    assert.deepEqual(mainTextIn(sessions, 'daily', 'a session on the kit\'s text'), { state: 'kit', twice: [partOf(part)] });
+    assert.ok(line.endsWith(`main text kit, ${twiceWords([part])}`), `got: ${line}`);
+    assert.equal(code, 0, 'a part two times fails nothing');
+    assertNoTwiceFinding(found);
+    const said = `${line}\n${JSON.stringify(entryOf(sessions, 'daily'))}`;
+    for (const words of [...part.split('\n'), SECTIONS[0], SECTIONS[2], appended]) assert.ok(!said.includes(words), `no word of a section, got: ${said}`);
+  });
+
+  test('T12 two later sections that the main file holds: twice holds both, in their order, and the line says 2 parts two times, joined by a semicolon', async (t) => {
+    const box = await createSandbox(t);
+    const { bots, mainText, appended } = await onKitFile(box);
+    await onRecord(box, bots, 'conv-2', [[mainText, SECTIONS[2], LATER[0], SECTIONS[0], appended]]);
+
+    const { found, sessions } = await healthOf(box);
+
+    assert.deepEqual(mainTextIn(sessions, 'daily', 'a session on the kit\'s text'), { state: 'kit', twice: [partOf(SECTIONS[2]), partOf(SECTIONS[0])] });
+    const line = await textLineOf(box, 'daily');
+    assert.ok(line.endsWith(`main text kit, ${twiceWords([SECTIONS[2], SECTIONS[0]])}`), `got: ${line}`);
+    assertNoTwiceFinding(found);
+  });
+
+  test('T12 a first record of the main file whose later sections the file does not hold: main_text is exactly kit, the line says main text kit and nothing after, and no finding says two times or runs without', async (t) => {
+    const box = await createSandbox(t);
+    const { bots, mainText, appended } = await onKitFile(box);
+    await onRecord(box, bots, 'conv-2', [[mainText, LATER[0], appended]]);
+
+    const { found, sessions } = await healthOf(box);
+
+    assert.deepEqual(mainTextIn(sessions, 'daily', 'a session on the kit\'s text'), { state: 'kit' }, 'no twice and no without key when there is none');
+    assert.ok((await textLineOf(box, 'daily')).endsWith('main text kit'), 'the line ends with the state, and nothing after it');
+    assertNoTwiceFinding(found);
+    assert.deepEqual(saying(found, 'runs without'), [], `a part that did not come back is no finding (#785), got: ${show(found)}`);
+  });
+
+  test('T12 a session on an older main file is checked against its own file: main_text older keeps its why and has the part in twice, and the line says main text older, 1 part two times, then the why', async (t) => {
+    const box = await createSandbox(t);
+    const { bots, appended } = await noted(box);
+    await restart(box);
+    const words = await wordsOf(box, bots);
+    const current = assertMainNamed(words, 'the premise: the kit gives its main text');
+    // An older main file of the kit's, of made-up sections, which the book names for daily.
+    const part = LATER[1];
+    const olderText = [LATER[0], part].join('\n\n');
+    const older = path.join(path.dirname(current), `main-${sha(olderText).slice(0, 16)}.md`);
+    await writeFile(older, olderText);
+    const at = words.indexOf(MAIN_FLAG);
+    await hook(box, bots, { session: 'conv-2', source: 'clear', line: words.map((word, index) => (index === at + 1 ? older : word)) });
+    assert.equal(path.basename(String((await sessionIn(bots, BOT, 'daily')).main)), path.basename(older), 'the premise: the book notes the older main file');
+    await onRecord(box, bots, 'conv-2', [[olderText, part, appended]]);
+
+    const { found, sessions, code } = await healthOf(box);
+
+    const text = mainTextIn(sessions, 'daily', 'a session on an older main file');
+    assert.equal(text?.state, 'older', `got: ${show(text)}`);
+    assert.ok(typeof text.why === 'string' && text.why.includes('compaction'), `its why stays, got: ${show(text)}`);
+    assert.deepEqual(text.twice, [partOf(part)], `the part two times, from the session's own file, got: ${show(text)}`);
+    const line = await textLineOf(box, 'daily');
+    assert.ok(line.endsWith(`main text older, ${twiceWords([part])}: ${text.why}`), `got: ${line}`);
+    assert.equal(code, 0, 'a part two times fails nothing');
+    assertNoTwiceFinding(found);
+  });
+
+  test('T12 a session on the main file with no transcript yet: main_text is exactly kit, and health answers', async (t) => {
+    const box = await createSandbox(t);
+    await onKitFile(box);
+
+    const { found, sessions } = await healthOf(box);
+
+    assert.deepEqual(mainTextIn(sessions, 'daily', 'a session on the kit\'s text'), { state: 'kit' });
+    assertNoTwiceFinding(found);
+  });
+
+  test('T12 a conversation that began on Claude Code\'s own text, then a record of the main file with a part two times: main_text has the part in twice, from that first record of the main file', async (t) => {
+    // A resume on the kit's line keeps the conversation's own text until a
+    // compaction, whose next request records the kit's text (tech notes, the
+    // snapshot): that later record is the first one of the main file.
+    const box = await createSandbox(t);
+    const { bots, mainText, appended } = await onKitFile(box);
+    const part = SECTIONS[1];
+    await onRecord(box, bots, 'conv-2', [[...SECTIONS, appended], [mainText, part, appended]]);
+
+    const { found, sessions } = await healthOf(box);
+
+    assert.deepEqual(mainTextIn(sessions, 'daily', 'a session on the kit\'s text'), { state: 'kit', twice: [partOf(part)] });
+    assertNoTwiceFinding(found);
+  });
+
+  test('T12 two records of the main file, the first with no part two times and the second with one: main_text is exactly kit, since only the first record of the main file counts', async (t) => {
+    const box = await createSandbox(t);
+    const { bots, mainText, appended } = await onKitFile(box);
+    await onRecord(box, bots, 'conv-2', [[mainText, appended], [mainText, SECTIONS[1], appended]]);
+
+    const { found, sessions } = await healthOf(box);
+
+    assert.deepEqual(mainTextIn(sessions, 'daily', 'a session on the kit\'s text'), { state: 'kit' });
+    assertNoTwiceFinding(found);
+  });
+
+  test('T12 a part that comes back is a recipe unit under R5: health names it, with the model, for a saved original of one of its models that lacks it', async (t) => {
+    const box = await createSandbox(t);
+    const recipe = await shippedRecipe();
+    assert.ok(Array.isArray(recipe.back) && recipe.back.length > 0, `the premise: the shipped recipe names the parts that come back (#784), got the lists: ${show(Object.keys(recipe))}`);
+    const model = recipe.back[0].models[0];
+    const { bots } = await noted(box, { model });
+    await restart(box);
+    assert.equal((await namesIn(originalsOf(bots))).length, 1, 'the premise: an original was saved, of made-up sections that hold no part of the recipe');
+
+    const found = await findings(box);
+
+    for (const part of recipe.back.filter((one) => one.models.includes(model))) {
+      assert.ok(saying(found, part.name).some((one) => one.says.includes(model)), `${part.name} is named for ${model}, like any unit of the recipe, got: ${show(found)}`);
+    }
   });
 });
 

@@ -623,16 +623,32 @@ What this costs you:
   never a source. A clear of a session that names no model is not a source.
 - To put a bot back on Claude Code's own main text, name every recipe part in
   its `claude_keep` list: the text is then the original, with only a boundary
-  mark taken out. To run on Claude Code's own text until a new conversation
-  records it again, remove the bot's `originals/` and `sources/` folders.
-- A bot that keeps the `Artifact` tool gets the tool's paragraph twice: once
-  in the kit's text, and once from Claude Code, which adds it for the tool.
+  mark and the parts that Claude Code adds by itself taken out. To run on
+  Claude Code's own text until a new conversation records it again, remove the bot's `originals/` and `sources/` folders.
+- Claude Code adds some parts of its text by itself after a replaced main
+  text, each for a tool that the session has. The kit's recipe names such a
+  part, `text:web-search`, so the kit's text leaves it out and the session
+  gets it one time, from Claude Code. A cut or keep list does not change it.
+  The kit never names a part that guards safety, so it keeps the others in
+  its text, and the session gets each of those two times. With the Chrome
+  extension, the session's main text is larger than Claude Code's own: in a
+  run of 2026-11-16, 18,665 characters against 14,994, because the Chrome
+  section was there two times. A bot that keeps the `Artifact` tool gets its
+  paragraph two times too. `obk health` shows each part that a session has two
+  times on the session's line, with its size and sum, as in
+  `main text kit, 1 part two times (4107 characters, sum e2f9e7f17ce6231d)`.
+  When a record lacks a part that the kit took out, the line names it, as in
+  `main text kit, without text:web-search`: that is right for a session without
+  the part's tool. Health says that only for a session on the kit's current
+  file. Neither fails health. The sums can change with a Claude
+  Code version: `test/system/claude-added-parts-live.test.js` gives the new
+  ones.
 - Each session's line in `obk health` says what main text it runs on: `kit`,
   `older` (with how it gets the new one), or `own`, with why. A paused session
   shows it once it starts again. The wait for a first record does not fail
   health. Health gives a finding when the user must act: a record of another
   model, a Claude Code version that the kit cannot read, a recipe part that a
-  saved copy of a model it is named for does not hold, and a `text:` name that
+  saved copy of a model it is named for does not hold, a `text:` name that
   the recipe does not know.
 
 Each Claude bot has a memory folder of its own, `claude-memory/` in the bot's

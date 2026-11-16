@@ -56,27 +56,39 @@ const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
  * of a section. Every other section and line stays, in its order. The rest is
  * joined with a blank line, as Claude Code joins the sections it sends.
  * `found` holds the cut names it found, `missing` the cut names of the recipe
- * it did not find. The sections given are not changed.
+ * it did not find. The recipe's `back` units, the parts that Claude Code adds
+ * by itself after a replaced main text, go out too, whatever `cut` holds: the
+ * session gets each from Claude Code (ADR 0061). `back` holds the names of
+ * those it took out. The sections given are not changed.
  */
 export function buildMainText(sections, { recipe, cut }) {
   const drop = new Set(recipe.drop.map((entry) => entry.hash));
   const named = new Map(recipe.units.filter((unit) => cut.includes(unit.name)).map((unit) => [unit.hash, unit.name]));
+  const comes = new Map((recipe.back ?? []).map((unit) => [unit.hash, unit.name]));
   const found = [];
+  const back = [];
   const seen = (name) => {
     if (!found.includes(name)) found.push(name);
+  };
+  const out = (hash) => {
+    if (comes.has(hash)) {
+      if (!back.includes(comes.get(hash))) back.push(comes.get(hash));
+      return true;
+    }
+    return drop.has(hash);
   };
 
   const kept = [];
   for (const section of sections) {
     const whole = unitHash(section);
-    if (drop.has(whole)) continue;
+    if (out(whole)) continue;
     if (named.has(whole)) {
       seen(named.get(whole));
       continue;
     }
     const lines = section.split('\n').filter((line) => {
       const one = unitHash(line);
-      if (drop.has(one)) return false;
+      if (out(one)) return false;
       if (!named.has(one)) return true;
       seen(named.get(one));
       return false;
@@ -85,14 +97,33 @@ export function buildMainText(sections, { recipe, cut }) {
   }
   const known = new Set(named.values());
   const missing = cut.filter((name) => known.has(name) && !found.includes(name));
-  return { text: kept.join('\n\n'), found, missing };
+  return { text: kept.join('\n\n'), found, missing, back };
+}
+
+/**
+ * What a session's record on the kit's main file shows (ADR 0061): `sections`
+ * are a record's `prompt_snapshot` sections, `main` the file's text, `back`
+ * the names of the parts the build took out because Claude Code adds them by
+ * itself. Undefined when the record is not of that file. Else `twice`, each
+ * part after the file that the file also holds, by its size and sum, and
+ * `without`, each name of `back` that no part after the file is. Sums and
+ * sizes only: no word of Claude Code's text.
+ */
+export function partsTrouble(sections, { main, back, recipe }) {
+  if (!Array.isArray(sections) || sections[0] !== main) return undefined;
+  const after = sections.slice(1);
+  const twice = after.filter((part) => part !== '' && main.includes(part)).map((part) => ({ size: part.length, sum: unitHash(part).slice(0, 16) }));
+  const held = new Set(after.flatMap((part) => [unitHash(part), ...part.split('\n').map(unitHash)]));
+  const hashOf = new Map((recipe?.back ?? []).map((unit) => [unit.name, unit.hash]));
+  const without = back.filter((name) => !held.has(hashOf.get(name)));
+  return { twice, without };
 }
 
 /** The kit's recipe, or undefined when it cannot be read. */
 export function readRecipe() {
   try {
     const recipe = JSON.parse(readFileSync(RECIPE_FILE, 'utf8'));
-    return Array.isArray(recipe?.drop) && Array.isArray(recipe?.units) ? recipe : undefined;
+    return Array.isArray(recipe?.drop) && Array.isArray(recipe?.units) && (recipe.back === undefined || Array.isArray(recipe.back)) ? recipe : undefined;
   } catch {
     return undefined;
   }
@@ -189,7 +220,7 @@ export function mainTextFor(bots, home, text, shape, { write = true } = {}) {
     mkdirSync(text, { recursive: true });
     if (!existsSync(file) || readFileSync(file, 'utf8') !== built.text) writeFileSync(file, built.text);
   }
-  return { file, text: built.text, version: installed.version };
+  return { file, text: built.text, back: built.back, version: installed.version };
 }
 
 /**
@@ -364,7 +395,7 @@ export function unitsNotFound(text, botName) {
     const original = readJson(path.join(originals, name));
     if (!Array.isArray(original?.sections) || typeof original.model !== 'string') continue;
     const held = new Set(original.sections.flatMap((section) => [unitHash(section), ...section.split('\n').map(unitHash)]));
-    for (const unit of recipe.units) {
+    for (const unit of [...recipe.units, ...(recipe.back ?? [])]) {
       if (!unit.models.includes(original.model) || held.has(unit.hash)) continue;
       found.push({
         where: path.join(originals, name),
@@ -486,11 +517,67 @@ export function mainTextTrouble(bots, home, bot) {
       found.push(`${bot.name}/${name} runs on Claude Code's own main text, not the one the kit builds, because ${built.why}.`);
     } else if (built.file !== undefined && path.basename(built.file) !== main) {
       states[name] = { state: 'older', why: `it came from ${path.join(text, main)}, and it gets the new text after obk restart: at once in a new conversation, and in a resumed one after its next compaction or clear` };
+      const seen = partsFound(home, entry.session, readText(path.join(text, main)), []);
+      if (seen.twice.length > 0) states[name].twice = seen.twice;
     } else {
+      // The file the book names for the session, which is what it runs on.
+      const seen = partsFound(home, entry.session, readText(path.join(text, main)), built.back ?? []);
       states[name] = { state: 'kit' };
+      if (seen.twice.length > 0) states[name].twice = seen.twice;
+      if (seen.without.length > 0) states[name].without = seen.without;
     }
   }
   return { found, states };
+}
+
+/**
+ * What a session on a main file of the kit got (ADR 0061), from the first
+ * record of its conversation that is of that file: `twice`, each part it has
+ * two times, by size and sum, and `without`, each name of `back`, the parts
+ * the build took out, that Claude Code did not add. Both are known states for
+ * the session's line, not findings: a part that guards safety stays in the
+ * kit's file even when Claude Code adds it too, and a session without a
+ * part's tool lacks the part rightly. A record is evidence here only, never a
+ * source. Sums, sizes and the kit's names: no word of Claude Code's text.
+ */
+function partsFound(home, conversation, main, back) {
+  const none = { twice: [], without: [] };
+  if (typeof conversation !== 'string' || typeof main !== 'string') return none;
+  let real;
+  try {
+    real = realpathSync(home);
+  } catch {
+    return none;
+  }
+  const sections = recordOf(claudeTranscript(real, conversation), main);
+  return partsTrouble(sections, { main, back, recipe: readRecipe() }) ?? none;
+}
+
+/** A file's text, or undefined when it cannot be read. */
+function readText(file) {
+  try {
+    return readFileSync(file, 'utf8');
+  } catch {
+    return undefined;
+  }
+}
+
+/** The sections of the first `prompt_snapshot` of a transcript whose first section is `main`, or undefined. */
+function recordOf(file, main) {
+  if (!existsSync(file)) return undefined;
+  let sections;
+  try {
+    eachLine(file, (line) => {
+      if (line === undefined) return false;
+      if (!line.includes('"prompt_snapshot"')) return false;
+      const record = snapshotIn(line);
+      if (record?.sections[0] === main) sections = record.sections;
+      return sections !== undefined;
+    });
+  } catch {
+    return undefined;
+  }
+  return sections;
 }
 
 /**

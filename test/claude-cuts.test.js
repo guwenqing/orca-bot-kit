@@ -30,7 +30,9 @@
 //   P7.  Only Claude Code sessions get cuts.
 //   P8.  `text:` names: accepted, never written to the settings file. Health
 //        names a name the recipe does not know (#769), and no longer says
-//        that the kit does not cut them.
+//        that the kit does not cut them. A name of a part that Claude Code adds
+//        by itself (the recipe's `back` list, #784) gets a finding that the
+//        list does not change it, and not the finding of an unknown name.
 //   P9.  Health findings: a missing cut (a), a kept name still cut (b), names
 //        against the fleet's Claude Code records (c1, c2), and none for a bot
 //        with no cut list trouble (d).
@@ -55,6 +57,7 @@ import {
   hooksIn,
   kitDirsOf,
   kitHooksIn,
+  repoRoot,
   tabsOfBot,
 } from './helpers/cli.js';
 import { fakePi } from './helpers/pi.js';
@@ -690,6 +693,28 @@ describe('claude cuts', { concurrency: 4 }, () => {
       assert.deepEqual(naming(found, name, notNewest('api-bot')), [], `${name} gets no finding about the newest record, got: ${show(found)}`);
     }
   });
+
+  /** The names of the parts that Claude Code adds by itself, from the shipped recipe (#784). */
+  async function backNames() {
+    const recipe = JSON.parse(await readFile(path.join(repoRoot, 'src', 'claude-text-recipe.json'), 'utf8'));
+    assert.ok(Array.isArray(recipe.back) && recipe.back.length > 0, `the premise: the shipped recipe names the parts that come back (#784), got the lists: ${show(Object.keys(recipe))}`);
+    return recipe.back.map((part) => part.name);
+  }
+
+  for (const list of ['claude_cut', 'claude_keep']) {
+    test(`P8 a ${list} that names a part Claude Code adds by itself: health says it comes back by itself, so the list does not change it, and not that the recipe does not know it`, async (t) => {
+      const box = await createSandbox(t);
+      const bots = await fleet(box);
+      const [name] = await backNames();
+      await editBotYaml(bots, 'api-bot', { [list]: [name] });
+
+      await up(box);
+      const found = await findings(box);
+
+      assert.deepEqual(naming(found, name, 'does not know'), [], `the recipe knows ${name}, got: ${show(found)}`);
+      assert.ok(naming(found, name, 'by itself').length >= 1, `health says ${name} comes back by itself, got: ${show(found)}`);
+    });
+  }
 
   // ================================================================ P9 a, b
 

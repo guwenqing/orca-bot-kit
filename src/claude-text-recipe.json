@@ -61,5 +61,16 @@
     "claude-haiku-5-5"
    ]
   }
+ ],
+ "back": [
+  {
+   "name": "text:web-search",
+   "hash": "41631e7eb968f40d46914227690b35bd65ce2763eaf02779831ae7ca14370b66",
+   "models": [
+    "claude-fable-5-2",
+    "claude-opus-5-5",
+    "claude-haiku-5-5"
+   ]
+  }
  ]
 }

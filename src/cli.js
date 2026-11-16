@@ -1949,7 +1949,11 @@ function settingsLine({ bot, session, running, settings, rules, remote_control: 
   // Claude Code's Remote Control: a handle in its registry, not a connection (ADR 0058).
   const remoteText = remote === undefined ? '' : `  remote control ${remote.state} (asked ${remote.asked})`;
   // The main text a Claude Code session runs on (R5), and why when it is not the kit's own.
-  const mainText = main === undefined ? '' : `  main text ${main.state}${main.why === undefined ? '' : `: ${main.why}`}`;
+  const twice = Array.isArray(main?.twice) && main.twice.length > 0
+    ? `, ${main.twice.length} ${main.twice.length === 1 ? 'part' : 'parts'} two times (${main.twice.map((part) => `${part.size} characters, sum ${part.sum}`).join('; ')})`
+    : '';
+  const without = Array.isArray(main?.without) && main.without.length > 0 ? `, without ${main.without.join(', ')}` : '';
+  const mainText = main === undefined ? '' : `  main text ${main.state}${twice}${without}${main.why === undefined ? '' : `: ${main.why}`}`;
   return `${word.padEnd(9)}  ${who}  ${each.join('  ')}  rules ${rules.state}${remoteText}${mainText}`;
 }
 
