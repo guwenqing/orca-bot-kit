@@ -65,21 +65,28 @@
 //        e. it answers with its word;
 //        f. its transcript's first `prompt_snapshot`, the first record of the
 //           main file. After the main file, Claude Code adds some parts by
-//           itself, and the kit's file leaves them out (#784, ADR 0061). So:
+//           itself. The kit's file leaves out those the recipe names in its
+//           `back` list, and keeps the others, such as the Chrome section,
+//           which guards safety (#784, ADR 0061). So:
 //             1. its first section is the main file (by sha256);
-//             2. no section after it, but the appended one, is in the main
-//                file (by equality of text; printed only as true or false);
-//             3. the main file and those added sections hold every part of
-//                FIRST's own text but the units the kit cuts (the recipe's
-//                drop units and the bot's `text:` cuts), as a whole section or
-//                as a line, by sha256, and hold no unit the kit cuts;
-//             4. the last section is the kit's appended text;
+//             2. the main file and the sections after it, but the appended
+//                one, hold every part of FIRST's own text but the units the
+//                kit cuts (the recipe's drop units and the bot's `text:`
+//                cuts), as a whole section or as a line, by sha256, and hold
+//                no unit the kit cuts;
+//             3. each `back` part that FIRST's own text held is not in the main
+//                file, and is in a section after it;
+//             4. the last section is the kit's appended text.
+//           A section after the main file that the file also holds is printed,
+//           with its size and sum, and fails nothing: the session has it two
+//           times, a known cost (today the Chrome section);
 //        g. THE CONTROL, in the same run: the same check on FIRST's first
 //           `prompt_snapshot` gives the other answer. Its first section is not
 //           the main file, and it holds at least one of the bot's `text:`
 //           cuts, not only the recipe's drop unit. So the check of f. can fail.
-//   6. `obk health`: SECOND's line ends with `main text kit`, and health's JSON
-//      has its `main_text` as `{ state: 'kit' }`.
+//   6. `obk health`: SECOND's line says `main text kit`, which a note of the
+//      parts two times may follow; health's JSON has its `main_text` state as
+//      `kit`; and no finding names SECOND.
 //
 // Printed as diagnostics, never failed on: the commit, the version the kit's
 // `claude --version` gives and the version in each transcript, the model of
@@ -456,29 +463,33 @@ function toolNamesOf(lines) {
  * appended one, its size, its sum and whether the main file holds its text;
  * `lacking`, the index of each section of `own` (Claude Code's own text) with
  * a line that neither the first section nor a later one holds, and that is
- * neither a unit of `units` nor in a section that is one; and `held`, the names
- * of `units` that those sections hold, as a whole section, as a line, or as a
- * section of `own` inside one of them.
+ * neither a unit of `units` nor in a section that is one; `held`, the names of
+ * `units` that those sections hold, as a whole section, as a line, or as a
+ * section of `own` inside one of them; and for each unit of `back` that `own`
+ * holds, whether the first section holds it, and whether a later one does.
  */
-function onMain(sections, mainText, own, units) {
+function onMain(sections, mainText, own, units, back) {
   const [head = '', ...rest] = sections;
   const added = rest.slice(0, -1);
   const kept = [head, ...added];
   const taken = new Set(units.map((unit) => unit.hash));
-  const lines = new Set(kept.flatMap((text) => text.split('\n').map(unitHash)));
+  const linesOf = (texts) => new Set(texts.flatMap((text) => [unitHash(text), ...text.split('\n').map(unitHash)]));
+  const lines = linesOf(kept);
   const lacking = own
     .map((section, at) => ({ section, at }))
     .filter(({ section }) => !taken.has(unitHash(section))
       && section.split('\n').some((line) => !taken.has(unitHash(line)) && !lines.has(unitHash(line))))
     .map(({ at }) => at);
-  const held = units.filter((unit) => lines.has(unit.hash)
-    || kept.some((text) => unitHash(text) === unit.hash)
-    || own.some((section) => unitHash(section) === unit.hash && kept.some((text) => text.includes(section)))).map((unit) => unit.name);
+  const holds = (texts, unit) => linesOf(texts).has(unit.hash)
+    || own.some((section) => unitHash(section) === unit.hash && texts.some((text) => text.includes(section)));
+  const held = units.filter((unit) => holds(kept, unit)).map((unit) => unit.name);
+  const backs = back.filter((unit) => holds(own, unit)).map((unit) => ({ name: unit.name, inMain: holds([head], unit), after: holds(added, unit) }));
   return {
     isMain: sha(head) === sha(mainText),
     added: added.map((text) => ({ size: text.length, sum: sum16(text), inMain: mainText.includes(text) })),
     lacking,
     held,
+    backs,
   };
 }
 
@@ -706,17 +717,19 @@ test('a later session of a launch runs on the main text that the kit built from 
   const secondRecord = await recorded(SECOND, second);
   const secondLines = second.lines();
   t.diagnostic(`${SECOND}'s transcript: model ${modelOf(secondLines) ?? '(none named)'}, versions ${versionsOf(secondLines).join(', ') || '(none recorded)'}, first record of ${secondRecord.version ?? '(no version)'}, ${secondRecord.sections.length} sections`);
-  const kit = onMain(secondRecord.sections, mainText, ownBody, taken);
+  const kit = onMain(secondRecord.sections, mainText, ownBody, taken, recipe.back ?? []);
   t.diagnostic(`sizes in characters: Claude Code's own main text ${ownBody.join('\n\n').length}, the kit's main text ${mainText.length}, the appended text ${(secondRecord.sections.at(-1) ?? '').length}`);
   t.diagnostic(`the sections Claude Code added after ${mainName} in ${SECOND}'s record: ${kit.added.map((one) => `${one.size} characters, sum ${one.sum}, in the main file ${one.inMain}`).join('; ') || '(none)'}`);
+  t.diagnostic(`the parts ${SECOND} has two times, a known cost that fails nothing: ${kit.added.filter((one) => one.inMain).map((one) => `${one.size} characters, sum ${one.sum}`).join('; ') || '(none)'}`);
+  t.diagnostic(`the back parts ${FIRST}'s own text held: ${kit.backs.map((one) => `${one.name} in the main file ${one.inMain}, after it ${one.after}`).join('; ') || '(none)'}`);
   assert.ok(kit.isMain, `the first section of ${SECOND}'s first record is ${mainName}, by sha256: ${(secondRecord.sections[0] ?? '').length} characters recorded, ${mainText.length} in the file`);
-  assert.deepEqual(kit.added.filter((one) => one.inMain).map((one) => one.sum), [], `no section that Claude Code added after the main file is in ${mainName}: the session gets no part two times`);
-  assert.deepEqual(kit.lacking, [], `the main file and the added sections hold every part of ${FIRST}'s own text but the units the kit cuts: the indexes of ${FIRST}'s own sections with a part that is in neither`);
+  assert.deepEqual(kit.lacking, [], `the main file and the sections after it hold every part of ${FIRST}'s own text but the units the kit cuts: the indexes of ${FIRST}'s own sections with a part that is in neither`);
   assert.deepEqual(kit.held, [], `${SECOND}'s first record holds none of the units the kit cuts, of those ${FIRST}'s own text held`);
+  assert.deepEqual(kit.backs.filter((one) => one.inMain || !one.after).map((one) => one.name), [], `each back part that ${FIRST}'s own text held is not in ${mainName}, and Claude Code adds it after the file`);
   assert.equal(sum16(secondRecord.sections.at(-1) ?? ''), appendedSum, `the last section of ${SECOND}'s first record is the kit's appended text, by the sum in ${note.appended}`);
 
   // g. The control: the same check on FIRST's first record gives the other answer.
-  const control = onMain(firstRecord.sections, mainText, ownBody, taken);
+  const control = onMain(firstRecord.sections, mainText, ownBody, taken, recipe.back ?? []);
   t.diagnostic(`the units the kit takes out that ${FIRST}'s own text held: ${control.held.join(', ') || '(none)'}; that it did not hold: ${taken.map((unit) => unit.name).filter((name) => !control.held.includes(name)).join(', ') || '(none)'}`);
   assert.equal(control.isMain, false, `the control: the first section of ${FIRST}'s own first record is not ${mainName}, so the check of ${SECOND}'s record can fail`);
   assert.ok(control.held.some((name) => cut.includes(name)), `the control: ${FIRST}'s own first record holds at least one of the bot's text cuts (${cut.join(', ')}), so the check that ${SECOND}'s holds none can fail`);
@@ -733,7 +746,7 @@ test('a later session of a launch runs on the main text that the kit built from 
   const health = obk(['health', '--bots', bots]);
   const line = health.stdout.split('\n').find((one) => one.includes(` ${BOT.name} ${SECOND} `));
   assert.equal(typeof line, 'string', `obk health prints a line for ${BOT.name} ${SECOND}, got:\n${health.stdout}${health.stderr}`);
-  assert.ok(line.endsWith('main text kit'), `${SECOND}'s line in obk health ends with "main text kit", got: ${line}`);
+  assert.match(line, /  main text kit(, |$)/, `${SECOND}'s line in obk health says "main text kit", which a note of the parts two times may follow, got: ${line}`);
   const asJson = obk(['health', '--bots', bots, '--json']);
   let answer;
   try {
@@ -742,6 +755,9 @@ test('a later session of a launch runs on the main text that the kit built from 
     assert.fail(`obk health --json did not print JSON: ${asJson.stdout}${asJson.stderr}`);
   }
   const of = (name) => (answer.sessions ?? []).find((one) => one.bot === BOT.name && one.session === name);
-  assert.deepEqual(of(SECOND)?.main_text, { state: 'kit' }, `health's JSON has ${SECOND}'s main_text as kit, got: ${JSON.stringify(of(SECOND))}`);
+  assert.equal(of(SECOND)?.main_text?.state, 'kit', `health's JSON has ${SECOND}'s main_text state as kit, got: ${JSON.stringify(of(SECOND))}`);
+  t.diagnostic(`${SECOND}'s main_text in health: ${JSON.stringify(of(SECOND)?.main_text)}`);
+  const named = (answer.found ?? []).filter((one) => typeof one.says === 'string' && (one.says.includes(`${BOT.name}/${SECOND}`) || one.says.includes(`${BOT.name}'s session ${SECOND}`)));
+  assert.deepEqual(named, [], `no finding names ${SECOND}`);
   t.diagnostic(`${FIRST}'s main_text in health: ${JSON.stringify(of(FIRST)?.main_text)}`);
 });
