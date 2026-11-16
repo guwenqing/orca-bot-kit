@@ -405,6 +405,14 @@ function mainTextIn(sessions, session, why) {
 const mainTextOf = (found, session) => found.filter((one) => typeof one.says === 'string'
   && one.says.startsWith(`${BOT}/${session}`) && one.says.includes('main text'));
 
+/** The text line of `obk health` for api-bot's `session`. */
+async function textLineOf(box, session) {
+  const result = await box.run(['health', '--bots', 'bots']);
+  const line = result.stdout.split('\n').find((one) => one.includes(`${BOT} ${session} `));
+  assert.equal(typeof line, 'string', `health should print a line for ${BOT} ${session}, got:\n${result.stdout}`);
+  return line;
+}
+
 /** The shipped recipe. */
 const shippedRecipe = async () => JSON.parse(await readFile(path.join(repoRoot, 'src', 'claude-text-recipe.json'), 'utf8'));
 
@@ -1064,14 +1072,6 @@ describe('T7 health', () => {
     assert.ok(aboutSession(found, 'daily', 'claude --version').length >= 1, `got: ${show(found)}`);
   });
 
-  /** The text line of `obk health` for api-bot's `session`. */
-  async function textLineOf(box, session) {
-    const result = await box.run(['health', '--bots', 'bots']);
-    const line = result.stdout.split('\n').find((one) => one.includes(`${BOT} ${session} `));
-    assert.equal(typeof line, 'string', `health should print a line for ${BOT} ${session}, got:\n${result.stdout}`);
-    return line;
-  }
-
   test('T7 no fitting record yet is a normal wait: no finding, exit 0, and main_text own, whose why names a resume and a clear', async (t) => {
     const box = await createSandbox(t);
     const bots = await started(box);
@@ -1395,6 +1395,44 @@ describe('T12 the parts that Claude Code adds by itself (#784)', () => {
     const { found } = await healthOf(box);
 
     assert.deepEqual(twiceOf(found), [], `got: ${show(found)}`);
+  });
+
+  test('T12 a first record of the main file that shows no part missing: main_text is exactly kit, the line says main text kit and nothing after, and no finding says runs without', async (t) => {
+    const box = await createSandbox(t);
+    const { bots, mainText, appended } = await onKitFile(box);
+    await onRecord(box, bots, 'conv-2', [[mainText, LATER[0], appended]]);
+
+    const { found, sessions } = await healthOf(box);
+
+    assert.deepEqual(mainTextIn(sessions, 'daily', 'a session on the kit\'s text'), { state: 'kit' }, 'no without key when nothing is without');
+    assert.ok((await textLineOf(box, 'daily')).endsWith('main text kit'), 'the line ends with the state, and nothing after it');
+    assert.deepEqual(saying(found, 'runs without'), [], `a part that did not come back is no finding (#785), got: ${show(found)}`);
+  });
+
+  test('T12 a session on an older main file is checked against its own file: a section that file also holds is named two times, and main_text stays older', async (t) => {
+    const box = await createSandbox(t);
+    const { bots, appended } = await noted(box);
+    await restart(box);
+    const words = await wordsOf(box, bots);
+    const current = assertMainNamed(words, 'the premise: the kit gives its main text');
+    // An older main file of the kit's, of made-up sections, which the book names for daily.
+    const part = LATER[1];
+    const olderText = [LATER[0], part].join('\n\n');
+    const older = path.join(path.dirname(current), `main-${sha(olderText).slice(0, 16)}.md`);
+    await writeFile(older, olderText);
+    const at = words.indexOf(MAIN_FLAG);
+    await hook(box, bots, { session: 'conv-2', source: 'clear', line: words.map((word, index) => (index === at + 1 ? older : word)) });
+    assert.equal(path.basename(String((await sessionIn(bots, BOT, 'daily')).main)), path.basename(older), 'the premise: the book notes the older main file');
+    await onRecord(box, bots, 'conv-2', [[olderText, part, appended]]);
+
+    const { found, sessions } = await healthOf(box);
+
+    const said = twiceOf(found);
+    assert.equal(said.length, 1, `one finding of a part two times, from the session's own file, got: ${show(found)}`);
+    assert.ok(said[0].says.includes(sha(part).slice(0, 16)), `it gives the part's sum, got: ${said[0].says}`);
+    const text = mainTextIn(sessions, 'daily', 'a session on an older main file');
+    assert.equal(text?.state, 'older', `got: ${show(text)}`);
+    assert.ok(typeof text.why === 'string' && text.why.includes('compaction'), `its why stays, got: ${show(text)}`);
   });
 
   test('T12 a session on the main file with no transcript yet: no finding of a part two times, and health answers', async (t) => {
