@@ -351,7 +351,7 @@ export const REMOTE_CONTROL_LOST = 'Remote Control off';
  */
 export const lostToOwnSettings = (session, harness) =>
   harness === 'claude' && setsSettings(session)
-    ? ["its bot's own memory folder", ...(remoteControlOf(session).value === 'off' ? [REMOTE_CONTROL_LOST] : [])]
+    ? ["its bot's own memory folder", "the kit's main text", ...(remoteControlOf(session).value === 'off' ? [REMOTE_CONTROL_LOST] : [])]
     : [];
 
 /**

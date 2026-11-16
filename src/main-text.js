@@ -152,7 +152,7 @@ const textCutsOf = (bots, home) => cutsOf(bots, home).text;
 export function mainTextFor(bots, home, text, shape, { write = true } = {}) {
   const recipe = readRecipe();
   if (recipe === undefined) return { why: 'the kit\'s recipe could not be read' };
-  if (typeof shape !== 'string') return { why: 'the kit cannot tell what its launch gives Claude Code: its cut lists cannot be read, or its extra arguments name a settings file in a way the kit cannot read (with a character the shell may expand, such as a quote, ~ or *)' };
+  if (typeof shape !== 'string') return { why: 'the kit cannot tell what its launch gives Claude Code: its cut lists cannot be read' };
 
   const { sources, originals } = textFolders(text);
   // Without a note or a saved original nothing can fit, and Claude Code is not asked.
@@ -382,39 +382,15 @@ export function unitsNotFound(text, botName) {
  */
 export function shapeOf(bots, home, session, memoryFolder) {
   try {
+    // A session with its own --settings in its extra arguments gets no shape:
+    // the shell may make its word name any file, so the kit cannot tell what
+    // it gives Claude Code, and the session runs on Claude Code's own text.
+    if (setsSettings(session)) return undefined;
     const named = typeof session.model === 'string' && session.model !== '';
-    const namedFiles = settingsNamedIn(session, home);
-    // Extra arguments whose settings file the kit cannot tell give no shape:
-    // no saved original fits such a launch.
-    if (namedFiles === undefined) return undefined;
-    const files = [...claudeSettingsFiles(home), ...namedFiles];
-    return launchShape(session, { home, memoryFolder, cuts: cutsOf(bots, home), settings: files.map((file) => settingsSum(file, { named })) });
+    return launchShape(session, { home, memoryFolder, cuts: cutsOf(bots, home), settings: claudeSettingsFiles(home).map((file) => settingsSum(file, { named })) });
   } catch {
     return undefined;
   }
-}
-
-/**
- * The settings files that the user's extra arguments name with `--settings`,
- * as `--settings <file>` or `--settings=<file>`, from the bot folder: Claude
- * Code reads them as it reads its own. A value that is JSON itself is in the
- * launch words already. A string of extra arguments is split at its spaces,
- * as the shell splits a plain one. A string that names `--settings` is read
- * only when every character in it is plain: any other (a quote, an escape, a
- * `~`, a wildcard or another expansion) can make the shell name another file,
- * so then undefined, as the file it names is not known.
- */
-function settingsNamedIn(session, home) {
-  const string = typeof session.extra_args === 'string' ? session.extra_args : undefined;
-  if (string !== undefined && string.includes('--settings') && !/^[A-Za-z0-9 ._\/=:,+@%-]*$/.test(string)) return undefined;
-  const words = Array.isArray(session.extra_args) ? session.extra_args.map(String)
-    : string !== undefined ? string.split(/\s+/).filter(Boolean) : [];
-  const files = [];
-  words.forEach((word, at) => {
-    const value = word === '--settings' ? words[at + 1] : word.startsWith('--settings=') ? word.slice('--settings='.length) : undefined;
-    if (typeof value === 'string' && value !== '' && !value.trimStart().startsWith('{')) files.push(path.resolve(home, value));
-  });
-  return files;
 }
 
 /**
@@ -481,6 +457,12 @@ export function mainTextTrouble(bots, home, bot) {
     // A paused bot or session runs nothing, so it runs on no main text: it is
     // named again once it is unpaused and starts.
     if (bot.paused === true || session.paused === true) continue;
+    // The user's own --settings: their choice, which health names once, with
+    // what the session runs without (ownSettings).
+    if (setsSettings(session)) {
+      states[name] = { state: 'own', why: 'its extra arguments carry its own --settings, so the kit does not build its main text' };
+      continue;
+    }
     const shape = shapeOf(bots, home, session, setsSettings(session) ? undefined : physicalMemoryFolder(home));
     let built;
     try {
