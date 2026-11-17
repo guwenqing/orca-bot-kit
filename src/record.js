@@ -86,9 +86,15 @@ export async function recordSession(bots, name, said, tabId, shellPid) {
   // work. The kit writes nothing down about tabs it does not keep.
   if (sessionAt(readBook(home), tabId) === undefined) return undefined;
 
+  // Which harness reported is read from the process table. Where ps cannot
+  // read it, the report cannot be placed, so nothing is written down; but the
+  // session is told why, and is given what needs no placing (#791).
+  const table = readProcessTable();
+  if (table.unreadable !== undefined) return unplaced(bots, home, name, said, tabId, table.unreadable);
+
   // And a report from something the session started rather than from the
   // session itself is not this session's news, whatever tab it ran in.
-  if (!startedTheSession(shellPid)) return undefined;
+  if (!startedTheSession(shellPid, process.pid, table.tree)) return undefined;
 
   const bot = readBot(home, name);
   // Asking the harness what it has on record reads a folder of files, so it is
@@ -183,6 +189,34 @@ export async function recordSession(bots, name, said, tabId, shellPid) {
   return { hookSpecificOutput: { hookEventName: said.hook_event_name, additionalContext: context.join('\n\n') } };
 }
 
+/**
+ * What the hook answers when ps cannot read the process table (#791). The
+ * kit cannot tell the tab's own harness from one the session started, so the
+ * book is left as it is (ADR 0012). The session is told what this costs, so
+ * that the user learns of it. A Claude Code session is still given its bot's
+ * main units, which the guard (R6) gives whatever the launch line says. The
+ * start prompt is not given: it tells a harness which session it is, and a
+ * harness the session started is not that session.
+ */
+function unplaced(bots, home, name, said, tabId, why) {
+  const found = sessionAt(readBook(home), tabId);
+  if (found === undefined) return undefined;
+  const [session, was] = found;
+  const bot = readBot(home, name);
+  const settings = bot.sessions.find((entry) => entry.name === session);
+  const onClaude = settings !== undefined && harnessOf(settings, bot.harness) === 'claude';
+  // A resume or a compaction can report the conversation the book already
+  // holds, and then a restart still brings it back (review of PR 799).
+  const held = was.session === said.session_id;
+  const kept = held
+    ? `The book already holds the conversation ${said.session_id}, so obk restart and obk up can still bring it back. The kit records nothing new in the book while ps cannot run.`
+    : `It did not record the conversation ${said.session_id} in the book, so obk restart and obk up cannot bring this conversation back: they bring back the one that the book holds, if any.`;
+  const notice = `The kit could not read the process table: ${why}. So it could not tell that this is the tab's own session ${name}/${session}. ${kept} Until ps runs for the kit's hook, a /clear, a /new or a compaction does not give the session its start prompt again, and the kit does not note how the session was launched. Tell the user, and ask them to run obk health.`;
+  const main = onClaude ? guardText(bots, bot) : undefined;
+  const context = [notice, main].filter((part) => part !== undefined && part !== '');
+  return { hookSpecificOutput: { hookEventName: said.hook_event_name, additionalContext: context.join('\n\n') } };
+}
+
 /** The appended-text flag of a launch line. */
 const APPEND_FLAG = '--append-system-prompt-file';
 
@@ -212,7 +246,7 @@ const APPEND_TEXT = '--append-system-prompt';
  * is the parent, or the parent's parent when the parent is a shell.
  */
 export function appendedText(pid, botName) {
-  const tree = processTree();
+  const { tree } = readProcessTable();
   const mine = tree?.get(pid);
   const parent = mine === undefined ? undefined : tree.get(mine.ppid);
   if (parent === undefined) return undefined;
@@ -341,10 +375,9 @@ function unclaimedFor(book, home, bot, tabId, id) {
  * Anything it cannot establish is a no: a report that cannot be shown to be the
  * session's own is not written down.
  */
-export function startedTheSession(shellPid, pid = process.pid) {
+export function startedTheSession(shellPid, pid = process.pid, tree = readProcessTable().tree) {
   if (shellPid !== undefined && !/^[0-9]+$/.test(String(shellPid))) return false;
 
-  const tree = processTree();
   if (tree === undefined) return false;
 
   const mine = tree.get(pid);
@@ -368,17 +401,32 @@ export function startedTheSession(shellPid, pid = process.pid) {
   return pane !== undefined && path.basename(pane.command) === 'login';
 }
 
-/** Every process on the machine, by pid: who its parent is and what it runs. */
-function processTree() {
+/**
+ * Why the kit's hook cannot read the process table here, or undefined when it
+ * can (#791). `obk health` asks it, so that a user learns of it outside a
+ * session too.
+ */
+export const processTableTrouble = () => readProcessTable().unreadable;
+
+/**
+ * Every process on the machine, by pid, who its parent is and what it runs:
+ * `{ tree }`, or `{ unreadable }`, why ps could not give them.
+ */
+function readProcessTable() {
   const listed = spawnSync('ps', ['-Ao', 'pid=,ppid=,comm='], { encoding: 'utf8' });
-  if (listed.error !== undefined || listed.status !== 0) return undefined;
+  if (listed.error !== undefined) return { unreadable: `ps does not start (${listed.error.code ?? listed.error.message})` };
+  if (listed.status !== 0) {
+    const how = listed.status === null ? `ps was stopped by ${listed.signal}` : `ps exits with status ${listed.status}`;
+    const told = (listed.stderr ?? '').trim().split('\n')[0].trim();
+    return { unreadable: told === '' ? how : `${how}: ${told}` };
+  }
 
   const tree = new Map();
   for (const line of listed.stdout.split('\n')) {
     const said = line.trim().match(/^([0-9]+)\s+([0-9]+)\s+(.*)$/);
     if (said !== null) tree.set(Number(said[1]), { ppid: Number(said[2]), command: said[3] });
   }
-  return tree.size === 0 ? undefined : tree;
+  return tree.size === 0 ? { unreadable: 'ps lists no processes' } : { tree };
 }
 
 /** The shells a harness may run a hook command through. */

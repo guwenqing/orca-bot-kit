@@ -59,7 +59,7 @@
 // folder, whose Orca projects the kit marked (#401); the kit marks none now.
 
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import { access, chmod, constants, lstat, mkdir, mkdtemp, readFile, readdir, readlink, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises';
@@ -1420,6 +1420,40 @@ export async function harnessChain(box, command, { stdin = '', nested = false, l
 }
 
 /**
+ * Whether a bare `ps` runs here (#791): the kit's hook reads the process table
+ * with the `ps` it finds on PATH (src/record.js), to tell the tab's own harness
+ * and to read its launch line. Where it cannot run, as in a sandbox that
+ * refuses it, every test that runs the hook under a process chain would fail
+ * on a later premise and say nothing of the cause. So those helpers ask first,
+ * once per process, with the suite's own environment: a test that breaks `ps`
+ * on purpose does it in the environment it hands the run, not here.
+ *
+ * Undefined when it runs and lists processes; otherwise why it does not.
+ */
+let psTrouble;
+let psAsked = false;
+
+function psCannotRun() {
+  if (psAsked) return psTrouble;
+  psAsked = true;
+  const listed = spawnSync('ps', ['-Ao', 'pid=,ppid=,comm='], { encoding: 'utf8', env: process.env, timeout: 20_000 });
+  const firstLine = (text) => (text ?? '').split('\n').map((one) => one.trim()).find((one) => one !== '');
+  if (listed.error !== undefined) psTrouble = listed.error.code ?? listed.error.message;
+  else if (listed.status !== 0) psTrouble = firstLine(listed.stderr) ?? `it exited with status ${listed.status ?? listed.signal}`;
+  else if (!/^\s*[0-9]+\s+[0-9]+\s+\S/m.test(listed.stdout)) psTrouble = firstLine(listed.stderr) ?? 'it listed no process';
+  return psTrouble;
+}
+
+/** Throw, saying why, when a bare `ps` cannot run here; see `psCannotRun`. */
+export function assertPsRuns() {
+  const trouble = psCannotRun();
+  if (trouble === undefined) return;
+  throw new Error(`\`ps\` cannot run here (${trouble}): \`ps -Ao pid=,ppid=,comm=\` gave no process table. `
+    + 'The kit\'s SessionStart hook needs it to tell the tab\'s own harness and to read its launch line, '
+    + 'so this test cannot run here. Run the suite where ps runs.');
+}
+
+/**
  * Run `command` — one shell line — the way a harness runs its hook, under the
  * chain above. `tab` is the Orca tab the session lives in, `stdin` the event,
  * and `nested: true` puts a second harness under the first, which is what a
@@ -1429,6 +1463,7 @@ export async function harnessChain(box, command, { stdin = '', nested = false, l
  * every process in the chain passes them straight through.
  */
 export async function throughAHarness(box, command, { env, tab, stdin = '', nested = false, line } = {}) {
+  assertPsRuns();
   const chain = await harnessChain(box, command, { stdin, nested, line });
   const [program, ...rest] = chain.argv;
 
@@ -1503,6 +1538,7 @@ const TAB_STEP = `
  * like `box.run`: the hook's own exit code, stdout and stderr.
  */
 export async function throughATab(box, command, { tab, stdin = '', harness = 'claude', shape = 'tab', direct = false, env } = {}) {
+  assertPsRuns();
   const dir = path.join(box.root, 'tab');
   await mkdir(dir, { recursive: true });
   const step = path.join(dir, 'step.cjs');
@@ -1551,6 +1587,7 @@ export async function throughATab(box, command, { tab, stdin = '', harness = 'cl
  * (with a bare `ps`, or through the fake ps, which answers for it).
  */
 export async function recordSession(box, { bots, bot, tab, env, stdin, raw = false, nested = false, line, ...payload }) {
+  assertPsRuns();
   const args = ['session', 'record', '--bots', bots, '--bot', bot];
   const input = stdin ?? sessionStart(payload);
   if (raw) {
