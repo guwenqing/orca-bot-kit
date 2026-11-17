@@ -492,7 +492,17 @@ export function mainTextTrouble(bots, home, bot) {
     // A paused bot or session runs nothing, so it runs on no main text: it is
     // named again once it is unpaused and starts.
     if (bot.paused === true || session.paused === true) continue;
-    if (unnoted && !lastRecordIsOwn(home, entry?.session)) continue;
+    if (unnoted) {
+      // Without the recipe the record cannot be told, but the user must act
+      // on the recipe whatever the session runs on now. A session with its own
+      // --settings gets no text of the kit's in any case, as below.
+      const recipe = readRecipe();
+      if (recipe === undefined) {
+        if (!setsSettings(session)) found.push(`${bot.name}/${name} does not get the main text the kit builds, because the kit's recipe could not be read.`);
+        continue;
+      }
+      if (!lastRecordIsOwn(home, entry?.session, recipe)) continue;
+    }
     // The user's own --settings: their choice, which health names once, with
     // what the session runs without (ownSettings). Only for a session that the
     // book has on its own text: one whose launch named the kit's main file runs
@@ -574,10 +584,10 @@ export function isOwnRecord(sections, recipe) {
 
 /**
  * Whether the last `prompt_snapshot` of the conversation `conversation` is of
- * Claude Code's own main text: what a resumed conversation runs on until its
- * next compaction (#794). False when there is no such record.
+ * Claude Code's own main text, by `recipe`: what a resumed conversation runs
+ * on until its next compaction (#794). False when there is no such record.
  */
-function lastRecordIsOwn(home, conversation) {
+function lastRecordIsOwn(home, conversation, recipe) {
   if (typeof conversation !== 'string' || !SAFE_ID.test(conversation)) return false;
   let file;
   try {
@@ -595,7 +605,7 @@ function lastRecordIsOwn(home, conversation) {
   } catch {
     return false;
   }
-  return isOwnRecord(sections, readRecipe());
+  return isOwnRecord(sections, recipe);
 }
 
 /** A file's text, or undefined when it cannot be read. */
