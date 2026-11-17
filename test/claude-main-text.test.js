@@ -72,6 +72,11 @@
 //       times goes on the session's line and in main_text's `twice`, by size
 //       and sum, and fails nothing. A part that comes back is a recipe unit
 //       like any other: health names it when a saved original lacks it.
+//   T13. A running session whose book holds neither `main` nor `own_text`, as
+//       after a resume of a conversation from before kit 0.40.0 (#794): main
+//       text own, whose why says the book holds no note, that it runs on
+//       Claude Code's own main text, and how it gets the kit's text; no
+//       finding, and health writes no note into the book.
 //
 // No text of Claude Code is in this file: the sections are made up. A fake
 // `claude` on the sandbox's PATH answers `--version` in every test, so the real
@@ -1528,5 +1533,133 @@ describe('T8 retire', SIDE_BY_SIDE, () => {
     assert.equal(await exists(path.join(textOf(bots), 'sources')), false, 'sources/ is gone');
     assert.equal(await exists(originalsOf(bots)), false, 'originals/ is gone');
     for (const file of mains) assert.equal(await exists(file), false, `${file} is gone`);
+  });
+});
+
+// ================================================================ T13
+
+describe('T13 a session with no note of its main text (#794)', SIDE_BY_SIDE, () => {
+  /** The premise: the book's entry of api-bot's `session` holds neither `main` nor `own_text`. */
+  async function assertNoNote(bots, why, session = 'daily') {
+    const entry = await sessionIn(bots, BOT, session);
+    assert.ok(entry, `${why}: the book should hold ${BOT}/${session}`);
+    assert.equal(entry.main, undefined, `${why}: the book holds no main, got: ${show(entry)}`);
+    assert.equal(entry.own_text, undefined, `${why}: the book holds no own_text, got: ${show(entry)}`);
+  }
+
+  /** Take `main` and `own_text` out of daily's entry in the bot's sessions.yaml, as a book written by a kit before 0.40.0. */
+  async function asAnOlderBook(bots) {
+    const file = path.join(botHomeOf(bots, BOT), 'sessions.yaml');
+    const doc = parse(await readFile(file, 'utf8'));
+    delete doc.sessions.daily.main;
+    delete doc.sessions.daily.own_text;
+    await writeFile(file, stringify(doc));
+  }
+
+  /** The why of a session with no note says so, and that it runs on Claude Code's own main text. */
+  function assertNoNoteWhy(text, why) {
+    assert.equal(text?.state, 'own', `${why}: main_text is own, got: ${show(text)}`);
+    assert.ok(typeof text.why === 'string' && text.why.includes('no note'), `${why}: the why says the book holds no note of its main text, got: ${show(text)}`);
+    assert.ok(text.why.includes('Claude Code\'s own main text'), `${why}: the why says it runs on Claude Code's own main text, got: ${show(text)}`);
+  }
+
+  test('T13 a resume of a conversation the book has no note of, with no fitting record: main_text own, whose why says no note, Claude Code\'s own main text and a clear; the line ends with it; no finding, exit 0; health writes no note', async (t) => {
+    const box = await createSandbox(t);
+    const bots = await started(box);
+    // A conversation that began before kit 0.40.0: the book never noted its main text, and obk restart resumed it.
+    await onRecord(box, bots, 'conv-old', []);
+    await hook(box, bots, { session: 'conv-old', source: 'resume' });
+    await restart(box);
+    await hook(box, bots, { session: 'conv-old', source: 'resume' });
+    await assertNoNote(bots, 'the premise: a resume keeps the book\'s older note, and there is none');
+
+    const { found, sessions, code } = await healthOf(box);
+
+    const text = mainTextIn(sessions, 'daily', 'a resumed session with no note');
+    assertNoNoteWhy(text, 'no fitting record');
+    assert.ok(text.why.includes('clear'), `the why names a clear, as the wait's why does, got: ${show(text)}`);
+    assert.deepEqual(mainTextOf(found, 'daily'), [], `no finding on its main text, got: ${show(found)}`);
+    assert.deepEqual(found, [], `nothing else is wrong, got: ${show(found)}`);
+    assert.equal(code, 0);
+    const line = await textLineOf(box, 'daily');
+    assert.ok(line.endsWith(`main text own: ${text.why}`), `the line ends with the state and the why, got: ${line}`);
+    await assertNoNote(bots, 'after health: health writes no note into the book');
+  });
+
+  test('T13 a started session whose entry an older kit wrote, with no fitting record: main_text own, whose why says no note and a clear; health writes no note', async (t) => {
+    const box = await createSandbox(t);
+    const bots = await started(box);
+    await hook(box, bots, { session: 'conv-1', source: 'startup' });
+    assert.equal((await sessionIn(bots, BOT, 'daily')).own_text, true, 'the premise: the start noted own_text');
+    await asAnOlderBook(bots);
+    await assertNoNote(bots, 'the premise: the older book holds no note');
+
+    const { found, sessions, code } = await healthOf(box);
+
+    const text = mainTextIn(sessions, 'daily', 'a session of an older book');
+    assertNoNoteWhy(text, 'no fitting record');
+    assert.ok(text.why.includes('clear'), `the why names a clear, got: ${show(text)}`);
+    assert.deepEqual(mainTextOf(found, 'daily'), [], `no finding on its main text, got: ${show(found)}`);
+    assert.deepEqual(found, [], `nothing else is wrong, got: ${show(found)}`);
+    assert.equal(code, 0);
+    assert.ok((await textLineOf(box, 'daily')).endsWith(`main text own: ${text.why}`), 'the line ends with the state and the why');
+    await assertNoNote(bots, 'after health: health writes no note into the book');
+  });
+
+  test('T13 a session with no note whose launch a noted record fits: main_text own, whose why says no note, Claude Code\'s own main text, obk restart and compaction; no finding, exit 0; health writes no note', async (t) => {
+    const box = await createSandbox(t);
+    const { bots } = await noted(box);
+    await asAnOlderBook(bots);
+    await assertNoNote(bots, 'the premise: the older book holds no note');
+
+    const { found, sessions, code } = await healthOf(box);
+
+    const text = mainTextIn(sessions, 'daily', 'a session with no note, the kit\'s text ready');
+    assertNoNoteWhy(text, 'the kit\'s text ready');
+    assert.ok(text.why.includes('obk restart') && text.why.includes('compaction'), `the why names obk restart and a compaction, got: ${show(text)}`);
+    assert.deepEqual(mainTextOf(found, 'daily'), [], `no finding on its main text, got: ${show(found)}`);
+    assert.deepEqual(found, [], `nothing else is wrong, got: ${show(found)}`);
+    assert.equal(code, 0);
+    assert.ok((await textLineOf(box, 'daily')).endsWith(`main text own: ${text.why}`), 'the line ends with the state and the why');
+    await assertNoNote(bots, 'after health: health writes no note into the book');
+  });
+
+  for (const [what, scope] of [['a paused session', ['--session', 'daily']], ['a paused bot', []]]) {
+    test(`T13 ${what} with no note has no main_text while paused`, async (t) => {
+      const box = await createSandbox(t);
+      const bots = await started(box);
+      await onRecord(box, bots, 'conv-old', []);
+      await hook(box, bots, { session: 'conv-old', source: 'resume' });
+      await assertNoNote(bots, 'the premise');
+
+      await ok(box, ['pause', '--bots', 'bots', '--bot', BOT, ...scope]);
+      const { found, sessions } = await healthOf(box);
+
+      assert.equal(entryOf(sessions, 'daily')?.main_text, undefined, `paused, daily is not running, got: ${show(sessions)}`);
+      assert.deepEqual(mainTextOf(found, 'daily'), [], `and no finding, got: ${show(found)}`);
+    });
+  }
+
+  test('T13 a session with no note whose extra_args carry its own --settings: main_text own, whose why names --settings', async (t) => {
+    const box = await createSandbox(t);
+    const bots = await started(box);
+    await onRecord(box, bots, 'conv-old', []);
+    await hook(box, bots, { session: 'conv-old', source: 'resume' });
+    const file = path.join(box.root, 'own-settings', 'daily.json');
+    await mkdir(path.dirname(file), { recursive: true });
+    await writeFile(file, `${JSON.stringify({ outputStyle: 'Concise' })}\n`);
+    const doc = parse(await readFile(botYamlOf(bots), 'utf8'));
+    doc.sessions = doc.sessions.map((one) => (one.name === 'daily' ? { ...one, extra_args: ['--settings', file] } : one));
+    await writeFile(botYamlOf(bots), stringify(doc));
+    await restart(box);
+    await hook(box, bots, { session: 'conv-old', source: 'resume' });
+    await assertNoNote(bots, 'the premise');
+
+    const { found, sessions } = await healthOf(box);
+
+    const text = mainTextIn(sessions, 'daily', 'its own --settings, no note');
+    assert.equal(text?.state, 'own', `main_text is own, got: ${show(text)}`);
+    assert.ok(typeof text.why === 'string' && text.why.includes('--settings'), `its why names its own --settings, got: ${show(text)}`);
+    assert.deepEqual(mainTextOf(found, 'daily'), [], `no finding on its main text, got: ${show(found)}`);
   });
 });

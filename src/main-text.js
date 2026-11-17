@@ -480,9 +480,13 @@ export function mainTextTrouble(bots, home, bot) {
   const found = [];
   const states = {};
   for (const [name, entry] of Object.entries(book.sessions ?? {})) {
-    const own = entry?.own_text === true;
     const main = typeof entry?.main === 'string' ? path.basename(entry.main) : undefined;
-    if (!own && main === undefined) continue;
+    // No note at all: the hook keeps a resume's older note, and a conversation
+    // that began before the kit noted its main text has none (#794). Such a
+    // session runs on Claude Code's own main text; health says so and writes
+    // no note.
+    const unnoted = entry?.own_text !== true && main === undefined;
+    const own = entry?.own_text === true || unnoted;
     const session = bot.sessions.find((one) => one.name === name);
     if (session === undefined || harnessOf(session, bot.harness) !== 'claude') continue;
     // A paused bot or session runs nothing, so it runs on no main text: it is
@@ -508,8 +512,12 @@ export function mainTextTrouble(bots, home, bot) {
     } catch (error) {
       built = { why: error.message };
     }
-    if (own && built.file !== undefined) {
-      states[name] = { state: 'own', why: 'the kit\'s main text is ready for it: after obk restart it runs on the kit\'s text, at once in a new conversation, and in a resumed one after its next compaction or clear' };
+    if (unnoted) {
+      // Not a finding: it is the state of every resumed session right after
+      // an upgrade. What the build says is how it gets the kit's text.
+      states[name] = { state: 'own', why: `${UNNOTED} ${built.file !== undefined ? READY : built.why}` };
+    } else if (own && built.file !== undefined) {
+      states[name] = { state: 'own', why: READY };
     } else if (own && built.wait === true) {
       states[name] = { state: 'own', why: built.why };
     } else if (own) {
@@ -586,6 +594,16 @@ function recordOf(file, main) {
  * until its next compaction (tech notes, the snapshot).
  */
 const RECORDS = 'A new conversation on the kit\'s line records one: a first start, or a clear (obk session clear). A resume records nothing. After that the session gets the kit\'s text at its next start: at once in a new conversation, and in a resumed one after its next compaction or clear';
+
+/** Why a session whose main text the kit has ready runs on Claude Code's own. */
+const READY = 'the kit\'s main text is ready for it: after obk restart it runs on the kit\'s text, at once in a new conversation, and in a resumed one after its next compaction or clear';
+
+/**
+ * What health knows of a session that the book holds no note of (#794): a
+ * resume keeps the note it had, so a conversation that began before the kit
+ * noted its main text has none.
+ */
+const UNNOTED = 'the book holds no note of its main text, as for a conversation resumed from one that began before the kit noted it, so it runs on Claude Code\'s own main text, and';
 
 function namesIn(dir) {
   try {

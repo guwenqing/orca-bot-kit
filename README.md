@@ -648,8 +648,12 @@ What this costs you:
   ones.
 - Each session's line in `obk health` says what main text it runs on: `kit`,
   `older` (with how it gets the new one), or `own`, with why. A paused session
-  shows it once it starts again. The wait for a first record does not fail
-  health. Health gives a finding when the user must act: a record of another
+  shows it once it starts again. A resume keeps the book's note of the main
+  text, so a conversation that began before the kit noted it has none, as each
+  resumed session has after an upgrade to 0.40.0. Its line says `own`, that
+  the book holds no note, and how it gets the kit's text. The wait for a first
+  record does not fail health. Health gives a finding when the user must act:
+  a record of another
   model, a Claude Code version that the kit cannot read, a recipe part that a
   saved copy of a model it is named for does not hold, a `text:` name that
   the recipe does not know.

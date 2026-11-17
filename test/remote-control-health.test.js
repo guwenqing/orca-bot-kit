@@ -41,8 +41,10 @@
 //        `remote_control: { asked, from, state }`, with `why` (a string) only
 //        when the state is unknown. `asked` is on or off, `from` is session or
 //        kit default. Codex and Pi sessions get none.
-//   RH4  Text: the session's line ends with `  remote control <state> (asked
-//        <on|off>)`, for Claude sessions only.
+//   RH4  Text: the session's line holds `  remote control <state> (asked
+//        <on|off>)` once, for Claude sessions only. After it comes the end of
+//        the line or the main text part (`  main text …`, #794), and nothing
+//        more of Remote Control.
 //   RH5  Findings, category `session`: asked on and not enabled says
 //        "Remote Control is not on for <bot>'s session <name>" and "Its tab says
 //        why"; asked off and enabled says "<bot>'s session <name> is set off,
@@ -663,30 +665,41 @@ function lineOf(stdout, name) {
   return lines[0];
 }
 
+/**
+ * The line holds `part` once, and after it comes the end of the line or the
+ * main text part (#794), with nothing more of Remote Control.
+ */
+function assertRemotePart(line, part) {
+  assert.equal(line.split(part).length - 1, 1, `the line should hold ${JSON.stringify(part)} once, got: ${line}`);
+  const after = line.slice(line.indexOf(part) + part.length);
+  assert.ok(after === '' || after.startsWith('  main text '), `after ${JSON.stringify(part)} the line should end or go on with the main text part, got: ${line}`);
+  assert.doesNotMatch(after, /remote control/i, `nothing more of Remote Control after ${JSON.stringify(part)}, got: ${line}`);
+}
+
 for (const [label, keys, bridge, end] of [
   ['enabled, asked on', {}, BRIDGE, '  remote control enabled (asked on)'],
   ['not enabled, asked on', {}, null, '  remote control not enabled (asked on)'],
   ['not enabled, asked off', { remote_control: 'off' }, ABSENT, '  remote control not enabled (asked off)'],
   ['enabled, asked off', { remote_control: 'off' }, BRIDGE, '  remote control enabled (asked off)'],
 ]) {
-  test(`RH4 the session's line ends with the state: ${label}`, async (t) => {
+  test(`RH4 the session's line holds the state once, and nothing more of Remote Control after it: ${label}`, async (t) => {
     const box = await createSandbox(t);
     const bots = await fleetIn(box, { keys });
     await registered(box, bots, bridge);
 
     const { stdout } = await health(box, { json: false });
 
-    assert.ok(lineOf(stdout, 'daily').endsWith(end), `the line should end with ${JSON.stringify(end)}, got: ${lineOf(stdout, 'daily')}`);
+    assertRemotePart(lineOf(stdout, 'daily'), end);
   });
 }
 
-test('RH4 an unknown state ends the line too, and a Codex session\'s line says nothing of Remote Control', async (t) => {
+test('RH4 an unknown state is held the same way, and a Codex session\'s line says nothing of Remote Control', async (t) => {
   const box = await createSandbox(t);
   await fleetIn(box, { codex: true });
 
   const { stdout } = await health(box, { json: false });
 
-  assert.ok(lineOf(stdout, 'daily').endsWith('  remote control unknown (asked on)'), `got: ${lineOf(stdout, 'daily')}`);
+  assertRemotePart(lineOf(stdout, 'daily'), '  remote control unknown (asked on)');
   assert.doesNotMatch(lineOf(stdout, 'review'), /remote control/i);
 });
 
