@@ -121,7 +121,7 @@ const carries = (args, flag) =>
 function processTableFindings() {
   const why = processTableTrouble();
   if (why === undefined) return [];
-  return [finding('process', 'ps', `The kit cannot read the process table where obk health runs now: ${why}. The kit's session hook reads it with the same ps, to tell that a report comes from a tab's own session. Where ps cannot run for the hook, the hook records no new conversation in the book. After a new start, a /clear or a /new, obk restart and obk up bring back the conversation that the book holds, or none, and not the new conversation. A /clear, a /new or a compaction does not give the session its start prompt again, and the kit does not note how a Claude Code session was launched. The hook says so in each session where this happens. Let ps run for the user that runs the sessions.`)];
+  return [finding('process', 'ps', `The kit cannot read the process table where obk health runs now: ${why}. The kit's session hook reads it with the same ps, to tell that a report comes from a tab's own session. Where ps cannot run for the hook, the hook records no new conversation in the book. obk restart and obk up then bring back the conversation that the book holds, or none, and not a new conversation that the hook could not record, as after a /clear or a /new. A /clear, a /new or a compaction does not give the session its start prompt again, and the kit does not note how a Claude Code session was launched. The hook says so in each session where this happens. Let ps run for the user that runs the sessions.`)];
 }
 
 /**
