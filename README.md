@@ -677,7 +677,12 @@ there. A `claude-memory/` folder that you made yourself gets no `.gitignore`
 from the kit.
 
 A bot, its repository or your user-level settings that name their own
-`autoMemoryDirectory` keep it, and the kit then makes no folder.
+`autoMemoryDirectory` keep it, and the kit then makes no folder. When one of
+those settings files is there and the kit cannot read it, or it is not valid
+JSON, the kit cannot tell whether it names a folder. So the kit names none,
+and the session's notes go to the folder that the bots shared. The session's
+start report and `obk health` name the file. Repair the file, and the next
+start of the session names the bot's own folder.
 
 The kit does not start a Claude session without its bot's folder, because its
 notes would then go to the folder that the bots shared. When a file or a link

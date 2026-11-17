@@ -30,18 +30,25 @@ const INDEX = 'MEMORY.md';
 /**
  * The memory folder for a Claude session of the bot at `home`, read only:
  * `{ folder }` to name; `{ blocked }`, the path, when a file or a link is
- * there, so the session does not start; or `{}` when the bot, its
- * repository or the user names a folder of their own, which is theirs and
- * needs no word. It makes nothing; `memoryFolderAtStart` does.
+ * there, so the session does not start; `{ unread }` when no settings file
+ * names a folder but one or more are there and cannot be read or parsed, so
+ * the kit cannot tell and names none (#782): each as `{ file, code }`, the
+ * read error's code, or no code when the file is not valid JSON; or `{}` when
+ * the bot, its repository or the user names a folder of their own, which is
+ * theirs and needs no word. It makes nothing; `memoryFolderAtStart` does.
  */
 export function memoryFolderFor(home) {
   let bot;
   try {
     bot = realpathSync(home);
   } catch {
+    // No session starts in a bot folder whose real path cannot be read (#782).
     return {};
   }
-  if (claudeSettingsFiles(home).some(namesMemoryFolder)) return {};
+  const read = claudeSettingsFiles(home).map(memorySetting);
+  if (read.some((one) => one.names)) return {};
+  const unread = read.flatMap((one) => (one.unread === undefined ? [] : [one.unread]));
+  if (unread.length > 0) return { unread };
   const folder = path.join(bot, MEMORY_FOLDER);
   // A link could lead out of the bot folder, and a file is no folder.
   const there = lstatSync(folder, { throwIfNoEntry: false });
@@ -127,7 +134,9 @@ export function memoryFolderAtStart(home) {
  * may start: it got its folder, or a folder named by hand is the reason it got
  * none. Without its own folder, a session writes its notes to the folder that
  * the bots shared, and R1 lets the kit name no folder only for the user's own
- * choice (#752, ADR 0060).
+ * choice (#752, ADR 0060). A settings file that the kit cannot read or parse
+ * may hold that choice, so that session starts too, and the start report
+ * names the file (#782).
  */
 export function memoryRefusal(made) {
   const why = 'Without its bot\'s own memory folder, a Claude Code session writes its notes to the folder that the bots shared.';
@@ -135,6 +144,17 @@ export function memoryRefusal(made) {
   if (made.blocked !== undefined) return `${made.blocked} is a file or a link, not a folder. ${why} Remove the file or the link, ${own}`;
   if (made.failed !== undefined) return `the kit could not make ${made.failed} with its .gitignore (${made.code ?? 'unknown error'}). ${why} Repair the folder, ${own}`;
   return undefined;
+}
+
+/**
+ * What the kit could not do with the settings files in `unread`, from
+ * `memoryFolderFor`, in words for the start report and `obk health`: each
+ * file, and whether the kit could not read it or could not parse it (#782).
+ */
+export function unreadSettingsWords(unread) {
+  return unread
+    .map(({ file, code }) => (code === undefined ? `the kit cannot parse ${file}: it is not valid JSON` : `the kit cannot read ${file} (${code})`))
+    .join(', and ');
 }
 
 /**
@@ -176,22 +196,25 @@ function isFile(file) {
 }
 
 /**
- * Whether the settings file `file` may name a memory folder of its own: it has
- * the key, or it is there and cannot be read, so the kit cannot tell.
+ * What the settings file `file` says of a memory folder: `{ names: true }`
+ * when it has the key; `{ unread: { file, code } }` when it is there and
+ * cannot be read, or `{ unread: { file } }` when it cannot be parsed, so the
+ * kit cannot tell; or `{}` when it is not there or has no key.
  */
-function namesMemoryFolder(file) {
+function memorySetting(file) {
   let text;
   try {
     text = readFileSync(file, 'utf8');
   } catch (error) {
-    return error.code !== 'ENOENT' && error.code !== 'ENOTDIR';
+    return error.code === 'ENOENT' || error.code === 'ENOTDIR' ? {} : { unread: { file, code: error.code ?? 'unknown error' } };
   }
+  let settings;
   try {
-    const settings = JSON.parse(text);
-    return settings !== null && typeof settings === 'object' && Object.hasOwn(settings, 'autoMemoryDirectory');
+    settings = JSON.parse(text);
   } catch {
-    return true;
+    return { unread: { file } };
   }
+  return settings !== null && typeof settings === 'object' && Object.hasOwn(settings, 'autoMemoryDirectory') ? { names: true } : {};
 }
 
 /**

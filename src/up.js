@@ -486,6 +486,7 @@ async function bringUpSession(bots, home, live, session, bot, title, endedBy) {
     // then, and whatever it said is on the tab's screen, not in this report.
     noMailbox: lacksMailbox(home, session, harness),
     lost: lostToOwnSettings(session, harness),
+    memoryUnread: memory.unread,
     remoteControl: harness === 'claude' ? remoteControlLaunched(session) : undefined,
     ...tui,
     promptReceived,
@@ -1092,7 +1093,7 @@ export const promptPath = (bots, bot, session) =>
 export const oldPromptPath = (bots, bot, session) =>
   path.join(`${bots}.prompts`, `${encodeURIComponent(bot)}.${encodeURIComponent(session)}.txt`);
 
-function entry(tab, { bot, name, created, running = false, blockedReason, promptReceived, promptFile, resumed, noConversation, harnessChanged, ranOn, unclaimed, noMailbox = false, lost = [], remoteControl, listLine, listLineTrouble, restartLine, restartLineTrouble, notLaunched }) {
+function entry(tab, { bot, name, created, running = false, blockedReason, promptReceived, promptFile, resumed, noConversation, harnessChanged, ranOn, unclaimed, noMailbox = false, lost = [], memoryUnread, remoteControl, listLine, listLineTrouble, restartLine, restartLineTrouble, notLaunched }) {
   const made = { bot, name, title: tab.title, tabId: tab.tabId, terminal: tab.handle, created, harnessStarted: running };
   // A tab whose shell was not ready for the launch line, and why: nothing was
   // typed into it (#498).
@@ -1121,6 +1122,9 @@ function entry(tab, { bot, name, created, running = false, blockedReason, prompt
   // kit's (#752), and what the line does with Remote Control on Claude Code
   // (ADR 0058).
   if (lost.length > 0) made.lost = lost;
+  // The settings files that kept the kit from naming the bot's own memory
+  // folder, because it could not read or parse them (#782).
+  if (memoryUnread !== undefined) made.memoryUnread = memoryUnread;
   if (remoteControl !== undefined) made.remote_control = remoteControl;
   // Conversations the harness still has in this bot's folder that no session
   // claims: the caller is told, because the kit will not pick one.
