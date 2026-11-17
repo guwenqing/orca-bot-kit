@@ -15,7 +15,7 @@ import { parseArgs } from 'node:util';
 import { addSession, allowedNow, allowRules, botDir, changeBot, changeSession, createBot, disallowRules, displayName, leadsOutside, readBot, refuseCodexOutside, SESSION_FIELDS, setRoleCaps, setTempApproval } from './bot.js';
 import { COMMANDS, KEPT_BACK } from './commands.js';
 import { addCommand, groomCommand, grooming, upCommand } from './groom.js';
-import { checkHealth, orcaSettingFindings } from './health.js';
+import { checkHealth, olderRules, orcaSettingFindings } from './health.js';
 import { initBots } from './init.js';
 import { nameSession } from './name.js';
 import { APPROVALS, harnessOf, HARNESSES, ownCli, refuseApprovalArgs, REMOTE_CONTROL_LOST, shellWord, workDirOf } from './launch.js';
@@ -1143,11 +1143,16 @@ const commands = {
     const rules = buildRules(bots, { bot: values.bot });
     const permissions = rules.flatMap((entry) => permissionsOf(bots, entry.bot));
     const trouble = [...rules, ...permissions].filter((entry) => entry.trouble !== undefined);
+    // A running session keeps the rules it read, so the build says which ones
+    // still run on the older rules, as health would, and types nothing (#757).
+    // They are said, and no failure of the build.
+    const running = olderRules(bots, { bot: values.bot });
     return {
-      answer: { bots, rules, permissions },
+      answer: { bots, rules, permissions, older_rules: running.older ?? null, ...(running.orca === undefined ? {} : { orca: running.orca }) },
       lines: [
         ...rulesLines(rules, bots),
         ...permissionsLines(permissions, bots),
+        ...olderRulesLines(running),
         trouble.length === 0
           ? `Rules are built. Your bots folder: ${bots}`
           // Not "not built": the file itself may be fine and the trouble be
@@ -1886,6 +1891,13 @@ function rulesLines(rules, bots) {
         : []),
     ];
   });
+}
+
+/** The sessions that run on older rules after a build, or why Orca could not be asked (#757). */
+function olderRulesLines({ older, orca }) {
+  if (orca !== undefined) return [`Orca could not be asked which sessions run now, so this does not say which of them still run on older rules: ${orca} obk health says it once Orca answers.`];
+  if (older.length === 0) return ['No running session is on older rules.'];
+  return older.flatMap((one) => [`${'older'.padEnd(9)}  ${one.bot}/${one.session}`, `             ${one.says}`]);
 }
 
 /**
