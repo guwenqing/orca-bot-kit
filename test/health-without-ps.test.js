@@ -14,6 +14,11 @@
 //       cannot run, naming `obk restart`. Health exits 1 for it, and `--json`
 //       carries it. When ps runs, there is no such finding.
 //
+//   R4, after the review of PR 799: the finding must not say that obk restart
+//       or obk up cannot recover a conversation that the book holds. It speaks
+//       only of a new conversation, one the hook does not record, and it still
+//       names obk restart.
+//
 // The wording is not pinned: only the parts above are.
 //
 // `ps` is broken for the one run under test, by the PATH of the environment
@@ -130,4 +135,25 @@ test('HW5 ps lists no process: there is a finding about ps all the same', async 
 
   psFinding(answer, /./);
   assert.equal(result.code, 1);
+});
+
+test('HW6 ps refused: the finding speaks of a new conversation the hook does not record, never of one the book holds', async (t) => {
+  const box = await createSandbox(t);
+  await cleanFleet(box);
+  const env = await refusingPs(box);
+
+  const { answer } = await healthJson(box, env);
+
+  const { says } = psFinding(answer, /operation not permitted/);
+  const sentences = says.split(/(?<=\.)\s+/);
+  const aboutRestart = sentences.filter((one) => /obk restart/.test(one));
+  assert.ok(aboutRestart.length > 0, `the finding names obk restart: ${says}`);
+  for (const sentence of aboutRestart) {
+    assert.match(sentence, /\bnew conversation/i, `what it says of obk restart is about a new conversation, one the hook does not record: ${sentence}`);
+  }
+  assert.doesNotMatch(
+    says,
+    /\b(?:cannot|can't|can not|could not|do not|does not|don't|doesn't|never)\b[^.;]*\b(?:bring|recover|resume)\b[^.;]*\b(?:book holds|in the book|held)\b/i,
+    `the finding must not say that obk restart or obk up cannot recover a conversation the book holds: ${says}`,
+  );
 });

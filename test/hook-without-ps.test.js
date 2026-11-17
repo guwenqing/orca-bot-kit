@@ -23,6 +23,17 @@
 //       session the notice is followed by a blank line and the bot's main
 //       units, as the hook gives them when ps works; for Codex, the notice
 //       alone. A cleared or compacted session is not given its start prompt.
+//   R1b (the review of PR 799) What the notice says of obk restart and obk up
+//       depends on the book. When the book's current id for the tab's session
+//       is the reported session_id (a resume or a compaction of the
+//       conversation the book holds), the notice says that the book already
+//       holds this conversation and that obk restart and obk up can still
+//       bring it back; it never says that they cannot, nor "not this one". It
+//       still names ps, the reason, the id and obk health, and still says that
+//       the kit records nothing new while ps cannot run, so a /clear, a /new or
+//       a compaction does not give the start prompt again. When the book holds
+//       another id, or none, the notice says that obk restart and obk up
+//       cannot bring this conversation back. The book is unchanged either way.
 //   R2  When ps cannot run but the tab belongs to no session of this bot, or
 //       there is no ORCA_TAB_ID, or the event has no session_id: nothing is
 //       printed, exit 0, the book as it was (as before).
@@ -119,8 +130,8 @@ function assertNotice(notice, { id, reason }) {
   if (reason !== undefined) assert.match(notice, reason, `the notice gives the reason ps gave:\n${notice}`);
   assert.ok(notice.includes(id), `the notice names the conversation id ${id} the harness reported:\n${notice}`);
   assert.match(notice, /\bbook\b/i, `the notice says the book did not get it:\n${notice}`);
-  assert.match(notice, /\b(?:not|never|cannot|could not|did not|didn't)\b[^.]*\brecord/i, `the notice says the kit did not record it:\n${notice}`);
-  assert.match(notice, /obk restart/, `the notice names obk restart, which cannot bring the conversation back:\n${notice}`);
+  assert.match(notice, /\b(?:not|never|cannot|could not|did not|didn't)\b[^.]*\brecord|\brecords? nothing\b/i, `the notice says the kit did not record it:\n${notice}`);
+  assert.match(notice, /obk restart/, `the notice names obk restart:\n${notice}`);
   assert.match(notice, /obk health/, `the notice names obk health:\n${notice}`);
 }
 
@@ -238,6 +249,80 @@ for (const [name, first] of [['a first report', undefined], ['a new id after /ne
     assertNotice(text, { id, reason: /operation not permitted/ });
     assert.equal(text.includes(PROMPT), false, `the notice alone: no start prompt, got:\n${text}`);
     assert.equal(/^## /m.test(text), false, `the notice alone: no rule unit, got:\n${text}`);
+    assert.equal(await bookText(bots), before, 'the book is not changed at all');
+  });
+}
+
+// ---------------------------------------------------------------- R1b
+
+/** Whether `text` says that obk restart or obk up cannot bring a conversation back. */
+const saysCannotBringBack = (text) => /\b(?:cannot|can't|can not|could not|do not|does not|don't|doesn't|never)\b[^.;]*\bbring\b/i.test(text);
+
+/** The notice for a conversation the book already holds: it can still be brought back (R1b). */
+function assertHeldNotice(notice, { id }) {
+  assertNotice(notice, { id, reason: /operation not permitted/ });
+  assert.match(notice, /obk up/, `the notice names obk up:\n${notice}`);
+  assert.match(notice, /the book already holds/i, `the book already holds ${id}, and the notice says so:\n${notice}`);
+  assert.match(notice, /can still bring it back/i, `obk restart and obk up can still bring it back, and the notice says so:\n${notice}`);
+  assert.equal(saysCannotBringBack(notice), false, `the book holds ${id}, so the notice must not say that obk restart or obk up cannot bring it back:\n${notice}`);
+  assert.doesNotMatch(notice, /not this one/i, `the book holds this very conversation, so not "not this one":\n${notice}`);
+  assert.match(notice, /start prompt/i, `the notice still says that a /clear, a /new or a compaction does not give the start prompt again:\n${notice}`);
+}
+
+for (const source of ['resume', 'compact']) {
+  test(`HP11 ${source} of the conversation the book holds, ps refused: a Claude Code session is told the book already holds it`, async (t) => {
+    const box = await createSandbox(t);
+    const { bots, tab } = await fleet(box);
+    const id = `conv-held-${source}`;
+    await recordedWithPs(box, bots, tab, id);
+    const env = await refusingPs(box);
+    const before = await bookText(bots);
+
+    const ran = await recordSession(box, { bots, bot: BOT, tab, env, session: id, source });
+
+    const text = contextOf(ran);
+    assert.equal(text.includes(PROMPT), false, `no start prompt when ps cannot run, got:\n${text}`);
+    assertHeldNotice(noticeBeforeMain(text, await mainUnitsText(bots, BOT)), { id });
+    assert.equal(await bookText(bots), before, 'the book is not changed at all');
+  });
+}
+
+test('HP12 resume of the conversation the book holds, ps refused: a Codex session is told the book already holds it', async (t) => {
+  const box = await createSandbox(t);
+  const { bots, tab } = await fleet(box, { harness: 'codex' });
+  const id = 'conv-held-codex';
+  await recordedWithPs(box, bots, tab, id);
+  const env = await refusingPs(box);
+  const before = await bookText(bots);
+
+  const ran = await recordSession(box, { bots, bot: BOT, tab, env, session: id, source: 'resume' });
+
+  const text = contextOf(ran);
+  assertHeldNotice(text, { id });
+  assert.equal(/^## /m.test(text), false, `the notice alone: no rule unit, got:\n${text}`);
+  assert.equal(await bookText(bots), before, 'the book is not changed at all');
+});
+
+for (const [name, held, source] of [
+  ['the book holds no id', undefined, 'startup'],
+  ['the book holds another id', 'conv-held-before', 'startup'],
+  ['the book holds another id, and the harness says clear', 'conv-held-before', 'clear'],
+]) {
+  test(`HP13 ${name}, ps refused: the notice says obk restart and obk up cannot bring this conversation back`, async (t) => {
+    const box = await createSandbox(t);
+    const { bots, tab } = await fleet(box);
+    if (held !== undefined) await recordedWithPs(box, bots, tab, held);
+    const env = await refusingPs(box);
+    const before = await bookText(bots);
+    const id = 'conv-not-held';
+
+    const ran = await recordSession(box, { bots, bot: BOT, tab, env, session: id, source });
+
+    const notice = noticeBeforeMain(contextOf(ran), await mainUnitsText(bots, BOT));
+    assertNotice(notice, { id, reason: /operation not permitted/ });
+    assert.match(notice, /obk up/, `the notice names obk up:\n${notice}`);
+    assert.match(notice, /cannot bring this conversation back/i, `the book does not hold ${id}, so obk restart and obk up cannot bring it back, and the notice says so:\n${notice}`);
+    assert.doesNotMatch(notice, /the book already holds/i, `the book does not hold ${id}:\n${notice}`);
     assert.equal(await bookText(bots), before, 'the book is not changed at all');
   });
 }

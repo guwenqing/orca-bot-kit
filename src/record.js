@@ -201,11 +201,17 @@ export async function recordSession(bots, name, said, tabId, shellPid) {
 function unplaced(bots, home, name, said, tabId, why) {
   const found = sessionAt(readBook(home), tabId);
   if (found === undefined) return undefined;
-  const [session] = found;
+  const [session, was] = found;
   const bot = readBot(home, name);
   const settings = bot.sessions.find((entry) => entry.name === session);
   const onClaude = settings !== undefined && harnessOf(settings, bot.harness) === 'claude';
-  const notice = `The kit could not read the process table: ${why}. So it could not tell that this is the tab's own session ${name}/${session}, and it did not record the conversation ${said.session_id} in the book. Until ps runs for the kit's hook: obk restart and obk up bring back the conversation that the book holds, not this one; a /clear, a /new or a compaction does not give the session its start prompt again; and the kit does not note how the session was launched. Tell the user, and ask them to run obk health.`;
+  // A resume or a compaction can report the conversation the book already
+  // holds, and then a restart still brings it back (review of PR 799).
+  const held = was.session === said.session_id;
+  const kept = held
+    ? `The book already holds the conversation ${said.session_id}, so obk restart and obk up can still bring it back. The kit records nothing new in the book while ps cannot run.`
+    : `It did not record the conversation ${said.session_id} in the book, so obk restart and obk up cannot bring this conversation back: they bring back the one that the book holds, if any.`;
+  const notice = `The kit could not read the process table: ${why}. So it could not tell that this is the tab's own session ${name}/${session}. ${kept} Until ps runs for the kit's hook, a /clear, a /new or a compaction does not give the session its start prompt again, and the kit does not note how the session was launched. Tell the user, and ask them to run obk health.`;
   const main = onClaude ? guardText(bots, bot) : undefined;
   const context = [notice, main].filter((part) => part !== undefined && part !== '');
   return { hookSpecificOutput: { hookEventName: said.hook_event_name, additionalContext: context.join('\n\n') } };
