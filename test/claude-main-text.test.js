@@ -72,6 +72,19 @@
 //       times goes on the session's line and in main_text's `twice`, by size
 //       and sum, and fails nothing. A part that comes back is a recipe unit
 //       like any other: health names it when a saved original lacks it.
+//   T13. A running session whose book holds neither `main` nor `own_text`, as
+//       after a resume of a conversation from before kit 0.40.0 (#794). Only
+//       when the last record of the conversation the book names holds a drop
+//       unit of the recipe (Claude Code's own text): main text own, whose why
+//       says the book holds no note, that it runs on Claude Code's own main
+//       text, and how it gets the kit's text; no finding for the state, but a
+//       trouble of the build stays one, as for own_text. No transcript, no
+//       record, or a last record without the drop unit: no main_text. Health
+//       writes no note into the book. These tests run a copy of the kit
+//       whose recipe has one more drop unit, a made-up one (markedKit). With
+//       the copy's recipe unreadable: no main_text, whatever the record, and
+//       a session finding that names the session and the recipe, as for
+//       own_text; none for a session with its own --settings.
 //
 // No text of Claude Code is in this file: the sections are made up. A fake
 // `claude` on the sandbox's PATH answers `--version` in every test, so the real
@@ -82,7 +95,7 @@
 
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { access, appendFile, mkdir, readdir, readFile, realpath, rm, utimes, writeFile } from 'node:fs/promises';
+import { access, appendFile, cp, mkdir, readdir, readFile, realpath, rm, symlink, utimes, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { describe, test } from 'node:test';
 import { parse, stringify } from 'yaml';
@@ -1528,5 +1541,393 @@ describe('T8 retire', SIDE_BY_SIDE, () => {
     assert.equal(await exists(path.join(textOf(bots), 'sources')), false, 'sources/ is gone');
     assert.equal(await exists(originalsOf(bots)), false, 'originals/ is gone');
     for (const file of mains) assert.equal(await exists(file), false, `${file} is gone`);
+  });
+});
+
+// ================================================================ T13
+
+describe('T13 a session with no note of its main text (#794)', SIDE_BY_SIDE, () => {
+  /**
+   * A made-up boundary mark of Claude Code's own text. The shipped recipe's
+   * drop unit is of Claude Code's text, which no test holds, so markedKit adds
+   * this mark's hash as one more drop unit, in a copy of the kit.
+   */
+  const MARK = '=== a made-up boundary of Claude Code\'s own text ===';
+
+  /** The harness's own sections with the mark as a whole section. */
+  const OWN = [SECTIONS[0], MARK, ...SECTIONS.slice(1)];
+
+  /** The harness's own sections with the mark as one line of a section. */
+  const OWN_LINE = [SECTIONS[0], `${SECTIONS[1]}\n${MARK}`, SECTIONS[2]];
+
+  /**
+   * Make the sandbox's `obk` a copy of this checkout's kit whose recipe has
+   * MARK's hash as one more drop unit. The test's own: the shipped kit is not
+   * changed, and it gets no option for this.
+   */
+  async function markedKit(box) {
+    const kit = path.join(box.root, 'kit');
+    for (const part of ['src', 'rules', 'skills', 'package.json', 'README.md', 'SETUP.md']) {
+      await cp(path.join(repoRoot, part), path.join(kit, part), { recursive: true });
+    }
+    await symlink(path.join(repoRoot, 'node_modules'), path.join(kit, 'node_modules'));
+    const file = path.join(kit, 'src', 'claude-text-recipe.json');
+    const recipe = JSON.parse(await readFile(file, 'utf8'));
+    assert.ok(Array.isArray(recipe.drop), 'the premise: the shipped recipe has a drop list');
+    await writeFile(file, `${JSON.stringify({ ...recipe, drop: [...recipe.drop, { hash: sha(MARK) }] }, null, 1)}\n`);
+    await rm(box.cli);
+    await symlink(path.join(kit, 'src', 'cli.js'), box.cli);
+  }
+
+  /** The premise: the book's entry of api-bot's `session` holds neither `main` nor `own_text`. */
+  async function assertNoNote(bots, why, session = 'daily') {
+    const entry = await sessionIn(bots, BOT, session);
+    assert.ok(entry, `${why}: the book should hold ${BOT}/${session}`);
+    assert.equal(entry.main, undefined, `${why}: the book holds no main, got: ${show(entry)}`);
+    assert.equal(entry.own_text, undefined, `${why}: the book holds no own_text, got: ${show(entry)}`);
+  }
+
+  /** Take `main` and `own_text` out of daily's entry in the bot's sessions.yaml, as a book written by a kit before 0.40.0. */
+  async function asAnOlderBook(bots) {
+    const file = path.join(botHomeOf(bots, BOT), 'sessions.yaml');
+    const doc = parse(await readFile(file, 'utf8'));
+    delete doc.sessions.daily.main;
+    delete doc.sessions.daily.own_text;
+    await writeFile(file, stringify(doc));
+  }
+
+  /** The why of a session with no note says so, and that it runs on Claude Code's own main text. */
+  function assertNoNoteWhy(text, why) {
+    assert.equal(text?.state, 'own', `${why}: main_text is own, got: ${show(text)}`);
+    assert.ok(typeof text.why === 'string' && text.why.includes('no note'), `${why}: the why says the book holds no note of its main text, got: ${show(text)}`);
+    assert.ok(text.why.includes('Claude Code\'s own main text'), `${why}: the why says it runs on Claude Code's own main text, got: ${show(text)}`);
+  }
+
+  /** The bot up on the marked kit, and daily resumed in a conversation the book never noted, whose record holds `snapshots`. */
+  async function resumedUnnoted(box, snapshots, options = {}) {
+    await markedKit(box);
+    const bots = await started(box, options);
+    const { text } = await appendedOf(await wordsOf(box, bots));
+    if (snapshots !== undefined) await onRecord(box, bots, 'conv-old', snapshots(text));
+    await hook(box, bots, { session: 'conv-old', source: 'resume' });
+    return { bots, text };
+  }
+
+  test('T13 a resume of a conversation the book has no note of, whose last record is of Claude Code\'s own text, with no fitting record: main_text own, whose why says no note, Claude Code\'s own main text and a clear; the line ends with it; no finding, exit 0; health writes no note', async (t) => {
+    const box = await createSandbox(t);
+    // A conversation that began before kit 0.40.0: the book never noted its main text, and obk restart resumed it.
+    const { bots } = await resumedUnnoted(box, (text) => [[...OWN, text]]);
+    await restart(box);
+    await hook(box, bots, { session: 'conv-old', source: 'resume' });
+    await assertNoNote(bots, 'the premise: a resume keeps the book\'s older note, and there is none');
+
+    const { found, sessions, code } = await healthOf(box);
+
+    const text = mainTextIn(sessions, 'daily', 'a resumed session with no note');
+    assertNoNoteWhy(text, 'no fitting record');
+    assert.ok(text.why.includes('clear'), `the why names a clear, as the wait's why does, got: ${show(text)}`);
+    assert.deepEqual(mainTextOf(found, 'daily'), [], `no finding on its main text, got: ${show(found)}`);
+    assert.deepEqual(found, [], `nothing else is wrong, got: ${show(found)}`);
+    assert.equal(code, 0);
+    const line = await textLineOf(box, 'daily');
+    assert.ok(line.endsWith(`main text own: ${text.why}`), `the line ends with the state and the why, got: ${line}`);
+    await assertNoNote(bots, 'after health: health writes no note into the book');
+  });
+
+  test('T13 a started session whose entry an older kit wrote, whose record holds the mark as one line of a section, with no fitting record: main_text own, whose why says no note and a clear; no finding, exit 0; health writes no note', async (t) => {
+    const box = await createSandbox(t);
+    await markedKit(box);
+    const bots = await started(box);
+    const { text: appended } = await appendedOf(await wordsOf(box, bots));
+    await hook(box, bots, { session: 'conv-1', source: 'startup' });
+    await onRecord(box, bots, 'conv-1', [[...OWN_LINE, appended]]);
+    assert.equal((await sessionIn(bots, BOT, 'daily')).own_text, true, 'the premise: the start noted own_text');
+    await asAnOlderBook(bots);
+    await assertNoNote(bots, 'the premise: the older book holds no note');
+
+    const { found, sessions, code } = await healthOf(box);
+
+    const text = mainTextIn(sessions, 'daily', 'a session of an older book');
+    assertNoNoteWhy(text, 'no fitting record');
+    assert.ok(text.why.includes('clear'), `the why names a clear, got: ${show(text)}`);
+    assert.deepEqual(mainTextOf(found, 'daily'), [], `no finding on its main text, got: ${show(found)}`);
+    assert.deepEqual(found, [], `nothing else is wrong, got: ${show(found)}`);
+    assert.equal(code, 0);
+    assert.ok((await textLineOf(box, 'daily')).endsWith(`main text own: ${text.why}`), 'the line ends with the state and the why');
+    await assertNoNote(bots, 'after health: health writes no note into the book');
+  });
+
+  test('T13 a session with no note whose launch a noted record fits, its last record of Claude Code\'s own text: main_text own, whose why says no note, Claude Code\'s own main text, obk restart and compaction; no finding, exit 0; health writes no note', async (t) => {
+    const box = await createSandbox(t);
+    await markedKit(box);
+    const { bots } = await noted(box, { sections: OWN });
+    await asAnOlderBook(bots);
+    await assertNoNote(bots, 'the premise: the older book holds no note');
+
+    const { found, sessions, code } = await healthOf(box);
+
+    const text = mainTextIn(sessions, 'daily', 'a session with no note, the kit\'s text ready');
+    assertNoNoteWhy(text, 'the kit\'s text ready');
+    assert.ok(text.why.includes('obk restart') && text.why.includes('compaction'), `the why names obk restart and a compaction, got: ${show(text)}`);
+    assert.deepEqual(mainTextOf(found, 'daily'), [], `no finding on its main text, got: ${show(found)}`);
+    assert.deepEqual(found, [], `nothing else is wrong, got: ${show(found)}`);
+    assert.equal(code, 0);
+    assert.ok((await textLineOf(box, 'daily')).endsWith(`main text own: ${text.why}`), 'the line ends with the state and the why');
+    await assertNoNote(bots, 'after health: health writes no note into the book');
+  });
+
+  test('T13 the last record counts: a record of a text with no mark, then one of Claude Code\'s own text, gives main_text own', async (t) => {
+    const box = await createSandbox(t);
+    const { bots } = await resumedUnnoted(box, (text) => [['A main text with no mark.', text], [...OWN, text]]);
+    await assertNoNote(bots, 'the premise');
+
+    const { found, sessions } = await healthOf(box);
+
+    assertNoNoteWhy(mainTextIn(sessions, 'daily', 'the last record is of Claude Code\'s own text'), 'the last record');
+    assert.deepEqual(mainTextOf(found, 'daily'), [], `no finding on its main text, got: ${show(found)}`);
+  });
+
+  // A missing note proves nothing by itself: with no record of Claude Code's own
+  // text last, health says nothing of the session's main text, as before #794.
+  // Each runs on the marked kit, where the same session with a marked record
+  // last gets main_text own (the tests above).
+  for (const [what, snapshots] of [
+    ['no transcript', undefined],
+    ['a transcript with no record of the main text', () => []],
+    ['a last record that holds no drop unit', (text) => [[...SECTIONS, text]]],
+    ['a record of Claude Code\'s own text, then a last record with no mark', (text) => [[...OWN, text], ['A main text with no mark.', text]]],
+  ]) {
+    test(`T13 a session with no note and ${what}: no main_text, no finding, exit 0; health writes no note`, async (t) => {
+      const box = await createSandbox(t);
+      const { bots } = await resumedUnnoted(box, snapshots);
+      await assertNoNote(bots, 'the premise');
+
+      const { found, sessions, code } = await healthOf(box);
+
+      assert.equal(mainTextIn(sessions, 'daily', what), undefined, `${what}: no main_text, got: ${show(entryOf(sessions, 'daily'))}`);
+      assert.deepEqual(found, [], `no finding, got: ${show(found)}`);
+      assert.equal(code, 0);
+      assert.doesNotMatch(await textLineOf(box, 'daily'), /main text/, 'the line says nothing of the main text');
+      await assertNoNote(bots, 'after health: health writes no note into the book');
+    });
+  }
+
+  test('T13 a session with no note whose last record is of the kit\'s main file (its first one of Claude Code\'s own text): no main_text, no finding', async (t) => {
+    const box = await createSandbox(t);
+    await markedKit(box);
+    const { bots, appended } = await noted(box, { sections: OWN });
+    await restart(box);
+    const main = assertMainNamed(await wordsOf(box, bots), 'the premise: the kit gives its main text');
+    assert.ok(!(await readFile(main, 'utf8')).includes(MARK), 'the premise: the kit\'s main file holds no mark');
+    // The resumed conversation's next compaction records the kit's main file.
+    await hook(box, bots, { session: 'conv-1', source: 'resume' });
+    // Appended to the same transcript: onRecord would write it anew.
+    const transcript = await transcriptOf(box, bots, 'conv-1');
+    await appendFile(transcript, `${JSON.stringify(snapshot('conv-1', [await readFile(main, 'utf8'), appended]))}\n`);
+    const records = (await readFile(transcript, 'utf8')).split('\n').filter((line) => line.includes('"prompt_snapshot"'));
+    assert.equal(records.length, 2, 'the premise: the transcript holds the record of Claude Code\'s own text, then the one of the kit\'s main file');
+    assert.ok(records[0].includes(JSON.stringify(MARK).slice(1, -1)), 'the premise: the first record holds the mark');
+    await asAnOlderBook(bots);
+    await assertNoNote(bots, 'the premise');
+
+    const { found, sessions } = await healthOf(box);
+
+    assert.equal(mainTextIn(sessions, 'daily', 'a last record of the kit\'s main file'), undefined, `no main_text, got: ${show(entryOf(sessions, 'daily'))}`);
+    assert.deepEqual(mainTextOf(found, 'daily'), [], `no finding on its main text, got: ${show(found)}`);
+    await assertNoNote(bots, 'after health: health writes no note into the book');
+  });
+
+  /** The marked kit up; daily started and noted, with its record of Claude Code's own text; `then` runs before health. */
+  async function ownTextNoted(box, { record = {}, then = async () => {}, ...options } = {}) {
+    await markedKit(box);
+    const bots = await started(box, options);
+    const { text } = await appendedOf(await wordsOf(box, bots));
+    await hook(box, bots, { session: 'conv-1', source: 'startup' });
+    await onRecord(box, bots, 'conv-1', [[...OWN, text]], record);
+    await then(bots);
+    return bots;
+  }
+
+  /** Health with the book's own_text note, then with the note taken out: both answers. */
+  async function withAndWithoutNote(box, bots) {
+    assert.equal((await sessionIn(bots, BOT, 'daily')).own_text, true, `the premise: the book notes own_text, got: ${show(await sessionIn(bots, BOT, 'daily'))}`);
+    const noted = await healthOf(box);
+    await asAnOlderBook(bots);
+    await assertNoNote(bots, 'the premise: the older book holds no note');
+    const unnoted = await healthOf(box);
+    await assertNoNote(bots, 'after health: health writes no note into the book');
+    return { noted, unnoted };
+  }
+
+  test('T13 a session with no note and a claude --version that gives nothing: main_text own, and the finding that names claude --version, with a failing exit, as for own_text', async (t) => {
+    const box = await createSandbox(t);
+    const bots = await ownTextNoted(box, { answer: '', exitCode: 1 });
+
+    const { noted, unnoted } = await withAndWithoutNote(box, bots);
+
+    assert.ok(aboutSession(noted.found, 'daily', 'claude --version').length >= 1, `the premise: own_text gives the finding, got: ${show(noted.found)}`);
+    assert.notEqual(noted.code, 0, 'the premise: own_text with the finding fails health');
+    assertNoNoteWhy(mainTextIn(unnoted.sessions, 'daily', 'no version'), 'no version');
+    assert.ok(aboutSession(unnoted.found, 'daily', 'claude --version').length >= 1, `the finding names claude --version, got: ${show(unnoted.found)}`);
+    assert.deepEqual(unnoted.found, noted.found, 'the findings are as for own_text');
+    assert.equal(unnoted.code, noted.code, 'the exit is as for own_text');
+  });
+
+  test('T13 a session with no note whose noted source ran on another model than its note: main_text own, and the finding that names both models, with a failing exit, as for own_text', async (t) => {
+    const box = await createSandbox(t);
+    const OTHER = 'claude-other-model-2';
+    const bots = await ownTextNoted(box, { record: { model: OTHER }, then: () => restart(box) });
+    assertOwnText(await wordsOf(box, bots), 'the premise: the record is of another model than the note');
+
+    const { noted, unnoted } = await withAndWithoutNote(box, bots);
+
+    assert.ok(aboutSession(noted.found, 'daily', MODEL, OTHER).length >= 1, `the premise: own_text gives the finding, got: ${show(noted.found)}`);
+    assert.notEqual(noted.code, 0, 'the premise: own_text with the finding fails health');
+    assertNoNoteWhy(mainTextIn(unnoted.sessions, 'daily', 'another model'), 'another model');
+    assert.ok(aboutSession(unnoted.found, 'daily', MODEL, OTHER).length >= 1, `one finding names ${MODEL} and ${OTHER}, got: ${show(unnoted.found)}`);
+    assert.deepEqual(unnoted.found, noted.found, 'the findings are as for own_text');
+    assert.equal(unnoted.code, noted.code, 'the exit is as for own_text');
+  });
+
+  for (const [what, scope] of [['a paused session', ['--session', 'daily']], ['a paused bot', []]]) {
+    test(`T13 ${what} with no note, whose last record is of Claude Code's own text, has no main_text while paused`, async (t) => {
+      const box = await createSandbox(t);
+      const { bots } = await resumedUnnoted(box, (text) => [[...OWN, text]]);
+      await assertNoNote(bots, 'the premise');
+      assertNoNoteWhy(mainTextIn((await healthOf(box)).sessions, 'daily', 'the premise'), 'the premise: running, daily has main_text own');
+
+      await ok(box, ['pause', '--bots', 'bots', '--bot', BOT, ...scope]);
+      const { found, sessions } = await healthOf(box);
+
+      assert.equal(entryOf(sessions, 'daily')?.main_text, undefined, `paused, daily is not running, got: ${show(sessions)}`);
+      assert.deepEqual(mainTextOf(found, 'daily'), [], `and no finding, got: ${show(found)}`);
+    });
+  }
+
+  test('T13 a session with no note whose extra_args carry its own --settings, its last record of Claude Code\'s own text: main_text own, whose why names --settings', async (t) => {
+    const box = await createSandbox(t);
+    const { bots } = await resumedUnnoted(box, (text) => [[...OWN, text]]);
+    const file = path.join(box.root, 'own-settings', 'daily.json');
+    await mkdir(path.dirname(file), { recursive: true });
+    await writeFile(file, `${JSON.stringify({ outputStyle: 'Concise' })}\n`);
+    const doc = parse(await readFile(botYamlOf(bots), 'utf8'));
+    doc.sessions = doc.sessions.map((one) => (one.name === 'daily' ? { ...one, extra_args: ['--settings', file] } : one));
+    await writeFile(botYamlOf(bots), stringify(doc));
+    await restart(box);
+    await hook(box, bots, { session: 'conv-old', source: 'resume' });
+    await assertNoNote(bots, 'the premise');
+
+    const { found, sessions } = await healthOf(box);
+
+    const text = mainTextIn(sessions, 'daily', 'its own --settings, no note');
+    assert.equal(text?.state, 'own', `main_text is own, got: ${show(text)}`);
+    assert.ok(typeof text.why === 'string' && text.why.includes('--settings'), `its why names its own --settings, got: ${show(text)}`);
+    assert.deepEqual(mainTextOf(found, 'daily'), [], `no finding on its main text, got: ${show(found)}`);
+  });
+
+  // ---------------------------------------------------------------- the recipe cannot be read
+
+  /** Make the marked kit's copy of the recipe unreadable; the shipped one stays as it is. */
+  async function breakRecipe(box) {
+    const file = path.join(box.root, 'kit', 'src', 'claude-text-recipe.json');
+    assert.notEqual(file, path.join(repoRoot, 'src', 'claude-text-recipe.json'), 'the premise: the copy, not the shipped recipe');
+    await access(file);
+    await writeFile(file, '{ "drop": [ not json\n');
+  }
+
+  const UNREAD = 'the kit\'s recipe could not be read';
+
+  /** The findings that say the recipe could not be read. */
+  const recipeFindings = (found) => saying(found, UNREAD);
+
+  /**
+   * `obk health --bot api-bot --json`: its findings, sessions and exit code.
+   * The sandbox's Bot Father session has no note either, so with the recipe
+   * unreadable it has a finding of its own; scoped to api-bot, the exit code
+   * is of api-bot's findings alone.
+   */
+  async function botHealthOf(box) {
+    const result = await box.run(['health', '--bots', 'bots', '--bot', BOT, '--json']);
+    let answer;
+    try {
+      answer = JSON.parse(result.stdout);
+    } catch (error) {
+      return assert.fail(`health --json should print JSON, got (${error.message}):\n${result.stdout}${result.stderr}`);
+    }
+    assert.ok(Array.isArray(answer.found) && Array.isArray(answer.sessions), `health answers with findings and sessions, got: ${result.stdout}`);
+    assert.deepEqual(answer.found.filter((one) => one.bot !== BOT), [], `the premise: health --bot ${BOT} names only ${BOT}, got: ${show(answer.found)}`);
+    return { found: answer.found, sessions: answer.sessions, code: result.code };
+  }
+
+  for (const [what, snapshots] of [
+    ['a last record that holds the mark', (text) => [[...OWN, text]]],
+    ['a last record that holds no mark', (text) => [[...SECTIONS, text]]],
+    ['no transcript', undefined],
+  ]) {
+    test(`T13 with the recipe unreadable, a session with no note and ${what}: no main_text; one session finding names ${BOT}/daily and says the kit's recipe could not be read; health fails; it writes no note`, async (t) => {
+      const box = await createSandbox(t);
+      const { bots } = await resumedUnnoted(box, snapshots);
+      await assertNoNote(bots, 'the premise');
+      const readable = await botHealthOf(box);
+      assert.deepEqual(readable.found, [], 'the premise: with the recipe readable, nothing is wrong');
+      assert.equal(readable.code, 0, 'the premise: with the recipe readable, health passes');
+
+      await breakRecipe(box);
+      const { found, sessions, code } = await botHealthOf(box);
+
+      assert.equal(mainTextIn(sessions, 'daily', what), undefined, `health cannot tell what it runs on: no main_text, got: ${show(entryOf(sessions, 'daily'))}`);
+      const said = recipeFindings(found);
+      assert.equal(said.length, 1, `one finding says ${UNREAD}, got: ${show(found)}`);
+      assert.equal(said[0].kind, 'session', `a session finding, got: ${show(said[0])}`);
+      assert.ok(said[0].says.includes(`${BOT}/daily`), `it names ${BOT}/daily, got: ${said[0].says}`);
+      assert.deepEqual(found, said, `nothing else is wrong, got: ${show(found)}`);
+      assert.notEqual(code, 0, 'health fails on the finding');
+      await assertNoNote(bots, 'after health: health writes no note into the book');
+    });
+  }
+
+  test('T13 with the recipe unreadable, a session with no note fails health as a session noted own_text does, with a session finding on the recipe', async (t) => {
+    const box = await createSandbox(t);
+    const bots = await ownTextNoted(box, { then: () => breakRecipe(box) });
+    assert.equal((await sessionIn(bots, BOT, 'daily')).own_text, true, 'the premise: the book notes own_text');
+
+    const noted = await botHealthOf(box);
+    await asAnOlderBook(bots);
+    await assertNoNote(bots, 'the premise: the older book holds no note');
+    const unnoted = await botHealthOf(box);
+    await assertNoNote(bots, 'after health: health writes no note into the book');
+
+    const before = recipeFindings(noted.found);
+    assert.ok(before.length >= 1 && before.every((one) => one.kind === 'session' && one.says.includes(`${BOT}/daily`)), `the premise: own_text gives a session finding on ${BOT}/daily, got: ${show(noted.found)}`);
+    assert.notEqual(noted.code, 0, 'the premise: own_text with an unreadable recipe fails health');
+    assert.equal(mainTextIn(unnoted.sessions, 'daily', 'no note'), undefined, `no main_text, got: ${show(entryOf(unnoted.sessions, 'daily'))}`);
+    const after = recipeFindings(unnoted.found);
+    assert.equal(after.length, 1, `one finding says ${UNREAD}, got: ${show(unnoted.found)}`);
+    assert.ok(after[0].kind === 'session' && after[0].says.includes(`${BOT}/daily`), `a session finding on ${BOT}/daily, got: ${show(after[0])}`);
+    assert.equal(unnoted.code, noted.code, 'the exit is as for own_text');
+  });
+
+  test('T13 with the recipe unreadable, a session with no note whose extra_args carry its own --settings gets no recipe finding, as a session noted own_text with its own --settings gets none', async (t) => {
+    const box = await createSandbox(t);
+    // daily: resumed with no note; review: started and noted own_text. Both carry their own --settings.
+    const { bots } = await resumedUnnoted(box, (text) => [[...OWN, text]], { more: [['review', []]] });
+    await hook(box, bots, { session: 'conv-r', source: 'startup', name: 'review' });
+    await onRecord(box, bots, 'conv-r', []);
+    const file = path.join(box.root, 'own-settings', 'shared.json');
+    await mkdir(path.dirname(file), { recursive: true });
+    await writeFile(file, `${JSON.stringify({ outputStyle: 'Concise' })}\n`);
+    const doc = parse(await readFile(botYamlOf(bots), 'utf8'));
+    doc.sessions = doc.sessions.map((one) => ({ ...one, extra_args: ['--settings', file] }));
+    await writeFile(botYamlOf(bots), stringify(doc));
+    await assertNoNote(bots, 'the premise: daily has no note');
+    assert.equal((await sessionIn(bots, BOT, 'review')).own_text, true, 'the premise: review is noted own_text');
+
+    await breakRecipe(box);
+    const { found } = await botHealthOf(box);
+
+    assert.deepEqual(recipeFindings(found).filter((one) => one.says.includes(`${BOT}/review`)), [],
+      `the premise: own_text with its own --settings gets no recipe finding, got: ${show(found)}`);
+    assert.deepEqual(recipeFindings(found), [], `no recipe finding for daily either, got: ${show(found)}`);
+    await assertNoNote(bots, 'after health: health writes no note into the book');
   });
 });
