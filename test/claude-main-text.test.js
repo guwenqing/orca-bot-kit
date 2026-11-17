@@ -416,9 +416,19 @@ async function textLineOf(box, session) {
 /** The shipped recipe. */
 const shippedRecipe = async () => JSON.parse(await readFile(path.join(repoRoot, 'src', 'claude-text-recipe.json'), 'utf8'));
 
+/**
+ * Each group runs four of its tests side by side (#778). A test spends most of
+ * its time in `obk up`, which waits up to 5 s for the start prompt in the
+ * record of each session it launched. Here no harness writes that record, so
+ * each launch costs the whole wait, and the test only sleeps through it. Every
+ * test has a sandbox of its own, so no test sees another. The groups still run
+ * one after another.
+ */
+const SIDE_BY_SIDE = { concurrency: 4 };
+
 // ================================================================ T1
 
-describe('T1 no fitting record', () => {
+describe('T1 no fitting record', SIDE_BY_SIDE, () => {
   test('T1 with no record at all, the line carries no main file, and the appended file is still given', async (t) => {
     const box = await createSandbox(t);
     const bots = await started(box);
@@ -440,7 +450,7 @@ describe('T1 no fitting record', () => {
 
 // ================================================================ T2
 
-describe('T2 the note', () => {
+describe('T2 the note', SIDE_BY_SIDE, () => {
   test('T2 a start and a clear on the kit\'s line are noted; a resume and a compaction are not', async (t) => {
     const box = await createSandbox(t);
     // The line names the model, so a clear is a source (the architect's ruling on #783).
@@ -479,7 +489,7 @@ describe('T2 the note', () => {
   });
 });
 
-describe('T2 the whole launch line', () => {
+describe('T2 the whole launch line', SIDE_BY_SIDE, () => {
   /** The kit's line with `extra` put in directly before its prompt separator `--`. */
   function beforePrompt(words, extra) {
     const at = words.indexOf('--');
@@ -519,7 +529,7 @@ describe('T2 the whole launch line', () => {
 
 // ================================================================ T3
 
-describe('T3 the build', () => {
+describe('T3 the build', SIDE_BY_SIDE, () => {
   test('T3 a noted record gives the next launch a main file of its sections, without the appended one, before the appended file', async (t) => {
     const box = await createSandbox(t);
     const { bots } = await noted(box);
@@ -591,7 +601,7 @@ describe('T3 the build', () => {
 
 // ================================================================ T4
 
-describe('T4 the saved original', () => {
+describe('T4 the saved original', SIDE_BY_SIDE, () => {
   test('T4 the original is saved by version and shape, and a later launch builds from it when the record is gone', async (t) => {
     const box = await createSandbox(t);
     const { bots } = await noted(box);
@@ -686,7 +696,7 @@ describe('T4 the saved original', () => {
 
 // ================================================================ T5
 
-describe('T5 the fit', () => {
+describe('T5 the fit', SIDE_BY_SIDE, () => {
   /** A noted record, then a change, then a restart: the change's line and the shapes before and after. */
   async function changed(box, change, options = {}) {
     const { bots } = await noted(box, options);
@@ -1014,7 +1024,7 @@ describe('T5 the fit', () => {
 
 // ================================================================ T6
 
-describe('T6 the book', () => {
+describe('T6 the book', SIDE_BY_SIDE, () => {
   test('T6 a start on the kit\'s line with no main file is noted own_text, and a resume keeps it', async (t) => {
     const box = await createSandbox(t);
     const bots = await started(box);
@@ -1061,7 +1071,7 @@ describe('T6 the book', () => {
 
 // ================================================================ T7
 
-describe('T7 health', () => {
+describe('T7 health', SIDE_BY_SIDE, () => {
   test('T7 a session on its own text because claude --version gave nothing is named, with claude --version', async (t) => {
     const box = await createSandbox(t);
     const bots = await started(box, { answer: '', exitCode: 1 });
@@ -1186,7 +1196,7 @@ describe('T7 health', () => {
 
 // ================================================================ T9
 
-describe('T9 the folders', () => {
+describe('T9 the folders', SIDE_BY_SIDE, () => {
   test('T9 no Codex launch line names the main text folder: a Codex session of the same bot gets --add-dir for messages, prompts and locks only', async (t) => {
     const box = await createSandbox(t);
     const { bots } = await noted(box, { more: [['nightly', ['--harness', 'codex']]] });
@@ -1209,7 +1219,7 @@ describe('T9 the folders', () => {
 
 // ================================================================ T10
 
-describe('T10 units that cannot be built now', () => {
+describe('T10 units that cannot be built now', SIDE_BY_SIDE, () => {
   test('T10 the line and the hook use the kit\'s own copy of its last system text, not the newest system file in the prompts folder', async (t) => {
     const box = await createSandbox(t);
     const bots = await started(box);
@@ -1250,7 +1260,7 @@ describe('T10 units that cannot be built now', () => {
 
 // ================================================================ T11
 
-describe('T11 the model of a note', () => {
+describe('T11 the model of a note', SIDE_BY_SIDE, () => {
   const OTHER = 'claude-other-model-2';
 
   test('T11 a start notes the model of the hook input: a record of that model fits, though bot.yaml names the model by a short name', async (t) => {
@@ -1348,7 +1358,7 @@ describe('T11 the model of a note', () => {
 
 // ================================================================ T12
 
-describe('T12 the parts that Claude Code adds by itself (#784)', () => {
+describe('T12 the parts that Claude Code adds by itself (#784)', SIDE_BY_SIDE, () => {
   /**
    * daily on the kit's main file: a noted record, a restart on the kit's line,
    * and a clear, so the book has `main` and the conversation conv-2. Gives back
@@ -1501,7 +1511,7 @@ describe('T12 the parts that Claude Code adds by itself (#784)', () => {
 
 // ================================================================ T8
 
-describe('T8 retire', () => {
+describe('T8 retire', SIDE_BY_SIDE, () => {
   test('T8 retiring the bot removes its sources, its originals and its main files', async (t) => {
     const box = await createSandbox(t);
     const { bots } = await noted(box);
