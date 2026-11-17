@@ -39,9 +39,14 @@ jobs:
   # file times measured for #364 the slowest came to about seven minutes, and a
   # release runs them on two Nodes, eighteen jobs, within the twenty a free
   # account runs at once.
+  #
+  # A shard ends by itself after an hour (#778). Without a limit, a hung shard
+  # holds its run for GitHub's own six hours. The longest green shard took 49
+  # minutes on the runs up to 2026-11-17.
   shard:
     name: shard ${{ matrix.shard }}/9
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     strategy:
       # One failing shard does not stop the others, so a run shows every failure.
       fail-fast: false

@@ -1047,6 +1047,73 @@ test('the check for stopping a superseded run sees no group, no cancel, a group 
   assert.equal(holds({ group: '${{ secrets.GROUP }}', 'cancel-in-progress': true }), false, 'a group the guard cannot read');
 });
 
+// A time limit on every run of the suite (#778): a job with no `timeout-minutes`
+// runs until GitHub's own limit of six hours, so a hung shard holds its run that
+// long, and a reader cannot tell a slow shard from a hung one. Each job that
+// runs the suite sets its own limit, at job level, as a plain number of minutes:
+// a step's limit stops only that step, and an expression is not something the
+// guard can read. An hour at most, so a hung shard ends by itself in about one.
+
+/** The most minutes a job that runs the suite may run. */
+const MOST_MINUTES = 60;
+
+/**
+ * Why a job that runs the suite does not end by itself within MOST_MINUTES:
+ * undefined when it does. Its own `timeout-minutes` must be a whole number from
+ * 1 to MOST_MINUTES, written as a number.
+ */
+function timeoutProblem(job) {
+  const minutes = job?.['timeout-minutes'];
+  if (minutes === undefined || minutes === null) {
+    const onSteps = stepsOfJob(job).some((step) => step?.['timeout-minutes'] !== undefined);
+    return onSteps
+      ? 'it has no job-level timeout-minutes; a step\'s timeout-minutes stops only that step'
+      : 'it has no timeout-minutes, so a hung run holds it for GitHub\'s six hours';
+  }
+  if (typeof minutes !== 'number') return `its timeout-minutes is ${JSON.stringify(minutes)}, not a plain number of minutes`;
+  if (!Number.isInteger(minutes)) return `its timeout-minutes is ${minutes}, not a whole number of minutes`;
+  if (minutes < 1) return `its timeout-minutes is ${minutes}, which is not a time limit`;
+  if (minutes > MOST_MINUTES) return `its timeout-minutes is ${minutes}, more than ${MOST_MINUTES}`;
+  return undefined;
+}
+
+test(`every job that runs the suite, in every workflow, ends by itself within ${MOST_MINUTES} minutes`, async () => {
+  // Found by what the jobs do, not by their names: a pull request's shards and
+  // a release's, on both Nodes, and any job that runs the suite later.
+  const all = await workflows();
+  const jobs = all.flatMap((workflow) => Object.entries(workflow.doc?.jobs ?? {})
+    .filter(([, job]) => runsTheSuite(job))
+    .map(([id, job]) => ({ where: `${workflow.name}: ${id}`, job })));
+  assert.ok(jobs.length > 0, 'no job in any workflow runs the suite');
+
+  const found = jobs
+    .map(({ where, job }) => ({ where, problem: timeoutProblem(job) }))
+    .filter(({ problem }) => problem !== undefined)
+    .map(({ where, problem }) => `${where}: ${problem}`);
+  assert.deepEqual(found, [], `each job that runs the suite should set timeout-minutes to a whole number from 1 to ${MOST_MINUTES}:\n  ${found.join('\n  ')}`);
+});
+
+test('the check for a time limit sees none, one on a step only, an expression, more than an hour, zero, and a part of a minute', () => {
+  const suite = { run: 'npm run test:shard', env: { SHARD: '${{ matrix.shard }}/9' } };
+  const job = (fields, steps = [{ run: 'npm ci' }, suite]) => ({ 'runs-on': 'ubuntu-latest', strategy: { matrix: { shard: [1, 2] } }, ...fields, steps });
+  const holds = (fields, steps) => timeoutProblem(job(fields, steps)) === undefined;
+
+  assert.equal(holds({ 'timeout-minutes': MOST_MINUTES }), true, 'the most minutes');
+  assert.equal(holds({ 'timeout-minutes': 45 }), true, 'less than the most');
+  assert.equal(holds({ 'timeout-minutes': 1 }), true, 'one minute');
+
+  assert.equal(holds({}), false, 'no timeout-minutes');
+  assert.equal(holds({}, [{ run: 'npm ci' }, { ...suite, 'timeout-minutes': 45 }]), false, 'a timeout-minutes on the step only');
+  assert.equal(holds({ 'timeout-minutes': '${{ fromJSON(vars.SHARD_MINUTES) }}' }), false, 'an expression');
+  assert.equal(holds({ 'timeout-minutes': '45' }), false, 'a number written as a string');
+  assert.equal(holds({ 'timeout-minutes': MOST_MINUTES + 1 }), false, 'one minute more than the most');
+  assert.equal(holds({ 'timeout-minutes': 360 }), false, 'GitHub\'s own six hours');
+  assert.equal(holds({ 'timeout-minutes': 0 }), false, 'zero');
+  assert.equal(holds({ 'timeout-minutes': -5 }), false, 'a negative number');
+  assert.equal(holds({ 'timeout-minutes': 30.5 }), false, 'a part of a minute');
+  assert.equal(holds({ 'timeout-minutes': null }), false, 'timeout-minutes with no value');
+});
+
 test('the README says the same about Node as the package and the workflow do, and so does CONTRIBUTING.md', async () => {
   // The floor lives in three places a person writes by hand — `engines.node`, the
   // workflow, and the sentence a user reads before installing anything — and a
