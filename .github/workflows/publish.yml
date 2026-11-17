@@ -20,9 +20,11 @@ permissions:
 jobs:
   # The same shards CI runs, on the same Node, against the commit the release
   # points at. Nothing is published from a commit that does not pass them.
+  # Each shard ends by itself after an hour, as in ci.yml (#778).
   test:
     name: test ${{ matrix.shard }}/9
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -55,6 +57,7 @@ jobs:
   floor:
     name: floor ${{ matrix.shard }}/9
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
