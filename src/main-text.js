@@ -481,10 +481,10 @@ export function mainTextTrouble(bots, home, bot) {
   const states = {};
   for (const [name, entry] of Object.entries(book.sessions ?? {})) {
     const main = typeof entry?.main === 'string' ? path.basename(entry.main) : undefined;
-    // No note at all: the hook keeps a resume's older note, and a conversation
-    // that began before the kit noted its main text has none (#794). Such a
-    // session runs on Claude Code's own main text; health says so and writes
-    // no note.
+    // No note at all: the hook keeps a resume's older note, so a conversation
+    // that began before the kit noted its main text has none (#794). A missing
+    // note proves nothing by itself, so health names such a session only when
+    // the last record of its conversation is of Claude Code's own main text.
     const unnoted = entry?.own_text !== true && main === undefined;
     const own = entry?.own_text === true || unnoted;
     const session = bot.sessions.find((one) => one.name === name);
@@ -492,6 +492,7 @@ export function mainTextTrouble(bots, home, bot) {
     // A paused bot or session runs nothing, so it runs on no main text: it is
     // named again once it is unpaused and starts.
     if (bot.paused === true || session.paused === true) continue;
+    if (unnoted && !lastRecordIsOwn(home, entry?.session)) continue;
     // The user's own --settings: their choice, which health names once, with
     // what the session runs without (ownSettings). Only for a session that the
     // book has on its own text: one whose launch named the kit's main file runs
@@ -512,16 +513,15 @@ export function mainTextTrouble(bots, home, bot) {
     } catch (error) {
       built = { why: error.message };
     }
-    if (unnoted) {
-      // Not a finding: it is the state of every resumed session right after
-      // an upgrade. What the build says is how it gets the kit's text.
-      states[name] = { state: 'own', why: `${UNNOTED} ${built.file !== undefined ? READY : built.why}` };
-    } else if (own && built.file !== undefined) {
-      states[name] = { state: 'own', why: READY };
+    // With no note, the state itself is no finding: it is the state of every
+    // resumed session right after an upgrade. A trouble of the build stays one.
+    const why = (said) => (unnoted ? `${UNNOTED} ${said}` : said);
+    if (own && built.file !== undefined) {
+      states[name] = { state: 'own', why: why(READY) };
     } else if (own && built.wait === true) {
-      states[name] = { state: 'own', why: built.why };
+      states[name] = { state: 'own', why: why(built.why) };
     } else if (own) {
-      states[name] = { state: 'own', why: built.why };
+      states[name] = { state: 'own', why: why(built.why) };
       found.push(`${bot.name}/${name} runs on Claude Code's own main text, not the one the kit builds, because ${built.why}.`);
     } else if (built.file !== undefined && path.basename(built.file) !== main) {
       states[name] = { state: 'older', why: `it came from ${path.join(text, main)}, and it gets the new text after obk restart: at once in a new conversation, and in a resumed one after its next compaction or clear` };
@@ -559,6 +559,43 @@ function partsFound(home, conversation, main, back) {
   }
   const sections = recordOf(claudeTranscript(real, conversation), main);
   return partsTrouble(sections, { main, back, recipe: readRecipe() }) ?? none;
+}
+
+/**
+ * Whether `sections`, a record's list, are of Claude Code's own main text: they
+ * hold a drop unit of the recipe, the boundary mark that Claude Code's own text
+ * has and a text the kit builds never has (#794). False with no recipe.
+ */
+export function isOwnRecord(sections, recipe) {
+  if (!Array.isArray(sections) || !Array.isArray(recipe?.drop)) return false;
+  const drop = new Set(recipe.drop.map((entry) => entry.hash));
+  return sections.some((section) => drop.has(unitHash(section)) || section.split('\n').some((line) => drop.has(unitHash(line))));
+}
+
+/**
+ * Whether the last `prompt_snapshot` of the conversation `conversation` is of
+ * Claude Code's own main text: what a resumed conversation runs on until its
+ * next compaction (#794). False when there is no such record.
+ */
+function lastRecordIsOwn(home, conversation) {
+  if (typeof conversation !== 'string' || !SAFE_ID.test(conversation)) return false;
+  let file;
+  try {
+    file = claudeTranscript(realpathSync(home), conversation);
+  } catch {
+    return false;
+  }
+  if (!existsSync(file)) return false;
+  let sections;
+  try {
+    eachLine(file, (line) => {
+      if (line !== undefined && line.includes('"prompt_snapshot"')) sections = snapshotIn(line)?.sections ?? sections;
+      return false;
+    });
+  } catch {
+    return false;
+  }
+  return isOwnRecord(sections, readRecipe());
 }
 
 /** A file's text, or undefined when it cannot be read. */
@@ -603,7 +640,7 @@ const READY = 'the kit\'s main text is ready for it: after obk restart it runs o
  * resume keeps the note it had, so a conversation that began before the kit
  * noted its main text has none.
  */
-const UNNOTED = 'the book holds no note of its main text, as for a conversation resumed from one that began before the kit noted it, so it runs on Claude Code\'s own main text, and';
+const UNNOTED = 'the book holds no note of its main text, as after a resume of a conversation that began before the kit noted it, and the last record of its conversation shows that it runs on Claude Code\'s own main text, and';
 
 function namesIn(dir) {
   try {

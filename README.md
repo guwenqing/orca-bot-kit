@@ -650,7 +650,8 @@ What this costs you:
   `older` (with how it gets the new one), or `own`, with why. A paused session
   shows it once it starts again. A resume keeps the book's note of the main
   text, so a conversation that began before the kit noted it has none, as each
-  resumed session has after an upgrade to 0.40.0. Its line says `own`, that
+  resumed session has after an upgrade to 0.40.0. When the last record of its
+  conversation is of Claude Code's own main text, its line says `own`, that
   the book holds no note, and how it gets the kit's text. The wait for a first
   record does not fail health. Health gives a finding when the user must act:
   a record of another
