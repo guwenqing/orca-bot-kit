@@ -480,14 +480,29 @@ export function mainTextTrouble(bots, home, bot) {
   const found = [];
   const states = {};
   for (const [name, entry] of Object.entries(book.sessions ?? {})) {
-    const own = entry?.own_text === true;
     const main = typeof entry?.main === 'string' ? path.basename(entry.main) : undefined;
-    if (!own && main === undefined) continue;
+    // No note at all: the hook keeps a resume's older note, so a conversation
+    // that began before the kit noted its main text has none (#794). A missing
+    // note proves nothing by itself, so health names such a session only when
+    // the last record of its conversation is of Claude Code's own main text.
+    const unnoted = entry?.own_text !== true && main === undefined;
+    const own = entry?.own_text === true || unnoted;
     const session = bot.sessions.find((one) => one.name === name);
     if (session === undefined || harnessOf(session, bot.harness) !== 'claude') continue;
     // A paused bot or session runs nothing, so it runs on no main text: it is
     // named again once it is unpaused and starts.
     if (bot.paused === true || session.paused === true) continue;
+    if (unnoted) {
+      // Without the recipe the record cannot be told, but the user must act
+      // on the recipe whatever the session runs on now. A session with its own
+      // --settings gets no text of the kit's in any case, as below.
+      const recipe = readRecipe();
+      if (recipe === undefined) {
+        if (!setsSettings(session)) found.push(`${bot.name}/${name} does not get the main text the kit builds, because the kit's recipe could not be read.`);
+        continue;
+      }
+      if (!lastRecordIsOwn(home, entry?.session, recipe)) continue;
+    }
     // The user's own --settings: their choice, which health names once, with
     // what the session runs without (ownSettings). Only for a session that the
     // book has on its own text: one whose launch named the kit's main file runs
@@ -508,12 +523,15 @@ export function mainTextTrouble(bots, home, bot) {
     } catch (error) {
       built = { why: error.message };
     }
+    // With no note, the state itself is no finding: it is the state of every
+    // resumed session right after an upgrade. A trouble of the build stays one.
+    const why = (said) => (unnoted ? `${UNNOTED} ${said}` : said);
     if (own && built.file !== undefined) {
-      states[name] = { state: 'own', why: 'the kit\'s main text is ready for it: after obk restart it runs on the kit\'s text, at once in a new conversation, and in a resumed one after its next compaction or clear' };
+      states[name] = { state: 'own', why: why(READY) };
     } else if (own && built.wait === true) {
-      states[name] = { state: 'own', why: built.why };
+      states[name] = { state: 'own', why: why(built.why) };
     } else if (own) {
-      states[name] = { state: 'own', why: built.why };
+      states[name] = { state: 'own', why: why(built.why) };
       found.push(`${bot.name}/${name} runs on Claude Code's own main text, not the one the kit builds, because ${built.why}.`);
     } else if (built.file !== undefined && path.basename(built.file) !== main) {
       states[name] = { state: 'older', why: `it came from ${path.join(text, main)}, and it gets the new text after obk restart: at once in a new conversation, and in a resumed one after its next compaction or clear` };
@@ -553,6 +571,43 @@ function partsFound(home, conversation, main, back) {
   return partsTrouble(sections, { main, back, recipe: readRecipe() }) ?? none;
 }
 
+/**
+ * Whether `sections`, a record's list, are of Claude Code's own main text: they
+ * hold a drop unit of the recipe, the boundary mark that Claude Code's own text
+ * has and a text the kit builds never has (#794). False with no recipe.
+ */
+export function isOwnRecord(sections, recipe) {
+  if (!Array.isArray(sections) || !Array.isArray(recipe?.drop)) return false;
+  const drop = new Set(recipe.drop.map((entry) => entry.hash));
+  return sections.some((section) => drop.has(unitHash(section)) || section.split('\n').some((line) => drop.has(unitHash(line))));
+}
+
+/**
+ * Whether the last `prompt_snapshot` of the conversation `conversation` is of
+ * Claude Code's own main text, by `recipe`: what a resumed conversation runs
+ * on until its next compaction (#794). False when there is no such record.
+ */
+function lastRecordIsOwn(home, conversation, recipe) {
+  if (typeof conversation !== 'string' || !SAFE_ID.test(conversation)) return false;
+  let file;
+  try {
+    file = claudeTranscript(realpathSync(home), conversation);
+  } catch {
+    return false;
+  }
+  if (!existsSync(file)) return false;
+  let sections;
+  try {
+    eachLine(file, (line) => {
+      if (line !== undefined && line.includes('"prompt_snapshot"')) sections = snapshotIn(line)?.sections ?? sections;
+      return false;
+    });
+  } catch {
+    return false;
+  }
+  return isOwnRecord(sections, recipe);
+}
+
 /** A file's text, or undefined when it cannot be read. */
 function readText(file) {
   try {
@@ -586,6 +641,16 @@ function recordOf(file, main) {
  * until its next compaction (tech notes, the snapshot).
  */
 const RECORDS = 'A new conversation on the kit\'s line records one: a first start, or a clear (obk session clear). A resume records nothing. After that the session gets the kit\'s text at its next start: at once in a new conversation, and in a resumed one after its next compaction or clear';
+
+/** Why a session whose main text the kit has ready runs on Claude Code's own. */
+const READY = 'the kit\'s main text is ready for it: after obk restart it runs on the kit\'s text, at once in a new conversation, and in a resumed one after its next compaction or clear';
+
+/**
+ * What health knows of a session that the book holds no note of (#794): a
+ * resume keeps the note it had, so a conversation that began before the kit
+ * noted its main text has none.
+ */
+const UNNOTED = 'the book holds no note of its main text, as after a resume of a conversation that began before the kit noted it, and the last record of its conversation shows that it runs on Claude Code\'s own main text, and';
 
 function namesIn(dir) {
   try {

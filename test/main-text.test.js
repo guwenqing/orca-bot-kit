@@ -30,6 +30,14 @@
 // order; and `without`, each name of `back` whose hash is not the hash of a
 // later section, nor of a line of one.
 //
+//   isOwnRecord(sections, recipe) -> true | false
+//
+// says whether a record's sections are of Claude Code's own main text (#794):
+// true when a section, or one line of a section, is a drop unit of `recipe`;
+// false otherwise, and false when the recipe has no `drop` list or `sections`
+// is not a list. A drop unit is the boundary mark that Claude Code's own text
+// has, and a text the kit builds never has.
+//
 // The shipped recipe, `src/claude-text-recipe.json`, names its units by hash
 // and by name, and holds no word of Claude Code's text.
 //
@@ -315,6 +323,62 @@ function stringsIn(value) {
   if (value !== null && typeof value === 'object') return [...Object.keys(value), ...Object.values(value).flatMap(stringsIn)];
   return [];
 }
+
+describe('isOwnRecord says whether a record is of Claude Code\'s own main text (#794)', () => {
+  test('a record with a whole section that is a drop unit is of Claude Code\'s own text', async () => {
+    const { isOwnRecord } = await load();
+
+    assert.equal(isOwnRecord([HARBOUR, MARKER, FOLDER], RECIPE), true);
+    assert.equal(isOwnRecord([MARKER], RECIPE), true);
+  });
+
+  test('a record with one line of a section that is a drop unit is of Claude Code\'s own text', async () => {
+    const { isOwnRecord } = await load();
+
+    assert.equal(isOwnRecord([HARBOUR, `${TOOLS}\n${MARKER}\nThe rest of the part.`], RECIPE), true);
+    assert.equal(isOwnRecord([`${MARKER}\n${FOLDER}`], RECIPE), true);
+  });
+
+  test('a record with no drop unit is not, also when a section holds the mark inside a longer line', async () => {
+    const { isOwnRecord } = await load();
+
+    assert.equal(isOwnRecord([HARBOUR, TOOLS, FOLDER], RECIPE), false);
+    assert.equal(isOwnRecord([`${MARKER} and more on the same line`, FOLDER], RECIPE), false);
+    assert.equal(isOwnRecord([` ${MARKER}`], RECIPE), false, 'the hash is of the text as it stands');
+    assert.equal(isOwnRecord([], RECIPE), false);
+  });
+
+  test('a record of a main text the kit built from Claude Code\'s own text is not: the build takes the drop unit out', async () => {
+    const { buildMainText, isOwnRecord } = await load();
+    const original = [HARBOUR, MARKER, TOOLS, FOLDER];
+    assert.equal(isOwnRecord(original, RECIPE), true, 'the premise: the original is of Claude Code\'s own text');
+
+    const built = buildMainText(original, { recipe: RECIPE, cut: [] });
+
+    assert.equal(isOwnRecord([built.text, 'The kit\'s appended text.'], RECIPE), false);
+  });
+
+  test('another recipe\'s drop unit does not count', async () => {
+    const { isOwnRecord } = await load();
+    const other = { ...RECIPE, drop: [{ hash: sha('=== another marker ===') }] };
+
+    assert.equal(isOwnRecord([HARBOUR, MARKER, FOLDER], other), false);
+    assert.equal(isOwnRecord([HARBOUR, '=== another marker ===', FOLDER], other), true);
+  });
+
+  test('false with a recipe that has no drop list, or with sections that are not a list', async () => {
+    const { isOwnRecord } = await load();
+    const { drop, ...noDrop } = RECIPE;
+    assert.ok(Array.isArray(drop), 'the premise: the test\'s recipe has a drop list');
+
+    for (const recipe of [undefined, null, {}, noDrop, { ...RECIPE, drop: sha(MARKER) }, { ...RECIPE, drop: { hash: sha(MARKER) } }]) {
+      assert.equal(isOwnRecord([HARBOUR, MARKER], recipe), false, `recipe ${JSON.stringify(recipe)}`);
+    }
+    for (const sections of [undefined, null, MARKER, { 0: MARKER, length: 1 }, 42]) {
+      assert.equal(isOwnRecord(sections, RECIPE), false, `sections ${JSON.stringify(sections)}`);
+    }
+  });
+});
 
 async function shippedRecipe() {
   const file = path.join(repoRoot, 'src', 'claude-text-recipe.json');
