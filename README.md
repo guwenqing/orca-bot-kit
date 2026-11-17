@@ -922,6 +922,11 @@ What it looks for:
   not named: Orca tells it when its turn ends;
 - **a process still running in a retired session's work dir**: one from before
   retire stopped them, or one it could not stop, with its pid and command;
+- **a process table the kit cannot read**: `ps` does not start, fails or lists
+  nothing where health runs. The kit's session hook reads the same table to
+  know that a report comes from a tab's own session, and without it the hook
+  records no conversation. The hook then says so in the session itself, with
+  what stops working;
 - **leftovers no book owns**: an Orca project inside your bots folder with no
   bot in it, a tab in a bot's project that the book does not name, a start
   prompt written for a session that has gone, a clone of a skills source you no

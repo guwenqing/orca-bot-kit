@@ -33,7 +33,7 @@ import { claudeProfileHomes, frontOfTab, startOfProcess, mailIn, orcaDefaultArgs
 import { permissionsTrouble } from './permissions.js';
 import { askPi } from './pi.js';
 import { processesIn } from './processes.js';
-import { TAB_ENV } from './record.js';
+import { processTableTrouble, TAB_ENV } from './record.js';
 import { agentsTrouble, isClaudeBot, rulesStamp, systemFilesKept, systemTrouble } from './rules.js';
 import { mainTextTrouble, unitsNotFound } from './main-text.js';
 import { settingsInUse } from './settings.js';
@@ -54,7 +54,7 @@ export function checkHealth(bots, { bot: onlyBot } = {}) {
   const names = botsNamed(bots, onlyBot);
   const setups = projects();
 
-  const found = [...orcaSettingFindings(), ...leftInOrca(bots, setups), ...leftBeside(bots)];
+  const found = [...orcaSettingFindings(), ...processTableFindings(), ...leftInOrca(bots, setups), ...leftBeside(bots)];
   const sessions = [];
   // Pi is asked only when a bot has a Pi session, and each question once (#660).
   const pi = askPi();
@@ -110,6 +110,19 @@ const unreadableSettings = (where) => finding(
 /** Whether a line of arguments carries `flag` as a word of its own. */
 const carries = (args, flag) =>
   new RegExp(`(^|\\s)${flag.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\s|$)`).test(args);
+
+/**
+ * A process table that ps cannot read where health runs (#791). The kit's
+ * session hook reads it with the same ps, and where it cannot, the hook
+ * records no session. The hook says so in the session, and this says it to
+ * whoever runs health. Health runs where its caller is, which need not be
+ * where a session's harness runs its hook, so the finding says where.
+ */
+function processTableFindings() {
+  const why = processTableTrouble();
+  if (why === undefined) return [];
+  return [finding('process', 'ps', `The kit cannot read the process table where obk health runs now: ${why}. The kit's session hook reads it with the same ps, to tell that a report comes from a tab's own session. Where ps cannot run for the hook, the hook records no conversation in the book: obk restart and obk up then bring back an older conversation or none, a /clear, a /new or a compaction does not give the session its start prompt again, and the kit does not note how a Claude Code session was launched. The hook says so in each session where this happens. Let ps run for the user that runs the sessions.`)];
+}
 
 /**
  * Orca projects inside the bots folder that are no longer a bot: the bot was
