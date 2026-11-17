@@ -632,7 +632,7 @@ What this costs you:
   The kit never names a part that guards safety, so it keeps the others in
   its text, and the session gets each of those two times. With the Chrome
   extension, the session's main text is larger than Claude Code's own: in a
-  run of 2026-11-16, 18,665 characters against 14,994, because the Chrome
+  run of 2026-11-17, 18,369 characters against 15,123, because the Chrome
   section was there two times. A bot that keeps the `Artifact` tool gets its
   paragraph two times too. `obk health` shows each part that a session has two
   times on the session's line, with its size and sum, as in
