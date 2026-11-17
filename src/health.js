@@ -29,7 +29,7 @@ import { cutsTrouble } from './cuts.js';
 import { hookTrouble } from './hooks.js';
 import { APPROVALS, bypassFlags, claudeTextFolder, harnessOf, HARNESSES, isAddressOf, lostToOwnSettings, ownCli, promptFile, REMOTE_CONTROL, remoteControlOf, sessionTrouble, set, setsRemoteControl, setsSettings, SHELL_ENV, shellWord, workDirOf } from './launch.js';
 import { memoryFolderFor, sharedNotes } from './memory.js';
-import { claudeProfileHomes, frontOfTab, startOfProcess, mailIn, orcaDefaultArgs, projects, runMissing, tabs, tabToTypeInto, wordsOfProcess } from './orca.js';
+import { claudeProfileHomes, frontOfTab, startOfProcess, mailIn, orcaDefaultArgs, orcaTrouble, projects, runMissing, tabs, tabToTypeInto, wordsOfProcess } from './orca.js';
 import { permissionsTrouble } from './permissions.js';
 import { askPi } from './pi.js';
 import { processesIn } from './processes.js';
@@ -431,7 +431,7 @@ function runningOn(bots, home, bot, book, handles, sessions) {
     // Running is a tab Orca still has, with the session's harness in front of
     // it. A session whose tab is gone is not running whatever its record says,
     // and the missing tab is said already.
-    if (bot.paused === true || session.paused === true || entry === null || typeof entry !== 'object') continue;
+    if (!onTheBook(bot, session, entry)) continue;
     const handle = handles.get(entry.tab);
     if (handle === undefined) continue;
 
@@ -468,11 +468,11 @@ function runningOn(bots, home, bot, book, handles, sessions) {
       continue;
     }
     const harness = harnessOf(session, bot.harness);
-    const running = front.front === 'program' && front.command === harness ? 'yes' : 'unknown';
+    const running = runs(front, harness) ? 'yes' : 'unknown';
     const conversation = typeof entry.session === 'string' ? entry.session : null;
     const file = recordOf(harness, conversation);
     const settings = settingsInUse(harness, session, file, typeof entry.launched === 'string' ? entry.launched : undefined);
-    const rules = { state: typeof entry.rules !== 'string' ? 'unknown' : entry.rules === stamp ? 'current' : 'older' };
+    const rules = { state: rulesState(entry, stamp) };
     // Remote Control on Claude Code: what was asked, and what Claude Code's own
     // registry says of the process in the tab (ADR 0058). A value sessionTrouble
     // refuses is said there, and not here.
@@ -515,14 +515,97 @@ function runningOn(bots, home, bot, book, handles, sessions) {
     }
 
     if (rules.state === 'older') {
-      const agents = path.join(home, 'AGENTS.md');
-      // A clear reads the instructions again, as a start does, on both
-      // harnesses (tech notes, sections 2 and 3; #391).
-      const clear = `${shellWord(ownCli())} session clear --bots ${shellWord(bots)} --bot ${bot.name} --session ${session.name}`;
-      found.push(finding('session', agents, `${bot.name}'s session ${session.name} is running on older rules: ${agents} has changed since the kit noted which version this session read. A session reads it again when it is cleared: ${clear}, or when it starts: ${restart}`, bot.name));
+      const older = olderRulesOf(bots, home, bot, session);
+      found.push(finding('session', older.where, older.says, bot.name));
     }
   }
   return found;
+}
+
+/**
+ * Each session of the bots in the folder, or of the one named, that runs now
+ * on older rules, with the step that brings it the new ones: the sessions
+ * health names so, in the same words, for `obk rules build` to say after it
+ * writes (#757). `{ older }`, or `{ orca }` with the reason when Orca cannot
+ * be asked. Orca is asked only about a session the book notes on rules that
+ * are not the bot's `AGENTS.md` now, so a build that left every session
+ * current asks it nothing.
+ */
+export function olderRules(bots, { bot: onlyBot } = {}) {
+  const names = botNames(bots).filter((name) => onlyBot === undefined || name === onlyBot);
+  const noted = names.flatMap((name) => {
+    const home = botDir(bots, name);
+    let bot;
+    let book;
+    try {
+      bot = readBot(home, name);
+      book = readBook(home);
+    } catch {
+      // A bot.yaml or a book that cannot be read is the build's to say, and
+      // health's: no session of this bot can be named from it.
+      return [];
+    }
+    const stamp = rulesStamp(home);
+    const stale = bot.sessions.filter((session) => {
+      const entry = book.sessions[session.name];
+      return onTheBook(bot, session, entry) && rulesState(entry, stamp) === 'older';
+    });
+    return stale.length === 0 ? [] : [{ home, bot, book, stale }];
+  });
+  if (noted.length === 0) return { older: [] };
+
+  const trouble = orcaTrouble();
+  if (trouble !== undefined) return { orca: trouble };
+  // The build has written by now, so an Orca that fails between two
+  // questions is said rather than taken for the build's failure.
+  try {
+    return { older: askedOrca(bots, noted) };
+  } catch (error) {
+    return { orca: error.message };
+  }
+}
+
+/** The sessions of `noted` that Orca shows running, each with what health says of it. */
+function askedOrca(bots, noted) {
+  const setups = projects();
+  return noted.flatMap(({ home, bot, book, stale }) => {
+    const real = realpathOf(home);
+    const project = setups.find((setup) => setup.path === real || setup.path === home);
+    if (project === undefined) return [];
+    const handles = new Map(tabs(project.path).map((tab) => [tab.tabId, tab.handle]));
+    return stale.flatMap((session) => {
+      const handle = handles.get(book.sessions[session.name].tab);
+      const harness = harnessOf(session, bot.harness);
+      if (handle === undefined || !runs(frontOfTab(handle), harness)) return [];
+      return [{ bot: bot.name, session: session.name, harness, ...olderRulesOf(bots, home, bot, session) }];
+    });
+  });
+}
+
+/**
+ * Whether health asks after a session at all: one the book has an entry for,
+ * and that is not paused. A paused bot or session was closed on purpose.
+ */
+const onTheBook = (bot, session, entry) =>
+  bot.paused !== true && session.paused !== true && entry !== null && typeof entry === 'object';
+
+/** Whether the front of a tab, as `frontOfTab` reads it, is the session's own harness. */
+const runs = (front, harness) => front.front === 'program' && front.command === harness;
+
+/**
+ * Which rules a session runs on, by the stamp the kit noted in the book when
+ * it last read them, against the bot's `AGENTS.md` now (`stamp`).
+ */
+const rulesState = (entry, stamp) => (typeof entry.rules !== 'string' ? 'unknown' : entry.rules === stamp ? 'current' : 'older');
+
+/** What health says of a running session on older rules: `{ where, says }`. */
+function olderRulesOf(bots, home, bot, session) {
+  const agents = path.join(home, 'AGENTS.md');
+  const restart = `${shellWord(ownCli())} restart --bots ${shellWord(bots)} --bot ${bot.name} --session ${session.name}`;
+  // A clear reads the instructions again, as a start does, on both
+  // harnesses (tech notes, sections 2 and 3; #391).
+  const clear = `${shellWord(ownCli())} session clear --bots ${shellWord(bots)} --bot ${bot.name} --session ${session.name}`;
+  return { where: agents, says: `${bot.name}'s session ${session.name} is running on older rules: ${agents} has changed since the kit noted which version this session read. A session reads it again when it is cleared: ${clear}, or when it starts: ${restart}` };
 }
 
 /**
