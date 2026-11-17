@@ -27,14 +27,14 @@
 // risky write before bot.yaml: refused there, nothing else has changed, and the
 // same command run again with that access goes through.
 
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { setTimeout as pause } from 'node:timers/promises';
 
 import { readBook, takeLineTurn, TYPING_HELD, TYPING_WAIT_MS, updateBook } from './book.js';
 import { addSession, dropSession, NAME, readBot, tempRoles } from './bot.js';
 import { untrustedKitHooks } from './hook-trust.js';
-import { approvalRank, DEFAULT_APPROVAL, harnessOf, isShortPrompt, ownCli, piApprovalTrouble, refuseApprovalArgs, set, shellWord, startPrompt, workDirOf } from './launch.js';
+import { approvalRank, DEFAULT_APPROVAL, harnessOf, isShortPrompt, ownCli, piApprovalTrouble, promptFile, refuseApprovalArgs, set, shellWord, startPrompt, workDirOf } from './launch.js';
 import { findSession, sessionInTab } from './message.js';
 import { orca, screenRows, tabs } from './orca.js';
 import { piTrouble } from './pi.js';
@@ -101,6 +101,11 @@ export async function makeTemp(bots, { tab, ...given }) {
   settings.name = name;
   if (given.extra_args !== undefined) settings.extra_args = given.extra_args;
   if (given.prompt !== undefined) settings.prompt = given.prompt;
+  // The task's file is read once, here, and its text kept as the session's
+  // prompt: a maker often writes it into a temp folder that a reboot empties,
+  // and the session must start again after that (#758). A role's prompt file
+  // stays a file, read at each launch, so a changed role reaches the next one.
+  else if (set(given.prompt_file)) settings.prompt = taskIn(caller, name, given.prompt_file);
   else settings.prompt_file = given.prompt_file ?? role.prompt_file;
   settings.work_dir = `work/${name}`;
 
@@ -329,6 +334,16 @@ function refuseNested(bots, caller, book) {
   const open = Object.keys(book.sessions).filter((name) => book.sessions[name]?.temporary?.maker === caller.session);
   if (open.length > 0) {
     throw new Error(`${caller.bot}/${caller.session} is a temporary session, and it already has ${open.join(', ')} open; a temporary session has one of its own at a time. Retire it first with  ${shellWord(ownCli())} temp retire --bots ${shellWord(bots)} --name ${open[0]}  Nothing was made.`);
+  }
+}
+
+/** The text of the task in the file a make was given, read against the bot home, or the refusal. */
+function taskIn(caller, name, file) {
+  const at = promptFile({ prompt_file: file }, caller.home);
+  try {
+    return readFileSync(at, 'utf8');
+  } catch (error) {
+    throw new Error(`${caller.bot}/${name} has its task in ${file}, and that file cannot be read (${error.code ?? error.message}): ${at}. Write it, or point the make at the file you meant. Nothing was made.`);
   }
 }
 

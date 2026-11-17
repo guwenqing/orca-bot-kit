@@ -132,9 +132,13 @@ test('R6 a --prompt or --prompt-file given wins over the role\'s prompt file', a
   const one = await entryIn(bots, 'reviewer-1');
   assert.equal(one?.prompt, TASK, `--prompt is the start prompt, got: ${JSON.stringify(one)}`);
   assert.equal('prompt_file' in one, false, `and the role's file is not, got: ${JSON.stringify(one)}`);
-  const two = await entryIn(bots, 'reviewer-2');
-  assert.ok(two?.prompt_file !== undefined && two.prompt_file !== 'reviewer.md', `--prompt-file's file, not the role's, got: ${JSON.stringify(two)}`);
-  assert.equal(path.resolve(botHomeOf(bots, BOT), two.prompt_file), file);
+  // #758: how the kit keeps --prompt-file's text is not pinned, only that it
+  // is the start prompt, and the role's file is not.
+  const [line] = typedInto(await liveTab(box, bots, 'reviewer-2'));
+  const fake = await fakeProgram(box, 'codex', {});
+  const prompt = (await argvOf(box, line, fake)).at(-1);
+  assert.ok(prompt.startsWith('Review PR 467 only.\n\n'), `--prompt-file's text is the start prompt, got: ${JSON.stringify(prompt)}`);
+  assert.ok(!prompt.includes(REVIEW_DUTY), `and the role's file is not, got: ${JSON.stringify(prompt)}`);
 });
 
 test('R6 with no prompt given and no prompt file in the role, the make is refused and nothing is written', async (t) => {
