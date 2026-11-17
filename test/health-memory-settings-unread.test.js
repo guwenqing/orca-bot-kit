@@ -29,6 +29,13 @@
 //   HU3  no such finding: a readable file names the folder by hand (another
 //        file broken), no file is broken, a Codex bot, a bot whose every Claude
 //        session carries its own `--settings`
+//   HU4  the finding does not promise that a repair gives the bot's own
+//        folder: a repaired file can name a folder by hand, and then the kit
+//        names none. It says that the kit `reads it again at the next start`
+//        (`reads them again at the next start` when it names more than one
+//        file). It speaks of the sessions `at their next start`: a session
+//        that started before the file broke still has its bot's folder. Every
+//        finding of HU1 to HU3 is held to this too
 //
 // A finding is read from `obk health --json`: `found` is a list of
 // `{ kind, bot, where, says }`. These tests hold the bot, the path and the
@@ -38,7 +45,7 @@
 // finding about those notes (test/health-memory-folder.test.js) does not come.
 
 import assert from 'node:assert/strict';
-import { chmod, mkdir, readFile, stat, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readdir, readFile, stat, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { describe, test } from 'node:test';
 import { parse, stringify } from 'yaml';
@@ -49,6 +56,13 @@ const BOT = 'api-bot';
 const OTHER = 'web-bot';
 const KEY = 'autoMemoryDirectory';
 const SHARED = 'the folder that the bots shared';
+/** What the finding says of a repair: the kit reads the file again, or the files. */
+const AGAIN_ONE = 'reads it again at the next start';
+const AGAIN = /reads (it|them) again at the next start/;
+/** The finding speaks of the next start, not of the sessions that run now. */
+const THEIR_NEXT = 'at their next start';
+/** The promise the finding must not make: a repaired file can name a folder by hand. */
+const PROMISES = ["names its bot's own folder", "names the bot's own folder"];
 const AS_ROOT = process.getuid?.() === 0 ? 'root reads a file of mode 000, so it cannot be made unreadable here' : undefined;
 
 /** Orca's data folder in a sandbox. */
@@ -161,6 +175,13 @@ function assertFinding(findings, bot, broken) {
     naming.some((one) => saysKind(textOf(one), broken.kind) && textOf(one).includes(SHARED)),
     `the finding for ${bot} that names ${broken.file} should say ${kindWords(broken.kind)} and "${SHARED}", got: ${show(naming)}`,
   );
+  const ours = naming.filter((one) => saysKind(textOf(one), broken.kind) && textOf(one).includes(SHARED));
+  assert.ok(ours.some((one) => AGAIN.test(textOf(one))), `the finding for ${bot} that names ${broken.file} should say that the kit "${AGAIN_ONE}" (or "reads them again at the next start"), got: ${show(ours)}`);
+  assert.ok(ours.some((one) => textOf(one).includes(THEIR_NEXT)), `the finding for ${bot} that names ${broken.file} should speak of the sessions "${THEIR_NEXT}", got: ${show(ours)}`);
+  for (const promise of PROMISES) {
+    assert.deepEqual(ours.filter((one) => textOf(one).includes(promise)), [], `a repaired file can name a folder by hand, so the finding should not promise that the next start "${promise}"`);
+  }
+  return ours;
 }
 
 /** No finding for `bot` names any of `files`, or says the folder that the bots shared. */
@@ -322,5 +343,49 @@ describe('obk health says when a settings file that cannot be read or is not val
 
     assert.deepEqual(findings.filter((one) => textOf(one).includes(own.file)), [], `no finding names ${own.file}, got: ${show(findings)}`);
     assertFinding(findings, OTHER, beside);
+  });
+
+  // ---------------------------------------------------------------- HU4
+
+  test('HU4 the bot\'s local file names a folder by hand with a trailing comma: the finding says the kit reads it again at the next start, and promises no folder of the bot\'s own', async (t) => {
+    const world = await fleet(t);
+    const file = filesOf(world).local;
+    await mkdir(path.dirname(file), { recursive: true });
+    const text = '{"autoMemoryDirectory":"/x",}';
+    await writeFile(file, text);
+    const broken = { file, kind: 'parse', text, mode: (await stat(file)).mode & 0o777 };
+
+    const ours = assertFinding(await found(world.box), BOT, broken);
+
+    assert.ok(ours.some((one) => textOf(one).includes(AGAIN_ONE)), `one file is named, so the finding says "${AGAIN_ONE}", got: ${show(ours)}`);
+    await assertUntouched(broken);
+
+    // The user takes the comma out: the file names a folder by hand, and health says nothing of it.
+    await writeFile(file, '{"autoMemoryDirectory":"/x"}');
+    assertNoFinding(await found(world.box), BOT, [file], 'a repaired file that names a folder by hand');
+  });
+
+  test('HU4 a session started with good settings, then the bot\'s local file breaks: the finding is there, and speaks of the sessions at their next start', async (t) => {
+    const world = await fleet(t);
+    const { box, home } = world;
+    await ok(box, ['up', '--bots', 'bots', '--bot', BOT, '--session', 'daily']);
+    assert.ok((await readdir(home)).includes('claude-memory'), 'the premise: the session started with its bot\'s own folder');
+    const broken = await breakFile(t, filesOf(world).local, 'parse');
+
+    const ours = assertFinding(await found(box), BOT, broken);
+
+    assert.ok(ours.some((one) => textOf(one).includes(THEIR_NEXT)), `the finding speaks of "${THEIR_NEXT}", got: ${show(ours)}`);
+  });
+
+  test('HU4 two broken files named: the findings say the kit reads it, or them, again at the next start', { skip: AS_ROOT }, async (t) => {
+    const world = await fleet(t);
+    const files = filesOf(world);
+    const local = await breakFile(t, files.local, 'parse');
+    const root = await breakFile(t, files.root, 'read');
+
+    const findings = await found(world.box);
+
+    assertFinding(findings, BOT, local);
+    assertFinding(findings, BOT, root);
   });
 });

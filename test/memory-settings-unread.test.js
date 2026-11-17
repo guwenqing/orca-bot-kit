@@ -33,6 +33,11 @@
 //   U4  no such line: a readable file names the folder by hand (another file
 //       broken), no file is broken, a Codex session, a session whose own
 //       extra_args carry `--settings`
+//   U5  the line does not promise that a repair gives the bot's own folder: a
+//       repaired file can name a folder by hand, and then the kit names none.
+//       It says that the kit `reads it again at the next start` (`reads them
+//       again at the next start` when it names more than one file). Every
+//       line of U1 to U4 is held to this too
 //
 // The tests hold the path and the words above, not other wording, and not the
 // number of lines. The kit wraps the prose of its reports, so the text under a
@@ -60,6 +65,11 @@ const BOT = 'api-bot';
 const OTHER = 'web-bot';
 const KEY = 'autoMemoryDirectory';
 const SHARED = 'the folder that the bots shared';
+/** What the line says of a repair: the kit reads the file again, or the files. */
+const AGAIN_ONE = 'reads it again at the next start';
+const AGAIN = /reads (it|them) again at the next start/;
+/** The promise the line must not make: a repaired file can name a folder by hand. */
+const PROMISES = ["names its bot's own folder", "names the bot's own folder"];
 const AS_ROOT = process.getuid?.() === 0 ? 'root reads a file of mode 000, so it cannot be made unreadable here' : undefined;
 
 /** Orca's data folder in a sandbox. */
@@ -190,6 +200,9 @@ async function assertSaid(stdout, bots, { bot = BOT, session }, broken) {
   assert.ok(text.includes(broken.file), `the lines under ${bot}/${session}'s tab should name ${broken.file}, got:\n${stdout}`);
   assert.ok(saysKind(text, broken.kind), `the lines under ${bot}/${session}'s tab should say ${kindWords(broken.kind)} for ${broken.file}, got:\n${stdout}`);
   assert.ok(text.includes(SHARED), `the lines under ${bot}/${session}'s tab should say "${SHARED}", got:\n${stdout}`);
+  assert.match(text, AGAIN, `the lines under ${bot}/${session}'s tab should say that the kit "${AGAIN_ONE}" (or "reads them again at the next start"), got:\n${stdout}`);
+  for (const promise of PROMISES) assert.ok(!text.includes(promise), `a repaired file can name a folder by hand, so nothing under ${bot}/${session}'s tab should promise that the next start "${promise}", got:\n${stdout}`);
+  return text;
 }
 
 /** Under the session's tab, nothing names the files, or says the folder that the bots shared. */
@@ -470,5 +483,45 @@ describe('a start report says when a settings file that cannot be read or is not
     const keeper = joined(await linesUnder(result.stdout, bots, BOT, 'keeper'));
     assert.ok(!keeper.includes(broken.file), `a session with its own --settings: nothing under its tab names ${broken.file}, got:\n${result.stdout}`);
     await assertSaid(result.stdout, bots, { session: 'daily' }, broken);
+  });
+
+  // ---------------------------------------------------------------- U5
+
+  test('U5 up: the bot\'s local file names a folder by hand with a trailing comma: the line says the kit reads it again at the next start and promises no folder of the bot\'s own; once repaired, the next start names no folder of the kit\'s', async (t) => {
+    const world = await fleet(t, { sessions: ['daily', 'later'] });
+    const { box, bots } = world;
+    const file = filesOf(world).local;
+    await mkdir(path.dirname(file), { recursive: true });
+    const text = '{"autoMemoryDirectory":"/x",}';
+    await writeFile(file, text);
+    const broken = { file, kind: 'parse', text, mode: (await stat(file)).mode & 0o777 };
+
+    const result = await up(box, BOT, 'daily');
+
+    await assertStartedWithoutFolder(box, result, bots, { session: 'daily' });
+    const said = await assertSaid(result.stdout, bots, { session: 'daily' }, broken);
+    assert.ok(said.includes(AGAIN_ONE), `one file is named, so the lines say "${AGAIN_ONE}", got:\n${result.stdout}`);
+    await assertUntouched(broken);
+
+    // The user takes the comma out: the file names a folder by hand, and the kit names none, with no line.
+    await writeFile(file, '{"autoMemoryDirectory":"/x"}');
+    const next = await up(box, BOT, 'later');
+
+    await assertStartedWithoutFolder(box, next, bots, { session: 'later' });
+    await assertNotSaid(next.stdout, bots, { session: 'later' }, [file], 'a repaired file that names a folder by hand');
+  });
+
+  test('U5 up: two broken files named: the lines say the kit reads it, or them, again at the next start', { skip: AS_ROOT }, async (t) => {
+    const world = await fleet(t);
+    const { box, bots } = world;
+    const files = filesOf(world);
+    const local = await breakFile(t, files.local, 'parse');
+    const profile = await breakFile(t, files.profile, 'read');
+
+    const result = await up(box, BOT, 'daily');
+
+    await assertStartedWithoutFolder(box, result, bots, { session: 'daily' });
+    await assertSaid(result.stdout, bots, { session: 'daily' }, local);
+    await assertSaid(result.stdout, bots, { session: 'daily' }, profile);
   });
 });

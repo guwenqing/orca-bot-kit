@@ -2022,8 +2022,8 @@ function tabLines({ bots, created, completed, rules, skills, permissions = [], t
  * it, so the kit cannot tell whether the user named a folder there (#782).
  */
 function memoryUnreadText(unread) {
-  const them = unread.length === 1 ? 'the file' : 'the files';
-  return `it has no memory folder of its own: ${unreadSettingsWords(unread)}, so it cannot tell whether a memory folder is named there, and named none. Its notes go to the folder that the bots shared. Repair ${them}, and the session's next start names its bot's own folder.`;
+  const [files, them] = unread.length === 1 ? ['the file', 'it'] : ['the files', 'them'];
+  return `it has no memory folder of its own: ${unreadSettingsWords(unread)}, so it cannot tell whether a memory folder is named there, and named none. Its notes go to the folder that the bots shared. Repair ${files}; the kit reads ${them} again at the next start.`;
 }
 
 /**

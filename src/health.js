@@ -277,9 +277,10 @@ function memoryFolderBlocked(home, bot) {
   const named = bot.sessions.some((session) => harnessOf(session, bot.harness) === 'claude' && !setsSettings(session));
   const { blocked, unread } = named ? memoryFolderFor(home) : {};
   // A settings file that the kit cannot read or parse may name a folder, so
-  // the kit names none, and says so here before the next start (#782).
+  // the kit names none at the next start, and says so here (#782). A session
+  // that started before the file broke may still have its bot's folder.
   if (unread !== undefined) {
-    return unread.map((one) => finding('config', one.file, `${bot.name}'s Claude sessions have no memory folder of their own: ${unreadSettingsWords([one])}, so it cannot tell whether a memory folder is named there, and names none. Their notes go to the folder that the bots shared. Repair the file, and the next start of a session names the bot's own folder.`, bot.name));
+    return unread.map((one) => finding('config', one.file, `${bot.name}'s Claude sessions get no memory folder of their own at their next start: ${unreadSettingsWords([one])}, so it cannot tell whether a memory folder is named there, and names none. Their notes then go to the folder that the bots shared. Repair the file; the kit reads it again at the next start.`, bot.name));
   }
   if (blocked === undefined) return [];
   return [finding('config', blocked, `${bot.name}'s Claude sessions have no memory folder of their own: ${blocked} is a file or a link, not a folder, so the kit does not start them. Without the folder, their notes go to the folder that the bots shared. Move it aside, and the next start of a session makes the folder.`, bot.name)];
