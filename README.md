@@ -286,8 +286,11 @@ obk rules build --bots /path/to/my-bots [--bot api-bot]
 
 That writes the file, and `obk up` does the same for every bot it brings up,
 before any session starts — a session reads its rules as it comes up, so a
-rebuild landing after the tab is open would reach nobody. The build owns a
-marked block and nothing else in the file:
+rebuild landing after the tab is open would reach nobody. So after it writes,
+`obk rules build` names each session that runs now on the older rules, as
+`obk health` does, with the step that brings it the new ones. It types nothing
+into a tab and restarts nothing. The build owns a marked block and nothing
+else in the file:
 
 ```
 <!-- obk:rules 6f1cfe05a4d3b2e9 — built by obk from bot.yaml and the rule units; ... -->
