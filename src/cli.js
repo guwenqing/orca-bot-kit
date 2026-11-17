@@ -165,8 +165,9 @@ Usage:
                             dangerously-skip, Pi's one level, so that holds
                             there too. It works in
                             work/<session>, and has the task as its start
-                            prompt. The book records it as temporary, made by
-                            you.
+                            prompt. The kit reads a --prompt-file once, here,
+                            and keeps its text, so the file may go. The book
+                            records it as temporary, made by you.
                             --role takes the harness, model, effort and context
                             of an option of a role in the bot's temp_roles, the
                             role's first option when none is named, and the
