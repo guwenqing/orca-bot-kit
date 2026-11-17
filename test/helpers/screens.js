@@ -1873,6 +1873,15 @@ const PRE_APPROVES = /^⚠ This folder pre-approves (\d+) tool permissions? in \
 const PRE_APPROVED_FOOT = ['These will apply without asking. Only proceed if you trust this configuration.', 'Security guide'];
 
 /**
+ * The one row Claude Code 2.1.326 puts between the two rows of
+ * PRE_APPROVED_FOOT, as exact text: captured live on 2026-11-17, from the
+ * screen that the #784 probe met (#786). So exactly two feet are taken: the
+ * captured one of 2.1.325, and the captured one of 2.1.326 with this row in
+ * its place.
+ */
+const PRE_APPROVED_LOADS = 'Trusting this folder loads .claude/settings.json (runs commands).';
+
+/**
  * Whether Claude Code's folder trust on a tab's rendered `rows` is the one a
  * new bot of the kit's brings up for `folder` and nothing else, the one the
  * #555 system test may answer in its own throwaway tab (the architect's ruling
@@ -1914,7 +1923,9 @@ export function onlyKitTrustOf(rows, folder, { allow, defaults }) {
 
   const footAt = rows.findIndex((row, at) => at > warnAt && row.trim() === PRE_APPROVED_FOOT[0]);
   if (footAt < 0) return `it has no "${PRE_APPROVED_FOOT[0]}" row under the pre-approved rules`;
-  if (rows[footAt + 1]?.trim() !== PRE_APPROVED_FOOT[1]) return `the row after "${PRE_APPROVED_FOOT[0]}" is not "${PRE_APPROVED_FOOT[1]}": ${rows[footAt + 1]?.trim() ?? '(none)'}`;
+  // Claude Code 2.1.326's row, only in its one place (#786).
+  const loads = rows[footAt + 1]?.trim() === PRE_APPROVED_LOADS ? 1 : 0;
+  if (rows[footAt + 1 + loads]?.trim() !== PRE_APPROVED_FOOT[1]) return `the row after "${rows[footAt + loads].trim()}" is not "${PRE_APPROVED_FOOT[1]}": ${rows[footAt + 1 + loads]?.trim() ?? '(none)'}`;
   const listed = rows.slice(warnAt + 1, footAt).map((row) => row.trim()).filter((row) => row !== '');
   if (listed.length === 0) return 'it lists no rule under its "pre-approves" row';
   const items = listed.join(' ').split(/, and |, /);
@@ -1925,7 +1936,7 @@ export function onlyKitTrustOf(rows, folder, { allow, defaults }) {
   }
 
   // What is left is the plain screen, its "Security guide" row kept.
-  const rest = rows.filter((row, at) => at < warnAt || at > footAt);
+  const rest = rows.filter((row, at) => at < warnAt || at > footAt + loads);
   return onlyPlainTrustOf(rest, folder);
 }
 

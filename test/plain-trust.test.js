@@ -713,3 +713,201 @@ test('wrap: a row of a rule list on the plain screen is refused: the words are n
     refused(onlyPlainTrustOf([...WIDE_PLAIN.slice(0, at), ` ${rule}`, ...WIDE_PLAIN.slice(at)], LIVE_FOLDER), rule);
   }
 });
+
+// ------------------------------------------------- Claude Code 2.1.326 (#786)
+
+// Claude Code 2.1.326 shows one more row on the kit's trust screen, between
+// "These will apply …" and "Security guide". The check takes exactly two kit
+// screens (the architect's boundary on #786; the ruling on #451 stays): the one
+// it holds now, for 2.1.325 (LIVE_ROWS above, whole word by word, line wrap
+// free), and the one captured on 2.1.326 below. A word changed, added, removed
+// or moved against both is refused, with the row named.
+
+/** The throwaway bots folder of the #784 probe's run P2 (developer-751 design/receipts/784-probe-2.output.txt). */
+const V326_BOTS = '/private/var/folders/9c/kh9z1_yd1gq9y0x3pm7h79cm0000gn/T/obk-system-added-parts-live-aMnjgU';
+
+/** The CLI that run's kit called itself back with, as its launch line shows. */
+const V326_CLI = '/Volumes/DevData/projects/ai/mybots/bots/kit-dev/work/developer-751/src/cli.js';
+
+/** The bot folder its tab opened in, the folder the screen names. */
+const V326_FOLDER = `${V326_BOTS}/bots/ap-fable-5-2`;
+
+const V326_DEFAULTS = defaultRules(V326_BOTS, V326_CLI);
+const V326_KIT = { allow: V326_DEFAULTS, defaults: V326_DEFAULTS };
+
+/**
+ * SEEN LIVE on 2026-11-17, in a tab of 137 columns, on Claude Code 2.1.326: the
+ * rows the runner printed under "what it showed:", from the rule row across the
+ * tab down, with the runner's indent of six spaces taken off and nothing else
+ * changed. The paths are that run's own throwaway folder.
+ */
+const V326_ROWS = [
+  '─'.repeat(137),
+  ' Accessing workspace:',
+  ' /private/var/folders/9c/kh9z1_yd1gq9y0x3pm7h79cm0000gn/T/obk-system-added-parts-live-aMnjgU/bots/ap-fable-5-2',
+  ' Quick safety check: Is this a project you created or one you trust? (Like your own code, a well-known open source project, or work from',
+  ' your team). If not, take a moment to review what\'s in this folder first.',
+  ' Claude Code\'ll be able to read, edit, and execute files here.',
+  ' ⚠ This folder pre-approves 32 tool permissions in .claude/settings.json:',
+  '   Bash(/Volumes/DevData/projects/ai/mybots/bots/kit-dev/work/d…, Bash(git add:*), Bash(git commit:*), and',
+  ' Read(//private/var/folders/9c/kh9z1_yd1gq9y0x3pm7h79cm0000gn…',
+  ' These will apply without asking. Only proceed if you trust this configuration.',
+  ' Trusting this folder loads .claude/settings.json (runs commands).',
+  ' Security guide',
+  ' ❯ No, exit',
+  '   Yes, I trust this folder',
+  ' Enter to confirm · Esc to cancel',
+];
+
+/** The row 2.1.326 added, as seen. */
+const V326_NEW = ' Trusting this folder loads .claude/settings.json (runs commands).';
+
+const V326_TOP = V326_ROWS.indexOf(' Accessing workspace:');
+const V326_WARN = V326_ROWS.findIndex((row) => row.includes('pre-approves'));
+const V326_APPLY = V326_ROWS.indexOf(' These will apply without asking. Only proceed if you trust this configuration.');
+const V326_AT = V326_ROWS.indexOf(V326_NEW);
+const V326_GUIDE = V326_ROWS.indexOf(' Security guide');
+
+/** `rows` with the row at `at` taken out. */
+const without = (rows, at) => [...rows.slice(0, at), ...rows.slice(at + 1)];
+
+/** `rows` with `extra` put in at `at`. */
+const putIn = (rows, at, extra) => [...rows.slice(0, at), extra, ...rows.slice(at)];
+
+/** The words of a screen from "Accessing workspace:" down, its folder row as one word FOLDER. */
+const screenWords = (rows, folder) => rows.slice(rows.findIndex((row) => row.includes('Accessing workspace:')))
+  .flatMap((row) => (row.trim() === folder ? ['FOLDER'] : row.trim().split(' ')));
+
+test('2.1.326 (#786): the premise: the capture is the 2.1.325 screen the check holds now, with one more row after "These will apply", its own folder, and its prose wrapped at 137 columns', () => {
+  assert.equal(V326_ROWS[0].length, 137, 'the rule row across the tab has 137 columns');
+  assert.deepEqual([V326_TOP, V326_WARN, V326_APPLY, V326_AT, V326_GUIDE], [1, 6, 9, 10, 11], 'the rows stand where the capture has them');
+  assert.equal(V326_DEFAULTS.length, 32, 'the set is the 32 the screen counts');
+  assert.deepEqual(screenWords(without(V326_ROWS, V326_AT), V326_FOLDER), screenWords(LIVE_ROWS, LIVE_FOLDER), 'without its new row, the same words in the same order');
+});
+
+test('2.1.326 (#786): the 2.1.325 screen is still answered', () => {
+  assert.equal(claudeTrustOf(LIVE_ROWS, LIVE_FOLDER, LIVE_KIT), undefined, 'as seen live');
+  assert.equal(claudeTrustOf(KIT_NOW, KIT_FOLDER, KIT), undefined, 'as the #555 capture, at 120 columns');
+});
+
+test('2.1.326 (#786): the 2.1.326 screen as captured is answered, by the one check every system test uses and by onlyKitTrustOf, in either spelling of a macOS temp path', () => {
+  assert.equal(claudeTrustOf(V326_ROWS, V326_FOLDER, V326_KIT), undefined, 'claudeTrustOf');
+  assert.equal(onlyKitTrustOf(V326_ROWS, V326_FOLDER, V326_KIT), undefined, 'onlyKitTrustOf');
+  assert.equal(claudeTrustOf(V326_ROWS, V326_FOLDER.replace(/^\/private/, ''), V326_KIT), undefined, 'the screen shows /private/var, the test knows /var');
+});
+
+test('2.1.326 (#786): the new row moved to any other place is refused, naming it', () => {
+  const alone = without(V326_ROWS, V326_AT);
+  for (let at = V326_TOP + 1; at <= alone.length; at += 1) {
+    if (at === V326_AT) continue;
+    refused(claudeTrustOf(putIn(alone, at, V326_NEW), V326_FOLDER, V326_KIT), V326_NEW.trim());
+  }
+});
+
+test('2.1.326 (#786): a word in the new row changed is refused, naming the row', () => {
+  for (const changedRow of [
+    ' Trusting this folder loads .claude/settings.json (runs hooks).',
+    ' Trusting this folder loads .claude/settings.local.json (runs commands).',
+    ' Trusting this folder runs .claude/settings.json (runs commands).',
+  ]) {
+    refused(claudeTrustOf(V326_ROWS.map((row, at) => (at === V326_AT ? changedRow : row)), V326_FOLDER, V326_KIT), changedRow.trim());
+  }
+});
+
+test('2.1.326 (#786): a word in the new row taken out or added is refused, naming the row', () => {
+  for (const changedRow of [
+    ' Trusting this folder .claude/settings.json (runs commands).',
+    ' Trusting this folder loads .claude/settings.json (runs all commands).',
+  ]) {
+    refused(claudeTrustOf(V326_ROWS.map((row, at) => (at === V326_AT ? changedRow : row)), V326_FOLDER, V326_KIT), changedRow.trim());
+  }
+});
+
+// The brief for #786 asked that the 2.1.326 screen with its new row missing be
+// refused. Without that row the screen is the 2.1.325 screen word for word (the
+// premise test above), and the check answers that screen; so it is answered.
+test('2.1.326 (#786): the 2.1.326 screen with its new row taken out is the 2.1.325 screen, and is answered as that', () => {
+  assert.equal(claudeTrustOf(without(V326_ROWS, V326_AT), V326_FOLDER, V326_KIT), undefined);
+});
+
+test('2.1.326 (#786): the new row put in the 2.1.325 screen is answered only in its own place, after "These will apply"; at any other place it is refused, naming it', () => {
+  const apply = LIVE_ROWS.findIndex((row) => row.startsWith(' These will apply'));
+  for (let at = LIVE_TOP + 1; at <= LIVE_ROWS.length; at += 1) {
+    const shown = putIn(LIVE_ROWS, at, V326_NEW);
+    if (at === apply + 1) assert.equal(claudeTrustOf(shown, LIVE_FOLDER, LIVE_KIT), undefined, 'in its own place: the 2.1.326 screen');
+    else refused(claudeTrustOf(shown, LIVE_FOLDER, LIVE_KIT), V326_NEW.trim());
+  }
+});
+
+test('2.1.326 (#786): a row the check does not know is refused, naming it: in the 2.1.325 screen where the new row goes, in place of the new row, and beside it', () => {
+  const unknown = ' Trusting this folder runs its hooks.';
+  const apply = LIVE_ROWS.findIndex((row) => row.startsWith(' These will apply'));
+  refused(claudeTrustOf(putIn(LIVE_ROWS, apply + 1, unknown), LIVE_FOLDER, LIVE_KIT), unknown.trim());
+  refused(claudeTrustOf(V326_ROWS.map((row, at) => (at === V326_AT ? unknown : row)), V326_FOLDER, V326_KIT), unknown.trim());
+  refused(claudeTrustOf(putIn(V326_ROWS, V326_AT, unknown), V326_FOLDER, V326_KIT), unknown.trim());
+  refused(claudeTrustOf(putIn(V326_ROWS, V326_AT + 1, unknown), V326_FOLDER, V326_KIT), unknown.trim());
+});
+
+test('2.1.326 (#786): on the 2.1.326 screen, every word outside the rule rows changed, removed, doubled or swapped with its neighbour is refused', () => {
+  assert.equal(claudeTrustOf(V326_ROWS, V326_FOLDER, V326_KIT), undefined, 'the premise: as it stands, it is answered');
+  const places = placesOf(V326_ROWS).filter(({ at }) => at >= V326_TOP && (at <= V326_WARN || at >= V326_APPLY));
+  for (const [index, place] of places.entries()) {
+    const label = `row ${place.at}, word ${place.inRow}, "${place.word}"`;
+    assert.equal(typeof claudeTrustOf(withWord(V326_ROWS, place, (word) => [`${word}x`]), V326_FOLDER, V326_KIT), 'string', `changed: ${label}`);
+    assert.equal(typeof claudeTrustOf(withWord(V326_ROWS, place, () => []), V326_FOLDER, V326_KIT), 'string', `removed: ${label}`);
+    assert.equal(typeof claudeTrustOf(withWord(V326_ROWS, place, (word) => [word, word]), V326_FOLDER, V326_KIT), 'string', `doubled: ${label}`);
+    const next = places[index + 1];
+    if (next === undefined || next.word === place.word || next.at - place.at > 1) continue;
+    const swapped = V326_ROWS.map((row, here) => {
+      if (here !== place.at && here !== next.at) return row;
+      const words = row.trim().split(' ');
+      if (here === place.at) words[place.inRow] = next.word;
+      if (here === next.at) words[next.inRow] = place.word;
+      return ` ${words.join(' ')}`;
+    });
+    assert.equal(typeof claudeTrustOf(swapped, V326_FOLDER, V326_KIT), 'string', `swapped: "${place.word}" and "${next.word}"`);
+  }
+});
+
+test('2.1.326 (#786): on the 2.1.326 screen, an added row is refused at every place, the last included', () => {
+  assert.equal(claudeTrustOf(V326_ROWS, V326_FOLDER, V326_KIT), undefined, 'the premise: as it stands, it is answered');
+  const rules = V326_ROWS.slice(V326_WARN + 1, V326_APPLY).map((row) => row.trim());
+  const extras = [' A row with new words.', ...V326_ROWS.slice(V326_TOP).map((row) => row.trim()), 'cancel'];
+  for (let at = V326_TOP + 1; at <= V326_ROWS.length; at += 1) {
+    for (const extra of extras) {
+      // As on the 2.1.325 screen: a rule row said twice inside the rule rows only says rules of the set again.
+      if (rules.includes(extra) && at > V326_WARN && at <= V326_APPLY) continue;
+      assert.equal(typeof claudeTrustOf(putIn(V326_ROWS, at, extra), V326_FOLDER, V326_KIT), 'string', `the row ${JSON.stringify(extra)} added at ${at}`);
+    }
+  }
+});
+
+test('2.1.326 (#786): every other check stays on the 2.1.326 screen: the folder, the pointer, the two choices, the count, the rules and the allow list', () => {
+  assert.equal(claudeTrustOf(V326_ROWS, V326_FOLDER, V326_KIT), undefined, 'the premise: as it stands, it is answered');
+  const swapped = (from, to) => {
+    assert.ok(V326_ROWS.includes(from), `the 2.1.326 screen has the row ${from}`);
+    return V326_ROWS.flatMap((row) => (row === from ? (to === undefined ? [] : [to]) : [row]));
+  };
+  refused(claudeTrustOf(V326_ROWS, `${V326_BOTS}/bots/other-bot`, V326_KIT), V326_FOLDER);
+  const onYes = swapped(' ❯ No, exit', '   No, exit').map((row) => (row === '   Yes, I trust this folder' ? ' ❯ Yes, I trust this folder' : row));
+  refused(claudeTrustOf(onYes, V326_FOLDER, V326_KIT));
+  refused(claudeTrustOf(swapped('   Yes, I trust this folder', undefined), V326_FOLDER, V326_KIT));
+  refused(claudeTrustOf(swapped(V326_ROWS[V326_WARN], ' ⚠ This folder pre-approves 33 tool permissions in .claude/settings.json:'), V326_FOLDER, V326_KIT), '33');
+  const rule = V326_ROWS[V326_WARN + 1];
+  refused(claudeTrustOf(swapped(rule, rule.replace('Bash(git add:*)', 'Bash(rm -rf:*)')), V326_FOLDER, V326_KIT), 'Bash(rm -rf:*)');
+  refused(claudeTrustOf(V326_ROWS, V326_FOLDER, { allow: [...V326_DEFAULTS.slice(1), 'Bash(rm -rf:*)'], defaults: V326_DEFAULTS }), 'Bash(rm -rf:*)');
+  refused(claudeTrustOf(V326_ROWS, V326_FOLDER, { allow: [], defaults: V326_DEFAULTS }));
+  refused(claudeTrustOf(swapped(V326_ROWS[V326_APPLY], ' These will apply without asking.'), V326_FOLDER, V326_KIT), 'These will apply');
+  refused(claudeTrustOf(swapped(' Security guide', ' Security guide (read this first)'), V326_FOLDER, V326_KIT), 'Security guide');
+  refused(onlyPlainTrustOf(V326_ROWS, V326_FOLDER));
+});
+
+// No plain screen (nothing pre-approved) was captured on 2.1.326, so the plain
+// check keeps its one screen: the new row on it is refused.
+test('2.1.326 (#786): the plain screen with the new row before "Security guide" is refused, naming the row', () => {
+  for (const [rows, folder] of [[CLAUDE_TRUST, FOLDER], [WIDE_PLAIN, LIVE_FOLDER]]) {
+    const shown = putIn(rows, rows.indexOf(' Security guide'), V326_NEW);
+    refused(onlyPlainTrustOf(shown, folder), V326_NEW.trim());
+    refused(claudeTrustOf(shown, folder, { allow: [], defaults: DEFAULTS }), V326_NEW.trim());
+  }
+});
