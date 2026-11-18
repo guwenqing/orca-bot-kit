@@ -33,6 +33,10 @@ const NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/;
  * It was 12. It is 18 because of the six rule lines of request
  * claude-session-trim, R4, signed on 2026-11-14: they took the limits and mail
  * units past 12, and every bot must carry them word for word.
+ *
+ * It did not come down in #803. The longest unit, limits, is at 18 lines, and
+ * each of its lines guards safety, is owner-signed (claude-session-trim, R4), or
+ * is a PRD default.
  */
 const MAX_BODY_LINES = 18;
 const MAX_LINE = 100;
@@ -41,33 +45,31 @@ const MAX_LINE = 100;
 const CODEX_CAP = 32 * 1024;
 
 /**
- * What the kit's own contribution to a bot's instructions may take: 9 KiB of
- * the 32 KiB a Codex session will read, leaving the rest for the charter its
+ * What the kit's own contribution to a bot's instructions may take, in bytes,
+ * of the 32 KiB a Codex session will read. The rest is for the charter its
  * owner writes and the units they add.
  *
- * It was a quarter of that file, 8 KiB. It is 9 KiB because of the six rule
- * lines of request claude-session-trim, R4, signed on 2026-11-14, which every
- * bot must carry word for word and which took a new bot's file past 8 KiB. The
- * extra KiB is deliberate: it gives back about the room the file had under its
- * ceiling before R4.
+ * It measures the real file a new bot is given, not the bodies in rules/,
+ * which are only a part of what a bot pays (issue #140).
  *
- * This is a ceiling with room in it and not a ratchet at today's total, and the
- * room is deliberate. The number it replaced counted the bodies in rules/,
- * which is a part of the cost rather than the thing a bot pays, so fitting
- * inside it was no answer to whether every bot should carry a rule for ever —
- * and it was read as one anyway, twice in two slices (issue #140). A number
- * that measures the real file cannot be read that way: nobody concludes that a
- * rule earns its place on every turn from a file being under 9 KiB. That
- * question is settled where the unit is written and reviewed. What a test can
- * catch is the kit crowding a bot's owner out of their own instructions file,
- * and that is what this catches.
+ * It was 8 KiB, then 9 KiB for the six rule lines of request
+ * claude-session-trim, R4. Issue #803 cut two sentences and set it to the
+ * measured size plus the room for about one rule line: a new bot's file was
+ * 8683 bytes (8851 at 0682f8a, less the 168 bytes of the two sentences), and
+ * 117 bytes of room make 8800. The room is small on purpose: the next rule line
+ * that is added meets this cap, and that forces a decision on whether every
+ * bot must carry it.
  *
- * Set at the exact total it would pin bytes that are nobody's rule as well: the
- * sentence in the begin marker and the headings around the units are the
- * implementer's to word, and a ratchet here would make rewording them a failing
- * test in someone else's subject.
+ * A pass here never says that a rule earns its place in every session. That
+ * question is settled where the unit is written and reviewed (issue #140). The
+ * small room only makes growth visible: a change that adds a rule line must
+ * also change this number, and say why.
+ *
+ * The room is not zero, because some bytes of the file are no rule's: the
+ * sentence in the begin marker and the headings around the units. They are the
+ * implementer's to word, and a small rewording of them must not fail this test.
  */
-const KIT_SHARE = 9 * 1024;
+const KIT_SHARE = 8800;
 
 /** Everything in rules/, whatever it is: the shape test needs to see the strays too. */
 async function entries() {
@@ -201,7 +203,7 @@ test('the instructions a new bot is given stay inside the kit\'s share of them',
   assert.ok(
     entry.bytes <= KIT_SHARE,
     `a new bot's AGENTS.md is ${entry.bytes} bytes before its owner has written a word of it, over the `
-    + `${KIT_SHARE / 1024} KiB the kit allows itself of the ${CODEX_CAP / 1024} KiB Codex reads. If what grew `
+    + `${KIT_SHARE} bytes the kit allows itself of the ${CODEX_CAP / 1024} KiB Codex reads. If what grew `
     + 'is depth, it belongs in a skill; if it is a rule every bot needs, weigh what it buys on every turn, '
     + 'move the number, and say in the change what it bought.',
   );

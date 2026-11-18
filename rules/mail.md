@@ -5,8 +5,7 @@ applies: all
 ---
 
 To reach another session, ask the kit for the road rather than guessing an
-address: `"${OBK_CLI:-obk}" message to --bots <bots> --to <bot>/<session>`. It
-answers with the address and the command that carries it.
+address: `"${OBK_CLI:-obk}" message to --bots <bots> --to <bot>/<session>`.
 
 If your harness refuses a message, do not send it again by another road. Tell your maker or your
 user, with the harness's reason. A refusal can mean a missing permission rule. Send the refusal to
