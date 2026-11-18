@@ -28,7 +28,7 @@ import { hasConversation, transcriptsIn } from './conversations.js';
 import { cutsTrouble } from './cuts.js';
 import { hookTrouble } from './hooks.js';
 import { APPROVALS, bypassFlags, claudeTextFolder, harnessOf, HARNESSES, isAddressOf, lostToOwnSettings, ownCli, promptFile, REMOTE_CONTROL, remoteControlOf, sessionTrouble, set, setsRemoteControl, setsSettings, SHELL_ENV, shellWord, workDirOf } from './launch.js';
-import { memoryFolderFor, sharedNotes } from './memory.js';
+import { memoryFolderFor, sharedNotes, unreadSettingsWords } from './memory.js';
 import { claudeProfileHomes, frontOfTab, startOfProcess, mailIn, orcaDefaultArgs, orcaTrouble, projects, runMissing, tabs, tabToTypeInto, wordsOfProcess } from './orca.js';
 import { permissionsTrouble } from './permissions.js';
 import { askPi } from './pi.js';
@@ -270,11 +270,18 @@ function ownSettings(home, bot) {
  * A file or a link where the kit would make this bot's memory folder, so the
  * kit does not start its Claude sessions: without the folder, their notes go
  * to the folder that the bots shared (#752). Said before the next start; the
- * kit touches neither.
+ * kit touches neither. And each settings file that the kit could not read or
+ * parse, for which it names no folder (#782).
  */
 function memoryFolderBlocked(home, bot) {
   const named = bot.sessions.some((session) => harnessOf(session, bot.harness) === 'claude' && !setsSettings(session));
-  const { blocked } = named ? memoryFolderFor(home) : {};
+  const { blocked, unread } = named ? memoryFolderFor(home) : {};
+  // A settings file that the kit cannot read or parse may name a folder, so
+  // the kit names none at the next start, and says so here (#782). A session
+  // that started before the file broke may still have its bot's folder.
+  if (unread !== undefined) {
+    return unread.map((one) => finding('config', one.file, `${bot.name}'s Claude sessions get no memory folder of their own at their next start: ${unreadSettingsWords([one])}, so it cannot tell whether a memory folder is named there, and names none. Their notes then go to the folder that the bots shared. Repair the file; the kit reads it again at the next start.`, bot.name));
+  }
   if (blocked === undefined) return [];
   return [finding('config', blocked, `${bot.name}'s Claude sessions have no memory folder of their own: ${blocked} is a file or a link, not a folder, so the kit does not start them. Without the folder, their notes go to the folder that the bots shared. Move it aside, and the next start of a session makes the folder.`, bot.name)];
 }
