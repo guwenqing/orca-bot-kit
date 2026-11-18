@@ -552,7 +552,11 @@ a skill. To keep one, name it in the bot's `claude_keep` list in `bot.yaml`. A
 keep wins over every cut list, and `obk up` then takes the kit's cut out of the
 file. Taking a name out of a `claude_cut` list does not give it back; keep it
 instead. `Workflow` and `workflow-authoring` go together: a cut or a keep of
-one applies to both. A cut or a keep reaches a session when it starts again.
+one applies to both. So do the tools `Artifact`, `ArtifactComments` and
+`ArtifactData` and the skills `artifact-design` and `artifact-capabilities`: a
+cut or a keep of one applies to all five, because the `Artifact` tool tells the
+session to load those skills. A cut or a keep reaches a session when it starts
+again.
 
 The kit found no way to ask Claude Code which names it knows, so `obk health`
 goes by the records of your fleet's Claude Code sessions. It names a cut that is not

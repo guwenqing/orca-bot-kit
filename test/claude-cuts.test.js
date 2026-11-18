@@ -36,8 +36,14 @@
 //   P9.  Health findings: a missing cut (a), a kept name still cut (b), names
 //        against the fleet's Claude Code records (c1, c2), and none for a bot
 //        with no cut list trouble (d).
-//   P10. A bot that keeps Artifact has no Artifact deny entry, and the other
-//        three default tools are denied.
+//   P10. A bot that keeps Artifact has none of the Artifact group's cuts, and
+//        DesignSync is still denied (#781).
+//   P11. The Artifact group (#781): the tools Artifact, ArtifactComments and
+//        ArtifactData and the skills artifact-design and artifact-capabilities
+//        go together, as the Workflow pair does: a cut or a keep of one of
+//        them applies to all five. DesignSync and artifact-diagramming are not
+//        in the group, and the Workflow pair still goes on its own. Health
+//        reads a keep of one of the five as a keep of all five.
 //
 // No text of Claude Code is in this file. The fake transcripts hold only the
 // record field names that health reads and lists of names. Every run is in the
@@ -73,6 +79,11 @@ const DEFAULT_SKILLS = [
   'artifact-design', 'artifact-diagramming', 'artifact-capabilities', 'update-config',
   'fewer-permission-prompts', 'init', 'keybindings-help', 'plugin-authoring',
 ];
+
+/** The Artifact group's tools and skills (#781): a cut or a keep of one applies to all five. */
+const GROUP_TOOLS = ['Artifact', 'ArtifactComments', 'ArtifactData'];
+const GROUP_SKILLS = ['artifact-design', 'artifact-capabilities'];
+const GROUP = [...GROUP_TOOLS, ...GROUP_SKILLS];
 
 /** The entry the kit already writes for the Teach form (#708). */
 const TEACH = { 'auto-mode-setup': 'off' };
@@ -138,6 +149,32 @@ async function settingsOf(bots, bot = 'api-bot') {
 
 /** `permissions.deny` of a parsed settings file, or [] when it has none. */
 const denyOf = (held) => held?.permissions?.deny ?? [];
+
+/** Assert that a parsed settings file cuts none of the Artifact group: no deny entry, and no "off". */
+function assertGroupKept(held, label) {
+  for (const name of GROUP_TOOLS) {
+    assert.ok(!denyOf(held).includes(name), `${label}: the tool ${name} stays, got: ${show(held.permissions)}`);
+  }
+  for (const name of GROUP_SKILLS) {
+    assert.notEqual(held.skillOverrides?.[name], 'off', `${label}: the skill ${name} stays, got: ${show(held.skillOverrides)}`);
+  }
+}
+
+/** Assert that a parsed settings file cuts all of the Artifact group. */
+function assertGroupCut(held, label) {
+  for (const name of GROUP_TOOLS) {
+    assert.ok(denyOf(held).includes(name), `${label}: the tool ${name} is denied, got: ${show(held.permissions)}`);
+  }
+  for (const name of GROUP_SKILLS) {
+    assert.equal(held.skillOverrides?.[name], 'off', `${label}: the skill ${name} is off, got: ${show(held.skillOverrides)}`);
+  }
+}
+
+/** Assert that DesignSync and artifact-diagramming, which are not in the group, are still cut. */
+function assertOutsideGroupCut(held, label) {
+  assert.ok(denyOf(held).includes('DesignSync'), `${label}: DesignSync is not in the group and is still denied, got: ${show(held.permissions)}`);
+  assert.equal(held.skillOverrides?.['artifact-diagramming'], 'off', `${label}: artifact-diagramming is not in the group and is still off, got: ${show(held.skillOverrides)}`);
+}
 
 /** Write the user's own `.claude/settings.json` for a bot, before the kit touches it. */
 async function theirSettings(bots, bot, theirs) {
@@ -575,7 +612,7 @@ describe('claude cuts', { concurrency: 4 }, () => {
 
   // ================================================================ P6
 
-  test('P6 a keep takes out an Artifact deny entry and an "update-config": "off" that the file held, and leaves the rest', async (t) => {
+  test('P6 P11 a keep takes out an Artifact deny entry and an "update-config": "off" that the file held, and leaves the rest', async (t) => {
     const box = await createSandbox(t);
     const bots = await fleet(box);
     await editBotYaml(bots, 'api-bot', { claude_keep: ['Artifact', 'update-config', 'init'] });
@@ -587,18 +624,22 @@ describe('claude cuts', { concurrency: 4 }, () => {
     await up(box);
 
     const held = await settingsOf(bots);
+    // A keep of Artifact keeps the whole Artifact group (#781), so of the
+    // default tools only DesignSync is denied.
     assert.deepEqual(
       sorted(denyOf(held)),
-      sorted(['Bash(rm:*)', 'ArtifactComments', 'ArtifactData', 'DesignSync']),
-      `the Artifact entry goes, the user's other entry stays, got: ${show(held.permissions)}`,
+      sorted(['Bash(rm:*)', 'DesignSync']),
+      `the Artifact entry goes, the group's other tools are not denied, the user's other entry stays, got: ${show(held.permissions)}`,
     );
+    assertGroupKept(held, 'a keep of Artifact');
+    assert.equal(held.skillOverrides['artifact-diagramming'], 'off', `artifact-diagramming is not in the group, got: ${show(held.skillOverrides)}`);
     assert.ok(!('update-config' in held.skillOverrides), `the "off" of a kept skill goes, got: ${show(held.skillOverrides)}`);
     assert.equal(held.skillOverrides.init, 'name-only', `a kept skill's user value that is not "off" stays, got: ${show(held.skillOverrides)}`);
     assert.equal(held.skillOverrides['other-skill'], 'on', `another entry of theirs stays, got: ${show(held.skillOverrides)}`);
     assert.equal(held.skillOverrides['auto-mode-setup'], 'off', `the Teach entry stays, got: ${show(held.skillOverrides)}`);
   });
 
-  test('P6 P10 a keep added after an up takes the cut the kit wrote back out on the next up', async (t) => {
+  test('P6 P10 P11 a keep added after an up takes the cut the kit wrote back out on the next up', async (t) => {
     const box = await createSandbox(t);
     const bots = await fleet(box);
     await up(box);
@@ -608,11 +649,13 @@ describe('claude cuts', { concurrency: 4 }, () => {
     await editBotYaml(bots, 'api-bot', { claude_keep: ['Artifact', 'update-config'] });
     await up(box);
 
+    // A keep of Artifact keeps the whole Artifact group (#781): the cuts that
+    // the first up wrote for all five go.
     const held = await settingsOf(bots);
-    assert.deepEqual(sorted(denyOf(held)), sorted(['ArtifactComments', 'ArtifactData', 'DesignSync']), `got: ${show(held.permissions)}`);
+    assert.deepEqual(sorted(denyOf(held)), ['DesignSync'], `got: ${show(held.permissions)}`);
     assert.deepEqual(
       held.skillOverrides,
-      { ...TEACH, ...Object.fromEntries(DEFAULT_SKILLS.filter((name) => name !== 'update-config').map((name) => [name, 'off'])) },
+      { ...TEACH, ...Object.fromEntries(DEFAULT_SKILLS.filter((name) => name !== 'update-config' && !GROUP_SKILLS.includes(name)).map((name) => [name, 'off'])) },
       `got: ${show(held.skillOverrides)}`,
     );
   });
@@ -756,7 +799,8 @@ describe('claude cuts', { concurrency: 4 }, () => {
     const bots = await fleet(box);
     await editBotYaml(bots, 'api-bot', { claude_keep: ['Artifact', 'update-config'] });
     await up(box);
-    assert.ok(denyOf(await settingsOf(bots)).includes('ArtifactData'), 'the premise: up wrote the cuts it was not told to keep');
+    // DesignSync, not ArtifactData: a keep of Artifact keeps ArtifactData too now (#781).
+    assert.ok(denyOf(await settingsOf(bots)).includes('DesignSync'), 'the premise: up wrote the cuts it was not told to keep');
     const file = await editSettings(bots, 'api-bot', (held) => {
       held.permissions.deny.push('Artifact');
       held.skillOverrides['update-config'] = 'off';
@@ -766,6 +810,26 @@ describe('claude cuts', { concurrency: 4 }, () => {
 
     assert.ok(naming(found, 'Artifact').some((one) => pointsAt(one, file)), `a kept tool still denied, got: ${show(found)}`);
     assert.ok(naming(found, 'update-config').some((one) => pointsAt(one, file)), `a kept skill still off, got: ${show(found)}`);
+  });
+
+  test('P9b P11 a name of the Artifact group that the file still cuts is named, where the bot keeps another name of the group', async (t) => {
+    const box = await createSandbox(t);
+    const bots = await fleet(box);
+    await editBotYaml(bots, 'api-bot', { claude_keep: ['Artifact'] });
+    await up(box);
+    // The file cuts the two, by hand or as the kit wrote it before the group.
+    const file = await editSettings(bots, 'api-bot', (held) => {
+      held.permissions ??= {};
+      held.permissions.deny ??= [];
+      if (!held.permissions.deny.includes('ArtifactData')) held.permissions.deny.push('ArtifactData');
+      held.skillOverrides ??= {};
+      held.skillOverrides['artifact-capabilities'] = 'off';
+    });
+
+    const found = await findings(box);
+
+    assert.ok(naming(found, 'ArtifactData').some((one) => pointsAt(one, file)), `a tool kept with Artifact is still denied, got: ${show(found)}`);
+    assert.ok(naming(found, 'artifact-capabilities').some((one) => pointsAt(one, file)), `a skill kept with Artifact is still off, got: ${show(found)}`);
   });
 
   // ================================================================ P9 c1
@@ -826,16 +890,37 @@ describe('claude cuts', { concurrency: 4 }, () => {
   test('P9c2 a kept tool that only an older record holds is named, and start the session again is said when that record is older than the file', async (t) => {
     const box = await createSandbox(t);
     const bots = await fleet(box);
-    await editBotYaml(bots, 'api-bot', { claude_keep: ['Artifact'] });
+    // DesignSync is in no group, so its finding is the only one this keep gives.
+    await editBotYaml(bots, 'api-bot', { claude_keep: ['DesignSync'] });
     await up(box);
-    await claudeRecord(box, bots, 'api-bot', { id: 'rec-old', at: hoursAgo(2), deferred: ['Artifact'], shaped: ['Artifact'] });
+    await claudeRecord(box, bots, 'api-bot', { id: 'rec-old', at: hoursAgo(2), deferred: ['DesignSync'], shaped: ['DesignSync'] });
     await claudeRecord(box, bots, 'api-bot', { id: 'rec-new', at: hoursAgo(1), deferred: ['SomeOtherTool'], shaped: ['SomeOtherTool'] });
 
     const found = await findings(box);
 
-    const said = naming(found, 'Artifact', notNewest('api-bot'));
-    assert.equal(said.length, 1, `one finding names Artifact as not in the newest record, got: ${show(found)}`);
+    const said = naming(found, 'DesignSync', notNewest('api-bot'));
+    assert.equal(said.length, 1, `one finding names DesignSync as not in the newest record, got: ${show(found)}`);
     assert.ok(said[0].says.includes(START_AGAIN), `the newest record started before up wrote the file, got: ${show(said[0])}`);
+  });
+
+  test('P9c2 P11 a keep of Artifact that only an older record holds names each of the five as not in the newest record, with start the session again', async (t) => {
+    const box = await createSandbox(t);
+    const bots = await fleet(box);
+    await editBotYaml(bots, 'api-bot', { claude_keep: ['Artifact'] });
+    await up(box);
+    await claudeRecord(box, bots, 'api-bot', { id: 'rec-old', at: hoursAgo(2), skills: GROUP_SKILLS, deferred: ['ArtifactComments', 'ArtifactData'], shaped: ['Artifact'] });
+    await claudeRecord(box, bots, 'api-bot', { id: 'rec-new', at: hoursAgo(1), skills: ['some-other-skill'], shaped: ['SomeOtherTool'] });
+
+    const found = await findings(box);
+
+    // How many findings carry the five is the kit's choice: one each, or one for all.
+    for (const name of GROUP) {
+      const said = naming(found, name, notNewest('api-bot'));
+      assert.ok(said.length >= 1, `${name} is kept with Artifact and is not in the newest record, got: ${show(found)}`);
+      assert.ok(said.every((one) => one.says.includes(START_AGAIN)), `the newest record started before up wrote the file, got: ${show(said)}`);
+    }
+    assert.deepEqual(naming(found, 'DesignSync', notNewest('api-bot')), [], `DesignSync is not in the group, and the bot does not keep it, got: ${show(found)}`);
+    assert.deepEqual(naming(found, 'artifact-diagramming', notNewest('api-bot')), [], `artifact-diagramming is not in the group, and the bot does not keep it, got: ${show(found)}`);
   });
 
   test('P9c2 a kept skill missing from a newest record that started after the file was written is named, without start the session again', async (t) => {
@@ -860,20 +945,62 @@ describe('claude cuts', { concurrency: 4 }, () => {
     await editBotYaml(bots, 'api-bot', { claude_keep: ['Artifact', 'update-config'] });
     await up(box);
     await claudeRecord(box, bots, 'api-bot', { id: 'rec-old', at: hoursAgo(2), skills: ['some-other-skill'], shaped: ['SomeOtherTool'] });
-    await claudeRecord(box, bots, 'api-bot', { id: 'rec-new', at: hoursAgo(1), skills: ['update-config'], shaped: ['Artifact'] });
+    // The newest record holds the whole Artifact group, which the keep of Artifact keeps (#781).
+    await claudeRecord(box, bots, 'api-bot', {
+      id: 'rec-new',
+      at: hoursAgo(1),
+      skills: ['update-config', ...GROUP_SKILLS],
+      deferred: ['ArtifactComments', 'ArtifactData'],
+      shaped: ['Artifact'],
+    });
 
     const found = await findings(box);
 
-    assert.deepEqual(naming(found, 'Artifact', notNewest('api-bot')), [], `got: ${show(found)}`);
-    assert.deepEqual(naming(found, 'update-config', notNewest('api-bot')), [], `got: ${show(found)}`);
+    for (const name of [...GROUP, 'update-config']) {
+      assert.deepEqual(naming(found, name, notNewest('api-bot')), [], `${name}: got: ${show(found)}`);
+    }
   });
+
+  for (const kept of ['artifact-design', 'ArtifactComments']) {
+    test(`P9c2 P11 a keep of ${kept} whose newest record holds all five of the Artifact group gets no finding that one is not in the newest record`, async (t) => {
+      const box = await createSandbox(t);
+      const bots = await fleet(box);
+      await editBotYaml(bots, 'api-bot', { claude_keep: [kept] });
+      await up(box);
+      await claudeRecord(box, bots, 'api-bot', { id: 'rec-new', at: hoursAgo(1), skills: GROUP_SKILLS, deferred: ['ArtifactComments', 'ArtifactData'], shaped: ['Artifact'] });
+
+      const found = await findings(box);
+
+      assert.deepEqual(saying(found, 'not in the newest Claude Code record'), [], `the newest record holds every kept name, got: ${show(found)}`);
+    });
+  }
+
+  for (const [kept, record] of [['Artifact', { shaped: ['Artifact'] }], ['artifact-design', { skills: ['artifact-design'] }]]) {
+    test(`P9c2 P11 a keep of ${kept} whose newest record holds only ${kept} names the other four of the Artifact group as not in the newest record`, async (t) => {
+      const box = await createSandbox(t);
+      const bots = await fleet(box);
+      await editBotYaml(bots, 'api-bot', { claude_keep: [kept] });
+      await up(box);
+      await claudeRecord(box, bots, 'api-bot', { id: 'rec-new', at: hoursAgo(1), ...record });
+
+      const found = await findings(box);
+
+      for (const name of GROUP.filter((one) => one !== kept)) {
+        assert.ok(naming(found, name, notNewest('api-bot')).length >= 1, `${name} is kept with ${kept} and the newest record lacks it, got: ${show(found)}`);
+      }
+      for (const name of ['DesignSync', 'artifact-diagramming']) {
+        assert.deepEqual(naming(found, name, notNewest('api-bot')), [], `${name} is not in the group, and the bot does not keep it, got: ${show(found)}`);
+      }
+    });
+  }
 
   test('P9c2 a kept tool named in the newest record\'s deferred tools is not named', async (t) => {
     const box = await createSandbox(t);
     const bots = await fleet(box);
     await editBotYaml(bots, 'api-bot', { claude_keep: ['ArtifactData'] });
     await up(box);
-    await claudeRecord(box, bots, 'api-bot', { id: 'rec-new', at: hoursAgo(1), deferred: ['ArtifactData'] });
+    // The rest of the Artifact group, which the keep of ArtifactData keeps too (#781), is in the record as well.
+    await claudeRecord(box, bots, 'api-bot', { id: 'rec-new', at: hoursAgo(1), deferred: ['ArtifactData'], skills: GROUP_SKILLS, shaped: ['Artifact', 'ArtifactComments'] });
 
     const found = await findings(box);
 
@@ -888,7 +1015,8 @@ describe('claude cuts', { concurrency: 4 }, () => {
 
     const found = await findings(box);
 
-    for (const name of ['Artifact', 'update-config', 'house-notes']) {
+    // The whole Artifact group is kept by the keep of Artifact (#781).
+    for (const name of [...GROUP, 'update-config', 'house-notes']) {
       assert.deepEqual(naming(found, name, notNewest('api-bot')), [], `got: ${show(found)}`);
     }
   });
@@ -931,12 +1059,13 @@ describe('claude cuts', { concurrency: 4 }, () => {
     await editBotYaml(bots, 'api-bot', { claude_keep: ['Artifact', 'ArtifactData', 'update-config'] });
     await up(box);
     await claudeRecord(box, bots, 'api-bot', { id: 'rec-old', at: hoursAgo(2), skills: ['some-other-skill'], shaped: ['SomeOtherTool'] });
+    // The rest of the Artifact group, which the keep of Artifact keeps too (#781), is deep in the record as well.
     await claudeRecord(box, bots, 'api-bot', {
       id: 'rec-new',
       at: hoursAgo(1),
       pad: DEEP,
-      skills: ['update-config'],
-      deferred: ['ArtifactData'],
+      skills: ['update-config', ...GROUP_SKILLS],
+      deferred: ['ArtifactData', 'ArtifactComments'],
       shaped: ['Artifact'],
     });
 
@@ -983,7 +1112,7 @@ describe('claude cuts', { concurrency: 4 }, () => {
 
   // ================================================================ P10
 
-  test('P10 a bot that keeps Artifact has no Artifact deny entry, and the other three default tools are denied', async (t) => {
+  test('P10 P11 a bot that keeps Artifact has none of the Artifact group\'s cuts, and DesignSync is still denied', async (t) => {
     const box = await createSandbox(t);
     const bots = await fleet(box);
     await editBotYaml(bots, 'api-bot', { claude_keep: ['Artifact'] });
@@ -991,10 +1120,102 @@ describe('claude cuts', { concurrency: 4 }, () => {
     await up(box);
 
     const held = await settingsOf(bots);
-    assert.ok(!denyOf(held).includes('Artifact'), `got: ${show(held.permissions)}`);
-    for (const name of ['ArtifactComments', 'ArtifactData', 'DesignSync']) {
-      assert.ok(denyOf(held).includes(name), `${name} is denied, got: ${show(held.permissions)}`);
-    }
+    assert.deepEqual(denyOf(held), ['DesignSync'], `of the default tools only DesignSync is denied, got: ${show(held.permissions)}`);
+    assertGroupKept(held, 'a keep of Artifact');
+    assertOutsideGroupCut(held, 'a keep of Artifact');
+  });
+
+  // ================================================================ P11
+
+  for (const kept of GROUP) {
+    test(`P11 a keep of ${kept} alone keeps all five of the Artifact group, which the defaults cut, and nothing outside it`, async (t) => {
+      const box = await createSandbox(t);
+      const bots = await fleet(box);
+      await editBotYaml(bots, 'api-bot', { claude_keep: [kept] });
+
+      await up(box);
+
+      const held = await settingsOf(bots);
+      assertGroupKept(held, `a keep of ${kept}`);
+      assertOutsideGroupCut(held, `a keep of ${kept}`);
+      const off = Object.keys(held.skillOverrides ?? {}).filter((name) => held.skillOverrides[name] === 'off');
+      assert.deepEqual(
+        sorted(off),
+        sorted(['auto-mode-setup', ...DEFAULT_SKILLS.filter((name) => !GROUP_SKILLS.includes(name))]),
+        `every default skill outside the group is still off, got: ${show(held.skillOverrides)}`,
+      );
+    });
+  }
+
+  test('P11 with nothing kept, a user cut of one name of the Artifact group leaves all five cut', async (t) => {
+    // The defaults cut all five already, so this holds today too. It guards a
+    // cut of one name from taking the others out of the file.
+    const box = await createSandbox(t);
+    const bots = await fleet(box);
+    await defaultsCut(bots, ['ArtifactData']);
+    await editBotYaml(bots, 'api-bot', { claude_cut: ['artifact-capabilities'] });
+
+    await up(box);
+
+    const held = await settingsOf(bots);
+    assertGroupCut(held, 'a user cut of ArtifactData and artifact-capabilities');
+    assertOutsideGroupCut(held, 'a user cut of ArtifactData and artifact-capabilities');
+  });
+
+  for (const [where, cut, kept] of [['defaults.yaml', 'artifact-design', 'ArtifactComments'], ['bot.yaml', 'ArtifactData', 'artifact-capabilities']]) {
+    test(`P11 a keep of ${kept} wins over a cut of ${cut} in ${where}: all five of the Artifact group stay`, async (t) => {
+      const box = await createSandbox(t);
+      const bots = await fleet(box);
+      if (where === 'defaults.yaml') {
+        await defaultsCut(bots, [cut]);
+        await editBotYaml(bots, 'api-bot', { claude_keep: [kept] });
+      } else {
+        await editBotYaml(bots, 'api-bot', { claude_cut: [cut], claude_keep: [kept] });
+      }
+
+      await up(box);
+
+      const held = await settingsOf(bots);
+      assertGroupKept(held, `a keep of ${kept} beside a cut of ${cut}`);
+      assertOutsideGroupCut(held, `a keep of ${kept} beside a cut of ${cut}`);
+    });
+  }
+
+  for (const kept of ['DesignSync', 'artifact-diagramming']) {
+    test(`P11 a keep of ${kept}, which is not in the Artifact group, keeps it alone: all five of the group stay cut`, async (t) => {
+      // This holds today too. It guards the group from growing past its five names.
+      const box = await createSandbox(t);
+      const bots = await fleet(box);
+      await editBotYaml(bots, 'api-bot', { claude_keep: [kept] });
+
+      await up(box);
+
+      const held = await settingsOf(bots);
+      assertGroupCut(held, `a keep of ${kept}`);
+      assert.ok(!denyOf(held).includes(kept), `the kept ${kept} is not denied, got: ${show(held.permissions)}`);
+      assert.notEqual(held.skillOverrides?.[kept], 'off', `the kept ${kept} is not off, got: ${show(held.skillOverrides)}`);
+    });
+  }
+
+  test('P11 P4 the Workflow pair and the Artifact group go apart: a keep of one leaves the other cut', async (t) => {
+    const box = await createSandbox(t);
+    const bots = await fleet(box, { bots: [{ bot: 'api-bot' }, { bot: 'web-bot' }] });
+    await defaultsCut(bots, ['Workflow']);
+    await editBotYaml(bots, 'api-bot', { claude_keep: ['artifact-capabilities'] });
+    await editBotYaml(bots, 'web-bot', { claude_keep: ['workflow-authoring'] });
+
+    await up(box, 'api-bot');
+    await up(box, 'web-bot');
+
+    const api = await settingsOf(bots, 'api-bot');
+    assertGroupKept(api, 'api-bot keeps artifact-capabilities');
+    assert.ok(denyOf(api).includes('Workflow'), `api-bot: the Workflow tool is still cut, got: ${show(api.permissions)}`);
+    assert.equal(api.skillOverrides?.['workflow-authoring'], 'off', `api-bot: the workflow-authoring skill is still cut, got: ${show(api.skillOverrides)}`);
+
+    const web = await settingsOf(bots, 'web-bot');
+    assert.ok(!denyOf(web).includes('Workflow'), `web-bot: the Workflow tool stays, got: ${show(web.permissions)}`);
+    assert.ok(!('workflow-authoring' in (web.skillOverrides ?? {})), `web-bot: the workflow-authoring skill stays, got: ${show(web.skillOverrides)}`);
+    assertGroupCut(web, 'web-bot keeps workflow-authoring');
   });
 
 });
