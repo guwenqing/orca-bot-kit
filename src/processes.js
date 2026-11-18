@@ -291,16 +291,24 @@ function workingFolders(ms = READ_MS) {
  * own command line (review of PR #543). Or `{ unreadable: <why> }`.
  */
 function processTable(ms = READ_MS) {
-  const asked = spawnSync(PS, ['-A', '-ww', '-o', 'pid=,ppid=,pgid=,uid=,stat=,lstart=,command='], { encoding: 'utf8', timeout: bound(ms), maxBuffer: 64 * 1024 * 1024 });
+  // `ps` writes lstart in the shape of the locale: `Di. 17 Nov. 14:58:05 2026`
+  // under de_DE (#801). C.UTF-8 gives it one shape on every machine, and keeps
+  // the characters of a command line, which plain C writes as escapes.
+  const asked = spawnSync(PS, ['-A', '-ww', '-o', 'pid=,ppid=,pgid=,uid=,stat=,lstart=,command='], { env: { ...process.env, LC_ALL: 'C.UTF-8' }, encoding: 'utf8', timeout: bound(ms), maxBuffer: 64 * 1024 * 1024 });
   if (asked.error?.code === 'ETIMEDOUT') return { unreadable: 'ps did not answer in time' };
   if (asked.error || asked.status !== 0) return { unreadable: `ps could not read the process table${because(asked)}` };
   const table = new Map();
+  // A line the kit cannot read can be a process of the session's: then the
+  // table is not read at all, rather than read as smaller (#801).
+  let unread = 0;
   for (const line of asked.stdout.split('\n')) {
+    if (line.trim() === '') continue;
     // lstart is five words: `Sat Oct 10 14:40:01 2026`.
     const read = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(\S+\s+\S+\s+\d+\s+\d+:\d+:\d+\s+\d+)(?:\s+(.*?))?\s*$/.exec(line);
-    if (read === null || read[5].startsWith('Z')) continue;
-    table.set(Number(read[1]), { ppid: Number(read[2]), pgid: Number(read[3]), uid: Number(read[4]), started: read[6].replace(/\s+/g, ' '), command: read[7] ?? '' });
+    if (read === null) unread += 1;
+    else if (!read[5].startsWith('Z')) table.set(Number(read[1]), { ppid: Number(read[2]), pgid: Number(read[3]), uid: Number(read[4]), started: read[6].replace(/\s+/g, ' '), command: read[7] ?? '' });
   }
+  if (unread > 0) return { unreadable: `ps gave ${unread === 1 ? '1 line' : `${unread} lines`} in a shape the kit cannot read` };
   if (table.size === 0) return { unreadable: 'ps listed no processes' };
   return { table };
 }
