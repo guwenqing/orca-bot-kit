@@ -141,11 +141,51 @@
 //   <ps> -A -ww -o pid=,ppid=,pgid=,uid=,stat=,lstart=,command=
 //
 // and gets one line per process: pid, parent pid, process group, uid, state,
-// the time it started, then the whole command line, spaces and all. The start
-// time is in `ps`'s own form, `Www Mmm d HH:MM:SS YYYY`, with a space before a
-// one-digit day. One real line, on this machine (#537):
+// the time it started, then the whole command line, spaces and all. Under the
+// C locale the start time is in `ps`'s own form, `Www Mmm d HH:MM:SS YYYY`,
+// with a space before a one-digit day. One real line, on this machine (#537):
 //
 //       1     0     1     0 Rs   Fri Oct  9 14:26:20 2026     /sbin/launchd
+//
+// The real `ps` prints two of these columns in the shape of the locale of the
+// environment it runs in (#801, measured on macOS 27.0.1, 2026-11-17, with
+// `/bin/ps -o lstart= -p 1` and `/bin/ps -A -o lstart=` under each locale), and
+// so does this fake, from the environment the kit gives it:
+//
+//   - The start time follows the effective LC_TIME, by POSIX's order: LC_ALL
+//     when it is set and not empty, then LC_TIME, then LANG; with none of them,
+//     the C locale. The shapes, each a real line's start time:
+//       C, POSIX, C.UTF-8, UTF-8, en_US   `Tue Nov 17 18:38:09 2026`,
+//                                         `Sun Nov  1 09:36:40 2026`
+//       en_GB                             `Fri 23 Oct 12:15:30 2026`,
+//                                         `Sun  1 Nov 09:36:40 2026`
+//       de_DE                             `Di. 17 Nov. 18:38:09 2026`,
+//                                         `So.  1 Nov. 09:36:40 2026`
+//       zh_CN                             `二 11月/17 18:38:09 2026`,
+//                                         `日 11月/ 1 09:36:40 2026`
+//     The codeset after the dot does not change the shape. `LANG=de_DE.UTF-8`
+//     with `LC_TIME=C` and no LC_ALL gives the C shape. Seen: every German
+//     weekday name, the German months Okt. and Nov., and the Chinese weekdays
+//     日, 二 and 五; the other names are the usual abbreviations, not seen.
+//     For any other locale the fake has no measurement: it says so on stderr
+//     and exits 70, so that a test cannot rest on a shape made up here.
+//   - The command column follows the effective LC_CTYPE: LC_ALL, then
+//     LC_CTYPE, then LANG. Under a UTF-8 locale (a name whose codeset is UTF-8,
+//     or the locale `UTF-8` itself) it is printed as it is: `睡觉 4`. Under
+//     the C locale, and under any locale that is not UTF-8, each byte of 128
+//     and above is escaped in the style of vis(3): `M-` and the byte's low
+//     seven bits, or `M^` and the control character's letter, so `睡觉 4`
+//     prints as `M-gM^]M-!M-hM-'M^I 4`. What the real `ps` does with an ASCII
+//     control character was not seen, and the fake leaves it as it is.
+//   - The numeric columns are digits in every locale, and so is `etime`
+//     below. The fake's start times are in UTC whatever TZ says: the real `ps`
+//     prints them in the local zone, and the table is only compared with
+//     itself.
+//
+// `psTableLines` in state.json, when a test set it, is a list of text lines:
+// each is written as it is, as one line of the table, after the processes and
+// before the fake ps's own row, whatever the locale. A line the kit cannot
+// read in a table it can otherwise read (#801).
 //
 // A pid with its start time is one process: the system can give a pid out
 // again, never with the same start time. A state that starts with `Z` is a
@@ -161,6 +201,12 @@
 //   { pid, ppid, pgid, uid, stat, startedAt, command, cwd, ...how it takes a signal }
 //
 // with `uid` the user's own (`process.getuid()`) and `stat` 'S' when left out.
+// The table prints the uid as a signed 32-bit number, as Apple's ps does: its
+// format for uid is "d" (UIDFMT in adv_cmds ps/keyword.c), and printval in
+// ps/print.c prints the unsigned uid through %*d. So `nobody`, uid 4294967294,
+// prints as `-2` (read in Apple's source and shown with a libc probe by the
+// reviewer of PR #807; not seen live, since no process of nobody ran on this
+// machine). An entry may give that uid either way, 4294967294 or -2.
 // `startedAt` is the start time in ms since the epoch, printed in UTC; left
 // out, it is a time on 2026-10-10 that the pid gives, the same at every read.
 // `appearsAfterMs: n` on an entry keeps the process out of the table, out of
@@ -299,6 +345,68 @@ export function lstartOf(ms) {
   const two = (n) => String(n).padStart(2, '0');
   return `${DAYS[at.getUTCDay()]} ${MONTHS[at.getUTCMonth()]} ${String(at.getUTCDate()).padStart(2, ' ')} `
     + `${two(at.getUTCHours())}:${two(at.getUTCMinutes())}:${two(at.getUTCSeconds())} ${at.getUTCFullYear()}`;
+}
+
+/**
+ * The locale that `category` (LC_TIME or LC_CTYPE) follows in `env`, by
+ * POSIX's order: LC_ALL when set and not empty, then the category's own
+ * variable, then LANG. '' when none is set, which is the C locale.
+ */
+export function localeOf(env, category) {
+  for (const name of ['LC_ALL', category, 'LANG']) {
+    if (typeof env[name] === 'string' && env[name] !== '') return env[name];
+  }
+  return '';
+}
+
+/** The language part of a locale's name: `de_DE.UTF-8` is `de_DE`. */
+const languageOf = (locale) => locale.replace(/[.@].*$/, '');
+
+/** The weekday and month names of the measured locales, Sunday and January first (see the top). */
+const DE_DAYS = ['So.', 'Mo.', 'Di.', 'Mi.', 'Do.', 'Fr.', 'Sa.'];
+const DE_MONTHS = ['Jan.', 'Feb.', 'März', 'Apr.', 'Mai', 'Juni', 'Juli', 'Aug.', 'Sep.', 'Okt.', 'Nov.', 'Dez.'];
+const ZH_DAYS = ['日', '一', '二', '三', '四', '五', '六'];
+
+/**
+ * A start time as the real `ps -o lstart=` prints it under `locale`, the
+ * effective LC_TIME, from ms since the epoch, in UTC: see the top. Undefined
+ * for a locale the fake has no measurement of.
+ */
+export function lstartIn(ms, locale) {
+  const at = new Date(ms);
+  const two = (n) => String(n).padStart(2, '0');
+  const day = String(at.getUTCDate()).padStart(2, ' ');
+  const clock = `${two(at.getUTCHours())}:${two(at.getUTCMinutes())}:${two(at.getUTCSeconds())} ${at.getUTCFullYear()}`;
+  const language = languageOf(locale);
+  if (['', 'C', 'POSIX', 'UTF-8', 'en_US'].includes(language)) return lstartOf(ms);
+  if (language === 'en_GB') return `${DAYS[at.getUTCDay()]} ${day} ${MONTHS[at.getUTCMonth()]} ${clock}`;
+  if (language === 'de_DE') return `${DE_DAYS[at.getUTCDay()]} ${day} ${DE_MONTHS[at.getUTCMonth()]} ${clock}`;
+  if (language === 'zh_CN') return `${ZH_DAYS[at.getUTCDay()]} ${at.getUTCMonth() + 1}月/${day} ${clock}`;
+  return undefined;
+}
+
+/** Whether `locale`, an effective LC_CTYPE, is a UTF-8 one: its codeset is UTF-8, or it is the locale `UTF-8`. */
+const isUtf8 = (locale) => /(?:^|\.)utf-?8(?:@.*)?$/i.test(locale);
+
+/**
+ * A command line as the real `ps` prints it under `locale`, the effective
+ * LC_CTYPE: as it is under a UTF-8 locale, and with each byte of 128 and
+ * above escaped in the style of vis(3) under any other (see the top).
+ */
+export function commandIn(command, locale) {
+  if (isUtf8(locale)) return command;
+  let out = '';
+  for (const byte of Buffer.from(command, 'utf8')) {
+    if (byte < 0x80) {
+      out += String.fromCharCode(byte);
+      continue;
+    }
+    const low = byte & 0x7f;
+    if (low < 0x20) out += `M^${String.fromCharCode(low + 0x40)}`;
+    else if (low === 0x7f) out += 'M^?';
+    else out += `M-${String.fromCharCode(low)}`;
+  }
+  return out;
 }
 
 /** The argv the kit may hand `ps` to read when one process started (#755), but for the pid on the end. */
@@ -758,9 +866,17 @@ export function runPs() {
     }
     const column = (value) => String(value).padStart(5);
     const itself = { pid: process.pid, ppid: process.ppid, pgid: process.pid, uid: process.getuid(), stat: 'R+', startedAt: Date.now(), command: `ps ${PS_TABLE.join(' ')}` };
-    process.stdout.write([...tableOf(state), itself]
-      .map((row) => `${column(row.pid)} ${column(row.ppid)} ${column(row.pgid)} ${column(row.uid)} ${row.stat.padEnd(4)} ${lstartOf(row.startedAt)}     ${row.command}\n`)
-      .join(''));
+    // The start time and the command in the shape of this run's locale (#801).
+    const time = localeOf(process.env, 'LC_TIME');
+    const ctype = localeOf(process.env, 'LC_CTYPE');
+    if (lstartIn(0, time) === undefined) {
+      process.stderr.write(`fake ps: no measured lstart shape for the locale ${JSON.stringify(time)}; see helpers/fake-ps.js\n`);
+      process.exit(70);
+    }
+    // The uid signed, as Apple's ps prints it: nobody's is -2 (see the top).
+    const line = (row) => `${column(row.pid)} ${column(row.ppid)} ${column(row.pgid)} ${column(row.uid | 0)} ${row.stat.padEnd(4)} ${lstartIn(row.startedAt, time)}     ${commandIn(row.command, ctype)}\n`;
+    const raw = (state.psTableLines ?? []).map((text) => `${text}\n`);
+    process.stdout.write([...tableOf(state).map(line), ...raw, line(itself)].join(''));
     appendFileSync(path.join(dir, 'ps-table.log'), `${JSON.stringify({ at: asked, done: Date.now() })}\n`);
     process.exit(0);
   }

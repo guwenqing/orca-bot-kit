@@ -229,7 +229,8 @@ export function runLsof() {
   if (cwds) {
     if (Number(args[4]) !== process.getuid()) process.exit(1);
     holdBack(state.lsofDelayMs);
-    const records = tableOf(state).filter((row) => typeof row.cwd === 'string' && row.uid === Number(args[4]) && !row.stat.startsWith('Z'));
+    // A uid as a 32-bit number, whichever sign an entry gives it in (helpers/fake-ps.js).
+    const records = tableOf(state).filter((row) => typeof row.cwd === 'string' && (row.uid >>> 0) === Number(args[4]) && !row.stat.startsWith('Z'));
     process.stdout.write(records.map((row) => `p${row.pid}\nfcwd\nn${row.cwd}\n`).join(''));
     process.exit(0);
   }

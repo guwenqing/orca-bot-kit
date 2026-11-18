@@ -51,6 +51,14 @@
 //      env.NODE_OPTIONS;`, `delete env.NODE_REPL_EXTERNAL_MODULE;`, and the
 //      `{ env, ... }` option of its spawnSync call. Any other spread, a second
 //      such statement, and any other use of that `env` fails.
+//   d. the spread `...process.env` as the first member of the object written
+//      out as the `env` option of the one spawnSync call in processTable of
+//      src/processes.js, with only locale variables after it (PS_ENV, #801):
+//      the table read of `ps` may give `ps` the kit's whole environment with
+//      the locale changed, so that `ps` prints one shape under every locale.
+//      The spread reads no name. A value given to a locale variable there is
+//      read as any other code is, so `LC_CTYPE: process.env.LC_ALL` is a read
+//      of LC_ALL, which the PRD's list must name.
 //
 // `process` is reached only by that global name, and only through the
 // members src/ uses today (PROCESS_MEMBERS). Every other use of
@@ -97,9 +105,14 @@
 // key, `.env =`, mention of NODE_OPTIONS, or such a call in the script, is a
 // place the check reports. A child without the kit's NODE_OPTIONS runs
 // without the suite's preload (helpers/fake-tools.js), so a sandboxed run
-// could reach a real ps, osascript or kill. What it cannot see: an env key
-// that is computed (`[KEY]:`), and an options object that comes in whole
-// from elsewhere (`{ ...given }`).
+// could reach a real ps, osascript or kill. One more place is allowed (#801):
+// the table read of `ps` in processTable of src/processes.js, in the one form
+// of shape d above, `{ env: { ...process.env, <locale variables> }, ... }`.
+// That environment keeps the kit's own, NODE_OPTIONS included: the spread
+// comes first, and only LANG and LC_* come after it. Any other env key in
+// processTable, and that form anywhere else, is a place the check reports.
+// What it cannot see: an env key that is computed (`[KEY]:`), and an options
+// object that comes in whole from elsewhere (`{ ...given }`).
 //
 // Also here, from R1: the core reads none of the settings that existed only
 // for the kit's own tests (OBK_PS, OBK_LSOF, OBK_STTY, OBK_OSASCRIPT,
@@ -185,6 +198,85 @@ const lineAt = (text, index) => text.slice(0, index).split('\n').length;
  */
 const KNOWN_ENV = { file: 'src/orca.js', fn: 'askRuntime' };
 const RUNTIME = 'src/orca-runtime.cjs';
+
+/**
+ * The second place (#801): the table read of `ps`, in processTable of
+ * src/processes.js, may give `ps` the kit's whole environment with only the
+ * locale changed, written out as the `env` option of its one spawnSync call:
+ * `{ env: { ...process.env, LC_TIME: 'C' }, ... }`. The spread first keeps
+ * NODE_OPTIONS, and the suite's fake tools with it.
+ */
+const PS_ENV = { file: 'src/processes.js', fn: 'processTable' };
+
+/** The names a locale variable has, the only keys PS_ENV's environment may set after the spread. */
+const LOCALE_NAME = /^(?:LANG|LC_[A-Z]+)$/;
+
+/** The index in `code` of the bracket that closes the one at `at`, or -1. The code is blanked, so a bracket in a string does not count. */
+function closingOf(code, at) {
+  let depth = 0;
+  for (let i = at; i < code.length; i += 1) {
+    if ('([{'.includes(code[i])) depth += 1;
+    else if (')]}'.includes(code[i])) {
+      depth -= 1;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
+/**
+ * Where PS_ENV's form is in `file`, when it is there exactly: `{ key, spread
+ * }`, the index of its `env` key and of the `process` of its spread.
+ * Undefined otherwise, and then every env key and spread there is reported
+ * as anywhere else.
+ */
+function psEnvIn(file, text, code) {
+  if (file !== PS_ENV.file) return undefined;
+  const span = functionSpan(text, PS_ENV.fn);
+  if (span === undefined) return undefined;
+  const calls = [...code.slice(span[0], span[1]).matchAll(/(?<![\w$.])spawnSync\s*\(/g)];
+  if (calls.length !== 1) return undefined;
+  const open = span[0] + calls[0].index + calls[0][0].length - 1;
+  const close = closingOf(code, open);
+  if (close < 0 || close > span[1]) return undefined;
+  // The one `env:` key of an object that is a direct argument of the call.
+  const keys = [];
+  const stack = [];
+  for (let i = open; i <= close; i += 1) {
+    const c = code[i];
+    if ('([{'.includes(c)) stack.push(c);
+    else if (')]}'.includes(c)) stack.pop();
+    else if (stack.length === 2 && stack[1] === '{' && /^env\s*:/.test(code.slice(i)) && !/[\w$.]/.test(code[i - 1])
+      && /[{,]$/.test(code.slice(0, i).trimEnd())) keys.push(i);
+  }
+  if (keys.length !== 1) return undefined;
+  const key = keys[0];
+  const start = code.indexOf('{', key);
+  if (code.slice(key + 3, start).replace(/\s/g, '') !== ':') return undefined;
+  const end = closingOf(code, start);
+  if (end < 0 || !/^[,}]/.test(code.slice(end + 1).trimStart())) return undefined;
+  // The object's members, split at its own commas.
+  const members = [];
+  let depth = 0;
+  let from = start + 1;
+  for (let i = start + 1; i < end; i += 1) {
+    if ('([{'.includes(code[i])) depth += 1;
+    else if (')]}'.includes(code[i])) depth -= 1;
+    else if (code[i] === ',' && depth === 0) {
+      members.push([from, i]);
+      from = i + 1;
+    }
+  }
+  members.push([from, end]);
+  const shown = members.map(([a, b]) => code.slice(a, b).trim());
+  if (shown[0] !== '...process.env') return undefined;
+  if (shown.at(-1) === '' && shown.length > 1) shown.pop();
+  for (const member of shown.slice(1)) {
+    const name = /^([A-Za-z_$][\w$]*)\s*:/.exec(member)?.[1];
+    if (name === undefined || !LOCALE_NAME.test(name)) return undefined;
+  }
+  return { key, spread: code.indexOf('process', members[0][0]) };
+}
 
 /** Where the function `name` of `text` starts and ends, or undefined. */
 function functionSpan(text, name) {
@@ -435,6 +527,7 @@ function settingsReadBy(sources, listed) {
     const shown = (index) => text.slice(index).split('\n')[0].trim();
     const at = (index, why) => unread.push(`${file}:${lineAt(text, index)}: ${why}: ${shown(index)}`);
     const spreadAt = runtimeSpreadIn(file, text, code, at);
+    const psSpreadAt = psEnvIn(file, text, code)?.spread;
     const name = (index, setting, tail, before) => {
       if (WRITE_AFTER.test(tail) || /(?<![\w$.])delete\s*$/.test(before)) return at(index, 'a write to process.env, which is no read');
       names.add(setting);
@@ -479,6 +572,8 @@ function settingsReadBy(sources, listed) {
         else name(match.index, value, rest.slice(byConstant[0].length), before);
       } else if (match.index === spreadAt) {
         // Shape c: askRuntime hands the whole environment to Orca's client.
+      } else if (match.index === psSpreadAt) {
+        // Shape d: the table read hands the whole environment to ps, the locale changed.
       } else {
         at(match.index, 'process.env used in a shape this check does not allow');
       }
@@ -538,8 +633,9 @@ async function coreSettings() {
 
 /**
  * Each place in the JavaScript `sources` that gives a child an environment of
- * its own, or could, outside askRuntime: `unread`, as `file:line: why`; and
- * `known`, what askRuntime holds of it.
+ * its own, or could, outside askRuntime and PS_ENV's form: `unread`, as
+ * `file:line: why`; `known`, what askRuntime holds of it; and `psTable`, how
+ * many env keys of PS_ENV's form there are, 0 or 1.
  *
  * Read as places: an `env` key of an object (`env:`, `'env':`, a shorthand
  * `{ env }`), a `.env =` that is not process's own, and any mention of
@@ -551,13 +647,16 @@ async function coreSettings() {
 function childEnvsIn(sources) {
   const unread = [];
   const known = { env: 0, nodeOptions: 0 };
+  let psTable = 0;
   for (const { file, text } of sources) {
     const code = codeOnly(text);
     const span = file === KNOWN_ENV.file ? functionSpan(text, KNOWN_ENV.fn) : undefined;
     const inKnown = (index) => span !== undefined && index >= span[0] && index < span[1];
+    const psKey = psEnvIn(file, text, code)?.key;
     const shown = (index) => text.slice(index).split('\n')[0].trim();
     const place = (index, why, kind) => {
-      if (kind !== undefined && inKnown(index)) known[kind] += 1;
+      if (kind === 'env' && index === psKey) psTable += 1;
+      else if (kind !== undefined && inKnown(index)) known[kind] += 1;
       else unread.push(`${file}:${lineAt(text, index)}: ${why}: ${shown(index)}`);
     };
     for (const match of code.matchAll(/(?<![\w$.])env(?![\w$])/g)) {
@@ -583,7 +682,7 @@ function childEnvsIn(sources) {
       }
     }
   }
-  return { unread, known };
+  return { unread, known, psTable };
 }
 
 // ----------------------------------------------------------------- the commands the core has
@@ -856,6 +955,69 @@ test('CC0 the child environment reader, against worked examples: the askRuntime 
   }
 });
 
+/** processTable as src/processes.js may have it (#801), in short: the table read gives ps the kit's environment, the locale changed. */
+const PS_TABLE_EXAMPLE = [
+  'function processTable(ms = READ_MS) {',
+  "  const asked = spawnSync(PS, ['-A', '-ww'], { env: { ...process.env, LC_ALL: undefined, LC_TIME: 'C', }, encoding: 'utf8', timeout: bound(ms) });",
+  '  return asked.stdout;',
+  '}',
+  '',
+].join('\n');
+
+/** PS_TABLE_EXAMPLE with its options object `{ env: ... }` given as `options` instead. */
+const psTableWith = (options) => PS_TABLE_EXAMPLE.replace(/\{ env: .*\}, encoding: 'utf8', timeout: bound\(ms\) \}/, options);
+
+/** Changes to PS_TABLE_EXAMPLE that both readers report, each a text of src/processes.js and why. */
+const PS_TABLE_BAD = [
+  [PS_TABLE_EXAMPLE.replace('processTable', 'workingFolders'), 'the form in another function of src/processes.js'],
+  [psTableWith("{ env: { LC_TIME: 'C', ...process.env }, encoding: 'utf8' }"), 'the spread after a locale variable, which it would undo'],
+  [psTableWith("{ env: { ...process.env, ...extra, LC_TIME: 'C' }, encoding: 'utf8' }"), 'a second spread'],
+  [psTableWith("{ env: { ...process.env, LC_TIME: 'C' } && given, encoding: 'utf8' }"), 'the object as a part of a longer value'],
+  [`${PS_TABLE_EXAMPLE.replace('  return asked.stdout;\n', "  spawnSync(PS, [], { env: { ...process.env, LC_TIME: 'C' } });\n  return asked.stdout;\n")}`, 'a second spawnSync with the form'],
+  [PS_TABLE_EXAMPLE.replace("  const asked = spawnSync(PS, ['-A', '-ww'], { env: { ...process.env, LC_ALL: undefined, LC_TIME: 'C', }, encoding: 'utf8', timeout: bound(ms) });",
+    "  const env = { ...process.env, LC_TIME: 'C' };\n  const asked = spawnSync(PS, ['-A', '-ww'], { env, encoding: 'utf8' });"), 'the environment built first, then given as a shorthand'],
+];
+
+test('CC0 the child environment reader allows the table read in processTable of src/processes.js the kit\'s environment with only the locale changed, and no other shape (#801)', () => {
+  const good = childEnvsIn([{ file: 'src/processes.js', text: PS_TABLE_EXAMPLE }]);
+  assert.deepEqual(good.unread, [], 'the form is no place to report');
+  assert.equal(good.psTable, 1, 'and it is counted as the table read\'s');
+  assert.equal(childEnvsIn([{ file: 'src/processes.js', text: psTableWith("{ env: { ...process.env }, encoding: 'utf8' }") }]).unread.length, 0, 'the spread alone, with no locale variable after it, is the form too');
+  const listed = childEnvsIn([{ file: 'src/processes.js', text: psTableWith("{ env: { ...process.env, LANG: 'C', LC_CTYPE: x, LC_MESSAGES: 'C' }, encoding: 'utf8' }") }]);
+  assert.deepEqual(listed.unread, [], 'LANG and any LC_ name are locale variables');
+
+  for (const [file, text, why] of [
+    ...PS_TABLE_BAD.map(([text, why]) => ['src/processes.js', text, why]),
+    ['src/orca.js', PS_TABLE_EXAMPLE, 'the form in another file'],
+    ['src/processes.js', psTableWith("{ env: { ...process.env, PATH: '/usr/bin' }, encoding: 'utf8' }"), 'a variable that is not the locale\'s'],
+    ['src/processes.js', psTableWith("{ env: { ...process.env, NODE_OPTIONS: '' }, encoding: 'utf8' }"), 'NODE_OPTIONS taken out of the table read\'s environment'],
+    ['src/processes.js', psTableWith("{ env: { ...process.env, 'LC_ALL': 'C' }, encoding: 'utf8' }"), 'a quoted key'],
+    ['src/processes.js', psTableWith("{ env: { ...process.env, [name]: 'C' }, encoding: 'utf8' }"), 'a computed key'],
+    ['src/processes.js', psTableWith("{ env: { ...process.env, LC_ALL }, encoding: 'utf8' }"), 'a shorthand key'],
+    ['src/processes.js', psTableWith("{ env: localeFree(process.env), encoding: 'utf8' }"), 'the environment made by a call'],
+    ['src/processes.js', psTableWith("{ env: {}, encoding: 'utf8' }"), 'an environment without the kit\'s'],
+    ['src/processes.js', psTableWith("{ env: { ...process.env, LC_TIME: spawnSync('x', [], { env: {} }) }, encoding: 'utf8' }"), 'a second env key inside a value'],
+  ]) {
+    assert.ok(childEnvsIn([{ file, text }]).unread.length > 0, `${why} should be a place the check reports: ${text}`);
+  }
+});
+
+test('CC0 the settings reader allows the spread of the table read\'s environment in processTable of src/processes.js, and no other spread there (#801)', () => {
+  const withProcesses = (text) => [...EXAMPLE_CORE(), { file: 'src/processes.js', text }];
+  const good = settingsReadBy(withProcesses(PS_TABLE_EXAMPLE), EXAMPLE_LIST);
+  assert.deepEqual(good.unread, [], 'shape d is allowed');
+  assert.deepEqual(sorted(good.names), sorted(EXAMPLE_LIST), 'and it reads no name');
+
+  for (const [text, why] of PS_TABLE_BAD) {
+    assert.ok(settingsReadBy(withProcesses(text), EXAMPLE_LIST).unread.length > 0, `${why} should fail: ${text}`);
+  }
+  assert.ok(settingsReadBy(exampleWith(PS_TABLE_EXAMPLE), EXAMPLE_LIST).unread.length > 0, 'the form in another file should fail');
+  // A value given to a locale variable is read as code: reading LC_ALL there is a setting the PRD's list must name.
+  const reads = settingsReadBy(withProcesses(psTableWith("{ env: { ...process.env, LC_CTYPE: process.env.LC_ALL }, encoding: 'utf8' }")), EXAMPLE_LIST);
+  assert.ok(reads.names.has('LC_ALL'), 'LC_ALL is read');
+  assert.ok(reads.unread.some((place) => place.includes('LC_ALL')), `and the PRD's list does not name it, got: ${JSON.stringify(reads.unread)}`);
+});
+
 // ----------------------------------------------------------------- R3: the lists and the core agree
 
 test('CC1 the PRD\'s [PRD-8] names the settings the core reads, and no others; and src/ reaches the environment only in the shapes the check allows', async () => {
@@ -892,12 +1054,12 @@ test('CC2 the PRD\'s [PRD-8] names the commands the CLI has, and no others: COMM
   assert.deepEqual(minus(listed, core), [], 'commands the PRD\'s list names that the CLI does not have: take them out of the list');
 });
 
-test('CC5 only askRuntime in src/orca.js gives a child an environment of its own, and the script its child runs starts nothing', async () => {
+test('CC5 only askRuntime in src/orca.js, and the table read in processTable of src/processes.js with the kit\'s environment and only the locale changed, give a child an environment of its own, and the script askRuntime\'s child runs starts nothing', async () => {
   const { scripts } = await coreSettings();
   assert.ok(scripts.some(({ file }) => file === RUNTIME), `the premise: ${RUNTIME} is read`);
   const read = childEnvsIn(scripts);
 
-  assert.deepEqual(read.unread, [], 'places in src/ that give a child an environment of its own, or could, outside askRuntime: a child without the kit\'s NODE_OPTIONS runs without the test preload (helpers/fake-tools.js), so a sandbox could reach a real program');
+  assert.deepEqual(read.unread, [], 'places in src/ that give a child an environment of its own, or could, outside askRuntime and the table read\'s one form (`env: { ...process.env, <locale variables> }`): a child without the kit\'s NODE_OPTIONS runs without the test preload (helpers/fake-tools.js), so a sandbox could reach a real program');
   assert.deepEqual(read.known, { env: 1, nodeOptions: 1 }, 'the premise: askRuntime in src/orca.js still holds its one env and its one NODE_OPTIONS');
 });
 
