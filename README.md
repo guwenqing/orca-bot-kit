@@ -649,8 +649,9 @@ What this costs you:
 - Each session's line in `obk health` says what main text it runs on: `kit`,
   `older` (with how it gets the new one), or `own`, with why. A paused session
   shows it once it starts again. A resume keeps the book's note of the main
-  text, so a conversation that began before the kit noted it has none, as each
-  resumed session has after an upgrade to 0.40.0. When the last record of its
+  text, so a conversation that began before the kit noted it has none, as a
+  session has that was resumed from a conversation that began before the
+  upgrade to 0.40.0. When the last record of its
   conversation is of Claude Code's own main text, its line says `own`, that
   the book holds no note, and how it gets the kit's text. The wait for a first
   record does not fail health. Health gives a finding when the user must act:
@@ -677,9 +678,10 @@ there. A `claude-memory/` folder that you made yourself gets no `.gitignore`
 from the kit.
 
 A bot, its repository or your user-level settings that name their own
-`autoMemoryDirectory` keep it, and the kit then makes no folder. When one of
-those settings files is there and the kit cannot read it, or it is not valid
-JSON, the kit cannot tell whether it names a folder. So the kit names none,
+`autoMemoryDirectory` keep it, and the kit then makes no folder. When none of
+those settings files that the kit can read names a folder, and one of them is
+there and the kit cannot read it, or it is not valid JSON, the kit cannot tell
+whether that file names a folder. So the kit names none,
 and the session's notes go to the folder that the bots shared. The session's
 start report and `obk health` name the file. Repair the file; the kit reads
 it again at the next start of the session.
