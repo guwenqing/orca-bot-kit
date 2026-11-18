@@ -12,26 +12,27 @@ work from a later slice into an earlier one.
 
 ## AssuredLoop
 
-AssuredLoop keeps this project's requests and spec: before work that changes a promise, read the skill of al 1.0.0 and run `al context`.
+AssuredLoop keeps this project's requests and spec: before work that changes a promise, read the skill of al 5.0.4 and run `al check`.
 
-`al` is the npm package `@assuredloop/cli` at exactly `1.0.0`. Wherever this file says
+`al` is the npm package `@assuredloop/cli` at exactly `5.0.4`. Wherever this file says
 `al`, run that version in one of two ways: through npx, as
-`npx -y @assuredloop/cli@1.0.0 <args>`, or from an install of its own in a folder outside
-the global one, made with `npm install --prefix <dir> @assuredloop/cli@1.0.0` and run
+`npx -y @assuredloop/cli@5.0.4 <args>`, or from an install of its own in a folder outside
+the global one, made with `npm install --prefix <dir> @assuredloop/cli@5.0.4` and run
 as `<dir>/node_modules/.bin/al <args>`. Do not install it globally: the global `al`
 belongs to every project on the machine, and another version may not read this repo's
 records. The skill ships in the package, at
 `@assuredloop/cli/skills/assuredloop/SKILL.md`; this prints it:
-`npx -y -p @assuredloop/cli@1.0.0 -c 'cat "$(dirname "$(command -v al)")/../@assuredloop/cli/skills/assuredloop/SKILL.md"'`.
+`npx -y -p @assuredloop/cli@5.0.4 -c 'cat "$(dirname "$(command -v al)")/../@assuredloop/cli/skills/assuredloop/SKILL.md"'`.
 In an install of its own, the skill is
 `<dir>/node_modules/@assuredloop/cli/skills/assuredloop/SKILL.md`.
 CI runs `al check --strict` at that version on every pull request. The baseline is `docs/prd/`
 (`root:` in `.assuredloop/config.yaml`), and al keeps its records in `.assuredloop/records/`,
-committed with the change. Each paragraph of the PRD has a hidden marker before it, with
+committed with the change. `al check` runs `al index` first and can write record files:
+commit the ones its `records:` line names. Each paragraph of the PRD has a hidden marker before it, with
 its ID and kind: keep the marker when you edit the paragraph. The decision records are
-`docs/adr/`; al 1.0.0 reads ADRs only in `docs/prd/adr/`, so it does not read them.
-The requests that al 0.1.0 concluded stay in `requests/archive/` as files; al 1.0.0 does
-not read them. To check one, run al 0.1.0 at its commit.
+`docs/adr/`; al 5.0.4 reads ADRs only in `docs/prd/adr/`, so it does not read them.
+The requests that al 0.1.0 concluded stay in `requests/archive/` as files; al 5.0.4 does
+not check them. To check one, run al 0.1.0 at its commit.
 Every PR states its tier, in its commit message (`al check` reads it there) and the PR:
 
 - No promise in the baseline changes: tier 0. Write no record. `Tier: 0 — <what it restores>`.

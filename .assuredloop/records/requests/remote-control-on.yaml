@@ -39,7 +39,6 @@ signoff:
 decisions: []
 tasks: []
 bindings:
-  - { holder: remote-control-on/R1, link: from, target: remote-control-on/2026-11-14-owner-words.md, holder_sha256: 85dab4bcdeeafd3e80048c9a4d6071c9a967547df7d8c1d6e206683d0c9a8e26, target_sha256: 16ab70f5445a019f2755fddfcdcc1807d9adfe0cabe3826c14ed4c6880056862 }
   - { holder: remote-control-on/R1, link: from, target: remote-control-on/2026-11-14-github-com-guwenqing-orca-bot-kit-issues-755.md, holder_sha256: 4dffd4ab71549c31c01409765f3f9b57edb8d2b30df08f89366a5c36808ace97, target_sha256: 2d0a5d7a49a960c81602df396635518a13cc6f256d7445d28318b55ec85c87bf }
   - { holder: KIT-17, link: serves, target: remote-control-on/R1, holder_sha256: 3714d0013b07ef2b7fae1abc88873c889cce3538781526493de68aeb8dbc6749, target_sha256: 4dffd4ab71549c31c01409765f3f9b57edb8d2b30df08f89366a5c36808ace97, target_version: 3 }
   - { holder: KIT-22, link: serves, target: remote-control-on/R1, holder_sha256: 732654e06693587f0a0634e0ea966a056c5f5c541ade58d5d28f637d65f22884, target_sha256: 4dffd4ab71549c31c01409765f3f9b57edb8d2b30df08f89366a5c36808ace97, target_version: 3 }
