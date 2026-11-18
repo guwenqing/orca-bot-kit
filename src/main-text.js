@@ -24,10 +24,11 @@
 
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { writeKitFile } from './kit-files.js';
 import { claudeTranscript } from './conversations.js';
 import { readBook } from './book.js';
 import { cutsOf } from './cuts.js';
@@ -163,8 +164,7 @@ export const mainFilesIn = (text) => namesIn(text).filter((name) => MAIN_NAME.te
 export function noteSource(text, id, { shape, appended, model }) {
   if (typeof id !== 'string' || !SAFE_ID.test(id) || typeof shape !== 'string' || typeof model !== 'string' || model === '') return;
   const { sources } = textFolders(text);
-  mkdirSync(sources, { recursive: true });
-  writeFileSync(path.join(sources, `${id}.json`), `${JSON.stringify({ conversation: id, shape, appended: appended ?? null, model, at: new Date().toISOString() })}\n`);
+  writeKitFile(path.join(sources, `${id}.json`), `${JSON.stringify({ conversation: id, shape, appended: appended ?? null, model, at: new Date().toISOString() })}\n`);
 }
 
 /**
@@ -217,8 +217,7 @@ export function mainTextFor(bots, home, text, shape, { write = true } = {}) {
   const built = buildMainText(original.sections, { recipe, cut });
   const file = path.join(text, `main-${checksum(built.text)}.md`);
   if (write) {
-    mkdirSync(text, { recursive: true });
-    if (!existsSync(file) || readFileSync(file, 'utf8') !== built.text) writeFileSync(file, built.text);
+    if (!existsSync(file) || readFileSync(file, 'utf8') !== built.text) writeKitFile(file, built.text);
   }
   return { file, text: built.text, back: built.back, version: installed.version };
 }
@@ -279,8 +278,7 @@ function withoutAppended(sections, appended) {
 /** Save an original, and take away the notes of its shape and the originals of its shape for other versions. */
 function save(text, file, original, shape) {
   const { sources, originals } = textFolders(text);
-  mkdirSync(originals, { recursive: true });
-  writeFileSync(file, `${JSON.stringify(original)}\n`);
+  writeKitFile(file, `${JSON.stringify(original)}\n`);
   for (const name of namesIn(originals)) {
     if (name !== path.basename(file) && name.endsWith(`-${shape}.json`)) rmSync(path.join(originals, name), { force: true });
   }

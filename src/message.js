@@ -17,11 +17,12 @@
 // window has not loaded, so the send says when the receiver's is one (#579).
 
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { setTimeout as pause } from 'node:timers/promises';
 
+import { writeKitFile } from './kit-files.js';
 import { MAILBOX_WAIT_MS, readBook, takeLineTurn, takeMailboxTurn, TYPING_HELD, TYPING_WAIT_MS } from './book.js';
 import { botDir, botNames, readBot } from './bot.js';
 import { harnessOf, isAddressOf, kitFolders, ownCli, reachesMail, SHELL_ENV, shellWord } from './launch.js';
@@ -581,8 +582,7 @@ function bodyOf(bots, { from, to, subject, text, textFile }) {
     kitFolders(bots, from.bot).messages,
     `${encodeURIComponent(`${from.bot}.${from.session}`)}.${encodeURIComponent(`${to.bot}.${to.session}`)}.${stamp()}.md`,
   );
-  mkdirSync(path.dirname(file), { recursive: true });
-  writeFileSync(file, said);
+  writeKitFile(file, said);
   return {
     body: `${subject} is longer than a message carries, so it is in this file, whole and as it was written:\n${file}`,
     file,
