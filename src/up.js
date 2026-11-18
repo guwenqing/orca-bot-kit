@@ -5,11 +5,12 @@
 // run does nothing.
 
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { setTimeout as pause } from 'node:timers/promises';
 
-import { forgetClaimed, forgetSession, MAILBOX_WAIT_MS, readBook, rememberSession, sessionIdsIn, tabIdsIn, takeLineTurn, takeMailboxTurn, takeProjectTurn, TYPING_HELD, TYPING_WAIT_MS, updateBook, withUnclaimed } from './book.js';
+import { makeKitFolder, writeKitFile } from './kit-files.js';
+import { forgetClaimed, forgetSession, MAILBOX_WAIT_MS, readBook, readyMailboxTurn, rememberSession, sessionIdsIn, tabIdsIn, takeLineTurn, takeMailboxTurn, takeProjectTurn, TYPING_HELD, TYPING_WAIT_MS, updateBook, withUnclaimed } from './book.js';
 import { botDir, botNames, displayName, readBot } from './bot.js';
 import { conversationsIn, hasConversation, heldAsUserTurn, transcriptsIn } from './conversations.js';
 import { dropRemovedHooks, installHook } from './hooks.js';
@@ -343,8 +344,9 @@ async function bringUpSession(bots, home, live, session, bot, title, endedBy) {
   if (workDir !== undefined) mkdirSync(workDir, { recursive: true });
   // The kit's own folders for the bot, which a Codex launch line names for its
   // sandbox to write, are there before the line is (#534).
-  if (harness === 'codex') for (const folder of Object.values(kitFolders(bots, bot.name))) mkdirSync(folder, { recursive: true });
+  if (harness === 'codex') for (const folder of Object.values(kitFolders(bots, bot.name))) makeKitFolder(folder);
   writePrompt(launch);
+  readyMailboxTurn(home, session.name);
 
   const made = openTab(home, tabTitle);
 
@@ -753,8 +755,7 @@ function launchFor(bots, bot, session, harness, home, workDir, resume, held, fre
  */
 function writePrompt({ prompt, promptFile }) {
   if (promptFile === undefined) return;
-  mkdirSync(path.dirname(promptFile), { recursive: true });
-  writeFileSync(promptFile, prompt);
+  writeKitFile(promptFile, prompt);
 }
 
 /**

@@ -6,14 +6,15 @@
 // theirs. Beside each session's tab it holds the harness session id that
 // session is running under, and every id it ran under before.
 
-import { closeSync, constants, existsSync, fstatSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, constants, existsSync, fstatSync, openSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { isDeepStrictEqual } from 'node:util';
 import { parse, stringify } from 'yaml';
 
-import { kitFolders } from './launch.js';
+import { kitFolders, shellWord } from './launch.js';
+import { makeKitFolder, ownerCannotWrite, ownerMayWrite } from './kit-files.js';
 
 const HEADER = `# What Orca calls this bot on this machine, and where each of its sessions
 # lives. \`obk up\` writes this file; it is committed with the rest of the repo.
@@ -199,14 +200,7 @@ function lockOn(file, waitMs, how = 'IMMEDIATE') {
   // link can have a file outside read into SQLite's memory and dropped; and a
   // FIFO put there that instant can hang the command. A lock taken by name
   // cannot close that without a lock Node does not have.
-  if (!heldHere.has(file)) {
-    try {
-      mkdirSync(path.dirname(file), { recursive: true });
-      plainFile(file);
-    } catch (error) {
-      throw new LockNotWritable(file, error);
-    }
-  }
+  readyLock(file);
 
   let db;
   try {
@@ -248,6 +242,17 @@ function lockOn(file, waitMs, how = 'IMMEDIATE') {
   };
 }
 
+/** Make the lock file at `file` and its folder, as `lockOn` takes it, unless this process holds a turn on it. */
+function readyLock(file) {
+  if (heldHere.has(file)) return;
+  try {
+    makeKitFolder(path.dirname(file));
+    plainFile(file);
+  } catch (error) {
+    throw new LockNotWritable(file, error);
+  }
+}
+
 /**
  * Make the lock file at `file` if it is not there, and open it for writing
  * without following a link or waiting on a FIFO. Anything at the name but a
@@ -260,16 +265,21 @@ function plainFile(file) {
   } catch (error) {
     // A link, a folder and a FIFO with no reader, in that order.
     if (['ELOOP', 'EISDIR', 'ENXIO'].includes(error.code)) throw notPlain(error.code);
+    if (error.code === 'EACCES' && ownerCannotWrite(file)) throw Object.assign(new Error('its owner cannot write it'), { code: NOT_OWNERS });
     throw error;
   }
   try {
     if (!fstatSync(fd).isFile()) throw notPlain('not a plain file');
+    // A lock file made under a umask that takes away the owner's bits gets
+    // them, or the next turn could not open it (#764).
+    ownerMayWrite(fd);
   } finally {
     closeSync(fd);
   }
 }
 
 const NOT_PLAIN = 'ENOTPLAIN';
+const NOT_OWNERS = 'ENOTOWNERS';
 const notPlain = (message) => Object.assign(new Error(message), { code: NOT_PLAIN });
 
 /** How many turns this process holds on each lock file, by its path. */
@@ -318,6 +328,8 @@ class LockNotWritable extends Error {
   constructor(file, why) {
     super(why.code === NOT_PLAIN
       ? `something other than a plain file is at the name of the kit's lock ${file} (${why.message}), so the kit did not take the turn, and nothing was done. Remove ${file}; the kit makes it again.`
+      : why.code === NOT_OWNERS
+      ? `the kit's lock ${file} is there, and its owner cannot write it, so the kit did not take the turn, and nothing was done. An earlier start under a umask that took away the owner's write bit can leave it so: run chmod u+w ${shellWord(file)}, then try again. A Codex session started before this version of the kit cannot write its bot's folder of locks: restart this session with the kit.`
       : `the kit cannot write its lock ${file} (${why.code ?? why.message}), so it did not take the turn, and nothing was done. A Codex session started before this version of the kit cannot write its bot's folder of locks: restart this session with the kit. Elsewhere, make ${path.dirname(file)} writable.`);
     this.code = why.code;
   }
@@ -388,6 +400,13 @@ export function takeMailboxTurn(home, session) {
     throw error;
   }
 }
+
+/**
+ * Make the session's mailbox lock ready, or say why it cannot be. `up` takes
+ * that turn only after it opens the session's tab, so it asks this first: a
+ * lock that the kit cannot write then stops the start before any tab is open.
+ */
+export const readyMailboxTurn = (home, session) => readyLock(mailboxLockFile(home, session));
 
 /**
  * A session's turn to have its Codex thread named (#480), beside its mailbox
