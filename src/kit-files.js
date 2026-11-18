@@ -45,9 +45,14 @@ export function makeKitFolder(dir) {
       if (error.code === 'EEXIST') continue;
       throw error;
     }
-    const { mode } = lstatSync(at);
-    if ((mode & FOLDER_BITS) !== FOLDER_BITS) chmodSync(at, (mode & 0o7777) | FOLDER_BITS);
+    ownerMayEnter(at);
   }
+}
+
+/** Give the folder `dir`, which the kit has just made, the owner's bits, if it lacks one. */
+export function ownerMayEnter(dir) {
+  const { mode } = lstatSync(dir);
+  if ((mode & FOLDER_BITS) !== FOLDER_BITS) chmodSync(dir, (mode & 0o7777) | FOLDER_BITS);
 }
 
 /** Give the file open at `fd` the owner's read and write bits, if it lacks one. */
@@ -87,23 +92,5 @@ export function writeKitFile(file, text) {
     writeFileSync(fd, text);
   } finally {
     closeSync(fd);
-  }
-}
-
-/**
- * Run `work` with the owner's bits taken out of the umask, and give the umask
- * back after. For what the kit makes that another program fills: the `.git`
- * the kit makes in a bot home for one `orca repo add` and takes away after,
- * which git cannot fill under a umask that takes away the owner's write bit.
- * The group and other bits of the umask stay. `work` is synchronous, so
- * nothing else of the kit's runs under this umask.
- */
-export function withOwnerBits(work) {
-  const was = process.umask(0);
-  process.umask(was & ~FOLDER_BITS);
-  try {
-    return work();
-  } finally {
-    process.umask(was);
   }
 }

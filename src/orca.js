@@ -14,7 +14,7 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 
-import { withOwnerBits } from './kit-files.js';
+import { ownerMayEnter, writeKitFile } from './kit-files.js';
 import { SHELL_ENV } from './launch.js';
 import { TAB_ENV } from './record.js';
 
@@ -349,12 +349,6 @@ const KIT_GIT_MARK = 'obk-made-for-orca';
  * fills it, so one left by a run that died is known as the kit's.
  */
 function gitOfItsOwn(home) {
-  // The kit's own for this run, so it does not depend on the umask: git
-  // cannot fill a .git that a umask without the owner's write bit makes (#764).
-  return withOwnerBits(() => makeGit(home));
-}
-
-function makeGit(home) {
   const git = path.join(home, '.git');
   try {
     mkdirSync(git);
@@ -362,9 +356,14 @@ function makeGit(home) {
     if (error.code === 'EEXIST') return false;
     throw error;
   }
+  // The kit's own for this run, so it does not depend on the umask: under a
+  // umask without the owner's write bit, the mark could not go in, and git
+  // could not fill it. So git runs with only the owner's part of the umask
+  // taken out (#764).
   try {
-    writeFileSync(path.join(git, KIT_GIT_MARK), 'obk made this for one `orca repo add` and takes it away after.\n');
-    const result = spawnSync('git', ['init', '--quiet', home], { encoding: 'utf8' });
+    ownerMayEnter(git);
+    writeKitFile(path.join(git, KIT_GIT_MARK), 'obk made this for one `orca repo add` and takes it away after.\n');
+    const result = spawnSync('/bin/sh', ['-c', 'umask u=rwx && exec git init --quiet "$1"', 'sh', home], { encoding: 'utf8' });
     if (result.error) throw new Error(`could not run git: ${result.error.message}`);
     if (result.status !== 0) throw new Error(`git init failed in ${home}: ${(result.stderr || '').trim()}`);
   } catch (error) {
