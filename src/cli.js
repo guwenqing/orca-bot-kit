@@ -19,6 +19,7 @@ import { checkHealth, olderRules, orcaSettingFindings } from './health.js';
 import { initBots } from './init.js';
 import { nameSession } from './name.js';
 import { APPROVALS, harnessOf, HARNESSES, ownCli, refuseApprovalArgs, REMOTE_CONTROL_LOST, shellWord, workDirOf } from './launch.js';
+import { unreadSettingsWords } from './memory.js';
 import { checkMail, lookUp, noMailboxYet, sendMessage, sessionInTab } from './message.js';
 import { orcaCli, orcaTrouble, RELOAD_LINE, TERMINAL_ENV } from './orca.js';
 import { allowIn, beyondDefaults, botDefaults, isRunRule, refuseBroad, refuseNoCodexForm, runsOnClaude, runsOnCodex, takeBack, writePermissions } from './permissions.js';
@@ -1990,6 +1991,7 @@ function tabLines({ bots, created, completed, rules, skills, permissions = [], t
     if (lost.length > 0) {
       lines.push(`             its own --settings in bot.yaml replaces the kit's, so it runs without: ${lost.join(', ')}`);
     }
+    if (tab.memoryUnread !== undefined) lines.push(`             ${memoryUnreadText(tab.memoryUnread)}`);
   }
   // A Claude session the kit did not start, because it could not give it its
   // bot's own memory folder (#752).
@@ -2012,6 +2014,16 @@ function tabLines({ bots, created, completed, rules, skills, permissions = [], t
   if (projects.some((project) => project.change !== undefined)) lines.push(RELOAD_LINE);
   lines.push(summary);
   return lines;
+}
+
+/**
+ * Why a Claude session this run started has no memory folder from the kit:
+ * a settings file that it reads is there, and the kit could not read or parse
+ * it, so the kit cannot tell whether the user named a folder there (#782).
+ */
+function memoryUnreadText(unread) {
+  const [files, them] = unread.length === 1 ? ['the file', 'it'] : ['the files', 'them'];
+  return `it has no memory folder of its own: ${unreadSettingsWords(unread)}, so it cannot tell whether a memory folder is named there, and named none. Its notes go to the folder that the bots shared. Repair ${files}; the kit reads ${them} again at the next start.`;
 }
 
 /**
