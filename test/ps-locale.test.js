@@ -22,6 +22,11 @@
 //       and health gives its one "cannot tell" `process` finding. Before
 //       #801, a table where some lines did not parse was read as a smaller
 //       table, with no word.
+//   W4  A line the real `ps` can give is read, and does not make the table
+//       unreadable (the review of PR #807). Apple's ps prints the uid signed,
+//       so a process of `nobody` (uid 4294967294) has uid `-2`. It is read as
+//       a process of another user: a retire still stops the session's own
+//       processes and sends nothing to it, and health still names them.
 //
 // The boundary: no new command, option or environment variable for the user.
 // The kit asks `ps` the same argv as before. How it gets the C shape (an
@@ -37,9 +42,15 @@
 // (helpers/fake-kill.js) are the same in every locale, as the real ones are.
 //
 // The pids are made up, from 57000 up: no fake tab's (40000 and up) and none
-// of the fake lsof's own (1063, 30001, 30002). Nothing here signals or reads a
-// real process. Every run is in the sandbox (helpers/cli.js): its own HOME, a
-// fake Orca, and fake harnesses on its own PATH.
+// of the fake lsof's own (1063, 30001, 30002). Nothing here signals a real
+// process. The kit's table read, its working folders and its signals go to
+// the fakes. `obk health` also runs a bare `ps` by another spelling (src/record.js,
+// for its check of whether ps can run at all), and helpers/fake-tools.js lets
+// that one reach the real ps, which only reads. Where the real ps cannot run,
+// health adds a `process` finding of its own, with `where: 'ps'` and no bot;
+// so the health tests here count only api-bot's `process` findings. Every run
+// is in the sandbox (helpers/cli.js): its own HOME, a fake Orca, and fake
+// harnesses on its own PATH.
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -161,7 +172,11 @@ async function retiredFirst(box, name) {
   assert.equal(result.code, 0, `obk retire --session ${name}: ${result.stdout}${result.stderr}`);
 }
 
-/** The health check's `process` findings, from --json. */
+/**
+ * The health check's `process` findings about api-bot, from --json. Health's
+ * own finding that the bare `ps` cannot run here names no bot, and is not
+ * one of them (see the top).
+ */
 async function processFindings(box) {
   const result = await box.run(['health', '--bots', 'bots', '--json']);
   assert.equal(result.stderr, '', result.stderr);
@@ -171,7 +186,7 @@ async function processFindings(box) {
   } catch (error) {
     assert.fail(`health --json should print JSON, got: ${result.stdout} (${error.message})`);
   }
-  return answer.found.filter((finding) => finding.kind === 'process');
+  return answer.found.filter((finding) => finding.kind === 'process' && finding.bot === BOT);
 }
 
 /** Whether a finding names `pid` as a word of its own. */
@@ -396,9 +411,53 @@ test('W3 with a line in the table the kit cannot read, health says once that it 
 
   const found = await processFindings(box);
 
-  assert.equal(found.length, 1, `one process finding for the whole check, got: ${JSON.stringify(found)}`);
+  assert.equal(found.length, 1, `one process finding for api-bot, not one for each retired work dir, got: ${JSON.stringify(found)}`);
   assert.ok(!names(found[0], 57081), `it names no process, since it could not read the table, got: ${found[0].says}`);
   assert.notEqual(found[0].says.trim(), '');
+  assert.deepEqual(await box.kill.calls(), []);
+});
+
+// ------------------------------------------------------------------ W4
+
+/** The uid of `nobody` as the system has it; Apple's ps prints it as -2. */
+const NOBODY = 4294967294;
+
+for (const locale of [C, GERMAN]) {
+  test(`W4 under ${named(locale)}, a process of nobody, uid -2 in the table, is read as another user's: a retire stops the session's process and sends nobody's nothing`, async (t) => {
+    const box = await createSandbox(t);
+    useLocale(box, locale);
+    await devFleet(box);
+    await table(box, [
+      { pid: 57101, ppid: 1, pgid: 57101, cwd: workOf(box, 'dev'), command: 'node --test test/slow.test.js' },
+      // A system daemon that runs as nobody, outside every work dir.
+      { pid: 57102, ppid: 1, pgid: 57102, uid: NOBODY, command: '/usr/libexec/some-daemon' },
+    ]);
+
+    const answer = answerIn(await retire(box, ['--session', 'dev', '--json']));
+
+    const processes = processesIn(answer);
+    assert.equal(processes.unreadable, undefined, `a line the real ps gives does not make the table unreadable, got: ${JSON.stringify(processes)}`);
+    assert.deepEqual(processes.stopped.map((one) => [one.session, one.pid, one.signal]), [['dev', 57101, 'SIGTERM']]);
+    assert.deepEqual(processes.left, [], 'nobody\'s process is not dev\'s, and is not named');
+    assert.deepEqual(await kills(box), [term(-57101)], 'one TERM, to dev\'s group, and nothing to nobody\'s process');
+  });
+}
+
+test('W4 under LANG=de_DE.UTF-8, with a process of nobody, uid -2, in the table, health still names a process in a retired session\'s work dir', async (t) => {
+  const box = await createSandbox(t);
+  useLocale(box, GERMAN);
+  await devFleet(box);
+  await retiredFirst(box, 'dev');
+  await table(box, [
+    { pid: 57111, ppid: 1, pgid: 57111, cwd: workOf(box, 'dev'), command: 'sleep 600' },
+    { pid: 57112, ppid: 1, pgid: 57112, uid: NOBODY, command: '/usr/libexec/some-daemon' },
+  ]);
+
+  const found = await processFindings(box);
+
+  assert.equal(found.length, 1, `one process finding, got: ${JSON.stringify(found)}`);
+  assert.ok(names(found[0], 57111), `says names the pid, so the kit read the table: ${found[0].says}`);
+  assert.ok(!names(found[0], 57112), 'and not nobody\'s process');
   assert.deepEqual(await box.kill.calls(), []);
 });
 
@@ -467,6 +526,19 @@ test('the fake ps prints the table\'s commands as they are under a UTF-8 LC_CTYP
     assert.ok(lineOf(read, 57093).endsWith(`     ${chinese}`), `${named(locale)}: ${lineOf(read, 57093)}`);
     assert.ok(lineOf(read, 57094).endsWith(`     ${french}`), `${named(locale)}: ${lineOf(read, 57094)}`);
   }
+});
+
+test('the fake ps prints the table\'s uid signed, as Apple\'s ps does: nobody\'s 4294967294 as -2 (the review of PR #807)', async (t) => {
+  const box = await createSandbox(t);
+  await box.orca.set({ processes: [{ pid: 57096, uid: NOBODY }, { pid: 57097, uid: -2 }, { pid: 57098, uid: 0 }, { pid: 57099 }] });
+
+  const read = tableRead(box, C);
+
+  assert.equal(read.status, 0, read.stderr);
+  assert.match(lineOf(read, 57096), /^57096 {5}1 57096 {4}-2 S {4}/, 'nobody, given as the system has it');
+  assert.match(lineOf(read, 57097), /^57097 {5}1 57097 {4}-2 S {4}/, 'and given as -2');
+  assert.match(lineOf(read, 57098), /^57098 {5}1 57098 {5}0 S {4}/, 'root, 0');
+  assert.match(lineOf(read, 57099), new RegExp(`^57099 {5}1 57099 ${String(process.getuid()).padStart(5)} S {4}`), 'the user\'s own, as before');
 });
 
 test('the fake ps writes psTableLines as they are, after the processes and before its own row, whatever the locale (#801)', async (t) => {

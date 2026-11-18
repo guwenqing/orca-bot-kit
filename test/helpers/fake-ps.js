@@ -201,6 +201,12 @@
 //   { pid, ppid, pgid, uid, stat, startedAt, command, cwd, ...how it takes a signal }
 //
 // with `uid` the user's own (`process.getuid()`) and `stat` 'S' when left out.
+// The table prints the uid as a signed 32-bit number, as Apple's ps does: its
+// format for uid is "d" (UIDFMT in adv_cmds ps/keyword.c), and printval in
+// ps/print.c prints the unsigned uid through %*d. So `nobody`, uid 4294967294,
+// prints as `-2` (read in Apple's source and shown with a libc probe by the
+// reviewer of PR #807; not seen live, since no process of nobody ran on this
+// machine). An entry may give that uid either way, 4294967294 or -2.
 // `startedAt` is the start time in ms since the epoch, printed in UTC; left
 // out, it is a time on 2026-10-10 that the pid gives, the same at every read.
 // `appearsAfterMs: n` on an entry keeps the process out of the table, out of
@@ -867,7 +873,8 @@ export function runPs() {
       process.stderr.write(`fake ps: no measured lstart shape for the locale ${JSON.stringify(time)}; see helpers/fake-ps.js\n`);
       process.exit(70);
     }
-    const line = (row) => `${column(row.pid)} ${column(row.ppid)} ${column(row.pgid)} ${column(row.uid)} ${row.stat.padEnd(4)} ${lstartIn(row.startedAt, time)}     ${commandIn(row.command, ctype)}\n`;
+    // The uid signed, as Apple's ps prints it: nobody's is -2 (see the top).
+    const line = (row) => `${column(row.pid)} ${column(row.ppid)} ${column(row.pgid)} ${column(row.uid | 0)} ${row.stat.padEnd(4)} ${lstartIn(row.startedAt, time)}     ${commandIn(row.command, ctype)}\n`;
     const raw = (state.psTableLines ?? []).map((text) => `${text}\n`);
     process.stdout.write([...tableOf(state).map(line), ...raw, line(itself)].join(''));
     appendFileSync(path.join(dir, 'ps-table.log'), `${JSON.stringify({ at: asked, done: Date.now() })}\n`);

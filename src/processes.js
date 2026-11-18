@@ -303,8 +303,9 @@ function processTable(ms = READ_MS) {
   let unread = 0;
   for (const line of asked.stdout.split('\n')) {
     if (line.trim() === '') continue;
-    // lstart is five words: `Sat Oct 10 14:40:01 2026`.
-    const read = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(\S+\s+\S+\s+\d+\s+\d+:\d+:\d+\s+\d+)(?:\s+(.*?))?\s*$/.exec(line);
+    // lstart is five words: `Sat Oct 10 14:40:01 2026`. Apple's ps prints
+    // the uid signed, so `nobody`, 4294967294, is `-2` (adv_cmds ps/keyword.c).
+    const read = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(-?\d+)\s+(\S+)\s+(\S+\s+\S+\s+\d+\s+\d+:\d+:\d+\s+\d+)(?:\s+(.*?))?\s*$/.exec(line);
     if (read === null) unread += 1;
     else if (!read[5].startsWith('Z')) table.set(Number(read[1]), { ppid: Number(read[2]), pgid: Number(read[3]), uid: Number(read[4]), started: read[6].replace(/\s+/g, ' '), command: read[7] ?? '' });
   }
