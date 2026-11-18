@@ -254,12 +254,21 @@ async function assertCarries(box, line, expected, name, { bots, bot } = {}) {
 
 /**
  * The line is exactly today's, and the run said nothing about any of this, as
- * it says nothing today for a folder a user named.
+ * it says nothing for a folder a user named. With `broken`, the path of a
+ * settings file that cannot be read or parsed: since #782 the report may name
+ * that file and say that the session has no memory folder of its own
+ * (test/memory-settings-unread.test.js holds what it says). With that path
+ * taken out, the run still names no key, no selected-host and no profile
+ * folder.
  */
-function assertTodaysLine(box, { result, line }, name, { bots } = {}) {
+function assertTodaysLine(box, { result, line }, name, { bots, broken } = {}) {
   assert.equal(tokenless(line), bareLaunch(box, 'claude', BOT, name, { bots, memory: false }), 'the launch line is exactly what it is today');
   const said = `${result.stdout}${result.stderr}`;
-  assert.doesNotMatch(said, /autoMemory|selected-host|claude-profiles|memory folder/i, `no message about this, got:\n${said}`);
+  if (broken === undefined) {
+    assert.doesNotMatch(said, /autoMemory|selected-host|claude-profiles|memory folder/i, `no message about this, got:\n${said}`);
+  } else {
+    assert.doesNotMatch(said.replaceAll(broken, ''), /autoMemory|selected-host|claude-profiles/i, `no message about this but the broken file ${broken}, got:\n${said}`);
+  }
 }
 
 /**
@@ -283,7 +292,7 @@ const settingsFilesOf = (box, home, profile, root) => ({
  * no error. `change` is given the profile and the bot's home. With
  * `profile: false`, Orca has no profile at all in the sandbox.
  */
-async function controlThenCase(t, change, { profile: withProfile = true } = {}) {
+async function controlThenCase(t, change, { profile: withProfile = true, broken } = {}) {
   const box = await createSandbox(t);
   const profile = withProfile ? await profileIn(box) : undefined;
   await fleetIn(box, { sessions: ['control', 'daily'] });
@@ -292,10 +301,11 @@ async function controlThenCase(t, change, { profile: withProfile = true } = {}) 
   const { line: control } = await upSession(box, 'control');
   await assertCarries(box, control, ownOf(home), 'control');
 
-  await change({ box, profile, home, bots, files: settingsFilesOf(box, home, profile, bots) });
+  const files = settingsFilesOf(box, home, profile, bots);
+  await change({ box, profile, home, bots, files });
 
   const brought = await upSession(box, 'daily');
-  assertTodaysLine(box, brought, 'daily');
+  assertTodaysLine(box, brought, 'daily', { broken: broken?.(files) });
   return { box, profile, home, bots };
 }
 
@@ -856,11 +866,13 @@ describe('the launch line names the bot\'s own memory folder (#722, #752)', { co
   // is typed ("is not readable as JSON", EISDIR, EACCES). That stays. So those
   // cases of the bot's own file cannot reach a launch line, and are not cases.
   const STOPS_THE_BRING_UP_TODAY = new Set(['cannot be parsed', 'is empty, and so cannot be parsed', 'cannot be read: it is a folder', 'cannot be read: mode 000']);
+  // The same four are a file that cannot be read or parsed: the report may name it (#782).
+  const BROKEN = STOPS_THE_BRING_UP_TODAY;
   for (const where of ['bot', 'local', 'profile', 'root']) {
     for (const [label, change, options] of HAVING_THE_KEY) {
       if (where === 'bot' && STOPS_THE_BRING_UP_TODAY.has(label)) continue;
       test(`M8 the ${where} settings file ${label}: nothing is added`, options ?? {}, async (t) => {
-        const { home } = await controlThenCase(t, ({ files }) => change(files[where]));
+        const { home } = await controlThenCase(t, ({ files }) => change(files[where]), { broken: BROKEN.has(label) ? (files) => files[where] : undefined });
         // A hand-written key is still there after the bring-up.
         if (where === 'bot' && label.startsWith('holds the key')) {
           const after = JSON.parse(await readFile(path.join(home, '.claude', 'settings.json'), 'utf8'));
@@ -873,7 +885,7 @@ describe('the launch line names the bot\'s own memory folder (#722, #752)', { co
   // With no profile selected, the user level is ~/.claude/settings.json.
   for (const [label, change, options] of HAVING_THE_KEY) {
     test(`M8 no profile, and ~/.claude/settings.json ${label}: nothing is added`, options ?? {}, async (t) => {
-      await controlThenCase(t, ({ files }) => change(files.user), { profile: false });
+      await controlThenCase(t, ({ files }) => change(files.user), { profile: false, broken: BROKEN.has(label) ? (files) => files.user : undefined });
     });
   }
 
@@ -1010,10 +1022,10 @@ describe('the launch line names the bot\'s own memory folder (#722, #752)', { co
     return { box, bots, root, notListed, expected, local: path.join(root, '.claude', 'settings.local.json') };
   }
 
-  /** The next session of that sandbox: the pair is there, or nothing of it. */
-  async function nextOf(box, bots, expected) {
+  /** The next session of that sandbox: the pair is there, or nothing of it. With `broken`, the settings file that cannot be read or parsed, which the report may name (#782). */
+  async function nextOf(box, bots, expected, broken) {
     const brought = await upSession(box, 'daily', { bots, realBots: bots });
-    if (expected === undefined) assertTodaysLine(box, brought, 'daily', { bots });
+    if (expected === undefined) assertTodaysLine(box, brought, 'daily', { bots, broken });
     else await assertCarries(box, brought.line, expected, 'daily', { bots });
   }
 
@@ -1028,7 +1040,7 @@ describe('the launch line names the bot\'s own memory folder (#722, #752)', { co
       const { box, bots, local } = await controlAt(t, lay);
       await mkdir(path.dirname(local), { recursive: true });
       await writeFile(local, '{ not json');
-      await nextOf(box, bots);
+      await nextOf(box, bots, undefined, local);
     });
 
     test(`M8 ${where}: the repository root's settings.local.json cannot be read: nothing is added`, { skip: AS_ROOT }, async (t) => {
@@ -1036,7 +1048,7 @@ describe('the launch line names the bot\'s own memory folder (#722, #752)', { co
       await mkdir(path.dirname(local), { recursive: true });
       await writeFile(local, '{}\n');
       await chmod(local, 0o000);
-      await nextOf(box, bots);
+      await nextOf(box, bots, undefined, local);
     });
 
     test(`M9 ${where}: the repository root's settings.local.json holds other keys: the pair is added`, async (t) => {
