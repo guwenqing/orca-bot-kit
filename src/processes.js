@@ -305,9 +305,10 @@ function processTable(ms = READ_MS) {
     if (line.trim() === '') continue;
     // lstart is five words: `Sat Oct 10 14:40:01 2026`. Apple's ps prints
     // the uid signed, so `nobody`, 4294967294, is `-2` (adv_cmds ps/keyword.c).
+    // `>>> 0` gives it back as Node's process.getuid() gives it, unsigned.
     const read = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(-?\d+)\s+(\S+)\s+(\S+\s+\S+\s+\d+\s+\d+:\d+:\d+\s+\d+)(?:\s+(.*?))?\s*$/.exec(line);
     if (read === null) unread += 1;
-    else if (!read[5].startsWith('Z')) table.set(Number(read[1]), { ppid: Number(read[2]), pgid: Number(read[3]), uid: Number(read[4]), started: read[6].replace(/\s+/g, ' '), command: read[7] ?? '' });
+    else if (!read[5].startsWith('Z')) table.set(Number(read[1]), { ppid: Number(read[2]), pgid: Number(read[3]), uid: Number(read[4]) >>> 0, started: read[6].replace(/\s+/g, ' '), command: read[7] ?? '' });
   }
   if (unread > 0) return { unreadable: `ps gave ${unread === 1 ? '1 line' : `${unread} lines`} in a shape the kit cannot read` };
   if (table.size === 0) return { unreadable: 'ps listed no processes' };

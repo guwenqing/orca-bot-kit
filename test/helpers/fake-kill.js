@@ -147,7 +147,8 @@ export function runKill() {
     process.stderr.write(`kill: ${target}: No such process\n`);
     process.exit(1);
   }
-  const allowed = there.filter((row) => row.entry.refuses !== true && row.uid === process.getuid());
+  // A uid as a 32-bit number, whichever sign an entry gives it in (helpers/fake-ps.js).
+  const allowed = there.filter((row) => row.entry.refuses !== true && (row.uid >>> 0) === (process.getuid() >>> 0));
   if (allowed.length === 0) {
     if (ghosts.length > 0) save();
     process.stderr.write(`kill: ${target}: Operation not permitted\n`);

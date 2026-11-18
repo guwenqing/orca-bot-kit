@@ -27,6 +27,15 @@
 //       so a process of `nobody` (uid 4294967294) has uid `-2`. It is read as
 //       a process of another user: a retire still stops the session's own
 //       processes and sends nothing to it, and health still names them.
+//   W5  The kit takes a uid in the table and the user's own uid for the same
+//       user when they are the same 32-bit uid, whatever the sign ps prints
+//       it in (the second review of PR #807). Node gives process.getuid()
+//       unsigned, and ps prints the uid signed, so a user whose uid is 2^31
+//       or more, such as 4294967294, sees -2 in the table. A retire by such a
+//       user stops the session's process in the work dir, as for uid 501. A
+//       process of another uid is still left, and never signalled. The kit
+//       runs as such a user through helpers/as-uid.js, a preload that sets
+//       what process.getuid() gives in the kit and in the fakes it starts.
 //
 // The boundary: no new command, option or environment variable for the user.
 // The kit asks `ps` the same argv as before. How it gets the C shape (an
@@ -56,6 +65,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import test from 'node:test';
 import { parse } from 'yaml';
 
@@ -460,6 +470,50 @@ test('W4 under LANG=de_DE.UTF-8, with a process of nobody, uid -2, in the table,
   assert.ok(!names(found[0], 57112), 'and not nobody\'s process');
   assert.deepEqual(await box.kill.calls(), []);
 });
+
+// ------------------------------------------------------------------ W5
+
+/** The preload that sets what process.getuid() gives (helpers/as-uid.js). */
+const AS_UID = pathToFileURL(path.join(import.meta.dirname, 'helpers', 'as-uid.js')).href;
+
+/** From here on, every run of the kit in `box`, and every fake it starts, takes `uid` for the user's own. */
+function asUid(box, uid) {
+  box.env.NODE_OPTIONS = [box.env.NODE_OPTIONS, `--import=${AS_UID}`].filter(Boolean).join(' ');
+  box.env.OBK_TEST_UID = String(uid);
+}
+
+// The first is the control: a uid below 2^31, which ps prints as it is.
+for (const [uid, other, shown] of [
+  [501, 502, '501'],
+  [4294967294, 4294967293, '-2'],
+  [2147483648, 2147483649, '-2147483648'],
+]) {
+  test(`W5 for a user of uid ${uid}, which ps prints as ${shown}, a retire stops the session's process in the work dir, and leaves a child of uid ${other} unsignalled`, async (t) => {
+    const box = await createSandbox(t);
+    useLocale(box, C);
+    asUid(box, uid);
+    await devFleet(box);
+    await table(box, [
+      { pid: 57121, ppid: 1, pgid: 57121, cwd: workOf(box, 'dev'), command: 'node --test test/slow.test.js' },
+      // Its child, run as another user, in a group of its own: dev's by descent, and not the user's to signal.
+      { pid: 57122, ppid: 57121, pgid: 57122, uid: other, command: 'sudo -u someone sleep 600' },
+    ]);
+    // The premise: the fakes take the uid for the user's own, and ps prints it as the real ps does.
+    const read = tableRead(box, C);
+    assert.equal(read.status, 0, read.stderr);
+    assert.match(lineOf(read, 57121), new RegExp(`^57121 +1 57121 +${shown} S `), `the fake ps prints the user's uid as ${shown}: ${lineOf(read, 57121)}`);
+
+    const answer = answerIn(await retire(box, ['--session', 'dev', '--json']));
+
+    const processes = processesIn(answer);
+    assert.equal(processes.unreadable, undefined, `got: ${JSON.stringify(processes)}`);
+    assert.deepEqual(processes.stopped.map((one) => [one.session, one.pid, one.signal]), [['dev', 57121, 'SIGTERM']], `the user's own process is stopped, got: ${JSON.stringify(processes)}`);
+    assert.deepEqual(processes.left.map((one) => one.pid), [57122], `the child of another uid is left, got: ${JSON.stringify(processes.left)}`);
+    assert.match(processes.left[0].why, /another user/);
+    assert.deepEqual(await kills(box), [term(-57121)], 'one TERM, to the user\'s own group, and nothing to the other uid\'s process');
+    assert.ok((await box.lsof.calls()).some((call) => call.args.includes(String(uid))), 'the premise: the kit asked lsof for the user\'s uid as Node gives it');
+  });
+}
 
 // ------------------------------------------------------------------ the fake ps, as the real one was measured
 
