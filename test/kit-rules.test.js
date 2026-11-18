@@ -59,6 +59,15 @@ const CODEX_CAP = 32 * 1024;
  * 117 bytes of room make 8800. The room is small on purpose: the next rule line
  * that is added meets this cap, and that forces a decision on whether every
  * bot must carry it.
+ *
+ * A pass here never says that a rule earns its place in every session. That
+ * question is settled where the unit is written and reviewed (issue #140). The
+ * small room only makes growth visible: a change that adds a rule line must
+ * also change this number, and say why.
+ *
+ * The room is not zero, because some bytes of the file are no rule's: the
+ * sentence in the begin marker and the headings around the units. They are the
+ * implementer's to word, and a small rewording of them must not fail this test.
  */
 const KIT_SHARE = 8800;
 
