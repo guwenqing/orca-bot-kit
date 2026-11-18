@@ -15,11 +15,12 @@
 // for one of the kit's or a bare name for one of theirs.
 
 import { createHash } from 'node:crypto';
-import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse } from 'yaml';
 
+import { writeKitFile } from './kit-files.js';
 import { readBook } from './book.js';
 import { botDir, botNames, displayName, readBot, refuseOutside } from './bot.js';
 import { dropRemovedHooks } from './hooks.js';
@@ -513,8 +514,7 @@ function writeSystem(bots, home, name, text) {
   if (text === '') return {};
   const file = systemFileOf(bots, name, text);
   try {
-    mkdirSync(path.dirname(file), { recursive: true });
-    if (!existsSync(file) || readFileSync(file, 'utf8') !== text) writeFileSync(file, text);
+    if (!existsSync(file) || readFileSync(file, 'utf8') !== text) writeKitFile(file, text);
   } catch (error) {
     return { trouble: `${file} could not be written (${error.message}), so this bot's CLAUDE.md keeps every unit, and its Claude sessions start with no appended system text; the kit's hook gives them the main units as context.` };
   }
@@ -605,8 +605,7 @@ const keptSystemPath = (bots, name) => path.join(claudeTextFolder(bots, name), '
 
 function keepSystemText(bots, name, text) {
   const file = keptSystemPath(bots, name);
-  mkdirSync(path.dirname(file), { recursive: true });
-  if (!existsSync(file) || readFileSync(file, 'utf8') !== text) writeFileSync(file, text);
+  if (!existsSync(file) || readFileSync(file, 'utf8') !== text) writeKitFile(file, text);
 }
 
 /** The kit's copy of the bot's last system text, or undefined. */
@@ -629,8 +628,7 @@ function lastSystemFile(bots, name) {
   if (text === undefined) return undefined;
   const file = systemFileOf(bots, name, text);
   try {
-    mkdirSync(path.dirname(file), { recursive: true });
-    if (!existsSync(file) || readFileSync(file, 'utf8') !== text) writeFileSync(file, text);
+    if (!existsSync(file) || readFileSync(file, 'utf8') !== text) writeKitFile(file, text);
   } catch {
     return undefined;
   }

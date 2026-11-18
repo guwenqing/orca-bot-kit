@@ -27,10 +27,10 @@
 // risky write before bot.yaml: refused there, nothing else has changed, and the
 // same command run again with that access goes through.
 
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import path from 'node:path';
+import { readFileSync, rmSync } from 'node:fs';
 import { setTimeout as pause } from 'node:timers/promises';
 
+import { writeKitFile } from './kit-files.js';
 import { readBook, takeLineTurn, TYPING_HELD, TYPING_WAIT_MS, updateBook } from './book.js';
 import { addSession, dropSession, NAME, readBot, tempRoles } from './bot.js';
 import { untrustedKitHooks } from './hook-trust.js';
@@ -364,8 +364,7 @@ function writePromptFirst(bots, caller, settings) {
 
   const file = promptPath(bots, caller.bot, settings.name);
   try {
-    mkdirSync(path.dirname(file), { recursive: true });
-    writeFileSync(file, prompt);
+    writeKitFile(file, prompt);
   } catch (error) {
     throw new Error(`${caller.bot}/${settings.name}'s start prompt could not be written to ${file} (${error.message}), and it is written first, so nothing was made. Run this again where that folder can be written: from a harness's sandbox, with the access to write it.`);
   }

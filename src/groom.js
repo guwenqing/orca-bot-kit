@@ -38,9 +38,10 @@
 // job means the fleet has quietly stopped being groomed, two mean it is groomed
 // twice, and both are said plainly.
 
-import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 
+import { writeKitFile } from './kit-files.js';
 import { botDir, readBot, requireBotsFolder } from './bot.js';
 import { readBook, takeLineTurn, TYPING_HELD, TYPING_WAIT_MS } from './book.js';
 import { claudeTranscript } from './conversations.js';
@@ -426,8 +427,7 @@ function writeRunTask(bots, own) {
     + `When the grooming is done, send one short report to ${BOT_FATHER}/${GROOMING} by the kit's mail: `
     + `ask for the road with ${kit} message to --bots ${shellWord(real)} --to ${BOT_FATHER}/${GROOMING}, then send it with the message send command its answer names. `
     + 'Then stop: schedule nothing, make no session, and say nothing more.\n';
-  mkdirSync(path.dirname(file), { recursive: true });
-  writeFileSync(file, task);
+  writeKitFile(file, task);
   return file;
 }
 

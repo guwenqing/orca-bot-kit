@@ -14,6 +14,7 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 
+import { withOwnerBits } from './kit-files.js';
 import { SHELL_ENV } from './launch.js';
 import { TAB_ENV } from './record.js';
 
@@ -348,6 +349,12 @@ const KIT_GIT_MARK = 'obk-made-for-orca';
  * fills it, so one left by a run that died is known as the kit's.
  */
 function gitOfItsOwn(home) {
+  // The kit's own for this run, so it does not depend on the umask: git
+  // cannot fill a .git that a umask without the owner's write bit makes (#764).
+  return withOwnerBits(() => makeGit(home));
+}
+
+function makeGit(home) {
   const git = path.join(home, '.git');
   try {
     mkdirSync(git);
