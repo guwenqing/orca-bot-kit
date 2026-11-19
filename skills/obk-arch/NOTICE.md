@@ -97,6 +97,11 @@ below.
   scripts still run, not being that.
   Revision: cursor/plugins@c49b37a2c0e7bede60a71ad7322e3f12c337a3da (read
   2026-11-19)
+- **gstack**, `verify`: a check that could not run, for a missing tool,
+  service, secret or network, reported as that, with what was missing, and
+  not as a pass.
+  Revision: garrytan/gstack@9610ba43db3b9c9992eec69e555d94a99d9c807d (read
+  2026-11-19)
 - **Cursor pstack**, `principle-sequence-verifiable-units`, `figure-it-out`,
   `blast-radius`, `principle-foundational-thinking`, `principle-model-the-domain`,
   `principle-exhaust-the-design-space` and the `poteto-mode` planning playbooks.

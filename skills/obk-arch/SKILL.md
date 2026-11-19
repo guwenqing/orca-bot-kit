@@ -427,9 +427,9 @@ pinned to them fails for reasons that have nothing to do with the code.
 
 Worth writing beside the recipe: a short list of what the thing actually does
 for someone, one entry per feature (how to reach it, how to drive it, and what
-state proves it worked). It is the part people find most useful later, because a
-proof that exercises whichever entry point was convenient is incomplete when
-the list names others. Start with the few that matter and let it grow.
+state proves it worked). A proof that exercises whichever entry point was
+convenient is incomplete when the list names others. Start with the few that
+matter and let it grow.
 
 Worth having beside that: one read-only check that answers "is this instance
 worth driving at all" (is it up, is it the build I think, is that port ours).
@@ -458,11 +458,12 @@ Where the work is about changing a number rather than adding a behaviour, take
 the measurement before you start, so the check reads as the old value against
 the new one rather than as a number with nothing to compare it to.
 
-And be strict about what counts. A check comes back verified, not verified, or
-inconclusive. And inconclusive is not a pass. Read the artefact rather than a
-report about it. When something passes more easily than you expected, suspect
-the way you are observing before you believe the result: that is the shape of a
-check that is not actually looking.
+And be strict about what counts. A check comes back verified, not verified,
+inconclusive, or not run, with what was missing. Neither inconclusive nor not
+run is a pass. Read the artefact rather than a report about it. When something
+passes more easily than you expected, suspect the way you are observing before
+you believe the result: that is the shape of a check that is not actually
+looking.
 
 ### Designing so this is possible
 
