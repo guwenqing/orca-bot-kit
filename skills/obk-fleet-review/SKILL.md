@@ -85,12 +85,21 @@ session's listing, and that says nothing about use. The use is in the
 histories: on every harness a read of the skill's `SKILL.md`, and on Claude
 Code also a call of the Skill tool that names the skill. A session or a
 subagent that reads the file by its path makes no Skill call, so a count of
-Skill calls alone misses those loads. Count a subagent's load as
-its session's. `obk usage --since <start> --until <end>` names the
-conversations each session had in the window: read those, not every
-transcript.
+Skill calls alone misses those loads. A skill can also reach a session with
+neither: a Claude Code agent definition that preloads it with its `skills`
+field, or a user who types it in (`/skill:name` on Pi puts its text into the
+conversation as a message). Count such a load where the history shows the
+skill's text arriving; where it cannot show that, say the use is unknown. Count
+a subagent's load as its session's.
 
-A skill with no load in the window is a finding with one fix: name it at the
+Read only the conversations of the window, not every transcript. For a Claude
+Code or Codex session, `obk usage --since <start> --until <end>` names them.
+It does not count Pi's, so for a Pi session take the conversations the book
+records for it, which `obk roster` names, and read Pi's own session files for
+the window.
+
+A skill with no load in the window, and no unknown use, is a finding with one
+fix: name it at the
 step where it applies, in the charter, the start prompt or the role file and
 in the briefs its sessions give their subagents, or take it off the bot. Which
 one depends on whether the job still has that step.

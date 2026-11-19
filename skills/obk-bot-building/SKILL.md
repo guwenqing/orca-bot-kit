@@ -229,8 +229,10 @@ skill off the list.
 After some days of work, check whether each session loaded the skill at its
 step, not whether the skill is in its list. On every harness a read of the
 skill's `SKILL.md` in the session's transcript is a load, and on Claude Code a
-call of the Skill tool is one too. A skill that no transcript loads is not
-working, whatever the list says.
+call of the Skill tool is one too. A skill preloaded by an agent definition, or
+typed in by a user, arrives as text with neither; count it where the
+transcript shows that text, and say the use is unknown where it cannot. A skill
+that no transcript loads is not working, whatever the list says.
 
 ## Bringing in a session they already run
 

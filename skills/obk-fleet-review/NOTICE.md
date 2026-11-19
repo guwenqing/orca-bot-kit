@@ -87,8 +87,13 @@ which a load shows in a history are what each harness documents, read on
   https://learn.chatgpt.com/docs/build-skills: Codex starts with each skill's
   name, description and path, and reads the full `SKILL.md` when it picks one.
   Read: 2026-11-18 (the page shows no date)
+- **Claude Code's documentation on subagents**,
+  https://code.claude.com/docs/en/sub-agents: an agent definition's `skills`
+  field puts the whole skill into the subagent's context at its start.
+  Read: 2026-11-18 (the page as Markdown; it shows no date)
 - **earendil-works/pi**, `packages/coding-agent/docs/skills.md`: when a task
-  matches, the model reads `SKILL.md`. MIT.
+  matches, the model reads `SKILL.md`, and `/skill:name` loads a skill's
+  instructions with what follows as the user's request. MIT.
   Revision: earendil-works/pi@5a14e69c067d40dfbff4f2fff7d3b34c897e2dc9
   (main, read 2026-11-18)
 
