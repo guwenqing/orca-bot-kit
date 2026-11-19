@@ -33,7 +33,10 @@
 //           `obk-arch/decision-records.md`, in one of the three places a link
 //           can take it: the bot's own `.claude/skills`, the bot's own
 //           `.agents/skills`, or this checkout's `skills/`, and the call's
-//           result is not an error. Which place is printed.
+//           result is not an error and holds the file's first line. So a
+//           call that only checks the file is there (`ls`, `test -f`,
+//           `stat`, `Path.exists()`) does not count: it shows none of the
+//           file (the review of #838). Which place is printed.
 //        b. the session's reply after the line holds the first line above.
 //      A model's account that it read the file does not count: only the
 //      record of the call does.
@@ -62,11 +65,11 @@
 //     that `toolCallId`, failed when `isError`. The reply is the `text` blocks
 //     of the assistant messages.
 //
-// A shell command counts as a read of the path only when it names the path
-// and a program that reads a file (READER, below). A path in it is taken
-// relative to the folder the call names (`workdir` on Codex), or to a
-// `cd <folder>` before it in the same command, or else to the session's own
-// folder.
+// The reading is test/helpers/reference-reads.js, run on fixtures by
+// test/reference-reads.test.js. A path a call names is taken relative to the
+// folder the call names (`workdir` on Codex), or to a `cd <folder>` before it
+// in the same command, or else to the session's own folder. A read of only
+// part of the file that leaves out its first line does not count either.
 //
 // What it cannot show:
 //
@@ -147,6 +150,7 @@ import { claudeTrustAt, trustScreenMet } from '../helpers/claude-trust.js';
 import { cliEntry, repoRoot } from '../helpers/cli.js';
 import { codexTrustArgs } from '../helpers/codex-trust.js';
 import { rolloutFilesOf } from '../helpers/codex-rollout.js';
+import { afterTheAsk, callsIn, eventsOf, readsOf, replyIn, tailOf } from '../helpers/reference-reads.js';
 import { onlyTeachFormOf, questionOn, waitingOn } from '../helpers/screens.js';
 import { autoModeState, sessionRecordFiles } from '../helpers/teach-record.js';
 import { tabGuard } from '../helpers/tab-guard.js';
@@ -193,16 +197,6 @@ const FIRST_LINE = '# ADR NNNN: <the decision, as a short phrase>';
 
 /** The skill, as a bot's skills list names it. */
 const SKILL = 'kit:obk-arch';
-
-/**
- * A program a shell command reads a file with. A command that names the path
- * counts as a read of it only with one of these in it: `ls` or `test -f`
- * names a path and opens nothing.
- */
-const READER = /(?:^|[\s;&|(`'"/])(?:cat|head|tail|sed|awk|grep|egrep|rg|nl|less|more|bat|perl|python3?|node|ruby)(?=[\s'"`]|$)/;
-
-/** What a failed read's result says, on any harness. */
-const READ_FAILED = /No such file or directory|File does not exist|ENOENT|Script failed|Rejected\(|policy forbids|Operation not permitted/i;
 
 /** In the start prompt and the asked line only, and asked for in lower case, so an echo of either is not its answer. */
 const READY = 'READY-5316';
@@ -479,21 +473,6 @@ function entriesOf(file) {
   });
 }
 
-/** The text of a message's content: a string, or the text of its blocks of `types`. */
-function textOf(content, types = ['text']) {
-  if (typeof content === 'string') return content;
-  if (!Array.isArray(content)) return '';
-  return content.filter((block) => types.includes(block?.type) && typeof block.text === 'string').map((block) => block.text).join('\n');
-}
-
-/** The text of a tool's result: a string, a list of blocks, or an object holding either. */
-function resultTextOf(output) {
-  if (typeof output === 'string') return output;
-  if (Array.isArray(output)) return output.map((item) => (typeof item === 'string' ? item : item?.text ?? '')).join('\n');
-  if (output !== null && typeof output === 'object') return resultTextOf(output.content ?? output.output ?? '');
-  return '';
-}
-
 /** The slug Claude Code names a folder's transcripts by: the folder in NFC, each character that is not an ASCII letter or digit changed to `-`. */
 const slugOf = (folder) => folder.normalize('NFC').replaceAll(/[^A-Za-z0-9]/g, '-');
 
@@ -536,83 +515,6 @@ const recordOf = (harness, home, id) => ({
 })[harness]();
 
 /**
- * What a record holds, in its order, as plain events: `{ index, kind: 'user'
- * | 'reply', text }` for what the user and the model said, `{ index, kind:
- * 'call', id, tool, shell, named, base }` for a tool call (`named` the text
- * its paths are in, `shell` whether that text is a shell command, `base` the
- * folder it ran in when the record says), and `{ index, kind: 'result', id,
- * failed, text }` for a call's result. `cwd` is the session's folder, when
- * the record names it.
- */
-function eventsOf(harness, entries) {
-  const events = [];
-  let cwd;
-  entries.forEach((entry, index) => {
-    if (harness === 'claude') {
-      if (typeof entry?.cwd === 'string') cwd ??= entry.cwd;
-      const content = entry?.message?.content;
-      if (entry?.type === 'user' && entry.isMeta !== true) {
-        const text = textOf(content);
-        if (text !== '') events.push({ index, kind: 'user', text });
-        for (const block of Array.isArray(content) ? content : []) {
-          if (block?.type === 'tool_result') events.push({ index, kind: 'result', id: block.tool_use_id, failed: block.is_error === true, text: resultTextOf(block.content) });
-        }
-      } else if (entry?.type === 'assistant') {
-        const text = textOf(content);
-        if (text !== '') events.push({ index, kind: 'reply', text });
-        for (const block of Array.isArray(content) ? content : []) {
-          if (block?.type !== 'tool_use') continue;
-          const named = block.name === 'Read' ? block.input?.file_path : block.name === 'Bash' ? block.input?.command : undefined;
-          events.push({ index, kind: 'call', id: block.id, tool: block.name, shell: block.name === 'Bash', named: typeof named === 'string' ? named : undefined, raw: JSON.stringify(block.input ?? {}) });
-        }
-      }
-      return;
-    }
-    if (harness === 'codex') {
-      if (entry?.type === 'session_meta' && typeof entry.payload?.cwd === 'string') cwd ??= entry.payload.cwd;
-      const item = entry?.type === 'response_item' ? entry.payload : undefined;
-      if (item?.type === 'message' && item.role === 'user') events.push({ index, kind: 'user', text: textOf(item.content, ['input_text']) });
-      else if (item?.type === 'message' && item.role === 'assistant') events.push({ index, kind: 'reply', text: textOf(item.content, ['output_text']) });
-      else if (item?.type === 'function_call' || item?.type === 'custom_tool_call') {
-        const named = String((item.type === 'function_call' ? item.arguments : item.input) ?? '');
-        const workdir = /\bworkdir\\?"?\s*:\s*\\?["'`]([^"'`\\]+)/.exec(named)?.[1];
-        events.push({ index, kind: 'call', id: item.call_id, tool: String(item.name), shell: true, named, base: workdir, raw: named });
-      } else if (item?.type === 'function_call_output' || item?.type === 'custom_tool_call_output') {
-        const text = resultTextOf(item.output);
-        events.push({ index, kind: 'result', id: item.call_id, failed: READ_FAILED.test(text), text });
-      }
-      return;
-    }
-    // Pi
-    if (entry?.type === 'session' && typeof entry.cwd === 'string') cwd ??= entry.cwd;
-    const message = entry?.type === 'message' ? entry.message : undefined;
-    if (message?.role === 'user') events.push({ index, kind: 'user', text: textOf(message.content) });
-    else if (message?.role === 'assistant') {
-      const text = textOf(message.content);
-      if (text !== '') events.push({ index, kind: 'reply', text });
-      for (const block of Array.isArray(message.content) ? message.content : []) {
-        if (block?.type !== 'toolCall') continue;
-        const named = block.name === 'read' ? block.arguments?.path : block.name === 'bash' ? block.arguments?.command : undefined;
-        events.push({ index, kind: 'call', id: block.id, tool: block.name, shell: block.name === 'bash', named: typeof named === 'string' ? named : undefined, raw: JSON.stringify(block.arguments ?? {}) });
-      }
-    } else if (message?.role === 'toolResult') {
-      const text = resultTextOf(message.content);
-      events.push({ index, kind: 'result', id: message.toolCallId, failed: message.isError === true || READ_FAILED.test(text), text });
-    }
-  });
-  return { events, cwd };
-}
-
-/** The events after the asked line: from the first user turn that holds the done word as it was typed. */
-function afterTheAsk(events) {
-  const at = events.findIndex((one) => one.kind === 'user' && one.text.includes(DONE));
-  return at < 0 ? undefined : events.slice(at + 1);
-}
-
-/** A macOS temp path, with its `/private` taken off, so both spellings compare equal. */
-const bare = (file) => file.replace(/^\/private(?=\/(?:var|tmp)\/)/, '');
-
-/**
  * The places a link can take a read of the reference file to, by name: the
  * bot's own `.claude/skills`, the bot's own `.agents/skills`, and this
  * checkout's `skills/`.
@@ -622,62 +524,6 @@ const placesOfReference = (home) => ({
   'the bot\'s own .agents/skills': path.join(home, '.agents', 'skills', REFERENCE_TAIL),
   'this checkout\'s skills/': path.join(repoRoot, 'skills', REFERENCE_TAIL),
 });
-
-/**
- * Every path a call names that ends in the reference file's name, resolved:
- * against the folder of a `cd <folder>` before it in the same text, or the
- * call's own folder, or the session's.
- */
-function pathsNamedBy(call, cwd) {
-  if (call.named === undefined) return [];
-  const text = call.named;
-  return [...text.matchAll(/[^\s'"`;|&<>(){}\\,]*decision-records\.md/g)].map((found) => {
-    let base = call.base ?? cwd;
-    for (const cd of text.slice(0, found.index).matchAll(/(?:^|[\s;&|("'`])cd\s+["']?([^\s;&|'"`]+)/g)) base = path.resolve(base, cd[1]);
-    const word = found[0].startsWith('~/') ? path.join(os.homedir(), found[0].slice(2)) : found[0];
-    return path.resolve(base, word);
-  });
-}
-
-/**
- * The reads of the reference file after the asked line, from the harness's own
- * record: `{ call, file, place, result }` for each call that reads a path in
- * one of its places (a file tool, or a shell command with a READER in it),
- * with its result not an error. `others` are the calls that name the file's
- * name but do not count, with why, for the failure message.
- */
-function readsOfReference(harness, home, entries) {
-  const { events, cwd } = eventsOf(harness, entries);
-  const after = afterTheAsk(events) ?? [];
-  const places = Object.entries(placesOfReference(home)).map(([place, file]) => ({ place, file: bare(file) }));
-  const results = new Map(after.filter((one) => one.kind === 'result').map((one) => [one.id, one]));
-  const reads = [];
-  const others = [];
-  for (const call of after.filter((one) => one.kind === 'call')) {
-    for (const file of pathsNamedBy(call, cwd ?? home)) {
-      const place = places.find((one) => one.file === bare(file))?.place;
-      const result = results.get(call.id);
-      const why = place === undefined
-        ? `${file} is in none of the places a link can take it`
-        : call.shell && !READER.test(call.named) ? 'the shell command names no program that reads a file'
-          : result === undefined ? 'the record holds no result for the call'
-            : result.failed ? `its result is an error: ${result.text.slice(0, 300)}`
-              : undefined;
-      if (why === undefined) reads.push({ call, file, place, result });
-      else others.push({ call, file, why });
-    }
-  }
-  return { reads, others, after };
-}
-
-/** The model's reply after the asked line, all of it, as one text. */
-const replyAfterTheAsk = (after) => after.filter((one) => one.kind === 'reply').map((one) => one.text).join('\n');
-
-/** Every tool call after the asked line, short, for a failure message. */
-const callsIn = (after) => after.filter((one) => one.kind === 'call').map((one) => `${one.tool}: ${(one.named ?? one.raw ?? '').replaceAll('\n', ' ').slice(0, 300)}`);
-
-/** The last events of a record, short, for a failure message. */
-const tailOf = (events, count = 20) => events.slice(-count).map((one) => `${one.kind}${one.tool === undefined ? '' : ` ${one.tool}`}: ${(one.text ?? one.named ?? one.raw ?? '').replaceAll('\n', ' ').slice(0, 200)}`).join('\n  ');
 
 // ------------------------------------------------------------- one harness
 
@@ -726,9 +572,9 @@ async function checkHarness(t, harness, bots) {
   let count;
   const ended = await until(`${title}'s turn after the asked line to be over`, ANSWER_MS, async () => {
     const now = entries();
-    const after = afterTheAsk(eventsOf(harness, now).events);
+    const after = afterTheAsk(eventsOf(harness, now).events, DONE);
     if (after === undefined) return undefined;
-    if (replyAfterTheAsk(after).includes(DONE.toLowerCase()) && idleNow(handle)) return 'with the done word';
+    if (replyIn(after).includes(DONE.toLowerCase()) && idleNow(handle)) return 'with the done word';
     if (notAtPrompt(harness, handle) !== undefined) {
       since = undefined;
       return undefined;
@@ -745,17 +591,19 @@ async function checkHarness(t, harness, bots) {
   // 4. The harness's own record: a read of the reference file, and the reply.
   const record = recordOf(harness, home, id);
   t.diagnostic(`${title}'s record: ${record}`);
-  const { reads, others, after } = readsOfReference(harness, home, entriesOf(record));
+  const { events, cwd } = eventsOf(harness, entriesOf(record));
+  const after = afterTheAsk(events, DONE) ?? [];
+  const { reads, others } = readsOf(after, { cwd: cwd ?? home, places: placesOfReference(home), name: REFERENCE, holds: FIRST_LINE });
   for (const call of callsIn(after)) t.diagnostic(`${title} called ${call}`);
   for (const { call, file, place } of reads) t.diagnostic(`${title} read ${file}, through ${place}, by ${call.tool}: ${call.named}`);
   for (const { call, file, why } of others) t.diagnostic(`${title} named ${file} by ${call.tool}, which does not count: ${why}`);
-  const reply = replyAfterTheAsk(after);
+  const reply = replyIn(after);
   t.diagnostic(`${title}'s reply after the asked line:\n  ${reply.slice(0, 2000).replaceAll('\n', '\n  ')}`);
 
   assert.ok(
     reads.length > 0,
     [
-      `${title}: no tool call after the asked line read a path that ends in ${REFERENCE_TAIL} in one of ${JSON.stringify(Object.values(placesOfReference(home)))}, with a result that is not an error (#802, the harness's own record ${record}).`,
+      `${title}: no tool call after the asked line read a path that ends in ${REFERENCE_TAIL} in one of ${JSON.stringify(Object.values(placesOfReference(home)))}, with a result that is not an error and holds the file's first line, ${JSON.stringify(FIRST_LINE)} (#802, the harness's own record ${record}).`,
       `  the calls after the line:\n    ${callsIn(after).join('\n    ') || '(none)'}`,
       ...(others.length === 0 ? [] : [`  calls that name ${REFERENCE} and do not count:\n    ${others.map(({ call, file, why }) => `${call.tool} ${file}: ${why}`).join('\n    ')}`]),
     ].join('\n'),
