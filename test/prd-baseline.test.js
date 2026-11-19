@@ -1,7 +1,14 @@
 // The PRD as AssuredLoop's baseline (#474). AssuredLoop reads the spec from a
 // folder of its own, the spec root, so the PRD moved from docs/prd.md to
-// docs/prd/prd.md, and that folder holds it and none of the rest of the docs:
-// the decision records stay in docs/adr/.
+// docs/prd/prd.md, and that folder holds it and none of the rest of the docs.
+//
+// The decision records came into the root later (#817), which reverses the
+// choice of #474 that they stay outside it: al 5.0.4 reads ADRs only in
+// `<spec root>/adr/`. So the root holds the PRD and the folder docs/prd/adr/,
+// and nothing else of the docs. The tech notes and the proposals stay outside
+// it. The move of the records and their links is tested in
+// decision-records.test.js; here, the links of the PRD and README.md to the
+// records folder.
 //
 // What can break in a move like this is the links. Every place that named the
 // old path follows the move; the PRD's own relative links still resolve from
@@ -46,6 +53,8 @@ const IGNORED = new Set(['node_modules', '.git', '.stryker-tmp', 'reports']);
 const OLD_PRD = 'docs/prd.md';
 const NEW_PRD = 'docs/prd/prd.md';
 const BASELINE_ROOT = 'docs/prd';
+/** The decision records' folder, inside the root, where al 5.0.4 reads ADRs (#817). */
+const ADR_FOLDER = 'docs/prd/adr';
 const SETTINGS_DIR = '.assuredloop';
 const CONFIG = '.assuredloop/config.yaml';
 const SCHEMA = '.assuredloop/schema.yaml';
@@ -213,9 +222,9 @@ test('the anchor rule gives the anchors GitHub gives', () => {
     ['a', 'prd-8-61-shape'],
   );
   assert.deepEqual(
-    linksIn('see [`docs/adr/`](adr/), [PRD 7.3](../prd/prd.md#73-x), [top](#a) and [web](https://example.com/x.md)', 'docs/prd/prd.md')
+    linksIn('see [`docs/prd/adr/`](adr/), [PRD 7.3](../prd/prd.md#73-x), [top](#a) and [web](https://example.com/x.md)', 'docs/prd/prd.md')
       .map((link) => [link.label, link.resolved, link.anchor]),
-    [['`docs/adr/`', 'docs/prd/adr', null], ['PRD 7.3', 'docs/prd/prd.md', '73-x'], ['top', 'docs/prd/prd.md', 'a']],
+    [['`docs/prd/adr/`', 'docs/prd/adr', null], ['PRD 7.3', 'docs/prd/prd.md', '73-x'], ['top', 'docs/prd/prd.md', 'a']],
   );
 });
 
@@ -283,8 +292,8 @@ test('every relative link in the PRD resolves from its new folder', async () => 
   const prd = await readPrd();
   const links = linksIn(prd, NEW_PRD);
   assert.ok(
-    links.some((link) => link.resolved === 'docs/adr'),
-    `the PRD's link to the decision records should still reach docs/adr/, got: ${links.map((link) => `${link.target} -> ${link.resolved}`).join(', ')}`,
+    links.some((link) => link.resolved === ADR_FOLDER),
+    `the PRD's link to the decision records should reach ${ADR_FOLDER}/, got: ${links.map((link) => `${link.target} -> ${link.resolved}`).join(', ')}`,
   );
 
   const problems = [];
@@ -301,6 +310,15 @@ test('every relative link in the PRD resolves from its new folder', async () => 
     }
   }
   assert.deepEqual(problems, []);
+});
+
+test('README.md links the decision records\' folder in its new place, and the folder is there', async () => {
+  const links = linksIn(await readFile(path.join(repoRoot, 'README.md'), 'utf8'), 'README.md');
+  assert.ok(
+    links.some((link) => link.resolved === ADR_FOLDER),
+    `README.md's link to the decision records should reach ${ADR_FOLDER}/, got: ${links.filter((link) => /adr/.test(link.resolved) && !link.resolved.endsWith('.md')).map((link) => `${link.target} -> ${link.resolved}`).join(', ') || 'none'}`,
+  );
+  assert.equal(await kindOf(ADR_FOLDER), 'folder', `${ADR_FOLDER} should be a folder`);
 });
 
 test('the folder hash changes with a file added, removed, renamed or edited, and not with nothing changed', async (t) => {
@@ -369,29 +387,34 @@ test('.assuredloop/ holds schema.yaml, a YAML map, and the folder records/, besi
   assert.equal(await kindOf(RECORDS), 'folder', `${RECORDS} should be a folder`);
 });
 
-test('the folder config.yaml names holds the PRD and none of the other docs', async () => {
+test('the folder config.yaml names holds the PRD and the decision records\' folder adr/, and none of the other docs', async () => {
   const config = await readConfig();
   assert.equal(typeof config.root, 'string', `${CONFIG} should name a root`);
   const root = folderOf(config.root);
   assert.ok(await exists(root), `the root ${root} should exist`);
   const inside = (rel) => root === '.' || rel === root || rel.startsWith(`${root}/`);
+  const records = `${root}/adr`;
   const files = await filesUnder(root);
   assert.ok(files.includes(NEW_PRD), `${root} should hold ${NEW_PRD}, got: ${files.join(', ')}`);
+  assert.equal(await kindOf(records), 'folder', `${root} should hold the folder ${records}/, where al 5.0.4 reads ADRs`);
+  assert.ok(files.some((rel) => rel.startsWith(`${records}/`) && /^\d{4}-.+\.md$/.test(path.posix.basename(rel))), `${records}/ should hold the decision records`);
 
-  // The rest of the docs stays where it was, outside the root.
-  for (const rel of ['docs/adr', 'docs/tech-notes.md', 'docs/proposals']) {
+  // The tech notes and the proposals stay where they were, outside the root.
+  for (const rel of ['docs/tech-notes.md', 'docs/proposals']) {
     assert.ok(await exists(rel), `${rel} should still be there`);
     assert.ok(!inside(rel), `${rel} should not be inside the root ${root}`);
   }
   const strays = [];
   for (const rel of files) {
+    if (rel === NEW_PRD || rel.startsWith(`${records}/`)) continue;
     const name = path.posix.basename(rel);
-    const first = (await readFile(path.join(repoRoot, rel), 'utf8')).split('\n')[0];
-    if (/^\d{4}-.+\.md$/.test(name) || /^# ADR \d{4}\b/.test(first)) strays.push(`${rel}: a decision record`);
+    const top = (await readFile(path.join(repoRoot, rel), 'utf8')).split('\n').slice(0, 5).join('\n');
+    if (/^\d{4}-.+\.md$/.test(name) || /^# ADR \d{4}\b/m.test(top)) strays.push(`${rel}: a decision record outside ${records}/`);
     else if (name === 'tech-notes.md') strays.push(`${rel}: the tech notes`);
     else if (rel.split('/').includes('proposals')) strays.push(`${rel}: a proposal`);
+    else strays.push(`${rel}: neither the PRD nor in ${records}/`);
   }
-  assert.deepEqual(strays, [], `the root ${root} should hold the PRD and none of the other docs`);
+  assert.deepEqual(strays, [], `the root ${root} should hold the PRD and ${records}/, and none of the other docs`);
 });
 
 test('the requests archived under al 0.1.0 stay as they are, each folder byte for byte', async () => {
