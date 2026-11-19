@@ -84,6 +84,12 @@ below.
   Revision: cursor/plugins@6ed0f7a9504f577d7529064103cecce9be7dfc5e
   (reconstructed: the research pack's 2026-09-20 clone the skills were built
   from; the revision actually read was not recorded)
+- **Cursor pstack**, `create-verification-skill` further to the above: ready
+  meaning usable, reached from an empty data folder with any migrations and
+  seed data, and a process that answers, such as a database whose set-up
+  scripts still run, not being that.
+  Revision: cursor/plugins@c49b37a2c0e7bede60a71ad7322e3f12c337a3da (read
+  2026-11-19)
 - **Cursor pstack**, `principle-sequence-verifiable-units`, `figure-it-out`,
   `blast-radius`, `principle-foundational-thinking`, `principle-model-the-domain`,
   `principle-exhaust-the-design-space` and the `poteto-mode` planning playbooks.

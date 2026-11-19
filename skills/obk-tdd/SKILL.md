@@ -320,12 +320,15 @@ caller should have got, and the smallest one that shows the fault where it
 lives. Get both to pass. The first is what stops the bug coming back in a way
 anyone would notice; the second says where it was.
 
-A regression test written after the fix has proved nothing yet. Prove it:
-revert the fix, run it and watch it fail, restore the fix, run it again. A test
-that already failed on a named pre-fix baseline and passes with the fix, unchanged
-in between, has its proof: keep that receipt instead of reverting again. Where
-the test changed since, or its sensitivity is unproven, prove it again on the bad
-baseline in a disposable copy.
+A regression test written after the fix has proved nothing yet. Prove it in a
+disposable copy (a git worktree or a copy of the folder), never by reverting or
+stashing in the shared working tree: take the fix out there, confirm with a diff
+that it is out, and watch the test fail; then watch it pass with the fix. A
+revert that did not land reads as a test that catches nothing. A test that
+already failed on a named pre-fix baseline and passes with the fix, unchanged in
+between, has its proof: keep that receipt instead of proving it again. Where the
+test changed since, or its sensitivity is unproven, prove it again on the bad
+baseline in the same way.
 
 When the bug is intermittent, make the test deterministic if you can, and say
 which signal you pinned down. When it is one of a class, land the test for the
@@ -461,8 +464,9 @@ the same checkout would otherwise leave a planted defect in real code. Before yo
 start, note what `git status` and `git diff` say about the real tree.
 
 One break at a time, never two at once: in the copy, note the original, apply
-the break, run the tests there, record killed or survived, put the code back,
-then the next one. When the check is done, remove the copy, and confirm the
+the break, confirm with a diff that it landed, run the tests there, record killed
+or survived, put the code back, then the next one. A break that did not land
+reads as survived. When the check is done, remove the copy, and confirm the
 working tree is untouched: `git status` and `git diff` say what they said before
 the check.
 

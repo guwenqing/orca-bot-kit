@@ -353,9 +353,12 @@ write down why that number.
 When the question was why, not a fix, the answer is the diagnosis with its
 evidence; change the code only if asked.
 
-A guard that silences a crash hides the bug rather than fixing it. If a workaround
-needs a paragraph to justify it, the code is wrong and the paragraph is
-evidence.
+Before you add a guard, ask whether the state it handles can really happen. If
+it can, the code that broke on it is the cause, and handling the state there is
+the fix. If it must never exist, the guard hides the bug, and the cause is
+whatever made the state. Retries, swallowed errors, clamped values and
+discarded state hide a bug in the same way. If a workaround needs a paragraph to
+justify it, the code is wrong and the paragraph is evidence.
 
 Ship the smallest change the evidence justifies. Anything added because it
 "might help" is another untested hypothesis, and when the evidence refutes the
@@ -390,8 +393,11 @@ often better than one: one at the interface saying what a caller should have
 got, and the smallest one that shows the fault where it lives. A test that now
 looks wrong goes back to its author; it is not edited to fit the fix.
 
-Watch it fail. Fix. Watch it pass. Then run the original, unminimised scenario
-again, on the same surface the bug appeared on. A different surface, or an
+Watch it fail. If you forced the red by changing code or a fixture, make that
+change in a disposable copy, never in the working tree, and compare the copy
+with a clean one to confirm that the change is there before you trust the red.
+Fix. Watch it pass. Then run the original, unminimised scenario again, on the
+same surface the bug appeared on. A different surface, or an
 inconclusive result, is not a pass. A unit test shows that a branch behaves; it
 does not show that the bug is gone. Where the symptom was something you could
 see, look at it. Compiling is not seeing.
