@@ -47,10 +47,15 @@ export const DEFAULT_TEXT = ['text:ultrareview', 'text:product-channels', 'text:
 const TEXT = 'text:';
 
 /**
- * The tool and the skill that go together or stay together (R2): without the
- * skill, Claude Code puts the skill's text into the tool's description.
+ * The tools and skills that go together or stay together (R2). Without the
+ * Workflow skill, Claude Code puts the skill's text into the tool's
+ * description. The Artifact tool's text tells the session to load its skills
+ * and names its two other tools (#781).
  */
-const TOGETHER = ['Workflow', 'workflow-authoring'];
+const TOGETHER = [
+  ['Workflow', 'workflow-authoring'],
+  ['Artifact', 'ArtifactComments', 'ArtifactData', 'artifact-design', 'artifact-capabilities'],
+];
 
 /** A tool's name starts with a capital, or is an MCP server's tool. */
 const isTool = (name) => /^[A-Z]/.test(name) || name.startsWith('mcp__');
@@ -82,8 +87,8 @@ function namesIn(file, key) {
   return value.map((name) => name.trim());
 }
 
-/** The names, with the partner of `Workflow` or `workflow-authoring` added, each once. */
-const together = (names) => [...new Set(names.flatMap((name) => (TOGETHER.includes(name) ? TOGETHER : [name])))];
+/** The names, with the others of each name's group added, each once. */
+const together = (names) => [...new Set(names.flatMap((name) => TOGETHER.find((group) => group.includes(name)) ?? [name]))];
 
 /**
  * What the bot at `home` cuts and keeps: the tools and skills to cut, the
