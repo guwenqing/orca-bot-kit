@@ -88,8 +88,9 @@ Then:
 - Search for the topic first, and only read the sessions that match, and only
   the parts of them that matter. Whole transcripts are long and mostly
   irrelevant.
-- Skip the session you are in, and the obvious noise: helper runs, test
-  sessions, anything that was not the work.
+- Skip the session you are in, unless the detail you need is from before
+  its compaction, and the obvious noise: helper runs, test sessions,
+  anything that was not the work.
 - Read a long record in this order: the user's first message, or all of the
   user's messages; the last text the session wrote; a short tail of the
   file; then a search for the details you need. Do not read the whole file.
