@@ -151,6 +151,17 @@ const alNumber = (number) => String(Number(number));
  */
 const isSignedRequestRecord = (rel) => /^requests\/(?:archive\/)?[^/]+\/(?:request\.md$|origin\/)/.test(rel);
 
+/**
+ * A record al writes under `.assuredloop/records/`: `al index` and `al check`
+ * write one for each spec file and each ADR, with its text as al read it, and
+ * rewrite it on every index, so no person edits it (#817). The source it was
+ * made from is checked itself, so the citation checks leave al's copy out.
+ */
+const isAlRecord = (rel) => rel.startsWith('.assuredloop/records/');
+
+/** A file whose citations stay as they are: a signed request record, or al's record of a file. */
+const citesAsWritten = (rel) => isSignedRequestRecord(rel) || isAlRecord(rel);
+
 const exists = (rel) => access(path.join(repoRoot, rel)).then(() => true, () => false);
 
 /** Whether a path in the repo is a folder, a file, or neither. */
@@ -416,7 +427,7 @@ async function liveCitations() {
   const all = await records();
   const files = [];
   for (const rel of await repoFiles()) {
-    if (rel === THIS_FILE || isSignedRequestRecord(rel)) continue;
+    if (rel === THIS_FILE || citesAsWritten(rel)) continue;
     files.push({ rel, text: await readFile(path.join(repoRoot, rel), 'utf8') });
   }
   return { all, citations: citationsOf(all, files) };
@@ -701,7 +712,7 @@ test('the records are in docs/prd/adr/ under the names they had, and docs/adr/ i
 test('nothing in the repo names or links the records\' old place, docs/adr/', async () => {
   const problems = new Set();
   for (const rel of await repoFiles()) {
-    if (NAME_THE_OLD_PLACE.has(rel) || isSignedRequestRecord(rel)) continue;
+    if (NAME_THE_OLD_PLACE.has(rel) || citesAsWritten(rel)) continue;
     const text = await readFile(path.join(repoRoot, rel), 'utf8');
     for (const match of text.matchAll(/\bdocs\/adr\b/g)) {
       const line = lineAt(text, match.index);
@@ -905,7 +916,7 @@ test('every ADR cited in the repo exists and is the record in force', async () =
   const all = await records();
   const files = [];
   for (const rel of await repoFiles()) {
-    if (rel !== THIS_FILE && !isSignedRequestRecord(rel)) files.push({ rel, text: await readFile(path.join(repoRoot, rel), 'utf8') });
+    if (rel !== THIS_FILE && !citesAsWritten(rel)) files.push({ rel, text: await readFile(path.join(repoRoot, rel), 'utf8') });
   }
   assert.ok(citationsOf(all, files).length > 0, 'no citation of a record was found anywhere, so the check sees nothing');
 

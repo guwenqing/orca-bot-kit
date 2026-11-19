@@ -236,7 +236,8 @@ test('the PRD is at docs/prd/prd.md, and docs/prd.md is gone', async () => {
 test('no file in the repo names docs/prd.md', async () => {
   const problems = new Set();
   for (const rel of await repoFiles()) {
-    if (rel === THIS_FILE) continue;
+    // al's records under .assuredloop/records/ are al's copies of the files it read, rewritten on every index (#817).
+    if (rel === THIS_FILE || rel.startsWith('.assuredloop/records/')) continue;
     const text = await readFile(path.join(repoRoot, rel), 'utf8');
     for (const match of text.matchAll(/docs\/prd\.md/g)) {
       problems.add(`${rel}:${lineAt(text, match.index)}: ${text.split('\n')[lineAt(text, match.index) - 1].trim()}`);
