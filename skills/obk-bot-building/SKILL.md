@@ -180,14 +180,59 @@ wants `obk-tdd`, `obk-reviewing` and `obk-debugging`, a reviewer the reviewing
 one above all, and an architect `obk-arch` on top. Someone's own errands want
 `obk-personal-facilitation`.
 
-Every extra skill is more for the bot to read and one more thing that might
-fire when it should not. Where you are not sure, leave it out and add it when
-the job shows it is missing.
+A skill can fail in two ways. It can fire when it should not, and each extra
+one is more for the bot to read: every harness puts each skill's name and
+description in a listing that the session carries on every turn, and the room
+for it is small. Claude Code gives the listing about 1% of the model's context
+window and drops the descriptions of the skills used least first; Codex gives
+it at most 2%, shortens the descriptions first and can leave skills out. Or it
+can sit in that listing and never be loaded. That is the failure its makers
+and a measurement saw more often: Pi's own guide and Anthropic's skill-creator
+both say that a model can pass over a skill that would have helped, and one
+published eval found the skill never invoked in more than half of its cases
+until the task said to use it. So where you are not sure, leave it
+out and add it when the job shows it is missing, and name each one you give at
+its step (next section).
 
 A skill can come from the kit, from the user's own folder, from a repo
 online, or from a path on disk. An online source is pinned to a version, and
 it is worth saying out loud that a source carrying scripts or hooks runs on
 their machine on their risk.
+
+## Name each skill at the step where it applies
+
+A skill on a bot's list is offered, not used. Until a session loads it, the
+session has the name and the description and nothing more, and it decides by
+itself whether to read the rest. In the middle of work it does the step in
+front of it, and when that step names no skill, the skill stays unread.
+
+So the place where the work starts names the skill, at the step where it
+applies: the charter, a session's start prompt or a role file. "Before the
+first test is written, load the obk-tdd skill." "When a test fails and you do
+not see the cause at once, load the obk-debugging skill." Name it at its step,
+not in a general order to use every skill. An order at the top is read once
+and then gives way to the steps, and a skill loaded before the session has
+looked at the task can pull it towards the skill and away from the work.
+
+A brief to a subagent names the skill too. A subagent starts fresh: it does
+not have its maker's conversation, and it does not have the skills its maker
+loaded. Where its work is one that a skill covers, say in the brief which
+skill to load, and which part of it is the subagent's: "Load the obk-tdd
+skill, and follow its part for the test author." On Claude Code an agent
+definition can preload a skill with its `skills` field instead.
+
+Where a step already writes out a skill's procedure in short, a session can do
+the work without loading the skill. That works, but the two drift apart as the
+skill changes. Name the skill at that step, or keep the step and take the
+skill off the list.
+
+After some days of work, check whether each session loaded the skill at its
+step, not whether the skill is in its list. On every harness a read of the
+skill's `SKILL.md` in the session's transcript is a load, and on Claude Code a
+call of the Skill tool is one too. A skill preloaded by an agent definition, or
+typed in by a user, arrives as text with neither; count it where the
+transcript shows that text, and say the use is unknown where it cannot. A skill
+that no transcript loads is not working, whatever the list says.
 
 ## Bringing in a session they already run
 
