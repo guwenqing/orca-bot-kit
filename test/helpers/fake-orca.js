@@ -642,7 +642,9 @@
 //               ORCA_TERMINAL_HANDLE), none of the ORCA_*, OBK_CLI or
 //               OBK_TAB_SHELL of whoever typed the line, `env`, and
 //               OBK_TEST_LAUNCH_LINE, the line as it was typed. The run is
-//               written to ran-during.log as `runDuring` writes its own. What
+//               written to harness-up.log, one JSON line: { session, argv,
+//               status, stdout, stderr }; never to ran-during.log, which is
+//               `runDuring`'s alone. What
 //               the harness does is helpers/cli.js `harnessComesUp`; the fake
 //               only says when and where. Orca never lists it.
 //
@@ -1580,7 +1582,7 @@ function sameFolder(left, right) {
 /**
  * The harness of this tab comes up, once, at the kit's next look at it: the
  * `harnessUp` entry the tab's launch line was given is run to completion. Its
- * run is written down beside `runDuring`'s, and Orca's world is read again,
+ * run is written down in a log of its own, and Orca's world is read again,
  * since what the harness ran (the kit's hook) may have called Orca. True when
  * it ran.
  */
@@ -1604,8 +1606,8 @@ function harnessComesUpIn(terminal) {
       OBK_TEST_LAUNCH_LINE: entry.line,
     },
   });
-  appendFileSync(path.join(dir, 'ran-during.log'), `${JSON.stringify({
-    command,
+  appendFileSync(path.join(dir, 'harness-up.log'), `${JSON.stringify({
+    session: entry.session,
     argv: entry.argv,
     status: ran.status,
     stdout: ran.stdout,

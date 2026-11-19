@@ -524,6 +524,22 @@ export async function createSandbox(t) {
         await saveState(state);
       },
       /**
+       * One entry per harness that came up in a session's tab, in order, from
+       * `harnessUp` (`harnessComesUp` below): { session, argv, status, stdout,
+       * stderr }. Not in `ranDuring`, which lists a test's own runs alone.
+       */
+      async harnessesUp() {
+        try {
+          return (await readFile(path.join(fakeDir, 'harness-up.log'), 'utf8'))
+            .split('\n')
+            .filter((line) => line !== '')
+            .map((line) => JSON.parse(line));
+        } catch (error) {
+          if (error.code === 'ENOENT') return [];
+          throw error;
+        }
+      },
+      /**
        * One more harness to come up in a session's tab, kept beside any
        * already waiting (helpers/fake-orca.js `harnessUp`; `harnessComesUp`
        * below says what it does).
@@ -1550,7 +1566,7 @@ process.stdout.write(JSON.stringify({
  * `version` on the user line. Left out, the record names none.
  *
  * A record of `id` that is there already goes on in the same file. Once per
- * call, for that session's next launch only. `box.orca.ranDuring()` lists
+ * call, for that session's next launch only. `box.orca.harnessesUp()` lists
  * each run. A test whose harness never reports, or that checks the wait
  * itself, does not call it.
  */
