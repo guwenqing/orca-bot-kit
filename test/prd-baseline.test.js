@@ -207,7 +207,7 @@ const ARCHIVED_UNDER_0_1_0 = [
 ];
 
 test('the anchor rule gives the anchors GitHub gives', () => {
-  // The one CONTRIBUTING.md links to today (the README until #652).
+  // The one CONTRIBUTING.md linked to until #819 (the README until #652).
   assert.equal(slug('7.3 Decided rules inside the skills'), '73-decided-rules-inside-the-skills');
   assert.equal(slug('6.6 Rules and `AGENTS.md`'), '66-rules-and-agentsmd');
   // With the tag in front, as the PRD's headings have it.
@@ -263,17 +263,15 @@ test('README.md and AGENTS.md point at the PRD in its new place', async () => {
   assert.ok(agents.includes(`${BASELINE_ROOT}/`), `AGENTS.md should name where the PRD is now, ${NEW_PRD}`);
 });
 
-test('every link to a heading in the PRD lands on one, and on the section it names', async () => {
-  const prd = await readPrd();
+/**
+ * What is wrong with links to headings of a PRD text: each one that lands on
+ * no heading, and each one that says which section it is (`PRD 7.3`) and lands
+ * on another. Only links with an anchor are looked at.
+ */
+function headingLinkProblems(prd, links) {
   const headings = headingsOf(prd);
-  const links = (await markdownLinks()).filter((link) => link.resolved === NEW_PRD && link.anchor !== null);
-  assert.ok(
-    links.some((link) => link.file !== NEW_PRD),
-    `some file outside the PRD should link to a heading in it, as CONTRIBUTING.md's PRD 7.3 link does`,
-  );
-
   const problems = [];
-  for (const link of links) {
+  for (const link of links.filter((candidate) => candidate.anchor !== null)) {
     const heading = headings.find((candidate) => candidate.anchor === link.anchor);
     const where = `${link.file}:${link.line}: [${link.label}](${link.target})`;
     if (heading === undefined) {
@@ -286,7 +284,39 @@ test('every link to a heading in the PRD lands on one, and on the section it nam
     const numbered = heading.text.split(/[\s\]]+/).some((word) => word === section || word === `${section}.`);
     if (!numbered) problems.push(`${where}: lands on "${heading.text}", not on section ${section}`);
   }
-  assert.deepEqual(problems, []);
+  return problems;
+}
+
+// The repo may hold no link to a heading of the PRD at all: the last one went
+// with the mutation tool's paragraph of CONTRIBUTING.md (#819). So the check
+// is shown to catch a bad link here, on a PRD and links of its own, and the
+// test after it runs the same check over whatever links the repo holds.
+test('the heading link check, against worked examples: a link that lands on no heading, or on another section than it names, is a problem', () => {
+  const prd = '# The PRD\n\n## [PRD-8] 6.1 Shape\n\n## [PRD-21] 7.3 Decided rules inside the skills\n';
+  const page = [
+    '[PRD 7.3](docs/prd/prd.md#prd-21-73-decided-rules-inside-the-skills)',
+    '[the shape](docs/prd/prd.md#prd-8-61-shape)',
+    '[PRD 7.3](docs/prd/prd.md#prd-8-61-shape)',
+    '[PRD 6.1](docs/prd/prd.md#61-shape)',
+    '[the PRD](docs/prd/prd.md)',
+  ].join('\n');
+  const links = linksIn(page, 'CONTRIBUTING.md').map((link) => ({ ...link, file: 'CONTRIBUTING.md' }));
+
+  assert.deepEqual(headingLinkProblems(prd, links), [
+    'CONTRIBUTING.md:3: [PRD 7.3](docs/prd/prd.md#prd-8-61-shape): lands on "[PRD-8] 6.1 Shape", not on section 7.3',
+    'CONTRIBUTING.md:4: [PRD 6.1](docs/prd/prd.md#61-shape): no heading in docs/prd/prd.md has the anchor #61-shape',
+  ]);
+});
+
+test('every link to a heading in the PRD lands on one, and on the section it names', async () => {
+  const prd = await readPrd();
+  const links = (await markdownLinks()).filter((link) => link.resolved === NEW_PRD);
+  // That the walk over the repo finds links to the PRD at all: README.md links it (tested above).
+  assert.ok(
+    links.some((link) => link.file === 'README.md'),
+    `the links found in the repo should include README.md's link to ${NEW_PRD}`,
+  );
+  assert.deepEqual(headingLinkProblems(prd, links), []);
 });
 
 test('every relative link in the PRD resolves from its new folder', async () => {
