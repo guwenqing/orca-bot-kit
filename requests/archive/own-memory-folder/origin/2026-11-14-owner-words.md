@@ -1,4 +1,4 @@
-Source: /private/tmp/claude-501/-Volumes-DevData-projects-ai-mybots-bots-kit-dev/00c3268f-dff5-418b-a549-a9f96fc01431/scratchpad/issue-752.md
+Source: https://github.com/guwenqing/orca-bot-kit/issues/752 (the issue body, as kit-dev/architect filed it on 2026-11-14)
 Fetched: 2026-11-14T18:24Z
 SHA-256: dccd5729ad70f1348a9a07f8f11a11762b03e3f65788f9684c4087e0fff4a8b0
 ---

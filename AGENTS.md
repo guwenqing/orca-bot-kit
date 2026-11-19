@@ -43,6 +43,9 @@ Every PR states its tier, in its commit message (`al check` reads it there) and 
   all in the PR. `Tier: 1 — <claim>`. The owner signs, not you.
 - A new paragraph is written with no marker. `al spec --add-ids docs/prd/prd.md --yes`
   gives it the next ID; then write its kind and links in the marker.
+- The `Source:` line of an origin file names a place a reader can open, never a path on
+  your machine: give `al record` the issue or comment URL; `al new` writes its `--from`
+  there, so edit that one line after it (al hashes only the text below `---`).
 - Tier 1d, 2, 3 and S keep their records in the PR the same way; the skill says how.
 
 ## How code is made here
