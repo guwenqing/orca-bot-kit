@@ -71,6 +71,27 @@ thanks:
 - **nizos/tdd-guard**: the ladder to a clean red.
   Revision: nizos/tdd-guard@2579ec1823fac5f4afb73be678d9c500b19885ac (as
   recorded in the research pack's source-book-2.md, read 2026-09-19)
+- **gstack**, `verify`: a run that ran no tests is not green, a red counted
+  as older than the change only when it was red before the first edit, and a
+  check that could not run reported with what was missing. Its test value bar
+  (`docs/test-value-bar.md`, `review/specialists/testing.md` and
+  `/test-audit`): a test that needs a way into the product that no caller in
+  the product needs belongs at the real boundary, and code that only tests
+  keep alive is a finding.
+  Revision: garrytan/gstack@9610ba43db3b9c9992eec69e555d94a99d9c807d (read
+  2026-11-19)
+- **obra/superpowers**, `systematic-debugging/condition-based-waiting.md`
+  further to the above: a test waits for its condition, not for a guessed
+  time, and a fixed delay only for timing that is itself tested, with the
+  reason beside it.
+  Revision: obra/superpowers@22f0b463e7a5e579904dd6211a520321035526f7 (read
+  2026-11-19)
+- **Cursor pstack**, `create-verification-skill` and
+  `poteto-mode/playbooks/feature.md` further to the above: the project's own
+  way to drive the real thing as the last check, on the surface the change
+  reaches.
+  Revision: cursor/plugins@e58dd043600587dbaf58ba315e7f2b38373eeb43 (read
+  2026-11-19)
 
 Ideas paraphrased, with no text taken:
 
@@ -100,4 +121,5 @@ Ideas paraphrased, with no text taken:
 Our own, with no source behind them: the order to break things in, the red
 from an archived baseline for behaviour that already existed, checking that an
 author's hand-back is in the change (from this repo's issues #115 and #119),
-and the part on work away from code.
+the part on work away from code, and a test run again until it passed as green
+that was bought (from this repo's issue #821).

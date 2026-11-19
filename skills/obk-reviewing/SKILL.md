@@ -50,8 +50,19 @@ not you re-arguing it. A breakage the change sets out to make (an interface
 retired on purpose, a behaviour deliberately dropped) is not a defect; do not
 spend the author's time on it.
 
-Pin what you are reading: the range, and that it resolves and is not empty.
-Work that out before you start rather than half way through.
+Pin what you are reading: the commit you review, the range, and that it
+resolves and is not empty. Work that out before you start rather than half way
+through. Before you run a test or a probe yourself, check that the copy you run
+it in is clean and at that commit. A working copy can hold edits that another
+session left there, and a result from it describes code that is not in the
+change.
+
+The rules that judge the change are the ones on the base, not the ones the
+change leaves behind: the project's instructions for its agents, a file of
+review rules, the checks its CI runs. Read them as the base has them. A change
+that edits one of them is not judged by its own edit. The edit is part of what
+you review: say in the report that it is there, and what it lets through that
+the base did not.
 
 Read the change before you read what anyone else said about it. Other people's
 comments, and any automated review, come after your own pass, so your eyes are
@@ -139,9 +150,9 @@ paragraphs about the architecture.
   exist?
 - **What could be less.** An abstraction with one caller, an option for a case
   nobody has, a parameter nothing passes, a compatibility path whose migration
-  is over, a helper the codebase already has written out again by hand. Do
-  not mark simple code down for not being abstract: a few lines repeated beat
-  an abstraction invented too early.
+  is over, a helper the codebase already has written out again by hand, code
+  whose only callers are tests. Do not mark simple code down for not being
+  abstract: a few lines repeated beat an abstraction invented too early.
 - **The tests.** Is there a test for what changed, and would it fail if the
   code were wrong? Where a separate author wrote them, is every test the
   hand-over names in the revision being handed on, as the author wrote it?
@@ -152,11 +163,14 @@ paragraphs about the architecture.
   after? Do the tests observe behaviour or repeat the implementation? And look
   for green that was bought: a threshold moved, a test skipped or deleted,
   assertions taken out of a test that stayed, a check switched off by a
-  comment, a value hard-coded to match one test's input. Tightening the bar is
-  quiet; loosening it should not be.
-- **The repo's own rules.** Flag a breach only when you can quote the rule and
-  the line that breaks it. Not a style you prefer, and not the spirit of a
-  document. Skip anything the project's own tooling already enforces.
+  comment, a value hard-coded to match one test's input, a test run again until
+  it passed, a sleep added until it passed. A test that fails only sometimes is
+  broken, and that is a finding. Tightening the bar is quiet; loosening it
+  should not be.
+- **The repo's own rules**, as the base has them. Flag a breach only when you
+  can quote the rule and the line that breaks it. Not a style you prefer, and
+  not the spirit of a document. Skip anything the project's own tooling already
+  enforces.
 - **Security**, only where you can follow it: an input, the path it takes, and
   the place it lands. "This could be an injection" without that path is not a
   finding. Worth following: a new way in with no check on who may use it; a
@@ -247,8 +261,22 @@ afterwards. What reaches the report is what survived.
 
 ### What a report says
 
-Every line is a verdict, a finding, or a check you ran. Start with the answer.
-No preamble, no narration of your process, no closing summary.
+Every line is a verdict, a finding, or a check you ran. Start with the answer:
+the verdict, and the commit it is for. No preamble, no narration of your
+process, no closing summary.
+
+The verdict is one of three, and it holds for that commit only. **Approved**:
+nothing you found holds the change. **Changes needed**: at least one finding
+holds it, and the findings say which. **A question for whoever decides**: the
+change turns on something only that person can answer, such as an intent the
+requirement leaves open or a trade-off that is theirs; name the question and
+what each answer would mean for the change. A round with no finding that holds
+the change does not say changes needed. It approves, or it names the question.
+
+A defect that the change did not bring in, there on the base as well, is
+marked as older than the change and reported apart from the findings on it. It
+does not hold the change. A defect that the change exposes, by making a broken
+path reachable or a rare one common, came in with the change.
 
 A finding gives its location, what is wrong, and the evidence for it: why you
 believe it, not just that you do. A concrete alternative if you have one, and
@@ -282,6 +310,13 @@ is one finding, not five.
 - Say what you did not check. If you looked less thoroughly than you were asked
   to (one pass where more was wanted, a part of the change you could not read),
   say that plainly, so nobody takes the review for more than it is.
+- A later round starts from the commit the last verdict was for. Read what
+  changed after it, with the earlier findings beside it, and say of each
+  whether it is fixed, answered or still open. Read the new lines as you read
+  the first ones; what did not change, and is not reached by what did, is not
+  read again. If you are the one asking for the round, give the reviewer that
+  commit, and say which findings you set aside and why, so that it judges them
+  again rather than repeating them.
 - A review reads the change. Whether the whole of it runs is a separate check;
   where one focused test would settle a doubt and changes nothing, run it and
   say so.

@@ -25,12 +25,15 @@ is the licence file it was read from, in the research pack's source clones.
   (`cursor_plugins/pstack/LICENSE`)
 - **`mattpocock/skills`**, Copyright (c) 2026 Matt Pocock
   (`mattpocock_skills/LICENSE`)
+- **`garrytan/gstack`**, Copyright (c) 2026 Garry Tan (its `LICENSE` at
+  9610ba4, read 2026-11-19 from the repository, not from the research pack)
 
 ```
 MIT License
 
 Copyright (c) 2026 Lauren Tan
 Copyright (c) 2026 Matt Pocock
+Copyright (c) 2026 Garry Tan
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
