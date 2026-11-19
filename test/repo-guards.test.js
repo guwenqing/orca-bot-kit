@@ -15,7 +15,7 @@ import { parse } from 'yaml';
 import { repoRoot, snapshot } from './helpers/cli.js';
 
 /** Trees that hold copies of other people's files, or of our own. */
-const IGNORED = new Set(['node_modules', '.git', '.stryker-tmp', 'reports']);
+const IGNORED = new Set(['node_modules', '.git', 'reports']);
 
 const workflowsDir = path.join(repoRoot, '.github', 'workflows');
 

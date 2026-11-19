@@ -322,7 +322,7 @@ test('each kind the PRD uses is one that schema.yaml lists, where it lists kinds
 });
 
 /** Trees that hold copies of other people's files, dated records, or records al writes. */
-const NOT_CITING = new Set(['node_modules', '.git', '.stryker-tmp', 'reports', 'archive', '.assuredloop']);
+const NOT_CITING = new Set(['node_modules', '.git', 'reports', 'archive', '.assuredloop']);
 
 // The PRD's headings carry a tag, such as `### [PRD-8] 6.1 Shape`, and the
 // docs, the code and the tests cite a section by it. So each `[PRD-n]` they

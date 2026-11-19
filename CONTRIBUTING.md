@@ -11,7 +11,6 @@ npm test                      # the whole suite, in a few minutes
 npm run test:system           # what the system tests would drive, and nothing else
 npm run test:system -- --yes  # drive them, on this machine, for real
 npm run test:system -- --yes test/system/groom.test.js  # only the ones you name
-npm run mutate                # the mutation audit, on what your branch changed
 ```
 
 The tests come in two layers, and every test file belongs to one of them.
@@ -52,34 +51,3 @@ each must be one of the `*.test.js` files under `test/system/`, links followed,
 and a name that is not is refused before anything runs. This command is the
 only way in: a system test loaded any other way, with `node --test` or an
 editor's runner, skips and says how to run it.
-
-`npm run mutate` runs [StrykerJS](https://stryker-mutator.io) over the
-JavaScript this branch changed against `main` — committed, still in the working
-tree, or not tracked yet — and reports the mutants the tests do not kill. It is
-an audit, not a step of every pull request
-([PRD 7.3](docs/prd/prd.md#prd-21-73-decided-rules-inside-the-skills)): the everyday
-check is the implementer's own hand check, and the tool runs over the whole
-suite at a milestone or when the owner asks, or once, narrowed to the changed
-logic, for a change at the core of the kit. A surviving mutant is a change to
-the code that no test objects to. It is worth a test only where it shows a gap
-in behaviour the requirement cares about, and that test is written by the
-separate test author. Name targets yourself to check a whole area instead:
-
-```sh
-npm run mutate -- 'src/**/*.js'
-```
-
-Every mutant means running the tests again, so the check does not run them the
-way `npm test` does. It runs [`scripts/mutation-suite.js`](scripts/mutation-suite.js)
-instead: the same test files, one at a time, stopping at the first file that
-fails, trying the file that killed the last mutant first and then the quickest.
-On a ten-core machine, `src/up.js` as it was when this was measured (128 lines,
-76 mutants) took about twelve minutes that way. Running the whole suite for every mutant, as it used to, took
-forty, and counted a mutant as killed whenever a run of it ran out of time. A
-change across several files takes proportionally longer, so check one or two at
-a time.
-
-The check still takes minutes where the suite takes seconds, which is why it is
-a command of its own. StrykerJS is a development dependency of this repo, pinned
-to an exact version and needing Node 22 or newer; the kit itself neither ships
-it nor needs it.

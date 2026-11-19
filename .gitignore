@@ -5,6 +5,4 @@ local-data/
 .env
 .env.*
 !.env.example
-.stryker-tmp/
-stryker.log
 reports/
