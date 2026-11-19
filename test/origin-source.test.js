@@ -13,6 +13,14 @@
 // A machine path is an absolute POSIX path (`/...`), a home path (`~...`) or a
 // Windows drive path (`C:\...` or `C:/...`). Every other value is allowed: a
 // URL, or prose such as `standard input`. A URL is not required.
+//
+// The request folders that prd-baseline.test.js pins byte for byte (its list
+// ARCHIVED_UNDER_0_1_0) are left out. They are dated records, which no later
+// change edits, and the architect ruled in #774 that they stay as they are,
+// local paths included. This test reads the folder names from that list in
+// prd-baseline.test.js, so there is no second list to keep by hand. It does not
+// import that file, which would run its tests too. If the list cannot be read,
+// this test fails, so a renamed list cannot widen the exemption in silence.
 
 import assert from 'node:assert/strict';
 import { readFile, readdir } from 'node:fs/promises';
@@ -22,6 +30,18 @@ import { fileURLToPath } from 'node:url';
 
 const repoRoot = fileURLToPath(new URL('..', import.meta.url));
 const requestsDir = path.join(repoRoot, 'requests');
+const archiveDir = path.join(requestsDir, 'archive');
+const baselineTest = path.join(repoRoot, 'test', 'prd-baseline.test.js');
+
+/** The folder names in prd-baseline.test.js's ARCHIVED_UNDER_0_1_0. */
+async function pinnedFolders() {
+  const text = await readFile(baselineTest, 'utf8');
+  const list = /^const ARCHIVED_UNDER_0_1_0 = \[\n([\s\S]*?)\n\];$/m.exec(text);
+  assert.ok(list, `found no list ARCHIVED_UNDER_0_1_0 in ${path.relative(repoRoot, baselineTest)}`);
+  const names = [...list[1].matchAll(/\['([^']+)', '[0-9a-f]{64}'\]/g)].map((match) => match[1]);
+  assert.ok(names.length > 0, 'read no folder name from ARCHIVED_UNDER_0_1_0');
+  return new Set(names);
+}
 
 const SEPARATOR = /^---( signed text ---)?$/;
 const MACHINE_PATH = /^(\/|~|[A-Za-z]:[\\/])/;
@@ -47,9 +67,16 @@ function headerSource(text) {
   return undefined;
 }
 
+/** True when the file is in a folder requests/archive/<name>/ of the pin. */
+const inPinnedFolder = (file, pinned) => {
+  const [name, ...rest] = path.relative(archiveDir, file).split(path.sep);
+  return name !== '..' && rest.length > 0 && pinned.has(name);
+};
+
 test('no origin file names a path on one machine as its Source', async () => {
-  const files = await originFiles(requestsDir);
-  assert.ok(files.length > 0, `found no origin files under ${requestsDir}`);
+  const pinned = await pinnedFolders();
+  const files = (await originFiles(requestsDir)).filter((file) => !inPinnedFolder(file, pinned));
+  assert.ok(files.length > 0, `found no origin files under ${requestsDir} outside the pinned folders`);
 
   const bad = [];
   let sources = 0;

@@ -1,4 +1,4 @@
-Source: https://github.com/guwenqing/orca-bot-kit/issues/575 (the issue body, by qiragu, 2026-10-11)
+Source: /private/tmp/claude-501/-Volumes-DevData-projects-ai-mybots-bots-kit-dev/393d9f99-49b7-4fd4-aa67-eac78a780eb4/scratchpad/stdin.md
 Fetched: 2026-10-17T03:20Z
 SHA-256: c7b8f93d19a5443ed4f2b3ee98ca43257284758d8234276d3b48309fec4d55cd
 ---
