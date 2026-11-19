@@ -1011,7 +1011,9 @@ binds nothing, and says so; the mail waits.
 When Orca no longer has a session's mailbox, the kit makes it a new one in the
 session's own tab: at its next start, or at a `message check` there. The kit
 says so, with the reason, and that any letters that waited in the old one are
-gone. A peek, or a check from anywhere else, makes nothing and says the same.
+gone. A peek in its own tab, a check from outside Orca, or a check of a session
+whose tab is not open makes nothing, and says the mailbox is gone and why. A
+check from another tab asks Orca nothing, as above.
 
 For one session, that step, a `message check`, and `up` writing a new tab for it
 into the book take turns. So two starts of the same session at once leave its
