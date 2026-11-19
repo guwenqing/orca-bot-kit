@@ -461,3 +461,79 @@ test('on codex, an unpause that starts the session fresh: the harness comes up i
   await assertFreshRecord(box, { harness: 'codex', home, id: conv(1), prompt: SHORT, run });
   assert.equal(entryOf(run, 'api-bot', 'daily').promptReceived, true, `got: ${run.stdout}`);
 });
+
+// ------------------------------------------------------------ the harness's version
+
+/** The versions each harness writes into its record, as the real ones do. */
+const VERSIONS = { claude: '2.1.328', codex: '0.156.1' };
+
+test('on codex, `version` is the cli_version of the session_meta line of a new rollout', async (t) => {
+  // The kit reads Codex's `cli_version` (#391). Without `version`, the payload
+  // has no such key: the tests above pin the payload whole.
+  const box = await createSandbox(t);
+  const bots = await init(box);
+  const home = await makeBot(box, 'api-bot', 'codex', [['daily', SHORT]]);
+  await harnessComesUp(box, { bots, bot: 'api-bot', session: 'daily', harness: 'codex', id: conv(1), version: VERSIONS.codex });
+
+  const run = await runJson(box, ['up', '--bots', 'bots', '--bot', 'api-bot']);
+
+  await assertStarts(box, 1);
+  await assertBookNames(bots, 'api-bot', 'daily', conv(1));
+  const lines = await linesOf(await codexFileOf(box, conv(1)));
+  assert.equal(lines.length, 2, `a fresh rollout holds its session_meta line and the turn, got: ${show(lines)}`);
+  const { cli_version: version, ...payload } = lines[0]?.payload ?? {};
+  assert.equal(version, VERSIONS.codex, `the session_meta payload carries the version, got: ${show(lines[0])}`);
+  assertCodexMeta({ ...lines[0], payload }, { id: conv(1), home, run });
+  assertCodexTurn(lines[1], { prompt: SHORT, run });
+  assert.equal(entryOf(run, 'api-bot', 'daily').promptReceived, true, `got: ${run.stdout}`);
+});
+
+test('on claude, `version` is the version of the user-turn line', async (t) => {
+  // Claude Code writes `version` on its lines. Without `version`, the line has
+  // no such key: the tests above pin the line whole.
+  const box = await createSandbox(t);
+  const bots = await init(box);
+  const home = await makeBot(box, 'api-bot', 'claude', [['daily', SHORT]]);
+  await harnessComesUp(box, { bots, bot: 'api-bot', session: 'daily', id: conv(1), version: VERSIONS.claude });
+
+  const run = await runJson(box, ['up', '--bots', 'bots', '--bot', 'api-bot']);
+
+  await assertStarts(box, 1);
+  await assertBookNames(bots, 'api-bot', 'daily', conv(1));
+  const lines = await linesOf(claudeFileOf(box, home, conv(1)));
+  assert.equal(lines.length, 1, `a fresh record holds the start prompt's turn, got: ${show(lines)}`);
+  const { version, ...line } = lines[0] ?? {};
+  assert.equal(version, VERSIONS.claude, `the user turn carries the version, got: ${show(lines[0])}`);
+  assertClaudeTurn(line, { id: conv(1), home, prompt: SHORT, run });
+  assert.equal(entryOf(run, 'api-bot', 'daily').promptReceived, true, `got: ${run.stdout}`);
+});
+
+for (const harness of ['claude', 'codex']) {
+  test(`on ${harness}, with \`version\` and a record there already, the lines there stay and no session_meta line is added`, async (t) => {
+    // The conversation goes on in the same file: the turn goes at its end, and
+    // only Claude Code's turn carries a version of its own.
+    const box = await createSandbox(t);
+    const bots = await init(box);
+    const home = await makeBot(box, 'api-bot', harness, [['daily', SHORT]]);
+    const file = await conversationOnRecord(box, { harness, cwd: home, id: conv(1), ...(harness === 'codex' ? { cliVersion: '0.150.0' } : {}) });
+    const before = await readFile(file, 'utf8');
+    await harnessComesUp(box, { bots, bot: 'api-bot', session: 'daily', harness, id: conv(1), source: 'resume', version: VERSIONS[harness] });
+
+    const run = await runJson(box, ['up', '--bots', 'bots', '--bot', 'api-bot']);
+
+    await assertStarts(box, 1);
+    await assertBookNames(bots, 'api-bot', 'daily', conv(1));
+    if (harness === 'codex') assert.deepEqual(await codexFilesOf(box, conv(1)), [path.relative(path.join(box.home, '.codex', 'sessions'), file)], 'no second rollout file for the same conversation');
+    const after = await readFile(file, 'utf8');
+    assert.ok(after.startsWith(before), `the lines there stay as they were, the version of the first one included, got:\n${after}`);
+    const added = after.slice(before.length).split('\n').filter((one) => one !== '').map((one) => JSON.parse(one));
+    assert.equal(added.length, 1, `one line is added, the user turn, and no session_meta line, got: ${show(added)}`);
+    if (harness === 'claude') {
+      const { version, ...line } = added[0];
+      assert.equal(version, VERSIONS.claude, `the user turn carries the version, got: ${show(added[0])}`);
+      assertClaudeTurn(line, { id: conv(1), home, prompt: SHORT, run });
+    } else {
+      assertCodexTurn(added[0], { prompt: SHORT, run });
+    }
+  });
+}
