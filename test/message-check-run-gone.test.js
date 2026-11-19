@@ -57,7 +57,7 @@ import {
   sessionIn,
   spellingsOf,
 } from './helpers/cli.js';
-import { assertNamesBothCauses, assertSaysLettersGone, orcaDeletesRun } from './helpers/run-deleted.js';
+import { assertNamesBothCauses, assertSaysLettersGone, assertSaysNothingGone, orcaDeletesRun } from './helpers/run-deleted.js';
 
 // ---------------------------------------------------------------------------
 // The fleet, and running a check as a tab
@@ -488,3 +488,69 @@ test('#820 R-C7: a session whose tab is gone from Orca and whose Run Orca delete
   assertSaysLettersGone(said);
   assert.ok(givesAny(box, said, 'up'), `and that its next start, ${box.cli} up …, makes a new one, got:\n${said}`);
 });
+
+/** Each way the kit may spell `<cli> unpause --bots <bots> --bot <bot>`, in the spellings a shell reads as one word. */
+const unpausesOf = (box, bots, bot) => spellingsOf(box.cli)
+  .flatMap((cli) => spellingsOf(bots).map((folder) => `${cli} unpause --bots ${folder} --bot ${bot}`));
+
+test('#820 R-C7: a paused bot whose Run Orca deleted: the check fails, makes nothing, and names the bot\'s unpause, with no --session', async (t) => {
+  // `obk pause --bot` pauses the whole bot; what brings it back is the bot's
+  // unpause, as health names it for a paused bot (health-mailbox-gone.test.js).
+  const box = await createSandbox(t);
+  const { bots, coder, stale } = await coderWithALetter(box);
+  await obkIn(box, null, ['pause', '--bots', 'bots', '--bot', 'coder']);
+  assert.ok(!(await box.orca.terminals()).some((entry) => entry.handle === coder.handle), 'the premise: pause closed its tab');
+  await orcaDeletesRun(box, stale);
+  const book = await bookIn(bots, 'coder');
+  const runs = await box.orca.runs();
+  const from = (await box.orca.calls()).length;
+
+  const result = await obkFrom(box, null, CHECK);
+
+  assertFailedPlainly(result);
+  await assertNothingChanged(box, bots, { book, runs, from });
+  const said = saidBy(result);
+  assert.ok(said.includes(stale), `it names the mailbox that is gone, ${stale}, got:\n${said}`);
+  assertNamesBothCauses(said);
+  assertSaysLettersGone(said);
+  const theBot = unpausesOf(box, bots, 'coder').some((command) => {
+    for (let at = said.indexOf(command); at >= 0; at = said.indexOf(command, at + 1)) {
+      if (!said.slice(at + command.length).trimStart().startsWith('--session')) return true;
+    }
+    return false;
+  });
+  assert.ok(theBot, `it names the bot's unpause, ${box.cli} unpause --bots ${bots} --bot coder, with no --session, got:\n${said}`);
+});
+
+/** The ways Orca does not say a Run is gone: refused with another code, or no answer in time. */
+const NOT_SAID = [
+  ['run-show is refused with another code', { fail: { 'orchestration run-show': { code: 'runtime_error', message: 'the orchestration runtime is restarting; try again in a moment' } } }],
+  ['run-show does not answer', { hang: { command: 'orchestration run-show', ms: HANG_MS } }],
+];
+
+for (const [how, misbehaves] of NOT_SAID) {
+  test(`#820 R-C7: a paused session whose Run Orca still has, when ${how}: the check fails, makes nothing, and does not say the mailbox or its letters are gone`, async (t) => {
+    // Orca did not say the Run is gone, and it is not: its letter still waits.
+    // A "gone" here would tell the user mail was lost when it was not.
+    const box = await createSandbox(t);
+    const { bots, coder, stale } = await coderWithALetter(box);
+    await obkIn(box, null, ['pause', '--bots', 'bots', '--bot', 'coder', '--session', 'daily']);
+    assert.ok(!(await box.orca.terminals()).some((entry) => entry.handle === coder.handle), 'the premise: pause closed its tab');
+    assert.ok((await runIn(box, stale)) !== undefined, `the premise: Orca still has ${stale}`);
+    await box.orca.set(misbehaves);
+    const book = await bookIn(bots, 'coder');
+    const runs = await box.orca.runs();
+    const from = (await box.orca.calls()).length;
+
+    const result = await obkFrom(box, null, CHECK);
+
+    assertFailedPlainly(result);
+    await assertNothingChanged(box, bots, { book, runs, from });
+    assertSaysNothingGone(saidBy(result));
+    assert.deepEqual(
+      (await box.orca.messages()).filter((message) => message.to === `run:${stale}` && !message.acked).map((message) => message.subject),
+      [WAITED],
+      'and the letter still waits in the Run, unread',
+    );
+  });
+}

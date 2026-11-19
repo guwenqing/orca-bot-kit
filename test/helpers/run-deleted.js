@@ -61,3 +61,15 @@ const LETTERS_GONE = /(?<!\blast )\b(letters?|mail|messages?)\b[^.;]{0,100}?\b(i
 export function assertSaysLettersGone(said) {
   assert.match(flat(said), LETTERS_GONE, `it says the letters that waited in it are gone, got:\n${said}`);
 }
+
+/**
+ * Assert `said` does not say that a mailbox or its letters are gone: it names
+ * neither cause of a missing Run and says nothing of letters gone, and no
+ * mailbox is called gone, lost or deleted. For a Run that Orca still has.
+ */
+export function assertSaysNothingGone(said) {
+  const text = flat(said);
+  assert.ok(!text.includes('1.4.262'), `it names no cause of a missing Run, got:\n${said}`);
+  assert.doesNotMatch(text, LETTERS_GONE, `it does not say the letters are gone, got:\n${said}`);
+  assert.doesNotMatch(text, /\bmailbox\b[^.;]{0,100}?\b(gone|lost|deleted)\b/i, `and does not say the mailbox is gone, got:\n${said}`);
+}
