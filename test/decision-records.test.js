@@ -138,6 +138,7 @@ const RECORDS_BEFORE_THE_MOVE = [
   '0059-extra-arguments-that-widen-a-session-are-refused.md',
   '0060-each-claude-bot-gets-a-memory-folder-of-its-own-named-in-the-kits-one-settings.md',
   '0061-parts-that-claude-code-adds-by-itself-stay-out-of-the-kits-main-text.md',
+  '0062-messaging-transport.md',
 ];
 
 /** The five sections every current record answers. */
