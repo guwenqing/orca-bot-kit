@@ -45,6 +45,9 @@ with thanks:
   Revision: mattpocock/skills@c55ee46073ed923f86ce59a5eb3b6d895095d1b7
   (reconstructed: the research pack's 2026-09-20 clone the skills were built
   from; the revision actually read was not recorded)
+  Seen 2026-11-19: `CONTEXT-FORMAT` was renamed `GLOSSARY-FORMAT` in d80fa0f,
+  which reached the main branch in d81f3a1 (2026-09-29). `CONTEXT-FORMAT` can
+  still be read at c55ee46.
 
 `grill-with-docs` is a one-line skill that loads the two above, and `grill-me`
 one that loads `grilling` alone. ADR 0019 proposes that a kit skill carries

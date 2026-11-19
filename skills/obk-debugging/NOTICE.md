@@ -119,6 +119,10 @@ with thanks:
   Revision: garrytan/gstack@a6b3a57512ca6d5c6aa5b68f74f736195021f96e
   (reconstructed: the research pack's 2026-09-20 clone the skills were built
   from; the revision actually read was not recorded)
+  Seen 2026-11-19: gstack cut the lines that held both ideas from
+  `investigate` in 2054e3d (2026-11-02), and removed the whole skill in
+  ef99eb5 (2026-11-07), "after a no-gain eval" in that commit's words. Both
+  ideas can still be read at a6b3a57.
 - **Kent Beck's own rules file**: two tests for a defect, one at the interface
   and the smallest one where the fault lives.
   Revision: KentBeck/BPlusTree3@ca80e4d85a99cd0af2effe717f709d43e80403bc

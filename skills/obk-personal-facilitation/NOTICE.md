@@ -45,6 +45,8 @@ contribute a piece each.
   Revision: cursor/plugins@6ed0f7a9504f577d7529064103cecce9be7dfc5e
   (reconstructed: the research pack's 2026-09-20 clone the skills were built
   from; the revision actually read was not recorded)
+  Seen 2026-11-19: `x-chat` was folded into `x-api-mcp-guide` (the next
+  entry) in ffcb2ce (2026-09-30). `x-chat` can still be read at 6ed0f7a.
 - **Cursor `plugins`, `third_party/x/skills/x-api-mcp-guide`** (MIT, the same
   `third_party/x/LICENSE`): a yes covers the exact text the person saw, and any
   change needs a new yes, even when they asked for the change and the send
