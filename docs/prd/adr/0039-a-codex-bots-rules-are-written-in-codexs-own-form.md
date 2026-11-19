@@ -1,3 +1,7 @@
+Status: accepted
+
+<!-- ADR-39 choice supersedes:ADR-28 -->
+
 # ADR 0039: A Codex bot's permission rules are written in Codex's own form, from the same list
 
 Date: 2026-10-10.
@@ -7,7 +11,7 @@ Supersedes: [ADR 0028](0028-a-codex-bots-rules-are-written-in-codexs-own-form.md
 
 ## Context
 
-[ADR 0036](0036-the-kit-writes-every-bots-default-permission-rules.md)
+[ADR 0036](0036-the-kit-writes-every-bots-default-permission-rules.md) (superseded, now [ADR 0050](0050-the-kit-writes-every-bots-default-permission-rules.md))
 gives every bot a default set of rules and
 [ADR 0038](0038-a-charters-grants-become-exact-permission-rules.md) the rules
 its charter grants. Both keep what a bot is allowed in `bot.yaml`'s `allow`,
@@ -68,7 +72,7 @@ config, so an untrusted project cannot be tried with it.
   is.** Not chosen: Codex's conventional file may be written by the user or by
   Codex, and a file of the kit's own needs no merging and is never mistaken
   for theirs (the architect).
-- **A harness-neutral form in `allow`.** Not chosen: ADR 0036 kept Claude
+- **A harness-neutral form in `allow`.** Not chosen: ADR 0036 (superseded, now ADR 0050) kept Claude
   Code's text, which is what the user is shown, and every rule the kit and Bot
   Father spell has a Codex form or needs none.
 - **Writing a prefix rule for an exact command.** Not chosen: it lets the bot

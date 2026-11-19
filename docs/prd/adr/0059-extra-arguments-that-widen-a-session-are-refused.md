@@ -1,13 +1,17 @@
+Status: accepted
+
+<!-- ADR-59 choice supersedes:ADR-49 -->
+
 # ADR 0059: Extra arguments that widen a session are refused
 
 Date: 2026-11-14.
 Status: accepted.
-Decided by: the architect, on 2026-10-16, for refusing the extra arguments that widen what a session may write or run, for failing closed on Codex's `-c` with a list of keys known to be safe, for refusing Claude Code's `--settings`, for the one trust shape, and for keeping this a record beside [ADR 0041](0041-permission-changes-and-risky-operations-have-commands-of-their-own.md) (#567); reviewer-567, for refusing `--restricted`; developer-567, for the lists of flags and keys; the architect, on 2026-10-17, for taking `check_for_update_on_startup` with `false` only (#581); the architect, on 2026-11-14, for refusing Claude Code's `--remote-control` and `--rc`, so that the session's own setting is the only switch for Remote Control (#755). The architect or the owner may overrule.
+Decided by: the architect, on 2026-10-16, for refusing the extra arguments that widen what a session may write or run, for failing closed on Codex's `-c` with a list of keys known to be safe, for refusing Claude Code's `--settings`, for the one trust shape, and for keeping this a record beside [ADR 0041](0041-permission-changes-and-risky-operations-have-commands-of-their-own.md) (superseded, now [ADR 0051](0051-permission-changes-and-risky-operations-have-commands-of-their-own.md)) (#567); reviewer-567, for refusing `--restricted`; developer-567, for the lists of flags and keys; the architect, on 2026-10-17, for taking `check_for_update_on_startup` with `false` only (#581); the architect, on 2026-11-14, for refusing Claude Code's `--remote-control` and `--rc`, so that the session's own setting is the only switch for Remote Control (#755). The architect or the owner may overrule.
 Supersedes: [ADR 0049](0049-extra-arguments-that-widen-a-session-are-refused.md).
 
 ## Context
 
-[ADR 0041](0041-permission-changes-and-risky-operations-have-commands-of-their-own.md)
+[ADR 0041](0041-permission-changes-and-risky-operations-have-commands-of-their-own.md) (superseded, now [ADR 0051](0051-permission-changes-and-risky-operations-have-commands-of-their-own.md))
 keeps permission changes in commands of their own. It has `session add`,
 `session change`, `temp make` and `groom --run-on codex` refuse an extra
 argument that sets approval or permissions, from a fixed list of flags. It
@@ -43,7 +47,7 @@ with neither argument wrote in none of the three.
 
 `session add`, `session change`, `temp make` and `groom --run-on codex`
 refuse an extra argument that widens what the session may write or run, on
-the session's harness. This adds to ADR 0041's list of refused flags:
+the session's harness. This adds to ADR 0041's (superseded, now ADR 0051) list of refused flags:
 
 - On Claude Code: `--add-dir`, `--settings`, `--setting-sources`,
   `--plugin-dir`, `--plugin-url`, `--mcp-config`, `--agents`, `--agent`,
@@ -99,10 +103,10 @@ own settings. The kit's explicit launch flags still win over both.
 
 ## Alternatives considered
 
-- **Replacing ADR 0041 with a whole new record.** Not chosen: ADR 0041's
+- **Replacing ADR 0041 (superseded, now ADR 0051) with a whole new record.** Not chosen: ADR 0041's (superseded, now ADR 0051)
   decision, that permission changes have commands of their own, does not
   change. This record adds which arguments are refused. A replacement would
-  also change the PRD's citation of ADR 0041, which is a baseline change for
+  also change the PRD's citation of ADR 0041 (superseded, now ADR 0051), which is a baseline change for
   a link alone (the architect, 2026-10-16).
 - **A list of refused `-c` keys.** Not chosen: Codex reads a key as TOML, and
   a whole table sets many keys in one value. The schema holds dozens of keys
@@ -123,7 +127,7 @@ own settings. The kit's explicit launch flags still win over both.
 
 - Good: no extra argument the kit knows can widen what a session may write or
   run, and an unknown Codex config key is refused. This closes the known gap
-  that ADR 0041 names.
+  that ADR 0041 (superseded, now ADR 0051) names.
 - Bad: a flag that a harness adds later can still widen a session until
   someone adds it here. The lists come from `claude --help` 2.1.302,
   `codex --help` 0.163.0 and Codex 0.163.0's config schema.

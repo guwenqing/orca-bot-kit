@@ -1,3 +1,7 @@
+Status: superseded by ADR-57
+
+<!-- ADR-46 choice supersedes:ADR-34 -->
+
 # ADR 0046: Orca is the host
 
 Date: 2026-10-16.

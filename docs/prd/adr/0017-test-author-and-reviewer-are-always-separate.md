@@ -1,3 +1,7 @@
+Status: accepted
+
+<!-- ADR-17 choice supersedes:ADR-7 -->
+
 # ADR 0017: The test author and the reviewer are always separate from the implementer
 
 Date: 2026-09-24.

@@ -1,3 +1,7 @@
+Status: superseded by ADR-17
+
+<!-- ADR-7 choice -->
+
 # ADR 0007: The test author and the reviewer are always separate from the implementer
 
 Date: 2026-09-19.

@@ -1,3 +1,7 @@
+Status: accepted
+
+<!-- ADR-22 choice supersedes:ADR-20 -->
+
 # ADR 0022: Kit hooks live in the bot folder, not in user settings
 
 Date: 2026-09-25.

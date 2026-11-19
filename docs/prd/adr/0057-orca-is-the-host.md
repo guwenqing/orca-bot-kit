@@ -1,8 +1,12 @@
+Status: accepted
+
+<!-- ADR-57 choice supersedes:ADR-46 -->
+
 # ADR 0057: Orca is the host
 
 Date: 2026-11-14.
 Status: accepted.
-Decided by: the owner, in his design session of 2026-09-19, and on 2026-09-20 for the plain folder; the architect, for #232 and PR #260, for the sentences marked so; the owner on 2026-09-24 for calling Orca's runtime through Orca's own client (#224), with the architect deciding how the user is told, for the sentences marked so; the architect, for #329, for the kit's own reading of a tab's screen before it types into it, for the sentences marked so; the architect, for #298, for asking Orca's runtime who is in front of a tab where `ps` cannot read it, for the sentences marked so; the owner on 2026-09-26 for Orca's own Force Reload after a removal (#343), with the architect deciding how the menu item is found, for the sentences marked so; the architect, for #261, for recognising the harness the kit launched by its launch mark, for the sentences marked so; the owner on 2026-10-11 for fleet mail that types no line into the receiver's tab, with one Escape for urgent mail (#555), as [ADR 0042](0042-messaging-transport.md) records; the architect, for #575, for taking the kit's mail nudge and the Codex nudge hook out of this record; the owner on 2026-11-14 for Claude Code's Remote Control on every Claude Code session the kit starts (#755), as [ADR 0058](0058-remote-control-is-on-for-every-claude-code-session.md) records. The owner may overrule the architect's sentences. Consulted: the coordinator, who researched Orca. A sentence marked (proposed) is not decided yet.
+Decided by: the owner, in his design session of 2026-09-19, and on 2026-09-20 for the plain folder; the architect, for #232 and PR #260, for the sentences marked so; the owner on 2026-09-24 for calling Orca's runtime through Orca's own client (#224), with the architect deciding how the user is told, for the sentences marked so; the architect, for #329, for the kit's own reading of a tab's screen before it types into it, for the sentences marked so; the architect, for #298, for asking Orca's runtime who is in front of a tab where `ps` cannot read it, for the sentences marked so; the owner on 2026-09-26 for Orca's own Force Reload after a removal (#343), with the architect deciding how the menu item is found, for the sentences marked so; the architect, for #261, for recognising the harness the kit launched by its launch mark, for the sentences marked so; the owner on 2026-10-11 for fleet mail that types no line into the receiver's tab, with one Escape for urgent mail (#555), as [ADR 0042](0042-messaging-transport.md) (superseded, now [ADR 0053](0053-messaging-transport.md)) records; the architect, for #575, for taking the kit's mail nudge and the Codex nudge hook out of this record; the owner on 2026-11-14 for Claude Code's Remote Control on every Claude Code session the kit starts (#755), as [ADR 0058](0058-remote-control-is-on-for-every-claude-code-session.md) records. The owner may overrule the architect's sentences. Consulted: the coordinator, who researched Orca. A sentence marked (proposed) is not decided yet.
 Supersedes: [ADR 0046](0046-orca-is-the-host.md).
 
 ## Context
@@ -22,7 +26,7 @@ folder workspace: registered as a git repo, it gets no worktree and cannot
 host tabs (Orca 1.4.205, 2026-09-20; tech notes).
 
 Since 2026-10-11 the kit types no mail nudge (#555,
-[ADR 0042](0042-messaging-transport.md)): a send queues the letter, and Orca's
+[ADR 0042](0042-messaging-transport.md) (superseded, now [ADR 0053](0053-messaging-transport.md))): a send queues the letter, and Orca's
 own notice tells the receiver once it is idle. What the kit still types into a
 running session is the Escape of `obk message send --interrupt`,
 `/reload-skills` after `obk skills build`, grooming's lines, the line a
@@ -206,9 +210,9 @@ never retried. (The architect, #298; the owner may overrule.)
 The kit types no mail nudge. A send queues the letter in the receiver's
 mailbox, and Orca's own notice tells the receiver; only a sender's
 `--interrupt` presses one Escape into a busy receiver's tab, through the
-rules above and below, as [ADR 0042](0042-messaging-transport.md) says. A
+rules above and below, as [ADR 0042](0042-messaging-transport.md) (superseded, now [ADR 0053](0053-messaging-transport.md)) says. A
 Codex bot's `.codex/hooks.json` holds no nudge hook of the kit's, and `up`
-takes the old entry out ([ADR 0042](0042-messaging-transport.md)). Where a
+takes the old entry out ([ADR 0042](0042-messaging-transport.md) (superseded, now [ADR 0053](0053-messaging-transport.md))). Where a
 send from inside Codex's sandbox cannot tell, it presses nothing, and the
 letter still goes.
 
@@ -289,7 +293,7 @@ architect, #224 and #343; the owner may overrule.)
   could not decide inside the sandbox** ([ADR 0034](0034-orca-is-the-host.md),
   #350), until Orca's fix to `tty_boundary` (stablyai/orca#23245) ships.
   Replaced: since #555 the kit types no mail nudge, so no nudge is left for a
-  hook to decide ([ADR 0042](0042-messaging-transport.md)). Inside that
+  hook to decide ([ADR 0042](0042-messaging-transport.md) (superseded, now [ADR 0053](0053-messaging-transport.md))). Inside that
   design, Codex's `Stop` hook lost because it runs only when the sender's
   turn ends; the hook's `async` switch, because its answer could not reach
   the sender; the nudge left in the bot's folder, because the file would show
@@ -393,7 +397,7 @@ architect, #224 and #343; the owner may overrule.)
   Orca's notice when that turn ends (#350, #555).
 - Good: since #555 a Codex bot has no nudge hook, so Codex runs nothing of the
   kit's after each shell command, and no nudge waits in the temp folder
-  ([ADR 0042](0042-messaging-transport.md)).
+  ([ADR 0042](0042-messaging-transport.md) (superseded, now [ADR 0053](0053-messaging-transport.md))).
 - Bad: from inside a sandbox, that reading rests on what Orca does not
   publish: `terminal.inspectProcess` and the shape of its answer. If they go
   in a release, a Codex session is back to "cannot tell", as before #298: its

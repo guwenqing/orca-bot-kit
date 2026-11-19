@@ -1,3 +1,7 @@
+Status: accepted
+
+<!-- ADR-55 choice -->
+
 # ADR 0055: The kit trims what a Claude Code session is sent
 
 Date: 2026-11-14.

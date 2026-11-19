@@ -1,3 +1,7 @@
+Status: superseded by ADR-38
+
+<!-- ADR-27 choice -->
+
 # ADR 0027: A charter's grants become exact permission rules, and broad rules stay the user's
 
 Date: 2026-09-26.

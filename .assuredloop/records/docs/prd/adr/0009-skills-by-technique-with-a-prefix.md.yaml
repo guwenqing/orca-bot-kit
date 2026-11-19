@@ -1,0 +1,8 @@
+schema: assuredloop/1
+file: docs/prd/adr/0009-skills-by-technique-with-a-prefix.md
+status: superseded
+paragraphs:
+  - id: ADR-9
+    kind: choice
+    text_sha256: f1f6f1bd8d3bcd83c24a4d9de7166acfe942a56cb9c5c89e933f035b6eb72d5b
+    display: "ADR-9 (0, ADR 0009: Skills are organised by technique and carry the `obk-` prefix)"

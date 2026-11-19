@@ -1,3 +1,7 @@
+Status: accepted
+
+<!-- ADR-40 choice supersedes:ADR-29 -->
+
 # ADR 0040: A rule is taken back through the kit, after the user's yes, and only one the kit wrote
 
 Date: 2026-10-10.
@@ -7,7 +11,7 @@ Supersedes: [ADR 0029](0029-a-rule-is-taken-back-through-the-kit-after-the-users
 
 ## Context
 
-[ADR 0036](0036-the-kit-writes-every-bots-default-permission-rules.md)
+[ADR 0036](0036-the-kit-writes-every-bots-default-permission-rules.md) (superseded, now [ADR 0050](0050-the-kit-writes-every-bots-default-permission-rules.md))
 keeps every rule a bot is allowed in `bot.yaml`'s `allow`, the kit's default
 set included, and the kit's code writes it into the bot's
 `.claude/settings.json`.
@@ -42,10 +46,10 @@ back again.
 
 A rule of the kit's default set is refused, and nothing is changed: the kit
 writes it again at the next rules write
-([ADR 0036](0036-the-kit-writes-every-bots-default-permission-rules.md)), so
+([ADR 0036](0036-the-kit-writes-every-bots-default-permission-rules.md) (superseded, now [ADR 0050](0050-the-kit-writes-every-bots-default-permission-rules.md))), so
 taking it back would look done and not be. Allowing and taking back are two
 commands, `permission allow` and `permission disallow`
-([ADR 0037](0037-permission-changes-and-risky-operations-have-commands-of-their-own.md)),
+([ADR 0037](0037-permission-changes-and-risky-operations-have-commands-of-their-own.md) (superseded, now [ADR 0051](0051-permission-changes-and-risky-operations-have-commands-of-their-own.md))),
 so one run never does both.
 
 ## Alternatives considered

@@ -1,3 +1,7 @@
+Status: superseded by ADR-20
+
+<!-- ADR-10 choice -->
+
 # ADR 0010: Kit hooks live in the bot folder, not in user settings
 
 Date: 2026-09-19.

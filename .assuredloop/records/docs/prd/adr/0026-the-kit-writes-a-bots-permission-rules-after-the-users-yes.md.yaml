@@ -1,0 +1,8 @@
+schema: assuredloop/1
+file: docs/prd/adr/0026-the-kit-writes-a-bots-permission-rules-after-the-users-yes.md
+status: superseded
+paragraphs:
+  - id: ADR-26
+    kind: choice
+    text_sha256: df8ec5ba640cc3ae3d9228504ef250e0c258c300b0a876db5a489b89f90fb637
+    display: "ADR-26 (0, ADR 0026: The kit writes a bot's permission rules, and only after the user's yes)"

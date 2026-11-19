@@ -1,3 +1,7 @@
+Status: accepted
+
+<!-- ADR-32 choice -->
+
 # ADR 0032: A native message outside the fleet is warned about, never stopped
 
 Date: 2026-10-02.

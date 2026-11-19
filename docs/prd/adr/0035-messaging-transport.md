@@ -1,3 +1,7 @@
+Status: superseded by ADR-42
+
+<!-- ADR-35 choice supersedes:ADR-30 -->
+
 # ADR 0035: Native messaging Claude to Claude; the Orca mailbox for everything else
 
 Date: 2026-10-09.

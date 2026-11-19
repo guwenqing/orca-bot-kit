@@ -1,3 +1,7 @@
+Status: accepted
+
+<!-- ADR-33 choice -->
+
 # ADR 0033: A temporary session makes one of its own, one level deep
 
 Date: 2026-10-03.

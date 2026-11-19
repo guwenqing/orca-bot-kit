@@ -1,3 +1,7 @@
+Status: superseded by ADR-39
+
+<!-- ADR-28 choice -->
+
 # ADR 0028: A Codex bot's permission rules are written in Codex's own form, from the same yes
 
 Date: 2026-09-26.

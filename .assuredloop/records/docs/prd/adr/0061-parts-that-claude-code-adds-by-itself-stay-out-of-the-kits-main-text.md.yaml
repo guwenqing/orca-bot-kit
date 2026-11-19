@@ -1,0 +1,8 @@
+schema: assuredloop/1
+file: docs/prd/adr/0061-parts-that-claude-code-adds-by-itself-stay-out-of-the-kits-main-text.md
+status: accepted
+paragraphs:
+  - id: ADR-61
+    kind: choice
+    text_sha256: 08297329b7774e681e091707eccdb8dbc67e99218f1e5b3f2f2a4e444667ea53
+    display: "ADR-61 (0, ADR 0061: A part that Claude Code adds by itself, and that the recipe names, stays out of the kit's main text)"

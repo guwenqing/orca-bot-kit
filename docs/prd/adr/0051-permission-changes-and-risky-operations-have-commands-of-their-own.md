@@ -1,3 +1,7 @@
+Status: accepted
+
+<!-- ADR-51 choice supersedes:ADR-41 -->
+
 # ADR 0051: Permission changes and risky operations have commands of their own
 
 Date: 2026-10-17.
@@ -85,7 +89,7 @@ No other command grants a right:
   `--allowed-tools`; on Codex `-a`, `--ask-for-approval`, `--approve-for-me`,
   `--dangerously-bypass-approvals-and-sandbox`, `-s` and `--sandbox`, each alone, with `=` and a value, or, for
   `-a` and `-s`, with the value glued on.
-  [ADR 0049](0049-extra-arguments-that-widen-a-session-are-refused.md) adds the extra arguments that widen what a session may write
+  [ADR 0049](0049-extra-arguments-that-widen-a-session-are-refused.md) (superseded, now [ADR 0059](0059-extra-arguments-that-widen-a-session-are-refused.md)) adds the extra arguments that widen what a session may write
   or run.
 
 The commands kept out of the default set, which keep the user's yes:
@@ -165,7 +169,7 @@ the user allowed, since none is a default rule any more (#548, #615).
   session's approval through any flag the kit knows.
 - An extra argument the kit did not know could still change permissions,
   such as Claude Code's `--settings` or Codex's `-c` and `--profile`. That
-  known gap is closed by [ADR 0049](0049-extra-arguments-that-widen-a-session-are-refused.md): it refuses `--settings` and
+  known gap is closed by [ADR 0049](0049-extra-arguments-that-widen-a-session-are-refused.md) (superseded, now [ADR 0059](0059-extra-arguments-that-widen-a-session-are-refused.md)): it refuses `--settings` and
   `--profile`, and takes `-c` only for a short list of keys.
 - Codex's `--dangerously-bypass-hook-trust` is not refused: it skips the
   review of the hooks in the bot folder, the kit's own, and does not widen

@@ -1,3 +1,7 @@
+Status: superseded by ADR-36
+
+<!-- ADR-26 choice -->
+
 # ADR 0026: The kit writes a bot's permission rules, and only after the user's yes
 
 Date: 2026-09-26.

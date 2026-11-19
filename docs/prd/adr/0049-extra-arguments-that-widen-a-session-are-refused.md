@@ -1,3 +1,7 @@
+Status: superseded by ADR-59
+
+<!-- ADR-49 choice supersedes:ADR-44 -->
+
 # ADR 0049: Extra arguments that widen a session are refused
 
 Date: 2026-10-17.

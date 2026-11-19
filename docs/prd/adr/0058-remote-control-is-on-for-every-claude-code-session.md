@@ -1,3 +1,7 @@
+Status: accepted
+
+<!-- ADR-58 choice -->
+
 # ADR 0058: Remote Control is on for every Claude Code session
 
 Date: 2026-11-14.
@@ -8,7 +12,7 @@ Decided by: the owner, on 2026-11-14, for Remote Control on by default with a sw
 
 Claude Code has Remote Control. With it on, a person who holds the user's claude.ai account can read and drive a running session from claude.ai/code or the Claude app: read the conversation, type prompts that run at the session's approval level, answer its permission prompts, attach files, change its model, clear or end it, stop its subagents, rename it, change its MCP servers, and fork it into a new session on the machine. While a session is connected, Anthropic stores its transcript, with tool activity (Claude Code docs, `remote-control`, read on 2026-11-14). Trusted Devices limits this to enrolled devices; it is off until the user turns it on.
 
-Until this record, [ADR 0046](0046-orca-is-the-host.md) left phone and remote access to Orca, and the kit started Claude Code with no Remote Control flag. The owner wants each Claude session reachable from the phone without an extra step (#755).
+Until this record, [ADR 0046](0046-orca-is-the-host.md) (superseded, now [ADR 0057](0057-orca-is-the-host.md)) left phone and remote access to Orca, and the kit started Claude Code with no Remote Control flag. The owner wants each Claude session reachable from the phone without an extra step (#755).
 
 Facts from Claude Code 2.1.325 (docs and the binary, not checked live):
 

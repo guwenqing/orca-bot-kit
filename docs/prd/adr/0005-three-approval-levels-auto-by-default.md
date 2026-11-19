@@ -1,3 +1,7 @@
+Status: superseded by ADR-15
+
+<!-- ADR-5 choice -->
+
 # ADR 0005: Three approval levels, `auto` by default
 
 Date: 2026-09-19.

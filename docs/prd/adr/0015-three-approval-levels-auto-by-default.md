@@ -1,3 +1,7 @@
+Status: accepted
+
+<!-- ADR-15 choice supersedes:ADR-5 -->
+
 # ADR 0015: Three approval levels, `auto` by default, and Codex sessions keep network access
 
 Date: 2026-09-24.
@@ -93,7 +97,7 @@ rather than failing silently. (The coordinator's decision for slice 08,
   the bot home needs `--add-dir`.
 - Native Claude messaging between an `auto` session and a `dangerously-skip`
   session is held for approval; such pairs use the Orca mailbox
-  ([ADR 0030](0030-messaging-transport.md)).
+  ([ADR 0030](0030-messaging-transport.md) (superseded, now [ADR 0053](0053-messaging-transport.md))).
 - Bad: the flag names must be re-checked when a harness updates.
 - Bad: a Codex session's sandbox gains network access generally, not only to
   Orca. This cost is accepted, not hidden.

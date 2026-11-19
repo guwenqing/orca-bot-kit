@@ -1,0 +1,8 @@
+schema: assuredloop/1
+file: docs/prd/adr/0013-agents-md-is-compiled-from-rule-units.md
+status: accepted
+paragraphs:
+  - id: ADR-13
+    kind: choice
+    text_sha256: b769bfa22b2f7c06be19f8aa0172c673ee8e26eb83ff555113a1079f1b5564bc
+    display: "ADR-13 (0, ADR 0013: `AGENTS.md` is compiled from rule units)"

@@ -1,3 +1,7 @@
+Status: accepted
+
+<!-- ADR-45 choice -->
+
 # ADR 0045: A Codex session's work dir stays in its bot folder
 
 Date: 2026-10-16.
@@ -15,7 +19,7 @@ folder it starts in, so a work dir outside the bot folder gets
 get no such flag for a work dir.
 
 `session add` and `session change` are in every bot's default permission set
-([ADR 0036](0036-the-kit-writes-every-bots-default-permission-rules.md)), so
+([ADR 0036](0036-the-kit-writes-every-bots-default-permission-rules.md) (superseded, now [ADR 0050](0050-the-kit-writes-every-bots-default-permission-rules.md))), so
 a bot runs them with nobody asked. Until this record they took a work dir
 anywhere, and only said so when it was outside the bot folder (#222). A bot
 could therefore give a Codex session of its own bot `--work-dir /`, or move a
@@ -65,7 +69,7 @@ written as given, and the answer says it is outside the bot folder.
 
 `up` does not change. A `bot.yaml` that the user writes by hand launches as
 written, as for `extra_args`
-([ADR 0044](0044-extra-arguments-that-widen-a-session-are-refused.md)).
+([ADR 0044](0044-extra-arguments-that-widen-a-session-are-refused.md) (superseded, now [ADR 0059](0059-extra-arguments-that-widen-a-session-are-refused.md))).
 
 The kit gives no road for the user's yes to an outside work dir on Codex. If
 a user needs one later, that is a new requirement.

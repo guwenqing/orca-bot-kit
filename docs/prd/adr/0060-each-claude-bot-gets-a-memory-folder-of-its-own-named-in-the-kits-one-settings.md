@@ -1,3 +1,7 @@
+Status: accepted
+
+<!-- ADR-60 choice supersedes:ADR-56 -->
+
 # ADR 0060: Each Claude bot gets a memory folder of its own, named in the kit's one `--settings`
 
 Date: 2026-11-14.

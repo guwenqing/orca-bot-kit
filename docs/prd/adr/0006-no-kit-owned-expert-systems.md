@@ -1,3 +1,7 @@
+Status: superseded by ADR-16
+
+<!-- ADR-6 choice -->
+
 # ADR 0006: No kit-owned expert systems; only standard and famous tools
 
 Date: 2026-09-19.

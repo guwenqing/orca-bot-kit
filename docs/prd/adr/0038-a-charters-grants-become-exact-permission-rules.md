@@ -1,3 +1,7 @@
+Status: accepted
+
+<!-- ADR-38 choice supersedes:ADR-27 -->
+
 # ADR 0038: A charter's grants become exact permission rules, and broad rules stay the user's
 
 Date: 2026-10-10.
@@ -10,7 +14,7 @@ Supersedes: [ADR 0027](0027-a-charters-grants-become-exact-permission-rules.md).
 kit-dev's charter says it "merges and closes issues without asking". Auto mode
 still refused `gh pr merge` three times on PR #334, until the owner added
 `Bash(gh pr merge:*)` and `Bash(gh issue close:*)` to the bot's settings by
-hand (#344). [ADR 0036](0036-the-kit-writes-every-bots-default-permission-rules.md)
+hand (#344). [ADR 0036](0036-the-kit-writes-every-bots-default-permission-rules.md) (superseded, now [ADR 0050](0050-the-kit-writes-every-bots-default-permission-rules.md))
 gives every bot a default set of rules, kept in `bot.yaml`'s `allow` and
 written by the kit's code. A charter's grants go beyond that set (#353).
 
@@ -77,7 +81,7 @@ Codex's form of these rules is
 [ADR 0039](0039-a-codex-bots-rules-are-written-in-codexs-own-form.md)'s.
 Why the rules are written by a `permission` command of their own, and not by
 `bot change`, is
-[ADR 0037](0037-permission-changes-and-risky-operations-have-commands-of-their-own.md).
+[ADR 0037](0037-permission-changes-and-risky-operations-have-commands-of-their-own.md) (superseded, now [ADR 0051](0051-permission-changes-and-risky-operations-have-commands-of-their-own.md)).
 
 ## Alternatives considered
 
@@ -112,7 +116,7 @@ Why the rules are written by a `permission` command of their own, and not by
   the user takes it out; the change's report names it.
 - Whether a rule is exact still rests on Bot Father spelling the command as
   the bot runs it; a rule spelled differently does not match and goes to the
-  check, as in ADR 0036.
+  check, as in ADR 0036 (superseded, now ADR 0050).
 
 ## History
 

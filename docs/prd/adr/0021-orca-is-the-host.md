@@ -1,3 +1,7 @@
+Status: superseded by ADR-23
+
+<!-- ADR-21 choice supersedes:ADR-11 -->
+
 # ADR 0021: Orca is the host
 
 Date: 2026-09-24.

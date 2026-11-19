@@ -1,3 +1,4 @@
 root: docs/prd
 docs:
   - { file: docs/prd/prd.md, prefix: KIT }
+search: none

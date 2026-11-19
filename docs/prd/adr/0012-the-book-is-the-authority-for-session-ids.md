@@ -1,3 +1,7 @@
+Status: accepted
+
+<!-- ADR-12 choice supersedes:ADR-2 -->
+
 # ADR 0012: The kit's book is the authority for session ids
 
 Date: 2026-09-24.

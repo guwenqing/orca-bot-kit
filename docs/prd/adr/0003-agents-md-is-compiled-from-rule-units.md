@@ -1,3 +1,7 @@
+Status: superseded by ADR-13
+
+<!-- ADR-3 choice -->
+
 # ADR 0003: `AGENTS.md` is compiled from rule units
 
 Date: 2026-09-19.

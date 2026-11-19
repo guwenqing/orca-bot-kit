@@ -1,0 +1,8 @@
+schema: assuredloop/1
+file: docs/prd/adr/0020-kit-hooks-live-in-the-bot-folder.md
+status: superseded
+paragraphs:
+  - id: ADR-20
+    kind: choice
+    text_sha256: 7b9fb011b85388d970bf7b31c582ccbb5987f608c1892f09dd850339ad4ddabc
+    display: "ADR-20 (0, ADR 0020: Kit hooks live in the bot folder, not in user settings)"

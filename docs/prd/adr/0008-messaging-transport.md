@@ -1,3 +1,7 @@
+Status: superseded by ADR-18
+
+<!-- ADR-8 choice -->
+
 # ADR 0008: Native messaging Claude to Claude; the Orca mailbox for everything else
 
 Date: 2026-09-19.

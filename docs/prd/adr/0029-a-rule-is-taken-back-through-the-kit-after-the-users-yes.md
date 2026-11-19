@@ -1,3 +1,7 @@
+Status: superseded by ADR-40
+
+<!-- ADR-29 choice -->
+
 # ADR 0029: A rule is taken back through the kit, after the user's yes, and only one the kit wrote
 
 Date: 2026-09-27.

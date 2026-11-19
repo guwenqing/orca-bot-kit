@@ -1,3 +1,7 @@
+Status: accepted
+
+<!-- ADR-61 choice -->
+
 # ADR 0061: A part that Claude Code adds by itself, and that the recipe names, stays out of the kit's main text
 
 Date: 2026-11-16.

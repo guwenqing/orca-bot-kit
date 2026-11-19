@@ -1,3 +1,7 @@
+Status: superseded by ADR-60
+
+<!-- ADR-56 choice supersedes:ADR-54 -->
+
 # ADR 0056: Each Claude bot gets a memory folder of its own, in its bot folder
 
 Date: 2026-11-14.

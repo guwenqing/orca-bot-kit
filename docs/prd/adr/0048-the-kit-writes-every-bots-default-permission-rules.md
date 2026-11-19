@@ -1,3 +1,7 @@
+Status: superseded by ADR-50
+
+<!-- ADR-48 choice supersedes:ADR-47 -->
+
 # ADR 0048: The kit writes every bot's default permission rules, with nobody asked
 
 Date: 2026-10-17.

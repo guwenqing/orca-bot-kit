@@ -1,3 +1,7 @@
+Status: accepted
+
+<!-- ADR-52 choice -->
+
 # ADR 0052: Test tooling stays outside the kit's core
 
 Date: 2026-10-18.

@@ -1,3 +1,7 @@
+Status: accepted
+
+<!-- ADR-14 choice supersedes:ADR-4 -->
+
 # ADR 0014: Skills are linked, never copied; online sources are cloned beside the bots repo
 
 Date: 2026-09-24.

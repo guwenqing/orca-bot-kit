@@ -1,3 +1,7 @@
+Status: accepted
+
+<!-- ADR-53 choice supersedes:ADR-42 -->
+
 # ADR 0053: Native messaging Claude to Claude; the Orca mailbox for everything else
 
 Date: 2026-10-25.
@@ -64,7 +68,7 @@ answer from an `async` hook, and a new or changed Codex hook entry puts every
 Codex session on its "Hooks need review" screen (read in the Codex 0.162.0
 source, #509). Whether a tab
 holds a harness at all is read from its foreground process
-([ADR 0034](0034-orca-is-the-host.md)).
+([ADR 0034](0034-orca-is-the-host.md) (superseded, now [ADR 0057](0057-orca-is-the-host.md))).
 
 A probe on Orca 1.4.224 (2026-10-11, #555), with the raw `orca orchestration
 send` and no line of the kit's, showed that Orca parks its notice for a busy
@@ -117,7 +121,7 @@ notice then comes at once. Never by default. The Escape goes through the gate
 every key the kit types goes through: a tab with something on screen waiting
 to be answered, a tab with its shell in front, or one the kit cannot tell
 about gets no Escape, and the letter still goes, with the send saying why
-(the owner, #555; the gate as [ADR 0034](0034-orca-is-the-host.md) reads a
+(the owner, #555; the gate as [ADR 0034](0034-orca-is-the-host.md) (superseded, now [ADR 0057](0057-orca-is-the-host.md)) reads a
 tab). After an Escape, Codex keeps a command it was running as a background
 terminal, and the send says so for a Codex receiver.
 

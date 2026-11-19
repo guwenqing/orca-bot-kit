@@ -1,3 +1,7 @@
+Status: superseded by ADR-41
+
+<!-- ADR-37 choice -->
+
 # ADR 0037: Permission changes and risky operations have commands of their own
 
 Date: 2026-10-10.

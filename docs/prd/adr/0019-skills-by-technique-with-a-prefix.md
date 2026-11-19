@@ -1,3 +1,7 @@
+Status: accepted
+
+<!-- ADR-19 choice supersedes:ADR-9 -->
+
 # ADR 0019: Skills are organised by technique and carry the `obk-` prefix
 
 Date: 2026-09-24.

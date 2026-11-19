@@ -1,3 +1,7 @@
+Status: superseded by ADR-56
+
+<!-- ADR-54 choice -->
+
 # ADR 0054: The kit's launch line names the physical memory folder
 
 Date: 2026-11-03.
