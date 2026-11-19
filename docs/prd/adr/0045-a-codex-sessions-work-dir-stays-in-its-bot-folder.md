@@ -1,6 +1,6 @@
 Status: accepted
 
-<!-- ADR-45 choice -->
+<!-- ADR-45 choice decides:KIT-26 source:https://github.com/guwenqing/orca-bot-kit/issues/585 -->
 
 # ADR 0045: A Codex session's work dir stays in its bot folder
 

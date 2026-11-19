@@ -1,6 +1,6 @@
 Status: accepted
 
-<!-- ADR-14 choice supersedes:ADR-4 -->
+<!-- ADR-14 choice supersedes:ADR-4 decides:KIT-24,KIT-32 source:https://github.com/guwenqing/orca-bot-kit/issues/136,https://github.com/guwenqing/orca-bot-kit/issues/262 -->
 
 # ADR 0014: Skills are linked, never copied; online sources are cloned beside the bots repo
 

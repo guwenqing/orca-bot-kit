@@ -1,6 +1,6 @@
 Status: accepted
 
-<!-- ADR-13 choice supersedes:ADR-3 -->
+<!-- ADR-13 choice supersedes:ADR-3 decides:KIT-30 source:https://github.com/guwenqing/orca-bot-kit/issues/262 -->
 
 # ADR 0013: `AGENTS.md` is compiled from rule units
 

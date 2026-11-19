@@ -1,6 +1,6 @@
 Status: accepted
 
-<!-- ADR-58 choice -->
+<!-- ADR-58 choice decides:KIT-17,KIT-22,KIT-26,remote-control-on/R1 source:https://github.com/guwenqing/orca-bot-kit/issues/755 -->
 
 # ADR 0058: Remote Control is on for every Claude Code session
 

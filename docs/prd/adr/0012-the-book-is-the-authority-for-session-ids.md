@@ -1,6 +1,6 @@
 Status: accepted
 
-<!-- ADR-12 choice supersedes:ADR-2 -->
+<!-- ADR-12 choice supersedes:ADR-2 decides:KIT-28 source:https://github.com/guwenqing/orca-bot-kit/issues/262 -->
 
 # ADR 0012: The kit's book is the authority for session ids
 

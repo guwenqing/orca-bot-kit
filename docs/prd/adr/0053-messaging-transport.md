@@ -1,6 +1,6 @@
 Status: accepted
 
-<!-- ADR-53 choice supersedes:ADR-42 -->
+<!-- ADR-53 choice supersedes:ADR-42 decides:KIT-36,native-road-only-when-listed/R1 source:https://github.com/guwenqing/orca-bot-kit/pull/51,https://github.com/guwenqing/orca-bot-kit/issues/394,https://github.com/guwenqing/orca-bot-kit/issues/555,https://github.com/guwenqing/orca-bot-kit/issues/700 -->
 
 # ADR 0053: Native messaging Claude to Claude; the Orca mailbox for everything else
 

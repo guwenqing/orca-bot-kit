@@ -1,6 +1,6 @@
 Status: accepted
 
-<!-- ADR-52 choice -->
+<!-- ADR-52 choice decides:KIT-20 source:https://github.com/guwenqing/orca-bot-kit/issues/652 -->
 
 # ADR 0052: Test tooling stays outside the kit's core
 

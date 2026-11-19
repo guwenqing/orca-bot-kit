@@ -1,6 +1,6 @@
 Status: accepted
 
-<!-- ADR-15 choice supersedes:ADR-5 -->
+<!-- ADR-15 choice supersedes:ADR-5 decides:KIT-26 source:https://github.com/guwenqing/orca-bot-kit/issues/262 -->
 
 # ADR 0015: Three approval levels, `auto` by default, and Codex sessions keep network access
 

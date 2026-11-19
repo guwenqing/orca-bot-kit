@@ -1,6 +1,6 @@
 Status: accepted
 
-<!-- ADR-55 choice -->
+<!-- ADR-55 choice decides:KIT-30,KIT-52,KIT-53,KIT-54,KIT-55,claude-session-trim/R1,claude-session-trim/R2,claude-session-trim/R3,claude-session-trim/R4,claude-session-trim/R5,claude-session-trim/R6,artifact-group/R1 source:https://github.com/guwenqing/orca-bot-kit/issues/751 -->
 
 # ADR 0055: The kit trims what a Claude Code session is sent
 

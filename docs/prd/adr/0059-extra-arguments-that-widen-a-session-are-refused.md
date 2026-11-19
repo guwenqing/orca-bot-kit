@@ -1,6 +1,6 @@
 Status: accepted
 
-<!-- ADR-59 choice supersedes:ADR-49 -->
+<!-- ADR-59 choice supersedes:ADR-49 decides:KIT-26 source:https://github.com/guwenqing/orca-bot-kit/issues/567,https://github.com/guwenqing/orca-bot-kit/issues/581,https://github.com/guwenqing/orca-bot-kit/issues/755 -->
 
 # ADR 0059: Extra arguments that widen a session are refused
 
