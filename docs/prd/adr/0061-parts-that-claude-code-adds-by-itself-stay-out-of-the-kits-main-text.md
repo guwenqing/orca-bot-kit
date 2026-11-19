@@ -1,6 +1,6 @@
 Status: accepted
 
-<!-- ADR-61 choice -->
+<!-- ADR-61 choice decides:KIT-55,claude-session-trim/R5 source:https://github.com/guwenqing/orca-bot-kit/issues/784 -->
 
 # ADR 0061: A part that Claude Code adds by itself, and that the recipe names, stays out of the kit's main text
 

@@ -22,6 +22,21 @@
 //   Decided by: ...
 //   Supersedes: [ADR 0001](0001-orca-is-the-host.md).
 //
+// The marker of a superseded record stays as it is above: its ID, the kind
+// `choice`, and `supersedes:` only when the header has a `Supersedes:` line.
+// The marker of an accepted record (and of a proposed one) also carries the two
+// links that al reads there (#827): `decides:`, the PRD paragraphs `KIT-<n>` or
+// the request requirements `<request>/R<n>` that it decides, and `source:`,
+// where it comes from, an `https://` URL or a request requirement. Each list is
+// comma-separated with no spaces, has at least one item, and no item twice:
+//
+//   <!-- ADR-<n> choice[ supersedes:<list>] decides:<list> source:<list> -->
+//
+// Each `KIT-<n>` is a paragraph marker in docs/prd/prd.md, and each
+// `<request>/R<n>` a requirement marker in the request.md of that request, in
+// requests/ or requests/archive/. Whether a link is the right one is left to
+// the review.
+//
 // What is old on purpose is left alone: the whole text of a superseded record,
 // and the `Supersedes:` line and the `## History` section of a current one.
 // And, by kit-dev's architect for #817 (replacing the ruling for #509), a
@@ -483,6 +498,122 @@ function linkTargetsIn(text, from) {
   return out;
 }
 
+/** The PRD, where each paragraph has al's marker `<!-- KIT-<n> <kind>... -->` above it. */
+const PRD = 'docs/prd/prd.md';
+/** Where a request's request.md is: requests/<request>/, or requests/archive/<request>/ once concluded. */
+const REQUEST_FOLDERS = ['requests', 'requests/archive'];
+
+/** The IDs of the PRD paragraphs in a text: one for each marker line `<!-- KIT-<n> <kind>... -->`. */
+const paragraphIdsIn = (text) => new Set([...text.matchAll(/^<!-- (KIT-[1-9]\d*) [a-z][^\n]*-->[ \t]*$/gm)].map((match) => match[1]));
+
+/** The requirement IDs in a request's request.md: one for each marker line that starts `<!-- R<n> `. */
+const requirementIdsIn = (text) => new Set([...text.matchAll(/^<!-- (R[1-9]\d*) /gm)].map((match) => match[1]));
+
+/** Whether a `source:` value is an `https://` URL a reader can open. */
+function isHttpsUrl(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && url.hostname !== '' && value.startsWith('https://');
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The links of al's marker in the form of #827, read from a line, or null when
+ * the line is not in that form:
+ * `<!-- ADR-<n> choice[ supersedes:<list>] decides:<list> source:<list> -->`.
+ * Each list is its items as written, empty ones included; `supersedes` is null
+ * when the marker has none.
+ */
+function markerLinksOf(line) {
+  const match = /^<!-- ADR-([1-9]\d*) choice(?: supersedes:(\S+))? decides:(\S+) source:(\S+) -->$/.exec(line);
+  if (match === null) return null;
+  return {
+    number: match[1],
+    supersedes: match[2] === undefined ? null : match[2].split(','),
+    decides: match[3].split(','),
+    source: match[4].split(','),
+  };
+}
+
+/** Whether al's first line of a record says it is superseded; al checks the links of the others. */
+const alSuperseded = (record) => /^Status: superseded\b/.test(record.lines[0] ?? '');
+
+/**
+ * What is wrong with line 3 of a record, al's marker (#817, #827), one line
+ * each. A superseded record has the marker of #817 exactly. Any other has
+ * `decides:` and `source:` after the same `supersedes:` as #817 gives it.
+ */
+function markerProblems(record) {
+  const where = `${record.rel}:3`;
+  const line = record.lines[2] ?? '';
+  const n = alNumber(record.number);
+  const supersedes = record.supersedes.map((entry) => `ADR-${alNumber(entry.number)}`);
+  const head = `<!-- ADR-${n} choice${supersedes.length === 0 ? '' : ` supersedes:${supersedes.join(',')}`}`;
+  if (alSuperseded(record)) {
+    const marker = `${head} -->`;
+    return line === marker ? [] : [`${where}: a superseded record keeps its marker \`${marker}\`, with no decides: and no source:, got: ${line}`];
+  }
+  const form = `${head} decides:<list> source:<list> -->`;
+  const links = markerLinksOf(line);
+  if (links === null) return [`${where}: should be \`${form}\`, with the decides: and source: links, got: ${line}`];
+  const problems = [];
+  if (links.number !== n) problems.push(`${where}: the marker names ADR-${links.number}, the file name ${record.number}`);
+  const has = links.supersedes === null ? '' : links.supersedes.join(',');
+  if (has !== supersedes.join(',')) {
+    problems.push(`${where}: should have ${supersedes.length === 0 ? 'no supersedes:, as the header has no `Supersedes:` line' : `\`supersedes:${supersedes.join(',')}\`, as the header's \`Supersedes:\` line says`}, got: ${line}`);
+  }
+  for (const [name, values] of [['decides', links.decides], ['source', links.source]]) {
+    if (values.includes('')) problems.push(`${where}: the ${name}: list has an empty item: ${name}:${values.join(',')}`);
+    const twice = [...new Set(values.filter((value, at) => value !== '' && values.indexOf(value) !== at))];
+    for (const value of twice) problems.push(`${where}: the ${name}: list has ${value} twice`);
+  }
+  return problems;
+}
+
+/**
+ * What is wrong with where the links of a record's marker lead (#827), given
+ * `targets`: `paragraphs`, the PRD's `KIT-<n>` IDs, and `requirements`, the
+ * `<request>/R<n>` that exist. A `decides:` item is a paragraph or a
+ * requirement; a `source:` item is an `https://` URL or a requirement. A
+ * record that al reads no links of, or whose marker is not in the form, has
+ * none here.
+ */
+function targetProblems(record, { paragraphs, requirements }) {
+  if (alSuperseded(record)) return [];
+  const links = markerLinksOf(record.lines[2] ?? '');
+  if (links === null) return [];
+  const where = `${record.rel}:3`;
+  const problems = [];
+  for (const value of links.decides.filter((one) => one !== '')) {
+    if (!paragraphs.has(value) && !requirements.has(value)) {
+      problems.push(`${where}: decides:${value}, which is no paragraph marker in ${PRD} and no requirement in a request's request.md`);
+    }
+  }
+  for (const value of links.source.filter((one) => one !== '')) {
+    if (!isHttpsUrl(value) && !requirements.has(value)) {
+      problems.push(`${where}: source:${value}, which is no https:// URL and no requirement in a request's request.md`);
+    }
+  }
+  return problems;
+}
+
+/** The PRD paragraphs and the request requirements in the repo, which a marker's links may name. */
+async function linkTargets() {
+  const paragraphs = paragraphIdsIn(await readFile(path.join(repoRoot, PRD), 'utf8'));
+  const requirements = new Set();
+  for (const folder of REQUEST_FOLDERS) {
+    const names = await readdir(path.join(repoRoot, ...folder.split('/'))).catch(() => []);
+    for (const name of names) {
+      const text = await readFile(path.join(repoRoot, ...folder.split('/'), name, 'request.md'), 'utf8').catch(() => null);
+      if (text === null) continue;
+      for (const id of requirementIdsIn(text)) requirements.add(`${name}/${id}`);
+    }
+  }
+  return { paragraphs, requirements };
+}
+
 test('the citation check sees every way the repo cites a record, and not other numbers', () => {
   const numbers = (text, from = 'README.md') => citationsIn(text, from).map((citation) => citation.number);
 
@@ -698,6 +829,121 @@ test('a record that is not accepted, and any other file, citing a superseded rec
   assert.deepEqual(problemsIn(CHAIN(), [{ rel: 'docs/prd/prd.md', text: 'As ADR 0003 says.\n' }]), [], 'the contrast: a doc citing the record in force');
 });
 
+// The marker's links on fixtures (#827).
+
+/** A fixture record with `line` as al's marker on line 3. */
+const withMarker = (record, line) => recordOf(record.name, record.lines.map((one, at) => (at === 2 ? line : one)).join('\n'));
+
+const ISSUE = 'https://github.com/guwenqing/orca-bot-kit/issues/755';
+/** ADR 0005, accepted, supersedes nothing. */
+const ACCEPTED = () => fixture('0005', 'citer', 'accepted.');
+/** ADR 0003, accepted, supersedes ADR 0002 and ADR 0001. */
+const REPLACER = () => fixture('0003', 'new-way', 'accepted.', 'Nothing here.', { supersedes: [['0002', 'mid-way'], ['0001', 'old-way']] });
+/** ADR 0002, superseded by ADR 0003, supersedes ADR 0001. */
+const SUPERSEDED = () => fixture('0002', 'mid-way', 'superseded by [ADR 0003](0003-new-way.md).', 'Nothing here.', { supersedes: [['0001', 'old-way']] });
+const TARGETS = { paragraphs: new Set(['KIT-1', 'KIT-12']), requirements: new Set(['pi-mail/R1', 'pi-mail/R2']) };
+
+test('the marker reader sees the links of #827 and nothing else as them', () => {
+  assert.deepEqual(
+    markerLinksOf(`<!-- ADR-5 choice decides:KIT-1,pi-mail/R2 source:${ISSUE} -->`),
+    { number: '5', supersedes: null, decides: ['KIT-1', 'pi-mail/R2'], source: [ISSUE] },
+  );
+  assert.deepEqual(
+    markerLinksOf('<!-- ADR-21 choice supersedes:ADR-11,ADR-1 decides:KIT-12 source:pi-mail/R1,https://example.org/x -->'),
+    { number: '21', supersedes: ['ADR-11', 'ADR-1'], decides: ['KIT-12'], source: ['pi-mail/R1', 'https://example.org/x'] },
+  );
+  assert.deepEqual(markerLinksOf('<!-- ADR-5 choice decides:KIT-1,,KIT-2, source:x -->').decides, ['KIT-1', '', 'KIT-2', ''], 'empty items are kept, so they can be found');
+
+  assert.equal(markerLinksOf('<!-- ADR-5 choice -->'), null, 'the marker of #817 has no links');
+  assert.equal(markerLinksOf('<!-- ADR-5 choice supersedes:ADR-4 -->'), null);
+  assert.equal(markerLinksOf(`<!-- ADR-5 choice source:${ISSUE} decides:KIT-1 -->`), null, 'source: before decides:');
+  assert.equal(markerLinksOf('<!-- ADR-5 choice decides:KIT-1 -->'), null, 'no source:');
+  assert.equal(markerLinksOf(`<!-- ADR-5 choice source:${ISSUE} -->`), null, 'no decides:');
+  assert.equal(markerLinksOf(`<!-- ADR-5 choice decides:KIT-1, KIT-2 source:${ISSUE} -->`), null, 'a space in a list');
+  assert.equal(markerLinksOf(`<!-- ADR-5 choice decides:KIT-1 supersedes:ADR-4 source:${ISSUE} -->`), null, 'supersedes: after decides:');
+  assert.equal(markerLinksOf(`<!-- ADR-5 choice decides: source:${ISSUE} -->`), null, 'an empty decides:');
+});
+
+test('the PRD and request readers see marker lines only', () => {
+  assert.deepEqual(
+    [...paragraphIdsIn('<!-- KIT-1 note -->\nText.\n\n<!-- KIT-12 rule serves:pi-mail/R1 -->\nAs KIT-3 says.\n`<!-- KIT-4 rule -->`\n')],
+    ['KIT-1', 'KIT-12'],
+  );
+  assert.deepEqual(
+    [...requirementIdsIn('# A request\n\n<!-- R1 from:2026-10-25-owner-words.md -->\nText R3.\n<!-- R10 -->\n<!-- R2-->\n')],
+    ['R1', 'R10'],
+  );
+});
+
+test('the marker check passes the forms of #827 and #817 where each belongs', () => {
+  const cases = [
+    ['an accepted record with both links', withMarker(ACCEPTED(), `<!-- ADR-5 choice decides:KIT-1 source:${ISSUE} -->`)],
+    ['lists of more than one', withMarker(ACCEPTED(), `<!-- ADR-5 choice decides:KIT-1,pi-mail/R1 source:${ISSUE},pi-mail/R2 -->`)],
+    ['supersedes: as its header says, then the links', withMarker(REPLACER(), `<!-- ADR-3 choice supersedes:ADR-2,ADR-1 decides:KIT-12 source:${ISSUE} -->`)],
+    ['a superseded record, with the marker of #817', SUPERSEDED()],
+    ['a superseded record that supersedes nothing', fixture('0001', 'old-way', 'superseded by [ADR 0002](0002-mid-way.md).')],
+    ['a proposed record with both links', withMarker(fixture('0006', 'maybe', 'proposed.'), `<!-- ADR-6 choice decides:KIT-1 source:${ISSUE} -->`)],
+  ];
+  for (const [name, record] of cases) assert.deepEqual(markerProblems(record), [], name);
+});
+
+test('the marker check fails a marker that is not the one its status asks for', () => {
+  const cases = [
+    ['an accepted record with the marker of #817', ACCEPTED()],
+    ['an accepted record that supersedes, with the marker of #817', REPLACER()],
+    ['a proposed record with the marker of #817', fixture('0006', 'maybe', 'proposed.')],
+    ['no source:', withMarker(ACCEPTED(), '<!-- ADR-5 choice decides:KIT-1 -->')],
+    ['no decides:', withMarker(ACCEPTED(), `<!-- ADR-5 choice source:${ISSUE} -->`)],
+    ['the links the other way round', withMarker(ACCEPTED(), `<!-- ADR-5 choice source:${ISSUE} decides:KIT-1 -->`)],
+    ['another record\'s number', withMarker(ACCEPTED(), `<!-- ADR-6 choice decides:KIT-1 source:${ISSUE} -->`)],
+    ['a number with zeros', withMarker(ACCEPTED(), `<!-- ADR-0005 choice decides:KIT-1 source:${ISSUE} -->`)],
+    ['another kind', withMarker(ACCEPTED(), `<!-- ADR-5 rule decides:KIT-1 source:${ISSUE} -->`)],
+    ['supersedes: dropped although the header has the line', withMarker(REPLACER(), `<!-- ADR-3 choice decides:KIT-12 source:${ISSUE} -->`)],
+    ['supersedes: with one record left out', withMarker(REPLACER(), `<!-- ADR-3 choice supersedes:ADR-2 decides:KIT-12 source:${ISSUE} -->`)],
+    ['supersedes: where the header has no such line', withMarker(ACCEPTED(), `<!-- ADR-5 choice supersedes:ADR-4 decides:KIT-1 source:${ISSUE} -->`)],
+    ['an empty item in decides:', withMarker(ACCEPTED(), `<!-- ADR-5 choice decides:KIT-1,,KIT-12 source:${ISSUE} -->`)],
+    ['a trailing comma in source:', withMarker(ACCEPTED(), `<!-- ADR-5 choice decides:KIT-1 source:${ISSUE}, -->`)],
+    ['an item twice in decides:', withMarker(ACCEPTED(), `<!-- ADR-5 choice decides:KIT-1,KIT-1 source:${ISSUE} -->`)],
+    ['an item twice in source:', withMarker(ACCEPTED(), `<!-- ADR-5 choice decides:KIT-1 source:${ISSUE},${ISSUE} -->`)],
+    ['a superseded record with links added', withMarker(SUPERSEDED(), `<!-- ADR-2 choice supersedes:ADR-1 decides:KIT-1 source:${ISSUE} -->`)],
+    ['a superseded record with its supersedes: dropped', withMarker(SUPERSEDED(), '<!-- ADR-2 choice -->')],
+  ];
+  for (const [name, record] of cases) {
+    const problems = markerProblems(record);
+    assert.ok(
+      problems.length > 0 && problems.every((problem) => problem.startsWith(`${record.rel}:3: `)),
+      `${name}: should be a problem of ${record.rel}:3, got: ${problems.join('\n') || 'none'}`,
+    );
+  }
+});
+
+test('the link check passes links that lead to a paragraph, a requirement or a URL', () => {
+  const record = withMarker(ACCEPTED(), `<!-- ADR-5 choice decides:KIT-1,KIT-12,pi-mail/R1 source:${ISSUE},pi-mail/R2 -->`);
+  assert.deepEqual(targetProblems(record, TARGETS), []);
+  assert.deepEqual(targetProblems(SUPERSEDED(), TARGETS), [], 'a superseded record has no links to check');
+});
+
+test('the link check fails a decides: or a source: that leads nowhere', () => {
+  const cases = [
+    ['a paragraph the PRD has not got', `decides:KIT-99 source:${ISSUE}`, 'KIT-99'],
+    ['a requirement the request has not got', `decides:pi-mail/R9 source:${ISSUE}`, 'pi-mail/R9'],
+    ['a request there is not', `decides:no-such/R1 source:${ISSUE}`, 'no-such/R1'],
+    ['a URL in decides:', `decides:${ISSUE} source:${ISSUE}`, ISSUE],
+    ['a bare word in source:', 'decides:KIT-1 source:owner', 'owner'],
+    ['an http:// URL in source:', 'decides:KIT-1 source:http://github.com/guwenqing/orca-bot-kit/issues/755', 'http://github.com/guwenqing/orca-bot-kit/issues/755'],
+    ['a PRD paragraph in source:', 'decides:KIT-1 source:KIT-12', 'KIT-12'],
+    ['a requirement the request has not got, in source:', 'decides:KIT-1 source:pi-mail/R9', 'pi-mail/R9'],
+    ['one bad item after a good one', `decides:KIT-1,KIT-99 source:${ISSUE}`, 'KIT-99'],
+  ];
+  for (const [name, links, bad] of cases) {
+    const record = withMarker(ACCEPTED(), `<!-- ADR-5 choice ${links} -->`);
+    assert.deepEqual(markerProblems(record), [], `${name}: the marker itself is in the form`);
+    const problems = targetProblems(record, TARGETS);
+    assert.equal(problems.length, 1, `${name}: should be one problem, got: ${problems.join('\n') || 'none'}`);
+    assert.ok(problems[0].startsWith(`${record.rel}:3: `) && problems[0].includes(`:${bad},`), `${name}: should name ${bad}, got: ${problems[0]}`);
+  }
+});
+
 test('the records are in docs/prd/adr/ under the names they had, and docs/adr/ is gone', async () => {
   assert.equal(await kindOf(ADR_FOLDER), 'folder', `${ADR_FOLDER}/ should hold the decision records`);
   const missing = [];
@@ -751,22 +997,43 @@ test('every record starts with al\'s status line, which agrees with its header S
   assert.deepEqual(problems, [], problems.join('\n'));
 });
 
-test('every record has al\'s marker on line 3 and its title on line 5, with empty lines between', async () => {
+test('every record has al\'s marker on line 3, with decides: and source: unless it is superseded, and its title on line 5, with empty lines between', async () => {
   const all = await records();
   assert.ok(all.length >= RECORDS_BEFORE_THE_MOVE.length, `${ADR_FOLDER}/ should hold at least the ${RECORDS_BEFORE_THE_MOVE.length} records there were, got ${all.length}`);
+  assert.ok(all.some(alSuperseded) && all.some((record) => !alSuperseded(record)), 'there should be both superseded records and records al checks the links of');
 
   const problems = [];
   for (const record of all) {
-    const n = alNumber(record.number);
-    const marker = record.supersedes.length === 0
-      ? `<!-- ADR-${n} choice -->`
-      : `<!-- ADR-${n} choice supersedes:${record.supersedes.map((entry) => `ADR-${alNumber(entry.number)}`).join(',')} -->`;
     if (record.lines[1] !== '') problems.push(`${record.rel}:2: should be empty, got: ${record.lines[1]}`);
-    if (record.lines[2] !== marker) problems.push(`${record.rel}:3: should be \`${marker}\`, got: ${record.lines[2]}`);
+    problems.push(...markerProblems(record));
     if (record.lines[3] !== '') problems.push(`${record.rel}:4: should be empty, got: ${record.lines[3]}`);
     if (record.titleLine !== 5) problems.push(`${record.rel}: the title \`# ADR ${record.number}: <title>\` should be line 5, got line ${record.titleLine ?? 'none'}`);
   }
   assert.deepEqual(problems, [], problems.join('\n'));
+});
+
+/** The problems with one link, `decides` or `source`, of every record al checks the links of. */
+async function linkProblemsOf(name) {
+  const all = await records();
+  const targets = await linkTargets();
+  assert.ok(targets.paragraphs.size > 0, `no paragraph marker \`<!-- KIT-<n> <kind> -->\` was found in ${PRD}, so the check sees nothing`);
+  assert.ok(targets.requirements.size > 0, 'no requirement marker `<!-- R<n> ` was found in a request\'s request.md, so the check sees nothing');
+  const problems = [];
+  for (const record of all.filter((one) => !alSuperseded(one))) {
+    if (markerLinksOf(record.lines[2] ?? '') === null) problems.push(`${record.rel}:3: has no ${name}: link to follow, got: ${record.lines[2]}`);
+    else problems.push(...targetProblems(record, targets).filter((problem) => problem.startsWith(`${record.rel}:3: ${name}:`)));
+  }
+  return problems;
+}
+
+test('every decides: link of a record names a PRD paragraph or a request requirement that exists', async () => {
+  const problems = await linkProblemsOf('decides');
+  assert.deepEqual(problems, [], `${problems.length} problems with the decides: links:\n${problems.join('\n')}`);
+});
+
+test('every source: link of a record is an https:// URL or a request requirement that exists', async () => {
+  const problems = await linkProblemsOf('source');
+  assert.deepEqual(problems, [], `${problems.length} problems with the source: links:\n${problems.join('\n')}`);
 });
 
 test('every record is named NNNN-slug.md, is titled with its own number, and no number is used twice', async () => {

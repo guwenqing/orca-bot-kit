@@ -1,6 +1,6 @@
 Status: accepted
 
-<!-- ADR-16 choice supersedes:ADR-6 -->
+<!-- ADR-16 choice supersedes:ADR-6 decides:KIT-17,KIT-34,KIT-41,KIT-48 source:https://github.com/guwenqing/orca-bot-kit/issues/262 -->
 
 # ADR 0016: No kit-owned expert systems; only standard and famous tools
 

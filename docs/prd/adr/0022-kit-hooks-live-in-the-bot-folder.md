@@ -1,6 +1,6 @@
 Status: accepted
 
-<!-- ADR-22 choice supersedes:ADR-20 -->
+<!-- ADR-22 choice supersedes:ADR-20 decides:KIT-28 source:https://github.com/guwenqing/orca-bot-kit/pull/88,https://github.com/guwenqing/orca-bot-kit/issues/318 -->
 
 # ADR 0022: Kit hooks live in the bot folder, not in user settings
 

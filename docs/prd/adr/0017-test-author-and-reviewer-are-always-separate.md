@@ -1,6 +1,6 @@
 Status: accepted
 
-<!-- ADR-17 choice supersedes:ADR-7 -->
+<!-- ADR-17 choice supersedes:ADR-7 decides:KIT-45,KIT-46 source:https://github.com/guwenqing/orca-bot-kit/issues/262 -->
 
 # ADR 0017: The test author and the reviewer are always separate from the implementer
 

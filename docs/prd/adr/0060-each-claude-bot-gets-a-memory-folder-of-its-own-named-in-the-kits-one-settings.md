@@ -1,6 +1,6 @@
 Status: accepted
 
-<!-- ADR-60 choice supersedes:ADR-56 -->
+<!-- ADR-60 choice supersedes:ADR-56 decides:KIT-26,KIT-51,own-memory-folder/R1 source:https://github.com/guwenqing/orca-bot-kit/issues/722,https://github.com/guwenqing/orca-bot-kit/issues/752,https://github.com/guwenqing/orca-bot-kit/issues/755 -->
 
 # ADR 0060: Each Claude bot gets a memory folder of its own, named in the kit's one `--settings`
 

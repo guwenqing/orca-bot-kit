@@ -1,6 +1,6 @@
 Status: accepted
 
-<!-- ADR-50 choice supersedes:ADR-48 -->
+<!-- ADR-50 choice supersedes:ADR-48 decides:KIT-26 source:https://github.com/guwenqing/orca-bot-kit/issues/344,https://github.com/guwenqing/orca-bot-kit/issues/527,https://github.com/guwenqing/orca-bot-kit/issues/532,https://github.com/guwenqing/orca-bot-kit/issues/564,https://github.com/guwenqing/orca-bot-kit/issues/615 -->
 
 # ADR 0050: The kit writes every bot's default permission rules, with nobody asked
 

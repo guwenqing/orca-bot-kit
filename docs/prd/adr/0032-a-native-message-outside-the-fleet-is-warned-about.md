@@ -1,6 +1,6 @@
 Status: accepted
 
-<!-- ADR-32 choice -->
+<!-- ADR-32 choice decides:KIT-36 source:https://github.com/guwenqing/orca-bot-kit/issues/451 -->
 
 # ADR 0032: A native message outside the fleet is warned about, never stopped
 
