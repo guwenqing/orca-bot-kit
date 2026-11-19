@@ -1,0 +1,8 @@
+schema: assuredloop/1
+file: docs/prd/adr/0060-each-claude-bot-gets-a-memory-folder-of-its-own-named-in-the-kits-one-settings.md
+status: accepted
+paragraphs:
+  - id: ADR-60
+    kind: choice
+    text_sha256: 09851e669bac25c9070d7aa48e43dd03cd496866ba41e44e51b1cd0c90cd46dd
+    display: "ADR-60 (0, ADR 0060: Each Claude bot gets a memory folder of its own, named in the kit's one `--settings`)"

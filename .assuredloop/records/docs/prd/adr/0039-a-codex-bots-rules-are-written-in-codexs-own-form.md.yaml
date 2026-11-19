@@ -1,0 +1,8 @@
+schema: assuredloop/1
+file: docs/prd/adr/0039-a-codex-bots-rules-are-written-in-codexs-own-form.md
+status: accepted
+paragraphs:
+  - id: ADR-39
+    kind: choice
+    text_sha256: 0a030d1a4c907058bacc0af4e4d59693717e74ac6a9cb6c4b1b71a23faf55944
+    display: "ADR-39 (0, ADR 0039: A Codex bot's permission rules are written in Codex's own form, from the same list)"

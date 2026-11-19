@@ -1,0 +1,8 @@
+schema: assuredloop/1
+file: docs/prd/adr/0014-skills-are-linked-never-copied.md
+status: accepted
+paragraphs:
+  - id: ADR-14
+    kind: choice
+    text_sha256: ae055e2b10907b7e4f0cf77ed9534f5365b7fe0ad2536d37461dd9fec3ed8383
+    display: "ADR-14 (0, ADR 0014: Skills are linked, never copied; online sources are cloned beside the bots repo)"

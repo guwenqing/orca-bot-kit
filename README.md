@@ -11,7 +11,7 @@ talking to Bot Father, the first bot, whose skills call the CLI for you — not 
 editing files.
 
 The design is in [`docs/prd/prd.md`](docs/prd/prd.md); the decisions with lasting
-consequences are in [`docs/adr/`](docs/adr/); what we know about Orca and the
+consequences are in [`docs/prd/adr/`](docs/prd/adr/); what we know about Orca and the
 harnesses is in [`docs/tech-notes.md`](docs/tech-notes.md).
 
 ## Start here
@@ -101,7 +101,7 @@ my-bots/
 
 The folder is yours. It holds your configuration and none of the kit's code —
 kit skills are linked from the installed package, never copied
-([ADR 0014](docs/adr/0014-skills-are-linked-never-copied.md)). Run `init` again
+([ADR 0014](docs/prd/adr/0014-skills-are-linked-never-copied.md)). Run `init` again
 whenever you like: it adds what is missing and leaves everything else, including
 your edits, exactly as it is. It does not commit for you.
 
@@ -139,18 +139,18 @@ note about it. Anything you leave out is the
 harness's own default; the kit names no model of its own. The approval level is
 `auto` — the harness's real auto mode — unless you ask for `ask` or, in those
 words, `dangerously-skip`
-([ADR 0015](docs/adr/0015-three-approval-levels-auto-by-default.md)). Only
+([ADR 0015](docs/prd/adr/0015-three-approval-levels-auto-by-default.md)). Only
 `obk permission approval` changes it, after your yes: `session add` and
 `session change` take no approval, and refuse an extra argument that sets one
-([ADR 0051](docs/adr/0051-permission-changes-and-risky-operations-have-commands-of-their-own.md))
+([ADR 0051](docs/prd/adr/0051-permission-changes-and-risky-operations-have-commands-of-their-own.md))
 or that widens what the session may write or run, such as `--add-dir`, Claude
 Code's `--settings` or Codex's `--profile`. On Codex, `-c` passes only for a
 short list of keys known to be safe, such as `model_reasoning_effort`
-([ADR 0059](docs/adr/0059-extra-arguments-that-widen-a-session-are-refused.md)).
+([ADR 0059](docs/prd/adr/0059-extra-arguments-that-widen-a-session-are-refused.md)).
 A Codex session's work dir stays in its bot folder: Codex may write in its work
 dir, so `session add` and `session change` refuse one outside the bot folder for
 a Codex session
-([ADR 0045](docs/adr/0045-a-codex-sessions-work-dir-stays-in-its-bot-folder.md)).
+([ADR 0045](docs/prd/adr/0045-a-codex-sessions-work-dir-stays-in-its-bot-folder.md)).
 
 A bot or a session can also run on [Pi](https://pi.dev) (`--harness pi`, tested
 with Pi 1.3.0). Pi asks before no tool call, so a Pi session is always
@@ -170,11 +170,11 @@ own record, and says when Pi cannot run it. `obk session clear` types Pi's
 Every bot gets the kit's default permission rules, written by the kit with
 nobody asked: its own commands for this bots folder, reading a long message,
 `git add` and `git commit`
-([ADR 0050](docs/adr/0050-the-kit-writes-every-bots-default-permission-rules.md)).
+([ADR 0050](docs/prd/adr/0050-the-kit-writes-every-bots-default-permission-rules.md)).
 `obk permission`, `obk retire`, `obk pause`, `obk restart`, `obk bot create`,
 `obk bot change`, `obk session add`, `obk session change` and `obk init` are
 not in the set, and keep your yes
-([ADR 0051](docs/adr/0051-permission-changes-and-risky-operations-have-commands-of-their-own.md)).
+([ADR 0051](docs/prd/adr/0051-permission-changes-and-risky-operations-have-commands-of-their-own.md)).
 A rule beyond the set is written by `obk permission allow`, after your yes to
 the exact rule. A bot that still holds a rule that the kit gave every bot
 before and that is no longer in the set keeps it: the rule of `obk restart`,
@@ -198,7 +198,7 @@ starts with Claude Code's own
 [Remote Control](https://code.claude.com/docs/en/remote-control) on. You can
 then open it from claude.ai/code or the Claude app, under its address
 (`<bot>.<session>.<token>`). Codex and Pi sessions do not change
-([ADR 0058](docs/adr/0058-remote-control-is-on-for-every-claude-code-session.md)).
+([ADR 0058](docs/prd/adr/0058-remote-control-is-on-for-every-claude-code-session.md)).
 
 Read this before you keep it on. Anyone who holds your claude.ai account can,
 for each connected session: read the conversation; type prompts, which run on
@@ -274,7 +274,7 @@ gets a finding from `obk health`: remove the argument, and use
 
 Each bot has one `AGENTS.md`, shared by all its sessions: its charter, then the
 rule units it uses
-([ADR 0013](docs/adr/0013-agents-md-is-compiled-from-rule-units.md)). A rule
+([ADR 0013](docs/prd/adr/0013-agents-md-is-compiled-from-rule-units.md)). A rule
 unit is one short block of always-on working rules. The kit's own units live in
 [`rules/`](rules/) in this package; yours go in `rules/` inside your bots
 folder. What is always on stays short, because every session reads it on every
@@ -396,7 +396,7 @@ What this costs you:
 
 The kit ships its own skills in [`skills/`](skills/), one directory per skill,
 named `obk-<technique>`
-([ADR 0019](docs/adr/0019-skills-by-technique-with-a-prefix.md)). They are
+([ADR 0019](docs/prd/adr/0019-skills-by-technique-with-a-prefix.md)). They are
 organised by technique rather than by role: a role is a charter plus a choice
 of skills. Each one gives techniques and defaults, never a process or
 a way of working you have to adopt, and carries what it needs itself rather
@@ -452,7 +452,7 @@ still missing after that turn. A session the kit could not tell is named,
 with the reason.
 
 What lands in the bot is a symlink, never a copy
-([ADR 0014](docs/adr/0014-skills-are-linked-never-copied.md)) — into
+([ADR 0014](docs/prd/adr/0014-skills-are-linked-never-copied.md)) — into
 `.claude/skills` and `.agents/skills` in the bot home, which is where each
 harness reads a project's skills from. So a kit skill is read where npm
 installed it, a running session reads an edited skill the next time it loads
@@ -497,7 +497,7 @@ with no rebuild, because the link points at the clone.
 
 The kit says one line when a source carries scripts or hooks. It does not read
 them and does not stand in your way — a third-party skill is your risk to take
-([ADR 0014](docs/adr/0014-skills-are-linked-never-copied.md)).
+([ADR 0014](docs/prd/adr/0014-skills-are-linked-never-copied.md)).
 
 A skill is a directory holding `SKILL.md` — frontmatter carrying `name` (the
 directory's own name) and `description`, then the body — plus any reference
@@ -514,11 +514,11 @@ own directory, because a bot gets the directory alone.
 Each bot keeps a book, `sessions.yaml` in its folder: which Orca tab each session
 lives in, which harness session it is running as, and every id it ran as before,
 with why that one ended and when
-([ADR 0012](docs/adr/0012-the-book-is-the-authority-for-session-ids.md)).
+([ADR 0012](docs/prd/adr/0012-the-book-is-the-authority-for-session-ids.md)).
 
 The book stays true to the harness through a hook `obk up` puts in the bot's own
 folder — `.claude/settings.json` or `.codex/hooks.json`, never your user-level
-settings ([ADR 0022](docs/adr/0022-kit-hooks-live-in-the-bot-folder.md)). Your own
+settings ([ADR 0022](docs/prd/adr/0022-kit-hooks-live-in-the-bot-folder.md)). Your own
 settings in those files are kept. Codex asks you to trust a hooks file the first
 time it sees one; answer its question in the tab.
 
@@ -526,7 +526,7 @@ A Claude bot gets one more hook there. Claude Code's own messaging reaches every
 Claude session on the machine, so after a session sends a native message to an
 address that is none of your bots folder's sessions, the hook tells it so, and
 names the address `obk message to` would have given. The message goes either
-way ([ADR 0032](docs/adr/0032-a-native-message-outside-the-fleet-is-warned-about.md)).
+way ([ADR 0032](docs/prd/adr/0032-a-native-message-outside-the-fleet-is-warned-about.md)).
 
 A Claude bot's `.claude/settings.json` also gets
 `"skillOverrides": { "auto-mode-setup": "off" }`, so no session of the bot stops
@@ -707,7 +707,7 @@ version and then begins a new conversation with `/clear`. A restart alone or a
 `/clear` alone does not change the folder. After Orca brings a tab back by
 itself, a `/clear` before a restart goes back to the shared folder and brings
 the permission dialog back; `obk health` names such a session
-([ADR 0060](docs/adr/0060-each-claude-bot-gets-a-memory-folder-of-its-own-named-in-the-kits-one-settings.md)).
+([ADR 0060](docs/prd/adr/0060-each-claude-bot-gets-a-memory-folder-of-its-own-named-in-the-kits-one-settings.md)).
 
 When you upgrade from a version before this, the notes that your bots shared
 stay where they were, in Claude Code's folder for your bots repository under
@@ -966,7 +966,7 @@ verdict: which of these matter, and in what order, is for you or for Bot Father.
 ## Sessions and bots that talk
 
 Ask the kit how to reach a session, and it answers with the road and the
-address ([ADR 0053](docs/adr/0053-messaging-transport.md)):
+address ([ADR 0053](docs/prd/adr/0053-messaging-transport.md)):
 
 ```sh
 obk message to    --bots /path/to/my-bots --to api-bot/daily
@@ -1033,7 +1033,7 @@ keeps a command it was running as a background terminal after an Escape. A
 receiver reads its mail with `obk message check`, which marks it read: a bare
 `orca orchestration check` leaves it unread, and Orca then gives no more
 notices for that mailbox
-([ADR 0053](docs/adr/0053-messaging-transport.md)).
+([ADR 0053](docs/prd/adr/0053-messaging-transport.md)).
 
 A message longer than 4 KiB is written to a file beside your bots folder and
 named in the message, so a long one arrives whole without landing a document in

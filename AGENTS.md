@@ -2,7 +2,7 @@
 
 ## What decides
 
-`docs/prd/prd.md` is the design, `docs/adr/` the lasting decisions, `docs/tech-notes.md`
+`docs/prd/prd.md` is the design, `docs/prd/adr/` the lasting decisions, `docs/tech-notes.md`
 what we know about Orca and the two harnesses. Issues state an intent and a boundary
 and point at these; how to build is yours, and finding the right balance by your own
 research and judgement is part of the work. A `[proposed]` item in the PRD is not
@@ -30,7 +30,16 @@ CI runs `al check --strict` at that version on every pull request. The baseline 
 committed with the change. `al check` runs `al index` first and can write record files:
 commit the ones its `records:` line names. Each paragraph of the PRD has a hidden marker before it, with
 its ID and kind: keep the marker when you edit the paragraph. The decision records are
-`docs/adr/`; al 5.0.4 reads ADRs only in `docs/prd/adr/`, so it does not read them.
+`docs/prd/adr/`, where al reads them. Each record's first line is al's status line
+(`Status: accepted`, or `Status: superseded by ADR-<n>`), and its title has al's marker
+above it (`<!-- ADR-<n> choice supersedes:ADR-<k> -->`); the obk-arch header below
+stays as it is, and the two status lines agree. A superseded record keeps its text. In
+an accepted record, each citation of a superseded record is followed by
+`(superseded, now [ADR <m>](<file>))`, where ADR <m> is the record in force at the end
+of the chain; the header's `Supersedes:` line, the `## History` section and the records
+that it supersedes itself take no such words. Nothing else in a record's body changes
+for this, and a changed decision is still a new record that replaces the old one whole
+(the architect, #817, in place of the ruling of #509).
 The requests that al 0.1.0 concluded stay in `requests/archive/` as files; al 5.0.4 does
 not check them. To check one, run al 0.1.0 at its commit.
 Every PR states its tier, in its commit message (`al check` reads it there) and the PR:

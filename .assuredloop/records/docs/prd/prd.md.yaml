@@ -11,7 +11,7 @@ paragraphs:
     display: KIT-2 (0:1, in [PRD-1] Bot Kit on Orca — design PRD)
   - id: KIT-3
     kind: note
-    text_sha256: 4de7ad161b8f87481a19be3be65d549ec31fbe4a203be537026ef127c9b7f4c1
+    text_sha256: 756ebc346ea12de1df63a491aa9d17ddc080532257d43828642706e652b2c77a
     display: KIT-3 (0:2, in [PRD-1] Bot Kit on Orca — design PRD)
   - id: KIT-4
     kind: definition

@@ -1,0 +1,8 @@
+schema: assuredloop/1
+file: docs/prd/adr/0041-permission-changes-and-risky-operations-have-commands-of-their-own.md
+status: superseded
+paragraphs:
+  - id: ADR-41
+    kind: choice
+    text_sha256: 408d574d6b7806f8ca47323f71c7f6346ed348154dbaa20856a4d0a8ed7ded06
+    display: "ADR-41 (0, ADR 0041: Permission changes and risky operations have commands of their own)"

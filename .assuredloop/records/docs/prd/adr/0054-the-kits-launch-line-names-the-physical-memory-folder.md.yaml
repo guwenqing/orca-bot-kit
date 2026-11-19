@@ -1,0 +1,8 @@
+schema: assuredloop/1
+file: docs/prd/adr/0054-the-kits-launch-line-names-the-physical-memory-folder.md
+status: superseded
+paragraphs:
+  - id: ADR-54
+    kind: choice
+    text_sha256: 194f897fb506eca09195fd54391c7e9a8aa7bdc220c64af1a99cbee0cb8063ca
+    display: "ADR-54 (0, ADR 0054: The kit's launch line names the physical memory folder)"

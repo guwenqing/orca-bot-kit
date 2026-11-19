@@ -1,0 +1,8 @@
+schema: assuredloop/1
+file: docs/prd/adr/0036-the-kit-writes-every-bots-default-permission-rules.md
+status: superseded
+paragraphs:
+  - id: ADR-36
+    kind: choice
+    text_sha256: 1a5b6db4b7f9a1e1ec9338de821722f3986e290c60842eba2766463f91562c30
+    display: "ADR-36 (0, ADR 0036: The kit writes every bot's default permission rules, with nobody asked)"
