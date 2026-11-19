@@ -35,7 +35,7 @@ import { addSkill, buildSkills, linkSkills, removeSkill } from './skills.js';
 import { addSource, fetchSources } from './sources.js';
 import { answerSession, answerTemp, listRoles, makeTemp, optionsLine, retireTemp, trustHooks, trustSessionHooks } from './temp.js';
 import { readUsage } from './usage.js';
-import { BOT_FATHER, bringUp, ownMailbox } from './up.js';
+import { BOT_FATHER, bringUp, ownMailbox, replacedLine } from './up.js';
 
 /** Names in one list, as a sentence says them: "a, b and c". */
 function listed(names) {
@@ -1224,11 +1224,11 @@ const commands = {
     };
   },
 
-  'message check'(bots, values) {
+  async 'message check'(bots, values) {
     // Named or not, the mail is read as the caller's own terminal when it has one.
     const tab = callerTab(bots, values.bot === undefined || process.env[TERMINAL_ENV] !== undefined);
     refuseWhenOrcaIsDown();
-    const answer = checkMail(bots, {
+    const answer = await checkMail(bots, {
       bot: values.bot,
       session: values.session,
       tab,
@@ -1251,6 +1251,8 @@ const commands = {
       answer,
       lines: [
         ...messages,
+        // A mailbox Orca did not have, replaced in this tab (#820).
+        ...(answer.replaced === undefined ? [] : [replacedLine(where, answer.replaced, answer.mailbox)]),
         answer.messages.length === 0
           ? `Nothing is waiting for ${where}.`
           // Said plainly, because a peek leaves the same mail there to be found
@@ -1285,7 +1287,7 @@ const commands = {
     const said = {
       made: `${who} has its mailbox ${answer.mailbox}, made in this tab.`,
       bound: `${who}'s mailbox ${answer.mailbox} is bound to this tab.`,
-      replaced: `${who}'s mailbox ${answer.replaced} is not one this Orca has, as when the book was written on another machine, so it has a new one, ${answer.mailbox}, made in this tab and written into the book.`,
+      replaced: replacedLine(who, answer.replaced, answer.mailbox),
       none: `${who} gets no mailbox: it is a Codex session with its sandbox switch off, which could not read one.`,
     };
     return { answer, lines: [said[answer.change]] };

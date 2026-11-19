@@ -29,7 +29,7 @@ import { cutsTrouble } from './cuts.js';
 import { hookTrouble } from './hooks.js';
 import { APPROVALS, bypassFlags, claudeTextFolder, harnessOf, HARNESSES, isAddressOf, lostToOwnSettings, ownCli, promptFile, REMOTE_CONTROL, remoteControlOf, sessionTrouble, set, setsRemoteControl, setsSettings, SHELL_ENV, shellWord, workDirOf } from './launch.js';
 import { memoryFolderFor, sharedNotes, unreadSettingsWords } from './memory.js';
-import { claudeProfileHomes, frontOfTab, startOfProcess, mailIn, orcaDefaultArgs, orcaTrouble, projects, runMissing, tabs, tabToTypeInto, wordsOfProcess } from './orca.js';
+import { claudeProfileHomes, frontOfTab, startOfProcess, mailIn, orcaDefaultArgs, orcaTrouble, projects, RUN_GONE_WHY, runMissing, tabs, tabToTypeInto, wordsOfProcess } from './orca.js';
 import { permissionsTrouble } from './permissions.js';
 import { askPi } from './pi.js';
 import { processesIn } from './processes.js';
@@ -769,9 +769,9 @@ function inOrca(bots, home, bot, setups, sessions) {
       found.push(finding('session', entry.tab, `${bot.name}'s session ${name} is in the book with tab ${entry.tab}, and Orca has no tab of that id: the tab was closed, or the machine was restarted. The conversation is in the book, and obk up opens a tab and brings it back.`, bot.name));
     }
 
-    // A Run Orca does not have, as when the book was written on another
-    // machine: mail sent to it is refused. The session's next start makes it
-    // a new one (#508).
+    // A Run Orca does not have: Orca deleted it (1.4.262 and later, #820), or
+    // the book was written on another machine (#508). Mail sent to it is
+    // refused. The session's next start makes it a new one.
     if (typeof entry?.mailbox === 'string' && runMissing(entry.mailbox)) {
       // The bot's unpause leaves a session paused on its own as it is, so a
       // session under both marks needs both commands.
@@ -781,7 +781,7 @@ function inOrca(bots, home, bot, setups, sessions) {
         ...(bot.sessions.some((session) => session.name === name && session.paused === true) ? [`${unpause} --session ${name}`] : []),
       ];
       const fix = steps.length > 0 ? steps.join(', then ') : `${shellWord(ownCli())} restart --bots ${shellWord(bots)} --bot ${bot.name} --session ${name}`;
-      found.push(finding('session', bookFile(home), `${bot.name}'s session ${name} has the mailbox ${entry.mailbox} in the book, and Orca has no Run of that id: it was made by another Orca, as on another machine, so mail sent to it is refused. The session's next start makes it a new one: ${fix}`, bot.name));
+      found.push(finding('session', bookFile(home), `${bot.name}'s session ${name} has the mailbox ${entry.mailbox} in the book, and Orca has no Run of that id: ${RUN_GONE_WHY}. Mail sent to it is refused, and any letters that waited in it are gone. The session's next start makes it a new one: ${fix}`, bot.name));
     }
 
     // Mail Orca has not told a running session of (#630). A session that is
