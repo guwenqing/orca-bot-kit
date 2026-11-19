@@ -1480,7 +1480,8 @@ if (up.harness === 'codex') {
   file = find(sessions, (name) => name.endsWith('-' + up.id + '.jsonl'));
   if (file === undefined) {
     file = path.join(sessions, ...now.slice(0, 10).split('-'), 'rollout-' + now.replaceAll(':', '-').replace(/[.].*$/, '') + '-' + up.id + '.jsonl');
-    lines.push({ timestamp: now, type: 'session_meta', payload: { id: up.id, cwd: up.cwd, timestamp: now } });
+    const version = up.version === undefined ? {} : { cli_version: up.version };
+    lines.push({ timestamp: now, type: 'session_meta', payload: { id: up.id, cwd: up.cwd, timestamp: now, ...version } });
   }
   if (prompt !== undefined) {
     lines.push({ timestamp: now, type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: prompt }] } });
@@ -1498,6 +1499,7 @@ if (up.harness === 'codex') {
       userType: 'external',
       cwd: up.cwd,
       sessionId: up.id,
+      ...(up.version === undefined ? {} : { version: up.version }),
     });
   }
 }
@@ -1543,12 +1545,16 @@ process.stdout.write(JSON.stringify({
  *   codex   ~/.codex/sessions/<yyyy>/<mm>/<dd>/rollout-<stamp>-<id>.jsonl, a
  *           `session_meta` line first, then the user's `response_item`
  *
+ * `version` is the harness's own, as it writes it into the record: Codex's
+ * `cli_version` in the `session_meta` line of a new rollout, Claude Code's
+ * `version` on the user line. Left out, the record names none.
+ *
  * A record of `id` that is there already goes on in the same file. Once per
  * call, for that session's next launch only. `box.orca.ranDuring()` lists
  * each run. A test whose harness never reports, or that checks the wait
  * itself, does not call it.
  */
-export async function harnessComesUp(box, { bots, bot, session, harness = 'claude', id, source = 'startup', input = {} }) {
+export async function harnessComesUp(box, { bots, bot, session, harness = 'claude', id, source = 'startup', input = {}, version }) {
   const dir = path.join(box.root, 'harness');
   const words = path.join(dir, 'words');
   await mkdir(words, { recursive: true });
@@ -1566,7 +1572,7 @@ export async function harnessComesUp(box, { bots, bot, session, harness = 'claud
     worktree: home,
     session,
     argv: [process.execPath, start],
-    env: { OBK_TEST_HARNESS_UP: JSON.stringify({ harness, id, source, input, root: box.home, cwd: home, words, chain }) },
+    env: { OBK_TEST_HARNESS_UP: JSON.stringify({ harness, id, source, input, version, root: box.home, cwd: home, words, chain }) },
   });
 }
 
