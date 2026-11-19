@@ -27,7 +27,7 @@
 // A test that caused background work waits for it to end, so that no git
 // process of a test still runs when its folder is removed.
 //
-// The kit's own git calls (src/, scripts/mutate.js) are not the subject, and
+// The kit's own git calls (src/) are not the subject, and
 // nothing here asserts on them.
 
 import assert from 'node:assert/strict';

@@ -26,8 +26,7 @@
     "test": "node --test test/*.test.js test/dev/*.test.js",
     "test:shard": "node --test --test-shard=$SHARD test/*.test.js test/dev/*.test.js",
     "test:floor": "node --test --test-shard=$SHARD test/*.test.js",
-    "test:system": "node scripts/test-system.js",
-    "mutate": "node scripts/mutate.js"
+    "test:system": "node scripts/test-system.js"
   },
   "engines": {
     "node": ">=24.21.0"
@@ -36,13 +35,7 @@
     "yaml": "2.9.0"
   },
   "devDependencies": {
-    "@stryker-mutator/core": "10.0.0",
     "smol-toml": "1.9.0"
-  },
-  "overrides": {
-    "typed-rest-client": {
-      "qs": "6.16.2"
-    }
   },
   "publishConfig": {
     "access": "public"
