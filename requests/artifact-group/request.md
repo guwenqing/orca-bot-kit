@@ -12,3 +12,4 @@ Tier: 1 · Status: open
 ### R1 The Artifact tools and skills go together
 
 A cut or a keep of one of the tools `Artifact`, `ArtifactComments` and `ArtifactData` and the skills `artifact-design` and `artifact-capabilities`, in a bot's cut or keep lists, MUST apply to all five, as for the tool `Workflow` and the skill `workflow-authoring`.
+Signed off: 2026-11-19 owner, origin/2026-11-19-signoff.md

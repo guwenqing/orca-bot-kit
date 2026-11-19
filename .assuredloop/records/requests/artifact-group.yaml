@@ -12,7 +12,17 @@ requirements:
     version: 1
     sha256: 7187052cf65652b1f3c7167e109b315cb6aec61b4c4cfaab9b9d1f6d83d13758
     title: The Artifact tools and skills go together
-signoff: []
+signoff:
+  - id: S1
+    file: 2026-11-19-signoff.md
+    sha256: 4f17bb32e16e3f739fac9ae8891591eb15a398ada13ad86d068f6822d9a29b3e
+    signed: 2026-11-19T01:36Z
+    source: the owner's message in the kit-dev/architect session, 2026-11-18 20:33 EST
+    words: 第一个没有问题。
+    presented: "kit-dev/architect's message in the same session, 2026-11-18 about 20:32 EST, in Chinese: two matters; the first was the sign-off of R1 of this request (issue #781), with the text of R1 quoted in full; the second was kit-dev's rule on alerts"
+    transcribed_by: kit-dev/architect
+    covers:
+      - { id: R1, version: 1, sha256: 7187052cf65652b1f3c7167e109b315cb6aec61b4c4cfaab9b9d1f6d83d13758 }
 decisions: []
 tasks: []
 bindings:
