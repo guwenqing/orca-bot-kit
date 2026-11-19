@@ -1,0 +1,8 @@
+schema: assuredloop/1
+file: docs/prd/adr/0045-a-codex-sessions-work-dir-stays-in-its-bot-folder.md
+status: accepted
+paragraphs:
+  - id: ADR-45
+    kind: choice
+    text_sha256: 66636de527f2ec39358cb4a2f746dcbb6e08f4cd94fe0ddfe53dff426db579e2
+    display: "ADR-45 (0, ADR 0045: A Codex session's work dir stays in its bot folder)"

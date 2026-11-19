@@ -1,0 +1,8 @@
+schema: assuredloop/1
+file: docs/prd/adr/0029-a-rule-is-taken-back-through-the-kit-after-the-users-yes.md
+status: superseded
+paragraphs:
+  - id: ADR-29
+    kind: choice
+    text_sha256: 8530f37c1589503b4a7a560da62d645f23ad8ecdb0f8c0b7b2ccfd9aa4bf0157
+    display: "ADR-29 (0, ADR 0029: A rule is taken back through the kit, after the user's yes, and only one the kit wrote)"

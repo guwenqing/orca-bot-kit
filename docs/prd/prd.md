@@ -10,7 +10,7 @@ Date: 2026-09-19. Status: draft for owner review.
 
 This PRD replaces the Codex-desktop plan (Request #9, Epic #11 and its children).
 The old content has been removed from the tree, the process tooling included; git history has it if intent needs checking.
-Decisions with lasting consequences are in [`docs/adr/`](../adr/).
+Decisions with lasting consequences are in [`docs/prd/adr/`](adr/).
 
 <!-- KIT-4 definition -->
 

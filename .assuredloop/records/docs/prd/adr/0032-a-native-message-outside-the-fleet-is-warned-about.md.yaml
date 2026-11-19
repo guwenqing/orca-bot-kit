@@ -1,0 +1,8 @@
+schema: assuredloop/1
+file: docs/prd/adr/0032-a-native-message-outside-the-fleet-is-warned-about.md
+status: accepted
+paragraphs:
+  - id: ADR-32
+    kind: choice
+    text_sha256: 904f00d9669b08e1fad6bdde4d91a68fb91e4015634f47213edce375e1568440
+    display: "ADR-32 (0, ADR 0032: A native message outside the fleet is warned about, never stopped)"

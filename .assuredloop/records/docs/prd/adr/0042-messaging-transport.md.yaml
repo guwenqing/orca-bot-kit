@@ -1,0 +1,8 @@
+schema: assuredloop/1
+file: docs/prd/adr/0042-messaging-transport.md
+status: superseded
+paragraphs:
+  - id: ADR-42
+    kind: choice
+    text_sha256: c0aa296bacc34a6e956e4d652546fabd4e874a756423a918f6bbfc29bc03f1d6
+    display: "ADR-42 (0, ADR 0042: Native messaging Claude to Claude; the Orca mailbox for everything else)"

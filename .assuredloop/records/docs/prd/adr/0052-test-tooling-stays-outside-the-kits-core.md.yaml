@@ -1,0 +1,8 @@
+schema: assuredloop/1
+file: docs/prd/adr/0052-test-tooling-stays-outside-the-kits-core.md
+status: accepted
+paragraphs:
+  - id: ADR-52
+    kind: choice
+    text_sha256: 1d0c54a1c758bf93b9eb5d844cd6010dc8824b0838b66928d0d42d2f08e81058
+    display: "ADR-52 (0, ADR 0052: Test tooling stays outside the kit's core)"

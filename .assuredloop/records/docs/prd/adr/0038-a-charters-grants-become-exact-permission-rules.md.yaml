@@ -1,0 +1,8 @@
+schema: assuredloop/1
+file: docs/prd/adr/0038-a-charters-grants-become-exact-permission-rules.md
+status: accepted
+paragraphs:
+  - id: ADR-38
+    kind: choice
+    text_sha256: 38106841c7cb574429a37fb675ffefdef8a080bdd6dbb372674f1642e78903f8
+    display: "ADR-38 (0, ADR 0038: A charter's grants become exact permission rules, and broad rules stay the user's)"

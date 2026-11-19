@@ -1,0 +1,8 @@
+schema: assuredloop/1
+file: docs/prd/adr/0006-no-kit-owned-expert-systems.md
+status: superseded
+paragraphs:
+  - id: ADR-6
+    kind: choice
+    text_sha256: a453f03fa8beedb90ab18966e5c46e2ef3d78f882fadccf70b62f9f90941aad8
+    display: "ADR-6 (0, ADR 0006: No kit-owned expert systems; only standard and famous tools)"

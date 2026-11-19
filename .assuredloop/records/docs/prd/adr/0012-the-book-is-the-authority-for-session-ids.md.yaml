@@ -1,0 +1,8 @@
+schema: assuredloop/1
+file: docs/prd/adr/0012-the-book-is-the-authority-for-session-ids.md
+status: accepted
+paragraphs:
+  - id: ADR-12
+    kind: choice
+    text_sha256: e33045a7731ff7f656ebea96111f935a68aebe0012d2762f5c439c6e8b064eb3
+    display: "ADR-12 (0, ADR 0012: The kit's book is the authority for session ids)"

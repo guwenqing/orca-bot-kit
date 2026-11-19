@@ -1,0 +1,8 @@
+schema: assuredloop/1
+file: docs/prd/adr/0005-three-approval-levels-auto-by-default.md
+status: superseded
+paragraphs:
+  - id: ADR-5
+    kind: choice
+    text_sha256: 6101db0beccbe332101bdfa0785905249d935533cb30af7bc9aac1e32fa74639
+    display: "ADR-5 (0, ADR 0005: Three approval levels, `auto` by default)"

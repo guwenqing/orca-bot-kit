@@ -1,0 +1,8 @@
+schema: assuredloop/1
+file: docs/prd/adr/0058-remote-control-is-on-for-every-claude-code-session.md
+status: accepted
+paragraphs:
+  - id: ADR-58
+    kind: choice
+    text_sha256: 279f130842e9d4cde15e382f0721a6443a93db0300a08253efcf6064ddd4a785
+    display: "ADR-58 (0, ADR 0058: Remote Control is on for every Claude Code session)"

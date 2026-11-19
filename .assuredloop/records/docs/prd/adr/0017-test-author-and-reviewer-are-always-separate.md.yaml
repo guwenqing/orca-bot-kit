@@ -1,0 +1,8 @@
+schema: assuredloop/1
+file: docs/prd/adr/0017-test-author-and-reviewer-are-always-separate.md
+status: accepted
+paragraphs:
+  - id: ADR-17
+    kind: choice
+    text_sha256: 0953608d1bc078c5a6b30ba81416d2b3b1cbc1fd2d0645ab798ac01d1ec9777e
+    display: "ADR-17 (0, ADR 0017: The test author and the reviewer are always separate from the implementer)"
