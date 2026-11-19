@@ -519,6 +519,61 @@ test('#841 R1 "whose mailbox holds unread letters": 150 letters all read are not
 });
 
 // ---------------------------------------------------------------------------
+// A very large mailbox, and a whole read with no fixed cap (second look at PR #842)
+// ---------------------------------------------------------------------------
+
+/** `count` letters, one a second, oldest first, the newest at `newest`; `unread` says which, by place from the oldest (0). Short subject and body, to keep the fake's world small. */
+const lettersUpTo = (run, count, newest, unread = () => false) => Array.from(
+  { length: count },
+  (_, n) => letter(run, {
+    at: new Date(Date.parse(newest) - (count - 1 - n) * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z'),
+    read: unread(n) ? 0 : 1,
+    subject: 's',
+    body: 'b',
+  }),
+);
+
+test('#841 R1 "obk health MUST name each session with no open tab whose mailbox holds unread letters": a mailbox of 150,001 letters, the oldest unread, does not crash health, and is named as at least 1 with the time from the newest', async (t) => {
+  // 150,001 numbers are more than one call's arguments can hold: a spread of
+  // them into Math.max throws "Maximum call stack size exceeded" (from about
+  // 125,000 on Node 26 here). The reviewer saw it at 130,001.
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  await botUp(box, 'api-bot');
+  await tabsGone(box, bots, 'api-bot', 'daily');
+  const daily = await mailboxOf(bots, 'api-bot', 'daily');
+  // Not spread into mailTo: a spread of 150,001 letters overflows the test's own stack.
+  const big = lettersUpTo(daily, 150_001, '2026-11-19T23:40:00Z', (n) => n === 0);
+  await box.orca.set({ inbox: { ...((await box.orca.state()).inbox ?? {}), [daily]: big } });
+
+  const answer = await found(box);
+
+  const finding = assertNamedNoOpenTab(answer, {
+    bot: 'api-bot', session: 'daily', run: daily, count: 1, deletes: '2026-11-20T23:40:00.000Z', starts: upOf(box, bots, 'api-bot', 'daily'),
+  });
+  assert.ok(!/\bat least (0|100|150000|150001)\b/i.test(finding.says), `one letter is unread, got: ${finding.says}`);
+});
+
+test('#841 R1 "whose mailbox holds unread letters": the whole read has no fixed cap: of 1,500 letters, the oldest unread below 1,499 read ones is named; 1,500 all read are not', async (t) => {
+  // Pinned is the result, not the limits health reads with.
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  await botUp(box, 'api-bot', { sessions: ['daily', 'review'] });
+  await tabsGone(box, bots, 'api-bot', 'daily', 'review');
+  const daily = await mailboxOf(bots, 'api-bot', 'daily');
+  const review = await mailboxOf(bots, 'api-bot', 'review');
+  await mailTo(box, daily, ...lettersUpTo(daily, 1500, '2026-11-19T20:20:00Z'));
+  await mailTo(box, review, ...lettersUpTo(review, 1500, '2026-11-19T21:21:00Z', (n) => n === 0));
+
+  const answer = await found(box);
+
+  assertNamedNoOpenTab(answer, {
+    bot: 'api-bot', session: 'review', run: review, count: 1, deletes: '2026-11-20T21:21:00.000Z', starts: upOf(box, bots, 'api-bot', 'review'),
+  });
+  assertNoNoOpenTabFor(answer, daily, 'every one of daily\'s 1,500 letters is read');
+});
+
+// ---------------------------------------------------------------------------
 // Nothing of this kind
 // ---------------------------------------------------------------------------
 

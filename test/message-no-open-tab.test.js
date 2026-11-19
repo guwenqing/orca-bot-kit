@@ -591,3 +591,62 @@ test('#841 R1 "has no open tab": a tab listing that fails for another reason, th
   // Last: the receiver whose project is gone has no open tab.
   assertJsonNoOpenTab(gone, starts);
 });
+
+// ---------------------------------------------------------------------------
+// The look at Orca's projects is bounded (second look at PR #842)
+// ---------------------------------------------------------------------------
+//
+// When Orca refuses to list the receiver's tabs, the kit asks Orca for its
+// projects (`orca project setups`), to tell a project that is gone from a
+// listing that failed. The kit gives that look 2 seconds, as it gives the tab
+// listing. Here the listing fails for another reason and the projects answer
+// 8 seconds late (the fake's `hang`): the answer is today's, and it comes
+// within a few seconds of the time it took with a prompt answer.
+
+/** How long the kit took over `run`, in ms, and what it gave. */
+async function timed(run) {
+  const started = Date.now();
+  const result = await run();
+  return { result, ms: Date.now() - started };
+}
+
+/** The most time a slow projects call may add to a run: the kit's 2 seconds, and room for a loaded machine. */
+const MOST_ADDED_MS = 4500;
+
+test('#841 R1 "The letter still goes, by the same road as before": with the tab listing failing and Orca slow to list its projects, message to and send finish in time, the send still sends, and the answer is today\'s', async (t) => {
+  const box = await createSandbox(t);
+  await fleet(box);
+  await box.orca.set({ fail: { 'terminal list': { code: 'runtime_error', message: 'the listing is not there' } } });
+
+  // Orca answers its projects at once.
+  const promptTo = await timed(() => to(box, 'skipper/daily', ['--json']));
+  const promptSend = await timed(() => send(box, 'skipper/daily'));
+  // Orca answers its projects 8 seconds late.
+  await box.orca.set({ hang: { command: 'project setups', ms: 8000 } });
+  const from = (await box.orca.calls()).length;
+  const slowTo = await timed(() => to(box, 'skipper/daily', ['--json']));
+  const slowSend = await timed(() => send(box, 'skipper/daily'));
+  const slowJson = jsonOf(await send(box, 'skipper/daily', ['--json']));
+
+  const asked = jsonOf(slowTo.result);
+  assert.ok(!Object.hasOwn(asked, 'noOpenTab'), `message to: a listing that failed says nothing of the tab, so no noOpenTab, got: ${JSON.stringify(asked)}`);
+  assert.equal(slowJson.sent, true, `the letter went, got: ${JSON.stringify(slowJson)}`);
+  assert.ok(!Object.hasOwn(slowJson, 'noOpenTab'), `message send: no noOpenTab, got: ${JSON.stringify(slowJson)}`);
+  const plain = textOf(slowSend.result);
+  assertSaysNothingOfIt(plain);
+  assert.match(plain, COULD_NOT_TELL, `the send keeps its line that the kit could not tell, got:\n${plain}`);
+  assert.match(plain, /load/i, `whether the Orca window has loaded the receiver's tab, got:\n${plain}`);
+  assert.equal((await box.orca.messages()).length, 3, 'each of the three sends put its letter in the mailbox');
+  assert.ok(
+    orcaCallsOf((await box.orca.calls()).slice(from), 'project setups').length > 0,
+    'the premise: the kit asked Orca for its projects while they were slow',
+  );
+  assert.ok(
+    slowTo.ms - promptTo.ms < MOST_ADDED_MS,
+    `message to took ${slowTo.ms} ms with Orca's projects 8 s late, against ${promptTo.ms} ms with them prompt: the look at the projects is given about 2 s`,
+  );
+  assert.ok(
+    slowSend.ms - promptSend.ms < MOST_ADDED_MS,
+    `message send took ${slowSend.ms} ms with Orca's projects 8 s late, against ${promptSend.ms} ms with them prompt: the look at the projects is given about 2 s`,
+  );
+});
