@@ -42,6 +42,12 @@ release gate; when you leave it out, name the coverage you ran instead and why i
 is enough. A gate the project requires is never waived, and a run still going is
 not a run that passed.
 
+Where the project has a written way to start the real thing and drive it (a
+recipe, a verification skill, a script that runs it end to end), and the change
+reaches what it drives, that recipe is the last check before the work is called
+done. A check that could not run is reported as not run, with what was missing
+(a tool, a service, a secret, access), never as passed.
+
 ## Start from the requirement, not the code
 
 Write the acceptance criteria before any test: one line each, each one
@@ -147,6 +153,12 @@ there, drop it and test against the real components.
 
 Cleanup that only tests need belongs in the test helpers, not as a method on
 the thing being tested.
+
+The same goes for a way in. A test that needs a hook in the product (an
+export, a flag, an option, an injection point) that no caller in the product
+uses is testing through a door that only it has. That test belongs at the real
+boundary, and the product stays without the door. Code whose only callers are
+tests is a finding.
 
 ## The test author is someone else
 
@@ -257,11 +269,14 @@ what ran first. Without a captured failing run, say the chronology is unproven
 rather than implying it.
 
 Things that look like green and are not: a test that passed on its first run; a
-suite reported as passing that nobody ran; a default test command guessed
-instead of the one this repo actually uses. And your test passing is not the
-suite passing. Any failure the run showed, including one you did not cause,
-goes in your report by name. Green means the output is clean too: warnings and
-errors that scroll past on a passing run are results, not decoration.
+suite reported as passing that nobody ran; a run that ran no tests at all; a
+default test command guessed instead of the one this repo actually uses. And
+your test passing is not the suite passing. Any failure the run showed,
+including one you did not cause, goes in your report by name. A red is older
+than your change only when a run from before your first edit shows it; a test
+you did not touch, broken by a file you changed, is your red. Green means the
+output is clean too: warnings and errors that scroll past on a passing run are
+results, not decoration.
 
 Where the change reaches further than the test you wrote, run what is next to
 it as well (the neighbouring tests, the type check, whatever the project uses
@@ -546,7 +561,15 @@ diff and in anyone else's, these are the cheap roads to green, and each one is
 worth a sentence when it happens: a threshold moved, a test marked skipped, a
 test file deleted, assertions removed from a test that stayed, a check disabled
 by a comment, a value hard-coded to match one test's input and still there when
-the work is handed on.
+the work is handed on, a test run again until it passed, a sleep added until it
+passed.
+
+A test that fails only sometimes is broken, not unlucky: a pass on the second
+run says nothing about the third. It goes back to its author with the runs that
+failed, as any test that looks wrong does. A test that waits should wait for the
+condition it needs, not for a time that was long enough on one machine. A fixed
+delay belongs only where the timing is itself what is tested, with the reason
+beside it.
 
 ## What you report
 
@@ -559,6 +582,8 @@ the work is handed on.
   proven guard.
 - The mutation check in three lines: what you broke, what survived, what you
   did about it, or the line that says you skipped it and why.
+- The project's end-to-end recipe, where it has one and the change reaches it:
+  its result, or "not run" and what was missing.
 - What you did not check, and the command that would check it.
 
 ## Away from code

@@ -24,6 +24,9 @@ is the licence file it was read from, in the research pack's source clones.
   (`cursor_plugins/thermos/LICENSE`)
 - **`addyosmani/agent-skills`**, Copyright (c) 2025 Addy Osmani
   (`addyosmani_agent-skills/LICENSE`)
+- **Cursor `plugins`, the dyl-stack plugin**, Copyright (c) 2026 Dylan Gattey
+  (its `dyl-stack/LICENSE` at e58dd04, read 2026-11-19 from the repository,
+  not from the research pack)
 
 ```
 MIT License
@@ -33,6 +36,7 @@ Copyright (c) 2025 Jesse Vincent
 Copyright (c) 2026 Matt Pocock
 Copyright (c) 2026 Cursor
 Copyright (c) 2025 Addy Osmani
+Copyright (c) 2026 Dylan Gattey
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

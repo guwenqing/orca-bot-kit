@@ -81,3 +81,30 @@ noted, with thanks:
   consolidating repeats, and the list of findings that are usually wrong.
   Revision: affaan-m/ECC@07756cee15788a54506031462794ad645719b028 (as recorded
   in the research pack's source-book-2.md, read 2026-09-19)
+- **addyosmani/agent-skills**, `code-review-and-quality` further to the
+  above: a copy that is clean and at the reviewed commit before a reviewer runs
+  a test of its own, with that commit named in the review (added in 9249958),
+  and a defect already on the base reported apart from what the change brings
+  in (added in 353ae84).
+  Revision: addyosmani/agent-skills@8c99fa36d90068c82d547f7c12a9d67a3e95f4ee
+  (read 2026-11-19; the file last changed in 9249958)
+- **Cursor `dyl-stack`**, `dyl-review`: a later round told what changed since
+  the last one and which findings were set aside, with the reason, so that it
+  judges them again rather than repeating them; and the base taken from the
+  pull request, not assumed.
+  Revision: cursor/plugins@e58dd043600587dbaf58ba315e7f2b38373eeb43 (read
+  2026-11-19; the file last changed in fae2c6e)
+
+Ideas paraphrased, with no text taken:
+
+- **Anthropic's Claude Code documentation**, the Code Review pages
+  (`code-review`, `code-review-customize` and `code-review-pull-requests`):
+  the review rules read from the base and never from the change, a later
+  review that looks at what changed since the last one, and a finding marked
+  as older than the change.
+  Read: 2026-11-19 (the three pages, from code.claude.com/docs/en/)
+- **Trail of Bits' `regression-hunt` plugin**, in `trailofbits/skills` (CC
+  BY-SA 4.0): a defect older than the change kept apart from one the change
+  brings in, and from one it exposes.
+  Revision: trailofbits/skills@149d7b21f4067765b82e67029730b42d228ef4b4 (read
+  2026-11-19)
