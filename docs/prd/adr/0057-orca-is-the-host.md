@@ -1,6 +1,6 @@
 Status: accepted
 
-<!-- ADR-57 choice supersedes:ADR-46 decides:KIT-17,KIT-22 source:https://github.com/guwenqing/orca-bot-kit/issues/224,https://github.com/guwenqing/orca-bot-kit/issues/232,https://github.com/guwenqing/orca-bot-kit/issues/261,https://github.com/guwenqing/orca-bot-kit/issues/298,https://github.com/guwenqing/orca-bot-kit/issues/329,https://github.com/guwenqing/orca-bot-kit/issues/343,https://github.com/guwenqing/orca-bot-kit/issues/555,https://github.com/guwenqing/orca-bot-kit/issues/575,https://github.com/guwenqing/orca-bot-kit/issues/755 -->
+<!-- ADR-57 choice supersedes:ADR-46 decides:KIT-17,KIT-22,KIT-28,KIT-36 source:https://github.com/guwenqing/orca-bot-kit/issues/224,https://github.com/guwenqing/orca-bot-kit/issues/232,https://github.com/guwenqing/orca-bot-kit/issues/261,https://github.com/guwenqing/orca-bot-kit/issues/298,https://github.com/guwenqing/orca-bot-kit/issues/329,https://github.com/guwenqing/orca-bot-kit/issues/343,https://github.com/guwenqing/orca-bot-kit/issues/555,https://github.com/guwenqing/orca-bot-kit/issues/575,https://github.com/guwenqing/orca-bot-kit/issues/755 -->
 
 # ADR 0057: Orca is the host
 
