@@ -219,14 +219,17 @@ const ASK = [
 /**
  * The three bots, one on each harness: its name, the folder its harness takes
  * skills from, and the words that add its session. Each `session add` is one
- * array of its own, so that a Claude one shows its RC_OFF and the others show
- * that they are not Claude ones (test/repo-guards.test.js, #755).
+ * array of its own that names its harness: the Claude one by `'--harness',
+ * 'claude'` and its RC_OFF, the Codex one by its codexTrustArgs, and the Pi
+ * one by `'--harness', 'pi'`. The guards read each array as text and cannot
+ * follow a variable (test/repo-guards.test.js for Remote Control, #755;
+ * test/system-codex-trust.test.js for Codex's trust, #240).
  */
 const HARNESSES = {
   claude: {
     bot: 'arch-claude',
     linked: path.join('.claude', 'skills'),
-    sessionAdd: (bots, bot) => ['session', 'add', '--bots', bots, '--bot', bot, '--name', 'daily', '--model', 'claude-haiku-5-5', '--effort', 'low', `--prompt=${startPrompt}`, ...RC_OFF],
+    sessionAdd: (bots, bot) => ['session', 'add', '--bots', bots, '--bot', bot, '--name', 'daily', '--harness', 'claude', '--model', 'claude-haiku-5-5', '--effort', 'low', `--prompt=${startPrompt}`, ...RC_OFF],
   },
   codex: {
     bot: 'arch-codex',
