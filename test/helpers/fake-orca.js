@@ -631,6 +631,20 @@
 //               a real program, and is never run. Each step run is written to
 //               steps.log, one JSON line: { handle, tabId, step, status,
 //               stdout, stderr }.
+//   harnessUp   [{ worktree, session, argv, env }] — what the harness in a
+//               session's tab does as it comes up (#792). The next launch line
+//               the kit types into a tab of `worktree` whose title ends with
+//               ` <session>` gives that tab the entry. At the next
+//               `terminal wait` on that tab, before it is answered, `argv` is
+//               run to completion once, the way a real harness writes its
+//               record and runs the kit's hook while the kit takes its first
+//               look. It runs with the tab's own variables (ORCA_TAB_ID,
+//               ORCA_TERMINAL_HANDLE), none of the ORCA_*, OBK_CLI or
+//               OBK_TAB_SHELL of whoever typed the line, `env`, and
+//               OBK_TEST_LAUNCH_LINE, the line as it was typed. The run is
+//               written to ran-during.log as `runDuring` writes its own. What
+//               the harness does is helpers/cli.js `harnessComesUp`; the fake
+//               only says when and where. Orca never lists it.
 //
 // Attestation, as Orca 1.4.210 does it (measured live on 2026-09-25, #317). A
 // process in a tab carries that tab's handle in ORCA_TERMINAL_HANDLE, and Orca
@@ -1335,8 +1349,11 @@ if (command === 'terminal rename') {
 }
 
 if (command === 'terminal wait') {
-  const terminal = (state.terminals ?? []).find((entry) => entry.handle === flag('--terminal'));
+  let terminal = (state.terminals ?? []).find((entry) => entry.handle === flag('--terminal'));
   if (!terminal) fail('terminal_not_found', `no terminal with handle ${flag('--terminal')}`);
+  // The harness comes up while the kit looks, and whatever it did to Orca's
+  // world is the world this look answers from.
+  if (harnessComesUpIn(terminal)) terminal = state.terminals.find((entry) => entry.handle === flag('--terminal')) ?? terminal;
   if (terminal.afterMail?.armed === true && terminal.afterMail.fired !== true) afterMailWait(terminal);
   else if (terminal.afterMail?.fired === true && terminal.afterMail.busyLeft !== undefined) turnGoesOn(terminal);
 
@@ -1478,6 +1495,7 @@ if (command === 'terminal send') {
   if (terminal.typed.length === 1 && launchedIn(terminal) !== undefined && terminal.agentIdentity == null) {
     terminal.agentIdentity = launchedIn(terminal);
   }
+  givesHarnessUp(terminal, text);
   save();
   runMailboxStep(terminal, text);
 
@@ -1531,6 +1549,70 @@ if (command === 'terminal send') {
     mutation: { requestId, replayed: false },
     ...(warnings.length > 0 ? { warnings } : {}),
   });
+}
+
+/**
+ * The first launch line typed into a tab gives it the `harnessUp` entry that
+ * names its folder and its session and has no tab yet (#792): the harness that
+ * line starts is the one that entry describes. A later line into the same tab
+ * is a later launch, and the entry is spent by then.
+ */
+function givesHarnessUp(terminal, text) {
+  if (!text.includes('OBK_TAB_SHELL=')) return;
+  const entry = (state.harnessUp ?? []).find((one) => one.handle === undefined
+    && sameFolder(one.worktree, terminal.worktreePath)
+    && (terminal.title ?? '').endsWith(` ${one.session}`));
+  if (entry !== undefined) Object.assign(entry, { handle: terminal.handle, line: text });
+}
+
+/** Two names of one folder, the one a link names and the real one alike. */
+function sameFolder(left, right) {
+  const real = (one) => {
+    try {
+      return realpathSync(one);
+    } catch {
+      return one;
+    }
+  };
+  return typeof left === 'string' && typeof right === 'string' && real(left) === real(right);
+}
+
+/**
+ * The harness of this tab comes up, once, at the kit's next look at it: the
+ * `harnessUp` entry the tab's launch line was given is run to completion. Its
+ * run is written down beside `runDuring`'s, and Orca's world is read again,
+ * since what the harness ran (the kit's hook) may have called Orca. True when
+ * it ran.
+ */
+function harnessComesUpIn(terminal) {
+  const entry = (state.harnessUp ?? []).find((one) => one.handle === terminal.handle && one.ran !== true);
+  if (entry === undefined) return false;
+  entry.ran = true;
+  save();
+
+  // The tab's own variables, not those of whoever typed the line into it.
+  const theirs = Object.entries(process.env)
+    .filter(([name]) => !name.startsWith('ORCA_') && name !== 'OBK_CLI' && name !== 'OBK_TAB_SHELL');
+  const [program, ...rest] = entry.argv;
+  const ran = spawnSync(program, rest, {
+    encoding: 'utf8',
+    env: {
+      ...Object.fromEntries(theirs),
+      ...(entry.env ?? {}),
+      ORCA_TAB_ID: terminal.tabId,
+      ORCA_TERMINAL_HANDLE: terminal.handle,
+      OBK_TEST_LAUNCH_LINE: entry.line,
+    },
+  });
+  appendFileSync(path.join(dir, 'ran-during.log'), `${JSON.stringify({
+    command,
+    argv: entry.argv,
+    status: ran.status,
+    stdout: ran.stdout,
+    stderr: ran.stderr,
+  })}\n`);
+  state = JSON.parse(readFileSync(stateFile, 'utf8'));
+  return true;
 }
 
 /**
