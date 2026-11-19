@@ -45,6 +45,12 @@ contribute a piece each.
   Revision: cursor/plugins@6ed0f7a9504f577d7529064103cecce9be7dfc5e
   (reconstructed: the research pack's 2026-09-20 clone the skills were built
   from; the revision actually read was not recorded)
+- **Cursor `plugins`, `third_party/x/skills/x-api-mcp-guide`** (MIT, the same
+  `third_party/x/LICENSE`): a yes covers the exact text the person saw, and any
+  change needs a new yes, even when they asked for the change and the send
+  together.
+  Revision: cursor/plugins@d31c571c32dc9b176ef55ad88f5482c0a0464498 (read
+  2026-11-19)
 
 Written differently from the old skill, on purpose: no fixed path (PRD 7.1
 assumes no way of working); a vague item stays on the list and is asked about,
