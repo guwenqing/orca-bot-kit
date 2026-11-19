@@ -19,7 +19,8 @@
 //       SessionStart input and the line's words as what ps shows;
 //   2   once per call;
 //   3   for that session of that bot only;
-//   4   each start is listed by `box.orca.ranDuring()`, status 0.
+//   4   each start is listed by `box.orca.harnessesUp()`, in order, with the
+//       session it was for, status 0; `box.orca.ranDuring()` does not list it.
 //
 // The shapes asserted here are the ones the requirement gives, from what
 // Claude Code 2.1.328 and Codex 0.156.1 wrote for a start prompt. They are
@@ -28,10 +29,11 @@
 // Not checked here: how long a run takes. A wall-clock bound is either loose
 // enough to pass on a loaded CI machine, and then also passes with the 5 s
 // wait in it, or tight enough to catch the wait, and then flaky. What is
-// checked is the cause of the wait going away: the harness ran during the
-// kit's `terminal wait` on the tab (4), so the record and the book's id are
-// there before the kit first asks (up.js polls and returns at the first
-// look that finds the turn), and the report says received.
+// checked is the cause of the wait going away: the harness came up during
+// the kit's run (4), and what it wrote is stamped inside the run, so the
+// record and the book's id are there when the kit asks (up.js polls and
+// returns at the first look that finds the turn), and the report says
+// received.
 
 import assert from 'node:assert/strict';
 import { appendFile, readdir, readFile, realpath, rm } from 'node:fs/promises';
@@ -45,6 +47,7 @@ import {
   harnessComesUp,
   harnessWordsOf,
   launchLineInTab,
+  orcaCallsOf,
   recordSession,
   sessionIn,
   SYSTEM_FLAG,
@@ -109,17 +112,23 @@ function entryOf(run, bot, name) {
   return found[0];
 }
 
-/** Promise 4: the harness came up `count` times in all, each a `terminal wait`, and nothing it ran failed. */
-async function assertStarts(box, count) {
-  const ran = await box.orca.ranDuring();
-  assert.equal(ran.length, count, `the harness should have come up ${count} time(s) during the kit's runs, got: ${show(ran)}`);
-  for (const one of ran) {
-    assert.equal(one.command, 'terminal wait', `it comes up at the kit's look at the tab, got: ${show(one)}`);
+/**
+ * Promise 4: the harness came up once for each of `sessions`, in that order,
+ * each listed by `box.orca.harnessesUp()`, and nothing it ran failed. A
+ * harness start is not a `runDuring` run, and no test here sets one, so
+ * `box.orca.ranDuring()` lists nothing.
+ */
+async function assertStarts(box, sessions) {
+  assert.equal(typeof box.orca.harnessesUp, 'function', 'the fake Orca should have a reader of the harness starts, box.orca.harnessesUp()');
+  const up = await box.orca.harnessesUp();
+  assert.deepEqual(up.map((one) => one?.session), sessions, `the harness should have come up for ${show(sessions)} during the kit's runs, got: ${show(up)}`);
+  for (const one of up) {
     assert.ok(Array.isArray(one.argv) && one.argv.length > 0, `the program it ran is listed, got: ${show(one)}`);
     assert.equal(typeof one.stdout, 'string', `got: ${show(one)}`);
     assert.equal(typeof one.stderr, 'string', `got: ${show(one)}`);
     assert.equal(one.status, 0, `nothing it ran should have failed: ${one.stderr}`);
   }
+  assert.deepEqual(await box.orca.ranDuring(), [], 'a harness start is not listed with the runDuring runs');
 }
 
 /** The book names `id` for `bot`/`session`: the kit took the hook's report as that session's. */
@@ -231,7 +240,7 @@ for (const harness of ['claude', 'codex']) {
 
     const run = await runJson(box, ['up', '--bots', 'bots', '--bot', 'api-bot']);
 
-    await assertStarts(box, 1);
+    await assertStarts(box, ['daily']);
     await assertBookNames(bots, 'api-bot', 'daily', conv(1));
     await assertFreshRecord(box, { harness, home, id: conv(1), prompt: SHORT, run });
     assert.equal(entryOf(run, 'api-bot', 'daily').promptReceived, true, `got: ${run.stdout}`);
@@ -249,7 +258,7 @@ for (const harness of ['claude', 'codex']) {
     const line = await launchLineInTab(box, entryOf(run, 'api-bot', 'daily').tabId);
     assert.match(String(line), / -- "\$\(cat [^)]+\)"$/, `the premise: the kit reads a long prompt from its file, got: ${line}`);
 
-    await assertStarts(box, 1);
+    await assertStarts(box, ['daily']);
     await assertBookNames(bots, 'api-bot', 'daily', conv(1));
     await assertFreshRecord(box, { harness, home, id: conv(1), prompt: LONG, run });
     assert.equal(entryOf(run, 'api-bot', 'daily').promptReceived, true, `got: ${run.stdout}`);
@@ -272,7 +281,7 @@ test('on claude, the harness carries the words of the kit\'s line, as ps shows t
   const at = words.indexOf(SYSTEM_FLAG);
   assert.ok(at > 0, `the premise: the kit's line appends its system file, got: ${show(words)}`);
 
-  await assertStarts(box, 1);
+  await assertStarts(box, ['daily']);
   const entry = await sessionIn(bots, 'api-bot', 'daily');
   assert.equal(entry?.session, conv(1), `got: ${show(entry)}`);
   assert.equal(entry?.system, path.basename(words[at + 1]), `the hook read the line's appended file off the harness, got: ${show(entry)}`);
@@ -292,7 +301,7 @@ test('on claude, `input` reaches the hook: the model it names is noted with the 
   await harnessComesUp(withModel, { bots, bot: 'api-bot', session: 'daily', id: conv(1), input: { model: 'claude-test-model-7' } });
   await runJson(withModel, ['up', '--bots', 'bots', '--bot', 'api-bot']);
 
-  await assertStarts(withModel, 1);
+  await assertStarts(withModel, ['daily']);
   await assertBookNames(bots, 'api-bot', 'daily', conv(1));
   let note;
   try {
@@ -310,7 +319,7 @@ test('on claude, `input` reaches the hook: the model it names is noted with the 
   await harnessComesUp(without, { bots: otherBots, bot: 'api-bot', session: 'daily', id: conv(2) });
   await runJson(without, ['up', '--bots', 'bots', '--bot', 'api-bot']);
 
-  await assertStarts(without, 1);
+  await assertStarts(without, ['daily']);
   await assertBookNames(otherBots, 'api-bot', 'daily', conv(2));
   await assert.rejects(readFile(sourceOf(otherBots, conv(2)), 'utf8'), { code: 'ENOENT' }, 'the input carries no model of its own');
 });
@@ -326,7 +335,7 @@ test('another session of the same bot in the same run has no harness coming up (
 
   const run = await runJson(box, ['up', '--bots', 'bots', '--bot', 'api-bot']);
 
-  await assertStarts(box, 1);
+  await assertStarts(box, ['nightly']);
   await assertBookNames(bots, 'api-bot', 'nightly', conv(1));
   await assertFreshRecord(box, { harness: 'claude', home, id: conv(1), prompt: `${SHORT} At night.`, run });
   assert.equal(entryOf(run, 'api-bot', 'nightly').promptReceived, true, `the armed session, got: ${run.stdout}`);
@@ -345,7 +354,7 @@ test('a session of the same name in another bot, in the same run, has no harness
 
   const run = await runJson(box, ['up', '--bots', 'bots']);
 
-  await assertStarts(box, 1);
+  await assertStarts(box, ['daily']);
   await assertBookNames(bots, 'zeta-bot', 'daily', conv(1));
   await assertFreshRecord(box, { harness: 'codex', home, id: conv(1), prompt: SHORT, run });
   assert.equal(entryOf(run, 'zeta-bot', 'daily').promptReceived, true, `the armed session, got: ${run.stdout}`);
@@ -364,7 +373,7 @@ test('once per call: a later launch of the same session has no harness coming up
 
   const first = await runJson(box, ['up', '--bots', 'bots', '--bot', 'api-bot']);
   assert.equal(entryOf(first, 'api-bot', 'daily').promptReceived, true, `the armed launch, got: ${first.stdout}`);
-  await assertStarts(box, 1);
+  await assertStarts(box, ['daily']);
 
   // With its record gone, the conversation cannot be resumed, so the restart
   // starts the session again, its prompt on the line: a launch the harness
@@ -375,7 +384,7 @@ test('once per call: a later launch of the same session has no harness coming up
   const entry = entryOf(again, 'api-bot', 'daily');
   assert.equal(entry.resumed, false, `the premise: the restart starts the session again, got: ${again.stdout}`);
 
-  await assertStarts(box, 1);
+  await assertStarts(box, ['daily']);
   assert.equal(entry.promptReceived, false, `no harness came up this time, got: ${again.stdout}`);
   await assert.rejects(readFile(file, 'utf8'), { code: 'ENOENT' }, 'and nothing wrote its record again');
 });
@@ -401,7 +410,7 @@ for (const harness of ['claude', 'codex']) {
 
     const run = await runJson(box, ['up', '--bots', 'bots', '--bot', 'api-bot']);
 
-    await assertStarts(box, 1);
+    await assertStarts(box, ['daily']);
     await assertBookNames(bots, 'api-bot', 'daily', conv(1));
     if (harness === 'codex') assert.deepEqual(await codexFilesOf(box, conv(1)), [path.relative(path.join(box.home, '.codex', 'sessions'), file)], 'no second rollout file for the same conversation');
     const after = await readFile(file, 'utf8');
@@ -438,7 +447,7 @@ test('a resume: a restart that resumes the conversation, source resume, keeps th
   const run = await runJson(box, ['restart', '--bots', 'bots', '--bot', 'api-bot', '--session', 'daily']);
 
   assert.equal(entryOf(run, 'api-bot', 'daily').resumed, true, `the premise: the restart resumes the conversation, got: ${run.stdout}`);
-  await assertStarts(box, 1);
+  await assertStarts(box, ['daily']);
   await assertBookNames(bots, 'api-bot', 'daily', conv(1));
   const after = await readFile(file, 'utf8');
   assert.ok(after.startsWith(before), `the earlier lines stay as they were, got:\n${after}`);
@@ -456,7 +465,7 @@ test('on codex, an unpause that starts the session fresh: the harness comes up i
 
   const run = await runJson(box, ['unpause', '--bots', 'bots', '--bot', 'api-bot']);
 
-  await assertStarts(box, 1);
+  await assertStarts(box, ['daily']);
   await assertBookNames(bots, 'api-bot', 'daily', conv(1));
   await assertFreshRecord(box, { harness: 'codex', home, id: conv(1), prompt: SHORT, run });
   assert.equal(entryOf(run, 'api-bot', 'daily').promptReceived, true, `got: ${run.stdout}`);
@@ -477,7 +486,7 @@ test('on codex, `version` is the cli_version of the session_meta line of a new r
 
   const run = await runJson(box, ['up', '--bots', 'bots', '--bot', 'api-bot']);
 
-  await assertStarts(box, 1);
+  await assertStarts(box, ['daily']);
   await assertBookNames(bots, 'api-bot', 'daily', conv(1));
   const lines = await linesOf(await codexFileOf(box, conv(1)));
   assert.equal(lines.length, 2, `a fresh rollout holds its session_meta line and the turn, got: ${show(lines)}`);
@@ -498,7 +507,7 @@ test('on claude, `version` is the version of the user-turn line', async (t) => {
 
   const run = await runJson(box, ['up', '--bots', 'bots', '--bot', 'api-bot']);
 
-  await assertStarts(box, 1);
+  await assertStarts(box, ['daily']);
   await assertBookNames(bots, 'api-bot', 'daily', conv(1));
   const lines = await linesOf(claudeFileOf(box, home, conv(1)));
   assert.equal(lines.length, 1, `a fresh record holds the start prompt's turn, got: ${show(lines)}`);
@@ -521,7 +530,7 @@ for (const harness of ['claude', 'codex']) {
 
     const run = await runJson(box, ['up', '--bots', 'bots', '--bot', 'api-bot']);
 
-    await assertStarts(box, 1);
+    await assertStarts(box, ['daily']);
     await assertBookNames(bots, 'api-bot', 'daily', conv(1));
     if (harness === 'codex') assert.deepEqual(await codexFilesOf(box, conv(1)), [path.relative(path.join(box.home, '.codex', 'sessions'), file)], 'no second rollout file for the same conversation');
     const after = await readFile(file, 'utf8');
@@ -537,3 +546,32 @@ for (const harness of ['claude', 'codex']) {
     }
   });
 }
+
+// ------------------------------------------------------------ the two logs
+
+test('a test\'s own runDuring is listed by ranDuring alone, and the harness start by harnessesUp alone (4)', async (t) => {
+  // A test may set a runDuring of its own and arm a harness start in the same
+  // run (test/session-clear.test.js counts its own runs). Each reader lists
+  // only its own: the test's run once, the harness start once.
+  const box = await createSandbox(t);
+  const bots = await init(box);
+  await makeBot(box, 'api-bot', 'claude', [['daily', SHORT]]);
+  const mine = [process.execPath, '-e', 'process.stdout.write("the test\'s own run")'];
+  await box.orca.set({
+    runDuring: { command: 'terminal wait', argv: mine, on: orcaCallsOf(await box.orca.calls(), 'terminal wait').length + 1 },
+  });
+  await harnessComesUp(box, { bots, bot: 'api-bot', session: 'daily', id: conv(1) });
+
+  const run = await runJson(box, ['up', '--bots', 'bots', '--bot', 'api-bot']);
+
+  const ran = await box.orca.ranDuring();
+  assert.deepEqual(ran.map(({ command, argv, status, stdout }) => ({ command, argv, status, stdout })), [
+    { command: 'terminal wait', argv: mine, status: 0, stdout: 'the test\'s own run' },
+  ], `ranDuring lists the test's own run and nothing else, got: ${show(ran)}`);
+  assert.equal(typeof box.orca.harnessesUp, 'function', 'the fake Orca should have a reader of the harness starts, box.orca.harnessesUp()');
+  const up = await box.orca.harnessesUp();
+  assert.deepEqual(up.map((one) => one?.session), ['daily'], `harnessesUp lists the harness start, got: ${show(up)}`);
+  assert.equal(up[0].status, 0, `nothing it ran should have failed: ${up[0].stderr}`);
+  await assertBookNames(bots, 'api-bot', 'daily', conv(1));
+  assert.equal(entryOf(run, 'api-bot', 'daily').promptReceived, true, `got: ${run.stdout}`);
+});
