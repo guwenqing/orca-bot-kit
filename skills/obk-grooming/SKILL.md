@@ -233,6 +233,16 @@ kind. Then the cost, per session, with what you could not price said plainly.
 Then what you need a decision on. A handful of points, not a document, and no
 internal identifiers a reader cannot do anything with.
 
+A remedy for a finding seen twice names the kind of check that would hold
+it, where one could: a test or a lint rule in the user's repo, a check in its
+CI, a permission rule, a finding of `obk health`, which is asked of the kit
+as an issue, or a hook the user adds. It is trusted once it has failed on a
+known bad case, and the report says whether that has happened. A line
+proposed for a charter or an always-on rule unit carries a short note: the
+failure it answers, where it was seen, and its scope. A detail of one
+environment goes into a message or a note instead, and a line that adds a
+step to every task states why, or goes into a skill.
+
 Something the kit itself does wrong is filed where the kit's problems are
 filed, as one issue, in one step. Something a bot is doing wrong goes back to
 that bot's own session as feedback, in its own words. Those are two different

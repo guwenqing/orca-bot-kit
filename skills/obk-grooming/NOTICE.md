@@ -77,6 +77,26 @@ to a single kind of fix. Those pages carry no licence and the pack holds only
 a summary of them, with its own caution not to copy from them, so the idea is
 taken and the words are ours.
 
+## The check that holds a finding (#822)
+
+The paragraph in "What you send, and to whom" on the remedy for a finding seen
+twice is the short form of what `obk-fleet-review` says on it, carried here
+because the grooming prompt loads only this skill and `obk-finops`. Its idea
+comes from a paper whose licence is arXiv's non-exclusive distribution
+licence, so no text of it is reproduced:
+
+- **Christoph Treude and Sebastian Baltes**, "How Do Coding-Agent Harnesses
+  Self-Evolve? An Empirical Study of Retrospective Adaptation", arXiv
+  2610.34938, https://arxiv.org/abs/2610.34938.
+  Read: 2026-11-19 (v1, submitted 26 October 2026, the only version)
+
+What was taken, in our own words: a change to a context file helped a later
+task where it covered the case that task met, and a line that added a step
+ran in every later session. The evidence is seven transfer events with one
+agent, and the authors do not claim that coverage explains the difference, so
+the skill gives the technique and no number. The known bad case and the note
+beside a new always-on line are the issue's own.
+
 ## Where this stands next to the review skill
 
 `obk-fleet-review` is the judgement applied when somebody asks how the fleet is

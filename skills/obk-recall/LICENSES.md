@@ -16,11 +16,11 @@ is the licence file it was read from, in the research pack's source clones.
 
 - **Cursor `plugins`, the pstack plugin**, Copyright (c) 2026 Lauren Tan
   (`cursor_plugins/pstack/LICENSE`)
+- **`mainplane-ai/mainplane`**, Copyright (c) 2026 Alexander Yue
+  (`LICENSE`, at mainplane-ai/mainplane@2f6affe7385b05c4390ca00f80bbf4e7c9354c11)
 
 ```
 MIT License
-
-Copyright (c) 2026 Lauren Tan
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

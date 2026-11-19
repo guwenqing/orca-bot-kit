@@ -97,6 +97,29 @@ which a load shows in a history are what each harness documents, read on
   Revision: earendil-works/pi@5a14e69c067d40dfbff4f2fff7d3b34c897e2dc9
   (main, read 2026-11-18)
 
+## The check that holds a finding (#822)
+
+The two paragraphs after "prefer one that holds by itself" in "One finding,
+one kind of fix" come from issue #822. That a check is preferred to prose is
+pstack's, credited above. The rest is an idea taken from a paper whose licence
+is arXiv's non-exclusive distribution licence, so no text of it is reproduced:
+
+- **Christoph Treude and Sebastian Baltes**, "How Do Coding-Agent Harnesses
+  Self-Evolve? An Empirical Study of Retrospective Adaptation", arXiv
+  2610.34938, https://arxiv.org/abs/2610.34938.
+  Read: 2026-11-19 (v1, submitted 26 October 2026, the only version)
+
+What was taken, in our own words: a change that an agent made to its own
+context file helped a later task where it covered the case that task met; a
+line that added a step ran in every later session and made each one longer;
+and a list of what failed in one environment may not cover what a later task
+meets, where a fact of the repository can. The evidence is small, seven
+transfer events with one agent, and the authors say that their counts do not
+establish that coverage explains the difference. So the skill states the
+technique and gives no number. That a check is shown to fail on a known bad
+case before it is trusted, and the short note a new always-on line carries,
+are the issue's own.
+
 ## The line between this skill and a scheduled pass
 
 This is the judgement applied when somebody asks: how the fleet is doing, and
