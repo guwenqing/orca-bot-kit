@@ -1,4 +1,4 @@
-Source: 2026-11-18-architect-ruling.md
+Source: https://github.com/guwenqing/orca-bot-kit/issues/781#issuecomment-6996995299 (kit-dev/architect's ruling of 2026-11-18)
 Fetched: 2026-11-19T01:34Z
 SHA-256: 2ee46e84ce945a508cb9517ef434a70e76640a8e32cb4257ef64a96fc0857baf
 ---
