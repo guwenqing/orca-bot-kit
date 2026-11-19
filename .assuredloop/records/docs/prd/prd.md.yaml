@@ -111,7 +111,7 @@ paragraphs:
     display: KIT-52 (6.4:2, in [PRD-11] 6.4 Bots and sessions)
   - id: KIT-54
     kind: rule
-    text_sha256: 9dac3cbaac3bb90610cc6fdf04ce332c78caa20452bb13c6499ef6385b97b284
+    text_sha256: a1ce936b864b5c921c288fcdb3a1e0ac17d2c703e85fca17737563cd0ca90f0b
     display: KIT-54 (6.4:3, in [PRD-11] 6.4 Bots and sessions)
   - id: KIT-55
     kind: rule
