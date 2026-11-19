@@ -1,6 +1,6 @@
 Status: accepted
 
-<!-- ADR-51 choice supersedes:ADR-41 -->
+<!-- ADR-51 choice supersedes:ADR-41 decides:KIT-20,KIT-26 source:https://github.com/guwenqing/orca-bot-kit/issues/527,https://github.com/guwenqing/orca-bot-kit/issues/548,https://github.com/guwenqing/orca-bot-kit/issues/615 -->
 
 # ADR 0051: Permission changes and risky operations have commands of their own
 

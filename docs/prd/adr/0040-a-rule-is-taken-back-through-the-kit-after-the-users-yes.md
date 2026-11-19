@@ -1,6 +1,6 @@
 Status: accepted
 
-<!-- ADR-40 choice supersedes:ADR-29 -->
+<!-- ADR-40 choice supersedes:ADR-29 decides:KIT-26 source:https://github.com/guwenqing/orca-bot-kit/issues/360,https://github.com/guwenqing/orca-bot-kit/issues/527 -->
 
 # ADR 0040: A rule is taken back through the kit, after the user's yes, and only one the kit wrote
 

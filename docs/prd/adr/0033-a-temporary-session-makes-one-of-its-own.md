@@ -1,6 +1,6 @@
 Status: accepted
 
-<!-- ADR-33 choice -->
+<!-- ADR-33 choice decides:KIT-26 source:https://github.com/guwenqing/orca-bot-kit/issues/464 -->
 
 # ADR 0033: A temporary session makes one of its own, one level deep
 
