@@ -105,6 +105,7 @@ import {
   conversationOnRecord,
   createSandbox,
   fakeProgram,
+  harnessComesUp,
   harnessWordsOf,
   kitDirsOf,
   launchLineInTab,
@@ -172,16 +173,31 @@ const claudeAnswers = (box, answer = VERSION_ANSWER, exitCode = 0) => fakeProgra
  * sessions of `more`, `[name, settings]` each), a fake `claude` that answers
  * `version`, and the bot brought up. The kit's talk and profiles units are
  * `main`, so the bot has an appended file.
+ *
+ * With `comesUp: { id, model }`, daily's harness starts conversation `id` as
+ * the kit launches it, on the kit's line, and reports it through the hook with
+ * `model` (MODEL when left out, none when null), as a real one does: the up
+ * does not wait out its bound for the start prompt (#792).
  */
-async function started(box, { answer = VERSION_ANSWER, exitCode = 0, daily = [], more = [] } = {}) {
+async function started(box, { answer = VERSION_ANSWER, exitCode = 0, daily = [], more = [], comesUp } = {}) {
   await claudeAnswers(box, answer, exitCode);
   await ok(box, ['init', '--bots', 'bots', '--harness', 'claude']);
   await ok(box, ['bot', 'create', '--bots', 'bots', '--name', BOT, '--harness', 'claude']);
   for (const [name, settings] of [['daily', daily], ...more]) {
     await ok(box, ['session', 'add', '--bots', 'bots', '--bot', BOT, '--name', name, '--prompt', DUTY, ...settings]);
   }
+  const bots = box.path('bots');
+  if (comesUp !== undefined) {
+    const { id, model = MODEL } = comesUp;
+    await harnessComesUp(box, { bots, bot: BOT, session: 'daily', id, input: model === null ? {} : { model } });
+  }
   await ok(box, ['up', '--bots', 'bots', '--bot', BOT, '--json']);
-  return box.path('bots');
+  if (comesUp !== undefined) {
+    const came = await box.orca.harnessesUp();
+    assert.deepEqual(came.map((one) => [one.session, one.status]), [['daily', 0]], `daily's harness came up, and the hook must never fail the session: ${show(came)}`);
+    assert.equal((await sessionIn(bots, BOT, 'daily'))?.session, comesUp.id, 'the premise: the book names the conversation daily\'s harness reported');
+  }
+  return bots;
 }
 
 const restart = (box, session = 'daily') => ok(box, ['restart', '--bots', 'bots', '--bot', BOT, '--session', session]);
@@ -346,10 +362,9 @@ async function onRecord(box, bots, id, snapshots, { model = MODEL } = {}) {
  * line's words and the appended text.
  */
 async function noted(box, { id = 'conv-1', sections = SECTIONS, model = MODEL, version = V, ...options } = {}) {
-  const bots = await started(box, options);
+  const bots = await started(box, { ...options, comesUp: { id, model } });
   const words = await wordsOf(box, bots);
   const { text } = await appendedOf(words);
-  await hook(box, bots, { session: id, source: 'startup', model });
   assert.ok(await exists(sourceOf(bots, id)), `the premise: the start on the kit's line is noted at ${sourceOf(bots, id)}`);
   await onRecord(box, bots, id, [{ sections: [...sections, text], version }], { model });
   return { bots, words, appended: text };
@@ -561,8 +576,7 @@ describe('T3 the build', SIDE_BY_SIDE, () => {
 
   test('T3 a record whose last section is not the kit\'s appended text is no source', async (t) => {
     const box = await createSandbox(t);
-    const bots = await started(box);
-    await hook(box, bots, { session: 'conv-1', source: 'startup' });
+    const bots = await started(box, { comesUp: { id: 'conv-1' } });
     await onRecord(box, bots, 'conv-1', [[...SECTIONS, 'Some other text appended by someone else.']]);
 
     await restart(box);
@@ -592,11 +606,10 @@ describe('T3 the build', SIDE_BY_SIDE, () => {
 
   test('T3 a noted start, then a resume with a user\'s text and a compaction, still builds from the first record', async (t) => {
     const box = await createSandbox(t);
-    const bots = await started(box);
+    const bots = await started(box, { comesUp: { id: 'conv-1' } });
     const words = await wordsOf(box, bots);
     const { text } = await appendedOf(words);
     const own = withBefore(words, ['--append-system-prompt', 'Answer in rhyme.']);
-    await hook(box, bots, { session: 'conv-1', source: 'startup' });
     await hook(box, bots, { session: 'conv-1', source: 'resume', line: own });
     await hook(box, bots, { session: 'conv-1', source: 'compact', line: own });
     await onRecord(box, bots, 'conv-1', [
@@ -779,9 +792,8 @@ describe('T5 the fit', SIDE_BY_SIDE, () => {
 
   test('T5 a change of the memory folder the user names by hand does not fit a record of the folder before, and is another shape', async (t) => {
     const box = await createSandbox(t);
-    const bots = await started(box);
+    const bots = await started(box, { comesUp: { id: 'conv-0' } });
     // A conversation the book knows, so the restart can close the tab.
-    await hook(box, bots, { session: 'conv-0', source: 'startup' });
     await onRecord(box, bots, 'conv-0', []);
     const local = SETTINGS['the bot\'s .claude/settings.local.json'](box, bots);
     await setIn(local, { autoMemoryDirectory: path.join(box.root, 'own-memory', 'first') });
@@ -846,9 +858,8 @@ describe('T5 the fit', SIDE_BY_SIDE, () => {
 
   test('T5 another extra_args string, which the kit types as shell text, does not fit, and is another shape', async (t) => {
     const box = await createSandbox(t);
-    const bots = await started(box);
+    const bots = await started(box, { comesUp: { id: 'conv-0' } });
     // A conversation the book knows, so the restart can close the tab.
-    await hook(box, bots, { session: 'conv-0', source: 'startup' });
     await onRecord(box, bots, 'conv-0', []);
     await handSet(bots, { extra_args: '--verbose' });
     await restart(box);
@@ -905,10 +916,9 @@ describe('T5 the fit', SIDE_BY_SIDE, () => {
   for (const [form, extra] of Object.entries(OWN_SETTINGS)) {
     test(`T5 extra_args that name --settings (${form}): no main file, not even from a record that fit before; main_text own, whose why names its --settings; no main-text finding; the own-settings finding names the kit's main text`, async (t) => {
       const box = await createSandbox(t);
-      const bots = await started(box);
+      const bots = await started(box, { comesUp: { id: 'conv-0' } });
       const { text } = await appendedOf(await wordsOf(box, bots));
       // A note and a record that fit the launch before the setting.
-      await hook(box, bots, { session: 'conv-0', source: 'startup' });
       assert.ok(await exists(sourceOf(bots, 'conv-0')), 'the premise: the start before the setting is noted');
       await onRecord(box, bots, 'conv-0', [[...SECTIONS, text]]);
       const file = path.join(box.root, 'own-settings', 'daily.json');
@@ -1023,9 +1033,8 @@ describe('T5 the fit', SIDE_BY_SIDE, () => {
 
   test('T5 the first record decides the version: a later record of the installed version in the same conversation does not fit', async (t) => {
     const box = await createSandbox(t);
-    const bots = await started(box);
+    const bots = await started(box, { comesUp: { id: 'conv-1' } });
     const { text } = await appendedOf(await wordsOf(box, bots));
-    await hook(box, bots, { session: 'conv-1', source: 'startup' });
     await onRecord(box, bots, 'conv-1', [{ sections: [...SECTIONS, text], version: '2.1.300' }, { sections: [...SECTIONS, text], version: V }]);
 
     await restart(box);
@@ -1040,10 +1049,9 @@ describe('T5 the fit', SIDE_BY_SIDE, () => {
 describe('T6 the book', SIDE_BY_SIDE, () => {
   test('T6 a start on the kit\'s line with no main file is noted own_text, and a resume keeps it', async (t) => {
     const box = await createSandbox(t);
-    const bots = await started(box);
+    const bots = await started(box, { comesUp: { id: 'conv-1' } });
     const words = await wordsOf(box, bots);
 
-    await hook(box, bots, { session: 'conv-1', source: 'startup' });
     const entry = await sessionIn(bots, BOT, 'daily');
     assert.equal(entry.own_text, true, `got: ${show(entry)}`);
     assert.equal(entry.main, undefined, `no main file, got: ${show(entry)}`);
@@ -1087,8 +1095,7 @@ describe('T6 the book', SIDE_BY_SIDE, () => {
 describe('T7 health', SIDE_BY_SIDE, () => {
   test('T7 a session on its own text because claude --version gave nothing is named, with claude --version', async (t) => {
     const box = await createSandbox(t);
-    const bots = await started(box, { answer: '', exitCode: 1 });
-    await hook(box, bots, { session: 'conv-1', source: 'startup' });
+    const bots = await started(box, { answer: '', exitCode: 1, comesUp: { id: 'conv-1' } });
 
     const found = await findings(box);
 
@@ -1097,8 +1104,7 @@ describe('T7 health', SIDE_BY_SIDE, () => {
 
   test('T7 no fitting record yet is a normal wait: no finding, exit 0, and main_text own, whose why names a resume and a clear', async (t) => {
     const box = await createSandbox(t);
-    const bots = await started(box);
-    await hook(box, bots, { session: 'conv-1', source: 'startup' });
+    const bots = await started(box, { comesUp: { id: 'conv-1' } });
 
     const { found, sessions, code } = await healthOf(box);
 
@@ -1129,8 +1135,7 @@ describe('T7 health', SIDE_BY_SIDE, () => {
   for (const [what, scope] of [['a paused session', ['--session', 'daily']], ['a paused bot', []]]) {
     test(`T7 ${what} on its own text has no main_text while paused, and has it again once unpaused and started`, async (t) => {
       const box = await createSandbox(t);
-      const bots = await started(box, { more: [['review', []]] });
-      await hook(box, bots, { session: 'conv-1', source: 'startup' });
+      const bots = await started(box, { more: [['review', []]], comesUp: { id: 'conv-1' } });
       await onRecord(box, bots, 'conv-1', []);
       await hook(box, bots, { session: 'conv-r', source: 'startup', name: 'review' });
       await onRecord(box, bots, 'conv-r', []);
@@ -1235,8 +1240,7 @@ describe('T9 the folders', SIDE_BY_SIDE, () => {
 describe('T10 units that cannot be built now', SIDE_BY_SIDE, () => {
   test('T10 the line and the hook use the kit\'s own copy of its last system text, not the newest system file in the prompts folder', async (t) => {
     const box = await createSandbox(t);
-    const bots = await started(box);
-    await hook(box, bots, { session: 'conv-0', source: 'startup' });
+    const bots = await started(box, { comesUp: { id: 'conv-0' } });
     await onRecord(box, bots, 'conv-0', []);
     const { file: kitFile, text: kitText } = await appendedOf(await wordsOf(box, bots));
     const main = await mainUnitsText(bots, BOT);
@@ -1278,9 +1282,8 @@ describe('T11 the model of a note', SIDE_BY_SIDE, () => {
 
   test('T11 a start notes the model of the hook input: a record of that model fits, though bot.yaml names the model by a short name', async (t) => {
     const box = await createSandbox(t);
-    const bots = await started(box, { daily: ['--model', 'opus'] });
+    const bots = await started(box, { daily: ['--model', 'opus'], comesUp: { id: 'conv-1' } });
     const { text } = await appendedOf(await wordsOf(box, bots));
-    await hook(box, bots, { session: 'conv-1', source: 'startup', model: MODEL });
     await onRecord(box, bots, 'conv-1', [[...SECTIONS, text]], { model: MODEL });
 
     await restart(box);
@@ -1291,9 +1294,8 @@ describe('T11 the model of a note', SIDE_BY_SIDE, () => {
 
   /** daily on the line's model MODEL, started (no record to build from), then cleared with `model` in the hook input and a record of `recorded`. */
   async function cleared(box, { model, recorded }) {
-    const bots = await started(box, { daily: ['--model', MODEL] });
+    const bots = await started(box, { daily: ['--model', MODEL], comesUp: { id: 'conv-0' } });
     const { text } = await appendedOf(await wordsOf(box, bots));
-    await hook(box, bots, { session: 'conv-0', source: 'startup', model: MODEL });
     await onRecord(box, bots, 'conv-0', []);
     await hook(box, bots, { session: 'conv-2', source: 'clear', model });
     await onRecord(box, bots, 'conv-2', [[...SECTIONS, text]], { model: recorded });
@@ -1321,9 +1323,8 @@ describe('T11 the model of a note', SIDE_BY_SIDE, () => {
     const OPUS = 'claude-opus-test-9';
     const FABLE = 'claude-fable-test-9';
     const box = await createSandbox(t);
-    const bots = await started(box, { daily: ['--model', OPUS] });
+    const bots = await started(box, { daily: ['--model', OPUS], comesUp: { id: 'conv-0', model: OPUS } });
     const { text } = await appendedOf(await wordsOf(box, bots));
-    await hook(box, bots, { session: 'conv-0', source: 'startup', model: OPUS });
     await onRecord(box, bots, 'conv-0', []);
     // bot.yaml names Fable now, with no restart: the session still runs the launch's Opus.
     await ok(box, ['session', 'change', '--bots', 'bots', '--bot', BOT, '--session', 'daily', '--model', FABLE]);
@@ -1340,10 +1341,9 @@ describe('T11 the model of a note', SIDE_BY_SIDE, () => {
 
   test('T11 with no model on the line, a start with a model in the hook input is a source, and a clear is no note', async (t) => {
     const box = await createSandbox(t);
-    const bots = await started(box);
+    const bots = await started(box, { comesUp: { id: 'conv-1' } });
     const { text } = await appendedOf(await wordsOf(box, bots));
 
-    await hook(box, bots, { session: 'conv-1', source: 'startup', model: MODEL });
     await hook(box, bots, { session: 'conv-2', source: 'clear', model: MODEL });
 
     assert.ok(await exists(sourceOf(bots, 'conv-1')), 'the start is noted');
@@ -1356,9 +1356,8 @@ describe('T11 the model of a note', SIDE_BY_SIDE, () => {
 
   test('T11 health names both models when the build declined a note for its model', async (t) => {
     const box = await createSandbox(t);
-    const bots = await started(box);
+    const bots = await started(box, { comesUp: { id: 'conv-1' } });
     const { text } = await appendedOf(await wordsOf(box, bots));
-    await hook(box, bots, { session: 'conv-1', source: 'startup', model: MODEL });
     await onRecord(box, bots, 'conv-1', [[...SECTIONS, text]], { model: OTHER });
     await restart(box);
     assertOwnText(await wordsOf(box, bots), 'the premise: the record is of another model than the note');
@@ -1637,9 +1636,8 @@ describe('T13 a session with no note of its main text (#794)', SIDE_BY_SIDE, () 
   test('T13 a started session whose entry an older kit wrote, whose record holds the mark as one line of a section, with no fitting record: main_text own, whose why says no note and a clear; no finding, exit 0; health writes no note', async (t) => {
     const box = await createSandbox(t);
     await markedKit(box);
-    const bots = await started(box);
+    const bots = await started(box, { comesUp: { id: 'conv-1' } });
     const { text: appended } = await appendedOf(await wordsOf(box, bots));
-    await hook(box, bots, { session: 'conv-1', source: 'startup' });
     await onRecord(box, bots, 'conv-1', [[...OWN_LINE, appended]]);
     assert.equal((await sessionIn(bots, BOT, 'daily')).own_text, true, 'the premise: the start noted own_text');
     await asAnOlderBook(bots);
@@ -1740,9 +1738,8 @@ describe('T13 a session with no note of its main text (#794)', SIDE_BY_SIDE, () 
   /** The marked kit up; daily started and noted, with its record of Claude Code's own text; `then` runs before health. */
   async function ownTextNoted(box, { record = {}, then = async () => {}, ...options } = {}) {
     await markedKit(box);
-    const bots = await started(box, options);
+    const bots = await started(box, { ...options, comesUp: { id: 'conv-1' } });
     const { text } = await appendedOf(await wordsOf(box, bots));
-    await hook(box, bots, { session: 'conv-1', source: 'startup' });
     await onRecord(box, bots, 'conv-1', [[...OWN, text]], record);
     await then(bots);
     return bots;

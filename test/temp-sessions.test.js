@@ -55,6 +55,7 @@ import {
   botHomeOf,
   createSandbox,
   fakeProgram,
+  harnessComesUp,
   harnessPartOf,
   kitLaunchMark,
   mailboxStep,
@@ -162,9 +163,15 @@ async function fleet(box) {
     '--model', 'sonnet', '--effort', 'medium', '--prompt', 'You plan the other bot\'s work.',
   ]);
   await ok(['permission', 'approval', '--bots', 'bots', '--bot', OTHER, '--session', 'planner', '--approval', 'auto']);
+  const bots = box.path('bots');
+  // Each harness comes up and reports its conversation as the kit launches it,
+  // as a real one does, so no launch waits out the kit's bound for the start
+  // prompt (#792).
+  await harnessComesUp(box, { bots, bot: BOT, session: 'planner', harness: 'claude', id: 'sess-planner' });
+  await harnessComesUp(box, { bots, bot: BOT, session: 'nightly', harness: 'codex', id: 'sess-nightly' });
+  await harnessComesUp(box, { bots, bot: OTHER, session: 'planner', harness: 'claude', id: 'sess-other-planner' });
   await ok(['up', '--bots', 'bots', '--bot', BOT]);
   await ok(['up', '--bots', 'bots', '--bot', OTHER]);
-  const bots = box.path('bots');
   return {
     bots,
     planner: await liveTab(box, bots, BOT, 'planner'),
@@ -996,11 +1003,12 @@ describe('temporary sessions, four side by side', SIDE_BY_SIDE, () => {
   async function withTemps(box) {
     const found = await fleet(box);
     const { bots, planner, otherPlanner } = found;
+    // scout's harness reports its conversation as it comes up (#792).
+    await harnessComesUp(box, { bots, bot: BOT, session: 'scout', harness: 'claude', id: 'sess-scout' });
     await made(box, planner, ['--name', 'scout', '--prompt', TASK]);
     await made(box, otherPlanner, ['--name', 'helper', '--prompt', TASK]);
     const scout = await liveTab(box, bots, BOT, 'scout');
-    const reported = await recordSession(box, { bots, bot: BOT, tab: scout.tabId, session: 'sess-scout' });
-    assert.equal(reported.code, 0, reported.stderr);
+    assert.equal((await sessionIn(bots, BOT, 'scout')).session, 'sess-scout', 'the premise: scout\'s harness reported its conversation');
     return { ...found, scout, helper: await liveTab(box, bots, OTHER, 'helper') };
   }
 
