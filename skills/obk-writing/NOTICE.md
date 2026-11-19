@@ -106,6 +106,9 @@ Each licence below was read from the file named beside it.
   Revision: garrytan/gstack@a6b3a57512ca6d5c6aa5b68f74f736195021f96e
   (reconstructed: the research pack's 2026-09-20 clone the skills were built
   from; the revision actually read was not recorded)
+  Seen 2026-11-19: the voice section and the jargon rule moved to
+  `document-generate/sections/preamble.md` in 3e4240a (2026-10-27). At
+  a6b3a57 they are in `document-generate/SKILL.md`, as named above.
 - **`addyosmani/agent-skills`, `skills/doubt-driven-development`** and
   **`citypaul/.dotfiles`, `claude/.claude/skills/double-check`**: MIT,
   `addyosmani_agent-skills/LICENSE` ("Copyright (c) 2025 Addy Osmani") and

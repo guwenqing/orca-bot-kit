@@ -65,3 +65,7 @@ records the repository as MIT, and what this skill takes from it is the idea of
 labelling a claim by whether it was checked, written in our own words rather
 than copied. No Waza text is reproduced here, and its licence file was not
 available to read.
+
+Seen 2026-11-19, in the repository: Waza's `LICENSE` is the MIT License,
+"Copyright (c) 2026 Tw93", at 59323de (the revision NOTICE.md names) and the
+same at b944ba7 (the newest).

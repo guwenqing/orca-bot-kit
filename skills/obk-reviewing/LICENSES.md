@@ -58,6 +58,9 @@ SOFTWARE.
 - **`affaan-m/ECC`**, whose reviewer prompt reached this skill through the
   research pack's quotations rather than from the repository, which is not
   among the clones.
+  Seen 2026-11-19, in the repository: its `LICENSE` is the MIT License,
+  "Copyright (c) 2026 Affaan Mustafa", at 07756ce (the revision NOTICE.md
+  names) and the same at 3f14a10 (the newest).
 - **Anthropic's built-in review behaviour** was observed in use rather than
   read as text, so there is nothing of theirs here to license.
 

@@ -46,6 +46,10 @@ thanks. Each licence below was read from the file named beside it.
   Revision: cursor/plugins@6ed0f7a9504f577d7529064103cecce9be7dfc5e
   (reconstructed: the research pack's 2026-09-20 clone the skills were built
   from; the revision actually read was not recorded)
+  Seen 2026-11-19: pstack deleted all of `why/references/` and cut
+  `why/SKILL.md` to one short paragraph in bf0c7cd (2026-11-14). The files
+  and the line numbers that this NOTICE cites are those at 6ed0f7a, where
+  they can still be read.
 - **`addyosmani/agent-skills`, `skills/source-driven-development`**: MIT,
   `addyosmani_agent-skills/LICENSE`, "Copyright (c) 2025 Addy Osmani". The
   source hierarchy and what sits outside it: model-written summaries and your

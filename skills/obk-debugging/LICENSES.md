@@ -61,6 +61,9 @@ SOFTWARE.
 - **`tw93/Waza`** is not among the clones in the research pack. Its `hunt`
   skill is quoted in the pack's `source-book-2.md`, which records the
   repository as MIT. What this skill takes from it is written in our own words.
+  Seen 2026-11-19, in the repository: its `LICENSE` is the MIT License,
+  "Copyright (c) 2026 Tw93", at 59323de (the revision NOTICE.md names) and the
+  same at b944ba7 (the newest).
 
 These are named in NOTICE.md for honesty about where the material came from.
 No text of theirs is reproduced in this skill, and their licence files were not
