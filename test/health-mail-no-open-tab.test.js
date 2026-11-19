@@ -21,10 +21,12 @@
 //     tab is gone. A paused session whose tab Orca still lists has an open tab
 //     (test/health-mail-unannounced.test.js, pin 5, holds that).
 //   - For each such session whose Run Orca still has, and whose mailbox holds
-//     at least one unread letter (`read: 0`) among the newest 100: one finding,
-//     kind `mail`, `bot` the bot, `where` the Run id as the book writes it, and
-//     `says` naming the session, that it has no open tab, "at least <n> unread
-//     letter(s)" (n the unread letters among the newest 100), Orca 1.4.262,
+//     at least one unread letter (`read: 0`): one finding. That holds for an
+//     unread letter below 100 newer read ones too (review of PR #842). The
+//     finding is kind `mail`, `bot` the bot, `where` the Run id as the book
+//     writes it, and `says` naming the session, that it has no open tab, "at
+//     least <n> unread letter(s)" (n the unread letters among the newest 100,
+//     or 1 for one unread letter below 149 read ones), Orca 1.4.262,
 //     that Orca can delete the mailbox from the newest letter's `created_at`
 //     plus exactly 24 hours, as `toISOString` writes it, unless the session
 //     starts first, and the start command.
@@ -439,6 +441,81 @@ test('#841 R1 "it MUST say how many letters wait (at least that many)": 150 unre
     bot: 'api-bot', session: 'daily', run: daily, count: 100, deletes: '2026-11-20T10:00:00.000Z', starts: upOf(box, bots, 'api-bot', 'daily'),
   });
   assert.ok(!hasWord(finding.says, '150'), `not 150: the read holds the newest 100, got: ${finding.says}`);
+});
+
+// ---------------------------------------------------------------------------
+// An unread letter below the newest 100 (review of PR #842)
+// ---------------------------------------------------------------------------
+//
+// Orca's `reply` can mark a letter read out of order, so a mailbox whose newest
+// 100 letters are all read can still hold an older unread one. R1 has no
+// exception for it. How health finds it is the kit's: the fake answers any
+// `--limit`, and the tests pin the finding, not the reads.
+
+/** 150 letters, one a minute, oldest first, the newest at `newest`; `unread` says which, by place from the oldest (0). */
+const hundredAndFifty = (run, newest, unread = () => false) => Array.from(
+  { length: 150 },
+  (_, n) => letter(run, { at: minutesAfter(newest, n - 149), read: unread(n) ? 0 : 1 }),
+);
+
+test('#841 R1 "obk health MUST name each session with no open tab whose mailbox holds unread letters": an unread letter below 149 newer read ones is named, as at least 1, with the time from the newest, and health only reads', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  await botUp(box, 'api-bot');
+  await tabsGone(box, bots, 'api-bot', 'daily');
+  const daily = await mailboxOf(bots, 'api-bot', 'daily');
+  // The oldest of 150 is unread; the 149 newer ones are read. The newest is at 2026-11-19T18:30:00Z.
+  await mailTo(box, daily, ...hundredAndFifty(daily, '2026-11-19T18:30:00Z', (n) => n === 0));
+  const before = await snapshot(box.root, skipOrcaFake);
+  const state = await box.orca.state();
+  const asked = (await box.orca.calls()).length;
+
+  const json = await health(box, '--json');
+  const plain = await health(box);
+  const answer = await found(box);
+
+  const finding = assertNamedNoOpenTab(answer, {
+    bot: 'api-bot', session: 'daily', run: daily, count: 1, deletes: '2026-11-20T18:30:00.000Z', starts: upOf(box, bots, 'api-bot', 'daily'),
+  });
+  assert.ok(!/\bat least (0|100|149|150)\b/i.test(finding.says), `one letter is unread, got: ${finding.says}`);
+  assert.ok(!finding.says.includes('2026-11-20T16:01:00.000Z'), `the time is not 24 hours after the unread letter, got: ${finding.says}`);
+  for (const [name, result] of [['--json', json], ['plain', plain]]) {
+    const all = `${result.stdout}${result.stderr}`;
+    for (const secret of [SUBJECT, BODY]) assert.ok(!all.includes(secret), `the ${name} report shows no subject or body, and shows ${secret}:\n${all}`);
+  }
+  assert.ok(flat(plain.stdout).includes(flat(finding.says)), `the plain lines say what the JSON says, got:\n${plain.stdout}`);
+  const after = await box.orca.state();
+  assert.deepEqual(await snapshot(box.root, skipOrcaFake), before, 'every file and every link is as it was');
+  assert.deepEqual(after.inbox, state.inbox, 'every letter is as it was');
+  assert.deepEqual(after.runs, state.runs, 'no Run made, bound or changed');
+  assert.deepEqual(after.messages, state.messages, 'no letter sent or acknowledged');
+  assert.deepEqual(
+    after.terminals.map((one) => ({ handle: one.handle, typed: one.typed })),
+    state.terminals.map((one) => ({ handle: one.handle, typed: one.typed })),
+    'no tab opened, closed or typed into',
+  );
+  const calls = (await box.orca.calls()).slice(asked);
+  assertOrcaCallsAllowed(calls);
+  const forbidden = calls.filter((call) => ['orchestration check', 'orchestration run-use', 'orchestration run-create', 'orchestration send', 'orchestration reply', 'terminal send', 'terminal create'].includes(orcaCommand(call)));
+  assert.deepEqual(forbidden.map((call) => call.args), [], 'health takes no mail, binds or makes no Run, sends nothing, types nothing and makes no tab');
+});
+
+test('#841 R1 "whose mailbox holds unread letters": 150 letters all read are not named, beside a sibling whose one unread letter is below 149 read ones, which is', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  await botUp(box, 'api-bot', { sessions: ['daily', 'review'] });
+  await tabsGone(box, bots, 'api-bot', 'daily', 'review');
+  const daily = await mailboxOf(bots, 'api-bot', 'daily');
+  const review = await mailboxOf(bots, 'api-bot', 'review');
+  await mailTo(box, daily, ...hundredAndFifty(daily, '2026-11-19T20:00:00Z'));
+  await mailTo(box, review, ...hundredAndFifty(review, '2026-11-19T22:15:00Z', (n) => n === 0));
+
+  const answer = await found(box);
+
+  assertNoNoOpenTabFor(answer, daily, 'every one of daily\'s 150 letters is read');
+  assertNamedNoOpenTab(answer, {
+    bot: 'api-bot', session: 'review', run: review, count: 1, deletes: '2026-11-20T22:15:00.000Z', starts: upOf(box, bots, 'api-bot', 'review'),
+  });
 });
 
 // ---------------------------------------------------------------------------

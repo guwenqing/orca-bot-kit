@@ -62,6 +62,7 @@ import { parse, stringify } from 'yaml';
 import {
   assertRefused,
   bookOf,
+  botHomeOf,
   createSandbox,
   orcaCallsOf,
   orcaCommand,
@@ -504,3 +505,89 @@ test('#841 R1 "the receiver has no open tab": a receiver with no mailbox yet kee
   assertJsonNoOpenTab(sibling, dailyStarts);
 });
 
+
+// ---------------------------------------------------------------------------
+// A receiver whose bot has no Orca project any more (review of PR #842)
+// ---------------------------------------------------------------------------
+//
+// The book still names the receiver's mailbox and tab, but Orca has no project
+// for the bot's folder: `terminal list --worktree path:<home>` is refused
+// `selector_not_found` (the fake does so for a path none of its setups has),
+// and the tab is not there. That receiver has no open tab. A listing that
+// fails for another reason, the project still there, says nothing of the tab,
+// and the answer stays as it is today (test/message-send-orphaned.test.js, MO7).
+
+/** Take the Orca project of `bot`'s folder away, and the tabs in it: Orca has no project for it any more. */
+async function projectGone(box, bots, bot) {
+  const home = botHomeOf(bots, bot);
+  const setups = await box.orca.setups();
+  assert.ok(setups.some((one) => one.path === home), `the premise: Orca has a project for ${home}, got: ${JSON.stringify(setups.map((one) => one.path))}`);
+  const state = await box.orca.state();
+  await box.orca.set({
+    setups: setups.filter((one) => one.path !== home),
+    terminals: state.terminals.filter((one) => one.worktreePath !== home),
+  });
+}
+
+/** The words of today's send when the kit cannot read Orca's tab listing (MO7). */
+const COULD_NOT_TELL = /\b(could ?n[o']t|cannot|can't|unable to|did not|does not|do not) (tell|know|read|see|say)\b|\bnot known\b|\bunknown\b/i;
+
+test('#841 R1 "the receiver has no open tab (it is paused, or its tab is gone)": message to a receiver whose bot has no Orca project any more says it, with its start command', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await fleet(box);
+  await projectGone(box, bots, 'coder');
+  const starts = NO_OPEN_TAB['its tab is gone'].starts(box, bots, 'coder');
+
+  const answer = jsonOf(await to(box, 'coder/daily', ['--json']));
+  const plain = textOf(await to(box, 'coder/daily'));
+
+  assert.equal(answer.transport, 'orca', `the premise: the Orca road, got: ${JSON.stringify(answer)}`);
+  assert.equal(answer.address, `run:${await mailboxOf(bots, 'coder', 'daily')}`, `the address is the receiver's mailbox as before, got: ${JSON.stringify(answer)}`);
+  assertJsonNoOpenTab(answer, starts);
+  assertSaysNoOpenTab(plain, starts);
+});
+
+test('#841 R1 "The letter still goes, by the same road as before": message send to a receiver whose bot has no Orca project any more is sent, and says it has no open tab, not that the kit could not tell', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await fleet(box);
+  await projectGone(box, bots, 'coder');
+  const starts = NO_OPEN_TAB['its tab is gone'].starts(box, bots, 'coder');
+  const mailbox = await mailboxOf(bots, 'coder', 'daily');
+
+  const answer = jsonOf(await send(box, 'coder/daily', ['--json']));
+  const plain = textOf(await send(box, 'coder/daily'));
+
+  assert.equal(answer.sent, true, `the letter went, got: ${JSON.stringify(answer)}`);
+  assert.deepEqual((await box.orca.messages()).map((one) => one.to), [`run:${mailbox}`, `run:${mailbox}`], 'both letters are in the receiver\'s own mailbox, run:<id>, as before');
+  assertJsonNoOpenTab(answer, starts);
+  assertSaysNoOpenTab(plain, starts);
+  assert.doesNotMatch(plain, /could not tell whether the Orca window has loaded its tab/i, `the kit knows there is no tab: not that it could not tell, got:\n${plain}`);
+  assert.doesNotMatch(plain, NOTICE_CLAIM, `no claim of Orca's notice, got:\n${plain}`);
+});
+
+test('#841 R1 "has no open tab": a tab listing that fails for another reason, the project still there, gives today\'s answer; a receiver whose project is gone gets the words', async (t) => {
+  const box = await createSandbox(t);
+  const bots = await fleet(box);
+  await projectGone(box, bots, 'coder');
+  const starts = NO_OPEN_TAB['its tab is gone'].starts(box, bots, 'coder');
+
+  // The project gone: the words.
+  const gone = jsonOf(await send(box, 'coder/daily', ['--json']));
+  // Skipper's project is there, and every tab listing fails another way.
+  await box.orca.set({ fail: { 'terminal list': { code: 'runtime_error', message: 'the listing is not there' } } });
+  const asked = jsonOf(await to(box, 'skipper/daily', ['--json']));
+  const askedPlain = textOf(await to(box, 'skipper/daily'));
+  const sent = jsonOf(await send(box, 'skipper/daily', ['--json']));
+  const sentPlain = textOf(await send(box, 'skipper/daily'));
+
+  for (const [what, answer] of [['message to', asked], ['message send', sent]]) {
+    assert.ok(!Object.hasOwn(answer, 'noOpenTab'), `${what}: a listing that failed says nothing of the tab, so no noOpenTab, got: ${JSON.stringify(answer)}`);
+  }
+  assert.equal(sent.sent, true, `the letter went, got: ${JSON.stringify(sent)}`);
+  assertSaysNothingOfIt(askedPlain);
+  assertSaysNothingOfIt(sentPlain);
+  assert.match(sentPlain, COULD_NOT_TELL, `the send keeps its line that the kit could not tell, got:\n${sentPlain}`);
+  assert.match(sentPlain, /load/i, `whether the Orca window has loaded the receiver's tab, got:\n${sentPlain}`);
+  // Last: the receiver whose project is gone has no open tab.
+  assertJsonNoOpenTab(gone, starts);
+});
