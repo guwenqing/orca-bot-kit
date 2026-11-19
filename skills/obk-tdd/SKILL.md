@@ -308,9 +308,10 @@ A seam below that gives a green test and no protection. If no correct seam
 exists, that is itself the finding: report it, because the shape of the code is
 what is stopping the bug from being pinned down.
 
-Before you write that test, read [bugs.md](bugs.md) beside this file: how small to make the
-reproduction, the two tests that are often better than one, how to prove a regression test
-written after the fix, an intermittent bug, and what to say when a failing test is impractical.
+Before you write that test, or when you check a bug's test that is already there, read
+[bugs.md](bugs.md) beside this file: how small to make the reproduction, the two tests that are
+often better than one, how to prove a regression test written after the fix, an intermittent
+bug, and what to say when a failing test is impractical.
 
 ## Tests that catch nothing
 
