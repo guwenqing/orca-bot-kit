@@ -1,6 +1,6 @@
 Status: accepted
 
-<!-- ADR-38 choice supersedes:ADR-27 -->
+<!-- ADR-38 choice supersedes:ADR-27 decides:KIT-26 source:https://github.com/guwenqing/orca-bot-kit/issues/344,https://github.com/guwenqing/orca-bot-kit/issues/353,https://github.com/guwenqing/orca-bot-kit/issues/527 -->
 
 # ADR 0038: A charter's grants become exact permission rules, and broad rules stay the user's
 

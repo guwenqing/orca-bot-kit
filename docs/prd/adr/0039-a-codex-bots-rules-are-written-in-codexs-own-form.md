@@ -1,6 +1,6 @@
 Status: accepted
 
-<!-- ADR-39 choice supersedes:ADR-28 -->
+<!-- ADR-39 choice supersedes:ADR-28 decides:KIT-26 source:https://github.com/guwenqing/orca-bot-kit/issues/354,https://github.com/guwenqing/orca-bot-kit/issues/527 -->
 
 # ADR 0039: A Codex bot's permission rules are written in Codex's own form, from the same list
 
