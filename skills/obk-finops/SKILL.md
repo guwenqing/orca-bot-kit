@@ -40,6 +40,18 @@ than it sounds: the two write their transcripts down differently, and a number
 read straight out of a transcript is not comparable with the same number from
 the other one. Take the kit's.
 
+The figures are a floor, not a total. `obk usage` counts what the
+transcripts hold, and a harness also makes requests that leave no row there.
+On Claude Code those include auto mode's checks, the progress summaries of
+subagents, compaction and other summaries, session titles, prompt
+suggestions and the extraction of memories, and how much they come to
+changes from one version to the next. From Claude Code 2.1.280 to 2.1.306 a
+subagent's transcript also lacked most of its output, so the figures of
+those versions are lower still. Say "at least" beside a figure from the
+transcripts, and name the kinds it leaves out. Where the provider's own
+usage page covers the same work, that is the better figure, as the section
+on bills below says.
+
 The kinds of token do not cost the same. Uncached input, output, cache reads
 and cache writes are separate figures because they are separately priced, and
 a conversation that looks expensive on raw input is often a conversation doing

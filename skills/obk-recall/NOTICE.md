@@ -48,6 +48,40 @@ record lives, uses whatever sources the project actually has, and states a
 missing one as a limit on what could be checked. The privacy rule is kept and
 generalised: another project's history is not read without being asked.
 
+## Where the record is, and the order to read it (#822)
+
+The paragraphs on where a session's record lives, on compaction, on a record
+being material, and the bullet on the order to read a long record come from
+issue #822.
+
+- **Mainplane**, `pkg/harness/tools.go`, lines 96 and 97: a new session that
+  continues an earlier one is given the earlier session's record, which it can
+  search; and the order that often works to take context from it: its first
+  user message or all of them, its last text, a small tail of the file, then
+  a search for the key details. MIT. Restated in our own words; "do not read
+  the whole file" is the issue's.
+  Revision: mainplane-ai/mainplane@2f6affe7385b05c4390ca00f80bbf4e7c9354c11
+  (main, read 2026-11-19; the file last changed in 85d8403)
+
+The rest is this kit's own. The book keeps each session's earlier
+conversations by id, for history (PRD 6.8), and `obk roster` shows them. Where
+each harness files a conversation, and the settings that move it, are in the
+tech notes, sections 2, 3 and 6: `CLAUDE_CONFIG_DIR` moves Claude Code's
+folder, and Orca starts a Claude tab with it set to a profile of its own; Pi's
+store moves with `PI_CODING_AGENT_DIR`, `PI_CODING_AGENT_SESSION_DIR`,
+`--session-dir` or `sessionDir`. That Codex keeps its records in `sessions`
+and `archived_sessions` under `CODEX_HOME`, or `~/.codex` where it is not
+set, was read in Codex's source on 2026-11-19, `codex-rs/utils/home-dir` and
+`codex-rs/rollout`, at openai/codex@ab00c6d640e19d771d77859dc3eeff66f8a9168f.
+Apache-2.0; no text is taken. That a compacted Claude Code conversation keeps
+its earlier lines in the same file, above the `compact_boundary` line, was
+seen on disk on 2026-11-19: in five of five compacted transcripts of one bot,
+Claude Code 2.1.308 to 2.1.327, every one kept hundreds of user and assistant
+lines before its first marker. That a Claude Code record files each tool
+result as a `user` line was seen the same day: 104 of 116 `user` lines in one
+transcript. That a record is material and not instructions is the rule of
+`obk-fleet-review` and `obk-grooming`, from pstack.
+
 One departure: the original keeps itself from being invoked on its own with
 `disable-model-invocation: true`, which is not portable frontmatter (ADR 0019
 and PRD 7.2: these run on purpose, never automatically). Its description can

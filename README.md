@@ -863,6 +863,13 @@ cost, and what to improve, sent as one short report to Bot Father's management
 session. It runs in a session of Bot Father's called `grooming`, on Claude
 Code's own scheduler, at the model and effort you give that session.
 
+The usage figures in the report are what the harnesses' transcripts hold,
+and that is a floor, not a total. Claude Code also makes requests that leave
+no row in a transcript: auto mode's checks, the progress summaries of
+subagents, compaction and other summaries, session titles, prompt
+suggestions and the extraction of memories. Where your provider's usage page
+covers the same work, it is the better figure.
+
 ```sh
 obk session add --bots /path/to/my-bots --bot bot-father --name grooming --model sonnet --effort medium
 obk up --bots /path/to/my-bots --bot bot-father

@@ -230,6 +230,27 @@ Prefer the fix closest to the cause, and prefer one that holds by itself to
 another paragraph of prose. Something a check can enforce will still be true
 next month; a sentence added to a charter is only as good as the reading.
 
+So for a finding you have seen twice, name the kind of check that would hold
+it: a test or a lint rule in the user's repo, a check in its CI, a permission
+rule, a finding of `obk health`, which is asked of the kit as an issue, or a
+hook the user adds. Say where it would run and what it would stop. Before
+anyone trusts it, it fails once on a known bad case: one of the two you saw,
+replayed, or one made to match them. A check that has never failed has not
+shown that it can. Where you add it yourself, on the user's yes, run that
+case and say what it gave; where the user adds it, say that the run is still
+owed.
+
+A line for a charter, or for a rule unit that is always on, is the fix where
+no check can hold the finding, and every session reads it on every task. Two
+questions come before it goes in. Is it a lasting fact of the whole project,
+or a detail of one environment, such as one machine's path or the tests that
+failed in one run? A detail goes into the message for that task or into a
+note, because the next task seldom meets the same case. And does it add a
+step to every task? Such a line costs that step every time, so it states its
+reason, or it goes into a skill, which loads only for the work it covers. The
+line carries a short note beside it: the failure it answers, where it was
+seen (the two places, or the user's own order with its date), and its scope.
+
 ## Reading a bot's own history
 
 A bot's conversations are its user's. Bot Father and the grooming pass may
@@ -290,8 +311,8 @@ send the usage half, and say in each that the other exists.
 Overall state first, in one line, so it can be read and put down. Then a line
 per bot with its verdict and the one reason. Then the findings worth acting
 on, each with its evidence and its single fix: what you checked, for something
-you found broken, and where you saw it twice, for a pattern. Then what you
-need a decision on. A handful of points, not a document.
+you found broken, and where you saw it twice, for a pattern, with the kind of
+check that would hold it. Then what you need a decision on. A handful of points, not a document.
 
 A long review does not get read. Point at the roster rather than reprinting
 it, keep the bots you are leaving alone to one line each, and put the ones you
