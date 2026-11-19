@@ -39,9 +39,9 @@ with thanks:
   Revision: tw93/Waza@59323dee82b04fa8b9ad97a8ee503ca8aee7eb3c (as recorded in
   the research pack's source-book-2.md, read 2026-09-19)
 - **Cursor pstack**, `principle-fix-root-causes` and the `poteto-mode`
-  playbooks. Not adding guards to silence a crash, a workaround needing a
-  paragraph meaning the code is wrong, checking for the pattern rather than the
-  instance, suspecting stored state first when something fails after a restart,
+  playbooks. A workaround needing a paragraph meaning the code is wrong,
+  checking for the pattern rather than the instance, suspecting stored state
+  first when something fails after a restart,
   and from `principle-attack-the-premise`, two fixes sharing one premise
   meaning the premise is what to suspect and test next, written down before
   another fix is tried, while it may still not be the cause. From the
@@ -129,6 +129,21 @@ with thanks:
   Revision: cursor/plugins@6ed0f7a9504f577d7529064103cecce9be7dfc5e
   (reconstructed: the research pack's 2026-09-20 clone the skills were built
   from; the revision actually read was not recorded)
+- **Cursor pstack**, `principle-fix-root-causes` further to the above: asking
+  whether the state a guard handles is legitimate, handling it where the code
+  broke if it is, and finding what produced it if it is not; and retries,
+  swallowed errors, clamped values and discarded state as the other ways to
+  hide a bug.
+  Revision: cursor/plugins@e5136d82418d2db3165ea1050d17577cd618cc05 (read
+  2026-11-19)
+- **mattpocock/skills**, `engineering/diagnosing-bugs` further to the above: a
+  forced red confirmed against a clean copy before it is trusted.
+  Revision: mattpocock/skills@f3fc5632f401156837ee3872f14fe33ccf1024ea (read
+  2026-11-19)
+- **Waza**, `hunt` further to the above: the red run in a disposable copy,
+  never in the shared working tree.
+  Revision: tw93/Waza@6dc218838878401ccdcde8101a64b9db3df548d8 (read
+  2026-11-19)
 
 The owner's own framing leads the skill: reproduce it, find the difference in
 environment, version and context, and the hard cases being random and slow

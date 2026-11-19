@@ -27,6 +27,8 @@ is the licence file it was read from, in the research pack's source clones.
   (`citypaul_.dotfiles/LICENSE`)
 - **`KentBeck/BPlusTree3`, for his own rules file**, Copyright (c) 2025 Kent Beck
   (`KentBeck_BPlusTree3/LICENSE`)
+- **`tw93/Waza`**, Copyright (c) 2026 Tw93 (its `LICENSE` at 6dc2188, read
+  2026-11-19 from the repository, not from the research pack)
 
 ```
 MIT License
@@ -37,6 +39,7 @@ Copyright (c) 2026 Lauren Tan
 Copyright (c) 2025 Addy Osmani
 Copyright (c) 2024 Paul Hammond
 Copyright (c) 2025 Kent Beck
+Copyright (c) 2026 Tw93
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

@@ -59,6 +59,15 @@ thanks:
   Revision: KentBeck/BPlusTree3@ca80e4d85a99cd0af2effe717f709d43e80403bc
   (reconstructed: the research pack's 2026-09-20 clone the skills were built
   from; the revision actually read was not recorded)
+- **mattpocock/skills**, `engineering/diagnosing-bugs` further to the above:
+  a forced red confirmed with a diff against a clean copy before it is trusted,
+  here also for each planted break of the mutation check.
+  Revision: mattpocock/skills@f3fc5632f401156837ee3872f14fe33ccf1024ea (read
+  2026-11-19)
+- **Waza**, `hunt`: proving a regression test against the unfixed code in a
+  disposable copy, never by reverting or stashing the shared working tree.
+  Revision: tw93/Waza@6dc218838878401ccdcde8101a64b9db3df548d8 (read
+  2026-11-19)
 - **nizos/tdd-guard**: the ladder to a clean red.
   Revision: nizos/tdd-guard@2579ec1823fac5f4afb73be678d9c500b19885ac (as
   recorded in the research pack's source-book-2.md, read 2026-09-19)
@@ -69,6 +78,11 @@ Ideas paraphrased, with no text taken:
   4.0), on equivalent mutants.
   Revision: trailofbits/skills@123037ec8aed26f0d86327cc39137ee5043e5deb (as
   recorded in the research pack's source-book-2.md, read 2026-09-19)
+- **Trail of Bits' `prove-patch` skill**, in `trailofbits/skills` (CC BY-SA
+  4.0), on proving a patch in clean trees, with the reverted tree checked to be
+  the baseline tree.
+  Revision: trailofbits/skills@a3131740a39291e42fd15b9eac07e0b393ad71b1 (read
+  2026-11-19)
 - **Anthropic's Claude Code documentation**, "Claude Code: Best practices", on
   separate test authorship.
   Read: 2026-09-19 (read for the research pack's source-book-1.md, of that date)
