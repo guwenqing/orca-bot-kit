@@ -100,8 +100,8 @@ import test, { describe, it } from 'node:test';
 
 import {
   botHomeOf,
-  conversationOnRecord,
   createSandbox,
+  harnessComesUp,
   orcaCallsOf,
   orcaCommand,
   orcaFlag,
@@ -247,15 +247,19 @@ async function liveTab(box, bots, name = 'daily') {
  */
 async function running(box, { harness = 'claude', sessions = ['daily', 'review'], reported = true, cliVersion = '0.160.0' } = {}) {
   const bots = await madeBot(box, { harness, sessions });
+  // Each harness writes its record and reports its conversation as the kit
+  // launches it, as a real one does, so the up does not wait out its bound for
+  // the start prompt (#792).
+  if (reported) {
+    for (const name of sessions) {
+      await harnessComesUp(box, { bots, bot: BOT, session: name, harness, id: `sess-${name}`, ...(harness === 'codex' && cliVersion !== null ? { version: cliVersion } : {}) });
+    }
+  }
   const up = await box.run(['up', '--bots', 'bots', '--bot', BOT]);
   assert.equal(up.code, 0, `the up this test stands on: ${up.stdout}${up.stderr}`);
   if (reported) {
-    for (const name of sessions) {
-      const tab = await liveTab(box, bots, name);
-      const heard = await recordSession(box, { bots, bot: BOT, tab: tab.tabId, session: `sess-${name}` });
-      assert.equal(heard.code, 0, `the hook report this test stands on: ${heard.stderr}`);
-      await conversationOnRecord(box, { harness, cwd: botHomeOf(bots, BOT), id: `sess-${name}`, ...(harness === 'codex' && cliVersion !== null ? { cliVersion } : {}) });
-    }
+    const came = await box.orca.harnessesUp();
+    assert.deepEqual(came.map((one) => [one.session, one.status]), sessions.map((name) => [name, 0]), `the hook reports this test stands on: ${JSON.stringify(came)}`);
     assert.equal((await sessionIn(bots, BOT, 'daily')).session, 'sess-daily', 'the premise: the book holds daily\'s conversation');
   }
   return bots;

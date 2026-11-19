@@ -524,6 +524,31 @@ export async function createSandbox(t) {
         await saveState(state);
       },
       /**
+       * One entry per harness that came up in a session's tab, in order, from
+       * `harnessUp` (`harnessComesUp` below): { session, argv, status, stdout,
+       * stderr }. Not in `ranDuring`, which lists a test's own runs alone.
+       */
+      async harnessesUp() {
+        try {
+          return (await readFile(path.join(fakeDir, 'harness-up.log'), 'utf8'))
+            .split('\n')
+            .filter((line) => line !== '')
+            .map((line) => JSON.parse(line));
+        } catch (error) {
+          if (error.code === 'ENOENT') return [];
+          throw error;
+        }
+      },
+      /**
+       * One more harness to come up in a session's tab, kept beside any
+       * already waiting (helpers/fake-orca.js `harnessUp`; `harnessComesUp`
+       * below says what it does).
+       */
+      async harnessUp(entry) {
+        const state = await readState();
+        await saveState({ ...state, harnessUp: [...(state.harnessUp ?? []), entry] });
+      },
+      /**
        * Change what the fake Orca knows or how it misbehaves; see
        * helpers/fake-orca.js. A `waitIdle` given here starts from the next
        * `terminal wait`, however many were answered before it.
@@ -1417,6 +1442,154 @@ export async function harnessChain(box, command, { stdin = '', nested = false, l
       ...(nested ? { OBK_TEST_NESTED: '1' } : {}),
     },
   };
+}
+
+/**
+ * The harness's side of a launch, as the fake Orca runs it in the tab
+ * (helpers/fake-orca.js `harnessUp`, #792). The tab's shell gives the harness
+ * the words of the kit's line; the harness writes the start prompt into its
+ * own record and runs the kit's hook under the process chain. CommonJS, as
+ * the chain's other steps are.
+ */
+const HARNESS_UP = `
+const { appendFileSync, existsSync, mkdirSync, readdirSync, statSync } = require('node:fs');
+const path = require('node:path');
+const { randomUUID } = require('node:crypto');
+const { spawnSync } = require('node:child_process');
+const up = JSON.parse(process.env.OBK_TEST_HARNESS_UP);
+const line = process.env.OBK_TEST_LAUNCH_LINE ?? '';
+
+// What the tab's shell hands the harness: the line's harness part, run by
+// /bin/sh, with a stand-in for the harness first on PATH that writes down the
+// words it got. A long prompt comes out of its file that way, as it does in a tab.
+const at = line.indexOf('OBK_TAB_SHELL=$$ ');
+const shell = at < 0 ? undefined : spawnSync('/bin/sh', ['-c', line.slice(at)], {
+  encoding: 'utf8',
+  env: { ...process.env, PATH: up.words + path.delimiter + process.env.PATH },
+});
+if (shell === undefined || shell.status !== 0) {
+  process.stderr.write('no launch line the shell could run: ' + (shell?.stderr ?? line) + '\\n');
+  process.exit(1);
+}
+const got = JSON.parse(shell.stdout);
+const dash = got.argv.lastIndexOf('--');
+const prompt = dash < 0 ? undefined : got.argv[dash + 1];
+
+/** The first file under dir whose name passes, depth first. */
+const find = (dir, passes) => {
+  if (!existsSync(dir)) return undefined;
+  for (const name of readdirSync(dir).sort()) {
+    const full = path.join(dir, name);
+    const found = statSync(full).isDirectory() ? find(full, passes) : passes(name) ? full : undefined;
+    if (found !== undefined) return found;
+  }
+  return undefined;
+};
+
+// The record, where and as the harness keeps it (tech notes, sections 2 and 3):
+// a conversation it has already goes on in the same file.
+const now = new Date().toISOString();
+const lines = [];
+let file;
+if (up.harness === 'codex') {
+  const sessions = path.join(up.root, '.codex', 'sessions');
+  file = find(sessions, (name) => name.endsWith('-' + up.id + '.jsonl'));
+  if (file === undefined) {
+    file = path.join(sessions, ...now.slice(0, 10).split('-'), 'rollout-' + now.replaceAll(':', '-').replace(/[.].*$/, '') + '-' + up.id + '.jsonl');
+    const version = up.version === undefined ? {} : { cli_version: up.version };
+    lines.push({ timestamp: now, type: 'session_meta', payload: { id: up.id, cwd: up.cwd, timestamp: now, ...version } });
+  }
+  if (prompt !== undefined) {
+    lines.push({ timestamp: now, type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: prompt }] } });
+  }
+} else {
+  file = path.join(up.root, '.claude', 'projects', up.cwd.replace(/[^A-Za-z0-9]/g, '-'), up.id + '.jsonl');
+  if (prompt !== undefined) {
+    lines.push({
+      parentUuid: null,
+      isSidechain: false,
+      type: 'user',
+      message: { role: 'user', content: prompt },
+      uuid: randomUUID(),
+      timestamp: now,
+      userType: 'external',
+      cwd: up.cwd,
+      sessionId: up.id,
+      ...(up.version === undefined ? {} : { version: up.version }),
+    });
+  }
+}
+mkdirSync(path.dirname(file), { recursive: true });
+appendFileSync(file, lines.map((one) => JSON.stringify(one) + '\\n').join(''));
+
+// Then the kit's hook, under the chain the kit reads ownership from, with the
+// words this harness was given for the fake ps.
+const input = { session_id: up.id, transcript_path: file, cwd: up.cwd, hook_event_name: 'SessionStart', source: up.source, ...up.input };
+const [program, ...rest] = up.chain.argv;
+const hook = spawnSync(program, rest, {
+  encoding: 'utf8',
+  env: { ...process.env, ...got.env, ...up.chain.env, OBK_TEST_PAYLOAD: JSON.stringify(input) + '\\n', OBK_TEST_HARNESS_ARGS: JSON.stringify(got.argv) },
+});
+process.stdout.write(hook.stdout ?? '');
+process.stderr.write(hook.stderr ?? '');
+process.exit(hook.status ?? 1);
+`;
+
+/** The stand-in the tab's shell starts for the harness: it gives back its words and the line's CLI. */
+const HARNESS_WORDS = `#!/usr/bin/env node
+process.stdout.write(JSON.stringify({
+  argv: process.argv.slice(2),
+  env: process.env.OBK_CLI === undefined ? {} : { OBK_CLI: process.env.OBK_CLI },
+}));
+`;
+
+/**
+ * The harness that the kit's next launch of `bot`/`session` starts, coming up
+ * the way a real one does, during the kit's run (#792). Without it no harness
+ * in the sandbox writes a record, and the kit waits out its whole bound for
+ * the start prompt at every launch (src/up.js `RECORD_MS`).
+ *
+ * At the kit's first look at the tab it launched (helpers/fake-orca.js
+ * `harnessUp`), the harness takes the words the tab's shell gives it for the
+ * kit's line, writes the start prompt (the word after `--`) as a user turn
+ * into its record of conversation `id`, in its own place and shape, and runs
+ * the kit's hook under the process chain with the SessionStart input
+ * `{ session_id: id, source, cwd, transcript_path, ... input }`:
+ *
+ *   claude  ~/.claude/projects/<slug>/<id>.jsonl, the user line as Claude Code
+ *           2.1.328 wrote a start prompt
+ *   codex   ~/.codex/sessions/<yyyy>/<mm>/<dd>/rollout-<stamp>-<id>.jsonl, a
+ *           `session_meta` line first, then the user's `response_item`
+ *
+ * `version` is the harness's own, as it writes it into the record: Codex's
+ * `cli_version` in the `session_meta` line of a new rollout, Claude Code's
+ * `version` on the user line. Left out, the record names none.
+ *
+ * A record of `id` that is there already goes on in the same file. Once per
+ * call, for that session's next launch only. `box.orca.harnessesUp()` lists
+ * each run. A test whose harness never reports, or that checks the wait
+ * itself, does not call it.
+ */
+export async function harnessComesUp(box, { bots, bot, session, harness = 'claude', id, source = 'startup', input = {}, version }) {
+  const dir = path.join(box.root, 'harness');
+  const words = path.join(dir, 'words');
+  await mkdir(words, { recursive: true });
+  const start = path.join(dir, 'harness-up.cjs');
+  await writeFile(start, `${HARNESS_UP.trim()}\n`);
+  for (const name of ['claude', 'codex', 'pi']) {
+    await writeFile(path.join(words, name), HARNESS_WORDS);
+    await chmod(path.join(words, name), 0o755);
+  }
+
+  const home = await realpath(botHomeOf(bots, bot));
+  const hook = [box.cli, 'session', 'record', '--bots', bots, '--bot', bot].map(shellWord).join(' ');
+  const chain = await harnessChain(box, hook);
+  await box.orca.harnessUp({
+    worktree: home,
+    session,
+    argv: [process.execPath, start],
+    env: { OBK_TEST_HARNESS_UP: JSON.stringify({ harness, id, source, input, version, root: box.home, cwd: home, words, chain }) },
+  });
 }
 
 /**
