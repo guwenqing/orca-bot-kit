@@ -1,0 +1,19 @@
+schema: assuredloop/1
+request: mail-no-open-tab
+tier: "1"
+status: open
+sources:
+  - file: 2026-11-19-owner-words.md
+    kind: owner-words
+    sha256: 16ff4ebbbe8fe9b3f111cd3efea0ba4efc680f4435b93a0f577cc75858a838d9
+    taken: 2026-11-19T21:48Z
+requirements:
+  - id: R1
+    version: 1
+    sha256: 321c24e08cfc90289fe585d8786990d87c687afc3869378ba98731a0466edcac
+    title: "A letter to a session with no open tab: the kit says that Orca can delete it, and when"
+signoff: []
+decisions: []
+tasks: []
+bindings:
+  - { holder: mail-no-open-tab/R1, link: from, target: mail-no-open-tab/2026-11-19-owner-words.md, holder_sha256: 321c24e08cfc90289fe585d8786990d87c687afc3869378ba98731a0466edcac, target_sha256: 16ff4ebbbe8fe9b3f111cd3efea0ba4efc680f4435b93a0f577cc75858a838d9 }
