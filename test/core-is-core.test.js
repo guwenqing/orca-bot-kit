@@ -1091,7 +1091,7 @@ test('CC4 the README\'s "Working on the kit" is in CONTRIBUTING.md, which the pa
   assert.ok(!/^#{1,6} +Working on the kit\s*$/m.test(readme), 'the README should no longer hold the "Working on the kit" section');
   assert.match(readme, /\]\((?:\.\/)?CONTRIBUTING\.md(?:#[^)]*)?\)/, 'the README should keep a line that links to CONTRIBUTING.md');
   assert.match(contributing, /^#{1,6} +Working on the kit\s*$/m, 'CONTRIBUTING.md should hold "Working on the kit"');
-  for (const command of ['npm test', 'npm run test:system', 'npm run mutate']) {
+  for (const command of ['npm test', 'npm run test:system']) {
     assert.ok(contributing.includes(command), `CONTRIBUTING.md should say how to run ${command}, as the section did`);
     assert.ok(!readme.includes(command), `the README should no longer say ${command}: it is in CONTRIBUTING.md`);
   }
@@ -1099,4 +1099,17 @@ test('CC4 the README\'s "Working on the kit" is in CONTRIBUTING.md, which the pa
   const pkg = JSON.parse(await readFile(path.join(repoRoot, 'package.json'), 'utf8'));
   assert.deepEqual(sorted(pkg.files), sorted(['src/', 'rules/', 'skills/', 'README.md', 'SETUP.md']), 'the package ships the core and nothing else');
   assert.ok(!pkg.files.some((entry) => /contributing/i.test(entry)), 'the package does not ship CONTRIBUTING.md');
+});
+
+// A command CONTRIBUTING.md tells a contributor to run is one npm has: a script
+// taken out of package.json (as `mutate` was, #819) takes its line out of the
+// page with it, or a contributor who follows the page gets "Missing script".
+test('CC4 each `npm run <script>` CONTRIBUTING.md names is a script of package.json (#819)', async () => {
+  const contributing = await readFile(path.join(repoRoot, 'CONTRIBUTING.md'), 'utf8');
+  const pkg = JSON.parse(await readFile(path.join(repoRoot, 'package.json'), 'utf8'));
+  const named = [...contributing.matchAll(/npm run ([\w:-]+)/g)].map((match) => match[1]);
+
+  assert.ok(named.includes('test:system'), `CONTRIBUTING.md should still say how to run npm run test:system, got: ${JSON.stringify(named)}`);
+  const missing = [...new Set(named)].filter((name) => !Object.hasOwn(pkg.scripts ?? {}, name));
+  assert.deepEqual(missing, [], 'each script CONTRIBUTING.md tells a contributor to run is in package.json');
 });

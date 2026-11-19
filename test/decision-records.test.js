@@ -59,7 +59,7 @@ import { fileURLToPath } from 'node:url';
 import { repoRoot, snapshot } from './helpers/cli.js';
 
 /** Trees that hold copies of other people's files, or of our own. */
-const IGNORED = new Set(['node_modules', '.git', '.stryker-tmp', 'reports']);
+const IGNORED = new Set(['node_modules', '.git', 'reports']);
 
 /** Where the records are: al 5.0.4 reads ADRs in `<spec root>/adr/`, and the root is docs/prd (#817). */
 const ADR_FOLDER = 'docs/prd/adr';
