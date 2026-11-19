@@ -77,6 +77,30 @@ A card is a reading, so it can be wrong where the charter is vague. Where you
 could not find a limit written down, say there is none rather than inferring
 one from the tone of the thing.
 
+## Which of its skills it used
+
+Beside each card, say which of the bot's skills its sessions loaded in the
+window you looked at, and by which road. A skill that the kit linked is in the
+session's listing, and that says nothing about use. The use is in the
+histories: on every harness a read of the skill's `SKILL.md`, and on Claude
+Code also a call of the Skill tool that names the skill. A session or a
+subagent that reads the file by its path makes no Skill call, so a count of
+Skill calls alone misses those loads. Count a subagent's load as
+its session's. `obk usage --since <start> --until <end>` names the
+conversations each session had in the window: read those, not every
+transcript.
+
+A skill with no load in the window is a finding with one fix: name it at the
+step where it applies, in the charter, the start prompt or the role file and
+in the briefs its sessions give their subagents, or take it off the bot. Which
+one depends on whether the job still has that step.
+
+Two cases are not that finding. A skill whose steps a start prompt gives in
+short, so that the session did the work without loading it, is not a defect:
+say so, and say which prompt carries the steps. And where the window held
+none of the work a skill covers (no test written, no review given), there is
+no evidence either way: say that, rather than count the skill as unused.
+
 ## One verdict per bot, and it names the next action
 
 Every bot in the roster gets exactly one, and every one of them says what

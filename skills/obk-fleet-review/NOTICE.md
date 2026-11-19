@@ -72,6 +72,26 @@ other, and a large share of commands that are ceremony rather than work. That
 is his material about his own use, not a third party's, and it is restated here
 rather than quoted.
 
+## Which skills a bot used (#823)
+
+The section "Which of its skills it used" comes from issue #823. The roads by
+which a load shows in a history are what each harness documents, read on
+2026-11-18 and written again in our own words:
+
+- **Claude Code's documentation on skills**,
+  https://code.claude.com/docs/en/skills: a skill's body loads only when it is
+  used, through the Skill tool, and until then the session has its name and
+  description.
+  Read: 2026-11-18 (the page as Markdown; it shows no date)
+- **Codex's documentation, "Build skills"**,
+  https://learn.chatgpt.com/docs/build-skills: Codex starts with each skill's
+  name, description and path, and reads the full `SKILL.md` when it picks one.
+  Read: 2026-11-18 (the page shows no date)
+- **earendil-works/pi**, `packages/coding-agent/docs/skills.md`: when a task
+  matches, the model reads `SKILL.md`. MIT.
+  Revision: earendil-works/pi@5a14e69c067d40dfbff4f2fff7d3b34c897e2dc9
+  (main, read 2026-11-18)
+
 ## The line between this skill and a scheduled pass
 
 This is the judgement applied when somebody asks: how the fleet is doing, and

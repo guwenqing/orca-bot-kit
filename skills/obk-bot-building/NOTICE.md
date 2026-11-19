@@ -81,9 +81,56 @@ and the rest of what a bot needs is settings, which are not an interview.
 Its bot-classification vocabulary is not here either; reviewing a fleet that
 already exists is a different job and lives in `obk-fleet-review`.
 
+## Where a skill is named, and the room of the listing (#823)
+
+The two failures of a skill, and the section "Name each skill at the step
+where it applies", come from issue #823 and from these, each read on
+2026-11-18. What is taken is a fact or an idea, written again in our own
+words; no text of theirs is reproduced.
+
+- **Claude Code's documentation on skills**,
+  https://code.claude.com/docs/en/skills: until a skill is used, only its name
+  and description are in context; the listing gets 1% of the model's context
+  window, drops the descriptions of the skills invoked least first, and caps
+  each entry at 1,536 characters; and its part on a skill that does not
+  trigger.
+  Read: 2026-11-18 (the page as Markdown; it shows no date)
+- **Claude Code's documentation on subagents**,
+  https://code.claude.com/docs/en/sub-agents: a subagent starts fresh, without
+  its maker's conversation or the skills its maker invoked, and an agent
+  definition can preload a skill with its `skills` field.
+  Read: 2026-11-18 (the page as Markdown; it shows no date)
+- **Codex's documentation, "Build skills"**,
+  https://learn.chatgpt.com/docs/build-skills, where
+  developers.openai.com/codex/skills redirects: the list holds each skill's
+  name, description and path, uses at most 2% of the context window, shortens
+  descriptions first and can leave skills out; and Codex reads the whole
+  `SKILL.md` when it picks a skill.
+  Read: 2026-11-18 (the page shows no date)
+- **earendil-works/pi**, `packages/coding-agent/docs/skills.md`: Pi puts each
+  skill's name, description and path in the system prompt, the model reads
+  `SKILL.md` when a task matches, and a model can fail to load a relevant
+  skill. MIT.
+  Revision: earendil-works/pi@5a14e69c067d40dfbff4f2fff7d3b34c897e2dc9
+  (main, read 2026-11-18)
+- **anthropics/skills**, `skills/skill-creator/SKILL.md`: Claude tends to
+  "undertrigger" a skill, not using it where it would help, and consults a
+  skill only for a task it cannot easily do by itself. Apache 2.0; the idea is
+  taken, not the text.
+  Revision: anthropics/skills@e4bb5d960d87126ff3b3a8af1a104b7db67560ba
+  (main, read 2026-11-18)
+- **Vercel, "AGENTS.md outperforms skills in our agent evals"**,
+  https://vercel.com/blog/agents-md-outperforms-skills-in-our-agent-evals,
+  published 2026-01-27: with no instruction the skill was never invoked in 56%
+  of the cases, with an instruction in 95% or more, and an order to invoke the
+  skill first did worse than one to look at the project first and then invoke
+  it. That is why a skill is named at its step and not in a general order.
+  Read: 2026-11-18 (the post is dated 2026-01-27)
+
 ## Sources that need no third-party notice
 
-Everything above is either this kit's own design, the owner's own words, or an
+Everything above is either this kit's own design, the owner's own words, a
+fact or an idea restated in our own words from a source's documentation, or an
 idea restated in our own words from material that carries no licence. Nothing
 in this skill reproduces a third party's text, so there is no permission notice
 to pass on. See [LICENSES.md](LICENSES.md).
