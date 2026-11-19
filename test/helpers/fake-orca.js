@@ -472,9 +472,12 @@
 //   runs      [{ id, objective, coordinator_handle, consumer_generation,
 //               legacy, created_at, updated_at }] — the Run mailboxes
 //               `orchestration run-create` has made, in the words `run-show`
-//               answers with (Orca 1.4.209). A Run cannot be deleted; there is
-//               no command for it, here or in Orca. `coordinator_handle` is
-//               the terminal the Run is bound to, and the only one Orca writes
+//               answers with (Orca 1.4.209). The kit has no command to delete
+//               a Run. From 1.4.262 Orca deletes one by itself, with the
+//               letters in it, a day after its last write when no tab of it
+//               is open (read in Orca's source at tag v1.4.263, #820); a test
+//               does that here with helpers/run-deleted.js.
+//               `coordinator_handle` is the terminal the Run is bound to, and the only one Orca writes
 //               its notice into; null is a Run nobody coordinates, which live
 //               was seen as an empty coordinator. `run-create` and `run-use`
 //               bind the caller's own terminal (`ORCA_TERMINAL_HANDLE`), or the
@@ -503,7 +506,8 @@
 //               before Runs could be bound, which Orca keeps to be inspected:
 //               `run-show` answers it, with `legacy` as it is, and `run-use`
 //               refuses it. A Run not in `runs` at all, as on a new machine
-//               whose Orca never made the Run a book names (#508), is refused
+//               whose Orca never made the Run a book names (#508), or one that
+//               Orca 1.4.262 or later deleted (#820), is refused
 //               by both, with code `run_not_found` and Orca 1.4.223's words
 //               (read in its bundle, out/main/index.js): `run-show` says
 //               "Run <id> was not found.", and `run-use` says "Run <id> was
@@ -1609,8 +1613,11 @@ if (command === 'diagnostics memory') {
 // down in the tech notes, section 1: a Run is the only address that lasts, a
 // send to a terminal handle is a legacy mailbox that dies with the tab, reading
 // a Run is fenced to one bound reader, and a message is replayed until it is
-// acked. What the kit never does — `reply --id`, the broadcast groups,
-// `orchestration reset` — this fake does not answer at all.
+// acked. A Run lasts until Orca deletes it: from 1.4.262 Orca deletes a Run
+// with no open tab a day after its last write, with its letters (#820); the
+// kit has no command to delete one. What the kit never does — `reply --id`,
+// the broadcast groups, `orchestration reset` — this fake does not answer at
+// all.
 
 /**
  * The terminal the calling process runs in: its `ORCA_TERMINAL_HANDLE`, which

@@ -62,7 +62,8 @@
 //     deletes its own Orca projects, in that order;
 //   - checks afterwards that it closed no tab it did not create.
 //
-// A Run cannot be deleted: Orca has no command for it. The Runs this test makes
+// The kit has no command to delete a Run. From 1.4.262 Orca deletes a Run
+// with no open tab a day after its last write (#820). The Runs this test makes
 // are left, as every system test that brings a session up leaves them.
 //
 // **It is not attended.** A restart closes a tab only when the book names the

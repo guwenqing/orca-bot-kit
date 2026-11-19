@@ -1334,8 +1334,15 @@ export const coordinatorOf = (id, options) =>
   orchestration(['orchestration', 'run-show', '--id', id], options).run.coordinator_handle ?? undefined;
 
 /**
- * Whether this Orca has no Run of that id at all, as when the book was written
- * on another machine (#508). Only `run-show` refused `run_not_found` says so:
+ * Why this Orca has no Run of an id the book names. Orca answers both causes
+ * with the same `run_not_found`, so the kit names both (#508, #820).
+ */
+export const RUN_GONE_WHY = 'either Orca deleted it, as Orca 1.4.262 and later do with a mailbox a day after its last letter or read while the session\'s tab is not open, or the book was written for another Orca, as on another machine';
+
+/**
+ * Whether this Orca has no Run of that id at all: Orca deleted it, as Orca
+ * 1.4.262 and later do with a Run whose tab is not open (#820), or the book was
+ * written on another machine (#508). Only `run-show` refused `run_not_found` says so:
  * `run-use` gives a legacy Run the same code and words, and a Run shown, a
  * time-out or any other refusal is not a Run known to be missing (tech notes,
  * section 1).
