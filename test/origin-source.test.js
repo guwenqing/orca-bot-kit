@@ -33,12 +33,28 @@ const requestsDir = path.join(repoRoot, 'requests');
 const archiveDir = path.join(requestsDir, 'archive');
 const baselineTest = path.join(repoRoot, 'test', 'prd-baseline.test.js');
 
-/** The folder names in prd-baseline.test.js's ARCHIVED_UNDER_0_1_0. */
+/** One row of the list: `  ['<folder>', '<sha-256>'],`, and nothing else. */
+const PIN_ROW = /^ {2}\['([a-z0-9][a-z0-9-]*)', '[0-9a-f]{64}'\],$/;
+
+/**
+ * The folder names in prd-baseline.test.js's ARCHIVED_UNDER_0_1_0. Each line
+ * of the list must be a row of exactly that shape. Any other line, a comment
+ * included, fails the test, so that no text this does not fully read can
+ * exempt a folder.
+ */
 async function pinnedFolders() {
-  const text = await readFile(baselineTest, 'utf8');
-  const list = /^const ARCHIVED_UNDER_0_1_0 = \[\n([\s\S]*?)\n\];$/m.exec(text);
-  assert.ok(list, `found no list ARCHIVED_UNDER_0_1_0 in ${path.relative(repoRoot, baselineTest)}`);
-  const names = [...list[1].matchAll(/\['([^']+)', '[0-9a-f]{64}'\]/g)].map((match) => match[1]);
+  const lines = (await readFile(baselineTest, 'utf8')).split(/\r?\n/);
+  const where = path.relative(repoRoot, baselineTest);
+  const starts = lines.flatMap((line, index) => (line === 'const ARCHIVED_UNDER_0_1_0 = [' ? [index] : []));
+  assert.equal(starts.length, 1, `found ${starts.length} lists ARCHIVED_UNDER_0_1_0 in ${where}, not 1`);
+  const end = lines.indexOf('];', starts[0] + 1);
+  assert.ok(end > starts[0], `found no end of the list ARCHIVED_UNDER_0_1_0 in ${where}`);
+  const names = [];
+  for (let index = starts[0] + 1; index < end; index += 1) {
+    const row = PIN_ROW.exec(lines[index]);
+    assert.ok(row, `${where}:${index + 1}: not a row of ARCHIVED_UNDER_0_1_0 that this test reads: ${lines[index]}`);
+    names.push(row[1]);
+  }
   assert.ok(names.length > 0, 'read no folder name from ARCHIVED_UNDER_0_1_0');
   return new Set(names);
 }
