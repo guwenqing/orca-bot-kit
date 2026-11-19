@@ -27,3 +27,4 @@ decisions: []
 tasks: []
 bindings:
   - { holder: artifact-group/R1, link: from, target: artifact-group/2026-11-19-owner-words.md, holder_sha256: 7187052cf65652b1f3c7167e109b315cb6aec61b4c4cfaab9b9d1f6d83d13758, target_sha256: 2ee46e84ce945a508cb9517ef434a70e76640a8e32cb4257ef64a96fc0857baf }
+  - { holder: KIT-54, link: serves, target: artifact-group/R1, holder_sha256: a1ce936b864b5c921c288fcdb3a1e0ac17d2c703e85fca17737563cd0ca90f0b, target_sha256: 7187052cf65652b1f3c7167e109b315cb6aec61b4c4cfaab9b9d1f6d83d13758, target_version: 1 }
