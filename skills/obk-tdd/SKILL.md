@@ -123,15 +123,8 @@ slow, unpredictable, or has effects you cannot control: an external service,
 the clock, randomness, a database sometimes, the filesystem sometimes. Do not
 stand in for your own modules or internal collaborators.
 
-What settles this for a system outside your code is not who owns it but
-whether you can have one to yourself. A database you start for the test, a
-repository you create in a temporary directory, a server you run and throw
-away: those are the real thing, isolated, and they are what the order above
-asks for; a stand-in there would hide exactly the incompatibility you want to
-find. What rules the real one out is sharing it: other people's work in it,
-state you cannot reset, or simply not having permission to touch it. Then an
-author works against a stand-in, and the project's rules usually name which
-systems those are.
+When you are about to stand in for something, read [stand-ins.md](stand-ins.md) beside this
+file: whether a system outside your code needs a stand-in at all, and four things about one.
 
 When a test is hard to write, that is information about the design, not about
 testing. Hard to set up usually means hard to use. Having to stand in for
@@ -140,16 +133,6 @@ depends on in rather than letting it reach out and build its own. A single
 function per external operation is easier to substitute than one general one
 with a switch inside it, because each substitute then answers one question
 instead of branching.
-
-Four things about a stand-in, when you do need one. Learn what the real thing
-does before you replace it, and stand in at the slow or external level below
-what the test depends on, so you do not swallow an effect the test was there to
-see. Mirror the real shape completely, not only the fields this test reads: a
-partial one passes while the real thing breaks on a field it left out. Assert
-the real behaviour, never the stand-in itself. An assertion that the stand-in
-is present passes because it is present and says nothing about your code. And
-when the setup grows past the test it serves, or you cannot say why it is
-there, drop it and test against the real components.
 
 Cleanup that only tests need belongs in the test helpers, not as a method on
 the thing being tested.
@@ -325,34 +308,9 @@ A seam below that gives a green test and no protection. If no correct seam
 exists, that is itself the finding: report it, because the shape of the code is
 what is stopping the bug from being pinned down.
 
-Minimise the reproduction until reducing it further would not improve the
-diagnosis or the regression check, and keep the evidence you stopped on. Turn it
-into a failing test, watch it fail, fix the cause, watch it pass, then run the
-original unminimised scenario again.
-
-Two tests are often better than one here: one at the interface, saying what a
-caller should have got, and the smallest one that shows the fault where it
-lives. Get both to pass. The first is what stops the bug coming back in a way
-anyone would notice; the second says where it was.
-
-A regression test written after the fix has proved nothing yet. Prove it in a
-disposable copy (a git worktree or a copy of the folder), never by reverting or
-stashing in the shared working tree: take the fix out there, confirm with a diff
-that it is out, and watch the test fail; then watch it pass with the fix. A
-revert that did not land reads as a test that catches nothing. A test that
-already failed on a named pre-fix baseline and passes with the fix, unchanged in
-between, has its proof: keep that receipt instead of proving it again. Where the
-test changed since, or its sensitivity is unproven, prove it again on the bad
-baseline in the same way.
-
-When the bug is intermittent, make the test deterministic if you can, and say
-which signal you pinned down. When it is one of a class, land the test for the
-one in front of you first, then say what else has the same shape.
-
-When a failing test really is impractical, say so out loud, say why, and name
-the closest executable check you used instead. Naming a check you will run later
-is not having run one. Quiet omission is the part that does damage: a reviewer
-treats a missing red receipt as a finding.
+Before you write that test, read [bugs.md](bugs.md) beside this file: how small to make the
+reproduction, the two tests that are often better than one, how to prove a regression test
+written after the fix, an intermittent bug, and what to say when a failing test is impractical.
 
 ## Tests that catch nothing
 
@@ -439,24 +397,8 @@ them: parsers, encoders and decoders, anything with a round trip, normalisers,
 sorting and merging, and code with an invariant. A function with three cases
 is better served by three example tests.
 
-State the property first, as a sentence true of every input: decoding what was
-encoded gives the input back; the output is sorted and holds the same elements;
-running it twice gives what running it once gave; it agrees with a slow, obvious
-version of itself. A property that restates the implementation proves nothing.
-
-Generate the inputs with a small loop and a seeded generator. No library is
-needed, and none should become a dependency for this. Weight them towards the
-edges (empty, one element, the largest, odd characters, the boundaries the
-requirement names), bound the count and the time, and print the seed, so a
-failure can be run again exactly.
-
-When one fails, make the input as small as it will go while it still fails, and
-keep it as an ordinary example test: red first, then the fix. The generated test
-stays too, but the example is what guards that bug from now on.
-
-Report what was generated, how many, the seed, and the property. Say what failed
-and which example tests it became. "Two thousand inputs, seed 7, no failure" is
-evidence for those inputs, not a proof, so say it that way.
+When they do, read [generated-inputs.md](generated-inputs.md) beside this file: how to state
+the property, generate the inputs, keep a failure as an example test, and report the run.
 
 ## The mutation check before you call it done
 
@@ -472,31 +414,6 @@ make a test fail, each one put back. Stop when another break would add no
 evidence, and say why the set you ran was enough: two meaningful breaks beat five
 padded ones. Reported in three lines.
 
-Make the breaks in a disposable copy of the change, never in the working tree:
-a git worktree, or a copy of the folder, made for the check and thrown away
-after it. A run that is interrupted, a restore that fails, or a second writer in
-the same checkout would otherwise leave a planted defect in real code. Before you
-start, note what `git status` and `git diff` say about the real tree.
-
-One break at a time, never two at once: in the copy, note the original, apply
-the break, confirm with a diff that it landed, run the tests there, record killed
-or survived, put the code back, then the next one. A break that did not land
-reads as survived. When the check is done, remove the copy, and confirm the
-working tree is untouched: `git status` and `git diff` say what they said before
-the check.
-
-What to break, in this order: boundaries (`<` for `<=`, one off), boolean logic
-(`&&` for `||`, a dropped `not`), returned values (an empty or default return,
-a removed early return), a removed statement or side effect, a wrong constant
-or argument. Avoid a change that cannot show: adding zero, multiplying by one, or a value
-identical to the original.
-
-Others worth reaching for when the code has them: an arithmetic operator
-swapped; equality turned into its opposite; a string emptied or altered; a
-collection emptied, or a filter or a sort taken out; a safe-navigation step
-removed so an absent value reaches further than it should; a call to a
-collaborator deleted.
-
 Skip it, and say that you skipped it, for work with no real logic in it: docs,
 wiring, renames, prototypes. Size and file type do not decide whether logic is
 risky: a one-character permission fix is risky logic, and so is a configuration
@@ -507,30 +424,9 @@ run it against. Report the missing automated coverage, the reason, the stand-in
 check you used and what is still uncertain. It is a finding when behaviour the
 requirement cares about lacks adequate verification.
 
-**A survivor**, a break no test objected to, gets the equivalence question
-first: is there any input for which the changed code returns a different value,
-stores different state, or emits a different message? If there is none it is
-equivalent, and no test can catch it; write the one-line argument for why.
-"No test covers this" is not the same as "no input can reach this". Every
-survivor ends as exactly one of three things: killed by a new test, equivalent
-with that argument, or a judgment call you name and leave. A list of survivors
-with nothing said about them is not a report, and neither is treating each one
-as a defect.
-
-When you cannot tell whether a survivor matters (the behaviour is genuinely
-unspecified, the test would be expensive or brittle, or you are not sure it is
-equivalent), name it as that in the report, with the question whoever decides
-the behaviour would have to answer, rather than deciding quietly in either
-direction.
-And if a lot of the breaks turn out to be equivalent, that is a finding about
-the code, not about the tests: code with that much slack in it can usually be
-made simpler.
-
-Kill a survivor only where it shows a gap in behaviour the requirement cares
-about. Wording of messages, logging and changes with no visible difference are
-not worth a test; say so in a line and move on. To kill one: keep the break in
-place, write the smallest behaviour test that fails against it for the right
-reason, restore the code, check the new test still passes.
+When you run the check, read [mutation-check.md](mutation-check.md) beside this file first:
+where and how to make the breaks, one at a time, what to break, and what to do with each
+survivor.
 
 The implementer runs the check. A test that needs strengthening goes to the
 separate author, like any other test.
@@ -592,23 +488,8 @@ The same three moves work on configuration and data, where no tool will help:
 state the check before you make the change, see the check fail first, and at
 the end break the artefact on purpose to find out whether the check notices.
 
-They apply where there is something that can be wrong and a check that can be
-seen to fail: a configuration that decides who gets what, a transformation over
-data. The skip rule is the same as for code.
-
-Prose written for people is checked by review, not by a test: a test that matches
-its text buys nothing. Text written for a model, a prompt included, is checked the
-same way, with one addition: where the requirement is how the model behaves, a
-representative use earns its place, and it is the whole check, without the three
-moves above. A prompt that must hold an action until it is approved is exercised
-once with the approval and once without. Neither needs a manufactured red, and no
-wording edit needs a test of its own.
-
-A decision that cannot be driven locally, such as a CI workflow or a setting in
-someone else's service, is checked in two parts: its parsed structure and
-whatever of it can be executed, then the real run when that is authorised.
-Publishing, spending money or changing someone else's settings is never a
-mandatory step of a check. A real run put off for later names who triggers it and
-says what stays unverified until then.
+When the work is of that kind, is text written for a model, or is a decision that cannot be
+driven locally, read [away-from-code.md](away-from-code.md) beside this file: where the moves
+apply, how prose and text for a model are checked, and how to check what cannot run here.
 
 Sources and licences: [NOTICE.md](NOTICE.md).
