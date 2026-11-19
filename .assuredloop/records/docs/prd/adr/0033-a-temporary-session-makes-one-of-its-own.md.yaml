@@ -1,0 +1,8 @@
+schema: assuredloop/1
+file: docs/prd/adr/0033-a-temporary-session-makes-one-of-its-own.md
+status: accepted
+paragraphs:
+  - id: ADR-33
+    kind: choice
+    text_sha256: c06cd460e615cd78bebcb21520d5e98edb814345a826b1da43d4b318cafcac32
+    display: "ADR-33 (0, ADR 0033: A temporary session makes one of its own, one level deep)"

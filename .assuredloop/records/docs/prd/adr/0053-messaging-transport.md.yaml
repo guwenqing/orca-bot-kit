@@ -1,0 +1,8 @@
+schema: assuredloop/1
+file: docs/prd/adr/0053-messaging-transport.md
+status: accepted
+paragraphs:
+  - id: ADR-53
+    kind: choice
+    text_sha256: 8cd5a9a32db844153b8dae22412367c707042a7e677701bdcf61a8592aa6bdc5
+    display: "ADR-53 (0, ADR 0053: Native messaging Claude to Claude; the Orca mailbox for everything else)"

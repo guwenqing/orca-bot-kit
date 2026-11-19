@@ -1,0 +1,8 @@
+schema: assuredloop/1
+file: docs/prd/adr/0056-each-claude-bot-gets-a-memory-folder-of-its-own.md
+status: superseded
+paragraphs:
+  - id: ADR-56
+    kind: choice
+    text_sha256: 7d4479347e295abbc668f2d0a86e01ae8c3cf57532cc6c97fa963feda9b4dcd0
+    display: "ADR-56 (0, ADR 0056: Each Claude bot gets a memory folder of its own, in its bot folder)"

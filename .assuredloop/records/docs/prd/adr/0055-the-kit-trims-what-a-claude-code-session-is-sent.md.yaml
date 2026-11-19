@@ -1,0 +1,8 @@
+schema: assuredloop/1
+file: docs/prd/adr/0055-the-kit-trims-what-a-claude-code-session-is-sent.md
+status: accepted
+paragraphs:
+  - id: ADR-55
+    kind: choice
+    text_sha256: 44e28cf1b1f7cfae4932dbe4b5f0e246805fe321a49b83c5cf2ef06830373f44
+    display: "ADR-55 (0, ADR 0055: The kit trims what a Claude Code session is sent)"

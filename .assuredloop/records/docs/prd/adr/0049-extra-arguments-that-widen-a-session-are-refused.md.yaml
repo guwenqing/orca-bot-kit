@@ -1,0 +1,8 @@
+schema: assuredloop/1
+file: docs/prd/adr/0049-extra-arguments-that-widen-a-session-are-refused.md
+status: superseded
+paragraphs:
+  - id: ADR-49
+    kind: choice
+    text_sha256: 78e273f4245e33032b7a098d1ead19c2fc4f548992249684fad0d483dcc5f9c8
+    display: "ADR-49 (0, ADR 0049: Extra arguments that widen a session are refused)"

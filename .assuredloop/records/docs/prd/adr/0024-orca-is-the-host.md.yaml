@@ -1,0 +1,8 @@
+schema: assuredloop/1
+file: docs/prd/adr/0024-orca-is-the-host.md
+status: superseded
+paragraphs:
+  - id: ADR-24
+    kind: choice
+    text_sha256: 77ea20fb2225ae6f82d4f3c4db65bd1e7f88d2300fa4dad03278050b69217a7e
+    display: "ADR-24 (0, ADR 0024: Orca is the host)"
