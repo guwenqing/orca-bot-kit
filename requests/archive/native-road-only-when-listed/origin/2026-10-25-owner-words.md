@@ -1,4 +1,4 @@
-Source: /Volumes/DevData/projects/ai/mybots/bots/kit-dev/work/developer-700/owner-words.md
+Source: https://github.com/guwenqing/orca-bot-kit/issues/700 (the issue body, and the architect's hand-out at https://github.com/guwenqing/orca-bot-kit/issues/700#issuecomment-6402277363)
 Fetched: 2026-10-25T21:05Z
 SHA-256: b03b4f9fe48ce12ce85e24d1c5e86c93534bca520a3b1310cecab1ba4d2b4130
 ---
