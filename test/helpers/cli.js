@@ -1420,6 +1420,12 @@ export async function harnessChain(box, command, { stdin = '', nested = false, l
 }
 
 /**
+ * The harness that the kit's next launch of `bot`/`session` starts, coming up
+ * the way a real one does (#792). Not built yet.
+ */
+export async function harnessComesUp(_box, _options) {}
+
+/**
  * Whether a bare `ps` runs here (#791): the kit's hook reads the process table
  * with the `ps` it finds on PATH (src/record.js), to tell the tab's own harness
  * and to read its launch line. Where it cannot run, as in a sandbox that
