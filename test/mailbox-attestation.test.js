@@ -373,8 +373,9 @@ const BRING_BACKS = [
 
 for (const [how, bringBack] of BRING_BACKS) {
   test(`#317: a session brought back by ${how}, from another tab, keeps its mailbox and has it bound in its new tab`, async (t) => {
-    // The issue's second check. A Run cannot be deleted, so the session keeps
-    // the one it has for ever, and the new tab binds that one to itself.
+    // The issue's second check. The session keeps the Run it has, and the new
+    // tab binds that one to itself. (From 1.4.262 Orca deletes a Run with no
+    // open tab a day after its last write, #820; the kit deletes none.)
     const box = await createSandbox(t);
     const own = await ownTab(box);
     const bots = await initIn(box, own);
@@ -578,9 +579,10 @@ test('#317, #321: two session mailbox runs at the same moment in the session\'s 
   // The step reads the book, asks Orca for a Run and writes it down. Two steps
   // of one session take turns (#321): the second, started while the first is
   // asking Orca, waits for it, then reads the book afresh, finds the Run the
-  // first wrote and binds it, rather than making one of its own. A Run cannot
-  // be deleted, and the book's mailbox is never replaced. Both run in the
-  // session's own tab, and neither acts as any other. (This race was `up`'s
+  // first wrote and binds it, rather than making one of its own. The kit has
+  // no command to delete a Run (from 1.4.262 Orca deletes one with no open tab
+  // a day after its last write, #820), and a mailbox Orca still has is never
+  // replaced. Both run in the session's own tab, and neither acts as any other. (This race was `up`'s
   // before #317; session-address.test.js says where it went.)
   const box = await createSandbox(t);
   const { bots, coder } = await coderWithNoMailbox(box);
@@ -643,9 +645,10 @@ test('#317: when Orca will not bind the mailbox the book holds, session mailbox 
 });
 
 test('#317: a Codex session whose sandbox switch is off gets no mailbox from session mailbox, and it does not fail', async (t) => {
-  // It could never read a mailbox, and a Run cannot be deleted. Its launch
-  // line has no step (session-address.test.js); run by hand, the command
-  // leaves it as it is.
+  // It could never read a mailbox, and the kit has no command to delete a Run
+  // (from 1.4.262 Orca deletes one with no open tab a day after its last
+  // write, #820). Its launch line has no step (session-address.test.js); run
+  // by hand, the command leaves it as it is.
   const box = await createSandbox(t);
   const bots = await initIn(box, null);
   await addBot(box, null, 'coder', 'codex', [['daily', '--extra-arg=-c', '--extra-arg=sandbox_workspace_write.network_access=false']]);

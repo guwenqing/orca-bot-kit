@@ -22,6 +22,11 @@
 //     still there), or fails any other way.
 //   - Health fixes nothing and writes nothing; the restart it names does fix
 //     it.
+//   - Since #820, the finding names both causes of a missing Run: Orca 1.4.262
+//     and later delete a mailbox a day after its last letter or read while the
+//     session's tab is not open, and the book may have been written for another
+//     Orca, as on another machine. And it says that the letters that waited in
+//     it are gone. These are pinned as facts (helpers/run-deleted.js).
 //
 // The wording is the kit's; the facts are pinned (the session, the Run id, the
 // command), with the kit's own CLI and the bots folder matched in either of the
@@ -47,6 +52,7 @@ import {
   spellingsOf,
 } from './helpers/cli.js';
 import { modelOrca, ORCA_MODELS } from './helpers/orca-versions.js';
+import { assertNamesBothCauses, assertSaysLettersGone, orcaDeletesRun } from './helpers/run-deleted.js';
 
 /** The kinds a finding can be. */
 const KINDS = ['orca', 'config', 'skill', 'session', 'leftover'];
@@ -291,6 +297,30 @@ test('#508 4: a paused session of a paused bot whose mailbox Orca does not have 
   assert.ok(theSession >= 0, `and the session's, ${shellWord(box.cli)} unpause --bots ${shellWord(bots)} --bot api-bot --session daily, got: ${says}`);
   assert.ok(theBot < theSession, `the bot's unpause first, then the session's, got: ${says}`);
   assert.ok(!givesAny(says, box, 'restart'), `and not a restart, got: ${says}`);
+});
+
+test('#820 R-H: the finding names both causes, Orca 1.4.262 deleted it or the book was written for another Orca, and that its letters are gone, and keeps all #508 pins', async (t) => {
+  // From Orca 1.4.262, Orca deletes a mailbox a day after its last letter or
+  // read while the session's tab is not open, and the letters in it with it.
+  // Here Orca deletes it with a letter still waiting (helpers/run-deleted.js).
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  await botUp(box, 'api-bot');
+  const gone = await mailboxOf(bots, 'api-bot', 'daily');
+  await obk(box, 'message', 'send', '--bots', 'bots', '--to', 'api-bot/daily', '--from', 'bot-father/daily', '--subject', 'waits', '--text', 'unread');
+  await orcaDeletesRun(box, gone);
+
+  const answer = await found(box);
+  const plain = await health(box);
+
+  const finding = assertNamedGone(answer, bots, 'api-bot', 'daily', gone);
+  assert.ok(
+    givesFor(finding.says, box, bots, 'restart', 'api-bot', 'daily'),
+    `the fix is the kit's own restart of that session, ${shellWord(box.cli)} restart --bots ${shellWord(bots)} --bot api-bot --session daily, got: ${finding.says}`,
+  );
+  assertNamesBothCauses(finding.says);
+  assertSaysLettersGone(finding.says);
+  assert.ok(flat(plain.stdout).includes(flat(finding.says)), `and the plain lines say what the JSON says, got:\n${plain.stdout}`);
 });
 
 // ---------------------------------------------------------------------------

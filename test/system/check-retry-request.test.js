@@ -49,7 +49,8 @@
 //     removes its own Orca project, in that order;
 //   - checks afterwards that it closed no tab it did not create.
 //
-// A Run cannot be deleted: Orca has no command for it. The one Run this test
+// The kit has no command to delete a Run. From 1.4.262 Orca deletes a Run
+// with no open tab a day after its last write (#820). The one Run this test
 // makes is left, named `obk system check-retry-request`, as every system test
 // that makes a mailbox leaves its Runs. A minute or so.
 

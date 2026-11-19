@@ -106,8 +106,9 @@ test('a run that died before any tab existed leaves no session behind', async (t
   // The other side of it: the book must not name a tab that was never made,
   // and the orphan must not move to the other resource either. A Run made for a
   // session that got no tab is worse than a tab with no Run — a tab the next
-  // run finds and finishes, where a Run cannot be deleted at all, by the kit or
-  // by anybody.
+  // run finds and finishes, where the kit has no command to delete a Run, and
+  // Orca deletes one only from 1.4.262, a day after its last write when no tab
+  // of it is open (#820).
   const box = await createSandbox(t);
   await box.orca.set({ fail: { 'terminal create': { code: 'runtime_error', message: 'no room for another tab' } } });
 
