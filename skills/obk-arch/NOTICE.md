@@ -32,6 +32,9 @@ below.
   Revision: cursor/plugins@6ed0f7a9504f577d7529064103cecce9be7dfc5e
   (reconstructed: the research pack's 2026-09-20 clone the skills were built
   from; the revision actually read was not recorded)
+  Seen 2026-11-19: pstack deleted the three `architect` references in 2f87c85
+  (2026-11-16), and cut `architect` itself from about 800 words to about 110.
+  All of it can still be read at 6ed0f7a.
 - **Cursor pstack**, `architect`'s `runner-prompt` further to the above.
   Grounding the design in what the code actually touches before sketching, and
   what a sketch is (types and signatures with unimplemented bodies, a reader
@@ -43,6 +46,8 @@ below.
   Revision: cursor/plugins@6ed0f7a9504f577d7529064103cecce9be7dfc5e
   (reconstructed: the research pack's 2026-09-20 clone the skills were built
   from; the revision actually read was not recorded)
+  Seen 2026-11-19: pstack deleted `runner-prompt` in 2f87c85 (2026-11-16). It
+  can still be read at 6ed0f7a.
 - **Cursor pstack**, `figure-it-out` further to the above. Capturing the
   baseline before the change so the check reads as the old value against the
   new; verdicts of verified, not verified or inconclusive with inconclusive not
@@ -77,13 +82,15 @@ below.
   or saying precisely what stopped, a checkout that does not build or start
   before writing the recipe against it,
   preferring stable handles over positions and coordinates, and the feature map
-  (a short list of what the thing does for someone, one entry per feature),
-  which that skill's own users praised most because an agent stops searching
-  the codebase for where things are. Kept here in that reduced form rather than
-  as its own generated directory.
+  (a short list of what the thing does for someone, one entry per feature).
+  Kept here in that reduced form rather than as its own generated directory.
   Revision: cursor/plugins@6ed0f7a9504f577d7529064103cecce9be7dfc5e
   (reconstructed: the research pack's 2026-09-20 clone the skills were built
   from; the revision actually read was not recorded)
+  Corrected 2026-11-19: this entry also said that the skill's own users
+  "praised most" the feature map, "because an agent stops searching the
+  codebase for where things are". Neither claim is in pstack at 6ed0f7a, and
+  no source for them was found, so both are taken out.
 - **Cursor pstack**, `create-verification-skill` further to the above: ready
   meaning usable, reached from an empty data folder with any migrations and
   seed data, and a process that answers, such as a database whose set-up
@@ -223,12 +230,16 @@ allow the text to be reused (all rights reserved unless noted):
   alternative, hidden costs, a sales tone, one option and one time frame, a
   record carrying a whole architecture or a design, criteria reverse-engineered
   from the preferred option, a decision section that repeats the title,
-  consequences only for the code); a record for each stage of a staged
-  decision; the confidence level; and the definition of done (evidence, at
+  consequences only for the code); a decision that comes in stages; the
+  confidence level; and the definition of done (evidence, at
   least two options compared on criteria, challenged and agreed, written and
   shared, a plan to check and revisit it).
   Read: 2026-09-24 (reconstructed: read by this date, when the entry was
   written; the day it was read was not recorded)
+  Corrected 2026-11-19: this entry gave "a record for each stage of a staged
+  decision" to Zimmermann. His "How to create" page splits a decision into
+  stages, but keeps them in one "three-part ADR". The record for each stage is
+  Azure's, in the entry for Azure below.
 - **Martin Fowler**, bliki "Architecture Decision Record". Writing the record
   as a way to bring disagreement into the open; most important first; the
   confidence and what should trigger a re-evaluation; an accepted record never
@@ -247,6 +258,9 @@ allow the text to be reused (all rights reserved unless noted):
   standing on its own with detail linked; consequences never hidden.
   Read: 2026-09-24 (reconstructed: read by this date, when the entry was
   written; the day it was read was not recorded)
+  Corrected 2026-11-19: a record for each stage of a staged decision is from
+  this page ("Log each phase as its own decision record"), read on that date.
+  Before, the entry for Zimmermann above had this credit.
 - **Joel Parker Henderson**, `architecture-decision-record` (CC BY-NC-SA 4.0,
   which does not fit this use). Dating a fact that will change.
   Revision:
