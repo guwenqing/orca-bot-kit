@@ -1,11 +1,11 @@
-Status: accepted
+Status: superseded by ADR-62
 
-<!-- ADR-53 choice supersedes:ADR-42 decides:KIT-36,native-road-only-when-listed/R1 source:https://github.com/guwenqing/orca-bot-kit/pull/51,https://github.com/guwenqing/orca-bot-kit/issues/394,https://github.com/guwenqing/orca-bot-kit/issues/555,https://github.com/guwenqing/orca-bot-kit/issues/700 -->
+<!-- ADR-53 choice supersedes:ADR-42 -->
 
 # ADR 0053: Native messaging Claude to Claude; the Orca mailbox for everything else
 
 Date: 2026-10-25.
-Status: accepted.
+Status: superseded by [ADR 0062](0062-messaging-transport.md).
 Decided by: the owner, in his design session of 2026-09-19 and on 2026-09-19 in #51; the coordinator, for the sentences marked as the coordinator's, where the owner was told and may overrule; the architect, for #394, for the sentences marked so, where the owner may overrule; the owner on 2026-10-11 for one road and one signal for each fleet mail, Orca's own notice, and an interrupt for urgent mail (#555); the owner on 2026-10-25 for the native road only to a session the sender's own Claude Code lists (#700), in sign-off S1 of `requests/archive/native-road-only-when-listed/` ("I am good for the requirement"). Consulted: the slice 08 developer and reviewer, whose runs the Orca road rests on. A sentence marked (proposed) is not decided yet.
 Supersedes: [ADR 0042](0042-messaging-transport.md).
 
@@ -68,7 +68,7 @@ answer from an `async` hook, and a new or changed Codex hook entry puts every
 Codex session on its "Hooks need review" screen (read in the Codex 0.162.0
 source, #509). Whether a tab
 holds a harness at all is read from its foreground process
-([ADR 0034](0034-orca-is-the-host.md) (superseded, now [ADR 0057](0057-orca-is-the-host.md))).
+([ADR 0034](0034-orca-is-the-host.md)).
 
 A probe on Orca 1.4.224 (2026-10-11, #555), with the raw `orca orchestration
 send` and no line of the kit's, showed that Orca parks its notice for a busy
@@ -121,7 +121,7 @@ notice then comes at once. Never by default. The Escape goes through the gate
 every key the kit types goes through: a tab with something on screen waiting
 to be answered, a tab with its shell in front, or one the kit cannot tell
 about gets no Escape, and the letter still goes, with the send saying why
-(the owner, #555; the gate as [ADR 0034](0034-orca-is-the-host.md) (superseded, now [ADR 0057](0057-orca-is-the-host.md)) reads a
+(the owner, #555; the gate as [ADR 0034](0034-orca-is-the-host.md) reads a
 tab). After an Escape, Codex keeps a command it was running as a background
 terminal, and the send says so for a Codex receiver.
 

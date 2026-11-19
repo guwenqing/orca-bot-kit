@@ -1,4 +1,4 @@
-// `obk message`: one session writing to another (PRD 6.9, ADR 0053).
+// `obk message`: one session writing to another (PRD 6.9, ADR 0062).
 //
 // Two roads, and the bot never picks. Claude to Claude in the same approval
 // class is the harness's own messaging, which no command line can send for it —
@@ -10,7 +10,7 @@
 // refuses a send once the pane is gone. A Run survives the tab, the relaunch
 // and the restart, so a session's address is its Run (tech notes, section 1).
 //
-// One road and one signal (#555, ADR 0053): the letter goes into the
+// One road and one signal (#555, ADR 0062): the letter goes into the
 // receiver's mailbox, and Orca's own notice tells the receiver to look once it
 // is idle. The kit types nothing into the receiver's tab, except the one
 // Escape a sender asks for with --interrupt. Orca gives no notice to a tab its
@@ -151,15 +151,40 @@ export function lookUp(bots, { to: target, from: sender, tab }) {
   const from = whoIsWriting(bots, sender, tab);
   const to = findSession(bots, target);
   const road = roadBetween(from, to);
+  const trouble = to.trouble ?? (road.address === undefined ? notUpYet(to) : undefined);
 
   return {
     bots,
     from: { bot: from.bot, session: from.session, harness: from.harness },
     to: { bot: to.bot, session: to.session, harness: to.harness },
     ...road,
-    trouble: to.trouble ?? (road.address === undefined ? notUpYet(to) : undefined),
+    trouble,
+    ...(road.transport === 'orca' && trouble === undefined && tabListed(to) === false ? noOpenTab(to) : {}),
   };
 }
+
+/**
+ * Whether Orca lists the tab the book names for `to`, or undefined when Orca's
+ * listing cannot be read. A session with no tab in the book has none open.
+ */
+function tabListed(to) {
+  if (to.tab === undefined) return false;
+  try {
+    return tabs(to.home, { timeoutMs: LOOK_MS }).some((one) => one.tabId === to.tab);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * What a send or a look-up says of a receiver with no open tab: it is paused,
+ * or its tab is gone. From Orca 1.4.262 Orca deletes the mailbox of such a
+ * session, with the letters in it, 24 hours after the last letter or read,
+ * unless the session starts first (#820). The kit keeps no copy, writes
+ * nothing to keep the mailbox, and opens no tab: it says so, with the command
+ * that starts the session, on every Orca version (#841, ADR 0062).
+ */
+const noOpenTab = (to) => ({ noOpenTab: true, start: startCommand(to) });
 
 /**
  * Send one message down the Orca road; with `interrupt`, end a busy
@@ -238,17 +263,19 @@ export async function sendMessage(bots, { to: target, from: sender, tab, subject
  * `loadInWindow`, which changes nothing on screen, so the kit asks for that
  * and looks again until LOOK_MS after the ask (#676). A tab it does not load,
  * as after a window restart (#579), is said as before. This is all before the
- * send: a tab orphaned after it is not seen here.
+ * send: a tab orphaned after it is not seen here. A tab Orca does not list
+ * is no open tab, and that is said instead (#841).
  */
 async function loaded(to) {
-  if (to.tab === undefined) return {};
+  if (to.tab === undefined) return noOpenTab(to);
   let tab;
   try {
     tab = tabs(to.home, { timeoutMs: LOOK_MS }).find((one) => one.tabId === to.tab);
   } catch (error) {
     return { loadTrouble: error.message };
   }
-  if (tab?.orphaned !== true) return {};
+  if (tab === undefined) return noOpenTab(to);
+  if (tab.orphaned !== true) return {};
   return (await loadedNow(to.home, tab.handle)) ? {} : { orphaned: true, handle: tab.handle };
 }
 
@@ -387,7 +414,7 @@ async function mailOf(bots, who, peek, until) {
       session: who.session,
       mailbox: who.mailbox,
       messages: [],
-      trouble: `${who.bot}/${who.session} is not up, and its mailbox is bound to no tab, so there is nothing to read it as. Its mail waits until its tab is back: \`up\` brings it back, or \`unpause\` when it is paused.`,
+      trouble: `${who.bot}/${who.session} is not up, and its mailbox is bound to no tab, so there is nothing to read it as. Its mail waits in its mailbox, on Orca 1.4.262 and later for at least 24 hours after the last letter: Orca can delete the mailbox, with the letters in it, 24 hours after the last letter or read, unless the session starts first. \`up\` brings it back, or \`unpause\` when it is paused.`,
     };
   }
   // Orca hands mail over a batch at a time, so a read takes every batch in

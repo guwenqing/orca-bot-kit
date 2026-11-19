@@ -27,3 +27,10 @@ decisions: []
 tasks: []
 bindings:
   - { holder: mail-no-open-tab/R1, link: from, target: mail-no-open-tab/2026-11-19-owner-words.md, holder_sha256: 321c24e08cfc90289fe585d8786990d87c687afc3869378ba98731a0466edcac, target_sha256: 16ff4ebbbe8fe9b3f111cd3efea0ba4efc680f4435b93a0f577cc75858a838d9 }
+  - { holder: KIT-56, link: serves, target: mail-no-open-tab/R1, holder_sha256: 40e1cde3021f27f5d1d7fcd2002e85a47288b7dcc3e7f2a3430840a9e60b9ca9, target_sha256: 321c24e08cfc90289fe585d8786990d87c687afc3869378ba98731a0466edcac, target_version: 1 }
+  - { holder: KIT-56, link: builds-on, target: KIT-36, holder_sha256: 40e1cde3021f27f5d1d7fcd2002e85a47288b7dcc3e7f2a3430840a9e60b9ca9, target_sha256: 92914837874296a0a5e369355cfe68cface9d9265aac88d7b749ae5b7b33a30b }
+  - { holder: ADR-62, link: decides, target: KIT-36, holder_sha256: dba55bd51bee3ed2adf80dabb888785f479b50ac6dab1d82ab12013a9f11f59f, target_sha256: 92914837874296a0a5e369355cfe68cface9d9265aac88d7b749ae5b7b33a30b }
+  - { holder: ADR-62, link: decides, target: KIT-56, holder_sha256: dba55bd51bee3ed2adf80dabb888785f479b50ac6dab1d82ab12013a9f11f59f, target_sha256: 40e1cde3021f27f5d1d7fcd2002e85a47288b7dcc3e7f2a3430840a9e60b9ca9 }
+  - { holder: ADR-62, link: decides, target: native-road-only-when-listed/R1, holder_sha256: dba55bd51bee3ed2adf80dabb888785f479b50ac6dab1d82ab12013a9f11f59f, target_sha256: b44d75626a28bd4698a14de2c03dcb969657ae8aa2aefb7659d600274f532593, target_version: 1 }
+  - { holder: ADR-62, link: decides, target: mail-no-open-tab/R1, holder_sha256: dba55bd51bee3ed2adf80dabb888785f479b50ac6dab1d82ab12013a9f11f59f, target_sha256: 321c24e08cfc90289fe585d8786990d87c687afc3869378ba98731a0466edcac, target_version: 1 }
+  - { holder: ADR-62, link: supersedes, target: ADR-53, holder_sha256: dba55bd51bee3ed2adf80dabb888785f479b50ac6dab1d82ab12013a9f11f59f, target_sha256: 19e99f87cd57d209684ae6156402342454dce61e03e2e421a0afee9fa66edaeb }

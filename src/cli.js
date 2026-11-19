@@ -1363,9 +1363,18 @@ function toLines(answer, bots, where) {
     ...(answer.unlisted === true
       ? [`             ${where} is a Claude session of your approval class, but your own Claude Code does not list it among the live sessions its messaging reaches: it runs under another Claude config folder, or it is not running. So the mailbox is the road that reaches it.`]
       : []),
+    ...(answer.noOpenTab === true ? [`             ${noOpenTabWords(where, answer.start)}`] : []),
     `             Send it:  ${shellWord(ownCli())} message send --bots ${shellWord(bots)} --to ${shellWord(where)} --subject <text> --text <text>`,
   ];
 }
+
+/**
+ * What a look-up and a send say of a receiver with no open tab (#841, ADR
+ * 0062): Orca can delete its mailbox, with the letters in it, and the command
+ * that starts it. Said on every Orca version, so the kit reads none.
+ */
+const noOpenTabWords = (where, start) =>
+  `${where} has no open tab: it is paused, or its tab is gone. On Orca 1.4.262 and later, Orca can delete its mailbox, with the letters in it, 24 hours after the last letter or read, unless the session starts first. Start it:  ${start}`;
 
 /**
  * What the send says after `sent`: the road it took, and what the interrupt
@@ -1392,6 +1401,9 @@ function sentLines(answer, where) {
  * named as a fact with its cost, not run and not urged: it moves the user's view.
  */
 function noticeLines(answer) {
+  if (answer.noOpenTab === true) {
+    return [`             it is in its Orca mailbox. ${noOpenTabWords(`${answer.to.bot}/${answer.to.session}`, answer.start)}`];
+  }
   if (answer.orphaned === true) {
     return [
       "             it is in its Orca mailbox, and it waits there: Orca lists its tab as orphaned, because the Orca window has not loaded that tab, and Orca will not tell it of the letter until the window loads it.",
