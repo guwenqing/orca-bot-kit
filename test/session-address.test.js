@@ -26,9 +26,10 @@
 //      makes it, in the step its launch line starts with: Orca 1.4.210 lets a
 //      tab bind a Run to itself and to no other, so `up` cannot.
 //
-// A Run cannot be deleted — Orca has no command for it — so making one twice
-// is a Run that belongs to nothing for ever. That is why exactly one, however
-// often `up` runs, is a test of its own.
+// The kit has no command to delete a Run. From 1.4.262 Orca deletes a Run
+// with no open tab a day after its last write (#820), but until then a Run
+// made twice belongs to nothing. That is why
+// exactly one, however often `up` runs, is a test of its own.
 
 import assert from 'node:assert/strict';
 import { writeFile } from 'node:fs/promises';
@@ -270,9 +271,10 @@ test('every session of a bot gets a mailbox, and no two share one', async (t) =>
 });
 
 test('a mailbox is made once and kept, however many times up runs', async (t) => {
-  // A Run cannot be deleted: Orca has no command for it, and `orchestration
-  // reset --messages` would empty the whole machine's mailbox. So a second one
-  // is rubbish that stays on the user's machine for ever.
+  // The kit has no command to delete a Run, and `orchestration reset
+  // --messages` would empty the whole machine's mailbox. From 1.4.262 Orca
+  // deletes a Run with no open tab a day after its last write (#820), but a
+  // second one is rubbish on the user's machine until then.
   const box = await createSandbox(t);
   const bots = await withBot(box, 'claude', [['daily']]);
   // Bot Father was brought up by `init` and has a mailbox of its own already.
