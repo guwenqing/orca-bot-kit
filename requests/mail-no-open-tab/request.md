@@ -20,3 +20,4 @@ The kit's docs MUST NOT promise that a letter to a session with no open tab wait
 The kit MAY give these words on every Orca version, and name Orca 1.4.262 in them, so that it does not have to read the version of Orca.
 
 The kit MUST NOT keep a copy of a letter, write to a mailbox to keep it alive, or open a tab to keep it alive.
+Signed off: 2026-11-19 owner, origin/2026-11-19-signoff.md

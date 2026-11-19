@@ -12,7 +12,17 @@ requirements:
     version: 1
     sha256: 321c24e08cfc90289fe585d8786990d87c687afc3869378ba98731a0466edcac
     title: "A letter to a session with no open tab: the kit says that Orca can delete it, and when"
-signoff: []
+signoff:
+  - id: S1
+    file: 2026-11-19-signoff.md
+    sha256: 50c0f6751c8b99ed2c40dd1cd694c838d3c4f4844f0b97a53995f8e223a18b2e
+    signed: 2026-11-19T21:50Z
+    source: https://github.com/guwenqing/orca-bot-kit/issues/841 (the owner's answer in the kit-dev/architect session, 2026-11-19 16:47 EST)
+    words: "1"
+    presented: "A question to the owner in the kit-dev/architect session, with three answers explained in full: 1, the kit says plainly what goes and when, and keeps no copy; 2, answer 1 and a request to Orca; 3, a store of the kit's own for letters. The question ended with the text of R1 of this request quoted in full, and it said that the answer 1 signs that text."
+    transcribed_by: kit-dev/architect
+    covers:
+      - { id: R1, version: 1, sha256: 321c24e08cfc90289fe585d8786990d87c687afc3869378ba98731a0466edcac }
 decisions: []
 tasks: []
 bindings:
