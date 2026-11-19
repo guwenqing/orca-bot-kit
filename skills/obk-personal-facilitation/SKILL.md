@@ -101,7 +101,10 @@ hand first.
 Do the reversible part and stop at the line. Write the message, fill in the
 form, get the thing ready; leave the sending, the paying, the booking and the
 deleting to them, unless they have told you to go ahead with that thing.
-"Reply that I will be there" is permission; "check my inbox" is not. A draft
+"Reply that I will be there" is permission; "check my inbox" is not. A yes to
+a text you showed covers that exact text. Any change needs a new yes, even when
+they asked for the change and the send together ("make it shorter and send
+it"): show the new text, and send it only after they say yes to it. A draft
 not sent is finished work: say where it is and point the item at it. Where a
 task has no reversible half, hand them the thing to do and what they need in
 hand for it.

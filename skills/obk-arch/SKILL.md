@@ -399,8 +399,11 @@ rather than by asking:
 - **Surface**. What does a person actually touch? A screen, a command, an
   endpoint, a library. If there are several, pick the main one and name the
   rest.
-- **Start**. How does it come up, and how do you know it is ready? A log line,
-  a port answering, a prompt appearing. Guessing with a pause is not knowing.
+- **Start**. How does it come up from an empty data folder, with any migrations
+  and seed data, and how do you know it is ready? Ready means it can do its
+  work, shown by a log line or a prompt that says so. A process that answers is
+  not that sign: a database can take connections while its set-up scripts still
+  run. Guessing with a pause is not knowing.
 - **Drive**. How can something interact with it with nobody watching?
   Whatever the project already has first; a general harness only after that.
 - **Observe**. What evidence can be captured? Output, an exit status, a file,
