@@ -417,8 +417,8 @@ than relying on another skill being loaded.
 | `obk-researching` | finding it out from sources, and saying how well you know it |
 | `obk-writing` | writing for a reader, in one kind of piece, with the claims checked |
 | `obk-decision-memo` | the conclusion first, the alternatives, and the argument against it |
-| `obk-bot-building` | what a bot owns, the charter interview, and the skills the job needs |
-| `obk-fleet-review` | one verdict per bot, the cheaper answers first, and where a problem goes |
+| `obk-bot-building` | what a bot owns, the charter interview, the skills the job needs, and where each is named |
+| `obk-fleet-review` | one verdict per bot, which of its skills were used, the cheaper answers first, and where a problem goes |
 | `obk-grooming` | the daily pass: only what changed, one output checked, one short report |
 | `obk-finops` | what a result cost, live prices, and which limits are really enforced |
 
