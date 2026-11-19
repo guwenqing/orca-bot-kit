@@ -883,6 +883,12 @@ function unannounced(bots, home, bot, name, entry) {
   return [finding('mail', entry.mailbox, `${bot.name}'s session ${name} ${what} Its harness is idle now, and Orca tells an idle session of its mail within minutes, unless the session sat idle through an Orca restart or update: then Orca does not tell it until it takes a turn. ${restart} opens a new tab for it, which Orca tells. A restart drops what lives only in the old tab, such as Claude Code schedules, so the session makes them again.`, bot.name)];
 }
 
+/**
+ * The limit of a read of a whole mailbox. Orca puts no cap on it, and a plain
+ * number trips no check of its size; no mailbox of the kit's holds a million letters.
+ */
+const WHOLE_READ = 1_000_000;
+
 /** How long after the last letter or read Orca 1.4.262 and later deletes the Run of a session with no open tab (#820). */
 const RUN_KEPT_MS = 24 * 60 * 60 * 1000;
 
@@ -891,7 +897,8 @@ const RUN_KEPT_MS = 24 * 60 * 60 * 1000;
  * none (#841, ADR 0062). From Orca 1.4.262, Orca deletes the mailbox of a
  * session with no open tab, with the letters in it, 24 hours after the last
  * letter or read, unless the session starts first. So health says how many
- * letters wait among the newest MAIL_READ, as at least that many, and the
+ * letters wait, as at least that many (among the newest MAIL_READ, or in the
+ * whole mailbox when none of those is unread), and the
  * earliest time of the deletion: 24 hours after the newest letter, since a
  * read or a rebind after it only puts the time later. Only flags and times
  * are read, never a subject or a body. Said on every Orca version. A mailbox
@@ -901,6 +908,11 @@ function waitingWithNoTab(bots, home, bot, name, entry) {
   let mail;
   try {
     mail = mailIn(entry.mailbox, MAIL_READ);
+    // A full read with no unread letter can still have one below it, which
+    // Orca's `reply` marked read out of order. Orca's inbox has no cursor and
+    // no unread filter, and no cap on its limit, so the mailbox is read once
+    // more, whole (review of PR #842).
+    if (mail.length >= MAIL_READ && !mail.some((one) => one.read === 0)) mail = mailIn(entry.mailbox, WHOLE_READ);
   } catch {
     return [];
   }

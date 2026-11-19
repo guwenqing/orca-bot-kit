@@ -26,7 +26,7 @@ import { writeKitFile } from './kit-files.js';
 import { MAILBOX_WAIT_MS, readBook, takeLineTurn, takeMailboxTurn, TYPING_HELD, TYPING_WAIT_MS } from './book.js';
 import { botDir, botNames, readBot } from './bot.js';
 import { harnessOf, isAddressOf, kitFolders, ownCli, reachesMail, SHELL_ENV, shellWord } from './launch.js';
-import { ackMailbox, coordinatorOf, isRunning, listedOrphaned, loadInWindow, postMessage, pressEscape, readMailbox, readsCarryRequest, RUN_GONE_WHY, runMissing, tabs, tabToTypeInto, TERMINAL_ENV, TIMED_OUT, useMailbox } from './orca.js';
+import { ackMailbox, coordinatorOf, findProject, isRunning, listedOrphaned, loadInWindow, postMessage, pressEscape, readMailbox, readsCarryRequest, RUN_GONE_WHY, runMissing, tabs, tabToTypeInto, TERMINAL_ENV, TIMED_OUT, useMailbox } from './orca.js';
 import { TAB_ENV } from './record.js';
 import { newMailbox } from './up.js';
 
@@ -172,7 +172,22 @@ function tabListed(to) {
   try {
     return tabs(to.home, { timeoutMs: LOOK_MS }).some((one) => one.tabId === to.tab);
   } catch {
-    return undefined;
+    return noProject(to) ? false : undefined;
+  }
+}
+
+/**
+ * Whether Orca has no project for the receiver's bot folder, after Orca
+ * refused to list its tabs. Orca refuses that for a folder it has no project
+ * for, rather than answering with none (tech notes, section 1), and a bot
+ * with no project has no open tab (review of PR #842). A list of projects
+ * that cannot be read tells nothing.
+ */
+function noProject(to) {
+  try {
+    return findProject(to.home) === undefined;
+  } catch {
+    return false;
   }
 }
 
@@ -272,7 +287,7 @@ async function loaded(to) {
   try {
     tab = tabs(to.home, { timeoutMs: LOOK_MS }).find((one) => one.tabId === to.tab);
   } catch (error) {
-    return { loadTrouble: error.message };
+    return noProject(to) ? noOpenTab(to) : { loadTrouble: error.message };
   }
   if (tab === undefined) return noOpenTab(to);
   if (tab.orphaned !== true) return {};
