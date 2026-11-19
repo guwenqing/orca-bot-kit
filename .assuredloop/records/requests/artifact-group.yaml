@@ -1,0 +1,19 @@
+schema: assuredloop/1
+request: artifact-group
+tier: "1"
+status: open
+sources:
+  - file: 2026-11-19-owner-words.md
+    kind: owner-words
+    sha256: 2ee46e84ce945a508cb9517ef434a70e76640a8e32cb4257ef64a96fc0857baf
+    taken: 2026-11-19T01:34Z
+requirements:
+  - id: R1
+    version: 1
+    sha256: 7187052cf65652b1f3c7167e109b315cb6aec61b4c4cfaab9b9d1f6d83d13758
+    title: The Artifact tools and skills go together
+signoff: []
+decisions: []
+tasks: []
+bindings:
+  - { holder: artifact-group/R1, link: from, target: artifact-group/2026-11-19-owner-words.md, holder_sha256: 7187052cf65652b1f3c7167e109b315cb6aec61b4c4cfaab9b9d1f6d83d13758, target_sha256: 2ee46e84ce945a508cb9517ef434a70e76640a8e32cb4257ef64a96fc0857baf }
