@@ -104,8 +104,8 @@ one kind of fix" come from issue #822. That a check is preferred to prose is
 pstack's, credited above. The rest is an idea taken from a paper whose licence
 is arXiv's non-exclusive distribution licence, so no text of it is reproduced:
 
-- **Christoph Treude and Sebastian Baltes, "How Do Coding-Agent Harnesses
-  Self-Evolve? An Empirical Study of Retrospective Adaptation"**, arXiv
+- **Christoph Treude and Sebastian Baltes**, "How Do Coding-Agent Harnesses
+  Self-Evolve? An Empirical Study of Retrospective Adaptation", arXiv
   2610.34938, https://arxiv.org/abs/2610.34938.
   Read: 2026-11-19 (v1, submitted 26 October 2026, the only version)
 

@@ -54,19 +54,22 @@ to take that rather than the files.
 The paragraph on the figures being a floor comes from issue #822. Its facts
 were read in these, all on 2026-11-19, and no text of theirs is taken:
 
-- **`anthropics/claude-code` issue 104358**, "Persist per-request usage for
-  every billed request", https://github.com/anthropics/claude-code/issues/104358
-  (opened 2026-10-22, open when read): the kinds of request that are billed
+- **Claude Code's issue 104358**, "Persist per-request usage for every
+  billed request", https://github.com/anthropics/claude-code/issues/104358:
+  the kinds of request that are billed
   and leave no row in a transcript, among them `agent_summary`, `auto_mode`,
   `compact`, `away_summary`, `generate_session_title`, `extract_memories` and
   `prompt_suggestion`. It cites #86879, on the size of the progress summaries
   in one session, and #100830, on subagent transcripts that lacked their
   final output from 2.1.280.
-- **Claude Code's `CHANGELOG.md`**, at
-  anthropics/claude-code@26fdd0013f7800348867d6c9c25143fcfd089ec6: 2.1.307
+  Read: 2026-11-19 (opened 2026-10-22, open when read; #86879 and #100830 read
+  the same day)
+- **Claude Code's `CHANGELOG.md`**: 2.1.307
   fixed subagent transcripts that recorded placeholder usage; 2.1.323 added
   `CLAUDE_CODE_DISABLE_AGENT_PROGRESS_SUMMARIES`; 2.1.327 and 2.1.328 had the
   progress summaries written from short notes, using far fewer tokens.
+  Revision: anthropics/claude-code@26fdd0013f7800348867d6c9c25143fcfd089ec6
+  (main, read 2026-11-19)
 
 The end of the subagent gap was also seen on disk on 2026-11-19, in 143
 subagent transcripts of one bot: 93 to 100 per cent of the messages of
