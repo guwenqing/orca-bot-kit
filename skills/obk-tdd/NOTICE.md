@@ -86,6 +86,10 @@ Ideas paraphrased, with no text taken:
 - **Anthropic's Claude Code documentation**, "Claude Code: Best practices", on
   separate test authorship.
   Read: 2026-09-19 (read for the research pack's source-book-1.md, of that date)
+  Seen 2026-11-19: the page was rewritten, and it no longer has the sentence
+  that this entry rests on: "have one Claude write tests, then another write
+  code to pass them". The Internet Archive's copy of 2026-09-21 has it:
+  https://web.archive.org/web/20260921060625/https://code.claude.com/docs/en/best-practices.
 - **alexop.dev**, "A Claude Code TDD Skill: Forcing Red-Green-Refactor", on why
   one context cannot hold both halves.
   Read: 2026-09-19 (read for the research pack's source-book-1.md, of that date)

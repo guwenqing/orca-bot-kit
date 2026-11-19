@@ -32,8 +32,14 @@
 //   3. History stays. Only the session's `mailbox` changes: its other keys and
 //      the book's `retired:` entries are as they were.
 //
+// Since #820 a Run can also be missing because Orca deleted it: from 1.4.262
+// Orca deletes a Run, with its letters, a day after its last write when no tab
+// of it is open. So the plain line of a replaced mailbox names both causes and
+// says that the letters that waited in the old Run are gone.
+//
 // The wording is the kit's; what is pinned is the ids, the exit code and the
-// book. Mail sent to the old Runs is out of scope. Each step runs as coder's
+// book, and for #820 a few facts the line must carry (helpers/run-deleted.js).
+// Mail sent to the old Runs is out of scope. Each step runs as coder's
 // own tab, with that tab's ORCA_TERMINAL_HANDLE and ORCA_TAB_ID, against the
 // fake Orca. Two tests wait out the step's twenty-second limit on one Orca
 // call, as the hang tests in mailbox-attestation.test.js do.
@@ -54,6 +60,7 @@ import {
   sh,
   shellWord,
 } from './helpers/cli.js';
+import { assertNamesBothCauses, assertSaysLettersGone } from './helpers/run-deleted.js';
 
 // ---------------------------------------------------------------------------
 // The fleet, and running the step as a tab
@@ -210,6 +217,21 @@ test('#508 1: the plain line of a replaced mailbox names both Runs and says this
   assert.ok(result.stdout.includes(stale), `and the old one ${stale}, got:\n${result.stdout}`);
   assert.match(result.stdout, /Orca/, `and says it is Orca that does not have it, got:\n${result.stdout}`);
   assert.match(result.stdout, /\bnot\b|unknown|missing/i, `that Orca does not have the old one, got:\n${result.stdout}`);
+});
+
+test('#820 R-M: the plain line of a replaced mailbox names both ids, both causes, Orca 1.4.262 deleted it or the book was written for another Orca, and that its letters are gone', async (t) => {
+  const box = await createSandbox(t);
+  const { bots, coder, stale } = await movedToANewMachine(box);
+
+  const result = await obkFrom(box, coder, MAILBOX);
+
+  assert.equal(result.code, 0, `the step should have worked:\n${result.stdout}${result.stderr}`);
+  const now = (await sessionIn(bots, 'coder', 'daily')).mailbox;
+  assert.notEqual(now, stale, `the book names a new mailbox, got: ${now}`);
+  assert.ok(result.stdout.includes(now), `the line names the new mailbox ${now}, got:\n${result.stdout}`);
+  assert.ok(result.stdout.includes(stale), `and the old one ${stale}, got:\n${result.stdout}`);
+  assertNamesBothCauses(result.stdout);
+  assertSaysLettersGone(result.stdout);
 });
 
 test('#508 1: a legacy Run Orca keeps but will not bind is left unchanged: the step fails as before, makes nothing, and writes nothing', async (t) => {

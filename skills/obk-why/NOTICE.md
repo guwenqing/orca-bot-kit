@@ -40,6 +40,11 @@ The skill `obk-why` was consolidated for this kit from this, MIT, with thanks:
   Revision: cursor/plugins@6ed0f7a9504f577d7529064103cecce9be7dfc5e
   (reconstructed: the research pack's 2026-09-20 clone the skills were built
   from; the revision actually read was not recorded)
+  Seen 2026-11-19: pstack cut `why` to one short paragraph and deleted all of
+  `why/references/` in bf0c7cd (2026-11-14). The paragraph keeps the core:
+  answer from the record, cite what the authors wrote, mark an inference as
+  one, and say what the record does not answer. The commit gives no reason.
+  Everything this file credits can still be read at 6ed0f7a.
 - The same skill's `references/sources/code-archaeology.md`. Its pitfalls: the
   squash merge that flattens a branch's steps, the commit message that calls a
   behaviour change a small refactor so the diff has to be read instead, the

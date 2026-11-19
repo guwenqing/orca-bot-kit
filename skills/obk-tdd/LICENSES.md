@@ -65,6 +65,9 @@ SOFTWARE.
 - **`nizos/tdd-guard`** is not among the clones in the research pack. What this
   skill takes from it is the idea of a check that refuses work which skipped
   the failing test, described in our own words.
+  Seen 2026-11-19, in the repository: its `LICENSE` is the MIT License,
+  "Copyright (c) 2025 Nizar Selander", at 2579ec1 (the revision NOTICE.md
+  names) and the same at ffb7026 (the newest).
 
 These are named in NOTICE.md for honesty about where the material came from.
 No text of theirs is reproduced in this skill, and their licence files were not

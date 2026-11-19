@@ -18,7 +18,7 @@ import { writePermissions } from './permissions.js';
 import { memoryFolderAtStart, memoryRefusal } from './memory.js';
 import { piTrouble } from './pi.js';
 import { addressOf, claudeTextFolder, HARNESSES, harnessOf, isAddressOf, isShortPrompt, kitFolders, launchCommand, lostToOwnSettings, mailboxStep, ownCli, reachesMail, remoteControlLaunched, sessionTrouble, setsSettings, shellWord, startPrompt, workDirOf } from './launch.js';
-import { asFolderProject, coordinatorOf, dropLeftGit, findProject, harnessInTab, loadInWindow, makeMailbox, makeProject, openTab, QUESTION_ON_SCREEN, retitleTab, runMissing, screenRows, shellInTab, tabs, tabToTypeInto, TERMINAL_ENV, TIMED_OUT, tellWindow, typeIntoTab, useMailbox } from './orca.js';
+import { asFolderProject, coordinatorOf, dropLeftGit, findProject, harnessInTab, loadInWindow, makeMailbox, makeProject, openTab, QUESTION_ON_SCREEN, retitleTab, RUN_GONE_WHY, runMissing, screenRows, shellInTab, tabs, tabToTypeInto, TERMINAL_ENV, TIMED_OUT, tellWindow, typeIntoTab, useMailbox } from './orca.js';
 import { TAB_ENV } from './record.js';
 import { buildAgents, currentSystemFile, rulesStamp } from './rules.js';
 import { mainTextFor, pruneMainFiles, pruneOriginals, shapeOf } from './main-text.js';
@@ -899,9 +899,10 @@ async function mailboxInTurn(home, botName, sessionName, who) {
       if (error.code === TIMED_OUT) {
         throw new Error(`${error.message}\n${who}'s mailbox ${held} may now be bound to this tab, or may still be bound where it was: Orca did not say which.`);
       }
-      // A Run this Orca has never had, as when the book was written on another
-      // machine, can never be bound, so every start would fail the same way.
-      // It is replaced as a session with none would be given one (#508).
+      // A Run this Orca does not have, because Orca deleted it (1.4.262 and
+      // later, #820) or the book was written on another machine (#508), can
+      // never be bound, so every start would fail the same way. It is
+      // replaced as a session with none would be given one.
       if (!runMissing(held, STEP_WAIT)) {
         throw new Error(`${error.message}\n${who}'s mailbox ${held} is unchanged: it is still bound to ${boundTo(held)}.`);
       }
@@ -914,14 +915,16 @@ async function mailboxInTurn(home, botName, sessionName, who) {
 
 /**
  * Make a mailbox in this tab and write it into the book, for a session whose
- * book names none, or names `stale`, a Run this Orca does not have.
+ * book names none, or names `stale`, a Run this Orca does not have. The
+ * caller holds the session's mailbox turn. `wait` is what each Orca call is
+ * given: the step's own, or what is left of a mail check's hold (#820).
  */
-async function newMailbox(home, botName, sessionName, who, here, stale) {
+export async function newMailbox(home, botName, sessionName, who, here, stale, wait = STEP_WAIT) {
   // Made outside the book's lock, which is held for one read and one write
   // (book.js).
   let made;
   try {
-    made = makeMailbox(who, STEP_WAIT);
+    made = makeMailbox(who, wait);
   } catch (error) {
     const written = stale === undefined ? 'none is written down' : `the book still names ${stale}, which this Orca does not have`;
     const left = error.code === TIMED_OUT
@@ -960,13 +963,20 @@ async function newMailbox(home, botName, sessionName, who, here, stale) {
   // One terminal holds one Run, so making the loser took this tab off the one
   // the book kept. It goes back.
   if (kept !== made) {
-    useMailbox(kept, undefined, STEP_WAIT);
+    useMailbox(kept, undefined, wait);
     return { bot: botName, session: sessionName, mailbox: kept, change: 'bound' };
   }
   return stale === undefined
     ? { bot: botName, session: sessionName, mailbox: made, change: 'made' }
     : { bot: botName, session: sessionName, mailbox: made, change: 'replaced', replaced: stale };
 }
+
+/**
+ * What the kit says when it replaced `old`, a Run this Orca does not have,
+ * with `made`, for the session `who` (#508, #820).
+ */
+export const replacedLine = (who, old, made) =>
+  `${who}'s mailbox ${old} is gone from this Orca: ${RUN_GONE_WHY}. Any letters that waited in it are gone. ${who} has a new one, ${made}, made in this tab and written into the book.`;
 
 /**
  * How long the step gives each Orca call. The step runs in front of the

@@ -26,7 +26,9 @@ import { writeKitFile } from './kit-files.js';
 import { MAILBOX_WAIT_MS, readBook, takeLineTurn, takeMailboxTurn, TYPING_HELD, TYPING_WAIT_MS } from './book.js';
 import { botDir, botNames, readBot } from './bot.js';
 import { harnessOf, isAddressOf, kitFolders, ownCli, reachesMail, SHELL_ENV, shellWord } from './launch.js';
-import { ackMailbox, coordinatorOf, isRunning, listedOrphaned, loadInWindow, postMessage, pressEscape, readMailbox, readsCarryRequest, tabs, tabToTypeInto, TERMINAL_ENV, TIMED_OUT, useMailbox } from './orca.js';
+import { ackMailbox, coordinatorOf, isRunning, listedOrphaned, loadInWindow, postMessage, pressEscape, readMailbox, readsCarryRequest, RUN_GONE_WHY, runMissing, tabs, tabToTypeInto, TERMINAL_ENV, TIMED_OUT, useMailbox } from './orca.js';
+import { TAB_ENV } from './record.js';
+import { newMailbox } from './up.js';
 
 /**
  * How much of a message travels as itself. Above this it is written to a file
@@ -285,7 +287,7 @@ const RELOOK_MS = 200;
  * is not a peek acknowledges every batch waiting, one after another, so one
  * check hands over all of it (issue #299).
  */
-export function checkMail(bots, { bot: botName, session: sessionName, tab, peek = false }) {
+export async function checkMail(bots, { bot: botName, session: sessionName, tab, peek = false }) {
   const asked = sessionName === undefined && botName === undefined
     ? whoIsWriting(bots, undefined, tab, '--bot <bot> [--session <name>]: whose mail to read')
     : findSession(bots, sessionName === undefined ? botName : `${botName}/${sessionName}`);
@@ -307,7 +309,7 @@ export function checkMail(bots, { bot: botName, session: sessionName, tab, peek 
   }
   try {
     const who = findSession(bots, `${asked.bot}/${asked.session}`);
-    return mailOf(bots, who, peek, Date.now() + HOLD_MS);
+    return await mailOf(bots, who, peek, Date.now() + HOLD_MS);
   } finally {
     turn.release();
   }
@@ -317,7 +319,7 @@ export function checkMail(bots, { bot: botName, session: sessionName, tab, peek 
  * What `checkMail` does once it has the session's turn, with `who` as the book
  * says now, asking Orca nothing after `until`.
  */
-function mailOf(bots, who, peek, until) {
+async function mailOf(bots, who, peek, until) {
   if (who.mailbox === undefined) {
     return {
       bots,
@@ -348,8 +350,36 @@ function mailOf(bots, who, peek, until) {
       trouble: `${who.bot}/${who.session}'s mail can be read only in its own tab: Orca lets a tab bind and read its own mailbox and no other. Nothing was read, and its mail is still waiting.`,
     };
   }
-  if (live !== undefined) useMailbox(who.mailbox, live, timeLeft(until));
-  const handle = live ?? coordinatorOf(who.mailbox, timeLeft(until));
+  if (live !== undefined) {
+    try {
+      useMailbox(who.mailbox, live, timeLeft(until));
+    } catch (error) {
+      if (error.code === TIMED_OUT || !runMissing(who.mailbox, timeLeft(until))) throw error;
+      // Orca has no Run of that id: it deleted it, or the book was written on
+      // another machine (#508, #820). A read in the session's own tab makes
+      // it a new one there, as its launch line does. A peek, or a check from
+      // anywhere else, makes nothing: Orca binds a new Run to the tab that
+      // makes it.
+      if (peek || caller !== live || process.env[TAB_ENV] !== who.tab) {
+        return gone(bots, who, 'A check in its own tab, or its next start, makes it a new one.');
+      }
+      const answer = await newMailbox(who.home, who.bot, who.session, `${who.bot}/${who.session}`, who.tab, who.mailbox, timeLeft(until));
+      if (answer.change === 'replaced') {
+        return { bots, bot: who.bot, session: who.session, mailbox: answer.mailbox, replaced: who.mailbox, read: true, messages: [] };
+      }
+      // Another writer replaced it first, and its Run is now bound here.
+      who = { ...who, mailbox: answer.mailbox };
+    }
+  }
+  let handle = live;
+  if (handle === undefined) {
+    try {
+      handle = coordinatorOf(who.mailbox, timeLeft(until));
+    } catch (error) {
+      if (error.code !== 'run_not_found') throw error;
+      return gone(bots, who, `Its next start makes it a new one:  ${startCommand(who)}`);
+    }
+  }
   if (handle === undefined) {
     return {
       bots,
@@ -470,6 +500,32 @@ function timeLeft(until, refuse = true) {
   if (left >= 1000) return { timeoutMs: left };
   if (refuse) throw new Error(`the kit gives a mail check ${HOLD_MS / 1000} seconds of Orca's time, and Orca took them all. Nothing more was asked of it, and the mail is still waiting.`);
   return undefined;
+}
+
+/**
+ * The answer of a check whose mailbox Orca does not have, with nothing made:
+ * why, what went with it, and `next`, what makes it a new one (#820).
+ */
+const gone = (bots, who, next) => ({
+  bots,
+  bot: who.bot,
+  session: who.session,
+  mailbox: who.mailbox,
+  messages: [],
+  trouble: `${who.bot}/${who.session}'s mailbox ${who.mailbox} is gone from this Orca: ${RUN_GONE_WHY}. Any letters that waited in it are gone, and mail sent to it is refused. Nothing was made. ${next}`,
+});
+
+/** The command that starts a session whose tab is not open: its unpause when it is paused, or `up`. */
+function startCommand(who) {
+  const bot = readBot(who.home, who.bot);
+  const unpause = `${shellWord(ownCli())} unpause --bots ${shellWord(who.bots)} --bot ${shellWord(who.bot)}`;
+  // The bot's unpause leaves a session paused on its own as it is, so a
+  // session under both marks needs both commands, as health says.
+  const steps = [
+    ...(bot.paused === true ? [unpause] : []),
+    ...(bot.sessions.some((one) => one.name === who.session && one.paused === true) ? [`${unpause} --session ${shellWord(who.session)}`] : []),
+  ];
+  return steps.length > 0 ? steps.join(', then ') : `${upCommand(who)} --session ${shellWord(who.session)}`;
 }
 
 /** One message, in the kit's words rather than Orca's. */

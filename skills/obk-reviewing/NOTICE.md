@@ -19,6 +19,9 @@ noted, with thanks:
   Revision: cursor/plugins@6ed0f7a9504f577d7529064103cecce9be7dfc5e
   (reconstructed: the research pack's 2026-09-20 clone the skills were built
   from; the revision actually read was not recorded)
+  Seen 2026-11-19: pstack deleted the four `interrogate` references, the
+  rubric and `lead-judgment` among them, in ab1f702 (2026-10-27), and cut
+  `interrogate` itself to about half. All of it can still be read at 6ed0f7a.
 - **obra/superpowers**, `requesting-code-review`, `receiving-code-review` and
   `subagent-driven-development/task-reviewer-prompt.md` (the last for bounded
   reading, "declined to judge", the read-only rule and one focused test only
@@ -60,6 +63,9 @@ noted, with thanks:
   Revision: addyosmani/agent-skills@dc27a9c2e13721158157632de61b4106c6c2a2a1
   (reconstructed: the research pack's 2026-09-20 clone the skills were built
   from; the revision actually read was not recorded)
+  Seen 2026-11-19: pstack deleted `code-quality-review` in ab1f702
+  (2026-10-27), with the other `interrogate` references. It can still be read
+  at 6ed0f7a.
 - **Anthropic's built-in review**, as behaviour observed rather than text
   taken: the angles worth separating, naming the behaviour a deleted line held
   up, following a change out to its callers, confirmed against plausible
