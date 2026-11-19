@@ -1,4 +1,4 @@
-Source: /private/tmp/claude-501/-Volumes-DevData-projects-ai-mybots-bots-kit-dev/1f2cf393-14d9-45a1-b7ab-697727c0e9b3/scratchpad/owner-words-660.txt
+Source: https://github.com/guwenqing/orca-bot-kit/issues/547 (the issue body, recorded by the architect)
 Fetched: 2026-10-19T06:20Z
 SHA-256: 92fcb850768faecd19d871e9af1bdd550c7c361e21f568dfb1ac2763935295b3
 ---

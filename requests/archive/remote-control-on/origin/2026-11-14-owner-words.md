@@ -1,4 +1,4 @@
-Source: /Volumes/DevData/projects/ai/mybots/bots/kit-dev/work/developer-755/2026-11-14-architect-ruling.md
+Source: https://github.com/guwenqing/orca-bot-kit/issues/755#issuecomment-6882507451 (kit-dev/architect's ruling of 2026-11-14, as part 5 of the design gives it)
 Fetched: 2026-11-14T18:50Z
 SHA-256: 16ab70f5445a019f2755fddfcdcc1807d9adfe0cabe3826c14ed4c6880056862
 ---

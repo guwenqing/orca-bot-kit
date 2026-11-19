@@ -1,0 +1,107 @@
+// Origin sources (#774): the `Source:` line of each origin file names a place
+// that a reader of the repo can open, such as an issue, a PR comment or a file
+// in the repo. It never names a path on the machine of the session that
+// recorded it: a reader cannot open such a path, and it puts one machine's
+// layout into a public repo.
+//
+// An origin file is a snapshot that AssuredLoop's `al` wrote, under
+// requests/<name>/origin/ or requests/archive/<name>/origin/: header lines,
+// then a line that is exactly `---` or `--- signed text ---`, then the text.
+// Only the `Source:` header line is read. The text below the separator is the
+// owner's words and may hold anything.
+//
+// A machine path is an absolute POSIX path (`/...`), a home path (`~...`) or a
+// Windows drive path (`C:\...` or `C:/...`). Every other value is allowed: a
+// URL, or prose such as `standard input`. A URL is not required.
+//
+// The request folders that prd-baseline.test.js pins byte for byte (its list
+// ARCHIVED_UNDER_0_1_0) are left out. They are dated records, which no later
+// change edits, and the architect ruled in #774 that they stay as they are,
+// local paths included. This test reads the folder names from that list in
+// prd-baseline.test.js, so there is no second list to keep by hand. It does not
+// import that file, which would run its tests too. If the list cannot be read,
+// this test fails, so a renamed list cannot widen the exemption in silence.
+
+import assert from 'node:assert/strict';
+import { readFile, readdir } from 'node:fs/promises';
+import path from 'node:path';
+import test from 'node:test';
+import { fileURLToPath } from 'node:url';
+
+const repoRoot = fileURLToPath(new URL('..', import.meta.url));
+const requestsDir = path.join(repoRoot, 'requests');
+const archiveDir = path.join(requestsDir, 'archive');
+const baselineTest = path.join(repoRoot, 'test', 'prd-baseline.test.js');
+
+/** One row of the list: `  ['<folder>', '<sha-256>'],`, and nothing else. */
+const PIN_ROW = /^ {2}\['([a-z0-9][a-z0-9-]*)', '[0-9a-f]{64}'\],$/;
+
+/**
+ * The folder names in prd-baseline.test.js's ARCHIVED_UNDER_0_1_0. Each line
+ * of the list must be a row of exactly that shape. Any other line, a comment
+ * included, fails the test, so that no text this does not fully read can
+ * exempt a folder.
+ */
+async function pinnedFolders() {
+  const lines = (await readFile(baselineTest, 'utf8')).split(/\r?\n/);
+  const where = path.relative(repoRoot, baselineTest);
+  const starts = lines.flatMap((line, index) => (line === 'const ARCHIVED_UNDER_0_1_0 = [' ? [index] : []));
+  assert.equal(starts.length, 1, `found ${starts.length} lists ARCHIVED_UNDER_0_1_0 in ${where}, not 1`);
+  const end = lines.indexOf('];', starts[0] + 1);
+  assert.ok(end > starts[0], `found no end of the list ARCHIVED_UNDER_0_1_0 in ${where}`);
+  const names = [];
+  for (let index = starts[0] + 1; index < end; index += 1) {
+    const row = PIN_ROW.exec(lines[index]);
+    assert.ok(row, `${where}:${index + 1}: not a row of ARCHIVED_UNDER_0_1_0 that this test reads: ${lines[index]}`);
+    names.push(row[1]);
+  }
+  assert.ok(names.length > 0, 'read no folder name from ARCHIVED_UNDER_0_1_0');
+  return new Set(names);
+}
+
+const SEPARATOR = /^---( signed text ---)?$/;
+const MACHINE_PATH = /^(\/|~|[A-Za-z]:[\\/])/;
+
+/** Every file in an `origin` folder under requests/, archive included. */
+async function originFiles(dir, inOrigin = false) {
+  const found = [];
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) found.push(...(await originFiles(full, inOrigin || entry.name === 'origin')));
+    else if (inOrigin && entry.isFile()) found.push(full);
+  }
+  return found;
+}
+
+/** The value of the `Source:` line in the header, or undefined. */
+function headerSource(text) {
+  for (const line of text.split(/\r?\n/)) {
+    if (SEPARATOR.test(line)) return undefined;
+    const match = /^Source:(.*)$/.exec(line);
+    if (match) return match[1].trim();
+  }
+  return undefined;
+}
+
+/** True when the file is in a folder requests/archive/<name>/ of the pin. */
+const inPinnedFolder = (file, pinned) => {
+  const [name, ...rest] = path.relative(archiveDir, file).split(path.sep);
+  return name !== '..' && rest.length > 0 && pinned.has(name);
+};
+
+test('no origin file names a path on one machine as its Source', async () => {
+  const pinned = await pinnedFolders();
+  const files = (await originFiles(requestsDir)).filter((file) => !inPinnedFolder(file, pinned));
+  assert.ok(files.length > 0, `found no origin files under ${requestsDir} outside the pinned folders`);
+
+  const bad = [];
+  let sources = 0;
+  for (const file of files) {
+    const source = headerSource(await readFile(file, 'utf8'));
+    if (source === undefined) continue;
+    sources += 1;
+    if (MACHINE_PATH.test(source)) bad.push(`${path.relative(repoRoot, file)}: Source: ${source}`);
+  }
+  assert.ok(sources > 0, `read no Source line in the ${files.length} origin files`);
+  assert.deepEqual(bad, [], `origin files whose Source is a path on one machine:\n${bad.join('\n')}`);
+});
