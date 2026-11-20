@@ -883,12 +883,6 @@ function unannounced(bots, home, bot, name, entry) {
   return [finding('mail', entry.mailbox, `${bot.name}'s session ${name} ${what} Its harness is idle now, and Orca tells an idle session of its mail within minutes, unless the session sat idle through an Orca restart or update: then Orca does not tell it until it takes a turn. ${restart} opens a new tab for it, which Orca tells. A restart drops what lives only in the old tab, such as Claude Code schedules, so the session makes them again.`, bot.name)];
 }
 
-/**
- * The limit of a read of a whole mailbox. Orca puts no cap on it, and a plain
- * number trips no check of its size; no mailbox of the kit's holds a million letters.
- */
-const WHOLE_READ = 1_000_000;
-
 /** How long after the last letter or read Orca 1.4.262 and later deletes the Run of a session with no open tab (#820). */
 const RUN_KEPT_MS = 24 * 60 * 60 * 1000;
 
@@ -907,18 +901,26 @@ const RUN_KEPT_MS = 24 * 60 * 60 * 1000;
 function waitingWithNoTab(bots, home, bot, name, entry) {
   let mail;
   try {
-    mail = mailIn(entry.mailbox, MAIL_READ);
     // A full read with no unread letter can still have one below it, which
     // Orca's `reply` marked read out of order. Orca's inbox has no cursor and
-    // no unread filter, and no cap on its limit, so the mailbox is read once
-    // more, whole (review of PR #842).
-    if (mail.length >= MAIL_READ && !mail.some((one) => one.read === 0)) mail = mailIn(entry.mailbox, WHOLE_READ);
+    // no unread filter, and no cap on its limit, so the mailbox is read again
+    // with a larger limit until a read is not full or holds an unread letter:
+    // the last read is then the whole of what matters (review of PR #842).
+    for (let limit = MAIL_READ; ; limit *= 10) {
+      mail = mailIn(entry.mailbox, limit);
+      if (mail.length < limit || mail.some((one) => one.read === 0)) break;
+    }
   } catch {
     return [];
   }
   const unread = mail.filter((one) => one.read === 0).length;
   if (unread === 0) return [];
-  const newest = Math.max(...mail.map((one) => Date.parse(one.created_at)).filter(Number.isFinite));
+  // A loop, not a spread: a whole mailbox can hold more letters than a call takes arguments.
+  let newest = -Infinity;
+  for (const one of mail) {
+    const at = Date.parse(one.created_at);
+    if (at > newest) newest = at;
+  }
   const when = Number.isFinite(newest)
     ? `from ${new Date(newest + RUN_KEPT_MS).toISOString()}: 24 hours after the newest letter`
     : '24 hours after the newest letter, whose time health cannot read';

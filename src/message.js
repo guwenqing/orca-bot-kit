@@ -181,11 +181,11 @@ function tabListed(to) {
  * refused to list its tabs. Orca refuses that for a folder it has no project
  * for, rather than answering with none (tech notes, section 1), and a bot
  * with no project has no open tab (review of PR #842). A list of projects
- * that cannot be read tells nothing.
+ * that cannot be read in LOOK_MS tells nothing.
  */
 function noProject(to) {
   try {
-    return findProject(to.home) === undefined;
+    return findProject(to.home, { timeoutMs: LOOK_MS }) === undefined;
   } catch {
     return false;
   }
