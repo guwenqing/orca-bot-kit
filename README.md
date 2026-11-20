@@ -1018,8 +1018,10 @@ So when the receiver has no open tab, `message to` and `message send` say so,
 say when Orca can delete its mailbox, and name the command that starts it. The
 letter still goes. `obk health` names each session with no open tab whose
 mailbox holds unread letters, with how many wait (at least that many) and the
-earliest time Orca may delete them: 24 hours after the newest letter. It counts
-the letters and reads no subject and no body. The kit says this on every Orca
+earliest time Orca may delete them: 24 hours after the newest letter. Orca's
+answer carries each letter whole, since its inbox has no way to leave the text
+out. Health uses only each letter's read flag and its time, and it keeps, shows
+and logs no subject and no body. The kit says this on every Orca
 version, and does not read which version runs. One gap stays: a letter that
 was sent while the receiver's tab was open, and is still unread when the tab
 closes, gets no word at the send. Only `obk health` shows it.

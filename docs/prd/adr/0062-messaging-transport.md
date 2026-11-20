@@ -154,8 +154,10 @@ tab, the answer says that Orca can delete its mailbox, with the letters in it,
 names the command that starts it. The letter still goes, by the same road as
 before. `obk health` names each session with no open tab whose mailbox holds
 unread letters, with how many wait (at least that many) and the earliest time
-Orca may delete them: 24 hours after the newest letter. It counts letters by
-their flags and times, and reads no subject and no body. "No open tab" is read
+Orca may delete them: 24 hours after the newest letter. Orca's inbox answer
+carries each letter whole, since the call has no way to leave the text out.
+Health uses only each letter's read flag and its times, and it keeps, shows and
+logs no subject and no body. "No open tab" is read
 from Orca's listing of the bot's tabs: the book names a tab for the session,
 and Orca does not list it. The kit gives these words on every Orca version, and
 names Orca 1.4.262 in them, so it does not read the version of Orca. The kit

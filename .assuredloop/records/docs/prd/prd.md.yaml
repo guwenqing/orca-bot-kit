@@ -167,7 +167,7 @@ paragraphs:
     display: KIT-36 (6.9:1, in [PRD-16] 6.9 Messaging)
   - id: KIT-56
     kind: rule
-    text_sha256: 40e1cde3021f27f5d1d7fcd2002e85a47288b7dcc3e7f2a3430840a9e60b9ca9
+    text_sha256: 21e57e9b7bb88e29bb2fd11dcb688fe4f8bb414c70bfdbfca4e06417bf282f01
     display: KIT-56 (6.9:2, in [PRD-16] 6.9 Messaging)
   - id: KIT-37
     kind: note
