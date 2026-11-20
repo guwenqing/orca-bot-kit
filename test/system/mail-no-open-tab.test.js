@@ -26,7 +26,7 @@
 //   3. `message to` and `message send` from `daily` to `night`, with `--json`
 //      and plain: `noOpenTab: true`, `start` the kit's `up` of `night`, the
 //      plain line with every fact, `sent: true`, and both letters in `night`'s
-//      Run, read back with `orchestration inbox`.
+//      Run, read back with `orchestration inbox` (helpers/inbox.js).
 //   4. `obk health --json` names `night`: kind `mail`, its Run as `where`, at
 //      least 2 unread letters, and the newest letter's `created_at` plus 24
 //      hours. No subject or body shows in either report.
@@ -68,6 +68,7 @@ import { setTimeout } from 'node:timers/promises';
 import { parse } from 'yaml';
 
 import { cliEntry, spellingsOf } from '../helpers/cli.js';
+import { inboxLetters } from '../helpers/inbox.js';
 import { onlyTeachFormOf, questionOn } from '../helpers/screens.js';
 import { claudeTrustAt } from '../helpers/claude-trust.js';
 import { tabGuard } from '../helpers/tab-guard.js';
@@ -238,16 +239,11 @@ function assertSaysNoOpenTab(what, text, starts) {
 }
 
 /**
- * The letters in Run `run`, newest first, as the real Orca answers them: with
- * `--full` where it takes it (1.4.246 and later answer short without it), and
- * without it where it refuses the flag.
+ * The letters in Run `run`, newest first, as the real Orca keeps them: read
+ * through helpers/inbox.js, which asks with `--full` and asks again without it
+ * only where Orca does not know the flag, and prints no letter on a failure.
  */
-function lettersIn(run) {
-  const full = orca(['orchestration', 'inbox', '--terminal', `run:${run}`, '--limit', '100', '--full']);
-  const answer = full.ok === true ? full : orca(['orchestration', 'inbox', '--terminal', `run:${run}`, '--limit', '100']);
-  assert.equal(answer.ok, true, `orca orchestration inbox of run:${run} failed: ${JSON.stringify(answer.error)} (with --full: ${JSON.stringify(full.error)})`);
-  return answer.result.messages ?? [];
-}
+const lettersIn = (run) => inboxLetters(ORCA, { terminal: `run:${run}`, limit: 100 });
 
 /** Remove the throwaway bots folder and every `<bots>.*` the kit made beside it (PRD 6.3). */
 async function removeBotsFolderAndSiblings(bots) {
