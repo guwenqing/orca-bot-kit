@@ -1,5 +1,5 @@
 # mail-no-open-tab
-Tier: 1 · Status: open
+Tier: 1 · Status: concluded
 
 ## Owner's words and dialog
 
@@ -21,3 +21,12 @@ The kit MAY give these words on every Orca version, and name Orca 1.4.262 in the
 
 The kit MUST NOT keep a copy of a letter, write to a mailbox to keep it alive, or open a tab to keep it alive.
 Signed off: 2026-11-19 owner, origin/2026-11-19-signoff.md
+
+## Outcome
+
+Concluded 2026-11-20 with al conclude, on the working tree at 9f6aacc.
+
+- R1 A letter to a session with no open tab: the kit says that Orca can delete it, and when, version 1, signed in S1:
+  - KIT-56 rule: in docs/prd/prd.md, serves it
+  - ADR-62: decides it (accepted)
+- Not known: whether the code, tests and documents do what the paragraphs say; whether the work has ended: the tool does not take a merged task or a reconciled spec as evidence of that.
