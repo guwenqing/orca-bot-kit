@@ -1121,7 +1121,7 @@ Agent Skills spec: `name` is 1–64 chars, lowercase letters, digits and hyphens
 2. ~~A Claude session launched with `-n` keeps its name after `--resume`, and messaging works inside an Orca tab.~~ **done** (2026-09-21, issue 08): see section 2.
 3. ~~Two `auto` Claude sessions deliver to each other without a prompt.~~ **done** (2026-09-21, issue 08): see section 2.
 4. ~~Codex `auto` mode lets a bot run `orca`~~ **done** (2026-09-21, issue 08): only with `-c sandbox_workspace_write.network_access=true`; see section 3. `gh` under `auto` is still owed.
-5. ~~An Orca automation with `--reuse-session` keeps one grooming conversation.~~ **no longer needed** (slice 11): grooming does not use `--reuse-session` and is a fresh conversation each run (PRD 6.8). Whether the flag keeps one conversation is still unverified.
+5. ~~An Orca automation with `--reuse-session` keeps one grooming conversation.~~ **no longer needed** (slice 11): grooming does not use `--reuse-session`. PRD 6.8 says how it runs: the grooming session is a Claude Code session in the book, and its runs share one long conversation. When the grooming is done on Codex, each run is a temporary Codex session that the grooming session makes. Whether the flag keeps one conversation is still unverified.
 6. `codex queue` retest.
 7. ~~An Orca tab id is still the same after Orca restarts.~~ **verified by observation** (2026-09-22 reboot, see section 1); a deliberate restart test is still owed if the owner wants one (#176).
 8. That `dangerously-skip` records `bypassPermissions` on Claude Code and `never` with `danger-full-access` on Codex (sections 2 and 3, #271).
