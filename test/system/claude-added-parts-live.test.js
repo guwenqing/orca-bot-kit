@@ -58,8 +58,9 @@
 //   5. Printed for each model, as diagnostics:
 //        - each section of FIRST's own main text (its first record but the
 //          kit's appended section): `own <model> <index> <size> <sha256>
-//          <recipe names>`, where the names are those of a drop or unit hash
-//          that matches the whole section or one of its lines;
+//          <recipe names>`, where the names are those of a drop, unit or
+//          back hash that matches the whole section or one of its lines
+//          (helpers/recipe-names.js);
 //        - which section of SECOND's first record is the main file, by sha256;
 //          and whether its last section is the kit's appended text, by the sum
 //          in the appended file's name;

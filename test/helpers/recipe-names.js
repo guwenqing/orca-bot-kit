@@ -6,12 +6,13 @@
 
 import { unitHash } from '../../src/main-text.js';
 
-/** The recipe's names for a section: those of each drop or unit hash that matches the whole section or one of its lines. */
+/** The recipe's names for a section: those of each drop, unit or back hash that matches the whole section or one of its lines. */
 export function recipeNamesOf(section, recipe) {
   const held = new Set([unitHash(section), ...section.split('\n').map(unitHash)]);
   return [
     ...recipe.drop.map((one, at) => ({ name: `drop-${at + 1}`, hash: one.hash })),
     ...recipe.units,
+    ...(recipe.back ?? []),
   ].filter((unit) => held.has(unit.hash)).map((unit) => unit.name);
 }
 
