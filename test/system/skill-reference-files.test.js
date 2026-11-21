@@ -198,7 +198,13 @@ const FIRST_LINE = '# ADR NNNN: <the decision, as a short phrase>';
 /** The skill, as a bot's skills list names it. */
 const SKILL = 'kit:obk-arch';
 
-/** In the start prompt and the asked line only, and asked for in lower case, so an echo of either is not its answer. */
+/**
+ * In the start prompt and the asked line only, and asked for in lower case.
+ * The ready word counts in any case: only the record's reply events are
+ * searched, and the prompt's echo is a user event in all three harnesses
+ * (helpers/reference-reads.js). A run of 2026-11-21 had Claude Code answer
+ * READY-5316 in upper case.
+ */
 const READY = 'READY-5316';
 const DONE = 'DONE-8042';
 
@@ -562,8 +568,8 @@ async function checkHarness(t, harness, bots) {
     return typeof found.session === 'string' ? found.session : undefined;
   }, () => whatIsUp(handle), screen);
   const entries = () => entriesOf(recordOf(harness, home, id));
-  await until(`${title}'s start turn to answer ${READY.toLowerCase()}`, READY_MS, async () => (
-    eventsOf(harness, entries()).events.some((one) => one.kind === 'reply' && one.text.includes(READY.toLowerCase())) ? true : undefined
+  await until(`${title}'s start turn to answer ${READY}, in any case,`, READY_MS, async () => (
+    eventsOf(harness, entries()).events.some((one) => one.kind === 'reply' && one.text.toLowerCase().includes(READY.toLowerCase())) ? true : undefined
   ), () => `\n  its record (${recordOf(harness, home, id) ?? 'not found'}), last events:\n  ${tailOf(eventsOf(harness, entries()).events)}${whatIsUp(handle)}`, screen);
   await until(`${title} to be at its plain input prompt`, READY_MS, async () => (notAtPrompt(harness, handle) === undefined ? true : undefined), () => ` ${notAtPrompt(harness, handle) ?? ''}${whatIsUp(handle)}`, screen);
 
