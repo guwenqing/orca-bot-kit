@@ -58,8 +58,9 @@
 //   5. Printed for each model, as diagnostics:
 //        - each section of FIRST's own main text (its first record but the
 //          kit's appended section): `own <model> <index> <size> <sha256>
-//          <recipe names>`, where the names are those of a drop or unit hash
-//          that matches the whole section or one of its lines;
+//          <recipe names>`, where the names are those of a drop, unit or
+//          back hash that matches the whole section or one of its lines
+//          (helpers/recipe-names.js);
 //        - which section of SECOND's first record is the main file, by sha256;
 //          and whether its last section is the kit's appended text, by the sum
 //          in the appended file's name;
@@ -140,13 +141,14 @@ import { cliEntry, shellWord } from '../helpers/cli.js';
 import { claudeTrustAt, trustScreenMet } from '../helpers/claude-trust.js';
 import { atNight, namedThisRun } from '../helpers/night-gate.js';
 import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
+import { namesText, recipeNamesOf } from '../helpers/recipe-names.js';
 import { onlyTeachFormOf, questionOn } from '../helpers/screens.js';
 import { tabGuard } from '../helpers/tab-guard.js';
 import { RC_OFF, withBotFatherOff } from '../helpers/remote-control-off.js';
 import { autoModeState, sessionRecordFiles } from '../helpers/teach-record.js';
 import { RELOAD_LINE } from '../../src/orca.js';
 import { claudeTextFolder } from '../../src/launch.js';
-import { claudeVersion, readRecipe, unitHash } from '../../src/main-text.js';
+import { claudeVersion, readRecipe } from '../../src/main-text.js';
 
 /** This file, as the runner names it in OBK_SYSTEM_NAMED. */
 const THIS_FILE = fileURLToPath(import.meta.url);
@@ -455,18 +457,6 @@ function jsonOf(file) {
     return undefined;
   }
 }
-
-/** The recipe's names for a section: those of each drop or unit hash that matches the whole section or one of its lines. */
-function recipeNamesOf(section, recipe) {
-  const held = new Set([unitHash(section), ...section.split('\n').map(unitHash)]);
-  return [
-    ...recipe.drop.map((one, at) => ({ name: `drop-${at + 1}`, hash: one.hash })),
-    ...recipe.units,
-  ].filter((unit) => held.has(unit.hash)).map((unit) => unit.name);
-}
-
-/** The recipe's names for a printed line: the names, or `-` for none. */
-const namesText = (names) => (names.length === 0 ? '-' : names.join(','));
 
 test('for each model the recipe names, the parts that Claude Code adds by itself after the kit\'s main file, by their sums', async (t) => {
   t.diagnostic(`the commit this run ran: ${commitRun()}`);
