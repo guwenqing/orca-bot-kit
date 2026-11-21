@@ -58,8 +58,9 @@
 //   5. Printed for each model, as diagnostics:
 //        - each section of FIRST's own main text (its first record but the
 //          kit's appended section): `own <model> <index> <size> <sha256>
-//          <recipe names>`, where the names are those of a drop or unit hash
-//          that matches the whole section or one of its lines;
+//          <recipe names>`, where the names are those of a drop, unit or
+//          back hash that matches the whole section or one of its lines
+//          (helpers/recipe-names.js);
 //        - which section of SECOND's first record is the main file, by sha256;
 //          and whether its last section is the kit's appended text, by the sum
 //          in the appended file's name;
@@ -79,6 +80,15 @@
 //        - one line for a machine to read:
 //          `added-parts <model> <version> <JSON list>`, each item
 //          `{ sha256, size, own_index, in_main, recipe }`.
+//        - for each session, FIRST and SECOND, the tools of the Artifact
+//          family (names that begin with `Artifact`) that its transcript
+//          shows it was offered and that the kit's default cut list
+//          (src/cuts.js `DEFAULT_TOOLS`) does not name:
+//          `artifact-family <model> <session> not in the default cut:
+//          <names or none>`, or `... no tool list in the record`
+//          (helpers/artifact-family.js). Such a tool is one that a new
+//          Claude Code version offers and the default cut misses, as
+//          `ArtifactCheck` would be (#812). The line fails nothing.
 //
 // **The bots' own settings.** A bot of a real fleet may carry tools from its
 // own `.claude/settings.json`. The fleet's bots, read on 2026-11-16, hold only
@@ -140,13 +150,16 @@ import { cliEntry, shellWord } from '../helpers/cli.js';
 import { claudeTrustAt, trustScreenMet } from '../helpers/claude-trust.js';
 import { atNight, namedThisRun } from '../helpers/night-gate.js';
 import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
+import { artifactFamilyLine, artifactToolsBeyond } from '../helpers/artifact-family.js';
+import { namesText, recipeNamesOf } from '../helpers/recipe-names.js';
 import { onlyTeachFormOf, questionOn } from '../helpers/screens.js';
 import { tabGuard } from '../helpers/tab-guard.js';
 import { RC_OFF, withBotFatherOff } from '../helpers/remote-control-off.js';
 import { autoModeState, sessionRecordFiles } from '../helpers/teach-record.js';
 import { RELOAD_LINE } from '../../src/orca.js';
+import { DEFAULT_TOOLS } from '../../src/cuts.js';
 import { claudeTextFolder } from '../../src/launch.js';
-import { claudeVersion, readRecipe, unitHash } from '../../src/main-text.js';
+import { claudeVersion, readRecipe } from '../../src/main-text.js';
 
 /** This file, as the runner names it in OBK_SYSTEM_NAMED. */
 const THIS_FILE = fileURLToPath(import.meta.url);
@@ -456,18 +469,6 @@ function jsonOf(file) {
   }
 }
 
-/** The recipe's names for a section: those of each drop or unit hash that matches the whole section or one of its lines. */
-function recipeNamesOf(section, recipe) {
-  const held = new Set([unitHash(section), ...section.split('\n').map(unitHash)]);
-  return [
-    ...recipe.drop.map((one, at) => ({ name: `drop-${at + 1}`, hash: one.hash })),
-    ...recipe.units,
-  ].filter((unit) => held.has(unit.hash)).map((unit) => unit.name);
-}
-
-/** The recipe's names for a printed line: the names, or `-` for none. */
-const namesText = (names) => (names.length === 0 ? '-' : names.join(','));
-
 test('for each model the recipe names, the parts that Claude Code adds by itself after the kit\'s main file, by their sums', async (t) => {
   t.diagnostic(`the commit this run ran: ${commitRun()}`);
   const before = {
@@ -654,6 +655,7 @@ test('for each model the recipe names, the parts that Claude Code adds by itself
       return { sha256: sum, size: section.length, own_index: ownIndex === -1 ? null : ownIndex, in_main: mainText.includes(section), recipe: names };
     });
     t.diagnostic(`added-parts ${bot.label} ${version} ${JSON.stringify(parts)}`);
+    for (const [name, lines] of [[FIRST, firstLines], [SECOND, secondLines]]) t.diagnostic(artifactFamilyLine(bot.label, name, artifactToolsBeyond(lines, DEFAULT_TOOLS)));
   }
 
   // The Artifact bot's own text against the plain bot's of the same model: what keeping Artifact adds to it.
