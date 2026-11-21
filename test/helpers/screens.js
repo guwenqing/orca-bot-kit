@@ -1882,6 +1882,19 @@ const PRE_APPROVED_FOOT = ['These will apply without asking. Only proceed if you
 const PRE_APPROVED_LOADS = 'Trusting this folder loads .claude/settings.json (runs commands).';
 
 /**
+ * The row Claude Code 2.1.330 puts before PRE_APPROVED_LOADS, as exact text:
+ * captured live on 2026-11-21, from the screen that the run of
+ * test/system/mail-no-open-tab.test.js met (#845).
+ */
+const PRE_APPROVED_HOOKS = '⚠ This folder configures hooks that can run commands without asking, declared in .claude/settings.json';
+
+/**
+ * The rows between the two rows of PRE_APPROVED_FOOT on each captured screen,
+ * and no others: 2.1.325, 2.1.326 (#786) and 2.1.330 (#845).
+ */
+const PRE_APPROVED_BETWEEN = [[], [PRE_APPROVED_LOADS], [PRE_APPROVED_HOOKS, PRE_APPROVED_LOADS]];
+
+/**
  * Whether Claude Code's folder trust on a tab's rendered `rows` is the one a
  * new bot of the kit's brings up for `folder` and nothing else, the one the
  * #555 system test may answer in its own throwaway tab (the architect's ruling
@@ -1923,9 +1936,19 @@ export function onlyKitTrustOf(rows, folder, { allow, defaults }) {
 
   const footAt = rows.findIndex((row, at) => at > warnAt && row.trim() === PRE_APPROVED_FOOT[0]);
   if (footAt < 0) return `it has no "${PRE_APPROVED_FOOT[0]}" row under the pre-approved rules`;
-  // Claude Code 2.1.326's row, only in its one place (#786).
-  const loads = rows[footAt + 1]?.trim() === PRE_APPROVED_LOADS ? 1 : 0;
-  if (rows[footAt + 1 + loads]?.trim() !== PRE_APPROVED_FOOT[1]) return `the row after "${rows[footAt + loads].trim()}" is not "${PRE_APPROVED_FOOT[1]}": ${rows[footAt + 1 + loads]?.trim() ?? '(none)'}`;
+  // The rows of Claude Code 2.1.326 (#786) and 2.1.330 (#845), only in their place.
+  const reach = (between) => {
+    let same = 0;
+    while (same < between.length && rows[footAt + 1 + same]?.trim() === between[same]) same += 1;
+    return same;
+  };
+  const loads = Math.max(...PRE_APPROVED_BETWEEN.filter((between) => reach(between) === between.length).map((between) => between.length));
+  if (rows[footAt + 1 + loads]?.trim() !== PRE_APPROVED_FOOT[1]) {
+    // Named: the first row that no captured screen has in its place.
+    const nearest = PRE_APPROVED_BETWEEN.reduce((best, between) => (reach(between) > reach(best) ? between : best));
+    const known = reach(nearest);
+    return `the row after "${rows[footAt + known].trim()}" is not "${nearest[known] ?? PRE_APPROVED_FOOT[1]}": ${rows[footAt + 1 + known]?.trim() ?? '(none)'}`;
+  }
   const listed = rows.slice(warnAt + 1, footAt).map((row) => row.trim()).filter((row) => row !== '');
   if (listed.length === 0) return 'it lists no rule under its "pre-approves" row';
   const items = listed.join(' ').split(/, and |, /);
