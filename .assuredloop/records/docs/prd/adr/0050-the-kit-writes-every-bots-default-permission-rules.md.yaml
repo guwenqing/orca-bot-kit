@@ -4,5 +4,5 @@ status: accepted
 paragraphs:
   - id: ADR-50
     kind: choice
-    text_sha256: 47a6f3f6f66727d77333a75c91e1ccb6eeeb4ae9425f44485448c9340be8aad6
+    text_sha256: b8198a73378684a3f6b51d57753947527d71d79778745fa4f16f0ae8e41c7084
     display: "ADR-50 (0, ADR 0050: The kit writes every bot's default permission rules, with nobody asked)"

@@ -4,5 +4,5 @@ status: accepted
 paragraphs:
   - id: ADR-57
     kind: choice
-    text_sha256: 450bc08e76238c3c68c058b27b8c526bd3c01f89c4c975b62c96bd5662279afc
+    text_sha256: deecb23ca4e11fc8e003862a2132fbea455e3f357a7b1473209b929f4304b918
     display: "ADR-57 (0, ADR 0057: Orca is the host)"

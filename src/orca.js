@@ -134,11 +134,11 @@ export function orcaTrouble() {
 }
 
 /** Every workspace Orca has a record of, folder and git alike. */
-export const projects = () => orca(['project', 'setups']).setups;
+export const projects = (options) => orca(['project', 'setups'], options).setups;
 
 /** Orca's record of the folder at `home`, or undefined when it knows none. */
-export function findProject(home) {
-  return projects().find((setup) => setup.path === home);
+export function findProject(home, options) {
+  return projects(options).find((setup) => setup.path === home);
 }
 
 /**

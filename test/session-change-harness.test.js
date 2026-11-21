@@ -779,7 +779,7 @@ test('HC8c a kept extra_args list with a number in it does not crash the move', 
 
 // ================================================ point 9: no Claude address on another harness
 
-// A Claude session's address (`<bot>.<session>.<token>`, ADR 0053) is the name
+// A Claude session's address (`<bot>.<session>.<token>`, ADR 0062) is the name
 // its Claude Code runs under. Once a tab opens the session on another harness,
 // nothing answers to that name, so the book holds no address for it, and a
 // Claude sender is told the Orca road to its mailbox. Back on Claude, the
