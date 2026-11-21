@@ -772,7 +772,8 @@ function inOrca(bots, home, bot, setups, sessions) {
     // A Run Orca does not have: Orca deleted it (1.4.262 and later, #820), or
     // the book was written on another machine (#508). Mail sent to it is
     // refused. The session's next start makes it a new one.
-    if (typeof entry?.mailbox === 'string' && runMissing(entry.mailbox)) {
+    const missing = typeof entry?.mailbox === 'string' && runMissing(entry.mailbox);
+    if (missing) {
       // The bot's unpause leaves a session paused on its own as it is, so a
       // session under both marks needs both commands.
       const unpause = `${shellWord(ownCli())} unpause --bots ${shellWord(bots)} --bot ${bot.name}`;
@@ -788,6 +789,12 @@ function inOrca(bots, home, bot, setups, sessions) {
     // paused or whose tab is gone reads no mail by design, or is named above.
     if (typeof entry?.mailbox === 'string' && there.has(entry.tab) && !closed.has(name)) {
       found.push(...unannounced(bots, home, bot, name, entry));
+    }
+
+    // Unread mail of a session with no open tab, which Orca 1.4.262 and later
+    // deletes with its mailbox (#841). A Run Orca has not got is named above.
+    if (typeof entry?.mailbox === 'string' && !missing && !there.has(entry.tab)) {
+      found.push(...waitingWithNoTab(bots, home, bot, name, entry));
     }
 
     const unclaimed = (Array.isArray(entry?.unclaimed) ? entry.unclaimed : []).filter((id) => !helpers.has(id));
@@ -874,6 +881,66 @@ function unannounced(bots, home, bot, name, entry) {
       : `has ${letters} in its mailbox ${entry.mailbox} that it has not read and that Orca has not told it of, the oldest from ${waiting[0].created_at}, more than an hour ago.`;
   const restart = `${shellWord(ownCli())} restart --bots ${shellWord(bots)} --bot ${bot.name} --session ${name}`;
   return [finding('mail', entry.mailbox, `${bot.name}'s session ${name} ${what} Its harness is idle now, and Orca tells an idle session of its mail within minutes, unless the session sat idle through an Orca restart or update: then Orca does not tell it until it takes a turn. ${restart} opens a new tab for it, which Orca tells. A restart drops what lives only in the old tab, such as Claude Code schedules, so the session makes them again.`, bot.name)];
+}
+
+/** How long after the last letter or read Orca 1.4.262 and later deletes the Run of a session with no open tab (#820). */
+const RUN_KEPT_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * The session `name`'s unread mail when it has no open tab: one finding, or
+ * none (#841, ADR 0062). From Orca 1.4.262, Orca deletes the mailbox of a
+ * session with no open tab, with the letters in it, 24 hours after the last
+ * letter or read, unless the session starts first. So health says how many
+ * letters wait, as at least that many (among the newest MAIL_READ, or in the
+ * whole mailbox when none of those is unread), and the
+ * earliest time of the deletion: 24 hours after the newest letter, since a
+ * read or a rebind after it only puts the time later. Only flags and times
+ * are read, never a subject or a body. Said on every Orca version. A mailbox
+ * Orca will not answer about leaves it unsaid.
+ */
+function waitingWithNoTab(bots, home, bot, name, entry) {
+  let mail;
+  try {
+    // A full read with no unread letter can still have one below it, which
+    // Orca's `reply` marked read out of order. Orca's inbox has no cursor and
+    // no unread filter, and no cap on its limit, so the mailbox is read again
+    // with a larger limit until a read is not full or holds an unread letter:
+    // the last read is then the whole of what matters (review of PR #842).
+    for (let limit = MAIL_READ; ; limit *= 10) {
+      mail = mailIn(entry.mailbox, limit);
+      if (mail.length < limit || mail.some((one) => one.read === 0)) break;
+    }
+  } catch {
+    return [];
+  }
+  const unread = mail.filter((one) => one.read === 0).length;
+  if (unread === 0) return [];
+  // A loop, not a spread: a whole mailbox can hold more letters than a call takes arguments.
+  let newest = -Infinity;
+  for (const one of mail) {
+    const at = Date.parse(one.created_at);
+    if (at > newest) newest = at;
+  }
+  const when = Number.isFinite(newest)
+    ? `from ${new Date(newest + RUN_KEPT_MS).toISOString()}: 24 hours after the newest letter`
+    : '24 hours after the newest letter, whose time health cannot read';
+  const letters = `at least ${unread} unread letter${unread === 1 ? '' : 's'}`;
+  return [finding('mail', entry.mailbox, `${bot.name}'s session ${name} has no open tab: it is paused, or its tab is gone. Its mailbox ${entry.mailbox} holds ${letters}. On Orca 1.4.262 and later, Orca can delete the mailbox, with these letters, ${when}, unless the session starts first. Start it:  ${startOf(bots, bot, name)}`, bot.name)];
+}
+
+/**
+ * The command that starts a session with no open tab: the unpause of its bot
+ * and its own, when they are paused, or `up`.
+ */
+function startOf(bots, bot, name) {
+  // The bot's unpause leaves a session paused on its own as it is, so a
+  // session under both marks needs both commands.
+  const unpause = `${shellWord(ownCli())} unpause --bots ${shellWord(bots)} --bot ${bot.name}`;
+  const steps = [
+    ...(bot.paused === true ? [unpause] : []),
+    ...(bot.sessions.some((session) => session.name === name && session.paused === true) ? [`${unpause} --session ${name}`] : []),
+  ];
+  return steps.length > 0 ? steps.join(', then ') : `${shellWord(ownCli())} up --bots ${shellWord(bots)} --bot ${bot.name} --session ${name}`;
 }
 
 /**

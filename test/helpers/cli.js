@@ -1056,7 +1056,7 @@ export function harnessPartOf(line) {
 
 /**
  * A Claude session's name, which is also the address it is reached at:
- * `<bot>.<session>.<token>` (PRD 6.9, ADR 0053). Proved live that the name
+ * `<bot>.<session>.<token>` (PRD 6.9, ADR 0062). Proved live that the name
  * survives a resume, and the kit passes it on every launch anyway (tech notes,
  * section 2).
  *

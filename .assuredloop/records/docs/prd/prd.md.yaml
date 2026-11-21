@@ -163,8 +163,12 @@ paragraphs:
     display: KIT-35 (6.9, [PRD-16] 6.9 Messaging)
   - id: KIT-36
     kind: rule
-    text_sha256: 47cf37fc5fdf210847648251448c5d14e9fd46b89e7c674783b32b8efeee3235
+    text_sha256: 92914837874296a0a5e369355cfe68cface9d9265aac88d7b749ae5b7b33a30b
     display: KIT-36 (6.9:1, in [PRD-16] 6.9 Messaging)
+  - id: KIT-56
+    kind: rule
+    text_sha256: 21e57e9b7bb88e29bb2fd11dcb688fe4f8bb414c70bfdbfca4e06417bf282f01
+    display: KIT-56 (6.9:2, in [PRD-16] 6.9 Messaging)
   - id: KIT-37
     kind: note
     text_sha256: 7c6efb0860c39098a95e68e808df100d29765150611c1c94fa6f7392492895d1
