@@ -29,7 +29,7 @@ Orca's mail notice tells every session to run, in arch-panel the same day.
 Since 2026-10-11 the kit's rules tell every bot to answer that notice with
 `obk message check`, never with a bare `orca orchestration check`, which
 leaves the delivery open, so Orca rings no more
-([ADR 0042](0042-messaging-transport.md) (superseded, now [ADR 0053](0053-messaging-transport.md)), #555). So the rule for Orca's
+([ADR 0042](0042-messaging-transport.md) (superseded, now [ADR 0062](0062-messaging-transport.md)), #555). So the rule for Orca's
 check, which the set held from 2026-10-10, now invites a command the kit's
 rules forbid, and no command or rule of the kit needs a bot to run it: the
 kit's own `obk message check` calls Orca from its own process (#564).
@@ -81,7 +81,7 @@ bots folder, with nobody asked:
 Nothing of `orca`'s is in the set. Orca's mail notice names
 `orca orchestration check --run`, but a receiver answers the notice with
 `obk message check` and never with the bare check
-([ADR 0042](0042-messaging-transport.md) (superseded, now [ADR 0053](0053-messaging-transport.md))), so the set does not allow it (#564).
+([ADR 0042](0042-messaging-transport.md) (superseded, now [ADR 0062](0062-messaging-transport.md))), so the set does not allow it (#564).
 
 The set is written from an explicit list of commands, never as every command
 less some exceptions. Every command the kit has is on exactly one of two

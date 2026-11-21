@@ -1,0 +1,86 @@
+schema: assuredloop/1
+request: mail-no-open-tab
+tier: "1"
+status: concluded
+sources:
+  - file: 2026-11-19-owner-words.md
+    kind: owner-words
+    sha256: 16ff4ebbbe8fe9b3f111cd3efea0ba4efc680f4435b93a0f577cc75858a838d9
+    taken: 2026-11-19T21:48Z
+requirements:
+  - id: R1
+    version: 1
+    sha256: 321c24e08cfc90289fe585d8786990d87c687afc3869378ba98731a0466edcac
+    title: "A letter to a session with no open tab: the kit says that Orca can delete it, and when"
+signoff:
+  - id: S1
+    file: 2026-11-19-signoff.md
+    sha256: 50c0f6751c8b99ed2c40dd1cd694c838d3c4f4844f0b97a53995f8e223a18b2e
+    signed: 2026-11-19T21:50Z
+    source: https://github.com/guwenqing/orca-bot-kit/issues/841 (the owner's answer in the kit-dev/architect session, 2026-11-19 16:47 EST)
+    words: "1"
+    presented: "A question to the owner in the kit-dev/architect session, with three answers explained in full: 1, the kit says plainly what goes and when, and keeps no copy; 2, answer 1 and a request to Orca; 3, a store of the kit's own for letters. The question ended with the text of R1 of this request quoted in full, and it said that the answer 1 signs that text."
+    transcribed_by: kit-dev/architect
+    covers:
+      - { id: R1, version: 1, sha256: 321c24e08cfc90289fe585d8786990d87c687afc3869378ba98731a0466edcac }
+decisions: []
+tasks: []
+bindings:
+  - { holder: mail-no-open-tab/R1, link: from, target: mail-no-open-tab/2026-11-19-owner-words.md, holder_sha256: 321c24e08cfc90289fe585d8786990d87c687afc3869378ba98731a0466edcac, target_sha256: 16ff4ebbbe8fe9b3f111cd3efea0ba4efc680f4435b93a0f577cc75858a838d9 }
+  - { holder: KIT-56, link: serves, target: mail-no-open-tab/R1, holder_sha256: 40e1cde3021f27f5d1d7fcd2002e85a47288b7dcc3e7f2a3430840a9e60b9ca9, target_sha256: 321c24e08cfc90289fe585d8786990d87c687afc3869378ba98731a0466edcac, target_version: 1 }
+  - { holder: KIT-56, link: builds-on, target: KIT-36, holder_sha256: 40e1cde3021f27f5d1d7fcd2002e85a47288b7dcc3e7f2a3430840a9e60b9ca9, target_sha256: 92914837874296a0a5e369355cfe68cface9d9265aac88d7b749ae5b7b33a30b }
+  - { holder: ADR-62, link: decides, target: KIT-36, holder_sha256: 4fdbf2a49dcd0ae7efda779a6b03677c64500c12ff49c264b374fa4c00801a95, target_sha256: 92914837874296a0a5e369355cfe68cface9d9265aac88d7b749ae5b7b33a30b, judgement: J1 }
+  - { holder: ADR-62, link: decides, target: KIT-56, holder_sha256: 4fdbf2a49dcd0ae7efda779a6b03677c64500c12ff49c264b374fa4c00801a95, target_sha256: 40e1cde3021f27f5d1d7fcd2002e85a47288b7dcc3e7f2a3430840a9e60b9ca9, judgement: J1 }
+  - { holder: ADR-62, link: decides, target: native-road-only-when-listed/R1, holder_sha256: 4fdbf2a49dcd0ae7efda779a6b03677c64500c12ff49c264b374fa4c00801a95, target_sha256: b44d75626a28bd4698a14de2c03dcb969657ae8aa2aefb7659d600274f532593, target_version: 1, judgement: J1 }
+  - { holder: ADR-62, link: decides, target: mail-no-open-tab/R1, holder_sha256: 4fdbf2a49dcd0ae7efda779a6b03677c64500c12ff49c264b374fa4c00801a95, target_sha256: 321c24e08cfc90289fe585d8786990d87c687afc3869378ba98731a0466edcac, target_version: 1, judgement: J1 }
+  - { holder: ADR-62, link: supersedes, target: ADR-53, holder_sha256: 4fdbf2a49dcd0ae7efda779a6b03677c64500c12ff49c264b374fa4c00801a95, target_sha256: 00df2fe4ee85d6bbd45057c4cc214396fda0b9bbd14c5fdee7c160cdee9c774f, judgement: J1 }
+judgements:
+  - { id: J1, hint: holder-changed, on: ADR-62, reason: "ADR 0062 was edited after its first index: its Checked by line names the new tests, and nothing it decides changed. It still decides KIT-36, KIT-56, native-road-only-when-listed/R1 and mail-no-open-tab/R1, and it still supersedes ADR 0053.", recorded: 2026-11-20T00:24Z }
+  - id: J2
+    hint: adr-changed
+    on: ADR-15
+    reason: "Only a citation changed: (superseded, now ADR 0053) became (superseded, now ADR 0062), as ADR 0062 replaces ADR 0053. Its decision is unchanged."
+    files:
+      - { file: docs/prd/adr/0015-three-approval-levels-auto-by-default.md, text_sha256: f6f054c274ce33c220fdc09815f00cfdc1892077461b869bc585b0bcae434e56, status_sha256: 070c160a6299c5438070b1aa737b14fc2992ed49579c14264884886a5876f971 }
+    recorded: 2026-11-20T00:24Z
+  - id: J3
+    hint: adr-changed
+    on: ADR-50
+    reason: "Only a citation changed: (superseded, now ADR 0053) became (superseded, now ADR 0062), as ADR 0062 replaces ADR 0053. Its decision is unchanged."
+    files:
+      - { file: docs/prd/adr/0050-the-kit-writes-every-bots-default-permission-rules.md, text_sha256: 4707d8eeae31e2cf8650093237728bfae629d3134bef8305b0e58e564734607b, status_sha256: 070c160a6299c5438070b1aa737b14fc2992ed49579c14264884886a5876f971 }
+    recorded: 2026-11-20T00:24Z
+  - id: J4
+    hint: adr-changed
+    on: ADR-57
+    reason: "Only a citation changed: (superseded, now ADR 0053) became (superseded, now ADR 0062), as ADR 0062 replaces ADR 0053. Its decision is unchanged."
+    files:
+      - { file: docs/prd/adr/0057-orca-is-the-host.md, text_sha256: fee34ebab592f16cca686ee551b1cfdc71a267b978b75071e778de654eb5b05a, status_sha256: 070c160a6299c5438070b1aa737b14fc2992ed49579c14264884886a5876f971 }
+    recorded: 2026-11-20T00:24Z
+  - id: J5
+    hint: adr-changed
+    on: ADR-53
+    reason: "ADR 0053 is superseded by ADR 0062: only its two status lines, its marker and the citation forms of an accepted record changed, as the repo's rule for a superseded record says. Its decision text is unchanged."
+    files:
+      - { file: docs/prd/adr/0053-messaging-transport.md, text_sha256: 47cf7e460ce29cda9910c2178850da418fb040becce02e508c9f99f0b680f355, status_sha256: a92e5f2760851881400c1c0804085936cc0141cd9ea71f19cda3cd8d7d7f7dee }
+    recorded: 2026-11-20T00:24Z
+  - id: J6
+    hint: adr-governs
+    on: KIT-36
+    reason: KIT-36 changed only its arrows from ADR 0053 to ADR 0062. ADR 0032 (a native message outside the fleet is warned about), ADR 0057 (Orca is the host) and ADR 0062 still hold for it; the new rule is the paragraph KIT-56.
+    message_sha256: [ c50342be2f643f743d8a2a817d7308fc18533f96634d4aef07d7560bb2d43a58, f6c3f58129e3a4731dfe9621502b82089c241ce968646f8c331a84ecdc64dd4b, 6bde7597481e4fea50d38572dda6e33a590038aaffb50d86637c4db480c315de ]
+    keeps:
+      - { id: KIT-36, sha256: 92914837874296a0a5e369355cfe68cface9d9265aac88d7b749ae5b7b33a30b }
+      - { id: ADR-32, sha256: 904f00d9669b08e1fad6bdde4d91a68fb91e4015634f47213edce375e1568440 }
+      - { id: ADR-57, sha256: deecb23ca4e11fc8e003862a2132fbea455e3f357a7b1473209b929f4304b918 }
+      - { id: ADR-62, sha256: 4fdbf2a49dcd0ae7efda779a6b03677c64500c12ff49c264b374fa4c00801a95 }
+    recorded: 2026-11-20T00:24Z
+  - id: J7
+    hint: adr-governs
+    on: KIT-56
+    reason: "KIT-56 is new in this PR and ADR 0062 decides it: the Decision of ADR 0062 says what KIT-56 says."
+    message_sha256: [ 6bde7597481e4fea50d38572dda6e33a590038aaffb50d86637c4db480c315de ]
+    keeps:
+      - { id: KIT-56, sha256: 40e1cde3021f27f5d1d7fcd2002e85a47288b7dcc3e7f2a3430840a9e60b9ca9 }
+      - { id: ADR-62, sha256: 4fdbf2a49dcd0ae7efda779a6b03677c64500c12ff49c264b374fa4c00801a95 }
+    recorded: 2026-11-20T00:24Z

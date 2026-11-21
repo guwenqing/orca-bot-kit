@@ -973,7 +973,7 @@ verdict: which of these matter, and in what order, is for you or for Bot Father.
 ## Sessions and bots that talk
 
 Ask the kit how to reach a session, and it answers with the road and the
-address ([ADR 0053](docs/prd/adr/0053-messaging-transport.md)):
+address ([ADR 0062](docs/prd/adr/0062-messaging-transport.md)):
 
 ```sh
 obk message to    --bots /path/to/my-bots --to api-bot/daily
@@ -1006,8 +1006,25 @@ each other that way. `message to` and `message send` then take the mailbox.
 
 A session's mailbox is made the first time the kit starts it, and written in
 the book beside its tab. It is an Orca Run rather than the session's tab,
-because a tab's address dies with the tab and a Run does not — so a message sent
-while a session is down is still there when it comes back.
+because a tab's address dies with the tab and a Run does not. So a message sent
+to a session whose tab is not open (it is paused, or its tab is gone) waits in
+its mailbox. On Orca 1.4.262 and later it waits for at least 24 hours after the
+last letter, and not always until the session starts: Orca deletes the mailbox
+of a session with no open tab, with the letters in it, 24 hours after the last
+letter or read, unless the session starts first. The kit keeps no copy of a
+letter, and it does not write to a mailbox or open a tab to keep it.
+
+So when the receiver has no open tab, `message to` and `message send` say so,
+say when Orca can delete its mailbox, and name the command that starts it. The
+letter still goes. `obk health` names each session with no open tab whose
+mailbox holds unread letters, with how many wait (at least that many) and the
+earliest time Orca may delete them: 24 hours after the newest letter. Orca's
+answer carries each letter whole, since its inbox has no way to leave the text
+out. Health uses only each letter's read flag and its time, and it keeps, shows
+and logs no subject and no body. The kit says this on every Orca
+version, and does not read which version runs. One gap stays: a letter that
+was sent while the receiver's tab was open, and is still unread when the tab
+closes, gets no word at the send. Only `obk health` shows it.
 
 Orca lets a tab bind a mailbox to itself and to no other, so the mailbox is made
 and bound from inside the session's own tab: the launch line the kit types there
@@ -1040,7 +1057,7 @@ keeps a command it was running as a background terminal after an Escape. A
 receiver reads its mail with `obk message check`, which marks it read: a bare
 `orca orchestration check` leaves it unread, and Orca then gives no more
 notices for that mailbox
-([ADR 0053](docs/prd/adr/0053-messaging-transport.md)).
+([ADR 0062](docs/prd/adr/0062-messaging-transport.md)).
 
 A message longer than 4 KiB is written to a file beside your bots folder and
 named in the message, so a long one arrives whole without landing a document in

@@ -35,10 +35,15 @@
 //   4. Nothing when the only unread letters are newer than an hour, when old
 //      letters have `read` 1 (a session read them with `obk message check`
 //      and had no notice), or when old unread letters have `delivered_at` set.
-//   5. Nothing about mail for a paused session, a session of a paused bot, or
-//      a session whose tab Orca does not list. Whether health reads those
-//      mailboxes is left to the kit; each one here holds old waiting letters,
-//      so a finding would show it judged them.
+//   5. No #630 finding (Orca has not rung for it; restart it) for a paused
+//      session, a session of a paused bot, or a session whose tab Orca does
+//      not list. The two paused cases keep their tabs in Orca's listing, so
+//      they have an open tab, and they get no finding about mail at all. A
+//      session whose tab Orca does not list has no open tab, so since R1 of
+//      #841 it gets the no-open-tab finding of kind `mail` instead
+//      (test/health-mail-no-open-tab.test.js): Orca 1.4.262 and later can
+//      delete its mailbox, with the unread letters in it. Each one here holds
+//      old waiting letters, so a #630 finding would show it judged them.
 //   6. When Orca refuses or fails the read, nothing about that session's mail;
 //      everything else is still reported, and health does not crash.
 //   7. Health only reads: no `orchestration check`, `run-use`, `run-create` or
@@ -643,8 +648,12 @@ test('#630 5: a session of a paused bot with old waiting letters is not named ab
   assertNoMailFor(answer, paused, 'web-bot is paused');
 });
 
-test('#630 5: a session whose tab Orca does not list is not named about mail, beside one whose tab it lists', async (t) => {
+test('#630 5: a session whose tab Orca does not list is not given the #630 finding, only the no-open-tab one of #841, beside one whose tab it lists', async (t) => {
   // Health names the missing tab in a finding of its own (H14 in health.test.js).
+  // Since R1 of #841 a session with no open tab and unread letters gets one
+  // mail finding: that Orca 1.4.262 and later can delete its mailbox, with the
+  // command that starts it (`up`, as it is not paused). The #630 one, that
+  // Orca has not rung for an idle harness and a restart, is not for it.
   const box = await createSandbox(t);
   const bots = await seeded(box);
   await botUp(box, 'api-bot', { sessions: ['daily', 'review'] });
@@ -658,7 +667,13 @@ test('#630 5: a session whose tab Orca does not list is not named about mail, be
   const answer = await found(box);
 
   assertNamedMail(answer, box, bots, 'api-bot', 'review', review);
-  assertNoMailFor(answer, daily, 'daily has no tab in Orca\'s listing');
+  const mine = mailFindings(answer).filter((one) => one.where === daily || hasWord(wordsOf(one), daily));
+  assert.equal(mine.length, 1, `one mail finding about daily, the no-open-tab one, got: ${JSON.stringify(answer.found, null, 2)}`);
+  const [{ says }] = mine;
+  assert.ok(!givesRestart(says, box, bots, 'api-bot', 'daily'), `daily has no tab in Orca's listing: not the #630 finding and its restart, got: ${says}`);
+  assert.ok(says.includes('1.4.262'), `it is the no-open-tab finding, naming Orca 1.4.262, got: ${says}`);
+  const ups = spellingsOf(box.cli).flatMap((cli) => spellingsOf(bots).map((folder) => `${cli} up --bots ${folder} --bot api-bot --session daily`));
+  assert.ok(ups.some((command) => hasWord(says, command)), `with the command that starts it, ${shellWord(box.cli)} up --bots ${shellWord(bots)} --bot api-bot --session daily, got: ${says}`);
 });
 
 // ---------------------------------------------------------------------------

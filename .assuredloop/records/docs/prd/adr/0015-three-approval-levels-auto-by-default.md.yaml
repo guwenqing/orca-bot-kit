@@ -4,5 +4,5 @@ status: accepted
 paragraphs:
   - id: ADR-15
     kind: choice
-    text_sha256: c0bd5a75bef6fe5913943c2f13c1063d697a9a606b0227618d23325e26adf9d4
+    text_sha256: e5aba56492052698176e6a790c268198def0ed3d2adc4903bb9f3e2c8202a0a7
     display: "ADR-15 (0, ADR 0015: Three approval levels, `auto` by default, and Codex sessions keep network access)"
