@@ -417,6 +417,20 @@ project → repo (`kind: "git" | "folder"`) → worktree (id = `<repoId>::<absPa
   took 2 s. So both bounds stay: the worst whole call was under a quarter of the kill, and the worst
   call inside the client under a quarter of its wait. The probe was not kept; its method is this
   paragraph. **verified** (live, once, on this machine)
+- **Orca's runtime client is `app.asar.unpacked/out/cli/runtime/client.js` in the app's
+  `Contents/Resources`, and only there from Orca 1.4.259 (#844).** It exports `RuntimeClient`,
+  made with `(userDataPath, requestTimeoutMs, …)`, and `call(method, params)` answers the envelope.
+  Up to 1.4.258, Orca also had `out/cli/runtime-client.js`, a file that only exported the same class
+  again, and the kit loaded that one. In Orca's source, `src/cli/runtime-client.ts` is at each tag checked from
+  v1.4.212 to v1.4.258, and not at v1.4.259 to v1.4.263 or at v1.4.267. `src/cli/runtime/client.ts` is at each tag checked
+  from v1.4.205 to v1.4.267. The installed Orca 1.4.263 (2026-11-21) has `out/cli/runtime/client.js`
+  and no `out/cli/runtime-client.js`, and its runtime still registers `project.update` and
+  `terminal.inspectProcess`. Its `inspectProcess` answer still carries `foregroundProcessEvidence`
+  with `verdict` and `processName` (read in `out/main/daemon-entry.js`). From 1.4.259 until #844,
+  the kit found no client, so the window was never told and the front-process question always ended
+  in "cannot tell". Since #844 the kit loads the new file, and when an Orca app has no file there, its
+  "cannot tell" answer names the file. Not seen: the older builds' `out/` folder; it is taken to
+  follow `src/`, as in 1.4.263. **read in code** (Orca's source at the tags, and the installed 1.4.263)
 - **A harness Orca resumed by itself sits where the kit's own does, and carries none of the kit's
   variables.** Read with `ps` on 2026-09-25, after that morning's machine restart and Orca's cold
   restore (below). Every kit-dev harness Orca had resumed, four Claude Code and two Codex, was the
