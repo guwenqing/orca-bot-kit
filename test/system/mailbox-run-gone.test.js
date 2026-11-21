@@ -72,6 +72,7 @@ import { claudeTrustAt, trustScreenMet } from '../helpers/claude-trust.js';
 import { tabGuard } from '../helpers/tab-guard.js';
 import { RC_OFF, withBotFatherOff } from '../helpers/remote-control-off.js';
 import { autoModeState, sessionRecordFiles } from '../helpers/teach-record.js';
+import { runRecord } from '../helpers/run-show.js';
 import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
 import { RELOAD_LINE, reloadWindow } from '../../src/orca.js';
 
@@ -355,9 +356,12 @@ test('a mailbox Run this Orca never made is named by health, and the restart it 
   assert.match(String(now), /^run_/, `the book names a Run, got: ${JSON.stringify(after.sessions?.daily)}`);
   assert.notEqual(now, gone, 'a new one, not the made-up one');
   assert.equal(after.sessions.daily.tab, back.tabId, 'and the new tab');
-  const shown = orca(['orchestration', 'run-show', '--id', now]);
-  assert.equal(shown.ok, true, `Orca has the new Run ${now}, got: ${JSON.stringify(shown)}`);
-  assert.equal(shown.result.run.coordinator_handle, back.terminal, 'bound to the session\'s new tab');
+  // Orca has the new Run, and it is bound to the session's new tab. From Orca
+  // 1.4.246 a plain run-show answers short, with no coordinator_handle, so the
+  // Run is read through runRecord, which asks for the full record (#847).
+  const shown = runRecord(ORCA, now);
+  assert.equal(shown.id, now, `Orca has the new Run ${now}, got: ${JSON.stringify(shown)}`);
+  assert.equal(shown.coordinator_handle, back.terminal, 'bound to the session\'s new tab');
   assert.deepEqual(after.retired, moved.retired, 'the retired entries are as they were');
 
   // What the step printed went to the tab before Claude Code took the screen,
