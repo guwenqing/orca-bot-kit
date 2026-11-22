@@ -39,6 +39,11 @@
 //       words and the day it went in.
 //   G10 Grooming removes nothing and edits no rule and no charter: the user
 //       decides, the management session makes the change.
+//   G11 The follow-up runs in every run, a quiet one included (nothing moved
+//       in the window): grooming still checks the lines under follow-up, and
+//       a verdict or a question that falls due (at thirty or ninety days) is
+//       still given. "Where nothing has moved, say so in a line and stop" does
+//       not stop it.
 //   F1  obk-fleet-review: the note is for the proposal; on the user's yes the
 //       line goes into the file and the note into grooming's open findings,
 //       under follow-up, with where the line is and the day it went in, written
@@ -107,6 +112,15 @@ const RECUR = /\b(?:came|comes|come|coming)\s+back\b|\brecurr?\w*|\breturn(?:s|e
 
 /** Counting or checking something. */
 const COUNTS = /\bcount|\bcheck|\blook|\bwhether\b|\bhow often\b|\bhow many\b/i;
+
+/** Counting turned off: "no counts", "does not count". */
+const NO_COUNTING = /\b(?:no|not|never|nor|without)\s+(?:[\w'’-]+\s+){0,2}(?:counts?|counting|counted|check|checks|look)\b|n['’]t\s+(?:[\w'’-]+\s+){0,2}(?:counts?|check|look)\b/i;
+
+/** A sentence that counts, and does not say the counting is not done. */
+const countsIt = (unit) => COUNTS.test(unit) && !NO_COUNTING.test(bare(unit));
+
+/** A quiet run: nothing moved in the window. */
+const QUIET = /\bquiet\b|\bnothing (?:has )?(?:moved|moves|moving)\b|\bnothing (?:new|happened)\b|\bno (?:work|activity|conversations?)\b|\bempty window\b|\bwindow (?:is empty|held nothing|held no work|shows nothing)\b/i;
 
 /** Each run of the pass. */
 const EACH_RUN = /\b(?:each|every)\s+(?:run|pass|day|morning)\b|\bdaily\b/i;
@@ -282,11 +296,11 @@ test('G1: each run, in its usual window, grooming follows up each adopted line: 
     `the grooming skill should say it follows up each adopted line.\n${shown(GROOMING, passage)}`,
   );
   assert.ok(
-    saying(passage, COUNTS, FAILURE, RECUR).length > 0,
+    saying(passage, countsIt, FAILURE, RECUR).length > 0,
     `the grooming skill should say it counts whether the failure that the line's note names came back.\n${shown(GROOMING, passage)}`,
   );
   assert.ok(
-    saying(passage, CASES, CAME_UP, COUNTS).length > 0,
+    saying(passage, CASES, CAME_UP, countsIt).length > 0,
     `the grooming skill should say it counts whether the case the line is about came up.\n${shown(GROOMING, passage)}`,
   );
   assert.ok(
@@ -338,8 +352,12 @@ test('G3: one verdict per line, of three: held, did not hold, no evidence, each 
 test('G4: held and no evidence at thirty days; did not hold at once, ending the follow-up; no evidence ends it at ninety days', async () => {
   const passage = await passageOf(GROOMING);
   assert.ok(
-    saying(passage, THIRTY_DAYS, (unit) => HELD.test(unit) || NO_EVIDENCE.test(unit)).length > 0,
-    `the grooming skill should say "held" and "no evidence" are given thirty days after the line went in.\n${shown(GROOMING, passage)}`,
+    saying(passage, THIRTY_DAYS, HELD).length > 0,
+    `the grooming skill should say "held" is given thirty days after the line went in.\n${shown(GROOMING, passage)}`,
+  );
+  assert.ok(
+    saying(passage, THIRTY_DAYS, NO_EVIDENCE).length > 0,
+    `the grooming skill should say "no evidence" is given thirty days after the line went in.\n${shown(GROOMING, passage)}`,
   );
   assert.ok(
     saying(passage, DID_NOT_HOLD, AT_ONCE).length > 0,
@@ -384,7 +402,7 @@ test('G6: for "did not hold", the report proposes removal or replacement, with t
   );
   assert.ok(
     saying(passage, CASES, /\brecurrences?\b|\b(?:came|come|comes)\s+back\b|\breturns?\b|\brecurred\b/i,
-      /\bcounts?\b|\bnumbers?\b|\bhow many\b|\bboth\b|\btimes\b/i).length > 0,
+      /\bcounts?\b|\bnumbers?\b|\bhow many\b|\bboth\b|\btimes\b/i, (unit) => !NO_COUNTING.test(bare(unit))).length > 0,
     `the grooming skill should say the report gives both counts: the cases and the recurrences.\n${shown(GROOMING, passage)}`,
   );
 });
@@ -480,6 +498,26 @@ test('G10: grooming removes nothing and edits no rule and no charter: the user d
   );
 });
 
+test('G11: the follow-up runs in a quiet run too: the lines under follow-up are checked, and a verdict or question that falls due is given', async () => {
+  // Only the passage on adopted lines is read: the quiet-run exception of the
+  // temporary sessions ("Read the books every run, a quiet one included") is
+  // about the books, not about these lines.
+  const passage = await passageOf(GROOMING);
+  const skips = /\bskip|\bomit|\bleave (?:out|off)\b|\bstop before\b|\bwithout (?:the |any )?follow|\bwait|\bpostpon|\bdefer|\bnext run with\b/i;
+  assert.ok(
+    saying(passage, QUIET, /\bincluded\b|\btoo\b|\beven\b|\bstill\b|\bevery\b|\balso\b|\bas well\b|\banyway\b/i,
+      (unit) => affirms(unit, new RegExp(`${FOLLOW.source}|\\bcheck|\\bverdict|\\blines? under\\b|\\badopted lines?\\b`, 'i')),
+      (unit) => !skips.test(unit)).length > 0,
+    `the grooming skill should say that a quiet run, where nothing moved, still checks the lines under follow-up.\n${shown(GROOMING, passage)}`,
+  );
+  assert.ok(
+    saying(passage, /\bdue\b|\b(?:thirty|ninety|30|90)[\s-]+days?\b/i, /\bverdicts?\b|\bquestions?\b/i,
+      (unit) => QUIET.test(unit) || /\bstill\b|\beven\b|\banyway\b/i.test(unit),
+      (unit) => !skips.test(unit)).length > 0,
+    `the grooming skill should say that in a quiet run a verdict or a question that falls due is still given.\n${shown(GROOMING, passage)}`,
+  );
+});
+
 // ------------------------------------------------------------ obk-fleet-review
 
 const REVIEW = 'obk-fleet-review';
@@ -525,7 +563,12 @@ test('F2: a line that did not hold, or one that met no case, goes to the user wi
     `the fleet review skill should say it puts the line to the user with the evidence.\n${shown(REVIEW, passage)}`,
   );
   assert.ok(
-    saying(passage, REMOVE, YES, /\bwithout\b|\bonly (?:on|after|with|when|if)\b|\buntil\b|\bunless\b|\bbefore\b|\bwait/i).length > 0,
+    saying(passage, REMOVE, YES, /\bwithout\b|\bonly (?:on|after|with|when|if)\b|\buntil\b|\bunless\b|\bbefore\b|\bwait/i,
+      // The prohibition itself: a negation that governs the removal ("Nothing
+      // is removed", "No line is taken out", "Do not remove"), or removal only
+      // on a yes. "A line is removed without their yes" has neither.
+      (unit) => new RegExp(`(?:\\b(?:nothing|none|no|not|never)\\b|n['’]t)\\s+(?:[\\w'’-]+\\s+){0,3}(?:${REMOVE.source})`, 'i').test(bare(unit))
+        || /\bonly\s+(?:on|after|with|when|if|once)\b/i.test(unit)).length > 0,
     `the fleet review skill should say nothing is removed without the user's yes.\n${shown(REVIEW, passage)}`,
   );
 });
