@@ -228,8 +228,10 @@ Where grooming proposed the line, its own finding becomes that entry once
 the line is in place; where the management session proposed it, that
 session writes the entry when it makes the change.
 
-Each run, check that each such line is still where its entry says; a line
-taken out ends its follow-up. Then read the window for the case the note
+Each run, a quiet one included, check that each such line is still where
+its entry says; a line taken out ends its follow-up. Where nothing has moved
+in the window there is nothing new to count, but a verdict or a question
+that falls due that day is still given. Then read the window for the case the note
 names. Count only work done under the line: a conversation that began, or
 was cleared, after the line went in, because a running conversation keeps
 the rules it began with. Write two counts under the entry, each with where
