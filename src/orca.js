@@ -468,17 +468,14 @@ export function loadInWindow(home, options) {
  */
 function askRuntime(method, params, killMs = CLIENT_KILL_MS) {
   try {
-    // The CLI sits at <Orca.app>/Contents/Resources/bin/orca, often reached
-    // through a link.
-    const contents = path.resolve(realpathSync(orcaCli()), '..', '..', '..');
-    const client = path.join(contents, 'Resources', 'app.asar.unpacked', 'out', 'cli', 'runtime-client.js');
+    const { binary, client } = orcaAppParts();
     const env = { ...process.env, ELECTRON_RUN_AS_NODE: '1' };
     // As Orca's `bin/orca` does: the kit's own Node options are not Orca's.
     delete env.NODE_OPTIONS;
     delete env.NODE_REPL_EXTERNAL_MODULE;
 
     const asked = spawnSync(
-      path.join(contents, 'MacOS', 'Orca'),
+      binary,
       [RUNTIME_SCRIPT, client, method, JSON.stringify(params), String(Math.min(CLIENT_WAIT_MS, killMs))],
       { env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: Math.min(CLIENT_KILL_MS, killMs) },
     );
@@ -490,6 +487,38 @@ function askRuntime(method, params, killMs = CLIENT_KILL_MS) {
 }
 
 const RUNTIME_SCRIPT = fileURLToPath(new URL('./orca-runtime.cjs', import.meta.url));
+
+/**
+ * The parts of the installed Orca app that `askRuntime` runs: its binary, and
+ * its runtime client where Orca has it. Orca 1.4.259 and later ship the client
+ * only at `out/cli/runtime/client.js`; up to 1.4.258 that file was there too,
+ * with a second one at `out/cli/runtime-client.js` that only exported it again
+ * (Orca's source at the tags, #844). Throws when the CLI cannot be followed.
+ */
+function orcaAppParts() {
+  // The CLI sits at <Orca.app>/Contents/Resources/bin/orca, often reached
+  // through a link.
+  const contents = path.resolve(realpathSync(orcaCli()), '..', '..', '..');
+  return {
+    binary: path.join(contents, 'MacOS', 'Orca'),
+    client: path.join(contents, 'Resources', 'app.asar.unpacked', 'out', 'cli', 'runtime', 'client.js'),
+  };
+}
+
+/**
+ * The full path of Orca's runtime client where the kit looks for it, when the
+ * Orca app is there with its binary and that file is not: undefined otherwise.
+ * An Orca that moved its client again is then named each time the kit cannot
+ * ask it, rather than missed in silence (#844).
+ */
+function missingClient() {
+  try {
+    const { binary, client } = orcaAppParts();
+    return existsSync(binary) && !existsSync(client) ? client : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 /** The `osascript` the kit asks, by its fixed path: no setting changes it (#652). */
 const OSASCRIPT = '/usr/bin/osascript';
@@ -982,6 +1011,8 @@ function frontByOrca(handle, readMs) {
   const seen = askRuntime('terminal.inspectProcess', { terminal: handle }, readMs)?.result?.process;
   const evidence = seen?.foregroundProcessEvidence;
   if (evidence?.verdict !== 'live') {
+    const missing = seen === undefined ? missingClient() : undefined;
+    if (missing !== undefined) return { unreadable: `Orca's runtime client is not there: the kit looks for it at ${missing}, and Orca may have moved it in an update` };
     const why = typeof evidence?.reason === 'string' ? `: ${evidence.reason}` : '';
     return { unreadable: `Orca's runtime could not say who is in front of it${why}` };
   }
