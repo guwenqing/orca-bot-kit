@@ -63,7 +63,9 @@
 //
 // A "sentence" here is a sentence, or one item of a list, or one half of a
 // sentence split at a semicolon. Where a sentence goes on in the next one with
-// a pronoun ("That ends the follow-up."), the two are also read together.
+// a pronoun ("That ends the follow-up."), the two are also read together. In a
+// list item, each later sentence is also read under the item's head: its bold
+// head ("**No evidence**: …"), or else its first sentence.
 
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
@@ -150,23 +152,44 @@ const NOT = /\b(?:not|never|nor|nothing|none|no)\b|n['’]t\b/i;
 /** Text with every run of white space made one space, so a wrapped line reads as one. */
 const flat = (text) => text.replace(/\s+/g, ' ').trim();
 
+/** The pieces of a text: each list item apart, and the text between them. */
+const chunksOf = (text) => text.split(/\n(?=\s*(?:[-*]|\d+\.)\s)/);
+
+/** A list item's marker. */
+const ITEM = /^\s*(?:[-*]|\d+\.)\s+/;
+
+/** The sentences of one piece, wrapped lines joined, split at . ! ? and ;. */
+const sentencesIn = (chunk) => flat(chunk).split(/(?<=[.!?;])\s+/).filter((sentence) => sentence !== '');
+
 /** The sentences of a text: list items apart, wrapped lines joined, split at . ! ? and ;. */
-const sentencesOf = (text) => text
-  .split(/\n(?=\s*(?:[-*]|\d+\.)\s)/)
-  .flatMap((chunk) => flat(chunk).split(/(?<=[.!?;])\s+/))
-  .filter((sentence) => sentence !== '');
+const sentencesOf = (text) => chunksOf(text).flatMap(sentencesIn);
 
 /** What starts a sentence that goes on with the one before it. */
 const GOES_ON = /^(?:that|this|it|its|such|which|then|doing so|that verdict|this verdict|the verdict)\b/i;
 
-/** The sentences of a text, and each pair where the second goes on from the first. */
+/**
+ * The sentences of a text; each pair where the second goes on from the first;
+ * and, in a list item, each later sentence read under the item's head: its
+ * bold head where it has one ("**No evidence**: …"), else its first sentence.
+ * A list of verdicts names the verdict in the head and gives the rule after it.
+ */
 function unitsOf(text) {
-  const sentences = sentencesOf(text);
-  const units = [...sentences];
-  sentences.forEach((sentence, at) => {
-    const next = sentences[at + 1];
-    if (next !== undefined && GOES_ON.test(next)) units.push(`${sentence} ${next}`);
-  });
+  const units = [];
+  for (const chunk of chunksOf(text)) {
+    const sentences = sentencesIn(chunk);
+    units.push(...sentences);
+    sentences.forEach((sentence, at) => {
+      const next = sentences[at + 1];
+      if (next !== undefined && GOES_ON.test(next)) units.push(`${sentence} ${next}`);
+    });
+    if (ITEM.test(chunk) && sentences.length > 1) {
+      const bold = /^\s*(?:[-*]|\d+\.)\s+\*\*([^*]+?)\*\*/.exec(chunk);
+      const head = bold === null ? sentences[0] : bold[1].trim();
+      for (const later of sentences.slice(1)) units.push(`${head}: ${later}`);
+    }
+  }
+  // A sentence that goes on across two pieces (the text before a list and its
+  // first item is not one) is not joined: only within a piece.
   return units;
 }
 
