@@ -250,6 +250,11 @@ step to every task? Such a line costs that step every time, so it states its
 reason, or it goes into a skill, which loads only for the work it covers. The
 line carries a short note beside it: the failure it answers, where it was
 seen (the two places, or the user's own order with its date), and its scope.
+The note is for the proposal: on a yes, the line goes into the file with the
+user's order and its date, and the note goes into grooming's open findings,
+under follow-up, with where the line is and the day it went in. Where you
+made the change, you write that entry; grooming follows the line up from
+there.
 
 ## Reading a bot's own history
 
@@ -296,6 +301,16 @@ again for the same sessions: write the declined offer in grooming's open
 findings, next to those sessions, so it outlasts this conversation. Retire
 none of them yourself, and send nothing to their makers: the hint is for the
 user, and only a maker knows when its work is done.
+
+When a grooming report says that an adopted line did not hold, or asks
+whether to keep one that met no case, put it to the user with the evidence
+and the line's note. Nothing is removed without their yes. On a yes, take
+the line out by the road it came in: for a charter, read it and set the
+whole without the line with `obk bot change --bots <folder> --bot <bot>
+--charter <text>`; for a unit of the user's own rules, edit the file and
+run `obk rules build`. A line that replaces it carries a note of its own,
+and grooming follows it up afresh. On a no, the line stays: write the
+answer in grooming's open findings beside it, so it is not asked again.
 
 Sort the problem before you write it up. Something the kit does wrong, or
 cannot do, is filed where the kit's problems are filed, as one issue, in one
