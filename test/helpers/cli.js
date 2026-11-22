@@ -658,6 +658,12 @@ export function asPlatform(box, platform) {
   box.env.OBK_TEST_PLATFORM = platform;
 }
 
+/**
+ * Where Orca's runtime client is inside the app's `Contents` folder, as a real
+ * Orca lays it out (#844, `orcaApp` below).
+ */
+export const RUNTIME_CLIENT_IN_CONTENTS = ['Resources', 'app.asar.unpacked', 'out', 'cli', 'runtime', 'client.js'];
+
 /** How long a fake runtime client told to hang keeps its process alive: far past any wait the kit should make. */
 const CLIENT_HANG_MS = 30_000;
 
@@ -680,8 +686,15 @@ function startDelayFromOutside() {
  *
  *   <root>/Orca.app/Contents/Resources/bin/orca     the fake Orca CLI, moved in here
  *   <root>/Orca.app/Contents/MacOS/Orca             the app's binary (`executable`)
- *   <root>/Orca.app/Contents/Resources/app.asar.unpacked/out/cli/runtime-client.js
+ *   <root>/Orca.app/Contents/Resources/app.asar.unpacked/out/cli/runtime/client.js
  *                                                   Orca's own runtime client (`client`)
+ *
+ * The client is where a real Orca has it (#844): the installed Orca 1.4.263 has
+ * `out/cli/runtime/client.js` and no `out/cli/runtime-client.js`. In Orca's
+ * source, `src/cli/runtime/client.ts` is at every tag from v1.4.205 to
+ * v1.4.267; the old `src/cli/runtime-client.ts` only exported the same class
+ * again, and is gone from v1.4.259 (docs/tech-notes.md). So the fake puts
+ * nothing at the old place, as a current Orca does.
  *
  * `<root>/bin/orca`, which OBK_ORCA names, becomes a symlink to the CLI in the
  * app, the way an install links it onto PATH: the kit finds `Contents` by
@@ -715,7 +728,8 @@ function startDelayFromOutside() {
  *                          { resolves }  `call` resolves this, as it is, in
  *                                        place of the envelope
  *                          { rejects }   `call` rejects with this message
- *   'missing'            there is no client file at all
+ *   'missing'            there is no client file at the real place above (and,
+ *                        as with every mode, none at the old place either)
  *   'no-export'          the file loads but exports no `RuntimeClient`
  *   'method-not-found'   `call` rejects with an error whose code is `method_not_found`
  *   'project-not-found'  `call` rejects with `Project not found`, whatever it was given
@@ -741,7 +755,7 @@ export async function orcaApp(box, {
   const contents = path.join(box.root, 'Orca.app', 'Contents');
   const cli = path.join(contents, 'Resources', 'bin', 'orca');
   const binary = path.join(contents, 'MacOS', 'Orca');
-  const clientFile = path.join(contents, 'Resources', 'app.asar.unpacked', 'out', 'cli', 'runtime-client.js');
+  const clientFile = path.join(contents, ...RUNTIME_CLIENT_IN_CONTENTS);
   const fakeDir = path.join(box.root, FAKE_ORCA_DIR);
   const log = path.join(fakeDir, 'runtime-client.log');
   // Written by the binary as it starts, so the client can say how long after.
@@ -851,6 +865,8 @@ export async function orcaApp(box, {
 
   return {
     contents,
+    /** The full path of the runtime client file, where a real Orca has it: there or not, as `client` says. */
+    clientFile,
     /** Every call made through the client, in order: { method, params }. */
     calls: async () => (await entries('call')).map(({ method, params }) => ({ method, params })),
     /** Every time the client file was loaded, with the environment it was loaded in. */
