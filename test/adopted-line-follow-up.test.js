@@ -510,10 +510,20 @@ test('G11: the follow-up runs in a quiet run too: the lines under follow-up are 
       (unit) => !skips.test(unit)).length > 0,
     `the grooming skill should say that a quiet run, where nothing moved, still checks the lines under follow-up.\n${shown(GROOMING, passage)}`,
   );
+  // The due verdict is read in the quiet run: the sentence names the quiet
+  // run, or the one just before it does ("…nothing moving still checks these
+  // lines; a line that reaches thirty days even then gets its verdict"). A
+  // sentence elsewhere with "still" and a verdict in it does not count.
+  const given = /\bgiv(?:e|es|en|ing)\b|\bgave\b|\bgets?\b|\bgot\b|\bsa(?:y|ys|id)\b|\breport(?:s|ed)?\b|\bask(?:s|ed)?\b|\braised?\b|\bputs?\b/i;
+  const due = chunksOf(passage).flatMap((chunk) => sentencesIn(chunk).filter((sentence, at, all) => (QUIET.test(sentence) || QUIET.test(all[at - 1] ?? ''))
+    && /\bdue\b|\b(?:thirty|ninety|30|90)[\s-]+days?\b/i.test(sentence)
+    && /\bverdicts?\b|\bquestions?\b/i.test(sentence)
+    // The verdict is given: a giving verb that no negation governs, so "is
+    // never given" and "is not given" do not count.
+    && affirms(sentence, given)
+    && !skips.test(sentence)));
   assert.ok(
-    saying(passage, /\bdue\b|\b(?:thirty|ninety|30|90)[\s-]+days?\b/i, /\bverdicts?\b|\bquestions?\b/i,
-      (unit) => QUIET.test(unit) || /\bstill\b|\beven\b|\banyway\b/i.test(unit),
-      (unit) => !skips.test(unit)).length > 0,
+    due.length > 0,
     `the grooming skill should say that in a quiet run a verdict or a question that falls due is still given.\n${shown(GROOMING, passage)}`,
   );
 });
