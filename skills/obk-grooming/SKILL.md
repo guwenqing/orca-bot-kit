@@ -69,8 +69,10 @@ them says so and reads less, not everything.
 The open findings are what stops the same thing being reported every day:
 before filing an issue or sending feedback, look there, and where it is already
 open, add to it rather than raising it again. Take a finding off when it is
-fixed or no longer true. Commit these at the end of each run, naming each
-file when you stage it and again in the commit.
+fixed or no longer true, except one whose fix was a line in a charter or a
+rule unit: that one stays open, under follow-up, until its follow-up ends,
+as "Whether an adopted line works" says. Commit these at the end of each
+run, naming each file when you stage it and again in the commit.
 
 ## Keep the run bounded
 
@@ -210,6 +212,53 @@ Retire none of them. Only the maker knows when the work is done: a review
 session can be waiting on an open pull request for a re-review. What to do
 about a bot that leaves them behind is the management session's to offer.
 
+## Whether an adopted line works
+
+A line adopted into a charter or into one of the user's rule units costs
+every session that reads it, on every turn, for as long as it stays. So
+follow each one up, rather than taking its finding off the day it goes in.
+
+The lines to follow up are those under follow-up in the open findings. A
+proposed line carries a short note: the failure it answers, where it was
+seen, and its scope. When the line is adopted, the charter or the rule unit
+takes the line and the user's order with its date, and the note goes into
+the open findings instead, so it costs no turn and is kept once. The entry
+holds the note, where the line is, its first words, and the day it went in.
+Where grooming proposed the line, its own finding becomes that entry once
+the line is in place; where the management session proposed it, that
+session writes the entry when it makes the change.
+
+Each run, a quiet one included, check that each such line is still where
+its entry says; a line taken out ends its follow-up. Where nothing has moved
+in the window there is nothing new to count, but a verdict or a question
+that falls due that day is still given. Then read the window for the case the note
+names. Count only work done under the line: a conversation that began, or
+was cleared, after the line went in, because a running conversation keeps
+the rules it began with. Write two counts under the entry, each with where
+it was seen: the times the case came up, and the times the failure came
+back.
+
+Each line gets one verdict, from the counts:
+
+- **Did not hold**: the failure came back in spite of the line. Say that it
+  did not hold in the run that sees it, with where, and both counts, so the
+  user can tell a line that cut the failure from one that did nothing.
+  That ends its follow-up.
+  Propose to replace the line with a check that would hold the finding,
+  where one could, or else to remove it, with the evidence.
+- **Held**: thirty days after the line went in, the case came up and the
+  failure did not come back. End the follow-up and take the finding off.
+- **No evidence**: thirty days after, the case did not come up. Say so, and
+  the follow-up goes on. At ninety days with still no case, end it, and ask
+  the user whether to keep the line: as a question, not as a finding.
+
+No evidence is never reported as held. A line that met no case has shown
+nothing, and calling it held keeps a line that may do nothing for good.
+
+Remove nothing yourself. Grooming edits no rule and no charter: the proposal
+goes in the report, the user decides, and the management session makes the
+change.
+
 ## Say whether this run was worth making
 
 Every run, record which of three things happened: it found something that
@@ -229,7 +278,8 @@ morning.
 
 Lead with the overall state in a line, so it can be read and put down. Then the
 few things worth acting on, each with where you saw it and one remedy of one
-kind. Then the cost, per session, with what you could not price said plainly.
+kind; a verdict on an adopted line goes among them, with its two counts and
+where they were seen. Then the cost, per session, with what you could not price said plainly.
 Then what you need a decision on. A handful of points, not a document, and no
 internal identifiers a reader cannot do anything with.
 
@@ -239,7 +289,9 @@ CI, a permission rule, a finding of `obk health`, which is asked of the kit
 as an issue, or a hook the user adds. It is trusted once it has failed on a
 known bad case, and the report says whether that has happened. A line
 proposed for a charter or an always-on rule unit carries a short note: the
-failure it answers, where it was seen, and its scope. A detail of one
+failure it answers, where it was seen, and its scope. The note goes beside
+the line in the proposal; once the line is adopted, it is kept in the open
+findings, not in the file. A detail of one
 environment goes into a message or a note instead, and a line that adds a
 step to every task states why, or goes into a skill.
 

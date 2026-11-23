@@ -97,6 +97,22 @@ agent, and the authors do not claim that coverage explains the difference, so
 the skill gives the technique and no number. The known bad case and the note
 beside a new always-on line are the issue's own.
 
+## The follow-up of an adopted line (#856)
+
+The section "Whether an adopted line works", the exception in "Where it
+remembers" and the two clauses in "What you send, and to whom" come from
+issue #856 and the kit's own design, with no outside source. The follow-up,
+its three verdicts, that no evidence is never held, and that no line comes
+out without the user's yes are the issue's. Thirty days for a verdict and
+ninety before no evidence turns into a question are the developer's choice,
+agreed by the kit-dev architect on the issue. That the note is kept in the
+open findings and not in the file is the developer's choice too: a note in a
+charter or a rule unit would cost every session on every turn, which is the
+cost the issue is about. That only a conversation begun or cleared after the
+line counts rests on the tech notes, section 3: a running Claude Code
+conversation keeps the instructions it began with, and a `/clear` reads them
+again, as Codex's `/new` does.
+
 ## Where this stands next to the review skill
 
 `obk-fleet-review` is the judgement applied when somebody asks how the fleet is

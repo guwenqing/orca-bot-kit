@@ -120,6 +120,14 @@ technique and gives no number. That a check is shown to fail on a known bad
 case before it is trusted, and the short note a new always-on line carries,
 are the issue's own.
 
+## The follow-up of an adopted line (#856)
+
+The sentences on where the note goes after a yes, in "One finding, one kind
+of fix", and the paragraph on taking a line out, in "Where a problem goes",
+come from issue #856 and the kit's own design, with no outside source.
+Grooming follows each adopted line up, and its verdict comes back here for
+the user's yes; the roads to take a line out are the kit's own commands.
+
 ## The line between this skill and a scheduled pass
 
 This is the judgement applied when somebody asks: how the fleet is doing, and
