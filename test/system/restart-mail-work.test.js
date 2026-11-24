@@ -39,7 +39,14 @@
 //           user turn that is not Codex's own context or Orca's mail notice;
 //        c. no user turn since unpause began holds WORD: the kit typed none of
 //           the mail into the tab;
-//        d. WORK_FILE holds WORD within ANSWER_MS of unpause returning.
+//        d. WORK_FILE holds WORD within ANSWER_MS of unpause returning;
+//        e. before the unpause, `obk message check` of the paused session from
+//           a plain shell (#858). When run-show gives its Run no coordinator
+//           (Orca 1.4.272 and later): `--json`, plain and `--peek --json`
+//           each fail plainly, give no letters, name the bot's unpause, and
+//           leave the Run bound to no terminal and the letter unread. When the
+//           Run keeps the closed handle (older Orca): one `--peek --json`
+//           shows the letter, binds nothing, and leaves it unread (#249).
 //   2. NO MAIL. The premise: the session's mailbox holds no unread letter.
 //      Then `obk restart --session main`: a new tab, the conversation resumed,
 //      the kit's line typed. Since #726 that line, on the restart road, is the
@@ -128,7 +135,7 @@ import test from '../helpers/system.js';
 import { setTimeout } from 'node:timers/promises';
 import { parse } from 'yaml';
 
-import { cliEntry, restartLineOf, unpauseLineOf } from '../helpers/cli.js';
+import { cliEntry, restartLineOf, spellingsOf, unpauseLineOf } from '../helpers/cli.js';
 import { codexTrustArgs } from '../helpers/codex-trust.js';
 import { inboxLetters } from '../helpers/inbox.js';
 import { rolloutFilesOf } from '../helpers/codex-rollout.js';
@@ -222,6 +229,28 @@ function obkJson(args) {
     return assert.fail(`obk ${args.join(' ')} --json did not print JSON: ${done.stdout}`);
   }
 }
+
+/**
+ * Run this checkout's `obk` as from a plain shell outside Orca (#858): no
+ * ORCA_TERMINAL_HANDLE and no ORCA_TAB_ID, whatever tab started the run.
+ */
+function obkFromPlainShell(args) {
+  const env = { ...process.env };
+  delete env.ORCA_TERMINAL_HANDLE;
+  delete env.ORCA_TAB_ID;
+  const done = spawnSync(process.execPath, [cliEntry, ...args], { encoding: 'utf8', cwd: os.tmpdir(), env });
+  assert.equal(done.error, undefined, `could not run \`obk\`: ${done.error?.message}`);
+  return done;
+}
+
+/** Whether `text` gives one of `starts` as a command of its own: nothing of a word or a `--session` runs on after it. */
+const givesStart = (text, starts) => starts.some((command) => {
+  for (let at = text.indexOf(command); at >= 0; at = text.indexOf(command, at + 1)) {
+    const rest = text.slice(at + command.length);
+    if (!/^[A-Za-z0-9_-]/.test(rest) && !/^\s*--session\b/.test(rest)) return true;
+  }
+  return false;
+});
 
 /** The entry for one tab in an `obk --json` answer. */
 function tabOf(answer, name) {
@@ -502,6 +531,57 @@ test('a Codex session resumed with mail waiting does the mail\'s work after the 
   const waiting = lettersIn(mailbox);
   assert.deepEqual(waiting.map((one) => one.read), [false], 'the premise: the letter waits in the paused session\'s mailbox, unread');
   t.diagnostic(`with mail: before unpause, Orca ${waiting[0].delivered ? 'had set' : 'had not set'} the letter's delivered_at (the session has no tab to ring)`);
+
+  // 1e. A check of the paused session's mail from a plain shell (#858). From
+  // Orca 1.4.272 the closed tab took the Run off itself, so the kit reads
+  // nothing, binds nothing, and names the bot's unpause. On an older Orca the
+  // Run keeps the closed handle and the kit reads as it (#249): only a peek is
+  // run then, so the letter stays for the unpause below.
+  const coordinatorNow = () => {
+    const shown = orca(['orchestration', 'run-show', '--id', mailbox, '--full']);
+    assert.equal(shown.ok, true, `orca orchestration run-show --id ${mailbox} failed: ${JSON.stringify(shown.error)}`);
+    return shown.result.run.coordinator_handle ?? null;
+  };
+  const boundBefore = coordinatorNow();
+  t.diagnostic(`plain-shell check: before it, ${BOT.name}'s Run ${mailbox} has coordinator_handle ${JSON.stringify(boundBefore)}`);
+  const checkArgs = ['message', 'check', '--bots', bots, '--bot', BOT.name, '--session', SESSION];
+  if (boundBefore === null) {
+    // The bot was paused whole, so what starts the session is the bot's unpause, with no --session.
+    const starts = spellingsOf(cliEntry).flatMap((cli) => spellingsOf(bots).map((folder) => `${cli} unpause --bots ${folder} --bot ${BOT.name}`));
+    for (const flags of [['--json'], [], ['--peek', '--json']]) {
+      const done = obkFromPlainShell([...checkArgs, ...flags]);
+      const said = done.stdout + done.stderr;
+      const what = `plain-shell check ${flags.join(' ') || '(plain)'}`;
+      assert.ok(done.status !== 0 && done.status !== null, `${what}: fails, got exit ${done.status}:\n${said}`);
+      assert.notEqual(said.trim(), '', `${what}: says something`);
+      assert.ok(!/^\s+at /m.test(said), `${what}: a message, not a crash:\n${said}`);
+      let trouble = said;
+      if (flags.includes('--json')) {
+        let answer;
+        try {
+          answer = JSON.parse(done.stdout);
+        } catch {
+          assert.fail(`${what}: did not print JSON: ${done.stdout}`);
+        }
+        assert.deepEqual(answer.messages, [], `${what}: no letters, got: ${JSON.stringify(answer)}`);
+        assert.equal(typeof answer.trouble, 'string', `${what}: says what is wrong, got: ${JSON.stringify(answer)}`);
+        trouble = answer.trouble;
+      }
+      t.diagnostic(`${what}: exit ${done.status}: ${trouble.trim()}`);
+      assert.ok(givesStart(trouble, starts), `${what}: names the bot's unpause, one of:\n${starts.join('\n')}\ngot: ${trouble}`);
+      assert.equal(coordinatorNow(), null, `${what}: afterwards the Run is still bound to no terminal`);
+    }
+    assert.deepEqual(lettersIn(mailbox).map((one) => one.read), [false], 'plain-shell check: the letter still waits, unread');
+  } else {
+    const done = obkFromPlainShell([...checkArgs, '--peek', '--json']);
+    const said = done.stdout + done.stderr;
+    assert.equal(done.status, 0, `plain-shell peek on an Orca that keeps the closed handle: reads as it (#249), got exit ${done.status}:\n${said}`);
+    const answer = JSON.parse(done.stdout);
+    t.diagnostic(`plain-shell peek: exit 0, ${answer.messages?.length} letter(s), trouble ${JSON.stringify(answer.trouble ?? null)}`);
+    assert.equal(answer.messages?.length, 1, `plain-shell peek: shows the letter, got: ${JSON.stringify(answer)}`);
+    assert.equal(coordinatorNow(), boundBefore, 'plain-shell peek: binds nothing, the Run keeps the closed handle');
+    assert.deepEqual(lettersIn(mailbox).map((one) => one.read), [false], 'plain-shell peek: the letter still waits, unread');
+  }
 
   gateStillOpen(`obk unpause of ${BOT.name}`);
   const mailMark = recordMark(id);
