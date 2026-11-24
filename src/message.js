@@ -375,8 +375,10 @@ async function mailOf(bots, who, peek, until) {
   // Read as the session's own tab, wherever this check was typed. Binding the
   // tab that asked would hand it the session's mailbox, and Orca's notice for
   // every message after (issue #228). A session with no live tab is read as
-  // whatever its mailbox is bound to, a closed tab included, and nothing is
-  // bound: the session's tab is bound again when it is back up (issue #249).
+  // whatever its mailbox is bound to, a closed tab included up to Orca
+  // 1.4.271, and nothing is bound: the session's tab is bound again when it is
+  // back up (issue #249). From 1.4.272 a closed tab's mailbox is bound to no
+  // tab, so nothing reads it until the session starts (#858).
   const live = who.tab === undefined ? undefined : tabs(who.home, timeLeft(until)).find((tab) => tab.tabId === who.tab)?.handle;
   // Orca 1.4.210 lets a process in a tab bind and read as that tab and no
   // other, and refuses the rest with nothing done (#317). So from inside any
@@ -429,7 +431,7 @@ async function mailOf(bots, who, peek, until) {
       session: who.session,
       mailbox: who.mailbox,
       messages: [],
-      trouble: `${who.bot}/${who.session} is not up, and its mailbox is bound to no tab, so there is nothing to read it as. Its mail waits in its mailbox, on Orca 1.4.262 and later for at least 24 hours after the last letter: Orca can delete the mailbox, with the letters in it, 24 hours after the last letter or read, unless the session starts first. \`up\` brings it back, or \`unpause\` when it is paused.`,
+      trouble: `${who.bot}/${who.session} is not up, and its mailbox is bound to no tab, so there is nothing to read it as (Orca 1.4.272 and later take a mailbox off its tab when the tab closes). Nothing was read, and nothing is lost: its mail waits in its mailbox, on Orca 1.4.262 and later for at least 24 hours after the last letter. Orca can delete the mailbox, with the letters in it, 24 hours after the last letter or read, unless the session starts first. Start it, and it reads its mail in its own tab:  ${startCommand(who)}`,
     };
   }
   // Orca hands mail over a batch at a time, so a read takes every batch in
