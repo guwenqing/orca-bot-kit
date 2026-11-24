@@ -469,6 +469,35 @@
 //                               plain `check` acknowledges the batch it hands
 //                               over, in the same step; `check --ack` then
 //                               answers with no batch at all (see `check`).
+//                 '1.4.272' and later  as 1.4.246, and a terminal that closes
+//                               takes its Run off it (#858). Read in Orca's
+//                               source at tag v1.4.272 (commit 910fe80ce8a,
+//                               stablyai/orca#47135), and in part seen live on
+//                               1.4.272 (2026-11-24): `terminal close
+//                               --terminal H`, of the pane or with `--tab`,
+//                               unbinds every Run H coordinated:
+//                               `coordinator_handle` null, and
+//                               `consumer_generation` one more (seen live:
+//                               null after a close with `--tab`). Then every
+//                               `check --run R`, a peek too, from any tab or
+//                               from a plain shell, and as any `--terminal`,
+//                               of a Run with no coordinator, however it came
+//                               to have none, is refused `consumer_fenced`,
+//                               "This caller does not coordinate Run <R>,
+//                               which has no coordinator now. Nothing
+//                               changed.", exit 1, nothing done (check-run.ts,
+//                               run-scope.ts `resolveRunScope`). A check
+//                               replayed from a receipt is answered before
+//                               that, as every replay is. `run-use` from a
+//                               new tab binds the Run again (seen live: an
+//                               unpause after a pause, a waiting letter
+//                               delivered in the new tab). Not modelled: a
+//                               terminal that ends with nothing left in its
+//                               pane, which Orca unbinds the same way; and the
+//                               fencing of a delivery left unacknowledged,
+//                               which the fake keeps as it was. An Orca
+//                               restart, a sleep or a lost host keeps the
+//                               binding, and the fake has none of those.
 //   runs      [{ id, objective, coordinator_handle, consumer_generation,
 //               legacy, created_at, updated_at }] — the Run mailboxes
 //               `orchestration run-create` has made, in the words `run-show`
@@ -499,9 +528,13 @@
 //               live tab that holds no Run, or a closed one the Run has been
 //               bound away from, is refused `consumer_fenced`, and a handle
 //               Orca never issued `stable_pane_required` (all seen live on
-//               1.4.209, #249).
-//               `consumer_generation` stays 0 here: what Orca counts in it was
-//               not measured, and nothing the kit does reads it.
+//               1.4.209, #249). Up to 1.4.271; from 1.4.272 a closed tab is
+//               taken off its Run, and a Run with no coordinator cannot be
+//               read at all (`orcaVersion`, #858).
+//               `consumer_generation` stays 0 here, but for the one more that
+//               a close on 1.4.272 or later counts: the rest of what Orca
+//               counts in it was not measured, and nothing the kit does reads
+//               it.
 //               `legacy: true` (or 1, as Orca's own row has it) is a Run from
 //               before Runs could be bound, which Orca keeps to be inspected:
 //               `run-show` answers it, with `legacy` as it is, and `run-use`
@@ -805,6 +838,11 @@ const answersShort = modeled !== undefined && !knowsNoFull;
 const full = args.includes('--full');
 /** Whether this call gets the short agent view of 1.4.246 and later. */
 const short = answersShort && !full;
+/**
+ * An Orca of 1.4.272 or later, which takes every Run off a terminal that
+ * closes, and refuses every check of a Run with no coordinator (#858).
+ */
+const unbindsOnClose = modeled !== undefined && !olderThan(modeled, '1.4.272');
 
 // Orca 1.4.245's CLI checks a command's flags before it calls the runtime, so
 // an unknown `--full` is refused with nothing done (read in its source at tag
@@ -1276,6 +1314,16 @@ if (command === 'terminal close') {
   // Orca issued this handle, and a Run may go on naming it: a read as it is
   // then fenced rather than refused as a handle nobody knows.
   state.closedHandles = [...(state.closedHandles ?? []), terminal.handle];
+  // From 1.4.272 Orca takes every Run this terminal coordinated off it, a
+  // pane closed as much as a tab, and counts one more consumer generation
+  // (#858; see `orcaVersion` and `runs` at the top of this file).
+  if (unbindsOnClose) {
+    for (const run of state.runs ?? []) {
+      if (run.coordinator_handle !== terminal.handle) continue;
+      run.coordinator_handle = null;
+      run.consumer_generation = (run.consumer_generation ?? 0) + 1;
+    }
+  }
   if (lag > 0) {
     terminal.closingFor = lag;
   } else {
@@ -2051,6 +2099,14 @@ if (command === 'orchestration check') {
   const run = flag('--run') ?? boundTo;
   if (run === undefined) fail('no_run', 'this caller is bound to no run and none was named');
   if (runNamed(run) === undefined) fail('run_not_found', `no run with id ${run}`);
+
+  // From 1.4.272 every check, a peek too, needs the caller to coordinate the
+  // Run, and a Run with no coordinator has nobody who does: refused, whoever
+  // asks and as whatever terminal (#858; check-run.ts, run-scope.ts
+  // `resolveRunScope` at tag v1.4.272).
+  if (unbindsOnClose && runNamed(run).coordinator_handle == null) {
+    fail('consumer_fenced', `This caller does not coordinate Run ${run}, which has no coordinator now. Nothing changed.`);
+  }
 
   if (boundTo !== undefined && boundTo !== run) {
     fail('consumer_fenced', `This coordinator terminal is bound to ${boundTo}, not ${run}.`);
