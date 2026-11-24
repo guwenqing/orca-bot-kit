@@ -25,8 +25,9 @@
 //
 //   R1. The fake Orca models both: from '1.4.272', `terminal close` takes every
 //       Run that terminal coordinated off it (null, generation up by one), and
-//       a check of a Run with no coordinator is refused in Orca's words, with
-//       nothing done. Older, or with no version, as before. `run-use` binds an
+//       a check by anyone but the Run's live coordinator is refused in Orca's
+//       words for who asks (run-scope.ts `resolveRunScope` and
+//       `unboundCallerError`), with nothing done. Older, or with no version, as before. `run-use` binds an
 //       unbound Run again.
 //   R2. On 1.4.272, `obk message check` from a plain shell, for a session that
 //       is paused, of a bot that is paused, or whose tab Orca closed: fails
@@ -135,29 +136,45 @@ for (const [how, flags] of [['its tab', ['--tab']], ['its pane', []]]) {
   });
 }
 
-/** Every way a check can be asked of a Run: who asks, and with what. */
+/** Orca's words for a check with no caller handle at all (run-scope.ts at v1.4.272). */
+const RUN_REQUIRED = 'No Run is bound. A coordinator creates one with `orchestration run-create`, or resumes its own with '
+  + '`orchestration run-use --id <run_id>`. A worker never binds a Run: its mail arrives through plain '
+  + '`orchestration check`, and it reports with `orchestration send`. No effects were applied.';
+
+/** Orca's words for a reader with no stable pane (run-scope.ts at v1.4.272). */
+const NO_PANE = 'The coordinator terminal has no stable pane identity.';
+
+/**
+ * Every way a check can be asked of Run A after its coordinator term_a closed:
+ * who asks, with what, and what Orca 1.4.272 answers, in the order
+ * run-scope.ts `resolveRunScope` judges it. That a closed handle has no stable
+ * pane is the fake's reading; Orca's `getTerminalPaneKey` was not read through.
+ */
 const CHECKS = [
-  ['from a plain shell, as the closed handle', (run) => ['--run', run, '--terminal', 'term_a'], undefined],
-  ['from a plain shell, as the closed handle, a peek', (run) => ['--run', run, '--terminal', 'term_a', '--peek'], undefined],
-  ['from a plain shell, naming no terminal', (run) => ['--run', run], undefined],
-  ['from a plain shell, naming no terminal, a peek', (run) => ['--run', run, '--peek'], undefined],
-  ['from a live tab that holds no Run', (run) => ['--run', run], 'term_c'],
-  ['from a live tab that holds no Run, a peek', (run) => ['--run', run, '--peek'], 'term_c'],
-  ['from a live tab that holds another Run', (run) => ['--run', run], 'term_b'],
+  ['from a plain shell, as the closed handle', (a) => ['--run', a, '--terminal', 'term_a'], undefined, 'stable_pane_required', () => NO_PANE],
+  ['from a plain shell, as the closed handle, a peek', (a) => ['--run', a, '--terminal', 'term_a', '--peek'], undefined, 'stable_pane_required', () => NO_PANE],
+  ['from a plain shell, naming no terminal', (a) => ['--run', a], undefined, 'run_required', () => RUN_REQUIRED],
+  ['from a plain shell, naming no terminal, a peek', (a) => ['--run', a, '--peek'], undefined, 'run_required', () => RUN_REQUIRED],
+  ['from a live tab that holds no Run', (a) => ['--run', a], 'term_c', 'consumer_fenced', (a) => noCoordinator(a)],
+  ['from a live tab that holds no Run, a peek', (a) => ['--run', a, '--peek'], 'term_c', 'consumer_fenced', (a) => noCoordinator(a)],
+  ['from a live tab that holds another Run', (a) => ['--run', a], 'term_b', 'consumer_fenced',
+    (a, b) => `This caller is bound to Run ${b}, not Run ${a}. Nothing changed.`],
+  ['from a live tab that holds another Run, a peek', (a) => ['--run', a, '--peek'], 'term_b', 'consumer_fenced',
+    (a, b) => `This caller is bound to Run ${b}, not Run ${a}. Nothing changed.`],
 ];
 
-test(`#858 R1: on Orca ${UNBINDS}, every check of a Run whose coordinator closed is refused consumer_fenced in Orca's words, and nothing changes`, async (t) => {
-  const { box, a } = await orcaWithRuns(t, UNBINDS);
+test(`#858 R1: on Orca ${UNBINDS}, every check of a Run whose coordinator closed is refused, in Orca's words for who asks, and nothing changes`, async (t) => {
+  const { box, a, b } = await orcaWithRuns(t, UNBINDS);
   assert.equal(ask(box, ['terminal', 'close', '--terminal', 'term_a', '--tab']).ok, true);
   const before = await box.orca.state();
 
-  for (const [who, flagsFor, caller] of CHECKS) {
+  for (const [who, flagsFor, caller, code, wordsFor] of CHECKS) {
     const refused = ask(box, ['orchestration', 'check', ...flagsFor(a)], caller);
 
     assert.equal(refused.ok, false, `${who}: the check is refused, got: ${JSON.stringify(refused)}`);
     assert.equal(refused.exit, 1, `${who}: with exit 1`);
-    assert.equal(refused.error.code, 'consumer_fenced', `${who}: as consumer_fenced, got: ${JSON.stringify(refused)}`);
-    assert.equal(refused.error.message, noCoordinator(a), `${who}: in Orca's words`);
+    assert.equal(refused.error.code, code, `${who}: as ${code}, got: ${JSON.stringify(refused)}`);
+    assert.equal(refused.error.message, wordsFor(a, b), `${who}: in Orca's words`);
   }
   assert.deepEqual(await box.orca.state(), before, 'nothing changed: no Run bound, no letter taken, no delivery or receipt kept');
 });
@@ -169,12 +186,37 @@ test(`#858 R1: on Orca ${UNBINDS}, a Run left with no coordinator because its te
   assert.equal((await runOf(box, a)).coordinator_handle, null, 'the premise: term_a now holds B, and A has no coordinator');
   const before = await box.orca.state();
 
-  const refused = ask(box, ['orchestration', 'check', '--run', a, '--peek']);
+  const refused = ask(box, ['orchestration', 'check', '--run', a, '--peek'], 'term_c');
 
   assert.equal(refused.ok, false, JSON.stringify(refused));
   assert.equal(refused.error.code, 'consumer_fenced');
   assert.equal(refused.error.message, noCoordinator(a));
   assert.deepEqual(await box.orca.state(), before, 'and nothing changed');
+});
+
+test(`#858 R1: on Orca ${UNBINDS}, a live tab that holds no Run, checking a Run another tab coordinates, is told who holds it, and nothing changes`, async (t) => {
+  const { box, a } = await orcaWithRuns(t, UNBINDS);
+  const before = await box.orca.state();
+
+  const refused = ask(box, ['orchestration', 'check', '--run', a, '--peek'], 'term_c');
+
+  assert.equal(refused.ok, false, JSON.stringify(refused));
+  assert.equal(refused.error.code, 'consumer_fenced');
+  assert.equal(refused.error.message, `This caller is not bound to Run ${a}, which is bound to term_a. Nothing changed.`);
+  assert.deepEqual(await box.orca.state(), before, 'and nothing changed');
+});
+
+test(`#858 R1: on Orca ${UNBINDS}, the Run's own live coordinator reads it, from inside its tab or as --terminal from a plain shell`, async (t) => {
+  const { box, a } = await orcaWithRuns(t, UNBINDS);
+
+  const peeked = ask(box, ['orchestration', 'check', '--run', a, '--peek'], 'term_a');
+  const read = ask(box, ['orchestration', 'check', '--run', a, '--terminal', 'term_a']);
+
+  assert.equal(peeked.ok, true, JSON.stringify(peeked));
+  assert.deepEqual(peeked.result.messages.map((message) => message.subject), ['note 1'], 'a peek in its tab shows the letter');
+  assert.equal(read.ok, true, JSON.stringify(read));
+  assert.deepEqual(read.result.messages.map((message) => message.subject), ['note 1'], 'and a check as it from a plain shell reads it');
+  assert.deepEqual(await unread(box), [], 'which is taken');
 });
 
 test(`#858 R1: on Orca ${UNBINDS}, run-use from a new tab binds the unbound Run again, and a check as that tab reads the letter`, async (t) => {

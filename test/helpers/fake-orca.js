@@ -479,16 +479,42 @@
 //                               `coordinator_handle` null, and
 //                               `consumer_generation` one more (seen live:
 //                               null after a close with `--tab`). Then every
-//                               `check --run R`, a peek too, from any tab or
-//                               from a plain shell, and as any `--terminal`,
-//                               of a Run with no coordinator, however it came
-//                               to have none, is refused `consumer_fenced`,
-//                               "This caller does not coordinate Run <R>,
-//                               which has no coordinator now. Nothing
-//                               changed.", exit 1, nothing done (check-run.ts,
-//                               run-scope.ts `resolveRunScope`). A check
+//                               `check --run R`, a peek too, needs the reader
+//                               (`--terminal`, or else the caller's own) to
+//                               coordinate R, judged in this order, each
+//                               refusal exit 1 with nothing done (run-scope.ts
+//                               `resolveRunScope` and `unboundCallerError`):
+//                                 no reader at all (a plain shell, no
+//                                   `--terminal`): `run_required`, "No Run is
+//                                   bound. A coordinator creates one with ...
+//                                   A worker never binds a Run: ... No effects
+//                                   were applied." Orca adds recovery data the
+//                                   fake leaves out.
+//                                 a reader with no live pane, a closed handle
+//                                   or one Orca never issued:
+//                                   `stable_pane_required`, "The coordinator
+//                                   terminal has no stable pane identity."
+//                                 a reader that coordinates R: read as before.
+//                                 a reader bound to another Run B:
+//                                   `consumer_fenced`, "This caller is bound
+//                                   to Run B, not Run R. Nothing changed."
+//                                 a reader bound to none: `consumer_fenced`,
+//                                   "This caller does not coordinate Run R,
+//                                   which has no coordinator now. Nothing
+//                                   changed." when R has none, however it came
+//                                   to have none, and "This caller is not
+//                                   bound to Run R, which is bound to <H>.
+//                                   Nothing changed." when H holds it.
+//                               Not known: whether Orca's CLI finds a terminal
+//                               for a caller with none before the runtime is
+//                               asked (the fake asks the runtime as it is),
+//                               and whether a closed handle still has a pane
+//                               key (`getTerminalPaneKey`, not read through;
+//                               the fake says it has none, as `--from` of a
+//                               handle with no live pane is refused). A check
+//                               with no `--run` is answered as before. A check
 //                               replayed from a receipt is answered before
-//                               that, as every replay is. `run-use` from a
+//                               all of that, as every replay is. `run-use` from a
 //                               new tab binds the Run again (seen live: an
 //                               unpause after a pause, a waiting letter
 //                               delivered in the new tab). Not modelled: a
@@ -2101,11 +2127,33 @@ if (command === 'orchestration check') {
   if (runNamed(run) === undefined) fail('run_not_found', `no run with id ${run}`);
 
   // From 1.4.272 every check, a peek too, needs the caller to coordinate the
-  // Run, and a Run with no coordinator has nobody who does: refused, whoever
-  // asks and as whatever terminal (#858; check-run.ts, run-scope.ts
-  // `resolveRunScope` at tag v1.4.272).
-  if (unbindsOnClose && runNamed(run).coordinator_handle == null) {
-    fail('consumer_fenced', `This caller does not coordinate Run ${run}, which has no coordinator now. Nothing changed.`);
+  // Run, judged in the order of run-scope.ts `resolveRunScope` and
+  // `unboundCallerError` at tag v1.4.272 (#858): no caller handle at all; a
+  // caller with no stable pane; a caller bound to another Run; and a caller
+  // bound to none, told whether the Run has a coordinator. See `orcaVersion`
+  // at the top of this file for what is read there and what is not known.
+  if (unbindsOnClose) {
+    if (reader === undefined) {
+      fail(
+        'run_required',
+        'No Run is bound. A coordinator creates one with `orchestration run-create`, or resumes its own with '
+          + '`orchestration run-use --id <run_id>`. A worker never binds a Run: its mail arrives through plain '
+          + '`orchestration check`, and it reports with `orchestration send`. No effects were applied.',
+      );
+    }
+    if (!(state.terminals ?? []).some((terminal) => terminal.handle === reader)) {
+      fail('stable_pane_required', 'The coordinator terminal has no stable pane identity.');
+    }
+    const holder = runNamed(run).coordinator_handle ?? null;
+    if (holder !== reader) {
+      if (boundTo !== undefined) fail('consumer_fenced', `This caller is bound to Run ${boundTo}, not Run ${run}. Nothing changed.`);
+      fail(
+        'consumer_fenced',
+        holder === null
+          ? `This caller does not coordinate Run ${run}, which has no coordinator now. Nothing changed.`
+          : `This caller is not bound to Run ${run}, which is bound to ${holder}. Nothing changed.`,
+      );
+    }
   }
 
   if (boundTo !== undefined && boundTo !== run) {
