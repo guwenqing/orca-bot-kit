@@ -16,10 +16,20 @@
 // `coordinator_handle: null`. `run-use` from a new tab binds the Run again
 // (seen live: unpause after a pause worked, and a waiting letter was delivered
 // in the new tab). Every `orchestration check --run <id>`, peek or not, needs
-// the caller to be the Run's coordinator; on a Run with no coordinator Orca
-// refuses `consumer_fenced`, "This caller does not coordinate Run <id>, which
-// has no coordinator now. Nothing changed." (check-run.ts, run-scope.ts
-// `resolveRunScope`).
+// the reader to be the Run's coordinator, and Orca refuses any other reader by
+// who it is (run-scope.ts `resolveRunScope` and `unboundCallerError`):
+//
+//   - no reader at all: `run_required`, "No Run is bound. ...";
+//   - a reader with no stable pane, here a closed handle (the fake's reading;
+//     `getTerminalPaneKey` was not read through): `stable_pane_required`;
+//   - a reader bound to another Run B: `consumer_fenced`, "This caller is
+//     bound to Run B, not Run <id>. Nothing changed.";
+//   - a reader bound to no Run, of a Run with no coordinator:
+//     `consumer_fenced`, "This caller does not coordinate Run <id>, which has
+//     no coordinator now. Nothing changed.";
+//   - a reader bound to no Run, of a Run that <holder> coordinates:
+//     `consumer_fenced`, "This caller is not bound to Run <id>, which is bound
+//     to <holder>. Nothing changed."
 //
 // What these tests pin:
 //
