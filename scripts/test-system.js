@@ -549,6 +549,156 @@ function reportPiLeft(before, foldersBefore) {
 }
 
 /**
+ * Claude Code's transcript stores, `<config dir>/projects`: ~/.claude's
+ * always, and CLAUDE_CONFIG_DIR's too when it is set (#860). Orca starts a
+ * tab with CLAUDE_CONFIG_DIR at a profile whose `projects` links to
+ * ~/.claude/projects (tech notes, #722), so two paths that lead to one real
+ * folder are one store. Answers each store as { store, names } with the names
+ * in it now, none when it is not there, or { store, error } when it cannot be
+ * read.
+ */
+function claudeStoresNow() {
+  const stores = [path.join(os.homedir(), '.claude', 'projects')];
+  if (process.env.CLAUDE_CONFIG_DIR) stores.push(path.join(process.env.CLAUDE_CONFIG_DIR, 'projects'));
+  const seen = new Set();
+  const now = [];
+  for (const store of stores) {
+    const real = realPath(store) ?? path.resolve(store);
+    if (seen.has(real)) continue;
+    seen.add(real);
+    try {
+      now.push({ store, names: new Set(readdirSync(store)) });
+    } catch (error) {
+      now.push(error.code === 'ENOENT' ? { store, names: new Set() } : { store, error: error.code ?? error.message });
+    }
+  }
+  return now;
+}
+
+/**
+ * How Claude Code names the transcripts folder of a working folder: the path
+ * with every character that is not an ASCII letter or digit as `-` (tech
+ * notes, section 2). The name cannot be read back into a path, so it only
+ * picks the folders worth a look; claudeProof decides.
+ */
+const claudeSlugOf = (folder) => folder.replaceAll(/[^A-Za-z0-9]/g, '-');
+
+/** The start of a transcripts folder's name for each spelling of the run's roots, the temp folder and `<repo>/local-data`. */
+function claudePrefixes() {
+  const real = realPath(os.tmpdir()) ?? os.tmpdir();
+  const bare = real.replace(/^\/private(?=\/)/, '');
+  const roots = new Set([real, bare, `/private${bare}`, os.tmpdir(), ...localDataSpellings()]);
+  return [...roots].map((root) => `${claudeSlugOf(root)}-obk-system-`);
+}
+
+/** The working folders a transcript's lines name in their `cwd`. A line that is not JSON names none. */
+function cwdsIn(file) {
+  const cwds = new Set();
+  for (const line of readFileSync(file, 'utf8').split('\n')) {
+    let entry;
+    try {
+      entry = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (typeof entry?.cwd === 'string') cwds.add(entry.cwd);
+  }
+  return cwds;
+}
+
+/**
+ * Whether a folder in Claude Code's store is the run's: it holds at least one
+ * transcript, every transcript names a working folder, and each one it names
+ * is in one of the run's own folders; anything else in it is a transcript's own
+ * folder (its subagents) or `memory`. Answers true, or why not.
+ */
+function claudeProof(dir, foldersBefore) {
+  let entries;
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch (error) {
+    return `it cannot be read (${error.code ?? error.message})`;
+  }
+  const ids = entries.filter((entry) => entry.isFile() && entry.name.endsWith('.jsonl')).map((entry) => entry.name.slice(0, -'.jsonl'.length));
+  if (ids.length === 0) return 'it holds no transcript';
+  for (const entry of entries) {
+    if (entry.isDirectory() && (entry.name === 'memory' || ids.includes(entry.name))) continue;
+    if (!entry.isFile() || !entry.name.endsWith('.jsonl')) return `it holds ${entry.name}, which is not a transcript, a transcript's own folder or memory`;
+    let cwds;
+    try {
+      cwds = cwdsIn(path.join(dir, entry.name));
+    } catch (error) {
+      return `${entry.name} cannot be read (${error.code ?? error.message})`;
+    }
+    if (cwds.size === 0) return `${entry.name} names no working folder`;
+    const outside = [...cwds].find((cwd) => !runOwns(cwd, foldersBefore));
+    if (outside !== undefined) return `${entry.name} is for ${outside}, which is not in one of the run's own folders`;
+  }
+  return true;
+}
+
+/**
+ * What the run left in Claude Code's transcript stores for its own folders,
+ * taken out again (#860), as Pi's sessions are (#634): only a real folder, new
+ * since the run began, whose name looks like the run's and whose transcripts
+ * prove it (claudeProof). A folder that looks like the run's without that
+ * proof stays, and so does everything in a store that could not be read when
+ * the run began. Answers whether anything that may be the run's was left,
+ * which fails the run.
+ */
+function reportClaudeLeft(before, foldersBefore) {
+  const prefixes = claudePrefixes();
+  const now = new Map(claudeStoresNow().map((one) => [one.store, one]));
+  const lines = [];
+  let left = false;
+  for (const was of before) {
+    const { store } = was;
+    if (was.error !== undefined) {
+      lines.push(`Claude Code's transcript store ${store} could not be read when the run began (${was.error}), so the runner cannot tell what the run added, and it removed nothing from it.`);
+      left = true;
+      continue;
+    }
+    const is = now.get(store);
+    if (is === undefined || is.error !== undefined) {
+      lines.push(`Claude Code's transcript store ${store} could not be read after the run (${is?.error ?? 'it was not found'}), so the runner removed nothing from it.`);
+      left = true;
+      continue;
+    }
+    const looks = [...is.names].filter((name) => !was.names.has(name) && prefixes.some((prefix) => name.startsWith(prefix)))
+      .filter((name) => {
+        try {
+          return lstatSync(path.join(store, name)).isDirectory();
+        } catch {
+          return false;
+        }
+      });
+    const removed = [];
+    const failed = [];
+    const unproven = [];
+    for (const name of looks) {
+      const proof = claudeProof(path.join(store, name), foldersBefore);
+      if (proof !== true) {
+        unproven.push(`${name}: ${proof}`);
+        continue;
+      }
+      try {
+        rmSync(path.join(store, name), { recursive: true });
+        removed.push(name);
+      } catch (error) {
+        failed.push(`${name} (${error.code ?? error.message})`);
+      }
+    }
+    if (removed.length > 0) lines.push(`Claude Code kept transcripts for the run's own folders in ${store}. They were removed again:`, ...removed.map((name) => `  ${name}`));
+    if (failed.length > 0) lines.push(`Claude Code kept transcripts for the run's own folders in ${store}, and they could not be removed, so they are the owner's to clear:`, ...failed.map((name) => `  ${name}`));
+    if (unproven.length > 0) lines.push(`Claude Code has new folders in ${store} named like the run's own, with no proof that they are. They were left in place, for a person to look at:`, ...unproven.map((name) => `  ${name}`));
+    if (looks.length === 0) lines.push(`Claude Code's transcript store ${store} holds no new folder for the run's own folders.`);
+    left ||= failed.length > 0 || unproven.length > 0;
+  }
+  process.stdout.write(`\n${lines.join('\n')}\n`);
+  return left;
+}
+
+/**
  * A file's bytes, or undefined when it is not there: ENOENT only, a dangling
  * link included. Any other error is thrown, because a folder that cannot be
  * searched or a link loop can hide a file that is there (review of PR #620).
@@ -1027,6 +1177,16 @@ function chosen(names) {
 }
 
 /**
+ * The sentence a system test's header carries when one of its waits needs a
+ * person to answer a screen in its tabs (#860). Its variants ("It is
+ * attended, lightly.") are for tests that wait on nobody.
+ */
+const ATTENDED = '**It is attended.**';
+
+/** Whether a system test file says that it waits on a person. */
+const waitsOnAPerson = (file) => readFileSync(file, 'utf8').includes(ATTENDED);
+
+/**
  * Where a name sits below the repo root as written, `/`-separated: `..` taken as
  * it stands and no link below the root followed, or undefined when it is not
  * below the root at all. The root is found by where it really is, because it
@@ -1120,6 +1280,19 @@ async function run() {
     return 1;
   }
   const { files } = choice;
+  // A file named for a live run that waits on a person is refused before
+  // anything is driven (#860). A run with no names opens no file's night gate,
+  // so it is not refused for this.
+  const held = named().length === 0 ? [] : files.filter(waitsOnAPerson);
+  if (held.length > 0) {
+    process.stderr.write(
+      `${held.length === 1 ? 'This file says' : 'These files say'} ${ATTENDED}: a person must answer a screen in its tabs.\n`
+      + held.map((file) => `  ${path.relative(repo, file)}\n`).join('')
+      + 'A live run has nobody at the screen, so nothing was run.\n'
+      + 'Take the file out of the list, or make the test answer its own screens through test/helpers/screens.js.\n',
+    );
+    return 1;
+  }
   const cli = orcaCli();
 
   if (!orcaIsReady()) {
@@ -1187,6 +1360,7 @@ async function run() {
   const foldersBefore = runFoldersNow();
   const setupsBefore = listSetups();
   const piBefore = piFoldersNow();
+  const claudeBefore = claudeStoresNow();
 
   // OBK_SYSTEM_TESTS is how a system test knows this command started it: loaded
   // any other way, it skips (test/helpers/system.js, #328). OBK_SYSTEM_NAMED is
@@ -1217,6 +1391,7 @@ async function run() {
   reportRunsLeft(before);
   const leftKeys = reportConfigsLeft(configsBefore, foldersBefore);
   const leftPi = reportPiLeft(piBefore, foldersBefore);
+  const leftClaude = reportClaudeLeft(claudeBefore, foldersBefore);
   reportBackupCompared(backup);
   const leftProjects = reportProjectsLeft(setupsBefore, foldersBefore);
 
@@ -1225,7 +1400,8 @@ async function run() {
   // The Runs accounting never changes this: it is a report, not a check. A
   // trust key left in the owner's Codex config does: that is a check (#240).
   // So is a project left in the owner's Orca (#536), and a Pi session folder
-  // that may be the run's and is still there (#634). A run that the limit or a
+  // that may be the run's and is still there (#634), and so is a Claude Code
+  // transcripts folder of the same kind (#860). A run that the limit or a
   // signal stopped (#653) fails too: SIGKILL leaves the tests no status of 0.
   if (result.failed !== undefined) {
     process.stdout.write(`\nThe tests could not be started (${result.failed}), so the run failed.\n`);
@@ -1233,7 +1409,7 @@ async function run() {
   if (result.stopped !== undefined) {
     process.stdout.write(`\n${result.stopped} stopped the run: its tests did not finish, so the run failed. A test stopped this way may not have closed its tabs or removed its projects; the check above names any project left.\n`);
   }
-  return result.status === 0 && !leftKeys && !leftPi && !leftProjects ? 0 : 1;
+  return result.status === 0 && !leftKeys && !leftPi && !leftClaude && !leftProjects ? 0 : 1;
 }
 
 process.exitCode = await run();
