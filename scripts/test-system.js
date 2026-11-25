@@ -15,7 +15,7 @@
 // tests, and does not answer as though it had.
 
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, lstatSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -648,9 +648,12 @@ function claudeProof(dir, foldersBefore) {
  */
 function reportClaudeLeft(before, foldersBefore) {
   const prefixes = claudePrefixes();
-  const now = new Map(claudeStoresNow().map((one) => [one.store, one]));
   const lines = [];
   let left = false;
+  // Each store is read again at its own path, and a path that now leads to a
+  // store already handled is that store: two stores missing when the run
+  // began can be one by its end (review of PR #865).
+  const handled = new Set();
   for (const was of before) {
     const { store } = was;
     if (was.error !== undefined) {
@@ -658,25 +661,35 @@ function reportClaudeLeft(before, foldersBefore) {
       left = true;
       continue;
     }
-    const is = now.get(store);
-    if (is === undefined || is.error !== undefined) {
-      lines.push(`Claude Code's transcript store ${store} could not be read after the run (${is?.error ?? 'it was not found'}), so the runner removed nothing from it.`);
-      left = true;
-      continue;
+    const real = realPath(store) ?? path.resolve(store);
+    if (handled.has(real)) continue;
+    handled.add(real);
+    let names;
+    try {
+      names = readdirSync(store);
+    } catch (error) {
+      if (error.code !== 'ENOENT') {
+        lines.push(`Claude Code's transcript store ${store} could not be read after the run (${error.code ?? error.message}), so the runner removed nothing from it.`);
+        left = true;
+        continue;
+      }
+      names = [];
     }
-    const looks = [...is.names].filter((name) => !was.names.has(name) && prefixes.some((prefix) => name.startsWith(prefix)))
-      .filter((name) => {
-        try {
-          return lstatSync(path.join(store, name)).isDirectory();
-        } catch {
-          return false;
-        }
-      });
+    const looks = names.filter((name) => !was.names.has(name) && prefixes.some((prefix) => name.startsWith(prefix)));
     const removed = [];
     const failed = [];
     const unproven = [];
     for (const name of looks) {
-      const proof = claudeProof(path.join(store, name), foldersBefore);
+      // A link, or an entry that cannot be looked at, is not proven the
+      // run's, and is left as it is (review of PR #865).
+      let kind;
+      try {
+        const entry = lstatSync(path.join(store, name));
+        kind = entry.isSymbolicLink() ? 'it is a link' : entry.isDirectory() ? undefined : 'it is not a folder';
+      } catch (error) {
+        kind = `it cannot be looked at (${error.code ?? error.message})`;
+      }
+      const proof = kind ?? claudeProof(path.join(store, name), foldersBefore);
       if (proof !== true) {
         unproven.push(`${name}: ${proof}`);
         continue;
@@ -1050,6 +1063,80 @@ function limitOf(args) {
 }
 
 /**
+ * The lock of the run that drives this machine (review of PR #865): a folder
+ * in the user's temp folder, which every clone's runner shares, holding the
+ * runner's pid in `pid`. Without it, a folder new since a run's snapshots
+ * could be a second run's, and its cleanup would remove what that run made.
+ * Its name does not start with `obk-system-`, so it is never a run's folder.
+ */
+const LOCK = path.join(os.tmpdir(), 'obk-test-system.lock');
+
+/** The pid a lock folder holds, or undefined when it holds none that can be read. */
+function lockPid(folder) {
+  try {
+    const pid = Number(readFileSync(path.join(folder, 'pid'), 'utf8'));
+    return Number.isInteger(pid) && pid > 0 ? pid : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Whether a process with this pid is running: one this user may not signal is running too. */
+function running(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error.code === 'EPERM';
+  }
+}
+
+/**
+ * Take the lock: `{}`, or `{ stale }` with the pid of a runner that left it
+ * and is gone, or `{ held }` with the pid of the runner that has it. The lock
+ * is made whole in a folder of this runner's own and renamed into place, so
+ * no runner ever sees it without its pid. A stale lock is renamed away first,
+ * and only one runner can win that rename.
+ */
+function takeLock(stale = undefined) {
+  const mine = `${LOCK}.${process.pid}`;
+  try {
+    rmSync(mine, { recursive: true, force: true });
+    mkdirSync(mine, { mode: 0o700 });
+    writeFileSync(path.join(mine, 'pid'), String(process.pid));
+  } catch (error) {
+    try {
+      rmSync(mine, { recursive: true, force: true });
+    } catch {
+      // Nothing of it was made.
+    }
+    return { failed: { folder: mine, why: error.code ?? error.message } };
+  }
+  try {
+    renameSync(mine, LOCK);
+    return stale === undefined ? {} : { stale };
+  } catch (error) {
+    rmSync(mine, { recursive: true, force: true });
+    if (!['EEXIST', 'ENOTEMPTY', 'EISDIR', 'ENOTDIR'].includes(error.code)) throw error;
+  }
+  const holder = lockPid(LOCK);
+  if (stale !== undefined || (holder !== undefined && running(holder))) return { held: holder ?? 'unknown' };
+  const away = `${LOCK}.stale.${process.pid}`;
+  try {
+    renameSync(LOCK, away);
+  } catch {
+    return { held: lockPid(LOCK) ?? 'unknown' };
+  }
+  rmSync(away, { recursive: true, force: true });
+  return takeLock(holder ?? 'unknown');
+}
+
+/** Let the lock go, when it is this runner's. */
+function releaseLock() {
+  if (lockPid(LOCK) === process.pid) rmSync(LOCK, { recursive: true, force: true });
+}
+
+/**
  * When the night ends for a run that starts at `at`: 06:00 local time of that
  * day for a run that starts at a local hour from 0 to 5, and undefined for one
  * that starts by day (#689). A system test that can make a throwaway tab real
@@ -1336,6 +1423,38 @@ async function run() {
     return 1;
   }
 
+  // One run at a time drives this machine (review of PR #865): what is new
+  // since the snapshots below is then this run's, and no other's.
+  const lock = takeLock();
+  if (lock.failed !== undefined) {
+    process.stderr.write(
+      `The run's lock could not be made: ${lock.failed.folder} (${lock.failed.why}).\n`
+      + 'So no system test was run, and nothing was changed.\n',
+    );
+    return 1;
+  }
+  if (lock.held !== undefined) {
+    process.stderr.write(
+      `Another system-test run is going: ${LOCK} is held by pid ${lock.held}.\n`
+      + 'So no system test was run, and nothing was changed. Ask again when that run has ended.\n',
+    );
+    return 1;
+  }
+  if (lock.stale !== undefined) {
+    process.stdout.write(`The lock ${LOCK} was left by pid ${lock.stale}, which is no longer running, so this run took it over.\n`);
+  }
+  try {
+    return await drive(files, limit, end);
+  } finally {
+    releaseLock();
+  }
+}
+
+/**
+ * Everything a run does once it holds the lock: the backup, the snapshots,
+ * the tests, and the reports and cleanup after them. Answers the run's exit.
+ */
+async function drive(files, limit, end) {
   // No copy, no test loaded (#619): before anything else is asked or run.
   const backup = backUpConfigs();
   if (backup.why !== undefined) {
