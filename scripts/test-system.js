@@ -650,20 +650,27 @@ function reportClaudeLeft(before, foldersBefore) {
   const prefixes = claudePrefixes();
   const lines = [];
   let left = false;
-  // Each store is read again at its own path, and a path that now leads to a
-  // store already handled is that store: two stores missing when the run
-  // began can be one by its end (review of PR #865).
-  const handled = new Set();
+  // The paths of the starting snapshot are grouped by the folder each leads
+  // to now: two paths can be one store by the run's end. A store's starting
+  // list is then all of its paths' lists together, and a path unread at the
+  // start leaves the store uncompared (review rounds 1 and 2 of PR #865).
+  const stores = new Map();
   for (const was of before) {
-    const { store } = was;
-    if (was.error !== undefined) {
-      lines.push(`Claude Code's transcript store ${store} could not be read when the run began (${was.error}), so the runner cannot tell what the run added, and it removed nothing from it.`);
+    const real = realPath(was.store) ?? path.resolve(was.store);
+    const one = stores.get(real) ?? { paths: [] };
+    one.paths.push(was);
+    stores.set(real, one);
+  }
+  for (const { paths } of stores.values()) {
+    const unread = paths.filter((was) => was.error !== undefined);
+    if (unread.length > 0) {
+      for (const was of unread) lines.push(`Claude Code's transcript store ${was.store} could not be read when the run began (${was.error}), so the runner cannot tell what the run added, and it removed nothing from it.`);
+      for (const was of paths.filter((one) => one.error === undefined)) lines.push(`Claude Code's transcript store ${was.store} leads to the same folder, so the runner removed nothing from it either.`);
       left = true;
       continue;
     }
-    const real = realPath(store) ?? path.resolve(store);
-    if (handled.has(real)) continue;
-    handled.add(real);
+    const { store } = paths[0];
+    const was = { names: new Set(paths.flatMap((one) => [...one.names])) };
     let names;
     try {
       names = readdirSync(store);
@@ -1071,10 +1078,10 @@ function limitOf(args) {
  */
 const LOCK = path.join(os.tmpdir(), 'obk-test-system.lock');
 
-/** The pid a lock folder holds, or undefined when it holds none that can be read. */
-function lockPid(folder) {
+/** The pid a lock folder holds in `file`, or undefined when it holds none that can be read. */
+function lockPid(folder, file = 'pid') {
   try {
-    const pid = Number(readFileSync(path.join(folder, 'pid'), 'utf8'));
+    const pid = Number(readFileSync(path.join(folder, file), 'utf8'));
     return Number.isInteger(pid) && pid > 0 ? pid : undefined;
   } catch {
     return undefined;
@@ -1092,13 +1099,14 @@ function running(pid) {
 }
 
 /**
- * Take the lock: `{}`, or `{ stale }` with the pid of a runner that left it
- * and is gone, or `{ held }` with the pid of the runner that has it. The lock
+ * Take the lock: `{}`, or `{ held, running, group }` for a lock that is
+ * there already, or `{ failed }` when this runner cannot make one. The lock
  * is made whole in a folder of this runner's own and renamed into place, so
- * no runner ever sees it without its pid. A stale lock is renamed away first,
- * and only one runner can win that rename.
+ * no runner ever sees it without its pid. A lock whose runner is gone is
+ * still a lock (review round 2 of PR #865): its tests, and the run's Orca
+ * tabs, may still be going, so only a person removes it.
  */
-function takeLock(stale = undefined) {
+function takeLock() {
   const mine = `${LOCK}.${process.pid}`;
   try {
     rmSync(mine, { recursive: true, force: true });
@@ -1114,21 +1122,29 @@ function takeLock(stale = undefined) {
   }
   try {
     renameSync(mine, LOCK);
-    return stale === undefined ? {} : { stale };
+    return {};
   } catch (error) {
     rmSync(mine, { recursive: true, force: true });
     if (!['EEXIST', 'ENOTEMPTY', 'EISDIR', 'ENOTDIR'].includes(error.code)) throw error;
   }
-  const holder = lockPid(LOCK);
-  if (stale !== undefined || (holder !== undefined && running(holder))) return { held: holder ?? 'unknown' };
-  const away = `${LOCK}.stale.${process.pid}`;
+  const held = lockPid(LOCK);
+  return { held: held ?? 'unknown', running: held !== undefined && running(held), group: lockPid(LOCK, 'group') };
+}
+
+/**
+ * Record in the lock the process group of the tests this runner spawned, so
+ * a person can find them if the runner dies before they end. Made whole
+ * beside it and renamed in, so it is never read half written.
+ */
+function recordGroup(group) {
+  if (lockPid(LOCK) !== process.pid) return;
+  const part = path.join(LOCK, `group.${process.pid}`);
   try {
-    renameSync(LOCK, away);
+    writeFileSync(part, String(group));
+    renameSync(part, path.join(LOCK, 'group'));
   } catch {
-    return { held: lockPid(LOCK) ?? 'unknown' };
+    // The lock still holds the pid; the group is then unknown to a reader.
   }
-  rmSync(away, { recursive: true, force: true });
-  return takeLock(holder ?? 'unknown');
 }
 
 /** Let the lock go, when it is this runner's. */
@@ -1180,6 +1196,7 @@ function runTests(files, seconds, env) {
     env,
     detached: true,
   });
+  if (child.pid !== undefined) recordGroup(child.pid);
   let stopped;
   const stop = (why) => {
     stopped ??= why;
@@ -1433,15 +1450,25 @@ async function run() {
     );
     return 1;
   }
-  if (lock.held !== undefined) {
+  if (lock.held !== undefined && lock.running) {
     process.stderr.write(
       `Another system-test run is going: ${LOCK} is held by pid ${lock.held}.\n`
       + 'So no system test was run, and nothing was changed. Ask again when that run has ended.\n',
     );
     return 1;
   }
-  if (lock.stale !== undefined) {
-    process.stdout.write(`The lock ${LOCK} was left by pid ${lock.stale}, which is no longer running, so this run took it over.\n`);
+  if (lock.held !== undefined) {
+    process.stderr.write(
+      `An earlier system-test run left its lock: ${LOCK} holds pid ${lock.held}, and that runner is no longer running.\n`
+      + (lock.group === undefined
+        ? 'Its tests may still be running. Their process group is unknown, because the runner stopped before it recorded one.\n'
+        : `Its tests may still be running, in process group ${lock.group}. List what is left of them with: pgrep -l -g ${lock.group}\n`)
+      + 'The run\'s Orca tabs and their harnesses run in process groups of their own, so a list with nothing in it does not prove that the run is over.\n'
+      + `Also look in Orca for the run's own tabs and projects, and look for obk-system-* folders in ${os.tmpdir()} and in local-data.\n`
+      + `Remove the lock folder ${LOCK} by hand only once nothing of that run is left. Then ask for the run again.\n`
+      + 'So no system test was run, and nothing was changed.\n',
+    );
+    return 1;
   }
   try {
     return await drive(files, limit, end);
