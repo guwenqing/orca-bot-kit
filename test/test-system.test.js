@@ -6822,6 +6822,17 @@ describe('test-system: a named attended file is refused (#860)', { concurrency: 
 //       when a store cannot be read, says so, removes nothing, and fails the run.
 //   C5  does not change the run's exit when there is nothing to remove.
 //
+// And after the review of PR #865:
+//
+//   R3b A new entry in a store, named like the run's folders, that is a link
+//       or that cannot be looked at with lstat, stays untouched, is named as
+//       left because its ownership cannot be proven, and fails the run.
+//   R3c Both stores missing when the run begins, and during the run the home
+//       store made with a run folder in it and the profile's `projects` made
+//       as a link to it: that is one store. The run's folder goes once, the
+//       link stays a link, nothing says a store could not be read or was not
+//       found, and the run exits 0.
+//
 // Here HOME and TMPDIR are the sandbox's (helpers/cli.js); each test chooses
 // what CLAUDE_CONFIG_DIR is, whatever this shell has.
 
@@ -6899,7 +6910,7 @@ const inTurn = (...parts) => {
  * whose `projects` is a folder of its own made during the run; 'linked' makes
  * <HOME>/.claude/projects before the run and that profile's `projects` a link
  * to it, as Orca's profile is; 'missing' sets it to a profile with no
- * `projects` at all. `goodAt(work, { where, id })` is a transcripts folder that
+ * `projects` at all; 'absent' sets it to a profile folder that is not there. `goodAt(work, { where, id })` is a transcripts folder that
  * holds every proof C2 asks for: its working folder `work` is made during the
  * run, and so is one transcript in it whose cwd is that working folder;
  * `goodRun(rel, …)` is the same for <temp>/<rel>.
@@ -7078,7 +7089,7 @@ describe('test-system: Claude Code\'s transcripts of the run\'s own folders are 
     for (const folder of others) assert.ok(!everything(result).includes(path.basename(folder)), `${path.basename(folder)} is not named, got:\n${everything(result)}`);
   });
 
-  test('C2 a link named as the run\'s folder stays a link, and what it leads to stays as it was', async (t) => {
+  test('C2 R3b a link named as the run\'s folder stays a link, what it leads to stays as it was, it is named, and the run fails', async (t) => {
     const claude = await withClaudeStore(t);
     const good = claude.goodRun('obk-system-good-Gd0003/bots/b');
     const linked = claude.goodRun('obk-system-link-Lk0002/bots/b');
@@ -7094,7 +7105,47 @@ describe('test-system: Claude Code\'s transcripts of the run\'s own folders are 
     assert.ok(lstatSync(linked.folder).isSymbolicLink(), `the link stays a link: ${linked.folder}`);
     assert.equal(await readlink(linked.folder), target, 'leading where it led');
     assert.equal(await readFile(kept, 'utf8'), claudeTranscript(CLAUDE_IDS[0], [linked.work]), 'and what it leads to is untouched');
+    assert.ok(afterTheRun(result).includes(path.basename(linked.folder)), `the link is named as left, got:\n${afterTheRun(result)}`);
+    assert.notEqual(result.code, 0, `a link named like the run's folder cannot be proven the run's, so the run fails:\n${everything(result)}`);
   });
+
+  test('R3b a new entry named like the run\'s folder that cannot be looked at with lstat stays untouched, is named, and the run fails', async (t) => {
+    const claude = await withClaudeStore(t);
+    const hidden = claude.goodRun('obk-system-hidden-Hd0001/bots/b');
+    // The store keeps its read bit and loses its search bit once the folder is
+    // in it: its names can be listed, and lstat of any of them fails (EACCES).
+    await claude.write(hidden.during, { locks: [{ target: claude.store, mode: 0o644 }] });
+    t.after(() => chmod(claude.store, 0o755).catch(() => {}));
+
+    const result = await claude.run();
+    await chmod(claude.store, 0o755);
+
+    assert.equal(await readFile(hidden.file, 'utf8'), claudeTranscript(CLAUDE_IDS[0], [hidden.work]), `the entry stays untouched, with its transcript: ${hidden.file}`);
+    assert.ok(afterTheRun(result).includes(path.basename(hidden.folder)), `the entry is named as left, got:\n${afterTheRun(result)}`);
+    assert.notEqual(result.code, 0, `an entry named like the run's that cannot be looked at fails the run:\n${everything(result)}`);
+  });
+
+  for (const [label, configDir] of [['a profile folder with no projects', 'missing'], ['a profile folder that is not there', 'absent']]) {
+    test(`R3c both stores missing at the start, CLAUDE_CONFIG_DIR ${label}: the home store and the profile's link to it, made during the run, are one store; the run's folder goes once, and the run passes`, async (t) => {
+      const claude = await withClaudeStore(t, { configDir });
+      assert.equal(there(claude.store), false, `the premise: no home store at the start: ${claude.store}`);
+      assert.equal(there(claude.profileStore), false, `the premise: no profile store at the start: ${claude.profileStore}`);
+      const mine = claude.goodRun('obk-system-late-Lt0001/bots/b');
+      await claude.write(mine.during, { links: [{ link: claude.profileStore, to: claude.store }] });
+
+      const result = await claude.run();
+
+      assert.equal(there(mine.folder), false, `the run's transcripts folder should be gone: ${mine.folder}\n${everything(result)}`);
+      assert.ok(lstatSync(claude.profileStore).isSymbolicLink(), 'the profile\'s projects stays a link');
+      assert.equal(await readlink(claude.profileStore), claude.store, 'leading where it led');
+      const aboutTheStores = afterTheRun(result).split('\n').filter((line) => line.includes(claude.store) || line.includes(claude.profileStore));
+      for (const line of aboutTheStores) {
+        assert.doesNotMatch(line, /could not be read|cannot be read|not found/i, `no store should be said to be unreadable or not found, got:\n${afterTheRun(result)}`);
+      }
+      assert.ok(afterTheRun(result).includes(path.basename(mine.folder)), `the output names the folder it removed, got:\n${afterTheRun(result)}`);
+      assert.equal(result.code, 0, `one store, made during the run and reached two ways, with nothing in it left:\n${everything(result)}`);
+    });
+  }
 
   // Each case is a new folder whose name looks like the run's, next to a good
   // one of the run's that goes, so that "removes nothing at all" cannot pass.
@@ -7223,5 +7274,270 @@ describe('test-system: Claude Code\'s transcripts of the run\'s own folders are 
 
     assert.notEqual(result.code, 0, `the tests failed, so the run does:\n${everything(result)}`);
     assert.equal(there(mine.folder), false, `the run's transcripts folder should be gone all the same: ${mine.folder}`);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// One system-test run at a time drives this machine (#860, R3a)
+// ---------------------------------------------------------------------------
+//
+// "New since the run began" proves which run made a folder only when no other
+// run starts in the meantime: a second runner that starts after this one's
+// snapshot would have its folders and transcripts taken for this one's. So:
+//
+//   L1  A run about to drive the machine (after --yes and the night check,
+//       before the config backup and the snapshots) takes the runner's lock: a
+//       folder `obk-test-system.lock` in the temp folder, holding the pid of
+//       the runner that has it.
+//   L2  A run that finds the lock held by a live process is refused: exit 1,
+//       no config backup, no test loaded, Orca not asked to run anything, no
+//       cleanup of anything. The message names the lock folder and the pid
+//       that holds it, and says that another system-test run is going.
+//   L3  A lock whose pid is not alive is stale: the run takes it over and says
+//       so in one line.
+//   L4  The lock is released after the reports and the cleanup, however the
+//       tests ended: passed, failed, stopped by the time limit, or stopped by
+//       a signal to the runner.
+//   L5  A run that drives nothing takes no lock and leaves none: a refused
+//       name, an attended file, Orca not ready, no --yes, and a run refused at
+//       night for lack of time.
+//
+// Every runner here is a process of the test's own, with the sandbox's HOME
+// and temp folder, so the lock is the sandbox's; each is stopped, if at all,
+// by its own pid (startRunner).
+
+/** The runner's lock in a run's temp folder. */
+const lockIn = (env) => path.join(env.TMPDIR, 'obk-test-system.lock');
+
+/**
+ * A system test file that writes `<name>:started` in ran.log beside the repo,
+ * with `lock:there` or `lock:none` for the runner's lock as it finds it, makes
+ * `dirs` and writes `files` ({ file, text }), and then waits for a file `go`
+ * beside the repo, for 20 s at most, before it writes `<name>:ended`. With
+ * `blocks`, it stops its thread for that many ms instead of waiting, so that
+ * nothing but a kill ends it sooner; with `fails`, it fails at the end.
+ */
+const waitsForGo = (name, { dirs = [], files = [], blocks = 0, fails = false } = {}) => [
+  "import { appendFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';",
+  "import path from 'node:path';",
+  "import test from 'node:test';",
+  "import { setTimeout as sleep } from 'node:timers/promises';",
+  '',
+  `test(${JSON.stringify(name)}, async () => {`,
+  `  const box = path.dirname(process.env[${JSON.stringify(WORLD)}]);`,
+  "  const log = (line) => appendFileSync(path.join(box, 'ran.log'), `${line}\\n`);",
+  `  for (const dir of ${JSON.stringify(dirs)}) mkdirSync(dir, { recursive: true });`,
+  `  for (const { file, text } of ${JSON.stringify(files)}) {`,
+  '    mkdirSync(path.dirname(file), { recursive: true });',
+  '    writeFileSync(file, text);',
+  '  }',
+  `  log(${JSON.stringify(`${name}:started`)});`,
+  "  log(existsSync(path.join(process.env.TMPDIR, 'obk-test-system.lock')) ? 'lock:there' : 'lock:none');",
+  `  process.stdout.write(${JSON.stringify(`${name}\n`)});`,
+  `  if (${blocks} > 0) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ${blocks});`,
+  "  const until = Date.now() + 20_000;",
+  "  while (!existsSync(path.join(box, 'go')) && Date.now() < until) await sleep(50);",
+  `  log(${JSON.stringify(`${name}:ended`)});`,
+  ...(fails ? [`  throw new Error(${JSON.stringify(`${name} failed`)});`] : []),
+  '});',
+  '',
+].join('\n');
+
+/** Wait until ran.log holds `line`, for `ms` at most; answers whether it did. */
+async function ranLogHas(fixture, line, ms = 15_000) {
+  const until = Date.now() + ms;
+  while (Date.now() < until) {
+    if ((await ranIn(fixture)).includes(line)) return true;
+    await new Promise((resolve) => { setTimeout(resolve, 50); });
+  }
+  return false;
+}
+
+/** Let the waiting system test end: the `go` file beside the repo. */
+const go = (fixture) => writeFile(path.join(path.dirname(fixture.repo), 'go'), 'go\n');
+
+/**
+ * A fixture whose run reads no harness config or store of this shell's, with
+ * ALPHA as `waitsForGo` makes it (`alpha` its options) and BETA a tallies
+ * file. `holding(body)` starts a runner on ALPHA, waits until its test has
+ * started, and runs `body({ runner, finish })`, `finish` letting the test end
+ * and answering the runner's result. However `body` ends, the runner is let
+ * end and waited for before the sandbox goes.
+ */
+async function withLock(t, alpha = {}) {
+  const fixture = await createRepo(t, { files: { 'test/system/alpha.test.js': waitsForGo('ALPHA', alpha), 'test/system/beta.test.js': tallies('BETA') } });
+  const { CODEX_HOME: _codex, CLAUDE_CONFIG_DIR: _claude, PI_CODING_AGENT_DIR: _pi, ...env } = fixture.env;
+  const holding = async (body) => {
+    const runner = startRunner(fixture, [CONFIRM, 'test/system/alpha.test.js'], { env });
+    try {
+      assert.ok(await ranLogHas(fixture, 'ALPHA:started'), `the premise: the first run's test started, got:\n${runner.printed()}`);
+      await body({
+        runner,
+        async finish() {
+          await go(fixture);
+          return runner.done;
+        },
+      });
+    } finally {
+      await go(fixture).catch(() => {});
+      await runner.done;
+    }
+  };
+  return { fixture, env, lock: lockIn(env), holding };
+}
+
+/** A fake Orca that answers that its runtime is not reachable. */
+async function orcaNotReady(fixture) {
+  const file = path.join(path.dirname(fixture.repo), 'bin', 'orca-not-ready');
+  await writeFile(file, `#!/bin/sh\nprintf '%s\\n' '${JSON.stringify({ ok: true, result: { runtime: { reachable: false } } })}'\n`);
+  await chmod(file, 0o755);
+  return file;
+}
+
+describe('test-system: one system-test run at a time drives this machine (#860, R3a)', { concurrency: true }, () => {
+  test('L1 L4 a passing run holds the lock while its tests run, and the lock is gone after it', async (t) => {
+    const at = await withLock(t);
+    await go(at.fixture);
+
+    const result = await at.fixture.confirmed({ env: at.env });
+
+    assert.equal(result.code, 0, everything(result));
+    assert.ok((await ranIn(at.fixture)).includes('lock:there'), `the lock should be there while the tests run: ${at.lock}\n${everything(result)}`);
+    assert.equal(there(at.lock), false, `the lock should be gone after the run: ${at.lock}`);
+  });
+
+  test('L4 a failing run releases the lock too', async (t) => {
+    const at = await withLock(t, { fails: true });
+    await go(at.fixture);
+
+    const result = await at.fixture.confirmed({ names: ['test/system/alpha.test.js'], env: at.env });
+
+    assert.equal(result.code, 1, everything(result));
+    assert.ok((await ranIn(at.fixture)).includes('lock:there'), `the lock should be there while the tests run: ${at.lock}\n${everything(result)}`);
+    assert.equal(there(at.lock), false, `the lock should be gone after the run: ${at.lock}`);
+  });
+
+  test('L4 a run stopped by its time limit releases the lock', async (t) => {
+    const at = await withLock(t, { blocks: 20_000 });
+
+    const run = startRunner(at.fixture, [CONFIRM, '--limit=3', 'test/system/alpha.test.js'], { env: at.env });
+    const result = await run.done;
+
+    assertEnded(result);
+    assert.equal(result.code, 1, everything(result));
+    assert.ok(result.stdout.split('\n').some((line) => /time limit/i.test(line) && /stopped/i.test(line)), `the premise: the time limit stopped the run, got:\n${everything(result)}`);
+    assert.ok((await ranIn(at.fixture)).includes('lock:there'), `the lock should be there while the tests run: ${at.lock}\n${everything(result)}`);
+    assert.equal(there(at.lock), false, `the lock should be gone after the run: ${at.lock}`);
+  });
+
+  test('L4 a run stopped by a SIGTERM to the runner releases the lock', async (t) => {
+    const at = await withLock(t);
+
+    await at.holding(async (held) => {
+      held.runner.send('SIGTERM');
+      const result = await held.runner.done;
+
+      assertEnded(result);
+      assert.equal(result.code, 1, everything(result));
+      assert.ok((await ranIn(at.fixture)).includes('lock:there'), `the lock should be there while the tests run: ${at.lock}\n${everything(result)}`);
+      assert.equal(there(at.lock), false, `the lock should be gone after the run: ${at.lock}`);
+    });
+  });
+
+  test('L2 while a live runner holds the lock, a second run is refused before it backs up or loads anything, and touches nothing of the first run\'s', async (t) => {
+    const at = await withLock(t);
+    // The first run's own throwaway folder and its Claude transcripts, made
+    // after its snapshot: the second run must not take them for its own.
+    const work = path.join(realpathSync(at.env.TMPDIR), 'obk-system-first-Fr0001', 'bots', 'b');
+    const transcripts = path.join(at.env.HOME, '.claude', 'projects', claudeSlug(work));
+    const transcript = path.join(transcripts, `${CLAUDE_IDS[0]}.jsonl`);
+    await write(at.fixture.repo, 'test/system/alpha.test.js', waitsForGo('ALPHA', { dirs: [work], files: [{ file: transcript, text: claudeTranscript(CLAUDE_IDS[0], [work]) }] }));
+    await at.holding(async (held) => {
+      const backups = await backupsIn(at.env.TMPDIR);
+      const callsBefore = (await at.fixture.orca.calls()).length;
+
+      const second = await at.fixture.confirmed({ env: at.env });
+
+      const all = everything(second);
+      const calls = (await at.fixture.orca.calls()).slice(callsBefore);
+      assert.equal(second.code, 1, `a run that finds the lock held should exit 1, got ${second.code}:\n${all}`);
+      assert.ok(!/^\s+at /m.test(all), `expected a message, got a crash:\n${all}`);
+      assert.ok(all.includes(at.lock), `the message names the lock folder ${at.lock}, got:\n${all}`);
+      assert.ok(new RegExp(`(?<!\\d)${held.runner.pid}(?!\\d)`).test(all), `the message names the pid that holds it, ${held.runner.pid}, got:\n${all}`);
+      assert.match(unwrapped(all), /another\b[^.]*\brun/i, `the message says another system-test run is going, got:\n${all}`);
+      assert.deepEqual(await backupsIn(at.env.TMPDIR), backups, `the second run makes no backup, got:\n${all}`);
+      assert.ok(!second.stdout.includes('Config backup:'), `the second run says no backup, got:\n${all}`);
+      assert.deepEqual(calls.map((call) => call.args).filter((args) => args[0] !== 'status'), [], `the second run asks Orca nothing but its status, got: ${JSON.stringify(calls.map((call) => call.args))}`);
+      assert.deepEqual((await ranIn(at.fixture)).filter((line) => line === 'ALPHA:started' || line === 'BETA'), ['ALPHA:started'], `the second run loads no test file, got:\n${all}`);
+      assert.ok(there(at.lock), `the first run's lock stays: ${at.lock}`);
+      assert.ok(there(work), `the first run's folder stays: ${work}`);
+      assert.equal(await readFile(transcript, 'utf8'), claudeTranscript(CLAUDE_IDS[0], [work]), `the first run's transcripts stay untouched: ${transcript}`);
+
+      const first = await held.finish();
+      assertEnded(first);
+      assert.equal(first.code, 0, `the first run goes on to pass:\n${everything(first)}`);
+      assert.equal(there(at.lock), false, `and its lock is gone after it: ${at.lock}`);
+    });
+  });
+
+  test('L3 a lock left by a runner that was killed is stale: the next run takes it over, says so in one line, runs, and leaves no lock', async (t) => {
+    const at = await withLock(t);
+    let deadPid;
+    await at.holding(async (held) => {
+      deadPid = held.runner.pid;
+      held.runner.send('SIGKILL');
+      await held.runner.done;
+    });
+    // Its tests' process group outlives it; let its test end by itself.
+    assert.ok(await ranLogHas(at.fixture, 'ALPHA:ended'), 'the premise: the killed run\'s test ended');
+    assert.ok(there(at.lock), `the premise: the killed runner left its lock: ${at.lock}`);
+
+    const result = await at.fixture.confirmed({ env: at.env });
+
+    assert.equal(result.code, 0, everything(result));
+    assert.equal((await ranIn(at.fixture)).filter((line) => line === 'ALPHA:started').length, 2, `the next run's tests ran, got:\n${everything(result)}`);
+    const said = everything(result).split('\n').filter((line) => /lock/i.test(line) && /stale|not alive|no longer|dead|took it over|takes it over|taken over|took over/i.test(line));
+    assert.equal(said.length, 1, `one line should say the stale lock (pid ${deadPid}) was taken over, got:\n${everything(result)}`);
+    assert.equal(there(at.lock), false, `the lock should be gone after the run: ${at.lock}`);
+  });
+
+  test('L5 runs that drive nothing take no lock and leave none', async (t) => {
+    const at = await withLock(t, {});
+    await write(at.fixture.repo, 'test/system/held.test.js', saysInComment('HELD', ATTENDED));
+    const notReady = await orcaNotReady(at.fixture);
+    const cases = [
+      ['a refused name', () => at.fixture.confirmed({ names: ['test/other.test.js'], env: at.env }), 1],
+      ['an attended file', () => at.fixture.confirmed({ names: ['test/system/held.test.js'], env: at.env }), 1],
+      ['Orca not ready', () => at.fixture.confirmed({ env: { ...at.env, OBK_ORCA: notReady } }), 0],
+      ['no --yes', () => at.fixture.run({ env: at.env }), 2],
+      ['a run refused at night for lack of time', async () => (await startAt(at.fixture, [5, 59, 59, 500], [CONFIRM], { env: at.env })).done, 1],
+    ];
+    for (const [label, run, code] of cases) {
+      const result = await run();
+      assert.equal(result.code, code, `${label}: the premise, its own exit, got:\n${everything(result)}`);
+      assert.equal(there(at.lock), false, `${label}: no lock should be left: ${at.lock}\n${everything(result)}`);
+    }
+    assert.deepEqual(await ranIn(at.fixture), [], 'and none of them ran a test');
+  });
+
+  test('L1 L5 while a live runner holds the lock, runs that would drive nothing answer as they do without it, and leave the lock alone', async (t) => {
+    const at = await withLock(t);
+    const notReady = await orcaNotReady(at.fixture);
+    await at.holding(async (held) => {
+      const cases = [
+        ['no --yes', () => at.fixture.run({ env: at.env }), 2],
+        ['Orca not ready', () => at.fixture.confirmed({ env: { ...at.env, OBK_ORCA: notReady } }), 0],
+        ['a run refused at night for lack of time', async () => (await startAt(at.fixture, [5, 59, 59, 500], [CONFIRM], { env: at.env })).done, 1],
+      ];
+      for (const [label, run, code] of cases) {
+        const result = await run();
+        assert.equal(result.code, code, `${label}: it answers as without a lock, got:\n${everything(result)}`);
+        assert.ok(!everything(result).includes(at.lock), `${label}: it is not refused for the lock, got:\n${everything(result)}`);
+        assert.ok(there(at.lock), `${label}: the first run's lock stays: ${at.lock}`);
+      }
+
+      const first = await held.finish();
+      assert.equal(first.code, 0, `the first run goes on to pass:\n${everything(first)}`);
+    });
   });
 });
