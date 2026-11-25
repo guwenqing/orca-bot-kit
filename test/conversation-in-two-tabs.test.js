@@ -441,3 +441,62 @@ test('H7 an id only in a retired entry\'s history, in T0 or in TR: nothing is pr
   assertWarnsOfRetired(warningOf(warned), { tab: T0, tr });
   assert.equal(await bookText(bots), before, 'and the book is still as it was');
 });
+
+// ---------------------------------------------------------------- H8
+
+test('H8 a Codex session\'s C in a tab no session names: the warning names codex-bot/daily, C, T0 and T1, the book is unchanged and no Orca call is made; in T1 no warning', async (t) => {
+  // The architect's boundary (comment 7154796794 on #862): the warning covers
+  // Claude Code and Codex, wherever the kit's hook runs, and not Pi.
+  const box = await createSandbox(t);
+  const bot = 'codex-bot';
+  for (const args of [
+    ['init', '--bots', 'bots', '--harness', 'claude'],
+    ['bot', 'create', '--bots', 'bots', '--name', bot, '--harness', 'codex'],
+    ['session', 'add', '--bots', 'bots', '--bot', bot, '--name', 'daily', '--prompt', PROMPT],
+  ]) {
+    const result = await box.run(args);
+    assert.equal(result.code, 0, `obk ${args.join(' ')}: ${result.stdout}${result.stderr}`);
+  }
+  const up = await box.run(['up', '--bots', 'bots', '--bot', bot, '--json']);
+  assert.equal(up.code, 0, up.stderr);
+  const bots = box.path('bots');
+  const t1 = JSON.parse(up.stdout).tabs.find((entry) => entry.name === 'daily').tabId;
+  const first = await recordSession(box, { bots, bot, tab: t1, session: C, source: 'startup' });
+  assert.equal(first.code, 0, first.stderr);
+  const daily = await sessionIn(bots, bot, 'daily');
+  assert.deepEqual([daily.session, daily.tab], [C, t1], `the premise: the book holds C for daily in T1, got: ${JSON.stringify(daily)}`);
+  assert.ok(!Object.values((await bookIn(bots, bot)).sessions).some((entry) => entry.tab === T0), `the premise: no session names ${T0}`);
+  const found = kitHooksIn(await hooksIn(bots, bot, 'codex'));
+  assert.equal(found.length, 1, `the premise: one kit hook command in the bot's Codex hook file, got: ${JSON.stringify(found)}`);
+  const before = await readFile(bookOf(bots, bot), 'utf8');
+  const calls = await callCount(box);
+
+  for (const [label, run] of [
+    ['through the harness chain, on resume', () => recordSession(box, { bots, bot, tab: T0, line: null, session: C, source: 'resume' })],
+    ['under a Codex tab Orca brought back, on resume', () => throughATab(box, found[0], { tab: T0, harness: 'codex', stdin: sessionStart({ session: C, source: 'resume' }) })],
+    ['under a Codex tab Orca brought back, on startup', () => throughATab(box, found[0], { tab: T0, harness: 'codex', stdin: sessionStart({ session: C, source: 'startup' }) })],
+  ]) {
+    const ran = await run();
+    assert.notEqual(ran.stdout, '', `${label}: the Codex copy should be warned, and the hook printed nothing`);
+    const text = warningOf(ran);
+    assertWord(text, `${bot}/daily`, 'the session');
+    assertWord(text, C, 'the conversation');
+    assertWord(text, T0, 'the tab it runs in now');
+    assertWord(text, t1, 'the session\'s own tab');
+    assert.equal(await readFile(bookOf(bots, bot), 'utf8'), before, `${label}: the book is not changed at all`);
+    assert.equal(await callCount(box), calls, `${label}: the hook makes no Orca call`);
+  }
+
+  // The contrast: the same report in T1 itself is no copy, and T0 is not in its answer.
+  const own = await recordSession(box, { bots, bot, tab: t1, session: C, source: 'resume' });
+  assert.equal(own.code, 0, own.stderr);
+  assert.ok(!own.stdout.includes(T0), `in T1, C is not warned of as a copy in T0, got: ${own.stdout}`);
+  assert.ok(!hasWordIn(own.stdout, `${bot}/daily`), `in T1, no warning names the session, got: ${own.stdout}`);
+  assert.equal(await readFile(bookOf(bots, bot), 'utf8'), before, 'in T1: the book is as it was');
+});
+
+/** Whether `text` holds `word` as a word of its own. */
+function hasWordIn(text, word) {
+  const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?:^|[^A-Za-z0-9_-])${escaped}(?![A-Za-z0-9_-])`).test(text);
+}
