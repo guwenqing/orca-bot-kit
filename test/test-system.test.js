@@ -3752,6 +3752,47 @@ async function assertStoppedAtTheBackup(result, fixture, { names, code = ERROR_C
 }
 
 /**
+ * The run stopped at its lock, before the backup (#860, R3a-bis): the runner's
+ * lock, `obk-test-system.lock` in the temp folder, could not be made for a
+ * reason other than another run holding it. Exit 1, and no crash; stderr says
+ * the run's lock could not be made, names the lock folder `lock`, gives `code`
+ * as the why, and says that no system test was run and that nothing was
+ * changed; no system test file ran; Orca was asked nothing past its status; no
+ * backup folder is left in `tmp`, and neither a lock nor anything named like
+ * one; and nothing of either config was printed.
+ */
+async function assertStoppedAtTheLock(result, fixture, { lock, code, tmp }) {
+  const all = everything(result);
+  assert.equal(result.code, 1, `a lock that cannot be made stops the run with exit 1:\n${all}`);
+  assert.ok(!/^\s+at /m.test(all), `expected a message, got a crash:\n${all}`);
+  const said = unwrapped(result.stderr);
+  assert.match(said, /\block\b/i, `stderr should say it is the run's lock that could not be made, got:\n${result.stderr}`);
+  assert.match(said, /\bfail|could ?n[o']t|cannot|can't|unable/i, `stderr should say the lock could not be made, got:\n${result.stderr}`);
+  assert.ok(result.stderr.includes(lock), `stderr should name the folder it could not make, ${lock}, got:\n${result.stderr}`);
+  assert.match(result.stderr, code, `stderr should say why, as ${code}, got:\n${result.stderr}`);
+  assert.match(said, NO_TEST_RUN, `stderr should say no test was run, got:\n${result.stderr}`);
+  assert.match(said, /\bnothing\b[^.]*\bchang/i, `stderr should say nothing was changed, got:\n${result.stderr}`);
+  assert.deepEqual(await ranIn(fixture), [], 'no system test file should have run');
+  assert.doesNotMatch(all, /ALPHA|BETA/, `no system test file should have run, got:\n${all}`);
+  assert.deepEqual(
+    (await fixture.orca.calls()).map((call) => call.args[0]).filter((word) => word !== 'status'),
+    [],
+    'Orca should have been asked nothing past its status',
+  );
+  assert.ok(!result.stdout.includes('Config backup:'), `no backup should be said, got:\n${all}`);
+  assert.deepEqual(await backupsIn(tmp), [], `no backup folder should be left in ${tmp}`);
+  assert.equal(there(lock), false, `no lock should be left: ${lock}`);
+  let left = [];
+  try {
+    left = (await readdir(tmp)).filter((name) => name.startsWith('obk-test-system'));
+  } catch (error) {
+    if (error.code !== 'ENOENT' && error.code !== 'ENOTDIR') throw error;
+  }
+  assert.deepEqual(left, [], `nothing named like the lock should be left in ${tmp}`);
+  assert.ok(!all.includes(SECRET), `nothing of either config should be printed, got:\n${all}`);
+}
+
+/**
  * A fixture for a backup that cannot be made: both configs under HOME, each
  * holding a secret, one system test (ALPHA) that would change one config if it
  * ran, the one that is not `broken`, so that it would pass, and a second (BETA)
@@ -3974,7 +4015,10 @@ describe('test-system: a backup of both harness configs before every live run (#
     assert.deepEqual(await snapshot(files.codex), was.codex, 'config.toml is as it was');
   });
 
-  test('a temp folder that is a file stops the run before any test: the folder it could not make and ENOTDIR named, nothing changed', async (t) => {
+  // The runner's lock is made in the temp folder before the backup (#860,
+  // R3a), so a temp folder that is a file or cannot be written now stops the
+  // run at the lock, and the backup is never reached (R3a-bis).
+  test('a temp folder that is a file stops the run at its lock, before the backup and any test: the lock folder it could not make and ENOTDIR named, nothing changed', async (t) => {
     const { fixture, env, files } = await withBothConfigs(t);
     const notAFolder = path.join(path.dirname(fixture.repo), 'tmp-is-a-file');
     await writeFile(notAFolder, 'a file, not a folder\n');
@@ -3982,13 +4026,14 @@ describe('test-system: a backup of both harness configs before every live run (#
 
     const result = await fixture.confirmed({ env: { ...env, TMPDIR: notAFolder } });
 
-    await assertStoppedAtTheBackup(result, fixture, { names: [notAFolder], code: /\bENOTDIR\b/, tmp: env.TMPDIR });
+    await assertStoppedAtTheLock(result, fixture, { lock: path.join(notAFolder, 'obk-test-system.lock'), code: /\bENOTDIR\b/, tmp: notAFolder });
+    assert.deepEqual(await backupsIn(env.TMPDIR), [], `no backup folder should be left in ${env.TMPDIR} either`);
     assert.equal(await readFile(notAFolder, 'utf8'), 'a file, not a folder\n', 'the file named as the temp folder is as it was');
     assert.deepEqual(await snapshot(files.codex), was.codex, 'config.toml is as it was');
     assert.deepEqual(await snapshot(files.claude), was.claude, '.claude.json is as it was');
   });
 
-  test('a temp folder that cannot be written stops the run before any test: the folder it could not make and EACCES named, nothing changed', { skip: AS_ROOT }, async (t) => {
+  test('a temp folder that cannot be written stops the run at its lock, before the backup and any test: the lock folder it could not make and EACCES named, nothing changed', { skip: AS_ROOT }, async (t) => {
     const { fixture, env, files } = await withBothConfigs(t);
     const was = { codex: await snapshot(files.codex), claude: await snapshot(files.claude) };
     await chmod(env.TMPDIR, 0o500);
@@ -3999,7 +4044,7 @@ describe('test-system: a backup of both harness configs before every live run (#
       await chmod(env.TMPDIR, 0o700);
     }
 
-    await assertStoppedAtTheBackup(result, fixture, { names: [env.TMPDIR], code: /\bEACCES\b/, tmp: env.TMPDIR });
+    await assertStoppedAtTheLock(result, fixture, { lock: path.join(env.TMPDIR, 'obk-test-system.lock'), code: /\bEACCES\b/, tmp: env.TMPDIR });
     assert.deepEqual(await snapshot(files.codex), was.codex, 'config.toml is as it was');
     assert.deepEqual(await snapshot(files.claude), was.claude, '.claude.json is as it was');
   });
