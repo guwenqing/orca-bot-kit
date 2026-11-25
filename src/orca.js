@@ -1357,9 +1357,11 @@ export const useMailbox = (id, handle, options) =>
   orchestration(['orchestration', 'run-use', '--id', id, ...(handle === undefined ? [] : ['--from', handle])], options).run;
 
 /**
- * The terminal a mailbox is bound to, or undefined when it has none. A closed
- * tab keeps its binding, and a read as its handle still works: a read binds
- * nothing, only `run-use` does (tech notes, section 1).
+ * The terminal a mailbox is bound to, or undefined when it has none. Up to
+ * Orca 1.4.271 a closed tab keeps its binding, and a read as its handle still
+ * works: a read binds nothing, only `run-use` does. From 1.4.272 Orca takes a
+ * Run off a tab when the tab closes, so a closed tab's Run has none (#858;
+ * tech notes, section 1).
  */
 export const coordinatorOf = (id, options) =>
   orchestration(['orchestration', 'run-show', '--id', id], options).run.coordinator_handle ?? undefined;

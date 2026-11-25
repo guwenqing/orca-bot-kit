@@ -469,6 +469,61 @@
 //                               plain `check` acknowledges the batch it hands
 //                               over, in the same step; `check --ack` then
 //                               answers with no batch at all (see `check`).
+//                 '1.4.272' and later  as 1.4.246, and a terminal that closes
+//                               takes its Run off it (#858). Read in Orca's
+//                               source at tag v1.4.272 (commit 910fe80ce8a,
+//                               stablyai/orca#47135), and in part seen live on
+//                               1.4.272 (2026-11-24): `terminal close
+//                               --terminal H`, of the pane or with `--tab`,
+//                               unbinds every Run H coordinated:
+//                               `coordinator_handle` null, and
+//                               `consumer_generation` one more (seen live:
+//                               null after a close with `--tab`). Then every
+//                               `check --run R`, a peek too, needs the reader
+//                               (`--terminal`, or else the caller's own) to
+//                               coordinate R, judged in this order, each
+//                               refusal exit 1 with nothing done (run-scope.ts
+//                               `resolveRunScope` and `unboundCallerError`):
+//                                 no reader at all (a plain shell, no
+//                                   `--terminal`): `run_required`, "No Run is
+//                                   bound. A coordinator creates one with ...
+//                                   A worker never binds a Run: ... No effects
+//                                   were applied." Orca adds recovery data the
+//                                   fake leaves out.
+//                                 a reader with no live pane, a closed handle
+//                                   or one Orca never issued:
+//                                   `stable_pane_required`, "The coordinator
+//                                   terminal has no stable pane identity."
+//                                 a reader that coordinates R: read as before.
+//                                 a reader bound to another Run B:
+//                                   `consumer_fenced`, "This caller is bound
+//                                   to Run B, not Run R. Nothing changed."
+//                                 a reader bound to none: `consumer_fenced`,
+//                                   "This caller does not coordinate Run R,
+//                                   which has no coordinator now. Nothing
+//                                   changed." when R has none, however it came
+//                                   to have none, and "This caller is not
+//                                   bound to Run R, which is bound to <H>.
+//                                   Nothing changed." when H holds it.
+//                               Not known: whether Orca's CLI finds a terminal
+//                               for a caller with none before the runtime is
+//                               asked (the fake asks the runtime as it is),
+//                               and whether a closed handle still has a pane
+//                               key (`getTerminalPaneKey`, not read through;
+//                               the fake says it has none, as `--from` of a
+//                               handle with no live pane is refused). A check
+//                               with no `--run` is answered as before. A check
+//                               replayed from a receipt is answered before
+//                               all of that, as every replay is. `run-use` from a
+//                               new tab binds the Run again (seen live: an
+//                               unpause after a pause, a waiting letter
+//                               delivered in the new tab). Not modelled: a
+//                               terminal that ends with nothing left in its
+//                               pane, which Orca unbinds the same way; and the
+//                               fencing of a delivery left unacknowledged,
+//                               which the fake keeps as it was. An Orca
+//                               restart, a sleep or a lost host keeps the
+//                               binding, and the fake has none of those.
 //   runs      [{ id, objective, coordinator_handle, consumer_generation,
 //               legacy, created_at, updated_at }] — the Run mailboxes
 //               `orchestration run-create` has made, in the words `run-show`
@@ -499,9 +554,13 @@
 //               live tab that holds no Run, or a closed one the Run has been
 //               bound away from, is refused `consumer_fenced`, and a handle
 //               Orca never issued `stable_pane_required` (all seen live on
-//               1.4.209, #249).
-//               `consumer_generation` stays 0 here: what Orca counts in it was
-//               not measured, and nothing the kit does reads it.
+//               1.4.209, #249). Up to 1.4.271; from 1.4.272 a closed tab is
+//               taken off its Run, and a Run with no coordinator cannot be
+//               read at all (`orcaVersion`, #858).
+//               `consumer_generation` stays 0 here, but for the one more that
+//               a close on 1.4.272 or later counts: the rest of what Orca
+//               counts in it was not measured, and nothing the kit does reads
+//               it.
 //               `legacy: true` (or 1, as Orca's own row has it) is a Run from
 //               before Runs could be bound, which Orca keeps to be inspected:
 //               `run-show` answers it, with `legacy` as it is, and `run-use`
@@ -805,6 +864,11 @@ const answersShort = modeled !== undefined && !knowsNoFull;
 const full = args.includes('--full');
 /** Whether this call gets the short agent view of 1.4.246 and later. */
 const short = answersShort && !full;
+/**
+ * An Orca of 1.4.272 or later, which takes every Run off a terminal that
+ * closes, and refuses every check of a Run with no coordinator (#858).
+ */
+const unbindsOnClose = modeled !== undefined && !olderThan(modeled, '1.4.272');
 
 // Orca 1.4.245's CLI checks a command's flags before it calls the runtime, so
 // an unknown `--full` is refused with nothing done (read in its source at tag
@@ -1276,6 +1340,16 @@ if (command === 'terminal close') {
   // Orca issued this handle, and a Run may go on naming it: a read as it is
   // then fenced rather than refused as a handle nobody knows.
   state.closedHandles = [...(state.closedHandles ?? []), terminal.handle];
+  // From 1.4.272 Orca takes every Run this terminal coordinated off it, a
+  // pane closed as much as a tab, and counts one more consumer generation
+  // (#858; see `orcaVersion` and `runs` at the top of this file).
+  if (unbindsOnClose) {
+    for (const run of state.runs ?? []) {
+      if (run.coordinator_handle !== terminal.handle) continue;
+      run.coordinator_handle = null;
+      run.consumer_generation = (run.consumer_generation ?? 0) + 1;
+    }
+  }
   if (lag > 0) {
     terminal.closingFor = lag;
   } else {
@@ -2051,6 +2125,36 @@ if (command === 'orchestration check') {
   const run = flag('--run') ?? boundTo;
   if (run === undefined) fail('no_run', 'this caller is bound to no run and none was named');
   if (runNamed(run) === undefined) fail('run_not_found', `no run with id ${run}`);
+
+  // From 1.4.272 every check, a peek too, needs the caller to coordinate the
+  // Run, judged in the order of run-scope.ts `resolveRunScope` and
+  // `unboundCallerError` at tag v1.4.272 (#858): no caller handle at all; a
+  // caller with no stable pane; a caller bound to another Run; and a caller
+  // bound to none, told whether the Run has a coordinator. See `orcaVersion`
+  // at the top of this file for what is read there and what is not known.
+  if (unbindsOnClose) {
+    if (reader === undefined) {
+      fail(
+        'run_required',
+        'No Run is bound. A coordinator creates one with `orchestration run-create`, or resumes its own with '
+          + '`orchestration run-use --id <run_id>`. A worker never binds a Run: its mail arrives through plain '
+          + '`orchestration check`, and it reports with `orchestration send`. No effects were applied.',
+      );
+    }
+    if (!(state.terminals ?? []).some((terminal) => terminal.handle === reader)) {
+      fail('stable_pane_required', 'The coordinator terminal has no stable pane identity.');
+    }
+    const holder = runNamed(run).coordinator_handle ?? null;
+    if (holder !== reader) {
+      if (boundTo !== undefined) fail('consumer_fenced', `This caller is bound to Run ${boundTo}, not Run ${run}. Nothing changed.`);
+      fail(
+        'consumer_fenced',
+        holder === null
+          ? `This caller does not coordinate Run ${run}, which has no coordinator now. Nothing changed.`
+          : `This caller is not bound to Run ${run}, which is bound to ${holder}. Nothing changed.`,
+      );
+    }
+  }
 
   if (boundTo !== undefined && boundTo !== run) {
     fail('consumer_fenced', `This coordinator terminal is bound to ${boundTo}, not ${run}.`);
