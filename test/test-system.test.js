@@ -4229,8 +4229,17 @@ describe('test-system: a backup of both harness configs before every live run (#
 
   // The review of PR #620: after the run, a config that was backed up and can
   // no longer be looked up is not gone. Only one that does not exist is.
-  for (const [which, side, options] of [['config.toml', 'codex', { codexHome: true }], ['.claude.json', 'claude', { claudeDir: true }]]) {
-    test(`a ${which} whose folder becomes mode 000 during the run is said not to be compared, with EACCES, not gone, and the exit code stays the tests'`, { skip: AS_ROOT }, async (t) => {
+  //
+  // CLAUDE_CONFIG_DIR's folder holds Claude Code's transcript store too,
+  // `projects`, and a store the runner cannot read fails the run (#860). So in
+  // the .claude.json case the run fails for that store. That the comparison is a
+  // report and not a check is held by the config.toml case, which goes through
+  // the same comparison with nothing else in its locked folder.
+  for (const [which, side, options, exit] of [
+    ['config.toml', 'codex', { codexHome: true }, 'the exit code stays the tests\''],
+    ['.claude.json', 'claude', { claudeDir: true }, 'the run fails for the transcript store in that folder, which it names (#860)'],
+  ]) {
+    test(`a ${which} whose folder becomes mode 000 during the run is said not to be compared, with EACCES, not gone, and ${exit}`, { skip: AS_ROOT }, async (t) => {
       const built = await withConfigs(t, () => ({ ...options, before: { codex: codexConfig({}), claude: claudeConfig([]) } }));
       const folder = path.dirname(built.files[side]);
       await write(built.fixture.repo, 'test/system/alpha.test.js', breaksConfigs('ALPHA', { locks: [folder] }));
@@ -4241,7 +4250,16 @@ describe('test-system: a backup of both harness configs before every live run (#
         await chmod(folder, 0o755);
       }
 
-      assert.equal(result.code, 0, `the comparison is a report, not a check:\n${everything(result)}`);
+      if (side === 'codex') {
+        assert.equal(result.code, 0, `the comparison is a report, not a check:\n${everything(result)}`);
+      } else {
+        const store = path.join(folder, 'projects');
+        assert.equal(result.code, 1, `the transcript store ${store} cannot be read, so the run fails:\n${everything(result)}`);
+        assert.ok(
+          afterTheRun(result).split('\n').some((line) => line.includes(store) && /could not|cannot|EACCES/i.test(line)),
+          `the run says it could not read the transcript store ${store}, got:\n${afterTheRun(result)}`,
+        );
+      }
       const dir = backupSaid(result).dir;
       assertCompared(result, dir, built.files[side], 'notCompared', [/\bEACCES\b/]);
       assert.equal(await readFile(built.files[side], 'utf8'), side === 'codex' ? codexConfig({}) : claudeConfig([]), 'the file is still there as it was, and nothing was copied over it');
