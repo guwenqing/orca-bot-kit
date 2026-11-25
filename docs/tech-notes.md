@@ -768,7 +768,17 @@ Orca stores a resume record per pane key (`sleepingAgentSessionsByPaneKey`) and 
     book holds for a session in another tab, or the last one of a retired session, the hook writes
     nothing to the book and tells the copy which session it is a copy of, both tab ids, to do no work
     there, and to tell the user to close the tab. It gives no start prompt and no main units there.
-    **verified** (the kit's tests, fake Orca). Pi has no hook, and gets no word.
+    It does the same for Claude Code and Codex alike; Pi has no hook, and gets no word. **verified**
+    (the kit's tests, fake Orca; and live for Claude Code, below)
+  - **The stand-in, run live** (`test/system/conversation-copy-tab.test.js`, 2026-11-25, Orca 1.4.272,
+    Claude Code 2.1.332). A second tab of the bot's own project, with a bare `claude --resume <C>` typed
+    into its shell, stands in for Orca's wake. The resume came up while the session's own tab still
+    held C. It kept the id C: its `SessionStart:resume` lines are in C's own transcript. The kit's
+    notice reached it, naming the session, C and both tabs. The book did not change, and the
+    session's own tab still ran the same process. Claude Code wrote the hook's added context into the
+    transcript (a `hook_additional_context` attachment after the `hook_success` line) only once the
+    copy had taken its first turn: there was no such line 45 s after the start, and there was one
+    after one turn. **verified** (live, developer-862); why the line waits for the turn is not known.
 
 ### Orca's own agent hooks (verified)
 
