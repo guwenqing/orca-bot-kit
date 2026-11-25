@@ -30,8 +30,12 @@
 // The Codex session is given its folder's trust at launch (#240,
 // test/helpers/codex-trust.js), so Codex asks neither its folder trust nor its
 // hooks review, and writes nothing about this folder into the user's own
-// ~/.codex/config.toml. Claude Code's folder trust, in `Bot Father daily` and
-// `Claude Bot daily`, is still the person attending's to answer.
+// ~/.codex/config.toml.
+//
+// **It is attended.** Claude Code's folder trust, in `Bot Father daily` and
+// `Claude Bot daily`, is still the person attending's to answer. This test
+// answers none of it, and the wait for the note `Claude Bot daily` writes
+// (`whenWritten`) needs that tab's trust answered.
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';

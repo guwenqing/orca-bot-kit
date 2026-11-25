@@ -25,8 +25,9 @@
 // closed no tab it did not create. `orca terminal close --worktree … --all` is
 // never run, and the helper below refuses to run it.
 //
-// **It is attended**, for one screen: Claude Code's folder-trust list in the
-// `Fleet Claude daily` tab, which takes a down-arrow and then return. The book
+// **It is attended.** A person answers one screen: Claude Code's folder-trust
+// list in the `Fleet Claude daily` tab, which takes a down-arrow and then
+// return. The book
 // learns the session's id only once that is answered, and a pause will not close
 // a tab whose conversation the book cannot name. After the unpause the same
 // folder is trusted and the session should come straight up. Leave `Bot Father

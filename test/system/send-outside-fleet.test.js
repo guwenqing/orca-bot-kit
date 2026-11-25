@@ -53,8 +53,8 @@
 // (#220); closes only its own tabs, through the tab guard, and deletes its own
 // workspaces, whatever happened.
 //
-// **It is attended, a little.** A bot folder nobody has opened before asks
-// questions before the harness is running in it (PRD 6.5). This test answers
+// **It is attended.** A bot folder nobody has opened before asks questions
+// before the harness is running in it (PRD 6.5). This test answers
 // one of them itself, Claude Code's folder trust, in its own throwaway Claude
 // tabs alone: `Receiver daily`, `Sender peer`, and `Sender daily` if it shows
 // the screen too, which it should not, sharing `peer`'s folder. The
@@ -74,10 +74,12 @@
 // every row it saw; a hooks line, if one shows, goes to the architect before
 // any rerun.
 //
-// The person still has these, which nothing here waits on: each fleet's `Bot
-// Father daily` shows the same folder trust, and it can be left; and after a
-// turn Claude Code may offer "Teach auto mode about your environment?", where
-// Esc cancels it (#416). Nothing else is to be answered.
+// The person still has these. Each fleet's `Bot Father daily` shows the same
+// folder trust, which nothing here waits on, and it can be left. After a turn,
+// Claude Code may offer "Teach auto mode about your environment?" in a test's
+// own Claude tab, where Esc cancels it (#416). This test does not answer it,
+// and the wait for that tab to take mail (`readyForMail`) waits while it is
+// up. Nothing else is to be answered.
 //
 // It takes a few minutes: three Claude sessions, one of them sending two
 // messages.

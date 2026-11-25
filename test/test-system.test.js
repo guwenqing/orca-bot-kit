@@ -6619,3 +6619,591 @@ describe('test-system: a night run ends by 06:00 whatever the steps before the t
     assert.equal(limitShown(result), 3600, everything(result));
   });
 });
+
+// ---------------------------------------------------------------------------
+// A named attended file is refused (#860)
+// ---------------------------------------------------------------------------
+//
+// A system test whose tabs stop on a screen that a person must answer says so
+// in its text, as the sentence `**It is attended.**`. A live run has nobody at
+// the screen, so such a file, named, is not run:
+//
+//   A1  When a named file holds that exact sentence anywhere in its text, the
+//       run is refused before Orca is asked anything: exit 1, no config backup,
+//       no test file loaded. stderr names the file by its path under
+//       test/system/, says that a person must answer a screen in its tabs and
+//       that a live run has nobody at the screen, and says how to go on: take
+//       the file out of the list, or make the test answer its own screens
+//       through test/helpers/screens.js.
+//   A2  Other sentences do not refuse: `**It is attended, lightly.**`,
+//       `**It is attended, a little.**`, `**It is not attended.**`, and a
+//       file with none of them, run as today.
+//   A3  A run that names no file is not refused for this.
+//   A4  When several files are named and one is attended, the whole run is
+//       refused, and every attended one is named.
+//
+// Here HOME and TMPDIR are the sandbox's (helpers/cli.js), and the run sees no
+// CODEX_HOME, CLAUDE_CONFIG_DIR or PI_CODING_AGENT_DIR of this shell's.
+
+/** The sentence that marks a system test as attended. */
+const ATTENDED = '**It is attended.**';
+
+/**
+ * A system test file that writes down that it ran (tallies), with `sentence`
+ * in the middle of a line of its first comment, as a test's own words say it.
+ */
+const saysInComment = (name, sentence) => [
+  '/**',
+  ` * Its tabs stop on a first-run screen. ${sentence} Somebody answers it there.`,
+  ' */',
+  tallies(name),
+].join('\n');
+
+/** NAMED_FILES and `files` over them, in a fixture whose run reads no harness config or store of this shell's. */
+async function withAttended(t, files) {
+  const fixture = await createRepo(t, { files: { ...NAMED_FILES, ...files } });
+  const { CODEX_HOME: _codex, CLAUDE_CONFIG_DIR: _claude, PI_CODING_AGENT_DIR: _pi, ...env } = fixture.env;
+  return {
+    fixture,
+    env,
+    confirmed: (names) => fixture.confirmed({ names, env }),
+    unconfirmed: (names) => fixture.run({ names, env }),
+  };
+}
+
+/**
+ * The run was refused for its attended files, before anything: exit 1, Orca
+ * never asked, no backup, no test file loaded, and stderr names each of
+ * `attended` (its path under test/system/) and says why and how to go on.
+ */
+async function assertRefusedAsAttended(result, at, attended) {
+  const all = everything(result);
+  assert.equal(result.code, 1, `a run that names an attended file should exit 1, got ${result.code}:\n${all}`);
+  assert.ok(!/^\s+at /m.test(all), `expected a message, got a crash:\n${all}`);
+  assert.deepEqual(await at.fixture.orca.calls(), [], `Orca should not be asked anything, got:\n${JSON.stringify(argsOf(await at.fixture.orca.calls()))}`);
+  await assertNoBackup(result, at.env.TMPDIR, 'an attended file named');
+  assert.deepEqual(await ranIn(at.fixture), [], `no test file should be loaded, got:\n${all}`);
+  for (const file of attended) {
+    assert.ok(result.stderr.includes(file), `stderr should name ${file}, got:\n${result.stderr}`);
+  }
+  const said = unwrapped(result.stderr);
+  assert.match(said, /screen/i, `stderr should say a screen must be answered in its tabs, got:\n${result.stderr}`);
+  assert.match(said, /\b(?:person|someone|somebody|human)\b/i, `stderr should say a person must answer it, got:\n${result.stderr}`);
+  assert.match(said, /\b(?:nobody|no one|no-one|no person)\b/i, `stderr should say a live run has nobody at the screen, got:\n${result.stderr}`);
+  assert.match(said, /\b(?:out of|without|leave|drop|remove)\b/i, `stderr should say to take the file out of the list, got:\n${result.stderr}`);
+  assert.ok(result.stderr.includes('test/helpers/screens.js'), `stderr should name test/helpers/screens.js as the other way on, got:\n${result.stderr}`);
+}
+
+describe('test-system: a named attended file is refused (#860)', { concurrency: true }, () => {
+  test('A1 a named file that says **It is attended.** inside a comment line is refused before Orca, the backup or any test', async (t) => {
+    const at = await withAttended(t, { 'test/system/held.test.js': saysInComment('HELD', ATTENDED) });
+
+    const result = await at.confirmed(['test/system/held.test.js']);
+
+    await assertRefusedAsAttended(result, at, ['held.test.js']);
+  });
+
+  test('A1 the sentence counts anywhere in the text: in a nested file, in a line comment after code', async (t) => {
+    const at = await withAttended(t, { 'test/system/nested/held.test.js': `${tallies('HELD')}// Then a screen comes. ${ATTENDED}\n` });
+
+    const result = await at.confirmed(['test/system/nested/held.test.js']);
+
+    await assertRefusedAsAttended(result, at, ['nested/held.test.js']);
+  });
+
+  test('A1 without --yes too, a named attended file is refused with exit 1, not the unconfirmed exit 2', async (t) => {
+    const at = await withAttended(t, { 'test/system/held.test.js': saysInComment('HELD', ATTENDED) });
+
+    const result = await at.unconfirmed(['test/system/held.test.js']);
+
+    await assertRefusedAsAttended(result, at, ['held.test.js']);
+  });
+
+  for (const [label, sentence] of [
+    ['**It is attended, lightly.**', '**It is attended, lightly.**'],
+    ['**It is attended, a little.**', '**It is attended, a little.**'],
+    ['**It is not attended.**', '**It is not attended.**'],
+  ]) {
+    test(`A2 a named file that says ${label} runs as today`, async (t) => {
+      const at = await withAttended(t, { 'test/system/held.test.js': saysInComment('HELD', sentence) });
+
+      const result = await at.confirmed(['test/system/held.test.js']);
+
+      assert.equal(result.code, 0, everything(result));
+      assert.deepEqual(await ranIn(at.fixture), ['HELD'], `the named file should run, got:\n${everything(result)}`);
+      assert.ok(result.stdout.includes('Config backup:'), `the run backs up the configs as today, got:\n${everything(result)}`);
+    });
+  }
+
+  test('A2 a named file with no such sentence runs as today', async (t) => {
+    const at = await withAttended(t, {});
+
+    const result = await at.confirmed(['test/system/beta.test.js']);
+
+    assert.equal(result.code, 0, everything(result));
+    assert.deepEqual(await ranIn(at.fixture), ['BETA'], `the named file should run, got:\n${everything(result)}`);
+  });
+
+  test('A3 a run that names no file is not refused for an attended file among them: every file runs', async (t) => {
+    const at = await withAttended(t, { 'test/system/held.test.js': saysInComment('HELD', ATTENDED) });
+
+    const result = await at.confirmed([]);
+
+    assert.equal(result.code, 0, everything(result));
+    assert.deepEqual(await ranIn(at.fixture), ['ALPHA', 'BETA', 'GAMMA', 'HELD'], `every system test file should run, got:\n${everything(result)}`);
+  });
+
+  test('A3 an attended file that is not named does not refuse a run that names another', async (t) => {
+    const at = await withAttended(t, { 'test/system/held.test.js': saysInComment('HELD', ATTENDED) });
+
+    const result = await at.confirmed(['test/system/beta.test.js']);
+
+    assert.equal(result.code, 0, everything(result));
+    assert.deepEqual(await ranIn(at.fixture), ['BETA'], `the named file should run, and only it, got:\n${everything(result)}`);
+  });
+
+  test('A4 two attended files among four named: the whole run is refused, and both attended files are named', async (t) => {
+    const at = await withAttended(t, {
+      'test/system/held.test.js': saysInComment('HELD', ATTENDED),
+      'test/system/nested/kept.test.js': saysInComment('KEPT', ATTENDED),
+    });
+
+    const result = await at.confirmed(['test/system/alpha.test.js', 'test/system/held.test.js', 'test/system/beta.test.js', 'test/system/nested/kept.test.js']);
+
+    await assertRefusedAsAttended(result, at, ['held.test.js', 'nested/kept.test.js']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Claude Code's transcripts of the run's own folders are removed (#860)
+// ---------------------------------------------------------------------------
+//
+// Claude Code keeps a session's transcripts in <config dir>/projects/<slug>/,
+// the config dir ~/.claude, or $CLAUDE_CONFIG_DIR when that is set (Orca sets
+// it to a profile of its own, whose `projects` is a link to ~/.claude/projects).
+// <slug> is the session's working folder with every character that is not an
+// ASCII letter or digit as `-`. In the folder: <session id>.jsonl files, whose
+// JSON lines carry a `cwd` (some lines do not); a <session id>/ folder beside a
+// transcript, for subagents; and a `memory/` folder. Seen on Claude Code
+// 2.1.331 and Orca 1.4.272. After the tests the runner:
+//
+//   C1  looks in <HOME>/.claude/projects and, when CLAUDE_CONFIG_DIR is set, in
+//       $CLAUDE_CONFIG_DIR/projects, as one store when both lead to the same
+//       real folder. A store that does not exist is an empty one.
+//   C2  removes a folder there only when it is new since the run began, is a
+//       real folder (not a link), its name starts with the slug of the real
+//       temp folder or of <real repo>/local-data, then `-obk-system-`, and its
+//       contents prove it is the run's: at least one .jsonl, every .jsonl with
+//       at least one cwd, every cwd inside one of the run's own folders, and
+//       every other entry a folder named as one of those transcripts' session
+//       ids, or `memory`.
+//   C3  leaves a folder that looks like the run's without that proof, names it,
+//       and fails the run; leaves everything that was there before the run,
+//       and every folder of another name.
+//   C4  names what it removed; names a removal that fails, and fails the run;
+//       when a store cannot be read, says so, removes nothing, and fails the run.
+//   C5  does not change the run's exit when there is nothing to remove.
+//
+// Here HOME and TMPDIR are the sandbox's (helpers/cli.js); each test chooses
+// what CLAUDE_CONFIG_DIR is, whatever this shell has.
+
+/** Claude Code's name for a working folder's transcripts folder: every character that is not an ASCII letter or digit as `-`. */
+const claudeSlug = (folder) => folder.replaceAll(/[^A-Za-z0-9]/g, '-');
+
+/** Session ids, as Claude Code names its transcripts. */
+const CLAUDE_IDS = ['6f1d2c3b-4a59-4e8f-9d70-1a2b3c4d5e6f', '0a9b8c7d-6e5f-4a3b-8c2d-1e0f9a8b7c6d', '9e8d7c6b-5a49-4382-a716-f5e4d3c2b1a0'];
+
+/**
+ * A transcript's text as Claude Code writes it: a first line with no cwd, then
+ * one line per entry of `cwds`, each carrying that cwd.
+ */
+const claudeTranscript = (id, cwds) => `${[
+  { type: 'permission-mode', permissionMode: 'default', sessionId: id },
+  ...cwds.map((cwd, n) => ({
+    parentUuid: null,
+    isSidechain: false,
+    userType: 'external',
+    cwd,
+    sessionId: id,
+    version: '2.1.331',
+    gitBranch: '',
+    type: n % 2 === 0 ? 'user' : 'assistant',
+    message: { role: n % 2 === 0 ? 'user' : 'assistant', content: 'hello' },
+    uuid: `1c2d3e4f-0000-4000-8000-00000000000${n}`,
+    timestamp: '2026-11-25T01:02:03.004Z',
+  })),
+].map((line) => JSON.stringify(line)).join('\n')}\n`;
+
+/**
+ * A system test file that, while it runs: gives each of `modes` its mode first,
+ * then makes each of `dirs` (empty), writes `files` ({ file, text }), makes
+ * `links` ({ link, to }), and last gives each of `locks` its mode. It prints its
+ * marker, and fails afterwards when `thenFails` says so.
+ */
+const actsOnClaudeStore = (name, { modes = [], dirs = [], files = [], links = [], locks = [], thenFails = false } = {}) => [
+  "import { chmodSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs';",
+  "import path from 'node:path';",
+  "import test from 'node:test';",
+  '',
+  `test(${JSON.stringify(name)}, () => {`,
+  `  for (const { target, mode } of ${JSON.stringify(modes)}) chmodSync(target, mode);`,
+  `  for (const dir of ${JSON.stringify(dirs)}) mkdirSync(dir, { recursive: true });`,
+  `  for (const { file, text } of ${JSON.stringify(files)}) {`,
+  '    mkdirSync(path.dirname(file), { recursive: true });',
+  '    writeFileSync(file, text);',
+  '  }',
+  `  for (const { link, to } of ${JSON.stringify(links)}) {`,
+  '    mkdirSync(path.dirname(link), { recursive: true });',
+  '    symlinkSync(to, link);',
+  '  }',
+  `  for (const { target, mode } of ${JSON.stringify(locks)}) chmodSync(target, mode);`,
+  `  process.stdout.write(${JSON.stringify(`${name}\n`)});`,
+  ...(thenFails ? [`  throw new Error(${JSON.stringify(`${name} failed`)});`] : []),
+  '});',
+  '',
+].join('\n');
+
+/** The parts of what a system test does to the Claude store, joined into one. */
+const inTurn = (...parts) => {
+  const all = { modes: [], dirs: [], files: [], links: [], locks: [] };
+  for (const part of parts) {
+    for (const [key, value] of Object.entries(part)) {
+      if (Array.isArray(all[key])) all[key].push(...value);
+      else all[key] = value;
+    }
+  }
+  return all;
+};
+
+/**
+ * A fixture repo whose run has Claude Code's stores in the sandbox. `configDir`
+ * false leaves CLAUDE_CONFIG_DIR out; 'own' sets it to <box>/claude-profile,
+ * whose `projects` is a folder of its own made during the run; 'linked' makes
+ * <HOME>/.claude/projects before the run and that profile's `projects` a link
+ * to it, as Orca's profile is; 'missing' sets it to a profile with no
+ * `projects` at all. `goodAt(work, { where, id })` is a transcripts folder that
+ * holds every proof C2 asks for: its working folder `work` is made during the
+ * run, and so is one transcript in it whose cwd is that working folder;
+ * `goodRun(rel, …)` is the same for <temp>/<rel>.
+ */
+async function withClaudeStore(t, { configDir = false } = {}) {
+  // The slug helper against the worked example of #860, so a slip in it cannot
+  // pass for the runner's.
+  assert.equal(claudeSlug('/private/var/folders/x/T/obk-system-restart-abc/bots/b'), '-private-var-folders-x-T-obk-system-restart-abc-bots-b');
+  const fixture = await createRepo(t);
+  const box = path.dirname(fixture.repo);
+  const tmp = realpathSync(fixture.env.TMPDIR);
+  const localData = path.join(realpathSync(fixture.repo), 'local-data');
+  const { CLAUDE_CONFIG_DIR: _claude, CODEX_HOME: _codex, PI_CODING_AGENT_DIR: _pi, ...rest } = fixture.env;
+  const profile = path.join(box, 'claude-profile');
+  const env = { ...rest, ...(configDir === false ? {} : { CLAUDE_CONFIG_DIR: profile }) };
+  // The runner must not reach the owner's store: its HOME is the sandbox's.
+  assert.ok(env.HOME.startsWith(`${box}${path.sep}`), `HOME should be the sandbox's, got ${env.HOME}`);
+  const store = path.join(env.HOME, '.claude', 'projects');
+  const profileStore = path.join(profile, 'projects');
+  if (configDir === 'linked') {
+    await mkdir(store, { recursive: true });
+    await mkdir(profile, { recursive: true });
+    await symlink(store, profileStore);
+  }
+  if (configDir === 'missing') await mkdir(profile, { recursive: true });
+  const folderFor = (cwd, where = store) => path.join(where, claudeSlug(cwd));
+  const goodAt = (work, { where = store, id = CLAUDE_IDS[0] } = {}) => {
+    const folder = folderFor(work, where);
+    const file = path.join(folder, `${id}.jsonl`);
+    return { work, folder, file, during: { dirs: [work], files: [{ file, text: claudeTranscript(id, [work]) }] } };
+  };
+  return {
+    fixture,
+    box,
+    tmp,
+    localData,
+    env,
+    store,
+    profileStore,
+    folderFor,
+    goodAt,
+    goodRun: (rel, options) => goodAt(path.join(tmp, rel), options),
+    write: (...during) => write(fixture.repo, 'test/system/alpha.test.js', actsOnClaudeStore('ALPHA', inTurn(...during))),
+    run: (more = {}) => fixture.confirmed({ env: { ...env, ...more } }),
+  };
+}
+
+describe('test-system: Claude Code\'s transcripts of the run\'s own folders are removed after the run (#860)', { concurrency: true }, () => {
+  test('C2 C4 a new folder under the temp folder\'s slug, with a transcript, its subagents folder and memory/, is removed with all of it, and named', async (t) => {
+    const claude = await withClaudeStore(t);
+    const mine = claude.goodRun('obk-system-restart-Rs0001/bots/b');
+    const subagent = path.join(mine.folder, CLAUDE_IDS[0], 'subagents', 'agent-a1b2c3d4.jsonl');
+    await claude.write(mine.during, {
+      dirs: [path.join(mine.folder, 'memory')],
+      files: [{ file: subagent, text: claudeTranscript('agent-a1b2c3d4', [mine.work]) }],
+    });
+
+    const result = await claude.run();
+
+    assert.equal(result.code, 0, everything(result));
+    assert.equal(there(mine.folder), false, `the run's transcripts folder should be gone: ${mine.folder}`);
+    assert.ok(there(claude.store), 'the store itself stays');
+    assert.ok(afterTheRun(result).includes(path.basename(mine.folder)), `the output names the folder it removed, got:\n${afterTheRun(result)}`);
+  });
+
+  test('C2 a new folder under <repo>/local-data\'s slug is removed', async (t) => {
+    const claude = await withClaudeStore(t);
+    const mine = claude.goodAt(path.join(claude.localData, 'obk-system-codex-Ld0001', 'bots', 'b'));
+    await claude.write(mine.during);
+
+    const result = await claude.run();
+
+    assert.equal(result.code, 0, everything(result));
+    assert.equal(there(mine.folder), false, `the run's transcripts folder should be gone: ${mine.folder}`);
+  });
+
+  test('C2 two transcripts, with lines that carry no cwd, a cwd in a folder below the working folder, and a cwd in another of the run\'s folders: the folder is removed', async (t) => {
+    const claude = await withClaudeStore(t);
+    const mine = claude.goodRun('obk-system-two-Tw0001/bots/b');
+    const below = path.join(mine.work, 'notes');
+    const other = path.join(claude.tmp, 'obk-system-two-Tw0002', 'bots', 'c');
+    await claude.write(mine.during, {
+      dirs: [below, other],
+      files: [
+        { file: mine.file, text: claudeTranscript(CLAUDE_IDS[0], [mine.work, below]) },
+        { file: path.join(mine.folder, `${CLAUDE_IDS[1]}.jsonl`), text: claudeTranscript(CLAUDE_IDS[1], [other]) },
+      ],
+    });
+
+    const result = await claude.run();
+
+    assert.equal(result.code, 0, everything(result));
+    assert.equal(there(mine.folder), false, `the run's transcripts folder should be gone: ${mine.folder}`);
+  });
+
+  test('C1 with CLAUDE_CONFIG_DIR set to a profile of its own, the run\'s folders in its projects and in <HOME>/.claude/projects are both removed', async (t) => {
+    const claude = await withClaudeStore(t, { configDir: 'own' });
+    const inProfile = claude.goodRun('obk-system-profile-Pf0001/bots/b', { where: claude.profileStore });
+    const atHome = claude.goodRun('obk-system-profile-Pf0002/bots/b');
+    await claude.write(inProfile.during, atHome.during);
+
+    const result = await claude.run();
+
+    assert.equal(result.code, 0, everything(result));
+    assert.equal(there(inProfile.folder), false, `the folder in $CLAUDE_CONFIG_DIR/projects should be gone: ${inProfile.folder}`);
+    assert.equal(there(atHome.folder), false, `the folder in <HOME>/.claude/projects should be gone: ${atHome.folder}`);
+    assert.ok(afterTheRun(result).includes(path.basename(inProfile.folder)), `the output names ${path.basename(inProfile.folder)}, got:\n${afterTheRun(result)}`);
+    assert.ok(afterTheRun(result).includes(path.basename(atHome.folder)), `the output names ${path.basename(atHome.folder)}, got:\n${afterTheRun(result)}`);
+  });
+
+  test('C1 with CLAUDE_CONFIG_DIR\'s projects a link to <HOME>/.claude/projects, as Orca\'s profile is, the one store loses the run\'s folder once, and the run passes', async (t) => {
+    const claude = await withClaudeStore(t, { configDir: 'linked' });
+    const mine = claude.goodRun('obk-system-linked-Lk0001/bots/b');
+    await claude.write(mine.during);
+
+    const result = await claude.run();
+
+    assert.equal(result.code, 0, `one store reached two ways is one store: nothing in it is left or failed, got:\n${everything(result)}`);
+    assert.equal(there(mine.folder), false, `the run's transcripts folder should be gone: ${mine.folder}`);
+    assert.ok(lstatSync(claude.profileStore).isSymbolicLink(), 'the profile\'s projects stays a link');
+    assert.equal(await readlink(claude.profileStore), claude.store, 'leading where it led');
+    assert.ok(afterTheRun(result).includes(path.basename(mine.folder)), `the output names the folder it removed, got:\n${afterTheRun(result)}`);
+  });
+
+  test('C1 with CLAUDE_CONFIG_DIR set to a profile with no projects, that store is an empty one: the run\'s folder at home is removed and the run passes', async (t) => {
+    const claude = await withClaudeStore(t, { configDir: 'missing' });
+    const mine = claude.goodRun('obk-system-noprof-Np0001/bots/b');
+    await claude.write(mine.during);
+
+    const result = await claude.run();
+
+    assert.equal(result.code, 0, everything(result));
+    assert.equal(there(mine.folder), false, `the run's transcripts folder should be gone: ${mine.folder}`);
+    assert.equal(there(claude.profileStore), false, 'and no projects folder was made in the profile');
+  });
+
+  test('C3 a folder of the run\'s name that was there before the run stays, with what it had and what was written in it during the run', async (t) => {
+    const claude = await withClaudeStore(t);
+    const good = claude.goodRun('obk-system-good-Gd0001/bots/b');
+    const old = claude.goodRun('obk-system-older-Od0001/bots/b');
+    await mkdir(old.folder, { recursive: true });
+    await writeFile(old.file, claudeTranscript(CLAUDE_IDS[0], [old.work]));
+    const during = path.join(old.folder, `${CLAUDE_IDS[1]}.jsonl`);
+    await claude.write(good.during, { dirs: [old.work], files: [{ file: during, text: claudeTranscript(CLAUDE_IDS[1], [old.work]) }] });
+
+    const result = await claude.run();
+
+    assert.equal(there(good.folder), false, `the premise: the run's new folder goes: ${good.folder}`);
+    assert.equal(await readFile(old.file, 'utf8'), claudeTranscript(CLAUDE_IDS[0], [old.work]), 'the folder there before the run stays, with its transcript as it was');
+    assert.ok(there(during), 'and the transcript written in it during the run');
+    assert.ok(!afterTheRun(result).includes(path.basename(old.folder)), `and it is not named, got:\n${afterTheRun(result)}`);
+    assert.equal(result.code, 0, `a folder that was there before is not the run's to answer for:\n${everything(result)}`);
+  });
+
+  test('C3 new folders of other names stay, and the run passes, whatever their transcripts say', async (t) => {
+    const claude = await withClaudeStore(t);
+    const good = claude.goodRun('obk-system-good-Gd0002/bots/b');
+    const work = path.join(claude.tmp, 'obk-system-other-Ot0001', 'bots', 'b');
+    // Each holds a transcript whose cwd is one of the run's own folders, so
+    // only its name keeps it.
+    const others = [
+      claude.folderFor('/Users/owner/work/app'),
+      claude.folderFor(path.join(claude.tmp, 'obk-other-Ot0001', 'bots', 'b')),
+      claude.folderFor(path.join(claude.tmp, 'work', 'obk-system-deep-Ot0001', 'bots', 'b')),
+      claude.folderFor(`${claude.tmp}x/obk-system-sibling-Ot0001/bots/b`),
+      claude.folderFor(path.join(claude.box, 'elsewhere', 'local-data', 'obk-system-else-Ot0001', 'bots', 'b')),
+    ];
+    const files = others.map((folder) => ({ file: path.join(folder, `${CLAUDE_IDS[0]}.jsonl`), text: claudeTranscript(CLAUDE_IDS[0], [work]) }));
+    await claude.write(good.during, { dirs: [work], files });
+
+    const result = await claude.run();
+
+    assert.equal(result.code, 0, everything(result));
+    assert.equal(there(good.folder), false, `the premise: the run's folder goes: ${good.folder}`);
+    for (const { file } of files) assert.ok(there(file), `a folder of another name stays, with its transcript: ${file}`);
+    for (const folder of others) assert.ok(!everything(result).includes(path.basename(folder)), `${path.basename(folder)} is not named, got:\n${everything(result)}`);
+  });
+
+  test('C2 a link named as the run\'s folder stays a link, and what it leads to stays as it was', async (t) => {
+    const claude = await withClaudeStore(t);
+    const good = claude.goodRun('obk-system-good-Gd0003/bots/b');
+    const linked = claude.goodRun('obk-system-link-Lk0002/bots/b');
+    const target = path.join(claude.box, 'link-target');
+    const kept = path.join(target, `${CLAUDE_IDS[0]}.jsonl`);
+    await mkdir(target, { recursive: true });
+    await writeFile(kept, claudeTranscript(CLAUDE_IDS[0], [linked.work]));
+    await claude.write(good.during, { dirs: [linked.work], links: [{ link: linked.folder, to: target }] });
+
+    const result = await claude.run();
+
+    assert.equal(there(good.folder), false, `the premise: the run's folder goes: ${good.folder}\n${everything(result)}`);
+    assert.ok(lstatSync(linked.folder).isSymbolicLink(), `the link stays a link: ${linked.folder}`);
+    assert.equal(await readlink(linked.folder), target, 'leading where it led');
+    assert.equal(await readFile(kept, 'utf8'), claudeTranscript(CLAUDE_IDS[0], [linked.work]), 'and what it leads to is untouched');
+  });
+
+  // Each case is a new folder whose name looks like the run's, next to a good
+  // one of the run's that goes, so that "removes nothing at all" cannot pass.
+  // `make(claude)` gives the folder that must stay, a file in it to read back,
+  // what the run does, and what is made before it.
+  const notProven = [
+    ['C2 a second transcript whose cwd is outside the run\'s folders', (claude) => {
+      const mine = claude.goodRun('obk-system-out-Ou0001/bots/b');
+      const outside = path.join(mine.folder, `${CLAUDE_IDS[1]}.jsonl`);
+      return { folder: mine.folder, keep: outside, during: inTurn(mine.during, { files: [{ file: outside, text: claudeTranscript(CLAUDE_IDS[1], ['/Users/owner/work/app']) }] }) };
+    }],
+    ['C2 a transcript whose cwd is in an obk-system-* folder that was there before the run began', (claude) => {
+      const work = path.join(claude.tmp, 'obk-system-before-Bf0001', 'bots', 'b');
+      const folder = claude.folderFor(work);
+      const file = path.join(folder, `${CLAUDE_IDS[0]}.jsonl`);
+      return { folder, keep: file, before: () => mkdir(work, { recursive: true }), during: { files: [{ file, text: claudeTranscript(CLAUDE_IDS[0], [work]) }] } };
+    }],
+    ['C2 a transcript whose cwd climbs out of a new obk-system-* folder with ..', (claude) => {
+      const run = path.join(claude.tmp, 'obk-system-dots-Dt0001');
+      const folder = claude.folderFor(path.join(run, 'bots', 'b'));
+      const file = path.join(folder, `${CLAUDE_IDS[0]}.jsonl`);
+      return { folder, keep: file, during: { dirs: [run], files: [{ file, text: claudeTranscript(CLAUDE_IDS[0], [`${run}/../../outside/bots/b`]) }] } };
+    }],
+    ['C2 a second transcript with no cwd in any line', (claude) => {
+      const mine = claude.goodRun('obk-system-nocwd-Nc0001/bots/b');
+      const bare = path.join(mine.folder, `${CLAUDE_IDS[1]}.jsonl`);
+      return { folder: mine.folder, keep: bare, during: inTurn(mine.during, { files: [{ file: bare, text: claudeTranscript(CLAUDE_IDS[1], []) }] }) };
+    }],
+    ['C2 no transcript at all, only memory/', (claude) => {
+      const work = path.join(claude.tmp, 'obk-system-memory-Me0001', 'bots', 'b');
+      const folder = claude.folderFor(work);
+      return { folder, keep: path.join(folder, 'memory'), during: { dirs: [work, path.join(folder, 'memory')] } };
+    }],
+    ['C2 a file beside the transcript that is not one', (claude) => {
+      const mine = claude.goodRun('obk-system-notes-Nt0001/bots/b');
+      const notes = path.join(mine.folder, 'notes.txt');
+      return { folder: mine.folder, keep: notes, during: inTurn(mine.during, { files: [{ file: notes, text: 'the owner\'s notes\n' }] }) };
+    }],
+    ['C2 a folder beside the transcript named as no transcript\'s session id', (claude) => {
+      const mine = claude.goodRun('obk-system-stray-St0001/bots/b');
+      const stray = path.join(mine.folder, CLAUDE_IDS[2], 'subagents', 'agent-e5f6a7b8.jsonl');
+      return { folder: mine.folder, keep: stray, during: inTurn(mine.during, { files: [{ file: stray, text: claudeTranscript('agent-e5f6a7b8', [mine.work]) }] }) };
+    }],
+  ];
+
+  for (const [label, make] of notProven) {
+    test(`${label}: the folder stays, is named, and the run fails`, async (t) => {
+      const claude = await withClaudeStore(t);
+      const good = claude.goodRun('obk-system-good-Cn0001/bots/b');
+      const bad = make(claude);
+      assert.ok(path.basename(bad.folder).startsWith(`${claudeSlug(claude.tmp)}-obk-system-`), `the premise: the folder's name looks like the run's: ${path.basename(bad.folder)}`);
+      if (bad.before) await bad.before();
+      await claude.write(good.during, bad.during);
+
+      const result = await claude.run();
+
+      assert.equal(there(good.folder), false, `the premise: the good folder of the run beside it goes: ${good.folder}\n${everything(result)}`);
+      assert.ok(there(bad.folder), `the folder without proof stays: ${bad.folder}`);
+      assert.ok(there(bad.keep), `with what was in it: ${bad.keep}`);
+      assert.ok(everything(result).includes(path.basename(bad.folder)), `the output names the folder, got:\n${everything(result)}`);
+      assert.notEqual(result.code, 0, `a folder that looks like the run's but has no proof fails the run:\n${everything(result)}`);
+    });
+  }
+
+  test('C4 a removal that fails names the folder, and the run exits non-zero though its tests passed', async (t) => {
+    const claude = await withClaudeStore(t);
+    const mine = claude.goodRun('obk-system-locked-Lc0001/bots/b');
+    // The store loses its write bit once the folder is in it, so nothing in it can be removed.
+    await claude.write(mine.during, { locks: [{ target: claude.store, mode: 0o555 }] });
+    t.after(() => chmod(claude.store, 0o755).catch(() => {}));
+
+    const result = await claude.run();
+    await chmod(claude.store, 0o755);
+
+    assert.ok(there(mine.folder), `the premise: the folder could not be removed: ${mine.folder}`);
+    assert.ok(afterTheRun(result).includes(path.basename(mine.folder)), `the report names the folder, got:\n${afterTheRun(result)}`);
+    assert.notEqual(result.code, 0, `a folder of the run's that could not be removed fails the run:\n${everything(result)}`);
+  });
+
+  test('C4 a store that cannot be read when the run begins loses nothing, though it can be read after; the store is named and the run fails', async (t) => {
+    const claude = await withClaudeStore(t);
+    await mkdir(claude.store, { recursive: true });
+    const mine = claude.goodRun('obk-system-unread-Ur0001/bots/b');
+    await claude.write({ modes: [{ target: claude.store, mode: 0o755 }] }, mine.during);
+    await chmod(claude.store, 0o000);
+    t.after(() => chmod(claude.store, 0o755).catch(() => {}));
+
+    const result = await claude.run();
+    await chmod(claude.store, 0o755).catch(() => {});
+
+    assert.ok(there(mine.file), `the new folder stays with its transcript, as the runner cannot tell it is new: ${mine.file}`);
+    assert.ok(everything(result).includes(claude.store), `the output names the store, got:\n${everything(result)}`);
+    assert.notEqual(result.code, 0, `a store it could not read fails the run:\n${everything(result)}`);
+  });
+
+  test('C4 a store that cannot be read after the tests is named, and the run fails', async (t) => {
+    const claude = await withClaudeStore(t);
+    const mine = claude.goodRun('obk-system-unread-Ur0002/bots/b');
+    await claude.write(mine.during, { locks: [{ target: claude.store, mode: 0o000 }] });
+    t.after(() => chmod(claude.store, 0o755).catch(() => {}));
+
+    const result = await claude.run();
+    await chmod(claude.store, 0o755).catch(() => {});
+
+    assert.ok(there(mine.file), `nothing was removed from it: ${mine.file}`);
+    assert.ok(everything(result).includes(claude.store), `the output names the store, got:\n${everything(result)}`);
+    assert.notEqual(result.code, 0, `a store it could not read fails the run:\n${everything(result)}`);
+  });
+
+  test('C1 C5 no store at all is an empty one: the run exits 0 as its tests did, and no store is made', async (t) => {
+    const claude = await withClaudeStore(t);
+    await claude.write({});
+
+    const result = await claude.run();
+
+    assert.equal(result.code, 0, everything(result));
+    assert.equal(there(claude.store), false, 'and no store was made');
+  });
+
+  test('C5 the run\'s folder is removed when its tests failed too, and the run still fails', async (t) => {
+    const claude = await withClaudeStore(t);
+    const mine = claude.goodRun('obk-system-failed-Fl0001/bots/b');
+    await claude.write(mine.during, { thenFails: true });
+
+    const result = await claude.run();
+
+    assert.notEqual(result.code, 0, `the tests failed, so the run does:\n${everything(result)}`);
+    assert.equal(there(mine.folder), false, `the run's transcripts folder should be gone all the same: ${mine.folder}`);
+  });
+});

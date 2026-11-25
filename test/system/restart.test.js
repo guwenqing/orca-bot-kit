@@ -66,44 +66,67 @@
 // It is slow: a real agent, three real answers, and a tab closed and reopened in
 // between. Minutes, not seconds.
 //
-// **It is attended.** A bot folder nobody has opened before asks questions
-// before the harness is running in it, and this test answers none of them —
-// answering them is the caller's job and not the kit's (PRD 6.5). What to expect
-// on this machine, in order:
+// **It answers two screens itself, in its own Claude tabs, and waits on no
+// person.** A bot folder nobody has opened before asks questions before the
+// harness is running in it, and answering them is the caller's job and not the
+// kit's (PRD 6.5). This test is that caller for its own throwaway tabs. It
+// answers two first-run screens of Claude Code itself, in each `Restart Claude
+// daily` tab it brought up, the one before the restart and the one after it
+// (see `answerScreens`):
 //
-//   1. `Restart Claude daily`: Claude Code's folder-trust list. Its selection
-//      starts on `No, exit`, so it takes a down-arrow and then return, not a
-//      bare return. Nothing can be asked of the tab until it is answered, and
-//      every wait below says which screen stopped it.
-//   2. The same tab, if Claude Code offers an update: do not take it. It
-//      updates Claude Code for the whole machine (#618).
-//   3. After the restart, the new `Restart Claude daily` tab. It is the same
-//      folder, which Claude Code has just been told to trust, so it should come
-//      straight up; if it asks again, answer it the same way.
-//   4. `Bot Father daily` will be sitting on its own trust question. Leave it:
-//      nothing is asked of Bot Father here, and a screen nobody talks to costs
-//      this test nothing.
-//   5. In the Codex case, `Restart Codex daily` should ask nothing. Its
-//      session is given its folder's trust at launch (#240,
-//      test/helpers/codex-trust.js), so Codex asks neither its directory trust
-//      nor its hooks review, still runs the kit's hook, and writes nothing
-//      about this folder into the user's own ~/.codex/config.toml; and, like
-//      every system test's Codex, it runs without Codex's sleep tool (#432).
-//      Each restart resumes it with the same arguments, which the kit keeps in
-//      bot.yaml and puts on every launch line: worked out from src/launch.js,
-//      not proven live before this test, which says in a diagnostic whether
-//      each resumed codex carried them. A trust or hooks screen there means the
-//      launch-time trust did not take, and is not to be answered. `Bot Father
-//      daily` is as in 4.
+//   - Claude Code's folder trust, at most once in each of those tabs, only when
+//     helpers/claude-trust.js `claudeTrustAt` (#558) takes it: the plain trust,
+//     or the one that pre-approves exactly the kit's default rules for this
+//     throwaway bots folder, as the folder's own .claude/settings.json allows
+//     them. The selection starts on `No, exit`, so the answer is a down-arrow
+//     and then return. The tab after the restart is the same folder, which
+//     Claude Code has just been told to trust, so it should come straight up.
+//   - "Teach auto mode about your environment?", which comes after a session's
+//     first turn, at most once in a tab, only when it is the captured form
+//     (helpers/screens.js `onlyTeachFormOf`): Esc, never Continue, then the
+//     form gone and autoModeEnvSetup as it was in the .claude.json of the
+//     session's own config folder, which Claude Code's registry of live
+//     sessions names (helpers/teach-record.js `sessionRecordFiles`, #738).
+//
+// A screen the helpers refuse, either screen asked again in the same tab, and
+// every other question in those tabs (helpers/screens.js `questionOn`) stop
+// the run at once, with the screen in the failure message, and are never
+// answered. An offer to update Claude Code is one of them: it would update
+// Claude Code for the whole machine (#618). Bot Father's two tabs are left
+// alone: `Bot Father daily` may sit on its own trust question, nothing is asked
+// of Bot Father here, and nothing waits on it.
+//
+// In the Codex case, `Restart Codex daily` should ask nothing, and nothing is
+// answered in it. Its session is given its folder's trust at launch (#240,
+// test/helpers/codex-trust.js), so Codex asks neither its directory trust nor
+// its hooks review, still runs the kit's hook, and writes nothing about this
+// folder into the user's own ~/.codex/config.toml; and, like every system
+// test's Codex, it runs without Codex's sleep tool (#432). Each restart resumes
+// it with the same arguments, which the kit keeps in bot.yaml and puts on every
+// launch line: worked out from src/launch.js, not proven live before this test,
+// which says in a diagnostic whether each resumed codex carried them. A trust
+// or hooks screen there means the launch-time trust did not take: the wait on
+// that tab runs out and fails with the screen in its message.
+//
+// What the Codex in front was started with is read off `ps`, and Orca adds to
+// it (#860). Orca's own `codex` shell function puts its identity arguments in
+// front of the kit's words: `-c shell_environment_policy.set.<KEY>='<value>'`
+// for each of ORCA_TERMINAL_HANDLE, ORCA_PANE_KEY, ORCA_WORKTREE_ID,
+// ORCA_WORKSPACE_ID and ORCA_USER_DATA_PATH that is set, and possibly a blank
+// SSH_CONNECTION (Orca 1.4.263 to 1.4.272). The kit's `--no-daemon` does not
+// turn them off. A value can hold spaces, so the line is read through
+// helpers/codex-command-line.js, which allows exactly those pairs in front and
+// nothing else.
 //
 // The keys, measured live and written down in `session-identity.test.js`:
 // Claude Code's folder trust takes `\x1b[B\r` — down, then return — and, where
 // Codex still asks them (not here, #240), its directory trust `1\r` and its
 // `Hooks need review` `2\r`, each sent as one
 // payload with its own return and no `--enter`, because a menu takes a return as
-// the key it is waiting for. A question put to the agent itself is the other
-// case and needs `--enter`: see `askIn`. Nothing here sends any of them; which
-// question to answer, and how, is the caller's judgement and not the kit's.
+// the key it is waiting for. The Teach form takes Esc, `\x1b`, alone. A
+// question put to the agent itself is the other case and needs `--enter`: see
+// `askIn`. Of these keys, this test sends only Claude Code's folder trust and
+// the Esc, and only in its own Claude tabs.
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -115,8 +138,11 @@ import { setTimeout } from 'node:timers/promises';
 import { parse } from 'yaml';
 
 import { cliEntry } from '../helpers/cli.js';
+import { claudeTrustAt, trustScreenMet } from '../helpers/claude-trust.js';
+import { codexCommandOf, freshStartFault, resumeFault } from '../helpers/codex-command-line.js';
 import { codexTrustArgs } from '../helpers/codex-trust.js';
-import { waitingOn } from '../helpers/screens.js';
+import { onlyTeachFormOf, questionOn, waitingOn } from '../helpers/screens.js';
+import { autoModeState, sessionRecordFiles } from '../helpers/teach-record.js';
 import { tabGuard } from '../helpers/tab-guard.js';
 import { RC_OFF, withBotFatherOff } from '../helpers/remote-control-off.js';
 import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
@@ -155,8 +181,9 @@ const HOOK_MS = 60000;
 
 /**
  * How long a tab is given to be ready for a question. A first run has a screen
- * on it and a person answering it, and a question sent through that screen is
- * refused rather than queued, so this waits rather than races.
+ * on it, which this test answers in its own Claude tabs (see `answerScreens`),
+ * and a question sent through that screen is refused rather than queued, so
+ * this waits rather than races.
  */
 const READY_MS = 180000;
 
@@ -246,11 +273,14 @@ async function sessionIn(home, name) {
 /**
  * Keep asking until `look` gives something other than undefined, or the time
  * runs out. `note` is added to the message when it does, so a run left alone
- * says which screen was waiting rather than only that it waited.
+ * says which screen was waiting rather than only that it waited. `screen`, when
+ * given, is run before each look: the tab's own first-run screens, answered or
+ * stopped at (see `answerScreens`).
  */
-async function until(what, within, look, note = () => '') {
+async function until(what, within, look, note = () => '', screen = async () => {}) {
   const stop = Date.now() + within;
   for (;;) {
+    await screen();
     const found = await look();
     if (found !== undefined) return found;
     assert.ok(Date.now() < stop, `gave up waiting for ${what} after ${within}ms.${note()}`);
@@ -274,23 +304,96 @@ function whatIsUp(handle) {
   const blocked = answer.ok === true ? answer.result?.wait?.blockedReason : undefined;
   return [
     blocked === undefined ? '' : ` Orca says the tab is waiting on: ${blocked}.`,
-    ' This test answers nothing a tab asks; answer it in Orca and run again.',
+    ' This test answers no question a tab asks but Claude Code\'s folder trust and its Teach form in its own Claude tabs, and those only through their helpers; the run stops here.',
     `\n  orca terminal read --terminal ${handle} --screen\n  ${screenOf(handle).slice(0, 2000)}`,
   ].join('');
+}
+
+/** The rows the tab is rendering right now, or undefined when Orca rendered none. */
+function rowsOf(handle) {
+  const answer = orca(['terminal', 'read', '--terminal', handle, '--screen']);
+  const tail = answer.ok === true && answer.result?.terminal?.source === 'screen' ? answer.result.terminal.tail : undefined;
+  return Array.isArray(tail) ? tail.map(String) : undefined;
+}
+
+/** The title of Claude Code's "Teach auto mode" form (#416), as helpers/screens.js has it. */
+const TEACH_TITLE = 'Teach auto mode about your environment?';
+
+/** The tabs whose Claude folder trust this test answered, and the tabs whose Teach form it answered. */
+const answered = { trust: new Set(), teach: new Set() };
+
+/**
+ * One look at one of this test's own Claude tabs for its first-run screens.
+ * This test answers two of them itself, in that tab alone, and only when the
+ * suite's helpers take them:
+ *
+ *   - Claude Code's folder trust, at most once in the tab, when
+ *     helpers/claude-trust.js `claudeTrustAt` (#558) takes it for `home` and
+ *     the throwaway bots folder `bots`: a down-arrow and return into that tab
+ *     alone, with no --enter, then a wait for the screen to go.
+ *   - The Teach form, at most once in the tab, when helpers/screens.js
+ *     `onlyTeachFormOf` takes it: Esc into that tab alone, never Continue,
+ *     then a wait for the form to go and a check that autoModeEnvSetup is
+ *     as it was in each record the session may write
+ *     (helpers/teach-record.js `sessionRecordFiles`).
+ *
+ * A screen the helpers refuse, either screen asked again in the tab, and any
+ * other question on the screen (helpers/screens.js `questionOn`), an offer to
+ * update Claude Code among them, stop the run at once, with the screen in the
+ * failure message; none of them is answered.
+ */
+async function answerScreens(t, title, handle, home, bots) {
+  const rows = rowsOf(handle);
+  if (rows === undefined) return;
+
+  if (rows.some((row) => row.includes('Yes, I trust this folder'))) {
+    assert.ok(!answered.trust.has(handle), `${title} asked Claude Code's folder trust for ${home} again, which this test answered once in this tab and answers no more:\n    ${rows.join('\n    ')}`);
+    const wrong = claudeTrustAt(rows, home, bots, cliEntry);
+    assert.equal(wrong, undefined, `${title}'s folder trust (${trustScreenMet(rows)}) is not one this test may answer, so it answered nothing: ${wrong}.\n  what it showed:\n    ${rows.join('\n    ')}`);
+    const sent = orca(['terminal', 'send', '--terminal', handle, '--text', '\x1b[B\r']);
+    assert.equal(sent.ok, true, `answering ${title}'s folder trust failed: ${JSON.stringify(sent.error)}`);
+    answered.trust.add(handle);
+    await until(`${title}'s folder trust to go after it was answered`, 15000, async () => ((rowsOf(handle) ?? []).some((row) => row.includes('Yes, I trust this folder')) ? undefined : true), () => whatIsUp(handle));
+    t.diagnostic(`answered ${title}'s ${trustScreenMet(rows)}`);
+    return;
+  }
+
+  if (rows.some((row) => row.trim() === TEACH_TITLE)) {
+    assert.ok(!answered.teach.has(handle), `the Teach form came up again in ${title}, and this test answers it at most once in a tab:\n    ${rows.join('\n    ')}`);
+    const wrong = onlyTeachFormOf(rows);
+    assert.equal(wrong, undefined, `${title}'s Teach form is not the captured one, so this test answered nothing: ${wrong}.\n  what it showed:\n    ${rows.join('\n    ')}`);
+    const found = sessionRecordFiles(home);
+    assert.ok(found.files !== undefined, `this test cannot tell which record ${title}'s session writes, so it answered nothing: ${found.why}`);
+    const { files } = found;
+    const was = autoModeState(files);
+    const sent = orca(['terminal', 'send', '--terminal', handle, '--text', '\x1b']);
+    assert.equal(sent.ok, true, `answering ${title}'s Teach form with Esc failed: ${JSON.stringify(sent.error)}`);
+    answered.teach.add(handle);
+    await until(`${title}'s Teach form to go after Esc`, 15000, async () => ((rowsOf(handle) ?? []).some((row) => row.trim() === TEACH_TITLE) ? undefined : true), () => whatIsUp(handle));
+    await setTimeout(2000);
+    const now = autoModeState(files);
+    assert.equal(now, was, `Esc on ${title}'s Teach form taught nothing: autoModeEnvSetup should be as it was in each record the session may write (before: ${was}; after: ${now})`);
+    t.diagnostic(`answered ${title}'s Teach form with Esc; it went, and autoModeEnvSetup stayed as it was: ${was}`);
+    return;
+  }
+
+  const question = questionOn(rows);
+  assert.equal(question, undefined, `${title} shows a screen this test does not answer, and it answers nothing; the run stops here:\n    ${rows.join('\n    ')}`);
 }
 
 /**
  * Wait until the tab will take a question: a TUI is up, so nothing is swallowed
  * by a shell, and the tab is not waiting on a screen of its own. Idle is not the
  * same as ready — Orca refuses an agent's prompt to a tab that is itself waiting
- * on one — so this waits for the screen to be answered rather than asking
- * through it. Nor is no reason from Orca the same as no question: Orca called
- * Codex's update offer idle, and a return typed into it updated the machine
- * (#329). So the screen itself is read too, and a harness's own question on it
- * is waited out like one Orca names (helpers/screens.js, `waitingOn`). The wait
- * is long because a person is answering.
+ * on one — so this waits for the screen to go rather than asking through it.
+ * Nor is no reason from Orca the same as no question: Orca called Codex's
+ * update offer idle, and a return typed into it updated the machine (#329). So
+ * the screen itself is read too, and a harness's own question on it is waited
+ * out like one Orca names (helpers/screens.js, `waitingOn`). `screen`, when
+ * given, is run before each look (see `answerScreens`); a Codex tab has none,
+ * and a question on it runs the wait out.
  */
-async function readyForAQuestion(handle, within = READY_MS) {
+async function readyForAQuestion(handle, screen = async () => {}, within = READY_MS) {
   await until(
     `${handle} to be past the questions of its own`,
     within,
@@ -301,6 +404,7 @@ async function readyForAQuestion(handle, within = READY_MS) {
       return waitingOn(orca, handle) === undefined ? true : undefined;
     },
     () => `${waitingOn(orca, handle) ?? ''}${whatIsUp(handle)}`,
+    screen,
   );
 }
 
@@ -314,10 +418,11 @@ async function readyForAQuestion(handle, within = READY_MS) {
  * `agent_prompt_blocked` and an id to reissue against. Reissuing was tried live
  * and refused again, so there is nothing here to retry: this fails with the
  * screen and the id, and submitting it is then a person's decision in the Orca
- * window (PRD 6.5).
+ * window (PRD 6.5). `screen`, when given, is run in the wait for the tab to be
+ * ready (see `answerScreens`).
  */
-async function askIn(handle, text) {
-  await readyForAQuestion(handle);
+async function askIn(handle, text, screen = async () => {}) {
+  await readyForAQuestion(handle, screen);
   const sent = orca(['terminal', 'send', '--terminal', handle, '--text', text, '--enter']);
   if (sent.ok === true) return;
 
@@ -348,20 +453,22 @@ function requestIdIn(error) {
  * Ask the session something and wait for `word` to appear on its screen. Only
  * a word that is neither in the question nor on the screen already can be
  * waited for: the echo of the typed line would satisfy the first, and whatever
- * was already there the second, with no agent reading anything.
+ * was already there the second, with no agent reading anything. `screen`,
+ * when given, is run in both waits (see `answerScreens`).
  */
-async function answers(handle, question, word, within = ANSWER_MS) {
+async function answers(handle, question, word, screen = async () => {}, within = ANSWER_MS) {
   assert.ok(!question.includes(word), `${word} is in the question itself, so its echo would answer it: ${question}`);
   assert.ok(
     !screenOf(handle).includes(word),
     `${word} is on the screen before anyone asked for it, so an answer would prove nothing: ${question}`,
   );
-  await askIn(handle, question);
+  await askIn(handle, question, screen);
   await until(
     `${handle} to answer with ${word}`,
     within,
     async () => (screenOf(handle).includes(word) ? true : undefined),
     () => whatIsUp(handle),
+    screen,
   );
 }
 
@@ -461,12 +568,15 @@ test('a restart closes the session\'s tab and brings the conversation back with 
 
   // The kit's hook fires as the session comes up, so the book learns what the
   // harness is running as without anybody asking it. This is the id the restart
-  // has to hand back.
+  // has to hand back. On Claude Code the hook runs once the folder is trusted,
+  // so the tab's first-run screens are looked at in this wait (`answerScreens`).
+  const firstScreen = () => answerScreens(t, opened.title, opened.terminal, home, bots);
   const id = await until(
     `${BOT.name} to report its session id`,
     HOOK_MS,
     async () => (await sessionIn(home, 'daily')).session,
     () => ` The kit's hook has not run.${whatIsUp(opened.terminal)}`,
+    firstScreen,
   );
 
   // A tab of the user's own, in the same Orca project, that the book has never
@@ -504,7 +614,8 @@ test('a restart closes the session\'s tab and brings the conversation back with 
   // And the wait for the session id above is what makes this safe to ask at
   // all: on Claude Code the kit's hook runs once the folder is trusted (tech
   // notes, section 2), so an id in the book means the trust list has already
-  // been answered and this line goes to a live session rather than into a menu.
+  // been answered, by this test in that wait, and this line goes to a live
+  // session rather than into a menu.
   // What Orca says of that screen has moved: it was seen idle with nothing
   // blocking, and on Claude Code 2.1.283 its wait timed out (#329), which
   // `readyForAQuestion` does not pass. The screen check it makes as well takes
@@ -513,6 +624,7 @@ test('a restart closes the session\'s tab and brings the conversation back with 
     opened.terminal,
     `Remember this passphrase: ${BOT.passphrase}. Then reply with your codeword in lower case and nothing else.`,
     BOT.codeword.toLowerCase(),
+    firstScreen,
   );
 
   // The restart the user asked for (PRD 6.5). The kit closes that tab itself —
@@ -581,10 +693,13 @@ test('a restart closes the session\'s tab and brings the conversation back with 
   // conversation and nowhere else. Asked for in lower case, because a resumed
   // harness shows the conversation again and the passphrase as it was typed is
   // on this new screen already.
+  // The new tab is a tab of this test's own too, and its screens are looked
+  // at in the same way.
   await answers(
     back.terminal,
     'What was the passphrase I gave you? Reply with it in lower case and nothing else.',
     BOT.passphrase.toLowerCase(),
+    () => answerScreens(t, back.title, back.terminal, home, bots),
   );
 
   // And it is still the conversation it was. A resumed Claude Code session keeps
@@ -625,12 +740,14 @@ function inFront(handle) {
 }
 
 /**
- * The words the harness in front was started with: what the tab's shell made
- * of the launch line the kit typed. `command=` and not `-E`, so none of the
- * environment is read. A resume line carries no prompt, so no word of it has a
- * space in it and the split is exact.
+ * The command line the harness in front was started with: what the tab's
+ * shell, and Orca's own `codex` shell function, made of the launch line the
+ * kit typed. `command=` and not `-E`, so none of the environment is read. It is
+ * one line with the shell's quoting gone, and Orca's identity arguments in
+ * front may hold spaces, so it is read through helpers/codex-command-line.js
+ * and never split here (#860).
  */
-const argvOf = (pid) => (psOf(pid, ['-ww', '-o', 'command=']) ?? '').split(/\s+/);
+const commandLineOf = (pid) => psOf(pid, ['-ww', '-o', 'command=']) ?? '';
 
 /**
  * The file a process is running, as `lsof` lists it: the first `n` line of
@@ -819,11 +936,13 @@ test('#330: a Codex session restarted again and again comes back each time, on t
     },
     () => whatIsUp(opened.terminal),
   );
+  // Orca's identity arguments may be in front of the kit's words (#860), and
+  // helpers/codex-command-line.js reads past exactly those.
   assertTabRunsCodex157(started.pid, 'the first start');
-  const fresh = argvOf(started.pid);
-  assert.ok(!fresh.includes('resume'), `the first start is not a resume, got: ${fresh.join(' ')}`);
-  assert.equal(fresh.filter((word) => word === '--no-daemon').length, 1, `the first start carries --no-daemon once, got: ${fresh.join(' ')}`);
-  assert.equal(fresh[fresh.indexOf('--approve-for-me') + 1], '--no-daemon', `straight after the approval flag, got: ${fresh.join(' ')}`);
+  // The fault, when there is one, says which of these failed: not a resume,
+  // and --no-daemon once, straight after the approval flag.
+  const freshFault = freshStartFault(commandLineOf(started.pid));
+  assert.equal(freshFault, undefined, `the first start: ${freshFault}`);
 
   // Something in this conversation and nowhere else, and a turn, so Codex has
   // the conversation on its own record and a resume has something to find
@@ -879,17 +998,22 @@ test('#330: a Codex session restarted again and again comes back each time, on t
 
     // What the kit's launch line started: a resume of the book's conversation,
     // without the shared server, `--no-daemon` once and straight after the
-    // approval flag, and the id last.
+    // approval flag, and the id last. In front of `resume`, Orca's own `codex`
+    // shell function puts its identity arguments, `-c
+    // shell_environment_policy.set.<KEY>='<value>'` (#860), and nothing else
+    // may be there: helpers/codex-command-line.js allows exactly those.
     assertTabRunsCodex157(front.pid, which);
-    const argv = argvOf(front.pid);
-    const said = argv.join(' ');
+    const said = commandLineOf(front.pid);
+    const { identity, args } = codexCommandOf(said);
+    t.diagnostic(`${which}: Orca put ${identity.length} identity arguments in front: ${identity.map((pair) => pair.key).join(', ') || 'none'}`);
     // Whether the resume kept the launch-time trust from bot.yaml (#240): worked out, and recorded here.
-    t.diagnostic(`${which}: the resumed codex ${argv.includes('--dangerously-bypass-hook-trust') ? 'carries' : 'does not carry'} the launch-time trust`);
-    assert.equal(path.basename(argv[0]), 'codex', `${which}: the harness is codex, got: ${said}`);
-    assert.equal(argv[1], 'resume', `${which}: it is a resume, got: ${said}`);
-    assert.equal(argv.filter((word) => word === '--no-daemon').length, 1, `${which}: it carries --no-daemon once, got: ${said}`);
-    assert.equal(argv[argv.indexOf('--approve-for-me') + 1], '--no-daemon', `${which}: straight after the approval flag, got: ${said}`);
-    assert.equal(argv.at(-1), id, `${which}: and it resumes the conversation the book held, got: ${said}`);
+    t.diagnostic(`${which}: the resumed codex ${args.includes('--dangerously-bypass-hook-trust') ? 'carries' : 'does not carry'} the launch-time trust`);
+    // The fault, when there is one, says which of these failed: the harness is
+    // codex, the first word after Orca's identity arguments is resume,
+    // --no-daemon is there once and straight after the approval flag, and the
+    // last word is the id of the conversation the book held.
+    const fault = resumeFault(said, id);
+    assert.equal(fault, undefined, `${which}: ${fault}`);
 
     const daily = await sessionIn(home, 'daily');
     assert.equal(daily.tab, back.tabId, `${which}: the book should hold the new tab, got: ${JSON.stringify(daily)}`);
