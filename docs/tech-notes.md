@@ -730,6 +730,45 @@ Orca stores a resume record per pane key (`sleepingAgentSessionsByPaneKey`) and 
   shell wrapper, with its default arguments, which this stand-in did not. **verified** (live, from the
   rollouts)
 - Not known: whether 1.4.209 restored the same way. No older bundle is on disk.
+- **An old tab that Orca keeps in its saved layout can run a booked conversation a second time (#862).**
+  Seen on 2026-11-24 (Orca 1.4.272, Claude Code 2.1.331, the issue): after an Orca update on
+  2026-11-23, `obk up` opened new tabs for three sessions whose tabs were gone. About 25 hours later
+  Orca brought the three old tabs back in the same millisecond, each with `claude --plugin-dir … --effort
+  xhigh --resume <the same conversation>` and none of the kit's line. Each conversation then ran in two
+  harnesses that wrote into one transcript, and the owner talked to both. It happened again at 20:10
+  that day in a second bot, where one record named a temporary session retired the day before.
+  **verified** (live, by the reporter)
+  - Where Orca keeps it, seen in a copy of `profile-state.db` on this machine (2026-11-25): the
+    `workspaceSession` state holds `tabsByWorktree` (the saved tab layout) and
+    `sleepingAgentSessionsByPaneKey`, one record per agent pane: `paneKey` (`<tabId>:<leafId>`),
+    `tabId`, `worktreeId` (`<repoId>::<folder>`), `agent`, `providerSession` (with `id`, the
+    conversation), `state` and the times. A live agent's pane has a record too. Since 1.4.27x the state
+    is in `profile_state_document_parts`, one row per key path; the parts count when their meta's
+    `legacy_revision` is the `revision` of the `workspaceSession` row in `profile_state_documents`, whose
+    own payload is then an older copy (Orca source v1.4.272,
+    `src/main/persistence/profile-state/document-parts/profile-state-document-parts-storage.ts`).
+    **verified** (the file and the source)
+  - What wakes them, read in Orca's source at v1.4.272: an open of a workspace from Orca's phone app
+    (`activateManagedWorktree` with `clientKind: 'mobile'` calls `queueSleepingAgentWake`,
+    `src/main/runtime/workspaces/startup/workspace-activation.ts`), and Orca's own restore at its
+    start. Main resumes a record in its own pane when the pane's tab is still in the saved layout; the
+    renderer's sweep (`resumeSleepingAgentSessionsForWorktree`,
+    `src/renderer/src/lib/agent-session/resume/resume-sleeping-agent-session.ts`) opens a fresh tab only
+    for a record with no tab, and first retires one whose conversation already runs in a live pane.
+    Bot Father read on 2026-11-25 that every resume road works on the worktree id of one open
+    workspace, so a record under a worktree id that Orca no longer has cannot wake. `orca worktree
+    activate` comes from the CLI as a `runtime` client and does not wake records. **read in code, not
+    proven live**
+  - What the kit can and cannot do. `orca terminal close` needs a terminal handle, and a tab that only
+    sleeps has none; `--worktree … --all` is never the kit's (the safety rule). No supported command
+    removes a record (`retireStrandedSleepRecord` is renderer IPC only), and the kit never writes
+    Orca's files. So the kit does not prevent the wake. It tells the copy when it starts: the kit's
+    SessionStart hook is in the bot folder's project settings, so it runs in such a tab as well. When
+    its tab is one that no session of the bot names, and the conversation it reports is the one the
+    book holds for a session in another tab, or the last one of a retired session, the hook writes
+    nothing to the book and tells the copy which session it is a copy of, both tab ids, to do no work
+    there, and to tell the user to close the tab. It gives no start prompt and no main units there.
+    **verified** (the kit's tests, fake Orca). Pi has no hook, and gets no word.
 
 ### Orca's own agent hooks (verified)
 

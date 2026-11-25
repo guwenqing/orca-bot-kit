@@ -83,8 +83,12 @@ export async function recordSession(bots, name, said, tabId, shellPid) {
 
   const home = realpathSync(botDir(bots, name));
   // A tab no session of this bot owns: Bot Father's ops tab, or somebody else's
-  // work. The kit writes nothing down about tabs it does not keep.
-  if (sessionAt(readBook(home), tabId) === undefined) return undefined;
+  // work. The kit writes nothing down about tabs it does not keep. But a
+  // conversation the book holds for a session in another tab, or the last one
+  // of a retired session, is a copy, as when Orca brings an old tab back from
+  // its saved state (#862). The copy is told so, at its start.
+  const book = readBook(home);
+  if (sessionAt(book, tabId) === undefined) return copyNotice(name, book, said, tabId);
 
   // Which harness reported is read from the process table. Where ps cannot
   // read it, the report cannot be placed, so nothing is written down; but the
@@ -315,6 +319,38 @@ function systemNote(was, launched, source) {
   if (launched.file !== true) return { ...before, bare: true };
   const recorded = source === 'resume' ? was.system : launched.name ?? was.system;
   return typeof recorded === 'string' ? { system: recorded } : {};
+}
+
+/**
+ * What the hook says in a tab that no session of the bot owns, when the
+ * conversation it reports is one the book holds now: a session's, in the tab
+ * the book names for it, or a retired session's last one (#862). Orca keeps old
+ * tabs in its saved state and can bring one back by itself, with a bare resume
+ * of the conversation it last ran, while the session runs on in its booked tab
+ * (tech notes, section 1). The kit cannot close a tab that only sleeps, and
+ * does not write Orca's files, so it tells the copy when it starts. The book is
+ * not changed, and the copy gets no duty: it is not the session. A tab of the
+ * bot's book is the only one the kit types into, so the user closes it.
+ * Undefined when the conversation is no session's now.
+ */
+function copyNotice(botName, book, said, tabId) {
+  const live = Object.entries(book.sessions).find(([, entry]) => entry?.session === said.session_id);
+  const retired = live === undefined && Array.isArray(book.retired)
+    ? book.retired.find((entry) => entry?.session === said.session_id && typeof entry?.name === 'string')
+    : undefined;
+  if (live === undefined && retired === undefined) return undefined;
+
+  const who = `${botName}/${live === undefined ? retired.name : live[0]}`;
+  const booked = (live?.[1] ?? retired).tab;
+  const copy = `This tab (${tabId}) runs a copy of the conversation ${said.session_id} of ${who}.`;
+  const where = live !== undefined
+    ? (typeof booked === 'string'
+      ? ` The kit keeps ${who} in tab ${booked}, and this tab is not that tab. Orca can bring an old tab back from its saved state, so the conversation can now run in two tabs at once.`
+      : ` The kit keeps ${who} in no tab now, and this tab is not one of the kit's. Orca can bring an old tab back from its saved state.`)
+    : ` ${who} was retired${typeof retired.retired === 'string' ? ` at ${retired.retired}` : ''}.${typeof booked === 'string' ? ` Its last tab was ${booked}${booked === tabId ? ', this tab' : ''}.` : ''} Orca can bring an old tab back from its saved state.`;
+  const go = live !== undefined && typeof booked === 'string' ? ` and to talk to ${who} in tab ${booked}` : '';
+  const text = `${copy}${where} Do no work in this tab: run no command, no tool and no scheduled job, and change no file. Tell the user that this tab ${tabId} is a copy of ${who}, and ask them to close this tab${go}. The kit does not close it or type into it.`;
+  return { hookSpecificOutput: { hookEventName: said.hook_event_name, additionalContext: text } };
 }
 
 /** The session of this bot that owns `tabId`, with what the book holds for it. */
