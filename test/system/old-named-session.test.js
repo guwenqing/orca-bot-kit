@@ -15,7 +15,7 @@
 //
 //   1. The same conversation is running after the restart, in a new process.
 //   2. That process is registered under the address the book now holds
-//      (`~/.claude/sessions/<pid>.json`, `name`; tech notes, section 2).
+//      (`<config dir>/sessions/<pid>.json`, `name`; tech notes, section 2).
 //   3. `obk message to` answers `native` with that address, where it answered
 //      the mailbox before the restart.
 //   4. A native send to that address, made once by another Claude session of
@@ -71,7 +71,7 @@
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { mkdtemp, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -80,6 +80,7 @@ import { setTimeout } from 'node:timers/promises';
 import { parse, stringify } from 'yaml';
 
 import { addressPattern, cliEntry } from '../helpers/cli.js';
+import { claudeRegistries, claudeRegistryEntries } from '../helpers/live-claude-registry.js';
 import { waitingOn } from '../helpers/screens.js';
 import { tabGuard } from '../helpers/tab-guard.js';
 import { RC_OFF, hardRemoteControlOff, withBotFatherOff } from '../helpers/remote-control-off.js';
@@ -292,43 +293,28 @@ async function answers(handle, question, word, within = ANSWER_MS) {
   );
 }
 
-/** Claude Code's registry of running processes, one file each, `<pid>.json` (tech notes, section 2). */
-const REGISTRY = path.join(os.homedir(), '.claude', 'sessions');
-
-/** Every entry in the registry, read as it is; one being written or removed as it is read is left out. */
-function registry() {
-  let names;
-  try {
-    names = readdirSync(REGISTRY);
-  } catch {
-    return [];
-  }
-  const entries = [];
-  for (const name of names.filter((one) => one.endsWith('.json'))) {
-    try {
-      entries.push(JSON.parse(readFileSync(path.join(REGISTRY, name), 'utf8')));
-    } catch {
-      // The next look reads it again.
-    }
-  }
-  return entries.filter((entry) => entry !== null && typeof entry === 'object');
-}
-
 /**
  * The registry's entries for conversation `id` whose process is still there. A
  * file left by a process that was killed with its tab is not one, which is why
  * the process is looked at as well. That look is `ps -p`, which only reads.
  */
 function processesIn(id) {
-  return registry()
+  return claudeRegistryEntries()
     .filter((entry) => entry.sessionId === id && Number.isInteger(entry.pid) && entry.pid > 0)
     .filter((entry) => spawnSync('ps', ['-p', String(entry.pid), '-o', 'pid='], { encoding: 'utf8' }).status === 0);
 }
 
-/** The registry's entries for one folder, short, for the message of a wait that ran out. */
-const registryAt = (home) => JSON.stringify(registry()
-  .filter((entry) => entry.cwd === home)
-  .map((entry) => ({ pid: entry.pid, sessionId: entry.sessionId, name: entry.name })));
+/**
+ * The registries' entries for one folder, short, for the message of a wait
+ * that ran out, with the registries that were read, so an empty answer says
+ * where it looked.
+ */
+const registryAt = (home) => JSON.stringify({
+  read: claudeRegistries(),
+  entries: claudeRegistryEntries()
+    .filter((entry) => entry.cwd === home)
+    .map((entry) => ({ pid: entry.pid, sessionId: entry.sessionId, name: entry.name, at: entry.at })),
+});
 
 /** Where Claude Code keeps the conversations of one folder. */
 const transcriptsOf = (home) => path.join(os.homedir(), '.claude', 'projects', home.replaceAll(/[^A-Za-z0-9]/g, '-'));

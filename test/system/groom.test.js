@@ -104,7 +104,7 @@
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { mkdtemp, readdir, realpath, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -113,6 +113,7 @@ import { setTimeout } from 'node:timers/promises';
 import { parse } from 'yaml';
 
 import { cliEntry } from '../helpers/cli.js';
+import { claudeRegistries, claudeRegistryEntries } from '../helpers/live-claude-registry.js';
 import { waitingOn } from '../helpers/screens.js';
 import { tabGuard } from '../helpers/tab-guard.js';
 import { RC_OFF, hardRemoteControlOff, withBotFatherOff } from '../helpers/remote-control-off.js';
@@ -569,9 +570,6 @@ function tailOf(lines, count = 15) {
  */
 const resumesIn = (lines) => lines.filter((line) => line.type === 'attachment' && line.attachment?.hookName === 'SessionStart:resume');
 
-/** Claude Code's registry of running processes, one file each, `<pid>.json` (tech notes, section 2). */
-const REGISTRY = path.join(os.homedir(), '.claude', 'sessions');
-
 /**
  * The Claude Code processes having conversation `id` right now: the registry's
  * entries for it whose process is still there. A file left behind by a process
@@ -580,29 +578,10 @@ const REGISTRY = path.join(os.homedir(), '.claude', 'sessions');
  * signals any process.
  */
 function processesIn(id) {
-  return registry()
+  return claudeRegistryEntries()
     .filter((entry) => entry.sessionId === id && Number.isInteger(entry.pid) && entry.pid > 0)
     .filter((entry) => spawnSync('ps', ['-p', String(entry.pid), '-o', 'pid='], { encoding: 'utf8' }).status === 0)
     .map((entry) => entry.pid);
-}
-
-/** Every entry in the registry, read as it is; one being written or removed as it is read is left out. */
-function registry() {
-  let names;
-  try {
-    names = readdirSync(REGISTRY);
-  } catch {
-    return [];
-  }
-  const entries = [];
-  for (const name of names.filter((one) => one.endsWith('.json'))) {
-    try {
-      entries.push(JSON.parse(readFileSync(path.join(REGISTRY, name), 'utf8')));
-    } catch {
-      // The next look reads it again.
-    }
-  }
-  return entries.filter((entry) => entry !== null && typeof entry === 'object');
 }
 
 /**
@@ -1116,7 +1095,7 @@ test('grooming runs on Claude Code\'s own schedule in the grooming session: off 
     running.length,
     1,
     `the premise: one running Claude Code process is having the conversation ${cleared}, and there are ${running.length}.`
-    + ` The registry in ${REGISTRY} holds, for this folder: ${JSON.stringify(registry()
+    + ` The registries in ${JSON.stringify(claudeRegistries())} hold, for this folder: ${JSON.stringify(claudeRegistryEntries()
       .filter((entry) => entry.cwd === home)
       .map((entry) => ({ pid: entry.pid, sessionId: entry.sessionId })))}`,
   );
