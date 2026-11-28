@@ -7774,3 +7774,250 @@ describe('test-system: one system-test run at a time drives this machine (#860, 
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// A transcripts folder of the run's with no transcript (#860, R3d)
+// ---------------------------------------------------------------------------
+//
+// Seen on a live run of restored-tab: Claude Code made a folder in the store
+// named exactly the slug of the test's bots root, a folder the run made, and
+// it held only an empty `memory` folder. The test had removed that root before
+// the run ended. As the architect decided:
+//
+//   D1  A new entry in a store with no transcript is the run's, and is
+//       removed, when (a) its name is exactly the slug of a folder this run
+//       made, in any spelling the prefixes allow: an obk-system-* folder under
+//       the temp folder or <repo>/local-data that the runner saw while the run
+//       went on (it looks at least every second) or at its end, and that was
+//       not in the starting snapshot; a name that only starts with such a slug
+//       is not enough; (b) it is a real folder, not a link; and (c) it holds
+//       nothing but empty folders named `memory`, each real and not a link, or
+//       nothing at all.
+//   D2  It is removed only by rmdir, `memory` first and then the folder, never
+//       by a recursive delete. An rmdir that fails leaves the folder, names
+//       it, and fails the run.
+//   D3  A folder that fails any of (a), (b) or (c) stays as it is, is named
+//       with the reason, and fails the run. A folder with the transcript proof
+//       keeps today's behaviour.
+//
+// Here a run folder is made by the fake test, kept for 2.5 s, and removed
+// before the test ends, as the live test does, unless a case says otherwise.
+// The race of D2, a file that appears between the check and the rmdir, cannot
+// be timed from a test through the runner, so it is not tested here.
+
+/** Whether an entry's name looks like the run's: the slug of the temp folder or of <repo>/local-data, then `-obk-system-`. */
+const looksLikeTheRuns = (claude, folder) => [claude.tmp, claude.localData].some((root) => path.basename(folder).startsWith(`${claudeSlug(root)}-obk-system-`));
+
+/** How long a fake test keeps the run folders it makes, so that the runner, which looks at least every second, sees them. */
+const KEPT_MS = 2500;
+
+/**
+ * A system test file that, phase by phase, gives each of `modes` its mode,
+ * makes `dirs`, writes `files` ({ file, text }), makes `links` ({ link, to }),
+ * removes `removes`, gives each of `locks` its mode, and then waits `waitMs`.
+ * It prints its marker at the end.
+ */
+const actsInPhases = (name, phases) => [
+  "import { chmodSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';",
+  "import path from 'node:path';",
+  "import test from 'node:test';",
+  "import { setTimeout as sleep } from 'node:timers/promises';",
+  '',
+  `test(${JSON.stringify(name)}, async () => {`,
+  `  for (const phase of ${JSON.stringify(phases)}) {`,
+  '    for (const { target, mode } of phase.modes ?? []) chmodSync(target, mode);',
+  '    for (const dir of phase.dirs ?? []) mkdirSync(dir, { recursive: true });',
+  '    for (const { file, text } of phase.files ?? []) {',
+  '      mkdirSync(path.dirname(file), { recursive: true });',
+  '      writeFileSync(file, text);',
+  '    }',
+  '    for (const { link, to } of phase.links ?? []) {',
+  '      mkdirSync(path.dirname(link), { recursive: true });',
+  '      symlinkSync(to, link);',
+  '    }',
+  '    for (const target of phase.removes ?? []) rmSync(target, { recursive: true, force: true });',
+  '    for (const { target, mode } of phase.locks ?? []) chmodSync(target, mode);',
+  '    if (phase.waitMs) await sleep(phase.waitMs);',
+  '  }',
+  `  process.stdout.write(${JSON.stringify(`${name}\n`)});`,
+  '});',
+  '',
+].join('\n');
+
+/**
+ * A case of D1: `root` a run folder under the temp folder (or `under`), and
+ * `folder` the store's entry named exactly its slug. `now` is made while the
+ * root is there; `later` removes the root after KEPT_MS, unless `keep` says
+ * the root stays to the end.
+ */
+function bareCase(claude, tag, { under = claude.tmp, keep = false, memory = true, slugOf } = {}) {
+  const root = path.join(under, `obk-system-${tag}`);
+  const folder = path.join(claude.store, claudeSlug(slugOf ?? root));
+  return {
+    root,
+    folder,
+    now: { dirs: [root, ...(memory ? [path.join(folder, 'memory')] : [folder])] },
+    later: keep ? {} : { removes: [root] },
+  };
+}
+
+/** The fake test for these cases: all of `now` at once, KEPT_MS, then all of `later`, then `last`. */
+const writeInPhases = (claude, cases, last = {}) => write(claude.fixture.repo, 'test/system/alpha.test.js', actsInPhases('ALPHA', [
+  { ...inTurn(...cases.map((one) => one.now)), waitMs: KEPT_MS },
+  inTurn(...cases.map((one) => one.later ?? {})),
+  last,
+]));
+
+describe('test-system: a transcripts folder of the run\'s with no transcript is removed (#860, R3d)', { concurrency: true }, () => {
+  const removed = [
+    ['D1 a folder named exactly the slug of a run folder the test made and removed, holding only an empty memory/', (claude) => bareCase(claude, 'restored-Rb0001')],
+    ['D1 a folder named exactly the slug of a run folder the test made and removed, holding nothing at all', (claude) => bareCase(claude, 'restored-Rb0002', { memory: false })],
+    ['D1 a folder named exactly the slug of a run folder that is still there at the end, holding only an empty memory/', (claude) => bareCase(claude, 'restored-Rb0003', { keep: true })],
+    ['D1 a folder named exactly the slug of a run folder under <repo>/local-data, holding only an empty memory/', (claude) => bareCase(claude, 'restored-Rb0004', { under: claude.localData })],
+  ];
+  for (const [label, make] of removed) {
+    test(`${label}: it is removed, named, and the run passes`, async (t) => {
+      const claude = await withClaudeStore(t);
+      const mine = make(claude);
+      await writeInPhases(claude, [mine]);
+
+      const result = await claude.run();
+
+      assert.equal(there(mine.folder), false, `the run's folder with no transcript should be gone: ${mine.folder}\n${everything(result)}`);
+      assert.ok(afterTheRun(result).includes(path.basename(mine.folder)), `it is named as removed, got:\n${afterTheRun(result)}`);
+      assert.equal(result.code, 0, everything(result));
+    });
+  }
+
+  test('D1 a folder named exactly the slug of the run folder\'s /var/… spelling, holding only an empty memory/: it is removed, and the run passes', { skip: NO_VAR_SPELLING }, async (t) => {
+    const claude = await withClaudeStore(t);
+    const root = path.join(claude.tmp, 'obk-system-restored-Vr0001');
+    assert.ok(root.startsWith('/private/var/'), `the premise: the real path is under /private/var: ${root}`);
+    const mine = bareCase(claude, 'restored-Vr0001', { slugOf: VAR_SPELLING(root) });
+    await writeInPhases(claude, [mine]);
+
+    const result = await claude.run();
+
+    assert.equal(there(mine.folder), false, `the run's folder with no transcript should be gone: ${mine.folder}\n${everything(result)}`);
+    assert.equal(result.code, 0, everything(result));
+  });
+
+  // Each case is a new entry of a name like the run's, with no transcript,
+  // next to a good one of D1 that goes, so that "removes nothing" cannot pass.
+  // `make(claude)` gives the case, with `keep` the paths that must stay as
+  // they are ({ path, text } for a file, { path, link } for a link, or a bare
+  // path), and `before` what is made before the run.
+  const stays = [
+    ['D3 c memory/ holds a file', (claude) => {
+      const one = bareCase(claude, 'held-Hf0001');
+      const file = path.join(one.folder, 'memory', 'MEMORY.md');
+      return { ...one, now: { dirs: one.now.dirs, files: [{ file, text: 'a note\n' }] }, keep: [{ path: file, text: 'a note\n' }] };
+    }],
+    ['D3 c a file beside memory/', (claude) => {
+      const one = bareCase(claude, 'beside-Bf0001');
+      const file = path.join(one.folder, 'notes.txt');
+      return { ...one, now: { dirs: one.now.dirs, files: [{ file, text: 'the owner\'s notes\n' }] }, keep: [{ path: file, text: 'the owner\'s notes\n' }, path.join(one.folder, 'memory')] };
+    }],
+    ['D3 c a folder beside memory/', (claude) => {
+      const one = bareCase(claude, 'beside-Bd0001');
+      const other = path.join(one.folder, 'tool-results');
+      return { ...one, now: { dirs: [...one.now.dirs, other] }, keep: [other, path.join(one.folder, 'memory')] };
+    }],
+    ['D3 c memory/ holds an empty folder', (claude) => {
+      const one = bareCase(claude, 'deep-Dp0001');
+      const inner = path.join(one.folder, 'memory', 'inner');
+      return { ...one, now: { dirs: [...one.now.dirs, inner] }, keep: [inner] };
+    }],
+    ['D3 c memory is a file, not a folder', (claude) => {
+      const one = bareCase(claude, 'file-Fm0001', { memory: false });
+      const file = path.join(one.folder, 'memory');
+      return { ...one, now: { dirs: one.now.dirs, files: [{ file, text: '' }] }, keep: [{ path: file, text: '' }] };
+    }],
+    ['D3 c memory is a link to a folder', (claude) => {
+      const one = bareCase(claude, 'linkmem-Lm0001', { memory: false });
+      const target = path.join(claude.box, 'memory-target');
+      const link = path.join(one.folder, 'memory');
+      return { ...one, before: () => mkdir(target, { recursive: true }), now: { dirs: one.now.dirs, links: [{ link, to: target }] }, keep: [{ path: link, link: target }, target] };
+    }],
+    ['D3 b the entry is a link to a folder that holds only an empty memory/', (claude) => {
+      const one = bareCase(claude, 'linked-Lk0003');
+      const target = path.join(claude.box, 'linked-target');
+      return {
+        ...one,
+        before: () => mkdir(path.join(target, 'memory'), { recursive: true }),
+        now: { dirs: [one.root], links: [{ link: one.folder, to: target }] },
+        keep: [{ path: one.folder, link: target }, path.join(target, 'memory')],
+      };
+    }],
+    ['D3 a the exact slug of an obk-system-* folder that was there before the run', (claude) => {
+      const one = bareCase(claude, 'older-Od0002');
+      return { ...one, before: () => mkdir(one.root, { recursive: true }), now: { dirs: [path.join(one.folder, 'memory')] }, keep: [path.join(one.folder, 'memory')] };
+    }],
+    ['D3 a the slug of a run folder the test made, with more after it, a longer name that was never a folder of the run', (claude) => {
+      const root = path.join(claude.tmp, 'obk-system-longer-Lo0001');
+      const folder = path.join(claude.store, `${claudeSlug(root)}-bots-b`);
+      return { root, folder, now: { dirs: [root, path.join(folder, 'memory')] }, later: { removes: [root] }, keep: [path.join(folder, 'memory')] };
+    }],
+  ];
+
+  for (const [label, make] of stays) {
+    test(`${label}: the entry stays as it is, is named, and the run fails`, async (t) => {
+      const claude = await withClaudeStore(t);
+      const good = bareCase(claude, 'good-Gb0001');
+      const bad = make(claude);
+      assert.ok(looksLikeTheRuns(claude, bad.folder), `the premise: the entry's name looks like the run's: ${path.basename(bad.folder)}`);
+      if (bad.before) await bad.before();
+      await writeInPhases(claude, [good, bad]);
+
+      const result = await claude.run();
+
+      assert.equal(there(good.folder), false, `the premise: the good folder of D1 beside it goes: ${good.folder}\n${everything(result)}`);
+      assert.ok(there(bad.folder), `the entry stays: ${bad.folder}`);
+      for (const one of bad.keep ?? []) {
+        if (typeof one === 'string') assert.ok(there(one), `with what was in it: ${one}`);
+        else if (one.link !== undefined) {
+          assert.ok(lstatSync(one.path).isSymbolicLink(), `the link stays a link: ${one.path}`);
+          assert.equal(await readlink(one.path), one.link, `leading where it led: ${one.path}`);
+        } else assert.equal(await readFile(one.path, 'utf8'), one.text, `untouched: ${one.path}`);
+      }
+      assert.ok(everything(result).includes(path.basename(bad.folder)), `the output names the entry, got:\n${everything(result)}`);
+      assert.notEqual(result.code, 0, `an entry like the run's that is not proven the run's fails the run:\n${everything(result)}`);
+    });
+  }
+
+  test('D2 when the folder cannot be removed by rmdir, it stays, is named, and the run fails', async (t) => {
+    const claude = await withClaudeStore(t);
+    const mine = bareCase(claude, 'locked-Lc0002');
+    // The store loses its write bit at the end of the test, so no entry of it
+    // can be removed.
+    await writeInPhases(claude, [mine], { locks: [{ target: claude.store, mode: 0o555 }] });
+    t.after(() => chmod(claude.store, 0o755).catch(() => {}));
+
+    const result = await claude.run();
+    await chmod(claude.store, 0o755);
+
+    assert.ok(there(mine.folder), `the premise: the folder could not be removed: ${mine.folder}`);
+    assert.ok(afterTheRun(result).includes(path.basename(mine.folder)), `the report names the folder, got:\n${afterTheRun(result)}`);
+    assert.notEqual(result.code, 0, `a folder of the run's that could not be removed fails the run:\n${everything(result)}`);
+  });
+
+  test('D1 a run folder made and removed within 50 ms, which the runner may or may not see: its folder is either removed and named, or left, named, and the run fails', async (t) => {
+    const claude = await withClaudeStore(t);
+    const root = path.join(claude.tmp, 'obk-system-brief-Br0001');
+    const folder = path.join(claude.store, claudeSlug(root));
+    await write(claude.fixture.repo, 'test/system/alpha.test.js', actsInPhases('ALPHA', [
+      { dirs: [root, path.join(folder, 'memory')], waitMs: 40 },
+      { removes: [root] },
+    ]));
+
+    const result = await claude.run();
+
+    assert.ok(everything(result).includes(path.basename(folder)), `the folder is named either way, got:\n${everything(result)}`);
+    if (there(folder)) {
+      assert.ok(there(path.join(folder, 'memory')), `left, it is left as it was: ${folder}`);
+      assert.notEqual(result.code, 0, `left, it fails the run:\n${everything(result)}`);
+    } else {
+      assert.equal(result.code, 0, `removed, it was the run's, and the run passes:\n${everything(result)}`);
+    }
+  });
+});
