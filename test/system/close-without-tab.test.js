@@ -89,7 +89,7 @@
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readdirSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { mkdtemp, readdir, readFile, realpath, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -455,26 +455,52 @@ function realTabIdOf(terminal) {
 /** The words a process was started with. `command=` and not `-E`, so none of the environment is read. */
 const argvOf = (pid) => (psOf(pid, ['-ww', '-o', 'command=']) ?? '').split(/\s+/);
 
-/** Claude Code's registry of running processes, one file each, `<pid>.json` (tech notes, section 2). */
-const REGISTRY = path.join(os.homedir(), '.claude', 'sessions');
-
-/** Every entry in the registry, read as it is; one being written or removed as it is read is left out. */
-function registry() {
-  let names;
-  try {
-    names = readdirSync(REGISTRY);
-  } catch {
-    return [];
-  }
-  const entries = [];
-  for (const name of names.filter((one) => one.endsWith('.json'))) {
+/**
+ * Claude Code's registries of running processes, one file each, `<pid>.json`
+ * (tech notes, section 2), in `<config dir>/sessions`. The config dir is
+ * `$CLAUDE_CONFIG_DIR` when it is set and not empty, else `~/.claude`. Orca
+ * starts a tab's Claude Code with CLAUDE_CONFIG_DIR set to its own profile
+ * folder, and this runner inherits it, so both places are read. A folder both
+ * name is read once.
+ */
+function registries() {
+  const dirs = [path.join(os.homedir(), '.claude')];
+  const configDir = process.env.CLAUDE_CONFIG_DIR;
+  if (typeof configDir === 'string' && configDir !== '') dirs.push(configDir);
+  const sameAs = (dir) => {
     try {
-      entries.push(JSON.parse(readFileSync(path.join(REGISTRY, name), 'utf8')));
+      return realpathSync(dir);
     } catch {
-      // The next look reads it again.
+      return path.resolve(dir);
+    }
+  };
+  return [...new Set(dirs.map((dir) => sameAs(path.join(dir, 'sessions'))))];
+}
+
+/**
+ * Every entry in the registries, read as it is, with the folder it is in as
+ * `at`; one being written or removed as it is read is left out, and so is a
+ * file that is not `<pid>.json`, such as `<pid>.<hex>.key`.
+ */
+function registry() {
+  const entries = [];
+  for (const dir of registries()) {
+    let names;
+    try {
+      names = readdirSync(dir);
+    } catch {
+      continue;
+    }
+    for (const name of names.filter((one) => one.endsWith('.json'))) {
+      try {
+        const entry = JSON.parse(readFileSync(path.join(dir, name), 'utf8'));
+        if (entry !== null && typeof entry === 'object') entries.push({ ...entry, at: dir });
+      } catch {
+        // The next look reads it again.
+      }
     }
   }
-  return entries.filter((entry) => entry !== null && typeof entry === 'object');
+  return entries;
 }
 
 /**
@@ -486,10 +512,17 @@ const processesIn = (id) => registry()
   .filter((entry) => entry.sessionId === id && Number.isInteger(entry.pid) && entry.pid > 0)
   .filter((entry) => running(entry.pid));
 
-/** The registry's entries for one folder, short, for the message of a wait that ran out. */
-const registryAt = (home) => JSON.stringify(registry()
-  .filter((entry) => entry.cwd === home)
-  .map((entry) => ({ pid: entry.pid, sessionId: entry.sessionId, name: entry.name })));
+/**
+ * The registries' entries for one folder, short, for the message of a wait
+ * that ran out, with the registries that were read, so an empty answer says
+ * where it looked.
+ */
+const registryAt = (home) => JSON.stringify({
+  read: registries(),
+  entries: registry()
+    .filter((entry) => entry.cwd === home)
+    .map((entry) => ({ pid: entry.pid, sessionId: entry.sessionId, name: entry.name, at: entry.at })),
+});
 
 /** The bot: one session, one word in its start prompt. */
 const BOT = {

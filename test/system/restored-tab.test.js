@@ -18,7 +18,10 @@
 //      started it, and the harness in front carries the launch line's marker.
 //   2. After it, `obk health` names the session in one `session` finding, with
 //      the `restart` that puts it back on bot.yaml, and the resume itself left
-//      the book as it was.
+//      the book as it was. On the Claude Code bot it also gives one more
+//      `session` finding, and no other: the session runs with no appended
+//      system text, since a bare resume has no --append-system-prompt-file
+//      (src/rules.js `systemTrouble`, #776).
 //   3. A clear in that tab (`/clear` on Claude Code, `/new` on Codex) is written
 //      to the book, the old id kept in history, and the session is told its
 //      duty again: asked for its codeword, which only the start prompt carried,
@@ -764,7 +767,12 @@ test('a session Orca brought back without the kit\'s launch line is named by hea
   }
 
   // 3. Health names each session the kit's launch line did not start, with the
-  // restart that puts it back on bot.yaml, in one finding.
+  // restart that puts it back on bot.yaml, in one finding. On Claude Code the
+  // kit's hook noted the bare resume's line in the book (`bare`, src/record.js
+  // `systemNote`), so health gives exactly one more finding about the session:
+  // it runs with no appended system text (src/rules.js `systemTrouble`, #776).
+  // That one is required too, and any third finding fails. Codex has no
+  // appended system text, so it gets the one finding only.
   const answer = healthOf(bots);
   for (const bot of BOTS) {
     assert.equal(
@@ -773,9 +781,25 @@ test('a session Orca brought back without the kit\'s launch line is named by hea
       `the premise: health sees ${bot.name}'s harness in front, got: ${JSON.stringify(answer.sessions, null, 2)}`,
     );
     const mine = findingsAbout(answer, bot.name, 'daily');
-    assert.equal(mine.length, 1, `one finding about ${bot.name}'s daily, got: ${JSON.stringify(answer.found, null, 2)}`);
-    const { kind, says } = mine[0];
-    assert.equal(kind, 'session', `a finding about a session, got: ${JSON.stringify(mine[0])}`);
+    const onClaude = bot.harness === 'claude';
+    assert.equal(
+      mine.length,
+      onClaude ? 2 : 1,
+      `${onClaude ? 'two findings' : 'one finding'} about ${bot.name}'s daily, got: ${JSON.stringify(answer.found, null, 2)}`,
+    );
+    const isBare = (one) => one.kind === 'session'
+      && one.where === path.join(homeOf(bot.name), 'sessions.yaml')
+      && one.says.startsWith(`${bot.name}/daily runs with no appended system text: its launch line has no --append-system-prompt-file`);
+    const bare = mine.filter(isBare);
+    assert.equal(
+      bare.length,
+      onClaude ? 1 : 0,
+      `${onClaude ? 'one finding' : 'no finding'} that ${bot.name}/daily runs with no appended system text, got: ${JSON.stringify(mine, null, 2)}`,
+    );
+    const notKit = mine.filter((one) => !isBare(one) && one.says.includes(`${bot.name}'s session daily was not started by the kit`));
+    assert.equal(notKit.length, 1, `one finding that the kit did not start ${bot.name}'s daily, got: ${JSON.stringify(mine, null, 2)}`);
+    const { kind, says } = notKit[0];
+    assert.equal(kind, 'session', `a finding about a session, got: ${JSON.stringify(notKit[0])}`);
     assert.ok(
       spellingsOf(cliEntry).some((cli) => says.includes(`${cli} restart `)),
       `the command is this checkout's CLI running restart, got: ${says}`,
