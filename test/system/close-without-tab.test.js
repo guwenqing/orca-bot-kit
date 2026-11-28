@@ -89,7 +89,6 @@
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { mkdtemp, readdir, readFile, realpath, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -98,6 +97,7 @@ import { setTimeout } from 'node:timers/promises';
 import { parse } from 'yaml';
 
 import { cliEntry } from '../helpers/cli.js';
+import { claudeRegistries, claudeRegistryEntries } from '../helpers/live-claude-registry.js';
 import { claudeTrustAt, trustScreenMet } from '../helpers/claude-trust.js';
 import { onlyTeachFormOf, questionOn, waitingOn } from '../helpers/screens.js';
 import { autoModeState, sessionRecordFiles } from '../helpers/teach-record.js';
@@ -456,59 +456,11 @@ function realTabIdOf(terminal) {
 const argvOf = (pid) => (psOf(pid, ['-ww', '-o', 'command=']) ?? '').split(/\s+/);
 
 /**
- * Claude Code's registries of running processes, one file each, `<pid>.json`
- * (tech notes, section 2), in `<config dir>/sessions`. The config dir is
- * `$CLAUDE_CONFIG_DIR` when it is set and not empty, else `~/.claude`. Orca
- * starts a tab's Claude Code with CLAUDE_CONFIG_DIR set to its own profile
- * folder, and this runner inherits it, so both places are read. A folder both
- * name is read once.
- */
-function registries() {
-  const dirs = [path.join(os.homedir(), '.claude')];
-  const configDir = process.env.CLAUDE_CONFIG_DIR;
-  if (typeof configDir === 'string' && configDir !== '') dirs.push(configDir);
-  const sameAs = (dir) => {
-    try {
-      return realpathSync(dir);
-    } catch {
-      return path.resolve(dir);
-    }
-  };
-  return [...new Set(dirs.map((dir) => sameAs(path.join(dir, 'sessions'))))];
-}
-
-/**
- * Every entry in the registries, read as it is, with the folder it is in as
- * `at`; one being written or removed as it is read is left out, and so is a
- * file that is not `<pid>.json`, such as `<pid>.<hex>.key`.
- */
-function registry() {
-  const entries = [];
-  for (const dir of registries()) {
-    let names;
-    try {
-      names = readdirSync(dir);
-    } catch {
-      continue;
-    }
-    for (const name of names.filter((one) => one.endsWith('.json'))) {
-      try {
-        const entry = JSON.parse(readFileSync(path.join(dir, name), 'utf8'));
-        if (entry !== null && typeof entry === 'object') entries.push({ ...entry, at: dir });
-      } catch {
-        // The next look reads it again.
-      }
-    }
-  }
-  return entries;
-}
-
-/**
  * The registry's entries for conversation `id` whose process is still there. A
  * file left by a process that ended is not one, which is why the process is
  * looked at as well, with `ps -p`, which only reads.
  */
-const processesIn = (id) => registry()
+const processesIn = (id) => claudeRegistryEntries()
   .filter((entry) => entry.sessionId === id && Number.isInteger(entry.pid) && entry.pid > 0)
   .filter((entry) => running(entry.pid));
 
@@ -518,8 +470,8 @@ const processesIn = (id) => registry()
  * where it looked.
  */
 const registryAt = (home) => JSON.stringify({
-  read: registries(),
-  entries: registry()
+  read: claudeRegistries(),
+  entries: claudeRegistryEntries()
     .filter((entry) => entry.cwd === home)
     .map((entry) => ({ pid: entry.pid, sessionId: entry.sessionId, name: entry.name, at: entry.at })),
 });
