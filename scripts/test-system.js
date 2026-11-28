@@ -15,7 +15,7 @@
 // tests, and does not answer as though it had.
 
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, lstatSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -549,6 +549,245 @@ function reportPiLeft(before, foldersBefore) {
 }
 
 /**
+ * Claude Code's transcript stores, `<config dir>/projects`: ~/.claude's
+ * always, and CLAUDE_CONFIG_DIR's too when it is set (#860). Orca starts a
+ * tab with CLAUDE_CONFIG_DIR at a profile whose `projects` links to
+ * ~/.claude/projects (tech notes, #722), so two paths that lead to one real
+ * folder are one store. Answers each store as { store, names } with the names
+ * in it now, none when it is not there, or { store, error } when it cannot be
+ * read.
+ */
+function claudeStoresNow() {
+  const stores = [path.join(os.homedir(), '.claude', 'projects')];
+  if (process.env.CLAUDE_CONFIG_DIR) stores.push(path.join(process.env.CLAUDE_CONFIG_DIR, 'projects'));
+  const seen = new Set();
+  const now = [];
+  for (const store of stores) {
+    const real = realPath(store) ?? path.resolve(store);
+    if (seen.has(real)) continue;
+    seen.add(real);
+    try {
+      now.push({ store, names: new Set(readdirSync(store)) });
+    } catch (error) {
+      now.push(error.code === 'ENOENT' ? { store, names: new Set() } : { store, error: error.code ?? error.message });
+    }
+  }
+  return now;
+}
+
+/**
+ * How Claude Code names the transcripts folder of a working folder: the path
+ * with every character that is not an ASCII letter or digit as `-` (tech
+ * notes, section 2). The name cannot be read back into a path, so it only
+ * picks the folders worth a look; claudeProof decides.
+ */
+const claudeSlugOf = (folder) => folder.replaceAll(/[^A-Za-z0-9]/g, '-');
+
+/** How often the runner looks for the run's root folders while the tests run, in ms. */
+const ROOT_LOOK_MS = 250;
+
+/** The temp folder as it is named, by its real path, and with and without `/private` in front. */
+function tempSpellings() {
+  const real = realPath(os.tmpdir()) ?? os.tmpdir();
+  const bare = real.replace(/^\/private(?=\/)/, '');
+  return [...new Set([real, bare, `/private${bare}`, os.tmpdir()])];
+}
+
+/** The start of a transcripts folder's name for each spelling of the run's roots, the temp folder and `<repo>/local-data`. */
+function claudePrefixes() {
+  const roots = new Set([...tempSpellings(), ...localDataSpellings()]);
+  return [...roots].map((root) => `${claudeSlugOf(root)}-obk-system-`);
+}
+
+/**
+ * The exact names Claude Code gives the transcripts folders of the run's own
+ * root folders: each obk-system-* folder seen while the run went on or at its
+ * end, and not there before it, by each spelling of where it is (review of
+ * PR #865). A test removes its root before it ends, so the runner looks while
+ * the tests run; a root it never saw has no name here.
+ */
+function claudeRootNames(seen, foldersBefore) {
+  const names = new Set();
+  for (const folder of new Set([...seen, ...runFoldersNow()])) {
+    if (foldersBefore.has(folder)) continue;
+    const local = folder.startsWith('local-data/');
+    const name = local ? folder.slice('local-data/'.length) : folder;
+    for (const root of local ? localDataSpellings() : tempSpellings()) names.add(claudeSlugOf(path.join(root, name)));
+  }
+  return names;
+}
+
+/**
+ * Whether a folder holds nothing but empty, real folders named `memory`, as
+ * Claude Code leaves for a project root that had no transcript: true, or why
+ * not. Read only.
+ */
+function onlyEmptyMemory(dir) {
+  let entries;
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch (error) {
+    return `it cannot be read (${error.code ?? error.message})`;
+  }
+  for (const entry of entries) {
+    if (entry.name !== 'memory') return `it holds ${entry.name}`;
+    if (entry.isSymbolicLink()) return 'its memory is a link';
+    if (!entry.isDirectory()) return 'its memory is not a folder';
+    let inside;
+    try {
+      inside = readdirSync(path.join(dir, entry.name));
+    } catch (error) {
+      return `its memory cannot be read (${error.code ?? error.message})`;
+    }
+    if (inside.length > 0) return 'its memory is not empty';
+  }
+  return true;
+}
+
+/** The working folders a transcript's lines name in their `cwd`. A line that is not JSON names none. */
+function cwdsIn(file) {
+  const cwds = new Set();
+  for (const line of readFileSync(file, 'utf8').split('\n')) {
+    let entry;
+    try {
+      entry = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (typeof entry?.cwd === 'string') cwds.add(entry.cwd);
+  }
+  return cwds;
+}
+
+/**
+ * Whether a folder in Claude Code's store is the run's: it holds at least one
+ * transcript, every transcript names a working folder, and each one it names
+ * is in one of the run's own folders; anything else in it is a transcript's own
+ * folder (its subagents) or `memory`. Answers true, or why not.
+ */
+function claudeProof(dir, foldersBefore) {
+  let entries;
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch (error) {
+    return `it cannot be read (${error.code ?? error.message})`;
+  }
+  const ids = entries.filter((entry) => entry.isFile() && entry.name.endsWith('.jsonl')).map((entry) => entry.name.slice(0, -'.jsonl'.length));
+  if (ids.length === 0) return 'it holds no transcript';
+  for (const entry of entries) {
+    if (entry.isDirectory() && (entry.name === 'memory' || ids.includes(entry.name))) continue;
+    if (!entry.isFile() || !entry.name.endsWith('.jsonl')) return `it holds ${entry.name}, which is not a transcript, a transcript's own folder or memory`;
+    let cwds;
+    try {
+      cwds = cwdsIn(path.join(dir, entry.name));
+    } catch (error) {
+      return `${entry.name} cannot be read (${error.code ?? error.message})`;
+    }
+    if (cwds.size === 0) return `${entry.name} names no working folder`;
+    const outside = [...cwds].find((cwd) => !runOwns(cwd, foldersBefore));
+    if (outside !== undefined) return `${entry.name} is for ${outside}, which is not in one of the run's own folders`;
+  }
+  return true;
+}
+
+/**
+ * What the run left in Claude Code's transcript stores for its own folders,
+ * taken out again (#860), as Pi's sessions are (#634): only a real folder, new
+ * since the run began, whose name looks like the run's and whose transcripts
+ * prove it (claudeProof). A folder that looks like the run's without that
+ * proof stays, and so does everything in a store that could not be read when
+ * the run began. Answers whether anything that may be the run's was left,
+ * which fails the run.
+ */
+function reportClaudeLeft(before, foldersBefore, rootNames = new Set()) {
+  const prefixes = claudePrefixes();
+  const lines = [];
+  let left = false;
+  // The paths of the starting snapshot are grouped by the folder each leads
+  // to now: two paths can be one store by the run's end. A store's starting
+  // list is then all of its paths' lists together, and a path unread at the
+  // start leaves the store uncompared (review rounds 1 and 2 of PR #865).
+  const stores = new Map();
+  for (const was of before) {
+    const real = realPath(was.store) ?? path.resolve(was.store);
+    const one = stores.get(real) ?? { paths: [] };
+    one.paths.push(was);
+    stores.set(real, one);
+  }
+  for (const { paths } of stores.values()) {
+    const unread = paths.filter((was) => was.error !== undefined);
+    if (unread.length > 0) {
+      for (const was of unread) lines.push(`Claude Code's transcript store ${was.store} could not be read when the run began (${was.error}), so the runner cannot tell what the run added, and it removed nothing from it.`);
+      for (const was of paths.filter((one) => one.error === undefined)) lines.push(`Claude Code's transcript store ${was.store} leads to the same folder, so the runner removed nothing from it either.`);
+      left = true;
+      continue;
+    }
+    const { store } = paths[0];
+    const was = { names: new Set(paths.flatMap((one) => [...one.names])) };
+    let names;
+    try {
+      names = readdirSync(store);
+    } catch (error) {
+      if (error.code !== 'ENOENT') {
+        lines.push(`Claude Code's transcript store ${store} could not be read after the run (${error.code ?? error.message}), so the runner removed nothing from it.`);
+        left = true;
+        continue;
+      }
+      names = [];
+    }
+    const looks = names.filter((name) => !was.names.has(name) && prefixes.some((prefix) => name.startsWith(prefix)));
+    const removed = [];
+    const failed = [];
+    const unproven = [];
+    for (const name of looks) {
+      // A link, or an entry that cannot be looked at, is not proven the
+      // run's, and is left as it is (review of PR #865).
+      let kind;
+      try {
+        const entry = lstatSync(path.join(store, name));
+        kind = entry.isSymbolicLink() ? 'it is a link' : entry.isDirectory() ? undefined : 'it is not a folder';
+      } catch (error) {
+        kind = `it cannot be looked at (${error.code ?? error.message})`;
+      }
+      const dir = path.join(store, name);
+      let proof = kind ?? claudeProof(dir, foldersBefore);
+      // A folder named exactly as a root the run made, with no transcript and
+      // nothing but empty memory folders, is the run's too (review of PR
+      // #865). rmdir, never a recursive delete: a file that comes after the
+      // look makes it fail, and then the folder stays.
+      let bare = false;
+      if (proof !== true && kind === undefined && rootNames.has(name)) {
+        const empty = onlyEmptyMemory(dir);
+        if (empty === true) bare = true;
+        else proof = `${proof}, and ${empty}`;
+      }
+      if (proof !== true && !bare) {
+        unproven.push(`${name}: ${proof}`);
+        continue;
+      }
+      try {
+        if (bare) {
+          if (existsSync(path.join(dir, 'memory'))) rmdirSync(path.join(dir, 'memory'));
+          rmdirSync(dir);
+        } else {
+          rmSync(dir, { recursive: true });
+        }
+        removed.push(name);
+      } catch (error) {
+        failed.push(`${name} (${error.code ?? error.message})`);
+      }
+    }
+    if (removed.length > 0) lines.push(`Claude Code kept transcripts for the run's own folders in ${store}. They were removed again:`, ...removed.map((name) => `  ${name}`));
+    if (failed.length > 0) lines.push(`Claude Code kept transcripts for the run's own folders in ${store}, and they could not be removed, so they are the owner's to clear:`, ...failed.map((name) => `  ${name}`));
+    if (unproven.length > 0) lines.push(`Claude Code has new folders in ${store} named like the run's own, with no proof that they are. They were left in place, for a person to look at:`, ...unproven.map((name) => `  ${name}`));
+    if (looks.length === 0) lines.push(`Claude Code's transcript store ${store} holds no new folder for the run's own folders.`);
+    left ||= failed.length > 0 || unproven.length > 0;
+  }
+  process.stdout.write(`\n${lines.join('\n')}\n`);
+  return left;
+}
+
+/**
  * A file's bytes, or undefined when it is not there: ENOENT only, a dangling
  * link included. Any other error is thrown, because a folder that cannot be
  * searched or a link loop can hide a file that is there (review of PR #620).
@@ -900,6 +1139,89 @@ function limitOf(args) {
 }
 
 /**
+ * The lock of the run that drives this machine (review of PR #865): a folder
+ * in the user's temp folder, which every clone's runner shares, holding the
+ * runner's pid in `pid`. Without it, a folder new since a run's snapshots
+ * could be a second run's, and its cleanup would remove what that run made.
+ * Its name does not start with `obk-system-`, so it is never a run's folder.
+ */
+const LOCK = path.join(os.tmpdir(), 'obk-test-system.lock');
+
+/** The pid a lock folder holds in `file`, or undefined when it holds none that can be read. */
+function lockPid(folder, file = 'pid') {
+  try {
+    const pid = Number(readFileSync(path.join(folder, file), 'utf8'));
+    return Number.isInteger(pid) && pid > 0 ? pid : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Whether a process with this pid is running: one this user may not signal is running too. */
+function running(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error.code === 'EPERM';
+  }
+}
+
+/**
+ * Take the lock: `{}`, or `{ held, running, group }` for a lock that is
+ * there already, or `{ failed }` when this runner cannot make one. The lock
+ * is made whole in a folder of this runner's own and renamed into place, so
+ * no runner ever sees it without its pid. A lock whose runner is gone is
+ * still a lock (review round 2 of PR #865): its tests, and the run's Orca
+ * tabs, may still be going, so only a person removes it.
+ */
+function takeLock() {
+  const mine = `${LOCK}.${process.pid}`;
+  try {
+    rmSync(mine, { recursive: true, force: true });
+    mkdirSync(mine, { mode: 0o700 });
+    writeFileSync(path.join(mine, 'pid'), String(process.pid));
+  } catch (error) {
+    try {
+      rmSync(mine, { recursive: true, force: true });
+    } catch {
+      // Nothing of it was made.
+    }
+    return { failed: { folder: mine, why: error.code ?? error.message } };
+  }
+  try {
+    renameSync(mine, LOCK);
+    return {};
+  } catch (error) {
+    rmSync(mine, { recursive: true, force: true });
+    if (!['EEXIST', 'ENOTEMPTY', 'EISDIR', 'ENOTDIR'].includes(error.code)) throw error;
+  }
+  const held = lockPid(LOCK);
+  return { held: held ?? 'unknown', running: held !== undefined && running(held), group: lockPid(LOCK, 'group') };
+}
+
+/**
+ * Record in the lock the process group of the tests this runner spawned, so
+ * a person can find them if the runner dies before they end. Made whole
+ * beside it and renamed in, so it is never read half written.
+ */
+function recordGroup(group) {
+  if (lockPid(LOCK) !== process.pid) return;
+  const part = path.join(LOCK, `group.${process.pid}`);
+  try {
+    writeFileSync(part, String(group));
+    renameSync(part, path.join(LOCK, 'group'));
+  } catch {
+    // The lock still holds the pid; the group is then unknown to a reader.
+  }
+}
+
+/** Let the lock go, when it is this runner's. */
+function releaseLock() {
+  if (lockPid(LOCK) === process.pid) rmSync(LOCK, { recursive: true, force: true });
+}
+
+/**
  * When the night ends for a run that starts at `at`: 06:00 local time of that
  * day for a run that starts at a local hour from 0 to 5, and undefined for one
  * that starts by day (#689). A system test that can make a throwaway tab real
@@ -943,6 +1265,7 @@ function runTests(files, seconds, env) {
     env,
     detached: true,
   });
+  if (child.pid !== undefined) recordGroup(child.pid);
   let stopped;
   const stop = (why) => {
     stopped ??= why;
@@ -1025,6 +1348,16 @@ function chosen(names) {
   }
   return { files };
 }
+
+/**
+ * The sentence a system test's header carries when one of its waits needs a
+ * person to answer a screen in its tabs (#860). Its variants ("It is
+ * attended, lightly.") are for tests that wait on nobody.
+ */
+const ATTENDED = '**It is attended.**';
+
+/** Whether a system test file says that it waits on a person. */
+const waitsOnAPerson = (file) => readFileSync(file, 'utf8').includes(ATTENDED);
 
 /**
  * Where a name sits below the repo root as written, `/`-separated: `..` taken as
@@ -1120,6 +1453,19 @@ async function run() {
     return 1;
   }
   const { files } = choice;
+  // A file named for a live run that waits on a person is refused before
+  // anything is driven (#860). A run with no names opens no file's night gate,
+  // so it is not refused for this.
+  const held = named().length === 0 ? [] : files.filter(waitsOnAPerson);
+  if (held.length > 0) {
+    process.stderr.write(
+      `${held.length === 1 ? 'This file says' : 'These files say'} ${ATTENDED}: a person must answer a screen in its tabs.\n`
+      + held.map((file) => `  ${path.relative(repo, file)}\n`).join('')
+      + 'A live run has nobody at the screen, so nothing was run.\n'
+      + 'Take the file out of the list, or make the test answer its own screens through test/helpers/screens.js.\n',
+    );
+    return 1;
+  }
   const cli = orcaCli();
 
   if (!orcaIsReady()) {
@@ -1163,6 +1509,48 @@ async function run() {
     return 1;
   }
 
+  // One run at a time drives this machine (review of PR #865): what is new
+  // since the snapshots below is then this run's, and no other's.
+  const lock = takeLock();
+  if (lock.failed !== undefined) {
+    process.stderr.write(
+      `The run's lock could not be made: ${lock.failed.folder} (${lock.failed.why}).\n`
+      + 'So no system test was run, and nothing was changed.\n',
+    );
+    return 1;
+  }
+  if (lock.held !== undefined && lock.running) {
+    process.stderr.write(
+      `Another system-test run is going: ${LOCK} is held by pid ${lock.held}.\n`
+      + 'So no system test was run, and nothing was changed. Ask again when that run has ended.\n',
+    );
+    return 1;
+  }
+  if (lock.held !== undefined) {
+    process.stderr.write(
+      `An earlier system-test run left its lock: ${LOCK} holds pid ${lock.held}, and that runner is no longer running.\n`
+      + (lock.group === undefined
+        ? 'Its tests may still be running. Their process group is unknown, because the runner stopped before it recorded one.\n'
+        : `Its tests may still be running, in process group ${lock.group}. List what is left of them with: pgrep -l -g ${lock.group}\n`)
+      + 'The run\'s Orca tabs and their harnesses run in process groups of their own, so a list with nothing in it does not prove that the run is over.\n'
+      + `Also look in Orca for the run's own tabs and projects, and look for obk-system-* folders in ${os.tmpdir()} and in local-data.\n`
+      + `Remove the lock folder ${LOCK} by hand only once nothing of that run is left. Then ask for the run again.\n`
+      + 'So no system test was run, and nothing was changed.\n',
+    );
+    return 1;
+  }
+  try {
+    return await drive(files, limit, end);
+  } finally {
+    releaseLock();
+  }
+}
+
+/**
+ * Everything a run does once it holds the lock: the backup, the snapshots,
+ * the tests, and the reports and cleanup after them. Answers the run's exit.
+ */
+async function drive(files, limit, end) {
   // No copy, no test loaded (#619): before anything else is asked or run.
   const backup = backUpConfigs();
   if (backup.why !== undefined) {
@@ -1187,6 +1575,7 @@ async function run() {
   const foldersBefore = runFoldersNow();
   const setupsBefore = listSetups();
   const piBefore = piFoldersNow();
+  const claudeBefore = claudeStoresNow();
 
   // OBK_SYSTEM_TESTS is how a system test knows this command started it: loaded
   // any other way, it skips (test/helpers/system.js, #328). OBK_SYSTEM_NAMED is
@@ -1210,13 +1599,22 @@ async function run() {
     process.stdout.write(`It is ${spawnAt.toTimeString().slice(0, 5)} local time, so the limit is cut to end the run by 06:00, when the night ends.\n`);
   }
   process.stdout.write('\n');
+  // The run's own root folders, looked for while the tests run: a test
+  // removes its root before it ends (review of PR #865).
+  const seen = new Set();
+  const look = setInterval(() => {
+    for (const folder of runFoldersNow()) seen.add(folder);
+  }, ROOT_LOOK_MS);
   const result = await runTests(files, cap.seconds, { ...process.env, OBK_SYSTEM_TESTS: '1', OBK_SYSTEM_NAMED: named().length === 0 ? '' : files.join('\n') });
+
+  clearInterval(look);
 
   // After the tests, whatever they did: a failing run leaves Runs behind just
   // as a passing one does, and the developer is owed the accounting either way.
   reportRunsLeft(before);
   const leftKeys = reportConfigsLeft(configsBefore, foldersBefore);
   const leftPi = reportPiLeft(piBefore, foldersBefore);
+  const leftClaude = reportClaudeLeft(claudeBefore, foldersBefore, claudeRootNames(seen, foldersBefore));
   reportBackupCompared(backup);
   const leftProjects = reportProjectsLeft(setupsBefore, foldersBefore);
 
@@ -1225,7 +1623,8 @@ async function run() {
   // The Runs accounting never changes this: it is a report, not a check. A
   // trust key left in the owner's Codex config does: that is a check (#240).
   // So is a project left in the owner's Orca (#536), and a Pi session folder
-  // that may be the run's and is still there (#634). A run that the limit or a
+  // that may be the run's and is still there (#634), and so is a Claude Code
+  // transcripts folder of the same kind (#860). A run that the limit or a
   // signal stopped (#653) fails too: SIGKILL leaves the tests no status of 0.
   if (result.failed !== undefined) {
     process.stdout.write(`\nThe tests could not be started (${result.failed}), so the run failed.\n`);
@@ -1233,7 +1632,7 @@ async function run() {
   if (result.stopped !== undefined) {
     process.stdout.write(`\n${result.stopped} stopped the run: its tests did not finish, so the run failed. A test stopped this way may not have closed its tabs or removed its projects; the check above names any project left.\n`);
   }
-  return result.status === 0 && !leftKeys && !leftPi && !leftProjects ? 0 : 1;
+  return result.status === 0 && !leftKeys && !leftPi && !leftClaude && !leftProjects ? 0 : 1;
 }
 
 process.exitCode = await run();

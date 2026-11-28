@@ -55,9 +55,11 @@
 // `up` made behind, named `obk <bot>/<session>`, holding the one message this
 // test sent, for a bots folder that no longer exists.
 //
-// **It is attended.** A bot folder nobody has opened before asks questions
-// before the harness is running in it, and this test answers none of them but
-// its own menu: answering them is the caller's job and not the kit's (PRD 6.5).
+// **Nobody answers anything by hand.** A bot folder nobody has opened before
+// asks questions before the harness is running in it, and this test answers
+// none of them but its own menu: answering them is the caller's job and not
+// the kit's (PRD 6.5). It ran with nobody at the screen on 2026-11-24 and got
+// past every first-run screen.
 // The Codex session is given its folder's trust at launch (#240,
 // test/helpers/codex-trust.js), so Codex asks neither its folder trust nor its
 // hooks review, and writes nothing about this folder into the user's own

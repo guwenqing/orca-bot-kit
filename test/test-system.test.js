@@ -3752,6 +3752,47 @@ async function assertStoppedAtTheBackup(result, fixture, { names, code = ERROR_C
 }
 
 /**
+ * The run stopped at its lock, before the backup (#860, R3a-bis): the runner's
+ * lock, `obk-test-system.lock` in the temp folder, could not be made for a
+ * reason other than another run holding it. Exit 1, and no crash; stderr says
+ * the run's lock could not be made, names the lock folder `lock`, gives `code`
+ * as the why, and says that no system test was run and that nothing was
+ * changed; no system test file ran; Orca was asked nothing past its status; no
+ * backup folder is left in `tmp`, and neither a lock nor anything named like
+ * one; and nothing of either config was printed.
+ */
+async function assertStoppedAtTheLock(result, fixture, { lock, code, tmp }) {
+  const all = everything(result);
+  assert.equal(result.code, 1, `a lock that cannot be made stops the run with exit 1:\n${all}`);
+  assert.ok(!/^\s+at /m.test(all), `expected a message, got a crash:\n${all}`);
+  const said = unwrapped(result.stderr);
+  assert.match(said, /\block\b/i, `stderr should say it is the run's lock that could not be made, got:\n${result.stderr}`);
+  assert.match(said, /\bfail|could ?n[o']t|cannot|can't|unable/i, `stderr should say the lock could not be made, got:\n${result.stderr}`);
+  assert.ok(result.stderr.includes(lock), `stderr should name the folder it could not make, ${lock}, got:\n${result.stderr}`);
+  assert.match(result.stderr, code, `stderr should say why, as ${code}, got:\n${result.stderr}`);
+  assert.match(said, NO_TEST_RUN, `stderr should say no test was run, got:\n${result.stderr}`);
+  assert.match(said, /\bnothing\b[^.]*\bchang/i, `stderr should say nothing was changed, got:\n${result.stderr}`);
+  assert.deepEqual(await ranIn(fixture), [], 'no system test file should have run');
+  assert.doesNotMatch(all, /ALPHA|BETA/, `no system test file should have run, got:\n${all}`);
+  assert.deepEqual(
+    (await fixture.orca.calls()).map((call) => call.args[0]).filter((word) => word !== 'status'),
+    [],
+    'Orca should have been asked nothing past its status',
+  );
+  assert.ok(!result.stdout.includes('Config backup:'), `no backup should be said, got:\n${all}`);
+  assert.deepEqual(await backupsIn(tmp), [], `no backup folder should be left in ${tmp}`);
+  assert.equal(there(lock), false, `no lock should be left: ${lock}`);
+  let left = [];
+  try {
+    left = (await readdir(tmp)).filter((name) => name.startsWith('obk-test-system'));
+  } catch (error) {
+    if (error.code !== 'ENOENT' && error.code !== 'ENOTDIR') throw error;
+  }
+  assert.deepEqual(left, [], `nothing named like the lock should be left in ${tmp}`);
+  assert.ok(!all.includes(SECRET), `nothing of either config should be printed, got:\n${all}`);
+}
+
+/**
  * A fixture for a backup that cannot be made: both configs under HOME, each
  * holding a secret, one system test (ALPHA) that would change one config if it
  * ran, the one that is not `broken`, so that it would pass, and a second (BETA)
@@ -3974,7 +4015,10 @@ describe('test-system: a backup of both harness configs before every live run (#
     assert.deepEqual(await snapshot(files.codex), was.codex, 'config.toml is as it was');
   });
 
-  test('a temp folder that is a file stops the run before any test: the folder it could not make and ENOTDIR named, nothing changed', async (t) => {
+  // The runner's lock is made in the temp folder before the backup (#860,
+  // R3a), so a temp folder that is a file or cannot be written now stops the
+  // run at the lock, and the backup is never reached (R3a-bis).
+  test('a temp folder that is a file stops the run at its lock, before the backup and any test: the lock folder it could not make and ENOTDIR named, nothing changed', async (t) => {
     const { fixture, env, files } = await withBothConfigs(t);
     const notAFolder = path.join(path.dirname(fixture.repo), 'tmp-is-a-file');
     await writeFile(notAFolder, 'a file, not a folder\n');
@@ -3982,13 +4026,14 @@ describe('test-system: a backup of both harness configs before every live run (#
 
     const result = await fixture.confirmed({ env: { ...env, TMPDIR: notAFolder } });
 
-    await assertStoppedAtTheBackup(result, fixture, { names: [notAFolder], code: /\bENOTDIR\b/, tmp: env.TMPDIR });
+    await assertStoppedAtTheLock(result, fixture, { lock: path.join(notAFolder, 'obk-test-system.lock'), code: /\bENOTDIR\b/, tmp: notAFolder });
+    assert.deepEqual(await backupsIn(env.TMPDIR), [], `no backup folder should be left in ${env.TMPDIR} either`);
     assert.equal(await readFile(notAFolder, 'utf8'), 'a file, not a folder\n', 'the file named as the temp folder is as it was');
     assert.deepEqual(await snapshot(files.codex), was.codex, 'config.toml is as it was');
     assert.deepEqual(await snapshot(files.claude), was.claude, '.claude.json is as it was');
   });
 
-  test('a temp folder that cannot be written stops the run before any test: the folder it could not make and EACCES named, nothing changed', { skip: AS_ROOT }, async (t) => {
+  test('a temp folder that cannot be written stops the run at its lock, before the backup and any test: the lock folder it could not make and EACCES named, nothing changed', { skip: AS_ROOT }, async (t) => {
     const { fixture, env, files } = await withBothConfigs(t);
     const was = { codex: await snapshot(files.codex), claude: await snapshot(files.claude) };
     await chmod(env.TMPDIR, 0o500);
@@ -3999,7 +4044,7 @@ describe('test-system: a backup of both harness configs before every live run (#
       await chmod(env.TMPDIR, 0o700);
     }
 
-    await assertStoppedAtTheBackup(result, fixture, { names: [env.TMPDIR], code: /\bEACCES\b/, tmp: env.TMPDIR });
+    await assertStoppedAtTheLock(result, fixture, { lock: path.join(env.TMPDIR, 'obk-test-system.lock'), code: /\bEACCES\b/, tmp: env.TMPDIR });
     assert.deepEqual(await snapshot(files.codex), was.codex, 'config.toml is as it was');
     assert.deepEqual(await snapshot(files.claude), was.claude, '.claude.json is as it was');
   });
@@ -4229,8 +4274,17 @@ describe('test-system: a backup of both harness configs before every live run (#
 
   // The review of PR #620: after the run, a config that was backed up and can
   // no longer be looked up is not gone. Only one that does not exist is.
-  for (const [which, side, options] of [['config.toml', 'codex', { codexHome: true }], ['.claude.json', 'claude', { claudeDir: true }]]) {
-    test(`a ${which} whose folder becomes mode 000 during the run is said not to be compared, with EACCES, not gone, and the exit code stays the tests'`, { skip: AS_ROOT }, async (t) => {
+  //
+  // CLAUDE_CONFIG_DIR's folder holds Claude Code's transcript store too,
+  // `projects`, and a store the runner cannot read fails the run (#860). So in
+  // the .claude.json case the run fails for that store. That the comparison is a
+  // report and not a check is held by the config.toml case, which goes through
+  // the same comparison with nothing else in its locked folder.
+  for (const [which, side, options, exit] of [
+    ['config.toml', 'codex', { codexHome: true }, 'the exit code stays the tests\''],
+    ['.claude.json', 'claude', { claudeDir: true }, 'the run fails for the transcript store in that folder, which it names (#860)'],
+  ]) {
+    test(`a ${which} whose folder becomes mode 000 during the run is said not to be compared, with EACCES, not gone, and ${exit}`, { skip: AS_ROOT }, async (t) => {
       const built = await withConfigs(t, () => ({ ...options, before: { codex: codexConfig({}), claude: claudeConfig([]) } }));
       const folder = path.dirname(built.files[side]);
       await write(built.fixture.repo, 'test/system/alpha.test.js', breaksConfigs('ALPHA', { locks: [folder] }));
@@ -4241,7 +4295,16 @@ describe('test-system: a backup of both harness configs before every live run (#
         await chmod(folder, 0o755);
       }
 
-      assert.equal(result.code, 0, `the comparison is a report, not a check:\n${everything(result)}`);
+      if (side === 'codex') {
+        assert.equal(result.code, 0, `the comparison is a report, not a check:\n${everything(result)}`);
+      } else {
+        const store = path.join(folder, 'projects');
+        assert.equal(result.code, 1, `the transcript store ${store} cannot be read, so the run fails:\n${everything(result)}`);
+        assert.ok(
+          afterTheRun(result).split('\n').some((line) => line.includes(store) && /could not|cannot|EACCES/i.test(line)),
+          `the run says it could not read the transcript store ${store}, got:\n${afterTheRun(result)}`,
+        );
+      }
       const dir = backupSaid(result).dir;
       assertCompared(result, dir, built.files[side], 'notCompared', [/\bEACCES\b/]);
       assert.equal(await readFile(built.files[side], 'utf8'), side === 'codex' ? codexConfig({}) : claudeConfig([]), 'the file is still there as it was, and nothing was copied over it');
@@ -6617,5 +6680,1344 @@ describe('test-system: a night run ends by 06:00 whatever the steps before the t
     assertEnded(result);
     assert.equal(result.code, 0, everything(result));
     assert.equal(limitShown(result), 3600, everything(result));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A named attended file is refused (#860)
+// ---------------------------------------------------------------------------
+//
+// A system test whose tabs stop on a screen that a person must answer says so
+// in its text, as the sentence `**It is attended.**`. A live run has nobody at
+// the screen, so such a file, named, is not run:
+//
+//   A1  When a named file holds that exact sentence anywhere in its text, the
+//       run is refused before Orca is asked anything: exit 1, no config backup,
+//       no test file loaded. stderr names the file by its path under
+//       test/system/, says that a person must answer a screen in its tabs and
+//       that a live run has nobody at the screen, and says how to go on: take
+//       the file out of the list, or make the test answer its own screens
+//       through test/helpers/screens.js.
+//   A2  Other sentences do not refuse: `**It is attended, lightly.**`,
+//       `**It is attended, a little.**`, `**It is not attended.**`, and a
+//       file with none of them, run as today.
+//   A3  A run that names no file is not refused for this.
+//   A4  When several files are named and one is attended, the whole run is
+//       refused, and every attended one is named.
+//
+// Here HOME and TMPDIR are the sandbox's (helpers/cli.js), and the run sees no
+// CODEX_HOME, CLAUDE_CONFIG_DIR or PI_CODING_AGENT_DIR of this shell's.
+
+/** The sentence that marks a system test as attended. */
+const ATTENDED = '**It is attended.**';
+
+/**
+ * A system test file that writes down that it ran (tallies), with `sentence`
+ * in the middle of a line of its first comment, as a test's own words say it.
+ */
+const saysInComment = (name, sentence) => [
+  '/**',
+  ` * Its tabs stop on a first-run screen. ${sentence} Somebody answers it there.`,
+  ' */',
+  tallies(name),
+].join('\n');
+
+/** NAMED_FILES and `files` over them, in a fixture whose run reads no harness config or store of this shell's. */
+async function withAttended(t, files) {
+  const fixture = await createRepo(t, { files: { ...NAMED_FILES, ...files } });
+  const { CODEX_HOME: _codex, CLAUDE_CONFIG_DIR: _claude, PI_CODING_AGENT_DIR: _pi, ...env } = fixture.env;
+  return {
+    fixture,
+    env,
+    confirmed: (names) => fixture.confirmed({ names, env }),
+    unconfirmed: (names) => fixture.run({ names, env }),
+  };
+}
+
+/**
+ * The run was refused for its attended files, before anything: exit 1, Orca
+ * never asked, no backup, no test file loaded, and stderr names each of
+ * `attended` (its path under test/system/) and says why and how to go on.
+ */
+async function assertRefusedAsAttended(result, at, attended) {
+  const all = everything(result);
+  assert.equal(result.code, 1, `a run that names an attended file should exit 1, got ${result.code}:\n${all}`);
+  assert.ok(!/^\s+at /m.test(all), `expected a message, got a crash:\n${all}`);
+  assert.deepEqual(await at.fixture.orca.calls(), [], `Orca should not be asked anything, got:\n${JSON.stringify(argsOf(await at.fixture.orca.calls()))}`);
+  await assertNoBackup(result, at.env.TMPDIR, 'an attended file named');
+  assert.deepEqual(await ranIn(at.fixture), [], `no test file should be loaded, got:\n${all}`);
+  for (const file of attended) {
+    assert.ok(result.stderr.includes(file), `stderr should name ${file}, got:\n${result.stderr}`);
+  }
+  const said = unwrapped(result.stderr);
+  assert.match(said, /screen/i, `stderr should say a screen must be answered in its tabs, got:\n${result.stderr}`);
+  assert.match(said, /\b(?:person|someone|somebody|human)\b/i, `stderr should say a person must answer it, got:\n${result.stderr}`);
+  assert.match(said, /\b(?:nobody|no one|no-one|no person)\b/i, `stderr should say a live run has nobody at the screen, got:\n${result.stderr}`);
+  assert.match(said, /\b(?:out of|without|leave|drop|remove)\b/i, `stderr should say to take the file out of the list, got:\n${result.stderr}`);
+  assert.ok(result.stderr.includes('test/helpers/screens.js'), `stderr should name test/helpers/screens.js as the other way on, got:\n${result.stderr}`);
+}
+
+describe('test-system: a named attended file is refused (#860)', { concurrency: true }, () => {
+  test('A1 a named file that says **It is attended.** inside a comment line is refused before Orca, the backup or any test', async (t) => {
+    const at = await withAttended(t, { 'test/system/held.test.js': saysInComment('HELD', ATTENDED) });
+
+    const result = await at.confirmed(['test/system/held.test.js']);
+
+    await assertRefusedAsAttended(result, at, ['held.test.js']);
+  });
+
+  test('A1 the sentence counts anywhere in the text: in a nested file, in a line comment after code', async (t) => {
+    const at = await withAttended(t, { 'test/system/nested/held.test.js': `${tallies('HELD')}// Then a screen comes. ${ATTENDED}\n` });
+
+    const result = await at.confirmed(['test/system/nested/held.test.js']);
+
+    await assertRefusedAsAttended(result, at, ['nested/held.test.js']);
+  });
+
+  test('A1 without --yes too, a named attended file is refused with exit 1, not the unconfirmed exit 2', async (t) => {
+    const at = await withAttended(t, { 'test/system/held.test.js': saysInComment('HELD', ATTENDED) });
+
+    const result = await at.unconfirmed(['test/system/held.test.js']);
+
+    await assertRefusedAsAttended(result, at, ['held.test.js']);
+  });
+
+  for (const [label, sentence] of [
+    ['**It is attended, lightly.**', '**It is attended, lightly.**'],
+    ['**It is attended, a little.**', '**It is attended, a little.**'],
+    ['**It is not attended.**', '**It is not attended.**'],
+  ]) {
+    test(`A2 a named file that says ${label} runs as today`, async (t) => {
+      const at = await withAttended(t, { 'test/system/held.test.js': saysInComment('HELD', sentence) });
+
+      const result = await at.confirmed(['test/system/held.test.js']);
+
+      assert.equal(result.code, 0, everything(result));
+      assert.deepEqual(await ranIn(at.fixture), ['HELD'], `the named file should run, got:\n${everything(result)}`);
+      assert.ok(result.stdout.includes('Config backup:'), `the run backs up the configs as today, got:\n${everything(result)}`);
+    });
+  }
+
+  test('A2 a named file with no such sentence runs as today', async (t) => {
+    const at = await withAttended(t, {});
+
+    const result = await at.confirmed(['test/system/beta.test.js']);
+
+    assert.equal(result.code, 0, everything(result));
+    assert.deepEqual(await ranIn(at.fixture), ['BETA'], `the named file should run, got:\n${everything(result)}`);
+  });
+
+  test('A3 a run that names no file is not refused for an attended file among them: every file runs', async (t) => {
+    const at = await withAttended(t, { 'test/system/held.test.js': saysInComment('HELD', ATTENDED) });
+
+    const result = await at.confirmed([]);
+
+    assert.equal(result.code, 0, everything(result));
+    assert.deepEqual(await ranIn(at.fixture), ['ALPHA', 'BETA', 'GAMMA', 'HELD'], `every system test file should run, got:\n${everything(result)}`);
+  });
+
+  test('A3 an attended file that is not named does not refuse a run that names another', async (t) => {
+    const at = await withAttended(t, { 'test/system/held.test.js': saysInComment('HELD', ATTENDED) });
+
+    const result = await at.confirmed(['test/system/beta.test.js']);
+
+    assert.equal(result.code, 0, everything(result));
+    assert.deepEqual(await ranIn(at.fixture), ['BETA'], `the named file should run, and only it, got:\n${everything(result)}`);
+  });
+
+  test('A4 two attended files among four named: the whole run is refused, and both attended files are named', async (t) => {
+    const at = await withAttended(t, {
+      'test/system/held.test.js': saysInComment('HELD', ATTENDED),
+      'test/system/nested/kept.test.js': saysInComment('KEPT', ATTENDED),
+    });
+
+    const result = await at.confirmed(['test/system/alpha.test.js', 'test/system/held.test.js', 'test/system/beta.test.js', 'test/system/nested/kept.test.js']);
+
+    await assertRefusedAsAttended(result, at, ['held.test.js', 'nested/kept.test.js']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Claude Code's transcripts of the run's own folders are removed (#860)
+// ---------------------------------------------------------------------------
+//
+// Claude Code keeps a session's transcripts in <config dir>/projects/<slug>/,
+// the config dir ~/.claude, or $CLAUDE_CONFIG_DIR when that is set (Orca sets
+// it to a profile of its own, whose `projects` is a link to ~/.claude/projects).
+// <slug> is the session's working folder with every character that is not an
+// ASCII letter or digit as `-`. In the folder: <session id>.jsonl files, whose
+// JSON lines carry a `cwd` (some lines do not); a <session id>/ folder beside a
+// transcript, for subagents; and a `memory/` folder. Seen on Claude Code
+// 2.1.331 and Orca 1.4.272. After the tests the runner:
+//
+//   C1  looks in <HOME>/.claude/projects and, when CLAUDE_CONFIG_DIR is set, in
+//       $CLAUDE_CONFIG_DIR/projects, as one store when both lead to the same
+//       real folder. A store that does not exist is an empty one.
+//   C2  removes a folder there only when it is new since the run began, is a
+//       real folder (not a link), its name starts with the slug of the real
+//       temp folder or of <real repo>/local-data, then `-obk-system-`, and its
+//       contents prove it is the run's: at least one .jsonl, every .jsonl with
+//       at least one cwd, every cwd inside one of the run's own folders, and
+//       every other entry a folder named as one of those transcripts' session
+//       ids, or `memory`.
+//   C3  leaves a folder that looks like the run's without that proof, names it,
+//       and fails the run; leaves everything that was there before the run,
+//       and every folder of another name.
+//   C4  names what it removed; names a removal that fails, and fails the run;
+//       when a store cannot be read, says so, removes nothing, and fails the run.
+//   C5  does not change the run's exit when there is nothing to remove.
+//
+// And after the review of PR #865:
+//
+//   R3b A new entry in a store, named like the run's folders, that is a link
+//       or that cannot be looked at with lstat, stays untouched, is named as
+//       left because its ownership cannot be proven, and fails the run.
+//   R3c Both stores missing when the run begins, and during the run the home
+//       store made with a run folder in it and the profile's `projects` made
+//       as a link to it: that is one store. The run's folder goes once, the
+//       link stays a link, nothing says a store could not be read or was not
+//       found, and the run exits 0.
+//
+// Here HOME and TMPDIR are the sandbox's (helpers/cli.js); each test chooses
+// what CLAUDE_CONFIG_DIR is, whatever this shell has.
+
+/** Claude Code's name for a working folder's transcripts folder: every character that is not an ASCII letter or digit as `-`. */
+const claudeSlug = (folder) => folder.replaceAll(/[^A-Za-z0-9]/g, '-');
+
+/** Session ids, as Claude Code names its transcripts. */
+const CLAUDE_IDS = ['6f1d2c3b-4a59-4e8f-9d70-1a2b3c4d5e6f', '0a9b8c7d-6e5f-4a3b-8c2d-1e0f9a8b7c6d', '9e8d7c6b-5a49-4382-a716-f5e4d3c2b1a0'];
+
+/**
+ * A transcript's text as Claude Code writes it: a first line with no cwd, then
+ * one line per entry of `cwds`, each carrying that cwd.
+ */
+const claudeTranscript = (id, cwds) => `${[
+  { type: 'permission-mode', permissionMode: 'default', sessionId: id },
+  ...cwds.map((cwd, n) => ({
+    parentUuid: null,
+    isSidechain: false,
+    userType: 'external',
+    cwd,
+    sessionId: id,
+    version: '2.1.331',
+    gitBranch: '',
+    type: n % 2 === 0 ? 'user' : 'assistant',
+    message: { role: n % 2 === 0 ? 'user' : 'assistant', content: 'hello' },
+    uuid: `1c2d3e4f-0000-4000-8000-00000000000${n}`,
+    timestamp: '2026-11-25T01:02:03.004Z',
+  })),
+].map((line) => JSON.stringify(line)).join('\n')}\n`;
+
+/**
+ * A system test file that, while it runs: gives each of `modes` its mode first,
+ * then makes each of `dirs` (empty), writes `files` ({ file, text }), makes
+ * `links` ({ link, to }), and last gives each of `locks` its mode. It prints its
+ * marker, and fails afterwards when `thenFails` says so.
+ */
+const actsOnClaudeStore = (name, { modes = [], dirs = [], files = [], links = [], locks = [], thenFails = false } = {}) => [
+  "import { chmodSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs';",
+  "import path from 'node:path';",
+  "import test from 'node:test';",
+  '',
+  `test(${JSON.stringify(name)}, () => {`,
+  `  for (const { target, mode } of ${JSON.stringify(modes)}) chmodSync(target, mode);`,
+  `  for (const dir of ${JSON.stringify(dirs)}) mkdirSync(dir, { recursive: true });`,
+  `  for (const { file, text } of ${JSON.stringify(files)}) {`,
+  '    mkdirSync(path.dirname(file), { recursive: true });',
+  '    writeFileSync(file, text);',
+  '  }',
+  `  for (const { link, to } of ${JSON.stringify(links)}) {`,
+  '    mkdirSync(path.dirname(link), { recursive: true });',
+  '    symlinkSync(to, link);',
+  '  }',
+  `  for (const { target, mode } of ${JSON.stringify(locks)}) chmodSync(target, mode);`,
+  `  process.stdout.write(${JSON.stringify(`${name}\n`)});`,
+  ...(thenFails ? [`  throw new Error(${JSON.stringify(`${name} failed`)});`] : []),
+  '});',
+  '',
+].join('\n');
+
+/** The parts of what a system test does to the Claude store, joined into one. */
+const inTurn = (...parts) => {
+  const all = { modes: [], dirs: [], files: [], links: [], locks: [] };
+  for (const part of parts) {
+    for (const [key, value] of Object.entries(part)) {
+      if (Array.isArray(all[key])) all[key].push(...value);
+      else all[key] = value;
+    }
+  }
+  return all;
+};
+
+/**
+ * A fixture repo whose run has Claude Code's stores in the sandbox. `configDir`
+ * false leaves CLAUDE_CONFIG_DIR out; 'own' sets it to <box>/claude-profile,
+ * whose `projects` is a folder of its own made during the run; 'linked' makes
+ * <HOME>/.claude/projects before the run and that profile's `projects` a link
+ * to it, as Orca's profile is; 'missing' sets it to a profile with no
+ * `projects` at all; 'absent' sets it to a profile folder that is not there;
+ * 'profile-first' makes that profile's `projects` a real folder before the
+ * run, with no <HOME>/.claude/projects. `goodAt(work, { where, id })` is a transcripts folder that
+ * holds every proof C2 asks for: its working folder `work` is made during the
+ * run, and so is one transcript in it whose cwd is that working folder;
+ * `goodRun(rel, …)` is the same for <temp>/<rel>.
+ */
+async function withClaudeStore(t, { configDir = false } = {}) {
+  // The slug helper against the worked example of #860, so a slip in it cannot
+  // pass for the runner's.
+  assert.equal(claudeSlug('/private/var/folders/x/T/obk-system-restart-abc/bots/b'), '-private-var-folders-x-T-obk-system-restart-abc-bots-b');
+  const fixture = await createRepo(t);
+  const box = path.dirname(fixture.repo);
+  const tmp = realpathSync(fixture.env.TMPDIR);
+  const localData = path.join(realpathSync(fixture.repo), 'local-data');
+  const { CLAUDE_CONFIG_DIR: _claude, CODEX_HOME: _codex, PI_CODING_AGENT_DIR: _pi, ...rest } = fixture.env;
+  const profile = path.join(box, 'claude-profile');
+  const env = { ...rest, ...(configDir === false ? {} : { CLAUDE_CONFIG_DIR: profile }) };
+  // The runner must not reach the owner's store: its HOME is the sandbox's.
+  assert.ok(env.HOME.startsWith(`${box}${path.sep}`), `HOME should be the sandbox's, got ${env.HOME}`);
+  const store = path.join(env.HOME, '.claude', 'projects');
+  const profileStore = path.join(profile, 'projects');
+  if (configDir === 'linked') {
+    await mkdir(store, { recursive: true });
+    await mkdir(profile, { recursive: true });
+    await symlink(store, profileStore);
+  }
+  if (configDir === 'missing') await mkdir(profile, { recursive: true });
+  if (configDir === 'profile-first') await mkdir(profileStore, { recursive: true });
+  const folderFor = (cwd, where = store) => path.join(where, claudeSlug(cwd));
+  const goodAt = (work, { where = store, id = CLAUDE_IDS[0] } = {}) => {
+    const folder = folderFor(work, where);
+    const file = path.join(folder, `${id}.jsonl`);
+    return { work, folder, file, during: { dirs: [work], files: [{ file, text: claudeTranscript(id, [work]) }] } };
+  };
+  return {
+    fixture,
+    box,
+    tmp,
+    localData,
+    env,
+    store,
+    profileStore,
+    folderFor,
+    goodAt,
+    goodRun: (rel, options) => goodAt(path.join(tmp, rel), options),
+    write: (...during) => write(fixture.repo, 'test/system/alpha.test.js', actsOnClaudeStore('ALPHA', inTurn(...during))),
+    run: (more = {}) => fixture.confirmed({ env: { ...env, ...more } }),
+  };
+}
+
+describe('test-system: Claude Code\'s transcripts of the run\'s own folders are removed after the run (#860)', { concurrency: true }, () => {
+  test('C2 C4 a new folder under the temp folder\'s slug, with a transcript, its subagents folder and memory/, is removed with all of it, and named', async (t) => {
+    const claude = await withClaudeStore(t);
+    const mine = claude.goodRun('obk-system-restart-Rs0001/bots/b');
+    const subagent = path.join(mine.folder, CLAUDE_IDS[0], 'subagents', 'agent-a1b2c3d4.jsonl');
+    await claude.write(mine.during, {
+      dirs: [path.join(mine.folder, 'memory')],
+      files: [{ file: subagent, text: claudeTranscript('agent-a1b2c3d4', [mine.work]) }],
+    });
+
+    const result = await claude.run();
+
+    assert.equal(result.code, 0, everything(result));
+    assert.equal(there(mine.folder), false, `the run's transcripts folder should be gone: ${mine.folder}`);
+    assert.ok(there(claude.store), 'the store itself stays');
+    assert.ok(afterTheRun(result).includes(path.basename(mine.folder)), `the output names the folder it removed, got:\n${afterTheRun(result)}`);
+  });
+
+  test('C2 a new folder under <repo>/local-data\'s slug is removed', async (t) => {
+    const claude = await withClaudeStore(t);
+    const mine = claude.goodAt(path.join(claude.localData, 'obk-system-codex-Ld0001', 'bots', 'b'));
+    await claude.write(mine.during);
+
+    const result = await claude.run();
+
+    assert.equal(result.code, 0, everything(result));
+    assert.equal(there(mine.folder), false, `the run's transcripts folder should be gone: ${mine.folder}`);
+  });
+
+  test('C2 two transcripts, with lines that carry no cwd, a cwd in a folder below the working folder, and a cwd in another of the run\'s folders: the folder is removed', async (t) => {
+    const claude = await withClaudeStore(t);
+    const mine = claude.goodRun('obk-system-two-Tw0001/bots/b');
+    const below = path.join(mine.work, 'notes');
+    const other = path.join(claude.tmp, 'obk-system-two-Tw0002', 'bots', 'c');
+    await claude.write(mine.during, {
+      dirs: [below, other],
+      files: [
+        { file: mine.file, text: claudeTranscript(CLAUDE_IDS[0], [mine.work, below]) },
+        { file: path.join(mine.folder, `${CLAUDE_IDS[1]}.jsonl`), text: claudeTranscript(CLAUDE_IDS[1], [other]) },
+      ],
+    });
+
+    const result = await claude.run();
+
+    assert.equal(result.code, 0, everything(result));
+    assert.equal(there(mine.folder), false, `the run's transcripts folder should be gone: ${mine.folder}`);
+  });
+
+  test('C1 with CLAUDE_CONFIG_DIR set to a profile of its own, the run\'s folders in its projects and in <HOME>/.claude/projects are both removed', async (t) => {
+    const claude = await withClaudeStore(t, { configDir: 'own' });
+    const inProfile = claude.goodRun('obk-system-profile-Pf0001/bots/b', { where: claude.profileStore });
+    const atHome = claude.goodRun('obk-system-profile-Pf0002/bots/b');
+    await claude.write(inProfile.during, atHome.during);
+
+    const result = await claude.run();
+
+    assert.equal(result.code, 0, everything(result));
+    assert.equal(there(inProfile.folder), false, `the folder in $CLAUDE_CONFIG_DIR/projects should be gone: ${inProfile.folder}`);
+    assert.equal(there(atHome.folder), false, `the folder in <HOME>/.claude/projects should be gone: ${atHome.folder}`);
+    assert.ok(afterTheRun(result).includes(path.basename(inProfile.folder)), `the output names ${path.basename(inProfile.folder)}, got:\n${afterTheRun(result)}`);
+    assert.ok(afterTheRun(result).includes(path.basename(atHome.folder)), `the output names ${path.basename(atHome.folder)}, got:\n${afterTheRun(result)}`);
+  });
+
+  test('C1 with CLAUDE_CONFIG_DIR\'s projects a link to <HOME>/.claude/projects, as Orca\'s profile is, the one store loses the run\'s folder once, and the run passes', async (t) => {
+    const claude = await withClaudeStore(t, { configDir: 'linked' });
+    const mine = claude.goodRun('obk-system-linked-Lk0001/bots/b');
+    await claude.write(mine.during);
+
+    const result = await claude.run();
+
+    assert.equal(result.code, 0, `one store reached two ways is one store: nothing in it is left or failed, got:\n${everything(result)}`);
+    assert.equal(there(mine.folder), false, `the run's transcripts folder should be gone: ${mine.folder}`);
+    assert.ok(lstatSync(claude.profileStore).isSymbolicLink(), 'the profile\'s projects stays a link');
+    assert.equal(await readlink(claude.profileStore), claude.store, 'leading where it led');
+    assert.ok(afterTheRun(result).includes(path.basename(mine.folder)), `the output names the folder it removed, got:\n${afterTheRun(result)}`);
+  });
+
+  test('C1 with CLAUDE_CONFIG_DIR set to a profile with no projects, that store is an empty one: the run\'s folder at home is removed and the run passes', async (t) => {
+    const claude = await withClaudeStore(t, { configDir: 'missing' });
+    const mine = claude.goodRun('obk-system-noprof-Np0001/bots/b');
+    await claude.write(mine.during);
+
+    const result = await claude.run();
+
+    assert.equal(result.code, 0, everything(result));
+    assert.equal(there(mine.folder), false, `the run's transcripts folder should be gone: ${mine.folder}`);
+    assert.equal(there(claude.profileStore), false, 'and no projects folder was made in the profile');
+  });
+
+  test('R3c-bis the profile store is a real folder at the start and <HOME>/.claude/projects becomes a link to it during the run: an old folder of the run\'s name there stays and is not named, and the run\'s new one goes', async (t) => {
+    const claude = await withClaudeStore(t, { configDir: 'profile-first' });
+    assert.equal(there(claude.store), false, `the premise: no home store at the start: ${claude.store}`);
+    // There before the run, with proof that would pass but for being old: its
+    // cwd's run folder is made during the run.
+    const old = claude.goodRun('obk-system-older-Ob0001/bots/b', { where: claude.profileStore });
+    await mkdir(old.folder, { recursive: true });
+    await writeFile(old.file, claudeTranscript(CLAUDE_IDS[0], [old.work]));
+    const mine = claude.goodRun('obk-system-new-Nw0001/bots/b', { where: claude.profileStore });
+    await claude.write(mine.during, { dirs: [old.work], links: [{ link: claude.store, to: claude.profileStore }] });
+
+    const result = await claude.run();
+
+    assert.ok(lstatSync(claude.store).isSymbolicLink(), `the premise: the home store became a link: ${claude.store}`);
+    assert.ok(there(old.file), `the old folder stays, with its transcript: ${old.file}\n${everything(result)}`);
+    assert.equal(await readFile(old.file, 'utf8'), claudeTranscript(CLAUDE_IDS[0], [old.work]), `the old transcript is untouched: ${old.file}`);
+    assert.ok(!afterTheRun(result).includes(path.basename(old.folder)), `and it is not named, got:\n${afterTheRun(result)}`);
+    assert.equal(there(mine.folder), false, `the run's new folder in that store still goes: ${mine.folder}\n${everything(result)}`);
+    assert.equal(result.code, 0, `a folder that was there before is not the run's to answer for:\n${everything(result)}`);
+  });
+
+  test('R3c-bis when one of the paths that lead to one store could not be read at the start, the store is not compared: nothing in it is removed, it is named, and the run fails', async (t) => {
+    const claude = await withClaudeStore(t, { configDir: 'profile-first' });
+    const mine = claude.goodRun('obk-system-new-Nw0002/bots/b', { where: claude.profileStore });
+    await claude.write({ modes: [{ target: claude.profileStore, mode: 0o755 }] }, mine.during, { links: [{ link: claude.store, to: claude.profileStore }] });
+    await chmod(claude.profileStore, 0o000);
+    t.after(() => chmod(claude.profileStore, 0o755).catch(() => {}));
+
+    const result = await claude.run();
+    await chmod(claude.profileStore, 0o755).catch(() => {});
+
+    assert.ok(lstatSync(claude.store).isSymbolicLink(), `the premise: the home store became a link: ${claude.store}`);
+    assert.ok(there(mine.file), `nothing is removed from the store, the run's new folder included: ${mine.file}\n${everything(result)}`);
+    assert.ok(everything(result).includes(claude.profileStore) || everything(result).includes(claude.store), `the output names the store, got:\n${everything(result)}`);
+    assert.notEqual(result.code, 0, `a store not compared fails the run:\n${everything(result)}`);
+  });
+
+  test('C3 a folder of the run\'s name that was there before the run stays, with what it had and what was written in it during the run', async (t) => {
+    const claude = await withClaudeStore(t);
+    const good = claude.goodRun('obk-system-good-Gd0001/bots/b');
+    const old = claude.goodRun('obk-system-older-Od0001/bots/b');
+    await mkdir(old.folder, { recursive: true });
+    await writeFile(old.file, claudeTranscript(CLAUDE_IDS[0], [old.work]));
+    const during = path.join(old.folder, `${CLAUDE_IDS[1]}.jsonl`);
+    await claude.write(good.during, { dirs: [old.work], files: [{ file: during, text: claudeTranscript(CLAUDE_IDS[1], [old.work]) }] });
+
+    const result = await claude.run();
+
+    assert.equal(there(good.folder), false, `the premise: the run's new folder goes: ${good.folder}`);
+    assert.equal(await readFile(old.file, 'utf8'), claudeTranscript(CLAUDE_IDS[0], [old.work]), 'the folder there before the run stays, with its transcript as it was');
+    assert.ok(there(during), 'and the transcript written in it during the run');
+    assert.ok(!afterTheRun(result).includes(path.basename(old.folder)), `and it is not named, got:\n${afterTheRun(result)}`);
+    assert.equal(result.code, 0, `a folder that was there before is not the run's to answer for:\n${everything(result)}`);
+  });
+
+  test('C3 new folders of other names stay, and the run passes, whatever their transcripts say', async (t) => {
+    const claude = await withClaudeStore(t);
+    const good = claude.goodRun('obk-system-good-Gd0002/bots/b');
+    const work = path.join(claude.tmp, 'obk-system-other-Ot0001', 'bots', 'b');
+    // Each holds a transcript whose cwd is one of the run's own folders, so
+    // only its name keeps it.
+    const others = [
+      claude.folderFor('/Users/owner/work/app'),
+      claude.folderFor(path.join(claude.tmp, 'obk-other-Ot0001', 'bots', 'b')),
+      claude.folderFor(path.join(claude.tmp, 'work', 'obk-system-deep-Ot0001', 'bots', 'b')),
+      claude.folderFor(`${claude.tmp}x/obk-system-sibling-Ot0001/bots/b`),
+      claude.folderFor(path.join(claude.box, 'elsewhere', 'local-data', 'obk-system-else-Ot0001', 'bots', 'b')),
+    ];
+    const files = others.map((folder) => ({ file: path.join(folder, `${CLAUDE_IDS[0]}.jsonl`), text: claudeTranscript(CLAUDE_IDS[0], [work]) }));
+    await claude.write(good.during, { dirs: [work], files });
+
+    const result = await claude.run();
+
+    assert.equal(result.code, 0, everything(result));
+    assert.equal(there(good.folder), false, `the premise: the run's folder goes: ${good.folder}`);
+    for (const { file } of files) assert.ok(there(file), `a folder of another name stays, with its transcript: ${file}`);
+    for (const folder of others) assert.ok(!everything(result).includes(path.basename(folder)), `${path.basename(folder)} is not named, got:\n${everything(result)}`);
+  });
+
+  test('C2 R3b a link named as the run\'s folder stays a link, what it leads to stays as it was, it is named, and the run fails', async (t) => {
+    const claude = await withClaudeStore(t);
+    const good = claude.goodRun('obk-system-good-Gd0003/bots/b');
+    const linked = claude.goodRun('obk-system-link-Lk0002/bots/b');
+    const target = path.join(claude.box, 'link-target');
+    const kept = path.join(target, `${CLAUDE_IDS[0]}.jsonl`);
+    await mkdir(target, { recursive: true });
+    await writeFile(kept, claudeTranscript(CLAUDE_IDS[0], [linked.work]));
+    await claude.write(good.during, { dirs: [linked.work], links: [{ link: linked.folder, to: target }] });
+
+    const result = await claude.run();
+
+    assert.equal(there(good.folder), false, `the premise: the run's folder goes: ${good.folder}\n${everything(result)}`);
+    assert.ok(lstatSync(linked.folder).isSymbolicLink(), `the link stays a link: ${linked.folder}`);
+    assert.equal(await readlink(linked.folder), target, 'leading where it led');
+    assert.equal(await readFile(kept, 'utf8'), claudeTranscript(CLAUDE_IDS[0], [linked.work]), 'and what it leads to is untouched');
+    assert.ok(afterTheRun(result).includes(path.basename(linked.folder)), `the link is named as left, got:\n${afterTheRun(result)}`);
+    assert.notEqual(result.code, 0, `a link named like the run's folder cannot be proven the run's, so the run fails:\n${everything(result)}`);
+  });
+
+  test('R3b a new entry named like the run\'s folder that cannot be looked at with lstat stays untouched, is named, and the run fails', async (t) => {
+    const claude = await withClaudeStore(t);
+    const hidden = claude.goodRun('obk-system-hidden-Hd0001/bots/b');
+    // The store keeps its read bit and loses its search bit once the folder is
+    // in it: its names can be listed, and lstat of any of them fails (EACCES).
+    await claude.write(hidden.during, { locks: [{ target: claude.store, mode: 0o644 }] });
+    t.after(() => chmod(claude.store, 0o755).catch(() => {}));
+
+    const result = await claude.run();
+    await chmod(claude.store, 0o755);
+
+    assert.equal(await readFile(hidden.file, 'utf8'), claudeTranscript(CLAUDE_IDS[0], [hidden.work]), `the entry stays untouched, with its transcript: ${hidden.file}`);
+    assert.ok(afterTheRun(result).includes(path.basename(hidden.folder)), `the entry is named as left, got:\n${afterTheRun(result)}`);
+    assert.notEqual(result.code, 0, `an entry named like the run's that cannot be looked at fails the run:\n${everything(result)}`);
+  });
+
+  for (const [label, configDir] of [['a profile folder with no projects', 'missing'], ['a profile folder that is not there', 'absent']]) {
+    test(`R3c both stores missing at the start, CLAUDE_CONFIG_DIR ${label}: the home store and the profile's link to it, made during the run, are one store; the run's folder goes once, and the run passes`, async (t) => {
+      const claude = await withClaudeStore(t, { configDir });
+      assert.equal(there(claude.store), false, `the premise: no home store at the start: ${claude.store}`);
+      assert.equal(there(claude.profileStore), false, `the premise: no profile store at the start: ${claude.profileStore}`);
+      const mine = claude.goodRun('obk-system-late-Lt0001/bots/b');
+      await claude.write(mine.during, { links: [{ link: claude.profileStore, to: claude.store }] });
+
+      const result = await claude.run();
+
+      assert.equal(there(mine.folder), false, `the run's transcripts folder should be gone: ${mine.folder}\n${everything(result)}`);
+      assert.ok(lstatSync(claude.profileStore).isSymbolicLink(), 'the profile\'s projects stays a link');
+      assert.equal(await readlink(claude.profileStore), claude.store, 'leading where it led');
+      const aboutTheStores = afterTheRun(result).split('\n').filter((line) => line.includes(claude.store) || line.includes(claude.profileStore));
+      for (const line of aboutTheStores) {
+        assert.doesNotMatch(line, /could not be read|cannot be read|not found/i, `no store should be said to be unreadable or not found, got:\n${afterTheRun(result)}`);
+      }
+      assert.ok(afterTheRun(result).includes(path.basename(mine.folder)), `the output names the folder it removed, got:\n${afterTheRun(result)}`);
+      assert.equal(result.code, 0, `one store, made during the run and reached two ways, with nothing in it left:\n${everything(result)}`);
+    });
+  }
+
+  // Each case is a new folder whose name looks like the run's, next to a good
+  // one of the run's that goes, so that "removes nothing at all" cannot pass.
+  // `make(claude)` gives the folder that must stay, a file in it to read back,
+  // what the run does, and what is made before it.
+  const notProven = [
+    ['C2 a second transcript whose cwd is outside the run\'s folders', (claude) => {
+      const mine = claude.goodRun('obk-system-out-Ou0001/bots/b');
+      const outside = path.join(mine.folder, `${CLAUDE_IDS[1]}.jsonl`);
+      return { folder: mine.folder, keep: outside, during: inTurn(mine.during, { files: [{ file: outside, text: claudeTranscript(CLAUDE_IDS[1], ['/Users/owner/work/app']) }] }) };
+    }],
+    ['C2 a transcript whose cwd is in an obk-system-* folder that was there before the run began', (claude) => {
+      const work = path.join(claude.tmp, 'obk-system-before-Bf0001', 'bots', 'b');
+      const folder = claude.folderFor(work);
+      const file = path.join(folder, `${CLAUDE_IDS[0]}.jsonl`);
+      return { folder, keep: file, before: () => mkdir(work, { recursive: true }), during: { files: [{ file, text: claudeTranscript(CLAUDE_IDS[0], [work]) }] } };
+    }],
+    ['C2 a transcript whose cwd climbs out of a new obk-system-* folder with ..', (claude) => {
+      const run = path.join(claude.tmp, 'obk-system-dots-Dt0001');
+      const folder = claude.folderFor(path.join(run, 'bots', 'b'));
+      const file = path.join(folder, `${CLAUDE_IDS[0]}.jsonl`);
+      return { folder, keep: file, during: { dirs: [run], files: [{ file, text: claudeTranscript(CLAUDE_IDS[0], [`${run}/../../outside/bots/b`]) }] } };
+    }],
+    ['C2 a second transcript with no cwd in any line', (claude) => {
+      const mine = claude.goodRun('obk-system-nocwd-Nc0001/bots/b');
+      const bare = path.join(mine.folder, `${CLAUDE_IDS[1]}.jsonl`);
+      return { folder: mine.folder, keep: bare, during: inTurn(mine.during, { files: [{ file: bare, text: claudeTranscript(CLAUDE_IDS[1], []) }] }) };
+    }],
+    ['C2 no transcript at all, only memory/', (claude) => {
+      const work = path.join(claude.tmp, 'obk-system-memory-Me0001', 'bots', 'b');
+      const folder = claude.folderFor(work);
+      return { folder, keep: path.join(folder, 'memory'), during: { dirs: [work, path.join(folder, 'memory')] } };
+    }],
+    ['C2 a file beside the transcript that is not one', (claude) => {
+      const mine = claude.goodRun('obk-system-notes-Nt0001/bots/b');
+      const notes = path.join(mine.folder, 'notes.txt');
+      return { folder: mine.folder, keep: notes, during: inTurn(mine.during, { files: [{ file: notes, text: 'the owner\'s notes\n' }] }) };
+    }],
+    ['C2 a folder beside the transcript named as no transcript\'s session id', (claude) => {
+      const mine = claude.goodRun('obk-system-stray-St0001/bots/b');
+      const stray = path.join(mine.folder, CLAUDE_IDS[2], 'subagents', 'agent-e5f6a7b8.jsonl');
+      return { folder: mine.folder, keep: stray, during: inTurn(mine.during, { files: [{ file: stray, text: claudeTranscript('agent-e5f6a7b8', [mine.work]) }] }) };
+    }],
+  ];
+
+  for (const [label, make] of notProven) {
+    test(`${label}: the folder stays, is named, and the run fails`, async (t) => {
+      const claude = await withClaudeStore(t);
+      const good = claude.goodRun('obk-system-good-Cn0001/bots/b');
+      const bad = make(claude);
+      assert.ok(path.basename(bad.folder).startsWith(`${claudeSlug(claude.tmp)}-obk-system-`), `the premise: the folder's name looks like the run's: ${path.basename(bad.folder)}`);
+      if (bad.before) await bad.before();
+      await claude.write(good.during, bad.during);
+
+      const result = await claude.run();
+
+      assert.equal(there(good.folder), false, `the premise: the good folder of the run beside it goes: ${good.folder}\n${everything(result)}`);
+      assert.ok(there(bad.folder), `the folder without proof stays: ${bad.folder}`);
+      assert.ok(there(bad.keep), `with what was in it: ${bad.keep}`);
+      assert.ok(everything(result).includes(path.basename(bad.folder)), `the output names the folder, got:\n${everything(result)}`);
+      assert.notEqual(result.code, 0, `a folder that looks like the run's but has no proof fails the run:\n${everything(result)}`);
+    });
+  }
+
+  test('C4 a removal that fails names the folder, and the run exits non-zero though its tests passed', async (t) => {
+    const claude = await withClaudeStore(t);
+    const mine = claude.goodRun('obk-system-locked-Lc0001/bots/b');
+    // The store loses its write bit once the folder is in it, so nothing in it can be removed.
+    await claude.write(mine.during, { locks: [{ target: claude.store, mode: 0o555 }] });
+    t.after(() => chmod(claude.store, 0o755).catch(() => {}));
+
+    const result = await claude.run();
+    await chmod(claude.store, 0o755);
+
+    assert.ok(there(mine.folder), `the premise: the folder could not be removed: ${mine.folder}`);
+    assert.ok(afterTheRun(result).includes(path.basename(mine.folder)), `the report names the folder, got:\n${afterTheRun(result)}`);
+    assert.notEqual(result.code, 0, `a folder of the run's that could not be removed fails the run:\n${everything(result)}`);
+  });
+
+  test('C4 a store that cannot be read when the run begins loses nothing, though it can be read after; the store is named and the run fails', async (t) => {
+    const claude = await withClaudeStore(t);
+    await mkdir(claude.store, { recursive: true });
+    const mine = claude.goodRun('obk-system-unread-Ur0001/bots/b');
+    await claude.write({ modes: [{ target: claude.store, mode: 0o755 }] }, mine.during);
+    await chmod(claude.store, 0o000);
+    t.after(() => chmod(claude.store, 0o755).catch(() => {}));
+
+    const result = await claude.run();
+    await chmod(claude.store, 0o755).catch(() => {});
+
+    assert.ok(there(mine.file), `the new folder stays with its transcript, as the runner cannot tell it is new: ${mine.file}`);
+    assert.ok(everything(result).includes(claude.store), `the output names the store, got:\n${everything(result)}`);
+    assert.notEqual(result.code, 0, `a store it could not read fails the run:\n${everything(result)}`);
+  });
+
+  test('C4 a store that cannot be read after the tests is named, and the run fails', async (t) => {
+    const claude = await withClaudeStore(t);
+    const mine = claude.goodRun('obk-system-unread-Ur0002/bots/b');
+    await claude.write(mine.during, { locks: [{ target: claude.store, mode: 0o000 }] });
+    t.after(() => chmod(claude.store, 0o755).catch(() => {}));
+
+    const result = await claude.run();
+    await chmod(claude.store, 0o755).catch(() => {});
+
+    assert.ok(there(mine.file), `nothing was removed from it: ${mine.file}`);
+    assert.ok(everything(result).includes(claude.store), `the output names the store, got:\n${everything(result)}`);
+    assert.notEqual(result.code, 0, `a store it could not read fails the run:\n${everything(result)}`);
+  });
+
+  test('C1 C5 no store at all is an empty one: the run exits 0 as its tests did, and no store is made', async (t) => {
+    const claude = await withClaudeStore(t);
+    await claude.write({});
+
+    const result = await claude.run();
+
+    assert.equal(result.code, 0, everything(result));
+    assert.equal(there(claude.store), false, 'and no store was made');
+  });
+
+  test('C5 the run\'s folder is removed when its tests failed too, and the run still fails', async (t) => {
+    const claude = await withClaudeStore(t);
+    const mine = claude.goodRun('obk-system-failed-Fl0001/bots/b');
+    await claude.write(mine.during, { thenFails: true });
+
+    const result = await claude.run();
+
+    assert.notEqual(result.code, 0, `the tests failed, so the run does:\n${everything(result)}`);
+    assert.equal(there(mine.folder), false, `the run's transcripts folder should be gone all the same: ${mine.folder}`);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// One system-test run at a time drives this machine (#860, R3a)
+// ---------------------------------------------------------------------------
+//
+// "New since the run began" proves which run made a folder only when no other
+// run starts in the meantime: a second runner that starts after this one's
+// snapshot would have its folders and transcripts taken for this one's. So:
+//
+//   L1  A run about to drive the machine (after --yes and the night check,
+//       before the config backup and the snapshots) takes the runner's lock: a
+//       folder `obk-test-system.lock` in the temp folder, holding the pid of
+//       the runner that has it.
+//   L2  A run that finds the lock held by a live process is refused: exit 1,
+//       no config backup, no test loaded, Orca not asked to run anything, no
+//       cleanup of anything. The message names the lock folder and the pid
+//       that holds it, and says that another system-test run is going.
+//   L3  There is no automatic takeover (review round 2 of PR #865). A lock
+//       whose pid is not a running process is still a lock: the run is
+//       refused as for a live holder (exit 1, no backup, no test loaded, Orca
+//       asked nothing past its status, nothing of the lock changed). The
+//       message says the runner that holds it, pid N, is no longer running,
+//       that its tests may still be running, names their process group when
+//       the lock records one with a way to list what is left (such as
+//       `pgrep -g <group>`), and says to remove the lock folder, named, by hand
+//       only once nothing of that run is left, and then to run again.
+//   L6  Once the runner has started its tests, the lock records their process
+//       group, the pid of the node --test it spawned, in a file `group` beside
+//       `pid`. A lock with no `group` (its runner died before its tests) is
+//       refused the same way, and its message names no group.
+//   L4  The lock is released after the reports and the cleanup, however the
+//       tests ended: passed, failed, stopped by the time limit, or stopped by
+//       a signal to the runner.
+//   L5  A run that drives nothing takes no lock and leaves none: a refused
+//       name, an attended file, Orca not ready, no --yes, and a run refused at
+//       night for lack of time.
+//
+// Every runner here is a process of the test's own, with the sandbox's HOME
+// and temp folder, so the lock is the sandbox's; each is stopped, if at all,
+// by its own pid (startRunner).
+
+/** The runner's lock in a run's temp folder. */
+const lockIn = (env) => path.join(env.TMPDIR, 'obk-test-system.lock');
+
+/**
+ * A system test file that makes `dirs` and writes `files` ({ file, text }),
+ * writes `<name>:started` in ran.log beside the repo, with `lock:there` or
+ * `lock:none` for the runner's lock as it finds it and `ppid:<n>` for its
+ * parent, the node --test that runs it, and then waits for a file `go` beside
+ * the repo, for 20 s at most. Then it makes `later.dirs` and writes
+ * `later.files`, as a test still running goes on making what it makes, and
+ * writes `<name>:ended`. With `blocks`, it stops its thread for that many ms
+ * before it waits, so that nothing but a kill ends it sooner; with `fails`, it
+ * fails at the end.
+ */
+const waitsForGo = (name, { dirs = [], files = [], later = {}, blocks = 0, fails = false } = {}) => [
+  "import { appendFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';",
+  "import path from 'node:path';",
+  "import test from 'node:test';",
+  "import { setTimeout as sleep } from 'node:timers/promises';",
+  '',
+  `test(${JSON.stringify(name)}, async () => {`,
+  `  const box = path.dirname(process.env[${JSON.stringify(WORLD)}]);`,
+  "  const log = (line) => appendFileSync(path.join(box, 'ran.log'), `${line}\\n`);",
+  '  const make = ({ dirs = [], files = [] }) => {',
+  '    for (const dir of dirs) mkdirSync(dir, { recursive: true });',
+  '    for (const { file, text } of files) {',
+  '      mkdirSync(path.dirname(file), { recursive: true });',
+  '      writeFileSync(file, text);',
+  '    }',
+  '  };',
+  `  make(${JSON.stringify({ dirs, files })});`,
+  `  log(${JSON.stringify(`${name}:started`)});`,
+  "  log(existsSync(path.join(process.env.TMPDIR, 'obk-test-system.lock')) ? 'lock:there' : 'lock:none');",
+  '  log(`ppid:${process.ppid}`);',
+  `  process.stdout.write(${JSON.stringify(`${name}\n`)});`,
+  `  if (${blocks} > 0) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ${blocks});`,
+  "  const until = Date.now() + 20_000;",
+  "  while (!existsSync(path.join(box, 'go')) && Date.now() < until) await sleep(50);",
+  `  make(${JSON.stringify(later)});`,
+  `  log(${JSON.stringify(`${name}:ended`)});`,
+  ...(fails ? [`  throw new Error(${JSON.stringify(`${name} failed`)});`] : []),
+  '});',
+  '',
+].join('\n');
+
+/** Wait until ran.log holds `line`, for `ms` at most; answers whether it did. */
+async function ranLogHas(fixture, line, ms = 15_000) {
+  const until = Date.now() + ms;
+  while (Date.now() < until) {
+    if ((await ranIn(fixture)).includes(line)) return true;
+    await new Promise((resolve) => { setTimeout(resolve, 50); });
+  }
+  return false;
+}
+
+/** Let the waiting system test end: the `go` file beside the repo. */
+const go = (fixture) => writeFile(path.join(path.dirname(fixture.repo), 'go'), 'go\n');
+
+/**
+ * A fixture whose run reads no harness config or store of this shell's, with
+ * ALPHA as `waitsForGo` makes it (`alpha` its options) and BETA a tallies
+ * file. `holding(body)` starts a runner on ALPHA, waits until its test has
+ * started, and runs `body({ runner, finish })`, `finish` letting the test end
+ * and answering the runner's result. However `body` ends, the runner is let
+ * end and waited for before the sandbox goes.
+ */
+async function withLock(t, alpha = {}) {
+  const fixture = await createRepo(t, { files: { 'test/system/alpha.test.js': waitsForGo('ALPHA', alpha), 'test/system/beta.test.js': tallies('BETA') } });
+  const { CODEX_HOME: _codex, CLAUDE_CONFIG_DIR: _claude, PI_CODING_AGENT_DIR: _pi, ...env } = fixture.env;
+  const holding = async (body) => {
+    const runner = startRunner(fixture, [CONFIRM, 'test/system/alpha.test.js'], { env });
+    try {
+      assert.ok(await ranLogHas(fixture, 'ALPHA:started'), `the premise: the first run's test started, got:\n${runner.printed()}`);
+      await body({
+        runner,
+        async finish() {
+          await go(fixture);
+          return runner.done;
+        },
+      });
+    } finally {
+      await go(fixture).catch(() => {});
+      await runner.done;
+    }
+  };
+  return { fixture, env, lock: lockIn(env), holding };
+}
+
+/**
+ * A stale-lock message does not let an empty process group stand as proof
+ * that nothing of the dead run is left: the run's Orca tabs and their
+ * harnesses run in process groups of their own. So it says to look in Orca for
+ * the run's own tabs and projects, and at obk-system-* folders, before the lock
+ * is removed.
+ */
+function assertLooksBeyondTheGroup(all) {
+  const said = unwrapped(all);
+  assert.match(said, /\bOrca\b/, `the message says to look in Orca, got:\n${all}`);
+  assert.match(said, /\btabs?\b/i, `for the run's own tabs, got:\n${all}`);
+  assert.match(said, /\bprojects?\b/i, `and its projects, got:\n${all}`);
+  assert.ok(all.includes('obk-system-'), `and at obk-system-* folders, got:\n${all}`);
+}
+
+/** What a lock folder is, to tell that nothing of it changed: its entries, and each one's text. */
+async function lockState(lock) {
+  const names = (await readdir(lock)).sort();
+  return Object.fromEntries(await Promise.all(names.map(async (name) => [name, await readFile(path.join(lock, name), 'utf8')])));
+}
+
+/** The pid of a process this test started and that has ended: a pid that is not running. */
+async function aDeadPid() {
+  const child = spawn(process.execPath, ['-e', ''], { stdio: 'ignore' });
+  await new Promise((resolve) => { child.on('exit', resolve); });
+  return child.pid;
+}
+
+/** A fake Orca that answers that its runtime is not reachable. */
+async function orcaNotReady(fixture) {
+  const file = path.join(path.dirname(fixture.repo), 'bin', 'orca-not-ready');
+  await writeFile(file, `#!/bin/sh\nprintf '%s\\n' '${JSON.stringify({ ok: true, result: { runtime: { reachable: false } } })}'\n`);
+  await chmod(file, 0o755);
+  return file;
+}
+
+describe('test-system: one system-test run at a time drives this machine (#860, R3a)', { concurrency: true }, () => {
+  test('L1 L4 a passing run holds the lock while its tests run, and the lock is gone after it', async (t) => {
+    const at = await withLock(t);
+    await go(at.fixture);
+
+    const result = await at.fixture.confirmed({ env: at.env });
+
+    assert.equal(result.code, 0, everything(result));
+    assert.ok((await ranIn(at.fixture)).includes('lock:there'), `the lock should be there while the tests run: ${at.lock}\n${everything(result)}`);
+    assert.equal(there(at.lock), false, `the lock should be gone after the run: ${at.lock}`);
+  });
+
+  test('L4 a failing run releases the lock too', async (t) => {
+    const at = await withLock(t, { fails: true });
+    await go(at.fixture);
+
+    const result = await at.fixture.confirmed({ names: ['test/system/alpha.test.js'], env: at.env });
+
+    assert.equal(result.code, 1, everything(result));
+    assert.ok((await ranIn(at.fixture)).includes('lock:there'), `the lock should be there while the tests run: ${at.lock}\n${everything(result)}`);
+    assert.equal(there(at.lock), false, `the lock should be gone after the run: ${at.lock}`);
+  });
+
+  test('L4 a run stopped by its time limit releases the lock', async (t) => {
+    const at = await withLock(t, { blocks: 20_000 });
+
+    const run = startRunner(at.fixture, [CONFIRM, '--limit=3', 'test/system/alpha.test.js'], { env: at.env });
+    const result = await run.done;
+
+    assertEnded(result);
+    assert.equal(result.code, 1, everything(result));
+    assert.ok(result.stdout.split('\n').some((line) => /time limit/i.test(line) && /stopped/i.test(line)), `the premise: the time limit stopped the run, got:\n${everything(result)}`);
+    assert.ok((await ranIn(at.fixture)).includes('lock:there'), `the lock should be there while the tests run: ${at.lock}\n${everything(result)}`);
+    assert.equal(there(at.lock), false, `the lock should be gone after the run: ${at.lock}`);
+  });
+
+  test('L4 a run stopped by a SIGTERM to the runner releases the lock', async (t) => {
+    const at = await withLock(t);
+
+    await at.holding(async (held) => {
+      held.runner.send('SIGTERM');
+      const result = await held.runner.done;
+
+      assertEnded(result);
+      assert.equal(result.code, 1, everything(result));
+      assert.ok((await ranIn(at.fixture)).includes('lock:there'), `the lock should be there while the tests run: ${at.lock}\n${everything(result)}`);
+      assert.equal(there(at.lock), false, `the lock should be gone after the run: ${at.lock}`);
+    });
+  });
+
+  test('L2 while a live runner holds the lock, a second run is refused before it backs up or loads anything, and touches nothing of the first run\'s', async (t) => {
+    const at = await withLock(t);
+    // The first run's own throwaway folder and its Claude transcripts, made
+    // after its snapshot: the second run must not take them for its own.
+    const work = path.join(realpathSync(at.env.TMPDIR), 'obk-system-first-Fr0001', 'bots', 'b');
+    const transcripts = path.join(at.env.HOME, '.claude', 'projects', claudeSlug(work));
+    const transcript = path.join(transcripts, `${CLAUDE_IDS[0]}.jsonl`);
+    await write(at.fixture.repo, 'test/system/alpha.test.js', waitsForGo('ALPHA', { dirs: [work], files: [{ file: transcript, text: claudeTranscript(CLAUDE_IDS[0], [work]) }] }));
+    await at.holding(async (held) => {
+      const backups = await backupsIn(at.env.TMPDIR);
+      const callsBefore = (await at.fixture.orca.calls()).length;
+
+      const second = await at.fixture.confirmed({ env: at.env });
+
+      const all = everything(second);
+      const calls = (await at.fixture.orca.calls()).slice(callsBefore);
+      assert.equal(second.code, 1, `a run that finds the lock held should exit 1, got ${second.code}:\n${all}`);
+      assert.ok(!/^\s+at /m.test(all), `expected a message, got a crash:\n${all}`);
+      assert.ok(all.includes(at.lock), `the message names the lock folder ${at.lock}, got:\n${all}`);
+      assert.ok(new RegExp(`(?<!\\d)${held.runner.pid}(?!\\d)`).test(all), `the message names the pid that holds it, ${held.runner.pid}, got:\n${all}`);
+      assert.match(unwrapped(all), /another\b[^.]*\brun/i, `the message says another system-test run is going, got:\n${all}`);
+      assert.deepEqual(await backupsIn(at.env.TMPDIR), backups, `the second run makes no backup, got:\n${all}`);
+      assert.ok(!second.stdout.includes('Config backup:'), `the second run says no backup, got:\n${all}`);
+      assert.deepEqual(calls.map((call) => call.args).filter((args) => args[0] !== 'status'), [], `the second run asks Orca nothing but its status, got: ${JSON.stringify(calls.map((call) => call.args))}`);
+      assert.deepEqual((await ranIn(at.fixture)).filter((line) => line === 'ALPHA:started' || line === 'BETA'), ['ALPHA:started'], `the second run loads no test file, got:\n${all}`);
+      assert.ok(there(at.lock), `the first run's lock stays: ${at.lock}`);
+      assert.ok(there(work), `the first run's folder stays: ${work}`);
+      assert.equal(await readFile(transcript, 'utf8'), claudeTranscript(CLAUDE_IDS[0], [work]), `the first run's transcripts stay untouched: ${transcript}`);
+
+      const first = await held.finish();
+      assertEnded(first);
+      assert.equal(first.code, 0, `the first run goes on to pass:\n${everything(first)}`);
+      assert.equal(there(at.lock), false, `and its lock is gone after it: ${at.lock}`);
+    });
+  });
+
+  test('L6 once its tests have started, the lock holds the runner\'s pid in `pid` and their process group, the pid of its node --test, in `group`', async (t) => {
+    const at = await withLock(t);
+
+    await at.holding(async (held) => {
+      const ppid = (await ranIn(at.fixture)).find((line) => line.startsWith('ppid:'))?.slice('ppid:'.length);
+      assert.ok(ppid !== undefined, 'the premise: the test wrote down its parent, the node --test');
+      assert.equal((await readFile(path.join(at.lock, 'pid'), 'utf8')).trim(), String(held.runner.pid), 'the lock holds the runner\'s pid');
+      assert.ok(there(path.join(at.lock, 'group')), `the lock records the tests' process group in ${path.join(at.lock, 'group')}`);
+      assert.equal((await readFile(path.join(at.lock, 'group'), 'utf8')).trim(), ppid, 'the lock holds the tests\' process group: the pid of the node --test the runner spawned');
+
+      const first = await held.finish();
+      assert.equal(first.code, 0, everything(first));
+    });
+  });
+
+  test('L3 the reviewer\'s case: runner A is killed while its test runs; runner B is refused and touches nothing; A\'s test goes on and ends; the lock and A\'s transcripts stay until the lock is removed by hand, and then a run goes', async (t) => {
+    const at = await withLock(t);
+    const tmp = realpathSync(at.env.TMPDIR);
+    const projects = path.join(at.env.HOME, '.claude', 'projects');
+    // What A's test makes before it is killed, and what it goes on to make
+    // after: each a run folder of its own and a transcript for it.
+    const early = path.join(tmp, 'obk-system-early-Ea0001', 'bots', 'b');
+    const late = path.join(tmp, 'obk-system-late-La0001', 'bots', 'b');
+    const earlyFile = path.join(projects, claudeSlug(early), `${CLAUDE_IDS[0]}.jsonl`);
+    const lateFile = path.join(projects, claudeSlug(late), `${CLAUDE_IDS[1]}.jsonl`);
+    await write(at.fixture.repo, 'test/system/alpha.test.js', waitsForGo('ALPHA', {
+      dirs: [early],
+      files: [{ file: earlyFile, text: claudeTranscript(CLAUDE_IDS[0], [early]) }],
+      later: { dirs: [late], files: [{ file: lateFile, text: claudeTranscript(CLAUDE_IDS[1], [late]) }] },
+    }));
+
+    await at.holding(async (held) => {
+      const deadPid = held.runner.pid;
+      const group = (await ranIn(at.fixture)).find((line) => line.startsWith('ppid:'))?.slice('ppid:'.length);
+      held.runner.send('SIGKILL');
+      await held.runner.done;
+      assert.ok(there(at.lock), `the premise: the killed runner left its lock: ${at.lock}`);
+      const lockWas = await lockState(at.lock);
+      const backups = await backupsIn(at.env.TMPDIR);
+      const callsBefore = (await at.fixture.orca.calls()).length;
+
+      const second = await at.fixture.confirmed({ env: at.env });
+
+      const all = everything(second);
+      const said = unwrapped(all);
+      assert.equal(second.code, 1, `a lock whose runner is gone is still a lock: the run is refused with exit 1, got ${second.code}:\n${all}`);
+      assert.ok(!/^\s+at /m.test(all), `expected a message, got a crash:\n${all}`);
+      assert.ok(new RegExp(`(?<!\\d)${deadPid}(?!\\d)`).test(all), `the message names the runner's pid, ${deadPid}, got:\n${all}`);
+      assert.match(said, /no longer running|not running|is not alive|has stopped|is gone|has ended|died/i, `the message says that runner is no longer running, got:\n${all}`);
+      assert.match(said, /\btests?\b[^.]*\b(?:may|might|could)\b[^.]*\brunning\b/i, `the message says its tests may still be running, got:\n${all}`);
+      assert.ok(group !== undefined && new RegExp(`(?<!\\d)${group}(?!\\d)`).test(all), `the message names their process group, ${group}, got:\n${all}`);
+      assert.match(all, /\b(?:pgrep|ps)\b/, `the message gives a way to list what is left of the group, got:\n${all}`);
+      assert.ok(all.includes(at.lock), `the message names the lock folder, ${at.lock}, got:\n${all}`);
+      assert.match(said, /\b(?:remove|delete)\b/i, `the message says to remove the lock folder by hand, got:\n${all}`);
+      assert.match(said, /\bagain\b/i, `the message says to run again then, got:\n${all}`);
+      assertLooksBeyondTheGroup(all);
+      assert.deepEqual(await lockState(at.lock), lockWas, 'nothing of the lock changed');
+      assert.deepEqual(await backupsIn(at.env.TMPDIR), backups, `the refused run makes no backup, got:\n${all}`);
+      const calls = (await at.fixture.orca.calls()).slice(callsBefore);
+      assert.deepEqual(calls.map((call) => call.args).filter((args) => args[0] !== 'status'), [], `the refused run asks Orca nothing past its status, got: ${JSON.stringify(calls.map((call) => call.args))}`);
+      assert.deepEqual((await ranIn(at.fixture)).filter((line) => line === 'ALPHA:started' || line === 'BETA'), ['ALPHA:started'], `the refused run loads no test file, got:\n${all}`);
+
+      // A's test goes on, and makes what it makes, with nobody to stop it.
+      await go(at.fixture);
+      assert.ok(await ranLogHas(at.fixture, 'ALPHA:ended'), 'A\'s test can go on and end');
+      assert.equal(await readFile(earlyFile, 'utf8'), claudeTranscript(CLAUDE_IDS[0], [early]), `A's transcript from before the kill stays untouched: ${earlyFile}`);
+      assert.equal(await readFile(lateFile, 'utf8'), claudeTranscript(CLAUDE_IDS[1], [late]), `A's transcript from after the kill stays untouched: ${lateFile}`);
+      assert.ok(there(early) && there(late), 'and so do its run folders');
+      assert.deepEqual(await lockState(at.lock), lockWas, 'the lock stays untouched until it is removed by hand');
+
+      // Removed by hand, once nothing of that run is left: then a run goes.
+      await rm(at.lock, { recursive: true });
+      const third = await at.fixture.confirmed({ env: at.env });
+      assert.equal(third.code, 0, `with the lock removed by hand, the next run goes:\n${everything(third)}`);
+      assert.equal(there(at.lock), false, `and it leaves no lock: ${at.lock}`);
+    });
+  });
+
+  test('L3 L6 a lock with a dead pid and no group, its runner gone before its tests: the run is refused, the message names no group, and nothing of the lock changes', async (t) => {
+    const at = await withLock(t);
+    const deadPid = await aDeadPid();
+    await mkdir(at.lock);
+    await writeFile(path.join(at.lock, 'pid'), String(deadPid));
+    const lockWas = await lockState(at.lock);
+    await go(at.fixture);
+
+    const result = await at.fixture.confirmed({ env: at.env });
+
+    const all = everything(result);
+    assert.equal(result.code, 1, `a lock whose runner is gone is still a lock, got ${result.code}:\n${all}`);
+    assert.ok(!/^\s+at /m.test(all), `expected a message, got a crash:\n${all}`);
+    assert.ok(new RegExp(`(?<!\\d)${deadPid}(?!\\d)`).test(all), `the message names the runner's pid, ${deadPid}, got:\n${all}`);
+    assert.match(unwrapped(all), /no longer running|not running|is not alive|has stopped|is gone|has ended|died/i, `the message says that runner is no longer running, got:\n${all}`);
+    assert.ok(all.includes(at.lock), `the message names the lock folder, ${at.lock}, got:\n${all}`);
+    assert.doesNotMatch(all, /-g\s*\d|\bgroup\s+\d/i, `the message names no process group, got:\n${all}`);
+    assert.match(unwrapped(all), /\bgroup\b[^.]*\bunknown\b|\bunknown\b[^.]*\bgroup\b/i, `the message says the group is unknown, got:\n${all}`);
+    assert.doesNotMatch(unwrapped(all), /\bgroup\b[^.]*\bempty\b|\bempty\b[^.]*\bgroup\b/i, `the message must not read as if the group were empty, got:\n${all}`);
+    assert.match(unwrapped(all), /\b(?:remove|delete)\b/i, `the message says to remove the lock folder by hand, got:\n${all}`);
+    assertLooksBeyondTheGroup(all);
+    assert.deepEqual(await lockState(at.lock), lockWas, 'nothing of the lock changed');
+    assert.ok(!result.stdout.includes('Config backup:'), `no backup is made, got:\n${all}`);
+    assert.deepEqual(await backupsIn(at.env.TMPDIR), [], 'no backup folder is left');
+    assert.deepEqual(await ranIn(at.fixture), [], `no test is loaded, got:\n${all}`);
+    assert.deepEqual((await at.fixture.orca.calls()).map((call) => call.args[0]).filter((word) => word !== 'status'), [], 'Orca is asked nothing past its status');
+  });
+
+  test('L3 the reviewer\'s second case: two runs that find the same dead-pid lock at once are both refused, and the lock is as it was', async (t) => {
+    const at = await withLock(t);
+    const deadPid = await aDeadPid();
+    await mkdir(at.lock);
+    await writeFile(path.join(at.lock, 'pid'), String(deadPid));
+    const lockWas = await lockState(at.lock);
+    await go(at.fixture);
+
+    const [one, two] = await Promise.all([at.fixture.confirmed({ env: at.env }), at.fixture.confirmed({ env: at.env })]);
+
+    assert.equal(one.code, 1, everything(one));
+    assert.equal(two.code, 1, everything(two));
+    assert.deepEqual(await lockState(at.lock), lockWas, 'neither run changed the lock');
+    assert.deepEqual(await ranIn(at.fixture), [], 'and neither ran a test');
+  });
+
+  test('L5 runs that drive nothing take no lock and leave none', async (t) => {
+    const at = await withLock(t, {});
+    await write(at.fixture.repo, 'test/system/held.test.js', saysInComment('HELD', ATTENDED));
+    const notReady = await orcaNotReady(at.fixture);
+    const cases = [
+      ['a refused name', () => at.fixture.confirmed({ names: ['test/other.test.js'], env: at.env }), 1],
+      ['an attended file', () => at.fixture.confirmed({ names: ['test/system/held.test.js'], env: at.env }), 1],
+      ['Orca not ready', () => at.fixture.confirmed({ env: { ...at.env, OBK_ORCA: notReady } }), 0],
+      ['no --yes', () => at.fixture.run({ env: at.env }), 2],
+      ['a run refused at night for lack of time', async () => (await startAt(at.fixture, [5, 59, 59, 500], [CONFIRM], { env: at.env })).done, 1],
+    ];
+    for (const [label, run, code] of cases) {
+      const result = await run();
+      assert.equal(result.code, code, `${label}: the premise, its own exit, got:\n${everything(result)}`);
+      assert.equal(there(at.lock), false, `${label}: no lock should be left: ${at.lock}\n${everything(result)}`);
+    }
+    assert.deepEqual(await ranIn(at.fixture), [], 'and none of them ran a test');
+  });
+
+  test('L1 L5 while a live runner holds the lock, runs that would drive nothing answer as they do without it, and leave the lock alone', async (t) => {
+    const at = await withLock(t);
+    const notReady = await orcaNotReady(at.fixture);
+    await at.holding(async (held) => {
+      const cases = [
+        ['no --yes', () => at.fixture.run({ env: at.env }), 2],
+        ['Orca not ready', () => at.fixture.confirmed({ env: { ...at.env, OBK_ORCA: notReady } }), 0],
+        ['a run refused at night for lack of time', async () => (await startAt(at.fixture, [5, 59, 59, 500], [CONFIRM], { env: at.env })).done, 1],
+      ];
+      for (const [label, run, code] of cases) {
+        const result = await run();
+        assert.equal(result.code, code, `${label}: it answers as without a lock, got:\n${everything(result)}`);
+        assert.ok(!everything(result).includes(at.lock), `${label}: it is not refused for the lock, got:\n${everything(result)}`);
+        assert.ok(there(at.lock), `${label}: the first run's lock stays: ${at.lock}`);
+      }
+
+      const first = await held.finish();
+      assert.equal(first.code, 0, `the first run goes on to pass:\n${everything(first)}`);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A transcripts folder of the run's with no transcript (#860, R3d)
+// ---------------------------------------------------------------------------
+//
+// Seen on a live run of restored-tab: Claude Code made a folder in the store
+// named exactly the slug of the test's bots root, a folder the run made, and
+// it held only an empty `memory` folder. The test had removed that root before
+// the run ended. As the architect decided:
+//
+//   D1  A new entry in a store with no transcript is the run's, and is
+//       removed, when (a) its name is exactly the slug of a folder this run
+//       made, in any spelling the prefixes allow: an obk-system-* folder under
+//       the temp folder or <repo>/local-data that the runner saw while the run
+//       went on (it looks at least every second) or at its end, and that was
+//       not in the starting snapshot; a name that only starts with such a slug
+//       is not enough; (b) it is a real folder, not a link; and (c) it holds
+//       nothing but empty folders named `memory`, each real and not a link, or
+//       nothing at all.
+//   D2  It is removed only by rmdir, `memory` first and then the folder, never
+//       by a recursive delete. An rmdir that fails leaves the folder, names
+//       it, and fails the run.
+//   D3  A folder that fails any of (a), (b) or (c) stays as it is, is named
+//       with the reason, and fails the run. A folder with the transcript proof
+//       keeps today's behaviour.
+//
+// Here a run folder is made by the fake test, kept for 2.5 s, and removed
+// before the test ends, as the live test does, unless a case says otherwise.
+// The race of D2, a file that appears between the check and the rmdir, cannot
+// be timed from a test through the runner, so it is not tested here.
+
+/** Whether an entry's name looks like the run's: the slug of the temp folder or of <repo>/local-data, then `-obk-system-`. */
+const looksLikeTheRuns = (claude, folder) => [claude.tmp, claude.localData].some((root) => path.basename(folder).startsWith(`${claudeSlug(root)}-obk-system-`));
+
+/** How long a fake test keeps the run folders it makes, so that the runner, which looks at least every second, sees them. */
+const KEPT_MS = 2500;
+
+/**
+ * A system test file that, phase by phase, gives each of `modes` its mode,
+ * makes `dirs`, writes `files` ({ file, text }), makes `links` ({ link, to }),
+ * removes `removes`, gives each of `locks` its mode, and then waits `waitMs`.
+ * It prints its marker at the end.
+ */
+const actsInPhases = (name, phases) => [
+  "import { chmodSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';",
+  "import path from 'node:path';",
+  "import test from 'node:test';",
+  "import { setTimeout as sleep } from 'node:timers/promises';",
+  '',
+  `test(${JSON.stringify(name)}, async () => {`,
+  `  for (const phase of ${JSON.stringify(phases)}) {`,
+  '    for (const { target, mode } of phase.modes ?? []) chmodSync(target, mode);',
+  '    for (const dir of phase.dirs ?? []) mkdirSync(dir, { recursive: true });',
+  '    for (const { file, text } of phase.files ?? []) {',
+  '      mkdirSync(path.dirname(file), { recursive: true });',
+  '      writeFileSync(file, text);',
+  '    }',
+  '    for (const { link, to } of phase.links ?? []) {',
+  '      mkdirSync(path.dirname(link), { recursive: true });',
+  '      symlinkSync(to, link);',
+  '    }',
+  '    for (const target of phase.removes ?? []) rmSync(target, { recursive: true, force: true });',
+  '    for (const { target, mode } of phase.locks ?? []) chmodSync(target, mode);',
+  '    if (phase.waitMs) await sleep(phase.waitMs);',
+  '  }',
+  `  process.stdout.write(${JSON.stringify(`${name}\n`)});`,
+  '});',
+  '',
+].join('\n');
+
+/**
+ * A case of D1: `root` a run folder under the temp folder (or `under`), and
+ * `folder` the store's entry named exactly its slug. `now` is made while the
+ * root is there; `later` removes the root after KEPT_MS, unless `keep` says
+ * the root stays to the end.
+ */
+function bareCase(claude, tag, { under = claude.tmp, keep = false, memory = true, slugOf } = {}) {
+  const root = path.join(under, `obk-system-${tag}`);
+  const folder = path.join(claude.store, claudeSlug(slugOf ?? root));
+  return {
+    root,
+    folder,
+    now: { dirs: [root, ...(memory ? [path.join(folder, 'memory')] : [folder])] },
+    later: keep ? {} : { removes: [root] },
+  };
+}
+
+/** The fake test for these cases: all of `now` at once, KEPT_MS, then all of `later`, then `last`. */
+const writeInPhases = (claude, cases, last = {}) => write(claude.fixture.repo, 'test/system/alpha.test.js', actsInPhases('ALPHA', [
+  { ...inTurn(...cases.map((one) => one.now)), waitMs: KEPT_MS },
+  inTurn(...cases.map((one) => one.later ?? {})),
+  last,
+]));
+
+describe('test-system: a transcripts folder of the run\'s with no transcript is removed (#860, R3d)', { concurrency: true }, () => {
+  const removed = [
+    ['D1 a folder named exactly the slug of a run folder the test made and removed, holding only an empty memory/', (claude) => bareCase(claude, 'restored-Rb0001')],
+    ['D1 a folder named exactly the slug of a run folder the test made and removed, holding nothing at all', (claude) => bareCase(claude, 'restored-Rb0002', { memory: false })],
+    ['D1 a folder named exactly the slug of a run folder that is still there at the end, holding only an empty memory/', (claude) => bareCase(claude, 'restored-Rb0003', { keep: true })],
+    ['D1 a folder named exactly the slug of a run folder under <repo>/local-data, holding only an empty memory/', (claude) => bareCase(claude, 'restored-Rb0004', { under: claude.localData })],
+  ];
+  for (const [label, make] of removed) {
+    test(`${label}: it is removed, named, and the run passes`, async (t) => {
+      const claude = await withClaudeStore(t);
+      const mine = make(claude);
+      await writeInPhases(claude, [mine]);
+
+      const result = await claude.run();
+
+      assert.equal(there(mine.folder), false, `the run's folder with no transcript should be gone: ${mine.folder}\n${everything(result)}`);
+      assert.ok(afterTheRun(result).includes(path.basename(mine.folder)), `it is named as removed, got:\n${afterTheRun(result)}`);
+      assert.equal(result.code, 0, everything(result));
+    });
+  }
+
+  test('D1 a folder named exactly the slug of the run folder\'s /var/… spelling, holding only an empty memory/: it is removed, and the run passes', { skip: NO_VAR_SPELLING }, async (t) => {
+    const claude = await withClaudeStore(t);
+    const root = path.join(claude.tmp, 'obk-system-restored-Vr0001');
+    assert.ok(root.startsWith('/private/var/'), `the premise: the real path is under /private/var: ${root}`);
+    const mine = bareCase(claude, 'restored-Vr0001', { slugOf: VAR_SPELLING(root) });
+    await writeInPhases(claude, [mine]);
+
+    const result = await claude.run();
+
+    assert.equal(there(mine.folder), false, `the run's folder with no transcript should be gone: ${mine.folder}\n${everything(result)}`);
+    assert.equal(result.code, 0, everything(result));
+  });
+
+  // Each case is a new entry of a name like the run's, with no transcript,
+  // next to a good one of D1 that goes, so that "removes nothing" cannot pass.
+  // `make(claude)` gives the case, with `keep` the paths that must stay as
+  // they are ({ path, text } for a file, { path, link } for a link, or a bare
+  // path), and `before` what is made before the run.
+  const stays = [
+    ['D3 c memory/ holds a file', (claude) => {
+      const one = bareCase(claude, 'held-Hf0001');
+      const file = path.join(one.folder, 'memory', 'MEMORY.md');
+      return { ...one, now: { dirs: one.now.dirs, files: [{ file, text: 'a note\n' }] }, keep: [{ path: file, text: 'a note\n' }] };
+    }],
+    ['D3 c a file beside memory/', (claude) => {
+      const one = bareCase(claude, 'beside-Bf0001');
+      const file = path.join(one.folder, 'notes.txt');
+      return { ...one, now: { dirs: one.now.dirs, files: [{ file, text: 'the owner\'s notes\n' }] }, keep: [{ path: file, text: 'the owner\'s notes\n' }, path.join(one.folder, 'memory')] };
+    }],
+    ['D3 c a folder beside memory/', (claude) => {
+      const one = bareCase(claude, 'beside-Bd0001');
+      const other = path.join(one.folder, 'tool-results');
+      return { ...one, now: { dirs: [...one.now.dirs, other] }, keep: [other, path.join(one.folder, 'memory')] };
+    }],
+    ['D3 c memory/ holds an empty folder', (claude) => {
+      const one = bareCase(claude, 'deep-Dp0001');
+      const inner = path.join(one.folder, 'memory', 'inner');
+      return { ...one, now: { dirs: [...one.now.dirs, inner] }, keep: [inner] };
+    }],
+    ['D3 c memory is a file, not a folder', (claude) => {
+      const one = bareCase(claude, 'file-Fm0001', { memory: false });
+      const file = path.join(one.folder, 'memory');
+      return { ...one, now: { dirs: one.now.dirs, files: [{ file, text: '' }] }, keep: [{ path: file, text: '' }] };
+    }],
+    ['D3 c memory is a link to a folder', (claude) => {
+      const one = bareCase(claude, 'linkmem-Lm0001', { memory: false });
+      const target = path.join(claude.box, 'memory-target');
+      const link = path.join(one.folder, 'memory');
+      return { ...one, before: () => mkdir(target, { recursive: true }), now: { dirs: one.now.dirs, links: [{ link, to: target }] }, keep: [{ path: link, link: target }, target] };
+    }],
+    ['D3 b the entry is a link to a folder that holds only an empty memory/', (claude) => {
+      const one = bareCase(claude, 'linked-Lk0003');
+      const target = path.join(claude.box, 'linked-target');
+      return {
+        ...one,
+        before: () => mkdir(path.join(target, 'memory'), { recursive: true }),
+        now: { dirs: [one.root], links: [{ link: one.folder, to: target }] },
+        keep: [{ path: one.folder, link: target }, path.join(target, 'memory')],
+      };
+    }],
+    ['D3 a the exact slug of an obk-system-* folder that was there before the run', (claude) => {
+      const one = bareCase(claude, 'older-Od0002');
+      return { ...one, before: () => mkdir(one.root, { recursive: true }), now: { dirs: [path.join(one.folder, 'memory')] }, keep: [path.join(one.folder, 'memory')] };
+    }],
+    ['D3 a the slug of a run folder the test made, with more after it, a longer name that was never a folder of the run', (claude) => {
+      const root = path.join(claude.tmp, 'obk-system-longer-Lo0001');
+      const folder = path.join(claude.store, `${claudeSlug(root)}-bots-b`);
+      return { root, folder, now: { dirs: [root, path.join(folder, 'memory')] }, later: { removes: [root] }, keep: [path.join(folder, 'memory')] };
+    }],
+  ];
+
+  for (const [label, make] of stays) {
+    test(`${label}: the entry stays as it is, is named, and the run fails`, async (t) => {
+      const claude = await withClaudeStore(t);
+      const good = bareCase(claude, 'good-Gb0001');
+      const bad = make(claude);
+      assert.ok(looksLikeTheRuns(claude, bad.folder), `the premise: the entry's name looks like the run's: ${path.basename(bad.folder)}`);
+      if (bad.before) await bad.before();
+      await writeInPhases(claude, [good, bad]);
+
+      const result = await claude.run();
+
+      assert.equal(there(good.folder), false, `the premise: the good folder of D1 beside it goes: ${good.folder}\n${everything(result)}`);
+      assert.ok(there(bad.folder), `the entry stays: ${bad.folder}`);
+      for (const one of bad.keep ?? []) {
+        if (typeof one === 'string') assert.ok(there(one), `with what was in it: ${one}`);
+        else if (one.link !== undefined) {
+          assert.ok(lstatSync(one.path).isSymbolicLink(), `the link stays a link: ${one.path}`);
+          assert.equal(await readlink(one.path), one.link, `leading where it led: ${one.path}`);
+        } else assert.equal(await readFile(one.path, 'utf8'), one.text, `untouched: ${one.path}`);
+      }
+      assert.ok(everything(result).includes(path.basename(bad.folder)), `the output names the entry, got:\n${everything(result)}`);
+      assert.notEqual(result.code, 0, `an entry like the run's that is not proven the run's fails the run:\n${everything(result)}`);
+    });
+  }
+
+  test('D2 when the folder cannot be removed by rmdir, it stays, is named, and the run fails', async (t) => {
+    const claude = await withClaudeStore(t);
+    const mine = bareCase(claude, 'locked-Lc0002');
+    // The store loses its write bit at the end of the test, so no entry of it
+    // can be removed.
+    await writeInPhases(claude, [mine], { locks: [{ target: claude.store, mode: 0o555 }] });
+    t.after(() => chmod(claude.store, 0o755).catch(() => {}));
+
+    const result = await claude.run();
+    await chmod(claude.store, 0o755);
+
+    assert.ok(there(mine.folder), `the premise: the folder could not be removed: ${mine.folder}`);
+    assert.ok(afterTheRun(result).includes(path.basename(mine.folder)), `the report names the folder, got:\n${afterTheRun(result)}`);
+    assert.notEqual(result.code, 0, `a folder of the run's that could not be removed fails the run:\n${everything(result)}`);
+  });
+
+  test('D1 a run folder made and removed within 50 ms, which the runner may or may not see: its folder is either removed and named, or left, named, and the run fails', async (t) => {
+    const claude = await withClaudeStore(t);
+    const root = path.join(claude.tmp, 'obk-system-brief-Br0001');
+    const folder = path.join(claude.store, claudeSlug(root));
+    await write(claude.fixture.repo, 'test/system/alpha.test.js', actsInPhases('ALPHA', [
+      { dirs: [root, path.join(folder, 'memory')], waitMs: 40 },
+      { removes: [root] },
+    ]));
+
+    const result = await claude.run();
+
+    assert.ok(everything(result).includes(path.basename(folder)), `the folder is named either way, got:\n${everything(result)}`);
+    if (there(folder)) {
+      assert.ok(there(path.join(folder, 'memory')), `left, it is left as it was: ${folder}`);
+      assert.notEqual(result.code, 0, `left, it fails the run:\n${everything(result)}`);
+    } else {
+      assert.equal(result.code, 0, `removed, it was the run's, and the run passes:\n${everything(result)}`);
+    }
   });
 });

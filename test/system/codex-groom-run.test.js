@@ -99,12 +99,14 @@
 // Father's orchestration Runs and the run's behind, which Orca offers no way to
 // delete; the runner lists them.
 //
-// **It is attended, a little.** A bot folder nobody has opened before asks
-// questions before the harness is running in it, and this test answers none of
-// them (PRD 6.5), but two. The person answers only this:
+// **It is attended.** A bot folder nobody has opened before asks questions
+// before the harness is running in it, and this test answers none of them
+// (PRD 6.5), but two. The person answers only this:
 //
 //   - Either Claude tab, after a turn: "Teach auto mode about your
-//     environment?". Esc cancels it (#416).
+//     environment?". Esc cancels it (#416). This test does not answer it, and
+//     the waits after it for the grooming session's turns need the grooming
+//     tab past it.
 //
 // The first exception: `Bot Father daily`'s folder trust, which this test
 // answers itself. The grooming session sends its report to daily, and a daily

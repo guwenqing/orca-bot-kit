@@ -56,25 +56,40 @@
 //
 // It is slow: a real agent, one answer, a quit and a resume. Minutes.
 //
-// **It is attended.** A bot folder nobody has opened before asks questions
-// before the harness is running in it, and this test answers none of them —
-// answering them is the caller's job and not the kit's (PRD 6.5). What to expect:
+// **It answers two screens itself, in its own Claude tabs, and waits on no
+// person.** A bot folder nobody has opened before asks questions before the
+// harness is running in it, and answering them is the caller's job and not the
+// kit's (PRD 6.5). This test is that caller for its own throwaway tabs. It
+// answers two first-run screens of Claude Code itself, in each `Plain Close
+// daily` tab it brought up, the one before the close and the one `up` opens
+// after it (see `answerScreens`):
 //
-//   1. `Plain Close daily`: Claude Code's folder-trust list. Its selection
-//      starts on `No, exit`, so it takes a down-arrow and then return.
-//   2. The same tab, if Claude Code offers an update: do not take it. It
-//      updates Claude Code for the whole machine (#618).
-//   3. After `up`, the new `Plain Close daily` tab. It is the same folder, so it
-//      should come straight up; if it asks again, answer it the same way.
-//   4. `Bot Father daily` will be sitting on its own trust question. Leave it.
-//   5. `Plain Close daily`, after its first answer: Claude Code 2.1.283's form
-//      "Teach auto mode about your environment?". Esc cancels it. The test
-//      types nothing into the tab while it is up, since a return presses
-//      Continue (#416).
+//   - Claude Code's folder trust, at most once in each of those tabs, only when
+//     helpers/claude-trust.js `claudeTrustAt` (#558) takes it: the plain trust,
+//     or the one that pre-approves exactly the kit's default rules for this
+//     throwaway bots folder, as the folder's own .claude/settings.json allows
+//     them. The selection starts on `No, exit`, so the answer is a down-arrow
+//     and then return (`\x1b[B\r`), sent as one payload with no `--enter`. The
+//     tab after `up` is the same folder, so it should come straight up.
+//   - "Teach auto mode about your environment?", Claude Code 2.1.283's form
+//     after a session's first turn, at most once in a tab, only when it is the
+//     captured form (helpers/screens.js `onlyTeachFormOf`): Esc, never
+//     Continue, since a return presses Continue (#416); then the form gone and
+//     autoModeEnvSetup as it was in the .claude.json of the session's own
+//     config folder, which Claude Code's registry of live sessions names
+//     (helpers/teach-record.js `sessionRecordFiles`, #738).
+//
+// A screen the helpers refuse, either screen asked again in the same tab, and
+// every other question in those tabs (helpers/screens.js `questionOn`) stop
+// the run at once, with the screen in the failure message, and are never
+// answered. An offer to update Claude Code is one of them: it would update
+// Claude Code for the whole machine (#618). Bot Father's tabs are left alone:
+// `Bot Father daily` may sit on its own trust question, nothing is asked of Bot
+// Father here, and nothing waits on it.
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readdirSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { mkdtemp, readdir, readFile, realpath, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -83,7 +98,9 @@ import { setTimeout } from 'node:timers/promises';
 import { parse } from 'yaml';
 
 import { cliEntry } from '../helpers/cli.js';
-import { waitingOn } from '../helpers/screens.js';
+import { claudeTrustAt, trustScreenMet } from '../helpers/claude-trust.js';
+import { onlyTeachFormOf, questionOn, waitingOn } from '../helpers/screens.js';
+import { autoModeState, sessionRecordFiles } from '../helpers/teach-record.js';
 import { tabGuard } from '../helpers/tab-guard.js';
 import { RC_OFF, withBotFatherOff } from '../helpers/remote-control-off.js';
 import { deleteOwnProject, placesOf, projectsInBots } from '../helpers/own-project.js';
@@ -114,7 +131,7 @@ const ANSWER_MS = 240000;
 /** How long the kit's hook is given to have written the book after a session starts. */
 const HOOK_MS = 60000;
 
-/** How long a tab is given to be ready for a question, a person answering its screens included. */
+/** How long a tab is given to be ready for a question, this test answering its first-run screens included (see `answerScreens`). */
 const READY_MS = 180000;
 
 /**
@@ -205,10 +222,15 @@ async function sessionIn(home, name) {
   return book.sessions?.[name] ?? {};
 }
 
-/** Keep asking until `look` gives something other than undefined, or the time runs out. */
-async function until(what, within, look, note = () => '') {
+/**
+ * Keep asking until `look` gives something other than undefined, or the time
+ * runs out. `screen`, when given, is run before each look: the tab's own
+ * first-run screens, answered or stopped at (see `answerScreens`).
+ */
+async function until(what, within, look, note = () => '', screen = async () => {}) {
   const stop = Date.now() + within;
   for (;;) {
+    await screen();
     const found = await look();
     if (found !== undefined) return found;
     assert.ok(Date.now() < stop, `gave up waiting for ${what} after ${within}ms.${note()}`);
@@ -228,16 +250,89 @@ function whatIsUp(handle) {
   const blocked = answer.ok === true ? answer.result?.wait?.blockedReason : undefined;
   return [
     blocked === undefined ? '' : ` Orca says the tab is waiting on: ${blocked}.`,
-    ' This test answers nothing a tab asks; answer it in Orca and run again.',
+    ' This test answers no question a tab asks but Claude Code\'s folder trust and its Teach form in its own Claude tabs, and those only through their helpers; the run stops here.',
     `\n  orca terminal read --terminal ${handle} --screen\n  ${screenOf(handle).slice(0, 2000)}`,
   ].join('');
+}
+
+/** The rows the tab is rendering right now, or undefined when Orca rendered none. */
+function rowsOf(handle) {
+  const answer = orca(['terminal', 'read', '--terminal', handle, '--screen']);
+  const tail = answer.ok === true && answer.result?.terminal?.source === 'screen' ? answer.result.terminal.tail : undefined;
+  return Array.isArray(tail) ? tail.map(String) : undefined;
+}
+
+/** The title of Claude Code's "Teach auto mode" form (#416), as helpers/screens.js has it. */
+const TEACH_TITLE = 'Teach auto mode about your environment?';
+
+/** The tabs whose Claude folder trust this test answered, and the tabs whose Teach form it answered. */
+const answered = { trust: new Set(), teach: new Set() };
+
+/**
+ * One look at one of this test's own Claude tabs for its first-run screens.
+ * This test answers two of them itself, in that tab alone, and only when the
+ * suite's helpers take them:
+ *
+ *   - Claude Code's folder trust, at most once in the tab, when
+ *     helpers/claude-trust.js `claudeTrustAt` (#558) takes it for `home` and
+ *     the throwaway bots folder `bots`: a down-arrow and return into that tab
+ *     alone, with no --enter, then a wait for the screen to go.
+ *   - The Teach form, at most once in the tab, when helpers/screens.js
+ *     `onlyTeachFormOf` takes it: Esc into that tab alone, never Continue,
+ *     then a wait for the form to go and a check that autoModeEnvSetup is
+ *     as it was in each record the session may write
+ *     (helpers/teach-record.js `sessionRecordFiles`).
+ *
+ * A screen the helpers refuse, either screen asked again in the tab, and any
+ * other question on the screen (helpers/screens.js `questionOn`), an offer to
+ * update Claude Code among them, stop the run at once, with the screen in the
+ * failure message; none of them is answered.
+ */
+async function answerScreens(t, title, handle, home, bots) {
+  const rows = rowsOf(handle);
+  if (rows === undefined) return;
+
+  if (rows.some((row) => row.includes('Yes, I trust this folder'))) {
+    assert.ok(!answered.trust.has(handle), `${title} asked Claude Code's folder trust for ${home} again, which this test answered once in this tab and answers no more:\n    ${rows.join('\n    ')}`);
+    const wrong = claudeTrustAt(rows, home, bots, cliEntry);
+    assert.equal(wrong, undefined, `${title}'s folder trust (${trustScreenMet(rows)}) is not one this test may answer, so it answered nothing: ${wrong}.\n  what it showed:\n    ${rows.join('\n    ')}`);
+    const sent = orca(['terminal', 'send', '--terminal', handle, '--text', '\x1b[B\r']);
+    assert.equal(sent.ok, true, `answering ${title}'s folder trust failed: ${JSON.stringify(sent.error)}`);
+    answered.trust.add(handle);
+    await until(`${title}'s folder trust to go after it was answered`, 15000, async () => ((rowsOf(handle) ?? []).some((row) => row.includes('Yes, I trust this folder')) ? undefined : true), () => whatIsUp(handle));
+    t.diagnostic(`answered ${title}'s ${trustScreenMet(rows)}`);
+    return;
+  }
+
+  if (rows.some((row) => row.trim() === TEACH_TITLE)) {
+    assert.ok(!answered.teach.has(handle), `the Teach form came up again in ${title}, and this test answers it at most once in a tab:\n    ${rows.join('\n    ')}`);
+    const wrong = onlyTeachFormOf(rows);
+    assert.equal(wrong, undefined, `${title}'s Teach form is not the captured one, so this test answered nothing: ${wrong}.\n  what it showed:\n    ${rows.join('\n    ')}`);
+    const found = sessionRecordFiles(home);
+    assert.ok(found.files !== undefined, `this test cannot tell which record ${title}'s session writes, so it answered nothing: ${found.why}`);
+    const { files } = found;
+    const was = autoModeState(files);
+    const sent = orca(['terminal', 'send', '--terminal', handle, '--text', '\x1b']);
+    assert.equal(sent.ok, true, `answering ${title}'s Teach form with Esc failed: ${JSON.stringify(sent.error)}`);
+    answered.teach.add(handle);
+    await until(`${title}'s Teach form to go after Esc`, 15000, async () => ((rowsOf(handle) ?? []).some((row) => row.trim() === TEACH_TITLE) ? undefined : true), () => whatIsUp(handle));
+    await setTimeout(2000);
+    const now = autoModeState(files);
+    assert.equal(now, was, `Esc on ${title}'s Teach form taught nothing: autoModeEnvSetup should be as it was in each record the session may write (before: ${was}; after: ${now})`);
+    t.diagnostic(`answered ${title}'s Teach form with Esc; it went, and autoModeEnvSetup stayed as it was: ${was}`);
+    return;
+  }
+
+  const question = questionOn(rows);
+  assert.equal(question, undefined, `${title} shows a screen this test does not answer, and it answers nothing; the run stops here:\n    ${rows.join('\n    ')}`);
 }
 
 /**
  * Wait until the tab will take a question: a TUI is up and nothing of its own
  * is waiting to be answered, by Orca's word or by the screen itself (#329).
+ * `screen`, when given, is run before each look (see `answerScreens`).
  */
-async function readyForAQuestion(handle, within = READY_MS) {
+async function readyForAQuestion(handle, screen = async () => {}, within = READY_MS) {
   await until(
     `${handle} to be past the questions of its own`,
     within,
@@ -248,6 +343,7 @@ async function readyForAQuestion(handle, within = READY_MS) {
       return waitingOn(orca, handle) === undefined ? true : undefined;
     },
     () => `${waitingOn(orca, handle) ?? ''}${whatIsUp(handle)}`,
+    screen,
   );
 }
 
@@ -260,10 +356,11 @@ function requestIdIn(error) {
 /**
  * Type a line into this test's own tab once it is ready to take one, with
  * `--enter`. A gated line fails with the screen and the id rather than
- * retrying (see `session-identity.test.js`).
+ * retrying (see `session-identity.test.js`). `screen`, when given, is run in
+ * the wait for the tab to be ready (see `answerScreens`).
  */
-async function askIn(handle, text) {
-  await readyForAQuestion(handle);
+async function askIn(handle, text, screen = async () => {}) {
+  await readyForAQuestion(handle, screen);
   const sent = orca(['terminal', 'send', '--terminal', handle, '--text', text, '--enter']);
   if (sent.ok === true) return;
 
@@ -282,20 +379,22 @@ async function askIn(handle, text) {
  * Ask the session something and wait for `word` to appear on its screen. Only a
  * word that is neither in the question nor on the screen already can be waited
  * for: the echo of the typed line would satisfy the first, and whatever was
- * already there the second, with no agent reading anything.
+ * already there the second, with no agent reading anything. `screen`, when
+ * given, is run in both waits (see `answerScreens`).
  */
-async function answers(handle, question, word, within = ANSWER_MS) {
+async function answers(handle, question, word, screen = async () => {}, within = ANSWER_MS) {
   assert.ok(!question.includes(word), `${word} is in the question itself, so its echo would answer it: ${question}`);
   assert.ok(
     !screenOf(handle).includes(word),
     `${word} is on the screen before anyone asked for it, so an answer would prove nothing: ${question}`,
   );
-  await askIn(handle, question);
+  await askIn(handle, question, screen);
   await until(
     `${handle} to answer with ${word}`,
     within,
     async () => (screenOf(handle).includes(word) ? true : undefined),
     () => whatIsUp(handle),
+    screen,
   );
 }
 
@@ -356,26 +455,52 @@ function realTabIdOf(terminal) {
 /** The words a process was started with. `command=` and not `-E`, so none of the environment is read. */
 const argvOf = (pid) => (psOf(pid, ['-ww', '-o', 'command=']) ?? '').split(/\s+/);
 
-/** Claude Code's registry of running processes, one file each, `<pid>.json` (tech notes, section 2). */
-const REGISTRY = path.join(os.homedir(), '.claude', 'sessions');
-
-/** Every entry in the registry, read as it is; one being written or removed as it is read is left out. */
-function registry() {
-  let names;
-  try {
-    names = readdirSync(REGISTRY);
-  } catch {
-    return [];
-  }
-  const entries = [];
-  for (const name of names.filter((one) => one.endsWith('.json'))) {
+/**
+ * Claude Code's registries of running processes, one file each, `<pid>.json`
+ * (tech notes, section 2), in `<config dir>/sessions`. The config dir is
+ * `$CLAUDE_CONFIG_DIR` when it is set and not empty, else `~/.claude`. Orca
+ * starts a tab's Claude Code with CLAUDE_CONFIG_DIR set to its own profile
+ * folder, and this runner inherits it, so both places are read. A folder both
+ * name is read once.
+ */
+function registries() {
+  const dirs = [path.join(os.homedir(), '.claude')];
+  const configDir = process.env.CLAUDE_CONFIG_DIR;
+  if (typeof configDir === 'string' && configDir !== '') dirs.push(configDir);
+  const sameAs = (dir) => {
     try {
-      entries.push(JSON.parse(readFileSync(path.join(REGISTRY, name), 'utf8')));
+      return realpathSync(dir);
     } catch {
-      // The next look reads it again.
+      return path.resolve(dir);
+    }
+  };
+  return [...new Set(dirs.map((dir) => sameAs(path.join(dir, 'sessions'))))];
+}
+
+/**
+ * Every entry in the registries, read as it is, with the folder it is in as
+ * `at`; one being written or removed as it is read is left out, and so is a
+ * file that is not `<pid>.json`, such as `<pid>.<hex>.key`.
+ */
+function registry() {
+  const entries = [];
+  for (const dir of registries()) {
+    let names;
+    try {
+      names = readdirSync(dir);
+    } catch {
+      continue;
+    }
+    for (const name of names.filter((one) => one.endsWith('.json'))) {
+      try {
+        const entry = JSON.parse(readFileSync(path.join(dir, name), 'utf8'));
+        if (entry !== null && typeof entry === 'object') entries.push({ ...entry, at: dir });
+      } catch {
+        // The next look reads it again.
+      }
     }
   }
-  return entries.filter((entry) => entry !== null && typeof entry === 'object');
+  return entries;
 }
 
 /**
@@ -387,10 +512,17 @@ const processesIn = (id) => registry()
   .filter((entry) => entry.sessionId === id && Number.isInteger(entry.pid) && entry.pid > 0)
   .filter((entry) => running(entry.pid));
 
-/** The registry's entries for one folder, short, for the message of a wait that ran out. */
-const registryAt = (home) => JSON.stringify(registry()
-  .filter((entry) => entry.cwd === home)
-  .map((entry) => ({ pid: entry.pid, sessionId: entry.sessionId, name: entry.name })));
+/**
+ * The registries' entries for one folder, short, for the message of a wait
+ * that ran out, with the registries that were read, so an empty answer says
+ * where it looked.
+ */
+const registryAt = (home) => JSON.stringify({
+  read: registries(),
+  entries: registry()
+    .filter((entry) => entry.cwd === home)
+    .map((entry) => ({ pid: entry.pid, sessionId: entry.sessionId, name: entry.name, at: entry.at })),
+});
 
 /** The bot: one session, one word in its start prompt. */
 const BOT = {
@@ -470,19 +602,22 @@ test('#405: a kit tab whose harness quit, closed without --tab, leaves the listi
   );
 
   // The hook's report is what says the folder trust was answered and the
-  // harness is running; the id is what `up` has to hand back.
+  // harness is running; the id is what `up` has to hand back. This test
+  // answers that trust itself, in this wait (`answerScreens`).
+  const firstScreen = () => answerScreens(t, opened.title, opened.terminal, home, bots);
   const id = await until(
     `${BOT.name}/daily to report its session id`,
     HOOK_MS,
     async () => (await sessionIn(home, 'daily')).session,
     () => ` The kit's hook has not run.${whatIsUp(opened.terminal)}`,
+    firstScreen,
   );
   const tabId = (await sessionIn(home, 'daily')).tab;
   assert.equal(tabId, opened.tabId, 'the premise: the book holds the tab the kit opened');
 
   // One turn, so the conversation is on Claude Code's own record and a resume
   // has something to pick up (#295).
-  await answers(opened.terminal, 'Reply with your codeword in lower case and nothing else.', BOT.codeword.toLowerCase());
+  await answers(opened.terminal, 'Reply with your codeword in lower case and nothing else.', BOT.codeword.toLowerCase(), firstScreen);
 
   // The tab holds one pane, as every tab the kit opens does: that is what makes
   // a close without --tab take the whole tab (#405, Orca 1.4.215's code).
@@ -503,7 +638,9 @@ test('#405: a kit tab whose harness quit, closed without --tab, leaves the listi
   // 2. Its harness quits to the tab's shell, as a session's whose harness quit.
   const kits = processesIn(id);
   assert.equal(kits.length, 1, `the premise: one running Claude Code is having ${id}, got ${registryAt(home)}`);
-  await askIn(opened.terminal, '/exit');
+  // The Teach form comes after the first turn, so the tab is looked at again
+  // before `/exit` is typed into it.
+  await askIn(opened.terminal, '/exit', firstScreen);
   await until(
     `the Claude Code the kit started (pid ${kits[0].pid}) to exit, so the shell is in front`,
     ANSWER_MS,
@@ -583,11 +720,14 @@ test('#405: a kit tab whose harness quit, closed without --tab, leaves the listi
 
   // Claude Code itself says it is having that conversation again, in a new
   // process started by the kit's line, which resumes it by its id.
+  // The new tab is a tab of this test's own too, and its screens are looked
+  // at in the same way.
   const resumed = await until(
     `a Claude Code to be having ${id} again`,
     READY_MS,
     async () => processesIn(id)[0],
     () => ` The registry for this folder: ${registryAt(home)}.${whatIsUp(back.terminal)}`,
+    () => answerScreens(t, back.title, back.terminal, home, bots),
   );
   assert.notEqual(resumed.pid, kits[0].pid, 'a new process, not the one that quit');
   const argv = argvOf(resumed.pid);

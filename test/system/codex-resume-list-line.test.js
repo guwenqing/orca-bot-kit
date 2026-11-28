@@ -79,10 +79,12 @@
 // `orca terminal close --worktree … --all` is never run here, and the helper
 // refuses to run it at all.
 //
-// **It is attended.** The bots folder is `<tmp>/obk-system-list-line-*`
-// (`<tmp>` is the system temp folder), and the bot's project shows in Orca as
-// `List Codex`. This test answers none of the screens a harness puts up of
-// its own. What to expect:
+// **Nobody answers anything by hand.** The only session it waits on is a
+// Codex one, given its trust at launch, so no first-run screen stands in
+// front of what it waits for. The bots folder is
+// `<tmp>/obk-system-list-line-*` (`<tmp>` is the system temp folder), and the
+// bot's project shows in Orca as `List Codex`. This test answers none of the
+// screens a harness puts up of its own. What to expect:
 //
 //   1. `Bot Father daily`: Claude Code's folder trust. Nothing here waits on
 //      Bot Father. Leave it.
