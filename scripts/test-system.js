@@ -15,7 +15,7 @@
 // tests, and does not answer as though it had.
 
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -583,12 +583,65 @@ function claudeStoresNow() {
  */
 const claudeSlugOf = (folder) => folder.replaceAll(/[^A-Za-z0-9]/g, '-');
 
-/** The start of a transcripts folder's name for each spelling of the run's roots, the temp folder and `<repo>/local-data`. */
-function claudePrefixes() {
+/** How often the runner looks for the run's root folders while the tests run, in ms. */
+const ROOT_LOOK_MS = 250;
+
+/** The temp folder as it is named, by its real path, and with and without `/private` in front. */
+function tempSpellings() {
   const real = realPath(os.tmpdir()) ?? os.tmpdir();
   const bare = real.replace(/^\/private(?=\/)/, '');
-  const roots = new Set([real, bare, `/private${bare}`, os.tmpdir(), ...localDataSpellings()]);
+  return [...new Set([real, bare, `/private${bare}`, os.tmpdir()])];
+}
+
+/** The start of a transcripts folder's name for each spelling of the run's roots, the temp folder and `<repo>/local-data`. */
+function claudePrefixes() {
+  const roots = new Set([...tempSpellings(), ...localDataSpellings()]);
   return [...roots].map((root) => `${claudeSlugOf(root)}-obk-system-`);
+}
+
+/**
+ * The exact names Claude Code gives the transcripts folders of the run's own
+ * root folders: each obk-system-* folder seen while the run went on or at its
+ * end, and not there before it, by each spelling of where it is (review of
+ * PR #865). A test removes its root before it ends, so the runner looks while
+ * the tests run; a root it never saw has no name here.
+ */
+function claudeRootNames(seen, foldersBefore) {
+  const names = new Set();
+  for (const folder of new Set([...seen, ...runFoldersNow()])) {
+    if (foldersBefore.has(folder)) continue;
+    const local = folder.startsWith('local-data/');
+    const name = local ? folder.slice('local-data/'.length) : folder;
+    for (const root of local ? localDataSpellings() : tempSpellings()) names.add(claudeSlugOf(path.join(root, name)));
+  }
+  return names;
+}
+
+/**
+ * Whether a folder holds nothing but empty, real folders named `memory`, as
+ * Claude Code leaves for a project root that had no transcript: true, or why
+ * not. Read only.
+ */
+function onlyEmptyMemory(dir) {
+  let entries;
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch (error) {
+    return `it cannot be read (${error.code ?? error.message})`;
+  }
+  for (const entry of entries) {
+    if (entry.name !== 'memory') return `it holds ${entry.name}`;
+    if (entry.isSymbolicLink()) return 'its memory is a link';
+    if (!entry.isDirectory()) return 'its memory is not a folder';
+    let inside;
+    try {
+      inside = readdirSync(path.join(dir, entry.name));
+    } catch (error) {
+      return `its memory cannot be read (${error.code ?? error.message})`;
+    }
+    if (inside.length > 0) return 'its memory is not empty';
+  }
+  return true;
 }
 
 /** The working folders a transcript's lines name in their `cwd`. A line that is not JSON names none. */
@@ -646,7 +699,7 @@ function claudeProof(dir, foldersBefore) {
  * the run began. Answers whether anything that may be the run's was left,
  * which fails the run.
  */
-function reportClaudeLeft(before, foldersBefore) {
+function reportClaudeLeft(before, foldersBefore, rootNames = new Set()) {
   const prefixes = claudePrefixes();
   const lines = [];
   let left = false;
@@ -696,13 +749,29 @@ function reportClaudeLeft(before, foldersBefore) {
       } catch (error) {
         kind = `it cannot be looked at (${error.code ?? error.message})`;
       }
-      const proof = kind ?? claudeProof(path.join(store, name), foldersBefore);
-      if (proof !== true) {
+      const dir = path.join(store, name);
+      let proof = kind ?? claudeProof(dir, foldersBefore);
+      // A folder named exactly as a root the run made, with no transcript and
+      // nothing but empty memory folders, is the run's too (review of PR
+      // #865). rmdir, never a recursive delete: a file that comes after the
+      // look makes it fail, and then the folder stays.
+      let bare = false;
+      if (proof !== true && kind === undefined && rootNames.has(name)) {
+        const empty = onlyEmptyMemory(dir);
+        if (empty === true) bare = true;
+        else proof = `${proof}, and ${empty}`;
+      }
+      if (proof !== true && !bare) {
         unproven.push(`${name}: ${proof}`);
         continue;
       }
       try {
-        rmSync(path.join(store, name), { recursive: true });
+        if (bare) {
+          if (existsSync(path.join(dir, 'memory'))) rmdirSync(path.join(dir, 'memory'));
+          rmdirSync(dir);
+        } else {
+          rmSync(dir, { recursive: true });
+        }
         removed.push(name);
       } catch (error) {
         failed.push(`${name} (${error.code ?? error.message})`);
@@ -1530,14 +1599,22 @@ async function drive(files, limit, end) {
     process.stdout.write(`It is ${spawnAt.toTimeString().slice(0, 5)} local time, so the limit is cut to end the run by 06:00, when the night ends.\n`);
   }
   process.stdout.write('\n');
+  // The run's own root folders, looked for while the tests run: a test
+  // removes its root before it ends (review of PR #865).
+  const seen = new Set();
+  const look = setInterval(() => {
+    for (const folder of runFoldersNow()) seen.add(folder);
+  }, ROOT_LOOK_MS);
   const result = await runTests(files, cap.seconds, { ...process.env, OBK_SYSTEM_TESTS: '1', OBK_SYSTEM_NAMED: named().length === 0 ? '' : files.join('\n') });
+
+  clearInterval(look);
 
   // After the tests, whatever they did: a failing run leaves Runs behind just
   // as a passing one does, and the developer is owed the accounting either way.
   reportRunsLeft(before);
   const leftKeys = reportConfigsLeft(configsBefore, foldersBefore);
   const leftPi = reportPiLeft(piBefore, foldersBefore);
-  const leftClaude = reportClaudeLeft(claudeBefore, foldersBefore);
+  const leftClaude = reportClaudeLeft(claudeBefore, foldersBefore, claudeRootNames(seen, foldersBefore));
   reportBackupCompared(backup);
   const leftProjects = reportProjectsLeft(setupsBefore, foldersBefore);
 
