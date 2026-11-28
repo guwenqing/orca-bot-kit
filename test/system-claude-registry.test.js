@@ -24,10 +24,14 @@
 //     `'~/.claude/sessions'` or `` `${home}/.claude/sessions` ``); the
 //     arguments `'.claude', 'sessions'` side by side (as in
 //     `path.join(os.homedir(), '.claude', 'sessions')`); or `'sessions'`
-//     joined onto a name that holds a Claude config dir (a name declared with
-//     `.claude` or CLAUDE_CONFIG_DIR in it, or a name with no declaration of
-//     its own, such as a loop variable, in a file that names the `.claude`
-//     folder itself).
+//     joined onto a name that the code shows holds a Claude config dir: a
+//     text the name takes its value from names `.claude` or
+//     CLAUDE_CONFIG_DIR, itself or through a declared name in it. Those texts
+//     are the name's declarations, the list of a `for (… of …)` over it, the
+//     list a callback that takes it is called on (`dirs.map((dir) => …)`),
+//     and the arguments of each call of a function that takes it. A
+//     `.claude` path elsewhere in the file does not make a Codex or Pi
+//     folder a Claude one (the review of PR #869).
 //   - A file that reads the registry reads CLAUDE_CONFIG_DIR from the
 //     environment in its code (`env.CLAUDE_CONFIG_DIR`,
 //     `env['CLAUDE_CONFIG_DIR']`, the name `'CLAUDE_CONFIG_DIR'` as a whole
@@ -131,8 +135,6 @@ function codeOf(source) {
 const CLAUDE_SESSIONS_STRING = /(?<![\w.-])\.claude[\\/]+sessions(?![\w.-])/;
 /** The arguments `'.claude', 'sessions'` side by side. */
 const CLAUDE_SESSIONS_ARGS = /['"`]\.claude['"`]\s*,\s*['"`]sessions['"`]/;
-/** The `.claude` folder itself: `'.claude'` as the last argument of a call, or a string that ends in `/.claude`. */
-const BARE_CLAUDE_DIR = /['"`]\.claude['"`]\s*\)|[\\/~}]\.claude['"`]/;
 /** `'sessions'` as an argument after a name: the name is in group 1. */
 const SESSIONS_AFTER_NAME = /([A-Za-z_$][\w$]*)\s*,\s*['"`]sessions['"`]/g;
 /** A `.claude` folder or CLAUDE_CONFIG_DIR in a declaration's value. */
@@ -169,13 +171,73 @@ function registryReadAt(code) {
     const match = rule.exec(code);
     if (match) places.push(match.index);
   }
-  const namesTheClaudeDir = BARE_CLAUDE_DIR.test(code);
   for (const match of code.matchAll(SESSIONS_AFTER_NAME)) {
-    const values = declaredValues(code, match[1]);
-    const claudeDir = values.some((value) => CLAUDE_IN_VALUE.test(value)) || (values.length === 0 && namesTheClaudeDir);
-    if (claudeDir) places.push(match.index);
+    if (holdsClaudeDir(code, match[1])) places.push(match.index);
   }
   return places.length === 0 ? -1 : Math.min(...places);
+}
+
+/** The text between the bracket at `open` and the bracket that closes it (to the end when none does). */
+function bracketed(code, open) {
+  const pairs = { '(': ')', '[': ']', '{': '}' };
+  const stack = [];
+  for (let i = open; i < code.length; i += 1) {
+    const here = code[i];
+    if (here === "'" || here === '"' || here === '`') {
+      const end = code.indexOf(here, i + 1);
+      if (end === -1) break;
+      i = end;
+    } else if (pairs[here]) {
+      stack.push(pairs[here]);
+    } else if (here === stack.at(-1)) {
+      stack.pop();
+      if (stack.length === 0) return code.slice(open + 1, i);
+    }
+  }
+  return code.slice(open + 1);
+}
+
+/**
+ * The texts the code gives a name its value from: each declaration's value;
+ * the list of each `for (… <name> of|in <list>)`; the statement before each
+ * `.<method>((<name>) =>` or `.<method>(function (<name>)`, which holds the
+ * list the callback is called on; and the arguments of each call of a
+ * function that takes the name as a parameter.
+ */
+function sourcesOf(code, name) {
+  const n = name.replaceAll('$', '\\$');
+  const sources = declaredValues(code, name);
+  for (const match of code.matchAll(new RegExp(`\\bfor\\s*\\(\\s*(?:const|let|var)\\s+${n}\\s+(?:of|in)\\b`, 'g'))) {
+    sources.push(bracketed(code, code.indexOf('(', match.index)));
+  }
+  const callback = new RegExp(`\\.\\s*[\\w$]+\\(\\s*(?:async\\s*)?(?:\\(\\s*${n}\\b[^)]*\\)\\s*=>|${n}\\s*=>|function\\s*[\\w$]*\\s*\\(\\s*${n}\\b)`, 'g');
+  for (const match of code.matchAll(callback)) {
+    const start = Math.max(code.lastIndexOf(';', match.index), code.lastIndexOf('{', match.index), code.lastIndexOf('}', match.index)) + 1;
+    sources.push(code.slice(start, match.index));
+  }
+  const takesIt = new RegExp(`(?:^|[\\s,({])${n}\\s*(?:[,=)}]|$)`);
+  const functions = [
+    ...[...code.matchAll(/\bfunction\s+([\w$]+)\s*\(([^)]*)\)/g)].map((match) => [match[1], match[2]]),
+    ...[...code.matchAll(/\b(?:const|let|var)\s+([\w$]+)\s*=\s*(?:async\s*)?(?:\(([^)]*)\)|([\w$]+))\s*=>/g)].map((match) => [match[1], match[2] ?? match[3]]),
+  ].filter(([, params]) => takesIt.test(params)).map(([fn]) => fn);
+  for (const fn of functions) {
+    const call = new RegExp(`(?<!function\\s+)(?<![\\w$.])${fn.replaceAll('$', '\\$')}\\s*\\(`, 'g');
+    for (const match of code.matchAll(call)) sources.push(bracketed(code, match.index + match[0].length - 1));
+  }
+  return sources;
+}
+
+/**
+ * True when the code shows that `name` holds a Claude config dir: a text it
+ * takes its value from names `.claude` or CLAUDE_CONFIG_DIR, itself or
+ * through the declared value of a name in that text.
+ */
+function holdsClaudeDir(code, name) {
+  return sourcesOf(code, name).some((source) => CLAUDE_IN_VALUE.test(source)
+    || [...source.matchAll(/[A-Za-z_$][\w$]*/g)]
+      .map((match) => match[0])
+      .filter((other) => other !== name)
+      .some((other) => declaredValues(code, other).some((value) => CLAUDE_IN_VALUE.test(value))));
 }
 
 /**
@@ -253,6 +315,21 @@ test('#866 R1, the rule: each form of a home-only read of the registry is caught
     'a list of config dirs that holds only the home one': [
       "const dirs = [path.join(os.homedir(), '.claude')];",
       "for (const dir of dirs) readdirSync(path.join(dir, 'sessions'));",
+    ],
+    'the old registries() of close-without-tab without its CLAUDE_CONFIG_DIR lines': [
+      'function registries() {',
+      "  const dirs = [path.join(os.homedir(), '.claude')];",
+      "  return [...new Set(dirs.map((dir) => path.join(dir, 'sessions')))];",
+      '}',
+    ],
+    'a for...of over a list written in place': [
+      "for (const dir of [path.join(os.homedir(), '.claude')]) {",
+      "  readdirSync(path.join(dir, 'sessions'));",
+      '}',
+    ],
+    'a function that joins sessions, called with the .claude folder': [
+      "const registryIn = (dir) => path.join(dir, 'sessions');",
+      "const names = readdirSync(registryIn(path.join(os.homedir(), '.claude')));",
     ],
     'a URL string before it on the same line': [
       "const SITE = 'https://example.com/a'; const REGISTRY = path.join(os.homedir(), '.claude', 'sessions');",
@@ -355,6 +432,42 @@ test('#866 R1, the rule: other sessions folders, transcripts, .claude.json and c
   for (const [what, lines] of Object.entries(samples)) {
     assert.equal(registryTrouble(lines.join('\n')), undefined, `${what}: is not Claude Code's registry and should not be caught`);
   }
+});
+
+test('#866 R1, the rule: sessions joined onto a loop, callback or parameter name that holds a Codex or Pi folder is not a read of the registry, beside an unrelated .claude path', () => {
+  const samples = {
+    'Codex through a for...of': [
+      "const claudeSettings = path.join(os.homedir(), '.claude');",
+      "for (const dir of [path.join(os.homedir(), '.codex')]) {",
+      "  readdirSync(path.join(dir, 'sessions'));",
+      '}',
+    ],
+    'Pi through a for...of': [
+      "const claudeSettings = path.join(os.homedir(), '.claude');",
+      "for (const dir of [path.join(os.homedir(), '.pi', 'agent')]) {",
+      "  readdirSync(path.join(dir, 'sessions'));",
+      '}',
+    ],
+    'Codex through a for...of over a declared list': [
+      "const claudeSettings = path.join(os.homedir(), '.claude');",
+      "const homes = [path.join(os.homedir(), '.codex')];",
+      "for (const dir of homes) readdirSync(path.join(dir, 'sessions'));",
+    ],
+    'Codex through a callback': [
+      "const claudeSettings = path.join(os.homedir(), '.claude');",
+      "const rollouts = [path.join(os.homedir(), '.codex')].map((dir) => path.join(dir, 'sessions'));",
+    ],
+    'Pi through a function parameter': [
+      "const claudeSettings = path.join(os.homedir(), '.claude');",
+      "const sessionsIn = (dir) => path.join(dir, 'sessions');",
+      "const names = readdirSync(sessionsIn(path.join(os.homedir(), '.pi', 'agent')));",
+    ],
+  };
+  const caught = Object.entries(samples)
+    .map(([what, lines]) => [what, registryTrouble(lines.join('\n'))])
+    .filter(([, trouble]) => trouble !== undefined)
+    .map(([what, trouble]) => `${what}: ${trouble}`);
+  assert.deepEqual(caught, [], `these are not Claude Code's registry and should not be caught:\n${caught.join('\n')}`);
 });
 
 // ------------------------------------------------------------- the real files
