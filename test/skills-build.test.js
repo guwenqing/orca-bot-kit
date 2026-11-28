@@ -610,6 +610,79 @@ for (const [label, put, named] of [
   });
 }
 
+/**
+ * The reference files #802 gives the two kit skills whose bodies were too long:
+ * the detail only some uses need, beside SKILL.md and linked from it. Named here
+ * from the requirement, not read from the skills folder, so a file that went
+ * missing is a failure rather than one name fewer.
+ */
+const REFERENCE_FILES = {
+  'obk-arch': ['decision-records.md'],
+  'obk-tdd': [
+    'away-from-code.md',
+    'bugs.md',
+    'generated-inputs.md',
+    'mutation-check.md',
+    'mutation-tools.md',
+    'stand-ins.md',
+  ],
+};
+
+/** The skill findings `obk health --json` has about one bot. */
+async function skillFindings(box, bot) {
+  const result = await box.run(['health', '--bots', 'bots', '--bot', bot, '--json']);
+  assert.ok([0, 1].includes(result.code), `health should report, not fail, got ${result.code}: ${result.stderr}`);
+  let answer;
+  try {
+    answer = JSON.parse(result.stdout);
+  } catch (error) {
+    return assert.fail(`health --json should print JSON and nothing else, got: ${result.stdout} (${error.message})`);
+  }
+  assert.ok(Array.isArray(answer.found), `the health answer should carry a list of findings, got: ${result.stdout}`);
+  return answer.found.filter((one) => one.kind === 'skill' && one.bot === bot);
+}
+
+test('a kit skill\'s reference files are read through the bot\'s own link, as the kit ships them, and health finds nothing (#802 R3)', async (t) => {
+  // A session reaches a reference file from the body by a relative link, so
+  // the file has to be where the link says inside the bot's own skill folder,
+  // in each harness's directory (Pi reads .agents/skills, as Codex does).
+  const box = await createSandbox(t);
+  const bots = await seeded(box);
+  await makeBot(box, 'api-bot');
+  await addSkills(botYamlOf(bots, 'api-bot'), ...Object.keys(REFERENCE_FILES).map((name) => `kit:${name}`));
+
+  // Listed and not built yet: health has something to say about these skills,
+  // so its silence after the build is the build's doing.
+  const before = await skillFindings(box, 'api-bot');
+  assert.ok(
+    before.some((one) => `${one.where} ${one.says}`.includes('obk-arch')),
+    `before the build, health should find obk-arch listed and not linked, got: ${JSON.stringify(before, null, 2)}`,
+  );
+
+  await buildOk(box, '--bot', 'api-bot');
+
+  const wrong = [];
+  for (const [skill, files] of Object.entries(REFERENCE_FILES)) {
+    const kit = await kitSkill(skill);
+    for (const file of files) {
+      const shipped = await readFile(path.join(kit, file), 'utf8').catch(() => null);
+      if (shipped === null) {
+        wrong.push(`skills/${skill}/${file} is not in the kit`);
+        continue;
+      }
+      for (const harness of HARNESSES) {
+        const at = path.join(SKILL_DIRS[harness], skill, file);
+        const read = await readFile(path.join(skillsDirOf(bots, 'api-bot', harness), skill, file), 'utf8').catch(() => null);
+        if (read === null) wrong.push(`${at} cannot be read`);
+        else if (read !== shipped) wrong.push(`${at} does not read as skills/${skill}/${file}`);
+      }
+    }
+  }
+  assert.deepEqual(wrong, [], 'each reference file should read through both harnesses\' links the same as the kit ships it');
+
+  assert.deepEqual(await skillFindings(box, 'api-bot'), [], 'a built bot\'s skills, reference files and all, are healthy');
+});
+
 test('--bot does the one bot, and leaves the others where they were', async (t) => {
   const box = await createSandbox(t);
   const bots = await seeded(box);

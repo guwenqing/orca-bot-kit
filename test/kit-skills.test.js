@@ -220,6 +220,126 @@ test('every line in a skill file stays inside 100 columns', async () => {
   }
 });
 
+// ------------------------------------------------------------ a body a session can take in (#802)
+//
+// The common guidance of Claude Code and the Agent Skills spec: "Keep SKILL.md
+// under 500 lines. Move detailed reference material to separate files", and
+// "Keep file references one level deep from SKILL.md". So a SKILL.md, its
+// frontmatter included, has fewer than 500 lines; and every reference file of a
+// skill is linked from that skill's own SKILL.md, so a session reaches it in one
+// step from the body. A reference file is any .md in the skill's folder but
+// SKILL.md, NOTICE.md and LICENSES.md.
+
+/** Fewer lines than this in a SKILL.md, frontmatter included. */
+const MAX_SKILL_LINES = 500;
+
+/** The lines of a file as an editor counts them: a last newline ends a line and starts none. */
+const lineCount = (text) => (text === '' ? 0 : text.replace(/\n$/, '').split('\n').length);
+
+/** What is wrong with the length of one SKILL.md, or undefined. */
+function lengthTrouble(manifest) {
+  const lines = lineCount(manifest.text);
+  if (lines < MAX_SKILL_LINES) return undefined;
+  return `${manifest.file} has ${lines} lines`;
+}
+
+/** The files in a skill's folder that are not reference files, by their path inside it. */
+const NOT_REFERENCES = ['SKILL.md', 'NOTICE.md', 'LICENSES.md'];
+
+/** A skill's reference files: each .md in its folder that is not one of NOT_REFERENCES. */
+const referencesOf = (skill) => skill.files.filter((file) => !NOT_REFERENCES.includes(path.relative(skill.dir, file.abs)));
+
+/**
+ * The reference files of one skill that its SKILL.md does not link to itself,
+ * by their `file`. A link from another reference file is two steps from the
+ * body, and a link inside a code block is text, so neither one counts.
+ */
+function unlinkedReferences(skill) {
+  const body = skill.files.find((file) => file.abs === path.join(skill.dir, 'SKILL.md'));
+  const linked = new Set((body === undefined ? [] : linksIn(body.text))
+    .filter((link) => !/^[a-z][a-z0-9+.-]*:/i.test(link) && !link.startsWith('#') && !link.startsWith('/'))
+    .map((link) => path.resolve(skill.dir, link.split('#')[0])));
+  return referencesOf(skill).filter((file) => !linked.has(file.abs)).map((file) => file.file).sort();
+}
+
+test('every SKILL.md has fewer than 500 lines, frontmatter included (#802 R1)', async () => {
+  const all = await manifests();
+  assert.ok(all.length > 0, 'the kit\'s skills have SKILL.md files to count');
+
+  const long = all.flatMap((manifest) => lengthTrouble(manifest) ?? []);
+
+  assert.deepEqual(long, [], `a SKILL.md should stay under ${MAX_SKILL_LINES} lines; move detail into a reference file it links`);
+});
+
+test('the length check counts every line of a SKILL.md, and 500 is one too many (#802 R1)', () => {
+  const file = 'skills/obk-x/SKILL.md';
+  const lines = (n, end = '\n') => `---\nname: obk-x\ndescription: X.\n---\n${'Text.\n'.repeat(n - 5)}Last.${end}`;
+
+  assert.equal(lengthTrouble({ file, text: lines(499) }), undefined, '499 lines, frontmatter included, is under the bound');
+  assert.equal(lengthTrouble({ file, text: lines(499, '') }), undefined, 'a last line without its newline is still one line');
+  assert.equal(lengthTrouble({ file, text: lines(500) }), `${file} has 500 lines`, 'the four frontmatter lines count too');
+  assert.equal(lengthTrouble({ file, text: lines(500, '') }), `${file} has 500 lines`, 'with or without the last newline');
+  assert.equal(lengthTrouble({ file, text: lines(614) }), `${file} has 614 lines`);
+});
+
+test('every reference file of a skill is linked from its own SKILL.md (#802 R2)', async () => {
+  const all = await skills();
+  assert.ok(
+    all.some((skill) => referencesOf(skill).length > 0),
+    'the kit\'s skills have reference files to check (obk-tdd has mutation-tools.md)',
+  );
+
+  const unlinked = all.flatMap(unlinkedReferences);
+
+  assert.deepEqual(unlinked, [], 'each reference file should be one step from the body: a relative link in its skill\'s own SKILL.md');
+});
+
+test('the link check finds a reference file nobody links, and one linked only from another reference file (#802 R2)', () => {
+  const dir = path.join(path.sep, 'kit', 'skills', 'obk-x');
+  const skill = (files) => ({
+    dir,
+    name: 'obk-x',
+    files: Object.entries(files).map(([name, text]) => ({
+      file: path.posix.join('skills', 'obk-x', name),
+      abs: path.join(dir, ...name.split('/')),
+      text,
+    })),
+  });
+  const notice = { 'NOTICE.md': 'Sources.\n', 'LICENSES.md': 'Licences.\n' };
+
+  assert.deepEqual(unlinkedReferences(skill({
+    'SKILL.md': 'Read [the tools](tools.md), then [bugs](./bugs.md#a-bug) and [more](deep/more.md "More").\n',
+    'tools.md': 'Tools.\n',
+    'bugs.md': 'Bugs.\n',
+    'deep/more.md': 'More.\n',
+    ...notice,
+  })), [], 'three reference files, each linked from SKILL.md; NOTICE.md and LICENSES.md need no link');
+
+  assert.deepEqual(unlinkedReferences(skill({
+    'SKILL.md': 'Read [the tools](tools.md).\n',
+    'tools.md': 'Tools, and then [bugs](bugs.md).\n',
+    'bugs.md': 'Bugs.\n',
+    'alone.md': 'Nobody links me.\n',
+    ...notice,
+  })), ['skills/obk-x/alone.md', 'skills/obk-x/bugs.md'], 'one linked from nowhere, one linked only from tools.md');
+
+  assert.deepEqual(unlinkedReferences(skill({
+    'SKILL.md': [
+      'See [ours](../obk-y/tools.md) and [the web](https://example.com/tools.md).',
+      '',
+      '```',
+      '[tools](tools.md)',
+      '```',
+      '',
+    ].join('\n'),
+    'tools.md': 'Tools.\n',
+  })), ['skills/obk-x/tools.md'], 'a link to another skill\'s file of that name, a URL, or a link in a code block is not a link to it');
+
+  assert.deepEqual(unlinkedReferences(skill({
+    'tools.md': 'Tools.\n',
+  })), ['skills/obk-x/tools.md'], 'with no SKILL.md, nothing links the reference file');
+});
+
 test('every skill is linked into both harness skill directories, and nothing else is', async () => {
   // A skill nobody linked is in the repo, reads fine, and loads in neither
   // harness; a link left behind by a skill that went, or one that resolves to
